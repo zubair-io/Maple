@@ -67,6 +67,73 @@ fn transmission(img: &Image, a: [f32; 3]) -> Vec<f32> {
     out
 }
 
+/// Separable box blur (radius `r`) on a single-channel buffer of dimensions w×h.
+/// O(w*h) via running-sum; sufficient for slice 1 CPU path.
+fn box_blur(buf: &[f32], w: usize, h: usize, r: usize) -> Vec<f32> {
+    let mut tmp = vec![0.0f32; buf.len()];
+    // Horizontal pass: sliding window with truncated boundaries (no padding).
+    for y in 0..h {
+        let row = &buf[y * w..(y + 1) * w];
+        let mut out_row = vec![0.0f32; w];
+        let right0 = r.min(w - 1);
+        let mut acc: f32 = row[0..=right0].iter().sum();
+        let mut count = right0 + 1;
+        out_row[0] = acc / count as f32;
+        for x in 1..w {
+            if x + r < w { acc += row[x + r]; count += 1; }
+            if x > r     { acc -= row[x - r - 1]; count -= 1; }
+            out_row[x] = acc / count as f32;
+        }
+        tmp[y * w..(y + 1) * w].copy_from_slice(&out_row);
+    }
+    // Vertical pass: same sliding-window approach on the transposed result.
+    let mut out = vec![0.0f32; buf.len()];
+    for x in 0..w {
+        let mut out_col = vec![0.0f32; h];
+        let bot0 = r.min(h - 1);
+        let mut acc: f32 = (0..=bot0).map(|i| tmp[i * w + x]).sum();
+        let mut count = bot0 + 1;
+        out_col[0] = acc / count as f32;
+        for y in 1..h {
+            if y + r < h { acc += tmp[(y + r) * w + x]; count += 1; }
+            if y > r     { acc -= tmp[(y - r - 1) * w + x]; count -= 1; }
+            out_col[y] = acc / count as f32;
+        }
+        for y in 0..h { out[y * w + x] = out_col[y]; }
+    }
+    out
+}
+
+/// Guided filter (He, Sun, Tang 2010). Refines `p` using `guide` as an edge
+/// reference. Spec § 3.9 step 4.
+fn guided_filter(guide: &[f32], p: &[f32], w: usize, h: usize, r: usize, eps: f32) -> Vec<f32> {
+    assert_eq!(guide.len(), p.len());
+    let n = guide.len();
+
+    let mean_i = box_blur(guide, w, h, r);
+    let mean_p = box_blur(p, w, h, r);
+
+    let ip: Vec<f32> = guide.iter().zip(p.iter()).map(|(&a, &b)| a * b).collect();
+    let mean_ip = box_blur(&ip, w, h, r);
+
+    let cov_ip: Vec<f32> = mean_ip.iter().zip(mean_i.iter().zip(mean_p.iter()))
+        .map(|(&mip, (&mi, &mp))| mip - mi * mp).collect();
+
+    let ii: Vec<f32> = guide.iter().map(|&a| a * a).collect();
+    let mean_ii = box_blur(&ii, w, h, r);
+    let var_i: Vec<f32> = mean_ii.iter().zip(mean_i.iter())
+        .map(|(&mii, &mi)| mii - mi * mi).collect();
+
+    let a: Vec<f32> = cov_ip.iter().zip(var_i.iter())
+        .map(|(&cip, &vi)| cip / (vi + eps)).collect();
+    let b: Vec<f32> = (0..n).map(|i| mean_p[i] - a[i] * mean_i[i]).collect();
+
+    let mean_a = box_blur(&a, w, h, r);
+    let mean_b = box_blur(&b, w, h, r);
+
+    (0..n).map(|i| mean_a[i] * guide[i] + mean_b[i]).collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -114,5 +181,35 @@ mod tests {
         let t = transmission(&img, a);
         // t = 1 - 0.95 * 1 = 0.05 for pure-white image with A=(1,1,1).
         assert!(t.iter().all(|v| (*v - 0.05).abs() < 1e-5));
+    }
+
+    #[test]
+    fn box_blur_of_constant_is_constant() {
+        let buf = vec![0.5f32; 40 * 40];
+        let out = box_blur(&buf, 40, 40, 5);
+        assert!(out.iter().all(|v| (*v - 0.5).abs() < 1e-5));
+    }
+
+    #[test]
+    fn guided_filter_of_constants_is_constant() {
+        let guide = vec![0.5f32; 40 * 40];
+        let p = vec![0.7f32; 40 * 40];
+        let out = guided_filter(&guide, &p, 40, 40, 5, 1e-3);
+        assert!(out.iter().all(|v| (*v - 0.7).abs() < 1e-4));
+    }
+
+    #[test]
+    fn guided_filter_preserves_smooth_transmission() {
+        let w = 30; let h = 30;
+        let mut p = vec![0.0f32; w * h];
+        for y in 0..h { for x in 0..w {
+            p[y * w + x] = 0.3 + 0.4 * (x as f32) / (w as f32);
+        }}
+        let guide = p.clone();
+        let out = guided_filter(&guide, &p, w, h, 8, 1e-3);
+        for y in 10..20 { for x in 10..20 {
+            let diff = (out[y * w + x] - p[y * w + x]).abs();
+            assert!(diff < 0.05, "diff {} at ({},{})", diff, x, y);
+        }}
     }
 }
