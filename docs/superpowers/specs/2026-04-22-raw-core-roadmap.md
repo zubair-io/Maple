@@ -106,12 +106,22 @@ JPEG sRGB and Display P3, HEIC P3, TIFF 16-bit (display P3 and scene-linear ProP
 
 `raw-ffi` staticlib with C ABI (`#[no_mangle] extern "C"`, opaque handle, three exported functions per spec § 00 "Explicit stack inventory"); cbindgen-generated header; xcframework assembly script. `raw-wasm` cdylib with wasm-bindgen surface; `wasm-pack build --target web`. Apple (`MapleCore`) and web (`Maple-common`) shells can consume `raw-core` without code changes to downstream slices.
 
+### Slice 10 — apps (three user-facing products)
+
+Per `docs/spec/12-maple-apps-spec.md`. Three products + cross-cutting infrastructure, all building on top of slice 9's FFI/WASM surfaces:
+
+- **Maple Hosted** (browser-only, File System Access API, `.maple/` folder cache reuse).
+- **Maple Self Hosted** (same browser UI + Bun backend + MongoDB + Indexer subsystem).
+- **Maple native** (Swift iOS/Mac/iPad, PhotoKit + SMB + local).
+- **`.maple/` folder cache interop contract** (spec § 03) — shared thumb/preview cache format readable by all three products.
+- **Indexer subsystem** (spec § 08) — background thumbnail/EXIF/face-detection worker.
+
+**Scope warning:** this single "slice" is as big as slices 1–9 combined. The brainstorm entering slice 10 MUST decompose into sub-slices before any implementation starts. Likely shape: `10a` `.maple/` cache protocol + Maple Hosted (web-only MVP), `10b` Self Hosted (Bun + MongoDB + Indexer), `10c` native Swift. Each sub-slice is a multi-week effort.
+
 ## What this roadmap does not cover
 
 - **GPU backends.** Metal (Apple) and WebGL2 (web) implementations are separate tracks that gate against the CPU reference per spec § 06 "Cross-platform" and spec § 11 gate 4.
-- **Server (Bun).** Spec § 00 marks the server as "design phase." Out of raw-core scope entirely.
-- **Apple and web shells.** `MapleCore` (Swift SPM), `Maple` (SwiftUI app), Angular workspace. Built on top of `raw-core` via the FFI/WASM surfaces from slice 9.
-- **UI state, caching, tiling, two-phase render, session model.** Spec §§ 02 (Traces A/B), 05, 07 cover these at the Apple/web layers; `raw-core` is a pure stateless library.
+- **UI state, caching, tiling, two-phase render, session model inside each app.** Spec §§ 02 (Traces A/B), 05, 07 cover these at the Apple/web layers; `raw-core` stays a pure stateless library. The app shells in slice 10 are where this state lives.
 
 ## How plans relate to this roadmap
 
