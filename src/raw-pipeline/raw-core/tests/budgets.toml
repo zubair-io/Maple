@@ -1,43 +1,39 @@
 # Per-case slice-1 budgets. Format: mean_delta_e, p95_delta_e, max_delta_e.
-# These are initial-column values from docs/spec/11-testing.md; each slice
-# ratchets them downward.
+# Budgets move only downward. A CI run that raises any value is a regression.
 #
-# RELAXED 2026-04-22: All classes exceeded the spec starting-line values.
-# Root cause: AgX power-curve approximation (x^3.42) renders consistently
-# darker than ACR's actual AgX sigmoid, contributing -0.3 to -1.0 bias in R
-# across all cases. No targeted fix is possible without the slice-6 Blender
-# sigmoid. Budgets updated to (measured_max_per_class + ~10% headroom).
-# Slice 6 retightens once the actual AgX sigmoid lands.
+# Spec targets (docs/spec/11-testing.md): baseline mean ≤ 2, WB ≤ 3,
+# exposure ≤ 3, dehaze ≤ 8. Reaching them requires the full slice stack
+# (slice 4: DCP HSM + PLT + highlight reconstruction; slice 6: real
+# Blender AgX sigmoid; slice 2: full SceneToneControls).
 #
-# First-pass measurements (2026-04-22):
-#   baseline class: test_0000 mean=30.15, test_0001 mean=24.63,
-#                   test_0002 mean=32.46, test_0003 mean=33.52
-#   exposure class: exposure_max mean=27.86, exposure_min mean=20.84
-#   wb class:       wb_daylight mean=40.48, wb_tungsten mean=39.36
-#   dehaze class:   dehaze_max mean=32.83
+# Slice-1 measurements after DCP direction fix (commit 9a9a648):
+#   baseline: test_0000 17.04, test_0001 18.32, test_0002 18.37, test_0003 23.75
+#   exposure: exposure_max 6.60, exposure_min 9.57
+#   wb:       wb_daylight 19.18, wb_tungsten 32.84
+#   dehaze:   dehaze_max 20.40
+#
+# Budgets are (measured max per class + modest headroom). Each slice should
+# drive these toward the spec targets above.
 
 [baseline]
-# RELAXED 2026-04-22 from 10.0/20.0/40.0; AgX power-curve approximation. Slice-6 retightens.
-mean_delta_e = 35.0
-p95_delta_e  = 52.0
+mean_delta_e = 25.0
+p95_delta_e  = 50.0
 max_delta_e  = 100.0
 
 [exposure]
-# RELAXED 2026-04-22 from 15.0/30.0/60.0; AgX power-curve approximation. Slice-6 retightens.
-mean_delta_e = 30.0
-p95_delta_e  = 40.0
-max_delta_e  = 65.0
+mean_delta_e = 12.0
+p95_delta_e  = 25.0
+max_delta_e  = 60.0
 
 [wb]
-# RELAXED 2026-04-22 from 15.0/30.0/60.0; AgX power-curve approximation. Slice-6 retightens.
-# WB cases are worse than baseline because WB shift amplifies the power-curve
-# error (cooler/warmer image pushes more pixels into the overcompressed shadow toe).
-mean_delta_e = 43.0
-p95_delta_e  = 52.0
-max_delta_e  = 75.0
+# Tungsten (2850K) scores worse than Daylight (5500K): slice-1 WB is a simple
+# Planckian per-channel gain; extreme CCTs amplify the DCP missing-HSM gap.
+# Slice 4 DCP dual-illuminant interpolation is the fix.
+mean_delta_e = 35.0
+p95_delta_e  = 42.0
+max_delta_e  = 55.0
 
 [dehaze]
-# RELAXED 2026-04-22 from 25.0/50.0/80.0; AgX power-curve approximation. Slice-6 retightens.
-mean_delta_e = 35.0
-p95_delta_e  = 46.0
-max_delta_e  = 78.0
+mean_delta_e = 24.0
+p95_delta_e  = 32.0
+max_delta_e  = 55.0
