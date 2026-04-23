@@ -50,7 +50,9 @@ fn budget_for(case_class: &str) -> Budget {
         }
         if !section { continue; }
         if let Some((k, v)) = t.split_once('=') {
-            let k = k.trim(); let v = v.trim();
+            let k = k.trim();
+            // Strip inline comments (e.g. "23.0  # RELAXED ...") before parsing.
+            let v = v.trim().split('#').next().unwrap_or("").trim();
             match k {
                 "mean_delta_e" => b.mean = v.parse().unwrap_or(f32::INFINITY),
                 "p95_delta_e"  => b.p95  = v.parse().unwrap_or(f32::INFINITY),
