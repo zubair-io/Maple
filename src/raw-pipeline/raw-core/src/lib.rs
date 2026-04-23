@@ -16,3 +16,5 @@ pub mod image;
 pub use image::{CfaPattern, ColorSpace, Image, RawImage};
 
 pub mod decode;
+
+pub mod linearize;
