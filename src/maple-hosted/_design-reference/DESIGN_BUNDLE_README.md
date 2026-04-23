@@ -1,3 +1,22 @@
+# Design reference — NOT production code
+
+This directory contains the Claude Design handoff prototype. It's a
+runnable React-via-CDN demo of the Coral Maple UI, provided as a
+pixel-accurate reference for the Angular port.
+
+Do NOT edit these files as if they were production. The production code
+is the Angular workspace at `src/maple-hosted/` (parent directory).
+
+Run the prototype:
+  cd _design-reference
+  python3 -m http.server 8000
+  # open http://localhost:8000/
+
+Once the Angular port reaches parity, this directory can be deleted.
+
+---
+(original handoff README below)
+
 # CODING AGENTS: READ THIS FIRST
 
 This is a **handoff bundle** from Claude Design (claude.ai/design).

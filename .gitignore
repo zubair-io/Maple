@@ -22,6 +22,17 @@ node_modules/
 .bun/
 dist/
 .next/
+npm-debug.log
+yarn-error.log
+out-tsc/
+bazel-out/
+
+# Angular
+.angular/
+.sass-cache/
+coverage/
+testem.log
+__screenshots__/
 
 # Editor
 .idea/
