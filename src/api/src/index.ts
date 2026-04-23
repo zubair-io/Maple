@@ -33,17 +33,28 @@ const CORS_ORIGIN = process.env.MAPLE_CORS_ORIGIN ?? "*";
 // ---------------------------------------------------------------------------
 
 const app = new Elysia()
-  // CORS headers for all responses.
+  // CORS + cross-origin isolation headers for every response.
+  //
+  // T10: COOP: same-origin + COEP: require-corp are required so the hosted
+  // Angular bundle can use SharedArrayBuffer for the WASM rayon thread pool.
+  // Both the API responses and the static-UI responses share this middleware
+  // because the page becomes cross-origin-isolated only when *every* top-level
+  // document response carries both headers.
   .onBeforeHandle(({ set }) => {
     set.headers["Access-Control-Allow-Origin"] = CORS_ORIGIN;
     set.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS";
     set.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization";
+    set.headers["Cross-Origin-Opener-Policy"] = "same-origin";
+    set.headers["Cross-Origin-Embedder-Policy"] = "require-corp";
   })
-  // Preflight
+  // Mirror the isolation headers onto OPTIONS preflight too, so that any
+  // cross-origin check counts them as present.
   .options("/*", ({ set }) => {
     set.headers["Access-Control-Allow-Origin"] = CORS_ORIGIN;
     set.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS";
     set.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization";
+    set.headers["Cross-Origin-Opener-Policy"] = "same-origin";
+    set.headers["Cross-Origin-Embedder-Policy"] = "require-corp";
     set.status = 204;
     return;
   })

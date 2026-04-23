@@ -1,0 +1,17 @@
+# T10 — cross-origin-isolated threading for the WASM build.
+#
+# These rustflags are only applied to the wasm32-unknown-unknown target, so
+# `cargo build -p raw-core` on aarch64-apple-darwin (and every other host
+# target) is unaffected.
+#
+# - atomics         → SharedArrayBuffer + shared linear memory
+# - bulk-memory     → memcpy/memset lowered to memory.copy / memory.fill,
+#                     required by wasm-bindgen-rayon
+# - mutable-globals → TLS support in rayon's worker threads
+#
+# These features only become runtime-usable when the page is
+# crossOriginIsolated (COOP: same-origin + COEP: require-corp). Without
+# those headers the JS wrapper skips `initThreadPool` and the pipeline
+# continues to run single-threaded.
+[target.wasm32-unknown-unknown]
+rustflags = ["-C", "target-feature=+atomics,+bulk-memory,+mutable-globals"]
