@@ -1,0 +1,4 @@
+module RawPipeline {
+    header "RawPipeline.h"
+    export *
+}
