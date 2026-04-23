@@ -76,6 +76,12 @@ pub struct RawImage {
     pub white_level: u32,
     pub raw_data: Vec<u16>,
     /// As-shot white-balance multipliers from camera metadata.
+    ///
+    /// Convention: `neutralized_pixel[c] = raw_pixel[c] * as_shot_neutral[c]`.
+    /// This is rawler's `wb_coeffs` convention (**multipliers**, NOT the DNG
+    /// `AsShotNeutral` reciprocal). The green channel is normalized to 1.0.
+    /// Consumers in WB and DCP stages must follow this multiply-to-neutralize
+    /// convention.
     pub as_shot_neutral: [f32; 3],
     /// Correlated color temperature derived from metadata, if available.
     pub as_shot_cct: Option<f32>,

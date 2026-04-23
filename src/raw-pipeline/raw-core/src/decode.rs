@@ -47,8 +47,10 @@ pub fn decode(path: &Path) -> Result<RawImage> {
             map_cfa_pattern(&cfg.cfa.name)?
         }
         RawPhotometricInterpretation::LinearRaw => {
-            // Linear RAW (some DNGs) — treat as RGGB; crop-aware processing
-            // in later tasks can refine if needed.
+            // TODO(slice-4+): LinearRaw DNGs carry already-demosaiced RGB data and may
+            // not have a meaningful CFA pattern. Defaulting to RGGB is conservative —
+            // slice-1 fixtures don't trigger this path. Revisit when a LinearRaw
+            // fixture is added.
             CfaPattern::Rggb
         }
         RawPhotometricInterpretation::BlackIsZero => {
@@ -65,17 +67,39 @@ pub fn decode(path: &Path) -> Result<RawImage> {
     // order matching the 2×2 Bayer tile — i.e. the same per-position indexing
     // our `RawImage.black_level` uses.
     let bl = raw.blacklevel.as_bayer_array();
-    let black_level = [bl[0] as u32, bl[1] as u32, bl[2] as u32, bl[3] as u32];
+    let black_level = [
+        bl[0].round() as u32,
+        bl[1].round() as u32,
+        bl[2].round() as u32,
+        bl[3].round() as u32,
+    ];
 
     let wl = raw.whitelevel.as_bayer_array();
     // All four positions share the same white level in practice; we take the max
     // to be conservative (never over-clip).
-    let white_level = wl.iter().cloned().fold(f32::NEG_INFINITY, f32::max) as u32;
+    let white_level = wl.iter().cloned().fold(f32::NEG_INFINITY, f32::max).round() as u32;
 
     // ── 5. Raw pixel data ─────────────────────────────────────────────────
     let raw_data: Vec<u16> = match raw.data {
         RawImageData::Integer(data) => data,
         RawImageData::Float(fdata) => {
+            // Before rescaling: guard against silent data loss.
+            // sensor_linearize (Task 5.1) subtracts black_level from the u16 result,
+            // but RawImageData::Float is already black-subtracted/normalized. If the
+            // metadata still reports a non-zero black_level, our rescale will produce
+            // under-subtracted pixels. None of the slice-1 fixtures hit this path;
+            // if a future fixture does, revisit the Float-rescale math.
+            if black_level.iter().any(|&b| b > 0) {
+                return Err(Error::Decode {
+                    path: path.to_path_buf(),
+                    reason: format!(
+                        "RawImageData::Float with non-zero black_level {:?} — \
+                         refuse to silently lose data; see decode.rs comment",
+                        black_level
+                    ),
+                });
+            }
+
             // Some DNGs are stored as f32 (linearised). Convert back to u16
             // using the white level so downstream linearisation still works.
             let scale = white_level as f32;
@@ -116,7 +140,14 @@ pub fn decode(path: &Path) -> Result<RawImage> {
             .color_matrix
             .get(&Illuminant::D65)
             .or_else(|| raw.color_matrix.get(&Illuminant::D50))
-            .or_else(|| raw.color_matrix.values().next());
+            .or_else(|| {
+                // Deterministic fallback: sort illuminants by debug representation name.
+                // Golden tests must be reproducible across processes, so HashMap iteration
+                // order (which depends on hasher seed) is not acceptable here.
+                let mut entries: Vec<_> = raw.color_matrix.iter().collect();
+                entries.sort_by_key(|(illum, _)| format!("{:?}", illum));
+                entries.first().map(|(_, m)| *m)
+            });
 
         cm.and_then(|flat| {
             if flat.len() < 9 {
