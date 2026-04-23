@@ -212,6 +212,16 @@ Runs full 176-case ACR matrix at all three zoom paths per spec § 11.
 
 JPEG sRGB and Display P3, HEIC P3, TIFF 16-bit (display P3 and scene-linear ProPhoto per spec § 04 "Export color transforms"), EXR f16 scene-linear Rec.2020. Format-dependent view-transform routing (scene-linear formats skip AgX).
 
+**Status: COMPLETE (partial) 2026-04-22.** Tag: `slice-8-complete`. 1 commit from slice-7-complete. 153 tests pass.
+
+**Scope reduction vs. original:**
+- **JPEG sRGB 8-bit + TIFF sRGB 16-bit** land; CLI gains `--format {png,jpeg,tiff}` and `--quality` (JPEG only); extension inference auto-picks format when `--format` is omitted.
+- **Deferred (none exercised by current ACR fixtures or golden tests):**
+  - HEIC — needs libheif binding (no pure-Rust impl).
+  - EXR f16 — needs `exr` crate + scene-linear pipeline branch (skip AgX).
+  - Scene-linear ProPhoto TIFF / scene-linear EXR — requires format-dependent view-transform routing in `pipeline.rs` (current pipeline always hits AgX). Adds when a scene-linear export test fixture exists.
+  - Display P3 variants — needs `M_rec2020_to_p3` matrix + embedded P3 ICC profile. Adds when a P3 export test fixture exists.
+
 ### Slice 9 — FFI + WASM surfaces
 
 `raw-ffi` staticlib with C ABI (`#[no_mangle] extern "C"`, opaque handle, three exported functions per spec § 00 "Explicit stack inventory"); cbindgen-generated header; xcframework assembly script. `raw-wasm` cdylib with wasm-bindgen surface; `wasm-pack build --target web`. Apple (`MapleCore`) and web (`Maple-common`) shells can consume `raw-core` without code changes to downstream slices.
