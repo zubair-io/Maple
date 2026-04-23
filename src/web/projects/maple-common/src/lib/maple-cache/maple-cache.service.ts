@@ -25,7 +25,7 @@ export class MapleCacheService {
   async readIndex(folder: MapleFolderHandle): Promise<MapleIndex | null> {
     try {
       const bytes = await this.fs.readFile(folder, '.maple/index.json');
-      const text  = new TextDecoder().decode(bytes);
+      const text = new TextDecoder().decode(bytes);
       const parsed = JSON.parse(text) as MapleIndex;
       if (parsed.version !== '1.0' || !Array.isArray(parsed.assets)) {
         console.warn('MapleCacheService: index.json is not version 1.0 — ignoring');
@@ -42,13 +42,10 @@ export class MapleCacheService {
    * Write `.maple/index.json`.
    * Silently skips if the folder is read-only.
    */
-  async writeIndex(
-    folder: MapleFolderHandle,
-    index: MapleIndex,
-  ): Promise<void> {
+  async writeIndex(folder: MapleFolderHandle, index: MapleIndex): Promise<void> {
     if (!folder.write) return;
     try {
-      const json  = JSON.stringify(index, null, 2);
+      const json = JSON.stringify(index, null, 2);
       const bytes = new TextEncoder().encode(json);
       await this.fs.ensureSubdirectory(folder, '.maple');
       await this.fs.writeFile(folder, '.maple/index.json', bytes);
@@ -62,12 +59,12 @@ export class MapleCacheService {
     index: MapleIndex,
     patch: Partial<IndexedAsset> & Pick<IndexedAsset, 'filename'>,
   ): MapleIndex {
-    const existing = index.assets.find(a => a.filename === patch.filename);
+    const existing = index.assets.find((a) => a.filename === patch.filename);
     if (existing) {
       const updated = { ...existing, ...patch };
       return {
         ...index,
-        assets: index.assets.map(a => a.filename === patch.filename ? updated : a),
+        assets: index.assets.map((a) => (a.filename === patch.filename ? updated : a)),
         generated: new Date().toISOString(),
       };
     }
@@ -95,10 +92,7 @@ export class MapleCacheService {
    * `sha` is the 16-char hex prefix (sha256Prefix16(filename)).
    * Returns null if not cached.
    */
-  async readThumb(
-    folder: MapleFolderHandle,
-    sha: string,
-  ): Promise<Blob | null> {
+  async readThumb(folder: MapleFolderHandle, sha: string): Promise<Blob | null> {
     try {
       const bytes = await this.fs.readFile(folder, `.maple/thumbs/${sha}.jpg`);
       // Copy into a fresh plain ArrayBuffer (readFile returns Uint8Array whose
@@ -116,11 +110,7 @@ export class MapleCacheService {
    * Creates `.maple/thumbs/` if necessary.
    * Silently skips if the folder is read-only.
    */
-  async writeThumb(
-    folder: MapleFolderHandle,
-    sha: string,
-    blob: Blob,
-  ): Promise<void> {
+  async writeThumb(folder: MapleFolderHandle, sha: string, blob: Blob): Promise<void> {
     if (!folder.write) return;
     try {
       await this.fs.ensureSubdirectory(folder, '.maple/thumbs');
@@ -137,10 +127,7 @@ export class MapleCacheService {
    * Read a cached preview blob (1600px, last-seen adjusted state).
    * Returns null if not cached.
    */
-  async readPreview(
-    folder: MapleFolderHandle,
-    sha: string,
-  ): Promise<Blob | null> {
+  async readPreview(folder: MapleFolderHandle, sha: string): Promise<Blob | null> {
     try {
       const bytes = await this.fs.readFile(folder, `.maple/previews/${sha}.jpg`);
       const ab = new ArrayBuffer(bytes.byteLength);
@@ -156,11 +143,7 @@ export class MapleCacheService {
    * Creates `.maple/previews/` if necessary.
    * Silently skips if the folder is read-only.
    */
-  async writePreview(
-    folder: MapleFolderHandle,
-    sha: string,
-    blob: Blob,
-  ): Promise<void> {
+  async writePreview(folder: MapleFolderHandle, sha: string, blob: Blob): Promise<void> {
     if (!folder.write) return;
     try {
       await this.fs.ensureSubdirectory(folder, '.maple/previews');

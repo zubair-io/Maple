@@ -1,9 +1,9 @@
 // Shared types for raw-pipeline worker communication.
 
 export interface DecodeRequest {
-  id: number;               // round-trip correlation id
+  id: number; // round-trip correlation id
   type: 'decode';
-  bytes: ArrayBuffer;       // transferable
+  bytes: ArrayBuffer; // transferable
   ext: string;
   xmp?: string;
 }
@@ -13,7 +13,7 @@ export interface DecodeSuccess {
   type: 'decode-success';
   width: number;
   height: number;
-  rgb: ArrayBuffer;         // transferable RGB bytes (3 * w * h)
+  rgb: ArrayBuffer; // transferable RGB bytes (3 * w * h)
 }
 
 export interface DecodeError {
@@ -27,5 +27,5 @@ export type WorkerResponse = DecodeSuccess | DecodeError;
 export interface DecodedImage {
   width: number;
   height: number;
-  rgb: Uint8Array;          // view over the transferred buffer
+  rgb: Uint8Array; // view over the transferred buffer
 }

@@ -4,9 +4,16 @@
 @use '../../maple-common/src/lib/tokens' as tokens;
 
 // ── Reset ────────────────────────────────────────────────────────────────────
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
 
-html, body {
+html,
+body {
   width: 100%;
   height: 100%;
   overflow: hidden;
@@ -22,17 +29,31 @@ body {
 }
 
 // ── Webkit scrollbar global defaults ─────────────────────────────────────────
-::-webkit-scrollbar { width: 8px; height: 8px; }
-::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
 ::-webkit-scrollbar-thumb {
   background: var(--maple-border);
   border-radius: 4px;
 }
-::-webkit-scrollbar-thumb:hover { background: var(--maple-surface-hover); }
+::-webkit-scrollbar-thumb:hover {
+  background: var(--maple-surface-hover);
+}
 
 // ── Input reset ───────────────────────────────────────────────────────────────
-input, button, select, textarea { font-family: inherit; }
-button { cursor: pointer; }
+input,
+button,
+select,
+textarea {
+  font-family: inherit;
+}
+button {
+  cursor: pointer;
+}
 
 // ── Range input theming ───────────────────────────────────────────────────────
 input[type='range'] {

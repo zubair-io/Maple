@@ -19,7 +19,6 @@ import { ADJUSTMENT_FIELDS, WB_PRESET_FIELD } from './xmp-fields';
 
 @Injectable({ providedIn: 'root' })
 export class XmpSerializerService {
-
   /**
    * Serialize an AdjustmentModel to a Lightroom-compatible XMP string.
    *
@@ -46,7 +45,7 @@ export class XmpSerializerService {
 
     // Numeric adjustment fields — emit only when they differ from the default.
     for (const f of ADJUSTMENT_FIELDS) {
-      const value = (model as any)[f.modelKey];
+      const value = model[f.modelKey];
       if (value === undefined || value === null) continue;
       const defaultVal = f.defaultValue(model);
       if (value !== defaultVal) {
@@ -73,12 +72,10 @@ export class XmpSerializerService {
     }
 
     // Build the attribute block — each on its own indented line.
-    const attrsBlock = parts.map(p => `   ${p}`).join('\n');
+    const attrsBlock = parts.map((p) => `   ${p}`).join('\n');
 
     // Passthrough: unknown nested nodes (ToneCurve, etc.) — indented inside rdf:Description.
-    const nestedNodes = (passthrough?.unknownNodes ?? [])
-      .map(n => `  ${n}`)
-      .join('\n');
+    const nestedNodes = (passthrough?.unknownNodes ?? []).map((n) => `  ${n}`).join('\n');
     const nestedSection = nestedNodes ? `\n${nestedNodes}\n` : '\n';
 
     return [

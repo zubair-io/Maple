@@ -9,18 +9,20 @@ import type { DecodedImage, DecodeRequest, WorkerResponse } from './raw-pipeline
 export class RawPipelineService implements OnDestroy {
   private worker: Worker | null = null;
   private nextId = 1;
-  private pending = new Map<number, {
-    resolve: (img: DecodedImage) => void;
-    reject: (err: Error) => void;
-  }>();
+  private pending = new Map<
+    number,
+    {
+      resolve: (img: DecodedImage) => void;
+      reject: (err: Error) => void;
+    }
+  >();
 
   private ensureWorker(): Worker {
     if (this.worker) return this.worker;
     try {
-      this.worker = new Worker(
-        new URL('./raw-pipeline.worker', import.meta.url),
-        { type: 'module' }
-      );
+      this.worker = new Worker(new URL('./raw-pipeline.worker', import.meta.url), {
+        type: 'module',
+      });
       this.worker.addEventListener('message', (e: MessageEvent<WorkerResponse>) => {
         const msg = e.data;
         const handler = this.pending.get(msg.id);
@@ -39,9 +41,7 @@ export class RawPipelineService implements OnDestroy {
       this.worker.addEventListener('error', (e) => {
         console.error('RawPipelineWorker error:', e.message);
         // Reject all pending on worker crash.
-        this.pending.forEach(({ reject }) =>
-          reject(new Error(`Worker error: ${e.message}`))
-        );
+        this.pending.forEach(({ reject }) => reject(new Error(`Worker error: ${e.message}`)));
         this.pending.clear();
         this.worker = null;
       });
@@ -61,7 +61,10 @@ export class RawPipelineService implements OnDestroy {
     }
     const id = this.nextId++;
     // Transfer the underlying buffer so the main thread doesn't keep a copy.
-    const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+    const buffer = bytes.buffer.slice(
+      bytes.byteOffset,
+      bytes.byteOffset + bytes.byteLength,
+    ) as ArrayBuffer;
     const request: DecodeRequest = { id, type: 'decode', bytes: buffer, ext, xmp };
     return new Promise<DecodedImage>((resolve, reject) => {
       this.pending.set(id, { resolve, reject });
@@ -72,9 +75,7 @@ export class RawPipelineService implements OnDestroy {
   ngOnDestroy(): void {
     this.worker?.terminate();
     this.worker = null;
-    this.pending.forEach(({ reject }) =>
-      reject(new Error('RawPipelineService destroyed'))
-    );
+    this.pending.forEach(({ reject }) => reject(new Error('RawPipelineService destroyed')));
     this.pending.clear();
   }
 }

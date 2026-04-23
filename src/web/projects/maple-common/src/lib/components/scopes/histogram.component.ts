@@ -3,6 +3,7 @@
 
 import {
   AfterViewInit,
+  ChangeDetectionStrategy,
   Component,
   ElementRef,
   OnDestroy,
@@ -18,8 +19,17 @@ import type { DecodedImage } from '../../raw-pipeline/raw-pipeline.types';
 
 function hashModel(m: AdjustmentModel): number {
   const vals = [
-    m.exposure, m.contrast, m.highlights, m.shadows, m.whites, m.blacks,
-    m.temperature / 100, m.tint, m.vibrance, m.saturation, m.clarity,
+    m.exposure,
+    m.contrast,
+    m.highlights,
+    m.shadows,
+    m.whites,
+    m.blacks,
+    m.temperature / 100,
+    m.tint,
+    m.vibrance,
+    m.saturation,
+    m.clarity,
   ];
   return vals.reduce((acc, v, i) => acc + v * (i + 1) * 7, 0);
 }
@@ -27,8 +37,20 @@ function hashModel(m: AdjustmentModel): number {
 @Component({
   selector: 'editor-histogram',
   standalone: true,
-  template: `<canvas #canvas width="200" height="80" style="display:block;width:100%;height:80px"></canvas>`,
-  styles: [`:host { display: block; }`],
+  template: `<canvas
+    #canvas
+    width="200"
+    height="80"
+    style="display:block;width:100%;height:80px"
+  ></canvas>`,
+  styles: [
+    `
+      :host {
+        display: block;
+      }
+    `,
+  ],
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class HistogramComponent implements AfterViewInit, OnDestroy {
   @ViewChild('canvas') canvasRef!: ElementRef<HTMLCanvasElement>;
@@ -39,7 +61,7 @@ export class HistogramComponent implements AfterViewInit, OnDestroy {
 
   ngAfterViewInit(): void {
     const e = effect(() => {
-      const adj  = this.adjustment();
+      const adj = this.adjustment();
       const pixels = this.canvasSvc.currentPixels();
       if (this.canvasRef) {
         if (pixels) {
@@ -75,10 +97,10 @@ export class HistogramComponent implements AfterViewInit, OnDestroy {
     }
 
     const channels = [
-      { bins: r,    color: 'rgba(220,80,80,0.55)'   },
-      { bins: g,    color: 'rgba(80,190,80,0.55)'   },
-      { bins: b,    color: 'rgba(80,130,220,0.55)'  },
-      { bins: luma, color: 'rgba(200,190,180,0.4)'  },
+      { bins: r, color: 'rgba(220,80,80,0.55)' },
+      { bins: g, color: 'rgba(80,190,80,0.55)' },
+      { bins: b, color: 'rgba(80,130,220,0.55)' },
+      { bins: luma, color: 'rgba(200,190,180,0.4)' },
     ];
 
     // Downsample 256 bins to canvas width.
@@ -115,8 +137,8 @@ export class HistogramComponent implements AfterViewInit, OnDestroy {
     const barW = W / bins;
 
     const channels = [
-      { color: 'rgba(220,80,80,0.55)',  offset: 0.0 },
-      { color: 'rgba(80,190,80,0.55)',  offset: 0.3 },
+      { color: 'rgba(220,80,80,0.55)', offset: 0.0 },
+      { color: 'rgba(80,190,80,0.55)', offset: 0.3 },
       { color: 'rgba(80,130,220,0.55)', offset: 0.6 },
       { color: 'rgba(200,190,180,0.4)', offset: 1.0 },
     ];
@@ -125,7 +147,7 @@ export class HistogramComponent implements AfterViewInit, OnDestroy {
       ctx.beginPath();
       for (let i = 0; i < bins; i++) {
         const t = i / bins;
-        const mu = 0.35 + (seed * 0.007 + ch.offset * 0.15) % 0.3;
+        const mu = 0.35 + ((seed * 0.007 + ch.offset * 0.15) % 0.3);
         const sigma = 0.12 + Math.abs(model.contrast) / 2000;
         const gauss = Math.exp(-0.5 * Math.pow((t - mu) / sigma, 2));
         const noise = (Math.sin(i * 17.3 + seed * 2.1) * 0.5 + 0.5) * 0.18;

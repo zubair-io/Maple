@@ -1,0 +1,134 @@
+:host {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  position: relative;
+  overflow: hidden;
+  background: #080706;
+}
+
+/* Toolbar */
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  height: 34px;
+  background: var(--maple-surface);
+  border-bottom: 0.5px solid var(--maple-border);
+  flex-shrink: 0;
+}
+.toolbar-spacer {
+  flex: 1;
+}
+.zoom-label {
+  font-family: var(--maple-font-mono);
+  font-size: 10px;
+  color: var(--maple-text-muted);
+}
+.tool-btn {
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-family: var(--maple-font);
+  font-size: 11px;
+  color: var(--maple-text-muted);
+  border: 0.5px solid var(--maple-border);
+  background: var(--maple-surface-alt);
+  transition: background 100ms;
+}
+.tool-btn:hover {
+  background: var(--maple-surface-hover);
+  color: var(--maple-text-main);
+}
+.tool-btn.active {
+  background: var(--maple-primary-dim);
+  color: var(--maple-primary);
+  border-color: var(--maple-primary);
+}
+
+/* Canvas wrapper */
+.canvas-wrap {
+  flex: 1;
+  position: relative;
+  min-height: 0;
+  overflow: hidden;
+  cursor: grab;
+  user-select: none;
+}
+.canvas-wrap:active {
+  cursor: grabbing;
+}
+.canvas-wrap canvas {
+  display: block;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+}
+
+/* Before/after divider */
+.ba-divider {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: rgba(255, 255, 255, 0.8);
+  transform: translateX(-50%);
+  cursor: ew-resize;
+  z-index: 10;
+}
+.ba-handle {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 20px;
+  height: 40px;
+  background: rgba(255, 255, 255, 0.9);
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  color: #333;
+  pointer-events: none;
+}
+
+/* Filename overlay */
+.filename-overlay {
+  position: absolute;
+  left: 12px;
+  bottom: 10px;
+  font-family: var(--maple-font-mono);
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.35);
+  pointer-events: none;
+  z-index: 5;
+}
+
+/* Loading overlay */
+.loading-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 6;
+  pointer-events: none;
+}
+.loading-pill {
+  background: rgba(0, 0, 0, 0.6);
+  border: 0.5px solid rgba(255, 255, 255, 0.15);
+  border-radius: 20px;
+  padding: 6px 14px;
+  font-family: var(--maple-font);
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(6px);
+}

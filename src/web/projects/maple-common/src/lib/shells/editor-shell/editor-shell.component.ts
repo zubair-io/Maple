@@ -3,7 +3,14 @@
 // Ported from _design-reference/app.jsx (full-image mode).
 // P7: window.location.href navigation replaced by Router.
 
-import { Component, HostListener, OnInit, computed, inject } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  HostListener,
+  OnInit,
+  computed,
+  inject,
+} from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
 import { LibraryStateService } from '../../state/library-state.service';
 import { MapleIconComponent } from '../../icons/maple-icon.component';
@@ -21,130 +28,193 @@ import { EditorDetailPanelComponent } from '../../components/editor-detail-panel
     ImageCanvasComponent,
     EditorDetailPanelComponent,
   ],
-  styles: [`
-    :host {
-      display: flex;
-      width: 100vw;
-      height: 100vh;
-      background: #0d0c0b;
-      align-items: center;
-      justify-content: center;
-      padding: 24px;
-      box-sizing: border-box;
-    }
+  styles: [
+    `
+      :host {
+        display: flex;
+        width: 100vw;
+        height: 100vh;
+        background: #0d0c0b;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+        box-sizing: border-box;
+      }
 
-    /* App window */
-    .window {
-      width: 100%;
-      height: 100%;
-      max-width: 1500px;
-      max-height: 1000px;
-      background: var(--maple-bg);
-      border-radius: 12px;
-      overflow: hidden;
-      display: flex;
-      flex-direction: column;
-      box-shadow: 0 24px 80px rgba(0,0,0,0.5), 0 0 0 0.5px rgba(255,255,255,0.06);
-      font-family: var(--maple-font);
-    }
+      /* App window */
+      .window {
+        width: 100%;
+        height: 100%;
+        max-width: 1500px;
+        max-height: 1000px;
+        background: var(--maple-bg);
+        border-radius: 12px;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        box-shadow:
+          0 24px 80px rgba(0, 0, 0, 0.5),
+          0 0 0 0.5px rgba(255, 255, 255, 0.06);
+        font-family: var(--maple-font);
+      }
 
-    /* Titlebar */
-    .titlebar {
-      height: 40px;
-      display: flex;
-      align-items: center;
-      background: var(--maple-surface);
-      border-bottom: 0.5px solid var(--maple-border);
-      padding: 0 12px;
-      flex-shrink: 0;
-      gap: 10px;
-    }
+      /* Titlebar */
+      .titlebar {
+        height: 40px;
+        display: flex;
+        align-items: center;
+        background: var(--maple-surface);
+        border-bottom: 0.5px solid var(--maple-border);
+        padding: 0 12px;
+        flex-shrink: 0;
+        gap: 10px;
+      }
 
-    .traffic-lights { display: flex; gap: 8px; align-items: center; }
-    .tl-dot {
-      width: 12px; height: 12px; border-radius: 50%;
-      border: 0.5px solid rgba(0,0,0,0.18);
-      display: flex; align-items: center; justify-content: center;
-      cursor: pointer; font-size: 8px; font-weight: 700; color: rgba(0,0,0,0.55);
-    }
-    .tl-close  { background: #ff5f56; }
-    .tl-min    { background: #ffbd2e; }
-    .tl-max    { background: #27c93f; }
-    .traffic-lights .symbol { display: none; }
-    .traffic-lights:hover .symbol { display: inline; }
+      .traffic-lights {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+      }
+      .tl-dot {
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        border: 0.5px solid rgba(0, 0, 0, 0.18);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        font-size: 8px;
+        font-weight: 700;
+        color: rgba(0, 0, 0, 0.55);
+      }
+      .tl-close {
+        background: #ff5f56;
+      }
+      .tl-min {
+        background: #ffbd2e;
+      }
+      .tl-max {
+        background: #27c93f;
+      }
+      .traffic-lights .symbol {
+        display: none;
+      }
+      .traffic-lights:hover .symbol {
+        display: inline;
+      }
 
-    /* Back button */
-    .back-btn {
-      display: flex;
-      align-items: center;
-      gap: 4px;
-      height: 24px;
-      padding: 0 8px;
-      border-radius: 5px;
-      background: var(--maple-surface-alt);
-      border: 0.5px solid var(--maple-border);
-      font-family: var(--maple-font);
-      font-size: 11px;
-      color: var(--maple-text-muted);
-      cursor: pointer;
-      transition: background 100ms;
-    }
-    .back-btn:hover { background: var(--maple-surface-hover); color: var(--maple-text-main); }
+      /* Back button */
+      .back-btn {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        height: 24px;
+        padding: 0 8px;
+        border-radius: 5px;
+        background: var(--maple-surface-alt);
+        border: 0.5px solid var(--maple-border);
+        font-family: var(--maple-font);
+        font-size: 11px;
+        color: var(--maple-text-muted);
+        cursor: pointer;
+        transition: background 100ms;
+      }
+      .back-btn:hover {
+        background: var(--maple-surface-hover);
+        color: var(--maple-text-main);
+      }
 
-    /* Chrome buttons */
-    .chrome-btn {
-      width: 28px; height: 24px; border-radius: 5px;
-      display: flex; align-items: center; justify-content: center;
-      cursor: pointer; transition: background 120ms;
-      border: 0.5px solid transparent;
-    }
-    .chrome-btn:hover { background: var(--maple-surface-hover); border-color: var(--maple-border); }
-    .chrome-btn.active { background: rgba(255,255,255,0.04); border-color: var(--maple-border); }
+      /* Chrome buttons */
+      .chrome-btn {
+        width: 28px;
+        height: 24px;
+        border-radius: 5px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        transition: background 120ms;
+        border: 0.5px solid transparent;
+      }
+      .chrome-btn:hover {
+        background: var(--maple-surface-hover);
+        border-color: var(--maple-border);
+      }
+      .chrome-btn.active {
+        background: rgba(255, 255, 255, 0.04);
+        border-color: var(--maple-border);
+      }
 
-    /* Title */
-    .title {
-      flex: 1; text-align: center; font-size: 12px; font-weight: 500;
-      color: var(--maple-text-main); white-space: nowrap;
-      overflow: hidden; text-overflow: ellipsis;
-    }
+      /* Title */
+      .title {
+        flex: 1;
+        text-align: center;
+        font-size: 12px;
+        font-weight: 500;
+        color: var(--maple-text-main);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
 
-    /* Export button */
-    .export-btn {
-      display: flex; align-items: center; gap: 4px;
-      padding: 4px 10px; border-radius: 5px; font-size: 11px; cursor: pointer;
-    }
-    .export-btn.has-selection {
-      background: var(--maple-primary-dim); color: var(--maple-primary);
-      border: 0.5px solid var(--maple-primary);
-    }
-    .export-btn.no-selection {
-      background: var(--maple-input-bg); color: var(--maple-text-muted);
-      border: 0.5px solid var(--maple-border); opacity: 0.5; cursor: default;
-    }
+      /* Export button */
+      .export-btn {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        padding: 4px 10px;
+        border-radius: 5px;
+        font-size: 11px;
+        cursor: pointer;
+      }
+      .export-btn.has-selection {
+        background: var(--maple-primary-dim);
+        color: var(--maple-primary);
+        border: 0.5px solid var(--maple-primary);
+      }
+      .export-btn.no-selection {
+        background: var(--maple-input-bg);
+        color: var(--maple-text-muted);
+        border: 0.5px solid var(--maple-border);
+        opacity: 0.5;
+        cursor: default;
+      }
 
-    /* Body */
-    .body {
-      flex: 1; display: flex; min-height: 0; min-width: 0;
-      background: var(--maple-bg);
-    }
+      /* Body */
+      .body {
+        flex: 1;
+        display: flex;
+        min-height: 0;
+        min-width: 0;
+        background: var(--maple-bg);
+      }
 
-    /* Panels */
-    .panel-left {
-      flex-shrink: 0; overflow: hidden;
-      transition: width 180ms ease-out;
-    }
-    .panel-center {
-      flex: 1; display: flex; flex-direction: column;
-      min-width: 0; position: relative;
-      transition: opacity 180ms ease-out;
-    }
-    .panel-right {
-      flex-shrink: 0; overflow: hidden;
-      transition: width 180ms ease-out;
-      border-left: 0.5px solid var(--maple-border);
-    }
-    .panel-right.hidden { border-left: none; }
-  `],
+      /* Panels */
+      .panel-left {
+        flex-shrink: 0;
+        overflow: hidden;
+        transition: width 180ms ease-out;
+      }
+      .panel-center {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+        position: relative;
+        transition: opacity 180ms ease-out;
+      }
+      .panel-right {
+        flex-shrink: 0;
+        overflow: hidden;
+        transition: width 180ms ease-out;
+        border-left: 0.5px solid var(--maple-border);
+      }
+      .panel-right.hidden {
+        border-left: none;
+      }
+    `,
+  ],
   template: `
     <div class="window">
       <!-- Titlebar -->
@@ -152,71 +222,89 @@ import { EditorDetailPanelComponent } from '../../components/editor-detail-panel
         <!-- Traffic lights -->
         <div class="traffic-lights">
           <div class="tl-dot tl-close" title="Close"><span class="symbol">×</span></div>
-          <div class="tl-dot tl-min"   title="Minimize"><span class="symbol">–</span></div>
-          <div class="tl-dot tl-max"   title="Full screen"><span class="symbol">⤢</span></div>
+          <div class="tl-dot tl-min" title="Minimize"><span class="symbol">–</span></div>
+          <div class="tl-dot tl-max" title="Full screen"><span class="symbol">⤢</span></div>
         </div>
 
         <!-- Back to Browse -->
         <div class="back-btn" (click)="goBack()" title="Back to Browse (Esc)">
-          <maple-icon name="back" [size]="11" color="var(--maple-text-muted)"/>
+          <maple-icon name="back" [size]="11" color="var(--maple-text-muted)" />
           <span>Library</span>
         </div>
 
         <!-- Filmstrip toggle -->
-        <div class="chrome-btn" [class.active]="state.sidebarVisible()"
+        <div
+          class="chrome-btn"
+          [class.active]="state.sidebarVisible()"
           [title]="filmstripToggleTitle()"
-          (click)="state.toggleSidebar()">
-          <maple-icon name="sidebar" [size]="13"
-            [color]="state.sidebarVisible() ? 'var(--maple-text-main)' : 'var(--maple-text-muted)'"/>
+          (click)="state.toggleSidebar()"
+        >
+          <maple-icon
+            name="sidebar"
+            [size]="13"
+            [color]="state.sidebarVisible() ? 'var(--maple-text-main)' : 'var(--maple-text-muted)'"
+          />
         </div>
 
         <!-- Title -->
         <div class="title">{{ titleText() }}</div>
 
         <!-- Export -->
-        <div class="export-btn"
+        <div
+          class="export-btn"
           [class.has-selection]="state.focusedAssetId() !== null"
-          [class.no-selection]="state.focusedAssetId() === null">
-          <maple-icon name="export" [size]="11"/>
+          [class.no-selection]="state.focusedAssetId() === null"
+        >
+          <maple-icon name="export" [size]="11" />
           <span>Export</span>
         </div>
 
         <!-- Inspector toggle -->
-        <div class="chrome-btn" [class.active]="state.inspectorVisible()"
+        <div
+          class="chrome-btn"
+          [class.active]="state.inspectorVisible()"
           [title]="(state.inspectorVisible() ? 'Hide' : 'Show') + ' inspector  ⌥⌘D'"
-          (click)="state.toggleInspector()">
-          <maple-icon name="inspector" [size]="13"
-            [color]="state.inspectorVisible() ? 'var(--maple-text-main)' : 'var(--maple-text-muted)'"/>
+          (click)="state.toggleInspector()"
+        >
+          <maple-icon
+            name="inspector"
+            [size]="13"
+            [color]="
+              state.inspectorVisible() ? 'var(--maple-text-main)' : 'var(--maple-text-muted)'
+            "
+          />
         </div>
       </div>
 
       <!-- Body -->
       <div class="body">
         <!-- Left: filmstrip -->
-        <div class="panel-left"
-          [style.width]="state.sidebarVisible() ? '110px' : '0px'">
-          <editor-filmstrip/>
+        <div class="panel-left" [style.width]="state.sidebarVisible() ? '110px' : '0px'">
+          <editor-filmstrip />
         </div>
 
         <!-- Center: image canvas (crossfade on asset change) -->
         <div class="panel-center">
-          <editor-image-canvas/>
+          <editor-image-canvas />
         </div>
 
         <!-- Right: detail panel -->
-        <div class="panel-right"
+        <div
+          class="panel-right"
           [class.hidden]="!state.inspectorVisible()"
-          [style.width]="state.inspectorVisible() ? '280px' : '0px'">
-          <editor-detail-panel/>
+          [style.width]="state.inspectorVisible() ? '280px' : '0px'"
+        >
+          <editor-detail-panel />
         </div>
       </div>
     </div>
   `,
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class EditorShellComponent implements OnInit {
-  state     = inject(LibraryStateService);
+  state = inject(LibraryStateService);
   canvasSvc = inject(ImageCanvasService);
-  private route  = inject(ActivatedRoute);
+  private route = inject(ActivatedRoute);
   private router = inject(Router);
 
   // ── Page unload — flush pending XMP writes ────────────────────────────────
@@ -230,8 +318,8 @@ export class EditorShellComponent implements OnInit {
     return asset ? `${asset.filename} — Editor` : 'Maple Editor';
   });
 
-  filmstripToggleTitle = computed(() =>
-    (this.state.sidebarVisible() ? 'Hide' : 'Show') + ' filmstrip  (\\)'
+  filmstripToggleTitle = computed(
+    () => (this.state.sidebarVisible() ? 'Hide' : 'Show') + ' filmstrip  (\\)',
   );
 
   ngOnInit(): void {
@@ -239,9 +327,8 @@ export class EditorShellComponent implements OnInit {
     if (id) {
       const assets = this.state.assets();
       // Resolve 'first' sentinel
-      const target = id === 'first'
-        ? this.state.assetsInSelectedFolder()[0]
-        : assets.find(a => a.id === id);
+      const target =
+        id === 'first' ? this.state.assetsInSelectedFolder()[0] : assets.find((a) => a.id === id);
       if (target) {
         this.state.selectAsset(target.id);
       } else if (assets.length > 0) {
@@ -264,7 +351,8 @@ export class EditorShellComponent implements OnInit {
       target instanceof HTMLInputElement ||
       target instanceof HTMLTextAreaElement ||
       target.isContentEditable
-    ) return;
+    )
+      return;
 
     const fid = this.state.focusedAssetId();
 

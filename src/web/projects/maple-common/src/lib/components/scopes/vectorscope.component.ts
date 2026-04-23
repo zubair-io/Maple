@@ -2,6 +2,7 @@
 
 import {
   AfterViewInit,
+  ChangeDetectionStrategy,
   Component,
   ElementRef,
   OnDestroy,
@@ -17,8 +18,20 @@ import type { DecodedImage } from '../../raw-pipeline/raw-pipeline.types';
 @Component({
   selector: 'editor-vectorscope',
   standalone: true,
-  template: `<canvas #canvas width="80" height="80" style="display:block;width:80px;height:80px"></canvas>`,
-  styles: [`:host { display: block; }`],
+  template: `<canvas
+    #canvas
+    width="80"
+    height="80"
+    style="display:block;width:80px;height:80px"
+  ></canvas>`,
+  styles: [
+    `
+      :host {
+        display: block;
+      }
+    `,
+  ],
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class VectorscopeComponent implements AfterViewInit, OnDestroy {
   @ViewChild('canvas') canvasRef!: ElementRef<HTMLCanvasElement>;
@@ -29,7 +42,7 @@ export class VectorscopeComponent implements AfterViewInit, OnDestroy {
 
   ngAfterViewInit(): void {
     const e = effect(() => {
-      const adj    = this.adjustment();
+      const adj = this.adjustment();
       const pixels = this.canvasSvc.currentPixels();
       if (this.canvasRef) {
         if (pixels) {
@@ -56,7 +69,7 @@ export class VectorscopeComponent implements AfterViewInit, OnDestroy {
     const H = canvas.height;
     const cx = W / 2;
     const cy = H / 2;
-    const R  = W / 2 - 4;
+    const R = W / 2 - 4;
 
     ctx.clearRect(0, 0, W, H);
     this.drawScopeChrome(ctx, cx, cy, R);
@@ -73,8 +86,8 @@ export class VectorscopeComponent implements AfterViewInit, OnDestroy {
       const b = rgb[i + 2] / 255;
 
       // BT.601 Cb/Cr
-      const cb = -0.168736 * r - 0.331264 * g + 0.5 * b;  // range -0.5..+0.5
-      const cr =  0.5      * r - 0.418688 * g - 0.081312 * b;
+      const cb = -0.168736 * r - 0.331264 * g + 0.5 * b; // range -0.5..+0.5
+      const cr = 0.5 * r - 0.418688 * g - 0.081312 * b;
 
       const px = Math.round(cx + cb * R * 2);
       const py = Math.round(cy - cr * R * 2);
@@ -94,7 +107,7 @@ export class VectorscopeComponent implements AfterViewInit, OnDestroy {
     for (let i = 0; i < density.length; i++) {
       if (density[i] === 0) continue;
       const alpha = Math.min(255, (density[i] / maxD) * 1800);
-      d[i * 4]     = 180;
+      d[i * 4] = 180;
       d[i * 4 + 1] = 200;
       d[i * 4 + 2] = 255;
       d[i * 4 + 3] = alpha;
@@ -105,10 +118,7 @@ export class VectorscopeComponent implements AfterViewInit, OnDestroy {
     this.drawScopeChrome(ctx, cx, cy, R);
   }
 
-  private drawScopeChrome(
-    ctx: CanvasRenderingContext2D,
-    cx: number, cy: number, R: number
-  ): void {
+  private drawScopeChrome(ctx: CanvasRenderingContext2D, cx: number, cy: number, R: number): void {
     ctx.beginPath();
     ctx.arc(cx, cy, R, 0, Math.PI * 2);
     ctx.strokeStyle = 'rgba(255,255,255,0.08)';
@@ -145,21 +155,21 @@ export class VectorscopeComponent implements AfterViewInit, OnDestroy {
     const H = canvas.height;
     const cx = W / 2;
     const cy = H / 2;
-    const R  = W / 2 - 4;
+    const R = W / 2 - 4;
 
     ctx.clearRect(0, 0, W, H);
     this.drawScopeChrome(ctx, cx, cy, R);
 
-    const satRadius = (model.saturation + 100) / 200 * R * 0.7;
-    const hueAngle  = ((model.temperature - 2000) / 10000) * Math.PI * 2;
-    const numDots   = 120;
+    const satRadius = ((model.saturation + 100) / 200) * R * 0.7;
+    const hueAngle = ((model.temperature - 2000) / 10000) * Math.PI * 2;
+    const numDots = 120;
 
     for (let i = 0; i < numDots; i++) {
-      const angle = hueAngle + (i / numDots) * Math.PI * 0.8 - Math.PI * 0.4
-                  + Math.sin(i * 3.7) * 0.4;
-      const dist  = satRadius * (0.3 + Math.abs(Math.sin(i * 0.97)) * 0.7);
-      const dotX  = cx + Math.cos(angle) * dist;
-      const dotY  = cy + Math.sin(angle) * dist;
+      const angle =
+        hueAngle + (i / numDots) * Math.PI * 0.8 - Math.PI * 0.4 + Math.sin(i * 3.7) * 0.4;
+      const dist = satRadius * (0.3 + Math.abs(Math.sin(i * 0.97)) * 0.7);
+      const dotX = cx + Math.cos(angle) * dist;
+      const dotY = cy + Math.sin(angle) * dist;
       const alpha = 0.4 + Math.sin(i * 7.3) * 0.25;
       ctx.beginPath();
       ctx.arc(dotX, dotY, 1, 0, Math.PI * 2);

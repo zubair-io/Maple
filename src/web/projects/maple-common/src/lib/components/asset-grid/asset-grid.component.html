@@ -1,0 +1,118 @@
+<!-- Toolbar -->
+<div class="toolbar">
+  <!-- Breadcrumb -->
+  <div class="breadcrumb">
+    @if (state.currentFolder(); as f) {
+      <span class="crumb-dim">Local files</span>
+      <span class="crumb-sep">›</span>
+      <span class="crumb-active">{{ f.name }}</span>
+    } @else {
+      <span class="crumb-dim">Local files</span>
+      <span class="crumb-sep">›</span>
+      <span class="crumb-active">France trip</span>
+    }
+  </div>
+
+  <div class="spacer"></div>
+
+  <!-- Thumb size slider -->
+  <div class="size-row">
+    <maple-icon name="grid-sm" [size]="11" color="var(--maple-text-muted)" />
+    <input
+      type="range"
+      min="60"
+      max="220"
+      [value]="state.thumbSize()"
+      (input)="onThumbSizeChange($event)"
+    />
+    <maple-icon name="grid-lg" [size]="13" color="var(--maple-text-muted)" />
+  </div>
+
+  <div class="divider"></div>
+
+  <!-- Sort pill -->
+  <div class="pill-btn" [class.active]="state.sort() === 'date'" (click)="toggleSort()">
+    <maple-icon name="sort" [size]="11" />
+    <span>{{ state.sort() === 'date' ? 'Date' : 'Name' }}</span>
+  </div>
+
+  <!-- Filter pill -->
+  <div class="pill-btn" [class.active]="state.filter() !== 'all'" (click)="cycleFilter()">
+    <maple-icon name="filter" [size]="11" />
+    <span>{{ filterLabel() }}</span>
+  </div>
+
+  <div class="divider"></div>
+
+  <span class="count-label">
+    @if (state.selectedCount() > 0) {
+      {{ state.selectedCount() }} selected
+    } @else {
+      {{ state.assetsInSelectedFolder().length }} photos
+    }
+  </span>
+</div>
+
+<!-- Justified grid -->
+<div class="grid-scroll" #gridContainer>
+  @for (row of gridRows(); track $index) {
+    <div class="grid-row">
+      @for (asset of row.assets; track asset.id) {
+        @let isSelected = state.selectedAssetIds().has(asset.id);
+        @let thumbUrl = thumbUrls().get(asset.id);
+        @let isLoading = thumbLoading().has(asset.id);
+        <div
+          class="thumb"
+          [class.selected]="isSelected"
+          [style.width.px]="asset.aspectRatio * row.height"
+          [style.height.px]="row.height"
+          [style.background-image]="thumbUrl ? '' : 'url(' + asset.thumbnailGradient + ')'"
+          (click)="onThumbClick(asset, $event)"
+          (dblclick)="onThumbDblClick(asset)"
+        >
+          @if (thumbUrl) {
+            <img class="thumb-img" [src]="thumbUrl" alt="" />
+          }
+
+          @if (isLoading && !thumbUrl) {
+            <div class="thumb-loading">...</div>
+          }
+
+          @if (asset.edited) {
+            <div class="xmp-badge">
+              <maple-icon
+                name="check"
+                [size]="9"
+                [strokeWidth]="2"
+                color="var(--maple-success-text)"
+              />
+            </div>
+          }
+
+          <div class="bottom-badges">
+            <div style="display: flex; gap: 3px">
+              @if (asset.flag === 'pick') {
+                <div class="flag-badge flag-pick">PICK</div>
+              }
+              @if (asset.flag === 'reject') {
+                <div class="flag-badge flag-reject">REJECT</div>
+              }
+            </div>
+
+            @if (asset.rating > 0) {
+              <div class="stars-badge">
+                @for (i of STAR_INDICES; track i) {
+                  <maple-icon
+                    [name]="i <= asset.rating ? 'star-filled' : 'star'"
+                    [size]="8"
+                    [color]="i <= asset.rating ? 'var(--maple-star)' : 'rgba(255,255,255,0.35)'"
+                  />
+                }
+              </div>
+            }
+          </div>
+        </div>
+      }
+    </div>
+  }
+</div>
