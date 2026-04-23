@@ -11,6 +11,7 @@ import {
   defaultAdjustmentModel,
   isDefaultAdjustment,
 } from '../models/adjustment-model';
+import { LIBRARY_BACKEND } from '../api/library-backend.token';
 import { FolderAccessService } from '../folder-access/folder-access.service';
 import { MapleCacheService } from '../maple-cache/maple-cache.service';
 import { XmpParserService } from '../xmp/xmp-parser.service';
@@ -109,6 +110,13 @@ export class LibraryStateService {
   private cache = inject(MapleCacheService);
   private xmpParser = inject(XmpParserService);
   private xmpStore = inject(XmpStoreService);
+
+  // TODO(T4-self-hosted-backend): when backend === 'self-hosted', swap the
+  // folder enumeration / byte-read / XMP write paths to BunApiBackendService
+  // (GET /api/folders, /api/assets/:id/raw, /api/assets/:id/thumb,
+  //  GET/PUT /api/assets/:id/xmp). Landing page + dual-app structure
+  // is the T4 must-have; full wire-up is a follow-up ticket.
+  readonly backend = inject(LIBRARY_BACKEND);
 
   // ── Library data ───────────────────────────────────────────────────────────
   readonly assets = signal<Asset[]>([]);

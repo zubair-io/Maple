@@ -38,7 +38,9 @@ bun install
 bun src/index.ts
 ```
 
-The server listens on `http://localhost:3000`. The Angular UI is served from `/`.
+The server listens on `http://localhost:3000`. The Angular UI is served from `/`. The
+static-UI handler resolves the bundle at `src/web/dist/maple-self-hosted/browser/` — build with
+`cd src/web && npm run build:self-hosted` (or `ng build maple-self-hosted --configuration=production`).
 
 ### 4. Register a photo library folder
 
@@ -60,7 +62,7 @@ The Indexer immediately starts scanning the folder in the background, indexing f
 | `MAPLE_ROOTS` | (none) | Colon-separated allowed FS roots. If unset, all registered folder paths are allowed. |
 | `MAPLE_INDEXER_WORKERS` | `2` | Concurrent indexer worker threads |
 | `MAPLE_DEV` | (none) | Set to `1` to proxy UI to Angular dev server |
-| `MAPLE_DEV_ORIGIN` | `http://localhost:4200` | Angular dev server origin when `MAPLE_DEV=1` |
+| `MAPLE_DEV_ORIGIN` | `http://localhost:4201` | Angular dev server origin when `MAPLE_DEV=1` (the `maple-self-hosted` app serves on 4201) |
 | `MAPLE_UI_DIST` | (auto-resolved) | Override the Angular bundle dist path |
 
 ## API reference
@@ -88,10 +90,10 @@ GET  /                              — Angular SPA (SPA fallback for all non-AP
 Run the Angular dev server alongside the Bun backend:
 
 ```bash
-# Terminal 1: start Angular dev server
-cd src/web && npx ng serve maple --port 4200
+# Terminal 1: start Angular dev server for the Self-Hosted app
+cd src/web && npx ng serve maple-self-hosted --port 4201
 
-# Terminal 2: start Bun backend in dev mode (proxies to ng serve)
+# Terminal 2: start Bun backend in dev mode (proxies to ng serve on 4201)
 cd src/api && MAPLE_DEV=1 bun src/index.ts
 ```
 

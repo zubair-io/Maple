@@ -1,15 +1,15 @@
 /**
- * Static UI serving for Maple Hosted Angular bundle.
+ * Static UI serving for the Maple Self Hosted Angular bundle.
  *
  * In production: serves the compiled Angular app from the dist directory.
  *   - Static files from /api/* are handled by API routes first.
  *   - All other GET requests (Angular routes) fall through to index.html (SPA).
  *
  * In development (MAPLE_DEV=1): proxies to Angular dev server at
- *   MAPLE_DEV_ORIGIN (default: http://localhost:4200).
+ *   MAPLE_DEV_ORIGIN (default: http://localhost:4201).
  *
  * The UI dist path is resolved relative to this server's root:
- *   <api>/../../web/dist/maple/browser/
+ *   <api>/../../web/dist/maple-self-hosted/browser/
  * Can be overridden via MAPLE_UI_DIST env var.
  */
 
@@ -18,7 +18,7 @@ import * as fs from "node:fs/promises";
 import { Elysia } from "elysia";
 
 const IS_DEV = process.env.MAPLE_DEV === "1";
-const DEV_ORIGIN = process.env.MAPLE_DEV_ORIGIN ?? "http://localhost:4200";
+const DEV_ORIGIN = process.env.MAPLE_DEV_ORIGIN ?? "http://localhost:4201";
 
 /** Absolute path to the Angular production build. */
 function resolveUiDist(): string {
@@ -26,7 +26,7 @@ function resolveUiDist(): string {
     return process.env.MAPLE_UI_DIST;
   }
   // Relative to this file's location: src/routes/ → .. → src/ → .. → api/
-  // Then up one more to the monorepo src/: ../web/dist/maple/browser/
+  // Then up one more to the monorepo src/: ../web/dist/maple-self-hosted/browser/
   return path.resolve(
     import.meta.dir, // src/routes/
     "..",            // src/
@@ -34,7 +34,7 @@ function resolveUiDist(): string {
     "..",            // src/      (monorepo src/)
     "web",
     "dist",
-    "maple",
+    "maple-self-hosted",
     "browser"
   );
 }
@@ -92,6 +92,14 @@ async function serveStatic(
       headers["Cache-Control"] = "public, max-age=31536000, immutable";
     }
 
+    // T10: static UI responses must carry COOP/COEP so the page becomes
+    // cross-origin-isolated and the WASM rayon thread pool can spin up.
+    // Elysia's `onBeforeHandle` sets these on `set.headers` but when we
+    // return a raw `Response` it doesn't always merge — set them directly
+    // here so every file response has them.
+    headers["Cross-Origin-Opener-Policy"] = "same-origin";
+    headers["Cross-Origin-Embedder-Policy"] = "require-corp";
+
     return new Response(data, { status: 200, headers });
   } catch {
     return null;
@@ -121,9 +129,18 @@ export const staticUiPlugin = new Elysia()
       });
       if (!proxyResp) {
         set.status = 502;
-        return { error: "Angular dev server not reachable", tip: `Start it with: ng serve --port 4200` };
+        return { error: "Angular dev server not reachable", tip: `Start it with: cd src/web && ng serve maple-self-hosted --port 4201` };
       }
-      return proxyResp;
+      // T10: proxied responses from `ng serve` don't carry COOP/COEP. Clone
+      // with the isolation headers added so dev-mode threading works too.
+      const proxyHeaders = new Headers(proxyResp.headers);
+      proxyHeaders.set("Cross-Origin-Opener-Policy", "same-origin");
+      proxyHeaders.set("Cross-Origin-Embedder-Policy", "require-corp");
+      return new Response(proxyResp.body, {
+        status: proxyResp.status,
+        statusText: proxyResp.statusText,
+        headers: proxyHeaders,
+      });
     }
 
     // Production: serve from dist.
@@ -137,7 +154,7 @@ export const staticUiPlugin = new Elysia()
       set.status = 503;
       return {
         error: "UI bundle not built",
-        tip: "Run: cd src/web && ng build maple --configuration=production",
+        tip: "Run: cd src/web && ng build maple-self-hosted --configuration=production",
         dist_path: UI_DIST,
       };
     }

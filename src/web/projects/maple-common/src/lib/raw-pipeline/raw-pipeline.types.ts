@@ -22,7 +22,15 @@ export interface DecodeError {
   message: string;
 }
 
-export type WorkerResponse = DecodeSuccess | DecodeError;
+/** T10: broadcast from the worker after WASM init reports thread-pool state. */
+export interface WorkerStatus {
+  id: 0;
+  type: 'status';
+  threaded: boolean;
+  threads: number;
+}
+
+export type WorkerResponse = DecodeSuccess | DecodeError | WorkerStatus;
 
 export interface DecodedImage {
   width: number;

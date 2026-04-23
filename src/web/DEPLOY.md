@@ -167,6 +167,87 @@ server {
 
 ---
 
+## WASM threading + cross-origin isolation (T10)
+
+The RAW decode path ships a `wasm-bindgen-rayon` thread pool that only
+activates inside a **cross-origin-isolated** document. Browsers require two
+response headers on every top-level document and every subresource:
+
+```
+Cross-Origin-Opener-Policy: same-origin
+Cross-Origin-Embedder-Policy: require-corp
+```
+
+Without these, Safari and Firefox default to single-threaded decode and
+Chrome refuses `SharedArrayBuffer`. The JS wrapper detects
+`crossOriginIsolated` and degrades gracefully — the app still loads and
+renders, just slower on large RAWs.
+
+### Cloudflare Pages / Netlify
+
+Both hosts honour the `_headers` file that ships in
+`projects/maple-hosted/public/_headers`. After `ng build maple-hosted` the
+file lands in `dist/maple-hosted/browser/_headers` and is picked up
+automatically — no extra config needed.
+
+### Vercel
+
+`_headers` is not honoured by Vercel. Add a `headers` stanza to
+`vercel.json`:
+
+```json
+{
+  "buildCommand": "cd src/web && npm run sync-raw-wasm && npm run build:hosted",
+  "outputDirectory": "src/web/dist/maple-hosted/browser",
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        { "key": "Cross-Origin-Opener-Policy", "value": "same-origin" },
+        { "key": "Cross-Origin-Embedder-Policy", "value": "require-corp" }
+      ]
+    }
+  ],
+  "routes": [
+    { "src": "/raw_wasm_bg\\.wasm", "headers": { "Content-Type": "application/wasm" }, "dest": "/raw_wasm_bg.wasm" },
+    { "handle": "filesystem" },
+    { "src": "/(.*)", "dest": "/index.html" }
+  ]
+}
+```
+
+### Apache / nginx
+
+Apache (`.htaccess`):
+
+```apache
+<IfModule mod_headers.c>
+  Header set Cross-Origin-Opener-Policy "same-origin"
+  Header set Cross-Origin-Embedder-Policy "require-corp"
+</IfModule>
+```
+
+nginx:
+
+```nginx
+add_header Cross-Origin-Opener-Policy "same-origin" always;
+add_header Cross-Origin-Embedder-Policy "require-corp" always;
+```
+
+### Bun API (`maple-self-hosted`)
+
+The Bun server already emits both headers from `src/api/src/index.ts`
+(`onBeforeHandle`) and from the static-UI handler in
+`src/api/src/routes/static_ui.ts`. No deployer config needed.
+
+### Angular dev server
+
+`src/web/angular.json` sets the headers on `architect.serve.options.headers`
+for both apps, so `npm run start:hosted` and `npm run start:self-hosted`
+already serve cross-origin-isolated responses — threading works locally.
+
+---
+
 ## Local production preview
 
 ```bash
@@ -177,3 +258,6 @@ python3 -m http.server 4200 --directory dist/maple/browser
 ```
 
 Note: `python3 -m http.server` serves `.wasm` as `application/wasm` out of the box on Python 3.4+.
+For threaded testing locally, prefer `npm run start:hosted` (Angular dev server
+with COOP/COEP already configured) — `http.server` does not set those headers
+so threading stays in the single-threaded fallback path.
