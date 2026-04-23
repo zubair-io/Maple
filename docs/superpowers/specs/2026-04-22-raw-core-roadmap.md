@@ -226,6 +226,17 @@ JPEG sRGB and Display P3, HEIC P3, TIFF 16-bit (display P3 and scene-linear ProP
 
 `raw-ffi` staticlib with C ABI (`#[no_mangle] extern "C"`, opaque handle, three exported functions per spec § 00 "Explicit stack inventory"); cbindgen-generated header; xcframework assembly script. `raw-wasm` cdylib with wasm-bindgen surface; `wasm-pack build --target web`. Apple (`MapleCore`) and web (`Maple-common`) shells can consume `raw-core` without code changes to downstream slices.
 
+**Status: COMPLETE (partial) 2026-04-22.** Tag: `slice-9-complete`. 1 commit from slice-8-complete. Both wrapper crates build on the host target; FFI smoke-test passes.
+
+**Shipped:**
+- `src/raw-pipeline/raw-ffi/` — `crate-type = ["staticlib", "rlib"]`. Three `#[no_mangle] extern "C"` functions: `maple_render_file`, `maple_free_buffer`, `maple_last_error`. Thread-local error strings. 2 Rust-side tests (happy path against test_0002 + null-arg error path).
+- `src/raw-pipeline/raw-wasm/` — `crate-type = ["cdylib", "rlib"]`. `#[wasm_bindgen]` surface: `render_file(raw_path, xmp_path?) → MapleRender { width, height, rgb }` + `version()`. Path-based entry is an MVP; a future slice adds `render_bytes(&[u8], ext)` so web callers don't materialize RAWs to temp files.
+
+**Deferred to slice 10:**
+- cbindgen C-header generation + `xcframework` assembly script (needs cross-compile for aarch64/x86_64 Apple targets).
+- `wasm-pack build --target web` + npm-package publishing (needs the Angular `Maple-common` consumer to pin its interface).
+- Byte-based decode in `raw-core` (`decode_bytes(&[u8], &str)` sibling of `decode(Path)`) — needed before the web client can pass file bytes directly.
+
 ### Slice 10 — apps (three user-facing products)
 
 Per `docs/spec/12-maple-apps-spec.md`. Three products + cross-cutting infrastructure, all building on top of slice 9's FFI/WASM surfaces:
