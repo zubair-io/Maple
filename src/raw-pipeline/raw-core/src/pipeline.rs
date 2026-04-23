@@ -22,7 +22,7 @@ pub fn render_from_raw(raw: &RawImage, model: &AdjustmentModel) -> Result<(u32, 
     let mosaic = linearize::sensor_linearize(raw);
     let camera_rgb = demosaic::bilinear(&mosaic, raw.cfa);
     let profile = dcp::profile_for(raw)?;
-    let mut scene = dcp::apply(&camera_rgb, &profile);
+    let mut scene = dcp::apply(&camera_rgb, &profile)?;
     white_balance::apply(&mut scene, model.temperature, model.tint);
     exposure::apply(&mut scene, model.exposure);
     dehaze::apply(&mut scene, model.dehaze);
