@@ -6,6 +6,9 @@
 //!
 //! # Rawler API notes (0.7.2)
 //! - Entry point: `rawler::decode_file(&Path) -> Result<rawler::RawImage>`
+//! - Byte-based entry: `rawler::decode(&RawSource, &RawDecodeParams)` where
+//!   `RawSource::new_from_slice(&[u8])` wraps an in-memory buffer and
+//!   `.with_path("hint.ext")` attaches an extension hint for format detection.
 //! - CFA pattern lives in `rawler::RawImage::photometric` as
 //!   `RawPhotometricInterpretation::Cfa(CFAConfig { cfa, .. })` where
 //!   `cfa.name` is a string like `"RGGB"` / `"BGGR"` / `"GRBG"` / `"GBRG"`.
@@ -23,8 +26,10 @@
 use std::collections::HashMap;
 use std::path::Path;
 
+use rawler::decoders::RawDecodeParams;
 use rawler::imgop::xyz::Illuminant as RawlerIlluminant;
 use rawler::rawimage::{RawImageData, RawPhotometricInterpretation};
+use rawler::rawsource::RawSource;
 
 use crate::color::illuminant::Illuminant as CoreIlluminant;
 use crate::error::Error;
@@ -34,12 +39,38 @@ use crate::Result;
 
 /// Decode a RAW file at `path` and return a fully-populated [`RawImage`].
 ///
+/// Thin wrapper around [`decode_bytes`]: reads the file then delegates.
 /// Supports DNG (little- and big-endian), Hasselblad 3FR, and Canon CR2.
 /// Returns [`Error::UnsupportedCfa`] for X-Trans patterns.
 pub fn decode(path: &Path) -> Result<RawImage> {
-    // ── 1. Decode via rawler ───────────────────────────────────────────────
-    let raw = rawler::decode_file(path).map_err(|e| Error::Decode {
+    let bytes = std::fs::read(path).map_err(|e| Error::Io {
         path: path.to_path_buf(),
+        source: e,
+    })?;
+    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+    decode_bytes(&bytes, ext)
+}
+
+/// Decode a RAW from an in-memory byte slice.
+///
+/// `ext` is a **lowercase** file extension (e.g. `"dng"`, `"cr2"`, `"arw"`)
+/// used by rawler as a format hint when the file's internal magic is ambiguous.
+/// It is attached as a dummy path `"rawfile.<ext>"` on the [`RawSource`] so
+/// rawler's format-detection logic can key off it.
+///
+/// This is the browser-safe entry point: WASM has no filesystem paths, so the
+/// caller reads the file via the Web File API and passes the bytes + extension
+/// here. The existing [`decode`] function is now a thin `std::fs::read` wrapper
+/// that delegates here.
+pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
+    // Attach a synthetic filename so rawler can use the extension as a hint.
+    let hint_path = format!("rawfile.{}", ext);
+    let source = RawSource::new_from_slice(bytes)
+        .with_path(std::path::Path::new(&hint_path));
+
+    // ── 1. Decode via rawler ───────────────────────────────────────────────
+    let raw = rawler::decode(&source, &RawDecodeParams::default()).map_err(|e| Error::Decode {
+        path: std::path::PathBuf::from(&hint_path),
         reason: e.to_string(),
     })?;
 
@@ -93,7 +124,7 @@ pub fn decode(path: &Path) -> Result<RawImage> {
             // if a future fixture does, revisit the Float-rescale math.
             if black_level.iter().any(|&b| b > 0) {
                 return Err(Error::Decode {
-                    path: path.to_path_buf(),
+                    path: std::path::PathBuf::from(&hint_path),
                     reason: format!(
                         "RawImageData::Float with non-zero black_level {:?} — \
                          refuse to silently lose data; see decode.rs comment",
@@ -270,5 +301,59 @@ mod tests {
         }
         let raw = decode(&path).expect("decode 100MP DNG");
         assert!(raw.width > 8000, "100MP expected, got {} wide", raw.width);
+    }
+
+    /// Verify that `decode_bytes` produces identical width/height/CFA as
+    /// `decode(path)` for the primary test fixture.
+    #[test]
+    fn decode_bytes_matches_decode_path_for_test_0002() {
+        let path = fixture_root().join("test_0002.dng");
+        if !path.exists() {
+            eprintln!("skip: {}", path.display());
+            return;
+        }
+        // decode_bytes using include_bytes! (compile-time embed)
+        let bytes = include_bytes!("../../../../test-fixtures/raws/test_0002.dng");
+        let by_bytes = decode_bytes(bytes, "dng").expect("decode_bytes DNG");
+        let by_path  = decode(&path).expect("decode path DNG");
+
+        assert_eq!(by_bytes.width,  by_path.width,  "width mismatch");
+        assert_eq!(by_bytes.height, by_path.height, "height mismatch");
+        assert_eq!(by_bytes.cfa,    by_path.cfa,    "CFA mismatch");
+        assert_eq!(by_bytes.white_level, by_path.white_level, "white_level mismatch");
+    }
+
+    /// Full equivalence check: decode_bytes must produce byte-identical RawImage
+    /// to decode(path) for the primary DNG fixture. Covers black_level, white_level,
+    /// raw_data length, and spot-pixel values in addition to geometry.
+    #[test]
+    fn decode_bytes_matches_decode_path_on_test_0002() {
+        let path = fixture_root().join("test_0002.dng");
+        if !path.exists() { return; }
+        let from_path = decode(&path).expect("decode from path");
+        let bytes = std::fs::read(&path).unwrap();
+        let from_bytes = decode_bytes(&bytes, "dng").expect("decode from bytes");
+        assert_eq!(from_path.width, from_bytes.width);
+        assert_eq!(from_path.height, from_bytes.height);
+        assert_eq!(from_path.cfa, from_bytes.cfa);
+        assert_eq!(from_path.black_level, from_bytes.black_level);
+        assert_eq!(from_path.white_level, from_bytes.white_level);
+        assert_eq!(from_path.raw_data.len(), from_bytes.raw_data.len());
+        // Spot-check a few pixels.
+        assert_eq!(from_path.raw_data[0], from_bytes.raw_data[0]);
+        if from_path.raw_data.len() > 1_000_000 {
+            assert_eq!(from_path.raw_data[1_000_000], from_bytes.raw_data[1_000_000]);
+        }
+    }
+
+    /// Verify decode_bytes works on Canon CR2 format via extension hint.
+    #[test]
+    fn decode_bytes_works_on_cr2() {
+        let path = fixture_root().join("test_0003.CR2");
+        if !path.exists() { return; }
+        let bytes = std::fs::read(&path).unwrap();
+        let raw = decode_bytes(&bytes, "cr2").expect("decode cr2 from bytes");
+        assert!(raw.width > 0 && raw.height > 0);
+        assert_eq!(raw.camera_make.to_lowercase(), "canon");
     }
 }

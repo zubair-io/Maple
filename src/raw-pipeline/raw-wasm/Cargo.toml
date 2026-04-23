@@ -12,3 +12,10 @@ crate-type = ["cdylib", "rlib"]
 raw-core = { path = "../raw-core" }
 wasm-bindgen = "0.2"
 thiserror.workspace = true
+
+# uuid (pulled in transitively by rawler) needs the `js` feature on
+# wasm32-unknown-unknown to get randomness from WebCrypto.
+# getrandom also needs `wasm_js` for its own WASM entropy source.
+[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
+uuid = { version = "1", features = ["js"] }
+getrandom = { version = "0.4", features = ["wasm_js"] }
