@@ -3,7 +3,7 @@
 
 import { Component, inject } from '@angular/core';
 import { NgTemplateOutlet, DecimalPipe } from '@angular/common';
-import { BrowseStateService } from '../state/browse-state.service';
+import { LibraryStateService } from '@maple-common';
 import { MapleIconComponent, MapleIconName } from '@maple-common';
 import { SidebarEntry } from '@maple-common';
 
@@ -202,7 +202,7 @@ import { SidebarEntry } from '@maple-common';
   `,
 })
 export class FolderTreeComponent {
-  state = inject(BrowseStateService);
+  state = inject(LibraryStateService);
 
   isFolderOpen(node: SidebarEntry): boolean {
     const map = this.state.folderOpen();

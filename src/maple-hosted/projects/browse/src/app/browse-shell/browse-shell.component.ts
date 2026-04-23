@@ -2,7 +2,7 @@
 // Ported from _design-reference/app.jsx (WindowChrome + App layout).
 
 import { Component, HostListener, inject, signal } from '@angular/core';
-import { BrowseStateService } from '../state/browse-state.service';
+import { LibraryStateService } from '@maple-common';
 import { FolderTreeComponent } from '../folder-tree/folder-tree.component';
 import { AssetGridComponent } from '../asset-grid/asset-grid.component';
 import { DetailPanelComponent } from '../detail-panel/detail-panel.component';
@@ -249,7 +249,7 @@ import { MapleIconComponent } from '@maple-common';
   `,
 })
 export class BrowseShellComponent {
-  state = inject(BrowseStateService);
+  state = inject(LibraryStateService);
 
   // ── Keyboard shortcuts ────────────────────────────────────────────────────
   @HostListener('document:keydown', ['$event'])

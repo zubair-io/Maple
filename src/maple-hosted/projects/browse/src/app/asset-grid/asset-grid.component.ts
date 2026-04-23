@@ -11,7 +11,7 @@ import {
   inject,
   signal,
 } from '@angular/core';
-import { BrowseStateService } from '../state/browse-state.service';
+import { LibraryStateService } from '@maple-common';
 import { MapleIconComponent } from '@maple-common';
 import { Asset } from '@maple-common';
 
@@ -298,7 +298,7 @@ interface GridRow {
 export class AssetGridComponent implements AfterViewInit, OnDestroy {
   @ViewChild('gridContainer') gridContainerRef!: ElementRef<HTMLElement>;
 
-  state = inject(BrowseStateService);
+  state = inject(LibraryStateService);
 
   readonly STAR_INDICES = [1, 2, 3, 4, 5];
 
@@ -371,8 +371,14 @@ export class AssetGridComponent implements AfterViewInit, OnDestroy {
   }
 
   onThumbDblClick(asset: Asset): void {
-    // P3 will wire this to full-image mode; for now just focus.
     this.state.selectAsset(asset.id);
+    // Cross-app navigation: editor is a separate Angular app.
+    // In dev, editor runs on port 4300; in production both are on the same origin.
+    // SPA-level routing integration between the two apps is deferred to a future slice.
+    const editorBase = window.location.port === '4200'
+      ? `http://localhost:4300`
+      : `${window.location.origin}`;
+    window.location.href = `${editorBase}/edit/${asset.id}`;
   }
 
   onThumbSizeChange(e: Event): void {

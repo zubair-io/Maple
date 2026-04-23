@@ -3,9 +3,8 @@
 // Develop tab is P3 scope; shell is wired here but renders a placeholder.
 
 import { Component, inject } from '@angular/core';
-import { BrowseStateService } from '../state/browse-state.service';
+import { LibraryStateService, InfoTabComponent } from '@maple-common';
 import { MapleIconComponent } from '@maple-common';
-import { InfoTabComponent } from './info-tab.component';
 
 @Component({
   selector: 'app-detail-panel',
@@ -79,7 +78,7 @@ import { InfoTabComponent } from './info-tab.component';
   template: `
     <div class="content">
       @if (state.activeTab() === 'info') {
-        <app-info-tab/>
+        <maple-info-tab/>
       } @else {
         <div class="develop-placeholder">
           Develop tab — coming in P3
@@ -105,5 +104,5 @@ import { InfoTabComponent } from './info-tab.component';
   `,
 })
 export class DetailPanelComponent {
-  state = inject(BrowseStateService);
+  state = inject(LibraryStateService);
 }
