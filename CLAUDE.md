@@ -81,7 +81,15 @@ docs/
 
 ## Build & test — Apple
 
-The app is an Xcode project (`src/apple/Maple.xcodeproj`) that consumes a local Swift package at `src/apple/Packages/MapleCore/` plus the committed `Frameworks/RawPipeline.xcframework`.
+The app is an Xcode project (`src/apple/Maple.xcodeproj`) that consumes a local Swift package at `src/apple/Packages/MapleCore/` plus the `Frameworks/RawPipeline.xcframework` binary built from the Rust core.
+
+**First build after clone:** the `libraw_ffi.a` files inside the xcframework are gitignored (200–500 MB each, over GitHub's limit). Build them once before the first Xcode build:
+
+```bash
+./src/apple/scripts/build-xcframework.sh
+```
+
+This needs Rust + cbindgen + the iOS/macOS Rust targets (`rustup target add aarch64-apple-ios aarch64-apple-ios-sim aarch64-apple-darwin x86_64-apple-darwin`). The script regenerates the Headers, the `module.modulemap`, and the per-platform static libs.
 
 ```bash
 # macOS build
@@ -94,9 +102,6 @@ xcodebuild -project Maple.xcodeproj -scheme Maple \
 
 # Unit tests (runs inside the local package — Xcode test target is a stub)
 cd Packages/MapleCore && swift test
-
-# Rebuild the Rust xcframework (Apple consumes this as a committed binary)
-./src/apple/scripts/build-xcframework.sh
 ```
 
 The xcframework's iOS simulator slice is arm64 only today, so `-destination 'generic/platform=iOS Simulator'` fails on the x86_64 link step — pass a specific simulator destination instead.
