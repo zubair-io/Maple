@@ -18,3 +18,5 @@ pub use image::{CfaPattern, ColorSpace, Image, RawImage};
 pub mod decode;
 
 pub mod linearize;
+
+pub mod demosaic;
