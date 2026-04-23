@@ -3,7 +3,7 @@ use crate::{
     demosaic, linearize,
     error::Result,
     image::RawImage,
-    stages::{dehaze, scene_tone_controls, white_balance},
+    stages::{clarity, dehaze, saturation, scene_tone_controls, texture, vibrance, white_balance},
     view::{agx, encode},
     xmp::AdjustmentModel,
 };
@@ -12,10 +12,14 @@ use std::path::Path;
 /// End-to-end render: decode → demosaic → DCP → WB → exposure → dehaze → AgX
 /// → Rec.2020→sRGB → gamma → u8.
 ///
-/// Per spec § 02 filter chain, with the slice-1 subset:
+/// Per spec § 02 filter chain, with the slice-1/2/3 subset:
 /// * Highlight reconstruction (§ 3.3a) skipped (default off).
-/// * SceneToneControls collapses to exposure-only (§ 3.6).
-/// * Vibrance/saturation/clarity/texture/sharpening/NR/crop skipped.
+/// * SceneToneControls applies exposure/highlights/shadows/whites/blacks
+///   (tone curves deferred to slice 7).
+/// * Vibrance (Oklab + skin window, § 3.7), Saturation (Oklab chroma
+///   scale), Clarity (unsharp r=40, § 3.8), Texture (unsharp r=3, § 3.8)
+///   land in slice 3.
+/// * Capture sharpening (§ 3.10), NR (§ 3.11), Crop (§ 3.12) skipped.
 /// * DisplayReferredCurve (§ 3.6b) skipped (no fixture flips it on).
 /// * AgX is the Sobotka power-curve approximation (slice-6 calibration target).
 pub fn render_from_raw(raw: &RawImage, model: &AdjustmentModel) -> Result<(u32, u32, Vec<u8>)> {
@@ -25,6 +29,10 @@ pub fn render_from_raw(raw: &RawImage, model: &AdjustmentModel) -> Result<(u32, 
     let mut scene = dcp::apply(&camera_rgb, &profile)?;
     white_balance::apply(&mut scene, model.temperature, model.tint);
     scene_tone_controls::apply(&mut scene, model);
+    vibrance::apply(&mut scene, model.vibrance);
+    saturation::apply(&mut scene, model.saturation);
+    clarity::apply(&mut scene, model.clarity);
+    texture::apply(&mut scene, model.texture);
     dehaze::apply(&mut scene, model.dehaze);
     agx::apply(&mut scene, model.contrast);
     encode::rec2020_to_srgb(&mut scene);
