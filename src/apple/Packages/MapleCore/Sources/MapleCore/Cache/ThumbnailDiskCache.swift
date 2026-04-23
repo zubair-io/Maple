@@ -57,14 +57,21 @@ public actor ThumbnailDiskCache {
     /// Return JPEG bytes for the given asset URL, or nil if not cached.
     /// Preferred entry-point for UI cells that render via `Image(data:)`.
     public func thumbnailData(for assetURL: URL) -> Data? {
-        let key = cacheKey(for: assetURL)
-        if let d = dataMemCache[key] { return d }
+        return thumbnailData(forKey: cacheKey(for: assetURL))
+    }
+
+    /// Return JPEG bytes for an opaque stable key (e.g. an `AssetRef.id` or a
+    /// server-provided maple:id hex). Used by sourceless assets (PhotoKit,
+    /// SelfHosted) where there is no filesystem URL to MD5.
+    public func thumbnailData(forKey key: String) -> Data? {
+        let hashed = md5(key)
+        if let d = dataMemCache[hashed] { return d }
         guard let dir = cacheDir else { return nil }
-        let fileURL = dir.appendingPathComponent("\(key).jpg")
+        let fileURL = dir.appendingPathComponent("\(hashed).jpg")
         guard fm.fileExists(atPath: fileURL.path),
               let data = try? Data(contentsOf: fileURL) else { return nil }
         evictIfNeeded()
-        dataMemCache[key] = data
+        dataMemCache[hashed] = data
         return data
     }
 
@@ -91,11 +98,17 @@ public actor ThumbnailDiskCache {
     /// Store pre-encoded JPEG bytes. Used by `ThumbnailLoader` which encodes
     /// off-actor (avoids blocking the cache actor on JPEG round-trips).
     public func storeThumbnailData(_ data: Data, for assetURL: URL) {
-        let key = cacheKey(for: assetURL)
+        storeThumbnailData(data, forKey: cacheKey(for: assetURL))
+    }
+
+    /// Store pre-encoded JPEG bytes under an opaque stable key. Sibling of the
+    /// URL-keyed overload — used for sourceless assets keyed by `AssetRef.id`.
+    public func storeThumbnailData(_ data: Data, forKey key: String) {
+        let hashed = md5(key)
         evictIfNeeded()
-        dataMemCache[key] = data
+        dataMemCache[hashed] = data
         guard let dir = cacheDir else { return }
-        let fileURL = dir.appendingPathComponent("\(key).jpg")
+        let fileURL = dir.appendingPathComponent("\(hashed).jpg")
         try? data.write(to: fileURL, options: .atomic)
     }
 

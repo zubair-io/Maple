@@ -53,6 +53,61 @@ public actor ThumbnailLoader {
         }.value
     }
 
+    /// Sourceless entry point — for assets without a filesystem URL (PhotoKit,
+    /// SelfHosted). Order of attempts:
+    ///   1. Disk cache hit on the asset's stable id.
+    ///   2. `source.thumb(for:)` — server-rendered or PhotoKit fast path.
+    ///   3. Render-from-bytes fallback: `bytesProvider` → `PipelineRenderer.render(rawBytes:hint:)`
+    ///      → JPEG q=0.82 at 256 px long edge → cache.
+    ///
+    /// Returns `nil` when no path produced bytes (network down + no fallback,
+    /// renderer failure, etc.).
+    public func load(
+        for asset: AssetRef,
+        from source: (any ImageSource)?
+    ) async -> Data? {
+        // Determine cache key. Sourceless assets prefer their stable id;
+        // filesystem-shaped assets fall through to the URL-keyed overload.
+        if let url = asset.primaryURL {
+            return await load(for: url)
+        }
+        let key = asset.stableID ?? asset.displayName
+
+        // 1. Disk-cache hit.
+        if let cached = await ThumbnailDiskCache.shared.thumbnailData(forKey: key) {
+            return cached
+        }
+
+        // 2. Source-provided thumbnail (server-rendered / PhotoKit fast path).
+        if let source, let stableID = asset.stableID {
+            // Reconstruct an ImageRef the source can dispatch on. We only
+            // need id+displayName; URL is unused for sourceless adapters.
+            let ref = ImageRef(id: stableID, displayName: asset.displayName)
+            if let bytes = (try? await source.thumb(for: ref)) ?? nil {
+                await ThumbnailDiskCache.shared.storeThumbnailData(bytes, forKey: key)
+                return bytes
+            }
+        }
+
+        // 3. Fallback: pull RAW bytes through the asset's provider, render
+        //    via the Rust pipeline, encode JPEG, persist.
+        guard let provider = asset.bytesProvider else { return nil }
+        let hint = asset.hintExtension ?? ""
+        return await Task.detached(priority: .utility) { () -> Data? in
+            do {
+                let bytes = try await provider()
+                let image = try PipelineRenderer.render(rawBytes: bytes, hint: hint)
+                guard let data = Self.encodeJPEG(image, ctx: CIContext()) else {
+                    return nil
+                }
+                await ThumbnailDiskCache.shared.storeThumbnailData(data, forKey: key)
+                return data
+            } catch {
+                return nil
+            }
+        }.value
+    }
+
     // MARK: - Helpers
 
     /// Downscale the pipeline-produced RGB buffer to the thumbnail long-edge
