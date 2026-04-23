@@ -6,7 +6,8 @@ import CoreImage.CIFilterBuiltins
 import MapleCore
 
 struct FullImageView: View {
-    @ObservedObject var session: EditSession
+    /// `EditSession` is `@Observable`; SwiftUI tracks property access directly.
+    let session: EditSession
 
     @State private var scale: CGFloat = 1.0
     @State private var offset: CGSize = .zero
@@ -36,6 +37,23 @@ struct FullImageView: View {
                             .padding(6)
                             .background(.black.opacity(0.6), in: Capsule())
                             .padding(.bottom, 12)
+                    }
+                }
+
+                // Render error banner (populated by EditSession._render's catch).
+                if let err = session.renderError {
+                    VStack {
+                        HStack(spacing: 6) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                            Text(err.localizedDescription)
+                                .font(.caption)
+                                .lineLimit(2)
+                        }
+                        .foregroundStyle(.white)
+                        .padding(8)
+                        .background(Color.red.opacity(0.85), in: RoundedRectangle(cornerRadius: 6))
+                        .padding(.top, 12)
+                        Spacer()
                     }
                 }
 

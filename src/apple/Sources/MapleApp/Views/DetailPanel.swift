@@ -9,7 +9,7 @@ import MapleCore
 // MARK: - DetailPanel
 
 struct DetailPanel: View {
-    @ObservedObject var session: EditSession
+    @Bindable var session: EditSession
     @State private var selectedTab: PanelTab = .develop
 
     enum PanelTab { case info, develop }
@@ -134,7 +134,7 @@ struct SectionHeader: View {
 // MARK: - DevelopTab
 
 struct DevelopTab: View {
-    @ObservedObject var session: EditSession
+    @Bindable var session: EditSession
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
