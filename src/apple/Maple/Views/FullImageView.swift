@@ -12,6 +12,10 @@ struct FullImageView: View {
     @State private var scale: CGFloat = 1.0
     @State private var offset: CGSize = .zero
     @State private var lastScale: CGFloat = 1.0
+    /// Committed pan offset — accumulates across drag gestures so consecutive
+    /// drags chain instead of snapping back to centre. Mirrors the
+    /// `lastScale` pattern used for MagnifyGesture.
+    @State private var lastOffset: CGSize = .zero
 
     var body: some View {
         GeometryReader { geo in
@@ -23,8 +27,8 @@ struct FullImageView: View {
                 imageContent
                     .scaleEffect(scale)
                     .offset(offset)
-                    .gesture(magnificationGesture)
-                    .gesture(dragGesture)
+                    .gesture(magnificationGesture(geo: geo))
+                    .gesture(dragGesture(geo: geo))
                     .onTapGesture(count: 2) { resetZoom() }
 
                 // Before/After overlay
@@ -83,7 +87,11 @@ struct FullImageView: View {
             // Zoom controls
             ToolbarItemGroup(placement: .automatic) {
                 Button("Fit", systemImage: "arrow.down.right.and.arrow.up.left") { resetZoom() }
-                Button("100%", systemImage: "1.circle") { scale = 1.0; offset = .zero }
+                Button("100%", systemImage: "1.circle") {
+                    scale = 1.0
+                    offset = .zero
+                    lastOffset = .zero
+                }
             }
         }
     }
@@ -106,30 +114,53 @@ struct FullImageView: View {
         }
     }
 
-    private var magnificationGesture: some Gesture {
+    private func magnificationGesture(geo: GeometryProxy) -> some Gesture {
         MagnifyGesture()
             .onChanged { v in scale = lastScale * v.magnification }
-            .onEnded { v in
-                lastScale = scale
-                scale = max(0.1, min(scale, 20))
+            .onEnded { _ in
+                lastScale = max(0.1, min(scale, 20))
+                scale = lastScale
+                // If the user pinched back out to unity, re-centre.
+                if scale <= 1.0 {
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                        offset = .zero
+                        lastOffset = .zero
+                    }
+                } else {
+                    // Clamp the existing pan to the new scale.
+                    let clamped = clampOffset(offset, geo: geo, scale: scale)
+                    offset = clamped
+                    lastOffset = clamped
+                }
             }
     }
 
-    private var dragGesture: some Gesture {
+    private func dragGesture(geo: GeometryProxy) -> some Gesture {
         DragGesture()
             .onChanged { v in
-                offset = CGSize(
-                    width: v.translation.width,
-                    height: v.translation.height
+                let proposed = CGSize(
+                    width: lastOffset.width + v.translation.width,
+                    height: lastOffset.height + v.translation.height
                 )
+                offset = clampOffset(proposed, geo: geo, scale: scale)
             }
-            .onEnded { v in
-                offset = CGSize(
-                    width: offset.width + v.translation.width,
-                    height: offset.height + v.translation.height
-                )
-                offset = .zero  // simple: reset drag to center; real panning state in P8
+            .onEnded { _ in
+                lastOffset = offset
             }
+    }
+
+    /// Clamp pan so the scaled image can't be dragged entirely off-screen.
+    /// The scaled image's half-extent is `geo.size * (scale - 1) / 2`; once
+    /// the centre moves past that, the image edge crosses the viewport edge
+    /// and we pin it. At scale ≤ 1 there's nothing to pan.
+    private func clampOffset(_ raw: CGSize, geo: GeometryProxy, scale: CGFloat) -> CGSize {
+        guard scale > 1.0 else { return .zero }
+        let maxX = (geo.size.width  * (scale - 1)) / 2
+        let maxY = (geo.size.height * (scale - 1)) / 2
+        return CGSize(
+            width:  min(max(raw.width,  -maxX), maxX),
+            height: min(max(raw.height, -maxY), maxY)
+        )
     }
 
     private func resetZoom() {
@@ -137,6 +168,7 @@ struct FullImageView: View {
             scale = 1.0
             offset = .zero
             lastScale = 1.0
+            lastOffset = .zero
         }
     }
 }

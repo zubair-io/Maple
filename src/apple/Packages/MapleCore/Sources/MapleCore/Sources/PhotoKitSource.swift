@@ -32,6 +32,8 @@ public actor PhotoKitSource {
 
     public var assets: [PhotoKitAsset] { _assets }
 
+    public init() {}
+
     // MARK: Public API
 
     /// Request Photo Library authorization and fetch RAW assets.

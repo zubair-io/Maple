@@ -23,6 +23,11 @@ struct AppShell: View {
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var showFilePicker = false
 
+    // Source-picker state (sidebar → sheet).
+    @State private var selectedSourceKind: SourceKind = .files
+    @State private var showSMBSheet = false
+    @State private var showSelfHostedSheet = false
+
     private var selectedSession: EditSession? {
         browseVM.selectedID.flatMap { sessions[$0] }
     }
@@ -47,6 +52,22 @@ struct AppShell: View {
                 ExportPanel(session: session)
             }
         }
+        .sheet(isPresented: $showSMBSheet) {
+            SMBPickerSheet(onConnect: { creds in
+                showSMBSheet = false
+                connectSMB(credentials: creds)
+            }, onCancel: { showSMBSheet = false })
+        }
+        .sheet(isPresented: $showSelfHostedSheet) {
+            SelfHostedPickerSheet(onConnect: { url, token in
+                showSelfHostedSheet = false
+                connectSelfHosted(baseURL: url, token: token)
+            }, onCancel: { showSelfHostedSheet = false })
+        }
+        .task {
+            // Restore last-used source on cold start.
+            await restoreLastSource()
+        }
     }
 
     // MARK: - Mac / iPad (NavigationSplitView)
@@ -54,8 +75,14 @@ struct AppShell: View {
     private var macShell: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
             // Sidebar: source list
-            SourceSidebar(onOpenFolder: { showFilePicker = true })
-                .navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 280)
+            SourceSidebar(
+                selected: $selectedSourceKind,
+                onFilesTapped: { showFilePicker = true },
+                onPhotosTapped: { requestPhotosAccess() },
+                onSMBTapped: { showSMBSheet = true },
+                onSelfHostedTapped: { showSelfHostedSheet = true }
+            )
+            .navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 280)
         } content: {
             // Center: Browse grid
             BrowseGrid(vm: browseVM, sessions: $sessions)
@@ -157,11 +184,139 @@ struct AppShell: View {
     // main-thread-serialised without wrapping it in another observable class.
     @MainActor
     private func loadFolder(url: URL) {
+        // Configure folder-scoped caches so thumbnails land in the folder's
+        // .maple/ directory (matches Maple Hosted).
+        Task.detached {
+            await ThumbnailDiskCache.shared.configure(folderURL: url)
+            await RenderedPreviewCache.shared.configure(folderURL: url)
+        }
+
         // Delegate the actual directory walk + sort + selection to the
         // view model — it owns the generation counter for stale-write rejection.
         browseVM.loadFolder(url: url)
+        selectedSourceKind = .files
 
         // Pre-create EditSessions for newly discovered assets.
+        for asset in browseVM.assets where sessions[asset.id] == nil {
+            let session = EditSession(asset: asset)
+            sessions[asset.id] = session
+            Task { await session.loadSidecar() }
+        }
+
+        // Persist bookmark-backed selection so the app re-opens here.
+        Task.detached(priority: .utility) {
+            let fs = FilesystemSource()
+            do {
+                try await fs.open(folderURL: url)
+                if let data = await fs.persistableBookmark {
+                    SourceSelectionStore.save(.filesystem(bookmark: data))
+                }
+            } catch {
+                // Non-fatal — next launch simply lands on the empty state.
+            }
+        }
+    }
+
+    // MARK: - PhotoKit
+
+    @MainActor
+    private func requestPhotosAccess() {
+        selectedSourceKind = .photos
+        Task { @MainActor in
+            let source = PhotoKitSource()
+            do {
+                try await source.requestAccessAndFetch()
+                await browseVM.loadSource(source)
+                SourceSelectionStore.save(.photoKit)
+                primeSessionsForCurrentAssets()
+            } catch {
+                browseVM.loadError = error
+            }
+        }
+    }
+
+    // MARK: - SMB
+
+    @MainActor
+    private func connectSMB(credentials: SMBSource.Credentials) {
+        selectedSourceKind = .network
+        Task { @MainActor in
+            // Persist credentials to Keychain for next launch.
+            try? await SMBCredentialStore.shared.save(credentials)
+
+            let source = SMBSource()
+            do {
+                try await source.connect(credentials: credentials, remotePath: "/")
+                await browseVM.loadSource(source)
+                SourceSelectionStore.save(.smb(
+                    SMBCredentialStore.SavedShare(
+                        host: credentials.host,
+                        share: credentials.share,
+                        username: credentials.username
+                    )
+                ))
+                primeSessionsForCurrentAssets()
+            } catch {
+                browseVM.loadError = error
+            }
+        }
+    }
+
+    // MARK: - Self Hosted
+
+    @MainActor
+    private func connectSelfHosted(baseURL: URL, token: String?) {
+        selectedSourceKind = .selfHosted
+        Task { @MainActor in
+            // Persist the token (in-memory today; Keychain-backed follow-up).
+            await SelfHostedCredentialStore.shared.setToken(token, forServerURL: baseURL)
+
+            let source = SelfHostedSource(baseURL: baseURL, token: token)
+            await browseVM.loadSource(source)
+            SourceSelectionStore.save(.selfHosted(baseURL: baseURL))
+            primeSessionsForCurrentAssets()
+        }
+    }
+
+    // MARK: - Restore
+
+    @MainActor
+    private func restoreLastSource() async {
+        guard let selection = SourceSelectionStore.load() else { return }
+        switch selection {
+        case .filesystem(let bookmark):
+            let fs = FilesystemSource()
+            do {
+                try await fs.restore(fromBookmarkData: bookmark)
+                let fileAssets = await fs.assets
+                if let first = fileAssets.first?.url {
+                    let folder = first.deletingLastPathComponent()
+                    await ThumbnailDiskCache.shared.configure(folderURL: folder)
+                    await RenderedPreviewCache.shared.configure(folderURL: folder)
+                }
+                await browseVM.loadSource(fs)
+                selectedSourceKind = .files
+                primeSessionsForCurrentAssets()
+            } catch {
+                SourceSelectionStore.clear()
+            }
+        case .photoKit:
+            requestPhotosAccess()
+        case .smb(let share):
+            if let creds = await SMBCredentialStore.shared.credentials(for: share) {
+                connectSMB(credentials: creds)
+            } else {
+                // Keychain entry missing — prompt user again.
+                showSMBSheet = true
+            }
+        case .selfHosted(let baseURL):
+            let token = await SelfHostedCredentialStore.shared.token(forServerURL: baseURL)
+            connectSelfHosted(baseURL: baseURL, token: token)
+        }
+    }
+
+    @MainActor
+    private func primeSessionsForCurrentAssets() {
         for asset in browseVM.assets where sessions[asset.id] == nil {
             let session = EditSession(asset: asset)
             sessions[asset.id] = session
@@ -170,28 +325,152 @@ struct AppShell: View {
     }
 }
 
+// MARK: - SourceKind
+
+/// Which sidebar row is selected; drives the accent highlight and the
+/// UserDefaults-persisted last-used source.
+enum SourceKind: Hashable {
+    case files, photos, network, selfHosted
+}
+
 // MARK: - SourceSidebar
 
 struct SourceSidebar: View {
-    let onOpenFolder: () -> Void
+    @Binding var selected: SourceKind
+    let onFilesTapped: () -> Void
+    let onPhotosTapped: () -> Void
+    let onSMBTapped: () -> Void
+    let onSelfHostedTapped: () -> Void
 
     var body: some View {
         List {
             Section("Sources") {
-                Label("Files", systemImage: "folder")
-                    .foregroundStyle(MapleTokens.textMain)
-                Label("Photos", systemImage: "photo")
-                    .foregroundStyle(MapleTokens.textMain)
-                Label("Network (SMB)", systemImage: "network")
-                    .foregroundStyle(MapleTokens.textMuted)
+                SourceRow(kind: .files, label: "Files", icon: "folder",
+                          selected: $selected, action: onFilesTapped)
+                SourceRow(kind: .photos, label: "Photos", icon: "photo",
+                          selected: $selected, action: onPhotosTapped)
+                SourceRow(kind: .network, label: "Network (SMB)", icon: "network",
+                          selected: $selected, action: onSMBTapped)
+                SourceRow(kind: .selfHosted, label: "Self Hosted", icon: "cloud",
+                          selected: $selected, action: onSelfHostedTapped)
             }
         }
         .listStyle(.sidebar)
         .background(MapleTokens.sidebar)
         .toolbar {
             ToolbarItem(placement: .automatic) {
-                Button("Open Folder", systemImage: "folder.badge.plus", action: onOpenFolder)
+                Button("Open Folder", systemImage: "folder.badge.plus", action: onFilesTapped)
             }
         }
+    }
+}
+
+// MARK: - SourceRow
+
+private struct SourceRow: View {
+    let kind: SourceKind
+    let label: String
+    let icon: String
+    @Binding var selected: SourceKind
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack {
+                Image(systemName: icon)
+                    .foregroundStyle(selected == kind ? MapleTokens.primary : MapleTokens.textMuted)
+                Text(label)
+                    .foregroundStyle(MapleTokens.textMain)
+                Spacer()
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .listRowBackground(
+            selected == kind ? MapleTokens.bgActive : Color.clear
+        )
+        .accessibilityLabel(label)
+        .accessibilityAddTraits(selected == kind ? [.isSelected] : [])
+    }
+}
+
+// MARK: - SMB sheet
+
+struct SMBPickerSheet: View {
+    let onConnect: (SMBSource.Credentials) -> Void
+    let onCancel: () -> Void
+
+    @State private var host = ""
+    @State private var share = ""
+    @State private var username = ""
+    @State private var password = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Connect to SMB Share")
+                .font(.title3).bold()
+            Form {
+                TextField("Host (e.g. nas.local)", text: $host)
+                TextField("Share name",           text: $share)
+                TextField("Username",             text: $username)
+                SecureField("Password",           text: $password)
+            }
+            HStack {
+                Spacer()
+                Button("Cancel", action: onCancel)
+                    .keyboardShortcut(.cancelAction)
+                Button("Connect") {
+                    onConnect(SMBSource.Credentials(
+                        host: host, share: share,
+                        username: username, password: password
+                    ))
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(host.isEmpty || share.isEmpty)
+            }
+        }
+        .padding(20)
+        .frame(minWidth: 380)
+    }
+}
+
+// MARK: - Self-Hosted sheet
+
+struct SelfHostedPickerSheet: View {
+    let onConnect: (URL, String?) -> Void
+    let onCancel: () -> Void
+
+    @State private var serverURL = ""
+    @State private var token = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Connect to Self-Hosted Server")
+                .font(.title3).bold()
+            Form {
+                TextField("Server URL (e.g. https://maple.local)", text: $serverURL)
+                SecureField("Bearer token (optional)", text: $token)
+            }
+            HStack {
+                Button {
+                    // TODO(UI-pairing-qr): scan a QR code produced by the
+                    // Bun pairing endpoint and auto-fill serverURL + token.
+                } label: {
+                    Label("Scan QR…", systemImage: "qrcode.viewfinder")
+                }
+                .disabled(true)
+                Spacer()
+                Button("Cancel", action: onCancel)
+                    .keyboardShortcut(.cancelAction)
+                Button("Connect") {
+                    guard let url = URL(string: serverURL) else { return }
+                    onConnect(url, token.isEmpty ? nil : token)
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(URL(string: serverURL) == nil)
+            }
+        }
+        .padding(20)
+        .frame(minWidth: 420)
     }
 }

@@ -20,6 +20,10 @@ public final class BrowseViewModel {
     public var isLoading: Bool = false
     /// Last load error; views can surface a banner when non-nil.
     public var loadError: Error?
+    /// The source feeding the grid. Nil until the user picks one.
+    /// `@ObservationIgnored` — callers interested in changes should observe
+    /// `assets` / `selectedID` which change together with the source.
+    @ObservationIgnored public private(set) var currentSource: (any ImageSource)?
 
     public enum SortOrder: Sendable { case nameAscending, nameDescending, dateDescending }
 
@@ -100,6 +104,50 @@ public final class BrowseViewModel {
 
             assets = refs
             selectedID = refs.first?.id
+            currentSource = source
+            loadError = nil
+        } catch {
+            guard gen == loadGeneration else { return }
+            loadError = error
+        }
+    }
+
+    /// Source-agnostic loader. Works for any `ImageSource` implementation
+    /// (Filesystem, PhotoKit, SMB, SelfHosted). `ImageRef.url` maps to an
+    /// `AssetRef` when the source is file-shaped; sources without a URL
+    /// (PhotoKit, SelfHosted) get a synthetic placeholder URL built from
+    /// the stable ref id. The `EditSession` layer is already URL-keyed —
+    /// the synthetic URLs keep that contract intact until a proper
+    /// ref-based `AssetRef` lands.
+    public func loadSource(_ source: any ImageSource) async {
+        loadGeneration &+= 1
+        let gen = loadGeneration
+        isLoading = true
+        defer {
+            if gen == loadGeneration { isLoading = false }
+        }
+
+        do {
+            let refs = try await source.images()
+            guard gen == loadGeneration else { return }
+
+            let assetRefs = refs.map { ref -> AssetRef in
+                if let url = ref.url {
+                    return AssetRef(url: url)
+                }
+                // Synthesise a stable placeholder URL from the ref id so the
+                // grid has something to key off. EditSession won't be able to
+                // pipe this through `PipelineRenderer.render(rawPath:)`
+                // directly — TODO(UI-sourceless-assets): thread `rawBytes`
+                // through ImageEditPipeline so sources without a URL (PhotoKit,
+                // SelfHosted) can render without being staged to disk.
+                return AssetRef(url: URL(string: "maple-source://\(ref.id)") ?? URL(fileURLWithPath: "/"))
+            }
+            guard gen == loadGeneration else { return }
+
+            assets = assetRefs
+            selectedID = assetRefs.first?.id
+            currentSource = source
             loadError = nil
         } catch {
             guard gen == loadGeneration else { return }

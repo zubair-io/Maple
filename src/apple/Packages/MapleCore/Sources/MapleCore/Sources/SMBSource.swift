@@ -54,6 +54,8 @@ public actor SMBSource {
 
     public var assets: [SMBAsset] { _assets }
 
+    public init() {}
+
     // MARK: Public API
 
     /// Connect to an SMB share and enumerate RAW files in a path.
