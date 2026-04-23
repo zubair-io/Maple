@@ -1,0 +1,3 @@
+numpy>=1.26
+Pillow>=10
+colour-science>=0.4.4
