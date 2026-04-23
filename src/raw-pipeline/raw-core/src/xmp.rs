@@ -17,7 +17,7 @@ impl Default for HighlightRecoveryMode {
     fn default() -> Self { Self::Off }
 }
 
-/// Slice 1+2 subset of `AdjustmentModel`. See spec § 01 for the full shape.
+/// Slice 1+2+5 subset of `AdjustmentModel`. See spec § 01 for the full shape.
 #[derive(Clone, Debug, PartialEq)]
 pub struct AdjustmentModel {
     pub temperature: f32, // 2000..12000, default 6500
@@ -32,6 +32,12 @@ pub struct AdjustmentModel {
     pub saturation: f32,  // -100..100, default 0
     pub clarity: f32,     // -100..100, default 0 (unsharp radius 40 per spec § 3.8)
     pub texture: f32,     // -100..100, default 0 (unsharp radius 3 per spec § 3.8)
+    pub sharpen_amount: f32,    // 0..150, default 0 (spec § 3.10; 0 = stage skipped, 100 = full RL, >100 overdrive)
+    pub sharpen_radius: f32,    // 0.5..3.0, default 0.5 (PSF Gaussian sigma)
+    pub sharpen_detail: f32,    // 0..100, default 25 (edge-attenuation strength)
+    pub sharpen_masking: f32,   // 0..100, default 0 (edge-mask threshold)
+    pub nr_luminance: f32,      // 0..100, default 0 (spec § 3.11)
+    pub nr_color: f32,          // 0..100, default 25 (default = ACR's default)
     pub dehaze: f32,      // -100..100, default 0
     pub highlight_recovery: HighlightRecoveryMode,
 }
@@ -43,6 +49,8 @@ impl Default for AdjustmentModel {
             exposure: 0.0,
             contrast: 0.0, highlights: 0.0, shadows: 0.0, whites: 0.0, blacks: 0.0,
             vibrance: 0.0, saturation: 0.0, clarity: 0.0, texture: 0.0,
+            sharpen_amount: 0.0, sharpen_radius: 0.5, sharpen_detail: 25.0, sharpen_masking: 0.0,
+            nr_luminance: 0.0, nr_color: 25.0,
             dehaze: 0.0,
             highlight_recovery: HighlightRecoveryMode::Off,
         }
@@ -93,6 +101,12 @@ fn set_field(m: &mut AdjustmentModel, key: &str, value: &str) -> Result<()> {
         "crs:Saturation"     => m.saturation  = v()?,
         "crs:Clarity2012"    => m.clarity     = v()?,
         "crs:Texture"        => m.texture     = v()?,
+        "crs:Sharpness"            => m.sharpen_amount  = v()?,
+        "crs:SharpenRadius"        => m.sharpen_radius  = v()?,
+        "crs:SharpenDetail"        => m.sharpen_detail  = v()?,
+        "crs:SharpenEdgeMasking"   => m.sharpen_masking = v()?,
+        "crs:LuminanceSmoothing"   => m.nr_luminance    = v()?,
+        "crs:ColorNoiseReduction"  => m.nr_color        = v()?,
         "crs:Dehaze"         => m.dehaze      = v()?,
         "crs:WhiteBalance"   => {
             if let Some((temp, tint)) = wb_preset(value) {
@@ -365,5 +379,70 @@ mod tests {
         let xml = r#"<?xml version="1.0"?><x><rdf:Description xmlns:rdf="x" xmlns:papp="x"
             papp:HighlightRecoveryMode="typo"/></x>"#;
         assert!(parse(xml).is_err());
+    }
+
+    #[test]
+    fn defaults_includes_slice5_detail_fields() {
+        let m = AdjustmentModel::default();
+        assert_eq!(m.sharpen_amount, 0.0);
+        assert_eq!(m.sharpen_radius, 0.5);
+        assert_eq!(m.sharpen_detail, 25.0);
+        assert_eq!(m.sharpen_masking, 0.0);
+        assert_eq!(m.nr_luminance, 0.0);
+        assert_eq!(m.nr_color, 25.0);
+    }
+
+    #[test]
+    fn parse_sharpen_amount_max() {
+        let xml = match load_fixture("test_0002/xmp/sharpen_amount_max.xmp") {
+            Some(x) => x, None => return,
+        };
+        let m = parse(&xml).unwrap();
+        assert!(m.sharpen_amount >= 100.0, "sharpen_amount = {}", m.sharpen_amount);
+    }
+
+    #[test]
+    fn parse_sharpen_radius_max() {
+        let xml = match load_fixture("test_0002/xmp/sharpen_radius_max.xmp") {
+            Some(x) => x, None => return,
+        };
+        let m = parse(&xml).unwrap();
+        assert!(m.sharpen_radius >= 2.9, "sharpen_radius = {}", m.sharpen_radius);
+    }
+
+    #[test]
+    fn parse_sharpen_detail_min() {
+        let xml = match load_fixture("test_0002/xmp/sharpen_detail_min.xmp") {
+            Some(x) => x, None => return,
+        };
+        let m = parse(&xml).unwrap();
+        assert!(m.sharpen_detail <= 0.5);
+    }
+
+    #[test]
+    fn parse_sharpen_masking_max() {
+        let xml = match load_fixture("test_0002/xmp/sharpen_masking_max.xmp") {
+            Some(x) => x, None => return,
+        };
+        let m = parse(&xml).unwrap();
+        assert_eq!(m.sharpen_masking, 100.0);
+    }
+
+    #[test]
+    fn parse_nr_luminance_max() {
+        let xml = match load_fixture("test_0002/xmp/nr_luminance_max.xmp") {
+            Some(x) => x, None => return,
+        };
+        let m = parse(&xml).unwrap();
+        assert_eq!(m.nr_luminance, 100.0);
+    }
+
+    #[test]
+    fn parse_nr_color_max() {
+        let xml = match load_fixture("test_0002/xmp/nr_color_max.xmp") {
+            Some(x) => x, None => return,
+        };
+        let m = parse(&xml).unwrap();
+        assert_eq!(m.nr_color, 100.0);
     }
 }
