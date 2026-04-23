@@ -54,7 +54,10 @@ let package = Package(
         .executableTarget(
             name: "MapleApp",
             dependencies: ["MapleCore"],
-            resources: [.process("../../Resources")]
+            resources: [
+                // Icon set, Info.plist, entitlements, TestFlight notes.
+                .process("Resources"),
+            ]
         ),
 
         .testTarget(name: "MapleCoreTests", dependencies: ["MapleCore"]),
