@@ -21,7 +21,14 @@ src/web/projects/maple-common/src/lib/raw-pipeline/pkg/
 .build/
 .swiftpm/
 *.xcodeproj/xcuserdata/
+*.xcodeproj/project.xcworkspace/xcuserdata/
 DerivedData/
+
+# Rust .a binaries inside committed xcframeworks — too large for GitHub
+# (200-500 MB each). Rebuild via ./src/apple/scripts/build-xcframework.sh
+# after a fresh clone. The framework's Headers/, Info.plist, and
+# module.modulemap stay tracked.
+*.xcframework/**/libraw_ffi.a
 
 # Node / Bun
 node_modules/
