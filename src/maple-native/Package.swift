@@ -35,10 +35,9 @@ let package = Package(
         // xcframework's Headers/ dir.
         .target(
             name: "MapleCore",
-            dependencies: []
-            // dependencies: [.byNameItem(name: "RawPipeline", condition: nil)]
+            dependencies: ["RawPipeline"]
         ),
-        // .binaryTarget(name: "RawPipeline", path: "Frameworks/RawPipeline.xcframework"),
+        .binaryTarget(name: "RawPipeline", path: "Frameworks/RawPipeline.xcframework"),
 
         .executableTarget(
             name: "MapleApp",
