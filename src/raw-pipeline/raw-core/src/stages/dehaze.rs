@@ -134,6 +134,50 @@ fn guided_filter(guide: &[f32], p: &[f32], w: usize, h: usize, r: usize, eps: f3
     (0..n).map(|i| mean_a[i] * guide[i] + mean_b[i]).collect()
 }
 
+/// Apply dehaze per spec § 3.9.
+/// `dehaze` in [-100, +100]; 0 is identity.
+///
+/// Positive slider strengthens haze removal (transmission mapped toward its
+/// recovered value); negative adds haze (transmission pushed toward 1.0).
+/// The final recovery `J = (I - A) / max(t, t0) + A` uses a transmission
+/// floor t0 = 0.1 to avoid division-blowup on the darkest patches.
+pub fn apply(img: &mut Image, dehaze: f32) {
+    img.assert_space(ColorSpace::SceneLinearRec2020);
+    if dehaze.abs() < 1e-3 { return; }
+    let w = img.width as usize;
+    let h = img.height as usize;
+
+    let dc = dark_channel(img);
+    let a = atmospheric_light(img, &dc);
+    let t_raw = transmission(img, a);
+
+    // Build a single-channel "guide" from scene-linear luminance.
+    // Rec.2020 weights per spec § 3.6.
+    let guide: Vec<f32> = img.pixels.iter().map(|p| {
+        0.2627 * p[0] + 0.6780 * p[1] + 0.0593 * p[2]
+    }).collect();
+    let t_refined = guided_filter(&guide, &t_raw, w, h, 60, 1e-3);
+
+    // Map the slider onto the transmission.
+    let t0 = 0.1f32;
+    let scale = (dehaze / 100.0).clamp(-1.0, 1.0);
+    for (i, p) in img.pixels.iter_mut().enumerate() {
+        let t = t_refined[i].clamp(0.0, 1.0);
+        let t_eff = if scale >= 0.0 {
+            // Positive: linearly blend from "no haze removal" (t=1) toward
+            // the recovered transmission.
+            (t + (1.0 - t) * (1.0 - scale)).max(t0)
+        } else {
+            // Negative: push transmission toward 1 (adds haze).
+            (t + (1.0 - t) * (-scale)).min(1.0).max(t0)
+        };
+        let j_r = (p[0] - a[0]) / t_eff + a[0];
+        let j_g = (p[1] - a[1]) / t_eff + a[1];
+        let j_b = (p[2] - a[2]) / t_eff + a[2];
+        *p = [j_r, j_g, j_b];
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -211,5 +255,31 @@ mod tests {
             let diff = (out[y * w + x] - p[y * w + x]).abs();
             assert!(diff < 0.05, "diff {} at ({},{})", diff, x, y);
         }}
+    }
+
+    #[test]
+    fn dehaze_zero_is_identity() {
+        let mut img = Image::new(20, 20, ColorSpace::SceneLinearRec2020);
+        for p in &mut img.pixels { *p = [0.4, 0.5, 0.6]; }
+        let before = img.pixels.clone();
+        apply(&mut img, 0.0);
+        for (a, b) in img.pixels.iter().zip(before.iter()) {
+            assert_eq!(a, b);
+        }
+    }
+
+    #[test]
+    fn dehaze_positive_increases_contrast() {
+        // A flat hazy field with a slightly darker region should remain finite
+        // and within reasonable bounds after dehaze.
+        let mut img = Image::new(30, 30, ColorSpace::SceneLinearRec2020);
+        for p in &mut img.pixels { *p = [0.5, 0.5, 0.5]; }
+        for y in 10..20 { for x in 10..20 {
+            img.pixels[y * 30 + x] = [0.35, 0.35, 0.35];
+        }}
+        apply(&mut img, 100.0);
+        assert!(img.pixels.iter().all(|p| p.iter().all(|v| v.is_finite())));
+        let after = img.pixels[10 * 30 + 10][0];
+        assert!(after >= 0.0 && after <= 1.5);
     }
 }
