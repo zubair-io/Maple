@@ -1,9 +1,8 @@
 // Root component — bootstraps mock data into the signal store and mounts the shell.
 
 import { Component, OnInit, inject } from '@angular/core';
-import { BrowseStateService } from './state/browse-state.service';
+import { LibraryStateService, mockLibrary } from '@maple-common';
 import { BrowseShellComponent } from './browse-shell/browse-shell.component';
-import { mockLibrary } from '@maple-common';
 
 @Component({
   selector: 'app-root',
@@ -12,7 +11,7 @@ import { mockLibrary } from '@maple-common';
   template: `<browse-shell />`,
 })
 export class App implements OnInit {
-  private state = inject(BrowseStateService);
+  private state = inject(LibraryStateService);
 
   ngOnInit(): void {
     const { assets, sidebarTree } = mockLibrary();
