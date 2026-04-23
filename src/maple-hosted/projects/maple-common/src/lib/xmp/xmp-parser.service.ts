@@ -1,16 +1,13 @@
-// XmpParserService — minimal culling-field parser for slice-10a.
+// XmpParserService — P6 extension: reads full AdjustmentModel + passthrough bucket.
 //
-// Reads:
-//   xmp:Rating    → rating (0..5)
-//   maple:Flag    → flag (pick/reject/unflagged)
-//   xmp:Label     → colorLabel (Adobe's word → Maple enum)
-//
-// The authoritative full-schema XMP parser is a slice-7 deliverable.
-// This version uses DOMParser for correctness over regex, but only extracts
-// the fields that the browse grid and index.json need right now.
+// parseCulling()         — unchanged P5 path: rating / flag / colorLabel.
+// parseAdjustmentModel() — new: reads all crs: numeric fields + WhiteBalance preset,
+//                          and captures unknown attributes / nested elements for passthrough.
 
 import { Injectable } from '@angular/core';
-import type { XmpCulling, XmpFlag, XmpColorLabel } from './xmp.types';
+import type { XmpCulling, XmpFlag, XmpColorLabel, PassthroughBucket } from './xmp.types';
+import type { AdjustmentModel, WhiteBalancePreset } from '../models/adjustment-model';
+import { ADJUSTMENT_FIELDS, WB_PRESET_FIELD } from './xmp-fields';
 
 /** Adobe xmp:Label words → Maple colorLabel values. */
 const LABEL_MAP: Record<string, XmpColorLabel> = {
@@ -23,8 +20,29 @@ const LABEL_MAP: Record<string, XmpColorLabel> = {
 
 const VALID_FLAGS = new Set<string>(['pick', 'reject', 'unflagged']);
 
+/**
+ * Attributes that Maple fully handles — used to separate the known set from
+ * passthrough when collecting unknownAttributes.
+ */
+const KNOWN_ATTRIBUTES = new Set<string>([
+  ...ADJUSTMENT_FIELDS.map(f => f.xmpKey),
+  WB_PRESET_FIELD.xmpKey,
+  // culling
+  'xmp:Rating', 'Rating',
+  'maple:Flag', 'papp:Flag', 'Flag',
+  'xmp:Label', 'Label',
+  'maple:ColorLabel', 'papp:ColorLabel', 'ColorLabel',
+  // structural / bookkeeping
+  'rdf:about',
+  'crs:Version',
+  'crs:ProcessVersion',
+  'crs:HasSettings',
+]);
+
 @Injectable({ providedIn: 'root' })
 export class XmpParserService {
+
+  // ── Culling (unchanged P5 behaviour) ────────────────────────────────────────
 
   /**
    * Parse an XMP sidecar and extract culling fields.
@@ -42,15 +60,12 @@ export class XmpParserService {
       const parser = new DOMParser();
       const doc = parser.parseFromString(xml, 'text/xml');
 
-      // Guard against parse errors (<parsererror> root).
-      const parseError = doc.querySelector('parsererror');
+      const parseError = doc.querySelector('parseerror');
       if (parseError) {
         console.warn('XmpParserService: malformed XML');
         return result;
       }
 
-      // rdf:Description may or may not have a namespace prefix, depending on
-      // how the serialiser wrote it.
       desc =
         doc.querySelector('rdf\\:Description') ??
         doc.querySelector('Description');
@@ -89,6 +104,87 @@ export class XmpParserService {
 
     return result;
   }
+
+  // ── Full AdjustmentModel parser (P6) ────────────────────────────────────────
+
+  /**
+   * Parse a sidecar and return the develop adjustment fields plus a passthrough
+   * bucket containing any attributes / elements that Maple does not model.
+   * The returned `model` is a Partial — callers should merge over defaultAdjustmentModel().
+   */
+  parseAdjustmentModel(xml: string): {
+    model: Partial<AdjustmentModel>;
+    passthrough: PassthroughBucket;
+  } {
+    const emptyResult = {
+      model: {} as Partial<AdjustmentModel>,
+      passthrough: { unknownAttributes: [], unknownNodes: [] } as PassthroughBucket,
+    };
+
+    let desc: Element | null = null;
+    try {
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(xml, 'text/xml');
+
+      // Guard against parse errors.
+      if (doc.querySelector('parseerror')) {
+        console.warn('XmpParserService.parseAdjustmentModel: malformed XML');
+        return emptyResult;
+      }
+
+      desc =
+        doc.querySelector('rdf\\:Description') ??
+        doc.querySelector('Description');
+
+      if (!desc) return emptyResult;
+    } catch {
+      return emptyResult;
+    }
+
+    const model: Partial<AdjustmentModel> = {};
+
+    // Walk all attributes on rdf:Description.
+    for (let i = 0; i < desc.attributes.length; i++) {
+      const attr = desc.attributes[i];
+      const name = attr.name;
+
+      const mapping = ADJUSTMENT_FIELDS.find(f => f.xmpKey === name);
+      if (mapping) {
+        const parsed = mapping.parse(attr.value);
+        if (!Number.isNaN(parsed)) {
+          (model as any)[mapping.modelKey] = parsed;
+        }
+        continue;
+      }
+
+      if (name === WB_PRESET_FIELD.xmpKey) {
+        model.whiteBalancePreset = attr.value as WhiteBalancePreset;
+        continue;
+      }
+    }
+
+    // Collect unknown attributes for the passthrough bucket.
+    const unknownAttributes: Array<{ name: string; value: string }> = [];
+    for (let i = 0; i < desc.attributes.length; i++) {
+      const attr = desc.attributes[i];
+      if (!KNOWN_ATTRIBUTES.has(attr.name) && !attr.name.startsWith('xmlns')) {
+        unknownAttributes.push({ name: attr.name, value: attr.value });
+      }
+    }
+
+    // Collect unknown child elements (ToneCurve, MaskGroupBasedCorrections, etc.).
+    const unknownNodes: string[] = [];
+    for (let i = 0; i < desc.children.length; i++) {
+      unknownNodes.push(desc.children[i].outerHTML);
+    }
+
+    return {
+      model,
+      passthrough: { unknownAttributes, unknownNodes },
+    };
+  }
+
+  // ── Private helpers ────────────────────────────────────────────────────────
 
   /**
    * Try multiple attribute name variants (namespaced vs unprefixed).
