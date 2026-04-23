@@ -6,6 +6,7 @@ import { LibraryStateService } from '@maple-common';
 import { FolderTreeComponent } from '../folder-tree/folder-tree.component';
 import { AssetGridComponent } from '../asset-grid/asset-grid.component';
 import { DetailPanelComponent } from '../detail-panel/detail-panel.component';
+import { DropZoneComponent } from '../drop-zone/drop-zone.component';
 import { MapleIconComponent } from '@maple-common';
 
 @Component({
@@ -15,6 +16,7 @@ import { MapleIconComponent } from '@maple-common';
     FolderTreeComponent,
     AssetGridComponent,
     DetailPanelComponent,
+    DropZoneComponent,
     MapleIconComponent,
   ],
   styles: [`
@@ -233,8 +235,9 @@ import { MapleIconComponent } from '@maple-common';
           <app-folder-tree/>
         </div>
 
-        <!-- Center: asset grid -->
+        <!-- Center: asset grid + drop-zone import bar -->
         <div class="panel-center">
+          <app-drop-zone/>
           <app-asset-grid/>
         </div>
 
