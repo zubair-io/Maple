@@ -87,6 +87,43 @@ public actor PhotoKitSource {
     }
 }
 
+// MARK: - ImageSource conformance
+
+extension PhotoKitSource: ImageSource {
+    /// `ImageRef.id` is the `PHAsset.localIdentifier`. `url` is `nil` because
+    /// the Photos library uses opaque identifiers, not filesystem URLs.
+    public func images() async throws -> [ImageRef] {
+        _assets.map { pa in
+            // Prefer the original filename as display name when resources
+            // are available; fall back to the PHAsset local identifier.
+            let resources = PHAssetResource.assetResources(for: pa.asset)
+            let fileName = resources.first?.originalFilename ?? pa.asset.localIdentifier
+            return ImageRef(id: pa.id, displayName: fileName, url: nil)
+        }
+    }
+
+    public func thumb(for ref: ImageRef) async throws -> Data? { nil }
+    public func preview(for ref: ImageRef) async throws -> Data? { nil }
+
+    public func rawBytes(for ref: ImageRef) async throws -> Data {
+        guard let pa = _assets.first(where: { $0.id == ref.id }) else {
+            throw ImageSourceError.notFound(ref.id)
+        }
+        guard let data = await rawData(for: pa) else {
+            throw ImageSourceError.notFound(ref.id)
+        }
+        return data
+    }
+
+    /// Photo Library sidecars aren't supported on iOS/macOS without an
+    /// editable PHAssetResource — mark the source as read-only for now.
+    public func writeXMP(_ sidecar: Sidecar, for ref: ImageRef) async throws {
+        throw ImageSourceError.readOnly("PhotoKit (XMP writes require a companion sidecar store)")
+    }
+
+    public func search(_ query: SearchQuery) async throws -> [ImageRef]? { nil }
+}
+
 // MARK: - PhotoKitError
 
 public enum PhotoKitError: Error, LocalizedError {
