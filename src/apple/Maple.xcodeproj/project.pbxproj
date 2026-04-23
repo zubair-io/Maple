@@ -364,7 +364,7 @@
 				INFOPLIST_KEY_CFBundleDisplayName = Maple;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.photography";
 				INFOPLIST_KEY_NSBonjourServices = _smb._tcp;
-				INFOPLIST_KEY_NSCameraUsageDescription = "Maple can capture RAW photos directly from the camera.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "Maple needs camera access to scan a pairing QR code.";
 				INFOPLIST_KEY_NSHighResolutionCapable = YES;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright (c) 2026 Just Maple. All rights reserved.";
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Maple connects to SMB servers on your local network to access RAW files.";
@@ -414,7 +414,7 @@
 				INFOPLIST_KEY_CFBundleDisplayName = Maple;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.photography";
 				INFOPLIST_KEY_NSBonjourServices = _smb._tcp;
-				INFOPLIST_KEY_NSCameraUsageDescription = "Maple can capture RAW photos directly from the camera.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "Maple needs camera access to scan a pairing QR code.";
 				INFOPLIST_KEY_NSHighResolutionCapable = YES;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright (c) 2026 Just Maple. All rights reserved.";
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Maple connects to SMB servers on your local network to access RAW files.";

@@ -5,6 +5,11 @@
 //   int32_t maple_render_file(const char* raw_path,
 //                             const char* xmp_path,   // nullable
 //                             MapleImageBuffer* out);
+//   int32_t maple_render_bytes(const uint8_t* raw,
+//                              uintptr_t len,
+//                              const char* hint_ext,  // e.g. "dng"
+//                              const char* xmp_path,  // nullable
+//                              MapleImageBuffer* out);
 //   void    maple_free_buffer(MapleImageBuffer* buffer);
 //   const char* maple_last_error(void);               // thread-local
 //
@@ -69,6 +74,46 @@ public struct PipelineRenderer: Sendable {
         }
     }
 
+    /// Render a RAW from an in-memory byte buffer. Required for sources that
+    /// don't expose a filesystem URL (PhotoKit, self-hosted API).
+    ///
+    /// - Parameters:
+    ///   - rawBytes: Full RAW file bytes. Ownership stays with the caller;
+    ///               the bytes are copied into Rust's decoder via a borrowed
+    ///               pointer.
+    ///   - hint:     RAW extension hint *without* the leading dot (e.g.
+    ///               `"dng"`, `"cr2"`, `"arw"`). Empty string is allowed — the
+    ///               decoder will fall through to content sniffing.
+    ///   - xmpPath:  Optional URL to an XMP sidecar on disk. `nil` uses
+    ///               `AdjustmentModel::default()`.
+    public static func render(
+        rawBytes: Data,
+        hint: String,
+        xmpPath: URL? = nil
+    ) throws -> MapleImageData {
+        guard let hintCStr = hint.cString(using: .utf8) else {
+            throw PipelineError.hintEncodingError(hint)
+        }
+        return try rawBytes.withUnsafeBytes { (buf: UnsafeRawBufferPointer) in
+            let base = buf.baseAddress?.assumingMemoryBound(to: UInt8.self)
+            if let xmpPath {
+                return try xmpPath.withPathCString { xmpCStr in
+                    try _renderBytes(
+                        ptr: base, len: buf.count,
+                        hintCStr: hintCStr,
+                        xmpCStr: xmpCStr
+                    )
+                }
+            } else {
+                return try _renderBytes(
+                    ptr: base, len: buf.count,
+                    hintCStr: hintCStr,
+                    xmpCStr: nil
+                )
+            }
+        }
+    }
+
     // MARK: Private helpers
 
     private static func _render(rawCStr: UnsafePointer<CChar>,
@@ -89,6 +134,34 @@ public struct PipelineRenderer: Sendable {
             pixels: data
         )
     }
+
+    private static func _renderBytes(
+        ptr: UnsafePointer<UInt8>?,
+        len: Int,
+        hintCStr: [CChar],
+        xmpCStr: UnsafePointer<CChar>?
+    ) throws -> MapleImageData {
+        var buf = MapleImageBuffer(rgb: nil, len: 0, width: 0, height: 0)
+        let rc = hintCStr.withUnsafeBufferPointer { hintPtr -> Int32 in
+            maple_render_bytes(ptr, UInt(len), hintPtr.baseAddress, xmpCStr, &buf)
+        }
+        guard rc == 0 else {
+            let msg = maple_last_error().map { String(cString: $0) } ?? "unknown error"
+            throw PipelineError.renderFailed(code: Int(rc), message: msg)
+        }
+        defer { maple_free_buffer(&buf) }
+
+        let byteCount = Int(buf.len)
+        guard byteCount > 0, let rgb = buf.rgb else {
+            throw PipelineError.renderFailed(code: Int(rc), message: "empty buffer")
+        }
+        let data = Data(bytes: rgb, count: byteCount)
+        return MapleImageData(
+            width: Int(buf.width),
+            height: Int(buf.height),
+            pixels: data
+        )
+    }
 }
 
 // MARK: - PipelineError
@@ -96,6 +169,7 @@ public struct PipelineRenderer: Sendable {
 public enum PipelineError: Error, LocalizedError {
     case renderFailed(code: Int, message: String)
     case pathEncodingError(URL)
+    case hintEncodingError(String)
 
     public var errorDescription: String? {
         switch self {
@@ -103,6 +177,8 @@ public enum PipelineError: Error, LocalizedError {
             return "Pipeline render failed (code \(code)): \(message)"
         case .pathEncodingError(let url):
             return "Path cannot be encoded as UTF-8: \(url.path)"
+        case .hintEncodingError(let s):
+            return "Decoder hint cannot be encoded as UTF-8: \(s)"
         }
     }
 }

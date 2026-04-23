@@ -24,7 +24,22 @@ typedef struct MapleImageBuffer {
 int32_t maple_render_file(const char *raw_path, const char *xmp_path, struct MapleImageBuffer *out);
 
 /**
- * Free a buffer populated by `maple_render_file`.
+ * Render a RAW from a byte slice (PhotoKit, self-hosted API, etc.) through
+ * the pipeline. Identical to `maple_render_file` except the caller hands us
+ * bytes instead of a path, and supplies an extension hint (e.g. "dng", "cr2",
+ * "arw") so the decoder can dispatch.
+ *
+ * `xmp_path` may be null, in which case `AdjustmentModel::default()` is used.
+ * `hint_ext` must be a UTF-8 C string naming the RAW extension (without dot).
+ */
+int32_t maple_render_bytes(const uint8_t *raw_bytes,
+                           uintptr_t raw_len,
+                           const char *hint_ext,
+                           const char *xmp_path,
+                           struct MapleImageBuffer *out);
+
+/**
+ * Free a buffer populated by `maple_render_file` or `maple_render_bytes`.
  */
 void maple_free_buffer(struct MapleImageBuffer *buffer);
 

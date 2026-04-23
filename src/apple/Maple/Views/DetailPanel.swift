@@ -72,7 +72,7 @@ struct InfoTab: View {
         VStack(alignment: .leading, spacing: 12) {
             SectionHeader("File")
             InfoRow("Name", session.asset.displayName)
-            InfoRow("Path", session.asset.primaryURL.path)
+            InfoRow("Path", session.asset.primaryURL?.path ?? "—")
 
             Divider().overlay(MapleTokens.border).padding(.vertical, 4)
 
