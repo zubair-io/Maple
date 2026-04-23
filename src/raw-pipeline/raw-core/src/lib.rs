@@ -24,3 +24,5 @@ pub mod demosaic;
 pub mod stages;
 
 pub mod view;
+
+pub mod png;
