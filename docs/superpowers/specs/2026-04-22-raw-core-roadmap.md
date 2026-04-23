@@ -41,6 +41,27 @@ Spec sections explicitly deferred: § 3.3a highlight reconstruction (default off
 
 ACR cases passing: `baseline`, `exposure_min`, `exposure_max`, `wb_*` (7 presets), `dehaze_min`, `dehaze_max` — across all 4 fixtures, at the loose end of the budget table in spec § 11.
 
+**Status: COMPLETE 2026-04-22.** 31 commits on `main`. Slice-1 measurements (release build, `down` tier):
+
+| Case | Mean ΔE | p95 | Max | Bias (R, G, B) |
+|---|---|---|---|---|
+| test_0000/baseline | 17.04 | 36.44 | 70.29 | (−0.11, −0.14, −0.14) |
+| test_0001/baseline | 18.32 | 33.00 | 86.40 | (+0.07, +0.00, −0.05) |
+| test_0002/baseline | 18.37 | 23.34 | 39.07 | (−0.19, −0.22, −0.19) |
+| test_0003/baseline | 23.75 | 44.84 | 94.93 | (−0.06, −0.09, −0.11) |
+| test_0002/exposure_max | 6.60 | 19.42 | 53.54 | (−0.06, −0.09, −0.11) |
+| test_0002/exposure_min | 9.57 | 11.25 | 28.50 | (+0.12, +0.07, +0.06) |
+| test_0002/wb_daylight | 19.18 | 23.22 | 40.19 | (−0.24, −0.21, −0.26) |
+| test_0002/wb_tungsten | 32.84 | 36.31 | 50.88 | (−0.02, −0.20, −0.44) |
+| test_0002/dehaze_max | 20.40 | 28.78 | 49.48 | (−0.14, −0.19, −0.20) |
+
+Residual ΔE dominated by two explicit slice-1 approximations:
+
+- **AgX power-curve stand-in** (`x^3.42` vs. real Blender sigmoid). Causes uniform channel-balanced darkness across every case. Slice 6 replaces.
+- **Minimal DCP** (single-illuminant CM inverse only, no HueSatMap, no ProfileLookTable). Leaves ACR's vendor-tuned per-hue corrections on the table. Slice 4 replaces.
+
+Notable: `wb_tungsten` (extreme 2850K WB) is the worst case at ΔE 32.84 with `bias_b = −0.44`. Our slice-1 WB is a simple Planckian per-channel gain in Rec.2020; ACR applies DCP dual-illuminant interpolation at extreme CCTs. Slice 4 closes most of this gap.
+
 ### Slice 2 — tone controls complete
 
 Full `SceneToneControls` (spec § 3.6): highlights, shadows, whites, blacks; master + RGB scene-linear tone curves (`papp:SceneLinearToneCurve*`). Contrast slider routed to AgX sigmoid slope. `DisplayReferredCurve` (spec § 3.6b) added as post-AgX stage 12a for Lightroom-compat `crs:ToneCurvePV2012*` curves.
