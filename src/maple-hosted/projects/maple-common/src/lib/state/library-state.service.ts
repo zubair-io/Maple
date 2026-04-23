@@ -7,6 +7,17 @@ import { Asset, AssetId, Flag, ColorLabel } from '../models/asset';
 import { SidebarEntry } from '../models/folder';
 import { AdjustmentModel, defaultAdjustmentModel, isDefaultAdjustment } from '../models/adjustment-model';
 
+/** Supported RAW extensions for file intake. */
+export const SUPPORTED_RAW_EXTENSIONS = new Set([
+  'dng', 'cr2', 'cr3', 'nef', 'arw', 'raf', 'orf', 'rw2', 'pef',
+  'srw', '3fr', 'fff', 'dcr', 'mos', 'iiq', 'mrw', 'raw',
+]);
+
+export function isSupportedRaw(filename: string): boolean {
+  const ext = filename.split('.').pop()?.toLowerCase() ?? '';
+  return SUPPORTED_RAW_EXTENSIONS.has(ext);
+}
+
 @Injectable({ providedIn: 'root' })
 export class LibraryStateService {
   // ── Library data ───────────────────────────────────────────────────────────
@@ -52,6 +63,12 @@ export class LibraryStateService {
   readonly activeTab = signal<'info' | 'develop'>(
     this._loadOrDefault('cm.tab', 'info') as 'info' | 'develop',
   );
+
+  // ── File bytes for imported assets (in-memory, keyed by AssetId) ──────────
+  readonly fileBytes = signal<Map<AssetId, Uint8Array>>(new Map());
+
+  // ── Thumbnail cache (blob URLs — revoked when assets are removed) ──────────
+  readonly thumbnailUrls = signal<Map<AssetId, string>>(new Map());
 
   // ── Adjustment models (per-asset develop settings) ────────────────────────
   readonly adjustmentModels = signal<Map<AssetId, AdjustmentModel>>(new Map());
@@ -101,6 +118,86 @@ export class LibraryStateService {
   });
 
   readonly selectedCount = computed(() => this.selectedAssetIds().size);
+
+  // ── Imported asset mutations ───────────────────────────────────────────────
+
+  /**
+   * Add a RAW file as a new Asset entry. The bytes are stored in-memory keyed
+   * by the generated AssetId. Returns the new AssetId.
+   */
+  addImportedAsset(bytes: Uint8Array, filename: string): AssetId {
+    const id = crypto.randomUUID();
+    const ext = filename.split('.').pop()?.toLowerCase() ?? '';
+    const asset: Asset = {
+      id,
+      filename,
+      folderId: 'f-imported',
+      rating: 0,
+      flag: 'unflagged',
+      colorLabel: null,
+      thumbnailGradient: '',
+      aspectRatio: 3 / 2,  // default until first decode
+    };
+    this.assets.update(list => [...list, asset]);
+    this.fileBytes.update(map => {
+      const next = new Map(map);
+      next.set(id, bytes);
+      return next;
+    });
+    // Ensure the "Imported" virtual folder exists in the sidebar tree.
+    this._ensureImportedFolder();
+    return id;
+  }
+
+  /** Update an asset's dimensions after a successful decode. */
+  updateAssetDimensions(id: AssetId, width: number, height: number): void {
+    this.assets.update(list =>
+      list.map(a => a.id === id ? { ...a, width, height, aspectRatio: width / height } : a)
+    );
+  }
+
+  /** Store a resolved thumbnail blob URL for an asset. */
+  cacheThumbnailUrl(id: AssetId, url: string): void {
+    this.thumbnailUrls.update(map => {
+      const next = new Map(map);
+      next.set(id, url);
+      return next;
+    });
+  }
+
+  /** Retrieve the cached thumbnail URL if any. */
+  thumbnailUrlFor(id: AssetId): string | undefined {
+    return this.thumbnailUrls().get(id);
+  }
+
+  /** Retrieve the raw file bytes for an asset (undefined for mock assets). */
+  bytesFor(id: AssetId): Uint8Array | undefined {
+    return this.fileBytes().get(id);
+  }
+
+  /** Ensure the "f-imported" folder exists in the sidebar tree. */
+  private _ensureImportedFolder(): void {
+    const tree = this.sidebarTree();
+    const foldersSection = tree.find(s => s.id === 'folders');
+    if (!foldersSection || !foldersSection.children) return;
+    const alreadyExists = foldersSection.children.some(
+      c => c.id === 'f-imported'
+    );
+    if (!alreadyExists) {
+      this.sidebarTree.update(t =>
+        t.map(s => s.id === 'folders'
+          ? {
+              ...s,
+              children: [
+                ...(s.children ?? []),
+                { kind: 'folder' as const, id: 'f-imported', label: 'Imported', count: null },
+              ],
+            }
+          : s
+        )
+      );
+    }
+  }
 
   // ── Culling mutations ──────────────────────────────────────────────────────
 
