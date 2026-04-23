@@ -35,7 +35,11 @@ let package = Package(
         // xcframework's Headers/ dir.
         .target(
             name: "MapleCore",
-            dependencies: ["RawPipeline"]
+            dependencies: ["RawPipeline"],
+            resources: [
+                // Metal kernels: compiled by SwiftPM into default.metallib.
+                .process("Metal"),
+            ]
         ),
         .binaryTarget(name: "RawPipeline", path: "Frameworks/RawPipeline.xcframework"),
 
