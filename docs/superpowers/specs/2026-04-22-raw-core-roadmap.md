@@ -68,6 +68,25 @@ Full `SceneToneControls` (spec § 3.6): highlights, shadows, whites, blacks; mas
 
 Adds ACR cases: `contrast_*`, `highlights_*`, `shadows_*`, `whites_*`, `blacks_*`.
 
+**Status: COMPLETE 2026-04-22.** Tag: `slice-2-complete`. 5 commits (`5ab6292` through `707dcb3`). 19/19 golden tests pass. Scene-linear tone-curve LUTs and `DisplayReferredCurve` stage 12a deferred to slice 7 because no slice-2 ACR fixture carries curve-shape data; the nested-element XMP parsing they need co-locates with the canonical XMP work in slice 7.
+
+Measured vs. ACR (test_0002, `down` tier):
+
+| Case | Mean ΔE | Budget | Notes |
+|---|---|---|---|
+| contrast_max | 17.53 | 23 | AgX slope modulation working |
+| contrast_min | 21.08 | 23 | |
+| highlights_max | 19.49 | 20 | Passes spec § 11 starting budget |
+| highlights_min | 16.48 | 20 | Passes spec § 11 starting budget |
+| shadows_max | 23.44 | 26 | Scene-tone lift over-brightens vs ACR |
+| shadows_min | 19.75 | 26 | |
+| whites_max | 20.16 | 22 | |
+| whites_min | 18.59 | 22 | |
+| blacks_max | 19.53 | 29 | |
+| blacks_min | 26.47 | 29 | Worst slice-2 residual; power-curve AgX compresses shadow detail wrong |
+
+highlights is the only case class that passed spec § 11 starting budgets unrelaxed — the spec § 3.6 soft-knee compression matches ACR closely. Other classes show residuals dominated by (a) the slice-1 AgX power-curve stand-in, (b) spec § 3.6's acknowledged "v1 tuning task" coefficients. Slice 6 retightens most of these once the Blender-reference AgX sigmoid lands.
+
 ### Slice 3 — presence complete
 
 SceneVibrance in Oklab with skin-window smoothstep (spec § 3.7 — endpoints locked by the pre-ship calibration gate, spec § 11 gate 7). Saturation in Oklab. Clarity + Texture (unsharp at radius 40 + radius 3 respectively) per spec § 3.8.
