@@ -10,6 +10,8 @@ import { AdjustmentModel, defaultAdjustmentModel, isDefaultAdjustment } from '..
 import { FolderAccessService } from '../folder-access/folder-access.service';
 import { MapleCacheService } from '../maple-cache/maple-cache.service';
 import { XmpParserService } from '../xmp/xmp-parser.service';
+import { XmpStoreService } from '../xmp/xmp-store.service';
+import { XmpCulling } from '../xmp/xmp.types';
 import { MapleFolderHandle, FolderEntry } from '../folder-access/folder-access.types';
 import { MapleIndex, IndexedAsset } from '../maple-cache/maple-cache.types';
 import { sha256Prefix16 } from '../maple-cache/sha';
@@ -84,9 +86,10 @@ class LruCache {
 
 @Injectable({ providedIn: 'root' })
 export class LibraryStateService {
-  private fs      = inject(FolderAccessService);
-  private cache   = inject(MapleCacheService);
+  private fs        = inject(FolderAccessService);
+  private cache     = inject(MapleCacheService);
   private xmpParser = inject(XmpParserService);
+  private xmpStore  = inject(XmpStoreService);
 
   // ── Library data ───────────────────────────────────────────────────────────
   readonly assets      = signal<Asset[]>([]);
@@ -268,6 +271,7 @@ export class LibraryStateService {
 
     const newAssets: Asset[] = [];
     const folderId = `f-${folder.name}`;
+    const newAdjustments = new Map<AssetId, AdjustmentModel>();
 
     for (const entry of rawEntries) {
       const id = crypto.randomUUID();
@@ -278,21 +282,31 @@ export class LibraryStateService {
 
       // Start with culling from cache (non-authoritative).
       const cached = indexMap.get(filename);
-      let rating: number = cached?.culling?.rating ?? 0;
-      let flag: Flag     = (cached?.culling?.flag ?? 'unflagged') as Flag;
+      let rating: number     = cached?.culling?.rating ?? 0;
+      let flag: Flag         = (cached?.culling?.flag ?? 'unflagged') as Flag;
       let colorLabel: ColorLabel = (cached?.culling?.colorLabel ?? null) as ColorLabel;
 
-      // XMP sidecar is authoritative — override cache if present.
+      // XMP sidecar is authoritative — parse both culling + full AdjustmentModel.
       const xmpName = filename.replace(/\.[^.]+$/, '.xmp');
       try {
         const xmpBytes = await this.fs.readFile(folder, xmpName);
         const xmpText  = new TextDecoder().decode(xmpBytes);
-        const culling  = this.xmpParser.parseCulling(xmpText);
+
+        // Culling fields (P5).
+        const culling = this.xmpParser.parseCulling(xmpText);
         rating     = culling.rating;
         flag       = culling.flag;
         colorLabel = culling.colorLabel;
+
+        // Full AdjustmentModel (P6).
+        const { model, passthrough } = this.xmpParser.parseAdjustmentModel(xmpText);
+        const fullModel: AdjustmentModel = { ...defaultAdjustmentModel(), ...model };
+        newAdjustments.set(id, fullModel);
+
+        // Cache the passthrough bucket for future writes.
+        this.xmpStore.rememberPassthrough(id, passthrough);
       } catch {
-        // No sidecar or unreadable — keep cache values.
+        // No sidecar or unreadable — keep cache values, no adjustment override.
       }
 
       const asset: Asset = {
@@ -313,6 +327,17 @@ export class LibraryStateService {
       const others = list.filter(a => a.folderId !== folderId);
       return [...others, ...newAssets];
     });
+
+    // Merge loaded adjustments into the signal (only overwrite for this folder).
+    if (newAdjustments.size > 0) {
+      this.adjustmentModels.update(map => {
+        const next = new Map(map);
+        for (const [id, adj] of newAdjustments) {
+          next.set(id, adj);
+        }
+        return next;
+      });
+    }
 
     // 3. Ensure the folder appears in the sidebar tree.
     this._ensureFolder(folderId, folder.name);
@@ -378,6 +403,9 @@ export class LibraryStateService {
       next.set(id, { ...current, ...patch });
       return next;
     });
+
+    // Schedule debounced sidecar write.
+    this._scheduleSidecarWrite(id);
   }
 
   isEdited(id: AssetId) {
@@ -418,18 +446,50 @@ export class LibraryStateService {
     this.assets.update(list =>
       list.map(a => a.id === id ? { ...a, rating } : a),
     );
+    this._scheduleSidecarWrite(id);
   }
 
   setFlag(id: AssetId, flag: Flag): void {
     this.assets.update(list =>
       list.map(a => a.id === id ? { ...a, flag } : a),
     );
+    this._scheduleSidecarWrite(id);
   }
 
   setColorLabel(id: AssetId, colorLabel: ColorLabel): void {
     this.assets.update(list =>
       list.map(a => a.id === id ? { ...a, colorLabel } : a),
     );
+    this._scheduleSidecarWrite(id);
+  }
+
+  // ── Sidecar write helpers ──────────────────────────────────────────────────
+
+  /**
+   * Schedule a debounced XMP sidecar write for `id`.
+   * Does nothing if there is no writable folder or asset.
+   */
+  private _scheduleSidecarWrite(id: AssetId): void {
+    const folder = this.currentFolder();
+    if (!folder?.write) return;
+
+    const asset = this.assets().find(a => a.id === id);
+    if (!asset) return;
+
+    const fullModel = this.adjustmentModels().get(id) ?? defaultAdjustmentModel();
+    const culling: XmpCulling = {
+      rating: asset.rating,
+      flag: asset.flag,
+      colorLabel: asset.colorLabel,
+    };
+    this.xmpStore.scheduleWrite(id, folder, asset.filename, fullModel, culling);
+  }
+
+  /**
+   * Flush all pending sidecar writes immediately (call from beforeunload).
+   */
+  flushPendingXmpWrites(): Promise<void> {
+    return this.xmpStore.flushAll();
   }
 
   // ── Index write debounce ───────────────────────────────────────────────────
