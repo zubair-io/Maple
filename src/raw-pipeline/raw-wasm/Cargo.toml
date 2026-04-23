@@ -16,6 +16,22 @@ thiserror.workspace = true
 # uuid (pulled in transitively by rawler) needs the `js` feature on
 # wasm32-unknown-unknown to get randomness from WebCrypto.
 # getrandom also needs `wasm_js` for its own WASM entropy source.
+#
+# wasm-bindgen-rayon + rayon + console_error_panic_hook are gated behind the
+# `parallel` feature. They are only relevant for wasm32-unknown-unknown and
+# require the atomics/bulk-memory target features at build time. JS callers
+# check `crossOriginIsolated` (COOP: same-origin + COEP: require-corp) and
+# only invoke `initThreadPool` when it's true — single-threaded fallback
+# continues to work everywhere.
 [target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
 uuid = { version = "1", features = ["js"] }
 getrandom = { version = "0.4", features = ["wasm_js"] }
+wasm-bindgen-rayon = { version = "1.3", optional = true }
+rayon = { version = "1.10", optional = true }
+console_error_panic_hook = { version = "0.1", optional = true }
+
+[features]
+default = []
+# Enable the parallel (rayon + wasm-bindgen-rayon) thread-pool entry points.
+# The WASM build turns this on via `wasm-pack build -- --features parallel`.
+parallel = ["dep:wasm-bindgen-rayon", "dep:rayon", "dep:console_error_panic_hook"]

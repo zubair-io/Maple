@@ -1,0 +1,12 @@
+# T10 — raw-wasm needs nightly so `wasm-pack build -- -Z build-std=panic_abort,std`
+# can rebuild the standard library with the atomics + bulk-memory target
+# features. The rest of the workspace (raw-core, raw-ffi, maple-cli) stays on
+# stable via the workspace-level toolchain file at src/raw-pipeline/rust-toolchain.toml.
+#
+# Cargo applies rust-toolchain.toml by traversing upward from the invocation
+# directory, so running `cargo build` or `wasm-pack build` from raw-wasm/ picks
+# up this file; running from the workspace root picks up the stable one.
+[toolchain]
+channel = "nightly-2025-10-01"
+components = ["rust-src", "rustfmt", "clippy"]
+targets = ["wasm32-unknown-unknown"]

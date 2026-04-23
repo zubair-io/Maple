@@ -1,13 +1,46 @@
 //! wasm-bindgen surface for raw-core. Intended for consumption by the
-//! Angular web workspace's `Maple-common` package (per spec § 00).
+//! Angular web workspace's `maple-common` package (per spec § 00).
 //!
 //! Browser-safe surface (no filesystem):
 //!
 //!   render_bytes(raw: Uint8Array, ext: string, xmp: string | null)
 //!       → MapleRender { width: u32, height: u32, rgb: Uint8Array }
+//!
+//! Threading (T10):
+//! When compiled with `--features parallel` and the `+atomics,+bulk-memory`
+//! target features, `initThreadPool(num_threads)` is re-exported from
+//! `wasm-bindgen-rayon`. JS callers invoke it only when
+//! `crossOriginIsolated` is true (COOP: same-origin + COEP: require-corp).
+//! Without those headers (Safari/Firefox default, or any host without them),
+//! the decode path continues to work single-threaded — no feature detection
+//! is needed on the Rust side.
 
 use raw_core::xmp as xmp_mod;
 use wasm_bindgen::prelude::*;
+
+// Re-export wasm-bindgen-rayon's `initThreadPool` when the `parallel` feature
+// is enabled. JS imports it as `initThreadPool` from the generated bindings.
+#[cfg(all(target_arch = "wasm32", feature = "parallel"))]
+pub use wasm_bindgen_rayon::init_thread_pool;
+
+/// `true` when this WASM binary was built with atomics + the parallel feature.
+/// JS can still override by refusing to call `initThreadPool` when
+/// `crossOriginIsolated` is false (e.g. Safari or Firefox without COOP/COEP).
+#[wasm_bindgen]
+pub fn is_threaded() -> bool {
+    cfg!(all(target_arch = "wasm32", target_feature = "atomics", feature = "parallel"))
+}
+
+/// One-shot panic hook installer. Safe to call multiple times. JS calls this
+/// once immediately after `init()` so that Rust panics surface in DevTools
+/// instead of becoming opaque `RuntimeError: unreachable` traps.
+#[wasm_bindgen]
+pub fn install_panic_hook() {
+    #[cfg(all(target_arch = "wasm32", feature = "parallel"))]
+    {
+        console_error_panic_hook::set_once();
+    }
+}
 
 #[wasm_bindgen]
 pub struct MapleRender {
