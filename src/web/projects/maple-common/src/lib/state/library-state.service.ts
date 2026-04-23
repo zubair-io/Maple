@@ -4,6 +4,8 @@
 //     .maple/ index writes debounced 500ms after culling changes.
 
 import { Injectable, computed, effect, inject, signal } from '@angular/core';
+import { HttpErrorResponse } from '@angular/common/http';
+import { firstValueFrom } from 'rxjs';
 import { Asset, AssetId, Flag, ColorLabel } from '../models/asset';
 import { SidebarEntry } from '../models/folder';
 import {
@@ -12,10 +14,12 @@ import {
   isDefaultAdjustment,
 } from '../models/adjustment-model';
 import { LIBRARY_BACKEND } from '../api/library-backend.token';
+import { BunApiBackendService, ApiAsset, ApiFolder } from '../api/bun-api-backend.service';
 import { FolderAccessService } from '../folder-access/folder-access.service';
 import { MapleCacheService } from '../maple-cache/maple-cache.service';
 import { XmpParserService } from '../xmp/xmp-parser.service';
 import { XmpStoreService } from '../xmp/xmp-store.service';
+import { XmpSerializerService } from '../xmp/xmp-serializer.service';
 import { XmpCulling } from '../xmp/xmp.types';
 import { MapleFolderHandle, FolderEntry } from '../folder-access/folder-access.types';
 import { MapleIndex, IndexedAsset } from '../maple-cache/maple-cache.types';
@@ -110,13 +114,25 @@ export class LibraryStateService {
   private cache = inject(MapleCacheService);
   private xmpParser = inject(XmpParserService);
   private xmpStore = inject(XmpStoreService);
+  private xmpSerializer = inject(XmpSerializerService);
+  private api = inject(BunApiBackendService);
 
-  // TODO(T4-self-hosted-backend): when backend === 'self-hosted', swap the
-  // folder enumeration / byte-read / XMP write paths to BunApiBackendService
-  // (GET /api/folders, /api/assets/:id/raw, /api/assets/:id/thumb,
-  //  GET/PUT /api/assets/:id/xmp). Landing page + dual-app structure
-  // is the T4 must-have; full wire-up is a follow-up ticket.
+  /** Which backend is in use. Consumers read this to branch data-source paths. */
   readonly backend = inject(LIBRARY_BACKEND);
+
+  // ── Self-Hosted bootstrap state ────────────────────────────────────────────
+  /** True while listFolders / listAssets is in flight (Self-Hosted only). */
+  readonly backendLoading = signal<boolean>(false);
+  /** Last backend error message, cleared on successful load. */
+  readonly backendError = signal<string | null>(null);
+  /** True when the API returned zero folders (index not configured yet). */
+  readonly backendEmpty = signal<boolean>(false);
+
+  /**
+   * Map from AssetId to the remote API asset id (Self-Hosted only).
+   * Needed because the grid works on local UUIDs but the API talks in its own ids.
+   */
+  private _apiAssetIds = new Map<AssetId, string>();
 
   // ── Library data ───────────────────────────────────────────────────────────
   readonly assets = signal<Asset[]>([]);
@@ -242,6 +258,17 @@ export class LibraryStateService {
     const legacy = this._legacyBytes.get(id);
     if (legacy) return legacy;
 
+    // Self-Hosted: fetch bytes from the Bun API.
+    if (this.backend === 'self-hosted') {
+      const apiId = this._apiAssetIds.get(id);
+      if (!apiId) throw new Error(`bytesForAsset: no api id for asset ${id}`);
+      // firstValueFrom: imperative-boundary escape hatch. The LRU cache contract
+      // is `Promise<Uint8Array>`; callers `await bytesForAsset(...)`. Keeping the
+      // observable flow here would force every caller to resubscribe.
+      const buf = await firstValueFrom(this.api.getRawBytes(apiId));
+      return new Uint8Array(buf);
+    }
+
     // FS Access / fallback handle path.
     const entry = this._fileHandles.get(id);
     if (!entry) throw new Error(`bytesForAsset: no handle for asset ${id}`);
@@ -365,6 +392,168 @@ export class LibraryStateService {
     this.selectedSourceId.set(folderId);
   }
 
+  // ── Self-Hosted bootstrap (Bun API) ────────────────────────────────────────
+
+  /**
+   * Self-Hosted entry point: list folders from the API, populate the sidebar,
+   * and auto-open the first folder.
+   *
+   * Hosted variant should not call this — it uses `openFolder(handle)` via the
+   * File System Access picker on the landing page.
+   */
+  loadFolderTree(): void {
+    if (this.backend !== 'self-hosted') return;
+
+    this.backendLoading.set(true);
+    this.backendError.set(null);
+    this.backendEmpty.set(false);
+
+    this.api.listFolders().subscribe({
+      next: (folders) => {
+        this._applyFolderTree(folders);
+        if (folders.length === 0) {
+          this.backendEmpty.set(true);
+          this.backendLoading.set(false);
+          return;
+        }
+        // Auto-open the first folder — the user picks a different one from the tree.
+        this.openSelfHostedFolder(folders[0]);
+      },
+      error: (err: HttpErrorResponse) => {
+        this.backendLoading.set(false);
+        this.backendError.set(
+          err.status >= 500
+            ? `Server error (${err.status}). The Maple API may be down.`
+            : `Failed to load folders: ${err.message}`,
+        );
+      },
+    });
+  }
+
+  /**
+   * Self-Hosted: fetch the assets for `folder`, populate the grid, and select
+   * the first asset. Called from `loadFolderTree` (auto-open) and from the
+   * folder-tree sidebar when the user picks another folder.
+   */
+  openSelfHostedFolder(folder: ApiFolder): void {
+    if (this.backend !== 'self-hosted') return;
+
+    const folderId = `f-${folder.id}`;
+    this.backendLoading.set(true);
+    this.backendError.set(null);
+
+    this.api.listAssets(folder.id).subscribe({
+      next: (page) => {
+        this._applyApiAssets(folderId, page.assets);
+        this.selectedSourceId.set(folderId);
+        const first = page.assets[0];
+        if (first) {
+          const local = this._localIdForApiAsset(first.id);
+          if (local) this.selectAsset(local);
+        }
+        this.backendLoading.set(false);
+      },
+      error: (err: HttpErrorResponse) => {
+        this.backendLoading.set(false);
+        this.backendError.set(
+          err.status >= 500
+            ? `Server error (${err.status}) loading folder.`
+            : `Failed to load folder: ${err.message}`,
+        );
+      },
+    });
+  }
+
+  // ── Self-Hosted helpers ────────────────────────────────────────────────────
+
+  private _applyFolderTree(folders: ApiFolder[]): void {
+    // Seed sidebar tree sections if empty.
+    this.sidebarTree.update((tree) =>
+      tree.length === 0
+        ? [
+            {
+              kind: 'section' as const,
+              id: 'folders',
+              label: 'Folders',
+              count: null,
+              children: [],
+            },
+          ]
+        : tree,
+    );
+    for (const f of folders) {
+      this._ensureFolder(`f-${f.id}`, f.name);
+    }
+  }
+
+  private _applyApiAssets(folderId: string, apiAssets: ApiAsset[]): void {
+    const newAssets: Asset[] = [];
+    // Keep existing id mappings for other folders; just overwrite this folder's.
+    for (const localId of Array.from(this._apiAssetIds.keys())) {
+      const existingAsset = this.assets().find((a) => a.id === localId);
+      if (existingAsset?.folderId === folderId) this._apiAssetIds.delete(localId);
+    }
+
+    for (const a of apiAssets) {
+      const localId = crypto.randomUUID();
+      this._apiAssetIds.set(localId, a.id);
+      newAssets.push({
+        id: localId,
+        filename: a.filename,
+        folderId,
+        rating: a.rating ?? 0,
+        flag: (a.flag ?? 'unflagged') as Flag,
+        colorLabel: (a.colorLabel ?? null) as ColorLabel,
+        thumbnailGradient: '',
+        aspectRatio: a.width && a.height ? a.width / a.height : 3 / 2,
+        width: a.width,
+        height: a.height,
+      });
+
+      // Best-effort XMP load — populates AdjustmentModel if a sidecar exists.
+      this._loadApiXmp(localId, a.id);
+    }
+
+    this.assets.update((list) => {
+      const others = list.filter((x) => x.folderId !== folderId);
+      return [...others, ...newAssets];
+    });
+  }
+
+  private _loadApiXmp(localId: AssetId, apiId: string): void {
+    this.api.getXmp(apiId).subscribe({
+      next: (xml) => {
+        if (!xml) return;
+        try {
+          const { model } = this.xmpParser.parseAdjustmentModel(xml);
+          const fullModel: AdjustmentModel = { ...defaultAdjustmentModel(), ...model };
+          this.adjustmentModels.update((map) => {
+            const next = new Map(map);
+            next.set(localId, fullModel);
+            return next;
+          });
+        } catch {
+          /* ignore malformed sidecars — server has already stored them */
+        }
+      },
+      error: () => {
+        // 404 is expected when no sidecar exists; anything else is best-effort.
+      },
+    });
+  }
+
+  private _localIdForApiAsset(apiId: string): AssetId | null {
+    for (const [local, api] of this._apiAssetIds.entries()) {
+      if (api === apiId) return local;
+    }
+    return null;
+  }
+
+  /** Returns the API id for a local asset id (Self-Hosted only). */
+  apiIdFor(assetId: AssetId): string | undefined {
+    return this._apiAssetIds.get(assetId);
+  }
+
   // ── addImportedAsset (legacy path — drag-drop without FS Access folder) ────
 
   /**
@@ -485,9 +674,6 @@ export class LibraryStateService {
    * Does nothing if there is no writable folder or asset.
    */
   private _scheduleSidecarWrite(id: AssetId): void {
-    const folder = this.currentFolder();
-    if (!folder?.write) return;
-
     const asset = this.assets().find((a) => a.id === id);
     if (!asset) return;
 
@@ -497,13 +683,70 @@ export class LibraryStateService {
       flag: asset.flag,
       colorLabel: asset.colorLabel,
     };
+
+    if (this.backend === 'self-hosted') {
+      this._scheduleApiXmpWrite(id, fullModel, culling);
+      return;
+    }
+
+    const folder = this.currentFolder();
+    if (!folder?.write) return;
     this.xmpStore.scheduleWrite(id, folder, asset.filename, fullModel, culling);
+  }
+
+  // ── Self-Hosted XMP write debounce ────────────────────────────────────────
+
+  private readonly API_XMP_DEBOUNCE_MS = 750;
+  private _apiXmpTimers = new Map<AssetId, ReturnType<typeof setTimeout>>();
+  private _apiXmpPending = new Map<AssetId, { model: AdjustmentModel; culling: XmpCulling }>();
+
+  private _scheduleApiXmpWrite(id: AssetId, model: AdjustmentModel, culling: XmpCulling): void {
+    const apiId = this._apiAssetIds.get(id);
+    if (!apiId) return;
+
+    this._apiXmpPending.set(id, { model, culling });
+
+    const existing = this._apiXmpTimers.get(id);
+    if (existing) clearTimeout(existing);
+
+    const timeout = setTimeout(() => {
+      this._apiXmpTimers.delete(id);
+      this._flushApiXmpWrite(id);
+    }, this.API_XMP_DEBOUNCE_MS);
+    this._apiXmpTimers.set(id, timeout);
+  }
+
+  private _flushApiXmpWrite(id: AssetId): void {
+    const pending = this._apiXmpPending.get(id);
+    const apiId = this._apiAssetIds.get(id);
+    if (!pending || !apiId) return;
+    this._apiXmpPending.delete(id);
+
+    // Re-use the canonical serializer so Self-Hosted XMP matches Hosted byte-for-byte.
+    // Passthrough bucket is unavailable on this path (we didn't parse a source
+    // sidecar into a PassthroughBucket on load) — the API persists verbatim
+    // what we send, so round-trip fidelity is owned server-side.
+    // TODO(T4-followup): plumb passthrough through getXmp() on bootstrap so
+    // unknown-namespace attributes survive across edit cycles here too.
+    const xml = this.xmpSerializer.serialize(pending.model, undefined, pending.culling);
+    this.api.putXmp(apiId, xml).subscribe({
+      error: (err) => console.error(`putXmp failed for asset ${id}:`, err),
+    });
   }
 
   /**
    * Flush all pending sidecar writes immediately (call from beforeunload).
+   * Covers both Hosted (FS Access) and Self-Hosted (Bun API) paths.
    */
-  flushPendingXmpWrites(): Promise<void> {
+  async flushPendingXmpWrites(): Promise<void> {
+    if (this.backend === 'self-hosted') {
+      for (const [id, timeout] of this._apiXmpTimers.entries()) {
+        clearTimeout(timeout);
+        this._flushApiXmpWrite(id);
+      }
+      this._apiXmpTimers.clear();
+      return;
+    }
     return this.xmpStore.flushAll();
   }
 

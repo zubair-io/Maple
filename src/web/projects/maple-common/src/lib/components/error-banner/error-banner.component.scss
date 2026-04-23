@@ -1,0 +1,45 @@
+:host {
+  display: block;
+}
+
+.error-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  font-size: 12px;
+  color: var(--maple-text-main);
+  background: rgba(220, 80, 80, 0.12);
+  border-bottom: 1px solid rgba(220, 80, 80, 0.35);
+}
+
+.msg {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.hint {
+  color: var(--maple-accent, #7aa6ff);
+  text-decoration: none;
+
+  &:hover {
+    text-decoration: underline;
+  }
+}
+
+.retry {
+  appearance: none;
+  border: 1px solid var(--maple-border, rgba(255, 255, 255, 0.18));
+  background: transparent;
+  color: var(--maple-text-main);
+  font-size: 11px;
+  padding: 3px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+
+  &:hover {
+    background: rgba(255, 255, 255, 0.06);
+  }
+}

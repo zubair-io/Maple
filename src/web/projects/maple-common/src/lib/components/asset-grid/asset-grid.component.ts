@@ -17,8 +17,10 @@ import {
 } from '@angular/core';
 import { Router } from '@angular/router';
 import { LibraryStateService } from '../../state/library-state.service';
+import { BunApiBackendService } from '../../api/bun-api-backend.service';
 import { MapleCacheService } from '../../maple-cache/maple-cache.service';
 import { RawPipelineService } from '../../raw-pipeline/raw-pipeline.service';
+import { firstValueFrom } from 'rxjs';
 import { imageDataToBitmap, resizeBitmapToCanvas } from '../../raw-pipeline/image-utils';
 import { sha256Prefix16 } from '../../maple-cache/sha';
 import { MapleIconComponent } from '../../icons/maple-icon.component';
@@ -60,6 +62,7 @@ export class AssetGridComponent implements AfterViewInit, OnDestroy {
   readonly state = inject(LibraryStateService);
   readonly pipeline = inject(RawPipelineService);
   readonly mapCache = inject(MapleCacheService);
+  private readonly api = inject(BunApiBackendService);
   private readonly router = inject(Router);
 
   readonly STAR_INDICES = [1, 2, 3, 4, 5];
@@ -156,6 +159,23 @@ export class AssetGridComponent implements AfterViewInit, OnDestroy {
     });
 
     try {
+      // Self-Hosted: thumbs come from the API, not the local cache/decode path.
+      if (this.state.backend === 'self-hosted') {
+        const apiId = this.state.apiIdFor(asset.id);
+        if (!apiId) return;
+        // firstValueFrom: imperative-boundary escape hatch — loadThumbnail()
+        // returns a Promise so the effect()-driven scheduler can dedupe.
+        const blob = await firstValueFrom(this.api.getThumb(apiId));
+        const url = URL.createObjectURL(blob);
+        this.thumbUrls.update((m) => {
+          const n = new Map(m);
+          n.set(asset.id, url);
+          return n;
+        });
+        this.state.cacheThumbnailUrl(asset.id, url);
+        return;
+      }
+
       const folder = this.state.currentFolder();
 
       // 1. Try .maple/ disk cache first (instant on warm cache).

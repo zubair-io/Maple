@@ -9,6 +9,8 @@ import { FolderTreeComponent } from '../../components/folder-tree/folder-tree.co
 import { AssetGridComponent } from '../../components/asset-grid/asset-grid.component';
 import { BrowseDetailPanelComponent } from '../../components/browse-detail-panel/browse-detail-panel.component';
 import { DropZoneComponent } from '../../components/drop-zone/drop-zone.component';
+import { LoadingBannerComponent } from '../../components/loading-banner/loading-banner.component';
+import { ErrorBannerComponent } from '../../components/error-banner/error-banner.component';
 import { MapleIconComponent } from '../../icons/maple-icon.component';
 
 @Component({
@@ -19,6 +21,8 @@ import { MapleIconComponent } from '../../icons/maple-icon.component';
     AssetGridComponent,
     BrowseDetailPanelComponent,
     DropZoneComponent,
+    LoadingBannerComponent,
+    ErrorBannerComponent,
     MapleIconComponent,
   ],
   templateUrl: './browse-shell.component.html',
@@ -28,6 +32,10 @@ import { MapleIconComponent } from '../../icons/maple-icon.component';
 export class BrowseShellComponent {
   state = inject(LibraryStateService);
   private router = inject(Router);
+
+  onRetryLoad(): void {
+    this.state.loadFolderTree();
+  }
 
   // ── Page unload — flush pending XMP writes ───────────────────────────────
   @HostListener('window:beforeunload')
