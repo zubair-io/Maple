@@ -72,35 +72,6 @@ The `[[redirects]]` block is the SPA fallback — all unmatched routes return `i
 
 ---
 
-## Vercel
-
-Add `vercel.json` at the repo root (or in `src/web/`):
-
-```json
-{
-  "buildCommand": "cd src/web && npm run sync-raw-wasm && ng build maple --configuration=production",
-  "outputDirectory": "src/web/dist/maple/browser",
-  "routes": [
-    {
-      "src": "/raw_wasm_bg\\.wasm",
-      "headers": { "Content-Type": "application/wasm" },
-      "dest": "/raw_wasm_bg.wasm"
-    },
-    {
-      "handle": "filesystem"
-    },
-    {
-      "src": "/(.*)",
-      "dest": "/index.html"
-    }
-  ]
-}
-```
-
-The last route is the SPA fallback. `"handle": "filesystem"` ensures static files are served first; unknown paths fall through to `index.html`.
-
----
-
 ## Plain static host (Apache / nginx)
 
 ### Apache `.htaccess`
@@ -189,32 +160,6 @@ Both hosts honour the `_headers` file that ships in
 `projects/maple-hosted/public/_headers`. After `ng build maple-hosted` the
 file lands in `dist/maple-hosted/browser/_headers` and is picked up
 automatically — no extra config needed.
-
-### Vercel
-
-`_headers` is not honoured by Vercel. Add a `headers` stanza to
-`vercel.json`:
-
-```json
-{
-  "buildCommand": "cd src/web && npm run sync-raw-wasm && npm run build:hosted",
-  "outputDirectory": "src/web/dist/maple-hosted/browser",
-  "headers": [
-    {
-      "source": "/(.*)",
-      "headers": [
-        { "key": "Cross-Origin-Opener-Policy", "value": "same-origin" },
-        { "key": "Cross-Origin-Embedder-Policy", "value": "require-corp" }
-      ]
-    }
-  ],
-  "routes": [
-    { "src": "/raw_wasm_bg\\.wasm", "headers": { "Content-Type": "application/wasm" }, "dest": "/raw_wasm_bg.wasm" },
-    { "handle": "filesystem" },
-    { "src": "/(.*)", "dest": "/index.html" }
-  ]
-}
-```
 
 ### Apache / nginx
 
