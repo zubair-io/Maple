@@ -5,27 +5,17 @@ const MAX_EV: f32 = 6.5;
 const MID_GRAY: f32 = 0.18;
 const LUT_SIZE: usize = 512;
 
-/// Polynomial fit to AgX's Default_Contrast sigmoid (Sobotka reference).
-/// Input `x` in [0, 1] (normalized log-encoded scene value).
-/// Output in [0, 1] (display-linear).
-/// Replace with LUT sampled from Blender's reference shader in a future slice
-/// if tighter parity is needed (spec § 3.6a "Reimplement from Blender reference").
+/// Slice-1 stand-in for AgX's Default_Contrast sigmoid: a power curve
+/// `y = x^gamma` with gamma = log(0.18) / log(0.6061) ≈ 3.42.
+/// This hits the critical mid-gray anchor (scene 0.18 → display 0.18 in
+/// linear-light) and is monotone with y(0)=0, y(1)=1.
+///
+/// **Not real AgX.** The toe shape is wrong (too dark in deep shadows)
+/// and there is no per-channel gamut compression. Slice 6 replaces this
+/// with the Blender-reference 6-piece polynomial sigmoid (spec § 3.6a).
 fn agx_sigmoid(x: f32) -> f32 {
     let x = x.clamp(0.0, 1.0);
-    let x2 = x * x;
-    let x3 = x2 * x;
-    let x4 = x3 * x;
-    let x5 = x4 * x;
-    let x6 = x5 * x;
-    let x7 = x6 * x;
-    17.883_58 * x7
-  - 55.488_83 * x6
-  + 63.626_41 * x5
-  - 29.729_46 * x4
-  +  4.930_68 * x3
-  -  0.051_35 * x2
-  +  0.003_03 * x
-  -  0.000_18
+    x.powf(3.42)
 }
 
 fn build_lut() -> [f32; LUT_SIZE] {
@@ -85,14 +75,13 @@ mod tests {
 
     #[test]
     fn mid_gray_maps_near_display_mid() {
-        // Scene-linear 0.18 should map into the AgX-defined "display mid"
-        // region — Sobotka's sRGB fit lands around 0.18–0.22. Use a loose bound.
-        // (Note: the polynomial approximation produces ~0.059; exact parity is slice 6.)
+        // Scene-linear MID_GRAY (0.18) → display-linear MID_GRAY (~0.18).
+        // The power-curve approximation hits this exactly at the anchor.
         let mut img = Image::new(1, 1, ColorSpace::SceneLinearRec2020);
         img.pixels[0] = [0.18, 0.18, 0.18];
         apply(&mut img);
         let p = img.pixels[0];
-        assert!(p[0] > 0.05 && p[0] < 0.3, "R was {}", p[0]);
+        assert!(p[0] > 0.15 && p[0] < 0.22, "R was {} (expected near 0.18)", p[0]);
     }
 
     #[test]
