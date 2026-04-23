@@ -53,9 +53,31 @@ fn set_field(m: &mut AdjustmentModel, key: &str, value: &str) -> Result<()> {
         "crs:Tint"           => m.tint        = v()?,
         "crs:Exposure2012"   => m.exposure    = v()?,
         "crs:Dehaze"         => m.dehaze      = v()?,
+        "crs:WhiteBalance"   => {
+            if let Some((temp, tint)) = wb_preset(value) {
+                m.temperature = temp;
+                m.tint = tint;
+            }
+            // Unknown WB names ("As Shot", "Auto", "Custom") leave defaults.
+        }
         _ => {}, // Slice 1 ignores everything else.
     }
     Ok(())
+}
+
+/// Map an ACR `crs:WhiteBalance` preset name to (temperature, tint).
+/// Returns None for "As Shot", "Auto", "Custom", or unrecognized values —
+/// the caller should leave AdjustmentModel defaults in those cases.
+fn wb_preset(name: &str) -> Option<(f32, f32)> {
+    match name {
+        "Daylight"     => Some((5500.0,  10.0)),
+        "Cloudy"       => Some((6500.0,  10.0)),
+        "Shade"        => Some((7500.0,  10.0)),
+        "Tungsten"     => Some((2850.0,   0.0)),
+        "Fluorescent"  => Some((3800.0,  21.0)),
+        "Flash"        => Some((5500.0,   0.0)),
+        _              => None,
+    }
 }
 
 #[cfg(test)]
@@ -107,14 +129,41 @@ mod tests {
     }
 
     #[test]
-    fn parse_wb_daylight() {
+    fn parse_wb_daylight_uses_preset() {
         let xml = match load_fixture("test_0002/xmp/wb_daylight.xmp") {
             Some(x) => x, None => return,
         };
         let m = parse(&xml).unwrap();
-        // Daylight preset — temp roughly 5500K.
-        assert!(m.temperature > 4000.0 && m.temperature < 7000.0,
-            "temp was {}", m.temperature);
+        assert!((m.temperature - 5500.0).abs() < 1.0,
+            "expected 5500K from Daylight preset, got {}", m.temperature);
+    }
+
+    #[test]
+    fn parse_wb_tungsten_uses_preset() {
+        let xml = match load_fixture("test_0002/xmp/wb_tungsten.xmp") {
+            Some(x) => x, None => return,
+        };
+        let m = parse(&xml).unwrap();
+        assert!((m.temperature - 2850.0).abs() < 1.0,
+            "expected 2850K from Tungsten preset, got {}", m.temperature);
+    }
+
+    #[test]
+    fn explicit_temperature_overrides_preset() {
+        // If both WhiteBalance and Temperature are present, explicit wins.
+        let xml = r#"<?xml version="1.0"?><x><rdf:Description xmlns:rdf="x" xmlns:crs="x"
+            crs:WhiteBalance="Daylight" crs:Temperature="3200"/></x>"#;
+        let m = parse(xml).unwrap();
+        assert!((m.temperature - 3200.0).abs() < 1.0);
+    }
+
+    #[test]
+    fn unknown_wb_preset_leaves_defaults() {
+        let xml = r#"<?xml version="1.0"?><x><rdf:Description xmlns:rdf="x" xmlns:crs="x"
+            crs:WhiteBalance="As Shot"/></x>"#;
+        let m = parse(xml).unwrap();
+        assert_eq!(m.temperature, 6500.0);
+        assert_eq!(m.tint, 0.0);
     }
 
     #[test]
