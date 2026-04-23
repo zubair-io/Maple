@@ -1,0 +1,61 @@
+version: "3.9"
+
+# Maple Self Hosted — Docker Compose
+#
+# Usage:
+#   docker compose up -d             # start MongoDB (uses host-built Bun server)
+#   docker compose --profile app up  # also start the Maple server in Docker
+#
+# For development, start MongoDB only and run the Bun server natively:
+#   docker compose up -d mongo
+#   bun src/index.ts
+
+services:
+  # ---------------------------------------------------------------------------
+  # MongoDB
+  # ---------------------------------------------------------------------------
+  mongo:
+    image: mongo:7.0
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_DATABASE: maple_self_hosted
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ---------------------------------------------------------------------------
+  # Maple Self Hosted server (optional — build with Dockerfile)
+  # ---------------------------------------------------------------------------
+  maple:
+    profiles: ["app"]
+    build:
+      context: ../..        # monorepo root
+      dockerfile: src/maple-self-hosted/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      PORT: "3000"
+      MAPLE_MONGO_URI: "mongodb://mongo:27017"
+      MAPLE_MONGO_DB: "maple_self_hosted"
+      # Mount your photo library here (also set MAPLE_ROOTS):
+      # MAPLE_ROOTS: /photos
+    volumes:
+      # Mount photo library directories here, e.g.:
+      # - /path/to/your/photos:/photos:rw
+      - maple_config:/app/config
+    depends_on:
+      mongo:
+        condition: service_healthy
+
+volumes:
+  mongo_data:
+    driver: local
+  maple_config:
+    driver: local

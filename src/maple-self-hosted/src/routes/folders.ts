@@ -63,7 +63,14 @@ export const foldersRoutes = new Elysia({ prefix: "/api/folders" })
       await enqueueTask("scan_folder", { folder_id: id, path });
 
       set.status = 201;
-      return { id, ...doc };
+      return {
+        id,
+        path: doc.path,
+        label: doc.label,
+        last_scan: doc.last_scan,
+        file_count: doc.file_count,
+        created_at: doc.created_at,
+      };
     },
     {
       body: t.Object({
