@@ -138,3 +138,14 @@ fn run_case(stem: &str, case: &str, class: &str) {
 #[test] fn test_0003_baseline()     { run_case("test_0003", "baseline",     "baseline"); }
 #[test] fn test_0000_baseline()     { run_case("test_0000", "baseline",     "baseline"); }
 #[test] fn test_0001_baseline()     { run_case("test_0001", "baseline",     "baseline"); }
+
+#[test] fn test_0002_contrast_max()   { run_case("test_0002", "contrast_max",   "contrast"); }
+#[test] fn test_0002_contrast_min()   { run_case("test_0002", "contrast_min",   "contrast"); }
+#[test] fn test_0002_highlights_max() { run_case("test_0002", "highlights_max", "highlights"); }
+#[test] fn test_0002_highlights_min() { run_case("test_0002", "highlights_min", "highlights"); }
+#[test] fn test_0002_shadows_max()    { run_case("test_0002", "shadows_max",    "shadows"); }
+#[test] fn test_0002_shadows_min()    { run_case("test_0002", "shadows_min",    "shadows"); }
+#[test] fn test_0002_whites_max()     { run_case("test_0002", "whites_max",     "whites"); }
+#[test] fn test_0002_whites_min()     { run_case("test_0002", "whites_min",     "whites"); }
+#[test] fn test_0002_blacks_max()     { run_case("test_0002", "blacks_max",     "blacks"); }
+#[test] fn test_0002_blacks_min()     { run_case("test_0002", "blacks_min",     "blacks"); }
