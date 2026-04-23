@@ -1,4 +1,5 @@
-// Histogram — pseudo-rendered from adjustment model hash until real pixel data in P4.
+// Histogram — uses real decoded pixel data when available, falls back to
+// pseudo-rendered data from the adjustment model hash.
 
 import {
   AfterViewInit,
@@ -7,9 +8,13 @@ import {
   OnDestroy,
   ViewChild,
   effect,
+  inject,
   input,
 } from '@angular/core';
 import { AdjustmentModel } from '@maple-common';
+import { ImageCanvasService } from '../image-canvas/image-canvas.service';
+import { computeRgbHistograms } from '@maple-common';
+import type { DecodedImage } from '@maple-common';
 
 function hashModel(m: AdjustmentModel): number {
   const vals = [
@@ -29,13 +34,19 @@ export class HistogramComponent implements AfterViewInit, OnDestroy {
   @ViewChild('canvas') canvasRef!: ElementRef<HTMLCanvasElement>;
   adjustment = input.required<AdjustmentModel>();
 
+  private canvasSvc = inject(ImageCanvasService);
   private cleanupEffect?: () => void;
 
   ngAfterViewInit(): void {
     const e = effect(() => {
-      const adj = this.adjustment();
+      const adj  = this.adjustment();
+      const pixels = this.canvasSvc.currentPixels();
       if (this.canvasRef) {
-        this.render(adj);
+        if (pixels) {
+          this.renderReal(pixels);
+        } else {
+          this.renderPseudo(adj);
+        }
       }
     });
     this.cleanupEffect = () => e.destroy();
@@ -45,7 +56,51 @@ export class HistogramComponent implements AfterViewInit, OnDestroy {
     this.cleanupEffect?.();
   }
 
-  private render(model: AdjustmentModel): void {
+  private renderReal(img: DecodedImage): void {
+    const canvas = this.canvasRef?.nativeElement;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const W = canvas.width;
+    const H = canvas.height;
+    ctx.clearRect(0, 0, W, H);
+
+    const { r, g, b, luma } = computeRgbHistograms(img);
+
+    // Find peak for normalisation.
+    let peak = 1;
+    for (let i = 0; i < 256; i++) {
+      peak = Math.max(peak, r[i], g[i], b[i], luma[i]);
+    }
+
+    const channels = [
+      { bins: r,    color: 'rgba(220,80,80,0.55)'   },
+      { bins: g,    color: 'rgba(80,190,80,0.55)'   },
+      { bins: b,    color: 'rgba(80,130,220,0.55)'  },
+      { bins: luma, color: 'rgba(200,190,180,0.4)'  },
+    ];
+
+    // Downsample 256 bins to canvas width.
+    const binW = W / 256;
+    for (const ch of channels) {
+      ctx.fillStyle = ch.color;
+      for (let i = 0; i < 256; i++) {
+        const h = (ch.bins[i] / peak) * (H - 2);
+        ctx.fillRect(i * binW, H - h, Math.max(1, binW - 0.5), h);
+      }
+    }
+
+    // Baseline
+    ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+    ctx.lineWidth = 0.5;
+    ctx.beginPath();
+    ctx.moveTo(0, H - 0.5);
+    ctx.lineTo(W, H - 0.5);
+    ctx.stroke();
+  }
+
+  private renderPseudo(model: AdjustmentModel): void {
     const canvas = this.canvasRef?.nativeElement;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
@@ -59,7 +114,6 @@ export class HistogramComponent implements AfterViewInit, OnDestroy {
     const bins = 64;
     const barW = W / bins;
 
-    // Channels: R, G, B, Luma
     const channels = [
       { color: 'rgba(220,80,80,0.55)',  offset: 0.0 },
       { color: 'rgba(80,190,80,0.55)',  offset: 0.3 },
@@ -71,7 +125,6 @@ export class HistogramComponent implements AfterViewInit, OnDestroy {
       ctx.beginPath();
       for (let i = 0; i < bins; i++) {
         const t = i / bins;
-        // Gaussian-ish bell based on seed + channel offset
         const mu = 0.35 + (seed * 0.007 + ch.offset * 0.15) % 0.3;
         const sigma = 0.12 + Math.abs(model.contrast) / 2000;
         const gauss = Math.exp(-0.5 * Math.pow((t - mu) / sigma, 2));
@@ -82,7 +135,6 @@ export class HistogramComponent implements AfterViewInit, OnDestroy {
       }
     }
 
-    // Baseline
     ctx.strokeStyle = 'rgba(255,255,255,0.08)';
     ctx.lineWidth = 0.5;
     ctx.beginPath();
