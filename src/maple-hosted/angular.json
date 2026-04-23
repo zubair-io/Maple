@@ -6,28 +6,38 @@
   },
   "newProjectRoot": "projects",
   "projects": {
-    "editor": {
+    "maple": {
       "projectType": "application",
       "schematics": {
         "@schematics/angular:component": {
           "style": "scss"
         }
       },
-      "root": "projects/editor",
-      "sourceRoot": "projects/editor/src",
+      "root": "projects/maple",
+      "sourceRoot": "projects/maple/src",
       "prefix": "app",
       "architect": {
         "build": {
           "builder": "@angular/build:application",
           "options": {
-            "browser": "projects/editor/src/main.ts",
-            "tsConfig": "projects/editor/tsconfig.app.json",
+            "browser": "projects/maple/src/main.ts",
+            "tsConfig": "projects/maple/tsconfig.app.json",
             "webWorkerTsConfig": "tsconfig.worker.json",
             "inlineStyleLanguage": "scss",
             "assets": [
               {
                 "glob": "**/*",
-                "input": "projects/editor/public"
+                "input": "projects/maple/public"
+              },
+              {
+                "glob": "**/*",
+                "input": "projects/maple/src/assets",
+                "output": "assets"
+              },
+              {
+                "glob": "manifest.webmanifest",
+                "input": "projects/maple/src",
+                "output": "/"
               },
               {
                 "glob": "raw_wasm_bg.wasm",
@@ -35,20 +45,21 @@
                 "output": "/"
               }
             ],
-            "styles": ["projects/editor/src/styles.scss"]
+            "styles": ["projects/maple/src/styles.scss"],
+            "serviceWorker": "ngsw-config.json"
           },
           "configurations": {
             "production": {
               "budgets": [
                 {
                   "type": "initial",
-                  "maximumWarning": "500kB",
-                  "maximumError": "1MB"
+                  "maximumWarning": "3MB",
+                  "maximumError": "8MB"
                 },
                 {
                   "type": "anyComponentStyle",
-                  "maximumWarning": "4kB",
-                  "maximumError": "8kB"
+                  "maximumWarning": "8kB",
+                  "maximumError": "16kB"
                 }
               ],
               "outputHashing": "all"
@@ -65,82 +76,10 @@
           "builder": "@angular/build:dev-server",
           "configurations": {
             "production": {
-              "buildTarget": "editor:build:production"
+              "buildTarget": "maple:build:production"
             },
             "development": {
-              "buildTarget": "editor:build:development"
-            }
-          },
-          "defaultConfiguration": "development"
-        },
-        "test": {
-          "builder": "@angular/build:unit-test"
-        }
-      }
-    },
-    "browse": {
-      "projectType": "application",
-      "schematics": {
-        "@schematics/angular:component": {
-          "style": "scss"
-        }
-      },
-      "root": "projects/browse",
-      "sourceRoot": "projects/browse/src",
-      "prefix": "app",
-      "architect": {
-        "build": {
-          "builder": "@angular/build:application",
-          "options": {
-            "browser": "projects/browse/src/main.ts",
-            "tsConfig": "projects/browse/tsconfig.app.json",
-            "webWorkerTsConfig": "tsconfig.worker.json",
-            "inlineStyleLanguage": "scss",
-            "assets": [
-              {
-                "glob": "**/*",
-                "input": "projects/browse/public"
-              },
-              {
-                "glob": "raw_wasm_bg.wasm",
-                "input": "projects/maple-common/src/lib/raw-pipeline/pkg",
-                "output": "/"
-              }
-            ],
-            "styles": ["projects/browse/src/styles.scss"]
-          },
-          "configurations": {
-            "production": {
-              "budgets": [
-                {
-                  "type": "initial",
-                  "maximumWarning": "500kB",
-                  "maximumError": "1MB"
-                },
-                {
-                  "type": "anyComponentStyle",
-                  "maximumWarning": "4kB",
-                  "maximumError": "8kB"
-                }
-              ],
-              "outputHashing": "all"
-            },
-            "development": {
-              "optimization": false,
-              "extractLicenses": false,
-              "sourceMap": true
-            }
-          },
-          "defaultConfiguration": "production"
-        },
-        "serve": {
-          "builder": "@angular/build:dev-server",
-          "configurations": {
-            "production": {
-              "buildTarget": "browse:build:production"
-            },
-            "development": {
-              "buildTarget": "browse:build:development"
+              "buildTarget": "maple:build:development"
             }
           },
           "defaultConfiguration": "development"
