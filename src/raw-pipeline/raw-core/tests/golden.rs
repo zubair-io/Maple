@@ -160,3 +160,14 @@ fn run_case(stem: &str, case: &str, class: &str) {
 #[test] fn test_0002_clarity_min()    { run_case("test_0002", "clarity_min",    "clarity"); }
 #[test] fn test_0002_texture_max()    { run_case("test_0002", "texture_max",    "texture"); }
 #[test] fn test_0002_texture_min()    { run_case("test_0002", "texture_min",    "texture"); }
+
+#[test] fn test_0002_sharpen_amount_max()  { run_case("test_0002", "sharpen_amount_max",  "sharpen"); }
+#[test] fn test_0002_sharpen_amount_min()  { run_case("test_0002", "sharpen_amount_min",  "sharpen"); }
+#[test] fn test_0002_sharpen_radius_max()  { run_case("test_0002", "sharpen_radius_max",  "sharpen"); }
+#[test] fn test_0002_sharpen_radius_min()  { run_case("test_0002", "sharpen_radius_min",  "sharpen"); }
+#[test] fn test_0002_sharpen_detail_max()  { run_case("test_0002", "sharpen_detail_max",  "sharpen"); }
+#[test] fn test_0002_sharpen_detail_min()  { run_case("test_0002", "sharpen_detail_min",  "sharpen"); }
+#[test] fn test_0002_sharpen_masking_max() { run_case("test_0002", "sharpen_masking_max", "sharpen"); }
+#[test] fn test_0002_nr_luminance_max()    { run_case("test_0002", "nr_luminance_max",    "nr"); }
+#[test] fn test_0002_nr_color_max()        { run_case("test_0002", "nr_color_max",        "nr"); }
+#[test] fn test_0002_nr_color_min()        { run_case("test_0002", "nr_color_min",        "nr"); }
