@@ -13,7 +13,21 @@ import Foundation
 // MARK: - FilesystemSource
 
 /// Manages access to a folder of RAW files via security-scoped bookmarks.
+///
+/// Bookmark options differ per platform: macOS needs `.withSecurityScope` to
+/// persist folder access across launches; on iOS, security scope is implicit
+/// for URLs returned by `UIDocumentPicker` and the option is unavailable.
 public actor FilesystemSource {
+
+    // MARK: Platform-specific bookmark options
+
+    #if os(macOS)
+    private static let bookmarkCreationOptions: URL.BookmarkCreationOptions = .withSecurityScope
+    private static let bookmarkResolutionOptions: URL.BookmarkResolutionOptions = .withSecurityScope
+    #else
+    private static let bookmarkCreationOptions: URL.BookmarkCreationOptions = []
+    private static let bookmarkResolutionOptions: URL.BookmarkResolutionOptions = []
+    #endif
 
     // MARK: Types
 
@@ -51,7 +65,7 @@ public actor FilesystemSource {
 
         self.folderURL = folderURL
         self.bookmarkData = try folderURL.bookmarkData(
-            options: .withSecurityScope,
+            options: Self.bookmarkCreationOptions,
             includingResourceValuesForKeys: nil,
             relativeTo: nil
         )
@@ -65,14 +79,14 @@ public actor FilesystemSource {
         var isStale = false
         let url = try URL(
             resolvingBookmarkData: data,
-            options: .withSecurityScope,
+            options: Self.bookmarkResolutionOptions,
             relativeTo: nil,
             bookmarkDataIsStale: &isStale
         )
         let accessing = url.startAccessingSecurityScopedResource()
         self.folderURL = url
         self.bookmarkData = isStale
-            ? try url.bookmarkData(options: .withSecurityScope, includingResourceValuesForKeys: nil, relativeTo: nil)
+            ? try url.bookmarkData(options: Self.bookmarkCreationOptions, includingResourceValuesForKeys: nil, relativeTo: nil)
             : data
         try _index()
         if accessing { url.stopAccessingSecurityScopedResource() }
