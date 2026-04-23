@@ -1,0 +1,33 @@
+:host {
+  display: block;
+}
+
+.loading-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  font-size: 12px;
+  color: var(--maple-text-muted);
+  background: var(--maple-bg-subtle, rgba(255, 255, 255, 0.04));
+  border-bottom: 1px solid var(--maple-border, rgba(255, 255, 255, 0.08));
+}
+
+.spinner {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 1.5px solid var(--maple-text-muted);
+  border-top-color: transparent;
+  animation: spin 0.8s linear infinite;
+}
+
+.label {
+  white-space: nowrap;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
