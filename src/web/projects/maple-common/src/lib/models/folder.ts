@@ -22,8 +22,8 @@ export interface SidebarEntry {
   id: string;
   label: string;
   count: number | null;
-  icon?: string;         // for smart items
-  smart?: boolean;       // for smart albums
-  open?: boolean;        // default open state for folder nodes
+  icon?: string; // for smart items
+  smart?: boolean; // for smart albums
+  open?: boolean; // default open state for folder nodes
   children?: SidebarEntry[];
 }

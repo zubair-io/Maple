@@ -28,7 +28,7 @@ interface WindowWithDirectoryPicker extends Window {
 }
 
 const IDB_DB_NAME = 'maple-fs-handles';
-const IDB_STORE   = 'handles';
+const IDB_STORE = 'handles';
 const IDB_VERSION = 1;
 
 // ── IndexedDB helpers ─────────────────────────────────────────────────────────
@@ -40,13 +40,11 @@ function openHandleDb(): Promise<IDBDatabase> {
       req.result.createObjectStore(IDB_STORE, { keyPath: 'key' });
     };
     req.onsuccess = () => resolve(req.result);
-    req.onerror   = () => reject(req.error);
+    req.onerror = () => reject(req.error);
   });
 }
 
-export async function persistHandle(
-  handle: FileSystemDirectoryHandle,
-): Promise<string> {
+export async function persistHandle(handle: FileSystemDirectoryHandle): Promise<string> {
   const key = crypto.randomUUID();
   const record: PersistedHandleRecord = {
     key,
@@ -58,8 +56,14 @@ export async function persistHandle(
   await new Promise<void>((resolve, reject) => {
     const tx = db.transaction(IDB_STORE, 'readwrite');
     tx.objectStore(IDB_STORE).put(record);
-    tx.oncomplete = () => { db.close(); resolve(); };
-    tx.onerror    = () => { db.close(); reject(tx.error); };
+    tx.oncomplete = () => {
+      db.close();
+      resolve();
+    };
+    tx.onerror = () => {
+      db.close();
+      reject(tx.error);
+    };
   });
   return key;
 }
@@ -69,8 +73,14 @@ export async function getPersistedHandles(): Promise<PersistedHandleRecord[]> {
   return new Promise<PersistedHandleRecord[]>((resolve, reject) => {
     const tx = db.transaction(IDB_STORE, 'readonly');
     const req = tx.objectStore(IDB_STORE).getAll();
-    req.onsuccess = () => { db.close(); resolve(req.result as PersistedHandleRecord[]); };
-    req.onerror   = () => { db.close(); reject(req.error); };
+    req.onsuccess = () => {
+      db.close();
+      resolve(req.result as PersistedHandleRecord[]);
+    };
+    req.onerror = () => {
+      db.close();
+      reject(req.error);
+    };
   });
 }
 
@@ -79,8 +89,14 @@ export async function removePersistedHandle(key: string): Promise<void> {
   await new Promise<void>((resolve, reject) => {
     const tx = db.transaction(IDB_STORE, 'readwrite');
     tx.objectStore(IDB_STORE).delete(key);
-    tx.oncomplete = () => { db.close(); resolve(); };
-    tx.onerror    = () => { db.close(); reject(tx.error); };
+    tx.oncomplete = () => {
+      db.close();
+      resolve();
+    };
+    tx.onerror = () => {
+      db.close();
+      reject(tx.error);
+    };
   });
 }
 
@@ -119,7 +135,7 @@ export async function fsAccessOpenFolder(): Promise<MapleFolderHandle | null> {
 
   // Try readwrite first; fall back to read-only.
   const write = await verifyPermission(nativeHandle, 'readwrite');
-  const read  = write || await verifyPermission(nativeHandle, 'read');
+  const read = write || (await verifyPermission(nativeHandle, 'read'));
   if (!read) return null;
 
   let persistedKey: string | undefined;
@@ -141,24 +157,20 @@ export async function fsAccessReopenHandle(
 ): Promise<MapleFolderHandle | null> {
   const nativeHandle = record.handle;
   const write = await verifyPermission(nativeHandle, 'readwrite');
-  const read  = write || await verifyPermission(nativeHandle, 'read');
+  const read = write || (await verifyPermission(nativeHandle, 'read'));
   if (!read) return null;
   return { name: nativeHandle.name, read, write, native: nativeHandle, persistedKey: record.key };
 }
 
 /** Request write access for an already-open read-only handle. */
-export async function fsAccessRequestWrite(
-  folder: MapleFolderHandle,
-): Promise<boolean> {
+export async function fsAccessRequestWrite(folder: MapleFolderHandle): Promise<boolean> {
   if (!folder.native) return false;
   return verifyPermission(folder.native, 'readwrite');
 }
 
 // ── List entries ──────────────────────────────────────────────────────────────
 
-export async function fsAccessListEntries(
-  folder: MapleFolderHandle,
-): Promise<FolderEntry[]> {
+export async function fsAccessListEntries(folder: MapleFolderHandle): Promise<FolderEntry[]> {
   if (!folder.native) return [];
   const entries: FolderEntry[] = [];
   for await (const [name, handle] of folder.native.entries()) {
@@ -199,7 +211,7 @@ export async function fsAccessReadFile(
   path: string,
 ): Promise<Uint8Array> {
   if (!folder.native) throw new Error('fs-access: no native handle');
-  const parts = path.split('/').filter(p => p.length > 0 && p !== '.');
+  const parts = path.split('/').filter((p) => p.length > 0 && p !== '.');
   let dir: FileSystemDirectoryHandle = folder.native;
   for (let i = 0; i < parts.length - 1; i++) {
     dir = await dir.getDirectoryHandle(parts[i], { create: false });
@@ -222,8 +234,8 @@ export async function fsAccessWriteFile(
   data: Uint8Array,
 ): Promise<void> {
   if (!folder.native) throw new Error('fs-access: no native handle');
-  if (!folder.write)  throw new Error('fs-access: no write permission');
-  const parts = path.split('/').filter(p => p.length > 0 && p !== '.');
+  if (!folder.write) throw new Error('fs-access: no write permission');
+  const parts = path.split('/').filter((p) => p.length > 0 && p !== '.');
   let dir: FileSystemDirectoryHandle = folder.native;
   for (let i = 0; i < parts.length - 1; i++) {
     dir = await dir.getDirectoryHandle(parts[i], { create: true });
@@ -245,7 +257,7 @@ export async function fsAccessEnsureSubdirectory(
   name: string,
 ): Promise<MapleFolderHandle> {
   if (!folder.native) throw new Error('fs-access: no native handle');
-  const parts = name.split('/').filter(p => p.length > 0 && p !== '.');
+  const parts = name.split('/').filter((p) => p.length > 0 && p !== '.');
   let dir: FileSystemDirectoryHandle = folder.native;
   for (const part of parts) {
     dir = await dir.getDirectoryHandle(part, { create: folder.write });

@@ -4,6 +4,7 @@
 
 import {
   AfterViewInit,
+  ChangeDetectionStrategy,
   Component,
   ElementRef,
   OnDestroy,
@@ -22,181 +23,19 @@ import { AssetId } from '../../models/asset';
 @Component({
   selector: 'editor-image-canvas',
   standalone: true,
-  styles: [`
-    :host {
-      display: flex;
-      flex-direction: column;
-      flex: 1;
-      min-height: 0;
-      min-width: 0;
-      position: relative;
-      overflow: hidden;
-      background: #080706;
-    }
-
-    /* Toolbar */
-    .toolbar {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      padding: 0 12px;
-      height: 34px;
-      background: var(--maple-surface);
-      border-bottom: 0.5px solid var(--maple-border);
-      flex-shrink: 0;
-    }
-    .toolbar-spacer { flex: 1; }
-    .zoom-label {
-      font-family: var(--maple-font-mono);
-      font-size: 10px;
-      color: var(--maple-text-muted);
-    }
-    .tool-btn {
-      width: 24px;
-      height: 24px;
-      border-radius: 4px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      cursor: pointer;
-      font-family: var(--maple-font);
-      font-size: 11px;
-      color: var(--maple-text-muted);
-      border: 0.5px solid var(--maple-border);
-      background: var(--maple-surface-alt);
-      transition: background 100ms;
-    }
-    .tool-btn:hover { background: var(--maple-surface-hover); color: var(--maple-text-main); }
-    .tool-btn.active { background: var(--maple-primary-dim); color: var(--maple-primary); border-color: var(--maple-primary); }
-
-    /* Canvas wrapper */
-    .canvas-wrap {
-      flex: 1;
-      position: relative;
-      min-height: 0;
-      overflow: hidden;
-      cursor: grab;
-      user-select: none;
-    }
-    .canvas-wrap:active { cursor: grabbing; }
-    .canvas-wrap canvas { display: block; position: absolute; top: 50%; left: 50%; }
-
-    /* Before/after divider */
-    .ba-divider {
-      position: absolute;
-      top: 0;
-      bottom: 0;
-      width: 2px;
-      background: rgba(255,255,255,0.8);
-      transform: translateX(-50%);
-      cursor: ew-resize;
-      z-index: 10;
-    }
-    .ba-handle {
-      position: absolute;
-      top: 50%;
-      left: 50%;
-      transform: translate(-50%, -50%);
-      width: 20px;
-      height: 40px;
-      background: rgba(255,255,255,0.9);
-      border-radius: 10px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 10px;
-      color: #333;
-      pointer-events: none;
-    }
-
-    /* Filename overlay */
-    .filename-overlay {
-      position: absolute;
-      left: 12px;
-      bottom: 10px;
-      font-family: var(--maple-font-mono);
-      font-size: 10px;
-      color: rgba(255,255,255,0.35);
-      pointer-events: none;
-      z-index: 5;
-    }
-
-    /* Loading overlay */
-    .loading-overlay {
-      position: absolute;
-      inset: 0;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      z-index: 6;
-      pointer-events: none;
-    }
-    .loading-pill {
-      background: rgba(0,0,0,0.6);
-      border: 0.5px solid rgba(255,255,255,0.15);
-      border-radius: 20px;
-      padding: 6px 14px;
-      font-family: var(--maple-font);
-      font-size: 11px;
-      color: rgba(255,255,255,0.7);
-      backdrop-filter: blur(6px);
-    }
-  `],
-  template: `
-    <!-- Toolbar -->
-    <div class="toolbar">
-      <span class="zoom-label">{{ zoomLabel() }}</span>
-      <div class="tool-btn" (click)="canvasSvc.zoomOut()" title="Zoom out">−</div>
-      <div class="tool-btn" (click)="canvasSvc.resetView()" title="Fit">⊡</div>
-      <div class="tool-btn" (click)="canvasSvc.zoomIn()" title="Zoom in">+</div>
-      <div class="toolbar-spacer"></div>
-      <div class="tool-btn"
-        [class.active]="canvasSvc.showBeforeAfter()"
-        (click)="canvasSvc.toggleBeforeAfter()"
-        title="Before/After (b)">B/A</div>
-    </div>
-
-    <!-- Canvas area -->
-    <div class="canvas-wrap" #wrap
-      (wheel)="onWheel($event)"
-      (mousedown)="onMouseDown($event)"
-      (mousemove)="onMouseMove($event)"
-      (mouseup)="onMouseUp()"
-      (mouseleave)="onMouseUp()">
-      <canvas #canvas></canvas>
-
-      <!-- Before/after divider -->
-      @if (canvasSvc.showBeforeAfter()) {
-        <div class="ba-divider"
-          [style.left.%]="(canvasSvc.beforeAfterSplitX() ?? 0.5) * 100"
-          (mousedown)="onDividerDrag($event)">
-          <div class="ba-handle">&#x21D4;</div>
-        </div>
-      }
-
-      <!-- Filename overlay -->
-      @if (state.focusedAsset()) {
-        <div class="filename-overlay">{{ state.focusedAsset()?.filename }}</div>
-      }
-
-      <!-- Decoding progress overlay -->
-      @if (loading()) {
-        <div class="loading-overlay">
-          <div class="loading-pill">Decoding RAW...</div>
-        </div>
-      }
-    </div>
-  `,
+  templateUrl: './image-canvas.component.html',
+  styleUrl: './image-canvas.component.scss',
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ImageCanvasComponent implements AfterViewInit, OnDestroy {
   @ViewChild('canvas') canvasRef!: ElementRef<HTMLCanvasElement>;
-  @ViewChild('wrap')   wrapRef!:   ElementRef<HTMLElement>;
+  @ViewChild('wrap') wrapRef!: ElementRef<HTMLElement>;
 
-  state     = inject(LibraryStateService);
+  state = inject(LibraryStateService);
   canvasSvc = inject(ImageCanvasService);
-  pipeline  = inject(RawPipelineService);
+  pipeline = inject(RawPipelineService);
 
-  readonly loading     = signal(false);
+  readonly loading = signal(false);
   readonly imageBitmap = signal<ImageBitmap | null>(null);
 
   private ro?: ResizeObserver;
@@ -219,7 +58,7 @@ export class ImageCanvasComponent implements AfterViewInit, OnDestroy {
     const asset = this.state.focusedAsset();
     const W = this.wrapW();
     const H = this.wrapH();
-    const aw = asset?.width  ?? 6240;
+    const aw = asset?.width ?? 6240;
     const ah = asset?.height ?? 4160;
     if (z === 'fit') {
       const scale = Math.min(W / aw, H / ah, 1);
@@ -230,14 +69,14 @@ export class ImageCanvasComponent implements AfterViewInit, OnDestroy {
   });
 
   ngAfterViewInit(): void {
-    this.ro = new ResizeObserver(entries => {
+    this.ro = new ResizeObserver((entries) => {
       for (const e of entries) {
         this.wrapW.set(e.contentRect.width);
         this.wrapH.set(e.contentRect.height);
       }
     });
     this.ro.observe(this.wrapRef.nativeElement);
-    this.wrapW.set(this.wrapRef.nativeElement.clientWidth  || 800);
+    this.wrapW.set(this.wrapRef.nativeElement.clientWidth || 800);
     this.wrapH.set(this.wrapRef.nativeElement.clientHeight || 600);
 
     // Watch focused asset — decode if it has bytes.
@@ -311,7 +150,7 @@ export class ImageCanvasComponent implements AfterViewInit, OnDestroy {
     const canvas = this.canvasRef?.nativeElement;
     if (!canvas) return;
     const { canvasW, canvasH } = this.effectivePx();
-    canvas.width  = canvasW;
+    canvas.width = canvasW;
     canvas.height = canvasH;
 
     const pan = this.canvasSvc.pan();
@@ -320,9 +159,9 @@ export class ImageCanvasComponent implements AfterViewInit, OnDestroy {
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    const asset  = this.state.focusedAsset();
+    const asset = this.state.focusedAsset();
     const bitmap = this.imageBitmap();
-    const split  = this.canvasSvc.beforeAfterSplitX();
+    const split = this.canvasSvc.beforeAfterSplitX();
 
     if (bitmap) {
       // Real decoded pixels.
@@ -353,7 +192,15 @@ export class ImageCanvasComponent implements AfterViewInit, OnDestroy {
       if (split !== null) {
         const splitPx = Math.round(canvasW * split);
         this.drawGradient(ctx, asset?.thumbnailGradient, 0, 0, splitPx, canvasH, 0);
-        this.drawGradient(ctx, asset?.thumbnailGradient, splitPx, 0, canvasW - splitPx, canvasH, 15);
+        this.drawGradient(
+          ctx,
+          asset?.thumbnailGradient,
+          splitPx,
+          0,
+          canvasW - splitPx,
+          canvasH,
+          15,
+        );
       } else {
         this.drawGradient(ctx, asset?.thumbnailGradient, 0, 0, canvasW, canvasH, 0);
       }
@@ -363,7 +210,10 @@ export class ImageCanvasComponent implements AfterViewInit, OnDestroy {
   private drawGradient(
     ctx: CanvasRenderingContext2D,
     gradientUrl: string | undefined,
-    x: number, y: number, w: number, h: number,
+    x: number,
+    y: number,
+    w: number,
+    h: number,
     lightenBy: number,
   ): void {
     if (w <= 0 || h <= 0) return;

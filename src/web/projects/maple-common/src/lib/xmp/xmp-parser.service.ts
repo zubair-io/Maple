@@ -11,11 +11,11 @@ import { ADJUSTMENT_FIELDS, WB_PRESET_FIELD } from './xmp-fields';
 
 /** Adobe xmp:Label words → Maple colorLabel values. */
 const LABEL_MAP: Record<string, XmpColorLabel> = {
-  Red:    'red',
+  Red: 'red',
   Orange: 'orange',
   Yellow: 'yellow',
-  Green:  'green',
-  Blue:   'blue',
+  Green: 'green',
+  Blue: 'blue',
 };
 
 const VALID_FLAGS = new Set<string>(['pick', 'reject', 'unflagged']);
@@ -25,13 +25,19 @@ const VALID_FLAGS = new Set<string>(['pick', 'reject', 'unflagged']);
  * passthrough when collecting unknownAttributes.
  */
 const KNOWN_ATTRIBUTES = new Set<string>([
-  ...ADJUSTMENT_FIELDS.map(f => f.xmpKey),
+  ...ADJUSTMENT_FIELDS.map((f) => f.xmpKey),
   WB_PRESET_FIELD.xmpKey,
   // culling
-  'xmp:Rating', 'Rating',
-  'maple:Flag', 'papp:Flag', 'Flag',
-  'xmp:Label', 'Label',
-  'maple:ColorLabel', 'papp:ColorLabel', 'ColorLabel',
+  'xmp:Rating',
+  'Rating',
+  'maple:Flag',
+  'papp:Flag',
+  'Flag',
+  'xmp:Label',
+  'Label',
+  'maple:ColorLabel',
+  'papp:ColorLabel',
+  'ColorLabel',
   // structural / bookkeeping
   'rdf:about',
   'crs:Version',
@@ -41,7 +47,6 @@ const KNOWN_ATTRIBUTES = new Set<string>([
 
 @Injectable({ providedIn: 'root' })
 export class XmpParserService {
-
   // ── Culling (unchanged P5 behaviour) ────────────────────────────────────────
 
   /**
@@ -66,9 +71,7 @@ export class XmpParserService {
         return result;
       }
 
-      desc =
-        doc.querySelector('rdf\\:Description') ??
-        doc.querySelector('Description');
+      desc = doc.querySelector('rdf\\:Description') ?? doc.querySelector('Description');
 
       if (!desc) return result;
     } catch {
@@ -132,9 +135,7 @@ export class XmpParserService {
         return emptyResult;
       }
 
-      desc =
-        doc.querySelector('rdf\\:Description') ??
-        doc.querySelector('Description');
+      desc = doc.querySelector('rdf\\:Description') ?? doc.querySelector('Description');
 
       if (!desc) return emptyResult;
     } catch {
@@ -148,11 +149,13 @@ export class XmpParserService {
       const attr = desc.attributes[i];
       const name = attr.name;
 
-      const mapping = ADJUSTMENT_FIELDS.find(f => f.xmpKey === name);
+      const mapping = ADJUSTMENT_FIELDS.find((f) => f.xmpKey === name);
       if (mapping) {
         const parsed = mapping.parse(attr.value);
         if (!Number.isNaN(parsed)) {
-          (model as any)[mapping.modelKey] = parsed;
+          // Narrowed: every ADJUSTMENT_FIELDS entry is keyed on a numeric
+          // AdjustmentModel field, so `parsed` is assignable to model[modelKey].
+          model[mapping.modelKey] = parsed;
         }
         continue;
       }

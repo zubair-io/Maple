@@ -1,0 +1,86 @@
+<div class="window">
+  <!-- Titlebar / Window Chrome -->
+  <div class="titlebar">
+    <!-- Traffic lights -->
+    <div class="traffic-lights">
+      <div class="tl-dot tl-close" title="Close">
+        <span class="symbol">×</span>
+      </div>
+      <div class="tl-dot tl-min" title="Minimize">
+        <span class="symbol">–</span>
+      </div>
+      <div class="tl-dot tl-max" title="Full screen">
+        <span class="symbol">⤢</span>
+      </div>
+    </div>
+
+    <!-- Sidebar toggle -->
+    <div
+      class="chrome-btn"
+      [class.active]="state.sidebarVisible()"
+      [title]="(state.sidebarVisible() ? 'Hide' : 'Show') + ' sidebar  ⌥⌘S'"
+      (click)="state.toggleSidebar()"
+    >
+      <maple-icon
+        name="sidebar"
+        [size]="13"
+        [color]="state.sidebarVisible() ? 'var(--maple-text-main)' : 'var(--maple-text-muted)'"
+      />
+    </div>
+
+    <!-- Search chrome btn -->
+    <div class="chrome-btn">
+      <maple-icon name="search" [size]="12" color="var(--maple-text-muted)" />
+    </div>
+
+    <!-- Title -->
+    <div class="title">Library — France trip</div>
+
+    <!-- Export -->
+    <div
+      class="export-btn"
+      [class.has-selection]="state.selectedCount() > 0"
+      [class.no-selection]="state.selectedCount() === 0"
+    >
+      <maple-icon name="export" [size]="11" />
+      <span>Export{{ state.selectedCount() > 1 ? ' (' + state.selectedCount() + ')' : '' }}</span>
+    </div>
+
+    <!-- Inspector toggle -->
+    <div
+      class="chrome-btn"
+      [class.active]="state.inspectorVisible()"
+      [title]="(state.inspectorVisible() ? 'Hide' : 'Show') + ' inspector  ⌥⌘D'"
+      (click)="state.toggleInspector()"
+    >
+      <maple-icon
+        name="inspector"
+        [size]="13"
+        [color]="state.inspectorVisible() ? 'var(--maple-text-main)' : 'var(--maple-text-muted)'"
+      />
+    </div>
+  </div>
+
+  <!-- Body -->
+  <div class="body">
+    <!-- Left: folder tree -->
+    <div class="panel-left" [style.width]="state.sidebarVisible() ? '220px' : '0px'">
+      <app-folder-tree />
+    </div>
+
+    <!-- Center: asset grid + drop-zone import bar -->
+    <div class="panel-center">
+      <app-drop-zone />
+      <app-asset-grid />
+    </div>
+
+    <!-- Right: detail panel -->
+    <div
+      class="panel-right"
+      [class.hidden]="!state.inspectorVisible()"
+      [style.width]="state.inspectorVisible() ? '280px' : '0px'"
+    >
+      <app-detail-panel />
+    </div>
+  </div>
+</div>

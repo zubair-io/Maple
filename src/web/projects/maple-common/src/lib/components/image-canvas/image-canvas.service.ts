@@ -7,8 +7,8 @@ export type ZoomLevel = 0.25 | 0.5 | 1 | 2 | 4 | 'fit';
 
 @Injectable({ providedIn: 'root' })
 export class ImageCanvasService {
-  readonly zoom              = signal<ZoomLevel>('fit');
-  readonly pan               = signal<{ x: number; y: number }>({ x: 0, y: 0 });
+  readonly zoom = signal<ZoomLevel>('fit');
+  readonly pan = signal<{ x: number; y: number }>({ x: 0, y: 0 });
   readonly beforeAfterSplitX = signal<number | null>(null);
 
   /** Current decoded image pixels — set by ImageCanvasComponent on decode. */
@@ -36,7 +36,10 @@ export class ImageCanvasService {
   zoomIn(): void {
     const order: ZoomLevel[] = [0.25, 0.5, 1, 2, 4];
     const cur = this.zoom();
-    if (cur === 'fit') { this.zoom.set(1); return; }
+    if (cur === 'fit') {
+      this.zoom.set(1);
+      return;
+    }
     const idx = order.indexOf(cur as ZoomLevel);
     if (idx < order.length - 1) this.zoom.set(order[idx + 1]);
   }
@@ -51,6 +54,6 @@ export class ImageCanvasService {
   }
 
   applyPanDelta(dx: number, dy: number): void {
-    this.pan.update(p => ({ x: p.x + dx, y: p.y + dy }));
+    this.pan.update((p) => ({ x: p.x + dx, y: p.y + dy }));
   }
 }

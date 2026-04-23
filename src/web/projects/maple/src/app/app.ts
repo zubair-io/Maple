@@ -9,8 +9,14 @@ import { LibraryStateService, mockLibrary } from '@maple-common';
   selector: 'app-root',
   standalone: true,
   imports: [RouterOutlet],
-  template: `<router-outlet/>`,
-  styles: [`:host { display: block; }`],
+  template: `<router-outlet />`,
+  styles: [
+    `
+      :host {
+        display: block;
+      }
+    `,
+  ],
 })
 export class App implements OnInit {
   private state = inject(LibraryStateService);

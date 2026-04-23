@@ -1,6 +1,6 @@
 // Noise reduction section — luminance, color.
 
-import { Component, computed, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
 import { LibraryStateService } from '../../state/library-state.service';
 import { MapleCollapsibleComponent } from '../../collapsible/maple-collapsible.component';
 import { EditorSliderComponent } from './slider.component';
@@ -10,18 +10,36 @@ import { EditorSliderComponent } from './slider.component';
   standalone: true,
   imports: [MapleCollapsibleComponent, EditorSliderComponent],
   template: `
-    <maple-collapsible label="Noise Reduction" storageKey="dev-noise" [padInner]="false" [defaultOpen]="false">
+    <maple-collapsible
+      label="Noise Reduction"
+      storageKey="dev-noise"
+      [padInner]="false"
+      [defaultOpen]="false"
+    >
       @if (assetId()) {
-        <editor-slider label="Luminance" [value]="adj().nrLuminance" [min]="0" [max]="100" (change)="patch('nrLuminance', $event)"/>
-        <editor-slider label="Color"     [value]="adj().nrColor"     [min]="0" [max]="100" (change)="patch('nrColor', $event)"/>
+        <editor-slider
+          label="Luminance"
+          [value]="adj().nrLuminance"
+          [min]="0"
+          [max]="100"
+          (change)="patch('nrLuminance', $event)"
+        />
+        <editor-slider
+          label="Color"
+          [value]="adj().nrColor"
+          [min]="0"
+          [max]="100"
+          (change)="patch('nrColor', $event)"
+        />
       }
     </maple-collapsible>
   `,
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class NoiseSectionComponent {
   private state = inject(LibraryStateService);
   assetId = computed(() => this.state.focusedAssetId());
-  adj     = computed(() => {
+  adj = computed(() => {
     const id = this.assetId();
     return id ? this.state.adjustmentFor(id)() : null!;
   });

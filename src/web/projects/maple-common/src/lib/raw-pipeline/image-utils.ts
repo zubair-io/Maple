@@ -7,7 +7,7 @@ export async function imageDataToBitmap(img: DecodedImage): Promise<ImageBitmap>
   const rgba = new Uint8ClampedArray(img.width * img.height * 4);
   const rgb = img.rgb;
   for (let i = 0, j = 0; i < rgb.length; i += 3, j += 4) {
-    rgba[j]     = rgb[i];
+    rgba[j] = rgb[i];
     rgba[j + 1] = rgb[i + 1];
     rgba[j + 2] = rgb[i + 2];
     rgba[j + 3] = 255;
@@ -25,7 +25,7 @@ export async function imageDataToBitmap(img: DecodedImage): Promise<ImageBitmap>
  */
 export async function resizeBitmapToCanvas(
   bitmap: ImageBitmap,
-  maxDim: number
+  maxDim: number,
 ): Promise<OffscreenCanvas | HTMLCanvasElement> {
   const scale = Math.min(1, maxDim / Math.max(bitmap.width, bitmap.height));
   const w = Math.max(1, Math.round(bitmap.width * scale));
@@ -52,14 +52,18 @@ export async function resizeBitmapToCanvas(
  * HTMLCanvasElement.
  */
 export async function canvasToBlobUrl(
-  canvas: OffscreenCanvas | HTMLCanvasElement
+  canvas: OffscreenCanvas | HTMLCanvasElement,
 ): Promise<string> {
   let blob: Blob;
   if (canvas instanceof OffscreenCanvas) {
     blob = await canvas.convertToBlob({ type: 'image/jpeg', quality: 0.85 });
   } else {
     blob = await new Promise<Blob>((resolve, reject) => {
-      (canvas as HTMLCanvasElement).toBlob(b => b ? resolve(b) : reject(new Error('toBlob failed')), 'image/jpeg', 0.85);
+      (canvas as HTMLCanvasElement).toBlob(
+        (b) => (b ? resolve(b) : reject(new Error('toBlob failed'))),
+        'image/jpeg',
+        0.85,
+      );
     });
   }
   return URL.createObjectURL(blob);

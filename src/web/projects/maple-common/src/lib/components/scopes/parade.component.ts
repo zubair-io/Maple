@@ -2,6 +2,7 @@
 
 import {
   AfterViewInit,
+  ChangeDetectionStrategy,
   Component,
   ElementRef,
   OnDestroy,
@@ -17,8 +18,20 @@ import type { DecodedImage } from '../../raw-pipeline/raw-pipeline.types';
 @Component({
   selector: 'editor-parade',
   standalone: true,
-  template: `<canvas #canvas width="200" height="80" style="display:block;width:100%;height:80px"></canvas>`,
-  styles: [`:host { display: block; }`],
+  template: `<canvas
+    #canvas
+    width="200"
+    height="80"
+    style="display:block;width:100%;height:80px"
+  ></canvas>`,
+  styles: [
+    `
+      :host {
+        display: block;
+      }
+    `,
+  ],
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ParadeComponent implements AfterViewInit, OnDestroy {
   @ViewChild('canvas') canvasRef!: ElementRef<HTMLCanvasElement>;
@@ -29,7 +42,7 @@ export class ParadeComponent implements AfterViewInit, OnDestroy {
 
   ngAfterViewInit(): void {
     const e = effect(() => {
-      const adj    = this.adjustment();
+      const adj = this.adjustment();
       const pixels = this.canvasSvc.currentPixels();
       if (this.canvasRef) {
         if (pixels) {
@@ -56,8 +69,8 @@ export class ParadeComponent implements AfterViewInit, OnDestroy {
     const H = canvas.height;
     ctx.clearRect(0, 0, W, H);
 
-    const rgb   = img.rgb;
-    const imgW  = img.width;
+    const rgb = img.rgb;
+    const imgW = img.width;
     const panelW = Math.floor(W / 3);
 
     // channel densities: [col][bin] for R, G, B
@@ -67,7 +80,7 @@ export class ParadeComponent implements AfterViewInit, OnDestroy {
 
     for (let px = 0; px < rgb.length; px += 3) {
       const pixIdx = px / 3;
-      const col    = Math.floor((pixIdx % imgW) / imgW * panelW);
+      const col = Math.floor(((pixIdx % imgW) / imgW) * panelW);
       rDensity[col * 256 + rgb[px]]++;
       gDensity[col * 256 + rgb[px + 1]]++;
       bDensity[col * 256 + rgb[px + 2]]++;
@@ -79,26 +92,26 @@ export class ParadeComponent implements AfterViewInit, OnDestroy {
     }
 
     const channels = [
-      { density: rDensity, r: 220, g: 60,  b: 60  },
-      { density: gDensity, r: 60,  g: 200, b: 60  },
-      { density: bDensity, r: 60,  g: 100, b: 220 },
+      { density: rDensity, r: 220, g: 60, b: 60 },
+      { density: gDensity, r: 60, g: 200, b: 60 },
+      { density: bDensity, r: 60, g: 100, b: 220 },
     ];
 
     const imgData = ctx.createImageData(W, H);
     const d = imgData.data;
 
     for (let ci = 0; ci < channels.length; ci++) {
-      const ch   = channels[ci];
+      const ch = channels[ci];
       const xOff = ci * panelW;
       for (let col = 0; col < panelW; col++) {
         for (let bin = 0; bin < 256; bin++) {
           const val = ch.density[col * 256 + bin] / maxD;
           if (val < 0.001) continue;
-          const y = H - 1 - Math.floor(bin / 256 * H);
+          const y = H - 1 - Math.floor((bin / 256) * H);
           if (y < 0 || y >= H) continue;
           const alpha = Math.min(255, val * 800);
           const idx = (y * W + xOff + col) * 4;
-          d[idx]     = Math.min(255, d[idx]     + ch.r);
+          d[idx] = Math.min(255, d[idx] + ch.r);
           d[idx + 1] = Math.min(255, d[idx + 1] + ch.g);
           d[idx + 2] = Math.min(255, d[idx + 2] + ch.b);
           d[idx + 3] = Math.min(255, d[idx + 3] + alpha);
@@ -129,8 +142,8 @@ export class ParadeComponent implements AfterViewInit, OnDestroy {
     ctx.clearRect(0, 0, W, H);
 
     const channels = [
-      { color: 'rgba(220,60,60,0.7)',  phase: 0.0, gain: 1 + model.vibrance / 300 },
-      { color: 'rgba(60,200,60,0.7)',  phase: 1.2, gain: 1 },
+      { color: 'rgba(220,60,60,0.7)', phase: 0.0, gain: 1 + model.vibrance / 300 },
+      { color: 'rgba(60,200,60,0.7)', phase: 1.2, gain: 1 },
       { color: 'rgba(60,100,220,0.7)', phase: 2.4, gain: 1 + model.saturation / 300 },
     ];
 
@@ -143,8 +156,8 @@ export class ParadeComponent implements AfterViewInit, OnDestroy {
       for (let x = 0; x < panelW; x++) {
         const t = x / panelW;
         const base = 0.5 + Math.sin(t * Math.PI * 2 + ch.phase) * 0.22 * ch.gain + expShift;
-        const lo = Math.max(0, base - 0.10);
-        const hi = Math.min(1, base + 0.10);
+        const lo = Math.max(0, base - 0.1);
+        const hi = Math.min(1, base + 0.1);
         const yHi = (1 - hi) * H;
         const yLo = (1 - lo) * H;
         ctx.fillStyle = ch.color;

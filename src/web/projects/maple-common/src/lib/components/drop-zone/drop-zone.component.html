@@ -1,0 +1,51 @@
+<!-- Import toolbar row -->
+<div class="import-bar">
+  <!-- FS Access "Open folder" button (Chromium only) -->
+  @if (folderAccess.hasFsAccess) {
+    <button class="import-btn primary" (click)="openFolder()" type="button" [disabled]="opening()">
+      {{ opening() ? 'Opening...' : 'Open folder' }}
+    </button>
+    <div style="width: 0.5px; height: 18px; background: var(--maple-border)"></div>
+  }
+
+  <!-- Legacy import buttons (always available as fallback / one-off imports) -->
+  <button class="import-btn" (click)="filePicker.click()" type="button">+ Import files</button>
+  <button class="import-btn" (click)="folderPicker.click()" type="button">
+    {{ folderAccess.hasFsAccess ? 'Import folder (legacy)' : 'Import folder' }}
+  </button>
+
+  @if (importing()) {
+    <span class="import-status">Importing {{ pendingCount() }} file(s)...</span>
+  }
+
+  @if (openError()) {
+    <span class="import-status" style="color: var(--maple-error-text)">
+      {{ openError() }}
+    </span>
+  }
+
+  <!-- Hidden file inputs -->
+  <input
+    #filePicker
+    type="file"
+    multiple
+    accept=".dng,.cr2,.cr3,.nef,.arw,.raf,.orf,.rw2,.pef,.srw,.3fr,.fff,.dcr,.mos,.iiq,.mrw,.raw"
+    (change)="onFileInputChange($event)"
+  />
+  <input #folderPicker type="file" multiple webkitdirectory (change)="onFileInputChange($event)" />
+</div>
+
+<!-- Read-only banner: shown when folder was opened without write permission -->
+@if (showReadOnlyBanner()) {
+  <div class="readonly-banner">
+    <span>Read-only — grant write access to save edits and cache thumbnails.</span>
+    <button class="grant-btn" (click)="requestWrite()" type="button">Grant write access</button>
+  </div>
+}
+
+<!-- Drag-over overlay -->
+@if (dragOver()) {
+  <div class="drop-overlay">
+    <div class="drop-box">Drop RAW files to import</div>
+  </div>
+}

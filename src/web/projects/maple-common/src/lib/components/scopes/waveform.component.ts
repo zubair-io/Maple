@@ -2,6 +2,7 @@
 
 import {
   AfterViewInit,
+  ChangeDetectionStrategy,
   Component,
   ElementRef,
   OnDestroy,
@@ -17,8 +18,20 @@ import type { DecodedImage } from '../../raw-pipeline/raw-pipeline.types';
 @Component({
   selector: 'editor-waveform',
   standalone: true,
-  template: `<canvas #canvas width="200" height="80" style="display:block;width:100%;height:80px"></canvas>`,
-  styles: [`:host { display: block; }`],
+  template: `<canvas
+    #canvas
+    width="200"
+    height="80"
+    style="display:block;width:100%;height:80px"
+  ></canvas>`,
+  styles: [
+    `
+      :host {
+        display: block;
+      }
+    `,
+  ],
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class WaveformComponent implements AfterViewInit, OnDestroy {
   @ViewChild('canvas') canvasRef!: ElementRef<HTMLCanvasElement>;
@@ -29,7 +42,7 @@ export class WaveformComponent implements AfterViewInit, OnDestroy {
 
   ngAfterViewInit(): void {
     const e = effect(() => {
-      const adj    = this.adjustment();
+      const adj = this.adjustment();
       const pixels = this.canvasSvc.currentPixels();
       if (this.canvasRef) {
         if (pixels) {
@@ -56,8 +69,8 @@ export class WaveformComponent implements AfterViewInit, OnDestroy {
     const H = canvas.height;
     ctx.clearRect(0, 0, W, H);
 
-    const rgb    = img.rgb;
-    const imgW   = img.width;
+    const rgb = img.rgb;
+    const imgW = img.width;
     const colBuckets = W;
 
     // Build luma columns: for each output column, sample pixels from that image column range.
@@ -65,9 +78,9 @@ export class WaveformComponent implements AfterViewInit, OnDestroy {
     const density = new Float32Array(colBuckets * 256);
 
     for (let px = 0; px < rgb.length; px += 3) {
-      const pixIdx  = px / 3;
-      const col     = Math.floor((pixIdx % imgW) / imgW * colBuckets);
-      const luma    = (0.2126 * rgb[px] + 0.7152 * rgb[px + 1] + 0.0722 * rgb[px + 2]) | 0;
+      const pixIdx = px / 3;
+      const col = Math.floor(((pixIdx % imgW) / imgW) * colBuckets);
+      const luma = (0.2126 * rgb[px] + 0.7152 * rgb[px + 1] + 0.0722 * rgb[px + 2]) | 0;
       density[col * 256 + luma]++;
     }
 
@@ -84,11 +97,11 @@ export class WaveformComponent implements AfterViewInit, OnDestroy {
       for (let bin = 0; bin < 256; bin++) {
         const val = density[col * 256 + bin] / maxD;
         if (val < 0.001) continue;
-        const y = H - 1 - Math.floor(bin / 256 * H);
+        const y = H - 1 - Math.floor((bin / 256) * H);
         if (y < 0 || y >= H) continue;
         const alpha = Math.min(255, val * 800);
         const idx = (y * W + col) * 4;
-        d[idx]     = Math.min(255, d[idx]     + 160);
+        d[idx] = Math.min(255, d[idx] + 160);
         d[idx + 1] = Math.min(255, d[idx + 1] + 200);
         d[idx + 2] = Math.min(255, d[idx + 2] + 255);
         d[idx + 3] = Math.min(255, d[idx + 3] + alpha);
@@ -119,15 +132,15 @@ export class WaveformComponent implements AfterViewInit, OnDestroy {
     ctx.clearRect(0, 0, W, H);
 
     const expShift = model.exposure * 0.08;
-    const contMul  = 1 + model.contrast / 200;
+    const contMul = 1 + model.contrast / 200;
 
     for (let x = 0; x < W; x++) {
       const t = x / W;
       const base = 0.5 + Math.sin(t * Math.PI * 3 + 0.7) * 0.25 + expShift;
-      const lo   = Math.max(0, base - 0.12 * contMul);
-      const hi   = Math.min(1, base + 0.12 * contMul);
-      const yHi  = (1 - hi) * H;
-      const yLo  = (1 - lo) * H;
+      const lo = Math.max(0, base - 0.12 * contMul);
+      const hi = Math.min(1, base + 0.12 * contMul);
+      const yHi = (1 - hi) * H;
+      const yLo = (1 - lo) * H;
 
       const grad = ctx.createLinearGradient(0, yHi, 0, yLo);
       grad.addColorStop(0, 'rgba(160,200,255,0.08)');

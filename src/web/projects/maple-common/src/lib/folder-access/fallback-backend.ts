@@ -6,7 +6,7 @@
 import { MapleFolderHandle, FolderEntry } from './folder-access.types';
 
 const IDB_DB_NAME = 'maple-fallback-cache';
-const IDB_STORE   = 'blobs';
+const IDB_STORE = 'blobs';
 const IDB_VERSION = 1;
 
 // ── IndexedDB blob store ──────────────────────────────────────────────────────
@@ -18,7 +18,7 @@ function openBlobDb(): Promise<IDBDatabase> {
       req.result.createObjectStore(IDB_STORE);
     };
     req.onsuccess = () => resolve(req.result);
-    req.onerror   = () => reject(req.error);
+    req.onerror = () => reject(req.error);
   });
 }
 
@@ -33,8 +33,14 @@ export async function fallbackWriteBlob(
     const key = `${folderLabel}/${path}`;
     const tx = db.transaction(IDB_STORE, 'readwrite');
     tx.objectStore(IDB_STORE).put(data, key);
-    tx.oncomplete = () => { db.close(); resolve(); };
-    tx.onerror    = () => { db.close(); reject(tx.error); };
+    tx.oncomplete = () => {
+      db.close();
+      resolve();
+    };
+    tx.onerror = () => {
+      db.close();
+      reject(tx.error);
+    };
   });
 }
 
@@ -48,8 +54,14 @@ export async function fallbackReadBlob(
     const key = `${folderLabel}/${path}`;
     const tx = db.transaction(IDB_STORE, 'readonly');
     const req = tx.objectStore(IDB_STORE).get(key);
-    req.onsuccess = () => { db.close(); resolve((req.result as Uint8Array) ?? null); };
-    req.onerror   = () => { db.close(); reject(req.error); };
+    req.onsuccess = () => {
+      db.close();
+      resolve((req.result as Uint8Array) ?? null);
+    };
+    req.onerror = () => {
+      db.close();
+      reject(req.error);
+    };
   });
 }
 
@@ -61,7 +73,7 @@ export async function fallbackReadBlob(
  * Returns null if the user cancels.
  */
 export function fallbackOpenFolder(): Promise<MapleFolderHandle | null> {
-  return new Promise(resolve => {
+  return new Promise((resolve) => {
     const input = document.createElement('input');
     input.type = 'file';
     (input as HTMLInputElement & { webkitdirectory: boolean }).webkitdirectory = true;
@@ -76,9 +88,13 @@ export function fallbackOpenFolder(): Promise<MapleFolderHandle | null> {
     input.addEventListener('change', () => {
       const files = Array.from(input.files ?? []);
       cleanup();
-      if (!files.length) { resolve(null); return; }
+      if (!files.length) {
+        resolve(null);
+        return;
+      }
       // Derive the folder name from the common path prefix.
-      const firstPath = (files[0] as File & { webkitRelativePath?: string }).webkitRelativePath ?? files[0].name;
+      const firstPath =
+        (files[0] as File & { webkitRelativePath?: string }).webkitRelativePath ?? files[0].name;
       const folderName = firstPath.split('/')[0] ?? 'folder';
       resolve({
         name: folderName,
@@ -103,26 +119,27 @@ export function fallbackOpenFolder(): Promise<MapleFolderHandle | null> {
  * Return FolderEntry objects for the flat FileList stored in the fallback handle.
  * We only expose files at the root level (depth === 1 within the folder).
  */
-export function fallbackListEntries(
-  folder: MapleFolderHandle,
-): FolderEntry[] {
+export function fallbackListEntries(folder: MapleFolderHandle): FolderEntry[] {
   const files = folder.fallbackFiles ?? [];
   const folderName = folder.name;
   // Keep only top-level files (webkitRelativePath = "FolderName/filename").
-  const topLevel = files.filter(f => {
+  const topLevel = files.filter((f) => {
     const rel = (f as File & { webkitRelativePath?: string }).webkitRelativePath ?? f.name;
     const parts = rel.split('/');
     return parts.length === 2 && parts[0] === folderName;
   });
 
-  return topLevel.map(f => {
-    const name = ((f as File & { webkitRelativePath?: string }).webkitRelativePath ?? f.name)
-      .split('/').pop() ?? f.name;
+  return topLevel.map((f) => {
+    const name =
+      ((f as File & { webkitRelativePath?: string }).webkitRelativePath ?? f.name)
+        .split('/')
+        .pop() ?? f.name;
     return {
       name,
       kind: 'file' as const,
       getFile: () => Promise.resolve(f),
-      getSubFolder: () => Promise.reject(new Error('Subdirectories not supported in fallback mode')),
+      getSubFolder: () =>
+        Promise.reject(new Error('Subdirectories not supported in fallback mode')),
     };
   });
 }
@@ -133,7 +150,7 @@ export async function fallbackReadFile(
   folder: MapleFolderHandle,
   path: string,
 ): Promise<Uint8Array> {
-  const parts = path.split('/').filter(p => p.length > 0);
+  const parts = path.split('/').filter((p) => p.length > 0);
   const filename = parts[parts.length - 1];
 
   // For .maple/ paths, check IndexedDB first (written by us this session).
@@ -145,7 +162,7 @@ export async function fallbackReadFile(
 
   // For regular files, find in the FileList.
   const files = folder.fallbackFiles ?? [];
-  const match = files.find(f => {
+  const match = files.find((f) => {
     const rel = (f as File & { webkitRelativePath?: string }).webkitRelativePath ?? f.name;
     const fname = rel.split('/').pop();
     return fname === filename;

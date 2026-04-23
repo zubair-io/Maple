@@ -6,7 +6,11 @@
 import { Injectable, computed, effect, inject, signal } from '@angular/core';
 import { Asset, AssetId, Flag, ColorLabel } from '../models/asset';
 import { SidebarEntry } from '../models/folder';
-import { AdjustmentModel, defaultAdjustmentModel, isDefaultAdjustment } from '../models/adjustment-model';
+import {
+  AdjustmentModel,
+  defaultAdjustmentModel,
+  isDefaultAdjustment,
+} from '../models/adjustment-model';
 import { FolderAccessService } from '../folder-access/folder-access.service';
 import { MapleCacheService } from '../maple-cache/maple-cache.service';
 import { XmpParserService } from '../xmp/xmp-parser.service';
@@ -18,8 +22,23 @@ import { sha256Prefix16 } from '../maple-cache/sha';
 
 /** Supported RAW extensions for file intake. */
 export const SUPPORTED_RAW_EXTENSIONS = new Set([
-  'dng', 'cr2', 'cr3', 'nef', 'arw', 'raf', 'orf', 'rw2', 'pef',
-  'srw', '3fr', 'fff', 'dcr', 'mos', 'iiq', 'mrw', 'raw',
+  'dng',
+  'cr2',
+  'cr3',
+  'nef',
+  'arw',
+  'raf',
+  'orf',
+  'rw2',
+  'pef',
+  'srw',
+  '3fr',
+  'fff',
+  'dcr',
+  'mos',
+  'iiq',
+  'mrw',
+  'raw',
 ]);
 
 export function isSupportedRaw(filename: string): boolean {
@@ -86,13 +105,13 @@ class LruCache {
 
 @Injectable({ providedIn: 'root' })
 export class LibraryStateService {
-  private fs        = inject(FolderAccessService);
-  private cache     = inject(MapleCacheService);
+  private fs = inject(FolderAccessService);
+  private cache = inject(MapleCacheService);
   private xmpParser = inject(XmpParserService);
-  private xmpStore  = inject(XmpStoreService);
+  private xmpStore = inject(XmpStoreService);
 
   // ── Library data ───────────────────────────────────────────────────────────
-  readonly assets      = signal<Asset[]>([]);
+  readonly assets = signal<Asset[]>([]);
   readonly sidebarTree = signal<SidebarEntry[]>([]);
 
   // ── Current folder handle ─────────────────────────────────────────────────
@@ -109,17 +128,15 @@ export class LibraryStateService {
   );
 
   // ── Selection ──────────────────────────────────────────────────────────────
-  readonly selectedSourceId  = signal<string>('f-france');
-  readonly selectedAssetIds  = signal<Set<AssetId>>(new Set());
-  readonly focusedAssetId    = signal<AssetId | null>(null);
+  readonly selectedSourceId = signal<string>('f-france');
+  readonly selectedAssetIds = signal<Set<AssetId>>(new Set());
+  readonly focusedAssetId = signal<AssetId | null>(null);
 
   // ── Thumbnail size (grid density) ─────────────────────────────────────────
-  readonly thumbSize = signal<number>(
-    this._loadOrDefault('cm.thumbSize', 140) as number,
-  );
+  readonly thumbSize = signal<number>(this._loadOrDefault('cm.thumbSize', 140) as number);
 
   // ── Sort + filter ─────────────────────────────────────────────────────────
-  readonly sort   = signal<'date' | 'name'>(
+  readonly sort = signal<'date' | 'name'>(
     this._loadOrDefault('cm.sort', 'date') as 'date' | 'name',
   );
   readonly filter = signal<'all' | 'picks' | '4stars'>(
@@ -127,9 +144,7 @@ export class LibraryStateService {
   );
 
   // ── Panel visibility (persisted) ──────────────────────────────────────────
-  readonly sidebarVisible   = signal<boolean>(
-    this._loadOrDefault('cm.leftHidden', false) === false,
-  );
+  readonly sidebarVisible = signal<boolean>(this._loadOrDefault('cm.leftHidden', false) === false);
   readonly inspectorVisible = signal<boolean>(
     this._loadOrDefault('cm.detailHidden', false) === false,
   );
@@ -260,13 +275,11 @@ export class LibraryStateService {
 
     // 2. Enumerate folder entries.
     const entries = await this.fs.listEntries(folder);
-    const rawEntries = entries.filter(
-      e => e.kind === 'file' && isSupportedRaw(e.name),
-    );
+    const rawEntries = entries.filter((e) => e.kind === 'file' && isSupportedRaw(e.name));
 
     // Build a lookup of culling from the index (cache, non-authoritative).
     const indexMap = new Map<string, IndexedAsset>(
-      (index?.assets ?? []).map(a => [a.filename, a]),
+      (index?.assets ?? []).map((a) => [a.filename, a]),
     );
 
     const newAssets: Asset[] = [];
@@ -282,20 +295,20 @@ export class LibraryStateService {
 
       // Start with culling from cache (non-authoritative).
       const cached = indexMap.get(filename);
-      let rating: number     = cached?.culling?.rating ?? 0;
-      let flag: Flag         = (cached?.culling?.flag ?? 'unflagged') as Flag;
+      let rating: number = cached?.culling?.rating ?? 0;
+      let flag: Flag = (cached?.culling?.flag ?? 'unflagged') as Flag;
       let colorLabel: ColorLabel = (cached?.culling?.colorLabel ?? null) as ColorLabel;
 
       // XMP sidecar is authoritative — parse both culling + full AdjustmentModel.
       const xmpName = filename.replace(/\.[^.]+$/, '.xmp');
       try {
         const xmpBytes = await this.fs.readFile(folder, xmpName);
-        const xmpText  = new TextDecoder().decode(xmpBytes);
+        const xmpText = new TextDecoder().decode(xmpBytes);
 
         // Culling fields (P5).
         const culling = this.xmpParser.parseCulling(xmpText);
-        rating     = culling.rating;
-        flag       = culling.flag;
+        rating = culling.rating;
+        flag = culling.flag;
         colorLabel = culling.colorLabel;
 
         // Full AdjustmentModel (P6).
@@ -322,15 +335,15 @@ export class LibraryStateService {
       newAssets.push(asset);
     }
 
-    this.assets.update(list => {
+    this.assets.update((list) => {
       // Remove previous assets for the same folder; keep other folders.
-      const others = list.filter(a => a.folderId !== folderId);
+      const others = list.filter((a) => a.folderId !== folderId);
       return [...others, ...newAssets];
     });
 
     // Merge loaded adjustments into the signal (only overwrite for this folder).
     if (newAdjustments.size > 0) {
-      this.adjustmentModels.update(map => {
+      this.adjustmentModels.update((map) => {
         const next = new Map(map);
         for (const [id, adj] of newAdjustments) {
           next.set(id, adj);
@@ -362,7 +375,7 @@ export class LibraryStateService {
       thumbnailGradient: '',
       aspectRatio: 3 / 2,
     };
-    this.assets.update(list => [...list, asset]);
+    this.assets.update((list) => [...list, asset]);
     // Populate both paths so bytesFor() and bytesForAsset() both work.
     this._legacyBytes.set(id, bytes);
     this._byteCache.set(id, bytes);
@@ -373,13 +386,13 @@ export class LibraryStateService {
   // ── Asset mutations ────────────────────────────────────────────────────────
 
   updateAssetDimensions(id: AssetId, width: number, height: number): void {
-    this.assets.update(list =>
-      list.map(a => a.id === id ? { ...a, width, height, aspectRatio: width / height } : a),
+    this.assets.update((list) =>
+      list.map((a) => (a.id === id ? { ...a, width, height, aspectRatio: width / height } : a)),
     );
   }
 
   cacheThumbnailUrl(id: AssetId, url: string): void {
-    this.thumbnailUrls.update(map => {
+    this.thumbnailUrls.update((map) => {
       const next = new Map(map);
       next.set(id, url);
       return next;
@@ -397,7 +410,7 @@ export class LibraryStateService {
   }
 
   updateAdjustment(id: AssetId, patch: Partial<AdjustmentModel>): void {
-    this.adjustmentModels.update(map => {
+    this.adjustmentModels.update((map) => {
       const next = new Map(map);
       const current = next.get(id) ?? defaultAdjustmentModel();
       next.set(id, { ...current, ...patch });
@@ -419,11 +432,11 @@ export class LibraryStateService {
 
   readonly assetsInSelectedFolder = computed(() => {
     const sid = this.selectedSourceId();
-    let list = this.assets().filter(a => a.folderId === sid);
+    let list = this.assets().filter((a) => a.folderId === sid);
 
     const f = this.filter();
-    if (f === 'picks')  list = list.filter(a => a.flag === 'pick');
-    if (f === '4stars') list = list.filter(a => a.rating >= 4);
+    if (f === 'picks') list = list.filter((a) => a.flag === 'pick');
+    if (f === '4stars') list = list.filter((a) => a.rating >= 4);
 
     if (this.sort() === 'name') {
       list = [...list].sort((a, b) => a.filename.localeCompare(b.filename));
@@ -435,7 +448,7 @@ export class LibraryStateService {
   readonly focusedAsset = computed(() => {
     const fid = this.focusedAssetId();
     if (!fid) return null;
-    return this.assets().find(a => a.id === fid) ?? null;
+    return this.assets().find((a) => a.id === fid) ?? null;
   });
 
   readonly selectedCount = computed(() => this.selectedAssetIds().size);
@@ -443,23 +456,17 @@ export class LibraryStateService {
   // ── Culling mutations (+ trigger debounced index write) ────────────────────
 
   setRating(id: AssetId, rating: number): void {
-    this.assets.update(list =>
-      list.map(a => a.id === id ? { ...a, rating } : a),
-    );
+    this.assets.update((list) => list.map((a) => (a.id === id ? { ...a, rating } : a)));
     this._scheduleSidecarWrite(id);
   }
 
   setFlag(id: AssetId, flag: Flag): void {
-    this.assets.update(list =>
-      list.map(a => a.id === id ? { ...a, flag } : a),
-    );
+    this.assets.update((list) => list.map((a) => (a.id === id ? { ...a, flag } : a)));
     this._scheduleSidecarWrite(id);
   }
 
   setColorLabel(id: AssetId, colorLabel: ColorLabel): void {
-    this.assets.update(list =>
-      list.map(a => a.id === id ? { ...a, colorLabel } : a),
-    );
+    this.assets.update((list) => list.map((a) => (a.id === id ? { ...a, colorLabel } : a)));
     this._scheduleSidecarWrite(id);
   }
 
@@ -473,7 +480,7 @@ export class LibraryStateService {
     const folder = this.currentFolder();
     if (!folder?.write) return;
 
-    const asset = this.assets().find(a => a.id === id);
+    const asset = this.assets().find((a) => a.id === id);
     if (!asset) return;
 
     const fullModel = this.adjustmentModels().get(id) ?? defaultAdjustmentModel();
@@ -507,11 +514,11 @@ export class LibraryStateService {
 
     // Rebuild the index from current signal state.
     let index = this.cache.emptyIndex();
-    const assets = this.assets().filter(a => a.folderId === `f-${folder.name}`);
+    const assets = this.assets().filter((a) => a.folderId === `f-${folder.name}`);
 
     for (const asset of assets) {
       const sha = await sha256Prefix16(asset.filename);
-      const existing = this._folderIndex.assets.find(a => a.filename === asset.filename);
+      const existing = this._folderIndex.assets.find((a) => a.filename === asset.filename);
       const record: IndexedAsset = {
         filename: asset.filename,
         size: existing?.size ?? 0,
@@ -521,7 +528,10 @@ export class LibraryStateService {
         previewPath: existing?.previewPath,
         culling: {
           rating: asset.rating || undefined,
-          flag: (asset.flag !== 'unflagged' ? asset.flag : undefined) as 'pick' | 'reject' | undefined,
+          flag: (asset.flag !== 'unflagged' ? asset.flag : undefined) as
+            | 'pick'
+            | 'reject'
+            | undefined,
           colorLabel: asset.colorLabel ?? undefined,
         },
       };
@@ -538,7 +548,7 @@ export class LibraryStateService {
    */
   async updateIndexThumb(assetId: AssetId, sha: string): Promise<void> {
     if (!this._folderIndex) return;
-    const asset = this.assets().find(a => a.id === assetId);
+    const asset = this.assets().find((a) => a.id === assetId);
     if (!asset) return;
     const patch: IndexedAsset = {
       filename: asset.filename,
@@ -554,7 +564,7 @@ export class LibraryStateService {
 
   selectAsset(id: AssetId, additive = false, range = false): void {
     if (additive) {
-      this.selectedAssetIds.update(prev => {
+      this.selectedAssetIds.update((prev) => {
         const next = new Set(prev);
         next.has(id) ? next.delete(id) : next.add(id);
         return next;
@@ -562,11 +572,11 @@ export class LibraryStateService {
     } else if (range) {
       const list = this.assetsInSelectedFolder();
       const focused = this.focusedAssetId();
-      const endIdx = list.findIndex(a => a.id === id);
-      const startIdx = focused ? list.findIndex(a => a.id === focused) : -1;
+      const endIdx = list.findIndex((a) => a.id === id);
+      const startIdx = focused ? list.findIndex((a) => a.id === focused) : -1;
       if (startIdx !== -1 && endIdx !== -1) {
         const [lo, hi] = [Math.min(startIdx, endIdx), Math.max(startIdx, endIdx)];
-        this.selectedAssetIds.set(new Set(list.slice(lo, hi + 1).map(a => a.id)));
+        this.selectedAssetIds.set(new Set(list.slice(lo, hi + 1).map((a) => a.id)));
       } else {
         this.selectedAssetIds.set(new Set([id]));
       }
@@ -582,14 +592,18 @@ export class LibraryStateService {
 
   // ── Navigation ─────────────────────────────────────────────────────────────
 
-  focusNext(): void { this._advance(1); }
-  focusPrev(): void { this._advance(-1); }
+  focusNext(): void {
+    this._advance(1);
+  }
+  focusPrev(): void {
+    this._advance(-1);
+  }
 
   private _advance(dir: 1 | -1): void {
     const list = this.assetsInSelectedFolder();
     if (!list.length) return;
     const fid = this.focusedAssetId();
-    const idx  = fid ? list.findIndex(a => a.id === fid) : -1;
+    const idx = fid ? list.findIndex((a) => a.id === fid) : -1;
     const next = list[Math.max(0, Math.min(list.length - 1, idx + dir))];
     if (next) {
       this.selectedAssetIds.set(new Set([next.id]));
@@ -599,42 +613,58 @@ export class LibraryStateService {
 
   peekNext(currentId: AssetId): AssetId | null {
     const list = this.assetsInSelectedFolder();
-    const idx  = list.findIndex(a => a.id === currentId);
+    const idx = list.findIndex((a) => a.id === currentId);
     return list[Math.min(list.length - 1, idx + 1)]?.id ?? null;
   }
 
   peekPrev(currentId: AssetId): AssetId | null {
     const list = this.assetsInSelectedFolder();
-    const idx  = list.findIndex(a => a.id === currentId);
+    const idx = list.findIndex((a) => a.id === currentId);
     return list[Math.max(0, idx - 1)]?.id ?? null;
   }
 
   // ── Panel toggles ──────────────────────────────────────────────────────────
 
   toggleSidebar(): void {
-    this.sidebarVisible.update(v => !v);
-    try { localStorage.setItem('cm.leftHidden', JSON.stringify(!this.sidebarVisible())); } catch { /* noop */ }
+    this.sidebarVisible.update((v) => !v);
+    try {
+      localStorage.setItem('cm.leftHidden', JSON.stringify(!this.sidebarVisible()));
+    } catch {
+      /* noop */
+    }
   }
 
   toggleInspector(): void {
-    this.inspectorVisible.update(v => !v);
-    try { localStorage.setItem('cm.detailHidden', JSON.stringify(!this.inspectorVisible())); } catch { /* noop */ }
+    this.inspectorVisible.update((v) => !v);
+    try {
+      localStorage.setItem('cm.detailHidden', JSON.stringify(!this.inspectorVisible()));
+    } catch {
+      /* noop */
+    }
   }
 
   // ── Tree expand state ──────────────────────────────────────────────────────
 
   toggleSection(id: string): void {
-    this.sectionOpen.update(prev => {
+    this.sectionOpen.update((prev) => {
       const next = { ...prev, [id]: !prev[id] };
-      try { localStorage.setItem('cm.sections', JSON.stringify(next)); } catch { /* noop */ }
+      try {
+        localStorage.setItem('cm.sections', JSON.stringify(next));
+      } catch {
+        /* noop */
+      }
       return next;
     });
   }
 
   setFolderOpen(id: string, open: boolean): void {
-    this.folderOpen.update(prev => {
+    this.folderOpen.update((prev) => {
       const next = { ...prev, [id]: open };
-      try { localStorage.setItem('cm.folderOpen', JSON.stringify(next)); } catch { /* noop */ }
+      try {
+        localStorage.setItem('cm.folderOpen', JSON.stringify(next));
+      } catch {
+        /* noop */
+      }
       return next;
     });
   }
@@ -642,19 +672,20 @@ export class LibraryStateService {
   // ── Sidebar helpers ────────────────────────────────────────────────────────
 
   private _ensureFolder(folderId: string, label: string): void {
-    this.sidebarTree.update(tree => {
-      const foldersSection = tree.find(s => s.id === 'folders');
+    this.sidebarTree.update((tree) => {
+      const foldersSection = tree.find((s) => s.id === 'folders');
       if (!foldersSection || !foldersSection.children) return tree;
-      if (foldersSection.children.some(c => c.id === folderId)) return tree;
-      return tree.map(s => s.id === 'folders'
-        ? {
-            ...s,
-            children: [
-              ...(s.children ?? []),
-              { kind: 'folder' as const, id: folderId, label, count: null },
-            ],
-          }
-        : s,
+      if (foldersSection.children.some((c) => c.id === folderId)) return tree;
+      return tree.map((s) =>
+        s.id === 'folders'
+          ? {
+              ...s,
+              children: [
+                ...(s.children ?? []),
+                { kind: 'folder' as const, id: folderId, label, count: null },
+              ],
+            }
+          : s,
       );
     });
   }
@@ -668,7 +699,7 @@ export class LibraryStateService {
   private _loadOrDefault<T>(key: string, fallback: T): T {
     try {
       const s = localStorage.getItem(key);
-      return s != null ? JSON.parse(s) as T : fallback;
+      return s != null ? (JSON.parse(s) as T) : fallback;
     } catch {
       return fallback;
     }

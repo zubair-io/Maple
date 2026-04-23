@@ -6,7 +6,12 @@
 // Callers never import a backend directly; they always go through this service.
 
 import { Injectable, signal } from '@angular/core';
-import { MapleFolderHandle, FolderEntry, PersistedHandleRecord, FolderAccessBackend } from './folder-access.types';
+import {
+  MapleFolderHandle,
+  FolderEntry,
+  PersistedHandleRecord,
+  FolderAccessBackend,
+} from './folder-access.types';
 import {
   fsAccessOpenFolder,
   fsAccessReopenHandle,
@@ -50,10 +55,7 @@ export class FolderAccessService {
   // ── Backend detection ──────────────────────────────────────────────────────
 
   private _detectBackend(): FolderAccessBackend {
-    if (
-      typeof window !== 'undefined' &&
-      'showDirectoryPicker' in window
-    ) {
+    if (typeof window !== 'undefined' && 'showDirectoryPicker' in window) {
       return 'fs-access';
     }
     return 'fallback';
@@ -80,9 +82,7 @@ export class FolderAccessService {
    * Re-open a persisted handle (FS Access only).
    * The browser re-prompts for permission after a page reload.
    */
-  async reopenPersistedHandle(
-    record: PersistedHandleRecord,
-  ): Promise<MapleFolderHandle | null> {
+  async reopenPersistedHandle(record: PersistedHandleRecord): Promise<MapleFolderHandle | null> {
     return fsAccessReopenHandle(record);
   }
 
@@ -134,11 +134,7 @@ export class FolderAccessService {
    * Creates intermediate directories as needed (FS Access backend only).
    * In fallback mode, writes to IndexedDB.
    */
-  async writeFile(
-    folder: MapleFolderHandle,
-    path: string,
-    data: Uint8Array,
-  ): Promise<void> {
+  async writeFile(folder: MapleFolderHandle, path: string, data: Uint8Array): Promise<void> {
     if (this.backend === 'fs-access') {
       return fsAccessWriteFile(folder, path, data);
     }
@@ -150,10 +146,7 @@ export class FolderAccessService {
    * `name` may contain slashes: `ensureSubdirectory(folder, '.maple/thumbs')`.
    * Returns a handle to the subdirectory.
    */
-  async ensureSubdirectory(
-    folder: MapleFolderHandle,
-    name: string,
-  ): Promise<MapleFolderHandle> {
+  async ensureSubdirectory(folder: MapleFolderHandle, name: string): Promise<MapleFolderHandle> {
     if (this.backend === 'fs-access') {
       return fsAccessEnsureSubdirectory(folder, name);
     }

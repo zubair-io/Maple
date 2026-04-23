@@ -21,20 +21,23 @@ import { XmpSerializerService } from './xmp-serializer.service';
 
 @Injectable({ providedIn: 'root' })
 export class XmpStoreService {
-  private folderAccess  = inject(FolderAccessService);
-  private parser        = inject(XmpParserService);
-  private serializer    = inject(XmpSerializerService);
+  private folderAccess = inject(FolderAccessService);
+  private parser = inject(XmpParserService);
+  private serializer = inject(XmpSerializerService);
 
   private readonly DEBOUNCE_MS = 750;
 
   /** Pending debounce handles keyed by AssetId. */
-  private _pendingWrites = new Map<AssetId, {
-    timeout: ReturnType<typeof setTimeout>;
-    folder: MapleFolderHandle;
-    rawFilename: string;
-    model: AdjustmentModel;
-    culling: XmpCulling;
-  }>();
+  private _pendingWrites = new Map<
+    AssetId,
+    {
+      timeout: ReturnType<typeof setTimeout>;
+      folder: MapleFolderHandle;
+      rawFilename: string;
+      model: AdjustmentModel;
+      culling: XmpCulling;
+    }
+  >();
 
   /** Per-asset passthrough buckets loaded from the source sidecar. */
   private _passthroughs = new Map<AssetId, PassthroughBucket>();
@@ -99,13 +102,7 @@ export class XmpStoreService {
 
     const timeout = setTimeout(() => {
       this._pendingWrites.delete(assetId);
-      void this._flushWrite(
-        folder,
-        rawFilename,
-        model,
-        culling,
-        this._passthroughs.get(assetId),
-      );
+      void this._flushWrite(folder, rawFilename, model, culling, this._passthroughs.get(assetId));
     }, this.DEBOUNCE_MS);
 
     this._pendingWrites.set(assetId, { timeout, folder, rawFilename, model, culling });

@@ -1,0 +1,52 @@
+<!-- Toolbar -->
+<div class="toolbar">
+  <span class="zoom-label">{{ zoomLabel() }}</span>
+  <div class="tool-btn" (click)="canvasSvc.zoomOut()" title="Zoom out">−</div>
+  <div class="tool-btn" (click)="canvasSvc.resetView()" title="Fit">⊡</div>
+  <div class="tool-btn" (click)="canvasSvc.zoomIn()" title="Zoom in">+</div>
+  <div class="toolbar-spacer"></div>
+  <div
+    class="tool-btn"
+    [class.active]="canvasSvc.showBeforeAfter()"
+    (click)="canvasSvc.toggleBeforeAfter()"
+    title="Before/After (b)"
+  >
+    B/A
+  </div>
+</div>
+
+<!-- Canvas area -->
+<div
+  class="canvas-wrap"
+  #wrap
+  (wheel)="onWheel($event)"
+  (mousedown)="onMouseDown($event)"
+  (mousemove)="onMouseMove($event)"
+  (mouseup)="onMouseUp()"
+  (mouseleave)="onMouseUp()"
+>
+  <canvas #canvas></canvas>
+
+  <!-- Before/after divider -->
+  @if (canvasSvc.showBeforeAfter()) {
+    <div
+      class="ba-divider"
+      [style.left.%]="(canvasSvc.beforeAfterSplitX() ?? 0.5) * 100"
+      (mousedown)="onDividerDrag($event)"
+    >
+      <div class="ba-handle">&#x21D4;</div>
+    </div>
+  }
+
+  <!-- Filename overlay -->
+  @if (state.focusedAsset()) {
+    <div class="filename-overlay">{{ state.focusedAsset()?.filename }}</div>
+  }
+
+  <!-- Decoding progress overlay -->
+  @if (loading()) {
+    <div class="loading-overlay">
+      <div class="loading-pill">Decoding RAW...</div>
+    </div>
+  }
+</div>
