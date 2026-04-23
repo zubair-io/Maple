@@ -2,6 +2,21 @@ use crate::error::{Error, Result};
 use quick_xml::events::Event;
 use quick_xml::reader::Reader;
 
+/// Highlight reconstruction mode per spec § 3.3a. Default is `Off` — no
+/// reconstruction (slice-1/2/3 behavior). When non-default, highlights that
+/// would otherwise clip at the sensor white level get extended above 1.0 in
+/// camera-native RGB so AgX can render them on its shoulder.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HighlightRecoveryMode {
+    Off,
+    Blend,
+    Luminance,
+}
+
+impl Default for HighlightRecoveryMode {
+    fn default() -> Self { Self::Off }
+}
+
 /// Slice 1+2 subset of `AdjustmentModel`. See spec § 01 for the full shape.
 #[derive(Clone, Debug, PartialEq)]
 pub struct AdjustmentModel {
@@ -18,6 +33,7 @@ pub struct AdjustmentModel {
     pub clarity: f32,     // -100..100, default 0 (unsharp radius 40 per spec § 3.8)
     pub texture: f32,     // -100..100, default 0 (unsharp radius 3 per spec § 3.8)
     pub dehaze: f32,      // -100..100, default 0
+    pub highlight_recovery: HighlightRecoveryMode,
 }
 
 impl Default for AdjustmentModel {
@@ -28,6 +44,7 @@ impl Default for AdjustmentModel {
             contrast: 0.0, highlights: 0.0, shadows: 0.0, whites: 0.0, blacks: 0.0,
             vibrance: 0.0, saturation: 0.0, clarity: 0.0, texture: 0.0,
             dehaze: 0.0,
+            highlight_recovery: HighlightRecoveryMode::Off,
         }
     }
 }
@@ -84,7 +101,17 @@ fn set_field(m: &mut AdjustmentModel, key: &str, value: &str) -> Result<()> {
             }
             // Unknown WB names ("As Shot", "Auto", "Custom") leave defaults.
         }
-        _ => {}, // Slices 1-2 ignore everything else.
+        "papp:HighlightRecoveryMode" => {
+            m.highlight_recovery = match value {
+                "off" | "Off" => HighlightRecoveryMode::Off,
+                "blend" | "Blend" => HighlightRecoveryMode::Blend,
+                "luminance" | "Luminance" => HighlightRecoveryMode::Luminance,
+                other => return Err(Error::Xmp(format!(
+                    "unknown HighlightRecoveryMode: {}", other
+                ))),
+            };
+        }
+        _ => {}, // Slices 1-2-3-4 ignore everything else.
     }
     Ok(())
 }
@@ -301,5 +328,42 @@ mod tests {
         };
         let m = parse(&xml).unwrap();
         assert_eq!(m.texture, -100.0);
+    }
+
+    #[test]
+    fn defaults_highlight_recovery_is_off() {
+        let m = AdjustmentModel::default();
+        assert_eq!(m.highlight_recovery, HighlightRecoveryMode::Off);
+    }
+
+    #[test]
+    fn parse_highlight_recovery_blend() {
+        let xml = r#"<?xml version="1.0"?><x><rdf:Description xmlns:rdf="x" xmlns:papp="x"
+            papp:HighlightRecoveryMode="blend"/></x>"#;
+        let m = parse(xml).unwrap();
+        assert_eq!(m.highlight_recovery, HighlightRecoveryMode::Blend);
+    }
+
+    #[test]
+    fn parse_highlight_recovery_luminance() {
+        let xml = r#"<?xml version="1.0"?><x><rdf:Description xmlns:rdf="x" xmlns:papp="x"
+            papp:HighlightRecoveryMode="Luminance"/></x>"#;
+        let m = parse(xml).unwrap();
+        assert_eq!(m.highlight_recovery, HighlightRecoveryMode::Luminance);
+    }
+
+    #[test]
+    fn parse_highlight_recovery_off_explicit() {
+        let xml = r#"<?xml version="1.0"?><x><rdf:Description xmlns:rdf="x" xmlns:papp="x"
+            papp:HighlightRecoveryMode="off"/></x>"#;
+        let m = parse(xml).unwrap();
+        assert_eq!(m.highlight_recovery, HighlightRecoveryMode::Off);
+    }
+
+    #[test]
+    fn parse_highlight_recovery_invalid_is_error() {
+        let xml = r#"<?xml version="1.0"?><x><rdf:Description xmlns:rdf="x" xmlns:papp="x"
+            papp:HighlightRecoveryMode="typo"/></x>"#;
+        assert!(parse(xml).is_err());
     }
 }
