@@ -525,13 +525,18 @@ export class LibraryStateService {
       next: (xml) => {
         if (!xml) return;
         try {
-          const { model } = this.xmpParser.parseAdjustmentModel(xml);
+          const { model, passthrough } = this.xmpParser.parseAdjustmentModel(xml);
           const fullModel: AdjustmentModel = { ...defaultAdjustmentModel(), ...model };
           this.adjustmentModels.update((map) => {
             const next = new Map(map);
             next.set(localId, fullModel);
             return next;
           });
+          // Mirror the Hosted path: stash the passthrough bucket so the next
+          // putXmp() preserves unknown-namespace attributes / nested nodes
+          // verbatim. Re-uses XmpStoreService's per-asset map rather than
+          // inventing a parallel structure.
+          this.xmpStore.rememberPassthrough(localId, passthrough);
         } catch {
           /* ignore malformed sidecars — server has already stored them */
         }
@@ -723,12 +728,12 @@ export class LibraryStateService {
     this._apiXmpPending.delete(id);
 
     // Re-use the canonical serializer so Self-Hosted XMP matches Hosted byte-for-byte.
-    // Passthrough bucket is unavailable on this path (we didn't parse a source
-    // sidecar into a PassthroughBucket on load) — the API persists verbatim
-    // what we send, so round-trip fidelity is owned server-side.
-    // TODO(T4-followup): plumb passthrough through getXmp() on bootstrap so
-    // unknown-namespace attributes survive across edit cycles here too.
-    const xml = this.xmpSerializer.serialize(pending.model, undefined, pending.culling);
+    // Pull the passthrough bucket cached on load (`_loadApiXmp`) so unknown-
+    // namespace attributes (Lightroom-specific tags, vendor extensions, custom
+    // workflow metadata, etc.) survive a Maple edit cycle — matching the
+    // Hosted path's round-trip guarantees.
+    const passthrough = this.xmpStore.passthroughFor(id);
+    const xml = this.xmpSerializer.serialize(pending.model, passthrough, pending.culling);
     this.api.putXmp(apiId, xml).subscribe({
       error: (err) => console.error(`putXmp failed for asset ${id}:`, err),
     });

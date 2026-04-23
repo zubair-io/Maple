@@ -81,6 +81,15 @@ export class XmpStoreService {
     this._passthroughs.set(assetId, passthrough);
   }
 
+  /**
+   * Look up the passthrough bucket previously stored for an asset (or undefined
+   * if none was ever loaded). Used by callers that bypass `loadSidecar` /
+   * `scheduleWrite` (e.g. the Self-Hosted API path in LibraryStateService).
+   */
+  passthroughFor(assetId: AssetId): PassthroughBucket | undefined {
+    return this._passthroughs.get(assetId);
+  }
+
   // ── Write ───────────────────────────────────────────────────────────────────
 
   /**
