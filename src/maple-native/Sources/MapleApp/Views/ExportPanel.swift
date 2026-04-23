@@ -7,23 +7,43 @@ struct ExportPanel: View {
     let session: EditSession
     @Environment(\.dismiss) private var dismiss
 
-    @State private var selectedFormat = ExportFormat.jpegSRGB
+    @State private var selectedFormat = ExportFileFormat.jpegSRGB
+    @State private var quality: Double = 0.92
     @State private var isExporting = false
+    @State private var exportError: String?
 
     var body: some View {
         NavigationStack {
             Form {
                 Section("Format") {
                     Picker("Format", selection: $selectedFormat) {
-                        ForEach(ExportFormat.allCases, id: \.self) { fmt in
+                        ForEach(ExportFileFormat.allCases, id: \.self) { fmt in
                             Text(fmt.displayName).tag(fmt)
                         }
                     }
                     .pickerStyle(.segmented)
                 }
+
+                if selectedFormat == .jpegSRGB || selectedFormat == .jpegP3 || selectedFormat == .heicP3 {
+                    Section("Quality") {
+                        HStack {
+                            Slider(value: $quality, in: 0.5...1.0)
+                            Text("\(Int(quality * 100))%")
+                                .font(.system(.caption, design: .monospaced))
+                                .frame(width: 36)
+                        }
+                    }
+                }
+
                 Section("Output") {
-                    Text("Exporting: \(session.asset.displayName)")
+                    Text("File: \(session.asset.displayName).\(selectedFormat.fileExtension)")
                         .foregroundStyle(.secondary)
+                }
+
+                if let err = exportError {
+                    Section {
+                        Text(err).foregroundStyle(.red).font(.caption)
+                    }
                 }
             }
             .navigationTitle("Export")
@@ -42,44 +62,26 @@ struct ExportPanel: View {
                 }
             }
         }
-        .frame(minWidth: 400, minHeight: 260)
+        .frame(minWidth: 420, minHeight: 280)
     }
 
     private func export() async {
         isExporting = true
+        exportError = nil
         defer { isExporting = false }
-        // Full export logic in P9 (MapleExporter).
-        // For now just render full-res and dismiss.
-        await session.renderFull()
-        dismiss()
-    }
-}
 
-// MARK: - ExportFormat
+        let options = ExportOptions(format: selectedFormat, quality: quality)
 
-public enum ExportFormat: String, CaseIterable {
-    case jpegSRGB  = "jpeg_srgb"
-    case jpegP3    = "jpeg_p3"
-    case heicP3    = "heic_p3"
-    case tiff16    = "tiff_16"
-    case png       = "png"
-
-    var displayName: String {
-        switch self {
-        case .jpegSRGB:  return "JPEG sRGB"
-        case .jpegP3:    return "JPEG P3"
-        case .heicP3:    return "HEIC P3"
-        case .tiff16:    return "TIFF 16-bit"
-        case .png:       return "PNG"
-        }
-    }
-
-    var fileExtension: String {
-        switch self {
-        case .jpegSRGB, .jpegP3: return "jpg"
-        case .heicP3:            return "heic"
-        case .tiff16:            return "tiff"
-        case .png:               return "png"
+        do {
+            #if os(macOS)
+            try await MapleExporter.exportWithSavePanel(session: session, options: options)
+            dismiss()
+            #else
+            let _ = try await MapleExporter.exportData(session: session, options: options)
+            dismiss()
+            #endif
+        } catch {
+            exportError = error.localizedDescription
         }
     }
 }
