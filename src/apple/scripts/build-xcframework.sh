@@ -40,7 +40,7 @@ _find_raw_pipeline() {
 RAW_PIPELINE_DIR="$(_find_raw_pipeline)"
 RAW_FFI_DIR="$RAW_PIPELINE_DIR/raw-ffi"
 FRAMEWORKS_DIR="$NATIVE_DIR/Frameworks"
-HEADERS_DIR="$NATIVE_DIR/Sources/MapleCore/include"
+HEADERS_DIR="$NATIVE_DIR/Packages/MapleCore/Sources/MapleCore/include"
 
 PROFILE="debug"
 CARGO_PROFILE_FLAG=""
@@ -118,8 +118,20 @@ echo "==> cbindgen — generating RawPipeline.h"
         2>&1
 )
 
-# Also copy header where Swift can find it directly in Sources/MapleCore/include/
-cp "$INCLUDE_DIR/RawPipeline.h" "$HEADERS_DIR/RawPipeline.h"
+# Emit a modulemap so Swift can `import RawPipeline`. Without it, SwiftPM /
+# xcodebuild treat the xcframework as a plain static library and the
+# `import RawPipeline` line in MapleCore fails.
+cat > "$INCLUDE_DIR/module.modulemap" <<'EOM'
+module RawPipeline {
+    header "RawPipeline.h"
+    export *
+}
+EOM
+
+# Also copy header + modulemap where Swift can find it directly in
+# Packages/MapleCore/Sources/MapleCore/include/
+cp "$INCLUDE_DIR/RawPipeline.h"    "$HEADERS_DIR/RawPipeline.h"
+cp "$INCLUDE_DIR/module.modulemap" "$HEADERS_DIR/module.modulemap"
 
 # ---------------------------------------------------------------------------
 # 4. Create fat / xcframework inputs

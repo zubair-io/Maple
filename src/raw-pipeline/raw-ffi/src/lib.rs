@@ -101,7 +101,66 @@ pub unsafe extern "C" fn maple_render_file(
     0
 }
 
-/// Free a buffer populated by `maple_render_file`.
+/// Render a RAW from a byte slice (PhotoKit, self-hosted API, etc.) through
+/// the pipeline. Identical to `maple_render_file` except the caller hands us
+/// bytes instead of a path, and supplies an extension hint (e.g. "dng", "cr2",
+/// "arw") so the decoder can dispatch.
+///
+/// `xmp_path` may be null, in which case `AdjustmentModel::default()` is used.
+/// `hint_ext` must be a UTF-8 C string naming the RAW extension (without dot).
+#[no_mangle]
+pub unsafe extern "C" fn maple_render_bytes(
+    raw_bytes: *const u8,
+    raw_len: usize,
+    hint_ext: *const c_char,
+    xmp_path: *const c_char,
+    out: *mut MapleImageBuffer,
+) -> i32 {
+    if raw_bytes.is_null() || out.is_null() {
+        set_last_error("null pointer argument".into());
+        return 1;
+    }
+    let ext: &str = if hint_ext.is_null() {
+        ""
+    } else {
+        match CStr::from_ptr(hint_ext).to_str() {
+            Ok(s) => s,
+            Err(e) => { set_last_error(format!("hint_ext not UTF-8: {}", e)); return 2; }
+        }
+    };
+    let model = if xmp_path.is_null() {
+        xmp::AdjustmentModel::default()
+    } else {
+        let path = match CStr::from_ptr(xmp_path).to_str() {
+            Ok(s) => std::path::Path::new(s),
+            Err(e) => { set_last_error(format!("xmp_path not UTF-8: {}", e)); return 3; }
+        };
+        match std::fs::read_to_string(path) {
+            Ok(xml) => match xmp::parse(&xml) {
+                Ok(m) => m,
+                Err(e) => { set_last_error(format!("xmp parse: {}", e)); return 4; }
+            },
+            Err(e) => { set_last_error(format!("xmp read: {}", e)); return 5; }
+        }
+    };
+    let bytes = std::slice::from_raw_parts(raw_bytes, raw_len);
+    let raw_img = match decode_bytes(bytes, ext) {
+        Ok(r) => r,
+        Err(e) => { set_last_error(format!("decode: {}", e)); return 7; }
+    };
+    let (w, h, out_bytes) = match render_from_raw(&raw_img, &model) {
+        Ok(t) => t,
+        Err(e) => { set_last_error(format!("render: {}", e)); return 8; }
+    };
+    let mut boxed = out_bytes.into_boxed_slice();
+    let rgb = boxed.as_mut_ptr();
+    let len = boxed.len();
+    std::mem::forget(boxed);
+    *out = MapleImageBuffer { rgb, len, width: w, height: h };
+    0
+}
+
+/// Free a buffer populated by `maple_render_file` or `maple_render_bytes`.
 #[no_mangle]
 pub unsafe extern "C" fn maple_free_buffer(buffer: *mut MapleImageBuffer) {
     if buffer.is_null() { return; }
@@ -137,6 +196,25 @@ mod tests {
         let mut buf = MapleImageBuffer::empty();
         let rc = unsafe { maple_render_file(raw_cstr.as_ptr(), std::ptr::null(), &mut buf) };
         assert_eq!(rc, 0, "render rc = {}", rc);
+        assert!(buf.width > 0 && buf.height > 0);
+        assert_eq!(buf.len as u32, buf.width * buf.height * 3);
+        unsafe { maple_free_buffer(&mut buf) };
+        assert!(buf.rgb.is_null());
+    }
+
+    #[test]
+    fn render_bytes_via_ffi() {
+        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../test-fixtures/raws/test_0002.dng");
+        if !path.exists() { return; }
+        let bytes = std::fs::read(&path).unwrap();
+        let ext = CString::new("dng").unwrap();
+        let mut buf = MapleImageBuffer::empty();
+        let rc = unsafe {
+            maple_render_bytes(bytes.as_ptr(), bytes.len(), ext.as_ptr(),
+                               std::ptr::null(), &mut buf)
+        };
+        assert_eq!(rc, 0, "render_bytes rc = {}", rc);
         assert!(buf.width > 0 && buf.height > 0);
         assert_eq!(buf.len as u32, buf.width * buf.height * 3);
         unsafe { maple_free_buffer(&mut buf) };

@@ -268,8 +268,10 @@ struct AppShell: View {
     private func connectSelfHosted(baseURL: URL, token: String?) {
         selectedSourceKind = .selfHosted
         Task { @MainActor in
-            // Persist the token (in-memory today; Keychain-backed follow-up).
-            await SelfHostedCredentialStore.shared.setToken(token, forServerURL: baseURL)
+            // Persist the token to Keychain (non-fatal on failure).
+            if let token {
+                try? await SelfHostedCredentialStore.shared.setToken(token, forServerURL: baseURL)
+            }
 
             let source = SelfHostedSource(baseURL: baseURL, token: token)
             await browseVM.loadSource(source)
@@ -310,8 +312,12 @@ struct AppShell: View {
                 showSMBSheet = true
             }
         case .selfHosted(let baseURL):
-            let token = await SelfHostedCredentialStore.shared.token(forServerURL: baseURL)
-            connectSelfHosted(baseURL: baseURL, token: token)
+            if let token = await SelfHostedCredentialStore.shared.tokenForServerURL(baseURL) {
+                connectSelfHosted(baseURL: baseURL, token: token)
+            } else {
+                // Keychain entry missing — prompt user to re-pair.
+                showSelfHostedSheet = true
+            }
         }
     }
 
@@ -442,6 +448,9 @@ struct SelfHostedPickerSheet: View {
 
     @State private var serverURL = ""
     @State private var token = ""
+    #if os(iOS)
+    @State private var showingScanner = false
+    #endif
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -452,13 +461,14 @@ struct SelfHostedPickerSheet: View {
                 SecureField("Bearer token (optional)", text: $token)
             }
             HStack {
+                #if os(iOS)
                 Button {
-                    // TODO(UI-pairing-qr): scan a QR code produced by the
-                    // Bun pairing endpoint and auto-fill serverURL + token.
+                    showingScanner = true
                 } label: {
                     Label("Scan QR…", systemImage: "qrcode.viewfinder")
                 }
-                .disabled(true)
+                .accessibilityLabel("Scan pairing QR code")
+                #endif
                 Spacer()
                 Button("Cancel", action: onCancel)
                     .keyboardShortcut(.cancelAction)
@@ -471,6 +481,24 @@ struct SelfHostedPickerSheet: View {
             }
         }
         .padding(20)
+        #if os(iOS)
+        .sheet(isPresented: $showingScanner) {
+            QRScannerView { payload in
+                showingScanner = false
+                // Expected payload: { "url": "...", "token": "..." }.
+                // Pre-fill the fields — the user still hits Connect to commit.
+                if let decoded = try? JSONDecoder().decode(
+                    PairingEnvelope.self,
+                    from: Data(payload.utf8)
+                ) {
+                    serverURL = decoded.url
+                    if let t = decoded.token { token = t }
+                }
+            } onCancel: {
+                showingScanner = false
+            }
+        }
+        #endif
         .frame(minWidth: 420)
     }
 }

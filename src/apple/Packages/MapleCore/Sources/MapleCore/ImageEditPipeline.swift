@@ -36,6 +36,11 @@ public actor ImageEditPipeline {
     /// Render the asset through the pipeline.
     /// - fast phase: scales the RAW decode result to ≤ 2MP before filtering.
     /// - refine phase: full-resolution.
+    ///
+    /// Dispatch: filesystem-shaped assets (`asset.primaryURL != nil`) use the
+    /// path-based FFI call so the Rust decoder can mmap the file. Sourceless
+    /// assets (PhotoKit, self-hosted API) pull bytes via
+    /// `asset.bytesProvider` and hand them to `maple_render_bytes`.
     nonisolated public func render(
         asset: AssetRef,
         model: AdjustmentModel,
@@ -44,10 +49,22 @@ public actor ImageEditPipeline {
         // Stage 1: RAW decode via Rust FFI (produces sRGB u8).
         let imageData: MapleImageData
         do {
-            imageData = try PipelineRenderer.render(
-                rawPath: asset.primaryURL,
-                xmpPath: nil   // we apply adjustments via CIFilter below
-            )
+            if let url = asset.primaryURL {
+                imageData = try PipelineRenderer.render(
+                    rawPath: url,
+                    xmpPath: nil   // we apply adjustments via CIFilter below
+                )
+            } else if let provider = asset.bytesProvider {
+                let bytes = try await provider()
+                let hint = asset.hintExtension ?? ""
+                imageData = try PipelineRenderer.render(
+                    rawBytes: bytes,
+                    hint: hint,
+                    xmpPath: nil
+                )
+            } else {
+                return nil
+            }
         } catch {
             return nil
         }
