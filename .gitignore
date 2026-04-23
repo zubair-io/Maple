@@ -1,0 +1,17 @@
+# macOS
+.DS_Store
+
+# Test fixtures — local-only, 6.5GB of RAWs and ACR reference PNGs.
+# See docs/spec/11-testing.md and test-fixtures/references/REFERENCES.md
+# for how to regenerate or fetch these locally.
+test-fixtures/
+
+# Rust
+target/
+**/*.rs.bk
+Cargo.lock.bak
+
+# Editor
+.idea/
+.vscode/
+*.swp

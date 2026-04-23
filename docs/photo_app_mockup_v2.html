@@ -1,0 +1,372 @@
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+.app{border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);overflow:hidden;font-family:var(--font-sans);font-size:12px;color:var(--color-text-primary);background:var(--color-background-primary);user-select:none}
+.toolbar{display:flex;align-items:center;gap:8px;padding:7px 12px;border-bottom:0.5px solid var(--color-border-tertiary);background:var(--color-background-secondary);min-height:36px}
+.tb-title{font-size:12px;font-weight:500;flex:1}
+.tb-btn{padding:3px 8px;border:0.5px solid var(--color-border-secondary);border-radius:6px;font-size:11px;cursor:pointer;background:var(--color-background-primary);color:var(--color-text-secondary)}
+.body{display:flex;height:480px}
+.left{border-right:0.5px solid var(--color-border-tertiary);overflow-y:auto;background:var(--color-background-secondary);transition:width 0.18s ease}
+.tree{width:190px;padding:4px 0 8px}
+.film{width:72px;padding:6px 0}
+
+.sec-header{display:flex;align-items:center;padding:6px 8px 4px;cursor:pointer;gap:4px}
+.sec-header:hover{background:var(--color-background-tertiary)}
+.sec-label{font-size:11px;font-weight:500;color:var(--color-text-secondary);flex:1}
+.chevron{width:14px;height:14px;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:transform 0.15s;color:var(--color-text-tertiary)}
+.chevron.open{transform:rotate(0deg)}
+.chevron.closed{transform:rotate(-90deg)}
+.sec-add{width:20px;height:20px;display:flex;align-items:center;justify-content:center;border-radius:4px;color:var(--color-text-tertiary);cursor:pointer;font-size:14px;line-height:1;flex-shrink:0}
+.sec-add:hover{background:var(--color-background-tertiary);color:var(--color-text-primary)}
+
+.empty-state{padding:10px 12px 8px;display:flex;flex-direction:column;align-items:flex-start;gap:4px}
+.empty-txt{font-size:11px;color:var(--color-text-tertiary)}
+.empty-link{font-size:11px;color:var(--color-text-info);cursor:pointer;text-decoration:underline;text-underline-offset:2px}
+
+.ti{display:flex;align-items:center;gap:6px;padding:4px 10px 4px 24px;cursor:pointer;color:var(--color-text-secondary);font-size:11px;white-space:nowrap;overflow:hidden}
+.ti:hover{background:var(--color-background-tertiary)}
+.ti.sel{background:var(--color-background-info);color:var(--color-text-info)}
+.ti-folder{padding-left:10px}
+.ti-folder-item{padding-left:24px}
+.ico{width:12px;height:12px;flex-shrink:0}
+
+.folder-row{display:flex;align-items:center;gap:6px;padding:4px 8px 4px 10px;cursor:pointer;color:var(--color-text-secondary);font-size:11px;white-space:nowrap;overflow:hidden}
+.folder-row:hover{background:var(--color-background-tertiary)}
+.folder-row.sel{background:var(--color-background-info);color:var(--color-text-info)}
+.folder-chev{width:10px;height:10px;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:transform 0.12s;opacity:0.5}
+.folder-chev.open{transform:rotate(90deg)}
+
+.ft{width:52px;height:40px;margin:3px auto;border-radius:4px;border:1.5px solid transparent;cursor:pointer;display:block}
+.ft.sel{border-color:var(--color-border-info)}
+
+.center{flex:1;overflow:hidden;background:var(--color-background-tertiary)}
+.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:3px;padding:3px;align-content:start;overflow-y:auto;height:100%}
+.th{aspect-ratio:1;border-radius:4px;cursor:pointer;border:1.5px solid transparent;overflow:hidden}
+.th.sel{border-color:var(--color-border-info)}
+.th div{width:100%;height:100%;border-radius:3px}
+.fullv{width:100%;height:100%;display:flex;align-items:center;justify-content:center}
+.fullimg{width:75%;height:75%;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:11px;border:0.5px solid var(--color-border-tertiary)}
+
+.right{width:230px;min-width:230px;border-left:0.5px solid var(--color-border-tertiary);display:flex;flex-direction:column}
+.dbody{flex:1;overflow-y:auto;padding:10px 12px}
+.dtabs{display:flex;border-top:0.5px solid var(--color-border-tertiary)}
+.dtab{flex:1;padding:7px 2px;text-align:center;font-size:10px;cursor:pointer;color:var(--color-text-tertiary);border-top:2px solid transparent;background:var(--color-background-secondary)}
+.dtab.on{color:var(--color-text-info);border-top-color:var(--color-border-info);background:var(--color-background-primary)}
+.dlbl{font-size:10px;color:var(--color-text-tertiary);text-transform:uppercase;letter-spacing:0.04em;margin:10px 0 4px}
+.dlbl:first-child{margin-top:0}
+.dr{display:flex;justify-content:space-between;font-size:11px;padding:2px 0;color:var(--color-text-secondary)}
+.dv{color:var(--color-text-primary);font-weight:500}
+.sr{margin:5px 0}
+.sl{display:flex;justify-content:space-between;font-size:10px;color:var(--color-text-secondary);margin-bottom:1px}
+.flag-r{display:flex;gap:5px;margin:5px 0}
+.flag{width:22px;height:22px;border-radius:50%;border:0.5px solid var(--color-border-secondary);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:500;background:var(--color-background-primary);color:var(--color-text-secondary)}
+.flag.pick{background:var(--color-background-success);border-color:var(--color-border-success);color:var(--color-text-success)}
+.flag.rej{background:var(--color-background-danger);border-color:var(--color-border-danger);color:var(--color-text-danger)}
+.stars{display:flex;gap:2px;margin:4px 0}
+.star{font-size:15px;cursor:pointer;color:var(--color-border-secondary)}
+.star.on{color:#EF9F27}
+.xmp{display:inline-flex;align-items:center;gap:3px;background:var(--color-background-success);color:var(--color-text-success);font-size:10px;padding:2px 6px;border-radius:4px;margin-top:3px}
+.mode-row{display:flex;gap:6px;margin-bottom:8px;align-items:center}
+.mbtn{padding:3px 10px;border:0.5px solid var(--color-border-secondary);border-radius:6px;font-size:11px;cursor:pointer;background:var(--color-background-primary);color:var(--color-text-secondary)}
+.mbtn.on{background:var(--color-background-info);color:var(--color-text-info);border-color:var(--color-border-info)}
+.sep{height:0.5px;background:var(--color-border-tertiary);margin:4px 0}
+</style>
+
+<h2 style="position:absolute;width:1px;height:1px;overflow:hidden">Photo app UI mockup v2</h2>
+
+<div class="mode-row">
+  <span style="font-size:11px;color:var(--color-text-tertiary)">Mode:</span>
+  <button class="mbtn on" id="mb-browse" onclick="go('browse')">Browse</button>
+  <button class="mbtn" id="mb-full" onclick="go('full')">Full image</button>
+</div>
+
+<div class="app">
+  <div class="toolbar">
+    <svg viewBox="0 0 14 14" fill="none" style="width:13px;height:13px;opacity:0.4"><circle cx="6" cy="6" r="4.5" stroke="currentColor" stroke-width="1.2"/><line x1="9.5" y1="9.5" x2="12.5" y2="12.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
+    <span class="tb-title" id="tb-title">Library — All Photos</span>
+    <button class="tb-btn">Export</button>
+  </div>
+
+  <div class="body">
+    <div class="left" id="left-panel" style="width:190px;min-width:190px">
+
+      <div id="tree-pane">
+
+        <div class="sec-header" onclick="toggleSec('folders')">
+          <div class="chevron open" id="chev-folders">
+            <svg viewBox="0 0 10 10" fill="none" width="10" height="10"><path d="M2 3.5L5 6.5L8 3.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </div>
+          <span class="sec-label">Folders</span>
+          <div class="sec-add" onclick="addFolder(event)" title="Add folder">
+            <svg viewBox="0 0 12 12" fill="none" width="12" height="12"><line x1="6" y1="2" x2="6" y2="10" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><line x1="2" y1="6" x2="10" y2="6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+          </div>
+        </div>
+
+        <div id="sec-folders">
+          <div id="folders-empty" class="empty-state">
+            <span class="empty-txt">No local folders</span>
+            <span class="empty-link" onclick="addFolder(event)">Add one</span>
+          </div>
+          <div id="folders-list" style="display:none">
+            <div class="folder-row" onclick="toggleFolder('france')">
+              <div class="folder-chev open" id="fchev-france">
+                <svg viewBox="0 0 8 8" fill="none" width="8" height="8"><path d="M2 1.5L5.5 4L2 6.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </div>
+              <svg class="ico" viewBox="0 0 12 12" fill="currentColor"><path d="M1 3.5C1 2.67 1.67 2 2.5 2H5l1 1.5H9.5C10.33 3.5 11 4.17 11 5V9.5C11 10.33 10.33 11 9.5 11h-7C1.67 11 1 10.33 1 9.5V3.5z"/></svg>
+              2026 — France trip
+            </div>
+            <div id="france-children">
+              <div class="ti ti-folder-item sel" onclick="selectNav(this,'France trip')">
+                <svg class="ico" viewBox="0 0 12 12" fill="currentColor" style="opacity:0.6"><path d="M1 3.5C1 2.67 1.67 2 2.5 2H5l1 1.5H9.5C10.33 3.5 11 4.17 11 5V9.5C11 10.33 10.33 11 9.5 11h-7C1.67 11 1 10.33 1 9.5V3.5z"/></svg>
+                France trip
+              </div>
+              <div class="ti ti-folder-item" onclick="selectNav(this,'Bordeaux')">
+                <svg class="ico" viewBox="0 0 12 12" fill="currentColor" style="opacity:0.6"><path d="M1 3.5C1 2.67 1.67 2 2.5 2H5l1 1.5H9.5C10.33 3.5 11 4.17 11 5V9.5C11 10.33 10.33 11 9.5 11h-7C1.67 11 1 10.33 1 9.5V3.5z"/></svg>
+                Bordeaux
+              </div>
+              <div class="ti ti-folder-item" onclick="selectNav(this,'Paris')">
+                <svg class="ico" viewBox="0 0 12 12" fill="currentColor" style="opacity:0.6"><path d="M1 3.5C1 2.67 1.67 2 2.5 2H5l1 1.5H9.5C10.33 3.5 11 4.17 11 5V9.5C11 10.33 10.33 11 9.5 11h-7C1.67 11 1 10.33 1 9.5V3.5z"/></svg>
+                Paris
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="sep"></div>
+
+        <div class="sec-header" onclick="toggleSec('photos')">
+          <div class="chevron open" id="chev-photos">
+            <svg viewBox="0 0 10 10" fill="none" width="10" height="10"><path d="M2 3.5L5 6.5L8 3.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </div>
+          <span class="sec-label">Photos Library</span>
+        </div>
+
+        <div id="sec-photos">
+          <div class="ti" style="padding-left:24px;font-weight:500" onclick="selectNav(this,'All Photos')">
+            <svg class="ico" viewBox="0 0 12 12" fill="none"><rect x="1" y="1" width="10" height="10" rx="2" stroke="currentColor" stroke-width="1"/><circle cx="4" cy="4.5" r="1" fill="currentColor"/><path d="M1 8l2.5-2.5 2 2 2-3L11 8" stroke="currentColor" stroke-width="1" fill="none" stroke-linejoin="round"/></svg>
+            All Photos
+          </div>
+          <div class="sep" style="margin:2px 0"></div>
+          <div class="ti" style="padding-left:24px" onclick="selectNav(this,'Favorites')">
+            <svg class="ico" viewBox="0 0 12 12" fill="none"><path d="M6 2l1.1 2.4 2.6.4-1.9 1.8.4 2.6L6 8l-2.2 1.2.4-2.6L2.3 4.8l2.6-.4z" stroke="currentColor" stroke-width="1"/></svg>
+            Favorites
+          </div>
+          <div class="ti" style="padding-left:24px" onclick="selectNav(this,'Picks')">
+            <svg class="ico" viewBox="0 0 12 12" fill="none"><path d="M2 6.5l2.5 2.5 5.5-5.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            Picks
+          </div>
+          <div class="ti" style="padding-left:24px" onclick="selectNav(this,'Rejects')">
+            <svg class="ico" viewBox="0 0 12 12" fill="none"><line x1="3" y1="3" x2="9" y2="9" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/><line x1="9" y1="3" x2="3" y2="9" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
+            Rejects
+          </div>
+          <div class="sep" style="margin:4px 0"></div>
+          <div style="font-size:10px;color:var(--color-text-tertiary);padding:2px 12px 2px 24px;letter-spacing:0.03em">Albums</div>
+          <div class="ti" style="padding-left:24px" onclick="selectNav(this,'Summer 2025')">
+            <svg class="ico" viewBox="0 0 12 12" fill="none"><rect x="1.5" y="1.5" width="9" height="9" rx="1.5" stroke="currentColor" stroke-width="1"/></svg>
+            Summer 2025
+          </div>
+          <div class="ti" style="padding-left:24px" onclick="selectNav(this,'Family')">
+            <svg class="ico" viewBox="0 0 12 12" fill="none"><rect x="1.5" y="1.5" width="9" height="9" rx="1.5" stroke="currentColor" stroke-width="1"/></svg>
+            Family
+          </div>
+          <div class="ti" style="padding-left:24px" onclick="selectNav(this,'Landscapes')">
+            <svg class="ico" viewBox="0 0 12 12" fill="none"><rect x="1.5" y="1.5" width="9" height="9" rx="1.5" stroke="currentColor" stroke-width="1"/></svg>
+            Landscapes
+          </div>
+        </div>
+
+      </div>
+
+      <div id="film-pane" class="film" style="display:none;width:72px">
+        <div class="ft sel" style="background:#B5D4F4" onclick="pickFilm(0)"></div>
+        <div class="ft" style="background:#C0DD97" onclick="pickFilm(1)"></div>
+        <div class="ft" style="background:#FAC775" onclick="pickFilm(2)"></div>
+        <div class="ft" style="background:#F5C4B3" onclick="pickFilm(3)"></div>
+        <div class="ft" style="background:#9FE1CB" onclick="pickFilm(4)"></div>
+        <div class="ft" style="background:#CECBF6" onclick="pickFilm(5)"></div>
+        <div class="ft" style="background:#F4C0D1" onclick="pickFilm(6)"></div>
+        <div class="ft" style="background:#D3D1C7" onclick="pickFilm(7)"></div>
+      </div>
+    </div>
+
+    <div class="center">
+      <div id="grid-pane" class="grid">
+        <div class="th sel" id="th0" ondblclick="go('full')" onclick="pick(0)"><div style="background:#B5D4F4"></div></div>
+        <div class="th" id="th1" ondblclick="go('full')" onclick="pick(1)"><div style="background:#C0DD97"></div></div>
+        <div class="th" id="th2" ondblclick="go('full')" onclick="pick(2)"><div style="background:#FAC775"></div></div>
+        <div class="th" id="th3" ondblclick="go('full')" onclick="pick(3)"><div style="background:#F5C4B3"></div></div>
+        <div class="th" id="th4" ondblclick="go('full')" onclick="pick(4)"><div style="background:#9FE1CB"></div></div>
+        <div class="th" id="th5" ondblclick="go('full')" onclick="pick(5)"><div style="background:#CECBF6"></div></div>
+        <div class="th" id="th6" ondblclick="go('full')" onclick="pick(6)"><div style="background:#F4C0D1"></div></div>
+        <div class="th" id="th7" ondblclick="go('full')" onclick="pick(7)"><div style="background:#D3D1C7"></div></div>
+        <div class="th" id="th8" ondblclick="go('full')" onclick="pick(8)"><div style="background:#85B7EB"></div></div>
+        <div class="th" id="th9" ondblclick="go('full')" onclick="pick(9)"><div style="background:#97C459"></div></div>
+        <div class="th" id="th10" ondblclick="go('full')" onclick="pick(10)"><div style="background:#EF9F27"></div></div>
+        <div class="th" id="th11" ondblclick="go('full')" onclick="pick(11)"><div style="background:#F09595"></div></div>
+      </div>
+      <div id="full-pane" class="fullv" style="display:none">
+        <div class="fullimg" id="full-img" style="background:#B5D4F4">
+          <span id="full-lbl" style="color:#0C447C;font-weight:500;font-size:11px">IMG_1042.CR3</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="right">
+      <div class="dbody">
+        <div id="tab-info">
+          <div class="dlbl">File</div>
+          <div class="dr"><span>Name</span><span class="dv">IMG_1042.CR3</span></div>
+          <div class="dr"><span>Format</span><span class="dv">Canon RAW</span></div>
+          <div class="dr"><span>Size</span><span class="dv">28.4 MB</span></div>
+          <div class="dr"><span>Dimensions</span><span class="dv">6240 × 4160</span></div>
+          <div class="xmp">
+            <svg viewBox="0 0 10 10" fill="none" style="width:9px;height:9px"><path d="M2 5.5l2 2 4-4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            IMG_1042.xmp
+          </div>
+          <div class="dlbl">Camera</div>
+          <div class="dr"><span>Model</span><span class="dv">Canon EOS R5</span></div>
+          <div class="dr"><span>Lens</span><span class="dv">24–70mm f/2.8</span></div>
+          <div class="dr"><span>Focal length</span><span class="dv">35mm</span></div>
+          <div class="dr"><span>Aperture</span><span class="dv">ƒ/4.0</span></div>
+          <div class="dr"><span>Shutter</span><span class="dv">1/250s</span></div>
+          <div class="dr"><span>ISO</span><span class="dv">400</span></div>
+          <div class="dlbl">Rating &amp; flags</div>
+          <div class="flag-r">
+            <div class="flag pick">P</div>
+            <div class="flag">—</div>
+            <div class="flag rej">✕</div>
+          </div>
+          <div class="stars"><span class="star on">★</span><span class="star on">★</span><span class="star on">★</span><span class="star on">★</span><span class="star">★</span></div>
+        </div>
+        <div id="tab-color" style="display:none">
+          <div class="dlbl">Tone</div>
+          <div class="sr"><div class="sl"><span>Exposure</span><span>+0.3</span></div><input type="range" min="-4" max="4" step="0.1" value="0.3" style="width:100%"></div>
+          <div class="sr"><div class="sl"><span>Highlights</span><span>−40</span></div><input type="range" min="-100" max="100" value="-40" style="width:100%"></div>
+          <div class="sr"><div class="sl"><span>Shadows</span><span>+30</span></div><input type="range" min="-100" max="100" value="30" style="width:100%"></div>
+          <div class="sr"><div class="sl"><span>Whites</span><span>0</span></div><input type="range" min="-100" max="100" value="0" style="width:100%"></div>
+          <div class="sr"><div class="sl"><span>Blacks</span><span>0</span></div><input type="range" min="-100" max="100" value="0" style="width:100%"></div>
+          <div class="dlbl">White balance</div>
+          <div class="sr"><div class="sl"><span>Temperature</span><span>5800K</span></div><input type="range" min="2000" max="12000" step="100" value="5800" style="width:100%"></div>
+          <div class="sr"><div class="sl"><span>Tint</span><span>−2</span></div><input type="range" min="-100" max="100" value="-2" style="width:100%"></div>
+          <div class="dlbl">Presence</div>
+          <div class="sr"><div class="sl"><span>Clarity</span><span>0</span></div><input type="range" min="-100" max="100" value="0" style="width:100%"></div>
+          <div class="sr"><div class="sl"><span>Vibrance</span><span>+10</span></div><input type="range" min="-100" max="100" value="10" style="width:100%"></div>
+          <div class="sr"><div class="sl"><span>Saturation</span><span>0</span></div><input type="range" min="-100" max="100" value="0" style="width:100%"></div>
+        </div>
+        <div id="tab-meta" style="display:none">
+          <div class="dlbl">Location</div>
+          <div class="dr"><span>GPS</span><span class="dv">44.84°N 0.57°W</span></div>
+          <div class="dr"><span>City</span><span class="dv">Bordeaux</span></div>
+          <div class="dr"><span>Country</span><span class="dv">France</span></div>
+          <div class="dlbl">Date</div>
+          <div class="dr"><span>Captured</span><span class="dv">Apr 9, 2026</span></div>
+          <div class="dr"><span>Modified</span><span class="dv">Apr 9, 2026</span></div>
+          <div class="dlbl">Sidecar</div>
+          <div class="dr"><span>File</span><span class="dv">IMG_1042.xmp</span></div>
+          <div class="dr"><span>Edits</span><span class="dv">5 adjustments</span></div>
+        </div>
+        <div id="tab-scopes" style="display:none">
+          <div class="dlbl">Histogram</div>
+          <div style="background:var(--color-background-tertiary);border-radius:6px;height:72px;margin:4px 0;padding:6px;border:0.5px solid var(--color-border-tertiary)">
+            <svg viewBox="0 0 180 55" style="width:100%;height:100%">
+              <polyline points="0,55 20,48 40,32 60,18 80,10 100,14 120,28 140,44 160,52 180,55" fill="none" stroke="#F09595" stroke-width="1.2" opacity="0.8"/>
+              <polyline points="0,55 20,50 40,36 60,22 80,12 100,16 120,30 140,46 160,53 180,55" fill="none" stroke="#97C459" stroke-width="1.2" opacity="0.8"/>
+              <polyline points="0,55 20,46 40,30 60,16 80,8 100,12 120,26 140,42 160,51 180,55" fill="none" stroke="#85B7EB" stroke-width="1.2" opacity="0.8"/>
+            </svg>
+          </div>
+          <div class="dlbl">Waveform</div>
+          <div style="background:var(--color-background-tertiary);border-radius:6px;height:72px;margin:4px 0;padding:6px;border:0.5px solid var(--color-border-tertiary)">
+            <svg viewBox="0 0 180 55" style="width:100%;height:100%">
+              <line x1="0" y1="5" x2="180" y2="5" stroke="var(--color-border-tertiary)" stroke-width="0.5"/>
+              <line x1="0" y1="27" x2="180" y2="27" stroke="var(--color-border-tertiary)" stroke-width="0.5"/>
+              <line x1="0" y1="50" x2="180" y2="50" stroke="var(--color-border-tertiary)" stroke-width="0.5"/>
+              <polyline points="0,42 30,36 60,24 90,14 120,22 150,36 180,44" fill="none" stroke="#EF9F27" stroke-width="1.5" opacity="0.9"/>
+            </svg>
+          </div>
+        </div>
+      </div>
+      <div class="dtabs">
+        <div class="dtab on" id="dt-info" onclick="tab('info')">Info</div>
+        <div class="dtab" id="dt-color" onclick="tab('color')">Color</div>
+        <div class="dtab" id="dt-meta" onclick="tab('meta')">Meta</div>
+        <div class="dtab" id="dt-scopes" onclick="tab('scopes')">Scopes</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+var curMode='browse', curThumb=0;
+var thumbColors=['#B5D4F4','#C0DD97','#FAC775','#F5C4B3','#9FE1CB','#CECBF6','#F4C0D1','#D3D1C7'];
+var thumbNames=['IMG_1042.CR3','IMG_1043.CR3','IMG_1044.CR3','IMG_1045.CR3','IMG_1046.CR3','IMG_1047.CR3','IMG_1048.CR3','IMG_1049.CR3'];
+var thumbTextColors=['#0C447C','#27500A','#633806','#712B13','#085041','#3C3489','#72243E','#444441'];
+var foldersAdded=false;
+
+function go(m){
+  curMode=m;
+  var isBrowse=m==='browse';
+  document.getElementById('mb-browse').classList.toggle('on',isBrowse);
+  document.getElementById('mb-full').classList.toggle('on',!isBrowse);
+  var lp=document.getElementById('left-panel');
+  lp.style.width=isBrowse?'190px':'72px';
+  lp.style.minWidth=isBrowse?'190px':'72px';
+  document.getElementById('tree-pane').style.display=isBrowse?'':'none';
+  document.getElementById('film-pane').style.display=isBrowse?'none':'';
+  document.getElementById('grid-pane').style.display=isBrowse?'':'none';
+  document.getElementById('full-pane').style.display=isBrowse?'none':'';
+  document.getElementById('tb-title').textContent=isBrowse?'Library — All Photos':thumbNames[curThumb];
+}
+
+function toggleSec(id){
+  var sec=document.getElementById('sec-'+id);
+  var chev=document.getElementById('chev-'+id);
+  var hidden=sec.style.display==='none';
+  sec.style.display=hidden?'':'none';
+  chev.classList.toggle('open',hidden);
+  chev.classList.toggle('closed',!hidden);
+}
+
+function toggleFolder(id){
+  var ch=document.getElementById(id+'-children');
+  var fc=document.getElementById('fchev-'+id);
+  var hidden=ch.style.display==='none';
+  ch.style.display=hidden?'':'none';
+  if(fc)fc.classList.toggle('open',hidden);
+}
+
+function addFolder(e){
+  e.stopPropagation();
+  if(!foldersAdded){
+    foldersAdded=true;
+    document.getElementById('folders-empty').style.display='none';
+    document.getElementById('folders-list').style.display='';
+  }
+}
+
+function selectNav(el, name){
+  document.querySelectorAll('.ti, .folder-row').forEach(function(t){t.classList.remove('sel');});
+  el.classList.add('sel');
+  document.getElementById('tb-title').textContent='Library — '+name;
+}
+
+function pick(i){
+  curThumb=i;
+  for(var j=0;j<12;j++){var el=document.getElementById('th'+j);if(el)el.classList.toggle('sel',j===i);}
+}
+
+function pickFilm(i){
+  curThumb=i;
+  document.querySelectorAll('.ft').forEach(function(el,idx){el.classList.toggle('sel',idx===i);});
+  var fi=document.getElementById('full-img');
+  var fl=document.getElementById('full-lbl');
+  if(fi&&thumbColors[i])fi.style.background=thumbColors[i];
+  if(fl&&thumbNames[i]){fl.textContent=thumbNames[i];fl.style.color=thumbTextColors[i];}
+  document.getElementById('tb-title').textContent=thumbNames[i];
+}
+
+function tab(t){
+  ['info','color','meta','scopes'].forEach(function(k){
+    document.getElementById('tab-'+k).style.display=k===t?'':'none';
+    document.getElementById('dt-'+k).classList.toggle('on',k===t);
+  });
+}
+</script>
