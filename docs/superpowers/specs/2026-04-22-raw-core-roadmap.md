@@ -186,6 +186,14 @@ Hamilton-Adams and AMaZE demosaic (spec § 3.3.3) behind `--feature high-quality
 
 AMaZE-dependent cases tighten; export path (spec § 02 "Trace C") uses AMaZE.
 
+**Status: COMPLETE (partial) 2026-04-22.** Tag: `slice-6-complete`. 2 commits from slice-5-complete. Default-pipeline golden tests unchanged (baseline passes identically).
+
+**Scope reduction vs. original:**
+- **AMaZE deferred.** Hamilton-Adams + the `high-quality-demosaic` feature flag land in this slice; AMaZE's additional complexity over HA isn't justified for the slice-6 fixture set, which has no AMaZE-specific cases (edge-reconstruction stress tests would need new fixtures). Future slice if demanded.
+- **Real Blender AgX sigmoid NOT in this slice.** The `x^3.42` stand-in from slice 1 remains — replacing it requires porting a 1024-entry LUT from Blender's OCIO config, which is a data-sourcing and calibration task larger than a single phase. Flagging as open: the single biggest remaining ΔE win across all 37 cases is still AgX-sigmoid correctness.
+
+Refactor: `demosaic.rs` single file → `demosaic/` module directory (`bilinear.rs`, `hamilton_adams.rs`, `half_res.rs`, plus a `DemosaicAlgorithm` enum and `demosaic()` dispatcher). Existing call sites use `demosaic::bilinear` re-export; the pipeline picks HA behind `#[cfg(feature = "high-quality-demosaic")]`.
+
 ### Slice 7 — sidecar I/O + CLI complete
 
 Canonical XMP parser and serializer with byte-exact round-trip (`docs/xmp-canonical-format.md`, spec § 01 invariants 5–7). Passthrough buckets for unknown attributes and elements. CLI `batch`, `diff`, `inspect` subcommands (spec § 10). Native edit-stack JSON as Maple's canonical form (spec § 10, § 01).
