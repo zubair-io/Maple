@@ -59,25 +59,32 @@ impl DcpProfile {
 /// Apply DCP to camera-native linear RGB, producing scene-linear Rec.2020 D65.
 /// Slice 1: single illuminant, CM + (FM or fallback), no HSM, no PLT.
 ///
-/// Per spec § 3.4 and § 04 "Camera-native → Rec.2020":
-///   rgb_rec2020 = M_pro_to_rec2020 * FM * Bradford(source_illum → D50) * CM * rgb_cam
-pub fn apply(camera: &Image, profile: &DcpProfile) -> Image {
+/// DNG's `ColorMatrix` is defined `XYZ → camera`; for decoding we use its
+/// inverse. See DNG 1.6 § 1.4.4.1. The error variant propagates when the
+/// matrix is singular (degenerate profile); callers should treat it as a
+/// decode failure.
+pub fn apply(camera: &Image, profile: &DcpProfile) -> crate::Result<Image> {
     camera.assert_space(ColorSpace::CameraNativeLinearRgb);
 
+    let cam_to_xyz = profile.color_matrix.inverse().ok_or_else(|| {
+        crate::Error::Dcp("ColorMatrix is singular, cannot invert to camera→XYZ".into())
+    })?;
+
     // Compose the camera → Rec.2020 matrix once (not per-pixel).
+    //   rgb_rec2020 = M_pro_to_rec2020 * FM * Bradford(illum→D50) * inv(CM) * rgb_cam
     let adapt = bradford_adapt(profile.illuminant.xyz(), XYZ_D50);
     let fm = profile.forward_matrix.unwrap_or_else(|| {
         // No FM: standard XYZ D50 → ProPhoto via inverse of ProPhoto→XYZ D50.
         M_PRO_TO_XYZ_D50.inverse().expect("ProPhoto matrix is invertible")
     });
     let exit = m_pro_to_rec2020();
-    let m = exit.mul_mat(&fm).mul_mat(&adapt).mul_mat(&profile.color_matrix);
+    let m = exit.mul_mat(&fm).mul_mat(&adapt).mul_mat(&cam_to_xyz);
 
     let mut out = Image::new(camera.width, camera.height, ColorSpace::SceneLinearRec2020);
     for (i, p) in camera.pixels.iter().enumerate() {
         out.pixels[i] = m.mul_vec(*p);
     }
-    out
+    Ok(out)
 }
 
 /// Slice-1 convenience: synthesize a DcpProfile from a `RawImage`'s embedded
@@ -109,7 +116,7 @@ mod tests {
         };
         let mut img = Image::new(2, 2, ColorSpace::CameraNativeLinearRgb);
         for p in &mut img.pixels { *p = [0.18, 0.18, 0.18]; }
-        let out = apply(&img, &profile);
+        let out = apply(&img, &profile).expect("identity CM is invertible");
         assert_eq!(out.space, ColorSpace::SceneLinearRec2020);
         // All four pixels should match one another.
         let first = out.pixels[0];
@@ -134,7 +141,7 @@ mod tests {
         ])); // plausible-shape camera matrix
         let mut img = Image::new(2, 2, ColorSpace::CameraNativeLinearRgb);
         img.pixels[0] = [0.5, 0.5, 0.5];
-        let out = apply(&img, &profile);
+        let out = apply(&img, &profile).expect("realistic CM is invertible");
         assert_eq!(out.space, ColorSpace::SceneLinearRec2020);
         // Output is finite.
         for &c in &out.pixels[0] {
