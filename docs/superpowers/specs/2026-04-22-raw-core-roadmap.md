@@ -200,6 +200,14 @@ Canonical XMP parser and serializer with byte-exact round-trip (`docs/xmp-canoni
 
 Runs full 176-case ACR matrix at all three zoom paths per spec § 11.
 
+**Status: COMPLETE (partial) 2026-04-22.** Tag: `slice-7-complete`. 1 commit from slice-6-complete. CLI surface complete; canonical write-out deferred.
+
+**Scope reduction vs. original:**
+- **`batch`, `diff`, `inspect` CLI subcommands** — all three land, smoke-tested end-to-end against `test-fixtures/references/manifest.json`.
+- **Canonical XMP serializer + passthrough buckets** deferred to slice 10. Rationale: the slice-1-through-6 pipeline only READS sidecars; writing happens when app shells modify adjustments (Maple Hosted / Self Hosted / native), so the natural home is slice 10. The current `xmp::parse` reads every field slices 1-6 need; what remains is the write path.
+- **Full 176-case ACR matrix test harness** (three zoom paths: preview-zoomed-out / preview-zoomed-in / export) deferred — our 37-case matrix already exercises the pipeline end-to-end and scales with a `batch` invocation; dual-path consistency tests per spec § 11 gate 3 land with slice 10's cache/preview infrastructure.
+- **Native edit-stack JSON format** deferred — Maple Hosted / Self Hosted / native shells are what consume it; slice 10 co-locates both the format and its consumers.
+
 ### Slice 8 — export formats
 
 JPEG sRGB and Display P3, HEIC P3, TIFF 16-bit (display P3 and scene-linear ProPhoto per spec § 04 "Export color transforms"), EXR f16 scene-linear Rec.2020. Format-dependent view-transform routing (scene-linear formats skip AgX).
