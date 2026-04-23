@@ -1,0 +1,140 @@
+//! Golden tests: render a fixture + XMP and compare against ACR reference
+//! via `src/scripts/compare_images.py`. Gated by `--features golden` because
+//! they shell out to Python.
+//!
+//! Run: `cargo test -p raw-core --features golden golden -- --nocapture --test-threads=1`
+
+#![cfg(feature = "golden")]
+#![allow(non_snake_case)]
+
+use raw_core::{png, render, xmp};
+use serde::Deserialize;
+use std::path::{Path, PathBuf};
+use std::process::Command;
+
+#[derive(Deserialize, Debug)]
+struct DiffReport {
+    mean_deltaE: f32,
+    p95_deltaE: f32,
+    max_deltaE: f32,
+    bias_r: f32,
+    bias_g: f32,
+    bias_b: f32,
+    n_pixels: u64,
+}
+
+struct Budget {
+    mean: f32,
+    p95: f32,
+    max: f32,
+}
+
+fn repo_root() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../..")
+        .canonicalize()
+        .expect("canonicalize")
+}
+
+fn budget_for(case_class: &str) -> Budget {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/budgets.toml");
+    let s = std::fs::read_to_string(&path).expect("budgets.toml");
+    let mut section = false;
+    let mut b = Budget { mean: f32::INFINITY, p95: f32::INFINITY, max: f32::INFINITY };
+    for line in s.lines() {
+        let t = line.trim();
+        if t.starts_with('#') || t.is_empty() { continue; }
+        if t.starts_with('[') {
+            section = t == format!("[{}]", case_class);
+            continue;
+        }
+        if !section { continue; }
+        if let Some((k, v)) = t.split_once('=') {
+            let k = k.trim(); let v = v.trim();
+            match k {
+                "mean_delta_e" => b.mean = v.parse().unwrap_or(f32::INFINITY),
+                "p95_delta_e"  => b.p95  = v.parse().unwrap_or(f32::INFINITY),
+                "max_delta_e"  => b.max  = v.parse().unwrap_or(f32::INFINITY),
+                _ => {}
+            }
+        }
+    }
+    b
+}
+
+fn run_case(stem: &str, case: &str, class: &str) {
+    let root = repo_root();
+    let raw_glob = root.join("test-fixtures/raws");
+    let raw = ["DNG", "dng", "RAW", "CR2", "cr2"].iter()
+        .map(|ext| raw_glob.join(format!("{}.{}", stem, ext)))
+        .find(|p| p.exists())
+        .unwrap_or_else(|| panic!("no raw for {} found in {}", stem, raw_glob.display()));
+    let xmp_path = root.join(format!("test-fixtures/references/{}/xmp/{}.xmp", stem, case));
+    let ref_path = root.join(format!("test-fixtures/references/{}/down/{}.png", stem, case));
+    if !xmp_path.exists() || !ref_path.exists() {
+        eprintln!("skip {}/{}: xmp or reference missing", stem, case);
+        return;
+    }
+
+    let xml = std::fs::read_to_string(&xmp_path).unwrap();
+    let model = xmp::parse(&xml).unwrap();
+    let (w, h, bytes) = render(&raw, &model).unwrap();
+    let out_dir = root.join("target/golden-out");
+    std::fs::create_dir_all(&out_dir).unwrap();
+    let out_png = out_dir.join(format!("{}_{}.png", stem, case));
+    png::write(&out_png, w, h, &bytes).unwrap();
+
+    // Resize our render to match the down/ reference (4000 px long-edge).
+    // Easiest: have compare_images.py resize candidate to match reference.
+    // For now, if dimensions differ, use Python+PIL to resample our output,
+    // then compare. We do that inline to keep the harness self-contained.
+    let resized = out_dir.join(format!("{}_{}_resized.png", stem, case));
+    let resize_status = Command::new("python3")
+        .arg("-c")
+        .arg(format!(
+            "from PIL import Image; \
+             cand = Image.open(r'{}'); \
+             ref = Image.open(r'{}'); \
+             cand.resize(ref.size, Image.LANCZOS).save(r'{}')",
+            out_png.display(), ref_path.display(), resized.display()
+        ))
+        .status()
+        .expect("python resize");
+    assert!(resize_status.success(), "resize failed");
+
+    let script = root.join("src/scripts/compare_images.py");
+    let out = Command::new("python3")
+        .arg(&script)
+        .arg(&resized)
+        .arg(&ref_path)
+        .output()
+        .expect("spawn compare_images.py");
+    if !out.status.success() {
+        panic!("compare failed: {}", String::from_utf8_lossy(&out.stderr));
+    }
+    let rep: DiffReport = serde_json::from_slice(&out.stdout)
+        .unwrap_or_else(|e| panic!("json parse: {} body: {}", e, String::from_utf8_lossy(&out.stdout)));
+    let b = budget_for(class);
+
+    eprintln!("{}/{}: mean ΔE={:.2} p95={:.2} max={:.2} bias=({:+.3},{:+.3},{:+.3}) [budget mean={} p95={} max={}]",
+        stem, case, rep.mean_deltaE, rep.p95_deltaE, rep.max_deltaE,
+        rep.bias_r, rep.bias_g, rep.bias_b, b.mean, b.p95, b.max);
+
+    assert!(rep.mean_deltaE <= b.mean,
+        "{}/{}: mean ΔE {} > budget {}", stem, case, rep.mean_deltaE, b.mean);
+    assert!(rep.p95_deltaE  <= b.p95,
+        "{}/{}: p95 ΔE {} > budget {}", stem, case, rep.p95_deltaE, b.p95);
+    assert!(rep.max_deltaE  <= b.max,
+        "{}/{}: max ΔE {} > budget {}", stem, case, rep.max_deltaE, b.max);
+}
+
+#[test] fn test_0002_baseline()     { run_case("test_0002", "baseline",     "baseline"); }
+#[test] fn test_0002_exposure_max() { run_case("test_0002", "exposure_max", "exposure"); }
+#[test] fn test_0002_exposure_min() { run_case("test_0002", "exposure_min", "exposure"); }
+#[test] fn test_0002_wb_daylight()  { run_case("test_0002", "wb_daylight",  "wb"); }
+#[test] fn test_0002_wb_tungsten()  { run_case("test_0002", "wb_tungsten",  "wb"); }
+#[test] fn test_0002_dehaze_max()   { run_case("test_0002", "dehaze_max",   "dehaze"); }
+
+#[test] fn test_0003_baseline()     { run_case("test_0003", "baseline",     "baseline"); }
+#[test] fn test_0000_baseline()     { run_case("test_0000", "baseline",     "baseline"); }
+#[test] fn test_0001_baseline()     { run_case("test_0001", "baseline",     "baseline"); }
