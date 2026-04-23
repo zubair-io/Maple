@@ -1,8 +1,16 @@
-use clap::{Parser, Subcommand};
-use raw_core::{png, render, xmp};
+use clap::{Parser, Subcommand, ValueEnum};
+use raw_core::render;
+use raw_core::xmp;
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
+
+#[derive(ValueEnum, Clone, Copy, Debug)]
+enum OutputFormat {
+    Png,
+    Jpeg,
+    Tiff,
+}
 
 #[derive(Parser)]
 #[command(name = "maple-cli", about = "Maple raw-pipeline reference renderer")]
@@ -13,7 +21,7 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Cmd {
-    /// Render a RAW + XMP to a PNG.
+    /// Render a RAW + XMP to an image file.
     Render {
         /// Path to the RAW file (DNG, CR2, CR3, NEF, ARW, RAF, ORF, RW2,
         /// PEF, SRW, 3FR, FFF, DCR, MOS, IIQ, MRW).
@@ -22,9 +30,16 @@ enum Cmd {
         /// If omitted, renders with AdjustmentModel::default().
         #[arg(long)]
         params: Option<PathBuf>,
-        /// Output PNG path.
+        /// Output image path.
         #[arg(long)]
         out: PathBuf,
+        /// Output format. Defaults to inferring from --out extension (.png, .jpg,
+        /// .jpeg, .tif, .tiff).
+        #[arg(long, value_enum)]
+        format: Option<OutputFormat>,
+        /// JPEG quality 1..100 (default 92). Ignored for PNG/TIFF.
+        #[arg(long, default_value_t = 92)]
+        quality: u8,
     },
     /// Render every case in a JSON manifest.
     Batch {
@@ -77,7 +92,7 @@ struct Manifest {
 fn main() -> ExitCode {
     let cli = Cli::parse();
     match cli.cmd {
-        Cmd::Render { raw, params, out } => run_or_exit(do_render(&raw, params.as_deref(), &out)),
+        Cmd::Render { raw, params, out, format, quality } => run_or_exit(do_render(&raw, params.as_deref(), &out, format, quality)),
         Cmd::Batch { manifest, out_dir, cases_filter } => {
             run_or_exit(do_batch(&manifest, &out_dir, cases_filter.as_deref()))
         }
@@ -98,17 +113,32 @@ fn run_or_exit(r: Result<i32, Box<dyn std::error::Error>>) -> ExitCode {
     }
 }
 
+fn infer_format(out: &Path) -> OutputFormat {
+    match out.extension().and_then(|e| e.to_str()).map(str::to_lowercase).as_deref() {
+        Some("jpg" | "jpeg") => OutputFormat::Jpeg,
+        Some("tif" | "tiff") => OutputFormat::Tiff,
+        _                    => OutputFormat::Png,
+    }
+}
+
 fn do_render(
     raw: &Path,
     params: Option<&Path>,
     out: &Path,
+    format: Option<OutputFormat>,
+    quality: u8,
 ) -> Result<i32, Box<dyn std::error::Error>> {
     let model = match params {
         Some(p) => xmp::parse(&std::fs::read_to_string(p)?)?,
         None => xmp::AdjustmentModel::default(),
     };
     let (w, h, bytes) = render(raw, &model)?;
-    png::write(out, w, h, &bytes)?;
+    let fmt = format.unwrap_or_else(|| infer_format(out));
+    match fmt {
+        OutputFormat::Png  => raw_core::png::write(out, w, h, &bytes)?,
+        OutputFormat::Jpeg => raw_core::jpeg::write(out, w, h, &bytes, quality)?,
+        OutputFormat::Tiff => raw_core::tiff::write_from_u8(out, w, h, &bytes)?,
+    }
     Ok(0)
 }
 
@@ -129,7 +159,7 @@ fn do_batch(
         }
         let flat = case.name.replace('/', "_");
         let out_png = out_dir.join(format!("{}.png", flat));
-        match do_render(&case.raw, Some(&case.xmp), &out_png) {
+        match do_render(&case.raw, Some(&case.xmp), &out_png, None, 92) {
             Ok(_) => {
                 eprintln!("ok  {}", case.name);
                 ok += 1;

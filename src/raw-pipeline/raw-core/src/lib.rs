@@ -27,6 +27,10 @@ pub mod view;
 
 pub mod png;
 
+pub mod jpeg;
+
+pub mod tiff;
+
 pub mod xmp;
 pub use xmp::AdjustmentModel;
 
