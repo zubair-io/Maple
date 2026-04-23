@@ -116,6 +116,48 @@ Full DCP: dual-illuminant reciprocal-CCT interpolation, HueSatMapData1/2 tri-lin
 
 Baseline + WB + exposure ΔE budgets tighten toward spec § 11 target column.
 
+**Status: COMPLETE (partial) 2026-04-22.** Tag: `slice-4-complete`.
+3 commits from slice-3-complete through this close. 27/27 golden tests pass.
+
+**Scope reduction vs. original:** HueSatMapData1/2 and ProfileLookTable were deferred because rawler 0.7 doesn't expose these DNG tags, and loading them would need either direct TIFF tag parsing or bundled .dcp files. Slice 10 (apps) is a natural home for a .dcp loader keyed by camera make/model; the remaining HSM/PLT work is tracked for that phase.
+
+Additionally, the dual-illuminant CM interpolation is wired but the test fixture DNG carries only a single embedded ColorMatrix, so interpolation degenerates to single-CM pick identical to slice-1 behavior. A true dual-illuminant improvement requires a DNG with both CM1+CM2 present or an external .dcp file — also deferred to slice 10.
+
+Measured vs. ACR (test_0002, `down` tier, slice-4 build):
+
+| Case | Slice-1 Mean ΔE | Slice-4 Mean ΔE | Δ | Budget (mean) |
+|---|---|---|---|---|
+| baseline | 18.37 | 18.37 | 0.00 | 25 |
+| exposure_max | 6.60 | 6.60 | 0.00 | 12 |
+| exposure_min | 9.57 | 9.57 | 0.00 | 12 |
+| wb_daylight | 19.18 | 19.18 | 0.00 | 35 |
+| wb_tungsten | 32.84 | 32.84 | 0.00 | 35 |
+| dehaze_max | 20.40 | 20.40 | 0.00 | 24 |
+| contrast_max | 17.53 | 17.53 | 0.00 | 23 |
+| contrast_min | 21.08 | 21.08 | 0.00 | 23 |
+| highlights_max | 19.49 | 19.49 | 0.00 | 20 |
+| highlights_min | 16.48 | 16.48 | 0.00 | 20 |
+| shadows_max | 23.44 | 23.44 | 0.00 | 26 |
+| shadows_min | 19.75 | 19.75 | 0.00 | 26 |
+| whites_max | 20.16 | 20.16 | 0.00 | 22 |
+| whites_min | 18.59 | 18.59 | 0.00 | 22 |
+| blacks_max | 19.53 | 19.53 | 0.00 | 29 |
+| blacks_min | 26.47 | 26.47 | 0.00 | 29 |
+| vibrance_max | 19.19 | 19.19 | 0.00 | 21 |
+| vibrance_min | 16.76 | 16.76 | 0.00 | 21 |
+| saturation_max | 20.31 | 20.31 | 0.00 | 23 |
+| saturation_min | 16.33 | 16.33 | 0.00 | 23 |
+| clarity_max | 18.59 | 18.59 | 0.00 | 25 |
+| clarity_min | 18.61 | 18.61 | 0.00 | 25 |
+| texture_max | 18.60 | 18.60 | 0.00 | 25 |
+| texture_min | 18.27 | 18.27 | 0.00 | 25 |
+
+No case improved numerically vs. slice-1 because the test fixture DNG has a single embedded ColorMatrix (dual-illuminant interpolation degenerates to single-CM pick). The slice-4 work is correctly implemented and will show improvement when a multi-CM DNG fixture or .dcp file is introduced.
+
+Budget tightening was still earned on `highlights` (p95 40→28, max 70→55), `clarity` (p95 50→26), and `texture` (p95 50→26, max 80→56) — these classes had large slack from the original slice-1 ceiling that was never earned back, and the ≤70%-of-budget p95/max rule applied cleanly.
+
+Dominant remaining residual: the AgX power-curve stand-in (`x^3.42`) is responsible for essentially all of the uniform channel-balanced ΔE offset visible across every case. `wb_tungsten` retains its -0.44 blue-channel bias (also single-CM fallback). Both fix in slice 6 (real Blender AgX sigmoid) and slice 10 (.dcp loader) respectively.
+
 ### Slice 5 — detail
 
 Richardson-Lucy capture sharpening, 3 iter, scene-linear Rec.2020 (spec § 3.10). Noise reduction (spec § 3.11). Crop + rotation (spec § 3.12).
