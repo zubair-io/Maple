@@ -26,3 +26,6 @@ pub mod stages;
 pub mod view;
 
 pub mod png;
+
+pub mod xmp;
+pub use xmp::AdjustmentModel;
