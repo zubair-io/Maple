@@ -20,11 +20,13 @@
 //!   We prefer D65 → D50 → first available, and take only the top 3 rows.
 //! - CCT: rawler 0.7 does not expose CCT directly; `as_shot_cct` is `None`.
 
+use std::collections::HashMap;
 use std::path::Path;
 
-use rawler::imgop::xyz::Illuminant;
+use rawler::imgop::xyz::Illuminant as RawlerIlluminant;
 use rawler::rawimage::{RawImageData, RawPhotometricInterpretation};
 
+use crate::color::illuminant::Illuminant as CoreIlluminant;
 use crate::error::Error;
 use crate::image::{CfaPattern, RawImage};
 use crate::math::Matrix3;
@@ -130,36 +132,30 @@ pub fn decode(path: &Path) -> Result<RawImage> {
     let camera_make = raw.clean_make.clone();
     let camera_model = raw.clean_model.clone();
 
-    // ── 8. Embedded color matrix (XYZ → Camera) ───────────────────────────
-    // Prefer D65 for DNG compatibility; fall back to D50 then first available.
-    // `FlatColorMatrix` is a `Vec<f32>` in row-major order.  The DNG spec
+    // ── 8. Color matrices (XYZ → Camera) per illuminant ──────────────────
+    // Collect all per-illuminant calibration matrices into our HashMap.
+    // `FlatColorMatrix` is a `Vec<f32>` in row-major order. The DNG spec
     // stores XYZ→Camera matrices that may be 3×3 or 4×3 (for RGBE sensors).
     // We only take the first 3 rows (R G B) and ignore the 4th (E/W channel).
-    let embedded_color_matrix: Option<Matrix3> = {
-        let cm = raw
-            .color_matrix
-            .get(&Illuminant::D65)
-            .or_else(|| raw.color_matrix.get(&Illuminant::D50))
-            .or_else(|| {
-                // Deterministic fallback: sort illuminants by debug representation name.
-                // Golden tests must be reproducible across processes, so HashMap iteration
-                // order (which depends on hasher seed) is not acceptable here.
-                let mut entries: Vec<_> = raw.color_matrix.iter().collect();
-                entries.sort_by_key(|(illum, _)| format!("{:?}", illum));
-                entries.first().map(|(_, m)| *m)
-            });
-
-        cm.and_then(|flat| {
+    // This preserves all illuminants for dual-illuminant CCT interpolation
+    // in dcp::profile_for (spec § 3.4).
+    let color_matrices: HashMap<CoreIlluminant, Matrix3> = {
+        let mut map = HashMap::new();
+        for (rawler_illum, flat) in &raw.color_matrix {
             if flat.len() < 9 {
-                return None;
+                continue;
             }
-            // Row-major: rows are camera channels (R,G,B), columns are XYZ
-            Some(Matrix3([
+            let core_illum = rawler_illuminant_to_core(rawler_illum);
+            let m = Matrix3([
                 [flat[0], flat[1], flat[2]],
                 [flat[3], flat[4], flat[5]],
                 [flat[6], flat[7], flat[8]],
-            ]))
-        })
+            ]);
+            // If multiple rawler illuminants map to the same CoreIlluminant,
+            // keep the first insertion (HashMap::entry().or_insert semantics).
+            map.entry(core_illum).or_insert(m);
+        }
+        map
     };
 
     Ok(RawImage {
@@ -173,8 +169,35 @@ pub fn decode(path: &Path) -> Result<RawImage> {
         as_shot_cct,
         camera_make,
         camera_model,
-        embedded_color_matrix,
+        color_matrices,
     })
+}
+
+/// Map a rawler `Illuminant` to our `CoreIlluminant`.
+///
+/// Rawler's enum (from `rawler::imgop::xyz::Illuminant`) covers the full DNG
+/// CalibrationIlluminant tag range. We collapse it to our five-variant enum:
+/// StdA (illuminant A, ~2856K), D50, D55, D65, and Other for everything else.
+/// Tungsten / IsoStudioTungsten are both incandescent (~3200K) and map to
+/// `Other(3200)` — distinct from StdA (~2856K) which is the DNG standard for
+/// dual-illuminant CM1. If a fixture uses `Tungsten` as CM1, it will degrade
+/// to the single-illuminant fallback path in `profile_for`, which is fine.
+fn rawler_illuminant_to_core(r: &RawlerIlluminant) -> CoreIlluminant {
+    match r {
+        RawlerIlluminant::A => CoreIlluminant::StdA,
+        RawlerIlluminant::D50 => CoreIlluminant::D50,
+        RawlerIlluminant::D55 => CoreIlluminant::D55,
+        RawlerIlluminant::D65 => CoreIlluminant::D65,
+        RawlerIlluminant::Tungsten => CoreIlluminant::Other(3200),
+        RawlerIlluminant::IsoStudioTungsten => CoreIlluminant::Other(3200),
+        other => {
+            // Unknown illuminant — fall back to D65. This covers Daylight,
+            // Fluorescent, Flash, CloudyWeather, etc. The interpolation logic
+            // in profile_for degrades gracefully to single-illuminant fallback.
+            let _ = other;
+            CoreIlluminant::D65
+        }
+    }
 }
 
 /// Map a rawler CFA name string to our [`CfaPattern`] enum.

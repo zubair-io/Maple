@@ -42,7 +42,7 @@ mod tests {
             as_shot_cct: None,
             camera_make: "Test".into(),
             camera_model: "Test".into(),
-            embedded_color_matrix: None,
+            color_matrices: std::collections::HashMap::new(),
         }
     }
 

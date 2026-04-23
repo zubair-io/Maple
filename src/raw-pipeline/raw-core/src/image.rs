@@ -1,3 +1,6 @@
+use std::collections::HashMap;
+
+use crate::color::illuminant::Illuminant;
 use crate::math::Matrix3;
 
 /// Tracks the colorspace of each `Image` at runtime. Stages `debug_assert!`
@@ -87,10 +90,11 @@ pub struct RawImage {
     pub as_shot_cct: Option<f32>,
     pub camera_make: String,
     pub camera_model: String,
-    /// Embedded camera color matrices. DNG carries these in tags; non-DNG
-    /// RAWs get a synthesized profile from rawler's built-in adobe_coeff table.
-    /// Full DCP with HSM/PLT lands in slice 4 per roadmap.
-    pub embedded_color_matrix: Option<Matrix3>,
+    /// Camera color matrices by calibration illuminant. Each is XYZ→camera per
+    /// DNG spec (inverse at apply-time to get camera→XYZ). Populated from rawler
+    /// per-illuminant data; may contain 1-2 entries. Used by DCP for dual-
+    /// illuminant reciprocal-CCT interpolation (spec § 3.4).
+    pub color_matrices: HashMap<Illuminant, Matrix3>,
 }
 
 #[cfg(test)]
