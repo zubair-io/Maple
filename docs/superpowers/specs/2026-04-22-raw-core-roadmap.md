@@ -245,15 +245,15 @@ Per `docs/spec/12-maple-apps-spec.md`. Three products + cross-cutting infrastruc
 
 #### Sub-slices
 
-- **10a — Maple Hosted** (browser-only). Design prototype imported at `src/maple-hosted/`; Angular port + `raw-wasm` wiring + File System Access API is the production work. **Plan:** `docs/superpowers/plans/2026-04-22-slice-10a-maple-hosted.md`. Estimate: 4-5 engineer-weeks.
-- **10b — Maple Self Hosted** (Bun + MongoDB + Indexer + same UI). Scaffold at `src/maple-self-hosted/` — `bun src/index.ts` starts a stub Elysia server. **Plan:** `docs/superpowers/plans/2026-04-22-slice-10b-maple-self-hosted.md`. Estimate: 3-4 engineer-weeks.
-- **10c — Maple native** (Swift iOS/Mac/iPad). Scaffold at `src/maple-native/` — SPM package with a placeholder SwiftUI view. **Plan:** `docs/superpowers/plans/2026-04-22-slice-10c-maple-native.md`. Estimate: 5-7 engineer-weeks.
+- **10a — Maple Hosted** (browser-only). Design prototype imported at `src/web/`; Angular port + `raw-wasm` wiring + File System Access API is the production work. **Plan:** `docs/superpowers/plans/2026-04-22-slice-10a-maple-hosted.md`. Estimate: 4-5 engineer-weeks.
+- **10b — Maple Self Hosted** (Bun + MongoDB + Indexer + same UI). Scaffold at `src/api/` — `bun src/index.ts` starts a stub Elysia server. **Plan:** `docs/superpowers/plans/2026-04-22-slice-10b-maple-self-hosted.md`. Estimate: 3-4 engineer-weeks.
+- **10c — Maple native** (Swift iOS/Mac/iPad). Scaffold at `src/apple/` — SPM package with a placeholder SwiftUI view. **Plan:** `docs/superpowers/plans/2026-04-22-slice-10c-maple-native.md`. Estimate: 5-7 engineer-weeks.
 
 #### What's shipped in this roadmap slot
 
-- **Design handoff integrated** at `src/maple-hosted/` (React prototype with live scopes, dark theme, collapsible sections, traffic-light window chrome). Includes `Spec.html` — the design-handoff interaction spec.
-- **Bun server scaffold** at `src/maple-self-hosted/` with health-check route.
-- **Swift package scaffold** at `src/maple-native/` with a smoke-test target.
+- **Design handoff integrated** at `src/web/` (React prototype with live scopes, dark theme, collapsible sections, traffic-light window chrome). Includes `Spec.html` — the design-handoff interaction spec.
+- **Bun server scaffold** at `src/api/` with health-check route.
+- **Swift package scaffold** at `src/apple/` with a smoke-test target.
 - **Three plan documents** covering the full implementation roadmap for each sub-slice.
 
 #### What's NOT shipped

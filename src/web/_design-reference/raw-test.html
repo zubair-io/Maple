@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <title>Maple raw-wasm smoke test</title>
+  <style>
+    body { font-family: -apple-system, sans-serif; background: #1c1917; color: #e7e5e4; padding: 24px; margin: 0; }
+    h1 { font-weight: 400; margin: 0 0 16px; }
+    .drop { border: 2px dashed #44403c; border-radius: 8px; padding: 24px; text-align: center; cursor: pointer; background: #262524; }
+    .drop.dragging { border-color: #c4493a; background: #2e2c2a; }
+    canvas { max-width: 100%; margin-top: 24px; border: 1px solid #44403c; background: #141210; }
+    .status { margin-top: 16px; font-family: "SF Mono", monospace; font-size: 13px; color: #a8a29e; white-space: pre-wrap; }
+  </style>
+</head>
+<body>
+  <h1>Maple raw-wasm smoke test</h1>
+  <p>Drop a RAW (DNG / CR2 / NEF / ARW / RAF / ORF / RW2 / PEF / SRW / 3FR) to render it through the Rust pipeline compiled to WebAssembly.</p>
+  <div id="drop" class="drop">Drop file here or click to pick</div>
+  <input id="picker" type="file" accept=".dng,.cr2,.cr3,.nef,.arw,.raf,.orf,.rw2,.pef,.srw,.3fr,.fff,.dcr,.mos,.iiq,.mrw,.raw" style="display:none"/>
+  <div class="status" id="status">Idle. WASM will initialize on first drop.</div>
+  <canvas id="out"></canvas>
+
+  <script type="module">
+    // Path is relative to this HTML: ../../raw-pipeline/raw-wasm/pkg/raw_wasm.js
+    // We're at src/web/_design-reference/raw-test.html; pkg is at
+    // src/raw-pipeline/raw-wasm/pkg/. Go up two and over.
+    import init, { render_bytes } from '../../raw-pipeline/raw-wasm/pkg/raw_wasm.js';
+
+    const $drop = document.getElementById('drop');
+    const $picker = document.getElementById('picker');
+    const $status = document.getElementById('status');
+    const $canvas = document.getElementById('out');
+
+    let wasmReady = false;
+    async function ensureWasm() {
+      if (wasmReady) return;
+      $status.textContent = 'Loading WASM…';
+      await init();
+      wasmReady = true;
+    }
+
+    async function handleFile(file) {
+      await ensureWasm();
+      $status.textContent = `Reading ${file.name} (${(file.size / 1e6).toFixed(1)} MB)…`;
+      const t0 = performance.now();
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      const t1 = performance.now();
+      const ext = file.name.split('.').pop().toLowerCase();
+      $status.textContent = `Decoding + rendering… (${((t1 - t0)).toFixed(0)} ms file read)`;
+      try {
+        const result = render_bytes(bytes, ext, null);
+        const t2 = performance.now();
+        const pixels = result.width * result.height;
+        $status.textContent =
+          `OK: ${result.width}\xd7${result.height} (${(pixels / 1e6).toFixed(1)} MP), render ${((t2 - t1) / 1000).toFixed(1)} s`;
+        paint(result);
+      } catch (e) {
+        console.error(e);
+        $status.textContent = `Error: ${e.message || e}`;
+      }
+    }
+
+    function paint(result) {
+      $canvas.width = result.width;
+      $canvas.height = result.height;
+      const ctx = $canvas.getContext('2d');
+      const img = ctx.createImageData(result.width, result.height);
+      const rgb = result.rgb;
+      for (let i = 0, j = 0; i < rgb.length; i += 3, j += 4) {
+        img.data[j]     = rgb[i];
+        img.data[j + 1] = rgb[i + 1];
+        img.data[j + 2] = rgb[i + 2];
+        img.data[j + 3] = 255;
+      }
+      ctx.putImageData(img, 0, 0);
+    }
+
+    // Drop + click handlers.
+    $drop.addEventListener('click', () => $picker.click());
+    $picker.addEventListener('change', e => e.target.files[0] && handleFile(e.target.files[0]));
+
+    ['dragover', 'dragenter'].forEach(evt => $drop.addEventListener(evt, e => {
+      e.preventDefault();
+      $drop.classList.add('dragging');
+    }));
+    ['dragleave', 'dragend'].forEach(evt => $drop.addEventListener(evt, () => $drop.classList.remove('dragging')));
+    $drop.addEventListener('drop', e => {
+      e.preventDefault();
+      $drop.classList.remove('dragging');
+      if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
+    });
+  </script>
+</body>
+</html>
