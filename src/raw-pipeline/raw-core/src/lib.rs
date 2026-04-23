@@ -45,3 +45,6 @@ pub use api::{
     xmp_read, xmp_write, EncodeOpts, Exif, ExifGps, Flag, Histogram, OutFmt, Rendered, Rgba,
     Sidecar, Waveform,
 };
+
+pub mod id;
+pub use id::{maple_id, IdKind, MapleId};
