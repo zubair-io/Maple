@@ -130,18 +130,21 @@ public enum RAWExtensions {
 import AppKit
 
 extension FilesystemSource {
-    /// Present NSOpenPanel and open the chosen folder.
-    /// Call from the main thread.
-    @MainActor
+    /// Present `NSOpenPanel` and return the chosen folder URL. Callable from
+    /// any isolation context (e.g. a `.fileImporter` success closure) — the
+    /// panel itself is presented inside an explicit `MainActor.run` hop so we
+    /// don't have to infect the call site with `@MainActor`.
     public static func presentFolderPicker() async -> URL? {
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = false
-        panel.canChooseDirectories = true
-        panel.allowsMultipleSelection = false
-        panel.prompt = "Open Folder"
-        panel.message = "Choose a folder of RAW files to open in Maple"
-        guard panel.runModal() == .OK else { return nil }
-        return panel.url
+        await MainActor.run {
+            let panel = NSOpenPanel()
+            panel.canChooseFiles = false
+            panel.canChooseDirectories = true
+            panel.allowsMultipleSelection = false
+            panel.prompt = "Open Folder"
+            panel.message = "Choose a folder of RAW files to open in Maple"
+            guard panel.runModal() == .OK else { return nil as URL? }
+            return panel.url
+        }
     }
 }
 #endif

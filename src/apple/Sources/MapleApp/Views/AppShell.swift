@@ -14,7 +14,10 @@ import MapleCore
 // MARK: - AppShell
 
 struct AppShell: View {
-    @StateObject private var browseVM = BrowseViewModel()
+    // `@State` is the idiomatic binding for `@Observable` reference types;
+    // the view tracks the instance's identity and SwiftUI observes property
+    // access through the macro-generated storage.
+    @State private var browseVM = BrowseViewModel()
     @State private var sessions: [AssetRef.ID: EditSession] = [:]
     @State private var showExport = false
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
@@ -149,28 +152,21 @@ struct AppShell: View {
         .background(MapleTokens.bg)
     }
 
+    // All mutations of `sessions` go through `@MainActor`-isolated methods on
+    // `AppShell` (which is a `@MainActor` `View`); that makes the dictionary
+    // main-thread-serialised without wrapping it in another observable class.
+    @MainActor
     private func loadFolder(url: URL) {
-        // For macOS the folder URL from fileImporter is already accessible.
-        // Full security-scoped bookmark handling is in FilesystemSource.
-        let fm = FileManager.default
-        guard let contents = try? fm.contentsOfDirectory(
-            at: url, includingPropertiesForKeys: [.isRegularFileKey],
-            options: [.skipsHiddenFiles]
-        ) else { return }
+        // Delegate the actual directory walk + sort + selection to the
+        // view model — it owns the generation counter for stale-write rejection.
+        browseVM.loadFolder(url: url)
 
-        let raws = contents.filter { RAWExtensions.all.contains($0.pathExtension.lowercased()) }
-            .sorted { $0.lastPathComponent < $1.lastPathComponent }
-            .map { AssetRef(url: $0) }
-
-        browseVM.assets = raws
-
-        // Pre-create EditSessions for all assets.
-        for asset in raws where sessions[asset.id] == nil {
+        // Pre-create EditSessions for newly discovered assets.
+        for asset in browseVM.assets where sessions[asset.id] == nil {
             let session = EditSession(asset: asset)
             sessions[asset.id] = session
             Task { await session.loadSidecar() }
         }
-        browseVM.selectedID = raws.first?.id
     }
 }
 

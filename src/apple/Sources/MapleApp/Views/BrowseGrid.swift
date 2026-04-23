@@ -6,39 +6,12 @@
 import SwiftUI
 import MapleCore
 
-// MARK: - BrowseViewModel
-
-@MainActor
-public final class BrowseViewModel: ObservableObject {
-    @Published public var assets: [AssetRef] = []
-    @Published public var selectedID: AssetRef.ID? = nil
-    @Published public var sortOrder: SortOrder = .nameAscending
-
-    public enum SortOrder { case nameAscending, nameDescending, dateDescending }
-
-    public var selectedAsset: AssetRef? {
-        assets.first { $0.id == selectedID }
-    }
-
-    public init() {}
-
-    public func selectNext() {
-        guard let idx = assets.firstIndex(where: { $0.id == selectedID }), idx + 1 < assets.count
-        else { selectedID = assets.first?.id; return }
-        selectedID = assets[idx + 1].id
-    }
-
-    public func selectPrev() {
-        guard let idx = assets.firstIndex(where: { $0.id == selectedID }), idx > 0
-        else { selectedID = assets.last?.id; return }
-        selectedID = assets[idx - 1].id
-    }
-}
-
 // MARK: - BrowseGrid View
 
 struct BrowseGrid: View {
-    @ObservedObject var vm: BrowseViewModel
+    /// Injected from `AppShell`. `BrowseViewModel` is `@Observable`, so we
+    /// receive the instance directly — no `@ObservedObject` wrapper.
+    let vm: BrowseViewModel
     @Binding var sessions: [AssetRef.ID: EditSession]
 
     private let columns = [GridItem(.adaptive(minimum: 140, maximum: 200), spacing: 4)]
