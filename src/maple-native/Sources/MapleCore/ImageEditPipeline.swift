@@ -100,14 +100,6 @@ public actor ImageEditPipeline {
     nonisolated private func applyFilters(to input: CIImage, model: AdjustmentModel) -> CIImage {
         var img = input
 
-        // Stage 2: Exposure
-        if model.exposure != 0 {
-            let f = CIFilter.exposureAdjust()
-            f.inputImage = img
-            f.ev = Float(model.exposure)
-            img = f.outputImage ?? img
-        }
-
         // Stage 3: White balance (temperature + tint)
         // CITemperatureAndTint neutral point is ~6500K / 0 tint.
         let wb = CIFilter.temperatureAndTint()
@@ -116,15 +108,20 @@ public actor ImageEditPipeline {
         wb.targetNeutral = CIVector(x: 6500, y: 0)
         img = wb.outputImage ?? img
 
-        // Stage 4: Tone controls (highlights / shadows / whites / blacks / contrast)
-        img = applyToneControls(img, model: model)
+        // Stage 4: Scene tone controls (exposure + H/S/W/B) via Metal kernel.
+        // Exposure is handled here (not separately above) to match the Rust stage order.
+        img = MetalKernels.applySceneToneControls(
+            to: img,
+            exposure: Float(model.exposure),
+            highlights: Float(model.highlights),
+            shadows: Float(model.shadows),
+            whites: Float(model.whites),
+            blacks: Float(model.blacks)
+        )
 
-        // Stage 5: Vibrance + Saturation
+        // Stage 5: Vibrance (Metal kernel) + Saturation
         if model.vibrance != 0 {
-            let f = CIFilter.vibrance()
-            f.inputImage = img
-            f.amount = Float(model.vibrance / 100.0)
-            img = f.outputImage ?? img
+            img = MetalKernels.applySceneVibrance(to: img, vibrance: Float(model.vibrance))
         }
         if model.saturation != 0 {
             let f = CIFilter.colorControls()
@@ -176,65 +173,8 @@ public actor ImageEditPipeline {
             img = applyDehaze(img, amount: model.dehaze)
         }
 
-        // Stage 10: View transform (AgX) — implemented as Metal kernel in P5.
-        // Stub: apply a mild tone-mapping via CIToneCurve as placeholder.
-        img = applyAgXStub(img)
-
-        return img
-    }
-
-    // MARK: - Tone controls (S-curve approximation)
-    // A simplified implementation; the full Metal kernel lands in P5.
-
-    nonisolated private func applyToneControls(_ input: CIImage, model: AdjustmentModel) -> CIImage {
-        var img = input
-
-        // Contrast via tone curve (S-curve)
-        if model.contrast != 0 {
-            let s = Float(model.contrast / 200.0)  // ±0.5 range
-            let f = CIFilter.toneCurve()
-            f.inputImage = img
-            f.point0 = CGPoint(x: 0, y: 0)
-            f.point1 = CGPoint(x: 0.25, y: Double(0.25 - s * 0.15))
-            f.point2 = CGPoint(x: 0.5,  y: 0.5)
-            f.point3 = CGPoint(x: 0.75, y: Double(0.75 + s * 0.15))
-            f.point4 = CGPoint(x: 1,    y: 1)
-            img = f.outputImage ?? img
-        }
-
-        // Highlights (negative = recover, positive = enhance)
-        if model.highlights != 0 {
-            let v = Float(model.highlights / 100.0)
-            let f = CIFilter.highlightShadowAdjust()
-            f.inputImage = img
-            f.highlightAmount = 1.0 + v * 0.5
-            f.shadowAmount = 0
-            img = f.outputImage ?? img
-        }
-
-        // Shadows
-        if model.shadows != 0 {
-            let v = Float(model.shadows / 100.0)
-            let f = CIFilter.highlightShadowAdjust()
-            f.inputImage = img
-            f.highlightAmount = 1.0
-            f.shadowAmount = v * 0.5
-            img = f.outputImage ?? img
-        }
-
-        // Whites / blacks as brightness bias in the extreme zones
-        if model.whites != 0 || model.blacks != 0 {
-            let f = CIFilter.toneCurve()
-            f.inputImage = img
-            let wBias = CGFloat(model.whites / 400.0)
-            let bBias = CGFloat(model.blacks / 400.0)
-            f.point0 = CGPoint(x: 0,    y: bBias)
-            f.point1 = CGPoint(x: 0.25, y: 0.25 + bBias * 0.5)
-            f.point2 = CGPoint(x: 0.5,  y: 0.5)
-            f.point3 = CGPoint(x: 0.75, y: 0.75 + wBias * 0.5)
-            f.point4 = CGPoint(x: 1,    y: min(1, 1 + wBias))
-            img = f.outputImage ?? img
-        }
+        // Stage 10: AgX view transform (Metal kernel).
+        img = MetalKernels.applyAgXViewTransform(to: img, contrast: Float(model.contrast))
 
         return img
     }
@@ -253,19 +193,4 @@ public actor ImageEditPipeline {
         return f.outputImage ?? input
     }
 
-    // MARK: - AgX view transform stub
-
-    nonisolated private func applyAgXStub(_ input: CIImage) -> CIImage {
-        // Placeholder: apply a gentle sigmoid-like tone curve via CIToneCurve.
-        // The real Metal kernel lands in P5 (SceneToneControls + AgXViewTransform).
-        let f = CIFilter.toneCurve()
-        f.inputImage = input
-        // Sigmoid-like points:
-        f.point0 = CGPoint(x: 0,    y: 0)
-        f.point1 = CGPoint(x: 0.20, y: 0.17)
-        f.point2 = CGPoint(x: 0.50, y: 0.50)
-        f.point3 = CGPoint(x: 0.80, y: 0.83)
-        f.point4 = CGPoint(x: 1.00, y: 1.00)
-        return f.outputImage ?? input
-    }
 }
