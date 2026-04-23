@@ -1,5 +1,5 @@
-// DropZoneComponent — accepts RAW files via drag-drop or click-to-pick.
-// Imported files land in the "Imported" virtual folder in LibraryStateService.
+// DropZoneComponent — file import bar + drag-drop overlay + "Open folder" via FS Access API.
+// P5: Added FS Access "Open folder" button (Chromium) and read-only permission banner.
 
 import {
   Component,
@@ -9,7 +9,13 @@ import {
   inject,
   signal,
 } from '@angular/core';
-import { LibraryStateService, isSupportedRaw, AssetId } from '@maple-common';
+import {
+  LibraryStateService,
+  isSupportedRaw,
+  AssetId,
+  FolderAccessService,
+  MapleFolderHandle,
+} from '@maple-common';
 
 @Component({
   selector: 'app-drop-zone',
@@ -67,10 +73,48 @@ import { LibraryStateService, isSupportedRaw, AssetId } from '@maple-common';
     }
     .import-btn:hover { background: var(--maple-surface-hover); }
 
+    .import-btn.primary {
+      background: var(--maple-primary-dim);
+      border-color: var(--maple-primary);
+      color: var(--maple-primary);
+    }
+    .import-btn.primary:hover {
+      background: color-mix(in srgb, var(--maple-primary) 20%, transparent);
+    }
+
     .import-status {
       font-family: var(--maple-font);
       font-size: 11px;
       color: var(--maple-text-muted);
+    }
+
+    /* Read-only banner */
+    .readonly-banner {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      height: 28px;
+      padding: 0 10px;
+      background: color-mix(in srgb, var(--maple-warning, #d97706) 12%, var(--maple-surface));
+      border-bottom: 0.5px solid color-mix(in srgb, var(--maple-warning, #d97706) 40%, transparent);
+      flex-shrink: 0;
+      font-family: var(--maple-font);
+      font-size: 11px;
+      color: var(--maple-warning, #d97706);
+    }
+    .readonly-banner .grant-btn {
+      height: 18px;
+      padding: 0 8px;
+      border-radius: 3px;
+      background: color-mix(in srgb, var(--maple-warning, #d97706) 20%, transparent);
+      border: 0.5px solid var(--maple-warning, #d97706);
+      color: var(--maple-warning, #d97706);
+      font-family: var(--maple-font);
+      font-size: 10px;
+      cursor: pointer;
+    }
+    .readonly-banner .grant-btn:hover {
+      background: color-mix(in srgb, var(--maple-warning, #d97706) 30%, transparent);
     }
 
     /* Hidden file inputs */
@@ -79,15 +123,31 @@ import { LibraryStateService, isSupportedRaw, AssetId } from '@maple-common';
   template: `
     <!-- Import toolbar row -->
     <div class="import-bar">
+      <!-- FS Access "Open folder" button (Chromium only) -->
+      @if (folderAccess.hasFsAccess) {
+        <button class="import-btn primary" (click)="openFolder()" type="button"
+          [disabled]="opening()">
+          {{ opening() ? 'Opening...' : 'Open folder' }}
+        </button>
+        <div style="width:0.5px;height:18px;background:var(--maple-border)"></div>
+      }
+
+      <!-- Legacy import buttons (always available as fallback / one-off imports) -->
       <button class="import-btn" (click)="filePicker.click()" type="button">
         + Import files
       </button>
       <button class="import-btn" (click)="folderPicker.click()" type="button">
-        + Import folder
+        {{ folderAccess.hasFsAccess ? 'Import folder (legacy)' : 'Import folder' }}
       </button>
 
       @if (importing()) {
         <span class="import-status">Importing {{ pendingCount() }} file(s)...</span>
+      }
+
+      @if (openError()) {
+        <span class="import-status" style="color:var(--maple-error-text)">
+          {{ openError() }}
+        </span>
       }
 
       <!-- Hidden file inputs -->
@@ -97,6 +157,16 @@ import { LibraryStateService, isSupportedRaw, AssetId } from '@maple-common';
       <input #folderPicker type="file" multiple webkitdirectory
         (change)="onFileInputChange($event)">
     </div>
+
+    <!-- Read-only banner: shown when folder was opened without write permission -->
+    @if (showReadOnlyBanner()) {
+      <div class="readonly-banner">
+        <span>Read-only — grant write access to save edits and cache thumbnails.</span>
+        <button class="grant-btn" (click)="requestWrite()" type="button">
+          Grant write access
+        </button>
+      </div>
+    }
 
     <!-- Drag-over overlay -->
     @if (dragOver()) {
@@ -108,12 +178,56 @@ import { LibraryStateService, isSupportedRaw, AssetId } from '@maple-common';
 })
 export class DropZoneComponent {
   @Output() imported = new EventEmitter<AssetId[]>();
+  @Output() folderOpened = new EventEmitter<MapleFolderHandle>();
 
-  private state = inject(LibraryStateService);
+  readonly state       = inject(LibraryStateService);
+  readonly folderAccess = inject(FolderAccessService);
 
-  readonly dragOver  = signal(false);
-  readonly importing = signal(false);
+  readonly dragOver     = signal(false);
+  readonly importing    = signal(false);
   readonly pendingCount = signal(0);
+  readonly opening      = signal(false);
+  readonly openError    = signal<string | null>(null);
+
+  readonly showReadOnlyBanner = () => {
+    const folder = this.state.currentFolder();
+    return folder !== null && !folder.write;
+  };
+
+  // ── FS Access "Open folder" ──────────────────────────────────────────────
+
+  async openFolder(): Promise<void> {
+    this.opening.set(true);
+    this.openError.set(null);
+    try {
+      const handle = await this.folderAccess.openFolder();
+      if (!handle) {
+        // User cancelled — no error.
+        return;
+      }
+      await this.state.openFolder(handle);
+      this.folderOpened.emit(handle);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.openError.set(`Failed to open folder: ${msg}`);
+      console.error('DropZoneComponent: openFolder error', err);
+    } finally {
+      this.opening.set(false);
+    }
+  }
+
+  async requestWrite(): Promise<void> {
+    const folder = this.state.currentFolder();
+    if (!folder) return;
+    const granted = await this.folderAccess.requestWriteAccess(folder);
+    if (!granted) {
+      this.openError.set('Write access denied. Edits and thumbnails will not be saved.');
+    } else {
+      this.openError.set(null);
+      // Patch the live signal so the banner hides reactively.
+      this.state.currentFolder.update(f => f ? { ...f, write: true } : f);
+    }
+  }
 
   // ── Drag + drop ─────────────────────────────────────────────────────────
 
@@ -127,7 +241,6 @@ export class DropZoneComponent {
 
   @HostListener('document:dragleave', ['$event'])
   onDragLeave(e: DragEvent): void {
-    // Only hide when leaving the window completely.
     if (e.clientX === 0 && e.clientY === 0) {
       this.dragOver.set(false);
     }
@@ -147,10 +260,10 @@ export class DropZoneComponent {
     const input = e.target as HTMLInputElement;
     const files = Array.from(input.files ?? []);
     void this.importFiles(files);
-    input.value = ''; // reset so the same file can be re-picked
+    input.value = '';
   }
 
-  // ── Core import logic ──────────────────────────────────────────────────
+  // ── Core import logic (legacy / one-off in-memory path) ────────────────
 
   private async importFiles(files: File[]): Promise<void> {
     const raws = files.filter(f => isSupportedRaw(f.name));
@@ -178,7 +291,6 @@ export class DropZoneComponent {
     this.pendingCount.set(0);
 
     if (ids.length > 0) {
-      // Switch to the Imported folder and select first imported asset.
       this.state.selectedSourceId.set('f-imported');
       this.state.selectAsset(ids[0]);
       this.imported.emit(ids);
