@@ -10,15 +10,14 @@
 pub const AGX_MIN_EV: f32 = -10.0;
 pub const AGX_MAX_EV: f32 = 6.5;
 
-/// Scene-linear middle gray — the AgX sigmoid's pivot anchor on the
-/// scene-side (used for log-encoding reference).
+/// Scene-linear middle gray — the AgX log-encoding reference point.
 pub const AGX_MID_GRAY: f32 = 0.18;
 
-/// Display-linear target at the mid-gray anchor. Decoupled from
-/// AGX_MID_GRAY so the output can be lifted above the pure
-/// scene-referred 0.18 reference to match ACR-style baseline
-/// midtone brightness.
-pub const AGX_MID_DISPLAY: f32 = 0.18;
+/// Display-linear value at the mid-gray log-pivot (norm = MID_NORM).
+/// Computed from the Blender polynomial at norm = (0 - MIN_EV)/EV_RANGE.
+/// This is NOT a tunable; it's the value Blender's AgX_Default_Contrast
+/// curve produces at that position.
+pub const AGX_MID_DISPLAY: f32 = 0.496731;
 
 /// Blender 4.x AgX_Base default contrast slope.
 pub const AGX_BASE_SLOPE: f32 = 2.4;
@@ -30,4 +29,4 @@ pub const AGX_LUT_SIZE: usize = 512;
 /// (due to coefficient edits or LUT recompute), bump this. It is
 /// propagated into RenderedPreviewCache's viewTransformVersion
 /// so every cached preview re-renders on the next cold open.
-pub const AGX_VERSION: u32 = 3;
+pub const AGX_VERSION: u32 = 5;

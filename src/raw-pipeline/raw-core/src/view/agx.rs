@@ -100,10 +100,14 @@ mod tests {
     }
 
     #[test]
-    fn lut_anchors_are_zero_and_one() {
+    fn lut_anchors_are_zero_and_near_one() {
+        // Blender's polynomial evaluates to ~-0.00232 at x=0 (clamped to 0)
+        // and ~0.986 at x=1. We don't force-clamp the top to exactly 1.0 —
+        // the next display stage (gamma encode) handles any headroom.
         let l = lut();
         assert!(l[0].abs() < 1e-5, "LUT[0] = {}", l[0]);
-        assert!((l[AGX_LUT_SIZE - 1] - 1.0).abs() < 1e-5, "LUT[last] = {}", l[AGX_LUT_SIZE - 1]);
+        assert!(l[AGX_LUT_SIZE - 1] >= 0.98 && l[AGX_LUT_SIZE - 1] <= 1.0,
+            "LUT[last] = {}, expected in [0.98, 1.0]", l[AGX_LUT_SIZE - 1]);
     }
 
     #[test]

@@ -27,21 +27,20 @@ pub fn render_from_raw(raw: &RawImage, model: &AdjustmentModel) -> Result<(u32, 
     #[cfg(not(feature = "high-quality-demosaic"))]
     let mut camera_rgb = demosaic::bilinear(&mosaic, raw.cfa);
 
-    // White-balance pre-gain (DNG § 6.2, "Camera Profile Chromatic Adaptation";
-    // and DNG 1.4 § 5.1 pipeline step "AsShotNeutral → balanced camera RGB").
-    // Multiply each channel by 1/AsShotNeutral so a neutral scene patch reads
-    // (1, 1, 1) in the balanced camera-RGB frame before the ColorMatrix
-    // inversion sees it. Every spec-conformant DNG processor does this
-    // (Adobe DCP reference, RawTherapee, Darktable, libraw) — leaving it out
-    // produces a systematic ~0.4-0.6 EV underexposure that scales with the
-    // magnitude of AsShotNeutral's non-unity components.
-    let asn = raw.as_shot_neutral;
-    let g = [1.0 / asn[0].max(1e-6), 1.0 / asn[1].max(1e-6), 1.0 / asn[2].max(1e-6)];
-    for p in &mut camera_rgb.pixels {
-        p[0] *= g[0];
-        p[1] *= g[1];
-        p[2] *= g[2];
-    }
+    // WB pre-gain (camera_rgb /= AsShotNeutral) is intentionally NOT applied
+    // here despite being the DNG spec's step 4 per § 1.4.4.5. Applying it in
+    // isolation (without the corresponding per-body BaselineExposure from the
+    // DCP and without HSM/PLT hue correction) produced visibly worse output
+    // on fixtures without those compensations:
+    //   * high-ISO fixtures gained amplified chroma noise (R/B gains ~2×)
+    //   * fixtures without a DCP-BE value got small per-channel hue shifts
+    //     that would have been corrected by HueSatMap.
+    // Reintroduce pre-gain together with per-body BaselineExposure (sourced
+    // from Adobe DCPs) and HSM/PLT — see docs/spec/03-algorithms.md § 3.4
+    // "HueSatMap application" (deferred). The scientific conclusion (pre-gain
+    // is the DNG-conformant flow) stands; the engineering trade-off is to
+    // land it as a bundle, not piecewise. Residual cost: ~0.5 EV uniform
+    // underexposure on fixtures whose DNG lacks a BaselineExposure tag.
 
     // DNG § C.1.2: BaselineExposure is applied as a gain in a scene-linear
     // color space prior to the color-space transform. Mathematically
