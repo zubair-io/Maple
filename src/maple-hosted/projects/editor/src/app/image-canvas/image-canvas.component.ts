@@ -1,5 +1,6 @@
-// ImageCanvas — center column; zoom + pan + before/after divider.
-// Placeholder gradient imagery; real raw-wasm rendering deferred to P4.
+// ImageCanvasComponent — center column; zoom + pan + before/after divider.
+// Uses real decoded pixels via RawPipelineService for imported assets.
+// Falls back to gradient placeholders for mock assets.
 
 import {
   AfterViewInit,
@@ -12,8 +13,9 @@ import {
   inject,
   signal,
 } from '@angular/core';
-import { LibraryStateService } from '@maple-common';
+import { LibraryStateService, RawPipelineService, imageDataToBitmap } from '@maple-common';
 import { ImageCanvasService } from './image-canvas.service';
+import { AssetId } from '@maple-common';
 
 @Component({
   selector: 'editor-image-canvas',
@@ -116,6 +118,27 @@ import { ImageCanvasService } from './image-canvas.service';
       pointer-events: none;
       z-index: 5;
     }
+
+    /* Loading overlay */
+    .loading-overlay {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 6;
+      pointer-events: none;
+    }
+    .loading-pill {
+      background: rgba(0,0,0,0.6);
+      border: 0.5px solid rgba(255,255,255,0.15);
+      border-radius: 20px;
+      padding: 6px 14px;
+      font-family: var(--maple-font);
+      font-size: 11px;
+      color: rgba(255,255,255,0.7);
+      backdrop-filter: blur(6px);
+    }
   `],
   template: `
     <!-- Toolbar -->
@@ -145,13 +168,20 @@ import { ImageCanvasService } from './image-canvas.service';
         <div class="ba-divider"
           [style.left.%]="(canvasSvc.beforeAfterSplitX() ?? 0.5) * 100"
           (mousedown)="onDividerDrag($event)">
-          <div class="ba-handle">⇔</div>
+          <div class="ba-handle">&#x21D4;</div>
         </div>
       }
 
       <!-- Filename overlay -->
       @if (state.focusedAsset()) {
         <div class="filename-overlay">{{ state.focusedAsset()?.filename }}</div>
+      }
+
+      <!-- Decoding progress overlay -->
+      @if (loading()) {
+        <div class="loading-overlay">
+          <div class="loading-pill">Decoding RAW...</div>
+        </div>
       }
     </div>
   `,
@@ -162,6 +192,10 @@ export class ImageCanvasComponent implements AfterViewInit, OnDestroy {
 
   state     = inject(LibraryStateService);
   canvasSvc = inject(ImageCanvasService);
+  pipeline  = inject(RawPipelineService);
+
+  readonly loading     = signal(false);
+  readonly imageBitmap = signal<ImageBitmap | null>(null);
 
   private ro?: ResizeObserver;
   private wrapW = signal<number>(800);
@@ -169,9 +203,10 @@ export class ImageCanvasComponent implements AfterViewInit, OnDestroy {
   private dragging = false;
   private dragLast = { x: 0, y: 0 };
   private dividerDragging = false;
-  private cleanupEffect?: () => void;
+  private cleanupDecodeEffect?: () => void;
+  private cleanupDrawEffect?: () => void;
+  private currentAssetId: AssetId | null = null;
 
-  // Zoom factor (numeric, 'fit' → computed)
   zoomLabel = computed(() => {
     const z = this.canvasSvc.zoom();
     return z === 'fit' ? 'Fit' : `${Math.round((z as number) * 100)}%`;
@@ -193,7 +228,6 @@ export class ImageCanvasComponent implements AfterViewInit, OnDestroy {
   });
 
   ngAfterViewInit(): void {
-    // Observe container resize
     this.ro = new ResizeObserver(entries => {
       for (const e of entries) {
         this.wrapW.set(e.contentRect.width);
@@ -204,22 +238,71 @@ export class ImageCanvasComponent implements AfterViewInit, OnDestroy {
     this.wrapW.set(this.wrapRef.nativeElement.clientWidth  || 800);
     this.wrapH.set(this.wrapRef.nativeElement.clientHeight || 600);
 
-    // Re-render whenever any of these signals change
-    const e = effect(() => {
+    // Watch focused asset — decode if it has bytes.
+    const decodeEff = effect(() => {
+      const a = this.state.focusedAsset();
+      if (!a) {
+        this.imageBitmap.set(null);
+        this.canvasSvc.currentPixels.set(null);
+        return;
+      }
+      if (a.id === this.currentAssetId) return; // same asset, skip
+      this.currentAssetId = a.id;
+
+      const bytes = this.state.bytesFor(a.id);
+      if (!bytes) {
+        // Mock asset — clear real bitmap, fall back to gradient.
+        this.imageBitmap.set(null);
+        this.canvasSvc.currentPixels.set(null);
+        return;
+      }
+      void this.loadReal(a.id, a.filename, bytes);
+    });
+    this.cleanupDecodeEffect = () => decodeEff.destroy();
+
+    // Re-render whenever view or decode state changes.
+    const drawEff = effect(() => {
       const _ = this.state.focusedAsset();
       const __ = this.canvasSvc.zoom();
       const ___ = this.canvasSvc.pan();
       const ____ = this.canvasSvc.beforeAfterSplitX();
       const _____ = this.wrapW();
       const ______ = this.wrapH();
+      const _______ = this.imageBitmap();
       this.draw();
     });
-    this.cleanupEffect = () => e.destroy();
+    this.cleanupDrawEffect = () => drawEff.destroy();
   }
 
   ngOnDestroy(): void {
     this.ro?.disconnect();
-    this.cleanupEffect?.();
+    this.cleanupDecodeEffect?.();
+    this.cleanupDrawEffect?.();
+    this.imageBitmap()?.close();
+  }
+
+  private async loadReal(assetId: AssetId, filename: string, bytes: Uint8Array): Promise<void> {
+    this.loading.set(true);
+    try {
+      const ext = filename.split('.').pop()?.toLowerCase() ?? '';
+      const decoded = await this.pipeline.decode(bytes, ext);
+
+      // Update dimensions on the asset.
+      this.state.updateAssetDimensions(assetId, decoded.width, decoded.height);
+
+      // Publish pixels for scopes.
+      this.canvasSvc.currentPixels.set(decoded);
+
+      const bitmap = await imageDataToBitmap(decoded);
+      // Close any previous bitmap to free GPU memory.
+      this.imageBitmap()?.close();
+      this.imageBitmap.set(bitmap);
+    } catch (e) {
+      console.error('Decode failed for', filename, e);
+      this.imageBitmap.set(null);
+    } finally {
+      this.loading.set(false);
+    }
   }
 
   private draw(): void {
@@ -229,23 +312,49 @@ export class ImageCanvasComponent implements AfterViewInit, OnDestroy {
     canvas.width  = canvasW;
     canvas.height = canvasH;
 
-    // Position canvas in center + pan
     const pan = this.canvasSvc.pan();
     canvas.style.transform = `translate(calc(-50% + ${pan.x}px), calc(-50% + ${pan.y}px))`;
 
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    const asset = this.state.focusedAsset();
-    const split = this.canvasSvc.beforeAfterSplitX();
+    const asset  = this.state.focusedAsset();
+    const bitmap = this.imageBitmap();
+    const split  = this.canvasSvc.beforeAfterSplitX();
 
-    if (split !== null) {
-      // Before half
-      this.drawGradient(ctx, asset?.thumbnailGradient, 0, 0, Math.round(canvasW * split), canvasH, 0);
-      // After half (slightly lightened to suggest processing)
-      this.drawGradient(ctx, asset?.thumbnailGradient, Math.round(canvasW * split), 0, canvasW - Math.round(canvasW * split), canvasH, 15);
+    if (bitmap) {
+      // Real decoded pixels.
+      if (split !== null) {
+        const splitPx = Math.round(canvasW * split);
+        // "Before" half.
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(0, 0, splitPx, canvasH);
+        ctx.clip();
+        ctx.drawImage(bitmap, 0, 0, canvasW, canvasH);
+        ctx.restore();
+        // "After" half — same image for now (adjustments wired in P6).
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(splitPx, 0, canvasW - splitPx, canvasH);
+        ctx.clip();
+        ctx.drawImage(bitmap, 0, 0, canvasW, canvasH);
+        // Slight brightness bump to indicate "after processed".
+        ctx.fillStyle = 'rgba(255,255,255,0.06)';
+        ctx.fillRect(splitPx, 0, canvasW - splitPx, canvasH);
+        ctx.restore();
+      } else {
+        ctx.drawImage(bitmap, 0, 0, canvasW, canvasH);
+      }
     } else {
-      this.drawGradient(ctx, asset?.thumbnailGradient, 0, 0, canvasW, canvasH, 0);
+      // Gradient placeholder for mock assets.
+      if (split !== null) {
+        const splitPx = Math.round(canvasW * split);
+        this.drawGradient(ctx, asset?.thumbnailGradient, 0, 0, splitPx, canvasH, 0);
+        this.drawGradient(ctx, asset?.thumbnailGradient, splitPx, 0, canvasW - splitPx, canvasH, 15);
+      } else {
+        this.drawGradient(ctx, asset?.thumbnailGradient, 0, 0, canvasW, canvasH, 0);
+      }
     }
   }
 
