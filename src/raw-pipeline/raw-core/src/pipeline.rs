@@ -3,25 +3,24 @@ use crate::{
     demosaic, linearize,
     error::Result,
     image::RawImage,
-    stages::{clarity, dehaze, highlight_recovery, saturation, scene_tone_controls, texture, vibrance, white_balance},
+    stages::{
+        clarity, dehaze, highlight_recovery, noise_reduction, saturation,
+        scene_tone_controls, sharpen, texture, vibrance, white_balance,
+    },
     view::{agx, encode},
     xmp::AdjustmentModel,
 };
 use std::path::Path;
 
-/// End-to-end render: decode → demosaic → highlight_recovery → DCP → WB →
-/// exposure → dehaze → AgX → Rec.2020→sRGB → gamma → u8.
-///
-/// Per spec § 02 filter chain, with the slice-1/2/3/4 subset:
-/// * Highlight reconstruction (§ 3.3a) via papp:HighlightRecoveryMode
-///   (default Off; blend / luminance available).
-/// * SceneToneControls applies exposure/highlights/shadows/whites/blacks
-///   (tone curves deferred to slice 7).
-/// * Vibrance (Oklab + skin window, § 3.7), Saturation, Clarity (§ 3.8 r=40),
-///   Texture (§ 3.8 r=3).
-/// * Capture sharpening (§ 3.10), NR (§ 3.11), Crop (§ 3.12) skipped.
-/// * DisplayReferredCurve (§ 3.6b) skipped (no fixture flips it on).
-/// * AgX is the Sobotka power-curve approximation (slice-6 calibration target).
+/// Per spec § 02 filter chain, slice-1 through slice-5 subset:
+/// * Highlight reconstruction (§ 3.3a), SceneToneControls (§ 3.6 steps 1-5),
+///   Vibrance + Saturation (§ 3.7, Oklab), Clarity + Texture (§ 3.8),
+///   Dehaze (§ 3.9), Richardson-Lucy sharpen (§ 3.10, 3-iter, Gaussian PSF),
+///   simplified NR (§ 3.11, L-blur + chroma-blur in Oklab).
+/// * Crop (§ 3.12) skipped — no slice-5 fixture exercises it; lands with
+///   canonical XMP in slice 7.
+/// * Tone curves (§ 3.6 steps 6-7, § 3.6b DisplayReferredCurve) deferred to slice 7.
+/// * AgX is the Sobotka power-curve approximation (slice-6 retightens).
 pub fn render_from_raw(raw: &RawImage, model: &AdjustmentModel) -> Result<(u32, u32, Vec<u8>)> {
     let mosaic = linearize::sensor_linearize(raw);
     let mut camera_rgb = demosaic::bilinear(&mosaic, raw.cfa);
@@ -35,6 +34,9 @@ pub fn render_from_raw(raw: &RawImage, model: &AdjustmentModel) -> Result<(u32, 
     clarity::apply(&mut scene, model.clarity);
     texture::apply(&mut scene, model.texture);
     dehaze::apply(&mut scene, model.dehaze);
+    sharpen::apply(&mut scene, model.sharpen_amount, model.sharpen_radius, model.sharpen_detail, model.sharpen_masking);
+    noise_reduction::apply_luminance(&mut scene, model.nr_luminance);
+    noise_reduction::apply_color(&mut scene, model.nr_color);
     agx::apply(&mut scene, model.contrast);
     encode::rec2020_to_srgb(&mut scene);
     let bytes = encode::quantize_u8(&mut scene);
