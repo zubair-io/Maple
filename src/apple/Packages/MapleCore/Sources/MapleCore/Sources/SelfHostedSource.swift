@@ -147,11 +147,84 @@ extension SelfHostedSource: ImageSource {
     }
 
     public func rawBytes(for ref: ImageRef) async throws -> Data {
-        // Range-aware fetch is a follow-up.
-        // TODO(selfhosted-range): support HTTP Range requests so slider tick
-        // doesn't need the entire RAW in memory before the Rust decoder can
-        // start.
-        try await getData(url("api/images/\(ref.id)/raw"))
+        // Range-streamed fetch (Path A). We still return a single `Data` —
+        // the Rust decoder consumes a complete buffer — but we read the body
+        // off the socket via `URLSession.bytes`, gathering 64 KB chunks as we
+        // go. Latency-to-first-byte is unchanged, but:
+        //   - the server can `read()` from disk while the client reads from
+        //     the socket (saves a full upload-latency on slow networks);
+        //   - cancellation propagates to the socket promptly;
+        //   - we get back-pressure for free, instead of buffering the whole
+        //     50–200 MB in URLSession's internal cache before handing it up.
+        //
+        // The `Range: bytes=0-` header signals to the server that we
+        // understand 206 Partial Content; an HTTP/1.1-compliant server will
+        // respond with either a 200 (no range support — fine, fall through)
+        // or a 206 covering the full body. We treat both as success.
+        //
+        // TODO(api-range): the Bun api at src/api/src/routes/images.ts does
+        // not (yet) advertise `Accept-Ranges: bytes` for /raw; this client is
+        // forward-compatible for when it does.
+        let endpoint = url("api/images/\(ref.id)/raw")
+        var req = URLRequest(url: endpoint)
+        req.httpMethod = "GET"
+        req.setValue("bytes=0-", forHTTPHeaderField: "Range")
+        authorize(&req)
+
+        do {
+            let (asyncBytes, response) = try await session.bytes(for: req)
+            if let http = response as? HTTPURLResponse {
+                let code = http.statusCode
+                guard (200..<300).contains(code) else {
+                    // Drain enough body for an error message, then throw.
+                    var body = Data()
+                    var iter = asyncBytes.makeAsyncIterator()
+                    while body.count < 4096, let byte = try await iter.next() {
+                        body.append(byte)
+                    }
+                    throw SelfHostedError.httpStatus(
+                        code, String(data: body, encoding: .utf8) ?? ""
+                    )
+                }
+            }
+
+            // Capacity hint from Content-Length so we don't reallocate as the
+            // body streams in. Header is the only remaining-body length when
+            // the server returns 206 — for 200 it's the total body size.
+            let capacity: Int = (response as? HTTPURLResponse)
+                .flatMap { $0.value(forHTTPHeaderField: "Content-Length") }
+                .flatMap(Int.init) ?? 0
+            var data = Data()
+            if capacity > 0 { data.reserveCapacity(capacity) }
+
+            // Gather into 64 KB chunks. `URLSession.AsyncBytes` exposes
+            // single-byte iteration only; the chunking is manual but cheap
+            // because Data's append-Sequence path takes the bulk-copy fast
+            // path when the source is contiguous.
+            let chunkBytes = 64 * 1024
+            var chunk = [UInt8]()
+            chunk.reserveCapacity(chunkBytes)
+            for try await byte in asyncBytes {
+                chunk.append(byte)
+                if chunk.count >= chunkBytes {
+                    data.append(chunk, count: chunk.count)
+                    chunk.removeAll(keepingCapacity: true)
+                }
+                try Task.checkCancellation()
+            }
+            if !chunk.isEmpty {
+                data.append(chunk, count: chunk.count)
+            }
+            return data
+        } catch let urlErr as URLError where urlErr.code == .cancelled {
+            throw urlErr
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch SelfHostedError.httpStatus(let code, _) where code == 416 {
+            // Server doesn't understand `Range: bytes=0-`. Fall back to the
+            // one-shot path so callers still get bytes.
+            return try await getData(endpoint)
+        }
     }
 
     public func writeXMP(_ sidecar: Sidecar, for ref: ImageRef) async throws {

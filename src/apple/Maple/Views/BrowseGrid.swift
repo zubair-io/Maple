@@ -28,7 +28,8 @@ struct BrowseGrid: View {
                     ForEach(vm.assets) { asset in
                         ThumbnailCell(asset: asset,
                                       isSelected: vm.selectedID == asset.id,
-                                      session: sessions[asset.id])
+                                      session: sessions[asset.id],
+                                      source: vm.currentSource)
                             .id(asset.id)
                             .onTapGesture { vm.selectedID = asset.id }
                     }
@@ -50,6 +51,10 @@ struct ThumbnailCell: View {
     let asset: AssetRef
     let isSelected: Bool
     let session: EditSession?
+    /// The source the asset came from. Used by sourceless assets (PhotoKit,
+    /// SelfHosted) to call `ImageSource.thumb(for:)` before falling back to a
+    /// full RAW render. `nil` for the URL-keyed filesystem path.
+    let source: (any ImageSource)?
 
     /// JPEG bytes from `ThumbnailLoader`. `nil` while the cell is loading or
     /// the render failed; in both cases we keep the placeholder visible.
@@ -57,6 +62,9 @@ struct ThumbnailCell: View {
     /// In-flight load task — cancelled on `.onDisappear` so scrolling past a
     /// 1000-image folder doesn't queue up 1000 decodes.
     @State private var loadTask: Task<Void, Never>?
+    /// Memoise the asset id we last loaded for, so cells reused via SwiftUI's
+    /// recycle pool don't re-render the same thumb when they re-appear.
+    @State private var loadedForID: AssetRef.ID?
 
     var body: some View {
         VStack(spacing: 4) {
@@ -126,17 +134,20 @@ struct ThumbnailCell: View {
     // MARK: - Loading
 
     private func startLoad() {
-        guard thumbData == nil, loadTask == nil else { return }
-        // Sourceless assets (PhotoKit / self-hosted) don't have a filesystem
-        // URL; a dedicated thumbnail path for those is a follow-up
-        // (TODO(UI-sourceless-thumbs): thread ImageSource.thumb through
-        // ThumbnailLoader). For now, show an empty cell.
-        guard let url = asset.primaryURL else { return }
+        // Memoised: if we've already produced bytes for this exact asset id,
+        // don't re-queue when the cell scrolls back into view.
+        if loadedForID == asset.id, thumbData != nil { return }
+        guard loadTask == nil else { return }
+        let capturedAsset = asset
+        let capturedSource = source
         loadTask = Task { @MainActor in
-            let data = await ThumbnailLoader.shared.load(for: url)
+            let data = await ThumbnailLoader.shared.load(
+                for: capturedAsset, from: capturedSource
+            )
             guard !Task.isCancelled else { return }
             withAnimation(.easeInOut(duration: 0.18)) {
                 thumbData = data
+                loadedForID = capturedAsset.id
             }
             loadTask = nil
         }
