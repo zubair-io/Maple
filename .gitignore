@@ -11,6 +11,18 @@ target/
 **/*.rs.bk
 Cargo.lock.bak
 
+# Swift / SPM
+.build/
+.swiftpm/
+*.xcodeproj/xcuserdata/
+DerivedData/
+
+# Node / Bun
+node_modules/
+.bun/
+dist/
+.next/
+
 # Editor
 .idea/
 .vscode/
