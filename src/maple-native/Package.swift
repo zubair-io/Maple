@@ -22,6 +22,11 @@ let package = Package(
         .library(name: "MapleCore", targets: ["MapleCore"]),
         .executable(name: "MapleApp", targets: ["MapleApp"]),
     ],
+    dependencies: [
+        // AMSMB2 — Swift SMB 2/3 client (MIT license; review before App Store submission).
+        // See docs/superpowers/plans/2026-04-22-slice-10c-maple-native.md § P6.
+        .package(url: "https://github.com/amosavian/AMSMB2.git", from: "4.0.0"),
+    ],
     targets: [
         // MapleCore — Swift side of the photo pipeline. Wraps the
         // RawPipeline.xcframework (from src/raw-pipeline/raw-ffi) and provides
@@ -35,7 +40,10 @@ let package = Package(
         // xcframework's Headers/ dir.
         .target(
             name: "MapleCore",
-            dependencies: ["RawPipeline"],
+            dependencies: [
+                "RawPipeline",
+                .product(name: "AMSMB2", package: "AMSMB2"),
+            ],
             resources: [
                 // Metal kernels: compiled by SwiftPM into default.metallib.
                 .process("Metal"),
