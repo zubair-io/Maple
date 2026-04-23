@@ -11,3 +11,6 @@ pub use error::{Error, Result};
 pub mod math;
 
 pub mod color;
+
+pub mod image;
+pub use image::{CfaPattern, ColorSpace, Image, RawImage};
