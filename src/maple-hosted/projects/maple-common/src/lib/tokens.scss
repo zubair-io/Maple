@@ -1,0 +1,72 @@
+// Maple dark theme design tokens — sourced from _design-reference/lib/tokens.jsx.
+// Single source of truth. All other SCSS files import this via the library barrel.
+
+:root {
+  // Surfaces
+  --maple-bg:             #1c1917;
+  --maple-surface:        #262524;
+  --maple-surface-alt:    #2e2c2a;
+  --maple-surface-hover:  #3a3836;
+  --maple-sidebar:        #292524;
+  --maple-input-bg:       #1c1917;
+  --maple-image-canvas:   #141210;
+
+  // Text
+  --maple-text-main:      #e7e5e4;
+  --maple-text-muted:     #a8a29e;
+
+  // Borders
+  --maple-border:         #44403c;
+
+  // Accent
+  --maple-primary:        #c4493a;
+  --maple-primary-dim:    #422016;
+
+  // Hover/active overlays
+  --maple-bg-hover:       rgba(255, 255, 255, 0.06);
+  --maple-bg-active:      rgba(255, 255, 255, 0.10);
+
+  // Semantic
+  --maple-success-bg:     rgba(34, 197, 94, 0.15);
+  --maple-success-text:   #4ade80;
+  --maple-error-bg:       rgba(239, 68, 68, 0.15);
+  --maple-error-text:     #f87171;
+  --maple-star:           #EF9F27;
+
+  // Typography — unquoted in CSS custom properties so browsers pick them up directly.
+  --maple-font:           -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", sans-serif;
+  --maple-font-mono:      "SF Mono", "JetBrains Mono", ui-monospace, Menlo, monospace;
+
+  // Motion
+  --maple-ease:           cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+// SCSS variable aliases — use these in component :host / element selectors
+// where CSS custom properties cannot be used (e.g. media query values).
+// Font stacks are left as plain strings (no unquote needed for SCSS interpolation).
+$maple-bg:            #1c1917;
+$maple-surface:       #262524;
+$maple-surface-alt:   #2e2c2a;
+$maple-surface-hover: #3a3836;
+$maple-sidebar:       #292524;
+$maple-input-bg:      #1c1917;
+$maple-image-canvas:  #141210;
+
+$maple-text-main:     #e7e5e4;
+$maple-text-muted:    #a8a29e;
+
+$maple-border:        #44403c;
+
+$maple-primary:       #c4493a;
+$maple-primary-dim:   #422016;
+
+$maple-bg-hover:      rgba(255, 255, 255, 0.06);
+$maple-bg-active:     rgba(255, 255, 255, 0.10);
+
+$maple-success-bg:    rgba(34, 197, 94, 0.15);
+$maple-success-text:  #4ade80;
+$maple-error-bg:      rgba(239, 68, 68, 0.15);
+$maple-error-text:    #f87171;
+$maple-star:          #EF9F27;
+
+$maple-ease:          cubic-bezier(0.22, 1, 0.36, 1);

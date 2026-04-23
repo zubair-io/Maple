@@ -4,7 +4,7 @@
   "compileOnSave": false,
   "compilerOptions": {
     "paths": {
-      "Maple-common": ["./dist/maple-common"]
+      "@maple-common": ["./projects/maple-common/src/public-api.ts"]
     },
     "strict": true,
     "noImplicitOverride": true,
