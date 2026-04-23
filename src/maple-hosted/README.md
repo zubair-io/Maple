@@ -4,47 +4,70 @@ Browser-only Maple photo editor. No server, no account, no database. The full RA
 
 ## Workspace structure
 
-This directory is an **Angular workspace** with three projects, generated per spec § 00 "Web (TypeScript)":
+This directory is an **Angular workspace** with two projects — a unified SPA and a shared library:
 
 ```
 angular.json            workspace configuration
 package.json            npm dependencies
 tsconfig*.json          TypeScript configurations
+ngsw-config.json        Service worker asset manifest
+DEPLOY.md               Production deploy instructions (Cloudflare / Netlify / Vercel / Apache / nginx)
 projects/
-  editor/               RAW editor application (the main canvas + develop panel)
-  browse/               Library browser application (folder tree + grid view)
-  Maple-common/         Shared library: models, XMP parser/serializer, domain types
+  maple/                Unified SPA — serves /browse and /edit/:id via Angular Router
+  maple-common/         Shared library: models, services, components, shells, XMP pipeline
 _design-reference/      React-via-CDN prototype (visual/interaction reference — NOT production)
 ```
+
+### What's in `maple-common`
+
+All UI components and domain logic live here and are tree-shaken into the `maple` bundle:
+
+- **Shells**: `BrowseShellComponent`, `EditorShellComponent`
+- **Browse components**: `FolderTreeComponent`, `AssetGridComponent`, `BrowseDetailPanelComponent`, `DropZoneComponent`
+- **Editor components**: `FilmstripComponent`, `ImageCanvasComponent`, `EditorDetailPanelComponent`, `ImageCanvasService`
+- **Develop panel**: `ToneSectionComponent`, `WhiteBalanceSectionComponent`, `PresenceSectionComponent`, `SharpeningSectionComponent`, `NoiseSectionComponent`, `EditorSliderComponent`, `WbPresetPillsComponent`
+- **Scopes**: `HistogramComponent`, `WaveformComponent`, `ParadeComponent`, `VectorscopeComponent`, `ScopesContainerComponent`
+- **Services**: `LibraryStateService`, `RawPipelineService`, `FolderAccessService`, `MapleCacheService`, `XmpStoreService`, `ImageCanvasService`
+- **Models**: `Asset`, `AdjustmentModel`, `SidebarEntry`, `MapleFolderHandle`
+- **XMP pipeline**: parser, serializer, store (debounced sidecar writes)
 
 ## Angular dev server
 
 ```bash
 cd src/maple-hosted
 npm install
-ng serve editor          # serves the editor app at http://localhost:4200/
-ng serve browse          # serves the browse app at http://localhost:4200/
+ng serve maple          # serves the full SPA at http://localhost:4200/
+# browse at /browse, editor at /edit/:id — same port, same app
 ```
 
 Or via npm scripts:
 
 ```bash
-npm start                # serves the default project (editor)
+npm start               # npm run sync-raw-wasm && ng serve maple --port 4200
 ```
 
 ## Build
 
 ```bash
-ng build editor --configuration=production
-ng build browse --configuration=production
-ng build Maple-common
+ng build maple --configuration=production
+# or:
+npm run build           # same thing; also runs sync-raw-wasm
 ```
 
-Output lands in `dist/` (gitignored at repo root).
+Output: `dist/maple/browser/` with hash-named bundles, `raw_wasm_bg.wasm`, `ngsw-worker.js`, `ngsw.json`, `manifest.webmanifest`.
+
+## Deploy
+
+See `DEPLOY.md` for per-host instructions covering:
+
+- **Cloudflare Pages** — SPA fallback, WASM MIME type, build command
+- **Netlify** — `netlify.toml` with redirect + header stanzas
+- **Vercel** — `vercel.json` with filesystem + fallback routes
+- **Apache / nginx** — `.htaccess` rewrite rules and nginx server block
 
 ## View the React prototype (design reference)
 
-The `_design-reference/` subdirectory contains the Claude Design handoff — a self-contained HTML/JSX React app that demonstrates the Coral Maple UI with pixel accuracy. Use it as a visual and interaction reference while porting components to Angular.
+The `_design-reference/` subdirectory contains the Claude Design handoff — a self-contained HTML/JSX React app that demonstrates the Coral Maple UI with pixel accuracy. Use it as a visual and interaction reference.
 
 ```bash
 cd _design-reference
@@ -53,14 +76,3 @@ python3 -m http.server 8000
 ```
 
 Open `_design-reference/Spec.html` for the full interaction spec that accompanied the design handoff.
-
-## Next steps
-
-See `docs/superpowers/plans/2026-04-22-slice-10a-maple-hosted.md` for the full implementation plan, including:
-
-- Port `_design-reference` components into Angular (editor + browse projects).
-- Wire `raw-wasm` for real RAW decode in a web worker.
-- Implement `.maple/` folder cache protocol (spec § 03) against IndexedDB.
-- File System Access API integration for folder picker.
-- XMP sidecar write-out (canonical serializer + passthrough buckets).
-- Deploy to static hosting (Cloudflare Pages / Netlify / Vercel).
