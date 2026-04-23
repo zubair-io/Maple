@@ -49,10 +49,10 @@ public enum ExportFileFormat: String, Sendable, CaseIterable {
 
     public var uti: CFString {
         switch self {
-        case .jpegSRGB, .jpegP3: return kUTTypeJPEG
+        case .jpegSRGB, .jpegP3: return "public.jpeg" as CFString
         case .heicP3:            return "public.heic" as CFString
-        case .tiff16:            return kUTTypeTIFF
-        case .png:               return kUTTypePNG
+        case .tiff16:            return "public.tiff" as CFString
+        case .png:               return "public.png"  as CFString
         }
     }
 
@@ -166,7 +166,7 @@ public struct MapleExporter: Sendable {
             }
             let mutableData = NSMutableData()
             guard let dest = CGImageDestinationCreateWithData(
-                mutableData, kUTTypeTIFF, 1, nil
+                mutableData, "public.tiff" as CFString, 1, nil
             ) else { throw ExportError.encodeFailed(options.format) }
             CGImageDestinationAddImage(dest, cgImg, [
                 kCGImagePropertyTIFFDictionary: [kCGImagePropertyTIFFCompression: 1]

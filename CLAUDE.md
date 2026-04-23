@@ -81,21 +81,29 @@ docs/
 
 ## Build & test — Apple
 
+The app is an Xcode project (`src/apple/Maple.xcodeproj`) that consumes a local Swift package at `src/apple/Packages/MapleCore/` plus the committed `Frameworks/RawPipeline.xcframework`.
+
 ```bash
-# macOS build + tests via SPM
+# macOS build
 cd src/apple
-swift build
-swift test
+xcodebuild -project Maple.xcodeproj -scheme Maple -destination 'platform=macOS' build
+
+# iOS simulator (pick any installed arm64 simulator; iPhone 17 Pro / iPhone 16 Pro work)
+xcodebuild -project Maple.xcodeproj -scheme Maple \
+           -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build
+
+# Unit tests (runs inside the local package — Xcode test target is a stub)
+cd Packages/MapleCore && swift test
 
 # Rebuild the Rust xcframework (Apple consumes this as a committed binary)
 ./src/apple/scripts/build-xcframework.sh
 ```
 
-For iOS/iPadOS simulator runs, open `src/apple/Package.swift` in Xcode and pick the target simulator — the package declares `.iOS(.v17)` and `.macOS(.v14)` platforms.
+The xcframework's iOS simulator slice is arm64 only today, so `-destination 'generic/platform=iOS Simulator'` fails on the x86_64 link step — pass a specific simulator destination instead.
 
 When testing a UI change:
 
-1. Build via `swift build` or open the package in Xcode.
+1. Build via `xcodebuild` or open `Maple.xcodeproj` in Xcode.
 2. Launch the built `.app` (macOS) or install on the simulator (iOS).
 3. Use accessibility tree inspection, not coordinate taps — every interactive element must have an accessibility label.
 4. Screenshot before and after; `capture_logs` catches runtime errors.
