@@ -52,6 +52,8 @@ public actor FilesystemSource {
 
     public var assets: [FileAsset] { _assets }
 
+    public init() {}
+
     // MARK: Public API
 
     /// Open a folder using a URL (e.g., from NSOpenPanel or fileImporter).

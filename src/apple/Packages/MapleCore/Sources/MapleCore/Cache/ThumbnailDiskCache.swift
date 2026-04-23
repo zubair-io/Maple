@@ -17,9 +17,13 @@ public actor ThumbnailDiskCache {
     private let fm = FileManager.default
     private var cacheDir: URL?
     private var memCache: [String: CIImage] = [:] // hot in-memory cache
+    private var dataMemCache: [String: Data] = [:] // hot JPEG-bytes cache (for UI cells)
     private let maxMemEntries = 100
 
-    public static let defaultThumbSize = CGSize(width: 300, height: 200)
+    /// Thumbnail target size per spec § 03 (256 px long edge).
+    public static let defaultThumbSize = CGSize(width: 256, height: 256)
+    /// JPEG encode quality per spec § 03 (q = 0.82).
+    public static let jpegQuality: CGFloat = 0.82
 
     // MARK: - Configure
 
@@ -50,9 +54,23 @@ public actor ThumbnailDiskCache {
         return ci
     }
 
+    /// Return JPEG bytes for the given asset URL, or nil if not cached.
+    /// Preferred entry-point for UI cells that render via `Image(data:)`.
+    public func thumbnailData(for assetURL: URL) -> Data? {
+        let key = cacheKey(for: assetURL)
+        if let d = dataMemCache[key] { return d }
+        guard let dir = cacheDir else { return nil }
+        let fileURL = dir.appendingPathComponent("\(key).jpg")
+        guard fm.fileExists(atPath: fileURL.path),
+              let data = try? Data(contentsOf: fileURL) else { return nil }
+        evictIfNeeded()
+        dataMemCache[key] = data
+        return data
+    }
+
     // MARK: - Write
 
-    /// Store a CIImage thumbnail. JPEG quality 0.7 (matches Maple Hosted).
+    /// Store a CIImage thumbnail. JPEG quality matches spec § 03 (q = 0.82).
     public func storeThumbnail(_ image: CIImage, for assetURL: URL) {
         let key = cacheKey(for: assetURL)
         evictIfNeeded()
@@ -64,8 +82,20 @@ public actor ThumbnailDiskCache {
         guard let data = ctx.jpegRepresentation(
             of: image,
             colorSpace: CGColorSpace(name: CGColorSpace.sRGB)!,
-            options: [kCGImageDestinationLossyCompressionQuality as CIImageRepresentationOption: 0.7]
+            options: [kCGImageDestinationLossyCompressionQuality as CIImageRepresentationOption: Self.jpegQuality]
         ) else { return }
+        dataMemCache[key] = data
+        try? data.write(to: fileURL, options: .atomic)
+    }
+
+    /// Store pre-encoded JPEG bytes. Used by `ThumbnailLoader` which encodes
+    /// off-actor (avoids blocking the cache actor on JPEG round-trips).
+    public func storeThumbnailData(_ data: Data, for assetURL: URL) {
+        let key = cacheKey(for: assetURL)
+        evictIfNeeded()
+        dataMemCache[key] = data
+        guard let dir = cacheDir else { return }
+        let fileURL = dir.appendingPathComponent("\(key).jpg")
         try? data.write(to: fileURL, options: .atomic)
     }
 
@@ -89,6 +119,9 @@ public actor ThumbnailDiskCache {
         if memCache.count >= maxMemEntries {
             // Simple FIFO eviction — remove oldest (random) entry.
             if let key = memCache.keys.first { memCache.removeValue(forKey: key) }
+        }
+        if dataMemCache.count >= maxMemEntries {
+            if let key = dataMemCache.keys.first { dataMemCache.removeValue(forKey: key) }
         }
     }
 }

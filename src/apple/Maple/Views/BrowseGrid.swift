@@ -5,6 +5,11 @@
 
 import SwiftUI
 import MapleCore
+#if canImport(AppKit)
+import AppKit
+#elseif canImport(UIKit)
+import UIKit
+#endif
 
 // MARK: - BrowseGrid View
 
@@ -46,17 +51,19 @@ struct ThumbnailCell: View {
     let isSelected: Bool
     let session: EditSession?
 
+    /// JPEG bytes from `ThumbnailLoader`. `nil` while the cell is loading or
+    /// the render failed; in both cases we keep the placeholder visible.
+    @State private var thumbData: Data?
+    /// In-flight load task — cancelled on `.onDisappear` so scrolling past a
+    /// 1000-image folder doesn't queue up 1000 decodes.
+    @State private var loadTask: Task<Void, Never>?
+
     var body: some View {
         VStack(spacing: 4) {
             ZStack(alignment: .bottomLeading) {
-                // Thumbnail placeholder — real image rendered via RenderedPreviewCache (P8)
-                RoundedRectangle(cornerRadius: 4)
-                    .fill(MapleTokens.surfaceAlt)
+                thumbnailImage
                     .aspectRatio(3/2, contentMode: .fit)
-                    .overlay {
-                        Image(systemName: "photo")
-                            .foregroundStyle(MapleTokens.textMuted)
-                    }
+                    .clipShape(RoundedRectangle(cornerRadius: 4))
 
                 // Culling badges
                 if let session {
@@ -82,6 +89,64 @@ struct ThumbnailCell: View {
                 .lineLimit(1)
                 .truncationMode(.middle)
         }
+        .onAppear { startLoad() }
+        .onDisappear {
+            loadTask?.cancel()
+            loadTask = nil
+        }
+    }
+
+    // MARK: - Image
+
+    @ViewBuilder
+    private var thumbnailImage: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 4)
+                .fill(MapleTokens.surfaceAlt)
+                .overlay {
+                    Image(systemName: "photo")
+                        .foregroundStyle(MapleTokens.textMuted)
+                }
+            if let data = thumbData, let cgImg = Self.cgImage(from: data) {
+                #if os(macOS)
+                Image(nsImage: NSImage(cgImage: cgImg, size: .zero))
+                    .resizable()
+                    .scaledToFill()
+                    .transition(.opacity)
+                #else
+                Image(uiImage: UIImage(cgImage: cgImg))
+                    .resizable()
+                    .scaledToFill()
+                    .transition(.opacity)
+                #endif
+            }
+        }
+    }
+
+    // MARK: - Loading
+
+    private func startLoad() {
+        guard thumbData == nil, loadTask == nil else { return }
+        let url = asset.primaryURL
+        loadTask = Task { @MainActor in
+            let data = await ThumbnailLoader.shared.load(for: url)
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeInOut(duration: 0.18)) {
+                thumbData = data
+            }
+            loadTask = nil
+        }
+    }
+
+    // MARK: - Data → CGImage
+
+    /// Build a CGImage from JPEG bytes. Re-reads on every body evaluation —
+    /// the caller (`thumbnailImage`) is inside a View, so this is cheap in
+    /// practice (CoreGraphics caches decoded frames), but if profiling shows
+    /// pressure we should hoist the decode into the loader.
+    private static func cgImage(from data: Data) -> CGImage? {
+        guard let src = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
+        return CGImageSourceCreateImageAtIndex(src, 0, nil)
     }
 }
 
