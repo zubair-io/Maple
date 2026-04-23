@@ -212,14 +212,13 @@ pub fn interpolated_profile(
     let cct_warm = illum_warm.cct();
     let as_shot_cct = compute_as_shot_cct(wb_neutral, m_cold, cct_cold, m_warm, cct_warm);
     let cm = interpolate_cm(m_cold, cct_cold, m_warm, cct_warm, as_shot_cct);
-    // The pipeline pre-gains camera RGB by 1/AsShotNeutral before calling
-    // dcp::apply, so a neutral scene patch reads (1, 1, 1) entering inv(CM),
-    // not AsShotNeutral. The Bradford source must match what inv(CM) actually
-    // produces for neutral in that world: inv(CM) * (1, 1, 1), normalized to
-    // Y = 1. Using AsShotNeutral here would produce a systematic hue shift
-    // on all non-neutral pixels.
+    // The pipeline is NOT pre-gaining camera RGB (WB pre-gain deferred until
+    // paired with per-body BaselineExposure + HSM — see pipeline.rs comment).
+    // In the no-pre-gain world, a neutral scene patch enters inv(CM) as
+    // AsShotNeutral, so the self-consistent Bradford source is
+    // `inv(CM_interp) * AsShotNeutral`, normalized to Y=1.
     let scene_white_xyz = cm.inverse()
-        .map(|inv| normalize_to_y1(inv.mul_vec([1.0, 1.0, 1.0])))
+        .map(|inv| normalize_to_y1(inv.mul_vec(wb_neutral)))
         .unwrap_or(crate::color::matrices::XYZ_D65);
     DcpProfile {
         illuminant: if (cct_cold - as_shot_cct).abs() < (cct_warm - as_shot_cct).abs() {
@@ -273,7 +272,7 @@ pub fn profile_for(raw: &RawImage) -> crate::Result<DcpProfile> {
         if let Some(cm) = raw.color_matrices.get(&illum) {
             let scene_cct = compute_scene_cct_single(*cm, raw.as_shot_neutral, illum.cct());
             let scene_white_xyz = cm.inverse()
-                .map(|inv| normalize_to_y1(inv.mul_vec([1.0, 1.0, 1.0])))
+                .map(|inv| normalize_to_y1(inv.mul_vec(raw.as_shot_neutral)))
                 .unwrap_or(crate::color::matrices::XYZ_D65);
             return Ok(DcpProfile {
                 illuminant: illum,
@@ -290,7 +289,7 @@ pub fn profile_for(raw: &RawImage) -> crate::Result<DcpProfile> {
     if let Some((illum, cm)) = entries.first() {
         let scene_cct = compute_scene_cct_single(**cm, raw.as_shot_neutral, illum.cct());
         let scene_white_xyz = cm.inverse()
-            .map(|inv| normalize_to_y1(inv.mul_vec([1.0, 1.0, 1.0])))
+            .map(|inv| normalize_to_y1(inv.mul_vec(raw.as_shot_neutral)))
             .unwrap_or(crate::color::matrices::XYZ_D65);
         return Ok(DcpProfile {
             illuminant: **illum,
@@ -435,13 +434,7 @@ mod tests {
     /// Failure mode this catches: Bradford adapted from nearest-calibration
     /// illuminant instead of the scene illuminant leaves residual chroma.
     ///
-    /// TEMPORARILY IGNORED: this synthetic test builds CMs under the
-    /// convention `CM * XYZ_scene_white = AsShotNeutral`, but real DNG
-    /// CMs use `CM * XYZ_scene_white = (1, 1, 1)` (post-pre-gain). The
-    /// Bradford-source investigation is driving by real-fixture ΔE for
-    /// now; this test needs rebuilding on fixture-realistic CM shapes.
     #[test]
-    #[ignore = "needs DNG-convention synthetic CMs post pre-gain migration"]
     fn neutral_patch_at_scene_illuminant_renders_approximately_neutral() {
         // Two plausibly-shaped CM matrices at StdA and D65.
         let cm_a = Matrix3([
@@ -499,26 +492,18 @@ mod tests {
         };
         let profile = profile_for(&raw).unwrap();
 
-        // Per the new pipeline contract, dcp::apply expects WB-pre-gained
-        // camera RGB (neutral patch reads (1, 1, 1)). Simulate that here.
+        // Pipeline does NOT pre-gain; neutral pixel enters inv(CM) as
+        // AsShotNeutral. Self-consistent test: inv(CM) * AsShotNeutral
+        // gives XYZ_scene_white, Bradford(that → D50) gives D50 white,
+        // downstream matrices give neutral Rec.2020.
         let mut img = Image::new(1, 1, ColorSpace::CameraNativeLinearRgb);
-        img.pixels[0] = [
-            as_shot_neutral[0] / as_shot_neutral[0],
-            as_shot_neutral[1] / as_shot_neutral[1],
-            as_shot_neutral[2] / as_shot_neutral[2],
-        ]; // == (1, 1, 1)
+        img.pixels[0] = as_shot_neutral;
         let out = apply(&img, &profile).unwrap();
         let p = out.pixels[0];
 
         let rg = (p[0] - p[1]).abs();
         let bg = (p[2] - p[1]).abs();
-        // Tolerance loosened from 0.005 to 0.02 because the Bradford source
-        // is now the Hernández-locus-derived scene white, and the CM
-        // interpolation's recovered CCT (via McCamy) disagrees with
-        // Hernández by ~50-100K at mid-range CCTs. That round-trip drift
-        // leaves a residual far below the "spec-wrong" regime (the original
-        // bug produced residuals of 0.3+) but above float-noise.
-        assert!(rg < 0.02 && bg < 0.02,
+        assert!(rg < 0.005 && bg < 0.005,
             "not neutral: RGB = ({:.4}, {:.4}, {:.4}), |R-G|={:.4}, |B-G|={:.4}",
             p[0], p[1], p[2], rg, bg);
     }

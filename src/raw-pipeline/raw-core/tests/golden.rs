@@ -7,7 +7,7 @@
 #![cfg(feature = "golden")]
 #![allow(non_snake_case)]
 
-use raw_core::{png, render, xmp};
+use raw_core::{decode, pipeline, png, xmp};
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -80,11 +80,15 @@ fn run_case(stem: &str, case: &str, class: &str) {
 
     let xml = std::fs::read_to_string(&xmp_path).unwrap();
     let model = xmp::parse(&xml).unwrap();
-    let (w, h, bytes) = render(&raw, &model).unwrap();
+    let raw_bytes = std::fs::read(&raw).unwrap();
+    let raw_ext = raw.extension().and_then(|e| e.to_str()).unwrap_or("");
+    let raw_img = decode::decode_bytes(&raw_bytes, raw_ext).unwrap();
+    let (w, h, bytes) = pipeline::render_from_raw(&raw_img, &model).unwrap();
     let out_dir = root.join("target/golden-out");
     std::fs::create_dir_all(&out_dir).unwrap();
     let out_png = out_dir.join(format!("{}_{}.png", stem, case));
-    png::write(&out_png, w, h, &bytes).unwrap();
+    let png_bytes = png::encode(w, h, &bytes).unwrap();
+    std::fs::write(&out_png, &png_bytes).unwrap();
 
     // Resize our render to match the down/ reference (4000 px long-edge).
     // Easiest: have compare_images.py resize candidate to match reference.

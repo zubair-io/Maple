@@ -148,7 +148,7 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
     // order matching the 2×2 Bayer tile — i.e. the same per-position indexing
     // our `RawImage.black_level` uses.
     let bl = raw.blacklevel.as_bayer_array();
-    let black_level = [
+    let mut black_level = [
         bl[0].round() as u32,
         bl[1].round() as u32,
         bl[2].round() as u32,
@@ -158,7 +158,30 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
     let wl = raw.whitelevel.as_bayer_array();
     // All four positions share the same white level in practice; we take the max
     // to be conservative (never over-clip).
-    let white_level = wl.iter().cloned().fold(f32::NEG_INFINITY, f32::max).round() as u32;
+    let mut white_level = wl.iter().cloned().fold(f32::NEG_INFINITY, f32::max).round() as u32;
+
+    // ── 4a. RawTherapee camconst.json override ────────────────────────────
+    // When our static table has a per-body entry, replace rawler's black/
+    // white with RT's (more precise, per-ISO) values. ISO comes from the
+    // same raw_metadata pass used above for orientation; falls back to 100
+    // if missing. Data-only override — no math is changed.
+    {
+        let iso: u32 = decoder.as_ref()
+            .and_then(|dec| dec.raw_metadata(&source, &params).ok())
+            .and_then(|md| md.exif.iso_speed_ratings.map(|v| v as u32))
+            .unwrap_or(100);
+
+        if let Some(lin) = crate::camera_calibration::lookup_linearization(
+            &raw.clean_make, &raw.clean_model, iso,
+        ) {
+            if let Some(bl_bucket) = lin.black_for_iso(iso) {
+                black_level = bl_bucket.as_bayer_array();
+            }
+            if let Some(wl_bucket) = lin.white_for_iso(iso) {
+                white_level = wl_bucket.scalar_conservative();
+            }
+        }
+    }
 
     // ── 5. Raw pixel data ─────────────────────────────────────────────────
     let raw_data: Vec<u16> = match raw.data {
