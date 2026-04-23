@@ -14,6 +14,9 @@ Cargo.lock.bak
 # wasm-pack / wasm-bindgen output
 src/raw-pipeline/raw-wasm/pkg/
 
+# raw-wasm synced into maple-common (rebuilt via scripts/sync-raw-wasm.sh)
+src/maple-hosted/projects/maple-common/src/lib/raw-pipeline/pkg/
+
 # Swift / SPM
 .build/
 .swiftpm/
