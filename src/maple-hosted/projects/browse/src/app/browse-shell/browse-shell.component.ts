@@ -254,6 +254,12 @@ import { MapleIconComponent } from '@maple-common';
 export class BrowseShellComponent {
   state = inject(LibraryStateService);
 
+  // ── Page unload — flush pending XMP writes ───────────────────────────────
+  @HostListener('window:beforeunload')
+  onBeforeUnload(): void {
+    void this.state.flushPendingXmpWrites();
+  }
+
   // ── Keyboard shortcuts ────────────────────────────────────────────────────
   @HostListener('document:keydown', ['$event'])
   onKeydown(e: KeyboardEvent): void {
