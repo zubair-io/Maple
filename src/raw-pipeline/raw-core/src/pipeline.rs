@@ -23,6 +23,9 @@ use std::path::Path;
 /// * AgX is the Sobotka power-curve approximation (slice-6 retightens).
 pub fn render_from_raw(raw: &RawImage, model: &AdjustmentModel) -> Result<(u32, u32, Vec<u8>)> {
     let mosaic = linearize::sensor_linearize(raw);
+    #[cfg(feature = "high-quality-demosaic")]
+    let mut camera_rgb = demosaic::hamilton_adams(&mosaic, raw.cfa);
+    #[cfg(not(feature = "high-quality-demosaic"))]
     let mut camera_rgb = demosaic::bilinear(&mosaic, raw.cfa);
     highlight_recovery::apply(&mut camera_rgb, model.highlight_recovery);
     let profile = dcp::profile_for(raw)?;
