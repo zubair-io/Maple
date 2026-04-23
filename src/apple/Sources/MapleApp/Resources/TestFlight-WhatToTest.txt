@@ -1,0 +1,51 @@
+Maple — TestFlight Beta (slice 10c)
+===================================
+
+Bundle ID: app.justmaple.Maple-Maple
+Build: 1 (1.0)
+
+WHAT TO TEST
+------------
+
+1. Open a folder of RAW/DNG files:
+   - macOS: File menu or ⌘O to open the folder picker.
+   - iPad/iPhone: Tap "Open Folder" and pick a folder via Files.
+   - Verify thumbnails appear in the Browse grid.
+
+2. Browse + Culling:
+   - Arrow keys (← →) navigate between images.
+   - Keys 1-5 set star ratings; P = pick, X = reject, U = unflag.
+   - Ratings appear as stars / flag badge on thumbnails.
+   - Ratings persist across app restarts (written to .xmp sidecar).
+
+3. Edit (Develop tab):
+   - Adjust Exposure, White Balance, Highlights, Shadows, Blacks, Whites.
+   - Presence: Vibrance, Saturation, Clarity, Texture, Dehaze.
+   - Detail: Sharpening, Noise Reduction.
+   - Undo/Redo: ⌘Z / ⌘⇧Z.
+   - Before/After: Hold B key (or toggle in toolbar) to see original.
+
+4. Export (⌘E):
+   - Choose format: JPEG sRGB, JPEG P3, HEIC P3, TIFF 16-bit, PNG.
+   - Adjust quality for JPEG/HEIC.
+   - NSSavePanel appears; choose destination.
+
+5. SMB (optional):
+   - Not available in TestFlight v1 (network entitlement enabled but UI
+     entry point not yet wired).
+
+KNOWN ISSUES / DEFERRED
+------------------------
+- SMB server UI entry point: planned for v1.1.
+- Thumbnail preview in Browse grid currently shows a placeholder icon;
+  rendered JPEG thumbnails require a background render pass (P8 cache
+  wired in v1.1 when a render task queue is added).
+- Metal kernels require a GPU; simulator runs will use CIFilter fallback.
+- iOS App Store signing: requires Xcode developer account + provisioning.
+- visionOS: deferred per spec.
+
+ENVIRONMENT
+-----------
+- macOS 14+ or iOS 17+.
+- Xcode 15+ for building; Xcode 26.4 used for this build.
+- Apple Silicon native; Intel macOS supported via universal binary in xcframework.
