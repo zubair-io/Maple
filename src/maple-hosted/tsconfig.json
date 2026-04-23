@@ -1,0 +1,48 @@
+/* To learn more about Typescript configuration file: https://www.typescriptlang.org/docs/handbook/tsconfig-json.html. */
+/* To learn more about Angular compiler options: https://angular.dev/reference/configs/angular-compiler-options. */
+{
+  "compileOnSave": false,
+  "compilerOptions": {
+    "paths": {
+      "Maple-common": ["./dist/maple-common"]
+    },
+    "strict": true,
+    "noImplicitOverride": true,
+    "noPropertyAccessFromIndexSignature": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "skipLibCheck": true,
+    "isolatedModules": true,
+    "experimentalDecorators": true,
+    "importHelpers": true,
+    "target": "ES2022",
+    "module": "preserve"
+  },
+  "angularCompilerOptions": {
+    "enableI18nLegacyMessageIdFormat": false,
+    "strictInjectionParameters": true,
+    "strictInputAccessModifiers": true,
+    "strictTemplates": true
+  },
+  "files": [],
+  "references": [
+    {
+      "path": "./projects/editor/tsconfig.app.json"
+    },
+    {
+      "path": "./projects/editor/tsconfig.spec.json"
+    },
+    {
+      "path": "./projects/browse/tsconfig.app.json"
+    },
+    {
+      "path": "./projects/browse/tsconfig.spec.json"
+    },
+    {
+      "path": "./projects/maple-common/tsconfig.lib.json"
+    },
+    {
+      "path": "./projects/maple-common/tsconfig.spec.json"
+    }
+  ]
+}
