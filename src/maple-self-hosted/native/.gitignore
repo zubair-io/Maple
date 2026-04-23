@@ -1,0 +1,4 @@
+# Native shared libraries are built artifacts — not committed.
+# Build with: scripts/build-raw-ffi.sh
+*.dylib
+*.so
