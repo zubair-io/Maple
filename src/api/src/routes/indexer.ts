@@ -1,57 +1,60 @@
 /**
- * Indexer progress route.
+ * /api/indexer routes.
  *
- * GET /api/indexer/progress — Server-Sent Events stream of task progress.
- * GET /api/indexer/stats    — current queue statistics (JSON).
+ *   GET  /api/indexer/status       — pipeline snapshot
+ *   PUT  /api/indexer/config       — update worker pool sizes live
+ *   GET  /api/indexer/dead-letter  — list dead-lettered jobs (paginated)
  */
 
-import { Elysia } from "elysia";
-import { progressBus, queueStats, type ProgressEvent } from "../indexer/queue.ts";
+import { Elysia, t } from "elysia";
+import { getIndexerService } from "../indexer/service.ts";
+import { listDeadLetter } from "../indexer/indexer.repo.ts";
+
+const ConfigBody = t.Object({
+  workers: t.Object({
+    discover: t.Optional(t.Integer({ minimum: 1, maximum: 64 })),
+    hash: t.Optional(t.Integer({ minimum: 1, maximum: 64 })),
+    exif: t.Optional(t.Integer({ minimum: 1, maximum: 64 })),
+    thumb: t.Optional(t.Integer({ minimum: 1, maximum: 64 })),
+    ai: t.Optional(t.Integer({ minimum: 1, maximum: 64 })),
+    mongo: t.Optional(t.Integer({ minimum: 1, maximum: 64 })),
+  }),
+});
 
 export const indexerRoutes = new Elysia({ prefix: "/api/indexer" })
-  // Queue stats (JSON)
-  .get("/stats", () => queueStats())
+  .get("/status", () => {
+    const svc = getIndexerService();
+    return svc.status();
+  })
 
-  // SSE stream for indexer progress
-  .get("/progress", ({ set }) => {
-    set.headers["Content-Type"] = "text/event-stream";
-    set.headers["Cache-Control"] = "no-cache";
-    set.headers["Connection"] = "keep-alive";
-    set.headers["X-Accel-Buffering"] = "no"; // disable nginx buffering
+  .put(
+    "/config",
+    ({ body }) => {
+      const svc = getIndexerService();
+      svc.setConfig(body.workers);
+      return { ok: true, status: svc.status() };
+    },
+    { body: ConfigBody }
+  )
 
-    // Return a ReadableStream that emits SSE events.
-    const stream = new ReadableStream({
-      start(controller) {
-        const encoder = new TextEncoder();
-
-        function sendEvent(ev: ProgressEvent): void {
-          const data = JSON.stringify(ev);
-          controller.enqueue(encoder.encode(`data: ${data}\n\n`));
-        }
-
-        // Send an initial "connected" event.
-        controller.enqueue(
-          encoder.encode(`data: ${JSON.stringify({ connected: true })}\n\n`)
-        );
-
-        progressBus.on("progress", sendEvent);
-
-        // Clean up when the client disconnects.
-        // (ReadableStream cancel is called by Elysia/Bun when the request ends.)
-        return () => {
-          progressBus.off("progress", sendEvent);
+  .get(
+    "/dead-letter",
+    async ({ query }) => {
+      const limit = Math.min(1000, Math.max(1, Number(query.limit ?? 200)));
+      try {
+        const docs = await listDeadLetter(limit);
+        return { items: docs, total: docs.length };
+      } catch (e) {
+        return {
+          items: [],
+          total: 0,
+          warning: e instanceof Error ? e.message : String(e),
         };
-      },
-      cancel() {
-        // Listener cleanup happens in start() return function.
-      },
-    });
-
-    return new Response(stream, {
-      headers: {
-        "Content-Type": "text/event-stream",
-        "Cache-Control": "no-cache",
-        "Connection": "keep-alive",
-      },
-    });
-  });
+      }
+    },
+    {
+      query: t.Object({
+        limit: t.Optional(t.String()),
+      }),
+    }
+  );

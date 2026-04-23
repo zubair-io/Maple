@@ -19,9 +19,11 @@ import { healthRoutes } from "./routes/health.ts";
 import { foldersRoutes } from "./routes/folders.ts";
 import { assetsRoutes } from "./routes/assets.ts";
 import { indexerRoutes } from "./routes/indexer.ts";
+import { eventsRoutes } from "./routes/events.ts";
 import { authRoutes } from "./routes/auth.ts";
 import { staticUiPlugin } from "./routes/static_ui.ts";
 import { getDb, ensureIndexes, closeDb } from "./db/client.ts";
+import { getIndexerService } from "./indexer/service.ts";
 
 const PORT = Number(process.env.PORT ?? 3000);
 const CORS_ORIGIN = process.env.MAPLE_CORS_ORIGIN ?? "*";
@@ -71,6 +73,7 @@ const app = new Elysia()
   .use(foldersRoutes)
   .use(assetsRoutes)
   .use(indexerRoutes)
+  .use(eventsRoutes)
   .use(authRoutes)
 
   // Static UI (catch-all — must be last)
@@ -92,6 +95,8 @@ async function start(): Promise<void> {
   getDb()
     .then(ensureIndexes)
     .then(() => console.log("[server] DB ready"))
+    .then(() => getIndexerService().start())
+    .then(() => console.log("[server] Indexer started"))
     .catch((err) => {
       console.warn(
         "[server] MongoDB not available:",

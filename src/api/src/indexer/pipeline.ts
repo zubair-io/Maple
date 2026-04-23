@@ -1,0 +1,380 @@
+/**
+ * Indexer pipeline — stages wired with bounded channels.
+ *
+ *   discover -> hash -> exif -> thumb -> ai -> mongo
+ *
+ * Each stage is an `async` worker pool that reads from one channel and
+ * writes to the next. Errors are retried with exponential backoff up to
+ * `MAX_ATTEMPTS`; after that the job moves to the dead-letter collection.
+ *
+ * The pipeline is deliberately small and side-effect-friendly: the
+ * `IndexerService` owns the channels and wires the workers. Tests can
+ * construct a pipeline with their own channels and mock handlers.
+ */
+
+import * as fs from "node:fs/promises";
+import * as pathMod from "node:path";
+import { ObjectId } from "mongodb";
+import {
+  createBoundedQueue,
+  CHANNEL_CAPACITY,
+  poolSizes,
+  type BoundedQueue,
+  type Stage,
+} from "./channel.ts";
+import { deriveId } from "./id.ts";
+import { sha1 } from "@noble/hashes/legacy.js";
+import * as images from "./images.repo.ts";
+import { recordDeadLetter } from "./indexer.repo.ts";
+
+export type JobKind = "index" | "remove" | "rename";
+
+/** A single unit moving through the pipeline. */
+export interface PipelineJob {
+  kind: JobKind;
+  folderId: string;
+  absPath: string;
+  /** Populated at the `hash` stage. */
+  mapleId?: string;
+  sha1Head?: string;
+  size?: number;
+  mtime?: number;
+  /** Present only for rename jobs. */
+  fromPath?: string;
+}
+
+export interface StageCounters {
+  inFlight: number;
+  errors: number;
+  deadLetter: number;
+}
+
+export interface PipelineHandlers {
+  /** Override: load first 64 KB of a file. Defaults to fs.read. */
+  readHead?: (absPath: string) => Promise<Uint8Array>;
+  /** Override: read exif. Default no-op. */
+  readExif?: (job: PipelineJob) => Promise<void>;
+  /** Override: generate thumb + preview. Default no-op. */
+  generateThumb?: (job: PipelineJob) => Promise<void>;
+  /** Override: run AI stub. */
+  runAi?: (job: PipelineJob) => Promise<void>;
+  /** Override: mongo upsert. Default calls images.upsertByMapleId. */
+  upsertMongo?: (job: PipelineJob) => Promise<void>;
+}
+
+const MAX_ATTEMPTS = 3;
+
+async function defaultReadHead(absPath: string): Promise<Uint8Array> {
+  const fd = await fs.open(absPath, "r");
+  try {
+    const buf = new Uint8Array(64 * 1024);
+    const { bytesRead } = await fd.read(buf, 0, buf.length, 0);
+    return buf.subarray(0, bytesRead);
+  } finally {
+    await fd.close();
+  }
+}
+
+async function defaultUpsert(job: PipelineJob): Promise<void> {
+  if (!job.mapleId || !job.sha1Head || job.size === undefined || job.mtime === undefined) {
+    throw new Error("[pipeline] mongo stage missing fields");
+  }
+  await images.upsertByMapleId({
+    folderId: new ObjectId(job.folderId),
+    filename: pathMod.basename(job.absPath),
+    absPath: job.absPath,
+    size: job.size,
+    mtime: job.mtime,
+    mapleId: job.mapleId,
+    sha1Head: job.sha1Head,
+  });
+}
+
+function toHex(bytes: Uint8Array): string {
+  let s = "";
+  for (let i = 0; i < bytes.length; i++) s += bytes[i]!.toString(16).padStart(2, "0");
+  return s;
+}
+
+export interface PipelineChannels {
+  discover: BoundedQueue<PipelineJob>;
+  hash: BoundedQueue<PipelineJob>;
+  exif: BoundedQueue<PipelineJob>;
+  thumb: BoundedQueue<PipelineJob>;
+  ai: BoundedQueue<PipelineJob>;
+  mongo: BoundedQueue<PipelineJob>;
+}
+
+export function createChannels(): PipelineChannels {
+  return {
+    discover: createBoundedQueue<PipelineJob>(CHANNEL_CAPACITY.discover),
+    hash: createBoundedQueue<PipelineJob>(CHANNEL_CAPACITY.hash),
+    exif: createBoundedQueue<PipelineJob>(CHANNEL_CAPACITY.exif),
+    thumb: createBoundedQueue<PipelineJob>(CHANNEL_CAPACITY.thumb),
+    ai: createBoundedQueue<PipelineJob>(CHANNEL_CAPACITY.ai),
+    mongo: createBoundedQueue<PipelineJob>(CHANNEL_CAPACITY.mongo),
+  };
+}
+
+/** Public status snapshot — matches what the status route returns. */
+export interface PipelineStatus {
+  channels: Record<Stage, { depth: number; capacity: number }>;
+  stages: Record<Stage, StageCounters>;
+  pools: Record<Stage, number>;
+}
+
+export class Pipeline {
+  readonly channels: PipelineChannels;
+  readonly counters: Record<Stage, StageCounters> = {
+    discover: { inFlight: 0, errors: 0, deadLetter: 0 },
+    hash: { inFlight: 0, errors: 0, deadLetter: 0 },
+    exif: { inFlight: 0, errors: 0, deadLetter: 0 },
+    thumb: { inFlight: 0, errors: 0, deadLetter: 0 },
+    ai: { inFlight: 0, errors: 0, deadLetter: 0 },
+    mongo: { inFlight: 0, errors: 0, deadLetter: 0 },
+  };
+
+  private pools: Record<Stage, number>;
+  private workers: Map<Stage, Promise<void>[]> = new Map();
+  private running = false;
+
+  constructor(
+    channels: PipelineChannels | undefined = undefined,
+    pools: Record<Stage, number> | undefined = undefined,
+    private readonly handlers: PipelineHandlers = {}
+  ) {
+    this.channels = channels ?? createChannels();
+    this.pools = pools ?? poolSizes();
+  }
+
+  status(): PipelineStatus {
+    const channels: PipelineStatus["channels"] = {
+      discover: { depth: this.channels.discover.depth, capacity: this.channels.discover.capacity },
+      hash: { depth: this.channels.hash.depth, capacity: this.channels.hash.capacity },
+      exif: { depth: this.channels.exif.depth, capacity: this.channels.exif.capacity },
+      thumb: { depth: this.channels.thumb.depth, capacity: this.channels.thumb.capacity },
+      ai: { depth: this.channels.ai.depth, capacity: this.channels.ai.capacity },
+      mongo: { depth: this.channels.mongo.depth, capacity: this.channels.mongo.capacity },
+    };
+    return {
+      channels,
+      stages: {
+        discover: { ...this.counters.discover },
+        hash: { ...this.counters.hash },
+        exif: { ...this.counters.exif },
+        thumb: { ...this.counters.thumb },
+        ai: { ...this.counters.ai },
+        mongo: { ...this.counters.mongo },
+      },
+      pools: { ...this.pools },
+    };
+  }
+
+  start(): void {
+    if (this.running) return;
+    this.running = true;
+    this.spawnStage("discover", (job) => this.runDiscover(job));
+    this.spawnStage("hash", (job) => this.runHash(job));
+    this.spawnStage("exif", (job) => this.runExif(job));
+    this.spawnStage("thumb", (job) => this.runThumb(job));
+    this.spawnStage("ai", (job) => this.runAi(job));
+    this.spawnStage("mongo", (job) => this.runMongo(job));
+  }
+
+  async stop(): Promise<void> {
+    if (!this.running) return;
+    this.running = false;
+    this.channels.discover.close();
+    this.channels.hash.close();
+    this.channels.exif.close();
+    this.channels.thumb.close();
+    this.channels.ai.close();
+    this.channels.mongo.close();
+    const all: Promise<void>[] = [];
+    for (const arr of this.workers.values()) all.push(...arr);
+    await Promise.allSettled(all);
+    this.workers.clear();
+  }
+
+  /** Live resize of one stage's worker pool. Grows only (shrinking is natural as workers drain). */
+  setPool(stage: Stage, size: number): void {
+    const clamped = Math.max(1, Math.floor(size));
+    const cur = this.pools[stage];
+    this.pools[stage] = clamped;
+    if (!this.running) return;
+    for (let i = cur; i < clamped; i++) {
+      this.spawnOne(stage);
+    }
+  }
+
+  private spawnStage(stage: Stage, handler: (job: PipelineJob) => Promise<void>): void {
+    const arr: Promise<void>[] = [];
+    this.workers.set(stage, arr);
+    const runner = async (): Promise<void> => {
+      const iter = this.channelFor(stage).take();
+      for await (const job of iter) {
+        this.counters[stage].inFlight++;
+        try {
+          await withRetry(stage, job, handler, (err) => {
+            this.counters[stage].errors++;
+            void recordDeadLetter({
+              key: job.mapleId ?? job.absPath,
+              stage,
+              absPath: job.absPath,
+              error: err.message,
+              attempts: MAX_ATTEMPTS,
+            }).catch(() => {});
+            this.counters[stage].deadLetter++;
+          });
+        } finally {
+          this.counters[stage].inFlight--;
+        }
+      }
+    };
+    // Attach the handler once per stage. We replay `spawnOne` for live pool grow.
+    this.currentHandlers.set(stage, handler);
+    for (let i = 0; i < this.pools[stage]; i++) {
+      arr.push(runner());
+    }
+  }
+
+  private currentHandlers: Map<Stage, (job: PipelineJob) => Promise<void>> = new Map();
+
+  private spawnOne(stage: Stage): void {
+    const handler = this.currentHandlers.get(stage);
+    if (!handler) return;
+    const arr = this.workers.get(stage);
+    if (!arr) return;
+    const run = async (): Promise<void> => {
+      const iter = this.channelFor(stage).take();
+      for await (const job of iter) {
+        this.counters[stage].inFlight++;
+        try {
+          await withRetry(stage, job, handler, (err) => {
+            this.counters[stage].errors++;
+            void recordDeadLetter({
+              key: job.mapleId ?? job.absPath,
+              stage,
+              absPath: job.absPath,
+              error: err.message,
+              attempts: MAX_ATTEMPTS,
+            }).catch(() => {});
+            this.counters[stage].deadLetter++;
+          });
+        } finally {
+          this.counters[stage].inFlight--;
+        }
+      }
+    };
+    arr.push(run());
+  }
+
+  private channelFor(stage: Stage): BoundedQueue<PipelineJob> {
+    switch (stage) {
+      case "discover": return this.channels.discover;
+      case "hash": return this.channels.hash;
+      case "exif": return this.channels.exif;
+      case "thumb": return this.channels.thumb;
+      case "ai": return this.channels.ai;
+      case "mongo": return this.channels.mongo;
+    }
+  }
+
+  // ---- Stage handlers ------------------------------------------------------
+
+  private async runDiscover(job: PipelineJob): Promise<void> {
+    if (job.kind === "remove") {
+      // Removal bypasses hashing; go straight to mongo for soft-delete.
+      await this.channels.mongo.push(job);
+      return;
+    }
+    await this.channels.hash.push(job);
+  }
+
+  private async runHash(job: PipelineJob): Promise<void> {
+    if (job.kind === "remove") {
+      await this.channels.exif.push(job);
+      return;
+    }
+    const read = this.handlers.readHead ?? defaultReadHead;
+    const head = await read(job.absPath);
+    const stat = await fs.stat(job.absPath);
+
+    const sha1HeadHex = toHex(sha1(head));
+    // For the JS indexer we don't have a reliable EXIF timestamp at this stage
+    // yet (spec §04 — proper primary derivation happens when EXIF arrives).
+    // Default to fallback form here; the exif stage can upgrade later.
+    // TODO(T7-id-upgrade): re-derive primary id once EXIF is parsed.
+    const id = deriveId(head, null, null, null);
+    job.mapleId = id.hex;
+    job.sha1Head = sha1HeadHex;
+    job.size = stat.size;
+    job.mtime = stat.mtimeMs;
+    await this.channels.exif.push(job);
+  }
+
+  private async runExif(job: PipelineJob): Promise<void> {
+    if (job.kind === "remove") {
+      await this.channels.thumb.push(job);
+      return;
+    }
+    const h = this.handlers.readExif;
+    if (h) await h(job);
+    await this.channels.thumb.push(job);
+  }
+
+  private async runThumb(job: PipelineJob): Promise<void> {
+    if (job.kind === "remove") {
+      await this.channels.ai.push(job);
+      return;
+    }
+    const h = this.handlers.generateThumb;
+    if (h) await h(job);
+    await this.channels.ai.push(job);
+  }
+
+  private async runAi(job: PipelineJob): Promise<void> {
+    // TODO(T7-ai): real AI enrichment — for now pass through.
+    const h = this.handlers.runAi;
+    if (h) await h(job);
+    await this.channels.mongo.push(job);
+  }
+
+  private async runMongo(job: PipelineJob): Promise<void> {
+    if (job.kind === "remove") {
+      await images.softDelete(job.absPath);
+      return;
+    }
+    if (job.kind === "rename" && job.mapleId) {
+      await images.updatePath(job.mapleId, job.absPath, pathMod.basename(job.absPath));
+      return;
+    }
+    const h = this.handlers.upsertMongo ?? defaultUpsert;
+    await h(job);
+  }
+}
+
+async function withRetry(
+  stage: Stage,
+  job: PipelineJob,
+  handler: (job: PipelineJob) => Promise<void>,
+  onDeadLetter: (err: Error) => void
+): Promise<void> {
+  let attempt = 0;
+  while (true) {
+    try {
+      await handler(job);
+      return;
+    } catch (e) {
+      attempt++;
+      const err = e instanceof Error ? e : new Error(String(e));
+      if (attempt >= MAX_ATTEMPTS) {
+        console.error(`[pipeline:${stage}] giving up on ${job.absPath}:`, err.message);
+        onDeadLetter(err);
+        return;
+      }
+      const backoffMs = 100 * 2 ** (attempt - 1);
+      await new Promise((r) => setTimeout(r, backoffMs));
+    }
+  }
+}
