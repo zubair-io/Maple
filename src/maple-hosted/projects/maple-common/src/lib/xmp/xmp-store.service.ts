@@ -1,0 +1,164 @@
+// XmpStoreService — P6.
+//
+// Coordinates debounced, atomic sidecar writes for the Develop tab.
+//
+// - loadSidecar()       reads and parses a .xmp, caching the passthrough bucket.
+// - scheduleWrite()     debounces at 750ms then atomically writes the sidecar via
+//                       FolderAccessService (FS Access writable-stream close is
+//                       atomic on Chromium; fallback backend writes to IndexedDB).
+// - rememberPassthrough stores the passthrough bucket from the last load so that
+//                       subsequent writes can reproduce unknown content verbatim.
+// - flushAll()          cancels all pending timers (call on beforeunload).
+
+import { Injectable, inject } from '@angular/core';
+import type { AdjustmentModel } from '../models/adjustment-model';
+import type { XmpCulling, PassthroughBucket } from './xmp.types';
+import type { AssetId } from '../models/asset';
+import type { MapleFolderHandle } from '../folder-access/folder-access.types';
+import { FolderAccessService } from '../folder-access/folder-access.service';
+import { XmpParserService } from './xmp-parser.service';
+import { XmpSerializerService } from './xmp-serializer.service';
+
+@Injectable({ providedIn: 'root' })
+export class XmpStoreService {
+  private folderAccess  = inject(FolderAccessService);
+  private parser        = inject(XmpParserService);
+  private serializer    = inject(XmpSerializerService);
+
+  private readonly DEBOUNCE_MS = 750;
+
+  /** Pending debounce handles keyed by AssetId. */
+  private _pendingWrites = new Map<AssetId, {
+    timeout: ReturnType<typeof setTimeout>;
+    folder: MapleFolderHandle;
+    rawFilename: string;
+    model: AdjustmentModel;
+    culling: XmpCulling;
+  }>();
+
+  /** Per-asset passthrough buckets loaded from the source sidecar. */
+  private _passthroughs = new Map<AssetId, PassthroughBucket>();
+
+  // ── Load ────────────────────────────────────────────────────────────────────
+
+  /**
+   * Read and parse `<rawFilename without ext>.xmp` from `folder`.
+   * Caches the passthrough bucket for later writes.
+   * Returns null when no sidecar exists or it is unreadable.
+   */
+  async loadSidecar(
+    folder: MapleFolderHandle,
+    assetId: AssetId,
+    rawFilename: string,
+  ): Promise<{
+    model: Partial<AdjustmentModel>;
+    culling: XmpCulling;
+    passthrough: PassthroughBucket;
+  } | null> {
+    const sidecarName = this._sidecarFilename(rawFilename);
+    try {
+      const bytes = await this.folderAccess.readFile(folder, sidecarName);
+      const xml = new TextDecoder().decode(bytes);
+      const { model, passthrough } = this.parser.parseAdjustmentModel(xml);
+      const culling = this.parser.parseCulling(xml);
+      this._passthroughs.set(assetId, passthrough);
+      return { model, culling, passthrough };
+    } catch {
+      return null;
+    }
+  }
+
+  // ── Passthrough cache ───────────────────────────────────────────────────────
+
+  /**
+   * Store a passthrough bucket for an asset that was loaded externally
+   * (e.g. when LibraryStateService calls the parser directly).
+   */
+  rememberPassthrough(assetId: AssetId, passthrough: PassthroughBucket): void {
+    this._passthroughs.set(assetId, passthrough);
+  }
+
+  // ── Write ───────────────────────────────────────────────────────────────────
+
+  /**
+   * Schedule a debounced sidecar write for `assetId`.
+   * If a write is already pending for this asset, it is cancelled and replaced.
+   * Does nothing when the folder has no write permission.
+   */
+  scheduleWrite(
+    assetId: AssetId,
+    folder: MapleFolderHandle,
+    rawFilename: string,
+    model: AdjustmentModel,
+    culling: XmpCulling,
+  ): void {
+    if (!folder.write) return;
+
+    const existing = this._pendingWrites.get(assetId);
+    if (existing) clearTimeout(existing.timeout);
+
+    const timeout = setTimeout(() => {
+      this._pendingWrites.delete(assetId);
+      void this._flushWrite(
+        folder,
+        rawFilename,
+        model,
+        culling,
+        this._passthroughs.get(assetId),
+      );
+    }, this.DEBOUNCE_MS);
+
+    this._pendingWrites.set(assetId, { timeout, folder, rawFilename, model, culling });
+  }
+
+  // ── Flush all (beforeunload) ────────────────────────────────────────────────
+
+  /**
+   * Cancel all pending timers.
+   * Call from a beforeunload handler — modern Chromium will still finish any
+   * in-flight writable-stream operations that have already been flushed to
+   * the OS, but pending debounce timers that haven't fired yet are lost.
+   * For the common case (user pauses, then closes tab) 750ms debounce means
+   * the write will already have fired before unload.
+   */
+  async flushAll(): Promise<void> {
+    for (const [id, pending] of this._pendingWrites.entries()) {
+      clearTimeout(pending.timeout);
+      // Best-effort immediate write for any outstanding edits.
+      void this._flushWrite(
+        pending.folder,
+        pending.rawFilename,
+        pending.model,
+        pending.culling,
+        this._passthroughs.get(id),
+      );
+    }
+    this._pendingWrites.clear();
+  }
+
+  // ── Private ─────────────────────────────────────────────────────────────────
+
+  private async _flushWrite(
+    folder: MapleFolderHandle,
+    rawFilename: string,
+    model: AdjustmentModel,
+    culling: XmpCulling,
+    passthrough?: PassthroughBucket,
+  ): Promise<void> {
+    const xml = this.serializer.serialize(model, passthrough, culling);
+    const bytes = new TextEncoder().encode(xml);
+    const sidecarName = this._sidecarFilename(rawFilename);
+    try {
+      // FolderAccessService.writeFile uses FS Access writable-stream on Chromium,
+      // whose close() is atomic at the OS level.  The fallback backend writes to
+      // IndexedDB which is also atomic.
+      await this.folderAccess.writeFile(folder, sidecarName, bytes);
+    } catch (e) {
+      console.error(`XmpStoreService: write failed for ${rawFilename}:`, e);
+    }
+  }
+
+  private _sidecarFilename(rawFilename: string): string {
+    return rawFilename.replace(/\.[^.]+$/, '.xmp');
+  }
+}
