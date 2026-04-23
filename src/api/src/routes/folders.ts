@@ -10,7 +10,7 @@ import { Elysia, t } from "elysia";
 import { ObjectId } from "mongodb";
 import { foldersCollection, assetsCollection } from "../db/client.ts";
 import { validateRoot } from "../fs/root.ts";
-import { enqueueTask } from "../indexer/queue.ts";
+import { registerFolderWatch } from "../indexer/service.ts";
 
 export const foldersRoutes = new Elysia({ prefix: "/api/folders" })
   // List all folders
@@ -59,8 +59,13 @@ export const foldersRoutes = new Elysia({ prefix: "/api/folders" })
       const result = await coll.insertOne(doc);
       const id = result.insertedId.toHexString();
 
-      // Enqueue background scan
-      await enqueueTask("scan_folder", { folder_id: id, path });
+      // Kick off a watcher + initial walk in the background.
+      registerFolderWatch(id, path).catch((err) =>
+        console.warn(
+          "[folders] registerFolderWatch failed:",
+          err instanceof Error ? err.message : err
+        )
+      );
 
       set.status = 201;
       return {
