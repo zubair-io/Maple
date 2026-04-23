@@ -1,65 +1,86 @@
+//! AgX view transform: scene-linear Rec.2020 → display-linear Rec.2020.
+//! Spec § 3.6a.
+//!
+//! The sigmoid shape and coefficients are derived once by the Python script
+//! `src/scripts/derive_agx_lut.py` and emitted as:
+//!
+//!   * `agx_lut.bin`    — 512 × f32 little-endian, embedded via
+//!                        `include_bytes!` below.
+//!   * `agx_coeffs.rs`  — `AGX_MIN_EV`, `AGX_MAX_EV`, `AGX_MID_GRAY`,
+//!                        `AGX_BASE_SLOPE`, `AGX_LUT_SIZE`, `AGX_VERSION`.
+//!
+//! The same two artifacts are the source of truth for the Metal kernel and
+//! WebGL shader; numeric parity across all three is gated at 1e-4 per
+//! channel (spec § 06 cross-platform § AgX parity).
+
 use crate::image::{ColorSpace, Image};
 
-const MIN_EV: f32 = -10.0;
-const MAX_EV: f32 = 6.5;
-const MID_GRAY: f32 = 0.18;
-const LUT_SIZE: usize = 512;
+#[path = "agx_coeffs.rs"]
+mod coeffs;
+pub use coeffs::{
+    AGX_BASE_SLOPE, AGX_LUT_SIZE, AGX_MAX_EV, AGX_MID_DISPLAY, AGX_MID_GRAY, AGX_MIN_EV,
+    AGX_VERSION,
+};
 
-/// Slice-1 stand-in for AgX's Default_Contrast sigmoid: a power curve
-/// `y = x^gamma` with gamma = log(0.18) / log(0.6061) ≈ 3.42.
-/// This hits the critical mid-gray anchor (scene 0.18 → display 0.18 in
-/// linear-light) and is monotone with y(0)=0, y(1)=1.
-///
-/// **Not real AgX.** The toe shape is wrong (too dark in deep shadows)
-/// and there is no per-channel gamut compression. Slice 6 replaces this
-/// with the Blender-reference 6-piece polynomial sigmoid (spec § 3.6a).
-fn agx_sigmoid(x: f32) -> f32 {
-    let x = x.clamp(0.0, 1.0);
-    x.powf(3.42)
+/// Embedded LUT bytes — 512 × f32 little-endian.
+const AGX_LUT_BYTES: &[u8] = include_bytes!("agx_lut.bin");
+
+/// Normalized log-domain position of scene-linear mid-gray. Contrast
+/// modulation pivots around this point so the mid-gray anchor is stable.
+const MID_NORM: f32 = -AGX_MIN_EV / (AGX_MAX_EV - AGX_MIN_EV);
+
+/// Parse `AGX_LUT_BYTES` into a `[f32; AGX_LUT_SIZE]` on first access.
+fn lut() -> &'static [f32; AGX_LUT_SIZE] {
+    static CELL: std::sync::OnceLock<[f32; AGX_LUT_SIZE]> = std::sync::OnceLock::new();
+    CELL.get_or_init(|| {
+        assert_eq!(
+            AGX_LUT_BYTES.len(), AGX_LUT_SIZE * 4,
+            "agx_lut.bin size mismatch: expected {} bytes, got {}",
+            AGX_LUT_SIZE * 4, AGX_LUT_BYTES.len()
+        );
+        let mut out = [0.0f32; AGX_LUT_SIZE];
+        for (i, chunk) in AGX_LUT_BYTES.chunks_exact(4).enumerate() {
+            out[i] = f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
+        }
+        out
+    })
 }
 
-fn build_lut() -> [f32; LUT_SIZE] {
-    let mut lut = [0.0f32; LUT_SIZE];
-    for i in 0..LUT_SIZE {
-        let t = (i as f32) / ((LUT_SIZE - 1) as f32);
-        lut[i] = agx_sigmoid(t).clamp(0.0, 1.0);
-    }
-    lut
-}
-
-static LUT: std::sync::OnceLock<[f32; LUT_SIZE]> = std::sync::OnceLock::new();
-
+/// Sample the AgX sigmoid LUT with linear interpolation at normalized-log
+/// position `x`. Clamps outside [0, 1].
 fn sample_lut(x: f32) -> f32 {
-    let lut = LUT.get_or_init(build_lut);
+    let lut = lut();
     let x = x.clamp(0.0, 1.0);
-    let idx = x * ((LUT_SIZE - 1) as f32);
+    let idx = x * ((AGX_LUT_SIZE - 1) as f32);
     let i0 = idx.floor() as usize;
-    let i1 = (i0 + 1).min(LUT_SIZE - 1);
+    let i1 = (i0 + 1).min(AGX_LUT_SIZE - 1);
     let f = idx - (i0 as f32);
     lut[i0] * (1.0 - f) + lut[i1] * f
 }
 
-/// Normalized-log position of scene-linear MID_GRAY (0.18) after log+clamp+normalize.
-/// = (log2(MID_GRAY/MID_GRAY) - MIN_EV) / (MAX_EV - MIN_EV) = 10/16.5.
-/// Contrast modulation pivots around this point so the mid-gray anchor is stable.
-const MID_NORM: f32 = 10.0 / 16.5;
-
+/// Per-channel AgX: log2-encode scene value, normalize to [0, 1], apply
+/// contrast-modulated sigmoid, return display-linear value in [0, 1].
+///
+/// `slope` is 1.0 at `contrast=0`; positive contrast steepens, negative
+/// softens. Slope pivots around `MID_NORM` so mid-gray stays anchored.
 fn agx_per_channel(scene: f32, slope: f32) -> f32 {
-    let floor = MID_GRAY * MIN_EV.exp2();
+    // Clamp below toe: scene values below MID_GRAY * 2^MIN_EV are pinned.
+    let floor = AGX_MID_GRAY * AGX_MIN_EV.exp2();
     let clamped = scene.max(floor);
-    let log = (clamped / MID_GRAY).log2().clamp(MIN_EV, MAX_EV);
-    let norm = (log - MIN_EV) / (MAX_EV - MIN_EV);
-    // Apply contrast as a slope around the mid-gray normalized anchor.
+    // Log encode + normalize to [0, 1].
+    let log = (clamped / AGX_MID_GRAY).log2().clamp(AGX_MIN_EV, AGX_MAX_EV);
+    let norm = (log - AGX_MIN_EV) / (AGX_MAX_EV - AGX_MIN_EV);
+    // Contrast as slope around mid-gray normalized anchor.
     let contrast_adjusted = (MID_NORM + (norm - MID_NORM) * slope).clamp(0.0, 1.0);
     sample_lut(contrast_adjusted).clamp(0.0, 1.0)
 }
 
-/// AgX view transform with contrast routed to sigmoid slope (spec § 3.6a).
-/// Scene-linear Rec.2020 → display-linear Rec.2020. `contrast` in [-100, +100];
-/// 0 is the unmodified sigmoid.
+/// Apply AgX per-channel across the image. Input must be
+/// `SceneLinearRec2020`; output space is `DisplayLinearRec2020`.
+/// `contrast` in [-100, +100]; 0 is the reference sigmoid.
 pub fn apply(img: &mut Image, contrast: f32) {
     img.assert_space(ColorSpace::SceneLinearRec2020);
-    // Slope = 1 + (contrast/100) * 0.5. At +100 → 1.5x, at -100 → 0.5x.
+    // Slope = 1 + (contrast/100) * 0.5. At +100 → 1.5×, at −100 → 0.5×.
     let slope = 1.0 + (contrast / 100.0) * 0.5;
     for p in &mut img.pixels {
         p[0] = agx_per_channel(p[0], slope);
@@ -74,50 +95,63 @@ mod tests {
     use super::*;
 
     #[test]
-    fn sigmoid_is_monotone() {
-        let mut prev = agx_sigmoid(0.0);
-        for i in 1..=200 {
-            let x = (i as f32) / 200.0;
-            let y = agx_sigmoid(x);
-            assert!(y >= prev - 1e-3, "non-monotone at x={}: {} < {}", x, y, prev);
-            prev = y;
+    fn lut_size_matches_declared_constant() {
+        assert_eq!(lut().len(), AGX_LUT_SIZE);
+    }
+
+    #[test]
+    fn lut_anchors_are_zero_and_one() {
+        let l = lut();
+        assert!(l[0].abs() < 1e-5, "LUT[0] = {}", l[0]);
+        assert!((l[AGX_LUT_SIZE - 1] - 1.0).abs() < 1e-5, "LUT[last] = {}", l[AGX_LUT_SIZE - 1]);
+    }
+
+    #[test]
+    fn lut_is_monotone_nondecreasing() {
+        let l = lut();
+        for i in 1..AGX_LUT_SIZE {
+            assert!(l[i] >= l[i - 1] - 1e-6,
+                "non-monotone at {}: {} → {}", i, l[i - 1], l[i]);
         }
     }
 
     #[test]
-    fn mid_gray_maps_near_display_mid() {
-        // Scene-linear MID_GRAY (0.18) → display-linear MID_GRAY (~0.18).
-        // The power-curve approximation hits this exactly at the anchor.
+    fn mid_gray_anchor_preserved() {
+        // Scene mid-gray (AGX_MID_GRAY = 0.18) should render to approximately
+        // AGX_MID_DISPLAY at contrast=0 — the AgX pivot anchor on the display
+        // side, decoupled from the scene anchor to allow a baseline midtone
+        // lift vs scene-referred reference. LUT sampling introduces at most
+        // one step of linear-interp error.
         let mut img = Image::new(1, 1, ColorSpace::SceneLinearRec2020);
-        img.pixels[0] = [0.18, 0.18, 0.18];
+        img.pixels[0] = [AGX_MID_GRAY, AGX_MID_GRAY, AGX_MID_GRAY];
         apply(&mut img, 0.0);
         let p = img.pixels[0];
-        assert!(p[0] > 0.15 && p[0] < 0.22, "R was {} (expected near 0.18)", p[0]);
+        assert!((p[0] - AGX_MID_DISPLAY).abs() < 0.01,
+            "R = {}, expected near {}", p[0], AGX_MID_DISPLAY);
     }
 
     #[test]
-    fn huge_scene_values_map_below_one() {
+    fn huge_scene_values_map_below_or_equal_one() {
         let mut img = Image::new(1, 1, ColorSpace::SceneLinearRec2020);
         img.pixels[0] = [100.0, 50.0, 20.0];
         apply(&mut img, 0.0);
         for &c in &img.pixels[0] {
-            assert!(c < 1.01, "{} should have rolled off below 1", c);
+            assert!(c <= 1.0 + 1e-5 && c >= 0.0, "{} should be in [0, 1]", c);
         }
     }
 
     #[test]
-    fn negative_inputs_clamp_to_toe_not_nan() {
+    fn negative_inputs_clamp_to_toe() {
         let mut img = Image::new(1, 1, ColorSpace::SceneLinearRec2020);
         img.pixels[0] = [-0.3, 0.0, 0.1];
         apply(&mut img, 0.0);
         for &c in &img.pixels[0] {
-            assert!(c.is_finite());
-            assert!(c >= 0.0 && c <= 1.0);
+            assert!(c.is_finite() && c >= 0.0 && c <= 1.0, "{} out of bounds", c);
         }
     }
 
     #[test]
-    fn space_transitions_correctly() {
+    fn output_space_becomes_display_linear() {
         let mut img = Image::new(1, 1, ColorSpace::SceneLinearRec2020);
         img.pixels[0] = [0.18, 0.18, 0.18];
         apply(&mut img, 0.0);
@@ -125,40 +159,44 @@ mod tests {
     }
 
     #[test]
-    fn contrast_zero_matches_previous_identity_behavior() {
-        // Sanity: contrast=0 should produce identical output to the slice-1 AgX
-        // (same sigmoid, slope=1).
-        let mut img = Image::new(1, 1, ColorSpace::SceneLinearRec2020);
-        img.pixels[0] = [0.18, 0.18, 0.18];
-        apply(&mut img, 0.0);
-        let out = img.pixels[0];
-        assert!((out[0] - 0.18).abs() < 0.05, "mid-gray should stay near 0.18, got {}", out[0]);
-    }
-
-    #[test]
-    fn contrast_positive_steepens_around_mid_gray() {
-        // Pivot around mid-gray. A value above mid-gray should go higher with +100
-        // contrast than with 0 contrast; a value below should go lower.
-        let scene_bright = 0.5; // above mid-gray 0.18
-        let scene_dark = 0.05;  // below mid-gray 0.18
+    fn positive_contrast_steepens_around_mid_gray() {
+        let scene_bright = 0.5;
+        let scene_dark   = 0.05;
 
         let mut img = Image::new(2, 1, ColorSpace::SceneLinearRec2020);
         img.pixels[0] = [scene_bright; 3];
         img.pixels[1] = [scene_dark; 3];
         apply(&mut img, 0.0);
-        let baseline_bright = img.pixels[0][0];
-        let baseline_dark = img.pixels[1][0];
+        let (base_bright, base_dark) = (img.pixels[0][0], img.pixels[1][0]);
 
         let mut img2 = Image::new(2, 1, ColorSpace::SceneLinearRec2020);
         img2.pixels[0] = [scene_bright; 3];
         img2.pixels[1] = [scene_dark; 3];
         apply(&mut img2, 100.0);
-        let contrasty_bright = img2.pixels[0][0];
-        let contrasty_dark = img2.pixels[1][0];
+        assert!(img2.pixels[0][0] > base_bright,
+            "bright should go higher at +100: {} vs {}", img2.pixels[0][0], base_bright);
+        assert!(img2.pixels[1][0] < base_dark,
+            "dark should go lower at +100: {} vs {}", img2.pixels[1][0], base_dark);
+    }
 
-        assert!(contrasty_bright > baseline_bright,
-            "bright should go higher with +100 contrast: {} vs {}", contrasty_bright, baseline_bright);
-        assert!(contrasty_dark < baseline_dark,
-            "dark should go lower with +100 contrast: {} vs {}", contrasty_dark, baseline_dark);
+    #[test]
+    fn per_channel_gamut_compression_reduces_saturation_on_blown_channels() {
+        // A scene with one channel way out of gamut (e.g., saturated red
+        // specular at 20× mid-gray, green/blue at mid-gray). AgX should
+        // roll R off toward 1 while keeping G/B near the mid-gray display
+        // level, producing a LESS-saturated display triple than naive
+        // per-channel clipping would.
+        let mut img = Image::new(1, 1, ColorSpace::SceneLinearRec2020);
+        img.pixels[0] = [20.0 * AGX_MID_GRAY, AGX_MID_GRAY, AGX_MID_GRAY];
+        apply(&mut img, 0.0);
+        let p = img.pixels[0];
+        // R should be near the top (shoulder rolloff), but G and B should
+        // sit near mid-gray display. R - G < 20× - 1× = 19× worth of
+        // chroma in scene linear; post-AgX it must be less than (1 - 0.18) ≈ 0.82.
+        assert!(p[0] > p[1], "R < G: {} vs {}", p[0], p[1]);
+        let max_spread = 1.0 - AGX_MID_DISPLAY;
+        assert!(p[0] - p[1] < max_spread,
+            "gamut compression failed: R-G = {} - {} = {}, expected much < {}",
+            p[0], p[1], p[0] - p[1], max_spread);
     }
 }

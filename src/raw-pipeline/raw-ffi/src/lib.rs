@@ -17,7 +17,7 @@
 
 #![allow(clippy::missing_safety_doc)]
 
-use raw_core::{render, xmp};
+use raw_core::{decode::decode_bytes, pipeline::render_from_raw, xmp};
 use std::ffi::{CStr, c_char};
 use std::cell::RefCell;
 
@@ -79,9 +79,19 @@ pub unsafe extern "C" fn maple_render_file(
             Err(e) => { set_last_error(format!("xmp read: {}", e)); return 5; }
         }
     };
-    let (w, h, bytes) = match render(raw_path, &model) {
+    // Shell owns the I/O — read the file here, then invoke the pure core.
+    let raw_bytes = match std::fs::read(raw_path) {
+        Ok(b) => b,
+        Err(e) => { set_last_error(format!("raw read: {}", e)); return 6; }
+    };
+    let ext = raw_path.extension().and_then(|e| e.to_str()).unwrap_or("");
+    let raw_img = match decode_bytes(&raw_bytes, ext) {
+        Ok(r) => r,
+        Err(e) => { set_last_error(format!("decode: {}", e)); return 7; }
+    };
+    let (w, h, bytes) = match render_from_raw(&raw_img, &model) {
         Ok(t) => t,
-        Err(e) => { set_last_error(format!("render: {}", e)); return 6; }
+        Err(e) => { set_last_error(format!("render: {}", e)); return 8; }
     };
     let mut boxed = bytes.into_boxed_slice();
     let rgb = boxed.as_mut_ptr();

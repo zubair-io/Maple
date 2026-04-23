@@ -4,6 +4,27 @@ use crate::math::{Matrix3, Vec3};
 /// See spec docs/spec/04-color-management.md § Bradford adaptation.
 pub const XYZ_D50: Vec3 = [0.9642, 1.0000, 0.8251];
 
+/// Convert a correlated color temperature to CIE XYZ (Y=1) on the Planckian /
+/// daylight locus via Hernández-Andrés (1999). Used by DCP's Bradford step to
+/// derive the scene illuminant's white point from the interpolated CCT, not
+/// the nearest calibration illuminant. Valid in [2000K, 15000K]; clamped.
+pub fn cct_to_xyz(cct: f32) -> Vec3 {
+    let t = cct.clamp(2000.0, 15000.0);
+    let x = if t <= 7000.0 {
+         0.244_063
+       + 99.11 / t
+       + 2_967_800.0 / (t * t)
+       - 4_607_000_000.0 / (t * t * t)
+    } else {
+         0.237_040
+       + 247.48 / t
+       + 1_901_800.0 / (t * t)
+       - 2_006_400_000.0 / (t * t * t)
+    };
+    let y = -3.0 * x * x + 2.870 * x - 0.275;
+    [x / y, 1.0, (1.0 - x - y) / y]
+}
+
 /// D65 reference white in XYZ (CIE 1931, Y=1).
 pub const XYZ_D65: Vec3 = [0.9504, 1.0000, 1.0888];
 
