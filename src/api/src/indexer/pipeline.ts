@@ -26,6 +26,7 @@ import { deriveId } from "./id.ts";
 import { sha1 } from "@noble/hashes/legacy.js";
 import * as images from "./images.repo.ts";
 import { recordDeadLetter } from "./indexer.repo.ts";
+import { cachePathFor } from "../fs/xmp.ts";
 
 export type JobKind = "index" | "remove" | "rename";
 
@@ -34,13 +35,44 @@ export interface PipelineJob {
   kind: JobKind;
   folderId: string;
   absPath: string;
-  /** Populated at the `hash` stage. */
+  /** Populated at the `hash` stage (fallback form) and finalised at the `exif` stage. */
   mapleId?: string;
   sha1Head?: string;
   size?: number;
   mtime?: number;
+  /**
+   * First 64 KB of the file. Set at the `hash` stage so the `exif` stage can
+   * re-derive a primary-form `mapleId` once `capturedAt` is parsed. Cleared
+   * once exif has run to avoid holding buffers through the rest of the pipeline.
+   */
+  headBytes?: Uint8Array;
+  /**
+   * Parsed capture timestamp (EXIF DateTimeOriginal, spec format). When present,
+   * the exif stage re-derives `mapleId` as the primary form (tag byte 0x01).
+   */
+  capturedAt?: string | null;
+  /** Camera body serial, if present in EXIF. Feeds primary-id derivation. */
+  cameraSerial?: string | null;
+  /** Shutter count at capture, if present. Feeds primary-id derivation. */
+  shutterCount?: bigint | number | null;
+  /** Structured face detections produced by the `ai` stage. Empty today. */
+  faces?: AiFace[];
+  /** Text tags produced by the `ai` stage. Empty today. */
+  aiTags?: string[];
   /** Present only for rename jobs. */
   fromPath?: string;
+}
+
+/** Face detection output from the ai stage. Shape is frozen so future ONNX wiring is additive only. */
+export interface AiFace {
+  /** Bounding box in normalised [0..1] image coordinates. */
+  bbox: { x: number; y: number; w: number; h: number };
+  /** Optional linked person id (MongoDB ObjectId hex) — null until reviewer confirms. */
+  personId: string | null;
+  /** Detector confidence in [0..1]. */
+  confidence: number;
+  /** MobileFaceNet 512-D embedding. Omitted for pass-through today. */
+  embedding?: Float32Array;
 }
 
 export interface StageCounters {
@@ -87,6 +119,8 @@ async function defaultUpsert(job: PipelineJob): Promise<void> {
     mtime: job.mtime,
     mapleId: job.mapleId,
     sha1Head: job.sha1Head,
+    faces: job.faces ?? [],
+    aiTags: job.aiTags ?? [],
   });
 }
 
@@ -300,16 +334,15 @@ export class Pipeline {
     const head = await read(job.absPath);
     const stat = await fs.stat(job.absPath);
 
+    // The hash stage only derives sha1Head (cheap). The primary maple:id is
+    // finalised at the exif stage once capturedAt is parsed — see spec §04.
+    // We stash the head bytes on the job so exif can re-derive without reading
+    // the file twice; they are cleared again before the thumb stage.
     const sha1HeadHex = toHex(sha1(head));
-    // For the JS indexer we don't have a reliable EXIF timestamp at this stage
-    // yet (spec §04 — proper primary derivation happens when EXIF arrives).
-    // Default to fallback form here; the exif stage can upgrade later.
-    // TODO(T7-id-upgrade): re-derive primary id once EXIF is parsed.
-    const id = deriveId(head, null, null, null);
-    job.mapleId = id.hex;
     job.sha1Head = sha1HeadHex;
     job.size = stat.size;
     job.mtime = stat.mtimeMs;
+    job.headBytes = head;
     await this.channels.exif.push(job);
   }
 
@@ -320,6 +353,23 @@ export class Pipeline {
     }
     const h = this.handlers.readExif;
     if (h) await h(job);
+
+    // Finalise maple:id now that the exif fields are on the job.
+    //   capturedAt present -> primary (tag 0x01, BLAKE3 of sha1Head||ts||serial||shutter)
+    //   capturedAt missing -> fallback (tag 0x02, BLAKE3 of sha1Full||filesize)
+    // See `./id.ts` and spec §04 for the byte layout.
+    const head = job.headBytes;
+    if (head) {
+      const id = deriveId(
+        head,
+        job.capturedAt ?? null,
+        job.cameraSerial ?? null,
+        job.shutterCount ?? null
+      );
+      job.mapleId = id.hex;
+      // Release the 64 KB buffer; it is no longer needed downstream.
+      job.headBytes = undefined;
+    }
     await this.channels.thumb.push(job);
   }
 
@@ -334,9 +384,24 @@ export class Pipeline {
   }
 
   private async runAi(job: PipelineJob): Promise<void> {
-    // TODO(T7-ai): real AI enrichment — for now pass through.
     const h = this.handlers.runAi;
     if (h) await h(job);
+    // Pass-through today: empty arrays keep the downstream schema stable so
+    // consumers can index `faces.personId` even while detection is stubbed.
+    // TODO(T7-ai-onnx): swap `[]` for ONNX RetinaFace + MobileFaceNet output.
+    job.faces = job.faces ?? [];
+    job.aiTags = job.aiTags ?? [];
+    // TODO(T7-logger): replace console.debug with pino once a logger is wired.
+    console.debug(
+      JSON.stringify({
+        stage: "ai",
+        id: job.mapleId ?? null,
+        absPath: job.absPath,
+        faces: job.faces.length,
+        aiTags: job.aiTags.length,
+        msg: "pass-through",
+      })
+    );
     await this.channels.mongo.push(job);
   }
 
@@ -347,6 +412,31 @@ export class Pipeline {
     }
     if (job.kind === "rename" && job.mapleId) {
       await images.updatePath(job.mapleId, job.absPath, pathMod.basename(job.absPath));
+      // A rename preserves the maple:id but the on-disk thumb + preview at
+      // the old path are now orphaned — they will never be served again and
+      // the GC sweep would not touch them (the row isn't soft-deleted).
+      // Best-effort unlink here; ENOENT is expected when the files never existed.
+      if (job.fromPath) {
+        for (const kind of ["thumbs", "previews"] as const) {
+          const file = cachePathFor(job.fromPath, kind);
+          try {
+            await fs.unlink(file);
+          } catch (e) {
+            const code = (e as NodeJS.ErrnoException).code;
+            if (code !== "ENOENT") {
+              console.warn(
+                JSON.stringify({
+                  stage: "mongo",
+                  id: job.mapleId,
+                  file,
+                  action: "rename-orphan-unlink-failed",
+                  error: e instanceof Error ? e.message : String(e),
+                })
+              );
+            }
+          }
+        }
+      }
       return;
     }
     const h = this.handlers.upsertMongo ?? defaultUpsert;
