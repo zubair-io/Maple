@@ -6,10 +6,9 @@
     "sync-raw-wasm": "bash scripts/sync-raw-wasm.sh",
     "prestart": "npm run sync-raw-wasm",
     "prebuild": "npm run sync-raw-wasm",
-    "start": "ng serve browse --port 4200",
-    "start:editor": "ng serve editor --port 4300",
-    "build": "ng build",
-    "watch": "ng build --watch --configuration development",
+    "start": "ng serve maple --port 4200",
+    "build": "ng build maple",
+    "watch": "ng build maple --watch --configuration development",
     "test": "ng test"
   },
   "private": true,
@@ -21,6 +20,7 @@
     "@angular/forms": "^21.2.0",
     "@angular/platform-browser": "^21.2.0",
     "@angular/router": "^21.2.0",
+    "@angular/service-worker": "^21.2.10",
     "rxjs": "~7.8.0",
     "tslib": "^2.3.0"
   },

@@ -27,16 +27,10 @@
   "files": [],
   "references": [
     {
-      "path": "./projects/editor/tsconfig.app.json"
+      "path": "./projects/maple/tsconfig.app.json"
     },
     {
-      "path": "./projects/editor/tsconfig.spec.json"
-    },
-    {
-      "path": "./projects/browse/tsconfig.app.json"
-    },
-    {
-      "path": "./projects/browse/tsconfig.spec.json"
+      "path": "./projects/maple/tsconfig.spec.json"
     },
     {
       "path": "./projects/maple-common/tsconfig.lib.json"
