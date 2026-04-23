@@ -91,6 +91,32 @@ export function resolveThumbPath(rawAbsPath: string, size: string = "512x512"): 
   return path.join(folder, ".maple", "thumbs", `${base}_${size}.jpg`);
 }
 
+/** Cache kind: derived thumbnail, or full-size rendered preview. */
+export type CacheKind = "thumbs" | "previews";
+
+/**
+ * Resolve the on-disk cache path for an asset's derived artefact.
+ *
+ *   <folder>/.maple/<kind>/<basename_no_ext>_<size>.jpg
+ *
+ * Previews default to the full-image render size ("full"); thumbs default to
+ * the 512x512 grid tile. Pass an explicit `size` to override.
+ *
+ * Used by the GC sweep to unlink orphaned files after a soft-deleted asset's
+ * retention window elapses, and after a rename to clear stale artefacts at
+ * the previous path.
+ */
+export function cachePathFor(
+  assetAbsPath: string,
+  kind: CacheKind,
+  size?: string
+): string {
+  const folder = path.dirname(assetAbsPath);
+  const base = path.basename(assetAbsPath, path.extname(assetAbsPath));
+  const s = size ?? (kind === "thumbs" ? "512x512" : "full");
+  return path.join(folder, ".maple", kind, `${base}_${s}.jpg`);
+}
+
 /**
  * Write a thumbnail buffer to the .maple/ cache (atomic).
  * Creates the directory if needed.

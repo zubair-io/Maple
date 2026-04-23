@@ -31,6 +31,7 @@ import {
 import { ensureIndexerIndexes } from "./indexer.repo.ts";
 import * as images from "./images.repo.ts";
 import { foldersCollection } from "../db/client.ts";
+import { cachePathFor } from "../fs/xmp.ts";
 
 export const SUPPORTED_EXTS = new Set([
   ".dng", ".cr2", ".cr3", ".nef", ".arw", ".raf", ".orf", ".rw2",
@@ -317,14 +318,69 @@ export class IndexerService {
     }
   }
 
+  /**
+   * Test hook: run one GC sweep synchronously. Exposed for `indexer-gc.test.ts`;
+   * in production the hourly timer drives this.
+   */
+  async runGcSweep(): Promise<void> {
+    return this.runGc();
+  }
+
+  /**
+   * Unlink derived-cache artefacts (.maple/thumbs + .maple/previews) for an
+   * asset. Best-effort: ENOENT is swallowed, other errors are logged at warn.
+   * If the containing folder is unreachable (mounted volume offline) we log
+   * and skip — the row is already gone, and stranding one file beats blocking
+   * the sweep on a single bad folder.
+   *
+   * Exported as a method so both the GC sweep and the rename handler can
+   * reuse it (rename: stale files at the old path).
+   */
+  async unlinkAssetCache(id: string, assetAbsPath: string): Promise<void> {
+    try {
+      await fs.access(pathMod.dirname(assetAbsPath));
+    } catch (e) {
+      console.warn(
+        JSON.stringify({
+          stage: "gc",
+          id,
+          absPath: assetAbsPath,
+          action: "gc-unreachable",
+          error: e instanceof Error ? e.message : String(e),
+        })
+      );
+      return;
+    }
+    for (const kind of ["thumbs", "previews"] as const) {
+      const file = cachePathFor(assetAbsPath, kind);
+      try {
+        await fs.unlink(file);
+        console.log(
+          JSON.stringify({ stage: "gc", id, file, action: "gc-unlink" })
+        );
+      } catch (e) {
+        const code = (e as NodeJS.ErrnoException).code;
+        if (code === "ENOENT") continue; // already gone
+        console.warn(
+          JSON.stringify({
+            stage: "gc",
+            id,
+            file,
+            action: "gc-unlink-failed",
+            error: e instanceof Error ? e.message : String(e),
+          })
+        );
+      }
+    }
+  }
+
   private async runGc(): Promise<void> {
     const cutoffIso = new Date(Date.now() - GC_RETENTION_MS).toISOString();
     const expired = await images.listExpiredDeletions(cutoffIso);
     for (const doc of expired) {
-      // TODO(T7-gc): sweep .maple/thumbs + .maple/previews files for this id.
-      if (doc.maple_id) {
-        await images.hardDelete(doc.maple_id);
-      }
+      if (!doc.maple_id) continue;
+      await images.hardDelete(doc.maple_id);
+      await this.unlinkAssetCache(doc.maple_id, doc.abs_path);
     }
   }
 }
