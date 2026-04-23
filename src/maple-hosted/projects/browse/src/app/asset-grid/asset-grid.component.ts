@@ -1,5 +1,6 @@
 // Asset grid — justified rows of thumbnail cells.
-// Ported from _design-reference/lib/center.jsx (MapleGrid + GridToolbar + MapleThumb).
+// For imported assets (those with fileBytes), real decoded thumbnails are shown.
+// Mock assets continue to use gradient swatches.
 
 import {
   AfterViewInit,
@@ -8,12 +9,19 @@ import {
   OnDestroy,
   ViewChild,
   computed,
+  effect,
   inject,
   signal,
 } from '@angular/core';
-import { LibraryStateService } from '@maple-common';
+import {
+  LibraryStateService,
+  RawPipelineService,
+  imageDataToBitmap,
+  resizeBitmapToCanvas,
+  canvasToBlobUrl,
+} from '@maple-common';
 import { MapleIconComponent } from '@maple-common';
-import { Asset } from '@maple-common';
+import { Asset, AssetId } from '@maple-common';
 
 interface GridRow {
   assets: Asset[];
@@ -137,10 +145,31 @@ interface GridRow {
       background-size: cover;
       background-position: center;
       flex-shrink: 0;
+      overflow: hidden;
     }
     .thumb.selected {
       outline: 2px solid var(--maple-primary);
       outline-offset: -2px;
+    }
+
+    .thumb-img {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+
+    .thumb-loading {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: var(--maple-font);
+      font-size: 9px;
+      color: var(--maple-text-muted);
     }
 
     /* XMP badge (top-right) */
@@ -248,15 +277,27 @@ interface GridRow {
         <div class="grid-row">
           @for (asset of row.assets; track asset.id) {
             @let isSelected = state.selectedAssetIds().has(asset.id);
+            @let thumbUrl = thumbUrls().get(asset.id);
+            @let isLoading = thumbLoading().has(asset.id);
             <div
               class="thumb"
               [class.selected]="isSelected"
               [style.width.px]="asset.aspectRatio * row.height"
               [style.height.px]="row.height"
-              [style.background-image]="'url(' + asset.thumbnailGradient + ')'"
+              [style.background-image]="thumbUrl ? '' : ('url(' + asset.thumbnailGradient + ')')"
               (click)="onThumbClick(asset, $event)"
               (dblclick)="onThumbDblClick(asset)"
             >
+              <!-- Real decoded thumbnail -->
+              @if (thumbUrl) {
+                <img class="thumb-img" [src]="thumbUrl" alt="">
+              }
+
+              <!-- Loading spinner for in-progress decodes -->
+              @if (isLoading && !thumbUrl) {
+                <div class="thumb-loading">...</div>
+              }
+
               <!-- XMP badge -->
               @if (asset.edited) {
                 <div class="xmp-badge">
@@ -298,12 +339,18 @@ interface GridRow {
 export class AssetGridComponent implements AfterViewInit, OnDestroy {
   @ViewChild('gridContainer') gridContainerRef!: ElementRef<HTMLElement>;
 
-  state = inject(LibraryStateService);
+  state    = inject(LibraryStateService);
+  pipeline = inject(RawPipelineService);
 
   readonly STAR_INDICES = [1, 2, 3, 4, 5];
 
   private containerWidth = signal<number>(800);
   private ro?: ResizeObserver;
+  private cleanupThumbEffect?: () => void;
+
+  // Per-cell thumbnail state (keyed by AssetId).
+  readonly thumbUrls    = signal<Map<AssetId, string>>(new Map());
+  readonly thumbLoading = signal<Set<AssetId>>(new Set());
 
   readonly gridRows = computed((): GridRow[] => {
     const assets = this.state.assetsInSelectedFolder();
@@ -333,7 +380,6 @@ export class AssetGridComponent implements AfterViewInit, OnDestroy {
     if (row.length) {
       const totalAr = row.reduce((s, a) => s + a.aspectRatio, 0);
       const availW = containerW - (row.length - 1) * GAP - 6;
-      // Don't scale up last row — cap at targetH
       const h = Math.min(targetH, availW / totalAr);
       rows.push({ assets: row, height: Math.max(h, 40) });
     }
@@ -356,12 +402,53 @@ export class AssetGridComponent implements AfterViewInit, OnDestroy {
       }
     });
     this.ro.observe(this.gridContainerRef.nativeElement);
-    // Initial measurement
     this.containerWidth.set(this.gridContainerRef.nativeElement.clientWidth || 800);
+
+    // Watch for new assets to generate their thumbnails.
+    const e = effect(() => {
+      const assets = this.state.assetsInSelectedFolder();
+      for (const asset of assets) {
+        if (this.state.bytesFor(asset.id) && !this.thumbUrls().has(asset.id) && !this.thumbLoading().has(asset.id)) {
+          void this.loadThumbnail(asset);
+        }
+      }
+    });
+    this.cleanupThumbEffect = () => e.destroy();
   }
 
   ngOnDestroy(): void {
     this.ro?.disconnect();
+    this.cleanupThumbEffect?.();
+    // Revoke all blob URLs to free memory.
+    this.thumbUrls().forEach(url => URL.revokeObjectURL(url));
+  }
+
+  private async loadThumbnail(asset: Asset): Promise<void> {
+    // Mark as in-flight.
+    this.thumbLoading.update(s => { const n = new Set(s); n.add(asset.id); return n; });
+
+    try {
+      const bytes = this.state.bytesFor(asset.id);
+      if (!bytes) return;
+      const ext = asset.filename.split('.').pop()?.toLowerCase() ?? '';
+      const decoded = await this.pipeline.decode(bytes, ext);
+
+      // Update aspect ratio from real decoded dimensions.
+      this.state.updateAssetDimensions(asset.id, decoded.width, decoded.height);
+
+      // Downscale to thumbnail.
+      const bitmap = await imageDataToBitmap(decoded);
+      const canvas = await resizeBitmapToCanvas(bitmap, 512);
+      const url = await canvasToBlobUrl(canvas);
+      bitmap.close();
+
+      this.thumbUrls.update(m => { const n = new Map(m); n.set(asset.id, url); return n; });
+      this.state.cacheThumbnailUrl(asset.id, url);
+    } catch (err) {
+      console.error(`Thumbnail decode failed for ${asset.filename}:`, err);
+    } finally {
+      this.thumbLoading.update(s => { const n = new Set(s); n.delete(asset.id); return n; });
+    }
   }
 
   onThumbClick(asset: Asset, e: MouseEvent): void {
@@ -372,9 +459,6 @@ export class AssetGridComponent implements AfterViewInit, OnDestroy {
 
   onThumbDblClick(asset: Asset): void {
     this.state.selectAsset(asset.id);
-    // Cross-app navigation: editor is a separate Angular app.
-    // In dev, editor runs on port 4300; in production both are on the same origin.
-    // SPA-level routing integration between the two apps is deferred to a future slice.
     const editorBase = window.location.port === '4200'
       ? `http://localhost:4300`
       : `${window.location.origin}`;
