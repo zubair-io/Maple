@@ -3,28 +3,29 @@ use crate::{
     demosaic, linearize,
     error::Result,
     image::RawImage,
-    stages::{clarity, dehaze, saturation, scene_tone_controls, texture, vibrance, white_balance},
+    stages::{clarity, dehaze, highlight_recovery, saturation, scene_tone_controls, texture, vibrance, white_balance},
     view::{agx, encode},
     xmp::AdjustmentModel,
 };
 use std::path::Path;
 
-/// End-to-end render: decode → demosaic → DCP → WB → exposure → dehaze → AgX
-/// → Rec.2020→sRGB → gamma → u8.
+/// End-to-end render: decode → demosaic → highlight_recovery → DCP → WB →
+/// exposure → dehaze → AgX → Rec.2020→sRGB → gamma → u8.
 ///
-/// Per spec § 02 filter chain, with the slice-1/2/3 subset:
-/// * Highlight reconstruction (§ 3.3a) skipped (default off).
+/// Per spec § 02 filter chain, with the slice-1/2/3/4 subset:
+/// * Highlight reconstruction (§ 3.3a) via papp:HighlightRecoveryMode
+///   (default Off; blend / luminance available).
 /// * SceneToneControls applies exposure/highlights/shadows/whites/blacks
 ///   (tone curves deferred to slice 7).
-/// * Vibrance (Oklab + skin window, § 3.7), Saturation (Oklab chroma
-///   scale), Clarity (unsharp r=40, § 3.8), Texture (unsharp r=3, § 3.8)
-///   land in slice 3.
+/// * Vibrance (Oklab + skin window, § 3.7), Saturation, Clarity (§ 3.8 r=40),
+///   Texture (§ 3.8 r=3).
 /// * Capture sharpening (§ 3.10), NR (§ 3.11), Crop (§ 3.12) skipped.
 /// * DisplayReferredCurve (§ 3.6b) skipped (no fixture flips it on).
 /// * AgX is the Sobotka power-curve approximation (slice-6 calibration target).
 pub fn render_from_raw(raw: &RawImage, model: &AdjustmentModel) -> Result<(u32, u32, Vec<u8>)> {
     let mosaic = linearize::sensor_linearize(raw);
-    let camera_rgb = demosaic::bilinear(&mosaic, raw.cfa);
+    let mut camera_rgb = demosaic::bilinear(&mosaic, raw.cfa);
+    highlight_recovery::apply(&mut camera_rgb, model.highlight_recovery);
     let profile = dcp::profile_for(raw)?;
     let mut scene = dcp::apply(&camera_rgb, &profile)?;
     white_balance::apply(&mut scene, model.temperature, model.tint);
