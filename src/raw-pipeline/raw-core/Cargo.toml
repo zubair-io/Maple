@@ -21,3 +21,4 @@ tempfile = "3"
 [features]
 # Opt-in integration tests that shell out to compare_images.py.
 golden = []
+high-quality-demosaic = []
