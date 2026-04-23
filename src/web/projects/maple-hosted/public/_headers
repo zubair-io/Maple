@@ -1,0 +1,21 @@
+# T10 — cross-origin isolation headers for maple-hosted.
+#
+# These two headers opt the page into a cross-origin-isolated context, which
+# is required for SharedArrayBuffer and therefore for the WASM rayon thread
+# pool (wasm-bindgen-rayon) used by the RAW decode path.
+#
+# Honoured by both Cloudflare Pages and Netlify. For Vercel, the equivalent
+# config is documented in DEPLOY.md under "WASM threading".
+#
+# Browsers without COOP+COEP (or where this file is missing) continue to
+# load the app normally — the JS wrapper detects `crossOriginIsolated` and
+# falls back to single-threaded decode.
+
+/*
+  Cross-Origin-Opener-Policy: same-origin
+  Cross-Origin-Embedder-Policy: require-corp
+
+/raw_wasm_bg.wasm
+  Content-Type: application/wasm
+  Cross-Origin-Opener-Policy: same-origin
+  Cross-Origin-Embedder-Policy: require-corp

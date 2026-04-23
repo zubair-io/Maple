@@ -15,6 +15,15 @@ export * from './lib/detail-panel/info-tab.component';
 export * from './lib/raw-pipeline/raw-pipeline.service';
 export * from './lib/raw-pipeline/raw-pipeline.types';
 export * from './lib/raw-pipeline/image-utils';
+// T10 note: `raw-wasm-init.ts` is intentionally NOT re-exported from the
+// library entry point. It imports directly from `./pkg/raw_wasm` (wasm-pack
+// output) which is only resolvable by Angular's application builder (via the
+// worker bundle), not ng-packagr. The bootstrapper is consumed exclusively
+// by `raw-pipeline.worker.ts` through a relative import.
+
+// T4: Hosted vs Self-Hosted backend selection
+export * from './lib/api/library-backend.token';
+export * from './lib/api/bun-api-backend.service';
 
 // P5: File System Access API + .maple/ cache protocol
 export * from './lib/folder-access/folder-access.types';

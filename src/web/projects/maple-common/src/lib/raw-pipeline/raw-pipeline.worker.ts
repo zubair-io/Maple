@@ -1,15 +1,32 @@
 /// <reference lib="webworker" />
 
-import init, { render_bytes } from './pkg/raw_wasm';
+import { render_bytes } from './pkg/raw_wasm';
+import { initRawWasm, type RawWasmInitResult } from './raw-wasm-init';
 import type { DecodeRequest, WorkerResponse } from './raw-pipeline.types';
 
-let ready = false;
+let readyPromise: Promise<RawWasmInitResult> | null = null;
 
-async function ensureReady(): Promise<void> {
-  if (ready) return;
-  await init();
-  ready = true;
+function ensureReady(): Promise<RawWasmInitResult> {
+  if (!readyPromise) {
+    readyPromise = initRawWasm().then((result) => {
+      // Let the main thread know whether threading is live so the UI can
+      // show a "single-threaded mode" indicator on non-isolated hosts.
+      const statusMsg: WorkerResponse = {
+        id: 0,
+        type: 'status',
+        threaded: result.threaded,
+        threads: result.threads,
+      };
+      (self as unknown as Worker).postMessage(statusMsg);
+      return result;
+    });
+  }
+  return readyPromise;
 }
+
+// Kick off init eagerly so the status message is delivered without waiting
+// for the first decode request.
+void ensureReady();
 
 addEventListener('message', async (event: MessageEvent<DecodeRequest>) => {
   const req = event.data;

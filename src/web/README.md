@@ -1,22 +1,42 @@
-# Maple Hosted — Production Angular Workspace
+# Maple Web — Angular Workspace (Hosted + Self-Hosted)
 
-Browser-only Maple photo editor. No server, no account, no database. The full RAW pipeline runs in the browser via WebAssembly (`raw-wasm`). See `docs/spec/00-overview.md` and `docs/spec/12-maple-apps-spec.md` § 06.
+Maple photo editor, Web variants. The full RAW pipeline runs in the browser via WebAssembly
+(`raw-wasm`) on both variants. See `docs/spec/00-overview.md` and `docs/spec/12-maple-apps-spec.md`
+§§ 06–08.
+
+Two applications share one Angular library:
+
+- **`maple-hosted`** — browser-only. No server, no account, no database. `/` is a Landing page
+  with "Open a photo" / "Open a folder" CTAs; the folder CTA is hidden on browsers that lack the
+  File System Access API (Safari / Firefox), which see an explanatory banner instead. Service
+  worker enabled (offline app shell). Deploys to Cloudflare Pages / Netlify / Vercel / Apache /
+  nginx — see `DEPLOY.md`.
+- **`maple-self-hosted`** — paired with the Bun + Elysia API (`src/api/`). `/` redirects to
+  `/browse` because the server already hosts the library. Service worker disabled — refreshes
+  always hit the server.
+
+Both apps are powered by the shared `maple-common` library, which owns all components, shells,
+state, and the XMP pipeline.
 
 ## Workspace structure
 
-This directory is an **Angular workspace** with two projects — a unified SPA and a shared library:
-
 ```
-angular.json            workspace configuration
-package.json            npm dependencies
+angular.json            workspace configuration (two applications + one library)
+package.json            npm scripts: start:hosted / start:self-hosted / build:* / etc.
 tsconfig*.json          TypeScript configurations
-ngsw-config.json        Service worker asset manifest
-DEPLOY.md               Production deploy instructions (Cloudflare / Netlify / Vercel / Apache / nginx)
+ngsw-config.json        Service worker asset manifest (maple-hosted only)
+DEPLOY.md               Production deploy instructions for maple-hosted
 projects/
-  maple/                Unified SPA — serves /browse and /edit/:id via Angular Router
+  maple-hosted/         Hosted SPA — Landing + /browse + /edit/:id
+    src/app/landing/    LandingComponent (two CTAs + Safari/Firefox fallback banner)
+  maple-self-hosted/    Self-Hosted SPA — /browse + /edit/:id, talks to the Bun API
   maple-common/         Shared library: models, services, components, shells, XMP pipeline
 _design-reference/      React-via-CDN prototype (visual/interaction reference — NOT production)
 ```
+
+Hosted-vs-Self-Hosted backend selection is an injection token in `maple-common`
+(`LIBRARY_BACKEND`: `'hosted' | 'self-hosted'`); each app provides the appropriate value in its
+`app.config.ts`.
 
 ### What's in `maple-common`
 
@@ -35,26 +55,22 @@ All UI components and domain logic live here and are tree-shaken into the `maple
 
 ```bash
 cd src/web
-npm install
-ng serve maple          # serves the full SPA at http://localhost:4200/
-# browse at /browse, editor at /edit/:id — same port, same app
-```
-
-Or via npm scripts:
-
-```bash
-npm start               # npm run sync-raw-wasm && ng serve maple --port 4200
+npm install                              # or: bun install
+npm run start:hosted                     # maple-hosted at http://localhost:4200/
+npm run start:self-hosted                # maple-self-hosted at http://localhost:4201/
+# For backwards compatibility, `npm start` aliases start:hosted.
 ```
 
 ## Build
 
 ```bash
-ng build maple --configuration=production
-# or:
-npm run build           # same thing; also runs sync-raw-wasm
+npm run build:hosted                     # → dist/maple-hosted/browser/
+npm run build:self-hosted                # → dist/maple-self-hosted/browser/
 ```
 
-Output: `dist/maple/browser/` with hash-named bundles, `raw_wasm_bg.wasm`, `ngsw-worker.js`, `ngsw.json`, `manifest.webmanifest`.
+Hosted output includes `ngsw-worker.js` / `ngsw.json`; Self-Hosted omits them.
+Both bundles ship `raw_wasm_bg.wasm` and `manifest.webmanifest`.
+The Bun API's static-UI handler serves `dist/maple-self-hosted/browser/`.
 
 ## Deploy
 
@@ -64,6 +80,53 @@ See `DEPLOY.md` for per-host instructions covering:
 - **Netlify** — `netlify.toml` with redirect + header stanzas
 - **Vercel** — `vercel.json` with filesystem + fallback routes
 - **Apache / nginx** — `.htaccess` rewrite rules and nginx server block
+
+## WASM threading + cross-origin isolation (T10)
+
+The RAW decode path uses [`wasm-bindgen-rayon`](https://github.com/RReverser/wasm-bindgen-rayon)
+to spin up a rayon thread pool backed by Web Workers. Browsers only allow
+`SharedArrayBuffer` (and therefore rayon) inside a **cross-origin-isolated**
+document, which requires two response headers on *every* top-level document
+and every WASM fetch:
+
+```
+Cross-Origin-Opener-Policy: same-origin
+Cross-Origin-Embedder-Policy: require-corp
+```
+
+Where they're set:
+
+| Context | Mechanism |
+|---|---|
+| Bun API (`src/api/`) | `onBeforeHandle` hook in `src/api/src/index.ts` plus explicit `Response` headers in `src/api/src/routes/static_ui.ts` |
+| Angular dev server (both apps) | `architect.serve.options.headers` in `src/web/angular.json` |
+| `maple-hosted` production | `projects/maple-hosted/public/_headers` (Cloudflare Pages / Netlify) + `vercel.json` snippet in `DEPLOY.md` |
+
+The JS wrapper (`projects/maple-common/src/lib/raw-pipeline/raw-wasm-init.ts`)
+checks `crossOriginIsolated` at runtime. When it's `true` (Chrome + correct
+headers), `initThreadPool(hardwareConcurrency)` runs and decodes use rayon.
+When it's `false` (Safari / Firefox or any host without the headers), the
+call is skipped and the pipeline continues single-threaded — slower on large
+RAWs but functionally identical.
+
+`RawPipelineService` exposes `isThreaded$: Observable<boolean | null>` and
+`threadCount$: Observable<number>` so the UI can surface a "single-threaded
+mode" indicator if needed.
+
+### Rebuilding the WASM bundle
+
+The threading build requires nightly Rust and `-Z build-std`, so there's a
+dedicated helper:
+
+```bash
+cd src/raw-pipeline/raw-wasm
+bash build.sh                          # nightly + wasm-pack build --target web
+cd ../../web
+bash scripts/sync-raw-wasm.sh          # copies pkg/ into maple-common
+```
+
+The nightly toolchain is pinned in `src/raw-pipeline/raw-wasm/rust-toolchain.toml`
+and only applies inside that crate — the rest of the workspace stays on stable.
 
 ## View the React prototype (design reference)
 
