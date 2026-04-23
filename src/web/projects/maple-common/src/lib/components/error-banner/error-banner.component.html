@@ -1,0 +1,11 @@
+<div class="error-banner" role="alert">
+  <span class="msg">{{ message() }}</span>
+  @if (hintHref() && hintLabel()) {
+    <a class="hint" [href]="hintHref()" target="_blank" rel="noopener noreferrer">
+      {{ hintLabel() }}
+    </a>
+  }
+  @if (showRetry()) {
+    <button type="button" class="retry" (click)="onRetry()">{{ retryLabel() }}</button>
+  }
+</div>

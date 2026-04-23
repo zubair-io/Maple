@@ -70,7 +70,24 @@
 
     <!-- Center: asset grid + drop-zone import bar -->
     <div class="panel-center">
-      <app-drop-zone />
+      @if (state.backend === 'self-hosted') {
+        @if (state.backendLoading()) {
+          <app-loading-banner label="Loading folders…" />
+        }
+        @if (state.backendError(); as err) {
+          <app-error-banner [message]="err" (retry)="onRetryLoad()" />
+        }
+        @if (state.backendEmpty() && !state.backendLoading() && !state.backendError()) {
+          <app-error-banner
+            message="No folders indexed yet."
+            hintLabel="Configure folders in admin…"
+            hintHref="/api/indexer/status"
+            [showRetry]="false"
+          />
+        }
+      } @else {
+        <app-drop-zone />
+      }
       <app-asset-grid />
     </div>
 
