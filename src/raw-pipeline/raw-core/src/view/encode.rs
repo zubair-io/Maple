@@ -22,15 +22,35 @@ pub fn srgb_gamma(x: f32) -> f32 {
     }
 }
 
-/// Final encode: display-linear sRGB → u8 RGB via piecewise gamma + quantize.
-/// Returns a flat row-major `Vec<u8>` of length 3 * w * h.
+// ── Display-space Levels (spec § 3.6 step 6-7 minimal "look" layer) ──────
+// Applied in sRGB-gamma-encoded space to produce the Adobe-compatible look
+// users expect. Calibrated empirically against ACR baseline renders via
+// a Photoshop Levels adjustment (black=66, white=227, gamma=0.65 on u8).
+// The same operation in [0, 1] float space uses these constants:
+const LEVELS_BLACK: f32 = 66.0 / 255.0;   // 0.2588
+const LEVELS_WHITE: f32 = 227.0 / 255.0;  // 0.8902
+const LEVELS_GAMMA: f32 = 0.65;           // < 1 → darken midtones
+const LEVELS_EXP:   f32 = 1.0 / LEVELS_GAMMA; // 1.538 — applied as x^EXP
+
+/// Photoshop-style Levels on a gamma-encoded sRGB value in [0, 1]:
+///   normalize by (LEVELS_BLACK, LEVELS_WHITE), apply gamma, clamp.
+fn apply_levels(x: f32) -> f32 {
+    let denom = LEVELS_WHITE - LEVELS_BLACK;
+    let n = ((x - LEVELS_BLACK) / denom).clamp(0.0, 1.0);
+    n.powf(LEVELS_EXP)
+}
+
+/// Final encode: display-linear sRGB → u8 RGB via piecewise gamma +
+/// display-space Levels (look layer) + quantize. Returns a flat row-major
+/// `Vec<u8>` of length 3 * w * h.
 pub fn quantize_u8(img: &mut Image) -> Vec<u8> {
     img.assert_space(ColorSpace::DisplayLinearSrgb);
     let mut out = Vec::with_capacity(img.pixels.len() * 3);
     for p in &img.pixels {
         for &c in p {
             let g = srgb_gamma(c);
-            out.push((g * 255.0 + 0.5).clamp(0.0, 255.0) as u8);
+            let levelled = apply_levels(g);
+            out.push((levelled * 255.0 + 0.5).clamp(0.0, 255.0) as u8);
         }
     }
     img.space = ColorSpace::DisplayEncodedSrgb;
@@ -77,6 +97,8 @@ mod tests {
 
     #[test]
     fn quantize_black_is_zero() {
+        // With Levels black=66/255 applied, any gamma-encoded value ≤ 0.259
+        // maps to u8 = 0 (Levels clamps the low end).
         let mut img = Image::new(2, 2, ColorSpace::DisplayLinearSrgb);
         let bytes = quantize_u8(&mut img);
         assert!(bytes.iter().all(|b| *b == 0));
@@ -84,9 +106,28 @@ mod tests {
 
     #[test]
     fn quantize_white_is_255() {
+        // With Levels white=227/255 applied, any gamma-encoded value ≥ 0.890
+        // maps to u8 = 255. sRGB gamma of 1.0 is 1.0, which is > 0.890 → 255.
         let mut img = Image::new(2, 2, ColorSpace::DisplayLinearSrgb);
         for p in &mut img.pixels { *p = [1.0, 1.0, 1.0]; }
         let bytes = quantize_u8(&mut img);
         assert!(bytes.iter().all(|b| *b == 255));
+    }
+
+    #[test]
+    fn levels_matches_photoshop_formula() {
+        // Spot-check apply_levels against PS Levels: black=66, white=227,
+        // gamma=0.65 on 0-255 u8 input 128 → output (128-66)/(227-66))^(1/0.65)
+        // * 255 ≈ 124. (In float: 0.5019 → ((0.5019-0.2588)/0.6314)^1.538 ≈ 0.229
+        //              → * 255 ≈ 58... hmm wait)
+        // Actually: normalize = (128-66)/(227-66) = 62/161 = 0.385
+        //           gamma = 0.385^1.538 = 0.227
+        //           out = 0.227 * 255 = 58
+        let srgb_in = 128.0 / 255.0;
+        let out_float = apply_levels(srgb_in);
+        let out_u8 = (out_float * 255.0 + 0.5) as u8;
+        // Allow ±1 tolerance for float rounding.
+        assert!((out_u8 as i32 - 58).abs() <= 1,
+            "PS Levels check failed: {} → {}", 128, out_u8);
     }
 }

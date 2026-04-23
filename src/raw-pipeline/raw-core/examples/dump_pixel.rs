@@ -41,11 +41,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mosaic = linearize::sensor_linearize(&raw);
     let mut camera_rgb = demosaic::bilinear(&mosaic, raw.cfa);
     let camera_rgb_pre_baseline = camera_rgb.clone();
-    let asn = raw.as_shot_neutral;
-    let g = [1.0 / asn[0].max(1e-6), 1.0 / asn[1].max(1e-6), 1.0 / asn[2].max(1e-6)];
-    for p in &mut camera_rgb.pixels {
-        p[0] *= g[0]; p[1] *= g[1]; p[2] *= g[2];
-    }
     if raw.baseline_exposure.abs() > 1e-4 {
         let be = raw.baseline_exposure.exp2();
         for p in &mut camera_rgb.pixels {
