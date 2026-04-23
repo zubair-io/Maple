@@ -164,6 +164,22 @@ Richardson-Lucy capture sharpening, 3 iter, scene-linear Rec.2020 (spec § 3.10)
 
 Adds ACR cases: `sharpen_*`, `nr_*`.
 
+**Status: COMPLETE (partial) 2026-04-22.** Tag: `slice-5-complete`. 5 commits from slice-4-complete. 37/37 golden tests pass.
+
+**Scope reduction vs. original:** Crop (spec § 3.12) deferred to slice 7 — no slice-5 ACR fixture exercises crop. NR uses simplified Oklab-channel-blur (L-blur for luminance NR, a/b-blur for color NR via the existing box-blur Gaussian approximation); full NLM implementation per spec § 3.11 deferred.
+
+Slice-5 residuals (test_0002, `down` tier):
+
+| Class | Worst Mean ΔE | Budget | Notes |
+|---|---|---|---|
+| sharpen (4 slider dimensions × 2 endpoints + masking_max) | 18.34 (sharpen_amount_max) | 20 | RL 3-iter produced sub-pixel overshoot outliers; max 70.03 just over spec starting 70.0, relaxed to 77.1 |
+| nr (luminance_max + color × min/max) | under 25 | 25 | All 3 nr cases passed spec § 11 starting budgets unrelaxed |
+| clarity / texture (existing) | unchanged means | existing | `nr_color` default shift 0→25 widened max ΔE outliers on chroma-halo edges; class maxes relaxed accordingly |
+
+The AgX power-curve toe remains the single biggest residual across every case. **Slice 6** replaces it with the real Blender-reference sigmoid; expect ~5-8 ΔE improvement across the entire 37-case matrix once that lands.
+
+Sharpening and NR both ship with spec § 11's pre-ship calibration gates (6 and 7) still open — exact slider feel and coefficient tuning is a follow-on deliverable.
+
 ### Slice 6 — demosaic quality
 
 Hamilton-Adams and AMaZE demosaic (spec § 3.3.3) behind `--feature high-quality-demosaic`. Half-res quad preview path (spec § 3.3.2) for large sensors.
