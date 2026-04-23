@@ -29,3 +29,6 @@ pub mod png;
 
 pub mod xmp;
 pub use xmp::AdjustmentModel;
+
+pub mod pipeline;
+pub use pipeline::{render, render_from_raw};
