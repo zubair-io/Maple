@@ -13,6 +13,10 @@ pub struct AdjustmentModel {
     pub shadows: f32,     // -100..100, default 0
     pub whites: f32,      // -100..100, default 0
     pub blacks: f32,      // -100..100, default 0
+    pub vibrance: f32,    // -100..100, default 0 (spec § 3.7)
+    pub saturation: f32,  // -100..100, default 0
+    pub clarity: f32,     // -100..100, default 0 (unsharp radius 40 per spec § 3.8)
+    pub texture: f32,     // -100..100, default 0 (unsharp radius 3 per spec § 3.8)
     pub dehaze: f32,      // -100..100, default 0
 }
 
@@ -22,6 +26,7 @@ impl Default for AdjustmentModel {
             temperature: 6500.0, tint: 0.0,
             exposure: 0.0,
             contrast: 0.0, highlights: 0.0, shadows: 0.0, whites: 0.0, blacks: 0.0,
+            vibrance: 0.0, saturation: 0.0, clarity: 0.0, texture: 0.0,
             dehaze: 0.0,
         }
     }
@@ -67,6 +72,10 @@ fn set_field(m: &mut AdjustmentModel, key: &str, value: &str) -> Result<()> {
         "crs:Shadows2012"    => m.shadows     = v()?,
         "crs:Whites2012"     => m.whites      = v()?,
         "crs:Blacks2012"     => m.blacks      = v()?,
+        "crs:Vibrance"       => m.vibrance    = v()?,
+        "crs:Saturation"     => m.saturation  = v()?,
+        "crs:Clarity2012"    => m.clarity     = v()?,
+        "crs:Texture"        => m.texture     = v()?,
         "crs:Dehaze"         => m.dehaze      = v()?,
         "crs:WhiteBalance"   => {
             if let Some((temp, tint)) = wb_preset(value) {
@@ -247,5 +256,50 @@ mod tests {
         };
         let m = parse(&xml).unwrap();
         assert_eq!(m.blacks, -100.0);
+    }
+
+    #[test]
+    fn defaults_includes_slice3_presence_fields() {
+        let m = AdjustmentModel::default();
+        assert_eq!(m.vibrance, 0.0);
+        assert_eq!(m.saturation, 0.0);
+        assert_eq!(m.clarity, 0.0);
+        assert_eq!(m.texture, 0.0);
+    }
+
+    #[test]
+    fn parse_vibrance_max() {
+        let xml = match load_fixture("test_0002/xmp/vibrance_max.xmp") {
+            Some(x) => x, None => return,
+        };
+        let m = parse(&xml).unwrap();
+        assert_eq!(m.vibrance, 100.0);
+    }
+
+    #[test]
+    fn parse_saturation_min() {
+        let xml = match load_fixture("test_0002/xmp/saturation_min.xmp") {
+            Some(x) => x, None => return,
+        };
+        let m = parse(&xml).unwrap();
+        assert_eq!(m.saturation, -100.0);
+    }
+
+    #[test]
+    fn parse_clarity_max() {
+        let xml = match load_fixture("test_0002/xmp/clarity_max.xmp") {
+            Some(x) => x, None => return,
+        };
+        let m = parse(&xml).unwrap();
+        assert_eq!(m.clarity, 100.0);
+    }
+
+    #[test]
+    fn parse_texture_min() {
+        let xml = match load_fixture("test_0002/xmp/texture_min.xmp") {
+            Some(x) => x, None => return,
+        };
+        let m = parse(&xml).unwrap();
+        assert_eq!(m.texture, -100.0);
     }
 }
