@@ -218,6 +218,12 @@ export class EditorShellComponent implements OnInit {
   private route  = inject(ActivatedRoute);
   private router = inject(Router);
 
+  // ── Page unload — flush pending XMP writes ────────────────────────────────
+  @HostListener('window:beforeunload')
+  onBeforeUnload(): void {
+    void this.state.flushPendingXmpWrites();
+  }
+
   titleText = computed(() => {
     const asset = this.state.focusedAsset();
     return asset ? `${asset.filename} — Editor` : 'Maple Editor';
