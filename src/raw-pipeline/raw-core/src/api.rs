@@ -13,6 +13,7 @@
 //! `Image` buffer) remain untouched — this module is a thin façade.
 
 use crate::error::{Error, Result};
+use crate::id::MapleId;
 use crate::image::{ExifOrientation, RawImage};
 use crate::xmp::AdjustmentModel;
 
@@ -143,9 +144,10 @@ pub struct ExifGps {
 /// "Write policy → Merge on read".
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Sidecar {
-    /// Stable image id. Populated by T2 (BLAKE3 derivation). Left `None`
-    /// until then — [`xmp_write`] emits the field only when present.
-    pub id: Option<String>,
+    /// Stable image id per spec §04. Computed via [`crate::id::maple_id`]
+    /// from file bytes + EXIF. [`xmp_write`] emits `maple:id="<hex>"` only
+    /// when present; [`xmp_read`] parses it back via [`MapleId::from_hex`].
+    pub id: Option<MapleId>,
     /// ACR-compatible `crs:*` adjustments.
     pub adj: AdjustmentModel,
     /// `xmp:Rating`, 0..5. `None` = unrated.
@@ -483,7 +485,9 @@ pub fn xmp_read(bytes: &[u8]) -> Result<Sidecar> {
                                     "maple:flag: unknown value {:?}", other))),
                             };
                         }
-                        "maple:id" => s.id = Some(value.into_owned()),
+                        "maple:id" => {
+                            s.id = Some(MapleId::from_hex(value.as_ref())?);
+                        }
                         "dc:title"       => s.title = Some(value.into_owned()),
                         "dc:description" => s.description = Some(value.into_owned()),
                         "dc:rights"      => s.rights = Some(value.into_owned()),
@@ -531,7 +535,9 @@ pub fn xmp_write(sidecar: &Sidecar) -> Vec<u8> {
         s.push_str(&format!("      maple:flag=\"{}\"\n", v));
     }
     if let Some(id) = &sidecar.id {
-        s.push_str(&format!("      maple:id=\"{}\"\n", xml_escape_attr(id)));
+        // Hex is always [0-9a-f]{32}; no XML escaping needed but we pass
+        // through xml_escape_attr for uniformity.
+        s.push_str(&format!("      maple:id=\"{}\"\n", id.to_hex()));
     }
 
     // dc:* (simple attrs; structured bag/seq markup is T9)
@@ -782,8 +788,9 @@ mod tests {
 
     #[test]
     fn xmp_roundtrip_preserves_adj_rating_flag_id() {
+        let id = crate::id::MapleId::primary(b"abc", "2024:01:01 00:00:00", None, None);
         let s = Sidecar {
-            id: Some("abc123".into()),
+            id: Some(id),
             rating: Some(4),
             flag: Some(Flag::Pick),
             label: Some("red".into()),
@@ -806,6 +813,73 @@ mod tests {
     fn xmp_read_rejects_invalid_utf8() {
         let junk = [0xFFu8, 0xFE, 0xFD];
         assert!(xmp_read(&junk).is_err());
+    }
+
+    // ─── maple_id ──────────────────────────────────────────────────────
+
+    fn exif_with_capture(ts: &str) -> Exif {
+        Exif { captured_at: Some(ts.into()), ..Default::default() }
+    }
+
+    #[test]
+    fn maple_id_primary_is_deterministic() {
+        let bytes = b"the quick brown fox jumps over the lazy dog".repeat(4000);
+        let exif = exif_with_capture("2025:06:01 12:34:56");
+        let a = crate::id::maple_id(&bytes, &exif, Some("SERIAL42"), Some(1234));
+        let b = crate::id::maple_id(&bytes, &exif, Some("SERIAL42"), Some(1234));
+        assert_eq!(a, b);
+        assert_eq!(a.kind(), crate::id::IdKind::Primary);
+    }
+
+    #[test]
+    fn maple_id_primary_changes_with_capture_time() {
+        let bytes = vec![7u8; 4096];
+        let e1 = exif_with_capture("2025:06:01 12:34:56");
+        let e2 = exif_with_capture("2025:06:01 12:34:57"); // +1 second
+        let id1 = crate::id::maple_id(&bytes, &e1, None, None);
+        let id2 = crate::id::maple_id(&bytes, &e2, None, None);
+        assert_ne!(id1, id2);
+    }
+
+    #[test]
+    fn maple_id_fallback_when_exif_missing() {
+        let bytes = vec![42u8; 1024];
+        let exif = Exif::default(); // captured_at = None
+        let id = crate::id::maple_id(&bytes, &exif, None, None);
+        assert_eq!(id.kind(), crate::id::IdKind::Fallback);
+    }
+
+    #[test]
+    fn maple_id_tag_byte_distinguishes_forms() {
+        let bytes = vec![0xA5u8; 2048];
+        let primary = crate::id::MapleId::primary(&bytes, "2025:06:01 00:00:00", None, None);
+        let fallback = crate::id::MapleId::fallback(&bytes, bytes.len() as u64);
+        assert_ne!(primary.0[0], fallback.0[0]);
+        assert_eq!(primary.0[0], crate::id::TAG_PRIMARY);
+        assert_eq!(fallback.0[0], crate::id::TAG_FALLBACK);
+        // And thus the full ids cannot alias.
+        assert_ne!(primary, fallback);
+    }
+
+    #[test]
+    fn maple_id_roundtrips_through_xmp() {
+        let bytes = b"fixture-ish bytes for id".repeat(500);
+        let exif = exif_with_capture("2024:12:31 23:59:59");
+        let id = crate::id::maple_id(&bytes, &exif, Some("XYZ"), Some(99));
+        let s = Sidecar { id: Some(id), ..Default::default() };
+        let xml = xmp_write(&s);
+        let parsed = xmp_read(&xml).expect("xmp_read");
+        assert_eq!(parsed.id, Some(id));
+    }
+
+    #[test]
+    fn maple_id_hex_roundtrip() {
+        let bytes = vec![1u8, 2, 3, 4, 5];
+        let id = crate::id::MapleId::fallback(&bytes, 5);
+        let hex = id.to_hex();
+        assert_eq!(hex.len(), 32);
+        let back = crate::id::MapleId::from_hex(&hex).expect("from_hex");
+        assert_eq!(back, id);
     }
 
     #[test]

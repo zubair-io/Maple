@@ -12,6 +12,8 @@ png.workspace = true
 quick-xml.workspace = true
 thiserror.workspace = true
 bytemuck.workspace = true
+blake3 = "1"
+sha1 = "0.10"
 
 [dev-dependencies]
 serde.workspace = true
@@ -22,3 +24,7 @@ tempfile = "3"
 # Opt-in integration tests that shell out to compare_images.py.
 golden = []
 high-quality-demosaic = []
+# Override black/white levels (and optionally raw_crop) with values
+# ported from RawTherapee's camconst.json. See
+# `src/camera_calibration/mod.rs` and `docs/licenses/rawtherapee-attribution.md`.
+camconst-overrides = []
