@@ -24,3 +24,8 @@ export * from './lib/maple-cache/maple-cache.service';
 export * from './lib/maple-cache/sha';
 export * from './lib/xmp/xmp.types';
 export * from './lib/xmp/xmp-parser.service';
+
+// P6: Full AdjustmentModel XMP read/write + debounced sidecar writes
+export * from './lib/xmp/xmp-fields';
+export * from './lib/xmp/xmp-serializer.service';
+export * from './lib/xmp/xmp-store.service';
