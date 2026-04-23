@@ -1128,6 +1128,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "raw-ffi"
+version = "0.1.0"
+dependencies = [
+ "raw-core",
+ "thiserror",
+]
+
+[[package]]
+name = "raw-wasm"
+version = "0.1.0"
+dependencies = [
+ "raw-core",
+ "thiserror",
+ "wasm-bindgen",
+]
+
+[[package]]
 name = "rawler"
 version = "0.7.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
