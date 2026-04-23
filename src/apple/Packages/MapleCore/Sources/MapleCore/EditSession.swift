@@ -52,6 +52,11 @@ public struct AssetRef: Identifiable, Sendable, Equatable, Hashable {
     /// Closure used to fetch bytes on demand. `nil` means the asset lives on
     /// disk at `primaryURL`.
     public let bytesProvider: BytesProvider?
+    /// Stable cross-session identifier for sourceless assets — typically the
+    /// upstream `ImageRef.id` (BLAKE3 maple:id hex from the Bun API, or a
+    /// PHAsset localIdentifier). `nil` for filesystem assets, where the URL
+    /// path serves as the cache key.
+    public let stableID: String?
 
     public var sidecarURL: URL? {
         primaryURL.map { $0.deletingPathExtension().appendingPathExtension("xmp") }
@@ -70,20 +75,25 @@ public struct AssetRef: Identifiable, Sendable, Equatable, Hashable {
         self.displayNameOverride = nil
         self.hintExtension = url.pathExtension.isEmpty ? nil : url.pathExtension
         self.bytesProvider = nil
+        self.stableID = nil
     }
 
     /// Construct an `AssetRef` for a source without a filesystem URL
     /// (PhotoKit, self-hosted API). `bytesProvider` is invoked the first time
     /// the pipeline needs RAW bytes — callers should capture the source actor
     /// weakly, not strongly, if they want the session to deinit cleanly.
+    /// `stableID` is the upstream cross-session identifier used as the
+    /// thumbnail cache key (e.g. an API maple:id, a PHAsset localIdentifier).
     public init(displayName: String,
                 hintExtension: String?,
+                stableID: String? = nil,
                 bytesProvider: @escaping BytesProvider) {
         self.id = UUID()
         self.primaryURL = nil
         self.displayNameOverride = displayName
         self.hintExtension = hintExtension
         self.bytesProvider = bytesProvider
+        self.stableID = stableID
     }
 
     public static func == (lhs: AssetRef, rhs: AssetRef) -> Bool {

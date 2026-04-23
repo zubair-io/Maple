@@ -113,6 +113,30 @@ final class SelfHostedSourceTests: XCTestCase {
         XCTAssertEqual(got, bytes)
     }
 
+    /// Range-streamed path returns a `Data` whose size matches the body, even
+    /// for a multi-megabyte payload that must be reassembled in 64 KB chunks.
+    func testRawBytesStreamsLargePayload() async throws {
+        // 5 MB blob — larger than the loader's 64 KB chunk so we exercise the
+        // gather-and-flush branch repeatedly.
+        let n = 5 * 1024 * 1024
+        // Fill with a deterministic byte pattern so accidental truncation is
+        // caught by a content check, not just a length check.
+        var bytes = [UInt8](repeating: 0, count: n)
+        for i in 0..<n { bytes[i] = UInt8(i & 0xFF) }
+        let blob = Data(bytes)
+        Self.routes["http://test.local/api/images/big/raw"] = (200, blob)
+
+        let src = makeSource()
+        let got = try await src.rawBytes(for: ImageRef(id: "big", displayName: "BIG.dng"))
+        XCTAssertEqual(got.count, n, "streamed body must match source size")
+        // Spot-check first/last bytes — full equality compare is fine but
+        // expensive on 5 MB; the position checks catch a truncation bug
+        // without paying the full O(n) compare twice (Equatable below).
+        XCTAssertEqual(got.first, 0x00)
+        XCTAssertEqual(got.last, blob.last)
+        XCTAssertEqual(got, blob, "streamed body must match source content")
+    }
+
     // MARK: writeXMP
 
     func testWriteXMPSendsAdjRatingAndFlag() async throws {

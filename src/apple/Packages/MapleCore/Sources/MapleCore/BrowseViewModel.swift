@@ -144,6 +144,7 @@ public final class BrowseViewModel {
                 return AssetRef(
                     displayName: displayName,
                     hintExtension: ext.isEmpty ? nil : ext,
+                    stableID: capturedRef.id,
                     bytesProvider: { [capturedSource, capturedRef] in
                         try await capturedSource.rawBytes(for: capturedRef)
                     }
