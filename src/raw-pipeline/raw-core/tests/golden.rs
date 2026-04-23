@@ -151,3 +151,12 @@ fn run_case(stem: &str, case: &str, class: &str) {
 #[test] fn test_0002_whites_min()     { run_case("test_0002", "whites_min",     "whites"); }
 #[test] fn test_0002_blacks_max()     { run_case("test_0002", "blacks_max",     "blacks"); }
 #[test] fn test_0002_blacks_min()     { run_case("test_0002", "blacks_min",     "blacks"); }
+
+#[test] fn test_0002_vibrance_max()   { run_case("test_0002", "vibrance_max",   "vibrance"); }
+#[test] fn test_0002_vibrance_min()   { run_case("test_0002", "vibrance_min",   "vibrance"); }
+#[test] fn test_0002_saturation_max() { run_case("test_0002", "saturation_max", "saturation"); }
+#[test] fn test_0002_saturation_min() { run_case("test_0002", "saturation_min", "saturation"); }
+#[test] fn test_0002_clarity_max()    { run_case("test_0002", "clarity_max",    "clarity"); }
+#[test] fn test_0002_clarity_min()    { run_case("test_0002", "clarity_min",    "clarity"); }
+#[test] fn test_0002_texture_max()    { run_case("test_0002", "texture_max",    "texture"); }
+#[test] fn test_0002_texture_min()    { run_case("test_0002", "texture_min",    "texture"); }

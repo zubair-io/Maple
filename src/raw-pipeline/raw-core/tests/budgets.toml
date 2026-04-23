@@ -77,3 +77,23 @@ max_delta_e  = 48.0  # RELAXED 2026-04-22 slice 2 from 60; whites_min measured 4
 mean_delta_e = 29.0  # RELAXED 2026-04-22 slice 2 from 15; blacks_min measured 26.47
 p95_delta_e  = 46.0  # RELAXED 2026-04-22 slice 2 from 30; blacks_min measured 41.54
 max_delta_e  = 96.0  # RELAXED 2026-04-22 slice 2 from 60; blacks_min measured 90.92
+
+[vibrance]
+mean_delta_e = 15.0
+p95_delta_e  = 30.0
+max_delta_e  = 60.0
+
+[saturation]
+mean_delta_e = 15.0
+p95_delta_e  = 30.0
+max_delta_e  = 60.0
+
+[clarity]
+mean_delta_e = 25.0
+p95_delta_e  = 50.0
+max_delta_e  = 80.0
+
+[texture]
+mean_delta_e = 25.0
+p95_delta_e  = 50.0
+max_delta_e  = 80.0
