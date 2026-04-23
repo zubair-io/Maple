@@ -9,16 +9,33 @@ import { assetsCollection } from "../db/client.ts";
 import type { AssetDoc } from "../db/schema.ts";
 
 /**
+ * Persisted face-detection result. The shape mirrors `AiFace` in `pipeline.ts`;
+ * `embedding` is stored only when a real detector has run (Float32 as an
+ * array of numbers so Mongo can round-trip it).
+ */
+export interface AssetFace {
+  bbox: { x: number; y: number; w: number; h: number };
+  person_id: string | null;
+  confidence: number;
+  embedding?: number[];
+}
+
+/**
  * Extra indexer-owned fields. Stored on the same `assets` document.
  *
  * `maple_id` is the stable content-derived hex id (see `./id.ts`).
  * `sha1_head` is the hex of SHA-1 over the first 64 KB; used to
  * detect content change without re-hashing the full file.
+ * `faces` / `ai_tags` are written by the ai stage (empty today). They are
+ * always present so consumers can index `faces.person_id` without sparse
+ * index gymnastics.
  */
 export interface IndexerAssetFields {
   maple_id?: string;
   sha1_head?: string;
   deleted_at?: string | null;
+  faces?: AssetFace[];
+  ai_tags?: string[];
 }
 
 export type IndexerAssetDoc = AssetDoc & IndexerAssetFields;
@@ -26,6 +43,13 @@ export type IndexerAssetDoc = AssetDoc & IndexerAssetFields;
 export async function coll(): Promise<Collection<IndexerAssetDoc>> {
   const c = await assetsCollection();
   return c as unknown as Collection<IndexerAssetDoc>;
+}
+
+export interface UpsertFaceInput {
+  bbox: { x: number; y: number; w: number; h: number };
+  personId: string | null;
+  confidence: number;
+  embedding?: Float32Array | number[];
 }
 
 export interface UpsertInput {
@@ -36,11 +60,27 @@ export interface UpsertInput {
   mtime: number;
   mapleId: string;
   sha1Head: string;
+  faces?: UpsertFaceInput[];
+  aiTags?: string[];
+}
+
+function faceToDoc(f: UpsertFaceInput): AssetFace {
+  const out: AssetFace = {
+    bbox: f.bbox,
+    person_id: f.personId,
+    confidence: f.confidence,
+  };
+  if (f.embedding) {
+    out.embedding = Array.from(f.embedding);
+  }
+  return out;
 }
 
 export async function upsertByMapleId(input: UpsertInput): Promise<UpdateResult> {
   const c = await coll();
   const now = new Date().toISOString();
+  const faces: AssetFace[] = (input.faces ?? []).map(faceToDoc);
+  const aiTags: string[] = input.aiTags ?? [];
   return c.updateOne(
     { maple_id: input.mapleId },
     {
@@ -53,6 +93,8 @@ export async function upsertByMapleId(input: UpsertInput): Promise<UpdateResult>
         sha1_head: input.sha1Head,
         indexed_at: now,
         deleted_at: null,
+        faces,
+        ai_tags: aiTags,
       },
       $setOnInsert: {
         maple_id: input.mapleId,
