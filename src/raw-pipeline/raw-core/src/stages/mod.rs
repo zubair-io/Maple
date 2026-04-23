@@ -7,3 +7,5 @@ pub mod texture;
 pub mod blur;
 pub mod dehaze;
 pub mod highlight_recovery;
+pub mod sharpen;
+pub mod noise_reduction;
