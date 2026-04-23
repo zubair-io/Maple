@@ -10,10 +10,12 @@ pub use error::{Error, Result};
 
 pub mod math;
 
+pub mod camera_calibration;
+
 pub mod color;
 
 pub mod image;
-pub use image::{CfaPattern, ColorSpace, Image, RawImage};
+pub use image::{CfaPattern, ColorSpace, ExifOrientation, Image, RawImage};
 
 pub mod decode;
 
@@ -35,4 +37,11 @@ pub mod xmp;
 pub use xmp::AdjustmentModel;
 
 pub mod pipeline;
-pub use pipeline::{render, render_from_raw};
+pub use pipeline::render_from_raw;
+
+pub mod api;
+pub use api::{
+    apply, decode_raw, encode as encode_out, histogram, preview, read_exif, thumbnail, waveform,
+    xmp_read, xmp_write, EncodeOpts, Exif, ExifGps, Flag, Histogram, OutFmt, Rendered, Rgba,
+    Sidecar, Waveform,
+};

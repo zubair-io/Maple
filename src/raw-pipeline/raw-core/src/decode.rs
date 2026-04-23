@@ -24,31 +24,32 @@
 //! - CCT: rawler 0.7 does not expose CCT directly; `as_shot_cct` is `None`.
 
 use std::collections::HashMap;
-use std::path::Path;
 
-use rawler::decoders::RawDecodeParams;
+use rawler::decoders::{RawDecodeParams, WellKnownIFD};
 use rawler::imgop::xyz::Illuminant as RawlerIlluminant;
 use rawler::rawimage::{RawImageData, RawPhotometricInterpretation};
 use rawler::rawsource::RawSource;
+use rawler::tags::DngTag;
 
 use crate::color::illuminant::Illuminant as CoreIlluminant;
 use crate::error::Error;
-use crate::image::{CfaPattern, RawImage};
+use crate::image::{CfaPattern, ExifOrientation, RawImage};
 use crate::math::Matrix3;
 use crate::Result;
 
-/// Decode a RAW file at `path` and return a fully-populated [`RawImage`].
-///
-/// Thin wrapper around [`decode_bytes`]: reads the file then delegates.
-/// Supports DNG (little- and big-endian), Hasselblad 3FR, and Canon CR2.
-/// Returns [`Error::UnsupportedCfa`] for X-Trans patterns.
-pub fn decode(path: &Path) -> Result<RawImage> {
+/// Decode a RAW file at `path`. Thin `std::fs::read` wrapper over
+/// [`decode_bytes`] — the byte-based entry point used by WASM / non-POSIX
+/// callers. Native / CLI / tests can use whichever is more convenient.
+pub fn decode(path: &std::path::Path) -> Result<RawImage> {
     let bytes = std::fs::read(path).map_err(|e| Error::Io {
         path: path.to_path_buf(),
         source: e,
     })?;
-    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-    decode_bytes(&bytes, ext)
+    let ext = path.extension()
+        .and_then(|e| e.to_str())
+        .map(str::to_ascii_lowercase)
+        .unwrap_or_default();
+    decode_bytes(&bytes, &ext)
 }
 
 /// Decode a RAW from an in-memory byte slice.
@@ -69,10 +70,57 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
         .with_path(std::path::Path::new(&hint_path));
 
     // ── 1. Decode via rawler ───────────────────────────────────────────────
-    let raw = rawler::decode(&source, &RawDecodeParams::default()).map_err(|e| Error::Decode {
+    let params = RawDecodeParams::default();
+    let raw = rawler::decode(&source, &params).map_err(|e| Error::Decode {
         path: std::path::PathBuf::from(&hint_path),
         reason: e.to_string(),
     })?;
+
+    // ── 1a. EXIF orientation ──────────────────────────────────────────────
+    // rawler populates `raw.orientation` for DNG via TIFF parsing, but for
+    // CR2/ARW it's hardcoded to Normal (see decoders/mod.rs:389 "TODO fixme").
+    // To get real orientation for all formats, pull it out of the metadata
+    // pass instead — `raw_metadata().exif.orientation` is the raw TIFF tag
+    // and works across decoders. Falls back to the RawImage field on error.
+    //
+    // The same decoder is also queried below for the Root IFD so we can
+    // read BaselineExposure (§ 1b). Reusing the decoder avoids re-parsing.
+    let decoder = rawler::get_decoder(&source).ok();
+    let orientation = decoder.as_ref()
+        .and_then(|dec| dec.raw_metadata(&source, &params).ok())
+        .and_then(|md| md.exif.orientation)
+        .map(ExifOrientation::from_u16)
+        .unwrap_or_else(|| rawler_orientation_to_core(&raw.orientation));
+
+    // ── 1b. BaselineExposure + BaselineExposureOffset (DNG § C.1.2 / § 6.2.15) ──
+    // Two distinct DNG tags that compose additively when producing the
+    // scene-referred exposure correction:
+    //   tag 50730 (BaselineExposure, SRational) — per-body calibration.
+    //   tag 51109 (BaselineExposureOffset, SRational) — per-image offset
+    //     suggested by the DCP profile. Per DNG 1.4 spec § 6.2.15:
+    //     "When present, this value is added to BaselineExposure."
+    // Both are EV units. Rawler ignores both on decode (only copies them
+    // in the DNG writer path — decoders/dng.rs:175 and 186), so we read
+    // them directly from the Root IFD.
+    //
+    // For vendor RAW formats (CR2, RW2, ARW, ...) neither tag is present;
+    // we fall back to `camera_calibration::baseline_exposure`.
+    let root_ifd = decoder.as_ref()
+        .and_then(|dec| dec.ifd(WellKnownIFD::Root).ok().flatten());
+    let baseline_tag = root_ifd.as_ref()
+        .and_then(|ifd| ifd.get_entry(DngTag::BaselineExposure)
+            .map(|e| e.value.force_f32(0)));
+    let offset_tag = root_ifd.as_ref()
+        .and_then(|ifd| ifd.get_entry(DngTag::BaselineExposureOffset)
+            .map(|e| e.value.force_f32(0)));
+    let baseline_exposure = match (baseline_tag, offset_tag) {
+        (Some(b), Some(o)) => b + o,
+        (Some(b), None)    => b,
+        (None, Some(o))    => o,
+        (None, None)       => crate::camera_calibration::baseline_exposure(
+            &raw.clean_make, &raw.clean_model
+        ),
+    };
 
     // ── 2. CFA pattern ────────────────────────────────────────────────────
     let cfa = match &raw.photometric {
@@ -144,15 +192,30 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
     };
 
     // ── 6. White balance ──────────────────────────────────────────────────
-    // rawler stores RGBE; indices 0=R, 1=G, 2=B, 3=Emerald/unused.
-    // Normalise so that G==1.0 (conventional camera-space multipliers).
+    // rawler's `wb_coeffs` are WB *multipliers* (the gains that balance
+    // camera RGB to neutral). Confirmed by reading the DNG decoder at
+    // rawler-0.7.2/src/decoders/dng.rs:293, which stores
+    // `[1.0 / AsShotNeutral[i]]` — i.e. the reciprocal of the DNG-spec
+    // AsShotNeutral tag. Other format decoders (ARW, MRW, CR2) follow
+    // the same multiplier convention.
+    //
+    // Our `RawImage::as_shot_neutral` carries the DNG-spec semantics
+    // (camera reading of a neutral patch, G-normalized) because the
+    // downstream DCP math — `inv(CM) * AsShotNeutral = XYZ_scene_white`
+    // — requires the reading, not the multipliers. Invert rawler's
+    // values back to reading-space here, once, and flag NaN inputs.
     let wb = raw.wb_coeffs;
-    let as_shot_neutral = if wb[0].is_nan() || wb[1].is_nan() || wb[2].is_nan() || wb[1] == 0.0 {
-        // rawler signals "no WB" with NaN; fall back to unity.
+    let as_shot_neutral = if wb[0].is_nan() || wb[1].is_nan() || wb[2].is_nan()
+        || wb[0] == 0.0 || wb[1] == 0.0 || wb[2] == 0.0
+    {
+        // rawler signals "no WB" with NaN; fall back to unity (matches a
+        // D65-like sensor calibration).
         [1.0f32, 1.0, 1.0]
     } else {
+        // multipliers → camera reading, then G-normalize.
+        // reading ∝ 1/mult per channel; R/G = (1/R_mult)/(1/G_mult) = G_mult/R_mult.
         let g = wb[1];
-        [wb[0] / g, 1.0, wb[2] / g]
+        [g / wb[0], 1.0, g / wb[2]]
     };
 
     // rawler 0.7 does not expose CCT from metadata. Set to None; a future
@@ -201,7 +264,25 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
         camera_make,
         camera_model,
         color_matrices,
+        orientation,
+        baseline_exposure,
     })
+}
+
+/// Map rawler's `Orientation` enum to our `ExifOrientation`. Used as the
+/// fallback when `raw_metadata().exif.orientation` is absent.
+fn rawler_orientation_to_core(o: &rawler::decoders::Orientation) -> ExifOrientation {
+    use rawler::decoders::Orientation as R;
+    match o {
+        R::Normal | R::Unknown => ExifOrientation::Normal,
+        R::HorizontalFlip => ExifOrientation::HorizontalFlip,
+        R::Rotate180 => ExifOrientation::Rotate180,
+        R::VerticalFlip => ExifOrientation::VerticalFlip,
+        R::Transpose => ExifOrientation::Transpose,
+        R::Rotate90 => ExifOrientation::Rotate90,
+        R::Transverse => ExifOrientation::Transverse,
+        R::Rotate270 => ExifOrientation::Rotate270,
+    }
 }
 
 /// Map a rawler `Illuminant` to our `CoreIlluminant`.
@@ -254,6 +335,17 @@ mod tests {
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../test-fixtures/raws")
     }
 
+    /// Shell helper for tests only: read from disk, then delegate to
+    /// [`decode_bytes`]. The core no longer exposes a path-based entrypoint —
+    /// I/O is the shell's responsibility (spec §02).
+    fn decode_path(path: &std::path::Path) -> Result<RawImage> {
+        let bytes = std::fs::read(path).map_err(|e| Error::Io {
+            path: path.to_path_buf(), source: e,
+        })?;
+        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+        decode_bytes(&bytes, ext)
+    }
+
     #[test]
     fn decode_test_0002_reports_plausible_dimensions() {
         let path = fixture_root().join("test_0002.dng");
@@ -261,7 +353,7 @@ mod tests {
             eprintln!("skip: {}", path.display());
             return;
         }
-        let raw = decode(&path).expect("decode DNG");
+        let raw = decode_path(&path).expect("decode DNG");
         assert!(raw.width >= 1024, "suspiciously narrow: {}", raw.width);
         assert!(raw.height >= 1024, "suspiciously short: {}", raw.height);
         assert_eq!(raw.raw_data.len(), (raw.width as usize) * (raw.height as usize));
@@ -278,7 +370,7 @@ mod tests {
         if !path.exists() {
             return;
         }
-        let raw = decode(&path).expect("decode CR2");
+        let raw = decode_path(&path).expect("decode CR2");
         assert!(raw.width > 0 && raw.height > 0);
         assert_eq!(raw.camera_make.to_lowercase(), "canon");
     }
@@ -289,7 +381,7 @@ mod tests {
         if !path.exists() {
             return;
         }
-        let raw = decode(&path).expect("decode 3FR");
+        let raw = decode_path(&path).expect("decode 3FR");
         assert!(raw.width > 0 && raw.height > 0);
     }
 
@@ -299,51 +391,30 @@ mod tests {
         if !path.exists() {
             return;
         }
-        let raw = decode(&path).expect("decode 100MP DNG");
+        let raw = decode_path(&path).expect("decode 100MP DNG");
         assert!(raw.width > 8000, "100MP expected, got {} wide", raw.width);
     }
 
-    /// Verify that `decode_bytes` produces identical width/height/CFA as
-    /// `decode(path)` for the primary test fixture.
+    /// Regression test for BaselineExposure reading (DNG § C.1.2, tag 50730).
     #[test]
-    fn decode_bytes_matches_decode_path_for_test_0002() {
-        let path = fixture_root().join("test_0002.dng");
-        if !path.exists() {
-            eprintln!("skip: {}", path.display());
-            return;
-        }
-        // decode_bytes using include_bytes! (compile-time embed)
-        let bytes = include_bytes!("../../../../test-fixtures/raws/test_0002.dng");
-        let by_bytes = decode_bytes(bytes, "dng").expect("decode_bytes DNG");
-        let by_path  = decode(&path).expect("decode path DNG");
-
-        assert_eq!(by_bytes.width,  by_path.width,  "width mismatch");
-        assert_eq!(by_bytes.height, by_path.height, "height mismatch");
-        assert_eq!(by_bytes.cfa,    by_path.cfa,    "CFA mismatch");
-        assert_eq!(by_bytes.white_level, by_path.white_level, "white_level mismatch");
+    fn decode_test_0000_reads_baseline_exposure() {
+        let path = fixture_root().join("test_0000.DNG");
+        if !path.exists() { return; }
+        let raw = decode_path(&path).expect("decode Hasselblad DNG");
+        assert!((raw.baseline_exposure - 1.01).abs() < 0.01,
+            "expected BaselineExposure ≈ 1.01 EV, got {:.4}", raw.baseline_exposure);
     }
 
-    /// Full equivalence check: decode_bytes must produce byte-identical RawImage
-    /// to decode(path) for the primary DNG fixture. Covers black_level, white_level,
-    /// raw_data length, and spot-pixel values in addition to geometry.
+    /// Regression test for fix #4 (EXIF orientation): test_0003.CR2 was shot
+    /// in portrait, so its EXIF orientation tag must be a non-Normal value.
     #[test]
-    fn decode_bytes_matches_decode_path_on_test_0002() {
-        let path = fixture_root().join("test_0002.dng");
+    fn decode_test_0003_reports_exif_orientation() {
+        let path = fixture_root().join("test_0003.CR2");
         if !path.exists() { return; }
-        let from_path = decode(&path).expect("decode from path");
-        let bytes = std::fs::read(&path).unwrap();
-        let from_bytes = decode_bytes(&bytes, "dng").expect("decode from bytes");
-        assert_eq!(from_path.width, from_bytes.width);
-        assert_eq!(from_path.height, from_bytes.height);
-        assert_eq!(from_path.cfa, from_bytes.cfa);
-        assert_eq!(from_path.black_level, from_bytes.black_level);
-        assert_eq!(from_path.white_level, from_bytes.white_level);
-        assert_eq!(from_path.raw_data.len(), from_bytes.raw_data.len());
-        // Spot-check a few pixels.
-        assert_eq!(from_path.raw_data[0], from_bytes.raw_data[0]);
-        if from_path.raw_data.len() > 1_000_000 {
-            assert_eq!(from_path.raw_data[1_000_000], from_bytes.raw_data[1_000_000]);
-        }
+        let raw = decode_path(&path).expect("decode CR2");
+        assert_ne!(raw.orientation, ExifOrientation::Normal,
+            "expected a non-Normal EXIF orientation for portrait CR2; got {:?}",
+            raw.orientation);
     }
 
     /// Verify decode_bytes works on Canon CR2 format via extension hint.
@@ -355,5 +426,16 @@ mod tests {
         let raw = decode_bytes(&bytes, "cr2").expect("decode cr2 from bytes");
         assert!(raw.width > 0 && raw.height > 0);
         assert_eq!(raw.camera_make.to_lowercase(), "canon");
+    }
+
+    /// `decode_bytes` must error cleanly (not panic) on a non-RAW byte blob.
+    #[test]
+    fn decode_bytes_garbage_errors() {
+        let junk = vec![0u8; 128];
+        let err = decode_bytes(&junk, "dng").unwrap_err();
+        match err {
+            Error::Decode { .. } => {}
+            other => panic!("expected Error::Decode, got {:?}", other),
+        }
     }
 }

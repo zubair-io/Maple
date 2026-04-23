@@ -1,9 +1,27 @@
 use clap::{Parser, Subcommand, ValueEnum};
-use raw_core::render;
+use raw_core::decode::decode_bytes;
+use raw_core::pipeline::render_from_raw;
 use raw_core::xmp;
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
+
+/// Shell helper: read a RAW from disk, then run the pure raw-core pipeline.
+/// Keeps I/O out of `raw-core` per spec §02 "The core is side-effect-free."
+fn render_path(
+    raw_path: &Path,
+    model: &xmp::AdjustmentModel,
+) -> Result<(u32, u32, Vec<u8>), Box<dyn std::error::Error>> {
+    let bytes = std::fs::read(raw_path)?;
+    let ext = raw_path.extension().and_then(|e| e.to_str()).unwrap_or("");
+    let raw = decode_bytes(&bytes, ext)?;
+    Ok(render_from_raw(&raw, model)?)
+}
+
+/// Shell helper: write a buffer to disk.
+fn write_bytes(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    std::fs::write(path, bytes)
+}
 
 #[derive(ValueEnum, Clone, Copy, Debug)]
 enum OutputFormat {
@@ -132,13 +150,14 @@ fn do_render(
         Some(p) => xmp::parse(&std::fs::read_to_string(p)?)?,
         None => xmp::AdjustmentModel::default(),
     };
-    let (w, h, bytes) = render(raw, &model)?;
+    let (w, h, bytes) = render_path(raw, &model)?;
     let fmt = format.unwrap_or_else(|| infer_format(out));
-    match fmt {
-        OutputFormat::Png  => raw_core::png::write(out, w, h, &bytes)?,
-        OutputFormat::Jpeg => raw_core::jpeg::write(out, w, h, &bytes, quality)?,
-        OutputFormat::Tiff => raw_core::tiff::write_from_u8(out, w, h, &bytes)?,
-    }
+    let encoded = match fmt {
+        OutputFormat::Png  => raw_core::png::encode(w, h, &bytes)?,
+        OutputFormat::Jpeg => raw_core::jpeg::encode(w, h, &bytes, quality)?,
+        OutputFormat::Tiff => raw_core::tiff::encode_from_u8(w, h, &bytes)?,
+    };
+    write_bytes(out, &encoded)?;
     Ok(0)
 }
 
@@ -240,7 +259,9 @@ fn do_inspect(path: &Path) -> Result<i32, Box<dyn std::error::Error>> {
     }
 
     // Try as RAW.
-    let raw = raw_core::decode::decode(path)?;
+    let bytes = std::fs::read(path)?;
+    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+    let raw = raw_core::decode::decode_bytes(&bytes, ext)?;
     println!("RAW metadata for {}", path.display());
     println!("  dimensions: {} \u{00d7} {}", raw.width, raw.height);
     println!("  CFA:        {:?}", raw.cfa);

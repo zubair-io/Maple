@@ -1,36 +1,36 @@
 use crate::error::{Error, Result};
 use image::codecs::tiff::TiffEncoder;
 use image::ImageEncoder;
-use std::path::Path;
 use bytemuck::cast_slice;
 
-/// Write a sRGB 16-bit TIFF. Expects u16 RGB input (2 bytes per channel,
-/// big-endian as stored in the Vec<u16>). To go from our 8-bit u8 pipeline
-/// output, callers should promote first: `rgb_u16 = rgb_u8 * 257` (so 0→0,
-/// 255→65535).
-pub fn write_u16(path: &Path, width: u32, height: u32, rgb: &[u16]) -> Result<()> {
+/// Encode a sRGB 16-bit TIFF into an in-memory buffer.
+///
+/// Expects u16 RGB input. To go from our 8-bit u8 pipeline output, callers
+/// should promote first: `rgb_u16 = rgb_u8 * 257` (so 0→0, 255→65535).
+///
+/// Pure (I/O-free): the shell owns any write to disk.
+pub fn encode_u16(width: u32, height: u32, rgb: &[u16]) -> Result<Vec<u8>> {
     let expected_len = (width as usize) * (height as usize) * 3;
     if rgb.len() != expected_len {
         return Err(Error::Png(format!(
             "expected {} u16 values, got {}", expected_len, rgb.len()
         )));
     }
-    let file = std::fs::File::create(path).map_err(|e| Error::Io {
-        path: path.to_path_buf(), source: e,
-    })?;
-    let w = std::io::BufWriter::new(file);
-    let encoder = TiffEncoder::new(w);
-    let bytes = cast_slice::<u16, u8>(rgb);
-    encoder
-        .write_image(bytes, width, height, image::ExtendedColorType::Rgb16)
-        .map_err(|e| Error::Png(e.to_string()))?;
-    Ok(())
+    let mut out: Vec<u8> = Vec::with_capacity(expected_len * 2);
+    {
+        let encoder = TiffEncoder::new(std::io::Cursor::new(&mut out));
+        let bytes = cast_slice::<u16, u8>(rgb);
+        encoder
+            .write_image(bytes, width, height, image::ExtendedColorType::Rgb16)
+            .map_err(|e| Error::Png(e.to_string()))?;
+    }
+    Ok(out)
 }
 
-/// Convenience: promote our u8 pipeline output to u16 and write TIFF 16.
-pub fn write_from_u8(path: &Path, width: u32, height: u32, rgb_u8: &[u8]) -> Result<()> {
+/// Convenience: promote our u8 pipeline output to u16 and encode TIFF 16.
+pub fn encode_from_u8(width: u32, height: u32, rgb_u8: &[u8]) -> Result<Vec<u8>> {
     let rgb_u16: Vec<u16> = rgb_u8.iter().map(|&b| (b as u16) * 257).collect();
-    write_u16(path, width, height, &rgb_u16)
+    encode_u16(width, height, &rgb_u16)
 }
 
 #[cfg(test)]
@@ -38,19 +38,18 @@ mod tests {
     use super::*;
 
     #[test]
-    fn write_tiny_tiff_from_u8() {
-        let tmp_dir = tempfile::TempDir::new().unwrap();
-        let path = tmp_dir.path().join("test.tif");
+    fn encode_tiny_tiff_from_u8_produces_bytes() {
         let rgb: Vec<u8> = vec![255, 0, 0,  0, 255, 0,  0, 0, 255,  255, 255, 255];
-        write_from_u8(&path, 2, 2, &rgb).unwrap();
-        // Verify the file was created and has content.
-        let metadata = std::fs::metadata(&path).unwrap();
-        assert!(metadata.len() > 0);
+        let bytes = encode_from_u8(2, 2, &rgb).unwrap();
+        assert!(bytes.len() > 0);
+        // TIFF little-endian magic "II*\0" or big-endian "MM\0*".
+        let magic_le = &bytes[..4] == b"II*\0";
+        let magic_be = &bytes[..4] == b"MM\0*";
+        assert!(magic_le || magic_be, "not a TIFF file: {:?}", &bytes[..4]);
     }
 
     #[test]
     fn wrong_length_errors() {
-        let tmp = tempfile::NamedTempFile::new().unwrap();
-        assert!(write_u16(tmp.path(), 2, 2, &[0u16; 10]).is_err());
+        assert!(encode_u16(2, 2, &[0u16; 10]).is_err());
     }
 }
