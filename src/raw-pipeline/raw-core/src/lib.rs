@@ -20,3 +20,5 @@ pub mod decode;
 pub mod linearize;
 
 pub mod demosaic;
+
+pub mod stages;
