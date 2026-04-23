@@ -11,6 +11,9 @@ target/
 **/*.rs.bk
 Cargo.lock.bak
 
+# wasm-pack / wasm-bindgen output
+src/raw-pipeline/raw-wasm/pkg/
+
 # Swift / SPM
 .build/
 .swiftpm/
