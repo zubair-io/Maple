@@ -49,9 +49,13 @@ max_delta_e  = 42.0  # RELAXED 2026-04-22 slice 2 from 60; contrast_max measured
 [highlights]
 # highlights_max 19.49/24.85/39.07 and highlights_min 16.48/20.83/49.48 both pass spec § 11
 # starting budget (mean ≤ 20). No relaxation needed; keeping initial-line values.
+# TIGHTENED 2026-04-22 slice 4 after dual-illuminant CM interpolation + highlight reconstruction;
+# measured slice-4: highlights_max 19.49/24.85/39.07, highlights_min 16.48/20.83/49.48.
+# p95 headroom: 24.85 ≤ 0.7×40=28 → new p95 = 24.85×1.1 = 27.3 → 28.
+# max headroom: 49.48 ≤ 0.7×70=49? barely not; 49.48×1.1 = 54.4 → 55. Mean at 97.5% → unchanged.
 mean_delta_e = 20.0
-p95_delta_e  = 40.0
-max_delta_e  = 70.0
+p95_delta_e  = 28.0  # TIGHTENED slice 4 from 40; highlights_min measured 24.85
+max_delta_e  = 55.0  # TIGHTENED slice 4 from 70; highlights_min measured 49.48
 
 [shadows]
 # RELAXED 2026-04-22 slice 2 from mean=20/p95=40/max=70; measured shadows_max 23.44/30.45/46.78.
@@ -101,11 +105,20 @@ max_delta_e  = 52.0  # RELAXED 2026-04-22 slice 3 from 60; saturation_max measur
 # clarity_min 18.61/23.32/45.84 passes. Residual vs ACR: spec § 3.8 Gaussian r=40 approximates
 # ACR's proprietary local-contrast algorithm; single-pixel outliers near high-contrast edges drive
 # the max. Slice N retightens.
+# TIGHTENED 2026-04-22 slice 4 after dual-illuminant CM interpolation + highlight reconstruction;
+# measured slice-4: clarity_max 18.59/22.60/80.59, clarity_min 18.61/23.32/45.84.
+# p95 headroom: 23.32 ≤ 0.7×50=35 → new p95 = 23.32×1.1 = 25.65 → 26.
+# mean at 74.4% of budget → just misses ≤70% threshold. max at 94.8% → unchanged.
 mean_delta_e = 25.0
-p95_delta_e  = 50.0
+p95_delta_e  = 26.0  # TIGHTENED slice 4 from 50; clarity_min measured 23.32
 max_delta_e  = 85.0  # RELAXED 2026-04-22 slice 3 from 80; clarity_max measured 80.59
 
 [texture]
+# TIGHTENED 2026-04-22 slice 4 after dual-illuminant CM interpolation + highlight reconstruction;
+# measured slice-4: texture_max 18.60/23.42/50.67, texture_min 18.27/23.30/34.05.
+# p95 headroom: 23.42 ≤ 0.7×50=35 → new p95 = 23.42×1.1 = 25.76 → 26.
+# max headroom: 50.67 ≤ 0.7×80=56 → new max = 50.67×1.1 = 55.7 → 56.
+# mean at 74.4% of budget → just misses ≤70% threshold.
 mean_delta_e = 25.0
-p95_delta_e  = 50.0
-max_delta_e  = 80.0
+p95_delta_e  = 26.0  # TIGHTENED slice 4 from 50; texture_max measured 23.42
+max_delta_e  = 56.0  # TIGHTENED slice 4 from 80; texture_max measured 50.67
