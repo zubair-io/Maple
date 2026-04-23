@@ -22,11 +22,17 @@
           "options": {
             "browser": "projects/editor/src/main.ts",
             "tsConfig": "projects/editor/tsconfig.app.json",
+            "webWorkerTsConfig": "tsconfig.worker.json",
             "inlineStyleLanguage": "scss",
             "assets": [
               {
                 "glob": "**/*",
                 "input": "projects/editor/public"
+              },
+              {
+                "glob": "raw_wasm_bg.wasm",
+                "input": "projects/maple-common/src/lib/raw-pipeline/pkg",
+                "output": "/"
               }
             ],
             "styles": ["projects/editor/src/styles.scss"]
@@ -88,11 +94,17 @@
           "options": {
             "browser": "projects/browse/src/main.ts",
             "tsConfig": "projects/browse/tsconfig.app.json",
+            "webWorkerTsConfig": "tsconfig.worker.json",
             "inlineStyleLanguage": "scss",
             "assets": [
               {
                 "glob": "**/*",
                 "input": "projects/browse/public"
+              },
+              {
+                "glob": "raw_wasm_bg.wasm",
+                "input": "projects/maple-common/src/lib/raw-pipeline/pkg",
+                "output": "/"
               }
             ],
             "styles": ["projects/browse/src/styles.scss"]
