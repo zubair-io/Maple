@@ -3,7 +3,7 @@ use crate::{
     demosaic, linearize,
     error::Result,
     image::RawImage,
-    stages::{dehaze, exposure, white_balance},
+    stages::{dehaze, scene_tone_controls, white_balance},
     view::{agx, encode},
     xmp::AdjustmentModel,
 };
@@ -24,9 +24,9 @@ pub fn render_from_raw(raw: &RawImage, model: &AdjustmentModel) -> Result<(u32, 
     let profile = dcp::profile_for(raw)?;
     let mut scene = dcp::apply(&camera_rgb, &profile)?;
     white_balance::apply(&mut scene, model.temperature, model.tint);
-    exposure::apply(&mut scene, model.exposure);
+    scene_tone_controls::apply(&mut scene, model);
     dehaze::apply(&mut scene, model.dehaze);
-    agx::apply(&mut scene);
+    agx::apply(&mut scene, model.contrast);
     encode::rec2020_to_srgb(&mut scene);
     let bytes = encode::quantize_u8(&mut scene);
     Ok((scene.width, scene.height, bytes))
