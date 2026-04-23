@@ -1,6 +1,7 @@
-// ImageCanvasService — pan/zoom/before-after state signals.
+// ImageCanvasService — pan/zoom/before-after state signals + decoded pixel data for scopes.
 
 import { Injectable, signal, computed } from '@angular/core';
+import type { DecodedImage } from '@maple-common';
 
 export type ZoomLevel = 0.25 | 0.5 | 1 | 2 | 4 | 'fit';
 
@@ -9,6 +10,9 @@ export class ImageCanvasService {
   readonly zoom              = signal<ZoomLevel>('fit');
   readonly pan               = signal<{ x: number; y: number }>({ x: 0, y: 0 });
   readonly beforeAfterSplitX = signal<number | null>(null);
+
+  /** Current decoded image pixels — set by ImageCanvasComponent on decode. */
+  readonly currentPixels = signal<DecodedImage | null>(null);
 
   readonly showBeforeAfter = computed(() => this.beforeAfterSplitX() !== null);
 
