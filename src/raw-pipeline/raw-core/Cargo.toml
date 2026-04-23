@@ -1,0 +1,22 @@
+[package]
+name = "raw-core"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+rawler.workspace = true
+image.workspace = true
+png.workspace = true
+quick-xml.workspace = true
+thiserror.workspace = true
+bytemuck.workspace = true
+
+[dev-dependencies]
+serde.workspace = true
+serde_json.workspace = true
+
+[features]
+# Opt-in integration tests that shell out to compare_images.py.
+golden = []
