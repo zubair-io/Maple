@@ -127,7 +127,11 @@ struct ThumbnailCell: View {
 
     private func startLoad() {
         guard thumbData == nil, loadTask == nil else { return }
-        let url = asset.primaryURL
+        // Sourceless assets (PhotoKit / self-hosted) don't have a filesystem
+        // URL; a dedicated thumbnail path for those is a follow-up
+        // (TODO(UI-sourceless-thumbs): thread ImageSource.thumb through
+        // ThumbnailLoader). For now, show an empty cell.
+        guard let url = asset.primaryURL else { return }
         loadTask = Task { @MainActor in
             let data = await ThumbnailLoader.shared.load(for: url)
             guard !Task.isCancelled else { return }

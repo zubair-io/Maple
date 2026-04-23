@@ -23,18 +23,75 @@ public enum RenderPhase: Sendable, Equatable {
 
 // MARK: - AssetRef
 
-/// Lightweight reference to a source asset (raw URL + optional sidecar URL).
+/// Lightweight reference to a source asset.
+///
+/// For filesystem-shaped sources (`FilesystemSource`, `SMBSource`, Files.app)
+/// `primaryURL` is set and the Rust pipeline reads from disk. For sources
+/// that only hand out bytes (`PhotoKitSource`, `SelfHostedSource`)
+/// `primaryURL` is `nil` and `bytesProvider` must be set to a closure that
+/// fetches the full RAW bytes on demand; the pipeline then calls
+/// `PipelineRenderer.render(rawBytes:hint:)`.
+///
+/// `AssetRef` identity is a UUID minted per session so the Browse grid can
+/// diff rows — it is not a content hash.
 public struct AssetRef: Identifiable, Sendable, Equatable, Hashable {
+    /// On-demand bytes fetch for sourceless assets. Typed as an async
+    /// `@Sendable` closure so EditSession can call it from an actor hop.
+    public typealias BytesProvider = @Sendable () async throws -> Data
+
     public let id: UUID
-    public let primaryURL: URL
+    /// Filesystem URL of the RAW file. `nil` for PhotoKit / self-hosted
+    /// assets that live behind an opaque identifier.
+    public let primaryURL: URL?
+    /// Display name. Derived from `primaryURL` when available; callers that
+    /// construct URL-less refs should pass one explicitly.
+    public let displayNameOverride: String?
+    /// Best-effort RAW extension (without dot, e.g. "dng") for sourceless
+    /// assets. Ignored when `primaryURL` is non-nil.
+    public let hintExtension: String?
+    /// Closure used to fetch bytes on demand. `nil` means the asset lives on
+    /// disk at `primaryURL`.
+    public let bytesProvider: BytesProvider?
+
     public var sidecarURL: URL? {
-        primaryURL.deletingPathExtension().appendingPathExtension("xmp")
+        primaryURL.map { $0.deletingPathExtension().appendingPathExtension("xmp") }
     }
-    public var displayName: String { primaryURL.deletingPathExtension().lastPathComponent }
+
+    public var displayName: String {
+        if let override = displayNameOverride, !override.isEmpty {
+            return override
+        }
+        return primaryURL?.deletingPathExtension().lastPathComponent ?? "Untitled"
+    }
 
     public init(url: URL) {
         self.id = UUID()
         self.primaryURL = url
+        self.displayNameOverride = nil
+        self.hintExtension = url.pathExtension.isEmpty ? nil : url.pathExtension
+        self.bytesProvider = nil
+    }
+
+    /// Construct an `AssetRef` for a source without a filesystem URL
+    /// (PhotoKit, self-hosted API). `bytesProvider` is invoked the first time
+    /// the pipeline needs RAW bytes — callers should capture the source actor
+    /// weakly, not strongly, if they want the session to deinit cleanly.
+    public init(displayName: String,
+                hintExtension: String?,
+                bytesProvider: @escaping BytesProvider) {
+        self.id = UUID()
+        self.primaryURL = nil
+        self.displayNameOverride = displayName
+        self.hintExtension = hintExtension
+        self.bytesProvider = bytesProvider
+    }
+
+    public static func == (lhs: AssetRef, rhs: AssetRef) -> Bool {
+        lhs.id == rhs.id
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
     }
 }
 
@@ -53,12 +110,16 @@ public final class EditSession {
         didSet {
             guard model != oldValue else { return }
             _scheduleRender(phase: .fast)
-            Task { await sidecarStore.update(model: model, culling: culling) }
+            if let store = sidecarStore {
+                Task { await store.update(model: model, culling: culling) }
+            }
         }
     }
     public var culling: CullingState {
         didSet {
-            Task { await sidecarStore.update(model: model, culling: culling) }
+            if let store = sidecarStore {
+                Task { await store.update(model: model, culling: culling) }
+            }
         }
     }
 
@@ -88,7 +149,10 @@ public final class EditSession {
     // MARK: Internals
 
     @ObservationIgnored private let pipeline: ImageEditPipeline
-    @ObservationIgnored private let sidecarStore: XMPSidecarStore
+    /// File-backed sidecar store. `nil` for sourceless assets (PhotoKit, self-
+    /// hosted API) where sidecar persistence goes through the source's
+    /// `writeXMP` API instead.
+    @ObservationIgnored private let sidecarStore: XMPSidecarStore?
     @ObservationIgnored private var renderTask: Task<Void, Never>?
     @ObservationIgnored private var refineTask: Task<Void, Never>?
     /// Bumped on every render schedule so that stale tasks exit before writing UI state.
@@ -104,7 +168,13 @@ public final class EditSession {
         self.originalModel = model
         self.culling = culling
         self.pipeline = ImageEditPipeline()
-        self.sidecarStore = XMPSidecarStore(rawURL: asset.primaryURL)
+        if let url = asset.primaryURL {
+            self.sidecarStore = XMPSidecarStore(rawURL: url)
+        } else {
+            // Sourceless asset — XMP writes go through the source's REST /
+            // PhotoKit-companion writer, not a local .xmp sidecar.
+            self.sidecarStore = nil
+        }
     }
 
     // MARK: - Public API
@@ -133,8 +203,10 @@ public final class EditSession {
     }
 
     /// Load model + culling from disk; call once after init.
+    /// No-op for sourceless assets (which have no `.xmp` sidecar file).
     public func loadSidecar() async {
-        guard let (m, c) = try? await sidecarStore.load() else { return }
+        guard let store = sidecarStore else { return }
+        guard let (m, c) = try? await store.load() else { return }
         originalModel = m
         model = m
         culling = c

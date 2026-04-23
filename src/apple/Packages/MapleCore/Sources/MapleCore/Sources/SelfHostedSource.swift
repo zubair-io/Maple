@@ -5,9 +5,8 @@
 // methods onto those routes. No shared code with the server — the DTOs
 // here are hand-rolled minimally to match the wire format.
 //
-// Auth: a bearer token issued during pairing. Stored via the
-// `SelfHostedCredentialStore` helper (in-memory for now; Keychain wiring
-// is a follow-up — see TODO(T5)).
+// Auth: a bearer token issued during pairing. Stored in Keychain via
+// `SelfHostedCredentialStore` (see SelfHostedCredentialStore.swift).
 
 import Foundation
 
@@ -149,8 +148,9 @@ extension SelfHostedSource: ImageSource {
 
     public func rawBytes(for ref: ImageRef) async throws -> Data {
         // Range-aware fetch is a follow-up.
-        // TODO(T5): support HTTP Range requests so slider tick doesn't need
-        // the entire RAW in memory before the Rust decoder can start.
+        // TODO(selfhosted-range): support HTTP Range requests so slider tick
+        // doesn't need the entire RAW in memory before the Rust decoder can
+        // start.
         try await getData(url("api/images/\(ref.id)/raw"))
     }
 
@@ -191,32 +191,5 @@ public enum SelfHostedError: Error, LocalizedError, Equatable {
     }
 }
 
-// MARK: - SelfHostedCredentialStore
-
-/// Token storage keyed by server host. In-memory today; Keychain-backed in
-/// a follow-up.
-///
-/// TODO(T5): back this with Keychain (`kSecClassGenericPassword`, service =
-/// "app.justmaple.maple.self-hosted", account = host). The protocol is
-/// already the right shape — only the storage swap is needed.
-public actor SelfHostedCredentialStore {
-    public static let shared = SelfHostedCredentialStore()
-
-    private var tokensByHost: [String: String] = [:]
-
-    public init() {}
-
-    public func token(forServerURL url: URL) -> String? {
-        guard let host = url.host else { return nil }
-        return tokensByHost[host]
-    }
-
-    public func setToken(_ token: String?, forServerURL url: URL) {
-        guard let host = url.host else { return }
-        if let token {
-            tokensByHost[host] = token
-        } else {
-            tokensByHost.removeValue(forKey: host)
-        }
-    }
-}
+// SelfHostedCredentialStore now lives in its own file — see
+// SelfHostedCredentialStore.swift for the Keychain-backed implementation.

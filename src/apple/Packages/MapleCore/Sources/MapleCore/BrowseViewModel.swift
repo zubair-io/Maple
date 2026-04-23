@@ -115,10 +115,8 @@ public final class BrowseViewModel {
     /// Source-agnostic loader. Works for any `ImageSource` implementation
     /// (Filesystem, PhotoKit, SMB, SelfHosted). `ImageRef.url` maps to an
     /// `AssetRef` when the source is file-shaped; sources without a URL
-    /// (PhotoKit, SelfHosted) get a synthetic placeholder URL built from
-    /// the stable ref id. The `EditSession` layer is already URL-keyed —
-    /// the synthetic URLs keep that contract intact until a proper
-    /// ref-based `AssetRef` lands.
+    /// (PhotoKit, SelfHosted) build a bytes-provider-backed AssetRef that
+    /// calls `source.rawBytes(for:)` on demand — no synthetic URL kludge.
     public func loadSource(_ source: any ImageSource) async {
         loadGeneration &+= 1
         let gen = loadGeneration
@@ -135,13 +133,21 @@ public final class BrowseViewModel {
                 if let url = ref.url {
                     return AssetRef(url: url)
                 }
-                // Synthesise a stable placeholder URL from the ref id so the
-                // grid has something to key off. EditSession won't be able to
-                // pipe this through `PipelineRenderer.render(rawPath:)`
-                // directly — TODO(UI-sourceless-assets): thread `rawBytes`
-                // through ImageEditPipeline so sources without a URL (PhotoKit,
-                // SelfHosted) can render without being staged to disk.
-                return AssetRef(url: URL(string: "maple-source://\(ref.id)") ?? URL(fileURLWithPath: "/"))
+                // Sourceless asset — build a bytes-backed ref. The closure
+                // captures the source actor and the stable ref so the Rust
+                // pipeline can request bytes at decode time.
+                let capturedRef = ref
+                let capturedSource = source
+                let displayName = ref.displayName
+                // Best-effort extension hint from the display name.
+                let ext = (ref.displayName as NSString).pathExtension.lowercased()
+                return AssetRef(
+                    displayName: displayName,
+                    hintExtension: ext.isEmpty ? nil : ext,
+                    bytesProvider: { [capturedSource, capturedRef] in
+                        try await capturedSource.rawBytes(for: capturedRef)
+                    }
+                )
             }
             guard gen == loadGeneration else { return }
 
