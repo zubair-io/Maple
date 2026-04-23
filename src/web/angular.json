@@ -1,0 +1,120 @@
+{
+  "$schema": "./node_modules/@angular/cli/lib/config/schema.json",
+  "version": 1,
+  "cli": {
+    "packageManager": "npm",
+    "analytics": "ea910103-47ad-40e0-a489-18cf7ac0ed76"
+  },
+  "newProjectRoot": "projects",
+  "projects": {
+    "maple": {
+      "projectType": "application",
+      "schematics": {
+        "@schematics/angular:component": {
+          "style": "scss"
+        }
+      },
+      "root": "projects/maple",
+      "sourceRoot": "projects/maple/src",
+      "prefix": "app",
+      "architect": {
+        "build": {
+          "builder": "@angular/build:application",
+          "options": {
+            "browser": "projects/maple/src/main.ts",
+            "tsConfig": "projects/maple/tsconfig.app.json",
+            "webWorkerTsConfig": "tsconfig.worker.json",
+            "inlineStyleLanguage": "scss",
+            "assets": [
+              {
+                "glob": "**/*",
+                "input": "projects/maple/public"
+              },
+              {
+                "glob": "**/*",
+                "input": "projects/maple/src/assets",
+                "output": "assets"
+              },
+              {
+                "glob": "manifest.webmanifest",
+                "input": "projects/maple/src",
+                "output": "/"
+              },
+              {
+                "glob": "raw_wasm_bg.wasm",
+                "input": "projects/maple-common/src/lib/raw-pipeline/pkg",
+                "output": "/"
+              }
+            ],
+            "styles": ["projects/maple/src/styles.scss"],
+            "serviceWorker": "ngsw-config.json"
+          },
+          "configurations": {
+            "production": {
+              "budgets": [
+                {
+                  "type": "initial",
+                  "maximumWarning": "3MB",
+                  "maximumError": "8MB"
+                },
+                {
+                  "type": "anyComponentStyle",
+                  "maximumWarning": "8kB",
+                  "maximumError": "16kB"
+                }
+              ],
+              "outputHashing": "all"
+            },
+            "development": {
+              "optimization": false,
+              "extractLicenses": false,
+              "sourceMap": true
+            }
+          },
+          "defaultConfiguration": "production"
+        },
+        "serve": {
+          "builder": "@angular/build:dev-server",
+          "configurations": {
+            "production": {
+              "buildTarget": "maple:build:production"
+            },
+            "development": {
+              "buildTarget": "maple:build:development"
+            }
+          },
+          "defaultConfiguration": "development"
+        },
+        "test": {
+          "builder": "@angular/build:unit-test"
+        }
+      }
+    },
+    "Maple-common": {
+      "projectType": "library",
+      "root": "projects/maple-common",
+      "sourceRoot": "projects/maple-common/src",
+      "prefix": "lib",
+      "architect": {
+        "build": {
+          "builder": "@angular/build:ng-packagr",
+          "configurations": {
+            "production": {
+              "tsConfig": "projects/maple-common/tsconfig.lib.prod.json"
+            },
+            "development": {
+              "tsConfig": "projects/maple-common/tsconfig.lib.json"
+            }
+          },
+          "defaultConfiguration": "production"
+        },
+        "test": {
+          "builder": "@angular/build:unit-test",
+          "options": {
+            "tsConfig": "projects/maple-common/tsconfig.spec.json"
+          }
+        }
+      }
+    }
+  }
+}
