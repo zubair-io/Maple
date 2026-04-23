@@ -133,6 +133,45 @@ public actor SMBSource {
     }
 }
 
+// MARK: - ImageSource conformance
+
+extension SMBSource: ImageSource {
+    /// Map enumerated `SMBAsset`s to `ImageRef`. `id` is the share-relative
+    /// path (stable for the lifetime of this connection); `url` is synthesised
+    /// as `smb://host/share/path` for display only.
+    public func images() async throws -> [ImageRef] {
+        let host = credentials?.host ?? ""
+        let share = credentials?.share ?? ""
+        return _assets.map { a in
+            let url = URL(string: "smb://\(host)/\(share)\(a.path)")
+            return ImageRef(id: a.path, displayName: a.name, url: url)
+        }
+    }
+
+    public func thumb(for ref: ImageRef) async throws -> Data? { nil }
+    public func preview(for ref: ImageRef) async throws -> Data? { nil }
+
+    public func rawBytes(for ref: ImageRef) async throws -> Data {
+        guard let client else { throw SMBError.notConnected }
+        return try await client.contents(atPath: ref.id, range: Range<UInt64>?.none)
+    }
+
+    public func writeXMP(_ sidecar: Sidecar, for ref: ImageRef) async throws {
+        guard let client else { throw SMBError.notConnected }
+        let xml = XMPSerializer.serialize(model: sidecar.model, culling: sidecar.culling)
+        guard let data = xml.data(using: .utf8) else {
+            throw XMPStoreError.encodingError
+        }
+        let sidecarPath = (ref.id as NSString)
+            .deletingPathExtension
+            .appending(".xmp")
+        try await writeWithRetry(data: data, to: sidecarPath, client: client)
+    }
+
+    /// SMB shares have no server-side index.
+    public func search(_ query: SearchQuery) async throws -> [ImageRef]? { nil }
+}
+
 // MARK: - SMBError
 
 public enum SMBError: Error, LocalizedError {

@@ -125,6 +125,55 @@ public actor FilesystemSource {
     }
 }
 
+// MARK: - ImageSource conformance
+
+extension FilesystemSource: ImageSource {
+    /// Map discovered `FileAsset`s to the generic `ImageRef` vocabulary.
+    /// The id is the filesystem URL path — stable for the lifetime of the
+    /// folder and unique within this source.
+    public func images() async throws -> [ImageRef] {
+        _assets.map { fa in
+            ImageRef(id: fa.url.path, displayName: fa.name, url: fa.url)
+        }
+    }
+
+    /// Filesystem sources don't synthesise thumbnails; callers fall through
+    /// to the Rust decoder's embedded-preview path.
+    public func thumb(for ref: ImageRef) async throws -> Data? { nil }
+
+    public func preview(for ref: ImageRef) async throws -> Data? { nil }
+
+    public func rawBytes(for ref: ImageRef) async throws -> Data {
+        guard let url = ref.url else {
+            throw ImageSourceError.notFound(ref.id)
+        }
+        let accessing = url.startAccessingSecurityScopedResource()
+        defer { if accessing { url.stopAccessingSecurityScopedResource() } }
+        return try Data(contentsOf: url)
+    }
+
+    public func writeXMP(_ sidecar: Sidecar, for ref: ImageRef) async throws {
+        guard let url = ref.url else {
+            throw ImageSourceError.notFound(ref.id)
+        }
+        let sidecarURL = url.deletingPathExtension().appendingPathExtension("xmp")
+        let accessing = url.startAccessingSecurityScopedResource()
+        defer { if accessing { url.stopAccessingSecurityScopedResource() } }
+        // Atomic temp + replace; matches XMPSidecarStore.writeAtomically.
+        let xml = XMPSerializer.serialize(model: sidecar.model, culling: sidecar.culling)
+        guard let data = xml.data(using: .utf8) else {
+            throw XMPStoreError.encodingError
+        }
+        let tmpURL = sidecarURL.deletingLastPathComponent()
+            .appendingPathComponent(".\(sidecarURL.lastPathComponent).tmp")
+        try data.write(to: tmpURL, options: .atomic)
+        _ = try FileManager.default.replaceItemAt(sidecarURL, withItemAt: tmpURL)
+    }
+
+    /// Filesystem has no index; return `nil` to signal "cannot search".
+    public func search(_ query: SearchQuery) async throws -> [ImageRef]? { nil }
+}
+
 // MARK: - RAWExtensions
 
 public enum RAWExtensions {
