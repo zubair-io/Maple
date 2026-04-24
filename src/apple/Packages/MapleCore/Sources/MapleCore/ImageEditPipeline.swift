@@ -344,26 +344,46 @@ public actor ImageEditPipeline {
             img = f.outputImage ?? img
         }
         if model.whites != 0 || model.blacks != 0 {
-            // Whites/Blacks are point-endpoint shifts rather than overall
-            // brightness. CIToneCurve gives us the two-point control
-            // Lightroom-style sliders expect; the midtones anchor on the
-            // identity 0.5 point so the center of the histogram doesn't
-            // drift.
-            let wShift = CGFloat(model.whites) / 100.0 * 0.15
-            let bShift = CGFloat(model.blacks) / 100.0 * 0.15
+            // Whites/Blacks are point-endpoint shifts. CIToneCurve gives us
+            // the 5-point Lightroom-style curve; the midtones anchor at
+            // 0.25 / 0.5 / 0.75 stay at identity so the histogram center
+            // doesn't drift. Blacks and whites shift the endpoints
+            // asymmetrically depending on sign — a pure Y shift collapses
+            // to identity on one side because display values clamp to
+            // [0, 1], which is why negative blacks / positive whites were
+            // invisible in the previous attempt.
+            //
+            //   Blacks > 0 (lift)    → point0 = (0, +b)   — raises black out
+            //   Blacks < 0 (crush)   → point0 = (-b, 0)   — pushes black in
+            //   Whites > 0 (clip)    → point4 = (1-w, 1)  — pushes white in
+            //   Whites < 0 (compress)→ point4 = (1, 1+w)  — lowers white out
+            let b = CGFloat(model.blacks) / 100.0 * 0.15
+            let w = CGFloat(model.whites) / 100.0 * 0.15
+            let point0: CGPoint = b >= 0
+                ? CGPoint(x: 0, y: b)
+                : CGPoint(x: -b, y: 0)
+            let point4: CGPoint = w >= 0
+                ? CGPoint(x: 1 - w, y: 1)
+                : CGPoint(x: 1, y: 1 + w)
             let f = CIFilter.toneCurve()
             f.inputImage = img
-            f.point0 = CGPoint(x: 0.0, y: max(0.0, min(1.0, 0.0 + bShift)))
+            f.point0 = point0
             f.point1 = CGPoint(x: 0.25, y: 0.25)
             f.point2 = CGPoint(x: 0.5, y: 0.5)
             f.point3 = CGPoint(x: 0.75, y: 0.75)
-            f.point4 = CGPoint(x: 1.0, y: max(0.0, min(1.0, 1.0 + wShift)))
+            f.point4 = point4
             img = f.outputImage ?? img
         }
 
-        // Stage 5: Vibrance (Metal kernel) + Saturation
+        // Stage 5: Vibrance + Saturation. `applySceneVibrance` is another
+        // dead Metal-kernel path today (same bundle-compile gap as the
+        // tone-controls kernel); swap in `CIVibrance` so the slider moves
+        // pixels. Amount is -1..+1 in CI; slider is ±100 → ÷100.
         if model.vibrance != 0 {
-            img = MetalKernels.applySceneVibrance(to: img, vibrance: Float(model.vibrance))
+            let f = CIFilter.vibrance()
+            f.inputImage = img
+            f.amount = Float(model.vibrance / 100.0)
+            img = f.outputImage ?? img
         }
         if model.saturation != 0 {
             let f = CIFilter.colorControls()
