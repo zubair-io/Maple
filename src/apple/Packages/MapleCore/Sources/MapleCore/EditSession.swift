@@ -425,95 +425,114 @@ public final class EditSession {
     public func ensureRenderStarted() {
         guard renderedPreview == nil || decodedForAssetID != asset.id else { return }
         editSessionSignposter.emitEvent("open")
-        // Cold-open fast path: if the rendered-preview disk cache has a
-        // viewport-sized JPEG keyed on this asset's sidecar mtime, paint
-        // it immediately. The real render still runs — the cached image is
-        // the *last-known-good* develop and is overwritten as soon as the
-        // fast phase lands a fresh frame. Matches reference Maple's
-        // `beginEditing → cache.read → return` short-circuit.
-        loadCachedPreviewIfAvailable()
-        // Order matters. `_scheduleRender` bumps `renderGeneration`, and
-        // `loadEmbeddedPreviewIfAvailable` snapshots that value to guard its
-        // delayed MainActor publish against later navigation. If we called
-        // the preview loader first it would capture the pre-bump gen and
-        // the guard inside its detached task would always fail — the
-        // embedded preview would be silently dropped on every open.
-        _scheduleRender(phase: .fast)
-        loadEmbeddedPreviewIfAvailable()
-    }
-
-    /// Try to paint a cached rendered JPEG from `.maple/previews/` so the
-    /// viewport shows pixels immediately on re-open. No-op for assets
-    /// without a `primaryURL` (PhotoKit / SelfHosted have their own thumb
-    /// caches keyed on `stableID`, not URL). Also seeds `nativeImageSize`
-    /// so fit / zoom math resolves before the real decode lands.
-    private func loadCachedPreviewIfAvailable() {
-        guard let url = asset.primaryURL else { return }
-        guard renderedPreview == nil else { return }
-        let w = Int(max(previewSize.width, 1))
-        Task.detached(priority: .userInitiated) { [weak self] in
-            guard let cached = await RenderedPreviewCache.shared
-                .preview(for: url, screenWidth: w) else { return }
-            await MainActor.run {
-                guard let self else { return }
-                guard self.asset.primaryURL == url,
-                      self.renderedPreview == nil,
-                      self.decodedForAssetID != self.asset.id else { return }
-                self.renderedPreview = cached
-                // Don't seed `nativeImageSize` from the cached JPEG either —
-                // cache entries are viewport-sized, not sensor-sized. The
-                // real native dims come from the Rust decode that's kicking
-                // off in parallel; until then `FullImageView.imageExtent`
-                // falls through to `ci.extent`, which matches the buffer
-                // we're actually drawing.
-                editSessionLogger.debug(
-                    "cached preview published extent=\(cached.extent.width)x\(cached.extent.height)"
-                )
-            }
+        // Sub-second open strategy: seed `decodedImage` from whatever's
+        // fastest to get hold of (cache hit → embedded JPEG), then kick
+        // the fast-phase filter chain. That unlocks slider interaction
+        // within ~50 ms because `decodeAndRender`'s hot path reuses the
+        // cached decode instead of blocking on `sharedDecode` (~15–20 s
+        // on a 100 MP RAW). The real Rust decode still runs in the
+        // background; when it lands, `sharedDecode` overwrites
+        // `decodedImage` with the full-quality output and a follow-up
+        // `_scheduleRender(.fast)` re-processes the current model against
+        // it — quality silently upgrades without the user losing
+        // responsiveness.
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.openAssetPipelineAsync()
         }
     }
 
-    /// Read the file's embedded JPEG preview off the main actor and publish
-    /// it as `renderedPreview` so the user sees *something* while the Rust
-    /// develop runs. No-op for sourceless assets or when the file has no
-    /// extractable preview. Only writes the preview back when the real
-    /// render hasn't already landed (`decodedImage == nil`) — the generation
-    /// counter guards against races with a concurrent fast pass.
-    private func loadEmbeddedPreviewIfAvailable() {
-        guard let url = asset.primaryURL else { return }
-        let gen = renderGeneration
-        let assetID = asset.id
+    /// Orchestrates the cold-open path so the fast-phase filter chain
+    /// has a `decodedImage` to work against before the expensive Rust
+    /// decode completes. All three inputs (disk cache, embedded JPEG,
+    /// Rust decode) are attempted; the first one back seeds the cached
+    /// slot so sliders become responsive. Later inputs overwrite the
+    /// slot only when they're strictly better (cache → embedded →
+    /// Rust). Each seed triggers a `_scheduleRender(.fast)` so the view
+    /// upgrades as better sources land.
+    @MainActor
+    private func openAssetPipelineAsync() async {
+        let pipeline = self.pipeline
+        let openedAsset = self.asset
+
+        // Kick the background Rust decode early — it's the slowest,
+        // latency-hiding it behind the preview paths matters most. This
+        // task also writes `nativeImageSize` + `decodedImage` when it
+        // completes via `sharedDecode`'s tail.
+        let rustTask: Task<Void, Never> = Task { [weak self] in
+            guard let self else { return }
+            _ = await self.sharedDecode(asset: openedAsset, pipeline: pipeline)
+            // Re-render against the Rust output when it lands (but only
+            // if we're still on the same asset).
+            if self.asset.id == openedAsset.id {
+                self._scheduleRender(phase: .fast)
+            }
+        }
+
+        // Try the disk cache first — it's the last-known-good develop
+        // and lands in ~10 ms if present.
+        if await self.seedFromCachedPreview(for: openedAsset) {
+            self._scheduleRender(phase: .fast)
+        }
+
+        // Embedded JPEG — camera-baked preview, ~50 ms via ImageIO. Seeds
+        // `decodedImage` so sliders have something to filter against
+        // even if there was no cache hit. Won't overwrite a preceding
+        // cache seed because the guards check `decodedForAssetID`.
+        if await self.seedFromEmbeddedPreview(for: openedAsset) {
+            self._scheduleRender(phase: .fast)
+        }
+
+        // Wait for the Rust task so this driver routine doesn't leave a
+        // dangling reference. We already triggered the re-render above.
+        await rustTask.value
+    }
+
+    /// Returns true if a cached rendered preview was loaded and the
+    /// session state was updated (`decodedImage` / `renderedPreview`).
+    /// No-op + false when there's no cache hit or the asset switched.
+    @MainActor
+    private func seedFromCachedPreview(for asset: AssetRef) async -> Bool {
+        guard let url = asset.primaryURL else { return false }
+        guard renderedPreview == nil, decodedForAssetID != asset.id else { return false }
+        let w = Int(max(previewSize.width, 1))
+        let cached = await RenderedPreviewCache.shared
+            .preview(for: url, screenWidth: w)
+        guard let cached else { return false }
+        guard self.asset.id == asset.id, decodedForAssetID != asset.id else { return false }
+        renderedPreview = cached
+        decodedImage = cached
+        decodedForAssetID = asset.id
+        editSessionLogger.debug(
+            "cached preview seeded decode extent=\(cached.extent.width)x\(cached.extent.height)"
+        )
+        return true
+    }
+
+    /// Returns true if the embedded JPEG preview was loaded and seeded
+    /// into `decodedImage`. No-op + false when the asset has no
+    /// extractable preview, has already been Rust-decoded, or the asset
+    /// switched mid-await.
+    @MainActor
+    private func seedFromEmbeddedPreview(for asset: AssetRef) async -> Bool {
+        guard let url = asset.primaryURL else { return false }
+        guard decodedForAssetID != asset.id else { return false }
         let scope = asset.scopeParentURL ?? url.deletingLastPathComponent()
-        Task.detached(priority: .userInitiated) { [weak self] in
+        let ci: CIImage? = await Task.detached(priority: .userInitiated) { () -> CIImage? in
             let accessing = scope.startAccessingSecurityScopedResource()
             defer { if accessing { scope.stopAccessingSecurityScopedResource() } }
-            let t0 = Date()
-            guard let ci = Self.readEmbeddedPreview(from: url) else { return }
-            let ms = Int(Date().timeIntervalSince(t0) * 1000)
-            await MainActor.run {
-                guard let self else { return }
-                // Drop if anything moved under us: the asset changed, the
-                // render generation advanced, or a real Maple decode already
-                // published a preview.
-                guard self.asset.id == assetID,
-                      self.renderGeneration == gen,
-                      self.decodedForAssetID != self.asset.id,
-                      self.decodedImage == nil else {
-                    return
-                }
-                self.renderedPreview = ci
-                // Don't seed `nativeImageSize` here — the embedded preview is
-                // scaled-down (ImageIO caps at 2048 px long edge) so its
-                // extent isn't the real sensor size. Any zoom math running
-                // before the Rust decode lands falls back to `ci.extent`
-                // via `FullImageView.imageExtent`'s nil path, which is
-                // consistent with what's actually on screen.
-                editSessionSignposter.emitEvent("embedded paint")
-                editSessionLogger.debug(
-                    "embedded preview published \(ms)ms extent=\(ci.extent.width)x\(ci.extent.height)"
-                )
-            }
-        }
+            return Self.readEmbeddedPreview(from: url)
+        }.value
+        guard let ci else { return false }
+        guard self.asset.id == asset.id, decodedForAssetID != asset.id else { return false }
+        renderedPreview = ci
+        decodedImage = ci
+        decodedForAssetID = asset.id
+        editSessionSignposter.emitEvent("embedded paint")
+        editSessionLogger.debug(
+            "embedded preview seeded decode extent=\(ci.extent.width)x\(ci.extent.height)"
+        )
+        return true
     }
 
     /// Extract the camera's embedded JPEG preview via ImageIO. Returns a
