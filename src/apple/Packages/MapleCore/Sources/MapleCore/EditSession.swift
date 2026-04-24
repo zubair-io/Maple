@@ -742,26 +742,31 @@ public final class EditSession {
         decodeTask = nil
         decodeTaskAssetID = nil
 
-        // Fast path: decoded-buffer disk cache. Skips the Rust pipeline
-        // entirely when the asset's mtime matches the cached key.
-        if let url = asset.primaryURL,
-           let cached = await DecodedBufferCache.shared.decoded(for: url) {
-            editSessionLogger.debug(
-                "decoded cache hit extent=\(cached.extent.width)x\(cached.extent.height)"
-            )
-            if self.asset.id == asset.id {
-                decodedImage = cached
-                decodedForAssetID = asset.id
-                nativeImageSize = cached.extent.size
-            }
-            return cached
-        }
-
-        // Cache miss — fall through to the Rust decode.
+        // Register the task SYNCHRONOUSLY before any await so sibling
+        // callers that arrive during the cache lookup or Rust decode see
+        // the in-flight task and piggy-back via the `existing` check
+        // above. The previous version `await`-ed
+        // `DecodedBufferCache.shared.decoded(for:)` before setting
+        // `decodeTask`, so 4–5 concurrent callers could all slip past the
+        // guard during that yield and each kick off its own Rust FFI —
+        // observable as N concurrent `decodeAndRender published gen=1`
+        // lines on cold open and a decode time that scaled with caller
+        // count instead of shrinking to one Rust pass.
         let decodeSignpostID = editSessionSignposter.makeSignpostID()
         let decodeState = editSessionSignposter.beginInterval("decode", id: decodeSignpostID)
-        let task = Task.detached(priority: .userInitiated) { [pipeline] () -> CIImage? in
-            await pipeline.decode(asset: asset)
+        let task: Task<CIImage?, Never> = Task.detached(priority: .userInitiated) { [pipeline] in
+            // Disk-cache fast path. Skips the Rust pipeline entirely when
+            // the asset's mtime matches the cached key.
+            if let url = asset.primaryURL,
+               let cached = await DecodedBufferCache.shared.decoded(for: url) {
+                return cached
+            }
+            // Cache miss — Rust decode, then write-back for the next open.
+            guard let decoded = await pipeline.decode(asset: asset) else { return nil }
+            if let url = asset.primaryURL {
+                await DecodedBufferCache.shared.storeDecoded(decoded, for: url)
+            }
+            return decoded
         }
         decodeTask = task
         decodeTaskAssetID = asset.id
@@ -774,13 +779,6 @@ public final class EditSession {
                 decodedImage = decoded
                 decodedForAssetID = asset.id
                 nativeImageSize = decoded.extent.size
-                // Write-back so the next cold open skips Rust.
-                if let url = asset.primaryURL {
-                    let capturedImage = decoded
-                    Task.detached(priority: .utility) {
-                        await DecodedBufferCache.shared.storeDecoded(capturedImage, for: url)
-                    }
-                }
             }
             if decodeTaskAssetID == asset.id {
                 decodeTask = nil
