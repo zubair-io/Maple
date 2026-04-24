@@ -20,7 +20,7 @@ public actor DecodedBufferCache {
     // math changes, demosaic quality toggled, output format changes) — the
     // version is part of the cache key so stale entries are silently
     // ignored and overwritten.
-    private let rustVersion: UInt32 = 1
+    private let rustVersion: UInt32 = 2
 
     public init() {}
 

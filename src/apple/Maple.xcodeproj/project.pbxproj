@@ -96,6 +96,7 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = A1F0001100000000000000A1 /* Build configuration list for PBXNativeTarget "Maple" */;
 			buildPhases = (
+				A1F0005000000000000000A1 /* Clean test fixtures */,
 				A1F0001200000000000000A1 /* Sources */,
 				A1F0000A00000000000000A1 /* Frameworks */,
 				A1F0001300000000000000A1 /* Resources */,
@@ -193,6 +194,28 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		A1F0005000000000000000A1 /* Clean test fixtures */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Clean test fixtures";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -eu\nFIXTURES=\"${SRCROOT}/../../test-fixtures/raws\"\nif [ -d \"$FIXTURES\" ]; then\n  find \"$FIXTURES\" -type d -name .maple -prune -exec rm -rf {} +\n  find \"$FIXTURES\" -type f -name '*.xmp' -delete\nfi\n";
+		};
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		A1F0001200000000000000A1 /* Sources */ = {
