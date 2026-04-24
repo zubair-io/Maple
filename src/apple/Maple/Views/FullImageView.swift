@@ -105,15 +105,26 @@ struct FullImageView: View {
                 MapleTokens.imageCanvas.ignoresSafeArea()
 
                 if let ci = session.showingOriginal ? nil : session.renderedPreview {
-                    let extent = ci.extent.size
+                    // Frame on the *virtual* image size — `nativeImageSize`
+                    // once the decode has landed, otherwise the current
+                    // buffer's extent as a best-effort. The CIImage itself
+                    // may be at a smaller resolution (embedded preview,
+                    // cached JPEG, half-res fast phase) and CoreImage will
+                    // upscale to fill this frame. Keying the frame off
+                    // `ci.extent` instead causes the picture to collapse
+                    // whenever the preview buffer is smaller than native
+                    // (embedded JPEG landed but decode hasn't) — the frame
+                    // shrinks along with the buffer and the viewport looks
+                    // like it went blank.
+                    let virtualSize = imageExtent ?? ci.extent.size
                     let scale = effectivePixelScale(viewport: geo.size)
                     // `scale` is real-px-per-image-px; SwiftUI frames are in
-                    // points, so divide by displayScale. This mirrors the
-                    // reference's inline sizing approach — explicit frame
+                    // points, so divide by displayScale. Matches reference
+                    // Maple's inline sizing approach — explicit frame
                     // instead of `.scaleEffect`, which gives predictable
                     // pan math (`panOffset` is in points applied directly).
-                    let displayW = extent.width * scale / displayScale
-                    let displayH = extent.height * scale / displayScale
+                    let displayW = virtualSize.width * scale / displayScale
+                    let displayH = virtualSize.height * scale / displayScale
 
                     CIImageView(image: ci)
                         .frame(width: displayW, height: displayH)
