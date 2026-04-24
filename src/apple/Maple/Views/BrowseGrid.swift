@@ -18,30 +18,238 @@ struct BrowseGrid: View {
     /// receive the instance directly — no `@ObservedObject` wrapper.
     let vm: BrowseViewModel
     @Binding var sessions: [AssetRef.ID: EditSession]
+    /// Fired by the empty state's "Grant Access" button when
+    /// `vm.photosAuthNeeded` is true. `nil` in previews / non-Photos flows.
+    var onGrantPhotosAccess: (() -> Void)? = nil
+    /// Single-click on a sub-folder cell. Shell navigates the explorer into
+    /// that folder (claims security scope + reloads the grid).
+    var onNavigateFolder: ((URL) -> Void)? = nil
+    /// Double-click on an image cell. Shell switches into Full-image / Edit
+    /// mode with that asset as the active session.
+    var onOpenEditor: ((AssetRef) -> Void)? = nil
 
     private let columns = [GridItem(.adaptive(minimum: 140, maximum: 200), spacing: 4)]
 
+    /// True when the current folder has neither sub-folders nor images. The
+    /// empty-state overlay only takes over in that case — otherwise we're
+    /// browsing a populated folder.
+    private var isEmpty: Bool {
+        vm.assets.isEmpty && vm.subfolders.isEmpty
+    }
+
     var body: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                LazyVGrid(columns: columns, spacing: 4) {
-                    ForEach(vm.assets) { asset in
-                        ThumbnailCell(asset: asset,
-                                      isSelected: vm.selectedID == asset.id,
-                                      session: sessions[asset.id],
-                                      source: vm.currentSource)
-                            .id(asset.id)
-                            .onTapGesture { vm.selectedID = asset.id }
+        ZStack(alignment: .top) {
+            // The grid itself — always in the hierarchy so SwiftUI doesn't
+            // tear it down when assets briefly go empty during a source
+            // switch. We fade it under the empty-state only when nothing is
+            // loaded at all.
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVGrid(columns: columns, spacing: 4) {
+                        // Sub-folders first — Finder-style — then images.
+                        ForEach(vm.subfolders, id: \.self) { url in
+                            FolderCell(url: url)
+                                .onTapGesture {
+                                    onNavigateFolder?(url)
+                                }
+                        }
+                        ForEach(vm.assets) { asset in
+                            ThumbnailCell(asset: asset,
+                                          isSelected: vm.selectedID == asset.id,
+                                          session: sessions[asset.id],
+                                          source: vm.currentSource)
+                                .id(asset.id)
+                                // Single click selects (highlights cell, Info
+                                // pane refreshes).
+                                .onTapGesture {
+                                    vm.selectedID = asset.id
+                                }
+                                // Double click opens the editor.
+                                .onTapGesture(count: 2) {
+                                    vm.selectedID = asset.id
+                                    onOpenEditor?(asset)
+                                }
+                        }
                     }
+                    .padding(8)
                 }
+                .background(MapleTokens.bg)
+                .opacity(isEmpty ? 0 : 1)
+                .onChange(of: vm.selectedID) { _, newID in
+                    if let id = newID { proxy.scrollTo(id, anchor: .center) }
+                }
+            }
+
+            // Error banner at the top of the grid.
+            if let err = vm.loadError {
+                ErrorBanner(
+                    message: err.localizedDescription,
+                    onRetry: { vm.loadError = nil },
+                    onDismiss: { vm.loadError = nil }
+                )
                 .padding(8)
             }
-            .background(MapleTokens.bg)
-            .onChange(of: vm.selectedID) { _, newID in
-                if let id = newID { proxy.scrollTo(id, anchor: .center) }
+
+            // Empty state overlay — only when the folder has zero folders AND
+            // zero images.
+            if isEmpty {
+                BrowseEmptyState(vm: vm, onGrantPhotosAccess: onGrantPhotosAccess)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(MapleTokens.bg)
             }
         }
         .keyboardShortcuts(vm: vm, sessions: sessions)
+    }
+}
+
+// MARK: - FolderCell
+
+/// Grid cell rendering a sub-folder. Single click navigates into it via the
+/// `onNavigateFolder` callback on `BrowseGrid`.
+private struct FolderCell: View {
+    let url: URL
+
+    var body: some View {
+        VStack(spacing: 4) {
+            RoundedRectangle(cornerRadius: 4)
+                .fill(MapleTokens.surfaceAlt)
+                .aspectRatio(3/2, contentMode: .fit)
+                .overlay {
+                    Image(systemName: "folder.fill")
+                        .font(.system(size: 36))
+                        .foregroundStyle(MapleTokens.primary.opacity(0.85))
+                }
+
+            Text(url.lastPathComponent)
+                .font(.system(size: 10))
+                .foregroundStyle(MapleTokens.textMain)
+                .lineLimit(1)
+                .truncationMode(.middle)
+        }
+        .accessibilityLabel("Folder \(url.lastPathComponent)")
+        .accessibilityAddTraits(.isButton)
+    }
+}
+
+// MARK: - BrowseEmptyState
+
+/// Centred illustration + contextual text shown when `vm.assets` is empty.
+private struct BrowseEmptyState: View {
+    let vm: BrowseViewModel
+    let onGrantPhotosAccess: (() -> Void)?
+
+    var body: some View {
+        VStack(spacing: 12) {
+            Image(systemName: iconName)
+                .font(.system(size: 48))
+                .foregroundStyle(MapleTokens.textMuted)
+
+            Text(primaryTitle)
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(MapleTokens.textMain)
+
+            secondary
+        }
+        .padding(24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var iconName: String {
+        vm.photosAuthNeeded ? "lock.shield" : "photo.on.rectangle.angled"
+    }
+
+    private var primaryTitle: String {
+        vm.photosAuthNeeded ? "Photos access not granted" : "No assets yet"
+    }
+
+    @ViewBuilder
+    private var secondary: some View {
+        if vm.photosAuthNeeded {
+            VStack(spacing: 8) {
+                Text("Maple needs permission to read your Photos library.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(MapleTokens.textMuted)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 360)
+                Button("Grant Access") { onGrantPhotosAccess?() }
+                    .buttonStyle(.bordered)
+                    .disabled(onGrantPhotosAccess == nil)
+            }
+        } else if vm.isLoading {
+            HStack(spacing: 8) {
+                ProgressView()
+                    .scaleEffect(0.8)
+                Text("Loading…")
+                    .font(.system(size: 11))
+                    .foregroundStyle(MapleTokens.textMuted)
+            }
+        } else if let err = vm.loadError {
+            VStack(spacing: 6) {
+                Text(err.localizedDescription)
+                    .font(.system(size: 11))
+                    .foregroundStyle(MapleTokens.textMuted)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 360)
+                Button("Retry") {
+                    // Clear the error — the sidebar row-tap re-runs the load.
+                    vm.loadError = nil
+                }
+                .buttonStyle(.bordered)
+            }
+        } else if vm.currentSource != nil {
+            Text("This folder has no supported RAW files.")
+                .font(.system(size: 11))
+                .foregroundStyle(MapleTokens.textMuted)
+                .multilineTextAlignment(.center)
+        } else {
+            Text("Pick a folder or Photos Library filter in the sidebar.")
+                .font(.system(size: 11))
+                .foregroundStyle(MapleTokens.textMuted)
+                .multilineTextAlignment(.center)
+        }
+    }
+}
+
+// MARK: - ErrorBanner
+
+/// Thin red banner that sits at the top of the grid when `vm.loadError`
+/// is non-nil. Matches the shape of the web `app-error-banner`.
+private struct ErrorBanner: View {
+    let message: String
+    let onRetry: () -> Void
+    let onDismiss: () -> Void
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(MapleTokens.errorText)
+            Text(message)
+                .font(.system(size: 11))
+                .foregroundStyle(MapleTokens.errorText)
+                .lineLimit(2)
+            Spacer()
+            Button("Retry", action: onRetry)
+                .font(.system(size: 11))
+                .buttonStyle(.plain)
+                .foregroundStyle(MapleTokens.primary)
+            Button {
+                onDismiss()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(MapleTokens.textMuted)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(10)
+        .background(
+            RoundedRectangle(cornerRadius: 6)
+                .fill(MapleTokens.errorBg)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(MapleTokens.errorText.opacity(0.4), lineWidth: 0.5)
+                )
+        )
     }
 }
 

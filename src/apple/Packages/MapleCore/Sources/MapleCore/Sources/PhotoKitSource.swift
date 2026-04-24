@@ -47,6 +47,65 @@ public actor PhotoKitSource {
         _assets = fetchRAWAssets()
     }
 
+    /// Configure the source to apply `filter` on its next fetch. Clients
+    /// should call this instead of `requestAccessAndFetch()` when they want
+    /// a subset (Favorites, Picks, Rejects, Album). Access is (re)requested
+    /// here so first-time callers still see the permission prompt.
+    public func fetchAssets(for filter: PhotoKitFilter) async throws {
+        let status = await PHPhotoLibrary.requestAuthorization(for: .readWrite)
+        authStatus = status
+        guard status == .authorized || status == .limited else {
+            throw PhotoKitError.accessDenied(status)
+        }
+        _assets = Self.buildAssets(for: filter)
+    }
+
+    /// Internal helper — builds the PhotoKitAsset array for a given filter.
+    /// Keeps the PhotoKit predicate logic in one place. Static so it can run
+    /// without actor hops on the PHAsset framework (PHAsset is thread-safe).
+    private static func buildAssets(for filter: PhotoKitFilter) -> [PhotoKitAsset] {
+        let options = PHFetchOptions()
+        options.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
+
+        let result: PHFetchResult<PHAsset>
+        switch filter {
+        case .all:
+            result = PHAsset.fetchAssets(with: .image, options: options)
+        case .favorites:
+            options.predicate = NSPredicate(format: "favorite == YES")
+            result = PHAsset.fetchAssets(with: .image, options: options)
+        case .picks, .rejects:
+            // maple:flag lives in XMP sidecars, not PHAsset metadata. Surface
+            // the full image set here; the VM layer can apply the flag
+            // predicate once sidecars are loaded. This keeps the sidebar row
+            // functional even when no sidecars exist yet (empty result).
+            // TODO(UI-photokit-flags): wire XMP flag filter once sidecar
+            // bridging for PHAssets is implemented.
+            result = PHAsset.fetchAssets(with: .image, options: options)
+        case .album(let id, _):
+            let collectionResult = PHAssetCollection.fetchAssetCollections(
+                withLocalIdentifiers: [id], options: nil
+            )
+            guard let collection = collectionResult.firstObject else {
+                return []
+            }
+            result = PHAsset.fetchAssets(in: collection, options: options)
+        }
+
+        var assets: [PhotoKitAsset] = []
+        result.enumerateObjects { phAsset, _, _ in
+            let resources = PHAssetResource.assetResources(for: phAsset)
+            let hasRAW = resources.contains { r in
+                let ext = (r.originalFilename as NSString).pathExtension.lowercased()
+                return RAWExtensions.all.contains(ext)
+            }
+            if hasRAW {
+                assets.append(PhotoKitAsset(id: phAsset.localIdentifier, asset: phAsset))
+            }
+        }
+        return assets
+    }
+
     /// Fetch the raw image bytes for an asset (for the Rust pipeline).
     /// Returns nil if the asset is not available locally.
     public func rawData(for asset: PhotoKitAsset) async -> Data? {

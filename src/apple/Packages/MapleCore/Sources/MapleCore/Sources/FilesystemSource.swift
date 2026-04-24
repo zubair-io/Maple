@@ -50,7 +50,23 @@ public actor FilesystemSource {
     private var bookmarkData: Data?
     private var _assets: [FileAsset] = []
 
+    /// Bookmark-resolved scoped ancestor URL. Long-lived — we hold the scope
+    /// claim for the entire life of the source so detached render / thumbnail
+    /// tasks (which run on background priority and outlive the call that
+    /// started them) can still read sandboxed files. Only released in
+    /// `close()` / `deinit`.
+    ///
+    /// Plain `URL(fileURLWithPath:)` URLs are NOT scope-backed on macOS —
+    /// `startAccessingSecurityScopedResource` silently no-ops. Only URLs
+    /// returned from `URL(resolvingBookmarkData:)` carry a scope token.
+    private var scopeURL: URL?
+    private var scopeClaimed: Bool = false
+
     public var assets: [FileAsset] { _assets }
+    /// Expose the scope-backed ancestor so other parts of the pipeline can
+    /// wrap their FFI reads in a `startAccessingSecurityScopedResource`
+    /// bracket on the same URL.
+    public var scopedAncestor: URL? { scopeURL }
 
     public init() {}
 
@@ -58,24 +74,31 @@ public actor FilesystemSource {
 
     /// Open a folder using a URL (e.g., from NSOpenPanel or fileImporter).
     /// Saves a security-scoped bookmark for re-open without prompts.
+    ///
+    /// The scope claim is held for the lifetime of the source (see
+    /// `scopeURL`) — detached render/thumbnail tasks need the claim to
+    /// survive the return of this call.
     public func open(folderURL: URL) throws {
-        // Resolve any existing scoped access
+        // Resolve any existing scoped access from a prior folder.
         stopAccess()
 
         let accessing = folderURL.startAccessingSecurityScopedResource()
-        defer { if !accessing { } } // Keep open for indexing below
-
         self.folderURL = folderURL
+        self.scopeURL = folderURL
+        self.scopeClaimed = accessing
         self.bookmarkData = try folderURL.bookmarkData(
             options: Self.bookmarkCreationOptions,
             includingResourceValuesForKeys: nil,
             relativeTo: nil
         )
         try _index()
-        if accessing { folderURL.stopAccessingSecurityScopedResource() }
+        // Deliberately DO NOT stopAccessingSecurityScopedResource here — the
+        // scope must outlive the index call for later render / thumbnail
+        // tasks to succeed. Released in `close()` / `deinit`.
     }
 
     /// Re-open a previously saved security-scoped bookmark (across launches).
+    /// Keeps the scope claim alive for the life of the source.
     public func restore(fromBookmarkData data: Data) throws {
         stopAccess()
         var isStale = false
@@ -87,43 +110,79 @@ public actor FilesystemSource {
         )
         let accessing = url.startAccessingSecurityScopedResource()
         self.folderURL = url
+        self.scopeURL = url
+        self.scopeClaimed = accessing
         self.bookmarkData = isStale
             ? try url.bookmarkData(options: Self.bookmarkCreationOptions, includingResourceValuesForKeys: nil, relativeTo: nil)
             : data
         try _index()
-        if accessing { url.stopAccessingSecurityScopedResource() }
+        // Keep scope open — see `open(folderURL:)` for rationale.
     }
 
     /// The bookmark data to persist (save to UserDefaults / app state).
     public var persistableBookmark: Data? { bookmarkData }
 
-    /// Stop accessing the security-scoped resource.
+    /// Release the long-lived scope claim. Called from `deinit` implicitly,
+    /// or explicitly when the source is rotated out of `BrowseViewModel`.
+    public func close() {
+        stopAccess()
+        folderURL = nil
+        scopeURL = nil
+        bookmarkData = nil
+        _assets = []
+    }
+
+    /// Stop accessing the security-scoped resource, if we've been holding
+    /// one. Safe to call redundantly.
     public func stopAccess() {
-        folderURL?.stopAccessingSecurityScopedResource()
+        if scopeClaimed, let url = scopeURL {
+            url.stopAccessingSecurityScopedResource()
+            scopeClaimed = false
+        }
+    }
+
+    /// Return the bookmark-resolved ancestor URL whose scope covers `url`.
+    /// `nil` when `url` lies outside this source's claimed folder.
+    ///
+    /// Consumers call this to find the right URL to pass to
+    /// `startAccessingSecurityScopedResource` before a Rust FFI read —
+    /// claiming on a reconstructed `url.deletingLastPathComponent()` is a
+    /// silent no-op because that URL carries no scope token.
+    public func findScopedParent(for fileURL: URL) -> URL? {
+        guard let scope = scopeURL else { return nil }
+        if fileURL.path.hasPrefix(scope.path) { return scope }
+        return nil
+    }
+
+    deinit {
+        if scopeClaimed, let url = scopeURL {
+            url.stopAccessingSecurityScopedResource()
+        }
     }
 
     // MARK: Private
 
+    /// List RAW files **directly** inside `folderURL` — not recursively.
+    /// Browsing is Finder-style: the grid shows only what's at the current
+    /// depth and drill-down is a separate action. `FileManager.enumerator`
+    /// would walk descendants, flattening every RAW in the tree into one
+    /// list; we use `contentsOfDirectory` instead which stops at one level.
     private func _index() throws {
         guard let folder = folderURL else { return }
-        let accessing = folder.startAccessingSecurityScopedResource()
-        defer { if accessing { folder.stopAccessingSecurityScopedResource() } }
+        // Scope is already claimed in `open(folderURL:)` / `restore(...)` and
+        // held for the life of the source — no need to re-bracket here.
 
         let fm = FileManager.default
-        guard let enumerator = fm.enumerator(
+        let contents = try fm.contentsOfDirectory(
             at: folder,
-            includingPropertiesForKeys: [.isRegularFileKey, .isHiddenKey],
+            includingPropertiesForKeys: [.isRegularFileKey],
             options: [.skipsHiddenFiles, .skipsPackageDescendants]
-        ) else { return }
+        )
 
-        _assets = []
-        for case let url as URL in enumerator {
-            let ext = url.pathExtension.lowercased()
-            if RAWExtensions.all.contains(ext) {
-                _assets.append(FileAsset(url: url))
-            }
-        }
-        _assets.sort { $0.url.lastPathComponent < $1.url.lastPathComponent }
+        _assets = contents
+            .filter { RAWExtensions.all.contains($0.pathExtension.lowercased()) }
+            .sorted { $0.lastPathComponent < $1.lastPathComponent }
+            .map { FileAsset(url: $0) }
     }
 }
 
@@ -134,8 +193,14 @@ extension FilesystemSource: ImageSource {
     /// The id is the filesystem URL path — stable for the lifetime of the
     /// folder and unique within this source.
     public func images() async throws -> [ImageRef] {
-        _assets.map { fa in
-            ImageRef(id: fa.url.path, displayName: fa.name, url: fa.url)
+        let scope = scopeURL
+        return _assets.map { fa in
+            ImageRef(
+                id: fa.url.path,
+                displayName: fa.name,
+                url: fa.url,
+                scopeParentURL: scope
+            )
         }
     }
 
@@ -149,8 +214,13 @@ extension FilesystemSource: ImageSource {
         guard let url = ref.url else {
             throw ImageSourceError.notFound(ref.id)
         }
-        let accessing = url.startAccessingSecurityScopedResource()
-        defer { if accessing { url.stopAccessingSecurityScopedResource() } }
+        // Belt-and-braces: scope is already held on `scopeURL` for the life
+        // of this source, so Data(contentsOf:) will succeed without the
+        // per-call bracket — but we keep a no-op bracket for parity with
+        // other sources.
+        let scope = findScopedParent(for: url)
+        let accessing = scope?.startAccessingSecurityScopedResource() ?? false
+        defer { if accessing { scope?.stopAccessingSecurityScopedResource() } }
         return try Data(contentsOf: url)
     }
 
@@ -159,8 +229,9 @@ extension FilesystemSource: ImageSource {
             throw ImageSourceError.notFound(ref.id)
         }
         let sidecarURL = url.deletingPathExtension().appendingPathExtension("xmp")
-        let accessing = url.startAccessingSecurityScopedResource()
-        defer { if accessing { url.stopAccessingSecurityScopedResource() } }
+        let scope = findScopedParent(for: url)
+        let accessing = scope?.startAccessingSecurityScopedResource() ?? false
+        defer { if accessing { scope?.stopAccessingSecurityScopedResource() } }
         // Atomic temp + replace; matches XMPSidecarStore.writeAtomically.
         let xml = XMPSerializer.serialize(model: sidecar.model, culling: sidecar.culling)
         guard let data = xml.data(using: .utf8) else {

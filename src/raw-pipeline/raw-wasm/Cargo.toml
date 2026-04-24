@@ -28,10 +28,12 @@ uuid = { version = "1", features = ["js"] }
 getrandom = { version = "0.4", features = ["wasm_js"] }
 wasm-bindgen-rayon = { version = "1.3", optional = true }
 rayon = { version = "1.10", optional = true }
-console_error_panic_hook = { version = "0.1", optional = true }
+# Unconditional: we always want panic messages forwarded to the JS console so
+# WASM traps don't show up as opaque `RuntimeError: unreachable` in production.
+console_error_panic_hook = { version = "0.1" }
 
 [features]
 default = []
 # Enable the parallel (rayon + wasm-bindgen-rayon) thread-pool entry points.
 # The WASM build turns this on via `wasm-pack build -- --features parallel`.
-parallel = ["dep:wasm-bindgen-rayon", "dep:rayon", "dep:console_error_panic_hook"]
+parallel = ["dep:wasm-bindgen-rayon", "dep:rayon"]

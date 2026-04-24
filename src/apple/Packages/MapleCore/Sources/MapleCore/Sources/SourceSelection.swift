@@ -14,6 +14,7 @@ import Foundation
 public enum SourceSelection: Sendable, Equatable, Codable {
     case filesystem(bookmark: Data)
     case photoKit
+    case photoKitFilter(PhotoKitFilter)
     case smb(SMBCredentialStore.SavedShare)
     case selfHosted(baseURL: URL)
 }

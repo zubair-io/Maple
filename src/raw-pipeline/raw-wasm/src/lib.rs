@@ -36,7 +36,7 @@ pub fn is_threaded() -> bool {
 /// instead of becoming opaque `RuntimeError: unreachable` traps.
 #[wasm_bindgen]
 pub fn install_panic_hook() {
-    #[cfg(all(target_arch = "wasm32", feature = "parallel"))]
+    #[cfg(target_arch = "wasm32")]
     {
         console_error_panic_hook::set_once();
     }
@@ -47,6 +47,8 @@ pub struct MapleRender {
     width: u32,
     height: u32,
     rgb: Vec<u8>,
+    as_shot_temperature: f32,
+    as_shot_tint: f32,
 }
 
 #[wasm_bindgen]
@@ -57,6 +59,28 @@ impl MapleRender {
     pub fn height(&self) -> u32 { self.height }
     #[wasm_bindgen(getter)]
     pub fn rgb(&self) -> Vec<u8> { self.rgb.clone() }
+    /// Camera-side "As Shot" correlated colour temperature in Kelvin, as
+    /// determined by rawler from the RAW metadata. When the RAW lacks an
+    /// explicit CCT we fall back to 6500K (D65) so callers always get a
+    /// usable value.
+    #[wasm_bindgen(getter)]
+    pub fn as_shot_temperature(&self) -> f32 { self.as_shot_temperature }
+    /// "As Shot" tint in Maple's slider units (-100 .. 100). Approximated
+    /// from the camera's AsShotNeutral (blue vs red skew). 0 when the RAW
+    /// does not expose enough information.
+    #[wasm_bindgen(getter)]
+    pub fn as_shot_tint(&self) -> f32 { self.as_shot_tint }
+}
+
+/// Rough CCT estimator from a green-normalised AsShotNeutral (R, 1, B).
+/// Anchors: log2(B/R) = 0 → 5500K, ±1 → ±2500K. Good to within ~500K for
+/// the common daylight/tungsten/cloudy range — better than the 6500K
+/// fallback that otherwise shows up when rawler can't surface CCT itself.
+fn estimate_cct_from_neutral(as_shot_neutral: [f32; 3]) -> f32 {
+    let r = as_shot_neutral[0].max(0.01);
+    let b = as_shot_neutral[2].max(0.01);
+    let log2_ratio = (b / r).ln() / core::f32::consts::LN_2;
+    (5500.0 + log2_ratio * 2500.0).clamp(2000.0, 12000.0)
 }
 
 /// Render a RAW from bytes (WASM-friendly — no filesystem path needed).
@@ -65,17 +89,51 @@ impl MapleRender {
 /// rawler can disambiguate formats when magic is ambiguous.
 ///
 /// `xmp` is optional XMP sidecar content as a UTF-8 string (not a path).
+/// When `xmp` is `None` we assume the caller is opening a brand-new RAW
+/// (no prior user adjustments) and substitute the camera's AsShotNeutral-
+/// derived white balance for Maple's 6500K default — otherwise every fresh
+/// import would render with a strong colour cast before the user has
+/// touched the Temperature slider.
 #[wasm_bindgen]
 pub fn render_bytes(raw: &[u8], ext: &str, xmp: Option<String>) -> Result<MapleRender, JsError> {
-    let model = match xmp {
+    let raw_img = raw_core::decode::decode_bytes(raw, ext)
+        .map_err(|e| JsError::new(&e.to_string()))?;
+
+    // rawler 0.7 doesn't surface AsShotTemperature, so `as_shot_cct` is
+    // always None today. Fall back to estimating the CCT from the camera's
+    // AsShotNeutral reading — same signal Adobe uses when the DNG lacks a
+    // baked Kelvin tag.
+    let as_shot_temperature = raw_img
+        .as_shot_cct
+        .unwrap_or_else(|| estimate_cct_from_neutral(raw_img.as_shot_neutral));
+    // Tint is best left at 0 on cold open — deriving it from a single
+    // neutral reading without the camera's DCP hue map misleads the slider.
+    // The user can nudge it manually once the temperature is in the ballpark.
+    let as_shot_tint = 0.0_f32;
+
+    let fresh_open = xmp.is_none();
+    let mut model = match xmp {
         Some(x) => xmp_mod::parse(&x).map_err(|e| JsError::new(&e.to_string()))?,
         None => xmp_mod::AdjustmentModel::default(),
     };
-    let raw_img = raw_core::decode::decode_bytes(raw, ext)
-        .map_err(|e| JsError::new(&e.to_string()))?;
+    // Fresh open (no sidecar) → render at the camera's As Shot WB, not the
+    // 6500K default the struct carries. User edits always come in through
+    // `xmp = Some(..)` once they've moved a slider, so this branch only
+    // kicks in for a first-render cold open.
+    if fresh_open {
+        model.temperature = as_shot_temperature;
+        model.tint = as_shot_tint;
+    }
+
     let (w, h, bytes) = raw_core::pipeline::render_from_raw(&raw_img, &model)
         .map_err(|e| JsError::new(&e.to_string()))?;
-    Ok(MapleRender { width: w, height: h, rgb: bytes })
+    Ok(MapleRender {
+        width: w,
+        height: h,
+        rgb: bytes,
+        as_shot_temperature,
+        as_shot_tint,
+    })
 }
 
 /// Version string (for build verification from JS).

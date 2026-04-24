@@ -37,10 +37,18 @@ public struct ImageRef: Sendable, Hashable, Identifiable, Codable {
     /// synthetic.
     public let url: URL?
 
-    public init(id: String, displayName: String, url: URL? = nil) {
+    /// Bookmark-resolved ancestor URL that grants security-scoped access to
+    /// `url`. Populated by filesystem-shaped sources (FilesystemSource) so
+    /// downstream consumers (ImageEditPipeline, ThumbnailLoader) can wrap
+    /// their Rust FFI calls in a scope-claim bracket that actually succeeds.
+    /// `nil` for sourceless adapters (PhotoKit, SelfHosted).
+    public let scopeParentURL: URL?
+
+    public init(id: String, displayName: String, url: URL? = nil, scopeParentURL: URL? = nil) {
         self.id = id
         self.displayName = displayName
         self.url = url
+        self.scopeParentURL = scopeParentURL
     }
 }
 

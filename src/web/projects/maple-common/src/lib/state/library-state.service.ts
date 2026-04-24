@@ -152,9 +152,29 @@ export class LibraryStateService {
   );
 
   // ── Selection ──────────────────────────────────────────────────────────────
-  readonly selectedSourceId = signal<string>('f-france');
+  readonly selectedSourceId = signal<string>('');
   readonly selectedAssetIds = signal<Set<AssetId>>(new Set());
   readonly focusedAssetId = signal<AssetId | null>(null);
+
+  /**
+   * Label of the currently selected sidebar entry (recursive lookup), or empty
+   * when nothing is selected. Used by the BrowseShell title bar.
+   */
+  readonly selectedSourceLabel = computed<string>(() => {
+    const id = this.selectedSourceId();
+    if (!id) return '';
+    const walk = (entries: SidebarEntry[]): string => {
+      for (const e of entries) {
+        if (e.id === id) return e.label;
+        if (e.children) {
+          const hit = walk(e.children);
+          if (hit) return hit;
+        }
+      }
+      return '';
+    };
+    return walk(this.sidebarTree());
+  });
 
   // ── Thumbnail size (grid density) ─────────────────────────────────────────
   readonly thumbSize = signal<number>(this._loadOrDefault('cm.thumbSize', 140) as number);
@@ -564,20 +584,28 @@ export class LibraryStateService {
   /**
    * Add a RAW file as a new Asset entry from raw bytes (in-memory import).
    * Bytes are kept in the LRU cache; older entries are evicted when over budget.
+   *
+   * Pass `explicitId` to reuse an id already persisted on disk (e.g. the id
+   * embedded in an `/edit/:id` URL); callers that don't care get a fresh UUID.
    */
-  addImportedAsset(bytes: Uint8Array, filename: string): AssetId {
-    const id = crypto.randomUUID();
-    const asset: Asset = {
-      id,
-      filename,
-      folderId: 'f-imported',
-      rating: 0,
-      flag: 'unflagged',
-      colorLabel: null,
-      thumbnailGradient: '',
-      aspectRatio: 3 / 2,
-    };
-    this.assets.update((list) => [...list, asset]);
+  addImportedAsset(bytes: Uint8Array, filename: string, explicitId?: AssetId): AssetId {
+    const id = explicitId ?? crypto.randomUUID();
+    // If an asset with this id already exists (hydration after reload), just
+    // refresh the bytes — don't duplicate the sidebar entry or asset record.
+    const existing = this.assets().find((a) => a.id === id);
+    if (!existing) {
+      const asset: Asset = {
+        id,
+        filename,
+        folderId: 'f-imported',
+        rating: 0,
+        flag: 'unflagged',
+        colorLabel: null,
+        thumbnailGradient: '',
+        aspectRatio: 3 / 2,
+      };
+      this.assets.update((list) => [...list, asset]);
+    }
     // Populate both paths so bytesFor() and bytesForAsset() both work.
     this._legacyBytes.set(id, bytes);
     this._byteCache.set(id, bytes);
@@ -591,6 +619,28 @@ export class LibraryStateService {
     this.assets.update((list) =>
       list.map((a) => (a.id === id ? { ...a, width, height, aspectRatio: width / height } : a)),
     );
+  }
+
+  /**
+   * Seed Temperature + Tint from the RAW's AsShot metadata so the editor's
+   * WB sliders reflect the camera's own white-balance reading on first open.
+   * No-op if the user has already edited those fields (i.e. temperature is
+   * no longer the struct's 6500K default or tint is non-zero) — we don't
+   * want to clobber deliberate adjustments when a re-decode triggers this.
+   */
+  seedAsShotWhiteBalance(id: AssetId, temperature: number, tint: number): void {
+    this.adjustmentModels.update((map) => {
+      const current = map.get(id) ?? defaultAdjustmentModel();
+      const isStillDefault =
+        Math.abs(current.temperature - 6500) < 0.5 && Math.abs(current.tint) < 0.5;
+      if (!isStillDefault) return map;
+      // Snap to the Temperature slider's 50 K step so the numeric field
+      // doesn't render a 12-digit float in the UI.
+      const snapped = Math.round(temperature / 50) * 50;
+      const next = new Map(map);
+      next.set(id, { ...current, temperature: snapped, tint: Math.round(tint) });
+      return next;
+    });
   }
 
   cacheThumbnailUrl(id: AssetId, url: string): void {

@@ -6,10 +6,10 @@
       <span class="crumb-dim">Local files</span>
       <span class="crumb-sep">›</span>
       <span class="crumb-active">{{ f.name }}</span>
-    } @else {
-      <span class="crumb-dim">Local files</span>
+    } @else if (state.selectedSourceLabel()) {
+      <span class="crumb-dim">Library</span>
       <span class="crumb-sep">›</span>
-      <span class="crumb-active">France trip</span>
+      <span class="crumb-active">{{ state.selectedSourceLabel() }}</span>
     }
   </div>
 

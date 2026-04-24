@@ -14,16 +14,35 @@ import Foundation
 @Observable
 public final class BrowseViewModel {
     public var assets: [AssetRef] = []
+    /// Sub-folders directly inside the currently-opened folder. Populated
+    /// alongside `assets` by the filesystem `loadFolder(url:)` path so the
+    /// explorer can render a Finder-style mix of folders + images at the
+    /// current depth. Empty for non-filesystem sources (PhotoKit, SMB,
+    /// SelfHosted).
+    public var subfolders: [URL] = []
     public var selectedID: AssetRef.ID? = nil
     public var sortOrder: SortOrder = .nameAscending
     /// Non-nil while an async `loadFolder` is in flight.
     public var isLoading: Bool = false
     /// Last load error; views can surface a banner when non-nil.
     public var loadError: Error?
+    /// When non-nil the user selected a Photos-library filter but the app
+    /// doesn't yet have PhotoKit permission. Views should surface a "Grant
+    /// Access" empty state rather than silently loading zero assets.
+    public var photosAuthNeeded: Bool = false
     /// The source feeding the grid. Nil until the user picks one.
     /// `@ObservationIgnored` — callers interested in changes should observe
     /// `assets` / `selectedID` which change together with the source.
     @ObservationIgnored public private(set) var currentSource: (any ImageSource)?
+
+    /// Bookmark-resolved ancestor URL that covers the currently-open folder
+    /// tree. AppShell sets this before calling `loadFolder(url:)` so each
+    /// `AssetRef` synthesised from the filesystem walk can carry the scope
+    /// reference through to `ImageEditPipeline` / `ThumbnailLoader` — which
+    /// then wrap their Rust FFI reads in a `startAccessingSecurityScopedResource`
+    /// bracket on this URL. Without it the claim is a no-op and sandboxed
+    /// reads fail with EPERM.
+    @ObservationIgnored public var currentScopeRoot: URL?
 
     public enum SortOrder: Sendable { case nameAscending, nameDescending, dateDescending }
 
@@ -62,7 +81,7 @@ public final class BrowseViewModel {
         let fm = FileManager.default
         guard let contents = try? fm.contentsOfDirectory(
             at: url,
-            includingPropertiesForKeys: [.isRegularFileKey],
+            includingPropertiesForKeys: [.isRegularFileKey, .isDirectoryKey],
             options: [.skipsHiddenFiles]
         ) else {
             loadError = CocoaError(.fileReadUnknown)
@@ -70,14 +89,37 @@ public final class BrowseViewModel {
         }
         guard gen == loadGeneration else { return }
 
-        let raws = contents
-            .filter { RAWExtensions.all.contains($0.pathExtension.lowercased()) }
-            .sorted { $0.lastPathComponent < $1.lastPathComponent }
-            .map { AssetRef(url: $0) }
+        // Partition into sub-folders (minus dotfolders like .maple/) and RAW
+        // files at this depth only. Grandchildren are NOT walked — the user
+        // drills down by clicking a sub-folder which triggers another
+        // `loadFolder(url:)`.
+        var subs: [URL] = []
+        var raws: [URL] = []
+        for entry in contents {
+            if entry.lastPathComponent.hasPrefix(".") { continue }
+            let isDir = (try? entry.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
+            if isDir {
+                subs.append(entry)
+            } else if RAWExtensions.all.contains(entry.pathExtension.lowercased()) {
+                raws.append(entry)
+            }
+        }
+        subs.sort { $0.lastPathComponent < $1.lastPathComponent }
+        raws.sort { $0.lastPathComponent < $1.lastPathComponent }
+        // Stamp each AssetRef with the scope root AppShell set before the
+        // walk. If nothing's been set we fall back to the folder URL itself
+        // — better than nothing when the folder came from `fileImporter` and
+        // is already scope-backed.
+        let scope = currentScopeRoot ?? url
+        let refs = raws.map { AssetRef(url: $0, scopeParentURL: scope) }
 
         guard gen == loadGeneration else { return }
-        assets = raws
-        selectedID = raws.first?.id
+        assets = refs
+        subfolders = subs
+        // Don't auto-select the first image — the user should see the whole
+        // folder contents first. Selection (highlight) happens on click; the
+        // editor only opens on double-click.
+        selectedID = nil
         loadError = nil
     }
 
@@ -99,7 +141,11 @@ public final class BrowseViewModel {
             let fileAssets = await source.assets
             guard gen == loadGeneration else { return }
 
-            let refs = fileAssets.map { AssetRef(url: $0.url) }
+            // The source holds the scope-backed ancestor URL; propagate it
+            // to each AssetRef so downstream FFI reads can re-claim scope
+            // on the right URL.
+            let scope = await source.scopedAncestor
+            let refs = fileAssets.map { AssetRef(url: $0.url, scopeParentURL: scope) }
             guard gen == loadGeneration else { return }
 
             assets = refs
@@ -131,7 +177,7 @@ public final class BrowseViewModel {
 
             let assetRefs = refs.map { ref -> AssetRef in
                 if let url = ref.url {
-                    return AssetRef(url: url)
+                    return AssetRef(url: url, scopeParentURL: ref.scopeParentURL)
                 }
                 // Sourceless asset — build a bytes-backed ref. The closure
                 // captures the source actor and the stable ref so the Rust
@@ -153,12 +199,28 @@ public final class BrowseViewModel {
             guard gen == loadGeneration else { return }
 
             assets = assetRefs
-            selectedID = assetRefs.first?.id
+            subfolders = []
+            selectedID = nil
             currentSource = source
             loadError = nil
+            photosAuthNeeded = false
         } catch {
             guard gen == loadGeneration else { return }
             loadError = error
         }
+    }
+
+    /// Put the grid into the "Photos Library selected but access not granted"
+    /// state — no source, no assets, but `photosAuthNeeded` flips on so the
+    /// empty state can surface a "Grant Access" CTA. Called by AppShell when
+    /// the user clicks a Photos filter while PhotoKit is unauthorised.
+    public func setPhotosAuthNeeded() {
+        loadGeneration &+= 1
+        assets = []
+        selectedID = nil
+        currentSource = nil
+        loadError = nil
+        isLoading = false
+        photosAuthNeeded = true
     }
 }
