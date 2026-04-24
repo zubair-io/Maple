@@ -206,7 +206,11 @@ struct FullImageView: View {
                 )
                 session.pixelScale = effectivePixelScale(viewport: newSize)
             }
-            .onChange(of: pixelScale) { _, _ in
+            .onChange(of: session.nativeImageSize) { _, _ in
+                // Before the decode publishes real dimensions, fit mode has
+                // to guess. Recompute once the size lands so the idle refine
+                // stays at viewport resolution instead of accidentally
+                // targeting the full preview buffer on first open.
                 session.pixelScale = effectivePixelScale(viewport: viewportSize)
             }
             .onChange(of: session.asset.id) { _, _ in
@@ -319,6 +323,10 @@ struct FullImageView: View {
                     panOffset = .zero
                     basePan = .zero
                 }
+                // During the gesture, zoom is just a SwiftUI transform on
+                // the current bitmap. Commit once on release so target-size
+                // refinements don't swap brightness mid-pinch.
+                session.pixelScale = effectivePixelScale(viewport: viewport)
             }
     }
 
@@ -352,6 +360,7 @@ struct FullImageView: View {
             baseScale = 0
             panOffset = .zero
             basePan = .zero
+            session.pixelScale = effectivePixelScale(viewport: viewportSize)
         }
     }
 
@@ -361,6 +370,7 @@ struct FullImageView: View {
             baseScale = pixelScale
             panOffset = .zero
             basePan = .zero
+            session.pixelScale = pixelScale
         }
     }
 
@@ -372,6 +382,7 @@ struct FullImageView: View {
         withAnimation(.easeInOut(duration: 0.15)) {
             pixelScale = min(current * 1.25, maxPixelScale)
             baseScale = pixelScale
+            session.pixelScale = pixelScale
         }
     }
 
@@ -389,6 +400,7 @@ struct FullImageView: View {
                 pixelScale = max(next, fit * 0.5)
                 baseScale = pixelScale
             }
+            session.pixelScale = effectivePixelScale(viewport: viewportSize)
         }
     }
 }

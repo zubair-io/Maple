@@ -155,6 +155,7 @@ public final class EditSession {
     public var model: AdjustmentModel {
         didSet {
             guard model != oldValue else { return }
+            guard !isHydratingInitialState else { return }
             // Slider → render wire. If this log doesn't fire on a slider
             // drag, the @Bindable write never landed on `session.model` (the
             // binding path is broken). If it fires but the image doesn't
@@ -171,6 +172,7 @@ public final class EditSession {
     }
     public var culling: CullingState {
         didSet {
+            guard !isHydratingInitialState else { return }
             if let store = sidecarStore {
                 Task { await store.update(model: model, culling: culling) }
             }
@@ -250,6 +252,17 @@ public final class EditSession {
     @ObservationIgnored private var refineTask: Task<Void, Never>?
     /// Bumped on every render schedule so that stale tasks exit before writing UI state.
     @ObservationIgnored private var renderGeneration: UInt64 = 0
+
+    /// True while `loadSidecar()` is applying persisted state. Hydration must
+    /// not behave like a user edit: it should not schedule preview renders
+    /// for every session pre-created by the browse grid, and it should not
+    /// write sidecars back out while reading them.
+    @ObservationIgnored private var isHydratingInitialState = false
+
+    /// Flips on when a caller actually asks this session for pixels. The app
+    /// primes sessions for every folder asset so metadata/culling is ready,
+    /// but those inactive sessions must stay decode-free until opened.
+    @ObservationIgnored private var renderRequested = false
 
     /// Cached neutral decode for this asset. Populated on the first render
     /// and reused for every subsequent slider tick — the Rust FFI is only
@@ -375,39 +388,72 @@ public final class EditSession {
     ///   4. If no sidecar, seed `temperature` + `tint` from the as-shot WB
     ///      so the slider defaults to what the camera was metered at.
     ///
-    /// A render is scheduled by the final `model = …` write; only one
-    /// render fires per session open regardless of which branch runs.
+    /// Hydration is silent for sessions pre-created by the browse grid; a
+    /// render is scheduled only if the editor has already requested pixels.
     public func loadSidecar() async {
-        // (1) As-shot WB from the RAW file metadata (no decode).
-        if let url = asset.primaryURL,
-           let asShot = ImageMetadataReader.readAsShotWB(from: url) {
-            self.asShotCCT = asShot.temperature
-            self.asShotTint = asShot.tint
+        // (1) RAW metadata (no decode): seed the final virtual canvas size
+        // and the as-shot white balance before any embedded preview paints.
+        if let url = asset.primaryURL {
+            seedNativeImageSizeFromMetadata(url)
+            if let asShot = ImageMetadataReader.readAsShotWB(from: url) {
+                self.asShotCCT = asShot.temperature
+                self.asShotTint = asShot.tint
+            }
         }
 
         // (2) XMP sidecar — absent for fresh images.
         var loadedModel: AdjustmentModel? = nil
+        var loadedCulling: CullingState? = nil
+        let sidecarExists = asset.sidecarURL
+            .map { FileManager.default.fileExists(atPath: $0.path) } ?? false
         if let store = sidecarStore,
            let (m, c) = try? await store.load() {
-            loadedModel = m
-            culling = c
+            if sidecarExists {
+                loadedModel = m
+                loadedCulling = c
+            }
         }
 
         // (3/4) Build the initial model. As-shot seeding only applies when
         // no sidecar was loaded — once the user has saved edits, their
         // stored temperature wins.
-        var base = loadedModel ?? .default
-        if loadedModel == nil,
-           let cct = asShotCCT, let t = asShotTint {
-            base.temperature = cct
-            base.tint = t
+        let base = Self.initialModel(
+            loadedModel: loadedModel,
+            asShotCCT: asShotCCT,
+            asShotTint: asShotTint
+        )
+
+        let previousModel = model
+        isHydratingInitialState = true
+        if let loadedCulling {
+            culling = loadedCulling
         }
         originalModel = base
         model = base
+        isHydratingInitialState = false
+
+        if renderRequested, model != previousModel {
+            _scheduleRender(phase: .fast)
+        }
+    }
+
+    static func initialModel(
+        loadedModel: AdjustmentModel?,
+        asShotCCT: Double?,
+        asShotTint: Double?
+    ) -> AdjustmentModel {
+        var base = loadedModel ?? .default
+        if loadedModel == nil,
+           let cct = asShotCCT, let tint = asShotTint {
+            base.temperature = cct
+            base.tint = tint
+        }
+        return base
     }
 
     /// Force a full-resolution render immediately (useful before export).
     public func renderFull() async {
+        renderRequested = true
         await decodeAndRender(targetSize: nil, phase: .refine)
     }
 
@@ -423,6 +469,10 @@ public final class EditSession {
     /// when it lands. The preview never sticks once a Maple render is in
     /// `decodedImage` — the guard above returns early on revisit.
     public func ensureRenderStarted() {
+        renderRequested = true
+        if let url = asset.primaryURL {
+            seedNativeImageSizeFromMetadata(url)
+        }
         guard renderedPreview == nil || decodedForAssetID != asset.id else { return }
         editSessionSignposter.emitEvent("open")
         // Sub-second open strategy: seed `decodedImage` from whatever's
@@ -488,6 +538,58 @@ public final class EditSession {
         await rustTask.value
     }
 
+    private func seedNativeImageSizeFromMetadata(_ url: URL) {
+        guard nativeImageSize == .zero,
+              let size = ImageMetadataReader.readPixelSize(from: url)?.cgSize,
+              size.width > 0,
+              size.height > 0
+        else { return }
+        nativeImageSize = size
+    }
+
+    private func decodedForNativeCanvas(_ decoded: CIImage, asset: AssetRef) -> CIImage {
+        let decodedSize = decoded.extent.size
+        if nativeImageSize == .zero,
+           let url = asset.primaryURL {
+            seedNativeImageSizeFromMetadata(url)
+        }
+        if nativeImageSize == .zero {
+            nativeImageSize = decodedSize
+        } else if decodedSize.pixelArea > nativeImageSize.pixelArea * 1.10 {
+            // If metadata was missing or underreported but the decode gives
+            // us a larger real image, trust the decode. Never shrink here:
+            // preview-quality RAW decodes and decoded-buffer cache hits may
+            // be half-res, and using that as native doubles the fit zoom.
+            nativeImageSize = decodedSize
+        }
+
+        guard nativeImageSize.width > 0,
+              nativeImageSize.height > 0,
+              decodedSize.width > 0,
+              decodedSize.height > 0
+        else { return decoded }
+
+        let sx = nativeImageSize.width / decodedSize.width
+        let sy = nativeImageSize.height / decodedSize.height
+        guard sx.isFinite, sy.isFinite, sx > 0, sy > 0 else { return decoded }
+        guard abs(sx - 1) > 0.01 || abs(sy - 1) > 0.01 else { return decoded }
+
+        let decodedAspect = decodedSize.width / decodedSize.height
+        let nativeAspect = nativeImageSize.width / nativeImageSize.height
+        guard abs(decodedAspect - nativeAspect) / nativeAspect < 0.03 else { return decoded }
+
+        editSessionLogger.debug(
+            "normalizing decoded extent \(decodedSize.width)x\(decodedSize.height) to native canvas \(self.nativeImageSize.width)x\(self.nativeImageSize.height)"
+        )
+        let originNormalized = decoded.transformed(by: CGAffineTransform(
+            translationX: -decoded.extent.origin.x,
+            y: -decoded.extent.origin.y
+        ))
+        return originNormalized
+            .transformed(by: CGAffineTransform(scaleX: sx, y: sy))
+            .cropped(to: CGRect(origin: .zero, size: nativeImageSize))
+    }
+
     /// Returns true if a cached rendered preview was loaded and the
     /// session state was updated (`decodedImage` / `renderedPreview`).
     /// No-op + false when there's no cache hit or the asset switched.
@@ -501,7 +603,7 @@ public final class EditSession {
         guard let cached else { return false }
         guard self.asset.id == asset.id, decodedForAssetID != asset.id else { return false }
         renderedPreview = cached
-        decodedImage = cached
+        decodedImage = decodedForNativeCanvas(cached, asset: asset)
         decodedForAssetID = asset.id
         editSessionLogger.debug(
             "cached preview seeded decode extent=\(cached.extent.width)x\(cached.extent.height)"
@@ -526,7 +628,7 @@ public final class EditSession {
         guard let ci else { return false }
         guard self.asset.id == asset.id, decodedForAssetID != asset.id else { return false }
         renderedPreview = ci
-        decodedImage = ci
+        decodedImage = decodedForNativeCanvas(ci, asset: asset)
         decodedForAssetID = asset.id
         editSessionSignposter.emitEvent("embedded paint")
         editSessionLogger.debug(
@@ -657,6 +759,10 @@ public final class EditSession {
                 // with no survivor ever reaching the published-preview
                 // assignment. Single in-flight decode per asset fixes it.
                 let decoded = await sharedDecode(asset: asset, pipeline: pipeline)
+                guard !Task.isCancelled else {
+                    isRendering = false
+                    return
+                }
                 guard let decoded else {
                     throw RenderError.pipelineFailed
                 }
@@ -669,6 +775,11 @@ public final class EditSession {
                 image = processed
             }
 
+            guard !Task.isCancelled else {
+                editSessionLogger.debug("decodeAndRender gen=\(gen ?? 0) cancelled, dropping result")
+                isRendering = false
+                return
+            }
             if let gen, gen != renderGeneration {
                 editSessionLogger.debug("decodeAndRender gen=\(gen) stale (current=\(self.renderGeneration)), dropping result")
                 isRendering = false
@@ -737,7 +848,9 @@ public final class EditSession {
         pipeline: ImageEditPipeline
     ) async -> CIImage? {
         if let existing = decodeTask, decodeTaskAssetID == asset.id {
-            return await existing.value
+            guard let decoded = await existing.value else { return nil }
+            guard self.asset.id == asset.id else { return decoded }
+            return decodedForNativeCanvas(decoded, asset: asset)
         }
         decodeTask = nil
         decodeTaskAssetID = nil
@@ -774,18 +887,29 @@ public final class EditSession {
         let decoded = await task.value
         editSessionSignposter.endInterval("decode", decodeState)
 
-        if self.asset.id == asset.id {
-            if let decoded {
-                decodedImage = decoded
-                decodedForAssetID = asset.id
-                nativeImageSize = decoded.extent.size
-            }
+        guard self.asset.id == asset.id else { return decoded }
+        guard let decoded else {
             if decodeTaskAssetID == asset.id {
                 decodeTask = nil
                 decodeTaskAssetID = nil
             }
+            return nil
         }
-        return decoded
+
+        let normalized = decodedForNativeCanvas(decoded, asset: asset)
+        decodedImage = normalized
+        decodedForAssetID = asset.id
+        if decodeTaskAssetID == asset.id {
+            decodeTask = nil
+            decodeTaskAssetID = nil
+        }
+        return normalized
+    }
+}
+
+private extension CGSize {
+    var pixelArea: CGFloat {
+        width * height
     }
 }
 

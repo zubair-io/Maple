@@ -150,22 +150,8 @@ public actor ImageEditPipeline {
         targetSize: CGSize? = nil,
         asShot: AsShotWB? = nil
     ) -> CIImage {
-        // Previously this path ran a `CILanczosScaleTransform` prescale to
-        // `targetSize` before the filter chain, so fast-phase output had a
-        // viewport-sized extent and refine-phase output had native extent.
-        // FullImageView draws the image scaled to fit `nativeImageSize ×
-        // scale`, so on every fast→refine transition the same virtual
-        // frame suddenly switched between a blurry upscaled low-res
-        // CIImage and a sharp native one — the flicker users saw while
-        // dragging sliders. CoreImage is lazy and only materialises pixels
-        // for the requested ROI at draw time, so the prescale wasn't
-        // actually saving compute; the filter chain now runs against the
-        // decoded CIImage's native extent and both phases publish the
-        // same-resolution recipe. `targetSize` is kept in the signature
-        // for callers that still reason about "phase"; the value is a
-        // hint we currently ignore.
-        _ = targetSize
-        return applyFilters(to: decoded, model: model, asShot: asShot)
+        let displayInput = Self.prescaleForDisplay(decoded, targetSize: targetSize)
+        return applyFilters(to: displayInput, model: model, asShot: asShot)
     }
 
     // MARK: Render preview (processed CIImage → CGImage)
