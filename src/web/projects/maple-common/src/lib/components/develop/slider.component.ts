@@ -88,9 +88,15 @@ export class EditorSliderComponent {
   min = input.required<number>();
   max = input.required<number>();
   step = input<number>(1);
-  change = output<number>();
+  // NOTE: don't call this `change` — the inner <input> emits a native
+  // `change` DOM event that bubbles up to the host, so any parent binding
+  // `(change)="patch(..., $event)"` gets two firings: one with the DOM Event
+  // (which wins last), one with the numeric payload. Result: the Event
+  // object ends up stored as the adjustment value and the slider "does
+  // nothing" visibly even though updateAdjustment is called.
+  valueChange = output<number>();
 
   onChange(v: number): void {
-    this.change.emit(Number(v));
+    this.valueChange.emit(Number(v));
   }
 }

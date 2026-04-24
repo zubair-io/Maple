@@ -2,14 +2,19 @@
 //
 // Mac/iPad: NavigationSplitView (AppShell).
 // iPhone: TabView collapse in AppShell.
-//
-// Slice 10c — all 10 phases.
 
 import SwiftUI
 import MapleCore
+#if canImport(UIKit)
+import UIKit
+#endif
 
 @main
 struct MapleApp: App {
+    init() {
+        Self.installMemoryPressureObserver()
+    }
+
     var body: some Scene {
         WindowGroup {
             AppShell()
@@ -21,25 +26,154 @@ struct MapleApp: App {
         #endif
 
         #if os(macOS)
-        // Settings scene
+        // Settings scene. Self-Hosted server management lives here — the
+        // sidebar only shows Self Hosted once at least one server is paired.
         Settings {
             SettingsView()
         }
         #endif
     }
+
+    /// Forward memory-pressure / low-memory signals to the thumbnail loader so
+    /// it drops hot in-memory entries before the OS jettisons us. On macOS,
+    /// `DispatchSource.makeMemoryPressureSource` fires at warn/critical; on
+    /// iOS, `UIApplication.didReceiveMemoryWarningNotification`.
+    private static func installMemoryPressureObserver() {
+        #if os(macOS)
+        let src = DispatchSource.makeMemoryPressureSource(
+            eventMask: [.warning, .critical],
+            queue: .global(qos: .utility)
+        )
+        src.setEventHandler {
+            Task { await ThumbnailLoader.shared.handleMemoryPressure() }
+        }
+        src.resume()
+        // Keep the source alive for the app lifetime — stash on a throwaway
+        // static so ARC doesn't deallocate it.
+        _memoryPressureSource = src
+        #elseif canImport(UIKit)
+        NotificationCenter.default.addObserver(
+            forName: UIApplication.didReceiveMemoryWarningNotification,
+            object: nil,
+            queue: .main
+        ) { _ in
+            Task { await ThumbnailLoader.shared.handleMemoryPressure() }
+        }
+        #endif
+    }
 }
+
+#if os(macOS)
+private nonisolated(unsafe) var _memoryPressureSource: DispatchSourceMemoryPressure?
+#endif
 
 // MARK: - SettingsView (macOS)
 
 #if os(macOS)
 struct SettingsView: View {
     var body: some View {
-        Form {
-            Text("Maple \(MapleCore.version())")
-                .foregroundStyle(Color.secondary)
+        TabView {
+            GeneralSettingsTab()
+                .tabItem { Label("General", systemImage: "gear") }
+            SelfHostedSettingsTab()
+                .tabItem { Label("Self Hosted", systemImage: "cloud") }
         }
-        .frame(width: 360, height: 120)
-        .padding()
+        .frame(width: 520, height: 360)
+    }
+}
+
+private struct GeneralSettingsTab: View {
+    var body: some View {
+        Form {
+            LabeledContent("Version") {
+                Text(MapleCore.version())
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(24)
+    }
+}
+
+/// Self-Hosted server management. Lists paired servers (from Keychain +
+/// `knownServers()`) and lets the user add new ones via
+/// `SelfHostedPickerSheet` or remove existing ones.
+private struct SelfHostedSettingsTab: View {
+    @State private var servers: [URL] = []
+    @State private var showAddSheet = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Paired Servers")
+                .font(.headline)
+
+            if servers.isEmpty {
+                VStack(spacing: 6) {
+                    Text("No paired servers.")
+                        .foregroundStyle(.secondary)
+                    Text("Click \"Add Server…\" to pair a Maple Self Hosted instance.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 24)
+            } else {
+                List {
+                    ForEach(servers, id: \.self) { url in
+                        HStack {
+                            Image(systemName: "server.rack")
+                                .foregroundStyle(.secondary)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(url.host ?? url.absoluteString)
+                                Text(url.absoluteString)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Button(role: .destructive) {
+                                Task { await removeServer(url) }
+                            } label: {
+                                Image(systemName: "trash")
+                            }
+                            .buttonStyle(.plain)
+                            .foregroundStyle(.red)
+                        }
+                        .padding(.vertical, 2)
+                    }
+                }
+                .listStyle(.inset)
+                .frame(minHeight: 120)
+            }
+
+            Spacer()
+
+            HStack {
+                Spacer()
+                Button("Add Server…") { showAddSheet = true }
+                    .keyboardShortcut("n", modifiers: .command)
+            }
+        }
+        .padding(24)
+        .task { await refresh() }
+        .sheet(isPresented: $showAddSheet) {
+            SelfHostedPickerSheet(
+                onConnect: { _, _ in
+                    showAddSheet = false
+                    Task { await refresh() }
+                },
+                onCancel: { showAddSheet = false }
+            )
+        }
+    }
+
+    @MainActor
+    private func refresh() async {
+        servers = await SelfHostedCredentialStore.shared.knownServers()
+    }
+
+    @MainActor
+    private func removeServer(_ url: URL) async {
+        try? await SelfHostedCredentialStore.shared.removeToken(forServerURL: url)
+        await refresh()
     }
 }
 #endif

@@ -7,6 +7,7 @@ import {
   ChangeDetectionStrategy,
   Component,
   ElementRef,
+  Injector,
   OnDestroy,
   ViewChild,
   computed,
@@ -34,6 +35,7 @@ export class ImageCanvasComponent implements AfterViewInit, OnDestroy {
   state = inject(LibraryStateService);
   canvasSvc = inject(ImageCanvasService);
   pipeline = inject(RawPipelineService);
+  private readonly injector = inject(Injector);
 
   readonly loading = signal(false);
   readonly imageBitmap = signal<ImageBitmap | null>(null);
@@ -80,38 +82,44 @@ export class ImageCanvasComponent implements AfterViewInit, OnDestroy {
     this.wrapH.set(this.wrapRef.nativeElement.clientHeight || 600);
 
     // Watch focused asset — decode if it has bytes.
-    const decodeEff = effect(() => {
-      const a = this.state.focusedAsset();
-      if (!a) {
-        this.imageBitmap.set(null);
-        this.canvasSvc.currentPixels.set(null);
-        return;
-      }
-      if (a.id === this.currentAssetId) return; // same asset, skip
-      this.currentAssetId = a.id;
+    const decodeEff = effect(
+      () => {
+        const a = this.state.focusedAsset();
+        if (!a) {
+          this.imageBitmap.set(null);
+          this.canvasSvc.currentPixels.set(null);
+          return;
+        }
+        if (a.id === this.currentAssetId) return; // same asset, skip
+        this.currentAssetId = a.id;
 
-      const bytes = this.state.bytesFor(a.id);
-      if (!bytes) {
-        // Mock asset — clear real bitmap, fall back to gradient.
-        this.imageBitmap.set(null);
-        this.canvasSvc.currentPixels.set(null);
-        return;
-      }
-      void this.loadReal(a.id, a.filename, bytes);
-    });
+        const bytes = this.state.bytesFor(a.id);
+        if (!bytes) {
+          // Mock asset — clear real bitmap, fall back to gradient.
+          this.imageBitmap.set(null);
+          this.canvasSvc.currentPixels.set(null);
+          return;
+        }
+        void this.loadReal(a.id, a.filename, bytes);
+      },
+      { injector: this.injector },
+    );
     this.cleanupDecodeEffect = () => decodeEff.destroy();
 
     // Re-render whenever view or decode state changes.
-    const drawEff = effect(() => {
-      const _ = this.state.focusedAsset();
-      const __ = this.canvasSvc.zoom();
-      const ___ = this.canvasSvc.pan();
-      const ____ = this.canvasSvc.beforeAfterSplitX();
-      const _____ = this.wrapW();
-      const ______ = this.wrapH();
-      const _______ = this.imageBitmap();
-      this.draw();
-    });
+    const drawEff = effect(
+      () => {
+        const _ = this.state.focusedAsset();
+        const __ = this.canvasSvc.zoom();
+        const ___ = this.canvasSvc.pan();
+        const ____ = this.canvasSvc.beforeAfterSplitX();
+        const _____ = this.wrapW();
+        const ______ = this.wrapH();
+        const _______ = this.imageBitmap();
+        this.draw();
+      },
+      { injector: this.injector },
+    );
     this.cleanupDrawEffect = () => drawEff.destroy();
   }
 
@@ -130,6 +138,11 @@ export class ImageCanvasComponent implements AfterViewInit, OnDestroy {
 
       // Update dimensions on the asset.
       this.state.updateAssetDimensions(assetId, decoded.width, decoded.height);
+
+      // Seed WB sliders from the camera's "As Shot" metadata on the first
+      // render — purely cosmetic sync with what Rust actually used, doesn't
+      // overwrite user edits (the state method guards on "still default").
+      this.state.seedAsShotWhiteBalance(assetId, decoded.asShotTemperature, decoded.asShotTint);
 
       // Publish pixels for scopes.
       this.canvasSvc.currentPixels.set(decoded);

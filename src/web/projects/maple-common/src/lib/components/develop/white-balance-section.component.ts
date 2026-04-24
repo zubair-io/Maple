@@ -20,14 +20,14 @@ import { WbPresetPillsComponent, WbPresetSelection } from './wb-preset-pills.com
           [min]="2000"
           [max]="12000"
           [step]="50"
-          (change)="patch('temperature', $event)"
+          (valueChange)="patch('temperature', $event)"
         />
         <editor-slider
           label="Tint"
           [value]="adj().tint"
           [min]="-100"
           [max]="100"
-          (change)="patch('tint', $event)"
+          (valueChange)="patch('tint', $event)"
         />
       }
     </maple-collapsible>

@@ -1,9 +1,9 @@
-// Root component — bootstraps mock data into the signal store and mounts the router outlet.
-// P7: Single SPA — router handles /browse and /edit/:id within one Angular app.
+// Root component — Hosted variant. No mock data; the library is empty until
+// the user picks a photo or a folder from the landing page.
 
-import { Component, OnInit, inject } from '@angular/core';
+import { Component, inject, OnInit } from '@angular/core';
 import { RouterOutlet } from '@angular/router';
-import { LibraryStateService, mockLibrary } from '@maple-common';
+import { LibraryStateService } from '@maple-common';
 
 @Component({
   selector: 'app-root',
@@ -22,14 +22,13 @@ export class App implements OnInit {
   private state = inject(LibraryStateService);
 
   ngOnInit(): void {
-    const { assets, sidebarTree } = mockLibrary();
-    this.state.assets.set(assets);
-    this.state.sidebarTree.set(sidebarTree);
-    // Default selection: France trip folder (has mock assets).
-    this.state.selectedSourceId.set('f-france');
-    // Default focus: first asset.
-    if (assets.length > 0) {
-      this.state.selectAsset(assets[0].id);
+    // Seed an empty Folders section so addImportedAsset and openFolder can
+    // attach their entries — LibraryStateService._ensureFolder is a no-op
+    // when the section doesn't exist.
+    if (this.state.sidebarTree().length === 0) {
+      this.state.sidebarTree.set([
+        { kind: 'section', id: 'folders', label: 'Folders', count: null, children: [] },
+      ]);
     }
   }
 }

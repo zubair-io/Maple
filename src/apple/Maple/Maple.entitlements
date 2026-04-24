@@ -1,37 +1,25 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<!--
-Maple entitlements — required for App Store / TestFlight distribution.
-Bundle ID: app.justmaple.Maple-Maple (spec § 00)
-
-NOTE: For macOS App Store, the app must run in the sandbox. The entitlements
-below reflect the minimum needed for a sandboxed photo editing app.
-For development / Xcode, these entitlements apply via signing configuration.
--->
 <plist version="1.0">
 <dict>
-    <!-- App Sandbox (macOS App Store requirement) -->
-    <key>com.apple.security.app-sandbox</key>
-    <true/>
+	<key>com.apple.security.app-sandbox</key>
+	<true/>
+	<key>com.apple.security.files.bookmarks.app-scope</key>
+	<true/>
+	<key>com.apple.security.files.user-selected.read-write</key>
+	<true/>
+	<key>com.apple.security.network.client</key>
+	<true/>
 
-    <!-- User-initiated file access — photos / RAW files -->
-    <key>com.apple.security.files.user-selected.read-write</key>
-    <true/>
-
-    <!-- Persist access across launches via security-scoped bookmarks -->
-    <key>com.apple.security.files.bookmarks.app-scope</key>
-    <true/>
-
-    <!-- Local network — SMB -->
-    <key>com.apple.security.network.client</key>
-    <true/>
-
-    <!-- Photo Library (iOS / macOS Photos extension) -->
-    <!-- iOS: declared in Info.plist NSPhotoLibraryUsageDescription -->
-
-    <!-- Metal GPU compute (for Core Image Metal kernels) -->
-    <!-- Metal is permitted in sandbox by default -->
-
-    <!-- No hardware camera needed for v1 -->
+	<!-- High-memory mode for RAW decode.
+	     iOS: raise the per-process limit above the default ~1 GB so the
+	     decoder can hold a 100 MP RAW plus its intermediate buffers.
+	     Honoured on iPadOS/iPhone with Apple silicon; ignored on older. -->
+	<key>com.apple.developer.kernel.increased-memory-limit</key>
+	<true/>
+	<!-- Same family — allow the 64-bit virtual address space to grow past
+	     the 8 GB default so memory-mapped frame buffers don't trip OOM. -->
+	<key>com.apple.developer.kernel.extended-virtual-addressing</key>
+	<true/>
 </dict>
 </plist>

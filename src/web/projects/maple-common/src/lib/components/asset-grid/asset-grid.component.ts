@@ -8,6 +8,7 @@ import {
   ChangeDetectionStrategy,
   Component,
   ElementRef,
+  Injector,
   OnDestroy,
   ViewChild,
   computed,
@@ -64,6 +65,7 @@ export class AssetGridComponent implements AfterViewInit, OnDestroy {
   readonly mapCache = inject(MapleCacheService);
   private readonly api = inject(BunApiBackendService);
   private readonly router = inject(Router);
+  private readonly injector = inject(Injector);
 
   readonly STAR_INDICES = [1, 2, 3, 4, 5];
 
@@ -127,19 +129,22 @@ export class AssetGridComponent implements AfterViewInit, OnDestroy {
     this.containerWidth.set(this.gridContainerRef.nativeElement.clientWidth || 800);
 
     // Watch asset list for new items and kick off thumbnail loads.
-    const e = effect(() => {
-      const assets = this.state.assetsInSelectedFolder();
-      for (const asset of assets) {
-        if (
-          !this.thumbUrls().has(asset.id) &&
-          !this.thumbLoading().has(asset.id) &&
-          !this.attempted.has(asset.id)
-        ) {
-          this.attempted.add(asset.id);
-          void this.loadThumbnail(asset);
+    const e = effect(
+      () => {
+        const assets = this.state.assetsInSelectedFolder();
+        for (const asset of assets) {
+          if (
+            !this.thumbUrls().has(asset.id) &&
+            !this.thumbLoading().has(asset.id) &&
+            !this.attempted.has(asset.id)
+          ) {
+            this.attempted.add(asset.id);
+            void this.loadThumbnail(asset);
+          }
         }
-      }
-    });
+      },
+      { injector: this.injector },
+    );
     this.cleanupThumbEffect = () => e.destroy();
   }
 

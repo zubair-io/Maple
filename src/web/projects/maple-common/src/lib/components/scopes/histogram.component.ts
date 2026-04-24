@@ -6,6 +6,7 @@ import {
   ChangeDetectionStrategy,
   Component,
   ElementRef,
+  Injector,
   OnDestroy,
   ViewChild,
   effect,
@@ -57,20 +58,24 @@ export class HistogramComponent implements AfterViewInit, OnDestroy {
   adjustment = input.required<AdjustmentModel>();
 
   private canvasSvc = inject(ImageCanvasService);
+  private readonly injector = inject(Injector);
   private cleanupEffect?: () => void;
 
   ngAfterViewInit(): void {
-    const e = effect(() => {
-      const adj = this.adjustment();
-      const pixels = this.canvasSvc.currentPixels();
-      if (this.canvasRef) {
-        if (pixels) {
-          this.renderReal(pixels);
-        } else {
-          this.renderPseudo(adj);
+    const e = effect(
+      () => {
+        const adj = this.adjustment();
+        const pixels = this.canvasSvc.currentPixels();
+        if (this.canvasRef) {
+          if (pixels) {
+            this.renderReal(pixels);
+          } else {
+            this.renderPseudo(adj);
+          }
         }
-      }
-    });
+      },
+      { injector: this.injector },
+    );
     this.cleanupEffect = () => e.destroy();
   }
 

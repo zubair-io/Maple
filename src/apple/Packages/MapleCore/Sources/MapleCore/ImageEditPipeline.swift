@@ -19,41 +19,91 @@
 import Foundation
 import CoreImage
 import CoreImage.CIFilterBuiltins
+import Metal
+import os
+
+private let logger = Logger(subsystem: "app.justmaple.maple", category: "ImageEditPipeline")
 
 // MARK: - ImageEditPipeline
 
 /// Thread-safe pipeline that converts a RAW asset + AdjustmentModel to a CIImage.
+///
+/// Two-entry-point design (ported from Maple reference `ImageEditPipeline`):
+///
+///   • `decode(asset:)` runs the Rust FFI once per asset open and returns a
+///     **neutral** CIImage (no WB, no exposure — all adjustments applied
+///     post-decode). EditSession caches this result so slider ticks don't
+///     re-decode.
+///   • `process(decoded:model:targetSize:)` applies the CIFilter / Metal-kernel
+///     chain on top of a pre-decoded CIImage. When `targetSize` is provided
+///     and smaller than the decoded extent, a `CILanczosScaleTransform` pass
+///     is fused in front of the chain so every intermediate runs at display
+///     resolution — CoreImage's render planner auto-tiles when the Metal
+///     device can't hold the output in a single pass, so 100MP previews fit
+///     in the 16 ms budget.
+///
+/// `render(asset:model:phase:)` is kept as a thin convenience that does both
+/// steps sequentially — used by export / thumbnails where there's no cached
+/// decoded image to reuse.
 public actor ImageEditPipeline {
+    /// As-shot white balance derived from the RAW's metadata. Passed into
+    /// `process(...)` so `CITemperatureAndTint`'s `neutral` reflects the
+    /// camera's metered white point — the slider then behaves as a scene
+    /// white-point selector (Lightroom semantics), not a delta from 6500 K.
+    public struct AsShotWB: Sendable, Equatable {
+        public var temperature: Double
+        public var tint: Double
+        public init(temperature: Double, tint: Double) {
+            self.temperature = temperature
+            self.tint = tint
+        }
+    }
+
     private let context: CIContext
 
     public init() {
-        // Use a Metal-backed context where available; fall back to CPU.
-        self.context = CIContext(options: [.workingColorSpace: CGColorSpace(name: CGColorSpace.linearSRGB)!])
+        // Metal-backed context where available; `cacheIntermediates: false`
+        // + fp16 working format keeps memory bounded enough that CoreImage
+        // can tile internally on a 100MP input. Mirrors the reference
+        // pipeline's settings.
+        if let device = MTLCreateSystemDefaultDevice() {
+            self.context = CIContext(mtlDevice: device, options: [
+                .workingColorSpace: CGColorSpace(name: CGColorSpace.extendedLinearSRGB)!,
+                .workingFormat: CIFormat.RGBAh,
+                .cacheIntermediates: false,
+            ])
+        } else {
+            self.context = CIContext(options: [
+                .workingColorSpace: CGColorSpace(name: CGColorSpace.linearSRGB)!,
+                .workingFormat: CIFormat.RGBAh,
+                .cacheIntermediates: false,
+            ])
+        }
     }
 
-    // MARK: Render
+    // MARK: Decode (cached path)
 
-    /// Render the asset through the pipeline.
-    /// - fast phase: scales the RAW decode result to ≤ 2MP before filtering.
-    /// - refine phase: full-resolution.
+    /// Decode the RAW into a neutral CIImage via the Rust FFI. Call once per
+    /// asset open; cache the result in `EditSession` so slider ticks skip the
+    /// decode entirely.
     ///
-    /// Dispatch: filesystem-shaped assets (`asset.primaryURL != nil`) use the
-    /// path-based FFI call so the Rust decoder can mmap the file. Sourceless
-    /// assets (PhotoKit, self-hosted API) pull bytes via
-    /// `asset.bytesProvider` and hand them to `maple_render_bytes`.
-    nonisolated public func render(
-        asset: AssetRef,
-        model: AdjustmentModel,
-        phase: RenderPhase
-    ) async -> CIImage? {
-        // Stage 1: RAW decode via Rust FFI (produces sRGB u8).
+    /// Security scope is claimed on the asset URL and its parent folder for
+    /// the duration of the FFI call — the Rust decoder mmaps the file and
+    /// without an active scope the read fails on sandboxed builds.
+    nonisolated public func decode(asset: AssetRef) async -> CIImage? {
         let imageData: MapleImageData
         do {
             if let url = asset.primaryURL {
-                imageData = try PipelineRenderer.render(
-                    rawPath: url,
-                    xmpPath: nil   // we apply adjustments via CIFilter below
-                )
+                // Scope claim MUST be on the bookmark-resolved ancestor URL
+                // — `url.deletingLastPathComponent()` is a plain path URL
+                // with no scope token and `startAccessing` silently no-ops,
+                // so the Rust FFI's `std::fs::read(path)` would hit EPERM
+                // under the sandbox. `asset.scopeParentURL` is populated by
+                // `FilesystemSource` / `BrowseViewModel.currentScopeRoot`.
+                let scope = asset.scopeParentURL ?? url.deletingLastPathComponent()
+                let accessing = scope.startAccessingSecurityScopedResource()
+                defer { if accessing { scope.stopAccessingSecurityScopedResource() } }
+                imageData = try PipelineRenderer.render(rawPath: url, xmpPath: nil)
             } else if let provider = asset.bytesProvider {
                 let bytes = try await provider()
                 let hint = asset.hintExtension ?? ""
@@ -66,13 +116,122 @@ public actor ImageEditPipeline {
                 return nil
             }
         } catch {
+            logger.error("decode failed for \(asset.displayName, privacy: .public): \(error.localizedDescription, privacy: .public)")
             return nil
         }
+        return ciImage(from: imageData, phase: .refine)
+    }
 
-        guard let ciImage = ciImage(from: imageData, phase: phase) else { return nil }
+    // MARK: Process (on top of a cached decode)
 
-        // Stages 2–10: CIFilter chain.
-        return applyFilters(to: ciImage, model: model)
+    /// Apply the filter chain to a pre-decoded CIImage. `targetSize`, if
+    /// provided and smaller than the decoded extent, fuses a Lanczos pre-
+    /// scale into the chain so every intermediate runs at display resolution.
+    /// Pass `nil` for export / full-resolution rendering.
+    ///
+    /// `asShot`, when provided, is used as `CITemperatureAndTint.neutral`
+    /// — i.e. the image is told "you were shot at this WB" and the
+    /// filter adapts to the user's target (`model.temperature/tint`). When
+    /// `nil`, the neutral defaults to 6500 K / 0, which matches the
+    /// pipeline's historical behaviour.
+    nonisolated public func process(
+        decoded: CIImage,
+        model: AdjustmentModel,
+        targetSize: CGSize? = nil,
+        asShot: AsShotWB? = nil
+    ) -> CIImage {
+        let prescaled = Self.prescaleForDisplay(decoded, targetSize: targetSize)
+        return applyFilters(to: prescaled, model: model, asShot: asShot)
+    }
+
+    // MARK: Render preview (processed CIImage → CGImage)
+
+    /// Materialise a processed CIImage into a CGImage at (at most) the given
+    /// target size. Used by the on-demand export path and by diagnostic
+    /// tools; the live slider path currently publishes CIImage directly
+    /// (see `EditSession.renderedPreview`) and lets SwiftUI's `CIImageView`
+    /// handle the final raster.
+    ///
+    /// Target-size math matches the reference — never upscale, use
+    /// Lanczos-style downscale via a lazy transform so the CoreImage render
+    /// planner can fuse it with the filter chain and auto-tile.
+    nonisolated public func renderPreview(_ ciImage: CIImage, targetSize: CGSize) -> CGImage? {
+        let extent = ciImage.extent
+        guard extent.width > 0, extent.height > 0 else { return nil }
+
+        let sx = targetSize.width / extent.width
+        let sy = targetSize.height / extent.height
+        let scale = min(sx, sy, 1.0)
+
+        let scaled: CIImage = scale < 1.0
+            ? ciImage.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+            : ciImage
+
+        return context.createCGImage(scaled, from: scaled.extent)
+    }
+
+    // MARK: Render (convenience — decode + process)
+
+    /// Render the asset through the pipeline in one call. Used by export and
+    /// by the thumbnail path — neither benefits from a cached decode.
+    /// EditSession prefers the `decode(asset:)` + `process(decoded:...)`
+    /// split so slider ticks stay off the FFI.
+    ///
+    /// - fast phase: scales the RAW decode result to ≤ 2MP before filtering.
+    /// - refine phase: full-resolution.
+    nonisolated public func render(
+        asset: AssetRef,
+        model: AdjustmentModel,
+        phase: RenderPhase
+    ) async -> CIImage? {
+        guard let decoded = await decode(asset: asset) else { return nil }
+        let target: CGSize? = phase == .fast
+            ? Self.fastTargetSize(for: decoded.extent.size)
+            : nil
+        return process(decoded: decoded, model: model, targetSize: target)
+    }
+
+    // MARK: Prescale helper (tiling-friendly)
+
+    /// Lanczos-downscale `input` to fit within `targetSize` (aspect
+    /// preserved). Never upscales; returns `input` unchanged when the ratio
+    /// would be ≥ 0.99. Ported from Maple reference — the CIImage returned
+    /// is lazy, so the downscale and the filter chain fuse into a single
+    /// render plan and the full-res intermediate never materialises.
+    nonisolated private static func prescaleForDisplay(
+        _ input: CIImage,
+        targetSize: CGSize?
+    ) -> CIImage {
+        guard let targetSize else { return input }
+        let extent = input.extent
+        guard extent.width > 0, extent.height > 0 else { return input }
+        let sx = targetSize.width / extent.width
+        let sy = targetSize.height / extent.height
+        let scale = min(sx, sy, 1.0)
+        guard scale < 0.99 else { return input }
+
+        let clamped = input.clampedToExtent()
+        let lanczos = clamped.applyingFilter("CILanczosScaleTransform", parameters: [
+            kCIInputScaleKey: scale,
+            kCIInputAspectRatioKey: 1.0,
+        ])
+        return lanczos.cropped(to: CGRect(
+            x: 0, y: 0,
+            width: floor(extent.width * scale),
+            height: floor(extent.height * scale)
+        ))
+    }
+
+    /// Target size for the fast phase — caps the decoded extent at ≤ 2MP.
+    nonisolated private static func fastTargetSize(for native: CGSize) -> CGSize {
+        let pixels = native.width * native.height
+        let maxPixels: CGFloat = 2_000_000
+        if pixels <= maxPixels { return native }
+        let scale = sqrt(maxPixels / pixels)
+        return CGSize(
+            width: floor(native.width * scale),
+            height: floor(native.height * scale)
+        )
     }
 
     // MARK: Private helpers
@@ -114,15 +273,28 @@ public actor ImageEditPipeline {
         return ci
     }
 
-    nonisolated private func applyFilters(to input: CIImage, model: AdjustmentModel) -> CIImage {
+    nonisolated private func applyFilters(to input: CIImage, model: AdjustmentModel, asShot: AsShotWB? = nil) -> CIImage {
         var img = input
 
-        // Stage 3: White balance (temperature + tint)
-        // CITemperatureAndTint neutral point is ~6500K / 0 tint.
+        // Stage 3: White balance (temperature + tint).
+        //
+        // CITemperatureAndTint semantics:
+        //   • `neutral`       = the temperature/tint the image *is*
+        //   • `targetNeutral` = the temperature/tint the user *wants*
+        //
+        // When `asShot` is provided (RAWs opened via filesystem), neutral
+        // reflects the camera's metered WB and the slider acts as a scene
+        // white-point selector — default (slider = asShotCCT) is identity,
+        // moving higher warms the image, lower cools it. Matches Lightroom.
+        //
+        // When absent (PhotoKit / sourceless / non-RAW), fall back to the
+        // old 6500 K convention so existing behaviour is preserved.
+        let neutralTemp = asShot?.temperature ?? 6500
+        let neutralTint = asShot?.tint ?? 0
         let wb = CIFilter.temperatureAndTint()
         wb.inputImage = img
-        wb.neutral = CIVector(x: CGFloat(model.temperature), y: CGFloat(model.tint))
-        wb.targetNeutral = CIVector(x: 6500, y: 0)
+        wb.neutral = CIVector(x: CGFloat(neutralTemp), y: CGFloat(neutralTint))
+        wb.targetNeutral = CIVector(x: CGFloat(model.temperature), y: CGFloat(model.tint))
         img = wb.outputImage ?? img
 
         // Stage 4: Scene tone controls (exposure + H/S/W/B) via Metal kernel.
