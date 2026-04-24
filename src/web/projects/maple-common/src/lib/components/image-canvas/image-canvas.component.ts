@@ -132,6 +132,10 @@ export class ImageCanvasComponent implements AfterViewInit, OnDestroy {
 
   private async loadReal(assetId: AssetId, filename: string, bytes: Uint8Array): Promise<void> {
     this.loading.set(true);
+    // Bracket the whole click → pixels path. `maple:open` is the outer
+    // measure; `maple:decode` (service) and `maple:wasm` (worker) are nested
+    // sub-intervals. View in DevTools → Performance → User Timings.
+    performance.mark(`maple:open:${assetId}:start`);
     try {
       const ext = filename.split('.').pop()?.toLowerCase() ?? '';
       const decoded = await this.pipeline.decode(bytes, ext);
@@ -151,6 +155,12 @@ export class ImageCanvasComponent implements AfterViewInit, OnDestroy {
       // Close any previous bitmap to free GPU memory.
       this.imageBitmap()?.close();
       this.imageBitmap.set(bitmap);
+      performance.mark(`maple:open:${assetId}:paint`);
+      performance.measure(
+        `maple:open`,
+        `maple:open:${assetId}:start`,
+        `maple:open:${assetId}:paint`,
+      );
     } catch (e) {
       console.error('Decode failed for', filename, e);
       this.imageBitmap.set(null);
