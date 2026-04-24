@@ -200,6 +200,14 @@ public final class EditSession {
     /// Last render error, if any. Views can surface a banner when non-nil.
     public var renderError: Error?
 
+    /// Native image size in sensor pixels. Populated on the first decode and
+    /// kept stable across phases/renders. Fit-to-viewport and zoom math must
+    /// read this rather than `renderedPreview.extent` — the preview buffer
+    /// can legitimately differ from native (half-res decode + CoreImage
+    /// upscale on display), and anchoring zoom against the preview extent
+    /// produces inconsistent targets across fast/refine and slider ticks.
+    public private(set) var nativeImageSize: CGSize = .zero
+
     // MARK: Zoom / pan
 
     public var zoomScale: Double = 1.0
@@ -289,20 +297,29 @@ public final class EditSession {
         previewSize == .zero ? nil : previewSize
     }
 
-    /// Refined-phase target — when the user is zoomed in past fit, bump the
-    /// target so we re-render at enough pixels to stay crisp. Fit mode
-    /// (pixelScale == 0) leaves refine == fast and the scheduler short-
-    /// circuits the refine pass.
+    /// Refined-phase target — `nativeImageSize × min(pixelScale, 1.0)`,
+    /// floored at `fastTargetSize` so the refine is never lower-quality
+    /// than the fast pass. Upscaling past native adds no real detail, so
+    /// we cap at 1.0 and let the viewport upscale the native-sized buffer.
+    /// Fit mode (pixelScale == 0) resolves to fast == refine and the
+    /// refine scheduler short-circuits.
+    ///
+    /// Falls back to an 8×-fast estimate if `nativeImageSize` hasn't been
+    /// populated yet (first decode is in flight). Once the decode lands,
+    /// subsequent refines use the native-anchored path.
     private var refinedTargetSize: CGSize? {
         guard let fast = fastTargetSize else { return nil }
-        let mult = max(1.0, pixelScale)
-        // Cap at 8× fast size — at that point CoreImage auto-tiling is
-        // handling the scene anyway and further growth only hurts memory.
-        let clamped = min(mult, 8.0)
-        return CGSize(
-            width: fast.width * clamped,
-            height: fast.height * clamped
-        )
+        if nativeImageSize == .zero {
+            // Pre-decode fallback. Constrain to 8× fast to avoid a huge
+            // target being set while the scheduler waits for the first
+            // decode; once native is known the normal branch takes over.
+            let mult = min(max(1.0, pixelScale), 8.0)
+            return CGSize(width: fast.width * mult, height: fast.height * mult)
+        }
+        let scale = min(max(pixelScale, 0), 1.0)
+        let w = max(nativeImageSize.width * scale, fast.width)
+        let h = max(nativeImageSize.height * scale, fast.height)
+        return CGSize(width: w, height: h)
     }
 
     // MARK: Init
@@ -408,6 +425,13 @@ public final class EditSession {
     public func ensureRenderStarted() {
         guard renderedPreview == nil || decodedForAssetID != asset.id else { return }
         editSessionSignposter.emitEvent("open")
+        // Cold-open fast path: if the rendered-preview disk cache has a
+        // viewport-sized JPEG keyed on this asset's sidecar mtime, paint
+        // it immediately. The real render still runs — the cached image is
+        // the *last-known-good* develop and is overwritten as soon as the
+        // fast phase lands a fresh frame. Matches reference Maple's
+        // `beginEditing → cache.read → return` short-circuit.
+        loadCachedPreviewIfAvailable()
         // Order matters. `_scheduleRender` bumps `renderGeneration`, and
         // `loadEmbeddedPreviewIfAvailable` snapshots that value to guard its
         // delayed MainActor publish against later navigation. If we called
@@ -416,6 +440,34 @@ public final class EditSession {
         // embedded preview would be silently dropped on every open.
         _scheduleRender(phase: .fast)
         loadEmbeddedPreviewIfAvailable()
+    }
+
+    /// Try to paint a cached rendered JPEG from `.maple/previews/` so the
+    /// viewport shows pixels immediately on re-open. No-op for assets
+    /// without a `primaryURL` (PhotoKit / SelfHosted have their own thumb
+    /// caches keyed on `stableID`, not URL). Also seeds `nativeImageSize`
+    /// so fit / zoom math resolves before the real decode lands.
+    private func loadCachedPreviewIfAvailable() {
+        guard let url = asset.primaryURL else { return }
+        guard renderedPreview == nil else { return }
+        let w = Int(max(previewSize.width, 1))
+        Task.detached(priority: .userInitiated) { [weak self] in
+            guard let cached = await RenderedPreviewCache.shared
+                .preview(for: url, screenWidth: w) else { return }
+            await MainActor.run {
+                guard let self else { return }
+                guard self.asset.primaryURL == url,
+                      self.renderedPreview == nil,
+                      self.decodedForAssetID != self.asset.id else { return }
+                self.renderedPreview = cached
+                if self.nativeImageSize == .zero {
+                    self.nativeImageSize = cached.extent.size
+                }
+                editSessionLogger.debug(
+                    "cached preview published extent=\(cached.extent.width)x\(cached.extent.height)"
+                )
+            }
+        }
     }
 
     /// Read the file's embedded JPEG preview off the main actor and publish
@@ -447,6 +499,14 @@ public final class EditSession {
                     return
                 }
                 self.renderedPreview = ci
+                // Only seed native from the embedded preview when we have
+                // nothing better — the authoritative value comes from the
+                // Rust decode and will overwrite this shortly. The embedded
+                // JPEG's aspect ratio tracks the sensor so this is a safe
+                // approximation for zoom math to resolve before decode lands.
+                if self.nativeImageSize == .zero {
+                    self.nativeImageSize = ci.extent.size
+                }
                 editSessionSignposter.emitEvent("embedded paint")
                 editSessionLogger.debug(
                     "embedded preview published \(ms)ms extent=\(ci.extent.width)x\(ci.extent.height)"
@@ -609,6 +669,18 @@ public final class EditSession {
                 Task.detached(priority: .utility) {
                     await ThumbnailLoader.shared.updateThumbnailFromRender(image, for: url)
                 }
+                // Persist a viewport-sized JPEG to the preview cache so a
+                // cold re-open of this asset paints instantly via
+                // `loadCachedPreviewIfAvailable`. Only after refine — the
+                // fast pass ran at viewport resolution already; caching
+                // after refine captures the final develop output.
+                let capturedImage = image
+                let capturedWidth = Int(max(previewSize.width, 1))
+                Task.detached(priority: .utility) {
+                    await RenderedPreviewCache.shared.storePreview(
+                        capturedImage, for: url, screenWidth: capturedWidth
+                    )
+                }
             }
         } catch {
             if let gen, gen != renderGeneration {
@@ -672,6 +744,9 @@ public final class EditSession {
             if let decoded {
                 decodedImage = decoded
                 decodedForAssetID = asset.id
+                // Authoritative native size. Overwrites any approximation
+                // the cached-preview or embedded-JPEG paths seeded.
+                nativeImageSize = decoded.extent.size
             }
             if decodeTaskAssetID == asset.id {
                 decodeTask = nil

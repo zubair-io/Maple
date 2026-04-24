@@ -70,11 +70,16 @@ struct FullImageView: View {
                    viewportPx.height / imageSize.height)
     }
 
-    /// Image pixel extent — prefers the native RAW size (from EditSession once
-    /// decode has landed) and falls back to the currently-displayed preview's
-    /// extent. On first open we don't yet know the RAW size, so we let fit
-    /// resolve against the preview so zoom math doesn't crash.
+    /// Image pixel extent for fit / zoom math. Prefers `nativeImageSize` so
+    /// the math is stable across fast-phase, refine-phase, cached-preview,
+    /// and embedded-JPEG paints — those buffers can differ in extent from
+    /// the real sensor dimensions (half-res decode + upscale, viewport-sized
+    /// cache, 2048-max embedded preview). `renderedPreview.extent` is the
+    /// fallback for the first paint before `nativeImageSize` is seeded.
     private var imageExtent: CGSize? {
+        if session.nativeImageSize != .zero {
+            return session.nativeImageSize
+        }
         if let ci = session.renderedPreview {
             return ci.extent.size
         }
@@ -191,6 +196,16 @@ struct FullImageView: View {
                 session.pixelScale = effectivePixelScale(viewport: newSize)
             }
             .onChange(of: pixelScale) { _, _ in
+                session.pixelScale = effectivePixelScale(viewport: viewportSize)
+            }
+            .onChange(of: session.asset.id) { _, _ in
+                // Asset switched under us (SwiftUI may reuse the view
+                // across navigation). Reset zoom to fit so a stale
+                // pixelScale from the previous image doesn't make the new
+                // image's refine pass target the full native extent.
+                pixelScale = 0
+                panOffset = .zero
+                basePan = .zero
                 session.pixelScale = effectivePixelScale(viewport: viewportSize)
             }
         }
