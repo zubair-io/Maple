@@ -1,114 +1,102 @@
 // PhotoKitSource.swift — PHFetchResult-based source adapter.
 //
-// Requests Photo Library access, fetches all RAW assets via PHImageManager,
-// and exposes them as `PhotoKitAsset` items compatible with EditSession.
+// Holds a live `PHFetchResult<PHAsset>` (lazy, SQLite-backed) rather than an
+// eager `[PhotoKitAsset]` array. `fetchAssets(for:)` returns as soon as Photos
+// has run the predicate — no per-asset enumeration, no per-asset
+// `PHAssetResource.assetResources(for:)` calls. On a 100k-image library the
+// prior eager-filter path blocked the main loader for minutes because each
+// RAW-extension check hit Photos.sqlite; the new path is effectively O(1).
+//
+// Tradeoff: we no longer filter to "RAW-only" at fetch time. The grid surfaces
+// every image in the container; the RAW decoder at open time is where
+// non-RAW is rejected (or handled, once we support opening JPEG/HEIF).
 //
 // RAW bytes: PHImageRequestOptions with PHImageRequestOptionsVersion.unadjusted
-// and allowNetworkAccess=false to get the full RAW buffer for Rust pipeline.
+// and allowNetworkAccess=false to get the full RAW buffer for the Rust
+// pipeline.
 
 import Foundation
 import Photos
 
 // MARK: - PhotoKitSource
 
-/// Fetches RAW/DNG assets from the user's Photo Library.
+/// Browses a filtered view of the user's Photo Library.
 public actor PhotoKitSource {
-
-    // MARK: Types
-
-    public struct PhotoKitAsset: Sendable, Identifiable, Hashable {
-        public let id: String        // PHAsset.localIdentifier
-        public let asset: PHAsset
-
-        public var name: String { asset.localIdentifier }
-        public static func == (lhs: PhotoKitAsset, rhs: PhotoKitAsset) -> Bool { lhs.id == rhs.id }
-        public func hash(into hasher: inout Hasher) { hasher.combine(id) }
-    }
 
     // MARK: State
 
-    private var _assets: [PhotoKitAsset] = []
+    private var fetchResult: PHFetchResult<PHAsset>?
     private var authStatus: PHAuthorizationStatus = .notDetermined
 
-    public var assets: [PhotoKitAsset] { _assets }
+    /// O(1). Backed by the PHFetchResult count (SQLite `COUNT(*)` on the
+    /// predicate, not an array length).
+    public var count: Int { fetchResult?.count ?? 0 }
 
     public init() {}
 
     // MARK: Public API
 
-    /// Request Photo Library authorization and fetch RAW assets.
+    /// Request Photo Library authorization and fetch the "all images" view.
     /// Throws `PhotoKitError.accessDenied` if permission is not granted.
     public func requestAccessAndFetch() async throws {
-        let status = await PHPhotoLibrary.requestAuthorization(for: .readWrite)
-        authStatus = status
-        guard status == .authorized || status == .limited else {
-            throw PhotoKitError.accessDenied(status)
-        }
-        _assets = fetchRAWAssets()
+        try await fetchAssets(for: .all)
     }
 
-    /// Configure the source to apply `filter` on its next fetch. Clients
-    /// should call this instead of `requestAccessAndFetch()` when they want
-    /// a subset (Favorites, Picks, Rejects, Album). Access is (re)requested
-    /// here so first-time callers still see the permission prompt.
+    /// Configure the source to apply `filter`. Access is (re)requested here
+    /// so first-time callers still see the permission prompt. Returns as
+    /// soon as PhotoKit has run the predicate — no iteration of the result.
     public func fetchAssets(for filter: PhotoKitFilter) async throws {
         let status = await PHPhotoLibrary.requestAuthorization(for: .readWrite)
         authStatus = status
         guard status == .authorized || status == .limited else {
             throw PhotoKitError.accessDenied(status)
         }
-        _assets = Self.buildAssets(for: filter)
+        fetchResult = Self.buildFetchResult(for: filter)
     }
 
-    /// Internal helper — builds the PhotoKitAsset array for a given filter.
-    /// Keeps the PhotoKit predicate logic in one place. Static so it can run
-    /// without actor hops on the PHAsset framework (PHAsset is thread-safe).
-    private static func buildAssets(for filter: PhotoKitFilter) -> [PhotoKitAsset] {
+    /// Build the PHFetchResult for the requested filter. No enumeration —
+    /// `PHAsset.fetchAssets` itself is SQLite-backed and lazy; accessing
+    /// `.count` or iterating only materializes PHAsset proxies on demand.
+    private static func buildFetchResult(for filter: PhotoKitFilter) -> PHFetchResult<PHAsset> {
         let options = PHFetchOptions()
         options.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
 
-        let result: PHFetchResult<PHAsset>
         switch filter {
         case .all:
-            result = PHAsset.fetchAssets(with: .image, options: options)
+            return PHAsset.fetchAssets(with: .image, options: options)
         case .favorites:
             options.predicate = NSPredicate(format: "favorite == YES")
-            result = PHAsset.fetchAssets(with: .image, options: options)
+            return PHAsset.fetchAssets(with: .image, options: options)
         case .picks, .rejects:
             // maple:flag lives in XMP sidecars, not PHAsset metadata. Surface
             // the full image set here; the VM layer can apply the flag
-            // predicate once sidecars are loaded. This keeps the sidebar row
-            // functional even when no sidecars exist yet (empty result).
-            // TODO(UI-photokit-flags): wire XMP flag filter once sidecar
-            // bridging for PHAssets is implemented.
-            result = PHAsset.fetchAssets(with: .image, options: options)
+            // predicate once sidecars are loaded.
+            return PHAsset.fetchAssets(with: .image, options: options)
         case .album(let id, _):
             let collectionResult = PHAssetCollection.fetchAssetCollections(
                 withLocalIdentifiers: [id], options: nil
             )
             guard let collection = collectionResult.firstObject else {
-                return []
+                // Synthesize an empty result — impossible predicate.
+                let empty = PHFetchOptions()
+                empty.predicate = NSPredicate(value: false)
+                return PHAsset.fetchAssets(with: .image, options: empty)
             }
-            result = PHAsset.fetchAssets(in: collection, options: options)
+            return PHAsset.fetchAssets(in: collection, options: options)
         }
-
-        var assets: [PhotoKitAsset] = []
-        result.enumerateObjects { phAsset, _, _ in
-            let resources = PHAssetResource.assetResources(for: phAsset)
-            let hasRAW = resources.contains { r in
-                let ext = (r.originalFilename as NSString).pathExtension.lowercased()
-                return RAWExtensions.all.contains(ext)
-            }
-            if hasRAW {
-                assets.append(PhotoKitAsset(id: phAsset.localIdentifier, asset: phAsset))
-            }
-        }
-        return assets
     }
 
-    /// Fetch the raw image bytes for an asset (for the Rust pipeline).
-    /// Returns nil if the asset is not available locally.
-    public func rawData(for asset: PhotoKitAsset) async -> Data? {
+    /// Look up a PHAsset by its `localIdentifier` (the opaque id we hand out
+    /// in `ImageRef.id`). Photos re-vends a fresh proxy — we don't need to
+    /// hold onto them across calls.
+    private func phAsset(for localID: String) -> PHAsset? {
+        PHAsset.fetchAssets(withLocalIdentifiers: [localID], options: nil).firstObject
+    }
+
+    /// Fetch the raw image bytes for an asset by localIdentifier (for the
+    /// Rust pipeline). Returns nil if the asset is not available locally.
+    public func rawData(for localID: String) async -> Data? {
+        guard let phAsset = phAsset(for: localID) else { return nil }
         return await withCheckedContinuation { continuation in
             let options = PHImageRequestOptions()
             options.version = .unadjusted
@@ -117,60 +105,55 @@ public actor PhotoKitSource {
             options.isSynchronous = false
 
             PHImageManager.default().requestImageDataAndOrientation(
-                for: asset.asset,
+                for: phAsset,
                 options: options
             ) { data, _, _, _ in
                 continuation.resume(returning: data)
             }
         }
     }
-
-    // MARK: Private
-
-    private func fetchRAWAssets() -> [PhotoKitAsset] {
-        let fetchOptions = PHFetchOptions()
-        fetchOptions.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
-        // Fetch image assets that may include RAW originals
-        let result = PHAsset.fetchAssets(with: .image, options: fetchOptions)
-        var assets: [PhotoKitAsset] = []
-        result.enumerateObjects { phAsset, _, _ in
-            // Check if the asset has a RAW original
-            let resources = PHAssetResource.assetResources(for: phAsset)
-            let hasRAW = resources.contains { r in
-                let ext = (r.originalFilename as NSString).pathExtension.lowercased()
-                return RAWExtensions.all.contains(ext)
-            }
-            if hasRAW {
-                assets.append(PhotoKitAsset(id: phAsset.localIdentifier, asset: phAsset))
-            }
-        }
-        return assets
-    }
 }
 
 // MARK: - ImageSource conformance
 
 extension PhotoKitSource: ImageSource {
-    /// `ImageRef.id` is the `PHAsset.localIdentifier`. `url` is `nil` because
-    /// the Photos library uses opaque identifiers, not filesystem URLs.
+    /// Enumerate the fetch result building ImageRefs. Uses the asset's
+    /// `localIdentifier` as both `id` and `displayName` — resolving the true
+    /// filename requires `PHAssetResource.assetResources(for:)` which runs
+    /// one SQLite query per asset and takes minutes on large libraries.
+    /// Consumers that need the file basename/extension look it up lazily
+    /// when the asset is actually opened (see `rawBytes(for:)`).
     public func images() async throws -> [ImageRef] {
-        _assets.map { pa in
-            // Prefer the original filename as display name when resources
-            // are available; fall back to the PHAsset local identifier.
-            let resources = PHAssetResource.assetResources(for: pa.asset)
-            let fileName = resources.first?.originalFilename ?? pa.asset.localIdentifier
-            return ImageRef(id: pa.id, displayName: fileName, url: nil)
+        guard let result = fetchResult else { return [] }
+        var refs: [ImageRef] = []
+        refs.reserveCapacity(result.count)
+        var cancelled = false
+        result.enumerateObjects { phAsset, _, stop in
+            // Cheap cancellation check — a 100k-asset enumeration is a tight
+            // alloc loop, bail early if the caller's Task was cancelled.
+            if Task.isCancelled {
+                cancelled = true
+                stop.pointee = true
+                return
+            }
+            let id = phAsset.localIdentifier
+            refs.append(ImageRef(id: id, displayName: id, url: nil))
         }
+        if cancelled { throw CancellationError() }
+        return refs
     }
 
+    /// TODO(P0.1): wire `PHImageManager.requestImage(for:targetSize:...)` with
+    /// `deliveryMode = .opportunistic` to return a ~512 px JPEG here. Without
+    /// it, `ThumbnailLoader` falls through to rendering each tile from the
+    /// full RAW bytes — fast after the disk cache warms, painful on the first
+    /// browse of a new PhotoKit library. Implementing this turns cold browse
+    /// from "decode every tile" into "serve Photos' cached preview."
     public func thumb(for ref: ImageRef) async throws -> Data? { nil }
     public func preview(for ref: ImageRef) async throws -> Data? { nil }
 
     public func rawBytes(for ref: ImageRef) async throws -> Data {
-        guard let pa = _assets.first(where: { $0.id == ref.id }) else {
-            throw ImageSourceError.notFound(ref.id)
-        }
-        guard let data = await rawData(for: pa) else {
+        guard let data = await rawData(for: ref.id) else {
             throw ImageSourceError.notFound(ref.id)
         }
         return data
@@ -187,7 +170,7 @@ extension PhotoKitSource: ImageSource {
 
 // MARK: - PhotoKitError
 
-public enum PhotoKitError: Error, LocalizedError {
+public enum PhotoKitError: Error, LocalizedError, Sendable {
     case accessDenied(PHAuthorizationStatus)
 
     public var errorDescription: String? {
