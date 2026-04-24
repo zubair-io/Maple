@@ -103,14 +103,24 @@ public actor ImageEditPipeline {
                 let scope = asset.scopeParentURL ?? url.deletingLastPathComponent()
                 let accessing = scope.startAccessingSecurityScopedResource()
                 defer { if accessing { scope.stopAccessingSecurityScopedResource() } }
-                imageData = try PipelineRenderer.render(rawPath: url, xmpPath: nil)
+                // Preview quality → half-res quad demosaic. Interactive
+                // view surfaces don't need the parity-gated export path;
+                // 4× fewer pixels through 15+ stages turns a 100 MP RAW's
+                // cold decode from minutes into seconds. `MapleExporter`
+                // keeps .full for bake-out to disk.
+                imageData = try PipelineRenderer.render(
+                    rawPath: url,
+                    xmpPath: nil,
+                    quality: .preview
+                )
             } else if let provider = asset.bytesProvider {
                 let bytes = try await provider()
                 let hint = asset.hintExtension ?? ""
                 imageData = try PipelineRenderer.render(
                     rawBytes: bytes,
                     hint: hint,
-                    xmpPath: nil
+                    xmpPath: nil,
+                    quality: .preview
                 )
             } else {
                 return nil

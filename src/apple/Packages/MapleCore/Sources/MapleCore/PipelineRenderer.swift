@@ -62,14 +62,27 @@ public struct PipelineRenderer: Sendable {
     ///              `AdjustmentModel::default()`.
     /// - Returns: The rendered `MapleImageData`.
     /// - Throws: `PipelineError` if the Rust side returns a non-zero status.
-    public static func render(rawPath: URL, xmpPath: URL? = nil) throws -> MapleImageData {
+    /// Render quality knob. `preview` takes the half-resolution path through
+    /// the Rust pipeline (quad demosaic + 4× fewer pixels through every
+    /// downstream stage) so a 100 MP RAW lands in a few seconds instead of
+    /// minutes. `full` is the export path — the parity harness locks this.
+    public enum Quality: Int32 {
+        case full = 0
+        case preview = 1
+    }
+
+    public static func render(
+        rawPath: URL,
+        xmpPath: URL? = nil,
+        quality: Quality = .full
+    ) throws -> MapleImageData {
         try rawPath.withPathCString { rawCStr in
             if let xmpPath {
                 return try xmpPath.withPathCString { xmpCStr in
-                    try _render(rawCStr: rawCStr, xmpCStr: xmpCStr)
+                    try _render(rawCStr: rawCStr, xmpCStr: xmpCStr, quality: quality)
                 }
             } else {
-                return try _render(rawCStr: rawCStr, xmpCStr: nil)
+                return try _render(rawCStr: rawCStr, xmpCStr: nil, quality: quality)
             }
         }
     }
@@ -89,7 +102,8 @@ public struct PipelineRenderer: Sendable {
     public static func render(
         rawBytes: Data,
         hint: String,
-        xmpPath: URL? = nil
+        xmpPath: URL? = nil,
+        quality: Quality = .full
     ) throws -> MapleImageData {
         guard let hintCStr = hint.cString(using: .utf8) else {
             throw PipelineError.hintEncodingError(hint)
@@ -101,14 +115,16 @@ public struct PipelineRenderer: Sendable {
                     try _renderBytes(
                         ptr: base, len: buf.count,
                         hintCStr: hintCStr,
-                        xmpCStr: xmpCStr
+                        xmpCStr: xmpCStr,
+                        quality: quality
                     )
                 }
             } else {
                 return try _renderBytes(
                     ptr: base, len: buf.count,
                     hintCStr: hintCStr,
-                    xmpCStr: nil
+                    xmpCStr: nil,
+                    quality: quality
                 )
             }
         }
@@ -117,9 +133,10 @@ public struct PipelineRenderer: Sendable {
     // MARK: Private helpers
 
     private static func _render(rawCStr: UnsafePointer<CChar>,
-                                xmpCStr: UnsafePointer<CChar>?) throws -> MapleImageData {
+                                xmpCStr: UnsafePointer<CChar>?,
+                                quality: Quality) throws -> MapleImageData {
         var buf = MapleImageBuffer(rgb: nil, len: 0, width: 0, height: 0)
-        let rc = maple_render_file(rawCStr, xmpCStr, &buf)
+        let rc = maple_render_file(rawCStr, xmpCStr, quality.rawValue, &buf)
         guard rc == 0 else {
             let msg = maple_last_error().map { String(cString: $0) } ?? "unknown error"
             throw PipelineError.renderFailed(code: Int(rc), message: msg)
@@ -139,11 +156,12 @@ public struct PipelineRenderer: Sendable {
         ptr: UnsafePointer<UInt8>?,
         len: Int,
         hintCStr: [CChar],
-        xmpCStr: UnsafePointer<CChar>?
+        xmpCStr: UnsafePointer<CChar>?,
+        quality: Quality
     ) throws -> MapleImageData {
         var buf = MapleImageBuffer(rgb: nil, len: 0, width: 0, height: 0)
         let rc = hintCStr.withUnsafeBufferPointer { hintPtr -> Int32 in
-            maple_render_bytes(ptr, UInt(len), hintPtr.baseAddress, xmpCStr, &buf)
+            maple_render_bytes(ptr, UInt(len), hintPtr.baseAddress, xmpCStr, quality.rawValue, &buf)
         }
         guard rc == 0 else {
             let msg = maple_last_error().map { String(cString: $0) } ?? "unknown error"
