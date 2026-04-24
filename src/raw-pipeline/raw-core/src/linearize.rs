@@ -1,4 +1,5 @@
 use crate::image::{ColorSpace, Image, RawImage};
+use rayon::prelude::*;
 
 /// Sensor linearization per spec § 3.2.
 /// `linear = (raw - black) / (white - black)` clamped to [0, 1].
@@ -6,22 +7,25 @@ use crate::image::{ColorSpace, Image, RawImage};
 /// populated per pixel; the other two are zero. (Demosaic fills them in.)
 pub fn sensor_linearize(raw: &RawImage) -> Image {
     let w = raw.width as usize;
-    let h = raw.height as usize;
     let mut img = Image::new(raw.width, raw.height, ColorSpace::CameraNativeMosaic);
 
-    for y in 0..h {
-        for x in 0..w {
-            // Per-CFA-position black level: index as 2*(y&1) + (x&1).
-            let bl_idx = ((y & 1) << 1) | (x & 1);
-            let bl = raw.black_level[bl_idx] as f32;
-            let wl = raw.white_level as f32;
-            let denom = (wl - bl).max(1.0);
-            let raw_v = raw.raw_data[y * w + x] as f32;
-            let v = ((raw_v - bl) / denom).clamp(0.0, 1.0);
-            let color = raw.cfa.color_at(x as u32, y as u32) as usize;
-            img.pixels[y * w + x][color] = v;
-        }
-    }
+    let wl = raw.white_level as f32;
+    img.pixels
+        .par_chunks_mut(w)
+        .enumerate()
+        .for_each(|(y, row)| {
+            let raw_row = &raw.raw_data[y * w..(y + 1) * w];
+            for (x, px) in row.iter_mut().enumerate() {
+                // Per-CFA-position black level: index as 2*(y&1) + (x&1).
+                let bl_idx = ((y & 1) << 1) | (x & 1);
+                let bl = raw.black_level[bl_idx] as f32;
+                let denom = (wl - bl).max(1.0);
+                let raw_v = raw_row[x] as f32;
+                let v = ((raw_v - bl) / denom).clamp(0.0, 1.0);
+                let color = raw.cfa.color_at(x as u32, y as u32) as usize;
+                px[color] = v;
+            }
+        });
     img
 }
 
