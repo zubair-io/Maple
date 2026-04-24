@@ -20,15 +20,18 @@ src/web/projects/maple-common/src/lib/raw-pipeline/pkg/
 # Swift / SPM
 .build/
 .swiftpm/
-*.xcodeproj/xcuserdata/
-*.xcodeproj/project.xcworkspace/xcuserdata/
+**/xcuserdata/
+**/xcuserstate
+xcuserdata/
 DerivedData/
 
 # Rust .a binaries inside committed xcframeworks — too large for GitHub
 # (200-500 MB each). Rebuild via ./src/apple/scripts/build-xcframework.sh
 # after a fresh clone. The framework's Headers/, Info.plist, and
-# module.modulemap stay tracked.
-*.xcframework/**/libraw_ffi.a
+# module.modulemap stay tracked. The `*.xcframework/**/…` glob form used
+# earlier didn't actually match for older git versions — anchor the
+# pattern explicitly instead.
+libraw_ffi.a
 
 # Node / Bun
 node_modules/
@@ -51,3 +54,14 @@ __screenshots__/
 .idea/
 .vscode/
 *.swp
+
+# Claude Code / agent tooling
+.claude/
+
+# Playwright test output (src/web/e2e runs)
+test-results/
+playwright-report/
+
+# Python bytecode cache (ACR reference scripts, codegen helpers)
+__pycache__/
+*.pyc
