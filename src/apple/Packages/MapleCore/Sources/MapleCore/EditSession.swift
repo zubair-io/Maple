@@ -739,12 +739,25 @@ public final class EditSession {
         if let existing = decodeTask, decodeTaskAssetID == asset.id {
             return await existing.value
         }
-        // Stale task for a previous asset — drop the reference; its
-        // detached work will finish into a value nobody reads, but we
-        // don't await it. Happens on asset switch mid-decode.
         decodeTask = nil
         decodeTaskAssetID = nil
 
+        // Fast path: decoded-buffer disk cache. Skips the Rust pipeline
+        // entirely when the asset's mtime matches the cached key.
+        if let url = asset.primaryURL,
+           let cached = await DecodedBufferCache.shared.decoded(for: url) {
+            editSessionLogger.debug(
+                "decoded cache hit extent=\(cached.extent.width)x\(cached.extent.height)"
+            )
+            if self.asset.id == asset.id {
+                decodedImage = cached
+                decodedForAssetID = asset.id
+                nativeImageSize = cached.extent.size
+            }
+            return cached
+        }
+
+        // Cache miss — fall through to the Rust decode.
         let decodeSignpostID = editSessionSignposter.makeSignpostID()
         let decodeState = editSessionSignposter.beginInterval("decode", id: decodeSignpostID)
         let task = Task.detached(priority: .userInitiated) { [pipeline] () -> CIImage? in
@@ -756,17 +769,18 @@ public final class EditSession {
         let decoded = await task.value
         editSessionSignposter.endInterval("decode", decodeState)
 
-        // Only touch shared cache state when the session is still looking
-        // at the same asset. An asset switch during the await would have
-        // reassigned decodeTask / decodeTaskAssetID, and we don't want a
-        // stale decode to clobber the fresh one.
         if self.asset.id == asset.id {
             if let decoded {
                 decodedImage = decoded
                 decodedForAssetID = asset.id
-                // Authoritative native size. Overwrites any approximation
-                // the cached-preview or embedded-JPEG paths seeded.
                 nativeImageSize = decoded.extent.size
+                // Write-back so the next cold open skips Rust.
+                if let url = asset.primaryURL {
+                    let capturedImage = decoded
+                    Task.detached(priority: .utility) {
+                        await DecodedBufferCache.shared.storeDecoded(capturedImage, for: url)
+                    }
+                }
             }
             if decodeTaskAssetID == asset.id {
                 decodeTask = nil
