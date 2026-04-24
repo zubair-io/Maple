@@ -2,13 +2,14 @@ use crate::{
     color::matrices::M_REC2020_TO_SRGB,
     image::{ColorSpace, Image},
 };
+use rayon::prelude::*;
 
 /// Rec.2020 → sRGB linear via compile-time 3×3.
 pub fn rec2020_to_srgb(img: &mut Image) {
     img.assert_space(ColorSpace::DisplayLinearRec2020);
-    for p in &mut img.pixels {
+    img.pixels.par_iter_mut().for_each(|p| {
         *p = M_REC2020_TO_SRGB.mul_vec(*p);
-    }
+    });
     img.space = ColorSpace::DisplayLinearSrgb;
 }
 
@@ -45,14 +46,16 @@ fn apply_levels(x: f32) -> f32 {
 /// `Vec<u8>` of length 3 * w * h.
 pub fn quantize_u8(img: &mut Image) -> Vec<u8> {
     img.assert_space(ColorSpace::DisplayLinearSrgb);
-    let mut out = Vec::with_capacity(img.pixels.len() * 3);
-    for p in &img.pixels {
-        for &c in p {
-            let g = srgb_gamma(c);
-            let levelled = apply_levels(g);
-            out.push((levelled * 255.0 + 0.5).clamp(0.0, 255.0) as u8);
-        }
-    }
+    let mut out = vec![0u8; img.pixels.len() * 3];
+    out.par_chunks_mut(3)
+        .zip(img.pixels.par_iter())
+        .for_each(|(dst, p)| {
+            for (i, &c) in p.iter().enumerate() {
+                let g = srgb_gamma(c);
+                let levelled = apply_levels(g);
+                dst[i] = (levelled * 255.0 + 0.5).clamp(0.0, 255.0) as u8;
+            }
+        });
     img.space = ColorSpace::DisplayEncodedSrgb;
     out
 }
