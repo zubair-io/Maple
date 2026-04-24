@@ -12,6 +12,7 @@ png.workspace = true
 quick-xml.workspace = true
 thiserror.workspace = true
 bytemuck.workspace = true
+rayon = { workspace = true }
 blake3 = "1"
 sha1 = "0.10"
 
