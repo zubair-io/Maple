@@ -1,4 +1,5 @@
 use crate::image::{CfaPattern, ColorSpace, Image};
+use rayon::prelude::*;
 
 /// Bilinear demosaic per spec § 3.3.1. Input must be `CameraNativeMosaic`.
 /// Output is `CameraNativeLinearRgb` with all three channels populated.
@@ -6,47 +7,53 @@ pub fn bilinear(mosaic: &Image, cfa: CfaPattern) -> Image {
     mosaic.assert_space(ColorSpace::CameraNativeMosaic);
     let w = mosaic.width as i32;
     let h = mosaic.height as i32;
+    let w_usize = mosaic.width as usize;
     let mut out = Image::new(mosaic.width, mosaic.height, ColorSpace::CameraNativeLinearRgb);
 
     let sample = |x: i32, y: i32, channel: usize| -> f32 {
         // Mirror-reflect borders.
         let mx = if x < 0 { -x } else if x >= w { 2*(w-1) - x } else { x };
         let my = if y < 0 { -y } else if y >= h { 2*(h-1) - y } else { y };
-        mosaic.pixels[(my as usize) * (w as usize) + (mx as usize)][channel]
+        mosaic.pixels[(my as usize) * w_usize + (mx as usize)][channel]
     };
 
-    for y in 0..h {
-        for x in 0..w {
-            let color = cfa.color_at(x as u32, y as u32) as usize;
-            let mut rgb = [0.0f32; 3];
-            // Center-channel is whatever was sampled.
-            rgb[color] = sample(x, y, color);
+    out.pixels
+        .par_chunks_mut(w_usize)
+        .enumerate()
+        .for_each(|(y_idx, row)| {
+            let y = y_idx as i32;
+            for (x_idx, px) in row.iter_mut().enumerate() {
+                let x = x_idx as i32;
+                let color = cfa.color_at(x as u32, y as u32) as usize;
+                let mut rgb = [0.0f32; 3];
+                // Center-channel is whatever was sampled.
+                rgb[color] = sample(x, y, color);
 
-            match color {
-                0 | 2 => {
-                    // R or B known; interpolate G as 4-neighbor average and
-                    // the opposite chroma as 4-diagonal average.
-                    rgb[1] = (sample(x-1, y, 1) + sample(x+1, y, 1)
-                           +  sample(x, y-1, 1) + sample(x, y+1, 1)) * 0.25;
-                    let other = if color == 0 { 2 } else { 0 };
-                    rgb[other] = (sample(x-1, y-1, other) + sample(x+1, y-1, other)
-                               +  sample(x-1, y+1, other) + sample(x+1, y+1, other)) * 0.25;
+                match color {
+                    0 | 2 => {
+                        // R or B known; interpolate G as 4-neighbor average and
+                        // the opposite chroma as 4-diagonal average.
+                        rgb[1] = (sample(x-1, y, 1) + sample(x+1, y, 1)
+                               +  sample(x, y-1, 1) + sample(x, y+1, 1)) * 0.25;
+                        let other = if color == 0 { 2 } else { 0 };
+                        rgb[other] = (sample(x-1, y-1, other) + sample(x+1, y-1, other)
+                                   +  sample(x-1, y+1, other) + sample(x+1, y+1, other)) * 0.25;
+                    }
+                    1 => {
+                        // G known; determine horizontal vs vertical neighbors for R and B.
+                        // In any Bayer pattern, at a G position one axis is R and the other is B.
+                        let horiz = cfa.color_at((x as u32 + 1) & !0, y as u32) as usize;
+                        let vert  = cfa.color_at(x as u32, (y as u32 + 1) & !0) as usize;
+                        // horiz channel is average of horizontal neighbors; vert channel
+                        // is average of vertical neighbors.
+                        rgb[horiz] = (sample(x-1, y, horiz) + sample(x+1, y, horiz)) * 0.5;
+                        rgb[vert]  = (sample(x, y-1, vert)  + sample(x, y+1, vert))  * 0.5;
+                    }
+                    _ => unreachable!(),
                 }
-                1 => {
-                    // G known; determine horizontal vs vertical neighbors for R and B.
-                    // In any Bayer pattern, at a G position one axis is R and the other is B.
-                    let horiz = cfa.color_at((x as u32 + 1) & !0, y as u32) as usize;
-                    let vert  = cfa.color_at(x as u32, (y as u32 + 1) & !0) as usize;
-                    // horiz channel is average of horizontal neighbors; vert channel
-                    // is average of vertical neighbors.
-                    rgb[horiz] = (sample(x-1, y, horiz) + sample(x+1, y, horiz)) * 0.5;
-                    rgb[vert]  = (sample(x, y-1, vert)  + sample(x, y+1, vert))  * 0.5;
-                }
-                _ => unreachable!(),
+                *px = rgb;
             }
-            out.pixels[(y as usize) * (w as usize) + (x as usize)] = rgb;
-        }
-    }
+        });
     out
 }
 
