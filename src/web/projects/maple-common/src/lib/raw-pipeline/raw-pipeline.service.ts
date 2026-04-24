@@ -119,8 +119,23 @@ export class RawPipelineService implements OnDestroy {
       bytes.byteOffset + bytes.byteLength,
     ) as ArrayBuffer;
     const request: DecodeRequest = { id, type: 'decode', bytes: buffer, ext, xmp };
+    // Bracket the full decode (post + worker round-trip) with a performance
+    // mark so the browser's Performance panel shows a distinct entry per
+    // decode. Name includes id so concurrent decodes don't collide.
+    performance.mark(`maple:decode:${id}:start`);
     return new Promise<DecodedImage>((resolve, reject) => {
-      this.pending.set(id, { resolve, reject });
+      this.pending.set(id, {
+        resolve: (result) => {
+          performance.mark(`maple:decode:${id}:end`);
+          performance.measure(
+            `maple:decode`,
+            `maple:decode:${id}:start`,
+            `maple:decode:${id}:end`,
+          );
+          resolve(result);
+        },
+        reject,
+      });
       worker.postMessage(request, [buffer]);
     });
   }

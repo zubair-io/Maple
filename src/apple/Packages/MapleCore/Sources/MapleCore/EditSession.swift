@@ -21,6 +21,21 @@ private let editSessionLogger = Logger(
     category: "EditSession"
 )
 
+// Signposter for the render pipeline. Surfaced in Instruments (Points of
+// Interest + Timeline) so the cold-open waterfall is visible without extra
+// tooling. Events we emit:
+//   - "open"           event  on ensureRenderStarted entry
+//   - "embedded paint" event  when the embedded JPEG lands on screen
+//   - "fast"           interval for the fast-phase render pass
+//   - "refine"         interval for the refine-phase render pass
+//   - "decode"         interval around the Rust decode call
+// To view: Xcode → Open Developer Tool → Instruments → Points of Interest,
+// or Profile the app and filter by subsystem.
+private let editSessionSignposter = OSSignposter(
+    subsystem: "app.justmaple.maple",
+    category: "EditSession"
+)
+
 // MARK: - RenderPhase
 
 /// Two-phase rendering per spec § 02 / § 05.
@@ -382,6 +397,7 @@ public final class EditSession {
     /// `decodedImage` — the guard above returns early on revisit.
     public func ensureRenderStarted() {
         guard renderedPreview == nil || decodedForAssetID != asset.id else { return }
+        editSessionSignposter.emitEvent("open")
         // Order matters. `_scheduleRender` bumps `renderGeneration`, and
         // `loadEmbeddedPreviewIfAvailable` snapshots that value to guard its
         // delayed MainActor publish against later navigation. If we called
@@ -421,6 +437,7 @@ public final class EditSession {
                     return
                 }
                 self.renderedPreview = ci
+                editSessionSignposter.emitEvent("embedded paint")
                 editSessionLogger.debug(
                     "embedded preview published \(ms)ms extent=\(ci.extent.width)x\(ci.extent.height)"
                 )
@@ -521,6 +538,14 @@ public final class EditSession {
         editSessionLogger.debug(
             "decodeAndRender begin gen=\(gen ?? 0) phase=\(String(describing: phase), privacy: .public) target=\(targetSize?.width ?? 0)x\(targetSize?.height ?? 0) cached=\(cached != nil)"
         )
+        // Signpost interval covers the full decode+process for this phase so
+        // Instruments can show fast-pass and refine-pass bars stacked on the
+        // same timeline. `.fast` and `.refine` are separate interval names so
+        // they appear as independent lanes.
+        let phaseName: StaticString = (phase == .fast) ? "fast" : "refine"
+        let phaseSignpostID = editSessionSignposter.makeSignpostID()
+        let phaseState = editSessionSignposter.beginInterval(phaseName, id: phaseSignpostID)
+        defer { editSessionSignposter.endInterval(phaseName, phaseState) }
 
         do {
             let image: CIImage
@@ -531,6 +556,8 @@ public final class EditSession {
                 }.value
             } else {
                 // Cold decode — run the Rust FFI once, cache the result.
+                let decodeSignpostID = editSessionSignposter.makeSignpostID()
+                let decodeState = editSessionSignposter.beginInterval("decode", id: decodeSignpostID)
                 let (dec, proc) = await Task.detached(priority: .userInitiated) {
                     () -> (CIImage?, CIImage?) in
                     guard let decoded = await pipeline.decode(asset: asset) else {
@@ -539,6 +566,7 @@ public final class EditSession {
                     let processed = pipeline.process(decoded: decoded, model: m, targetSize: targetSize, asShot: asShot)
                     return (decoded, processed)
                 }.value
+                editSessionSignposter.endInterval("decode", decodeState)
                 guard let decoded = dec, let processed = proc else {
                     throw RenderError.pipelineFailed
                 }

@@ -58,7 +58,17 @@ addEventListener('message', async (event: MessageEvent<DecodeRequest>) => {
   try {
     await ensureReady();
     const bytes = new Uint8Array(req.bytes);
+    // Worker-local mark so DevTools' Performance panel shows the WASM
+    // `render_bytes` call as a distinct entry independent of the
+    // main-thread round-trip the service brackets.
+    performance.mark(`maple:wasm:${req.id}:start`);
     const result = render_bytes(bytes, req.ext, req.xmp ?? null);
+    performance.mark(`maple:wasm:${req.id}:end`);
+    performance.measure(
+      `maple:wasm`,
+      `maple:wasm:${req.id}:start`,
+      `maple:wasm:${req.id}:end`,
+    );
     const rgb = result.rgb;
     const buffer = rgb.buffer.slice(rgb.byteOffset, rgb.byteOffset + rgb.byteLength);
     const response: WorkerResponse = {
