@@ -51,6 +51,18 @@ fn box_blur_channel(buf: &[f32], w: usize, h: usize, r: usize) -> Vec<f32> {
 /// internally uses 3 box passes of `radius / 3`.
 ///
 /// A radius of 0 returns a clone of the input unchanged.
+pub fn gaussian_blur_plane(buf: &[f32], w: usize, h: usize, radius: usize) -> Vec<f32> {
+    if radius == 0 {
+        return buf.to_vec();
+    }
+    let r_box = (radius / 3).max(1);
+    let mut plane = buf.to_vec();
+    for _ in 0..3 {
+        plane = box_blur_channel(&plane, w, h, r_box);
+    }
+    plane
+}
+
 pub fn gaussian_blur_rgb(img: &Image, radius: usize) -> Image {
     img.assert_space(ColorSpace::SceneLinearRec2020);
     if radius == 0 {
