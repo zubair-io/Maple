@@ -94,7 +94,48 @@ pub fn render_from_raw_with_quality(
     let bytes = encode::quantize_u8(&mut scene);
     // Apply EXIF orientation last — rotating/flipping sRGB u8 is cheap and
     // keeps every upstream stage indifferent to sensor-vs-display framing.
-    Ok(apply_orientation(&bytes, scene.width, scene.height, raw.orientation))
+    let (w, h, bytes) = apply_orientation(&bytes, scene.width, scene.height, raw.orientation);
+    match quality {
+        RenderQuality::Full => Ok((w, h, bytes)),
+        RenderQuality::Preview => {
+            // The half-res quad demosaic emits a buffer at (w/2, h/2). Every
+            // downstream stage ran on 4× fewer pixels — that's the perf win.
+            // Before handing the buffer back to the caller we pixel-double
+            // it so the app's zoom / fit math sees the original sensor
+            // dimensions. Nearest-neighbour (no filtering) is fine: CoreImage
+            // or WebGL will resample for display anyway, and a filter here
+            // would just launder the same information through math.
+            let (out_w, out_h, out_bytes) = upsample_2x_nearest_rgb8(&bytes, w, h);
+            Ok((out_w, out_h, out_bytes))
+        }
+    }
+}
+
+/// Nearest-neighbour 2× upsample of an interleaved u8 RGB buffer. Used by
+/// `RenderQuality::Preview` to restore original-sensor dimensions after the
+/// half-res pipeline so downstream consumers don't see an unexpected size.
+fn upsample_2x_nearest_rgb8(src: &[u8], sw: u32, sh: u32) -> (u32, u32, Vec<u8>) {
+    let sw = sw as usize;
+    let sh = sh as usize;
+    let dw = sw * 2;
+    let dh = sh * 2;
+    let mut out = vec![0u8; dw * dh * 3];
+    for sy in 0..sh {
+        let src_row = &src[sy * sw * 3..(sy + 1) * sw * 3];
+        // Build the doubled-width row once, reuse it for both output rows.
+        let mut row = vec![0u8; dw * 3];
+        for sx in 0..sw {
+            let s = &src_row[sx * 3..sx * 3 + 3];
+            let d0 = sx * 6;
+            row[d0..d0 + 3].copy_from_slice(s);
+            row[d0 + 3..d0 + 6].copy_from_slice(s);
+        }
+        let dy0 = sy * 2 * dw * 3;
+        let dy1 = (sy * 2 + 1) * dw * 3;
+        out[dy0..dy0 + dw * 3].copy_from_slice(&row);
+        out[dy1..dy1 + dw * 3].copy_from_slice(&row);
+    }
+    (dw as u32, dh as u32, out)
 }
 
 #[cfg(test)]
