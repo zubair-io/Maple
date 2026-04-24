@@ -17,7 +17,11 @@
 
 #![allow(clippy::missing_safety_doc)]
 
-use raw_core::{decode::decode_bytes, pipeline::render_from_raw, xmp};
+use raw_core::{
+    decode::decode_bytes,
+    pipeline::{render_from_raw_with_quality, RenderQuality},
+    xmp,
+};
 use std::ffi::{CStr, c_char};
 use std::cell::RefCell;
 
@@ -95,10 +99,18 @@ impl MapleImageBuffer {
 /// Render a RAW+XMP to an sRGB 8-bit RGB buffer. Returns 0 on success, non-zero
 /// on error (call `maple_last_error` for a description). `xmp_path` may be null,
 /// in which case AdjustmentModel::default() is used.
+///
+/// `quality_preview` selects the internal demosaic / downsample strategy:
+///   0 → `RenderQuality::Full`    (bilinear or HA demosaic, full resolution;
+///                                  export path, matches the parity harness)
+///   1 → `RenderQuality::Preview` (half-res quad demosaic, 4× fewer pixels
+///                                  downstream; use for interactive fast-phase
+///                                  so a 100MP RAW decodes in seconds)
 #[no_mangle]
 pub unsafe extern "C" fn maple_render_file(
     raw_path: *const c_char,
     xmp_path: *const c_char,
+    quality_preview: i32,
     out: *mut MapleImageBuffer,
 ) -> i32 {
     if raw_path.is_null() || out.is_null() {
@@ -140,7 +152,12 @@ pub unsafe extern "C" fn maple_render_file(
             Ok(r) => r,
             Err(e) => { set_last_error(format!("decode: {}", e)); return 7; }
         };
-        let (w, h, bytes) = match render_from_raw(&raw_img, &model) {
+        let quality = if quality_preview != 0 {
+            RenderQuality::Preview
+        } else {
+            RenderQuality::Full
+        };
+        let (w, h, bytes) = match render_from_raw_with_quality(&raw_img, &model, quality) {
             Ok(t) => t,
             Err(e) => { set_last_error(format!("render: {}", e)); return 8; }
         };
@@ -163,12 +180,15 @@ pub unsafe extern "C" fn maple_render_file(
 ///
 /// `xmp_path` may be null, in which case `AdjustmentModel::default()` is used.
 /// `hint_ext` must be a UTF-8 C string naming the RAW extension (without dot).
+/// `quality_preview` mirrors `maple_render_file` — 1 = half-res preview
+/// demosaic for the fast interactive path, 0 = full export quality.
 #[no_mangle]
 pub unsafe extern "C" fn maple_render_bytes(
     raw_bytes: *const u8,
     raw_len: usize,
     hint_ext: *const c_char,
     xmp_path: *const c_char,
+    quality_preview: i32,
     out: *mut MapleImageBuffer,
 ) -> i32 {
     if raw_bytes.is_null() || out.is_null() {
@@ -210,7 +230,12 @@ pub unsafe extern "C" fn maple_render_bytes(
             Ok(r) => r,
             Err(e) => { set_last_error(format!("decode: {}", e)); return 7; }
         };
-        let (w, h, out_bytes) = match render_from_raw(&raw_img, &model) {
+        let quality = if quality_preview != 0 {
+            RenderQuality::Preview
+        } else {
+            RenderQuality::Full
+        };
+        let (w, h, out_bytes) = match render_from_raw_with_quality(&raw_img, &model, quality) {
             Ok(t) => t,
             Err(e) => { set_last_error(format!("render: {}", e)); return 8; }
         };
@@ -260,7 +285,7 @@ mod tests {
         if !path.exists() { return; }
         let raw_cstr = CString::new(path.to_str().unwrap()).unwrap();
         let mut buf = MapleImageBuffer::empty();
-        let rc = unsafe { maple_render_file(raw_cstr.as_ptr(), std::ptr::null(), &mut buf) };
+        let rc = unsafe { maple_render_file(raw_cstr.as_ptr(), std::ptr::null(), 0, &mut buf) };
         assert_eq!(rc, 0, "render rc = {}", rc);
         assert!(buf.width > 0 && buf.height > 0);
         assert_eq!(buf.len as u32, buf.width * buf.height * 3);
@@ -278,7 +303,7 @@ mod tests {
         let mut buf = MapleImageBuffer::empty();
         let rc = unsafe {
             maple_render_bytes(bytes.as_ptr(), bytes.len(), ext.as_ptr(),
-                               std::ptr::null(), &mut buf)
+                               std::ptr::null(), 0, &mut buf)
         };
         assert_eq!(rc, 0, "render_bytes rc = {}", rc);
         assert!(buf.width > 0 && buf.height > 0);
@@ -290,7 +315,7 @@ mod tests {
     #[test]
     fn null_arg_sets_error() {
         let mut buf = MapleImageBuffer::empty();
-        let rc = unsafe { maple_render_file(std::ptr::null(), std::ptr::null(), &mut buf) };
+        let rc = unsafe { maple_render_file(std::ptr::null(), std::ptr::null(), 0, &mut buf) };
         assert_eq!(rc, 1);
         let err = unsafe { maple_last_error() };
         assert!(!err.is_null());
