@@ -307,16 +307,59 @@ public actor ImageEditPipeline {
         wb.targetNeutral = CIVector(x: CGFloat(model.temperature), y: CGFloat(model.tint))
         img = wb.outputImage ?? img
 
-        // Stage 4: Scene tone controls (exposure + H/S/W/B) via Metal kernel.
-        // Exposure is handled here (not separately above) to match the Rust stage order.
-        img = MetalKernels.applySceneToneControls(
-            to: img,
-            exposure: Float(model.exposure),
-            highlights: Float(model.highlights),
-            shadows: Float(model.shadows),
-            whites: Float(model.whites),
-            blacks: Float(model.blacks)
-        )
+        // Stage 4: Scene tone controls.
+        //
+        // The bundled Metal kernel (`MetalKernels.applySceneToneControls`)
+        // is silently a no-op — the `.metal` sources in the package aren't
+        // compiled to a metallib, so the kernel loader returns nil and the
+        // wrapper returns its input unchanged. Until that build config is
+        // fixed, fall back to standard CIFilters so the sliders actually
+        // move pixels. Scene-referred correctness is compromised (these
+        // filters operate in sRGB working space on the already-
+        // AgX-tone-mapped buffer from Rust) — revisit when Metal kernels
+        // come online and the pipeline split is fixed.
+        if model.exposure != 0 {
+            let f = CIFilter.exposureAdjust()
+            f.inputImage = img
+            f.ev = Float(model.exposure)
+            img = f.outputImage ?? img
+        }
+        if model.contrast != 0 {
+            let f = CIFilter.colorControls()
+            f.inputImage = img
+            f.saturation = 1
+            f.brightness = 0
+            f.contrast = Float(1.0 + model.contrast / 100.0)
+            img = f.outputImage ?? img
+        }
+        if model.highlights != 0 || model.shadows != 0 {
+            let f = CIFilter.highlightShadowAdjust()
+            f.inputImage = img
+            // Slider ±100 → amount ±1.0. CIHighlightShadowAdjust:
+            //   highlightAmount < 1.0 compresses highlights (pulls down),
+            //   shadowAmount   > 0.0 lifts shadows.
+            f.highlightAmount = Float(1.0 - model.highlights / 100.0)
+            f.shadowAmount = Float(model.shadows / 100.0)
+            f.radius = 0
+            img = f.outputImage ?? img
+        }
+        if model.whites != 0 || model.blacks != 0 {
+            // Whites/Blacks are point-endpoint shifts rather than overall
+            // brightness. CIToneCurve gives us the two-point control
+            // Lightroom-style sliders expect; the midtones anchor on the
+            // identity 0.5 point so the center of the histogram doesn't
+            // drift.
+            let wShift = CGFloat(model.whites) / 100.0 * 0.15
+            let bShift = CGFloat(model.blacks) / 100.0 * 0.15
+            let f = CIFilter.toneCurve()
+            f.inputImage = img
+            f.point0 = CGPoint(x: 0.0, y: max(0.0, min(1.0, 0.0 + bShift)))
+            f.point1 = CGPoint(x: 0.25, y: 0.25)
+            f.point2 = CGPoint(x: 0.5, y: 0.5)
+            f.point3 = CGPoint(x: 0.75, y: 0.75)
+            f.point4 = CGPoint(x: 1.0, y: max(0.0, min(1.0, 1.0 + wShift)))
+            img = f.outputImage ?? img
+        }
 
         // Stage 5: Vibrance (Metal kernel) + Saturation
         if model.vibrance != 0 {
