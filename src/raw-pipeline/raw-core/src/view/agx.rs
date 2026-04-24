@@ -14,6 +14,7 @@
 //! channel (spec § 06 cross-platform § AgX parity).
 
 use crate::image::{ColorSpace, Image};
+use rayon::prelude::*;
 
 #[path = "agx_coeffs.rs"]
 mod coeffs;
@@ -82,11 +83,11 @@ pub fn apply(img: &mut Image, contrast: f32) {
     img.assert_space(ColorSpace::SceneLinearRec2020);
     // Slope = 1 + (contrast/100) * 0.5. At +100 → 1.5×, at −100 → 0.5×.
     let slope = 1.0 + (contrast / 100.0) * 0.5;
-    for p in &mut img.pixels {
+    img.pixels.par_iter_mut().for_each(|p| {
         p[0] = agx_per_channel(p[0], slope);
         p[1] = agx_per_channel(p[1], slope);
         p[2] = agx_per_channel(p[2], slope);
-    }
+    });
     img.space = ColorSpace::DisplayLinearRec2020;
 }
 
