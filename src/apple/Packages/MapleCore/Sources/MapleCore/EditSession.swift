@@ -250,6 +250,16 @@ public final class EditSession {
     @ObservationIgnored private var decodedImage: CIImage?
     @ObservationIgnored private var decodedForAssetID: AssetRef.ID?
 
+    /// In-flight decode task for the current asset. When a render phase
+    /// needs a fresh decode and finds no cache, it either starts a new task
+    /// here or awaits the existing one. This deduplicates concurrent cold
+    /// decodes that would otherwise fire when `previewSize` / `pixelScale`
+    /// cascade multiple scheduleRender/scheduleRefine calls while the first
+    /// Rust FFI call is still running. Cleared by `invalidateDecodedCache`
+    /// and whenever the current task finishes.
+    @ObservationIgnored private var decodeTask: Task<CIImage?, Never>?
+    @ObservationIgnored private var decodeTaskAssetID: AssetRef.ID?
+
     /// Viewport size in real pixels — set by FullImageView. Used as the fast
     /// phase's target size so the filter chain runs at viewport resolution
     /// rather than native resolution.
@@ -556,22 +566,26 @@ public final class EditSession {
                 }.value
             } else {
                 // Cold decode — run the Rust FFI once, cache the result.
-                let decodeSignpostID = editSessionSignposter.makeSignpostID()
-                let decodeState = editSessionSignposter.beginInterval("decode", id: decodeSignpostID)
-                let (dec, proc) = await Task.detached(priority: .userInitiated) {
-                    () -> (CIImage?, CIImage?) in
-                    guard let decoded = await pipeline.decode(asset: asset) else {
-                        return (nil, nil)
-                    }
-                    let processed = pipeline.process(decoded: decoded, model: m, targetSize: targetSize, asShot: asShot)
-                    return (decoded, processed)
-                }.value
-                editSessionSignposter.endInterval("decode", decodeState)
-                guard let decoded = dec, let processed = proc else {
+                // Dedupe: if another render phase is already awaiting a
+                // decode for this asset, piggy-back on its Task rather than
+                // starting a concurrent one. SwiftUI can fire previewSize
+                // and pixelScale didSets in rapid succession as the
+                // viewport lays itself out, which used to schedule several
+                // cold decodes in parallel — each observing `decodedImage`
+                // still nil because no sibling had written it yet. The
+                // result was N concurrent Rust FFI decodes on a 100MP RAW
+                // with no survivor ever reaching the published-preview
+                // assignment. Single in-flight decode per asset fixes it.
+                let decoded = await sharedDecode(asset: asset, pipeline: pipeline)
+                guard let decoded else {
                     throw RenderError.pipelineFailed
                 }
-                decodedImage = decoded
-                decodedForAssetID = asset.id
+                // Process is cheap (CoreImage filter chain) — run it per
+                // phase with the caller's targetSize. Not shared with peers
+                // because targetSize differs between fast and refine.
+                let processed = await Task.detached(priority: .userInitiated) {
+                    pipeline.process(decoded: decoded, model: m, targetSize: targetSize, asShot: asShot)
+                }.value
                 image = processed
             }
 
@@ -611,6 +625,54 @@ public final class EditSession {
     public func invalidateDecodedCache() {
         decodedImage = nil
         decodedForAssetID = nil
+        decodeTask = nil
+        decodeTaskAssetID = nil
+    }
+
+    /// Returns the decoded CIImage for `asset`, running the Rust FFI at
+    /// most once per asset even if multiple concurrent callers ask for it.
+    /// If a peer render phase is already awaiting a decode for the same
+    /// asset we piggy-back on that task; otherwise we start a fresh one.
+    /// Writes `decodedImage` / `decodedForAssetID` when the task completes.
+    private func sharedDecode(
+        asset: AssetRef,
+        pipeline: ImageEditPipeline
+    ) async -> CIImage? {
+        if let existing = decodeTask, decodeTaskAssetID == asset.id {
+            return await existing.value
+        }
+        // Stale task for a previous asset — drop the reference; its
+        // detached work will finish into a value nobody reads, but we
+        // don't await it. Happens on asset switch mid-decode.
+        decodeTask = nil
+        decodeTaskAssetID = nil
+
+        let decodeSignpostID = editSessionSignposter.makeSignpostID()
+        let decodeState = editSessionSignposter.beginInterval("decode", id: decodeSignpostID)
+        let task = Task.detached(priority: .userInitiated) { [pipeline] () -> CIImage? in
+            await pipeline.decode(asset: asset)
+        }
+        decodeTask = task
+        decodeTaskAssetID = asset.id
+
+        let decoded = await task.value
+        editSessionSignposter.endInterval("decode", decodeState)
+
+        // Only touch shared cache state when the session is still looking
+        // at the same asset. An asset switch during the await would have
+        // reassigned decodeTask / decodeTaskAssetID, and we don't want a
+        // stale decode to clobber the fresh one.
+        if self.asset.id == asset.id {
+            if let decoded {
+                decodedImage = decoded
+                decodedForAssetID = asset.id
+            }
+            if decodeTaskAssetID == asset.id {
+                decodeTask = nil
+                decodeTaskAssetID = nil
+            }
+        }
+        return decoded
     }
 }
 
