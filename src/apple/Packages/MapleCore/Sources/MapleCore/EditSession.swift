@@ -433,9 +433,15 @@ public final class EditSession {
     /// editor's viewport without paying full-resolution decode cost.
     nonisolated private static func readEmbeddedPreview(from url: URL) -> CIImage? {
         guard let src = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
+        // `FromImageIfAbsent: false` means we only return the camera's
+        // pre-baked preview. When a RAW has no embedded preview (rare, but
+        // happens with ProRAW passthrough and some synthetic DNGs), ImageIO
+        // would otherwise full-decode the Bayer data to synthesize one —
+        // which defeats the whole point of this "fast" path. Returning nil
+        // lets the caller fall through to the real Rust decode instead.
         let opts: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageAlways: false,
-            kCGImageSourceCreateThumbnailFromImageIfAbsent: true,
+            kCGImageSourceCreateThumbnailFromImageIfAbsent: false,
             kCGImageSourceThumbnailMaxPixelSize: 2048,
             kCGImageSourceCreateThumbnailWithTransform: true,
             kCGImageSourceShouldCache: false,
