@@ -10,6 +10,7 @@ use crate::{
     view::{agx, encode},
     xmp::AdjustmentModel,
 };
+use rayon::prelude::*;
 
 /// Per spec § 02 filter chain, slice-1 through slice-5 subset:
 /// * Highlight reconstruction (§ 3.3a), SceneToneControls (§ 3.6 steps 1-5),
@@ -120,21 +121,24 @@ fn upsample_2x_nearest_rgb8(src: &[u8], sw: u32, sh: u32) -> (u32, u32, Vec<u8>)
     let dw = sw * 2;
     let dh = sh * 2;
     let mut out = vec![0u8; dw * dh * 3];
-    for sy in 0..sh {
-        let src_row = &src[sy * sw * 3..(sy + 1) * sw * 3];
-        // Build the doubled-width row once, reuse it for both output rows.
-        let mut row = vec![0u8; dw * 3];
-        for sx in 0..sw {
-            let s = &src_row[sx * 3..sx * 3 + 3];
-            let d0 = sx * 6;
-            row[d0..d0 + 3].copy_from_slice(s);
-            row[d0 + 3..d0 + 6].copy_from_slice(s);
-        }
-        let dy0 = sy * 2 * dw * 3;
-        let dy1 = (sy * 2 + 1) * dw * 3;
-        out[dy0..dy0 + dw * 3].copy_from_slice(&row);
-        out[dy1..dy1 + dw * 3].copy_from_slice(&row);
-    }
+    // Each source row produces two adjacent output rows; chunk the output at
+    // `2 * dw * 3` bytes (two rows) per source row so row-pairs are
+    // independently fillable.
+    out.par_chunks_mut(2 * dw * 3)
+        .enumerate()
+        .for_each(|(sy, row_pair)| {
+            let src_row = &src[sy * sw * 3..(sy + 1) * sw * 3];
+            // Build the doubled-width row once, reuse it for both output rows.
+            let mut row = vec![0u8; dw * 3];
+            for sx in 0..sw {
+                let s = &src_row[sx * 3..sx * 3 + 3];
+                let d0 = sx * 6;
+                row[d0..d0 + 3].copy_from_slice(s);
+                row[d0 + 3..d0 + 6].copy_from_slice(s);
+            }
+            row_pair[..dw * 3].copy_from_slice(&row);
+            row_pair[dw * 3..2 * dw * 3].copy_from_slice(&row);
+        });
     (dw as u32, dh as u32, out)
 }
 
