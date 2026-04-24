@@ -615,6 +615,12 @@ public final class EditSession {
                 isRendering = false
                 return
             }
+            // Surface the failure. Without this log a silent decode failure
+            // looks identical to "still decoding" from the outside — the
+            // viewport just never paints.
+            editSessionLogger.error(
+                "decodeAndRender failed gen=\(gen ?? 0) phase=\(String(describing: phase), privacy: .public) error=\(String(describing: error), privacy: .public)"
+            )
             renderError = error
         }
         isRendering = false
