@@ -382,8 +382,14 @@ public final class EditSession {
     /// `decodedImage` — the guard above returns early on revisit.
     public func ensureRenderStarted() {
         guard renderedPreview == nil || decodedForAssetID != asset.id else { return }
-        loadEmbeddedPreviewIfAvailable()
+        // Order matters. `_scheduleRender` bumps `renderGeneration`, and
+        // `loadEmbeddedPreviewIfAvailable` snapshots that value to guard its
+        // delayed MainActor publish against later navigation. If we called
+        // the preview loader first it would capture the pre-bump gen and
+        // the guard inside its detached task would always fail — the
+        // embedded preview would be silently dropped on every open.
         _scheduleRender(phase: .fast)
+        loadEmbeddedPreviewIfAvailable()
     }
 
     /// Read the file's embedded JPEG preview off the main actor and publish
