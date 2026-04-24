@@ -460,9 +460,12 @@ public final class EditSession {
                       self.renderedPreview == nil,
                       self.decodedForAssetID != self.asset.id else { return }
                 self.renderedPreview = cached
-                if self.nativeImageSize == .zero {
-                    self.nativeImageSize = cached.extent.size
-                }
+                // Don't seed `nativeImageSize` from the cached JPEG either —
+                // cache entries are viewport-sized, not sensor-sized. The
+                // real native dims come from the Rust decode that's kicking
+                // off in parallel; until then `FullImageView.imageExtent`
+                // falls through to `ci.extent`, which matches the buffer
+                // we're actually drawing.
                 editSessionLogger.debug(
                     "cached preview published extent=\(cached.extent.width)x\(cached.extent.height)"
                 )
@@ -499,14 +502,12 @@ public final class EditSession {
                     return
                 }
                 self.renderedPreview = ci
-                // Only seed native from the embedded preview when we have
-                // nothing better — the authoritative value comes from the
-                // Rust decode and will overwrite this shortly. The embedded
-                // JPEG's aspect ratio tracks the sensor so this is a safe
-                // approximation for zoom math to resolve before decode lands.
-                if self.nativeImageSize == .zero {
-                    self.nativeImageSize = ci.extent.size
-                }
+                // Don't seed `nativeImageSize` here — the embedded preview is
+                // scaled-down (ImageIO caps at 2048 px long edge) so its
+                // extent isn't the real sensor size. Any zoom math running
+                // before the Rust decode lands falls back to `ci.extent`
+                // via `FullImageView.imageExtent`'s nil path, which is
+                // consistent with what's actually on screen.
                 editSessionSignposter.emitEvent("embedded paint")
                 editSessionLogger.debug(
                     "embedded preview published \(ms)ms extent=\(ci.extent.width)x\(ci.extent.height)"
