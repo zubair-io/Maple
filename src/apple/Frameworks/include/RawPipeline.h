@@ -22,11 +22,11 @@ typedef struct MapleImageBuffer {
  * in which case AdjustmentModel::default() is used.
  *
  * `quality_preview` selects the internal demosaic / downsample strategy:
- *   0 → RenderQuality::Full    (bilinear or HA demosaic, full resolution;
- *                                export path, matches the parity harness)
- *   1 → RenderQuality::Preview (half-res quad demosaic, 4× fewer pixels
- *                                downstream; interactive fast-phase so a
- *                                100 MP RAW decodes in seconds)
+ *   0 → `RenderQuality::Full`    (bilinear or HA demosaic, full resolution;
+ *                                  export path, matches the parity harness)
+ *   1 → `RenderQuality::Preview` (half-res quad demosaic, 4× fewer pixels
+ *                                  downstream; use for interactive fast-phase
+ *                                  so a 100MP RAW decodes in seconds)
  */
 int32_t maple_render_file(const char *raw_path,
                           const char *xmp_path,
