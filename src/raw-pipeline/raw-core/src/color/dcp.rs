@@ -6,6 +6,7 @@ use crate::{
     image::{ColorSpace, Image, RawImage},
     math::Matrix3,
 };
+use rayon::prelude::*;
 
 // Re-export Illuminant so existing code that imported it from dcp keeps working.
 pub use crate::color::illuminant::Illuminant as DcpIlluminant;
@@ -114,9 +115,12 @@ pub fn apply(camera: &Image, profile: &DcpProfile) -> crate::Result<Image> {
     };
 
     let mut out = Image::new(camera.width, camera.height, ColorSpace::SceneLinearRec2020);
-    for (i, p) in camera.pixels.iter().enumerate() {
-        out.pixels[i] = m.mul_vec(*p);
-    }
+    out.pixels
+        .par_iter_mut()
+        .zip(camera.pixels.par_iter())
+        .for_each(|(o, p)| {
+            *o = m.mul_vec(*p);
+        });
     Ok(out)
 }
 
