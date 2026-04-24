@@ -18,6 +18,7 @@ import { FilmstripComponent } from '../../components/filmstrip/filmstrip.compone
 import { ImageCanvasComponent } from '../../components/image-canvas/image-canvas.component';
 import { ImageCanvasService } from '../../components/image-canvas/image-canvas.service';
 import { EditorDetailPanelComponent } from '../../components/editor-detail-panel/editor-detail-panel.component';
+import { getPersistedFile } from '../../folder-access/file-cache';
 
 @Component({
   selector: 'editor-shell',
@@ -34,31 +35,22 @@ import { EditorDetailPanelComponent } from '../../components/editor-detail-panel
         display: flex;
         width: 100vw;
         height: 100vh;
-        background: #0d0c0b;
-        align-items: center;
-        justify-content: center;
-        padding: 24px;
+        background: var(--maple-bg);
         box-sizing: border-box;
       }
 
-      /* App window */
+      /* App fills the viewport */
       .window {
         width: 100%;
         height: 100%;
-        max-width: 1500px;
-        max-height: 1000px;
         background: var(--maple-bg);
-        border-radius: 12px;
         overflow: hidden;
         display: flex;
         flex-direction: column;
-        box-shadow:
-          0 24px 80px rgba(0, 0, 0, 0.5),
-          0 0 0 0.5px rgba(255, 255, 255, 0.06);
         font-family: var(--maple-font);
       }
 
-      /* Titlebar */
+      /* Toolbar */
       .titlebar {
         height: 40px;
         display: flex;
@@ -70,38 +62,8 @@ import { EditorDetailPanelComponent } from '../../components/editor-detail-panel
         gap: 10px;
       }
 
-      .traffic-lights {
-        display: flex;
-        gap: 8px;
-        align-items: center;
-      }
-      .tl-dot {
-        width: 12px;
-        height: 12px;
-        border-radius: 50%;
-        border: 0.5px solid rgba(0, 0, 0, 0.18);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        cursor: pointer;
-        font-size: 8px;
-        font-weight: 700;
-        color: rgba(0, 0, 0, 0.55);
-      }
-      .tl-close {
-        background: #ff5f56;
-      }
-      .tl-min {
-        background: #ffbd2e;
-      }
-      .tl-max {
-        background: #27c93f;
-      }
-      .traffic-lights .symbol {
-        display: none;
-      }
-      .traffic-lights:hover .symbol {
-        display: inline;
+      .toolbar-spacer {
+        flex: 1;
       }
 
       /* Back button */
@@ -144,18 +106,6 @@ import { EditorDetailPanelComponent } from '../../components/editor-detail-panel
       .chrome-btn.active {
         background: rgba(255, 255, 255, 0.04);
         border-color: var(--maple-border);
-      }
-
-      /* Title */
-      .title {
-        flex: 1;
-        text-align: center;
-        font-size: 12px;
-        font-weight: 500;
-        color: var(--maple-text-main);
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
       }
 
       /* Export button */
@@ -217,37 +167,31 @@ import { EditorDetailPanelComponent } from '../../components/editor-detail-panel
   ],
   template: `
     <div class="window">
-      <!-- Titlebar -->
+      <!-- Toolbar -->
       <div class="titlebar">
-        <!-- Traffic lights -->
-        <div class="traffic-lights">
-          <div class="tl-dot tl-close" title="Close"><span class="symbol">×</span></div>
-          <div class="tl-dot tl-min" title="Minimize"><span class="symbol">–</span></div>
-          <div class="tl-dot tl-max" title="Full screen"><span class="symbol">⤢</span></div>
-        </div>
-
         <!-- Back to Browse -->
         <div class="back-btn" (click)="goBack()" title="Back to Browse (Esc)">
           <maple-icon name="back" [size]="11" color="var(--maple-text-muted)" />
           <span>Library</span>
         </div>
 
-        <!-- Filmstrip toggle -->
-        <div
-          class="chrome-btn"
-          [class.active]="state.sidebarVisible()"
-          [title]="filmstripToggleTitle()"
-          (click)="state.toggleSidebar()"
-        >
-          <maple-icon
-            name="sidebar"
-            [size]="13"
-            [color]="state.sidebarVisible() ? 'var(--maple-text-main)' : 'var(--maple-text-muted)'"
-          />
-        </div>
+        <!-- Filmstrip toggle — hidden when there's only one photo to navigate. -->
+        @if (hasMultiplePhotos()) {
+          <div
+            class="chrome-btn"
+            [class.active]="state.sidebarVisible()"
+            [title]="filmstripToggleTitle()"
+            (click)="state.toggleSidebar()"
+          >
+            <maple-icon
+              name="sidebar"
+              [size]="13"
+              [color]="state.sidebarVisible() ? 'var(--maple-text-main)' : 'var(--maple-text-muted)'"
+            />
+          </div>
+        }
 
-        <!-- Title -->
-        <div class="title">{{ titleText() }}</div>
+        <div class="toolbar-spacer"></div>
 
         <!-- Export -->
         <div
@@ -278,10 +222,12 @@ import { EditorDetailPanelComponent } from '../../components/editor-detail-panel
 
       <!-- Body -->
       <div class="body">
-        <!-- Left: filmstrip -->
-        <div class="panel-left" [style.width]="state.sidebarVisible() ? '110px' : '0px'">
-          <editor-filmstrip />
-        </div>
+        <!-- Left: filmstrip (only when multiple photos are in the folder) -->
+        @if (hasMultiplePhotos()) {
+          <div class="panel-left" [style.width]="state.sidebarVisible() ? '110px' : '0px'">
+            <editor-filmstrip />
+          </div>
+        }
 
         <!-- Center: image canvas (crossfade on asset change) -->
         <div class="panel-center">
@@ -313,27 +259,53 @@ export class EditorShellComponent implements OnInit {
     void this.state.flushPendingXmpWrites();
   }
 
-  titleText = computed(() => {
-    const asset = this.state.focusedAsset();
-    return asset ? `${asset.filename} — Editor` : 'Maple Editor';
-  });
-
   filmstripToggleTitle = computed(
     () => (this.state.sidebarVisible() ? 'Hide' : 'Show') + ' filmstrip  (\\)',
   );
 
+  /** Filmstrip + its toggle are hidden in the single-photo case (landing →
+   * "Open a photo") so the editor becomes a clean full-image view. */
+  hasMultiplePhotos = computed(() => this.state.assetsInSelectedFolder().length > 1);
+
   ngOnInit(): void {
     const id = this.route.snapshot.paramMap.get('id');
-    if (id) {
-      const assets = this.state.assets();
-      // Resolve 'first' sentinel
-      const target =
-        id === 'first' ? this.state.assetsInSelectedFolder()[0] : assets.find((a) => a.id === id);
-      if (target) {
-        this.state.selectAsset(target.id);
-      } else if (assets.length > 0) {
-        this.state.selectAsset(assets[0].id);
+    if (!id) return;
+
+    const assets = this.state.assets();
+    const target =
+      id === 'first' ? this.state.assetsInSelectedFolder()[0] : assets.find((a) => a.id === id);
+
+    if (target) {
+      this.state.selectAsset(target.id);
+      return;
+    }
+
+    if (assets.length > 0) {
+      this.state.selectAsset(assets[0].id);
+      return;
+    }
+
+    // Cold load — nothing in memory, but the URL carries an asset id that
+    // may have been persisted on a previous session. Try the file cache.
+    void this.hydrateFromCache(id);
+  }
+
+  private async hydrateFromCache(id: string): Promise<void> {
+    if (id === 'first') return;
+    try {
+      const record = await getPersistedFile(id);
+      if (!record) {
+        // Nothing in cache — fall back to Browse so the user can reopen.
+        void this.router.navigate(['/']);
+        return;
       }
+      const bytes = new Uint8Array(await record.file.arrayBuffer());
+      this.state.addImportedAsset(bytes, record.filename, id);
+      this.state.selectedSourceId.set('f-imported');
+      this.state.selectAsset(id);
+    } catch (err) {
+      console.error('EditorShell: hydrateFromCache failed', err);
+      void this.router.navigate(['/']);
     }
   }
 

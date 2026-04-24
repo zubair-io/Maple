@@ -22,7 +22,7 @@ import { EditorSliderComponent } from './slider.component';
           [value]="adj().sharpenAmount"
           [min]="0"
           [max]="150"
-          (change)="patch('sharpenAmount', $event)"
+          (valueChange)="patch('sharpenAmount', $event)"
         />
         <editor-slider
           label="Radius"
@@ -30,21 +30,21 @@ import { EditorSliderComponent } from './slider.component';
           [min]="0.5"
           [max]="3.0"
           [step]="0.1"
-          (change)="patch('sharpenRadius', $event)"
+          (valueChange)="patch('sharpenRadius', $event)"
         />
         <editor-slider
           label="Detail"
           [value]="adj().sharpenDetail"
           [min]="0"
           [max]="100"
-          (change)="patch('sharpenDetail', $event)"
+          (valueChange)="patch('sharpenDetail', $event)"
         />
         <editor-slider
           label="Masking"
           [value]="adj().sharpenMasking"
           [min]="0"
           [max]="100"
-          (change)="patch('sharpenMasking', $event)"
+          (valueChange)="patch('sharpenMasking', $event)"
         />
       }
     </maple-collapsible>

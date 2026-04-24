@@ -115,15 +115,40 @@ public actor ThumbnailDiskCache {
     // MARK: - Cache key
 
     /// MD5 of the asset path — matches Maple Hosted `LibraryIndex` hashing.
-    private func cacheKey(for url: URL) -> String {
-        return md5(url.path)
+    /// Exposed as a static helper so callers (e.g. `ThumbnailLoader`'s in-
+    /// flight coalescing map) can hash without bouncing through the actor.
+    public static func cacheKey(for url: URL) -> String {
+        return stableHash(url.path)
+    }
+
+    nonisolated func cacheKey(for url: URL) -> String {
+        return Self.cacheKey(for: url)
     }
 
     // MARK: - Stable hash (SHA256 prefix for cache key stability)
 
-    private func md5(_ string: String) -> String {
+    private static func stableHash(_ string: String) -> String {
         let digest = SHA256.hash(data: Data(string.utf8))
         return digest.prefix(16).map { String(format: "%02x", $0) }.joined()
+    }
+
+    private func md5(_ string: String) -> String {
+        return Self.stableHash(string)
+    }
+
+    // MARK: - Memory pressure
+
+    /// Drop all but `percent`% of in-memory entries. Called from
+    /// `ThumbnailLoader.handleMemoryPressure()` in response to system-level
+    /// memory warnings.
+    public func shrinkMemCache(to percent: Int) {
+        let keep = max(1, (maxMemEntries * max(0, min(100, percent))) / 100)
+        while memCache.count > keep {
+            if let key = memCache.keys.first { memCache.removeValue(forKey: key) }
+        }
+        while dataMemCache.count > keep {
+            if let key = dataMemCache.keys.first { dataMemCache.removeValue(forKey: key) }
+        }
     }
 
     // MARK: - Eviction

@@ -6,7 +6,12 @@
 
 import { ChangeDetectionStrategy, Component, ElementRef, inject, viewChild } from '@angular/core';
 import { Router } from '@angular/router';
-import { FolderAccessService, LibraryStateService, isSupportedRaw } from '@maple-common';
+import {
+  FolderAccessService,
+  LibraryStateService,
+  isSupportedRaw,
+  persistFile,
+} from '@maple-common';
 
 @Component({
   selector: 'app-landing',
@@ -44,8 +49,20 @@ export class LandingComponent {
       return;
     }
 
+    // Generate the id up front so the URL and the persisted File share it.
+    const assetId = crypto.randomUUID();
     const bytes = new Uint8Array(await file.arrayBuffer());
-    const assetId = this.state.addImportedAsset(bytes, file.name);
+    this.state.addImportedAsset(bytes, file.name, assetId);
+    // Persist the File to IndexedDB so `/edit/<assetId>` survives a reload.
+    // Best-effort: if storage is full or disabled, we still proceed with the
+    // in-memory copy — the URL just won't reopen after a refresh.
+    void persistFile(assetId, file).catch((err) => {
+      console.warn('Failed to persist imported file; /edit URL will not survive reload:', err);
+    });
+    // Point the store at the Imported folder so the editor's filmstrip and
+    // detail panel can resolve the asset via `assetsInSelectedFolder`.
+    this.state.selectedSourceId.set('f-imported');
+    this.state.selectAsset(assetId);
     void this.router.navigate(['/edit', assetId]);
   }
 

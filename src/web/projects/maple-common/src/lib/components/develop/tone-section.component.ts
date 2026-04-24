@@ -18,42 +18,42 @@ import { EditorSliderComponent } from './slider.component';
           [min]="-4"
           [max]="4"
           [step]="0.01"
-          (change)="patch('exposure', $event)"
+          (valueChange)="patch('exposure', $event)"
         />
         <editor-slider
           label="Contrast"
           [value]="adj().contrast"
           [min]="-100"
           [max]="100"
-          (change)="patch('contrast', $event)"
+          (valueChange)="patch('contrast', $event)"
         />
         <editor-slider
           label="Highlights"
           [value]="adj().highlights"
           [min]="-100"
           [max]="100"
-          (change)="patch('highlights', $event)"
+          (valueChange)="patch('highlights', $event)"
         />
         <editor-slider
           label="Shadows"
           [value]="adj().shadows"
           [min]="-100"
           [max]="100"
-          (change)="patch('shadows', $event)"
+          (valueChange)="patch('shadows', $event)"
         />
         <editor-slider
           label="Whites"
           [value]="adj().whites"
           [min]="-100"
           [max]="100"
-          (change)="patch('whites', $event)"
+          (valueChange)="patch('whites', $event)"
         />
         <editor-slider
           label="Blacks"
           [value]="adj().blacks"
           [min]="-100"
           [max]="100"
-          (change)="patch('blacks', $event)"
+          (valueChange)="patch('blacks', $event)"
         />
       }
     </maple-collapsible>

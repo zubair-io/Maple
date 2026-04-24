@@ -31,6 +31,51 @@ fn set_last_error(msg: String) {
     }
 }
 
+/// Stack size for the worker thread that runs RAW decode + develop. Rawler's
+/// per-format decoders (CR3 in particular) allocate several MB of Huffman /
+/// JPEG-LS scratch on the stack, and Swift's cooperative-pool threads start
+/// with ~512 KB — which trips an EXC_BAD_ACCESS / stack overflow on real RAWs.
+/// 16 MB is plenty; physical memory is only committed on demand.
+const WORKER_STACK_BYTES: usize = 16 * 1024 * 1024;
+
+/// Run a render closure on a dedicated thread with a large stack, then
+/// propagate both its return value and any `LAST_ERROR` it set back to the
+/// caller. Each FFI entrypoint uses this wrapper so callers don't need to
+/// think about stack sizes.
+fn with_large_stack<F>(work: F) -> i32
+where
+    F: FnOnce() -> i32 + Send + 'static,
+{
+    let handle = std::thread::Builder::new()
+        .stack_size(WORKER_STACK_BYTES)
+        .name("maple-ffi-decode".to_string())
+        .spawn(move || {
+            let rc = work();
+            // Ferry the worker's thread-local last error out to the caller
+            // thread so `maple_last_error` still reports useful messages.
+            let err = LAST_ERROR.with(|e| e.borrow().clone());
+            (rc, err)
+        });
+    match handle {
+        Ok(h) => match h.join() {
+            Ok((rc, err)) => {
+                if let Some(cstr) = err {
+                    LAST_ERROR.with(|e| *e.borrow_mut() = Some(cstr));
+                }
+                rc
+            }
+            Err(_) => {
+                set_last_error("render worker panicked".into());
+                99
+            }
+        },
+        Err(e) => {
+            set_last_error(format!("spawn worker failed: {}", e));
+            98
+        }
+    }
+}
+
 #[repr(C)]
 pub struct MapleImageBuffer {
     /// Pointer to heap-allocated RGB u8 buffer. Free via `maple_free_buffer`.
@@ -60,45 +105,55 @@ pub unsafe extern "C" fn maple_render_file(
         set_last_error("null pointer argument".into());
         return 1;
     }
-    let raw_path = match CStr::from_ptr(raw_path).to_str() {
-        Ok(s) => std::path::Path::new(s),
+    // Pull the paths into owned Strings so the worker thread can own them.
+    let raw_path_str = match CStr::from_ptr(raw_path).to_str() {
+        Ok(s) => s.to_owned(),
         Err(e) => { set_last_error(format!("raw_path not UTF-8: {}", e)); return 2; }
     };
-    let model = if xmp_path.is_null() {
-        xmp::AdjustmentModel::default()
+    let xmp_path_str: Option<String> = if xmp_path.is_null() {
+        None
     } else {
-        let path = match CStr::from_ptr(xmp_path).to_str() {
-            Ok(s) => std::path::Path::new(s),
+        match CStr::from_ptr(xmp_path).to_str() {
+            Ok(s) => Some(s.to_owned()),
             Err(e) => { set_last_error(format!("xmp_path not UTF-8: {}", e)); return 3; }
-        };
-        match std::fs::read_to_string(path) {
-            Ok(xml) => match xmp::parse(&xml) {
-                Ok(m) => m,
-                Err(e) => { set_last_error(format!("xmp parse: {}", e)); return 4; }
-            },
-            Err(e) => { set_last_error(format!("xmp read: {}", e)); return 5; }
         }
     };
-    // Shell owns the I/O — read the file here, then invoke the pure core.
-    let raw_bytes = match std::fs::read(raw_path) {
-        Ok(b) => b,
-        Err(e) => { set_last_error(format!("raw read: {}", e)); return 6; }
-    };
-    let ext = raw_path.extension().and_then(|e| e.to_str()).unwrap_or("");
-    let raw_img = match decode_bytes(&raw_bytes, ext) {
-        Ok(r) => r,
-        Err(e) => { set_last_error(format!("decode: {}", e)); return 7; }
-    };
-    let (w, h, bytes) = match render_from_raw(&raw_img, &model) {
-        Ok(t) => t,
-        Err(e) => { set_last_error(format!("render: {}", e)); return 8; }
-    };
-    let mut boxed = bytes.into_boxed_slice();
-    let rgb = boxed.as_mut_ptr();
-    let len = boxed.len();
-    std::mem::forget(boxed);
-    *out = MapleImageBuffer { rgb, len, width: w, height: h };
-    0
+    let out_ptr = out as usize;  // Send across the thread as a usize, cast back inside.
+    with_large_stack(move || {
+        let raw_path = std::path::Path::new(&raw_path_str);
+        let model = match &xmp_path_str {
+            None => xmp::AdjustmentModel::default(),
+            Some(p) => match std::fs::read_to_string(p) {
+                Ok(xml) => match xmp::parse(&xml) {
+                    Ok(m) => m,
+                    Err(e) => { set_last_error(format!("xmp parse: {}", e)); return 4; }
+                },
+                Err(e) => { set_last_error(format!("xmp read: {}", e)); return 5; }
+            },
+        };
+        let raw_bytes = match std::fs::read(raw_path) {
+            Ok(b) => b,
+            Err(e) => { set_last_error(format!("raw read: {}", e)); return 6; }
+        };
+        let ext = raw_path.extension().and_then(|e| e.to_str()).unwrap_or("");
+        let raw_img = match decode_bytes(&raw_bytes, ext) {
+            Ok(r) => r,
+            Err(e) => { set_last_error(format!("decode: {}", e)); return 7; }
+        };
+        let (w, h, bytes) = match render_from_raw(&raw_img, &model) {
+            Ok(t) => t,
+            Err(e) => { set_last_error(format!("render: {}", e)); return 8; }
+        };
+        let mut boxed = bytes.into_boxed_slice();
+        let rgb = boxed.as_mut_ptr();
+        let len = boxed.len();
+        std::mem::forget(boxed);
+        unsafe {
+            *(out_ptr as *mut MapleImageBuffer) =
+                MapleImageBuffer { rgb, len, width: w, height: h };
+        }
+        0
+    })
 }
 
 /// Render a RAW from a byte slice (PhotoKit, self-hosted API, etc.) through
@@ -120,44 +175,55 @@ pub unsafe extern "C" fn maple_render_bytes(
         set_last_error("null pointer argument".into());
         return 1;
     }
-    let ext: &str = if hint_ext.is_null() {
-        ""
+    let ext_owned: String = if hint_ext.is_null() {
+        String::new()
     } else {
         match CStr::from_ptr(hint_ext).to_str() {
-            Ok(s) => s,
+            Ok(s) => s.to_owned(),
             Err(e) => { set_last_error(format!("hint_ext not UTF-8: {}", e)); return 2; }
         }
     };
-    let model = if xmp_path.is_null() {
-        xmp::AdjustmentModel::default()
+    let xmp_path_str: Option<String> = if xmp_path.is_null() {
+        None
     } else {
-        let path = match CStr::from_ptr(xmp_path).to_str() {
-            Ok(s) => std::path::Path::new(s),
+        match CStr::from_ptr(xmp_path).to_str() {
+            Ok(s) => Some(s.to_owned()),
             Err(e) => { set_last_error(format!("xmp_path not UTF-8: {}", e)); return 3; }
-        };
-        match std::fs::read_to_string(path) {
-            Ok(xml) => match xmp::parse(&xml) {
-                Ok(m) => m,
-                Err(e) => { set_last_error(format!("xmp parse: {}", e)); return 4; }
-            },
-            Err(e) => { set_last_error(format!("xmp read: {}", e)); return 5; }
         }
     };
-    let bytes = std::slice::from_raw_parts(raw_bytes, raw_len);
-    let raw_img = match decode_bytes(bytes, ext) {
-        Ok(r) => r,
-        Err(e) => { set_last_error(format!("decode: {}", e)); return 7; }
-    };
-    let (w, h, out_bytes) = match render_from_raw(&raw_img, &model) {
-        Ok(t) => t,
-        Err(e) => { set_last_error(format!("render: {}", e)); return 8; }
-    };
-    let mut boxed = out_bytes.into_boxed_slice();
-    let rgb = boxed.as_mut_ptr();
-    let len = boxed.len();
-    std::mem::forget(boxed);
-    *out = MapleImageBuffer { rgb, len, width: w, height: h };
-    0
+    // Copy input bytes into a Vec the worker can own — the caller's pointer
+    // may not live past the join() on a slow decode.
+    let input: Vec<u8> = std::slice::from_raw_parts(raw_bytes, raw_len).to_vec();
+    let out_ptr = out as usize;
+    with_large_stack(move || {
+        let model = match &xmp_path_str {
+            None => xmp::AdjustmentModel::default(),
+            Some(p) => match std::fs::read_to_string(p) {
+                Ok(xml) => match xmp::parse(&xml) {
+                    Ok(m) => m,
+                    Err(e) => { set_last_error(format!("xmp parse: {}", e)); return 4; }
+                },
+                Err(e) => { set_last_error(format!("xmp read: {}", e)); return 5; }
+            },
+        };
+        let raw_img = match decode_bytes(&input, &ext_owned) {
+            Ok(r) => r,
+            Err(e) => { set_last_error(format!("decode: {}", e)); return 7; }
+        };
+        let (w, h, out_bytes) = match render_from_raw(&raw_img, &model) {
+            Ok(t) => t,
+            Err(e) => { set_last_error(format!("render: {}", e)); return 8; }
+        };
+        let mut boxed = out_bytes.into_boxed_slice();
+        let rgb = boxed.as_mut_ptr();
+        let len = boxed.len();
+        std::mem::forget(boxed);
+        unsafe {
+            *(out_ptr as *mut MapleImageBuffer) =
+                MapleImageBuffer { rgb, len, width: w, height: h };
+        }
+        0
+    })
 }
 
 /// Free a buffer populated by `maple_render_file` or `maple_render_bytes`.

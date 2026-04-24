@@ -14,4 +14,14 @@
 # those headers the JS wrapper skips `initThreadPool` and the pipeline
 # continues to run single-threaded.
 [target.wasm32-unknown-unknown]
-rustflags = ["-C", "target-feature=+atomics,+bulk-memory,+mutable-globals"]
+# - atomics/bulk-memory/mutable-globals: see above.
+# - --max-memory=4GiB: the pipeline allocates hundreds of megabytes of
+#   zero-initialized f32 buffers while demosaic + DCP + tone + dehaze +
+#   sharpen + NR run in sequence. With the default 2 GiB cap a ~22 MP RAW
+#   triggers `handle_alloc_error` → `abort_internal`, which lowers to an
+#   unreachable WASM trap. Raising to the wasm32 4 GiB maximum unblocks
+#   real-world RAWs (5760×3840 Canon R5, 11656×8742 Hasselblad L3D-100c).
+rustflags = [
+    "-C", "target-feature=+atomics,+bulk-memory,+mutable-globals",
+    "-C", "link-arg=--max-memory=4294967296",
+]

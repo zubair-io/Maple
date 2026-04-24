@@ -2,27 +2,18 @@
   display: flex;
   width: 100vw;
   height: 100vh;
-  background: #0d0c0b;
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
+  background: var(--maple-bg);
   box-sizing: border-box;
 }
 
-/* App window chrome */
+/* App fills the viewport */
 .window {
   width: 100%;
   height: 100%;
-  max-width: 1500px;
-  max-height: 1000px;
   background: var(--maple-bg);
-  border-radius: 12px;
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  box-shadow:
-    0 24px 80px rgba(0, 0, 0, 0.5),
-    0 0 0 0.5px rgba(255, 255, 255, 0.06);
   font-family: var(--maple-font);
 }
 
@@ -38,40 +29,9 @@
   gap: 10px;
 }
 
-/* Traffic-light dots */
-.traffic-lights {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-}
-.tl-dot {
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  border: 0.5px solid rgba(0, 0, 0, 0.18);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  font-family: var(--maple-font);
-  font-size: 8px;
-  font-weight: 700;
-  color: rgba(0, 0, 0, 0.55);
-}
-.tl-close {
-  background: #ff5f56;
-}
-.tl-min {
-  background: #ffbd2e;
-}
-.tl-max {
-  background: #27c93f;
-}
-.traffic-lights .symbol {
-  display: none;
-}
-.traffic-lights:hover .symbol {
-  display: inline;
+/* Flex spacer in the toolbar */
+.toolbar-spacer {
+  flex: 1;
 }
 
 /* Chrome buttons (sidebar / inspector toggles) */
@@ -93,20 +53,6 @@
 .chrome-btn.active {
   background: rgba(255, 255, 255, 0.04);
   border-color: var(--maple-border);
-}
-
-/* Title */
-.title {
-  flex: 1;
-  text-align: center;
-  font-family: var(--maple-font);
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--maple-text-main);
-  letter-spacing: 0.1px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 /* Export button */

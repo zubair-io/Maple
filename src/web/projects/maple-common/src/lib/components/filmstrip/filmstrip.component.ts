@@ -6,6 +6,7 @@ import {
   ChangeDetectionStrategy,
   Component,
   ElementRef,
+  Injector,
   OnDestroy,
   QueryList,
   ViewChildren,
@@ -144,6 +145,7 @@ export class FilmstripComponent implements AfterViewInit, OnDestroy {
 
   state = inject(LibraryStateService);
   private router = inject(Router);
+  private readonly injector = inject(Injector);
 
   private cleanupEffect?: () => void;
 
@@ -153,15 +155,18 @@ export class FilmstripComponent implements AfterViewInit, OnDestroy {
   }
 
   ngAfterViewInit(): void {
-    const e = effect(() => {
-      const fid = this.state.focusedAssetId();
-      if (!fid) return;
-      // Scroll focused thumb into view
-      requestAnimationFrame(() => {
-        const el = this.thumbEls?.find((t) => t.nativeElement.dataset['id'] === fid);
-        el?.nativeElement.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-      });
-    });
+    const e = effect(
+      () => {
+        const fid = this.state.focusedAssetId();
+        if (!fid) return;
+        // Scroll focused thumb into view
+        requestAnimationFrame(() => {
+          const el = this.thumbEls?.find((t) => t.nativeElement.dataset['id'] === fid);
+          el?.nativeElement.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        });
+      },
+      { injector: this.injector },
+    );
     this.cleanupEffect = () => e.destroy();
   }
 

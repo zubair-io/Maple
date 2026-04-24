@@ -17,35 +17,35 @@ import { EditorSliderComponent } from './slider.component';
           [value]="adj().vibrance"
           [min]="-100"
           [max]="100"
-          (change)="patch('vibrance', $event)"
+          (valueChange)="patch('vibrance', $event)"
         />
         <editor-slider
           label="Saturation"
           [value]="adj().saturation"
           [min]="-100"
           [max]="100"
-          (change)="patch('saturation', $event)"
+          (valueChange)="patch('saturation', $event)"
         />
         <editor-slider
           label="Clarity"
           [value]="adj().clarity"
           [min]="-100"
           [max]="100"
-          (change)="patch('clarity', $event)"
+          (valueChange)="patch('clarity', $event)"
         />
         <editor-slider
           label="Texture"
           [value]="adj().texture"
           [min]="-100"
           [max]="100"
-          (change)="patch('texture', $event)"
+          (valueChange)="patch('texture', $event)"
         />
         <editor-slider
           label="Dehaze"
           [value]="adj().dehaze"
           [min]="-100"
           [max]="100"
-          (change)="patch('dehaze', $event)"
+          (valueChange)="patch('dehaze', $event)"
         />
       }
     </maple-collapsible>

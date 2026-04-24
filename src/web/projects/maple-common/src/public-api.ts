@@ -31,6 +31,7 @@ export * from './lib/components/error-banner/error-banner.component';
 // P5: File System Access API + .maple/ cache protocol
 export * from './lib/folder-access/folder-access.types';
 export * from './lib/folder-access/folder-access.service';
+export * from './lib/folder-access/file-cache';
 export * from './lib/maple-cache/maple-cache.types';
 export * from './lib/maple-cache/maple-cache.service';
 export * from './lib/maple-cache/sha';

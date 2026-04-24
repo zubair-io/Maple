@@ -22,14 +22,14 @@ import { EditorSliderComponent } from './slider.component';
           [value]="adj().nrLuminance"
           [min]="0"
           [max]="100"
-          (change)="patch('nrLuminance', $event)"
+          (valueChange)="patch('nrLuminance', $event)"
         />
         <editor-slider
           label="Color"
           [value]="adj().nrColor"
           [min]="0"
           [max]="100"
-          (change)="patch('nrColor', $event)"
+          (valueChange)="patch('nrColor', $event)"
         />
       }
     </maple-collapsible>

@@ -1,7 +1,12 @@
 // DetailPanel.swift — Right-side panel with Info + Develop tabs.
 //
-// Mirrors the React prototype's DetailPanel layout from src/web.
-// Develop tab exposes all AdjustmentModel sliders; Info tab shows EXIF.
+// Per mockup (docs/photo_app_mockup_v2.html, lines ~49-71), the panel is
+// always part of the layout — the sliders simply disable when no session is
+// active. Passing a nil session preserves the tab bar + section headers so
+// switching back in is instant.
+//
+// Mirrors the React prototype's DetailPanel from src/web. Develop tab exposes
+// all AdjustmentModel sliders; Info tab shows EXIF.
 
 import SwiftUI
 import MapleCore
@@ -9,8 +14,18 @@ import MapleCore
 // MARK: - DetailPanel
 
 struct DetailPanel: View {
-    @Bindable var session: EditSession
-    @State private var selectedTab: PanelTab = .develop
+    /// The active editing session. `nil` when no image is selected — the
+    /// panel stays visible with disabled controls so the layout doesn't jump.
+    let session: EditSession?
+
+    /// Default to Info — the spec + mockup put culling + file metadata first.
+    /// Develop becomes the active tab once the user opens the editor
+    /// (double-click an image in Browse mode).
+    @State private var selectedTab: PanelTab = .info
+    /// When a session becomes non-nil (i.e. the editor opened), auto-switch
+    /// to Develop. Going back to Browse doesn't auto-flip back to Info — the
+    /// user may still want to see their last adjustments.
+    @State private var lastHadSession: Bool = false
 
     enum PanelTab { case info, develop }
 
@@ -34,7 +49,10 @@ struct DetailPanel: View {
             }
             .background(MapleTokens.sidebar)
         }
-        .frame(minWidth: 240, idealWidth: 260, maxWidth: 320)
+        // Fill the detail column entirely so resizing doesn't reveal a gap
+        // between the panel and the window edge. The column's own width is
+        // capped in AppShell via navigationSplitViewColumnWidth.
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(MapleTokens.sidebar)
     }
 }
@@ -66,13 +84,26 @@ struct TabButton: View {
 // MARK: - InfoTab
 
 struct InfoTab: View {
-    let session: EditSession
+    let session: EditSession?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             SectionHeader("File")
-            InfoRow("Name", session.asset.displayName)
-            InfoRow("Path", session.asset.primaryURL?.path ?? "—")
+            // Name = filename with extension. Path = parent directory only.
+            InfoRow("Name", session?.asset.primaryURL?.lastPathComponent
+                         ?? session?.asset.displayName
+                         ?? "—")
+            InfoRow("Path", session?.asset.primaryURL?
+                                .deletingLastPathComponent().path ?? "—")
+
+            if let cct = session?.asShotCCT {
+                Divider().overlay(MapleTokens.border).padding(.vertical, 4)
+                SectionHeader("As Shot")
+                InfoRow("Temp", String(format: "%.0f K", cct))
+                if let t = session?.asShotTint {
+                    InfoRow("Tint", String(format: "%.0f", t))
+                }
+            }
 
             Divider().overlay(MapleTokens.border).padding(.vertical, 4)
 
@@ -81,12 +112,14 @@ struct InfoTab: View {
                 HStack {
                     Text("Stars").foregroundStyle(MapleTokens.textMuted).font(.system(size: 11))
                     Spacer()
-                    StarView(count: session.culling.stars)
+                    StarView(count: session?.culling.stars ?? 0)
+                        .opacity(session == nil ? 0.5 : 1)
                 }
                 HStack {
                     Text("Flag").foregroundStyle(MapleTokens.textMuted).font(.system(size: 11))
                     Spacer()
-                    FlagBadge(flag: session.culling.flag)
+                    FlagBadge(flag: session?.culling.flag ?? .none)
+                        .opacity(session == nil ? 0.5 : 1)
                 }
             }
             .padding(.horizontal, 12)
@@ -134,11 +167,26 @@ struct SectionHeader: View {
 // MARK: - DevelopTab
 
 struct DevelopTab: View {
+    let session: EditSession?
+
+    var body: some View {
+        Group {
+            if let session {
+                ActiveDevelopTab(session: session)
+            } else {
+                DisabledDevelopTab()
+            }
+        }
+    }
+}
+
+/// Develop tab rendered against a live session. Sliders are bindable to the
+/// session's `@Observable` adjustment model.
+private struct ActiveDevelopTab: View {
     @Bindable var session: EditSession
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Undo / redo
             HStack(spacing: 8) {
                 Button("Undo", systemImage: "arrow.uturn.backward") {
                     session.undo()
@@ -164,16 +212,27 @@ struct DevelopTab: View {
 
             Divider().overlay(MapleTokens.border)
 
-            // White Balance
             CollapsibleSection(title: "White Balance") {
                 AdjustSlider("Temperature", value: $session.model.temperature,
                              range: 2000...12000, format: "%.0f K")
                 AdjustSlider("Tint", value: $session.model.tint, range: -100...100)
+                if let cct = session.asShotCCT, let tint = session.asShotTint {
+                    HStack {
+                        Spacer()
+                        Button("As Shot") {
+                            session.beginEdit()
+                            session.model.temperature = cct
+                            session.model.tint = tint
+                        }
+                        .font(.caption)
+                        .buttonStyle(.borderless)
+                        .foregroundStyle(MapleTokens.textMuted)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 4)
+                }
             }
-
             Divider().overlay(MapleTokens.border)
-
-            // Basic tone
             CollapsibleSection(title: "Basic") {
                 AdjustSlider("Exposure",   value: $session.model.exposure,   range: -4...4, format: "%.2f EV")
                 AdjustSlider("Contrast",   value: $session.model.contrast,   range: -100...100)
@@ -182,10 +241,7 @@ struct DevelopTab: View {
                 AdjustSlider("Whites",     value: $session.model.whites,     range: -100...100)
                 AdjustSlider("Blacks",     value: $session.model.blacks,     range: -100...100)
             }
-
             Divider().overlay(MapleTokens.border)
-
-            // Presence
             CollapsibleSection(title: "Presence") {
                 AdjustSlider("Vibrance",   value: $session.model.vibrance,   range: -100...100)
                 AdjustSlider("Saturation", value: $session.model.saturation, range: -100...100)
@@ -193,10 +249,7 @@ struct DevelopTab: View {
                 AdjustSlider("Texture",    value: $session.model.texture,    range: -100...100)
                 AdjustSlider("Dehaze",     value: $session.model.dehaze,     range: -100...100)
             }
-
             Divider().overlay(MapleTokens.border)
-
-            // Detail
             CollapsibleSection(title: "Detail") {
                 AdjustSlider("Sharpen",    value: $session.model.sharpenAmount,  range: 0...150)
                 AdjustSlider("Radius",     value: $session.model.sharpenRadius,  range: 0.5...3, format: "%.1f")
@@ -205,6 +258,65 @@ struct DevelopTab: View {
             }
         }
         .padding(.vertical, 4)
+    }
+}
+
+/// Develop tab rendered when no session is active. Sliders are bound to local
+/// no-op state and disabled — the layout stays identical to the live variant.
+private struct DisabledDevelopTab: View {
+    // Dummy values so @State bindings exist. Never read by the user.
+    @State private var z: Double = 0
+    @State private var temp: Double = 5500
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 8) {
+                Button("Undo", systemImage: "arrow.uturn.backward") {}
+                Button("Redo", systemImage: "arrow.uturn.forward") {}
+                Spacer()
+                Button("Reset", systemImage: "arrow.counterclockwise") {}
+            }
+            .font(.caption)
+            .foregroundStyle(MapleTokens.textMuted)
+            .buttonStyle(.borderless)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .disabled(true)
+
+            Divider().overlay(MapleTokens.border)
+
+            CollapsibleSection(title: "White Balance") {
+                AdjustSlider("Temperature", value: $temp, range: 2000...12000, format: "%.0f K")
+                AdjustSlider("Tint", value: $z, range: -100...100)
+            }
+            Divider().overlay(MapleTokens.border)
+            CollapsibleSection(title: "Basic") {
+                AdjustSlider("Exposure",   value: $z, range: -4...4, format: "%.2f EV")
+                AdjustSlider("Contrast",   value: $z, range: -100...100)
+                AdjustSlider("Highlights", value: $z, range: -100...100)
+                AdjustSlider("Shadows",    value: $z, range: -100...100)
+                AdjustSlider("Whites",     value: $z, range: -100...100)
+                AdjustSlider("Blacks",     value: $z, range: -100...100)
+            }
+            Divider().overlay(MapleTokens.border)
+            CollapsibleSection(title: "Presence") {
+                AdjustSlider("Vibrance",   value: $z, range: -100...100)
+                AdjustSlider("Saturation", value: $z, range: -100...100)
+                AdjustSlider("Clarity",    value: $z, range: -100...100)
+                AdjustSlider("Texture",    value: $z, range: -100...100)
+                AdjustSlider("Dehaze",     value: $z, range: -100...100)
+            }
+            Divider().overlay(MapleTokens.border)
+            CollapsibleSection(title: "Detail") {
+                AdjustSlider("Sharpen",    value: $z, range: 0...150)
+                AdjustSlider("Radius",     value: $z, range: 0.5...3, format: "%.1f")
+                AdjustSlider("NR Lum",     value: $z, range: 0...100)
+                AdjustSlider("NR Color",   value: $z, range: 0...100)
+            }
+        }
+        .padding(.vertical, 4)
+        .disabled(true)
+        .opacity(0.5)
     }
 }
 

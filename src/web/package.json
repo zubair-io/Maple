@@ -17,7 +17,8 @@
     "build:hosted": "ng build maple-hosted",
     "build:self-hosted": "ng build maple-self-hosted",
     "watch": "ng build maple-hosted --watch --configuration development",
-    "test": "ng test"
+    "test": "ng test",
+    "e2e": "playwright test"
   },
   "private": true,
   "packageManager": "npm@11.12.1",
@@ -36,6 +37,7 @@
     "@angular/build": "^21.2.8",
     "@angular/cli": "^21.2.3",
     "@angular/compiler-cli": "^21.2.0",
+    "@playwright/test": "^1.59.1",
     "jsdom": "^28.0.0",
     "ng-packagr": "^21.2.0",
     "prettier": "^3.8.1",

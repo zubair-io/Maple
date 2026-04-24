@@ -47,6 +47,13 @@ export class RawPipelineService implements OnDestroy {
       });
       this.worker.addEventListener('message', (e: MessageEvent<WorkerResponse>) => {
         const msg = e.data;
+        if (msg.type === 'worker-log') {
+          const prefix = '[raw-pipeline worker]';
+          if (msg.level === 'error') console.error(prefix, msg.text);
+          else if (msg.level === 'warn') console.warn(prefix, msg.text);
+          else console.log(prefix, msg.text);
+          return;
+        }
         if (msg.type === 'status') {
           this.threadedSubject.next(msg.threaded);
           this.threadCountSubject.next(msg.threads);
@@ -60,6 +67,8 @@ export class RawPipelineService implements OnDestroy {
             width: msg.width,
             height: msg.height,
             rgb: new Uint8Array(msg.rgb),
+            asShotTemperature: msg.asShotTemperature,
+            asShotTint: msg.asShotTint,
           });
         } else {
           handler.reject(new Error(msg.message));
@@ -79,7 +88,24 @@ export class RawPipelineService implements OnDestroy {
     return this.worker;
   }
 
+  // Serialization gate: the worker's `message` handler is async, so multiple
+  // concurrent decode requests would be in-flight at once and each one holds
+  // hundreds of MB of zero-initialized f32 scratch buffers in WASM memory.
+  // Two large decodes running together blow past the 4 GiB wasm32 cap and
+  // abort with `RuntimeError: unreachable`. Queue them here so exactly one
+  // decode sits in the worker at any moment.
+  private decodeChain: Promise<unknown> = Promise.resolve();
+
   decode(bytes: Uint8Array, ext: string, xmp?: string): Promise<DecodedImage> {
+    const run = () => this.decodeOnce(bytes, ext, xmp);
+    const next = this.decodeChain.then(run, run);
+    // Preserve the chain regardless of success/failure so one bad decode
+    // doesn't stall the queue.
+    this.decodeChain = next.catch(() => undefined);
+    return next;
+  }
+
+  private decodeOnce(bytes: Uint8Array, ext: string, xmp?: string): Promise<DecodedImage> {
     let worker: Worker;
     try {
       worker = this.ensureWorker();
