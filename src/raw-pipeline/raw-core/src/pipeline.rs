@@ -21,11 +21,33 @@ use crate::{
 /// * Tone curves (§ 3.6 steps 6-7, § 3.6b DisplayReferredCurve) deferred to slice 7.
 /// * AgX is the Sobotka power-curve approximation (slice-6 retightens).
 pub fn render_from_raw(raw: &RawImage, model: &AdjustmentModel) -> Result<(u32, u32, Vec<u8>)> {
+    render_from_raw_with_quality(raw, model, RenderQuality::Full)
+}
+
+/// Quality knob for the interactive-vs-export split. `Preview` uses the
+/// half-resolution quad demosaic — 4× fewer pixels feed every downstream
+/// stage, memory peak drops from ~6 GB to ~1.5 GB on a 100 MP RAW, and a
+/// cold decode lands in seconds rather than minutes. `Full` is the export
+/// path — same pixel-exact output the parity harness locks down.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum RenderQuality {
+    Preview,
+    Full,
+}
+
+pub fn render_from_raw_with_quality(
+    raw: &RawImage,
+    model: &AdjustmentModel,
+    quality: RenderQuality,
+) -> Result<(u32, u32, Vec<u8>)> {
     let mosaic = linearize::sensor_linearize(raw);
-    #[cfg(feature = "high-quality-demosaic")]
-    let mut camera_rgb = demosaic::hamilton_adams(&mosaic, raw.cfa);
-    #[cfg(not(feature = "high-quality-demosaic"))]
-    let mut camera_rgb = demosaic::bilinear(&mosaic, raw.cfa);
+    let mut camera_rgb = match quality {
+        RenderQuality::Preview => demosaic::half_res(&mosaic, raw.cfa),
+        #[cfg(feature = "high-quality-demosaic")]
+        RenderQuality::Full => demosaic::hamilton_adams(&mosaic, raw.cfa),
+        #[cfg(not(feature = "high-quality-demosaic"))]
+        RenderQuality::Full => demosaic::bilinear(&mosaic, raw.cfa),
+    };
 
     // WB pre-gain (camera_rgb /= AsShotNeutral) is intentionally NOT applied
     // here despite being the DNG spec's step 4 per § 1.4.4.5. Applying it in

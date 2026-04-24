@@ -132,7 +132,7 @@ public actor ThumbnailLoader {
             // SLOW PATH — RAW has no embedded preview (rare). Fall back to a
             // full develop + downscale. Same cost as before.
             do {
-                let image = try PipelineRenderer.render(rawPath: assetURL)
+                let image = try PipelineRenderer.render(rawPath: assetURL, quality: .preview)
                 guard let data = Self.encodeJPEG(image, ctx: CIContext()) else {
                     logger.warning("JPEG encode failed for \(assetURL.lastPathComponent, privacy: .public)")
                     return nil
@@ -261,7 +261,7 @@ public actor ThumbnailLoader {
         return await Task.detached(priority: .utility) { () -> Data? in
             do {
                 let bytes = try await provider()
-                let image = try PipelineRenderer.render(rawBytes: bytes, hint: hint)
+                let image = try PipelineRenderer.render(rawBytes: bytes, hint: hint, quality: .preview)
                 guard let data = Self.encodeJPEG(image, ctx: CIContext()) else {
                     return nil
                 }
