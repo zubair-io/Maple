@@ -1,4 +1,5 @@
 use crate::image::{CfaPattern, ColorSpace, Image};
+use rayon::prelude::*;
 
 /// Half-resolution quad demosaic per spec § 3.3.2.
 /// Each 2×2 Bayer quad collapses to one RGB pixel: R at the R position,
@@ -17,32 +18,35 @@ pub fn half_res(mosaic: &Image, cfa: CfaPattern) -> Image {
 
     // For each 2×2 quad, positions (2x, 2y), (2x+1, 2y), (2x, 2y+1), (2x+1, 2y+1).
     // The color at each is known from cfa.color_at. Collect R, G_sum, G_count, B.
-    for y in 0..out_h {
-        for x in 0..out_w {
-            let positions = [
-                (2 * x,     2 * y,     mosaic.pixels[2 * y * in_w + 2 * x]),
-                (2 * x + 1, 2 * y,     mosaic.pixels[2 * y * in_w + (2 * x + 1)]),
-                (2 * x,     2 * y + 1, mosaic.pixels[(2 * y + 1) * in_w + 2 * x]),
-                (2 * x + 1, 2 * y + 1, mosaic.pixels[(2 * y + 1) * in_w + (2 * x + 1)]),
-            ];
+    out.pixels
+        .par_chunks_mut(out_w)
+        .enumerate()
+        .for_each(|(y, row)| {
+            for (x, out_px) in row.iter_mut().enumerate() {
+                let positions = [
+                    (2 * x,     2 * y,     mosaic.pixels[2 * y * in_w + 2 * x]),
+                    (2 * x + 1, 2 * y,     mosaic.pixels[2 * y * in_w + (2 * x + 1)]),
+                    (2 * x,     2 * y + 1, mosaic.pixels[(2 * y + 1) * in_w + 2 * x]),
+                    (2 * x + 1, 2 * y + 1, mosaic.pixels[(2 * y + 1) * in_w + (2 * x + 1)]),
+                ];
 
-            let mut rgb = [0.0f32; 3];
-            let mut g_sum = 0.0f32;
-            let mut g_count = 0.0f32;
-            for (px, py, p) in positions.iter() {
-                let c = cfa.color_at(*px as u32, *py as u32) as usize;
-                // `p[c]` is the only channel populated at that mosaic position.
-                if c == 1 {
-                    g_sum += p[1];
-                    g_count += 1.0;
-                } else {
-                    rgb[c] = p[c];
+                let mut rgb = [0.0f32; 3];
+                let mut g_sum = 0.0f32;
+                let mut g_count = 0.0f32;
+                for (px, py, p) in positions.iter() {
+                    let c = cfa.color_at(*px as u32, *py as u32) as usize;
+                    // `p[c]` is the only channel populated at that mosaic position.
+                    if c == 1 {
+                        g_sum += p[1];
+                        g_count += 1.0;
+                    } else {
+                        rgb[c] = p[c];
+                    }
                 }
+                rgb[1] = if g_count > 0.0 { g_sum / g_count } else { 0.0 };
+                *out_px = rgb;
             }
-            rgb[1] = if g_count > 0.0 { g_sum / g_count } else { 0.0 };
-            out.pixels[y * out_w + x] = rgb;
-        }
-    }
+        });
     out
 }
 
