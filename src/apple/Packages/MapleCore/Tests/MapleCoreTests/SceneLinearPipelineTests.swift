@@ -128,6 +128,37 @@
 //   M3 satisfies the highlight_recovery part exactly (Rust-side, the
 //   only Apple-irreplaceable stage). Other slider drift on saved
 //   sidecars is bounded but visible until the first slider move.
+//
+// Plan 2 M3 milestone gate (Task 8):
+//   xcodebuild -scheme Maple -destination 'platform=macOS' build:
+//     ** BUILD SUCCEEDED **
+//   swift test:
+//     83 tests, 3 skipped, 0 failures (= post-M2 baseline; M3 added
+//     no new tests — the existing M1/M2 tests pass decodedAtModel: nil
+//     and continue to pass via the parameter's nil default).
+//   Parity harness (BUDGET=15):
+//     0 pass / 6 fail / 1 skip — IDENTICAL to pre-Plan-2 / M1 / M2
+//     baseline. The applyFilters legacy path remains untouched, so
+//     no regression vs the existing-broken baseline.
+//   xcframework rebuild (Step 8.2):
+//     "No raw-pipeline changes since last build — skipping" —
+//     confirms Plan 2 v1 did not touch Rust source. The .a files
+//     under src/apple/Frameworks are byte-identical to pre-M3.
+//
+// Plan 2 M3 sidecar smoke test (Task 8 Step 8.7):
+//   PENDING USER VERIFICATION — automated agent cannot drive UI
+//   sliders nor write XMP attributes for live re-open. The user
+//   should:
+//     1. Set MAPLE_SCENE_LINEAR=1 and open a RAW fixture.
+//     2. Add a sidecar with papp:HighlightRecoveryMode="Blend" and
+//        confirm blown-out highlights are noticeably less saturated
+//        vs the no-sidecar render.
+//     3. Toggle to "Off" / remove the attribute and confirm the
+//        original blown-out look returns.
+//     4. Add crs:Saturation="50" to the sidecar; confirm the image
+//        opens "doubly saturated" (Rust applied +50, Apple kernel
+//        applied +50) — known M3 limitation. Move the saturation
+//        slider to any value to observe resync.
 
 import XCTest
 import CoreImage
