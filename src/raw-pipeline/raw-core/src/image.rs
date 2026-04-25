@@ -47,17 +47,29 @@ impl Image {
 }
 
 /// Bayer CFA pattern. X-Trans is deferred (spec § 3.3 explicitly excludes it
-/// from the slice-1 demosaic path).
+/// from the slice-1 demosaic path). The `LinearRgb` variant is the special
+/// "no Bayer mosaic" case used for DNG `PhotometricInterpretation = LinearRaw`.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum CfaPattern {
     Rggb,
     Bggr,
     Grbg,
     Gbrg,
+    /// Already-demosaiced 3-channel RGB. Source data is interleaved
+    /// `[R₀ G₀ B₀ R₁ G₁ B₁ …]` with no Bayer mosaic pattern. Decoded
+    /// from DNG `PhotometricInterpretation = LinearRaw (34892)`. The
+    /// `linearize::linearraw_to_camera_rgb` helper converts directly
+    /// to `CameraNativeLinearRgb`, skipping `sensor_linearize` and
+    /// `demosaic::*`. Calling `color_at` on this variant is a runtime
+    /// panic — callers must short-circuit before invoking it. See
+    /// ticket #07.
+    LinearRgb,
 }
 
 impl CfaPattern {
-    /// Returns the color (0=R, 1=G, 2=B) at raw-space (x, y).
+    /// Returns the color (0=R, 1=G, 2=B) at raw-space (x, y). Panics for
+    /// `LinearRgb` — that variant has no Bayer position; callers must
+    /// short-circuit before invoking this.
     pub fn color_at(self, x: u32, y: u32) -> u8 {
         let ex = (x & 1) as u8;
         let ey = (y & 1) as u8;
@@ -66,6 +78,10 @@ impl CfaPattern {
             Self::Bggr => match (ex, ey) { (0,0)=>2, (1,0)=>1, (0,1)=>1, _=>0 },
             Self::Grbg => match (ex, ey) { (0,0)=>1, (1,0)=>0, (0,1)=>2, _=>1 },
             Self::Gbrg => match (ex, ey) { (0,0)=>1, (1,0)=>2, (0,1)=>0, _=>1 },
+            Self::LinearRgb => unreachable!(
+                "CfaPattern::LinearRgb has no Bayer position; \
+                 callers must short-circuit before invoking color_at"
+            ),
         }
     }
 }

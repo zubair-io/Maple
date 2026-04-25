@@ -79,14 +79,23 @@ pub fn develop_scene_linear_from_raw_with_quality(
     model: &AdjustmentModel,
     quality: RenderQuality,
 ) -> Result<crate::image::Image> {
-    let mosaic = stage("linearize", || linearize::sensor_linearize(raw));
-    let mut camera_rgb = stage("demosaic", || match quality {
-        RenderQuality::Preview => demosaic::half_res(&mosaic, raw.cfa),
-        #[cfg(feature = "high-quality-demosaic")]
-        RenderQuality::Full => demosaic::hamilton_adams(&mosaic, raw.cfa),
-        #[cfg(not(feature = "high-quality-demosaic"))]
-        RenderQuality::Full => demosaic::bilinear(&mosaic, raw.cfa),
-    });
+    let mut camera_rgb = match raw.cfa {
+        crate::image::CfaPattern::LinearRgb => {
+            // LinearRaw DNG: data is already 3-channel RGB. Skip the
+            // mosaic path entirely. See ticket #07.
+            stage("linearraw_decode", || linearize::linearraw_to_camera_rgb(raw))?
+        }
+        _ => {
+            let mosaic = stage("linearize", || linearize::sensor_linearize(raw));
+            stage("demosaic", || match quality {
+                RenderQuality::Preview => demosaic::half_res(&mosaic, raw.cfa),
+                #[cfg(feature = "high-quality-demosaic")]
+                RenderQuality::Full => demosaic::hamilton_adams(&mosaic, raw.cfa),
+                #[cfg(not(feature = "high-quality-demosaic"))]
+                RenderQuality::Full => demosaic::bilinear(&mosaic, raw.cfa),
+            })
+        }
+    };
 
     // WB pre-gain (camera_rgb /= AsShotNeutral) is intentionally NOT applied
     // here despite being the DNG spec's step 4 per § 1.4.4.5. Applying it in
@@ -476,6 +485,12 @@ fn develop_scene_linear_from_padded_mosaic(
     model: &AdjustmentModel,
     quality: RenderQuality,
 ) -> Result<crate::image::Image> {
+    if raw.cfa == crate::image::CfaPattern::LinearRgb {
+        return Err(crate::error::Error::Pipeline(
+            "tile path does not support LinearRaw DNGs; use the full-image render entry instead. See ticket #07."
+                .into()
+        ));
+    }
     mosaic.assert_space(crate::image::ColorSpace::CameraNativeMosaic);
     let mut camera_rgb = stage("tile_demosaic", || match quality {
         RenderQuality::Preview => demosaic::half_res(mosaic, raw.cfa),
@@ -540,6 +555,12 @@ pub fn render_scene_linear_tile_from_raw_with_quality(
     out_w: u32, out_h: u32,
     quality: RenderQuality,
 ) -> Result<(u32, u32, Vec<u16>)> {
+    if raw.cfa == crate::image::CfaPattern::LinearRgb {
+        return Err(crate::error::Error::Pipeline(
+            "tile path does not support LinearRaw DNGs; use the full-image render entry instead. See ticket #07."
+                .into()
+        ));
+    }
     if model.dehaze.abs() > 1e-3 {
         return Err(crate::error::Error::Pipeline(
             "tile path is not supported when dehaze != 0 (radius 67 px > 35 px overlap pad)"
