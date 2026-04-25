@@ -366,6 +366,16 @@ struct AdjustSlider: View {
         self.format = format
     }
 
+    /// Stable accessibility identifier derived from `label` — lowercased,
+    /// spaces collapsed to dashes. "NR Lum" → `slider-nr-lum`. See
+    /// docs/superpowers/plans/2026-04-25-xcuitest-visual-harness.md.
+    private var accessibilityID: String {
+        let slug = label
+            .lowercased()
+            .replacingOccurrences(of: " ", with: "-")
+        return "slider-\(slug)"
+    }
+
     var body: some View {
         HStack(spacing: 8) {
             Text(label)
@@ -376,6 +386,7 @@ struct AdjustSlider: View {
             Slider(value: $value, in: range)
                 .tint(MapleTokens.primary)
                 .controlSize(.mini)
+                .accessibilityIdentifier(accessibilityID)
 
             Text(String(format: format, value))
                 .font(.system(size: 10, design: .monospaced))

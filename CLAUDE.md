@@ -115,6 +115,40 @@ When testing a UI change:
 
 If ΔE numbers don't move after a `raw-core` edit, the xcframework is stale. Rebuild it.
 
+### UITest visual harness
+
+Companion to the Rust color-pipeline harness at `src/scripts/test_color_pipeline.sh`. Same metric (CIEDE2000), different scope: live SwiftUI canvas screenshot vs committed golden, instead of `maple-cli` PNG vs ACR reference. Lives in the `MapleUITests` Xcode target at `src/apple/MapleUITests/`.
+
+Run locally:
+
+```bash
+xcodebuild test \
+  -project src/apple/Maple.xcodeproj \
+  -scheme Maple \
+  -destination 'platform=macOS' \
+  -only-testing:MapleUITests \
+  MAPLE_UITEST_FIXTURE_ROOT="$PWD/test-fixtures/raws"
+```
+
+The harness launches Maple with `MAPLE_UITEST_FIXTURE=test_0017.dng` (resolved against `MAPLE_UITEST_FIXTURE_ROOT`), waits for the refine pass to publish a preview (`canvas-render-ready` accessibility identifier flips on), screenshots the canvas, and diffs against the committed PNG at `src/apple/MapleUITests/Goldens/test_0017-default.png`. Goldens are tiny (canvas-only crop — no chrome) and commit to the repo.
+
+Re-record by deleting the PNG and re-running — the harness will write a new baseline and fail with a "baseline written" message. Open the file, eyeball it, then commit + re-run.
+
+Without fixtures (CI without `test-fixtures/raws/test_0017.dng`), the test calls `XCTSkip` — soft pass, mirrors the `test_color_pipeline.sh` "no fixtures, skipping" pattern.
+
+**First-time-on-a-machine caveat (macOS):** the UI test runner asks for keychain / TouchID auth on its first launch. The `xcodebuild test` invocation will hang for several minutes and then fail with `LocalAuthentication ... System authentication is running. ... BiometryType=1`. The fix is to authorize once interactively — opening the project in Xcode and running the test through the IDE the first time produces an OS prompt the user can accept; subsequent CLI runs reuse the cached credential. There is no headless workaround on stock macOS.
+
+The Swift CIEDE2000 port at `src/apple/MapleUITests/Helpers/CIEDE2000.swift` is cross-validated against `src/scripts/compare_images.py` by `CIEDE2000Tests`, against the calibration PNG pair at `src/apple/MapleUITests/Goldens/.calibration/`. Regenerate the expected JSON via:
+
+```bash
+python3 src/scripts/compare_images.py \
+  src/apple/MapleUITests/Goldens/.calibration/a.png \
+  src/apple/MapleUITests/Goldens/.calibration/b.png \
+  > src/apple/MapleUITests/Goldens/.calibration/expected.json
+```
+
+Brief: `docs/superpowers/specs/2026-04-25-xcuitest-visual-harness-brief.md`. Plan: `docs/superpowers/plans/2026-04-25-xcuitest-visual-harness.md`.
+
 ## Build & test — Web
 
 ```bash

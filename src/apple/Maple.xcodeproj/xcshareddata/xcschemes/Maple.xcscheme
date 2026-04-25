@@ -31,13 +31,24 @@
       shouldAutocreateTestPlan = "YES">
       <Testables>
          <TestableReference
-            skipped = "NO"
+            skipped = "YES"
             parallelizable = "YES">
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "A1F0001400000000000000A1"
                BuildableName = "MapleTests.xctest"
                BlueprintName = "MapleTests"
+               ReferencedContainer = "container:Maple.xcodeproj">
+            </BuildableReference>
+         </TestableReference>
+         <TestableReference
+            skipped = "NO"
+            parallelizable = "YES">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "A1F0006500000000000000A1"
+               BuildableName = "MapleUITests.xctest"
+               BlueprintName = "MapleUITests"
                ReferencedContainer = "container:Maple.xcodeproj">
             </BuildableReference>
          </TestableReference>

@@ -94,6 +94,26 @@ struct AppShell: View {
             }, onCancel: { showSelfHostedSheet = false })
         }
         .task {
+            #if DEBUG
+            // UITest harness fast path: if the launch env stashed a
+            // fixture URL on `MapleApp.uitestFixtureURL`, seed the grid
+            // with that single asset and flip directly into Full-image
+            // mode so the test can wait on `canvas-render-ready`. Skips
+            // restoreLastSource() entirely — the harness wants a known
+            // empty starting state. See
+            // docs/superpowers/plans/2026-04-25-xcuitest-visual-harness.md.
+            if let fixtureURL = MapleApp.uitestFixtureURL {
+                browseVM.loadSingleAsset(url: fixtureURL)
+                if let asset = browseVM.assets.first {
+                    let session = EditSession(asset: asset)
+                    sessions[asset.id] = session
+                    await session.loadSidecar()
+                    browseVM.selectedID = asset.id
+                    mode = .fullImage
+                }
+                return
+            }
+            #endif
             // Restore last-used source on cold start.
             await restoreLastSource()
         }
