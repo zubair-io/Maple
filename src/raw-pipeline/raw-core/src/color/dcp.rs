@@ -268,17 +268,16 @@ pub fn interpolated_profile(
 /// Falls back to single-illuminant (D65 → D50 → D55 → StdA → any) when only
 /// one matrix is available.
 pub fn profile_for(raw: &RawImage) -> crate::Result<DcpProfile> {
-    // LinearRaw DNGs already have white balance baked in by the converter;
-    // re-applying AsShotNeutral via inv(CM) · AsShotNeutral produces the
-    // magenta wash documented in the investigation report. The flag below
-    // routes scene_white_xyz through inv(CM) · (1, 1, 1) instead.
-    // See ticket #07.
-    let wb_already_baked = raw.cfa == crate::image::CfaPattern::LinearRgb;
-    let neutral_for_white: [f32; 3] = if wb_already_baked {
-        [1.0, 1.0, 1.0]
-    } else {
-        raw.as_shot_neutral
-    };
+    // For LinearRaw DNGs, `linearize::linearraw_to_camera_rgb` undoes the
+    // converter's AsShotNeutral pre-bake by multiplying each channel by
+    // AsShotNeutral. The resulting camera-RGB is in the same space the
+    // Bayer path produces (neutral patch reads as AsShotNeutral), so
+    // `scene_white_xyz = inv(CM) · AsShotNeutral` is correct for both.
+    // The `wb_already_baked` flag stays FALSE here; it's reserved for
+    // hypothetical future variants that hand WB-baked input directly to
+    // `dcp::apply` (no pre-bake undo). See ticket #07.
+    let wb_already_baked = false;
+    let neutral_for_white: [f32; 3] = raw.as_shot_neutral;
 
     // Prefer two-illuminant interpolation when we have CMs at both ends of
     // the typical range (cold illuminant like StdA, warm like D65).
@@ -551,12 +550,17 @@ mod tests {
     }
 
     /// Regression test for ticket #07 (LinearRaw WB double-apply fix).
-    /// `profile_for` must set `DcpProfile::wb_already_baked = true` for any
-    /// `RawImage` whose `cfa == CfaPattern::LinearRgb`, and the resulting
-    /// `scene_white_xyz` must derive from `inv(CM) · (1, 1, 1)` instead of
-    /// `inv(CM) · AsShotNeutral`.
+    /// `linearize::linearraw_to_camera_rgb` undoes the converter's
+    /// AsShotNeutral pre-bake (multiplying each channel by AsShotNeutral) so
+    /// the data delivered to `dcp::apply` is in the same camera-RGB space
+    /// the Bayer path produces. As a result `profile_for` produces the
+    /// SAME `scene_white_xyz` for a LinearRgb raw as for the Bayer
+    /// equivalent — both use `inv(CM) · AsShotNeutral`. The
+    /// `DcpProfile::wb_already_baked` flag stays `false` for the LinearRgb
+    /// path; it's reserved for hypothetical future callers that hand
+    /// already-baked data directly to `dcp::apply`.
     #[test]
-    fn wb_already_baked_skips_as_shot_neutral() {
+    fn linearraw_profile_matches_bayer_after_pre_bake_undo() {
         let cm = Matrix3([
             [ 0.6722, -0.0635, -0.0963],
             [-0.4287,  1.2460,  0.2028],
@@ -580,28 +584,35 @@ mod tests {
             baseline_exposure: 0.0,
         };
         let prof_linear = profile_for(&raw_linear).unwrap();
-        assert!(prof_linear.wb_already_baked, "LinearRgb must set wb_already_baked");
+        // Pre-bake undo lives in linearize::linearraw_to_camera_rgb, not in
+        // profile_for. The flag stays false for LinearRgb sources.
+        assert!(!prof_linear.wb_already_baked,
+            "wb_already_baked must remain false; pre-bake undo runs in linearize");
 
-        // Compute the expected scene_white_xyz: inv(CM) · (1, 1, 1), normalized.
-        let inv_cm = cm.inverse().unwrap();
-        let xyz = inv_cm.mul_vec([1.0, 1.0, 1.0]);
-        let s = 1.0 / xyz[1];
-        let expected = [xyz[0] * s, 1.0, xyz[2] * s];
-        for i in 0..3 {
-            assert!((prof_linear.scene_white_xyz[i] - expected[i]).abs() < 1e-4,
-                "scene_white_xyz[{}] = {} (want {})",
-                i, prof_linear.scene_white_xyz[i], expected[i]);
-        }
-
-        // For comparison: a Bayer raw with the same CM + WB derives a
-        // different scene_white_xyz (uses warm_wb instead of (1,1,1)).
+        // For comparison: a Bayer raw with the same CM + WB must produce
+        // the SAME scene_white_xyz, because both paths now hand camera RGB
+        // with neutrals = AsShotNeutral to dcp::apply.
         let mut raw_bayer = raw_linear.clone();
         raw_bayer.cfa = crate::image::CfaPattern::Rggb;
         let prof_bayer = profile_for(&raw_bayer).unwrap();
         assert!(!prof_bayer.wb_already_baked);
-        assert!((prof_linear.scene_white_xyz[0] - prof_bayer.scene_white_xyz[0]).abs() > 0.01,
-            "LinearRgb and Bayer profiles must produce different scene_white_xyz \
-             for the same CM + non-identity AsShotNeutral");
+        for i in 0..3 {
+            assert!((prof_linear.scene_white_xyz[i] - prof_bayer.scene_white_xyz[i]).abs() < 1e-5,
+                "LinearRgb and Bayer profiles must produce the SAME scene_white_xyz; \
+                 LinearRgb={:?}, Bayer={:?}",
+                prof_linear.scene_white_xyz, prof_bayer.scene_white_xyz);
+        }
+
+        // Self-consistency check: scene_white_xyz really is inv(CM) · AsShotNeutral / Y_normalized.
+        let inv_cm = cm.inverse().unwrap();
+        let xyz = inv_cm.mul_vec(warm_wb);
+        let s = 1.0 / xyz[1];
+        let expected = [xyz[0] * s, 1.0, xyz[2] * s];
+        for i in 0..3 {
+            assert!((prof_linear.scene_white_xyz[i] - expected[i]).abs() < 1e-4,
+                "scene_white_xyz[{}] = {} (want inv(CM)·AsShotNeutral = {})",
+                i, prof_linear.scene_white_xyz[i], expected[i]);
+        }
     }
 
     #[test]
