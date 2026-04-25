@@ -29,7 +29,7 @@ float agx_log_encode(float linear) {
 
 /// Sample the 1D LUT texture at normalized position t ∈ [0, 1].
 float sample_lut(coreimage::sampler_h lut_sampler, float t) {
-    return lut_sampler.sample(float2(t * (AGX_LUT_SIZE - 1.0) / AGX_LUT_SIZE, 0.0)).r;
+    return float(lut_sampler.sample(float2(t * (AGX_LUT_SIZE - 1.0) / AGX_LUT_SIZE, 0.0)).r);
 }
 
 /// Apply contrast modulation: expand/compress around MID_NORM
