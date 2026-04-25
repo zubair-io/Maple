@@ -368,10 +368,21 @@ public actor ImageEditPipeline {
             texture: Float(model.texture)
         )
 
-        // Plan 2 v2 v4 (sibling, in flight) — Stage: SceneDehaze inserts here
-        // between texture and sharpen. Until v4 lands, the chain skips
-        // dehaze and feeds withTexture directly into sharpen. Per Rust at
-        // pipeline.rs:129-130: dehaze before sharpen.
+        // Plan 2 v2 v4 M5 — Stage: SceneDehaze (dark-channel + atmospheric-
+        // light + transmission + guided-filter + reconstruction). Mirrors
+        // dehaze::apply from raw-core (dehaze.rs:144-179). Backed by 5
+        // pure-Metal compute kernel files (DehazeDarkChannel, Atmospheric-
+        // Light, Transmission, Guide, BoxBlur, GuidedFilter) plus 1
+        // CIColorKernel (DehazeReconstruct). The 67 px stencil exceeds
+        // Deep Zoom's 35 px overlap budget — when this slider is non-
+        // zero, the deep-zoom UI clamps maxPixelScale to fit-zoom (see
+        // docs/superpowers/plans/2026-04-25-deep-zoom-tile-rendering.md
+        // Architecture point 3). This wrapper does NOT change that
+        // fallback; it composes whole-image only.
+        let withDehaze = MetalKernels.applySceneDehaze(
+            to: withTexture,
+            dehaze: Float(model.dehaze)
+        )
 
         // Plan 2 v2 v3 M4 — Stage: SceneSharpen (3-iter Richardson-Lucy +
         // edge-aware mix in scene-linear Rec.2020 RGB). Mirrors
@@ -384,7 +395,7 @@ public actor ImageEditPipeline {
         // iters × box of radius ≤3 + 1 px central-difference for the
         // gradient), well inside the Deep Zoom 35 px overlap budget.
         let withSharpen = MetalKernels.applySceneSharpen(
-            to: withTexture,
+            to: withDehaze,
             amount: Float(model.sharpenAmount),
             radius: Float(model.sharpenRadius),
             detail: Float(model.sharpenDetail),
