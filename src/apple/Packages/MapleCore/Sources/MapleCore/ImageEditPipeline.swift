@@ -438,8 +438,13 @@ public actor ImageEditPipeline {
             img = applyDehaze(img, amount: model.dehaze)
         }
 
-        // Stage 10: AgX view transform (Metal kernel).
-        img = MetalKernels.applyAgXViewTransform(to: img, contrast: Float(model.contrast))
+        // Stage 10: AgX view transform (Metal kernel). Gated by MAPLE_SKIP_SWIFT_AGX —
+        // Rust already applies AgX + sRGB encode + u8 quantize before Swift sees the
+        // buffer, so this call double-tone-maps. Gate lets us A/B the effect without
+        // the larger FFI restructure.
+        if ProcessInfo.processInfo.environment["MAPLE_SKIP_SWIFT_AGX"] == nil {
+            img = MetalKernels.applyAgXViewTransform(to: img, contrast: Float(model.contrast))
+        }
 
         return img
     }
