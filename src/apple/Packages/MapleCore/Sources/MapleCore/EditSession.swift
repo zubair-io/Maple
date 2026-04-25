@@ -299,6 +299,26 @@ public final class EditSession {
     @ObservationIgnored private var decodeTask: Task<CIImage?, Never>?
     @ObservationIgnored private var decodeTaskAssetID: AssetRef.ID?
 
+    // MARK: Deep zoom (Plan 3 / Ticket 06 M4)
+
+    /// Tile manager for deep-zoom (`pixelScale >= 1.0`) refine renders.
+    /// Created lazily on the first deep-zoom request so that
+    /// fit-mode-only sessions never allocate one. Shares the
+    /// process-wide `RawImageCache.shared` so the rawler decode is
+    /// reused across sessions and tile fetches.
+    @ObservationIgnored private var tileManager: TileManager?
+
+    /// Background task that listens to `tileManager.events()` and
+    /// re-kicks `_scheduleRefine()` whenever a tile lands. Cancelled
+    /// when the asset switches or the session deinits.
+    @ObservationIgnored private var tileEventsTask: Task<Void, Never>?
+
+    /// Visible region in oriented full-image source-pixel coords. Set
+    /// by `FullImageView` via `updateTileVisibleRegion(viewport:zoom:)`.
+    /// `_scheduleRefine`'s deep-zoom branch reads this when targeting
+    /// the tile manager. `.zero` disables the deep-zoom branch.
+    public private(set) var viewportSourceRect: CGRect = .zero
+
     /// Viewport size in real pixels — set by FullImageView. Used as the fast
     /// phase's target size so the filter chain runs at viewport resolution
     /// rather than native resolution.
@@ -395,6 +415,32 @@ public final class EditSession {
     public func resetToOriginal() {
         beginEdit()
         model = originalModel
+    }
+
+    // MARK: Deep zoom (Plan 3 / Ticket 06 M4)
+
+    /// FullImageView calls this from the magnification gesture, the
+    /// ⌘1/⌘=/⌘- toolbar shortcuts, and (on macOS) the Cmd+scroll
+    /// handler. Updates the visible source-pixel rect for the tile
+    /// manager and the live `pixelScale`. When `zoom` changes
+    /// meaningfully (epsilon = 0.01) we re-schedule a refine so the
+    /// deep-zoom branch in `_scheduleRefine` re-routes through the
+    /// tile manager. Pure pan with the same zoom triggers a refine
+    /// reschedule too — the tile composite has to retarget the new
+    /// visible region.
+    public func updateTileVisibleRegion(viewport: CGRect, zoom: CGFloat) {
+        let prevRect = viewportSourceRect
+        let prevZoom = pixelScale
+        viewportSourceRect = viewport
+        pixelScale = zoom  // didSet on pixelScale will reschedule when changed
+        // If zoom didn't change but the viewport rect did (pure pan),
+        // pixelScale.didSet won't fire — kick a refine here. Use a
+        // small tolerance so a sub-pixel jitter doesn't trigger a
+        // reschedule storm during a pinch.
+        if abs(zoom - prevZoom) <= 0.01,
+           !prevRect.equalTo(viewport) {
+            _scheduleRefine()
+        }
     }
 
     /// Load model + culling from disk; call once after init.
@@ -770,6 +816,21 @@ public final class EditSession {
         refineTask = Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(250))
             guard gen == renderGeneration, !Task.isCancelled else { return }
+            // Plan 3 / Ticket 06 M4 — deep-zoom branch. When the user
+            // has zoomed past 1.0 (one source pixel per screen pixel)
+            // we route the refine through the tile manager instead of
+            // re-running the whole-image scene-linear pipeline. The
+            // tile path renders 512² source-pixel tiles on demand and
+            // composites them over the upscaled cached preview, so
+            // memory stays bounded and slider/pan latency hits the
+            // brief's 16 ms target on cache hits. The fit-zoom path
+            // below is unchanged for `pixelScale < 1.0`.
+            if pixelScale >= 1.0,
+               !viewportSourceRect.isEmpty,
+               let _ = asset.primaryURL {
+                await refineDeepZoom(gen: gen)
+                return
+            }
             // Short-circuit when refine would render at the same (or smaller)
             // target as the most recent fast pass. Avoids a wasted CoreImage
             // pipeline build when the user hasn't actually zoomed in. Persist
@@ -783,6 +844,82 @@ public final class EditSession {
             }
             await decodeAndRender(targetSize: refinedTargetSize, phase: .refine, gen: gen)
         }
+    }
+
+    /// Deep-zoom refine path (Plan 3 Task 8). Lazily spins up the
+    /// session's `TileManager`, asks it to composite the visible-tile
+    /// set, and republishes the result as `renderedPreview`. The tile
+    /// manager fetches missing tiles in the background; this method
+    /// returns the composite of currently-cached tiles immediately.
+    /// When new tiles land, `tileEventsTask` reschedules a refine so
+    /// the composite progressively fills in.
+    @MainActor
+    private func refineDeepZoom(gen: UInt64) async {
+        let mgr = ensureTileManager()
+        // Snapshot inputs that the actor call might race against a
+        // pixelScale write. We only republish if the gen counter
+        // matches at the end.
+        let visible = viewportSourceRect
+        let zoom = pixelScale
+        let assetRef = self.asset
+        do {
+            let composite = try await mgr.update(
+                asset: assetRef,
+                viewportSourceRect: visible,
+                zoom: zoom
+            )
+            guard gen == renderGeneration, !Task.isCancelled else { return }
+            // The composite is the visible tile set in oriented
+            // full-image source-pixel coords. CIImage.empty() comes
+            // back when no tile has rendered yet — leave the existing
+            // `renderedPreview` (the upscaled cached preview) in place
+            // so the user keeps seeing pixels until the first tile
+            // lands. The events stream re-kicks this method when that
+            // happens.
+            if !composite.extent.isEmpty {
+                renderedPreview = composite
+            }
+            renderError = nil
+        } catch {
+            editSessionLogger.error(
+                "refineDeepZoom failed gen=\(gen) error=\(String(describing: error), privacy: .public)"
+            )
+            renderError = error
+        }
+    }
+
+    /// Lazy create the session's `TileManager` and start the
+    /// tile-completion subscription. Subsequent calls return the
+    /// existing instance. Must be called from the main actor — the
+    /// session itself is `@MainActor` so this is implicit.
+    @MainActor
+    private func ensureTileManager() -> TileManager {
+        if let mgr = tileManager { return mgr }
+        let mgr = TileManager(rawCache: RawImageCache.shared)
+        tileManager = mgr
+        // Subscribe to tile-completion events. Each tile insert pokes
+        // the refine scheduler so the deep-zoom composite progressively
+        // refines. The subscription task lives until the session
+        // deinits or the asset switches.
+        tileEventsTask?.cancel()
+        tileEventsTask = Task { [weak self, weak mgr] in
+            guard let mgr else { return }
+            // `events()` is actor-isolated; the await hops onto the
+            // tile manager's actor to construct the stream. Iterating
+            // the stream, however, is just AsyncStream.Iterator —
+            // doesn't require staying on the manager's actor.
+            let stream = await mgr.events()
+            for await _ in stream {
+                guard let self else { return }
+                if Task.isCancelled { return }
+                // Coalesce repaints. _scheduleRefine has its own 250 ms
+                // debounce, so a flurry of tile inserts collapses into
+                // a single re-composite pass. Hop onto the main actor
+                // to call into the session.
+                await MainActor.run { self._scheduleRefine() }
+            }
+        }
+        return mgr
     }
 
     /// Unified render entry point — handles both fast and refine phases
@@ -936,6 +1073,13 @@ public final class EditSession {
         // the cached snapshot so the WB delta can't compose against a
         // stale decode-time model.
         decodedAtModel = nil
+        // Plan 3 — drop tile cache for this asset so the next deep-zoom
+        // refine starts from a clean slate against the fresh decode.
+        // The tile manager is per-session so we just clear it; the
+        // events subscription stays alive (it's keyed off this manager
+        // instance, not per-asset).
+        let mgr = tileManager
+        Task { await mgr?.clear() }
     }
 
     /// Returns the decoded CIImage for `asset`, running the Rust FFI at
