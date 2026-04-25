@@ -32,6 +32,7 @@ public enum MetalKernels {
     // Kernels are compiled lazily on first access.
     private static var _sceneToneControls: CIColorKernel?
     private static var _sceneVibrance: CIColorKernel?
+    private static var _whiteBalance: CIColorKernel?
     private static var _agxViewTransform: CIKernel?
 
     // MARK: SceneToneControls
@@ -65,6 +66,36 @@ public enum MetalKernels {
             extent: input.extent,
             roiCallback: { _, rect in rect },
             arguments: [input, vibrance]
+        ) ?? input
+    }
+
+    // MARK: WhiteBalance
+
+    /// Apply scene-linear Rec.2020 white balance. The kernel takes the
+    /// user's live WB and the WB the cached decode was rendered at; the
+    /// gain is the ratio so slider ticks compose correctly with any
+    /// Rust-side WB applied during decode. In Plan 2 v1 with `xmpPath`
+    /// nil, decodedTemperature/decodedTint are 6500/0 (Rust default
+    /// model = identity short-circuit at white_balance.rs:54), so the
+    /// kernel applies the user's live WB directly. M3 (Tasks 7-8)
+    /// generalises this once `xmpPath` is wired through `decodeSceneLinear`.
+    public static func applyWhiteBalance(
+        to input: CIImage,
+        liveTemperature: Float,
+        liveTint: Float,
+        decodedTemperature: Float,
+        decodedTint: Float
+    ) -> CIImage {
+        guard let kernel = whiteBalanceKernel() else { return input }
+        let args: [Any] = [
+            input,
+            liveTemperature, liveTint,
+            decodedTemperature, decodedTint,
+        ]
+        return kernel.apply(
+            extent: input.extent,
+            roiCallback: { _, rect in rect },
+            arguments: args
         ) ?? input
     }
 
@@ -133,6 +164,13 @@ public enum MetalKernels {
         _sceneVibrance = loadKernel(file: "SceneVibrance",
                                     function: "sceneVibrance") as? CIColorKernel
         return _sceneVibrance
+    }
+
+    private static func whiteBalanceKernel() -> CIColorKernel? {
+        if let k = _whiteBalance { return k }
+        _whiteBalance = loadKernel(file: "WhiteBalance",
+                                   function: "whiteBalance") as? CIColorKernel
+        return _whiteBalance
     }
 
     public static func agxKernel() -> CIKernel? {

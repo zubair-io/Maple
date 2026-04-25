@@ -288,6 +288,23 @@ public actor ImageEditPipeline {
     ) -> CIImage {
         let scaled = Self.prescaleForDisplay(decoded, targetSize: targetSize)
 
+        // Plan 2 M2 — Stage: WhiteBalance (CCT → Rec.2020 channel gain).
+        // Mirrors `white_balance::apply` from raw-core (white_balance.rs:30-50).
+        // The kernel takes both live and decoded WB so slider deltas
+        // compose with any WB the Rust path applied at decode time. In
+        // Plan 2 v1 with `xmpPath: nil` (Rust default model), decoded
+        // Temperature/Tint = 6500/0 → wb_gains(6500, 0) ≈ (1, 1, 1) per
+        // the Rust unit test `d65_reference_at_6500k_tint_0`. M3 (Tasks
+        // 7-8) generalises this with the actual decode-time model once
+        // `xmpPath` is wired.
+        let withWB = MetalKernels.applyWhiteBalance(
+            to: scaled,
+            liveTemperature: Float(model.temperature),
+            liveTint: Float(model.tint),
+            decodedTemperature: 6500.0,
+            decodedTint: 0.0
+        )
+
         // Plan 2 M1 — Stage: SceneToneControls (exposure / highlights /
         // shadows / whites / blacks). Per-pixel scene-linear Rec.2020 op.
         // Kernel mirrors `scene_tone_controls.rs` from raw-core; whites/
@@ -295,7 +312,7 @@ public actor ImageEditPipeline {
         // are identical on both sides — verified by Plan 2 pre-flight
         // Step 1.3.
         let withTone = MetalKernels.applySceneToneControls(
-            to: scaled,
+            to: withWB,
             exposure: Float(model.exposure),
             highlights: Float(model.highlights),
             shadows: Float(model.shadows),
