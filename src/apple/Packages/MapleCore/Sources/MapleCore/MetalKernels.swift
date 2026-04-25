@@ -113,46 +113,77 @@ public enum MetalKernels {
     }
 
     // MARK: Private kernel loaders
+    //
+    // These kernels are defined in `.metal` source files using CoreImage's
+    // `coreimage::` namespace, which Xcode's Metal compiler doesn't recognise
+    // — so Package.swift declares the Metal directory with `.copy("Metal")`
+    // (verbatim file copy, no build-time compilation). At runtime we load
+    // the source text and compile via `CIKernel.kernels(withMetalString:)`,
+    // then pluck the named kernel out of the result.
 
     private static func sceneToneControlsKernel() -> CIColorKernel? {
         if let k = _sceneToneControls { return k }
-        guard let src = metalSource("SceneToneControls") else { return nil }
-        _sceneToneControls = try? CIColorKernel(functionName: "sceneToneControls",
-                                                fromMetalLibraryData: src)
+        _sceneToneControls = loadKernel(file: "SceneToneControls",
+                                        function: "sceneToneControls") as? CIColorKernel
         return _sceneToneControls
     }
 
     private static func sceneVibranceKernel() -> CIColorKernel? {
         if let k = _sceneVibrance { return k }
-        guard let src = metalSource("SceneVibrance") else { return nil }
-        _sceneVibrance = try? CIColorKernel(functionName: "sceneVibrance",
-                                             fromMetalLibraryData: src)
+        _sceneVibrance = loadKernel(file: "SceneVibrance",
+                                    function: "sceneVibrance") as? CIColorKernel
         return _sceneVibrance
     }
 
     public static func agxKernel() -> CIKernel? {
         if let k = _agxViewTransform { return k }
-        guard let src = metalSource("AgXViewTransform") else { return nil }
-        _agxViewTransform = try? CIKernel(functionName: "agxViewTransform",
-                                           fromMetalLibraryData: src)
+        _agxViewTransform = loadKernel(file: "AgXViewTransform",
+                                       function: "agxViewTransform")
         return _agxViewTransform
     }
 
     // MARK: Helpers
 
-    /// Load compiled Metal library data for a kernel by name.
-    /// The bundle resource name is the kernel's Metal file base name + ".metallib"
-    /// (compiled by Xcode / SwiftPM at build time).
+    /// Load + runtime-compile one named CIKernel from a `.metal` source file
+    /// bundled under `Metal/` via `.copy("Metal")` in Package.swift.
+    /// Returns nil if the file is missing, the source can't be decoded as
+    /// UTF-8, the Metal compiler rejects the source, or the named function
+    /// isn't found in the resulting kernel list.
+    private static func loadKernel(file: String, function: String) -> CIKernel? {
+        guard let data = metalSource(file),
+              let source = String(data: data, encoding: .utf8) else {
+            os_log(.error, log: kernelLog,
+                "Metal source file %{public}@.metal not found in bundle (Bundle.module/Metal/).",
+                file)
+            return nil
+        }
+        let kernels: [CIKernel]
+        do {
+            kernels = try CIKernel.kernels(withMetalString: source)
+        } catch {
+            os_log(.error, log: kernelLog,
+                "CIKernel.kernels(withMetalString:) failed for %{public}@: %{public}@",
+                file, String(describing: error))
+            return nil
+        }
+        guard let match = kernels.first(where: { $0.name == function }) else {
+            os_log(.error, log: kernelLog,
+                "Metal source %{public}@ compiled, but no kernel named %{public}@ found (have: %{public}@)",
+                file, function, kernels.map(\.name).joined(separator: ", "))
+            return nil
+        }
+        return match
+    }
+
+    /// Load `.metal` source text from the bundle. SwiftPM's `.copy("Metal")`
+    /// places the directory under `Bundle.module/Metal/`; an old-shape
+    /// flat-bundle layout is also honoured as a fallback.
     private static func metalSource(_ name: String) -> Data? {
-        // When built with Xcode/SwiftPM, Metal sources are compiled into a
-        // .metallib and embedded in the bundle as "default.metallib".
-        // We load the shared default metallib for all kernels.
         let bundle = Bundle.module
-        if let url = bundle.url(forResource: "default", withExtension: "metallib") {
+        if let url = bundle.url(forResource: name, withExtension: "metal", subdirectory: "Metal") {
             return try? Data(contentsOf: url)
         }
-        // Fallback: look for a per-kernel metallib (unusual but possible).
-        if let url = bundle.url(forResource: name, withExtension: "metallib") {
+        if let url = bundle.url(forResource: name, withExtension: "metal") {
             return try? Data(contentsOf: url)
         }
         return nil
