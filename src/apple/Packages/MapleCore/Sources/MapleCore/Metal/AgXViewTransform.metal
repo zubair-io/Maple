@@ -28,8 +28,13 @@ float agx_log_encode(float linear) {
 }
 
 /// Sample the 1D LUT texture at normalized position t ∈ [0, 1].
+/// CoreImage's `coreimage::sampler.sample()` takes coordinates in the
+/// kernel's destination working-coordinate space, NOT [0,1] normalized
+/// — so for a 512×1 LUT the x range is 0..512. Multiply t by (LUT_SIZE-1)
+/// to land on integer texel centers and add 0.5 so t=0/t=1 land squarely
+/// on texel 0/texel 511 (avoids edge-clamp clipping under LINEAR filter).
 float sample_lut(coreimage::sampler_h lut_sampler, float t) {
-    return float(lut_sampler.sample(float2(t * (AGX_LUT_SIZE - 1.0) / AGX_LUT_SIZE, 0.0)).r);
+    return float(lut_sampler.sample(float2(t * (AGX_LUT_SIZE - 1.0) + 0.5, 0.5)).r);
 }
 
 /// Apply contrast modulation: expand/compress around MID_NORM
@@ -42,11 +47,11 @@ float apply_contrast(float t, float contrast) {
 }
 
 [[stitchable]] float4 agxViewTransform(
-    coreimage::sampler_h src,
+    coreimage::sample_t src,
     coreimage::sampler_h lut,   // 1D LUT as 512×1 float texture
     float contrast              // -100..+100
 ) {
-    float4 color = float4(src.sample(src.coord()));
+    float4 color = float4(src);
     float3 p = color.rgb;
 
     // Log-encode each channel independently.
