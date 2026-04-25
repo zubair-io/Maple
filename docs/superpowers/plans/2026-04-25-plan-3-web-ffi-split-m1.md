@@ -1261,3 +1261,56 @@ Run through this once after the plan is in place, before handoff to execution.
 - [ ] Brief's "small worker stub if needed" is interpreted as "extend the existing worker", not "add a second `.worker.ts`" — the existing dispatch already supports new request types, and a second worker would double WASM-init time per page load. This is a deliberate design choice the plan locks in at Task 3.
 
 If any of the above is unchecked when reviewing, fix inline; do not re-review.
+
+---
+
+## M1 verification log
+
+**Verified at 2026-04-25T09:10:50Z, commits 2691da2..bc61b44 (Tasks 1-5).**
+
+- [x] `cargo test -p raw-wasm` — PASS at Task 1 commit (`2691da2`); fixture-gated test
+      `render_bytes_scene_linear_returns_fp16_rgba_with_alpha_one` skipped because the
+      100MP DJI Mavic 3 Pro fixture is not present in this worktree.
+- [x] `bun x tsc --project projects/maple-common/tsconfig.spec.json --noEmit` — clean
+      after Tasks 2-4; Task 4 narrowed the discriminated union so the listener
+      pattern-matches both `msg.type` and `handler.kind` correctly.
+- [x] `bun x ng test Maple-common --watch=false` — 12/12 PASS after Task 5.
+      The new `raw-pipeline.service.spec.ts` adds 5 cases:
+      decodeSceneLinear round-trip, decodeSceneLinear error path,
+      decodeChain serialisation, **legacy decode regression**,
+      **legacy decode error regression**. The legacy regression cases
+      confirm Task 4's discriminated-union widening did not break the
+      legacy `decode()` path.
+- [x] `bun run build` (i.e. `ng build maple-hosted`) — clean production build,
+      no errors. Worker bundles cleanly; raw_wasm chunk lazy-loaded.
+- [N/A] `playwright test e2e/raw-open.spec.ts` — `projects/maple-hosted/public/test.dng`
+      fixture is gitignored and not present in this worktree, so the legacy E2E
+      cannot run here. The vitest legacy regression in spec covers the TS
+      plumbing of the legacy path; the WASM render itself is the same
+      `render_bytes` entry, untouched in M1.
+- [N/A] `BUDGET=15 ./src/scripts/test_color_pipeline.sh` — top-level
+      `test-fixtures/raws/test_*.dng` exists and the harness runs, but every
+      fixture is failing on baseline (pre-existing — failures reproduce on the
+      pre-Task-3 commit `c824017`). M1 did not touch raw-core, so the parity
+      gate is not a regression signal here. Tracked separately from M1.
+
+The new `render_bytes_scene_linear` WASM entry is reachable from
+`RawPipelineService.decodeSceneLinear`; the legacy `render_bytes`
++ `decode()` path is byte-identical to pre-M1. Plan 3 M2 (GLSL
+shaders) and Plan 3 M3 (canvas wiring) are the next plans.
+
+**Drift from plan-as-written:**
+- Step 5.3's `globalThis.Worker = vi.fn(() => workerStub)` does not work under
+  `@angular/build:unit-test` — `vi.fn` is not a real constructor, so
+  `new Worker(...)` throws `Reflect.construct requires the first argument be a constructor`.
+  Replaced with a class `WorkerCtor` whose constructor returns the stub via
+  the constructor-return-object override. Effect on the spec is none; the test
+  still verifies the same round-trip behaviour.
+- The plan's `npm` invocations were run under `bun` (project's preferred
+  runtime). All scripts behave identically because `package.json` scripts
+  delegate to `ng` / `bash` / `wasm-pack`.
+- The vitest run under bare `bun x vitest` (without the Angular harness) trips
+  on `TestBed.initTestEnvironment()` not having been called — pre-existing on
+  baseline (the same error fires on `library-state-imported-asset.spec.ts`).
+  The Angular `bun x ng test Maple-common` harness initialises the test bed
+  correctly; that is the canonical run command.
