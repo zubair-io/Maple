@@ -10,6 +10,7 @@ import whiteBalanceSource from './white-balance.frag?raw';
 import sceneToneControlsSource from './scene-tone-controls.frag?raw';
 import sceneVibranceSource from './scene-vibrance.frag?raw';
 import sceneSaturationSource from './scene-saturation.frag?raw';
+import agxViewTransformSource from './agx-view-transform.frag?raw';
 
 export const SHADERS = {
   vertex: vertexSource,
@@ -17,7 +18,7 @@ export const SHADERS = {
   sceneToneControls: sceneToneControlsSource,
   sceneVibrance: sceneVibranceSource,
   sceneSaturation: sceneSaturationSource,
-  // agxViewTransform added by Task 6.
+  agxViewTransform: agxViewTransformSource,
 } as const;
 
 export type ShaderKey = keyof typeof SHADERS;
