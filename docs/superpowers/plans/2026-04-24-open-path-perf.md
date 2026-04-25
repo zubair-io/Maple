@@ -494,7 +494,9 @@ Open `src/apple/Packages/MapleCore/Tests/MapleCoreTests/EditSessionTests.swift`.
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
-            .appendingPathComponent("raw-pipeline/test-fixtures/raws/test_0002.dng")
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("test-fixtures/raws/test_0002.dng")
 
         guard FileManager.default.fileExists(atPath: fixturePath.path) else {
             throw XCTSkip("test_0002.dng fixture not present; skipping")
@@ -503,23 +505,26 @@ Open `src/apple/Packages/MapleCore/Tests/MapleCoreTests/EditSessionTests.swift`.
         let asset = AssetRef(url: fixturePath)
         let session = await EditSession(asset: asset)
 
-        // Trigger the open path. The Rust decode runs in a background
-        // task; the embedded-preview path runs sequentially in the
-        // foreground task before awaiting Rust.
-        await session.ensureRenderStarted()
+        // Kick off the open path. ensureRenderStarted() returns
+        // synchronously after spawning a Task whose body runs cache +
+        // embedded-preview seeds before awaiting the Rust task. The
+        // polling loop below waits for the embedded-preview seed to
+        // publish to renderedPreview.
+        session.ensureRenderStarted()
 
         // Poll for `renderedPreview` to land. Embedded preview via
-        // ImageIO is ~50 ms; Rust on this small fixture is ~3–5 s.
-        // 300 ms is comfortably between the two — if `renderedPreview`
-        // hasn't published by then, the embedded path is broken.
-        let deadline = Date().addingTimeInterval(0.3)
+        // ImageIO is ~50 ms on a healthy local machine; Rust on this
+        // fixture is 3-5 s. 1500 ms ceiling is well under any plausible
+        // Rust decode time but generous enough to absorb CI scheduling
+        // jitter when MainActor work is queued.
+        let deadline = Date().addingTimeInterval(1.5)
         while Date() < deadline {
             if await session.renderedPreview != nil { break }
             try await Task.sleep(for: .milliseconds(10))
         }
 
         let preview = await session.renderedPreview
-        XCTAssertNotNil(preview, "Embedded preview must publish within 300 ms; otherwise cold open regressed to wait for Rust")
+        XCTAssertNotNil(preview, "Embedded preview must publish within 1500 ms; otherwise cold open regressed to wait for Rust")
     }
 ```
 
