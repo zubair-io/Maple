@@ -170,13 +170,24 @@ mod tests {
     }
 
     #[test]
-    fn parse_baseline_is_defaults() {
+    fn parse_baseline_is_acr_defaults() {
         let xml = match load_fixture("test_0002/xmp/baseline.xmp") {
             Some(x) => x, None => return,
         };
         let m = parse(&xml).unwrap();
-        // baseline.xmp is defined as ACR defaults — should match Default.
-        assert_eq!(m, AdjustmentModel::default());
+        // baseline.xmp is the camera's default ACR sidecar, which records
+        // ACR's user-visible defaults (Sharpness=40, SharpenRadius=1.0).
+        // Rust's `AdjustmentModel::default()` sets sharpen_amount=0 /
+        // sharpen_radius=0.5 — that's the "no edits applied" identity, not
+        // ACR's "fresh camera import" baseline. The assertion compares the
+        // parsed sidecar against an explicitly-built ACR-defaults model so
+        // it doesn't tilt if Default's identity values change.
+        let acr_defaults = AdjustmentModel {
+            sharpen_amount: 40.0,
+            sharpen_radius: 1.0,
+            ..AdjustmentModel::default()
+        };
+        assert_eq!(m, acr_defaults);
     }
 
     #[test]
