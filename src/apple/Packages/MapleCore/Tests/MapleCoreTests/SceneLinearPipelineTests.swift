@@ -33,6 +33,33 @@
 // release build) is captured by the developer running the editor with
 // `MAPLE_PROFILE=1` set; the labeled `[swift]` and `[raw-core]` lines
 // (Task 7's per-stage breakdown) sum to the cold-open total.
+//
+// Plan 2 v1 pre-flight (recorded by Task 1):
+//
+//   Loader sanity (Step 1.1):     CIKernel.kernels(withMetalString:) per
+//                                 commit 8cdf585 — passes (the plan's
+//                                 expected snippet referenced the older
+//                                 fromMetalLibraryData: API; the actual
+//                                 fix uses the source-string compile path,
+//                                 which is the correct loader for SwiftPM
+//                                 .copy("Metal") resources).
+//   Chain entry (Step 1.2):       processSceneLinear = Lanczos + AgX only
+//                                 at lines 283-296 (drift from plan's 211-
+//                                 224 due to decodeSceneLinearSized landing
+//                                 between Plan 1 and Plan 2) — passes.
+//   Whites/blacks parity (1.3):   SceneToneControls.metal:64,70 matches
+//                                 scene_tone_controls.rs:42-43 — passes.
+//   Oklab matrices (1.4):         SceneVibrance.metal lines 16-38 expose
+//                                 all four for Saturation reuse — passes.
+//   Pre-Plan-2 baseline:          79 tests (3 skipped, 0 failed); parity
+//                                 harness BUDGET=15 FAIL preexisting on
+//                                 main (6 fail / 1 skip / 0 pass — known
+//                                 baseline-broken state per Step 1.5
+//                                 "flag and proceed" instruction).
+//
+// Plan 2 wires WB → tone → vibrance → saturation → AgX into processSceneLinear,
+// then threads xmpPath through decodeSceneLinear. See
+// docs/superpowers/plans/2026-04-25-plan-2-dev-chain-metal-kernels.md.
 
 import XCTest
 import CoreImage
