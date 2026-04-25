@@ -20,7 +20,7 @@ struct MapleApp: App {
         // launch, not at first-pixel-displayed. See
         // docs/superpowers/plans/2026-04-24-ffi-split-plan-1.md Task 4
         // Step 4.0a.
-        assert(MapleCore.MetalKernels.agxKernel() != nil,
+        assert(MetalKernels.agxKernel() != nil,
             "AgX Metal kernel failed to load — view transform will silently no-op on the scene-linear path. Verify AgXViewTransform.metal is in the Metal sources for this build target.")
         #endif
     }
