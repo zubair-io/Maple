@@ -213,21 +213,14 @@ public enum MetalKernels {
             #endif
             return input
         }
-        guard let lut = agxLUTImage() else {
-            os_log(.error, log: kernelLog,
-                "AgX LUT image failed to load — view transform NOT applied; output will be raw scene-linear data. Check that agx_lut.bin is bundled.")
-            #if DEBUG
-            if !isRunningUnderXCTest {
-                assertionFailure("AgX LUT must load — see os_log .error above")
-            }
-            #endif
-            return input
-        }
+        // Ticket #08 fix: AgX sigmoid is now inlined as a 6-piece polynomial
+        // in AgXViewTransform.metal (mirrors derive_agx_lut.py:97-103).
+        // No LUT image argument needed — drops the broken-LUT-binding path.
 
         guard let out = kernel.apply(
             extent: input.extent,
             roiCallback: { _, rect in rect },
-            arguments: [input, lut, contrast]
+            arguments: [input, contrast]
         ) else {
             os_log(.error, log: kernelLog,
                 "AgX kernel.apply returned nil — view transform NOT applied; output will be raw scene-linear data.")
