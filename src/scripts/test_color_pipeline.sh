@@ -121,6 +121,21 @@ for raw in "${FIXTURES[@]}"; do
   # ticket #07. BlackIsZero monochrome is rejected at decode by the Rust core
   # (Error::UnsupportedCfa) and produces a render failure, not a SKIP.
 
+  # 0. Orientation gate. The harness compares Maple's *display-oriented*
+  #    render against the *sensor-oriented* embedded JPEG preview. Fixtures
+  #    with a non-Normal Orientation tag would need rotation before the
+  #    Lanczos resize — without it the resize stretches a portrait image
+  #    into a landscape aspect, producing huge per-pixel ΔE that's pure
+  #    geometry noise, not pipeline noise. We skip these rather than
+  #    invent an orientation-undo step that would mask real pipeline drift
+  #    on landscape fixtures. See ticket #07 follow-up.
+  orientation="$(exiftool -s -s -s -Orientation "$raw" 2>/dev/null || true)"
+  if [[ -n "$orientation" && "$orientation" != "Horizontal (normal)" ]]; then
+    printf "SKIP %-45s orientation=%s (sensor-vs-display mismatch)\n" "$stem" "$orientation"
+    SKIP_COUNT=$((SKIP_COUNT + 1))
+    continue
+  fi
+
   # 1. Read embedded preview offset/length.
   preview_meta="$(exiftool -PreviewImageStart -PreviewImageLength -s -s -s -n "$raw" 2>/dev/null || true)"
   preview_start="$(printf "%s\n" "$preview_meta" | sed -n '1p')"
