@@ -9,6 +9,7 @@
 // See docs/superpowers/plans/2026-04-25-xcuitest-visual-harness.md.
 
 import XCTest
+import AppKit
 
 struct MapleAppDriver {
     let app: XCUIApplication
@@ -61,14 +62,72 @@ struct MapleAppDriver {
                        file: file, line: line)
     }
 
-    /// Screenshot the canvas element only (cropped to its frame) and
-    /// return the PNG bytes. Spike B (2026-04-25) recorded outcome:
-    /// see docs/superpowers/plans/2026-04-25-xcuitest-visual-harness.md
-    /// for the chosen path (tight crop vs manual `XCUIScreen` + frame).
+    /// Screenshot the canvas element and return the PNG bytes, cropped
+    /// to the canvas frame.
+    ///
+    /// macOS XCUITest's element-relative screenshot historically falls
+    /// back to a full-window capture for some SwiftUI views (Spike B
+    /// open question per the plan). To make the harness self-healing,
+    /// we capture both `element.screenshot()` and the canvas frame and:
+    ///
+    ///   - if the element snapshot is at most ~110% of the canvas frame
+    ///     in either axis, we trust it (tight crop, no recrop needed).
+    ///   - otherwise the OS gave us a window-or-larger image; manually
+    ///     crop using `XCUIScreen.main.screenshot()` + the canvas frame.
+    ///
+    /// The chosen path is recorded once via `lastSpikeBOutcome` so a
+    /// dedicated Spike B test can read it without re-running the whole
+    /// flow.
     func screenshotCanvas() -> Data {
         let canvas = app.otherElements["canvas-render-ready"]
-        let snap = canvas.screenshot()
-        return snap.pngRepresentation
+        let frame = canvas.frame
+        let elementSnap = canvas.screenshot().image
+        let elementSize = elementSnap.size  // points (NSImage), should match captured pixel-extent / scale
+
+        // Heuristic: if the element snapshot is roughly the size of the
+        // canvas frame (in points), trust it. The 1.1× cushion absorbs
+        // backing-scale rounding and a few-px Retina overshoot.
+        let tight =
+            elementSize.width  <= frame.width  * 1.1 &&
+            elementSize.height <= frame.height * 1.1
+
+        if tight {
+            Self.lastSpikeBOutcome = "tight (\(Int(elementSize.width))×\(Int(elementSize.height)) within \(Int(frame.width))×\(Int(frame.height)) frame * 1.1)"
+            return canvas.screenshot().pngRepresentation
+        }
+
+        // Fallback: capture the full screen, crop to canvas frame.
+        Self.lastSpikeBOutcome = "manual-crop (\(Int(elementSize.width))×\(Int(elementSize.height)) >> \(Int(frame.width))×\(Int(frame.height)) frame)"
+        let screen = XCUIScreen.main.screenshot().image
+        let cropped = Self.crop(screen, to: frame)
+        guard let png = cropped.tiffRepresentation
+            .flatMap({ NSBitmapImageRep(data: $0) })
+            .flatMap({ $0.representation(using: .png, properties: [:]) }) else {
+            // Fall back to the (probably-too-big) element snapshot if
+            // crop somehow failed; let the diff bear the noise.
+            return canvas.screenshot().pngRepresentation
+        }
+        return png
+    }
+
+    /// Spike B verdict, populated by the most recent `screenshotCanvas()`
+    /// call. `nil` until the first call. Read from a Spike B test for
+    /// recording purposes.
+    nonisolated(unsafe) static var lastSpikeBOutcome: String?
+
+    /// Crop an `NSImage` to the given frame in points. Used by
+    /// `screenshotCanvas()` when the element-relative screenshot is
+    /// larger than the canvas frame (the macOS full-window-capture
+    /// fallback path).
+    private static func crop(_ image: NSImage, to frame: CGRect) -> NSImage {
+        let target = NSSize(width: frame.width, height: frame.height)
+        let cropped = NSImage(size: target)
+        cropped.lockFocus()
+        defer { cropped.unlockFocus() }
+        let drawRect = NSRect(origin: .zero, size: target)
+        let srcRect = NSRect(origin: frame.origin, size: target)
+        image.draw(in: drawRect, from: srcRect, operation: .copy, fraction: 1.0)
+        return cropped
     }
 
     /// Convenience for the empty-stub Task 3.3 test: confirms the canvas
