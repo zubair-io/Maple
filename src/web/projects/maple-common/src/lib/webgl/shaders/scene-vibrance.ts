@@ -47,6 +47,14 @@ const mat3 M_lms_to_rec2020 = mat3(
     vec3( 0.0413840, -0.0577547,  1.0759636)
 );
 
+// Match Apple's Metal "float3x3 * float3" with the same vec3 args
+// (Apple's matrices are stored cols=Apple's float3 args). The chain
+// produces non-standard Oklab L,a,b (because Apple's stored layout
+// for M_lms_to_oklab differs from std rows/cols), but the inverse
+// matrices Apple stored cancel that asymmetry through the roundtrip,
+// keeping pixel-level parity with Apple's runtime. M2.1's snapshot
+// test gates this — drift > 5 ΔE means a matrix or operator went out
+// of sync with Apple.
 vec3 rec2020_to_oklab(vec3 rgb) {
     vec3 lms = M_rec2020_to_lms * rgb;
     vec3 lms_nl = sign(lms) * pow(abs(lms), vec3(1.0 / 3.0));

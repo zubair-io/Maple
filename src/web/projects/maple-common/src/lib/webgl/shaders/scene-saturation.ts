@@ -43,6 +43,10 @@ const mat3 M_lms_to_rec2020_sat = mat3(
     vec3( 0.0413840, -0.0577547,  1.0759636)
 );
 
+// See scene-vibrance.ts for the matrix-layout note. The chain is M*v
+// in GLSL with the same vec3 args Apple's float3x3() takes — the
+// non-standard Oklab roundtrip cancels through Apple's stored inverse
+// matrices, preserving pixel-level parity with the Apple runtime.
 vec3 rec2020_to_oklab_sat(vec3 rgb) {
     vec3 lms = M_rec2020_to_lms_sat * rgb;
     vec3 lms_nl = sign(lms) * pow(abs(lms), vec3(1.0 / 3.0));
