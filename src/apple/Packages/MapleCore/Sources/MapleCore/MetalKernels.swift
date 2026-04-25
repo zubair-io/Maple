@@ -89,6 +89,32 @@ public enum MetalKernels {
     private static var _sharpenEdgeMix: CIKernel?
     private static var _sharpenOverdrive: CIColorKernel?
 
+    // Plan 2 v2 v4 — Dehaze chain compute pipelines + libraries.
+    // The 6 dehaze .metal sources are split across 4 MTLLibraries to
+    // keep individual library compile times short — each is a single
+    // `makeLibrary(source:)` call on first use, cached for the process
+    // lifetime. Pipelines are built lazily on first use via
+    // `dehazeDarkChannelPipeline()` etc.
+    private static var _dehazeDarkAtmoTransLib: MTLLibrary?
+    private static var _dehazeGuideLib: MTLLibrary?
+    private static var _dehazeBoxBlurLib: MTLLibrary?
+    private static var _dehazeGuidedFilterLib: MTLLibrary?
+
+    private static var _dehazeDarkChannelPipeline: MTLComputePipelineState?
+    private static var _dehazeAtmoPartialPipeline: MTLComputePipelineState?
+    private static var _dehazeAtmoFinalPipeline: MTLComputePipelineState?
+    private static var _dehazeTransmissionPipeline: MTLComputePipelineState?
+    private static var _dehazeGuidePipeline: MTLComputePipelineState?
+    private static var _dehazeBoxBlurHPipeline: MTLComputePipelineState?
+    private static var _dehazeBoxBlurVPipeline: MTLComputePipelineState?
+    private static var _dehazeBuildIpPipeline: MTLComputePipelineState?
+    private static var _dehazeBuildIIPipeline: MTLComputePipelineState?
+    private static var _dehazeCombineABPipeline: MTLComputePipelineState?
+    private static var _dehazeUnpackRPipeline: MTLComputePipelineState?
+    private static var _dehazeUnpackGPipeline: MTLComputePipelineState?
+
+    private static var _dehazeReconstruct: CIColorKernel?
+
     // MARK: SceneToneControls
 
     public static func applySceneToneControls(
@@ -832,6 +858,58 @@ public enum MetalKernels {
             return nil
         }
         return _separableBoxBlurVPipeline
+    }
+
+    // MARK: Dehaze — private library loaders (Plan 2 v2 v4)
+
+    /// Compile DehazeDarkChannel + DehazeAtmosphericLight + DehazeTransmission
+    /// to a single runtime `MTLLibrary`. Source comes from `Bundle.module/
+    /// Metal/` (verbatim copy via Package.swift `.copy("Metal")`). Three
+    /// related kernels share one library so the Metal compiler can run a
+    /// single compile invocation. Sources concatenated as plain text.
+    private static func dehazeDarkAtmoTransLibrary() -> MTLLibrary? {
+        if let lib = _dehazeDarkAtmoTransLib { return lib }
+        guard let device = metalDevice() else { return nil }
+        let parts = ["DehazeDarkChannel", "DehazeAtmosphericLight", "DehazeTransmission"]
+        var joined = ""
+        for name in parts {
+            guard let data = metalSource(name),
+                  let s = String(data: data, encoding: .utf8) else {
+                os_log(.error, log: kernelLog,
+                    "Dehaze .metal source %{public}@ not found in Bundle.module/Metal/", name)
+                return nil
+            }
+            joined += s + "\n"
+        }
+        do {
+            _dehazeDarkAtmoTransLib = try device.makeLibrary(source: joined, options: nil)
+            return _dehazeDarkAtmoTransLib
+        } catch {
+            os_log(.error, log: kernelLog,
+                "MTLDevice.makeLibrary(source:) failed for Dehaze dark-atmo-trans: %{public}@",
+                String(describing: error))
+            return nil
+        }
+    }
+
+    private static func dehazeDarkChannelPipeline() -> MTLComputePipelineState? {
+        if let p = _dehazeDarkChannelPipeline { return p }
+        guard let device = metalDevice(),
+              let lib = dehazeDarkAtmoTransLibrary(),
+              let fn = lib.makeFunction(name: "dehazeDarkChannel") else {
+            os_log(.error, log: kernelLog,
+                "dehazeDarkChannel function missing from compiled library")
+            return nil
+        }
+        do {
+            _dehazeDarkChannelPipeline = try device.makeComputePipelineState(function: fn)
+        } catch {
+            os_log(.error, log: kernelLog,
+                "makeComputePipelineState(dehazeDarkChannel) failed: %{public}@",
+                String(describing: error))
+            return nil
+        }
+        return _dehazeDarkChannelPipeline
     }
 
     // MARK: Helpers
