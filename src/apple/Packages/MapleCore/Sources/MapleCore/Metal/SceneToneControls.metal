@@ -30,7 +30,7 @@ extern "C" float4 sceneToneControls(
     float whites,
     float blacks
 ) {
-    float4 color = src.sample(src.coord());
+    float4 color = float4(src.sample(src.coord()));
     float3 p = color.rgb;
 
     // 1. Exposure: p *= 2^ev
