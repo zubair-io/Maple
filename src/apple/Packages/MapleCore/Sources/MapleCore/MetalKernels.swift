@@ -11,6 +11,7 @@
 
 import CoreImage
 import Foundation
+import Metal
 import OSLog
 
 private let kernelLog = OSLog(subsystem: "app.justmaple.maple", category: "MetalKernels")
@@ -35,6 +36,21 @@ public enum MetalKernels {
     private static var _whiteBalance: CIColorKernel?
     private static var _sceneSaturation: CIColorKernel?
     private static var _agxViewTransform: CIKernel?
+
+    // Plan 2 v2 — SeparableGaussianBlur compute pipelines + shared helpers.
+    // The blur is a `MTLComputePipeline` (not a `CIKernel`) because it
+    // composes 6 stateful dispatches with ping-pong scratch textures.
+    // Output is wrapped in a `CIImage` via `CIImage(mtlTexture:)` so the
+    // downstream `CIColorKernel` chain (clarity / texture wrappers, added
+    // in Task 4) consumes it like any other CIImage. This compute → CI
+    // handoff was verified by Spike 1.1.
+    private static var _separableGaussianBlurLib: MTLLibrary?
+    private static var _separableBoxBlurHPipeline: MTLComputePipelineState?
+    private static var _separableBoxBlurVPipeline: MTLComputePipelineState?
+    /// Cached default Metal device — needed to build pipelines and
+    /// allocate scratch textures. Lazy / process-lifetime cached, like
+    /// the other kernel slots above.
+    private static var _metalDevice: MTLDevice?
 
     // MARK: SceneToneControls
 
@@ -162,6 +178,132 @@ public enum MetalKernels {
         return out
     }
 
+    // MARK: SeparableGaussianBlur (Plan 2 v2 M1)
+
+    /// Apply the shared 3-pass box-blur Gaussian approximation (mirrors
+    /// `gaussian_blur_rgb` in raw-core/src/stages/blur.rs) on a CIImage in
+    /// scene-linear Rec.2020 fp16. Returns a new CIImage tagged
+    /// extendedLinearITUR_2020. Used by both `applySceneClarity` (radius
+    /// 40) and `applySceneTexture` (radius 3) wrappers added in Task 4 —
+    /// only the radius differs.
+    ///
+    /// The blur runs as 6 compute dispatches (H, V, H, V, H, V) on a
+    /// single command buffer with two ping-pong RGBA16Float textures.
+    /// `r_box = max(1, radius / 3)` mirrors the Rust integer math at
+    /// blur.rs:81 byte-for-byte.
+    ///
+    /// Returns `input` unchanged when:
+    ///   - `radius == 0` (Rust short-circuit at blur.rs:78)
+    ///   - any kernel-load / pipeline-build / texture-alloc step fails
+    ///     (silent fallback per the existing wrapper convention)
+    ///
+    /// **Texture lifecycle:** allocates 3 fresh `MTLTexture` per call
+    /// (`texSrc`, `texPing`, `texPong`) — `texSrc` receives the
+    /// CIContext-rendered input, then 6 H/V dispatches ping-pong between
+    /// `texPing` and `texPong`. After the H/V/H/V/H/V chain ends, the
+    /// final write lands in `texPong`, which is wrapped in the returned
+    /// `CIImage`. Lifetimes are governed by Swift ARC + the command
+    /// buffer's hold-references-until-completion contract: as long as
+    /// the returned `CIImage` is retained, `texPong` stays alive; the
+    /// other two textures are released by ARC once this method returns
+    /// and the command buffer drains. Per-call allocation is fine for
+    /// editor workloads (clarity / texture only run when their slider
+    /// is non-zero, debounced via the existing rendered-preview cache).
+    public static func applySeparableGaussianBlur(
+        to input: CIImage,
+        radius: Int
+    ) -> CIImage {
+        if radius == 0 { return input }
+        let rBox: UInt32 = UInt32(max(1, radius / 3))
+
+        guard let device = metalDevice(),
+              let pipelineH = separableBoxBlurHPipeline(),
+              let pipelineV = separableBoxBlurVPipeline() else {
+            return input
+        }
+
+        // Build an MTLTexture for the input by rendering the CIImage into
+        // a fresh fp16 RGBA texture. fp16 RGBA matches the Rec.2020
+        // working format the rest of the chain uses (per
+        // ImageEditPipeline.swift, `.RGBAh` / extendedLinearITUR_2020).
+        let extent = input.extent
+        let w = max(1, Int(extent.width.rounded()))
+        let h = max(1, Int(extent.height.rounded()))
+
+        let desc = MTLTextureDescriptor.texture2DDescriptor(
+            pixelFormat: .rgba16Float,
+            width: w, height: h, mipmapped: false
+        )
+        desc.usage = [.shaderRead, .shaderWrite, .renderTarget]
+        desc.storageMode = .private
+        guard let texSrc = device.makeTexture(descriptor: desc),
+              let texPing = device.makeTexture(descriptor: desc),
+              let texPong = device.makeTexture(descriptor: desc) else {
+            return input
+        }
+
+        // CIContext render of the input CIImage into texSrc.
+        let space = CGColorSpace(name: CGColorSpace.extendedLinearITUR_2020)!
+        let ciCtx = CIContext(mtlDevice: device, options: [
+            .workingColorSpace: CGColorSpace(name: CGColorSpace.extendedLinearSRGB)!,
+            .workingFormat: CIFormat.RGBAh,
+            .cacheIntermediates: false,
+        ])
+        guard let queue = device.makeCommandQueue(),
+              let commandBuffer = queue.makeCommandBuffer() else {
+            return input
+        }
+        ciCtx.render(
+            input,
+            to: texSrc,
+            commandBuffer: commandBuffer,
+            bounds: extent,
+            colorSpace: space
+        )
+
+        // Compose the 6 passes on the same command buffer:
+        //   texSrc  --H-->  texPing
+        //   texPing --V-->  texPong
+        //   texPong --H-->  texPing
+        //   texPing --V-->  texPong
+        //   texPong --H-->  texPing
+        //   texPing --V-->  texPong
+        // After 3 H+V pairs (= 3-pass Gaussian), texPong holds the result.
+        let dispatches: [(MTLComputePipelineState, MTLTexture, MTLTexture)] = [
+            (pipelineH, texSrc,  texPing),
+            (pipelineV, texPing, texPong),
+            (pipelineH, texPong, texPing),
+            (pipelineV, texPing, texPong),
+            (pipelineH, texPong, texPing),
+            (pipelineV, texPing, texPong),
+        ]
+        for (pipeline, src, dst) in dispatches {
+            guard let enc = commandBuffer.makeComputeCommandEncoder() else {
+                return input
+            }
+            enc.setComputePipelineState(pipeline)
+            enc.setTexture(src, index: 0)
+            enc.setTexture(dst, index: 1)
+            var rBoxLocal = rBox
+            enc.setBytes(&rBoxLocal, length: MemoryLayout<UInt32>.size, index: 0)
+            let tgSize = MTLSize(width: 16, height: 16, depth: 1)
+            let tgCount = MTLSize(
+                width:  (w + tgSize.width  - 1) / tgSize.width,
+                height: (h + tgSize.height - 1) / tgSize.height,
+                depth: 1
+            )
+            enc.dispatchThreadgroups(tgCount, threadsPerThreadgroup: tgSize)
+            enc.endEncoding()
+        }
+        commandBuffer.commit()
+        // Don't wait synchronously — return a CIImage wrapping texPong;
+        // CoreImage will sync at the next render that depends on it.
+        // (This is the "compute → CI" handoff verified by Spike 1.1.)
+
+        let opts: [CIImageOption: Any] = [.colorSpace: space]
+        return CIImage(mtlTexture: texPong, options: opts) ?? input
+    }
+
     // MARK: Private kernel loaders
     //
     // These kernels are defined in `.metal` source files using CoreImage's
@@ -204,6 +346,83 @@ public enum MetalKernels {
         _agxViewTransform = loadKernel(file: "AgXViewTransform",
                                        function: "agxViewTransform")
         return _agxViewTransform
+    }
+
+    // MARK: SeparableGaussianBlur — private helpers
+
+    /// Cached default Metal device. Same lazy / process-lifetime cache
+    /// pattern as the CIKernel slots above.
+    private static func metalDevice() -> MTLDevice? {
+        if let d = _metalDevice { return d }
+        _metalDevice = MTLCreateSystemDefaultDevice()
+        return _metalDevice
+    }
+
+    /// Compile `SeparableGaussianBlur.metal` to a runtime `MTLLibrary`.
+    /// Source comes from `Bundle.module/Metal/` (verbatim copy via
+    /// Package.swift `.copy("Metal")`). The pipeline path differs from
+    /// the CIKernel sources above: this uses
+    /// `MTLDevice.makeLibrary(source:options:)`, not
+    /// `CIKernel.kernels(withMetalString:)`. Same source-text input,
+    /// different downstream consumer.
+    private static func separableGaussianBlurLibrary() -> MTLLibrary? {
+        if let lib = _separableGaussianBlurLib { return lib }
+        guard let device = metalDevice(),
+              let data = metalSource("SeparableGaussianBlur"),
+              let source = String(data: data, encoding: .utf8) else {
+            os_log(.error, log: kernelLog,
+                "SeparableGaussianBlur.metal source not found in Bundle.module/Metal/")
+            return nil
+        }
+        do {
+            _separableGaussianBlurLib = try device.makeLibrary(source: source, options: nil)
+            return _separableGaussianBlurLib
+        } catch {
+            os_log(.error, log: kernelLog,
+                "MTLDevice.makeLibrary(source:) failed for SeparableGaussianBlur: %{public}@",
+                String(describing: error))
+            return nil
+        }
+    }
+
+    private static func separableBoxBlurHPipeline() -> MTLComputePipelineState? {
+        if let p = _separableBoxBlurHPipeline { return p }
+        guard let device = metalDevice(),
+              let lib = separableGaussianBlurLibrary(),
+              let fn = lib.makeFunction(name: "separableBoxBlurH") else {
+            os_log(.error, log: kernelLog,
+                "separableBoxBlurH function missing from compiled library")
+            return nil
+        }
+        do {
+            _separableBoxBlurHPipeline = try device.makeComputePipelineState(function: fn)
+        } catch {
+            os_log(.error, log: kernelLog,
+                "makeComputePipelineState(separableBoxBlurH) failed: %{public}@",
+                String(describing: error))
+            return nil
+        }
+        return _separableBoxBlurHPipeline
+    }
+
+    private static func separableBoxBlurVPipeline() -> MTLComputePipelineState? {
+        if let p = _separableBoxBlurVPipeline { return p }
+        guard let device = metalDevice(),
+              let lib = separableGaussianBlurLibrary(),
+              let fn = lib.makeFunction(name: "separableBoxBlurV") else {
+            os_log(.error, log: kernelLog,
+                "separableBoxBlurV function missing from compiled library")
+            return nil
+        }
+        do {
+            _separableBoxBlurVPipeline = try device.makeComputePipelineState(function: fn)
+        } catch {
+            os_log(.error, log: kernelLog,
+                "makeComputePipelineState(separableBoxBlurV) failed: %{public}@",
+                String(describing: error))
+            return nil
+        }
+        return _separableBoxBlurVPipeline
     }
 
     // MARK: Helpers

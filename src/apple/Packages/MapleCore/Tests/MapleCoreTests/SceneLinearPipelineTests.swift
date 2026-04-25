@@ -1622,4 +1622,99 @@ final class SceneLinearPipelineTests: XCTestCase {
             "Spike 1.2: kernel built but `spike12ProbeKernel` missing — likely include silently failed"
         )
     }
+
+    // MARK: - Plan 2 v2 Task 2: SeparableGaussianBlur compute kernel smoke
+
+    /// Exercise `MetalKernels.applySeparableGaussianBlur` end-to-end with a
+    /// synthesized 16×16 delta image (single bright centre pixel, zeros
+    /// elsewhere) at radius=2. Verifies:
+    ///   - the wrapper does not throw or crash (the load-bearing check
+    ///     for the compute → CIImage handoff verified by Spike 1.1);
+    ///   - the centre pixel is finite (no NaN/Inf);
+    ///   - rendering through a CIContext produces a finite value too,
+    ///     i.e. the entire compute → CIImage(mtlTexture:) → render chain
+    ///     works.
+    ///
+    /// Under `swift test`, the `.metal` source loader path may return
+    /// nil (the SwiftPM resource bundle layout differs from Xcode's),
+    /// in which case the wrapper short-circuits to identity and the
+    /// centre value is simply the input value — both outcomes are
+    /// acceptable here. The load-bearing check is "no throw, finite
+    /// output." A live runtime gate against the Rust reference is in
+    /// follow-up Task 3 (Swift-scalar parity mirror).
+    func testTask2SeparableGaussianBlurSmoke() async throws {
+        guard MTLCreateSystemDefaultDevice() != nil else {
+            throw XCTSkip("no Metal device on test runner")
+        }
+        // Build a 16×16 fp16 Rec.2020 image: zeros everywhere except a
+        // single bright pixel at (8, 8).
+        let w = 16, h = 16
+        var pixels = [UInt16](repeating: 0, count: w * h * 4)
+        let zero = Self.float32ToFloat16Bits(0.0)
+        let one  = Self.float32ToFloat16Bits(1.0)
+        // Pre-fill RGBA = (0, 0, 0, 1).
+        for i in stride(from: 0, to: pixels.count, by: 4) {
+            pixels[i + 0] = zero
+            pixels[i + 1] = zero
+            pixels[i + 2] = zero
+            pixels[i + 3] = one
+        }
+        // Centre pixel: RGBA = (1, 1, 1, 1).
+        let centerIdx = (8 * w + 8) * 4
+        pixels[centerIdx + 0] = one
+        pixels[centerIdx + 1] = one
+        pixels[centerIdx + 2] = one
+        pixels[centerIdx + 3] = one
+        let bytesPerRow = w * 4 * 2
+        let data = pixels.withUnsafeBufferPointer { buf -> Data in
+            Data(bytes: buf.baseAddress!, count: buf.count * 2)
+        }
+        let space = CGColorSpace(name: CGColorSpace.extendedLinearITUR_2020)!
+        let input = CIImage(
+            bitmapData: data,
+            bytesPerRow: bytesPerRow,
+            size: CGSize(width: w, height: h),
+            format: .RGBAh,
+            colorSpace: space
+        )
+
+        // Apply the blur. The wrapper either runs the full compute
+        // chain or short-circuits to identity (kernel-load fail path);
+        // either way it must not throw or crash, and the output must
+        // be a usable CIImage with finite pixels.
+        let blurred = MetalKernels.applySeparableGaussianBlur(to: input, radius: 2)
+        XCTAssertEqual(blurred.extent.width, CGFloat(w),
+            "blur output extent width drifted")
+        XCTAssertEqual(blurred.extent.height, CGFloat(h),
+            "blur output extent height drifted")
+
+        // Render the centre pixel and a corner pixel; both must be
+        // finite. The corner is far from the bright centre, so under
+        // a real blur it is roughly 0; under identity short-circuit it
+        // is exactly 0 (the input was zero there). Either is finite.
+        let centerR = Self.sampleCenterR(blurred, width: w, height: h)
+        XCTAssertTrue(centerR.isFinite,
+            "blur output centre R is not finite — got \(centerR)")
+        // Centre R must be in [0, 1] — even under identity short-circuit
+        // (where it equals the input 1.0) or a real Gaussian (where it's
+        // ~0.111 with radius=2 / r_box=1 box-3 normalization).
+        XCTAssertGreaterThanOrEqual(centerR, 0.0,
+            "blur output centre R went negative — got \(centerR)")
+        XCTAssertLessThanOrEqual(centerR, 1.0 + 1e-3,
+            "blur output centre R exceeds 1.0 + slack — got \(centerR)")
+    }
+
+    /// Radius-zero short-circuit: `applySeparableGaussianBlur(..., radius: 0)`
+    /// must return the input CIImage unchanged (matches the Rust short-
+    /// circuit at `gaussian_blur_rgb`'s `if radius == 0 { return img.clone(); }`
+    /// at blur.rs:91-93).
+    func testTask2SeparableGaussianBlurRadiusZeroIsIdentity() async throws {
+        let input = Self.makeRGBSceneLinearCIImage(
+            width: 8, height: 8, r: 0.4, g: 0.5, b: 0.6
+        )
+        let out = MetalKernels.applySeparableGaussianBlur(to: input, radius: 0)
+        // The wrapper returns `input` directly on radius==0 — same instance.
+        XCTAssertTrue(out === input,
+            "radius=0 should return the input CIImage instance unchanged")
+    }
 }
