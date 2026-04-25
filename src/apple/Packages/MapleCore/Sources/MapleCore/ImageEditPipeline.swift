@@ -175,13 +175,15 @@ public actor ImageEditPipeline {
         let w = imageData.width, h = imageData.height
         let bytesPerRow = w * imageData.bytesPerPixel
         let space = CGColorSpace(name: CGColorSpace.extendedLinearITUR_2020)!
-        return CIImage(
-            bitmapData: imageData.pixels,
-            bytesPerRow: bytesPerRow,
-            size: CGSize(width: w, height: h),
-            format: .RGBAh,
-            colorSpace: space
-        )
+        return mapleStage("decode CIImage build") {
+            CIImage(
+                bitmapData: imageData.pixels,
+                bytesPerRow: bytesPerRow,
+                size: CGSize(width: w, height: h),
+                format: .RGBAh,
+                colorSpace: space
+            )
+        }
     }
 
     // MARK: Process (scene-linear path — Plan 1 FFI split)
@@ -358,17 +360,20 @@ public actor ImageEditPipeline {
         let dp = CGDataProvider(data: copy as CFData)!
 
         let colorSpace = CGColorSpace(name: CGColorSpace.sRGB)!
-        guard let cgImg = CGImage(
-            width: w, height: h,
-            bitsPerComponent: 8, bitsPerPixel: 24,
-            bytesPerRow: w * 3,
-            space: colorSpace,
-            bitmapInfo: CGBitmapInfo(rawValue: bitmapInfo),
-            provider: dp,
-            decode: nil,
-            shouldInterpolate: true,
-            intent: .defaultIntent
-        ) else { return nil }
+        let cgImgOpt: CGImage? = mapleStage("decode CIImage build") {
+            CGImage(
+                width: w, height: h,
+                bitsPerComponent: 8, bitsPerPixel: 24,
+                bytesPerRow: w * 3,
+                space: colorSpace,
+                bitmapInfo: CGBitmapInfo(rawValue: bitmapInfo),
+                provider: dp,
+                decode: nil,
+                shouldInterpolate: true,
+                intent: .defaultIntent
+            )
+        }
+        guard let cgImg = cgImgOpt else { return nil }
 
         var ci = CIImage(cgImage: cgImg)
 
