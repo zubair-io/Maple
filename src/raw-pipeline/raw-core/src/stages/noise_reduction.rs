@@ -8,8 +8,15 @@ use crate::{
     image::{ColorSpace, Image},
     stages::blur::gaussian_blur_rgb,
 };
+use rayon::prelude::*;
 
 /// Apply luminance NR: blur L in Oklab, leave chroma.
+///
+/// The three per-pixel maps (Rec.2020 → Oklab, L-replicate, Oklab →
+/// Rec.2020) are fully independent across pixels and run through rayon's
+/// `par_iter`. The L-writeback (blurred L → oklab_img[0]) is the one
+/// exception: it mutates `oklab_img` while reading `blurred_l`, so it
+/// uses `par_iter_mut().zip(...).for_each(...)` — still pixel-local.
 pub fn apply_luminance(img: &mut Image, amount: f32) {
     img.assert_space(ColorSpace::SceneLinearRec2020);
     if amount.abs() < 1e-3 { return; }
@@ -19,25 +26,38 @@ pub fn apply_luminance(img: &mut Image, amount: f32) {
 
     // Convert whole image to Oklab (L, a, b) stored per-pixel.
     let mut oklab_img = Image::new(img.width, img.height, ColorSpace::SceneLinearRec2020);
-    for (i, p) in img.pixels.iter().enumerate() {
-        oklab_img.pixels[i] = rec2020_to_oklab(*p);
-    }
+    oklab_img
+        .pixels
+        .par_iter_mut()
+        .zip(img.pixels.par_iter())
+        .for_each(|(dst, src)| *dst = rec2020_to_oklab(*src));
+
     // Blur only L (channel 0). Replicate L into a 3-channel image,
     // blur, and pick channel 0 back out.
     let mut l_only = Image::new(img.width, img.height, ColorSpace::SceneLinearRec2020);
-    for (i, p) in oklab_img.pixels.iter().enumerate() {
-        l_only.pixels[i] = [p[0], p[0], p[0]];
-    }
+    l_only
+        .pixels
+        .par_iter_mut()
+        .zip(oklab_img.pixels.par_iter())
+        .for_each(|(dst, src)| *dst = [src[0], src[0], src[0]]);
+
     let blurred_l = gaussian_blur_rgb(&l_only, radius);
-    for i in 0..oklab_img.pixels.len() {
-        oklab_img.pixels[i][0] = blurred_l.pixels[i][0];
-    }
-    for (i, p) in oklab_img.pixels.iter().enumerate() {
-        img.pixels[i] = oklab_to_rec2020(*p);
-    }
+    oklab_img
+        .pixels
+        .par_iter_mut()
+        .zip(blurred_l.pixels.par_iter())
+        .for_each(|(dst, src)| dst[0] = src[0]);
+
+    img.pixels
+        .par_iter_mut()
+        .zip(oklab_img.pixels.par_iter())
+        .for_each(|(dst, src)| *dst = oklab_to_rec2020(*src));
 }
 
 /// Apply color NR: blur a and b in Oklab, leave luminance.
+///
+/// Same parallelization shape as `apply_luminance`: four pixel-local maps
+/// driven through `par_iter_mut().zip(par_iter()).for_each(...)`.
 pub fn apply_color(img: &mut Image, amount: f32) {
     img.assert_space(ColorSpace::SceneLinearRec2020);
     if amount.abs() < 1e-3 { return; }
@@ -45,22 +65,34 @@ pub fn apply_color(img: &mut Image, amount: f32) {
     let radius = radius.max(1);
 
     let mut oklab_img = Image::new(img.width, img.height, ColorSpace::SceneLinearRec2020);
-    for (i, p) in img.pixels.iter().enumerate() {
-        oklab_img.pixels[i] = rec2020_to_oklab(*p);
-    }
+    oklab_img
+        .pixels
+        .par_iter_mut()
+        .zip(img.pixels.par_iter())
+        .for_each(|(dst, src)| *dst = rec2020_to_oklab(*src));
+
     // Blur (a, b) via a 3-channel image: put a in R, b in G, 0 in B.
     let mut chroma_only = Image::new(img.width, img.height, ColorSpace::SceneLinearRec2020);
-    for (i, p) in oklab_img.pixels.iter().enumerate() {
-        chroma_only.pixels[i] = [p[1], p[2], 0.0];
-    }
+    chroma_only
+        .pixels
+        .par_iter_mut()
+        .zip(oklab_img.pixels.par_iter())
+        .for_each(|(dst, src)| *dst = [src[1], src[2], 0.0]);
+
     let blurred = gaussian_blur_rgb(&chroma_only, radius);
-    for i in 0..oklab_img.pixels.len() {
-        oklab_img.pixels[i][1] = blurred.pixels[i][0];
-        oklab_img.pixels[i][2] = blurred.pixels[i][1];
-    }
-    for (i, p) in oklab_img.pixels.iter().enumerate() {
-        img.pixels[i] = oklab_to_rec2020(*p);
-    }
+    oklab_img
+        .pixels
+        .par_iter_mut()
+        .zip(blurred.pixels.par_iter())
+        .for_each(|(dst, src)| {
+            dst[1] = src[0];
+            dst[2] = src[1];
+        });
+
+    img.pixels
+        .par_iter_mut()
+        .zip(oklab_img.pixels.par_iter())
+        .for_each(|(dst, src)| *dst = oklab_to_rec2020(*src));
 }
 
 #[cfg(test)]
