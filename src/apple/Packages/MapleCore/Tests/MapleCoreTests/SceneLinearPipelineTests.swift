@@ -1148,4 +1148,89 @@ final class SceneLinearPipelineTests: XCTestCase {
         let off = cy * bpr + cx * 4 * 2
         return Self.float16BitsToFloat32(bytes.load(fromByteOffset: off, as: UInt16.self))
     }
+
+    /// Run a low-chroma red pixel through `processSceneLinear` with
+    /// vibrance = +100 and confirm the output's chroma magnitude is at
+    /// least as large as the default-model output's chroma. Same `>=`
+    /// caveat as Step 2.1 — under XCTest the kernel may be a no-op.
+    func testM1ProcessSceneLinearAppliesVibrance() async throws {
+        let pipeline = ImageEditPipeline()
+        // Low-chroma red — vibrance is supposed to boost low-chroma more.
+        let input = Self.makeRGBSceneLinearCIImage(
+            width: 16, height: 16, r: 0.35, g: 0.30, b: 0.30
+        )
+
+        let modelDefault = AdjustmentModel.default
+        var modelBoosted = modelDefault
+        modelBoosted.vibrance = 100.0
+
+        let outDefault = pipeline.processSceneLinear(decoded: input, model: modelDefault)
+        let outBoost   = pipeline.processSceneLinear(decoded: input, model: modelBoosted)
+
+        // Sample R, G, B channel separations — boosted should have a
+        // larger R-G gap than default.
+        let dRdiff = Self.sampleCenterRMinusG(outDefault, width: 16, height: 16)
+        let bRdiff = Self.sampleCenterRMinusG(outBoost, width: 16, height: 16)
+        XCTAssertGreaterThanOrEqual(
+            bRdiff, dRdiff,
+            "vibrance +100 should not shrink R-G separation — got boost=\(bRdiff) default=\(dRdiff)"
+        )
+    }
+
+    /// Build a 16×16 fp16 Rec.2020 CIImage of one constant RGB triple.
+    static func makeRGBSceneLinearCIImage(width w: Int, height h: Int,
+                                          r: Float, g: Float, b: Float) -> CIImage {
+        var pixels = [UInt16](repeating: 0, count: w * h * 4)
+        let one = Self.float32ToFloat16Bits(1.0)
+        let R = Self.float32ToFloat16Bits(r)
+        let G = Self.float32ToFloat16Bits(g)
+        let B = Self.float32ToFloat16Bits(b)
+        for i in stride(from: 0, to: pixels.count, by: 4) {
+            pixels[i + 0] = R
+            pixels[i + 1] = G
+            pixels[i + 2] = B
+            pixels[i + 3] = one
+        }
+        let bytesPerRow = w * 4 * 2
+        let data = pixels.withUnsafeBufferPointer { Data(bytes: $0.baseAddress!, count: $0.count * 2) }
+        let space = CGColorSpace(name: CGColorSpace.extendedLinearITUR_2020)!
+        return CIImage(
+            bitmapData: data,
+            bytesPerRow: bytesPerRow,
+            size: CGSize(width: w, height: h),
+            format: .RGBAh,
+            colorSpace: space
+        )
+    }
+
+    /// Returns center-pixel R minus G. Positive = redder than green.
+    static func sampleCenterRMinusG(_ ci: CIImage, width w: Int, height h: Int) -> Float {
+        let device = MTLCreateSystemDefaultDevice()
+        let context: CIContext
+        if let device {
+            context = CIContext(mtlDevice: device, options: [
+                .workingColorSpace: CGColorSpace(name: CGColorSpace.extendedLinearSRGB)!,
+                .workingFormat: CIFormat.RGBAh,
+                .cacheIntermediates: false,
+            ])
+        } else {
+            context = CIContext(options: [
+                .workingColorSpace: CGColorSpace(name: CGColorSpace.linearSRGB)!,
+                .workingFormat: CIFormat.RGBAh,
+            ])
+        }
+        let outSpace = CGColorSpace(name: CGColorSpace.extendedLinearITUR_2020)!
+        guard let cg = context.createCGImage(
+            ci, from: CGRect(x: 0, y: 0, width: w, height: h),
+            format: .RGBAh, colorSpace: outSpace
+        ), let cfData = cg.dataProvider?.data
+        else { return Float.nan }
+        let bytes = UnsafeRawPointer(CFDataGetBytePtr(cfData)!)
+        let bpr = cg.bytesPerRow
+        let cx = w / 2, cy = h / 2
+        let off = cy * bpr + cx * 4 * 2
+        let r = Self.float16BitsToFloat32(bytes.load(fromByteOffset: off + 0, as: UInt16.self))
+        let g = Self.float16BitsToFloat32(bytes.load(fromByteOffset: off + 2, as: UInt16.self))
+        return r - g
+    }
 }
