@@ -520,6 +520,300 @@ public enum MetalKernels {
         ) ?? input
     }
 
+    // MARK: SceneDehaze (Plan 2 v2 v4 M5)
+
+    /// Apply scene-linear Rec.2020 dehaze. Mirrors `dehaze::apply` from
+    /// raw-core/src/stages/dehaze.rs:144-179.
+    ///
+    /// `dehaze` is in [-100, +100]; 0 is identity (short-circuit at
+    /// |dehaze| < 1e-3 mirrors dehaze.rs:146). Positive removes haze;
+    /// negative adds haze. The 67 px stencil (15x15 dark-channel + 60
+    /// guided-filter box) exceeds Deep Zoom's 35 px overlap budget;
+    /// the deep-zoom UI clamps maxPixelScale to fit-zoom when this
+    /// slider is non-zero. See docs/superpowers/plans/2026-04-25-deep-
+    /// zoom-tile-rendering.md Architecture point 3.
+    ///
+    /// Composition (single MTLCommandBuffer pair, with one CPU sync
+    /// between them to sort the per-threadgroup partial buffer):
+    ///   1. Render input CIImage to fp16 RGBA scratch (texSrc).
+    ///   2. dehazeDarkChannel(texSrc -> texDark).
+    ///   3. dehazeAtmoPartial (per-tg top-1 -> partialBuf).
+    ///   4. CPU sync: read partialBuf, sort descending, write back.
+    ///   5. dehazeAtmoFinal (-> atmoBuf, 3 floats).
+    ///   6. dehazeBuildGuide(texSrc -> texGuide).
+    ///   7. dehazeTransmission(texSrc, atmoBuf -> texTrans).
+    ///   8. Guided filter on (texGuide, texTrans):
+    ///      8a. dehaze single-pass box-blur of texGuide -> texMeanI.
+    ///          NOT the v2 v1 SeparableGaussianBlur — see plan §
+    ///          "Box-blur semantics for guided filter".
+    ///      8b. box-blur of texTrans -> texMeanP.
+    ///      8c. dehazeBuildIp(texGuide, texTrans -> texIp), box-blur ->
+    ///          texMeanIp.
+    ///      8d. dehazeBuildII(texGuide -> texII), box-blur -> texMeanII.
+    ///      8e. dehazeCombineAB -> texPackedAB (rg16Float).
+    ///      8f. dehazeUnpackR(texPackedAB -> texAUnpack), box-blur ->
+    ///          texMeanA.
+    ///      8g. dehazeUnpackG(texPackedAB -> texBUnpack), box-blur ->
+    ///          texMeanB.
+    ///   9. Wrap texSrc, texMeanA, texMeanB, texGuide as CIImages.
+    ///  10. dehazeReconstruct CIColorKernel — final per-pixel J = (I-A)/
+    ///      max(t_eff, 0.1) + A with slider mapping.
+    ///
+    /// Returns identity (the input CIImage instance unchanged) on:
+    ///   - |dehaze| < 1e-3
+    ///   - any kernel-load / pipeline-build / texture-alloc step fails
+    ///     (silent fallback per the existing wrapper convention)
+    public static func applySceneDehaze(
+        to input: CIImage,
+        dehaze: Float
+    ) -> CIImage {
+        if abs(dehaze) < 1e-3 { return input }
+        let scale = max(-1.0, min(1.0, dehaze / 100.0))
+
+        guard let device = metalDevice(),
+              let queue = device.makeCommandQueue(),
+              let pDark = dehazeDarkChannelPipeline(),
+              let pAtmoPartial = dehazeAtmoPartialPipeline(),
+              let pAtmoFinal = dehazeAtmoFinalPipeline(),
+              let pTrans = dehazeTransmissionPipeline(),
+              let pGuide = dehazeGuidePipeline(),
+              let pBoxH = dehazeBoxBlurHPipeline(),
+              let pBoxV = dehazeBoxBlurVPipeline(),
+              let pBuildIp = dehazeBuildIpPipeline(),
+              let pBuildII = dehazeBuildIIPipeline(),
+              let pCombineAB = dehazeCombineABPipeline(),
+              let pUnpackR = dehazeUnpackRPipeline(),
+              let pUnpackG = dehazeUnpackGPipeline(),
+              let kReconstruct = dehazeReconstructKernel() else {
+            return input
+        }
+
+        let extent = input.extent
+        let w = max(1, Int(extent.width.rounded()))
+        let h = max(1, Int(extent.height.rounded()))
+
+        // RGBA fp16 source render target.
+        let descRGBA = MTLTextureDescriptor.texture2DDescriptor(
+            pixelFormat: .rgba16Float, width: w, height: h, mipmapped: false)
+        descRGBA.usage = [.shaderRead, .shaderWrite, .renderTarget]
+        descRGBA.storageMode = .private
+
+        // Single-channel fp16 scratch (.r16Float).
+        let descSC = MTLTextureDescriptor.texture2DDescriptor(
+            pixelFormat: .r16Float, width: w, height: h, mipmapped: false)
+        descSC.usage = [.shaderRead, .shaderWrite]
+        descSC.storageMode = .private
+
+        // Two-channel fp16 packed (a, b).
+        let descRG = MTLTextureDescriptor.texture2DDescriptor(
+            pixelFormat: .rg16Float, width: w, height: h, mipmapped: false)
+        descRG.usage = [.shaderRead, .shaderWrite]
+        descRG.storageMode = .private
+
+        guard let texSrc = device.makeTexture(descriptor: descRGBA),
+              let texDark = device.makeTexture(descriptor: descSC),
+              let texGuide = device.makeTexture(descriptor: descSC),
+              let texTrans = device.makeTexture(descriptor: descSC),
+              let texMeanI = device.makeTexture(descriptor: descSC),
+              let texMeanP = device.makeTexture(descriptor: descSC),
+              let texIp = device.makeTexture(descriptor: descSC),
+              let texMeanIp = device.makeTexture(descriptor: descSC),
+              let texII = device.makeTexture(descriptor: descSC),
+              let texMeanII = device.makeTexture(descriptor: descSC),
+              let texPackedAB = device.makeTexture(descriptor: descRG),
+              let texAUnpack = device.makeTexture(descriptor: descSC),
+              let texBUnpack = device.makeTexture(descriptor: descSC),
+              let texMeanA = device.makeTexture(descriptor: descSC),
+              let texMeanB = device.makeTexture(descriptor: descSC),
+              let texPing = device.makeTexture(descriptor: descSC) else {
+            return input
+        }
+
+        // Render input -> texSrc.
+        let space = CGColorSpace(name: CGColorSpace.extendedLinearITUR_2020)!
+        let ciCtx = CIContext(mtlDevice: device, options: [
+            .workingColorSpace: CGColorSpace(name: CGColorSpace.extendedLinearSRGB)!,
+            .workingFormat: CIFormat.RGBAh,
+            .cacheIntermediates: false,
+        ])
+        guard let cb1 = queue.makeCommandBuffer() else { return input }
+        ciCtx.render(input, to: texSrc, commandBuffer: cb1, bounds: extent, colorSpace: space)
+
+        let tgX = (w + 15) / 16
+        let tgY = (h + 15) / 16
+
+        // Helper: dispatch a 2D compute kernel filling (w, h) with 16x16
+        // threadgroup tiles. Returns false on encoder failure.
+        func dispatch2D(
+            _ pipeline: MTLComputePipelineState,
+            on cb: MTLCommandBuffer,
+            configure: (MTLComputeCommandEncoder) -> Void
+        ) -> Bool {
+            guard let enc = cb.makeComputeCommandEncoder() else { return false }
+            enc.setComputePipelineState(pipeline)
+            configure(enc)
+            let tg = MTLSize(width: 16, height: 16, depth: 1)
+            let tgCount = MTLSize(
+                width:  tgX,
+                height: tgY,
+                depth: 1)
+            enc.dispatchThreadgroups(tgCount, threadsPerThreadgroup: tg)
+            enc.endEncoding()
+            return true
+        }
+
+        // Box-blur helper: 1 H pass + 1 V pass via texPing scratch.
+        // Reads from `srcTex`, writes to `dstTex`. (No 3-pass approximation —
+        // dehaze guided filter expects single-pass running-sum.)
+        let boxRadius: UInt32 = 60
+        func boxBlurSingleChannel(
+            _ srcTex: MTLTexture, _ dstTex: MTLTexture, on cb: MTLCommandBuffer
+        ) -> Bool {
+            // H pass: srcTex -> texPing.
+            var radius = boxRadius
+            guard dispatch2D(pBoxH, on: cb, configure: { enc in
+                enc.setTexture(srcTex, index: 0)
+                enc.setTexture(texPing, index: 1)
+                enc.setBytes(&radius, length: 4, index: 0)
+            }) else { return false }
+            // V pass: texPing -> dstTex.
+            return dispatch2D(pBoxV, on: cb, configure: { enc in
+                enc.setTexture(texPing, index: 0)
+                enc.setTexture(dstTex, index: 1)
+                enc.setBytes(&radius, length: 4, index: 0)
+            })
+        }
+
+        // 1. Dark channel.
+        guard dispatch2D(pDark, on: cb1, configure: { enc in
+            enc.setTexture(texSrc, index: 0)
+            enc.setTexture(texDark, index: 1)
+        }) else { return input }
+
+        // 2. Atmospheric-light pass 1 (per-tg top-1).
+        let partialCount = tgX * tgY
+        let totalPixels = UInt32(w * h)
+        let topN = max(UInt32(1), totalPixels / 1000)
+        guard let partialBuf = device.makeBuffer(
+            length: partialCount * MemoryLayout<SIMD4<Float>>.stride,
+            options: .storageModeShared) else { return input }
+        var partialDims = SIMD2<UInt32>(UInt32(tgX), UInt32(tgY))
+        guard dispatch2D(pAtmoPartial, on: cb1, configure: { enc in
+            enc.setTexture(texSrc, index: 0)
+            enc.setTexture(texDark, index: 1)
+            enc.setBuffer(partialBuf, offset: 0, index: 0)
+            enc.setBytes(&partialDims, length: MemoryLayout<SIMD2<UInt32>>.size, index: 1)
+        }) else { return input }
+
+        // Commit cb1 and wait — we need to read partialBuf back, sort, then
+        // dispatch the final reduce on cb2.
+        cb1.commit()
+        cb1.waitUntilCompleted()
+
+        // CPU sort the partial buffer descending by .x (dark-channel value).
+        let partialPtr = partialBuf.contents()
+            .bindMemory(to: SIMD4<Float>.self, capacity: partialCount)
+        var partials = Array(UnsafeBufferPointer(start: partialPtr, count: partialCount))
+        partials.sort { $0.x > $1.x }
+        for (i, v) in partials.enumerated() { partialPtr[i] = v }
+
+        // Build atmoBuf (3 floats output).
+        guard let atmoBuf = device.makeBuffer(
+            length: 3 * MemoryLayout<Float>.stride,
+            options: .storageModeShared) else { return input }
+
+        // 3. Atmospheric-light pass 2 (final reduce).
+        guard let cb2 = queue.makeCommandBuffer() else { return input }
+        var partialCountU32 = UInt32(partialCount)
+        var topNU32 = topN
+        guard let encAtmo = cb2.makeComputeCommandEncoder() else { return input }
+        encAtmo.setComputePipelineState(pAtmoFinal)
+        encAtmo.setBuffer(partialBuf, offset: 0, index: 0)
+        encAtmo.setBuffer(atmoBuf,    offset: 0, index: 1)
+        encAtmo.setBytes(&partialCountU32, length: 4, index: 2)
+        encAtmo.setBytes(&topNU32, length: 4, index: 3)
+        encAtmo.dispatchThreadgroups(
+            MTLSize(width: 1, height: 1, depth: 1),
+            threadsPerThreadgroup: MTLSize(width: 1, height: 1, depth: 1))
+        encAtmo.endEncoding()
+
+        // 4. Guide.
+        guard dispatch2D(pGuide, on: cb2, configure: { enc in
+            enc.setTexture(texSrc, index: 0)
+            enc.setTexture(texGuide, index: 1)
+        }) else { return input }
+
+        // 5. Transmission.
+        guard dispatch2D(pTrans, on: cb2, configure: { enc in
+            enc.setTexture(texSrc, index: 0)
+            enc.setTexture(texTrans, index: 1)
+            enc.setBuffer(atmoBuf, offset: 0, index: 0)
+        }) else { return input }
+
+        // 6. Guided filter — 8 box-blurs + build_Ip + build_II + combineAB
+        //    + unpack R/G.
+        guard boxBlurSingleChannel(texGuide, texMeanI, on: cb2) else { return input }
+        guard boxBlurSingleChannel(texTrans, texMeanP, on: cb2) else { return input }
+        guard dispatch2D(pBuildIp, on: cb2, configure: { enc in
+            enc.setTexture(texGuide, index: 0)
+            enc.setTexture(texTrans, index: 1)
+            enc.setTexture(texIp, index: 2)
+        }) else { return input }
+        guard boxBlurSingleChannel(texIp, texMeanIp, on: cb2) else { return input }
+        guard dispatch2D(pBuildII, on: cb2, configure: { enc in
+            enc.setTexture(texGuide, index: 0)
+            enc.setTexture(texII, index: 1)
+        }) else { return input }
+        guard boxBlurSingleChannel(texII, texMeanII, on: cb2) else { return input }
+        var eps: Float = 1e-3
+        guard dispatch2D(pCombineAB, on: cb2, configure: { enc in
+            enc.setTexture(texMeanI, index: 0)
+            enc.setTexture(texMeanP, index: 1)
+            enc.setTexture(texMeanIp, index: 2)
+            enc.setTexture(texMeanII, index: 3)
+            enc.setTexture(texPackedAB, index: 4)
+            enc.setBytes(&eps, length: 4, index: 0)
+        }) else { return input }
+        // Unpack a -> single-channel scratch, then box-blur into texMeanA.
+        guard dispatch2D(pUnpackR, on: cb2, configure: { enc in
+            enc.setTexture(texPackedAB, index: 0)
+            enc.setTexture(texAUnpack, index: 1)
+        }) else { return input }
+        guard boxBlurSingleChannel(texAUnpack, texMeanA, on: cb2) else { return input }
+        // Unpack b -> single-channel scratch, then box-blur into texMeanB.
+        guard dispatch2D(pUnpackG, on: cb2, configure: { enc in
+            enc.setTexture(texPackedAB, index: 0)
+            enc.setTexture(texBUnpack, index: 1)
+        }) else { return input }
+        guard boxBlurSingleChannel(texBUnpack, texMeanB, on: cb2) else { return input }
+
+        cb2.commit()
+        cb2.waitUntilCompleted()
+        // We need atmoBuf to be visible on CPU before we read A_r/A_g/A_b
+        // for the CIColorKernel arguments, hence the wait.
+
+        // 7. Reconstruction CIColorKernel.
+        // Wrap the 4 outputs as CIImages (texSrc, texMeanA, texMeanB, texGuide).
+        let opts: [CIImageOption: Any] = [.colorSpace: space]
+        guard let imgSrc = CIImage(mtlTexture: texSrc, options: opts),
+              let imgMeanA = CIImage(mtlTexture: texMeanA, options: opts),
+              let imgMeanB = CIImage(mtlTexture: texMeanB, options: opts),
+              let imgGuide = CIImage(mtlTexture: texGuide, options: opts) else {
+            return input
+        }
+
+        let atmoPtr = atmoBuf.contents().bindMemory(to: Float.self, capacity: 3)
+        let A_r = atmoPtr[0]
+        let A_g = atmoPtr[1]
+        let A_b = atmoPtr[2]
+
+        return kReconstruct.apply(
+            extent: input.extent,
+            roiCallback: { _, rect in rect },
+            arguments: [imgSrc, imgMeanA, imgMeanB, imgGuide, A_r, A_g, A_b, scale]
+        ) ?? input
+    }
+
     // MARK: SceneSharpen (Plan 2 v2 v3 M4)
 
     /// Apply scene-linear Rec.2020 capture sharpening (3-iteration
@@ -1190,6 +1484,13 @@ public enum MetalKernels {
             return nil
         }
         return _dehazeUnpackGPipeline
+    }
+
+    private static func dehazeReconstructKernel() -> CIColorKernel? {
+        if let k = _dehazeReconstruct { return k }
+        _dehazeReconstruct = loadKernel(file: "DehazeReconstruct",
+                                        function: "dehazeReconstruct") as? CIColorKernel
+        return _dehazeReconstruct
     }
 
     // MARK: Helpers
