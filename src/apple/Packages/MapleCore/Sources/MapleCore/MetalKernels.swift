@@ -912,6 +912,46 @@ public enum MetalKernels {
         return _dehazeDarkChannelPipeline
     }
 
+    private static func dehazeAtmoPartialPipeline() -> MTLComputePipelineState? {
+        if let p = _dehazeAtmoPartialPipeline { return p }
+        guard let device = metalDevice(),
+              let lib = dehazeDarkAtmoTransLibrary(),
+              let fn = lib.makeFunction(name: "dehazeAtmoPartial") else {
+            os_log(.error, log: kernelLog,
+                "dehazeAtmoPartial function missing from compiled library")
+            return nil
+        }
+        do {
+            _dehazeAtmoPartialPipeline = try device.makeComputePipelineState(function: fn)
+        } catch {
+            os_log(.error, log: kernelLog,
+                "makeComputePipelineState(dehazeAtmoPartial) failed: %{public}@",
+                String(describing: error))
+            return nil
+        }
+        return _dehazeAtmoPartialPipeline
+    }
+
+    private static func dehazeAtmoFinalPipeline() -> MTLComputePipelineState? {
+        if let p = _dehazeAtmoFinalPipeline { return p }
+        guard let device = metalDevice(),
+              let lib = dehazeDarkAtmoTransLibrary(),
+              let fn = lib.makeFunction(name: "dehazeAtmoFinal") else {
+            os_log(.error, log: kernelLog,
+                "dehazeAtmoFinal function missing from compiled library")
+            return nil
+        }
+        do {
+            _dehazeAtmoFinalPipeline = try device.makeComputePipelineState(function: fn)
+        } catch {
+            os_log(.error, log: kernelLog,
+                "makeComputePipelineState(dehazeAtmoFinal) failed: %{public}@",
+                String(describing: error))
+            return nil
+        }
+        return _dehazeAtmoFinalPipeline
+    }
+
     // MARK: Helpers
 
     /// Load + runtime-compile one named CIKernel from a `.metal` source file
