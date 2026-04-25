@@ -1,15 +1,26 @@
-// AgXViewTransform.metal — Log-encode + sigmoid LUT view transform (spec § 3.6a).
+// AgXViewTransform.metal — Log-encode + inline-sigmoid view transform (spec § 3.6a).
 //
-// The LUT is baked from src/scripts/derive_agx_lut.py and matches
-// agx_lut.bin used by the Rust pipeline (AGX_VERSION 2).
+// The sigmoid is the same 6th-order polynomial Blender 4.x AgX_Default_Contrast
+// uses (and that `src/scripts/derive_agx_lut.py` evaluates to bake the
+// shared LUT). Inlining the polynomial drops the LUT-image dependency
+// entirely — see ticket #08 for the LUT-sampler binding issue we hit on
+// modern macOS CoreImage.
 //
-// Constants (from agx_coeffs.rs):
+// Coefficients (frozen; mirror derive_agx_lut.py:97-103):
+//   y = +15.5     * x^6
+//       -40.14    * x^5
+//       +31.96    * x^4
+//       - 6.868   * x^3
+//       + 0.4298  * x^2
+//       + 0.1191  * x
+//       - 0.00232
+// where x is the normalized-log position of the scene-linear value.
+//
+// Constants (mirror agx_coeffs.rs):
 //   AGX_MIN_EV   = -10.0
 //   AGX_MAX_EV   =   6.5
 //   AGX_MID_GRAY =   0.18
-//   AGX_LUT_SIZE = 512
 //
-// The LUT is passed as a float texture (1D sampled as 1×512).
 // Contrast modulates the sigmoid domain mapping (spec § 3.6a).
 
 #include <CoreImage/CoreImage.h>
@@ -17,7 +28,6 @@
 constant float AGX_MIN_EV   = -10.0;
 constant float AGX_MAX_EV   =  6.5;
 constant float AGX_MID_GRAY =  0.18;
-constant float AGX_LUT_SIZE =  512.0;
 constant float MID_NORM     = -AGX_MIN_EV / (AGX_MAX_EV - AGX_MIN_EV); // ~0.606
 
 /// Log-encode a single scene-linear channel.
@@ -27,14 +37,20 @@ float agx_log_encode(float linear) {
     return clamp((log_val - AGX_MIN_EV) / (AGX_MAX_EV - AGX_MIN_EV), 0.0, 1.0);
 }
 
-/// Sample the 1D LUT texture at normalized position t ∈ [0, 1].
-/// CoreImage's `coreimage::sampler.sample()` takes coordinates in the
-/// kernel's destination working-coordinate space, NOT [0,1] normalized
-/// — so for a 512×1 LUT the x range is 0..512. Multiply t by (LUT_SIZE-1)
-/// to land on integer texel centers and add 0.5 so t=0/t=1 land squarely
-/// on texel 0/texel 511 (avoids edge-clamp clipping under LINEAR filter).
-float sample_lut(coreimage::sampler_h lut_sampler, float t) {
-    return float(lut_sampler.sample(float2(t * (AGX_LUT_SIZE - 1.0) + 0.5, 0.5)).r);
+/// Inline AgX sigmoid — Blender 4.x AgX_Default_Contrast 6-piece polynomial.
+/// `x` is the normalized-log position in [0, 1]; output is display-linear in [0, 1].
+float agx_sigmoid(float x) {
+    x = clamp(x, 0.0, 1.0);
+    float x2 = x * x;
+    float x4 = x2 * x2;
+    float y = 15.5     * x4 * x2
+            - 40.14    * x4 * x
+            + 31.96    * x4
+            -  6.868   * x2 * x
+            +  0.4298  * x2
+            +  0.1191  * x
+            -  0.00232;
+    return clamp(y, 0.0, 1.0);
 }
 
 /// Apply contrast modulation: expand/compress around MID_NORM
@@ -48,7 +64,6 @@ float apply_contrast(float t, float contrast) {
 
 [[stitchable]] float4 agxViewTransform(
     coreimage::sample_t src,
-    coreimage::sampler_h lut,   // 1D LUT as 512×1 float texture
     float contrast              // -100..+100
 ) {
     float4 color = float4(src);
@@ -68,11 +83,11 @@ float apply_contrast(float t, float contrast) {
         apply_contrast(log_encoded.b, contrast)
     );
 
-    // LUT sample (sigmoid).
+    // Inline sigmoid (no LUT image).
     float3 display = float3(
-        sample_lut(lut, log_encoded.r),
-        sample_lut(lut, log_encoded.g),
-        sample_lut(lut, log_encoded.b)
+        agx_sigmoid(log_encoded.r),
+        agx_sigmoid(log_encoded.g),
+        agx_sigmoid(log_encoded.b)
     );
 
     return float4(display, color.a);

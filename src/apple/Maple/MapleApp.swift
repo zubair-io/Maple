@@ -14,13 +14,14 @@ struct MapleApp: App {
     init() {
         Self.installMemoryPressureObserver()
 
-        // Plan 1 launched a launch-time AgX kernel-load assertion to
-        // catch metallib-bundling regressions. Since `processSceneLinear`
-        // now intentionally bypasses AgX (kernel produces all-zero output
-        // — see ImageEditPipeline.swift `withNRColor` return + ticket #08),
-        // the assertion is suppressed: the kernel may or may not load and
-        // we no longer care until the LUT-sampler bug is fixed. Restore
-        // the assertion once AgX is back in the chain.
+        #if DEBUG
+        // Plan 1 regression net: if the AgX kernel doesn't load, we'll
+        // display raw scene-linear data on the new path. Catch at app
+        // launch, not at first-pixel-displayed. Ticket #08 fix inlined
+        // the sigmoid so the kernel no longer needs a LUT image.
+        assert(MetalKernels.agxKernel() != nil,
+            "AgX Metal kernel failed to load — view transform will silently no-op on the scene-linear path. Verify AgXViewTransform.metal is in the Metal sources for this build target.")
+        #endif
     }
 
     var body: some Scene {

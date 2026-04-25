@@ -422,19 +422,13 @@ public actor ImageEditPipeline {
             nrColor: Float(model.nrColor)
         )
 
-        // Stage: AgX view transform — TEMPORARILY BYPASSED.
-        //
-        // The AgX kernel compiles + loads at runtime now (commit 1102c16
-        // added [[stitchable]]) but produces all-zero output because the
-        // LUT sample formula uses CoreImage destination-working-space
-        // coords incorrectly for the 1-D 512×1 LUT image. Per `probe-
-        // lut-coord.swift` diagnostics, every sample of the LUT image
-        // returns 0 regardless of coord. Filed as ticket #08
-        // (forthcoming). Until that lands, return the chain output
-        // un-tone-mapped — gives a visible (high-contrast / clipped at
-        // highlights) preview rather than the all-black render the
-        // broken kernel produced.
-        return withNRColor
+        // Stage: AgX view transform — exactly once, on scene-linear data.
+        // The kernel is per-channel (verified by Spike 1.2), so feeding it
+        // Rec.2020 instead of sRGB only matters for out-of-gamut content.
+        // Sigmoid is inlined as 6-piece polynomial (ticket #08 fix).
+        return MetalKernels.applyAgXViewTransform(
+            to: withNRColor, contrast: Float(model.contrast)
+        )
     }
 
     // MARK: Render preview (processed CIImage → CGImage)
