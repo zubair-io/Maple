@@ -25,7 +25,7 @@ pub enum Error {
     Png(String),
 
     #[error("pipeline assertion failed: {0}")]
-    Pipeline(&'static str),
+    Pipeline(String),
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
