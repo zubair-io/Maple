@@ -278,6 +278,17 @@ public final class EditSession {
     @ObservationIgnored private var decodedImage: CIImage?
     @ObservationIgnored private var decodedForAssetID: AssetRef.ID?
 
+    /// Plan 2 M3 — model snapshot at the moment `sharedDecode`'s Rust FFI
+    /// ran. Used by `processSceneLinear`'s WhiteBalance kernel as the
+    /// "decoded WB" reference so the kernel applies only the live delta
+    /// and the slider doesn't double-apply on top of Rust-side WB.
+    ///
+    /// Plan 2 v1 limitation: only WB uses this; tone/vibrance/saturation
+    /// will double-apply on saved sidecars until the user moves a slider
+    /// (which triggers a re-decode at the new model). Plan 2 v2 generalises
+    /// the delta to every kernel.
+    @ObservationIgnored public private(set) var decodedAtModel: AdjustmentModel?
+
     /// In-flight decode task for the current asset. When a render phase
     /// needs a fresh decode and finds no cache, it either starts a new task
     /// here or awaits the existing one. This deduplicates concurrent cold
@@ -785,6 +796,11 @@ public final class EditSession {
         let pipeline = self.pipeline
         let cached = decodedImage
         let alreadyDecodedID = decodedForAssetID
+        // Plan 2 M3 — snapshot the decode-time model for the WB kernel.
+        // On the hot path (`cached != nil`) this is the value persisted
+        // by the prior `sharedDecode` call. On the cold path it's
+        // refreshed after `sharedDecode` returns below.
+        let cachedDecodedAtModel = decodedAtModel
         let asShot: ImageEditPipeline.AsShotWB? = {
             guard let cct = asShotCCT, let t = asShotTint else { return nil }
             return ImageEditPipeline.AsShotWB(temperature: cct, tint: t)
@@ -815,7 +831,10 @@ public final class EditSession {
                 image = await Task.detached(priority: .userInitiated) { [useSceneLinear] in
                     mapleStage(filterStageName) {
                         if useSceneLinear {
-                            return pipeline.processSceneLinear(decoded: cached, model: m, targetSize: targetSize, asShot: asShot)
+                            return pipeline.processSceneLinear(
+                                decoded: cached, model: m, targetSize: targetSize,
+                                asShot: asShot, decodedAtModel: cachedDecodedAtModel
+                            )
                         } else {
                             return pipeline.process(decoded: cached, model: m, targetSize: targetSize, asShot: asShot)
                         }
@@ -841,13 +860,20 @@ public final class EditSession {
                 guard let decoded else {
                     throw RenderError.pipelineFailed
                 }
+                // Plan 2 M3 — sharedDecode has just published decodedAtModel
+                // (the model the Rust path used for this decode). Capture
+                // it here so the WB kernel applies (live - decoded).
+                let freshDecodedAtModel = self.decodedAtModel
                 // Process is cheap (CoreImage filter chain) — run it per
                 // phase with the caller's targetSize. Not shared with peers
                 // because targetSize differs between fast and refine.
                 let processed = await Task.detached(priority: .userInitiated) { [useSceneLinear] in
                     mapleStage(filterStageName) {
                         if useSceneLinear {
-                            return pipeline.processSceneLinear(decoded: decoded, model: m, targetSize: targetSize, asShot: asShot)
+                            return pipeline.processSceneLinear(
+                                decoded: decoded, model: m, targetSize: targetSize,
+                                asShot: asShot, decodedAtModel: freshDecodedAtModel
+                            )
                         } else {
                             return pipeline.process(decoded: decoded, model: m, targetSize: targetSize, asShot: asShot)
                         }
@@ -906,6 +932,10 @@ public final class EditSession {
         decodedForAssetID = nil
         decodeTask = nil
         decodeTaskAssetID = nil
+        // Plan 2 M3 — the next decode will re-parse the sidecar; clear
+        // the cached snapshot so the WB delta can't compose against a
+        // stale decode-time model.
+        decodedAtModel = nil
     }
 
     /// Returns the decoded CIImage for `asset`, running the Rust FFI at
@@ -920,6 +950,12 @@ public final class EditSession {
         if let existing = decodeTask, decodeTaskAssetID == asset.id {
             guard let decoded = await existing.value else { return nil }
             guard self.asset.id == asset.id else { return decoded }
+            // Plan 2 M3 — also publish decodedAtModel on the piggy-back
+            // path. Idempotent: any prior caller's cold-path tail wrote
+            // the same value (same asset, same sidecar parse).
+            if decodedAtModel == nil {
+                decodedAtModel = Self.parseSidecarModel(for: asset)
+            }
             return decodedForNativeCanvas(decoded, asset: asset)
         }
         decodeTask = nil
@@ -973,17 +1009,34 @@ public final class EditSession {
             // linear buffer's extended range). A follow-up plan revs the
             // cache format; for now scene-linear opens always pay the
             // Rust decode cost.
+            // Plan 2 M3 — pass the asset's sidecar URL through to the
+            // scene-linear FFI so highlight_recovery (Rust-side, pre-DCP)
+            // responds to the saved highlightRecovery setting. Only pass
+            // a URL when a sidecar file exists on disk; nil keeps the
+            // Rust default model (highlight_recovery = Off) so first-open
+            // (no sidecar) behaviour matches Plan 1.
+            //
+            // The legacy `pipeline.decode(asset:)` path is unchanged —
+            // Plan 1 left it on the legacy filter chain and Plan 2 v1
+            // does not migrate it.
+            let sidecar: URL? = {
+                guard let url = asset.sidecarURL,
+                      FileManager.default.fileExists(atPath: url.path)
+                else { return nil }
+                return url
+            }()
             let decoded: CIImage?
             if useSceneLinear {
                 if capturedViewport.width > 1, capturedViewport.height > 1 {
                     decoded = await mapleStageAsync("rust FFI scene-linear decode") {
                         await pipeline.decodeSceneLinearSized(
-                            asset: asset, targetSize: capturedViewport
+                            asset: asset, targetSize: capturedViewport,
+                            xmpPath: sidecar
                         )
                     }
                 } else {
                     decoded = await mapleStageAsync("rust FFI scene-linear decode") {
-                        await pipeline.decodeSceneLinear(asset: asset)
+                        await pipeline.decodeSceneLinear(asset: asset, xmpPath: sidecar)
                     }
                 }
             } else {
@@ -1029,11 +1082,37 @@ public final class EditSession {
         let normalized = decodedForNativeCanvas(decoded, asset: asset)
         decodedImage = normalized
         decodedForAssetID = asset.id
+        // Plan 2 M3 — capture the model the Rust path used during decode
+        // so processSceneLinear's WhiteBalance kernel can compute the
+        // (live - decoded) delta and avoid double-applying WB. Mirrors
+        // the sidecar gate above: nil when no sidecar exists on disk
+        // (Rust used .default), or the parsed sidecar model otherwise.
+        decodedAtModel = Self.parseSidecarModel(for: asset)
         if decodeTaskAssetID == asset.id {
             decodeTask = nil
             decodeTaskAssetID = nil
         }
         return normalized
+    }
+
+    /// Plan 2 M3 — parse the asset's sidecar (if present on disk) into
+    /// an AdjustmentModel. Used to capture the decode-time model so the
+    /// WhiteBalance kernel can apply only the live-vs-decoded delta.
+    /// Returns `.default` when no sidecar exists or the parse fails —
+    /// this matches what the Rust path uses on the same condition.
+    private static func parseSidecarModel(for asset: AssetRef) -> AdjustmentModel {
+        guard let url = asset.sidecarURL,
+              FileManager.default.fileExists(atPath: url.path)
+        else {
+            return .default
+        }
+        guard let xml = try? String(contentsOf: url, encoding: .utf8) else {
+            return .default
+        }
+        guard let (m, _) = try? XMPParser.parse(xml) else {
+            return .default
+        }
+        return m
     }
 }
 

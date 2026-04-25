@@ -144,7 +144,8 @@ public actor ImageEditPipeline {
     /// applies the correct primaries-to-working-space matrix on read.
     nonisolated public func decodeSceneLinear(
         asset: AssetRef,
-        quality: PipelineRenderer.Quality = .preview
+        quality: PipelineRenderer.Quality = .preview,
+        xmpPath: URL? = nil
     ) async -> CIImage? {
         let imageData: MapleSceneLinearImageData
         do {
@@ -153,13 +154,13 @@ public actor ImageEditPipeline {
                 let accessing = scope.startAccessingSecurityScopedResource()
                 defer { if accessing { scope.stopAccessingSecurityScopedResource() } }
                 imageData = try PipelineRenderer.renderSceneLinear(
-                    rawPath: url, xmpPath: nil, quality: quality
+                    rawPath: url, xmpPath: xmpPath, quality: quality
                 )
             } else if let provider = asset.bytesProvider {
                 let bytes = try await provider()
                 let hint = asset.hintExtension ?? ""
                 imageData = try PipelineRenderer.renderSceneLinear(
-                    rawBytes: bytes, hint: hint, xmpPath: nil, quality: quality
+                    rawBytes: bytes, hint: hint, xmpPath: xmpPath, quality: quality
                 )
             } else {
                 return nil
@@ -196,7 +197,8 @@ public actor ImageEditPipeline {
     /// aspect, never upscaling).
     nonisolated public func decodeSceneLinearSized(
         asset: AssetRef,
-        targetSize: CGSize
+        targetSize: CGSize,
+        xmpPath: URL? = nil
     ) async -> CIImage? {
         // Per ticket 06 § Product Requirements 2, the long edge of the
         // requested target is the cap; pixel-accurate sizing happens in
@@ -220,14 +222,14 @@ public actor ImageEditPipeline {
                 let accessing = scope.startAccessingSecurityScopedResource()
                 defer { if accessing { scope.stopAccessingSecurityScopedResource() } }
                 imageData = try PipelineRenderer.renderSceneLinearSized(
-                    rawPath: url, xmpPath: nil,
+                    rawPath: url, xmpPath: xmpPath,
                     quality: .preview, maxLongEdge: longEdge
                 )
             } else if let provider = asset.bytesProvider {
                 let bytes = try await provider()
                 let hint = asset.hintExtension ?? ""
                 imageData = try PipelineRenderer.renderSceneLinearSized(
-                    rawBytes: bytes, hint: hint, xmpPath: nil,
+                    rawBytes: bytes, hint: hint, xmpPath: xmpPath,
                     quality: .preview, maxLongEdge: longEdge
                 )
             } else {
@@ -240,7 +242,7 @@ public actor ImageEditPipeline {
             // fails. The unsized scene-linear entry from Task 4 is the
             // right fallback (matched color domain); the legacy display-
             // encoded path would mismatch the rest of `processSceneLinear`.
-            return await decodeSceneLinear(asset: asset, quality: .preview)
+            return await decodeSceneLinear(asset: asset, quality: .preview, xmpPath: xmpPath)
         }
         let w = imageData.width, h = imageData.height
         let bytesPerRow = w * imageData.bytesPerPixel
@@ -280,29 +282,35 @@ public actor ImageEditPipeline {
     ///
     /// `asShot` is unused in Plan 1; reserved for the WB Metal kernel
     /// in Plan 2.
+    ///
+    /// Plan 2 M3 — `decodedAtModel` is the model the Rust FFI used during
+    /// decode (parsed from the sidecar on disk, or `.default` when no
+    /// sidecar exists). The WhiteBalance kernel uses it to apply only the
+    /// live-vs-decoded WB delta so opening a saved sidecar doesn't
+    /// double-apply WB between the Rust path and the Apple kernel.
     nonisolated public func processSceneLinear(
         decoded: CIImage,
         model: AdjustmentModel,
         targetSize: CGSize? = nil,
-        asShot: AsShotWB? = nil
+        asShot: AsShotWB? = nil,
+        decodedAtModel: AdjustmentModel? = nil
     ) -> CIImage {
         let scaled = Self.prescaleForDisplay(decoded, targetSize: targetSize)
 
-        // Plan 2 M2 — Stage: WhiteBalance (CCT → Rec.2020 channel gain).
-        // Mirrors `white_balance::apply` from raw-core (white_balance.rs:30-50).
-        // The kernel takes both live and decoded WB so slider deltas
-        // compose with any WB the Rust path applied at decode time. In
-        // Plan 2 v1 with `xmpPath: nil` (Rust default model), decoded
-        // Temperature/Tint = 6500/0 → wb_gains(6500, 0) ≈ (1, 1, 1) per
-        // the Rust unit test `d65_reference_at_6500k_tint_0`. M3 (Tasks
-        // 7-8) generalises this with the actual decode-time model once
-        // `xmpPath` is wired.
+        // Plan 2 M3 — the WB kernel applies (live / decoded) so opening
+        // a saved sidecar doesn't double-apply WB. The Rust path applied
+        // sidecar WB at decode; the Apple kernel applies the slider delta
+        // on top. When `decodedAtModel` is nil (e.g. legacy callers, no
+        // sidecar known), fall back to 6500/0 which matches the Rust
+        // default's identity short-circuit.
+        let decodedTemp = Float(decodedAtModel?.temperature ?? 6500)
+        let decodedTint = Float(decodedAtModel?.tint ?? 0)
         let withWB = MetalKernels.applyWhiteBalance(
             to: scaled,
             liveTemperature: Float(model.temperature),
             liveTint: Float(model.tint),
-            decodedTemperature: 6500.0,
-            decodedTint: 0.0
+            decodedTemperature: decodedTemp,
+            decodedTint: decodedTint
         )
 
         // Plan 2 M1 — Stage: SceneToneControls (exposure / highlights /
