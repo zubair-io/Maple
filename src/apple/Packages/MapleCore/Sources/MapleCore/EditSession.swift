@@ -244,13 +244,13 @@ public final class EditSession {
     // MARK: Internals
 
     @ObservationIgnored private let pipeline: ImageEditPipeline
-    /// True if the editor should use the Plan-1 scene-linear FFI path.
-    /// Gated by the `MAPLE_SCENE_LINEAR` env var so the legacy path stays
-    /// the default until parity is verified. Plan 1 Task 9 flips the
-    /// default and removes the gate.
-    @ObservationIgnored private let useSceneLinear: Bool = {
-        ProcessInfo.processInfo.environment["MAPLE_SCENE_LINEAR"] != nil
-    }()
+    /// Always true post-Plan-1 Task 9 — the scene-linear FFI path is the
+    /// default for interactive renders. Kept as a `let` constant rather
+    /// than removed entirely because Plan 2 will add a per-asset opt-out
+    /// for non-RAW files (which can't go through the scene-linear FFI
+    /// because they have no Bayer data to demosaic). Today's value is
+    /// always `true`.
+    @ObservationIgnored private let useSceneLinear: Bool = true
     /// File-backed sidecar store. `nil` for sourceless assets (PhotoKit, self-
     /// hosted API) where sidecar persistence goes through the source's
     /// `writeXMP` API instead.
