@@ -88,11 +88,9 @@ public struct MapleExporter: Sendable {
     /// Render the session's pipeline output and encode to the requested format.
     /// For images > 50MP, tiles the render to stay within memory limits.
     public static func exportData(session: EditSession, options: ExportOptions) async throws -> Data {
-        // Full-res render
-        await session.renderFull()
-        guard let ci = await session.renderedPreview else {
-            throw ExportError.renderFailed
-        }
+        // Full-quality bake. Bypasses the editor's preview-quality decoded
+        // cache so the exported pixels go through the parity-gated path.
+        let ci = try await session.renderForExport()
 
         let scaled = scaledImage(ci, maxSide: options.maxSidePixels)
         let mp = Int(scaled.extent.width * scaled.extent.height) / 1_000_000

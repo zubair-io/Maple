@@ -725,9 +725,6 @@ struct SelfHostedPickerSheet: View {
 
     @State private var serverURL = ""
     @State private var token = ""
-    #if os(iOS)
-    @State private var showingScanner = false
-    #endif
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -738,14 +735,6 @@ struct SelfHostedPickerSheet: View {
                 SecureField("Bearer token (optional)", text: $token)
             }
             HStack {
-                #if os(iOS)
-                Button {
-                    showingScanner = true
-                } label: {
-                    Label("Scan QR…", systemImage: "qrcode.viewfinder")
-                }
-                .accessibilityLabel("Scan pairing QR code")
-                #endif
                 Spacer()
                 Button("Cancel", action: onCancel)
                     .keyboardShortcut(.cancelAction)
@@ -758,22 +747,6 @@ struct SelfHostedPickerSheet: View {
             }
         }
         .padding(20)
-        #if os(iOS)
-        .sheet(isPresented: $showingScanner) {
-            QRScannerView { payload in
-                showingScanner = false
-                if let decoded = try? JSONDecoder().decode(
-                    PairingEnvelope.self,
-                    from: Data(payload.utf8)
-                ) {
-                    serverURL = decoded.url
-                    if let t = decoded.token { token = t }
-                }
-            } onCancel: {
-                showingScanner = false
-            }
-        }
-        #endif
         .frame(minWidth: 420)
     }
 }
