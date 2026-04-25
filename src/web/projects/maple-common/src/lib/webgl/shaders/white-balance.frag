@@ -22,24 +22,22 @@ uniform float uDecodedTint;         // -100..100
 const vec3 XYZ_D65 = vec3(0.9504, 1.0000, 1.0888);
 
 // XYZ (D65) to Rec.2020 — byte-identical to WhiteBalance.metal:32-36.
-// The Apple float3x3 takes each `float3` argument as a row; GLSL `mat3`
-// is column-major. To represent the same row-major matrix we transpose
-// at construction: each GLSL `vec3` argument below is a COLUMN of the
-// Apple matrix (which equals one element from each Apple row).
 //
-// Apple matrix (rows from WhiteBalance.metal:32-36):
-//   row 0: ( 1.7166512, -0.3556708, -0.2533663)
-//   row 1: (-0.6666844,  1.6164812,  0.0157685)
-//   row 2: ( 0.0176399, -0.0427706,  0.9421031)
-//
-// GLSL columns (one column = pick an index from each Apple row):
-//   col 0: ( 1.7166512, -0.6666844,  0.0176399)
-//   col 1: (-0.3556708,  1.6164812, -0.0427706)
-//   col 2: (-0.2533663,  0.0157685,  0.9421031)
+// Both Metal `float3x3` and GLSL `mat3` constructors take COLUMNS as
+// `float3`/`vec3` arguments. Apple's source-of-truth comment at
+// WhiteBalance.metal:30-31 says "Each `float3` argument is a row of the
+// Rust matrix" — that's how the Apple author thinks of the matrix in
+// the source, but Metal stores those vectors as columns. To match
+// Apple's runtime behaviour (so M*v in WebGL == M*v in Metal), the
+// GLSL `mat3` must take the SAME `vec3` arguments as Apple, layered as
+// columns. The end-result matrix differs from the standard XYZ→Rec.2020
+// definition by a transpose, but for the white-balance ratio code below
+// (`g_live / g_decoded`) any consistent transformation cancels, and
+// matching Apple bit-for-bit is what M2.1's snapshot test asserts.
 const mat3 M_XYZ_D65_TO_REC2020 = mat3(
-    vec3( 1.7166512, -0.6666844,  0.0176399),  // column 0
-    vec3(-0.3556708,  1.6164812, -0.0427706),  // column 1
-    vec3(-0.2533663,  0.0157685,  0.9421031)   // column 2
+    vec3( 1.7166512, -0.3556708, -0.2533663),  // mirrors Apple's first float3 arg
+    vec3(-0.6666844,  1.6164812,  0.0157685),  // mirrors Apple's second float3 arg
+    vec3( 0.0176399, -0.0427706,  0.9421031)   // mirrors Apple's third float3 arg
 );
 
 // Hernández-Andrés (1999) polynomial. CCT (Kelvin) → CIE xy.
