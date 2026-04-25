@@ -178,7 +178,7 @@ cargo run --release -p raw-core --example stage-trace -- <DNG> <X> <Y>
 cargo run --release -p raw-core --example raw-stats -- <DNG>
 ```
 
-Fixtures at `src/raw-pipeline/test-fixtures/raws/` are gitignored. Reference RAW is a 100MP Hasselblad L3D-100c (DJI Mavic 3 Pro) frame at `test-fixtures/raws/dji-mavic3pro-100mp.dng`.
+Fixtures at `test-fixtures/raws/` (repo-root, not under `src/raw-pipeline/`) are gitignored. Reference RAW is a 100MP Hasselblad L3D-100c (DJI Mavic 3 Pro) frame at `test-fixtures/raws/dji-mavic3pro-100mp.dng`.
 
 ## Objective color testing — no eyeballing
 
@@ -188,7 +188,18 @@ Every color-pipeline change must pass the perceptual harness. Screenshot compari
 src/scripts/test_color_pipeline.sh              # CIEDE2000 gate
 ```
 
-The harness extracts the DNG's embedded preview (via `exiftool -PreviewImageStart/Length` + `dd`), runs `maple-cli` to render the candidate, and diffs with `compare_images.py`. Reports mean ΔE₀₀, P95, max, and per-channel bias. A case passes only when all four are under budget.
+The harness extracts the DNG's embedded preview (via `exiftool -PreviewImageStart/Length` + `dd`), runs `maple-cli` to render the candidate, and diffs with `compare_images.py`. Reports mean ΔE₀₀, P95, max, and per-channel bias per fixture. A case passes only when all four are under budget.
+
+Each metric has its own env-var knob. Defaults:
+
+| Knob          | Default       | Gate                            |
+| ------------- | ------------- | ------------------------------- |
+| `BUDGET`      | `15`          | mean ΔE₀₀                       |
+| `BUDGET_P95`  | `2 × BUDGET`  | P95 ΔE₀₀                        |
+| `BUDGET_MAX`  | `4 × BUDGET`  | max ΔE₀₀                        |
+| `BUDGET_BIAS` | `0.05`        | per-channel bias (abs, in [0,1])|
+
+When fixtures aren't present locally (e.g. CI without the gitignored RAWs), the harness skip-passes with a "no fixtures, skipping" message and exit 0 — so CI without fixtures doesn't fail spuriously.
 
 Budgets ratchet **downward** over time. CI rejects any PR that raises a budget. Budgets move down only, by explicit commit.
 
