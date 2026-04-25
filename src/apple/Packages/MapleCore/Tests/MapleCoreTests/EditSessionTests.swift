@@ -86,6 +86,52 @@ final class EditSessionTests: XCTestCase {
         XCTAssertFalse(files.isEmpty, "RenderedPreviewCache should have written a file under .maple/previews")
     }
 
+    /// On a cold open (no `.maple/previews` cache hit), the embedded JPEG
+    /// preview should publish to `renderedPreview` *before* the Rust
+    /// decode lands — that's the difference between a 50 ms first paint
+    /// and a multi-second one on a 100 MP RAW. This test captures the
+    /// ordering invariant by asserting `renderedPreview != nil` within
+    /// a tight window (well under any plausible Rust decode time, even
+    /// on cached fixtures).
+    ///
+    /// Requires a real .dng with an embedded JPEG preview. Uses
+    /// `test-fixtures/raws/test_0002.dng` if present; skips otherwise so
+    /// CI without fixtures still runs.
+    func testColdOpenPaintsEmbeddedPreviewBeforeRustDecode() async throws {
+        let fixturePath = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("raw-pipeline/test-fixtures/raws/test_0002.dng")
+
+        guard FileManager.default.fileExists(atPath: fixturePath.path) else {
+            throw XCTSkip("test_0002.dng fixture not present; skipping")
+        }
+
+        let asset = AssetRef(url: fixturePath)
+        let session = await EditSession(asset: asset)
+
+        // Trigger the open path. The Rust decode runs in a background
+        // task; the embedded-preview path runs sequentially in the
+        // foreground task before awaiting Rust.
+        await session.ensureRenderStarted()
+
+        // Poll for `renderedPreview` to land. Embedded preview via
+        // ImageIO is ~50 ms; Rust on this small fixture is ~3–5 s.
+        // 300 ms is comfortably between the two — if `renderedPreview`
+        // hasn't published by then, the embedded path is broken.
+        let deadline = Date().addingTimeInterval(0.3)
+        while Date() < deadline {
+            if await session.renderedPreview != nil { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        let preview = await session.renderedPreview
+        XCTAssertNotNil(preview, "Embedded preview must publish within 300 ms; otherwise cold open regressed to wait for Rust")
+    }
+
     func testLoadSidecarDoesNotRenderInactivePrimedSession() async throws {
         let dir = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
