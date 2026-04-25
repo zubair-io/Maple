@@ -1,9 +1,12 @@
 // DeepZoomTileRenderingTests.swift — Plan 3 (Ticket 06 M4) integration
-// tests for the tile FFI, MapleRawHandle wrapper, and
-// `ImageEditPipeline.decodePreviewTile`.
+// tests for the tile FFI, MapleRawHandle wrapper,
+// `ImageEditPipeline.decodePreviewTile`, the TileManager + AsyncStream
+// notification, and `EditSession.computeVisibleSourceRect`.
 //
-// Cross-link:
-//   docs/superpowers/plans/2026-04-25-deep-zoom-tile-rendering.md Task 4.
+// Cross-links:
+//   docs/superpowers/plans/2026-04-25-deep-zoom-tile-rendering.md Task 4
+//   docs/superpowers/plans/2026-04-25-deep-zoom-tile-rendering.md Task 6
+//   docs/superpowers/plans/2026-04-25-deep-zoom-tile-rendering.md Task 8
 //
 // Tests are split into two tiers:
 //   - "no fixture" tier: exercises the wrapper APIs through their
@@ -11,6 +14,41 @@
 //     environment, including CI without the gitignored DNG fixtures.
 //   - "fixture" tier: gated on `test-fixtures/raws/test_0002.dng`. When
 //     absent, `XCTSkip` is thrown so the suite still passes overall.
+//
+// MANUAL SMOKE TEST (deep zoom end-to-end — Task 8):
+//
+//   Build: `xcodebuild -project src/apple/Maple.xcodeproj -scheme Maple
+//          -destination 'platform=macOS' build`
+//   Launch the resulting Maple.app and open any RAW (the reference
+//   100 MP DNG at test-fixtures/raws/dji-mavic3pro-100mp.dng works
+//   well — its detail makes tile boundaries obvious).
+//
+//   1. The image opens at fit zoom. Indicator shows e.g. "18%".
+//      EditSession.pixelScale is 0; the deep-zoom branch is OFF.
+//
+//   2. Press ⌘1. pixelScale jumps to 1.0; the indicator shows "100%".
+//      `_scheduleRefine` debounces 250 ms then routes through the
+//      tile manager. The upscaled cached preview shows through while
+//      tiles fetch. Within ~500 ms the first tiles in the viewport
+//      should pop in (sharper edges, no resampling artifacts).
+//
+//   3. Drag-pan with two fingers (or click-drag). On `.onEnded`
+//      `notifyVisibleRegion` pushes the new viewport rect; the tile
+//      manager fetches whichever new tiles entered view. Cache hits
+//      paint immediately; misses fade in.
+//
+//   4. Pinch (Magnify) past 2.0 / 4.0 — zoom buckets (1, 2, 4, 8)
+//      kick in via TileManager.zoomBucket. New tiles are fetched at
+//      the next bucket; the previous bucket's tiles stay cached.
+//
+//   5. Move the dehaze slider (or any heavy filter). Tile path
+//      currently has no dehaze gating yet; the tiles render at the
+//      decoded model. Future plan tightens this.
+//
+//   Watch for: NO stutter on slider ticks (fit-mode budget is 16 ms;
+//   deep-zoom miss is bounded by RawImageCache hit + one renderTile
+//   call per missing tile). NO blank canvas — the upscaled preview
+//   underlay must always be visible while tiles fetch.
 
 import XCTest
 import CoreImage
