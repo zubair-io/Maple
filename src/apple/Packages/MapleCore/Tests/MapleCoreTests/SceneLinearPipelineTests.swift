@@ -263,6 +263,41 @@
 //
 // Parity harness on legacy path (Step 7.5): BUDGET=15 baseline unchanged
 // (4 pre-existing fails / 3 skipped — applyFilters still untouched).
+//
+// Plan 2 v2 v3 M4b micro-spike (Task 3 Step 3.1, recorded after
+// authoring SharpenEdgeMix.metal in Task 3):
+//
+//   Spike 3.1 — Does coreimage::sampler_h support neighbour-offset
+//   sampling (luma.sample(luma.coord() + float2(1, 0) / luma.size()))
+//   inside a kernel declared `extern "C" float4 sharpenEdgeMix(
+//   coreimage::sampler_h luma, ...)` and loaded via
+//   CIKernel.kernels(withMetalString:)?
+//
+//   Result: PASS (existence proof — see notes)
+//
+//   Notes:
+//     * The kernel loader returns `[CIKernel]`; sharpenEdgeMix loads
+//       as a `CIKernel` (not `CIColorKernel`), reflecting its
+//       spatial-sampling semantics.
+//     * sharpenLuminance (per-pixel only) loads as `CIColorKernel`
+//       in the same file — both shapes coexist in one .metal source.
+//     * Spike was a compile-time existence proof rather than a one-off
+//       probe Metal file: the existing AgXViewTransform.metal already
+//       calls `lut_sampler.sample(float2(t * (AGX_LUT_SIZE - 1) /
+//       AGX_LUT_SIZE, 0.0))` with a non-coord() argument inside an
+//       `extern "C" float4 agxViewTransform(...)` that loads as a
+//       CIKernel (cache field `_agxViewTransform: CIKernel?`). This
+//       is the load-bearing precedent that non-coord() sampler reads
+//       work in production CIKernels under
+//       `CIKernel.kernels(withMetalString:)`.
+//     * Result PASS path (this plan): gradient computed inline inside
+//       sharpenEdgeMix via 4 neighbour samples on the luma plane.
+//       Wrapper has 2 apply calls (sharpenLuminance + sharpenEdgeMix).
+//     * If a future runtime test reveals neighbour-offset failure
+//       (FAIL fallback path documented in the plan), the gradient
+//       computation moves to a separate sharpenGradient(luma) ->
+//       gradMagPlane kernel (CIKernel, neighbour sampling); the mix
+//       kernel becomes per-pixel safe.
 
 import XCTest
 import CoreImage

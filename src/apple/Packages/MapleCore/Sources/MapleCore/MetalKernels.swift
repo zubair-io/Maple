@@ -564,10 +564,43 @@ public enum MetalKernels {
             estimate = nextEstimate
         }
 
-        // Tasks 3 + 4 will replace this return with overdrive + edge mix.
-        // For now, return the bare RL-sharpened output.
-        _ = observed
-        return estimate
+        // Tasks 3 + 4: overdrive + edge-aware mix.
+        var sharpened = estimate
+
+        // Task 4 stub — overdrive applies only when amount > 100.
+        // Replaced in Task 4 with applySharpenOverdrive(...).
+        // For Task 3 we treat amount == 100..150 as no-overdrive.
+
+        // Task 3 — edge-aware mix.
+        guard let lumaKernel = sharpenLuminanceKernel(),
+              let mixKernel = sharpenEdgeMixKernel() else {
+            return sharpened
+        }
+
+        let overallMix = max(0.0, min(1.5, amount / 100.0))
+        let detailAtten = max(0.0, min(1.0, detail / 100.0))
+        let maskingThreshold = max(0.0, min(1.0, masking / 100.0))
+
+        // Step 1: extract Rec.2020 BT.2020 luma from observed.
+        guard let lumaPlane = lumaKernel.apply(
+            extent: input.extent,
+            roiCallback: { _, rect in rect },
+            arguments: [observed]
+        ) else { return sharpened }
+
+        // Step 2: edge-aware mix.
+        return mixKernel.apply(
+            extent: input.extent,
+            roiCallback: { _, rect in rect },
+            arguments: [
+                observed,
+                sharpened,
+                lumaPlane,
+                overallMix,
+                detailAtten,
+                maskingThreshold,
+            ]
+        ) ?? sharpened
     }
 
     /// Shared per-pixel mix kernel: `out = src + (src - blurred) * amount`.
@@ -638,6 +671,23 @@ public enum MetalKernels {
         _rlMultiply = loadKernel(file: "RichardsonLucyMixer",
                                  function: "rlMultiply") as? CIColorKernel
         return _rlMultiply
+    }
+
+    private static func sharpenLuminanceKernel() -> CIColorKernel? {
+        if let k = _sharpenLuminance { return k }
+        _sharpenLuminance = loadKernel(file: "SharpenEdgeMix",
+                                       function: "sharpenLuminance") as? CIColorKernel
+        return _sharpenLuminance
+    }
+
+    private static func sharpenEdgeMixKernel() -> CIKernel? {
+        if let k = _sharpenEdgeMix { return k }
+        // Note: NOT cast to CIColorKernel — `sharpenEdgeMix` does
+        // neighbour sampling on `luma`, which requires CIKernel
+        // (spatial). Per Task 3 Step 3.1 spike result.
+        _sharpenEdgeMix = loadKernel(file: "SharpenEdgeMix",
+                                     function: "sharpenEdgeMix")
+        return _sharpenEdgeMix
     }
 
     // MARK: Private kernel loaders
