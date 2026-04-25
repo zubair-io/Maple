@@ -28,7 +28,7 @@ use crate::{
 /// gates on existence, not value). `MAPLE_PROFILE=0` and `MAPLE_PROFILE=`
 /// both turn it on. `unset MAPLE_PROFILE` is the only way to disable.
 #[inline]
-fn stage<T>(name: &'static str, f: impl FnOnce() -> T) -> T {
+pub fn stage<T>(name: &'static str, f: impl FnOnce() -> T) -> T {
     let t = Instant::now();
     let r = f();
     if std::env::var_os("MAPLE_PROFILE").is_some() {
