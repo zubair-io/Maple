@@ -435,16 +435,6 @@ public actor ImageEditPipeline {
         _ input: CIImage,
         targetSize: CGSize?
     ) -> CIImage {
-        // Diagnostic: MAPLE_SKIP_PRESCALE=1 bypasses the Lanczos downscale
-        // entirely. Filter chain then runs on the full decoded buffer and
-        // the view layer scales the output. If the zoom-dependent muted-
-        // color issue disappears with this set (after MAPLE_SKIP_SWIFT_AGX
-        // and MAPLE_SKIP_SWIFT_FILTERS didn't close it), Lanczos is the
-        // remaining culprit — likely fp16 precision + working-space
-        // conversion at aggressive downscale ratios.
-        if ProcessInfo.processInfo.environment["MAPLE_SKIP_PRESCALE"] != nil {
-            return input
-        }
         guard let targetSize else { return input }
         let extent = input.extent
         guard extent.width > 0, extent.height > 0 else { return input }
