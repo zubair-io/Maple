@@ -1,5 +1,8 @@
-#version 300 es
-// SceneToneControls.frag — port of SceneToneControls.metal:25-75 (Plan 3 M2.1).
+// scene-tone-controls.ts — port of SceneToneControls.metal:25-75 (Plan 3 M2.1).
+// GLSL ES 3.0 fragment shader source as a TypeScript template literal.
+
+export const SCENE_TONE_CONTROLS_FRAGMENT_SOURCE = /* glsl */ `#version 300 es
+// SceneToneControls.frag — port of SceneToneControls.metal:25-75.
 //
 // Input: scene-linear Rec.2020 from the WB stage.
 // Five tone parameters: exposure (EV), highlights, shadows, whites, blacks
@@ -45,7 +48,7 @@ void main() {
     }
 
     // 3. Shadows — luminance-masked lift of deep values (per metal:53-60).
-    // GLSL `smoothstep(e0, e1, x)` matches Apple's `smoothstep_f` exactly
+    // GLSL smoothstep(e0, e1, x) matches Apple's smoothstep_f exactly
     // (same Hermite definition, same clamp).
     if (abs(uShadows) >= 1e-3) {
         float luma = dot(p, LUMA_REC2020);
@@ -69,3 +72,4 @@ void main() {
 
     outColor = vec4(p, color.a);
 }
+`;

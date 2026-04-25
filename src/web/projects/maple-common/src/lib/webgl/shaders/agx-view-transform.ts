@@ -1,5 +1,8 @@
-#version 300 es
-// AgXViewTransform.frag — port of AgXViewTransform.metal with inline sigmoid (Plan 3 M2.1).
+// agx-view-transform.ts — port of AgXViewTransform.metal (post commit 8ff4142).
+// GLSL ES 3.0 fragment shader source as a TypeScript template literal.
+
+export const AGX_VIEW_TRANSFORM_FRAGMENT_SOURCE = /* glsl */ `#version 300 es
+// AgXViewTransform.frag — port of AgXViewTransform.metal with INLINE sigmoid.
 //
 // Log-encode (per channel) -> contrast modulation -> Blender 4.x AgX_Default_Contrast
 // 6-piece polynomial. Mirrors the Apple inline-sigmoid kernel landed at
@@ -8,7 +11,7 @@
 //
 // The polynomial coefficients are frozen and mirror:
 //   * src/raw-pipeline/raw-core/src/view/agx.rs (post-LUT-removal)
-//   * src/scripts/derive_agx_lut.py:97-103 (the same polynomial that bakes
+//   * src/scripts/derive_agx_lut.py:72-104 (the same polynomial that bakes
 //     the legacy LUT — kept for reference/parity tooling)
 //   * src/apple/.../Metal/AgXViewTransform.metal (post commit 8ff4142)
 //
@@ -29,7 +32,7 @@ const float AGX_MID_GRAY =   0.18;
 const float MID_NORM     = 10.0 / 16.5;  // -AGX_MIN_EV / (AGX_MAX_EV - AGX_MIN_EV) ≈ 0.6061
 
 // Per-channel log-encode: scene-linear -> normalized log position in [0, 1].
-// Mirrors AgXViewTransform.metal's `agx_log_encode`.
+// Mirrors AgXViewTransform.metal's agx_log_encode.
 float agx_log_encode(float linear) {
     float eps = 1e-10;
     float log_val = log2(max(linear, eps)) - log2(AGX_MID_GRAY);
@@ -37,7 +40,7 @@ float agx_log_encode(float linear) {
 }
 
 // Inline AgX sigmoid — Blender 4.x AgX_Default_Contrast 6-piece polynomial.
-// `x` is the normalized-log position in [0, 1]; output is display-linear in [0, 1].
+// 'x' is the normalized-log position in [0, 1]; output is display-linear in [0, 1].
 //
 // Coefficients mirror the Apple inline kernel verbatim (commit 8ff4142,
 // kernel post-fix) and the Python source at src/scripts/derive_agx_lut.py:72-104.
@@ -57,7 +60,7 @@ float agx_sigmoid(float x) {
 
 // Apply contrast modulation: expand/compress around MID_NORM
 // so contrast=0 → identity, +100 → steep sigmoid (spec § 3.6a).
-// Mirrors AgXViewTransform.metal's `apply_contrast`.
+// Mirrors AgXViewTransform.metal's apply_contrast.
 float apply_contrast(float t, float contrast) {
     if (abs(contrast) < 1e-3) return t;
     float s = 1.0 + contrast / 200.0;
@@ -89,3 +92,4 @@ void main() {
 
     outColor = vec4(display, color.a);
 }
+`;

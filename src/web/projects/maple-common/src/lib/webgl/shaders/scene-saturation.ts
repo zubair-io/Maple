@@ -1,10 +1,13 @@
-#version 300 es
-// SceneSaturation.frag — port of SceneSaturation.metal:53-63 (Plan 3 M2.1).
+// scene-saturation.ts — port of SceneSaturation.metal:53-63 (Plan 3 M2.1).
+// GLSL ES 3.0 fragment shader source as a TypeScript template literal.
+
+export const SCENE_SATURATION_FRAGMENT_SOURCE = /* glsl */ `#version 300 es
+// SceneSaturation.frag — port of SceneSaturation.metal:53-63.
 //
 // Uniform chroma scale in Oklab. No skin-tone protection (vibrance has
 // it; saturation is meant to be uniform).
 //
-// Matrices duplicated from scene-vibrance.frag — see SceneSaturation.metal:11-16
+// Matrices duplicated from scene-vibrance.ts — see SceneSaturation.metal:11-16
 // for the rationale (per-metallib symbol scoping; GLSL has the same
 // restriction across separate compilation units).
 
@@ -63,3 +66,4 @@ void main() {
     vec3 new_lab = vec3(lab[0], lab[1] * scale, lab[2] * scale);
     outColor = vec4(oklab_to_rec2020_sat(new_lab), color.a);
 }
+`;
