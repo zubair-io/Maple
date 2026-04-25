@@ -151,6 +151,55 @@ int32_t maple_render_bytes_scene_linear_sized(const uint8_t *raw_bytes,
                                               struct MapleSceneLinearBuffer *out);
 
 /**
+ * Tile scene-linear render — same fp16 RGBA output struct as the sized
+ * variant, but renders only the source-pixel rectangle
+ * `(src_x, src_y, src_w, src_h)`. Pads internally by 35 px to satisfy
+ * the development chain's stencil radii (clarity is the binding
+ * constraint), then trims to the inner rect, downsamples to
+ * `(out_w, out_h)`, orients, and packs to fp16 RGBA.
+ *
+ * Returns 0 on success. Error codes mirror `maple_render_file_scene_linear`
+ * plus:
+ *   - 9:  `src_w/src_h/out_w/out_h == 0` — bad tile geometry.
+ *   - 10: `model.dehaze != 0` — tile path is not supported (radius 67
+ *          exceeds the 35 px overlap pad). Caller should fall back to
+ *          fit-zoom rendering.
+ *   - 11: `out_w > src_w || out_h > src_h` — tile path is downscale-only.
+ *
+ * Plan 3 — see docs/superpowers/plans/2026-04-25-deep-zoom-tile-rendering.md
+ * Task 2 and docs/tickets/06-viewport-sized-rust-ffi-preview.md M4.
+ */
+int32_t maple_render_file_scene_linear_tile(const char *raw_path,
+                                            const char *xmp_path,
+                                            uint32_t src_x,
+                                            uint32_t src_y,
+                                            uint32_t src_w,
+                                            uint32_t src_h,
+                                            uint32_t out_w,
+                                            uint32_t out_h,
+                                            int32_t quality_preview,
+                                            struct MapleSceneLinearBuffer *out);
+
+/**
+ * Tile scene-linear render from a byte slice — bytes equivalent of
+ * `maple_render_file_scene_linear_tile`. Same arguments + `raw_bytes` /
+ * `raw_len` / `hint_ext` (mirroring the bytes-variant convention from
+ * `maple_render_bytes_scene_linear_sized`).
+ */
+int32_t maple_render_bytes_scene_linear_tile(const uint8_t *raw_bytes,
+                                             uintptr_t raw_len,
+                                             const char *hint_ext,
+                                             const char *xmp_path,
+                                             uint32_t src_x,
+                                             uint32_t src_y,
+                                             uint32_t src_w,
+                                             uint32_t src_h,
+                                             uint32_t out_w,
+                                             uint32_t out_h,
+                                             int32_t quality_preview,
+                                             struct MapleSceneLinearBuffer *out);
+
+/**
  * Free a buffer populated by `maple_render_*_scene_linear`.
  */
 void maple_free_scene_linear_buffer(struct MapleSceneLinearBuffer *buffer);

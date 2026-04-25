@@ -658,6 +658,216 @@ pub unsafe extern "C" fn maple_render_bytes_scene_linear_sized(
     })
 }
 
+/// Tile scene-linear render — same fp16 RGBA output struct as the sized
+/// variant, but renders only the source-pixel rectangle
+/// `(src_x, src_y, src_w, src_h)`. Pads internally by 35 px to satisfy
+/// the development chain's stencil radii (clarity is the binding
+/// constraint), then trims to the inner rect, downsamples to
+/// `(out_w, out_h)`, orients, and packs to fp16 RGBA.
+///
+/// Returns 0 on success. Error codes mirror `maple_render_file_scene_linear`
+/// plus:
+///   - 9:  `src_w/src_h/out_w/out_h == 0` — bad tile geometry.
+///   - 10: `model.dehaze != 0` — tile path is not supported (radius 67
+///          exceeds the 35 px overlap pad). Caller should fall back to
+///          fit-zoom rendering.
+///   - 11: `out_w > src_w || out_h > src_h` — tile path is downscale-only.
+///
+/// Plan 3 — see docs/superpowers/plans/2026-04-25-deep-zoom-tile-rendering.md
+/// Task 2 and docs/tickets/06-viewport-sized-rust-ffi-preview.md M4.
+#[no_mangle]
+pub unsafe extern "C" fn maple_render_file_scene_linear_tile(
+    raw_path: *const c_char,
+    xmp_path: *const c_char,
+    src_x: u32,
+    src_y: u32,
+    src_w: u32,
+    src_h: u32,
+    out_w: u32,
+    out_h: u32,
+    quality_preview: i32,
+    out: *mut MapleSceneLinearBuffer,
+) -> i32 {
+    if raw_path.is_null() || out.is_null() {
+        set_last_error("null pointer argument".into());
+        return 1;
+    }
+    if src_w == 0 || src_h == 0 || out_w == 0 || out_h == 0 {
+        set_last_error("src_w/src_h/out_w/out_h must be > 0".into());
+        return 9;
+    }
+    let raw_path_str = match CStr::from_ptr(raw_path).to_str() {
+        Ok(s) => s.to_owned(),
+        Err(e) => { set_last_error(format!("raw_path not UTF-8: {}", e)); return 2; }
+    };
+    let xmp_path_str: Option<String> = if xmp_path.is_null() {
+        None
+    } else {
+        match CStr::from_ptr(xmp_path).to_str() {
+            Ok(s) => Some(s.to_owned()),
+            Err(e) => { set_last_error(format!("xmp_path not UTF-8: {}", e)); return 3; }
+        }
+    };
+    let out_ptr = out as usize;
+    with_large_stack(move || {
+        let raw_path = std::path::Path::new(&raw_path_str);
+        let model = match &xmp_path_str {
+            None => xmp::AdjustmentModel::default(),
+            Some(p) => match std::fs::read_to_string(p) {
+                Ok(xml) => match xmp::parse(&xml) {
+                    Ok(m) => m,
+                    Err(e) => { set_last_error(format!("xmp parse: {}", e)); return 4; }
+                },
+                Err(e) => { set_last_error(format!("xmp read: {}", e)); return 5; }
+            },
+        };
+        let raw_bytes = match raw_core::pipeline::stage("ffi_raw_read", || std::fs::read(raw_path)) {
+            Ok(b) => b,
+            Err(e) => { set_last_error(format!("raw read: {}", e)); return 6; }
+        };
+        let ext = raw_path.extension().and_then(|e| e.to_str()).unwrap_or("");
+        let raw_img = match raw_core::pipeline::stage("ffi_rawler_decode", || decode_bytes(&raw_bytes, ext)) {
+            Ok(r) => r,
+            Err(e) => { set_last_error(format!("decode: {}", e)); return 7; }
+        };
+        let quality = if quality_preview != 0 {
+            raw_core::pipeline::RenderQuality::Preview
+        } else {
+            raw_core::pipeline::RenderQuality::Full
+        };
+        let (w, h, fp16) = match raw_core::pipeline::render_scene_linear_tile_from_raw_with_quality(
+            &raw_img, &model, src_x, src_y, src_w, src_h, out_w, out_h, quality,
+        ) {
+            Ok(t) => t,
+            Err(e) => {
+                let msg = format!("{}", e);
+                set_last_error(msg.clone());
+                if msg.contains("dehaze") { return 10; }
+                if msg.contains("upscale") || msg.contains("downscale-only") { return 11; }
+                return 8;
+            }
+        };
+        let (fp16_ptr, _len_lanes, len_bytes) = raw_core::pipeline::stage("ffi_pack", || {
+            let mut boxed = fp16.into_boxed_slice();
+            let p = boxed.as_mut_ptr();
+            let n = boxed.len();
+            std::mem::forget(boxed);
+            (p, n, n * std::mem::size_of::<u16>())
+        });
+        unsafe {
+            *(out_ptr as *mut MapleSceneLinearBuffer) =
+                MapleSceneLinearBuffer {
+                    fp16_rgba: fp16_ptr,
+                    len_bytes,
+                    channels: 4,
+                    bytes_per_pixel: 8,
+                    width: w,
+                    height: h,
+                };
+        }
+        0
+    })
+}
+
+/// Tile scene-linear render from a byte slice — bytes equivalent of
+/// `maple_render_file_scene_linear_tile`. Same arguments + `raw_bytes` /
+/// `raw_len` / `hint_ext` (mirroring the bytes-variant convention from
+/// `maple_render_bytes_scene_linear_sized`).
+#[no_mangle]
+pub unsafe extern "C" fn maple_render_bytes_scene_linear_tile(
+    raw_bytes: *const u8,
+    raw_len: usize,
+    hint_ext: *const c_char,
+    xmp_path: *const c_char,
+    src_x: u32,
+    src_y: u32,
+    src_w: u32,
+    src_h: u32,
+    out_w: u32,
+    out_h: u32,
+    quality_preview: i32,
+    out: *mut MapleSceneLinearBuffer,
+) -> i32 {
+    if raw_bytes.is_null() || out.is_null() {
+        set_last_error("null pointer argument".into());
+        return 1;
+    }
+    if src_w == 0 || src_h == 0 || out_w == 0 || out_h == 0 {
+        set_last_error("src_w/src_h/out_w/out_h must be > 0".into());
+        return 9;
+    }
+    let ext_owned: String = if hint_ext.is_null() {
+        String::new()
+    } else {
+        match CStr::from_ptr(hint_ext).to_str() {
+            Ok(s) => s.to_owned(),
+            Err(e) => { set_last_error(format!("hint_ext not UTF-8: {}", e)); return 2; }
+        }
+    };
+    let xmp_path_str: Option<String> = if xmp_path.is_null() {
+        None
+    } else {
+        match CStr::from_ptr(xmp_path).to_str() {
+            Ok(s) => Some(s.to_owned()),
+            Err(e) => { set_last_error(format!("xmp_path not UTF-8: {}", e)); return 3; }
+        }
+    };
+    let input: Vec<u8> = std::slice::from_raw_parts(raw_bytes, raw_len).to_vec();
+    let out_ptr = out as usize;
+    with_large_stack(move || {
+        let model = match &xmp_path_str {
+            None => xmp::AdjustmentModel::default(),
+            Some(p) => match std::fs::read_to_string(p) {
+                Ok(xml) => match xmp::parse(&xml) {
+                    Ok(m) => m,
+                    Err(e) => { set_last_error(format!("xmp parse: {}", e)); return 4; }
+                },
+                Err(e) => { set_last_error(format!("xmp read: {}", e)); return 5; }
+            },
+        };
+        let raw_img = match raw_core::pipeline::stage("ffi_rawler_decode", || decode_bytes(&input, &ext_owned)) {
+            Ok(r) => r,
+            Err(e) => { set_last_error(format!("decode: {}", e)); return 7; }
+        };
+        let quality = if quality_preview != 0 {
+            raw_core::pipeline::RenderQuality::Preview
+        } else {
+            raw_core::pipeline::RenderQuality::Full
+        };
+        let (w, h, fp16) = match raw_core::pipeline::render_scene_linear_tile_from_raw_with_quality(
+            &raw_img, &model, src_x, src_y, src_w, src_h, out_w, out_h, quality,
+        ) {
+            Ok(t) => t,
+            Err(e) => {
+                let msg = format!("{}", e);
+                set_last_error(msg.clone());
+                if msg.contains("dehaze") { return 10; }
+                if msg.contains("upscale") || msg.contains("downscale-only") { return 11; }
+                return 8;
+            }
+        };
+        let (fp16_ptr, _len_lanes, len_bytes) = raw_core::pipeline::stage("ffi_pack", || {
+            let mut boxed = fp16.into_boxed_slice();
+            let p = boxed.as_mut_ptr();
+            let n = boxed.len();
+            std::mem::forget(boxed);
+            (p, n, n * std::mem::size_of::<u16>())
+        });
+        unsafe {
+            *(out_ptr as *mut MapleSceneLinearBuffer) =
+                MapleSceneLinearBuffer {
+                    fp16_rgba: fp16_ptr,
+                    len_bytes,
+                    channels: 4,
+                    bytes_per_pixel: 8,
+                    width: w,
+                    height: h,
+                };
+        }
+        0
+    })
+}
+
 /// Free a buffer populated by `maple_render_*_scene_linear`.
 #[no_mangle]
 pub unsafe extern "C" fn maple_free_scene_linear_buffer(buffer: *mut MapleSceneLinearBuffer) {
@@ -796,5 +1006,181 @@ mod tests {
             )
         };
         assert_eq!(rc, 9);
+    }
+
+    // -----------------------------------------------------------------
+    // Tile FFI entry tests (Plan deep-zoom-tile-rendering Task 2).
+    // -----------------------------------------------------------------
+
+    /// Null pointer to `maple_render_file_scene_linear_tile` returns 1
+    /// (no fixture required — null check fires before any I/O).
+    #[test]
+    fn tile_null_arg_sets_error() {
+        let mut buf = MapleSceneLinearBuffer::empty();
+        let rc = unsafe {
+            maple_render_file_scene_linear_tile(
+                std::ptr::null(), std::ptr::null(),
+                0, 0, 512, 512, 256, 256, 0, &mut buf,
+            )
+        };
+        assert_eq!(rc, 1);
+        let err = unsafe { maple_last_error() };
+        assert!(!err.is_null());
+        let msg = unsafe { CStr::from_ptr(err).to_str().unwrap() };
+        assert!(msg.contains("null"));
+    }
+
+    /// Zero-dimensioned src/out arguments return 9. We need a non-null
+    /// pointer for the path so the null check passes; the bad-geometry
+    /// check fires before the path is read.
+    #[test]
+    fn tile_zero_dim_sets_error() {
+        let dummy = CString::new("/dev/null").unwrap();
+        let mut buf = MapleSceneLinearBuffer::empty();
+        // src_w == 0
+        let rc = unsafe {
+            maple_render_file_scene_linear_tile(
+                dummy.as_ptr(), std::ptr::null(),
+                0, 0, 0, 512, 256, 256, 0, &mut buf,
+            )
+        };
+        assert_eq!(rc, 9, "src_w=0 should be rc=9, got {}", rc);
+        // out_h == 0
+        let rc = unsafe {
+            maple_render_file_scene_linear_tile(
+                dummy.as_ptr(), std::ptr::null(),
+                0, 0, 512, 512, 256, 0, 0, &mut buf,
+            )
+        };
+        assert_eq!(rc, 9, "out_h=0 should be rc=9, got {}", rc);
+    }
+
+    /// Bytes-variant null pointer returns 1.
+    #[test]
+    fn tile_bytes_null_arg_sets_error() {
+        let mut buf = MapleSceneLinearBuffer::empty();
+        let ext = CString::new("dng").unwrap();
+        let rc = unsafe {
+            maple_render_bytes_scene_linear_tile(
+                std::ptr::null(), 0, ext.as_ptr(), std::ptr::null(),
+                0, 0, 512, 512, 256, 256, 0, &mut buf,
+            )
+        };
+        assert_eq!(rc, 1);
+    }
+
+    /// File-path tile render with default model returns a 256×256 fp16
+    /// RGBA buffer with alpha = 1.0 in every pixel and the documented
+    /// channel/bytes-per-pixel layout. Fixture-gated.
+    #[test]
+    fn render_tile_default_model_via_ffi() {
+        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../test-fixtures/raws/test_0002.dng");
+        if !path.exists() { return; }
+        let raw_cstr = CString::new(path.to_str().unwrap()).unwrap();
+        let mut buf = MapleSceneLinearBuffer::empty();
+        let rc = unsafe {
+            maple_render_file_scene_linear_tile(
+                raw_cstr.as_ptr(), std::ptr::null(),
+                1024, 1024, 512, 512, 256, 256,
+                /* quality_preview = */ 0, &mut buf,
+            )
+        };
+        assert_eq!(rc, 0, "tile render rc = {}", rc);
+        assert_eq!(buf.width, 256);
+        assert_eq!(buf.height, 256);
+        assert_eq!(buf.channels, 4);
+        assert_eq!(buf.bytes_per_pixel, 8);
+        assert_eq!(buf.len_bytes as u32, buf.width * buf.height * 8);
+        // Verify alpha lane is fp16 1.0 (= 0x3c00) for every pixel.
+        let n_lanes = buf.len_bytes / std::mem::size_of::<u16>();
+        let lanes = unsafe { std::slice::from_raw_parts(buf.fp16_rgba, n_lanes) };
+        let alpha_ok = lanes.chunks_exact(4).filter(|c| c[3] == 0x3c00).count();
+        assert_eq!(alpha_ok, (buf.width * buf.height) as usize,
+            "all alpha lanes must be fp16 1.0");
+        unsafe { maple_free_scene_linear_buffer(&mut buf) };
+        assert!(buf.fp16_rgba.is_null());
+    }
+
+    /// Bytes-variant tile render with default model — same shape checks
+    /// as the file-path test. Fixture-gated.
+    #[test]
+    fn render_tile_default_model_via_bytes_ffi() {
+        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../test-fixtures/raws/test_0002.dng");
+        if !path.exists() { return; }
+        let bytes = std::fs::read(&path).unwrap();
+        let ext = CString::new("dng").unwrap();
+        let mut buf = MapleSceneLinearBuffer::empty();
+        let rc = unsafe {
+            maple_render_bytes_scene_linear_tile(
+                bytes.as_ptr(), bytes.len(), ext.as_ptr(), std::ptr::null(),
+                1024, 1024, 512, 512, 256, 256,
+                0, &mut buf,
+            )
+        };
+        assert_eq!(rc, 0, "tile bytes render rc = {}", rc);
+        assert_eq!(buf.width, 256);
+        assert_eq!(buf.height, 256);
+        assert_eq!(buf.channels, 4);
+        assert_eq!(buf.bytes_per_pixel, 8);
+        assert_eq!(buf.len_bytes as u32, buf.width * buf.height * 8);
+        unsafe { maple_free_scene_linear_buffer(&mut buf) };
+        assert!(buf.fp16_rgba.is_null());
+    }
+
+    /// Tile FFI rejects active dehaze with rc=10. Fixture-gated because
+    /// the rejection happens after rawler decodes the RAW (the dehaze
+    /// gate lives in `render_scene_linear_tile_from_raw_with_quality`).
+    #[test]
+    fn render_tile_dehaze_active_returns_error_code_10() {
+        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../test-fixtures/raws/test_0002.dng");
+        if !path.exists() { return; }
+        // Synthesize an XMP file with dehaze=50.
+        let xmp_path = std::env::temp_dir().join("tile-dehaze-ffi.xmp");
+        std::fs::write(
+            &xmp_path,
+            r#"<?xml version="1.0"?><x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/" crs:Dehaze="50"/></rdf:RDF></x:xmpmeta>"#,
+        ).unwrap();
+        let raw_cstr = CString::new(path.to_str().unwrap()).unwrap();
+        let xmp_cstr = CString::new(xmp_path.to_str().unwrap()).unwrap();
+        let mut buf = MapleSceneLinearBuffer::empty();
+        let rc = unsafe {
+            maple_render_file_scene_linear_tile(
+                raw_cstr.as_ptr(), xmp_cstr.as_ptr(),
+                1024, 1024, 512, 512, 256, 256, 0, &mut buf,
+            )
+        };
+        assert_eq!(rc, 10, "expected dehaze-unsupported rc=10, got {}", rc);
+        unsafe { maple_free_scene_linear_buffer(&mut buf) };
+        let _ = std::fs::remove_file(&xmp_path);
+    }
+
+    /// Tile FFI rejects out > src (upscale) with rc=11. Fixture-gated
+    /// because the upscale gate runs inside the post-decode core call.
+    #[test]
+    fn render_tile_upscale_returns_error_code_11() {
+        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../test-fixtures/raws/test_0002.dng");
+        if !path.exists() { return; }
+        let raw_cstr = CString::new(path.to_str().unwrap()).unwrap();
+        let mut buf = MapleSceneLinearBuffer::empty();
+        // out_w > src_w
+        let rc = unsafe {
+            maple_render_file_scene_linear_tile(
+                raw_cstr.as_ptr(), std::ptr::null(),
+                1024, 1024, 256, 256, 512, 256, 0, &mut buf,
+            )
+        };
+        assert_eq!(rc, 11, "out_w>src_w must rc=11, got {}", rc);
+        // out_h > src_h
+        let rc = unsafe {
+            maple_render_file_scene_linear_tile(
+                raw_cstr.as_ptr(), std::ptr::null(),
+                1024, 1024, 256, 256, 256, 512, 0, &mut buf,
+            )
+        };
+        assert_eq!(rc, 11, "out_h>src_h must rc=11, got {}", rc);
     }
 }
