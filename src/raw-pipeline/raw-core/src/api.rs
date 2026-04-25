@@ -362,7 +362,7 @@ pub fn waveform(r: &Rendered) -> Waveform {
 /// [`encode`] at the spec-pinned quality (82 for thumbs, 90 for previews).
 pub fn thumbnail(image: &RawImage, max_px: u32) -> Result<Rgba> {
     if max_px == 0 {
-        return Err(Error::Pipeline("thumbnail: max_px must be > 0"));
+        return Err(Error::Pipeline("thumbnail: max_px must be > 0".into()));
     }
     let adj = AdjustmentModel::default();
     let rendered = apply(image, &adj)?;
@@ -373,7 +373,7 @@ pub fn thumbnail(image: &RawImage, max_px: u32) -> Result<Rgba> {
 /// user adjustments.
 pub fn preview(image: &RawImage, max_px: u32, adj: &AdjustmentModel) -> Result<Rgba> {
     if max_px == 0 {
-        return Err(Error::Pipeline("preview: max_px must be > 0"));
+        return Err(Error::Pipeline("preview: max_px must be > 0".into()));
     }
     let rendered = apply(image, adj)?;
     downsample_to_rgba(&rendered, max_px)
@@ -387,7 +387,7 @@ pub fn preview(image: &RawImage, max_px: u32, adj: &AdjustmentModel) -> Result<R
 fn downsample_to_rgba(rendered: &Rendered, max_px: u32) -> Result<Rgba> {
     let (sw, sh) = (rendered.width, rendered.height);
     if sw == 0 || sh == 0 {
-        return Err(Error::Pipeline("downsample: source is empty"));
+        return Err(Error::Pipeline("downsample: source is empty".into()));
     }
     let long_edge = sw.max(sh);
     let (dw, dh) = if long_edge <= max_px {
@@ -448,8 +448,8 @@ pub fn encode(r: &Rendered, fmt: OutFmt, opts: &EncodeOpts) -> Result<Vec<u8>> {
         OutFmt::Jpeg => crate::jpeg::encode(r.width, r.height, &r.rgb, opts.quality),
         OutFmt::Png  => crate::png::encode(r.width, r.height, &r.rgb),
         OutFmt::Tiff => crate::tiff::encode_from_u8(r.width, r.height, &r.rgb),
-        OutFmt::Webp => Err(Error::Pipeline("encode: WebP unsupported (T-future)")),
-        OutFmt::Heic => Err(Error::Pipeline("encode: HEIC unsupported (T-future)")),
+        OutFmt::Webp => Err(Error::Pipeline("encode: WebP unsupported (T-future)".into())),
+        OutFmt::Heic => Err(Error::Pipeline("encode: HEIC unsupported (T-future)".into())),
     }
 }
 
