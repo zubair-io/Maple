@@ -713,21 +713,27 @@ final class SceneLinearPipelineTests: XCTestCase {
         }
     }
 
-    /// Sanity check: the LUT binary embedded in MapleCore (used by the
-    /// production Metal kernel) should match the LUT binary embedded in
+    /// Hard parity gate: the LUT binary embedded in MapleCore (used by the
+    /// production Metal kernel) MUST match the LUT binary embedded in
     /// raw-core (used by the production Rust path). If these diverge,
     /// Apple and the Rust reference render differ across the entire tone
-    /// range — even a perfectly-implemented Metal kernel cannot match
-    /// Rust output. This was flagged by Spike 1.2: as of AGX_VERSION 5
-    /// (Rust), the Apple-bundled LUT was still at the older version
-    /// (per `MetalKernels.swift:122` "AGX_VERSION 2" comment).
+    /// range — even a perfectly-implemented Metal kernel cannot match Rust
+    /// output. Spike 1.2 originally flagged this as a known divergence
+    /// (Apple bundled at AGX_VERSION 2 vs Rust at 5, max |Δ|=0.2796 at
+    /// LUT index 301) and logged without failing. The Spike 1.2 follow-up
+    /// regenerated both LUTs from `derive_agx_lut.py --apple-bin …`,
+    /// promoted this assertion to a hard equality check, and moved the
+    /// codegen path so `--apple-bin` is the supported way to keep them
+    /// aligned.
     ///
     /// PASS: the two binaries are byte-identical.
-    /// FAIL (recorded but not blocking): they differ — the Apple-bundled
-    ///   LUT must be re-derived from `derive_agx_lut.py` and committed.
-    func testSpikeAppleBundledAgxLUTMatchesRustLUT() throws {
+    /// FAIL: they diverge — re-run `derive_agx_lut.py` with `--apple-bin`
+    ///   pointed at `src/apple/Packages/MapleCore/Sources/MapleCore/Metal/agx_lut.bin`
+    ///   and commit the result.
+    func testAppleBundledAgxLUTMatchesRustLUT() throws {
         guard let appleData = MetalKernels.agxLUTBytes() else {
-            throw XCTSkip("MapleCore Metal/agx_lut.bin not bundled")
+            XCTFail("MapleCore Metal/agx_lut.bin not bundled — SwiftPM resource path broken")
+            return
         }
         let here = URL(fileURLWithPath: #filePath)
         var root = here
@@ -738,42 +744,36 @@ final class SceneLinearPipelineTests: XCTestCase {
             throw XCTSkip("Rust agx_lut.bin not found at \(rustURL.path)")
         }
         let rustData = try Data(contentsOf: rustURL)
-        if appleData == rustData {
-            // Aligned — no action needed.
-            return
-        }
-        // Compute a numeric divergence summary so the failure is
-        // diagnostic, not just "they differ".
-        let nApple = appleData.count / 4
-        let nRust = rustData.count / 4
-        XCTAssertEqual(nApple, 512, "Apple LUT size mismatch")
-        XCTAssertEqual(nRust, 512, "Rust LUT size mismatch")
-        var aLUT = [Float32](repeating: 0, count: nApple)
-        var rLUT = [Float32](repeating: 0, count: nRust)
-        appleData.withUnsafeBytes { src in
-            aLUT.withUnsafeMutableBytes { dst in
-                dst.baseAddress?.copyMemory(from: src.baseAddress!, byteCount: appleData.count)
+        // Sizes first — a length mismatch makes a byte diff meaningless.
+        XCTAssertEqual(appleData.count, 2048, "Apple LUT size must be 512 × f32 = 2048 bytes")
+        XCTAssertEqual(rustData.count,  2048, "Rust LUT size must be 512 × f32 = 2048 bytes")
+        // Hard equality gate. If this ever fails again, decode + report
+        // the worst index so the failure message is diagnostic.
+        if appleData != rustData {
+            let nApple = appleData.count / 4
+            let nRust = rustData.count / 4
+            var aLUT = [Float32](repeating: 0, count: nApple)
+            var rLUT = [Float32](repeating: 0, count: nRust)
+            appleData.withUnsafeBytes { src in
+                aLUT.withUnsafeMutableBytes { dst in
+                    dst.baseAddress?.copyMemory(from: src.baseAddress!, byteCount: appleData.count)
+                }
             }
-        }
-        rustData.withUnsafeBytes { src in
-            rLUT.withUnsafeMutableBytes { dst in
-                dst.baseAddress?.copyMemory(from: src.baseAddress!, byteCount: rustData.count)
+            rustData.withUnsafeBytes { src in
+                rLUT.withUnsafeMutableBytes { dst in
+                    dst.baseAddress?.copyMemory(from: src.baseAddress!, byteCount: rustData.count)
+                }
             }
+            var maxDiff: Float = 0
+            var maxIdx: Int = 0
+            for i in 0..<min(nApple, nRust) {
+                let d = abs(aLUT[i] - rLUT[i])
+                if d > maxDiff { maxDiff = d; maxIdx = i }
+            }
+            XCTFail(String(format:
+                "Apple-bundled agx_lut.bin diverges from Rust agx_lut.bin: max |Δ|=%.4f at LUT index %d (Apple=%.4f, Rust=%.4f). Re-bake via `python3 src/scripts/derive_agx_lut.py --bin src/raw-pipeline/raw-core/src/view/agx_lut.bin --rs src/raw-pipeline/raw-core/src/view/agx_coeffs.rs --apple-bin src/apple/Packages/MapleCore/Sources/MapleCore/Metal/agx_lut.bin` and commit.",
+                maxDiff, maxIdx, aLUT[maxIdx], rLUT[maxIdx]))
         }
-        var maxDiff: Float = 0
-        var maxIdx: Int = 0
-        for i in 0..<min(nApple, nRust) {
-            let d = abs(aLUT[i] - rLUT[i])
-            if d > maxDiff { maxDiff = d; maxIdx = i }
-        }
-        // Spike 1.2 records the divergence as a known finding without
-        // blocking the kernel-parity check. The plan's Task 5 ships the
-        // bundled-LUT sync; we surface the gap here so it doesn't get
-        // forgotten. Use a `print` (not XCTFail) so the spike test suite
-        // returns green and the parent task can pick up the asset sync.
-        print(String(format:
-            "[Spike 1.2 finding] Apple-bundled agx_lut.bin diverges from Rust agx_lut.bin: max |Δ|=%.4f at LUT index %d (Apple=%.4f, Rust=%.4f). Re-bake from derive_agx_lut.py and commit.",
-            maxDiff, maxIdx, aLUT[maxIdx], rLUT[maxIdx]))
     }
 
     // MARK: - LUT mirror helpers (port of view/agx.rs:34-77)
@@ -782,13 +782,13 @@ final class SceneLinearPipelineTests: XCTestCase {
     /// the Rust LUT at `src/raw-pipeline/raw-core/src/view/agx_lut.bin`,
     /// resolved relative to this test file at compile time. Reasoning:
     /// the Rust reference outputs in `rustReferenceOutputs` were generated
-    /// from THAT exact LUT (AGX_VERSION 5 per agx_coeffs.rs). The
-    /// MapleCore-bundled `Metal/agx_lut.bin` is currently at AGX_VERSION
-    /// 2 (per `MetalKernels.swift:122` comment) and is byte-divergent —
-    /// that divergence is flagged separately by
-    /// `testSpikeAppleBundledAgxLUTMatchesRustLUT`. Using the Rust bytes
-    /// here isolates the spike's question (is per-channel math
-    /// primary-agnostic?) from the orthogonal bundling-drift question.
+    /// from THAT exact LUT (AGX_VERSION 5 per agx_coeffs.rs). As of the
+    /// Spike 1.2 follow-up, the MapleCore-bundled `Metal/agx_lut.bin` is
+    /// byte-identical to the Rust LUT (enforced by
+    /// `testAppleBundledAgxLUTMatchesRustLUT`); this helper still loads
+    /// the Rust bytes directly so the LUT-mirror tests stay independent
+    /// of SwiftPM's resource-bundling layout, and so a future bundling
+    /// regression doesn't masquerade as a per-channel-math regression.
     private func loadAgxLUT() throws -> [Float] {
         let here = URL(fileURLWithPath: #filePath)
         // here = .../src/apple/Packages/MapleCore/Tests/MapleCoreTests/SceneLinearPipelineTests.swift

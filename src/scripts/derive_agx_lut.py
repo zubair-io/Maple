@@ -25,7 +25,14 @@ script's output bytes change (§ 05-performance.md § RenderedPreviewCache).
 Usage:
   python3 src/scripts/derive_agx_lut.py \
     --bin src/raw-pipeline/raw-core/src/view/agx_lut.bin \
-    --rs  src/raw-pipeline/raw-core/src/view/agx_coeffs.rs
+    --rs  src/raw-pipeline/raw-core/src/view/agx_coeffs.rs \
+    --apple-bin src/apple/Packages/MapleCore/Sources/MapleCore/Metal/agx_lut.bin
+
+`--apple-bin` is optional but recommended: it writes the same bytes to the
+SwiftPM-bundled LUT consumed by `MetalKernels.swift` / `AgXViewTransform.metal`.
+Skipping it lets the Apple side drift behind the Rust reference (this is
+exactly the Spike 1.2 finding, AGX_VERSION 2 vs 5, that motivated adding
+this flag). CI / contributor scripts should always pass it.
 """
 from __future__ import annotations
 
@@ -178,8 +185,18 @@ def sanity_check(lut: list[float]) -> None:
 
 def main() -> int:
     p = argparse.ArgumentParser()
-    p.add_argument("--bin", required=True, help="output .bin path")
+    p.add_argument("--bin", required=True, help="output .bin path (Rust raw-core)")
     p.add_argument("--rs",  required=True, help="output coeffs.rs path")
+    p.add_argument(
+        "--apple-bin",
+        required=False,
+        default=None,
+        help=(
+            "optional output .bin path for the Apple SwiftPM-bundled LUT "
+            "(consumed by MetalKernels.swift). Identical bytes to --bin; "
+            "writing both keeps the Apple side from drifting behind Rust."
+        ),
+    )
     args = p.parse_args()
 
     lut = build_lut()
@@ -188,6 +205,12 @@ def main() -> int:
     emit_rs(Path(args.rs))
     print(f"wrote {args.bin} ({LUT_SIZE} f32 entries, {LUT_SIZE * 4} bytes)")
     print(f"wrote {args.rs}  (constants, version={AGX_VERSION})")
+    if args.apple_bin:
+        emit_bin(lut, Path(args.apple_bin))
+        print(
+            f"wrote {args.apple_bin} ({LUT_SIZE} f32 entries, "
+            f"{LUT_SIZE * 4} bytes; Apple-bundled mirror)"
+        )
     return 0
 
 

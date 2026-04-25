@@ -119,7 +119,10 @@ public enum MetalKernels {
     // MARK: AgX LUT
 
     /// Build a 1×512 CIImage from the embedded agx_lut.bin (f32 LE).
-    /// This is the same binary the Rust pipeline uses (AGX_VERSION 2).
+    /// This is the same binary the Rust pipeline uses (AGX_VERSION 5).
+    /// Both LUTs are emitted by `src/scripts/derive_agx_lut.py` — pass
+    /// `--apple-bin` to that script to keep the Apple-bundled mirror in
+    /// sync with the Rust raw-core source of truth.
     public static func agxLUTImage() -> CIImage? {
         guard let url = Bundle.module.url(forResource: "agx_lut", withExtension: "bin"),
               let data = try? Data(contentsOf: url) else {
