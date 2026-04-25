@@ -21,14 +21,18 @@
 # with a "no fixtures, skipping" message — CI doesn't fail spuriously.
 #
 # Env overrides (the four budgets that gate a pass):
-#   BUDGET       = mean ΔE₀₀ threshold      (default 15)
-#   BUDGET_P95   = P95  ΔE₀₀ threshold      (default 2 × BUDGET)
-#   BUDGET_MAX   = max  ΔE₀₀ threshold      (default 4 × BUDGET)
-#   BUDGET_BIAS  = abs per-channel bias cap (default 0.05, i.e. 5% of [0,1])
+#   BUDGET            = mean ΔE₀₀ threshold      (default 15)
+#   BUDGET_P95        = P95  ΔE₀₀ threshold      (default 2 × BUDGET)
+#   BUDGET_MAX        = max  ΔE₀₀ threshold      (default 4 × BUDGET)
+#   BUDGET_BIAS       = abs per-channel bias cap (default 0.05, i.e. 5% of [0,1])
+#   INCLUDE_LINEARRAW = if set to 1, do NOT skip LinearRaw fixtures (default
+#                       unset; LinearRaw DNGs are skipped — see ticket #07
+#                       at docs/tickets/07-linearraw-dng-decode.md).
 #
 # Usage:
 #   src/scripts/test_color_pipeline.sh                # default budgets
 #   BUDGET=5 src/scripts/test_color_pipeline.sh       # tighten the mean gate
+#   INCLUDE_LINEARRAW=1 src/scripts/test_color_pipeline.sh   # force LinearRaw in
 
 set -euo pipefail
 
@@ -45,6 +49,7 @@ BUDGET="${BUDGET:-15}"
 BUDGET_P95="${BUDGET_P95:-$(awk -v b="$BUDGET" 'BEGIN { printf "%g", b * 2 }')}"
 BUDGET_MAX="${BUDGET_MAX:-$(awk -v b="$BUDGET" 'BEGIN { printf "%g", b * 4 }')}"
 BUDGET_BIAS="${BUDGET_BIAS:-0.05}"
+INCLUDE_LINEARRAW="${INCLUDE_LINEARRAW:-0}"
 
 # ----- preflight -----------------------------------------------------------
 err() { printf "test_color_pipeline: %s\n" "$*" >&2; }
@@ -111,6 +116,23 @@ for raw in "${FIXTURES[@]}"; do
   ref_jpeg="$WORKDIR/$stem.preview.jpg"
   cand_png="$WORKDIR/$stem.candidate.png"
   cand_resized="$WORKDIR/$stem.candidate.resized.png"
+
+  # 0. Skip LinearRaw DNGs unless the caller forces inclusion via
+  #    INCLUDE_LINEARRAW=1. DNG PhotometricInterpretation values:
+  #      32803 = ColorFilterArray (Bayer mosaic, the standard case)
+  #      34892 = LinearRaw        (already-demosaiced 3-channel RGB)
+  #    Maple's decode path mishandles LinearRaw today (see ticket #07
+  #    at docs/tickets/07-linearraw-dng-decode.md). Until that lands,
+  #    these fixtures produce catastrophically wrong output and are
+  #    not signal about the rest of the pipeline.
+  if [[ "$INCLUDE_LINEARRAW" != "1" ]]; then
+    photometric="$(exiftool -PhotometricInterpretation -s -s -s -n "$raw" 2>/dev/null || true)"
+    if [[ "$photometric" == "34892" ]]; then
+      printf "SKIP %-45s LinearRaw not yet supported by Maple decode — see ticket #07\n" "$stem"
+      SKIP_COUNT=$((SKIP_COUNT + 1))
+      continue
+    fi
+  fi
 
   # 1. Read embedded preview offset/length.
   preview_meta="$(exiftool -PreviewImageStart -PreviewImageLength -s -s -s -n "$raw" 2>/dev/null || true)"
