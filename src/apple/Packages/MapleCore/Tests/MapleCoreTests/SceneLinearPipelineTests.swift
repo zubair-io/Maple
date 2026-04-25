@@ -345,6 +345,21 @@
 //
 // Parity harness on legacy path (Step 7.5): BUDGET=15 baseline unchanged
 // (4 pre-existing fails / 3 skipped — applyFilters still untouched).
+//
+// Plan 2 v2 v4 M5 manual smoke test (Task 9 Step 9.3, recorded after
+// wiring SceneDehaze into processSceneLinear in Task 8):
+//   dehaze  0->+50   moved pixels — PENDING (user-side verification)
+//   dehaze  0->+100  moved pixels — PENDING (user-side verification)
+//   dehaze  0->-50   moved pixels — PENDING (user-side verification)
+//   dehaze  0->0     pixel-exact identity — PASS (testM5DehazeShortCircuitsAtZeroAmount)
+//
+// Deep Zoom dehaze fallback regression check (Task 9 Step 9.4):
+//   render_scene_linear_tile_rejects_active_dehaze (Rust) — PASS
+//   DeepZoomTileRenderingTests (Apple) — PASS (33 tests)
+//   manual zoom-clamp test (Step 9.4.3) — PENDING (user-side verification)
+//
+// Parity harness on legacy path (Step 9.5): BUDGET=15 baseline unchanged
+// (4 pre-existing fails / 3 skipped — applyFilters still untouched).
 
 import XCTest
 import CoreImage
