@@ -34,10 +34,49 @@ final class MapleUITests: XCTestCase {
         let driver = try MapleAppDriver.launch(fixture: "test_0017.dng")
         driver.waitForCanvasReady(timeout: 30)
         let png = driver.screenshotCanvas()
+        if let outcome = MapleAppDriver.lastSpikeBOutcome {
+            print("[spike-b] canvas screenshot path: \(outcome)")
+        }
         try GoldenStore.compareOrRecord(
             name: "test_0017-default",
             candidate: png,
             budget: GoldenBudget(mean: 5, p95: 10, max: 30, bias: 0.05)
         )
+    }
+
+    /// Spike B (per the harness plan): record whether
+    /// `XCUIElement.screenshot()` returns a tightly-cropped image or a
+    /// full-window capture on macOS. The harness's `screenshotCanvas()`
+    /// already self-corrects via a frame check, but recording the
+    /// observed outcome here lets us tighten the heuristic later if the
+    /// chosen path differs from what the brief assumed.
+    ///
+    /// This test is fast (no fixture, no decode wait) — pairs with
+    /// `testCanvasMatchesGolden` so a single auth-prompt approval covers
+    /// both runs.
+    func testSpikeBElementScreenshotCropping() throws {
+        // Launch with no fixture so we don't depend on the decode path
+        // for this test. AppShell's empty browse view is enough to
+        // exercise the toolbar's Search button identifier.
+        let app = XCUIApplication()
+        app.launch()
+        let search = app.buttons["Search"]
+        let appeared = search.waitForExistence(timeout: 10)
+        XCTAssertTrue(appeared, "Search button (toolbar) did not appear within 10s — accessibility wiring regressed?")
+        let elementShot = search.screenshot().image
+        let screenShot = XCUIScreen.main.screenshot().image
+        let elementSize = elementShot.size
+        let screenSize = screenShot.size
+        let frame = search.frame
+        // Tight crop heuristic (mirror screenshotCanvas):
+        let tight =
+            elementSize.width  <= frame.width  * 1.1 &&
+            elementSize.height <= frame.height * 1.1
+        let verdict = tight
+            ? "TIGHT  (\(Int(elementSize.width))×\(Int(elementSize.height)) within \(Int(frame.width))×\(Int(frame.height)) * 1.1)"
+            : "WINDOW (\(Int(elementSize.width))×\(Int(elementSize.height)) >> \(Int(frame.width))×\(Int(frame.height)))"
+        print("[spike-b] verdict: \(verdict)")
+        print("[spike-b] screen: \(Int(screenSize.width))×\(Int(screenSize.height))")
+        // Always pass — this is a recording test, not a gate.
     }
 }
