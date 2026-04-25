@@ -1,0 +1,28 @@
+<div class="page">
+  <h1>Plan 3 M2.1 — WebGL2 dev-chain test page</h1>
+  @if (errorBanner()) {
+    <div class="error-banner">{{ errorBanner() }}</div>
+  }
+  <div class="panes">
+    <div class="pane">
+      <h2>WebGL2 candidate</h2>
+      <canvas #canvas width="16" height="16" class="image"></canvas>
+    </div>
+    <div class="pane">
+      <h2>Apple reference</h2>
+      <img [src]="referenceUrl" alt="Apple-rendered reference" class="image" />
+    </div>
+  </div>
+  <div class="metrics">
+    <div>status: <strong>{{ status() }}</strong></div>
+    <div>mean ΔE₀₀: {{ meanDeltaE() === null ? 'n/a' : (meanDeltaE() ?? 0).toFixed(3) }}</div>
+    <div>P95 ΔE₀₀:  {{ p95DeltaE()  === null ? 'n/a' : (p95DeltaE()  ?? 0).toFixed(3) }}</div>
+    <div>max ΔE₀₀:  {{ maxDeltaE()  === null ? 'n/a' : (maxDeltaE()  ?? 0).toFixed(3) }}</div>
+    <div>
+      bias (R / G / B):
+      {{ biasR() === null ? 'n/a' : (biasR() ?? 0).toFixed(4) }} /
+      {{ biasG() === null ? 'n/a' : (biasG() ?? 0).toFixed(4) }} /
+      {{ biasB() === null ? 'n/a' : (biasB() ?? 0).toFixed(4) }}
+    </div>
+  </div>
+</div>
