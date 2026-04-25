@@ -1,24 +1,26 @@
-// ImageEditPipeline.swift — 11-stage filter chain (spec § 02).
+// ImageEditPipeline.swift — scene-linear pipeline (spec § 02).
 //
-// On Apple platforms, this runs as CIFilter + custom CIColorKernel stages.
-// Two-phase render: fast (≤ 50ms, downscaled) → refine (full-res, ≤ 300ms).
+// Pipeline order (matches Rust `pipeline.rs:120-132`):
+//   1. RAW decode → Rust scene-linear FFI (Rec.2020 fp16)
+//   2. WhiteBalance kernel (live - decoded delta)
+//   3. SceneToneControls (exposure / highlights / shadows / whites / blacks)
+//   4. SceneVibrance (Oklab chroma boost with skin protection)
+//   5. SceneSaturation (Oklab uniform chroma scale)
+//   6. SceneClarity (40-px unsharp mask)
+//   7. SceneTexture (3-px unsharp mask)
+//   8. SceneDehaze (dark-channel + atmospheric-light + guided filter)
+//   9. SceneSharpen (3-iter Richardson-Lucy + edge-aware mix)
+//  10. SceneNRLuminance (Oklab roundtrip + blur on L)
+//  11. SceneNRColor (Oklab roundtrip + blur on a/b)
+//  12. AgX view transform (sole display-domain op)
+//  13. sRGB encode at the CIContext.createCGImage boundary
 //
-// Stage order (spec § 02):
-//   1. RAW decode              → via PipelineRenderer (Rust raw-ffi)
-//   2. Exposure                → CIExposureAdjust
-//   3. White balance           → CITemperatureAndTint
-//   4. Tone controls           → SceneToneControls (custom Metal kernel)
-//   5. Vibrance / saturation   → CIVibrance + CISaturationBlendMode workaround
-//   6. Clarity / Texture       → CIUnsharpMask (two radii)
-//   7. Sharpening              → CIUnsharpMask (detail + masking)
-//   8. Noise reduction         → CINoiseReduction
-//   9. Dehaze                  → custom CIColorKernel (stub → linear bias)
-//  10. View transform (AgX)    → AgXViewTransform (custom Metal kernel)
-//  11. sRGB encode             → CIColorPrimariesITUR_709 (implicit)
+// The legacy `applyFilters` / `process` chain that operated on AgX-baked
+// sRGB u8 in the wrong working space was deleted in Plan 2 v2 v5 once
+// every heavy slider stage shipped on the scene-linear path.
 
 import Foundation
 import CoreImage
-import CoreImage.CIFilterBuiltins
 import Metal
 import os
 
@@ -28,23 +30,19 @@ private let logger = Logger(subsystem: "app.justmaple.maple", category: "ImageEd
 
 /// Thread-safe pipeline that converts a RAW asset + AdjustmentModel to a CIImage.
 ///
-/// Two-entry-point design (ported from Maple reference `ImageEditPipeline`):
+/// Two-entry-point design:
 ///
-///   • `decode(asset:)` runs the Rust FFI once per asset open and returns a
-///     **neutral** CIImage (no WB, no exposure — all adjustments applied
-///     post-decode). EditSession caches this result so slider ticks don't
-///     re-decode.
-///   • `process(decoded:model:targetSize:)` applies the CIFilter / Metal-kernel
-///     chain on top of a pre-decoded CIImage. When `targetSize` is provided
-///     and smaller than the decoded extent, a `CILanczosScaleTransform` pass
-///     is fused in front of the chain so every intermediate runs at display
-///     resolution — CoreImage's render planner auto-tiles when the Metal
-///     device can't hold the output in a single pass, so 100MP previews fit
-///     in the 16 ms budget.
-///
-/// `render(asset:model:phase:)` is kept as a thin convenience that does both
-/// steps sequentially — used by export / thumbnails where there's no cached
-/// decoded image to reuse.
+///   • `decodeSceneLinear(asset:quality:xmpPath:)` (or its sized variant)
+///     runs the Rust scene-linear FFI once per asset open and returns a
+///     Rec.2020 fp16 CIImage with the asset's sidecar pre-applied at decode
+///     time. EditSession caches this result so slider ticks don't re-decode.
+///   • `processSceneLinear(decoded:model:targetSize:asShot:decodedAtModel:)`
+///     applies the WB → tone → vibrance → saturation → clarity → texture →
+///     dehaze → sharpen → NR luma → NR color → AgX chain on top of a
+///     pre-decoded scene-linear CIImage. When `targetSize` is provided and
+///     smaller than the decoded extent, a `CILanczosScaleTransform` pass
+///     fuses in front of the chain so every intermediate runs at display
+///     resolution.
 public actor ImageEditPipeline {
     /// As-shot white balance derived from the RAW's metadata. Passed into
     /// `process(...)` so `CITemperatureAndTint`'s `neutral` reflects the
@@ -432,28 +430,6 @@ public actor ImageEditPipeline {
         )
     }
 
-    // MARK: Process (on top of a cached decode)
-
-    /// Apply the filter chain to a pre-decoded CIImage. `targetSize`, if
-    /// provided and smaller than the decoded extent, fuses a Lanczos pre-
-    /// scale into the chain so every intermediate runs at display resolution.
-    /// Pass `nil` for export / full-resolution rendering.
-    ///
-    /// `asShot`, when provided, is used as `CITemperatureAndTint.neutral`
-    /// — i.e. the image is told "you were shot at this WB" and the
-    /// filter adapts to the user's target (`model.temperature/tint`). When
-    /// `nil`, the neutral defaults to 6500 K / 0, which matches the
-    /// pipeline's historical behaviour.
-    nonisolated public func process(
-        decoded: CIImage,
-        model: AdjustmentModel,
-        targetSize: CGSize? = nil,
-        asShot: AsShotWB? = nil
-    ) -> CIImage {
-        let displayInput = Self.prescaleForDisplay(decoded, targetSize: targetSize)
-        return applyFilters(to: displayInput, model: model, asShot: asShot)
-    }
-
     // MARK: Render preview (processed CIImage → CGImage)
 
     /// Materialise a processed CIImage into a CGImage at (at most) the given
@@ -478,27 +454,6 @@ public actor ImageEditPipeline {
             : ciImage
 
         return context.createCGImage(scaled, from: scaled.extent)
-    }
-
-    // MARK: Render (convenience — decode + process)
-
-    /// Render the asset through the pipeline in one call. Used by export and
-    /// by the thumbnail path — neither benefits from a cached decode.
-    /// EditSession prefers the `decode(asset:)` + `process(decoded:...)`
-    /// split so slider ticks stay off the FFI.
-    ///
-    /// - fast phase: scales the RAW decode result to ≤ 2MP before filtering.
-    /// - refine phase: full-resolution.
-    nonisolated public func render(
-        asset: AssetRef,
-        model: AdjustmentModel,
-        phase: RenderPhase
-    ) async -> CIImage? {
-        guard let decoded = await decode(asset: asset) else { return nil }
-        let target: CGSize? = phase == .fast
-            ? Self.fastTargetSize(for: decoded.extent.size)
-            : nil
-        return process(decoded: decoded, model: model, targetSize: target)
     }
 
     // MARK: Prescale helper (tiling-friendly)
@@ -530,18 +485,6 @@ public actor ImageEditPipeline {
             width: floor(extent.width * scale),
             height: floor(extent.height * scale)
         ))
-    }
-
-    /// Target size for the fast phase — caps the decoded extent at ≤ 2MP.
-    nonisolated private static func fastTargetSize(for native: CGSize) -> CGSize {
-        let pixels = native.width * native.height
-        let maxPixels: CGFloat = 2_000_000
-        if pixels <= maxPixels { return native }
-        let scale = sqrt(maxPixels / pixels)
-        return CGSize(
-            width: floor(native.width * scale),
-            height: floor(native.height * scale)
-        )
     }
 
     // MARK: Private helpers
@@ -584,194 +527,6 @@ public actor ImageEditPipeline {
             }
         }
         return ci
-    }
-
-    nonisolated private func applyFilters(to input: CIImage, model: AdjustmentModel, asShot: AsShotWB? = nil) -> CIImage {
-        // Diagnostic full-chain bypass. MAPLE_SKIP_SWIFT_FILTERS=1 returns the
-        // Lanczos-prescaled Rust output unmodified. The whole filter chain
-        // below runs on a buffer that's already been WB'd, tone-mapped (AgX),
-        // and sRGB-encoded by Rust — so every stage below is a second
-        // application in the wrong color space. Useful for isolating whether
-        // zoom-dependent color shifts are caused by the chain (confirmed
-        // yes → the FFI split is the real fix) or something else.
-        if ProcessInfo.processInfo.environment["MAPLE_SKIP_SWIFT_FILTERS"] != nil {
-            return input
-        }
-
-        var img = input
-
-        // Stage 3: White balance (temperature + tint).
-        //
-        // CITemperatureAndTint semantics:
-        //   • `neutral`       = the temperature/tint the image *is*
-        //   • `targetNeutral` = the temperature/tint the user *wants*
-        //
-        // When `asShot` is provided (RAWs opened via filesystem), neutral
-        // reflects the camera's metered WB and the slider acts as a scene
-        // white-point selector — default (slider = asShotCCT) is identity,
-        // moving higher warms the image, lower cools it. Matches Lightroom.
-        //
-        // When absent (PhotoKit / sourceless / non-RAW), fall back to the
-        // old 6500 K convention so existing behaviour is preserved.
-        let neutralTemp = asShot?.temperature ?? 6500
-        let neutralTint = asShot?.tint ?? 0
-        let wb = CIFilter.temperatureAndTint()
-        wb.inputImage = img
-        wb.neutral = CIVector(x: CGFloat(neutralTemp), y: CGFloat(neutralTint))
-        wb.targetNeutral = CIVector(x: CGFloat(model.temperature), y: CGFloat(model.tint))
-        img = wb.outputImage ?? img
-
-        // Stage 4: Scene tone controls.
-        //
-        // The bundled Metal kernel (`MetalKernels.applySceneToneControls`)
-        // is silently a no-op — the `.metal` sources in the package aren't
-        // compiled to a metallib, so the kernel loader returns nil and the
-        // wrapper returns its input unchanged. Until that build config is
-        // fixed, fall back to standard CIFilters so the sliders actually
-        // move pixels. Scene-referred correctness is compromised (these
-        // filters operate in sRGB working space on the already-
-        // AgX-tone-mapped buffer from Rust) — revisit when Metal kernels
-        // come online and the pipeline split is fixed.
-        if model.exposure != 0 {
-            let f = CIFilter.exposureAdjust()
-            f.inputImage = img
-            f.ev = Float(model.exposure)
-            img = f.outputImage ?? img
-        }
-        if model.contrast != 0 {
-            let f = CIFilter.colorControls()
-            f.inputImage = img
-            f.saturation = 1
-            f.brightness = 0
-            f.contrast = Float(1.0 + model.contrast / 100.0)
-            img = f.outputImage ?? img
-        }
-        if model.highlights != 0 || model.shadows != 0 {
-            let f = CIFilter.highlightShadowAdjust()
-            f.inputImage = img
-            // Slider ±100 → amount ±1.0. CIHighlightShadowAdjust:
-            //   highlightAmount < 1.0 compresses highlights (pulls down),
-            //   shadowAmount   > 0.0 lifts shadows.
-            f.highlightAmount = Float(1.0 - model.highlights / 100.0)
-            f.shadowAmount = Float(model.shadows / 100.0)
-            f.radius = 0
-            img = f.outputImage ?? img
-        }
-        if model.whites != 0 || model.blacks != 0 {
-            // Whites/Blacks are point-endpoint shifts. CIToneCurve gives us
-            // the 5-point Lightroom-style curve; the midtones anchor at
-            // 0.25 / 0.5 / 0.75 stay at identity so the histogram center
-            // doesn't drift. Blacks and whites shift the endpoints
-            // asymmetrically depending on sign — a pure Y shift collapses
-            // to identity on one side because display values clamp to
-            // [0, 1], which is why negative blacks / positive whites were
-            // invisible in the previous attempt.
-            //
-            //   Blacks > 0 (lift)    → point0 = (0, +b)   — raises black out
-            //   Blacks < 0 (crush)   → point0 = (-b, 0)   — pushes black in
-            //   Whites > 0 (clip)    → point4 = (1-w, 1)  — pushes white in
-            //   Whites < 0 (compress)→ point4 = (1, 1+w)  — lowers white out
-            let b = CGFloat(model.blacks) / 100.0 * 0.15
-            let w = CGFloat(model.whites) / 100.0 * 0.15
-            let point0: CGPoint = b >= 0
-                ? CGPoint(x: 0, y: b)
-                : CGPoint(x: -b, y: 0)
-            let point4: CGPoint = w >= 0
-                ? CGPoint(x: 1 - w, y: 1)
-                : CGPoint(x: 1, y: 1 + w)
-            let f = CIFilter.toneCurve()
-            f.inputImage = img
-            f.point0 = point0
-            f.point1 = CGPoint(x: 0.25, y: 0.25)
-            f.point2 = CGPoint(x: 0.5, y: 0.5)
-            f.point3 = CGPoint(x: 0.75, y: 0.75)
-            f.point4 = point4
-            img = f.outputImage ?? img
-        }
-
-        // Stage 5: Vibrance + Saturation. `applySceneVibrance` is another
-        // dead Metal-kernel path today (same bundle-compile gap as the
-        // tone-controls kernel); swap in `CIVibrance` so the slider moves
-        // pixels. Amount is -1..+1 in CI; slider is ±100 → ÷100.
-        if model.vibrance != 0 {
-            let f = CIFilter.vibrance()
-            f.inputImage = img
-            f.amount = Float(model.vibrance / 100.0)
-            img = f.outputImage ?? img
-        }
-        if model.saturation != 0 {
-            let f = CIFilter.colorControls()
-            f.inputImage = img
-            f.saturation = Float(1.0 + model.saturation / 100.0)
-            f.brightness = 0
-            f.contrast = 1
-            img = f.outputImage ?? img
-        }
-
-        // Stage 6: Clarity (radius 40) + Texture (radius 3) via unsharp mask
-        if model.clarity != 0 {
-            let strength = Float(model.clarity / 100.0) * 0.5
-            let f = CIFilter.unsharpMask()
-            f.inputImage = img
-            f.radius = 40.0
-            f.intensity = strength
-            img = f.outputImage ?? img
-        }
-        if model.texture != 0 {
-            let strength = Float(model.texture / 100.0) * 0.8
-            let f = CIFilter.unsharpMask()
-            f.inputImage = img
-            f.radius = 3.0
-            f.intensity = strength
-            img = f.outputImage ?? img
-        }
-
-        // Stage 7: Sharpening
-        if model.sharpenAmount > 0 {
-            let f = CIFilter.unsharpMask()
-            f.inputImage = img
-            f.radius = Float(model.sharpenRadius)
-            f.intensity = Float(model.sharpenAmount / 100.0)
-            img = f.outputImage ?? img
-        }
-
-        // Stage 8: Noise reduction
-        if model.nrLuminance > 0 || model.nrColor > 25 {
-            let f = CIFilter.noiseReduction()
-            f.inputImage = img
-            f.noiseLevel = Float(max(model.nrLuminance, model.nrColor) / 100.0) * 0.05
-            f.sharpness = 0.4
-            img = f.outputImage ?? img
-        }
-
-        // Stage 9: Dehaze (linear bias stub — full impl in P5 Metal kernel)
-        if model.dehaze != 0 {
-            img = applyDehaze(img, amount: model.dehaze)
-        }
-
-        // Stage 10: AgX view transform (Metal kernel). Gated by MAPLE_SKIP_SWIFT_AGX —
-        // Rust already applies AgX + sRGB encode + u8 quantize before Swift sees the
-        // buffer, so this call double-tone-maps. Gate lets us A/B the effect without
-        // the larger FFI restructure.
-        if ProcessInfo.processInfo.environment["MAPLE_SKIP_SWIFT_AGX"] == nil {
-            img = MetalKernels.applyAgXViewTransform(to: img, contrast: Float(model.contrast))
-        }
-
-        return img
-    }
-
-    // MARK: - Dehaze stub (linear brightness boost in midtones)
-
-    nonisolated private func applyDehaze(_ input: CIImage, amount: Double) -> CIImage {
-        // Very simple dehaze stub: positive amount → reduce blacks and boost midtones;
-        // negative amount → add haze effect. Full Oklab implementation in P5.
-        let v = Float(amount / 100.0)
-        let f = CIFilter.colorControls()
-        f.inputImage = input
-        f.brightness = v * 0.05
-        f.contrast = 1.0 + v * 0.1
-        f.saturation = 1.0 + v * 0.05
-        return f.outputImage ?? input
     }
 
     // MARK: - Tile decode (Plan 3 — Ticket 06 M4)
