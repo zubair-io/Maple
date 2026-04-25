@@ -34,11 +34,14 @@ final class MapleCoreTests: XCTestCase {
 
     /// Integration test — skipped if test fixture not present.
     func testPipelineRendererRealFile() throws {
-        let fixture = URL(fileURLWithPath: #file)
-            .deletingLastPathComponent()   // MapleCoreTests/
-            .deletingLastPathComponent()   // Tests/
-            .deletingLastPathComponent()   // apple/
-            .deletingLastPathComponent()   // src/
+        let fixture = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
             .appendingPathComponent("test-fixtures/raws/test_0002.dng")
         guard FileManager.default.fileExists(atPath: fixture.path) else {
             throw XCTSkip("test fixture not present: \(fixture.path)")
