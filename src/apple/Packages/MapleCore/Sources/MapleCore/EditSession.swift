@@ -685,6 +685,27 @@ public final class EditSession {
         return CIImage(cgImage: cg)
     }
 
+    // MARK: - Cache persistence
+
+    /// Snapshot the current `renderedPreview` into `RenderedPreviewCache`
+    /// so a future cold open of this asset can paint pixels instantly.
+    /// Called from both the refine path (after refine publishes) and the
+    /// refine-skip branch in `_scheduleRefine` — without the latter,
+    /// fit-to-window opens (the most common case) never populate the
+    /// cache and every cold re-open redoes the Rust pipeline.
+    @MainActor
+    private func persistCurrentPreviewToCache() {
+        guard let url = asset.primaryURL,
+              let preview = renderedPreview else { return }
+        let capturedImage = preview
+        let capturedWidth = Int(max(previewSize.width, 1))
+        Task.detached(priority: .utility) {
+            await RenderedPreviewCache.shared.storePreview(
+                capturedImage, for: url, screenWidth: capturedWidth
+            )
+        }
+    }
+
     // MARK: - Private render scheduling
 
     /// Two-phase scheduler. Called on slider changes and on initial load:
@@ -727,9 +748,13 @@ public final class EditSession {
             guard gen == renderGeneration, !Task.isCancelled else { return }
             // Short-circuit when refine would render at the same (or smaller)
             // target as the most recent fast pass. Avoids a wasted CoreImage
-            // pipeline build when the user hasn't actually zoomed in.
+            // pipeline build when the user hasn't actually zoomed in. Persist
+            // the fast result first so a cold re-open can paint from the
+            // cache — without this, fit-to-window opens (the common case)
+            // never populate `RenderedPreviewCache`.
             if let fast = fastTargetSize, let refine = refinedTargetSize,
                refine.width <= fast.width + 1 && refine.height <= fast.height + 1 {
+                persistCurrentPreviewToCache()
                 return
             }
             await decodeAndRender(targetSize: refinedTargetSize, phase: .refine, gen: gen)
@@ -824,18 +849,7 @@ public final class EditSession {
                 Task.detached(priority: .utility) {
                     await ThumbnailLoader.shared.updateThumbnailFromRender(image, for: url)
                 }
-                // Persist a viewport-sized JPEG to the preview cache so a
-                // cold re-open of this asset paints instantly via
-                // `loadCachedPreviewIfAvailable`. Only after refine — the
-                // fast pass ran at viewport resolution already; caching
-                // after refine captures the final develop output.
-                let capturedImage = image
-                let capturedWidth = Int(max(previewSize.width, 1))
-                Task.detached(priority: .utility) {
-                    await RenderedPreviewCache.shared.storePreview(
-                        capturedImage, for: url, screenWidth: capturedWidth
-                    )
-                }
+                persistCurrentPreviewToCache()
             }
         } catch {
             if let gen, gen != renderGeneration {
