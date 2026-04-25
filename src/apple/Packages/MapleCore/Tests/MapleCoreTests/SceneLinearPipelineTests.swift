@@ -207,6 +207,26 @@
 // Plan 2 v2 wires SceneClarity + SceneTexture into processSceneLinear,
 // each backed by a shared SeparableGaussianBlur compute kernel. See
 // docs/superpowers/plans/2026-04-25-plan-2-v2-shared-blur-clarity-texture.md.
+//
+// Plan 2 v2 M2 milestone gate (Task 7, recorded after wiring SceneClarity
+// + SceneTexture into processSceneLinear in Tasks 5 + 6):
+//   xcodebuild macOS build:                       PASS (** BUILD SUCCEEDED **)
+//   swift test (full suite):                      PASS (125 tests, 3 skipped, 0 failures)
+//   testM2ProcessSceneLinearAppliesClarity:       PASS
+//   testM2ProcessSceneLinearAppliesTexture:       PASS
+//   DeepZoomTileRenderingTests (33 tests):        PASS — 35 px overlap budget
+//                                                 preserved by construction;
+//                                                 clarity radius unchanged
+//                                                 from Rust source (40 px).
+//   Parity harness on legacy path (BUDGET=15):    0/6 pre-existing baseline
+//                                                 unchanged — applyFilters
+//                                                 untouched.
+//
+// Manual A/B smoke test in macOS app (clarity ±100 / texture ±100 sliders):
+//   PENDING — user-side visual verification once macOS app is launched on
+//             the reference DNG. Smoke test is the load-bearing runtime
+//             check that swift test cannot perform (metallib not loaded
+//             under XCTest). See plan Task 7 Step 7.3.
 
 import XCTest
 import CoreImage
