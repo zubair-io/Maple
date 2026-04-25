@@ -227,6 +227,42 @@
 //             the reference DNG. Smoke test is the load-bearing runtime
 //             check that swift test cannot perform (metallib not loaded
 //             under XCTest). See plan Task 7 Step 7.3.
+//
+// Plan 2 v2 v2 wires SceneNRLuminance + SceneNRColor into processSceneLinear,
+// both backed by the same shared SeparableGaussianBlur compute kernel. See
+// docs/superpowers/plans/2026-04-25-plan-2-v2-nr-luminance-color.md.
+//
+// Plan 2 v2 v2 M3 milestone gate (Task 7, recorded after wiring
+// SceneNRLuminance + SceneNRColor into processSceneLinear in Task 6):
+//   xcodebuild macOS build:                       PASS (** BUILD SUCCEEDED **)
+//   swift test (full suite):                      PASS (133 tests, 3 skipped, 0 failures)
+//   testM3ProcessSceneLinearAppliesNRLuminance:   PASS
+//   testM3ProcessSceneLinearAppliesNRColor:       PASS
+//   DeepZoomTileRenderingTests (33 tests):        PASS — 35 px overlap budget
+//                                                 preserved by construction;
+//                                                 NR radii <= 4 px <<< 35 px.
+//   Parity harness on legacy path (BUDGET=15):    0/4 pre-existing baseline
+//                                                 unchanged (test_0000/0007/
+//                                                 0015/0017 pre-existing fails;
+//                                                 test_0002/0006/0013 skipped) —
+//                                                 applyFilters untouched.
+//
+// Plan 2 v2 v2 M3 manual smoke test (Task 7 Step 7.3, recorded after
+// wiring SceneNRLuminance + SceneNRColor into processSceneLinear in
+// Task 6):
+//   nrLuminance  0->+100  moved pixels — PENDING (user-side verification)
+//   nrColor      25->+100 moved pixels — PENDING (user-side verification)
+//   nrColor      25->0    moved pixels — PENDING (user-side verification)
+//
+// Manual smoke is the load-bearing runtime check that `swift test` cannot
+// perform (metallib not loaded under XCTest). See plan Task 7 Step 7.3.
+//
+// Deep Zoom regression check (Task 7 Step 7.4):
+//   DeepZoomTileRenderingTests — PASS (33 tests; 35 px overlap budget
+//   preserved by construction; NR radii <= 4 px <<< 35 px).
+//
+// Parity harness on legacy path (Step 7.5): BUDGET=15 baseline unchanged
+// (4 pre-existing fails / 3 skipped — applyFilters still untouched).
 
 import XCTest
 import CoreImage
