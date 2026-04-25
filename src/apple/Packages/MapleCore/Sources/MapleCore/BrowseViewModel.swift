@@ -223,4 +223,23 @@ public final class BrowseViewModel {
         isLoading = false
         photosAuthNeeded = true
     }
+
+    /// Seed the grid with a single filesystem asset and select it. Used by
+    /// the UITest harness to bypass folder browsing entirely — the test
+    /// driver passes a fixture path via `MAPLE_UITEST_FIXTURE` and the
+    /// shell calls this so a single-asset library is ready before the
+    /// harness flips into Full-image mode. The URL is treated as already
+    /// scope-resolved (the running user's process can reach it without
+    /// security-scope coordination); not appropriate for production
+    /// flows. Tied to `#if DEBUG` at the call site in MapleApp.init.
+    public func loadSingleAsset(url: URL) {
+        loadGeneration &+= 1
+        let ref = AssetRef(url: url, scopeParentURL: url.deletingLastPathComponent())
+        assets = [ref]
+        subfolders = []
+        selectedID = ref.id
+        currentSource = nil
+        loadError = nil
+        photosAuthNeeded = false
+    }
 }
