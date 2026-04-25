@@ -901,7 +901,15 @@ public final class EditSession {
             // Cache miss — Rust decode, then write-back for the next open.
             guard let decoded = await pipeline.decode(asset: asset) else { return nil }
             if let url = asset.primaryURL {
-                await DecodedBufferCache.shared.storeDecoded(decoded, for: url)
+                // Fire-and-forget. JPEG-encoding a 100 MP CIImage takes ~1–2 s;
+                // gating `task.value` on it pushes that delay onto the
+                // published `decodedImage`. The cache is purely a perf assist
+                // for the next cold open — losing one write on app crash is
+                // fine, blocking the user is not.
+                let captured = decoded
+                Task.detached(priority: .utility) {
+                    await DecodedBufferCache.shared.storeDecoded(captured, for: url)
+                }
             }
             return decoded
         }
