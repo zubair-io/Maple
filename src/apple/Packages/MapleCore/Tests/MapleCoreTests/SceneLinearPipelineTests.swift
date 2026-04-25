@@ -1952,6 +1952,28 @@ final class SceneLinearPipelineTests: XCTestCase {
         )
     }
 
+    /// Same shape as testM2ProcessSceneLinearAppliesClarity but with
+    /// texture instead of clarity. Texture is radius-3 unsharp on RGB;
+    /// the +100 output's edge contrast should be >= the default's.
+    func testM2ProcessSceneLinearAppliesTexture() async throws {
+        let pipeline = ImageEditPipeline()
+        let input = Self.makeStepEdgeSceneLinearCIImage(width: 32, height: 32)
+
+        let modelDefault = AdjustmentModel.default
+        var modelBoost = modelDefault
+        modelBoost.texture = 100
+
+        let outDefault = pipeline.processSceneLinear(decoded: input, model: modelDefault)
+        let outBoost   = pipeline.processSceneLinear(decoded: input, model: modelBoost)
+
+        let dContrast = Self.sampleEdgeContrast(outDefault, width: 32, height: 32)
+        let bContrast = Self.sampleEdgeContrast(outBoost, width: 32, height: 32)
+        XCTAssertGreaterThanOrEqual(
+            bContrast, dContrast,
+            "texture +100 should not shrink edge contrast — got boost=\(bContrast) default=\(dContrast)"
+        )
+    }
+
     /// Build a 32×32 fp16 RGBA CIImage with a vertical step edge at the
     /// horizontal midpoint: left half value 0.3, right half value 0.7.
     /// Used by the clarity / texture wiring tests so they can sample
