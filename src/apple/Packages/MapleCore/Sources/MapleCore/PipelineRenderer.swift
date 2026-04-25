@@ -452,6 +452,331 @@ public struct PipelineRenderer: Sendable {
             pixels: data
         )
     }
+
+    // MARK: - Tile rendering (Plan 3 — Ticket 06 M4)
+
+    /// Open a RAW + optional XMP sidecar into an opaque, Sendable
+    /// handle that caches the rawler-decoded mosaic and parsed
+    /// adjustment model. Subsequent calls to `renderTile(handle:...)`
+    /// against the returned handle skip both the rawler decode and the
+    /// XMP parse — the architectural prerequisite for tile-based deep
+    /// zoom (Plan 3 Task 5 builds the actor-isolated cache on top of
+    /// this).
+    ///
+    /// The returned `MapleRawHandle` owns the C-allocated state; its
+    /// `deinit` calls `maple_close_raw_handle`. Drop the reference (or
+    /// let the cache evict it) to release ~30-300 MB of decoded mosaic.
+    public static func openRawHandle(
+        rawPath: URL,
+        xmpPath: URL? = nil
+    ) throws -> MapleRawHandle {
+        try rawPath.withPathCString { rawCStr in
+            if let xmpPath {
+                return try xmpPath.withPathCString { xmpCStr in
+                    try _openRawHandle(rawCStr: rawCStr, xmpCStr: xmpCStr)
+                }
+            } else {
+                return try _openRawHandle(rawCStr: rawCStr, xmpCStr: nil)
+            }
+        }
+    }
+
+    /// Bytes-variant of `openRawHandle` — for sources that don't expose
+    /// a filesystem URL (PhotoKit, network-source codepaths). `hint` is
+    /// the extension without the leading dot (e.g. `"dng"`).
+    public static func openRawHandle(
+        rawBytes: Data,
+        hint: String,
+        xmpPath: URL? = nil
+    ) throws -> MapleRawHandle {
+        guard let hintCStr = hint.cString(using: .utf8) else {
+            throw PipelineError.hintEncodingError(hint)
+        }
+        return try rawBytes.withUnsafeBytes { (buf: UnsafeRawBufferPointer) in
+            let base = buf.baseAddress?.assumingMemoryBound(to: UInt8.self)
+            if let xmpPath {
+                return try xmpPath.withPathCString { xmpCStr in
+                    try _openRawHandleBytes(
+                        ptr: base, len: buf.count,
+                        hintCStr: hintCStr, xmpCStr: xmpCStr
+                    )
+                }
+            } else {
+                return try _openRawHandleBytes(
+                    ptr: base, len: buf.count,
+                    hintCStr: hintCStr, xmpCStr: nil
+                )
+            }
+        }
+    }
+
+    /// Render a tile against an existing handle. The source rectangle
+    /// is in pre-orientation mosaic coordinates; the returned tile is
+    /// in oriented full-image coordinate space (matches the unsized
+    /// scene-linear FFI's output convention). Output is fp16 RGBA in
+    /// Rec.2020 scene-linear, alpha = 1.0.
+    ///
+    /// Throws `PipelineError.renderFailed`. Notable codes (mirroring the
+    /// Rust FFI):
+    ///   - 9: bad geometry (any of `srcW`/`srcH`/`outW`/`outH` is 0)
+    ///   - 10: dehaze active in the handle's model — tile path unsafe
+    ///   - 11: upscale attempt (out > src) — tile path is downscale-only
+    public static func renderTile(
+        handle: MapleRawHandle,
+        srcX: UInt32, srcY: UInt32, srcW: UInt32, srcH: UInt32,
+        outW: UInt32, outH: UInt32,
+        quality: Quality = .full
+    ) throws -> MapleSceneLinearImageData {
+        var buf = MapleSceneLinearBuffer(
+            fp16_rgba: nil, len_bytes: 0, channels: 0,
+            bytes_per_pixel: 0, width: 0, height: 0
+        )
+        let rc = maple_render_handle_scene_linear_tile(
+            handle.pointer,
+            srcX, srcY, srcW, srcH,
+            outW, outH,
+            quality.rawValue,
+            &buf
+        )
+        guard rc == 0 else {
+            let msg = maple_last_error().map { String(cString: $0) } ?? "unknown error"
+            throw PipelineError.renderFailed(code: Int(rc), message: msg)
+        }
+        defer { maple_free_scene_linear_buffer(&buf) }
+        guard buf.len_bytes > 0, let ptr = buf.fp16_rgba else {
+            throw PipelineError.renderFailed(code: Int(rc), message: "empty tile buffer")
+        }
+        let data = mapleStage("decode result copy") {
+            Data(bytes: ptr, count: Int(buf.len_bytes))
+        }
+        return MapleSceneLinearImageData(
+            width: Int(buf.width),
+            height: Int(buf.height),
+            channels: Int(buf.channels),
+            bytesPerPixel: Int(buf.bytes_per_pixel),
+            pixels: data
+        )
+    }
+
+    /// One-shot tile render directly from a RAW file + optional XMP —
+    /// no handle lifecycle. Useful for export / one-off tile renders
+    /// where the caller doesn't want to keep the decoded mosaic alive.
+    /// Internally calls the Task-2 file-based tile FFI so the rawler
+    /// decode happens inline.
+    public static func renderTile(
+        rawPath: URL,
+        xmpPath: URL? = nil,
+        srcX: UInt32, srcY: UInt32, srcW: UInt32, srcH: UInt32,
+        outW: UInt32, outH: UInt32,
+        quality: Quality = .full
+    ) throws -> MapleSceneLinearImageData {
+        try rawPath.withPathCString { rawCStr in
+            if let xmpPath {
+                return try xmpPath.withPathCString { xmpCStr in
+                    try _renderFileTile(
+                        rawCStr: rawCStr, xmpCStr: xmpCStr,
+                        srcX: srcX, srcY: srcY, srcW: srcW, srcH: srcH,
+                        outW: outW, outH: outH, quality: quality
+                    )
+                }
+            } else {
+                return try _renderFileTile(
+                    rawCStr: rawCStr, xmpCStr: nil,
+                    srcX: srcX, srcY: srcY, srcW: srcW, srcH: srcH,
+                    outW: outW, outH: outH, quality: quality
+                )
+            }
+        }
+    }
+
+    /// Bytes-variant of `renderTile(rawPath:...)` — same one-shot
+    /// semantics.
+    public static func renderTile(
+        rawBytes: Data,
+        hint: String,
+        xmpPath: URL? = nil,
+        srcX: UInt32, srcY: UInt32, srcW: UInt32, srcH: UInt32,
+        outW: UInt32, outH: UInt32,
+        quality: Quality = .full
+    ) throws -> MapleSceneLinearImageData {
+        guard let hintCStr = hint.cString(using: .utf8) else {
+            throw PipelineError.hintEncodingError(hint)
+        }
+        return try rawBytes.withUnsafeBytes { (buf: UnsafeRawBufferPointer) in
+            let base = buf.baseAddress?.assumingMemoryBound(to: UInt8.self)
+            if let xmpPath {
+                return try xmpPath.withPathCString { xmpCStr in
+                    try _renderBytesTile(
+                        ptr: base, len: buf.count,
+                        hintCStr: hintCStr, xmpCStr: xmpCStr,
+                        srcX: srcX, srcY: srcY, srcW: srcW, srcH: srcH,
+                        outW: outW, outH: outH, quality: quality
+                    )
+                }
+            } else {
+                return try _renderBytesTile(
+                    ptr: base, len: buf.count,
+                    hintCStr: hintCStr, xmpCStr: nil,
+                    srcX: srcX, srcY: srcY, srcW: srcW, srcH: srcH,
+                    outW: outW, outH: outH, quality: quality
+                )
+            }
+        }
+    }
+
+    // MARK: Tile private helpers
+
+    private static func _openRawHandle(
+        rawCStr: UnsafePointer<CChar>,
+        xmpCStr: UnsafePointer<CChar>?
+    ) throws -> MapleRawHandle {
+        var handlePtr: UnsafeMutablePointer<RawPipeline.MapleRawHandle>? = nil
+        let rc = maple_open_raw_handle(rawCStr, xmpCStr, &handlePtr)
+        guard rc == 0, let p = handlePtr else {
+            let msg = maple_last_error().map { String(cString: $0) } ?? "unknown error"
+            throw PipelineError.renderFailed(code: Int(rc), message: msg)
+        }
+        return MapleRawHandle(pointer: p)
+    }
+
+    private static func _openRawHandleBytes(
+        ptr: UnsafePointer<UInt8>?,
+        len: Int,
+        hintCStr: [CChar],
+        xmpCStr: UnsafePointer<CChar>?
+    ) throws -> MapleRawHandle {
+        var handlePtr: UnsafeMutablePointer<RawPipeline.MapleRawHandle>? = nil
+        let rc = hintCStr.withUnsafeBufferPointer { hintPtr -> Int32 in
+            maple_open_raw_handle_bytes(
+                ptr, UInt(len), hintPtr.baseAddress,
+                xmpCStr, &handlePtr
+            )
+        }
+        guard rc == 0, let p = handlePtr else {
+            let msg = maple_last_error().map { String(cString: $0) } ?? "unknown error"
+            throw PipelineError.renderFailed(code: Int(rc), message: msg)
+        }
+        return MapleRawHandle(pointer: p)
+    }
+
+    private static func _renderFileTile(
+        rawCStr: UnsafePointer<CChar>,
+        xmpCStr: UnsafePointer<CChar>?,
+        srcX: UInt32, srcY: UInt32, srcW: UInt32, srcH: UInt32,
+        outW: UInt32, outH: UInt32,
+        quality: Quality
+    ) throws -> MapleSceneLinearImageData {
+        var buf = MapleSceneLinearBuffer(
+            fp16_rgba: nil, len_bytes: 0, channels: 0,
+            bytes_per_pixel: 0, width: 0, height: 0
+        )
+        let rc = maple_render_file_scene_linear_tile(
+            rawCStr, xmpCStr,
+            srcX, srcY, srcW, srcH,
+            outW, outH,
+            quality.rawValue,
+            &buf
+        )
+        guard rc == 0 else {
+            let msg = maple_last_error().map { String(cString: $0) } ?? "unknown error"
+            throw PipelineError.renderFailed(code: Int(rc), message: msg)
+        }
+        defer { maple_free_scene_linear_buffer(&buf) }
+        guard buf.len_bytes > 0, let ptr = buf.fp16_rgba else {
+            throw PipelineError.renderFailed(code: Int(rc), message: "empty tile buffer")
+        }
+        let data = mapleStage("decode result copy") {
+            Data(bytes: ptr, count: Int(buf.len_bytes))
+        }
+        return MapleSceneLinearImageData(
+            width: Int(buf.width),
+            height: Int(buf.height),
+            channels: Int(buf.channels),
+            bytesPerPixel: Int(buf.bytes_per_pixel),
+            pixels: data
+        )
+    }
+
+    private static func _renderBytesTile(
+        ptr: UnsafePointer<UInt8>?,
+        len: Int,
+        hintCStr: [CChar],
+        xmpCStr: UnsafePointer<CChar>?,
+        srcX: UInt32, srcY: UInt32, srcW: UInt32, srcH: UInt32,
+        outW: UInt32, outH: UInt32,
+        quality: Quality
+    ) throws -> MapleSceneLinearImageData {
+        var buf = MapleSceneLinearBuffer(
+            fp16_rgba: nil, len_bytes: 0, channels: 0,
+            bytes_per_pixel: 0, width: 0, height: 0
+        )
+        let rc = hintCStr.withUnsafeBufferPointer { hintPtr -> Int32 in
+            maple_render_bytes_scene_linear_tile(
+                ptr, UInt(len), hintPtr.baseAddress,
+                xmpCStr,
+                srcX, srcY, srcW, srcH,
+                outW, outH,
+                quality.rawValue,
+                &buf
+            )
+        }
+        guard rc == 0 else {
+            let msg = maple_last_error().map { String(cString: $0) } ?? "unknown error"
+            throw PipelineError.renderFailed(code: Int(rc), message: msg)
+        }
+        defer { maple_free_scene_linear_buffer(&buf) }
+        guard buf.len_bytes > 0, let bufPtr = buf.fp16_rgba else {
+            throw PipelineError.renderFailed(code: Int(rc), message: "empty tile buffer")
+        }
+        let data = mapleStage("decode result copy") {
+            Data(bytes: bufPtr, count: Int(buf.len_bytes))
+        }
+        return MapleSceneLinearImageData(
+            width: Int(buf.width),
+            height: Int(buf.height),
+            channels: Int(buf.channels),
+            bytesPerPixel: Int(buf.bytes_per_pixel),
+            pixels: data
+        )
+    }
+}
+
+// MARK: - MapleRawHandle (Swift wrapper around the opaque C handle)
+
+/// Sendable wrapper for the opaque `*mut MapleRawHandle` returned by
+/// `maple_open_raw_handle`. Owns the underlying C-allocated state and
+/// frees it via `maple_close_raw_handle` exactly once when the last
+/// reference drops. `@unchecked Sendable` because the underlying
+/// pointer is opaque from Swift's perspective and the caller (typically
+/// `RawImageCache` — Plan 3 Task 5) is responsible for serializing
+/// access through an actor.
+///
+/// The Rust side guarantees thread safety for `maple_render_handle_*`
+/// calls against a single handle: each call snapshots the inner
+/// `RawImage` + `AdjustmentModel` references and runs the development
+/// chain on a dedicated worker thread (16 MB stack via
+/// `with_large_stack`). The handle's pointee is never mutated after
+/// `maple_open_raw_handle` returns, so concurrent reads from multiple
+/// threads are safe.
+///
+/// Cross-link: docs/superpowers/plans/2026-04-25-deep-zoom-tile-rendering.md
+/// Task 4. The C ABI is in
+/// src/apple/Frameworks/RawPipeline.xcframework/.../Headers/RawPipeline.h.
+public final class MapleRawHandle: @unchecked Sendable {
+    /// Pointer to the C-side `MapleRawHandle` struct. Not introspected
+    /// from Swift; use the FFI entries to operate on it.
+    fileprivate let pointer: UnsafeMutablePointer<RawPipeline.MapleRawHandle>
+
+    fileprivate init(pointer: UnsafeMutablePointer<RawPipeline.MapleRawHandle>) {
+        self.pointer = pointer
+    }
+
+    deinit {
+        // SAFETY: `pointer` came from `maple_open_raw_handle` (or its
+        // bytes variant). `maple_close_raw_handle` is a no-op for null
+        // pointers and frees the inner allocation exactly once.
+        maple_close_raw_handle(pointer)
+    }
 }
 
 // MARK: - PipelineError

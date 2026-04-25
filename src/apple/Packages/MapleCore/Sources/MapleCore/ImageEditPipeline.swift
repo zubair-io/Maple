@@ -707,4 +707,89 @@ public actor ImageEditPipeline {
         return f.outputImage ?? input
     }
 
+    // MARK: - Tile decode (Plan 3 — Ticket 06 M4)
+
+    /// Decode a single source-pixel tile through the new scene-linear
+    /// FFI tile entry. Opens an opaque `MapleRawHandle` per call and
+    /// drops it on return — the caller's session-scoped cache (Plan 3
+    /// Task 5 `RawImageCache`) reuses handles across tile fetches.
+    /// `srcRect` is in pre-orientation source-pixel coords; `outSize`
+    /// is the tile output size (must be `<= srcRect` — tile path is
+    /// downscale-only).
+    ///
+    /// Returns a `CIImage` tagged `extendedLinearITUR_2020` (matching
+    /// the tagging convention from `decodeSceneLinear`). Returns nil
+    /// when the tile path is unavailable for the asset (XMP missing,
+    /// dehaze active, or the FFI returns any other error code).
+    ///
+    /// Caller is expected to feed the returned `CIImage` through the
+    /// same view-transform tail as `processSceneLinear` to land on
+    /// display.
+    nonisolated public func decodePreviewTile(
+        asset: AssetRef,
+        srcRect: CGRect,
+        outSize: CGSize,
+        quality: PipelineRenderer.Quality = .full
+    ) async -> CIImage? {
+        guard srcRect.width > 0, srcRect.height > 0,
+              outSize.width > 0, outSize.height > 0 else {
+            return nil
+        }
+        let imageData: MapleSceneLinearImageData
+        do {
+            if let url = asset.primaryURL {
+                let scope = asset.scopeParentURL ?? url.deletingLastPathComponent()
+                let accessing = scope.startAccessingSecurityScopedResource()
+                defer { if accessing { scope.stopAccessingSecurityScopedResource() } }
+                let handle = try PipelineRenderer.openRawHandle(rawPath: url, xmpPath: nil)
+                imageData = try PipelineRenderer.renderTile(
+                    handle: handle,
+                    srcX: UInt32(max(0, srcRect.origin.x.rounded())),
+                    srcY: UInt32(max(0, srcRect.origin.y.rounded())),
+                    srcW: UInt32(max(1, srcRect.size.width.rounded())),
+                    srcH: UInt32(max(1, srcRect.size.height.rounded())),
+                    outW: UInt32(max(1, outSize.width.rounded())),
+                    outH: UInt32(max(1, outSize.height.rounded())),
+                    quality: quality
+                )
+                // `handle` is dropped here — its deinit calls
+                // `maple_close_raw_handle`. Plan 3 Task 5 replaces this
+                // per-call open with a cache lookup.
+            } else if let provider = asset.bytesProvider {
+                let bytes = try await provider()
+                let hint = asset.hintExtension ?? ""
+                let handle = try PipelineRenderer.openRawHandle(
+                    rawBytes: bytes, hint: hint, xmpPath: nil
+                )
+                imageData = try PipelineRenderer.renderTile(
+                    handle: handle,
+                    srcX: UInt32(max(0, srcRect.origin.x.rounded())),
+                    srcY: UInt32(max(0, srcRect.origin.y.rounded())),
+                    srcW: UInt32(max(1, srcRect.size.width.rounded())),
+                    srcH: UInt32(max(1, srcRect.size.height.rounded())),
+                    outW: UInt32(max(1, outSize.width.rounded())),
+                    outH: UInt32(max(1, outSize.height.rounded())),
+                    quality: quality
+                )
+            } else {
+                return nil
+            }
+        } catch {
+            logger.error("decodePreviewTile failed for \(asset.displayName, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
+        let w = imageData.width, h = imageData.height
+        let bytesPerRow = w * imageData.bytesPerPixel
+        let space = CGColorSpace(name: CGColorSpace.extendedLinearITUR_2020)!
+        return mapleStage("decode tile CIImage build") {
+            CIImage(
+                bitmapData: imageData.pixels,
+                bytesPerRow: bytesPerRow,
+                size: CGSize(width: w, height: h),
+                format: .RGBAh,
+                colorSpace: space
+            )
+        }
+    }
+
 }
