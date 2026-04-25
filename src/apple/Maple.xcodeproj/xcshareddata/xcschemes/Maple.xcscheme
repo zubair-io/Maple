@@ -78,6 +78,11 @@
          <EnvironmentVariable
             key = "MAPLE_SKIP_SWIFT_FILTERS"
             value = "1"
+            isEnabled = "YES">
+         </EnvironmentVariable>
+         <EnvironmentVariable
+            key = "MAPLE_SKIP_PRESCALE"
+            value = "1"
             isEnabled = "NO">
          </EnvironmentVariable>
       </EnvironmentVariables>
