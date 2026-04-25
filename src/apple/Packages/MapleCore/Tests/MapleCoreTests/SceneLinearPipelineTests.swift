@@ -2885,4 +2885,100 @@ final class SceneLinearPipelineTests: XCTestCase {
         XCTAssertLessThanOrEqual(maskedDelta, noMaskDelta + 1e-3,
             "masking=50 should not increase deviation on flat field — got noMask=\(noMaskDelta) masked=\(maskedDelta)")
     }
+
+    // MARK: - Plan 2 v2 v4 M5a: Dehaze scalar mirrors (matches DehazeDarkChannel.metal etc.)
+
+    static let DARK_RADIUS: Int = 7
+
+    /// Pure-Swift mirror of `dark_channel` from raw-core/src/stages/
+    /// dehaze.rs:5-25. Per output pixel, scan the 15x15 RGB neighborhood
+    /// (DARK_RADIUS=7, clamp-to-edge), compute min-of-3-channels per
+    /// neighbor, take the min across the kernel.
+    static func swiftDarkChannel(
+        _ rgbBuf: [[Float]], w: Int, h: Int
+    ) -> [Float] {
+        var out = [Float](repeating: 0, count: w * h)
+        for y in 0..<h {
+            for x in 0..<w {
+                var m = Float.infinity
+                for dy in -Self.DARK_RADIUS...Self.DARK_RADIUS {
+                    for dx in -Self.DARK_RADIUS...Self.DARK_RADIUS {
+                        let ux = max(0, min(w - 1, x + dx))
+                        let uy = max(0, min(h - 1, y + dy))
+                        let p = rgbBuf[uy * w + ux]
+                        let localMin = min(min(p[0], p[1]), p[2])
+                        if localMin < m { m = localMin }
+                    }
+                }
+                out[y * w + x] = m
+            }
+        }
+        return out
+    }
+
+    /// Pure-Swift mirror of `atmospheric_light` from raw-core/src/stages/
+    /// dehaze.rs:29-41. Returns the per-channel mean over the top-0.1%
+    /// brightest dark-channel positions of the original RGB.
+    static func swiftAtmosphericLight(
+        _ rgbBuf: [[Float]], dc: [Float]
+    ) -> [Float] {
+        let n = dc.count
+        let topN = max(1, n / 1000)
+        var idx = Array(0..<n)
+        idx.sort { dc[$0] > dc[$1] }   // descending
+        var sumR: Float = 0, sumG: Float = 0, sumB: Float = 0
+        for i in 0..<topN {
+            let p = rgbBuf[idx[i]]
+            sumR += p[0]; sumG += p[1]; sumB += p[2]
+        }
+        let k = Float(topN)
+        return [sumR / k, sumG / k, sumB / k]
+    }
+
+    /// Mirror the Rust unit test at dehaze.rs:194-204 — uniform image
+    /// with a single dark pixel; assert pixels within radius 7 see the
+    /// dark pixel.
+    func testM5SwiftScalarDarkChannelMatchesRust() async throws {
+        let w = 20, h = 20
+        var rgb = [[Float]](repeating: [0.9, 0.9, 0.9], count: w * h)
+        rgb[10 * 20 + 10] = [0.1, 0.1, 0.1]
+        let dc = Self.swiftDarkChannel(rgb, w: w, h: h)
+        // Pixel at (10, 10) sees itself.
+        XCTAssertEqual(dc[10 * 20 + 10], 0.1, accuracy: 1e-5)
+        // Pixel at (3, 3) — abs(10-3) = 7, exactly at radius 7.
+        XCTAssertEqual(dc[3 * 20 + 3], 0.1, accuracy: 1e-5)
+        // Pixel at (0, 0) — distance 10, beyond radius 7 box.
+        XCTAssertEqual(dc[0], 0.9, accuracy: 1e-5)
+    }
+
+    /// Mirror the Rust unit test at dehaze.rs:186-191 — uniform RGB
+    /// with R=0.5, G=0.3, B=0.8. Dark channel is min(R, G, B) = 0.3
+    /// everywhere because the kernel-min over uniform values is the
+    /// same as the per-pixel min.
+    func testM5SwiftScalarDarkChannelOfUniformIsMinChannel() async throws {
+        let w = 20, h = 20
+        let rgb = [[Float]](repeating: [0.5, 0.3, 0.8], count: w * h)
+        let dc = Self.swiftDarkChannel(rgb, w: w, h: h)
+        for v in dc {
+            XCTAssertEqual(v, 0.3, accuracy: 1e-5)
+        }
+    }
+
+    /// Mirror the Rust unit test at dehaze.rs:206-218 — uniform 0.3
+    /// background with a 10x10 bright patch in the corner; atmospheric
+    /// light should be > 0.7 per channel (driven by the bright patch).
+    func testM5SwiftScalarAtmosphericLightPicksBrightestRegion() async throws {
+        let w = 100, h = 100
+        var rgb = [[Float]](repeating: [0.3, 0.3, 0.3], count: w * h)
+        for y in 0..<10 {
+            for x in 0..<10 {
+                rgb[y * 100 + x] = [0.95, 0.94, 0.93]
+            }
+        }
+        let dc = Self.swiftDarkChannel(rgb, w: w, h: h)
+        let a = Self.swiftAtmosphericLight(rgb, dc: dc)
+        XCTAssertGreaterThan(a[0], 0.7)
+        XCTAssertGreaterThan(a[1], 0.7)
+        XCTAssertGreaterThan(a[2], 0.7)
+    }
 }
