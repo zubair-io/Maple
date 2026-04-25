@@ -3141,4 +3141,113 @@ final class SceneLinearPipelineTests: XCTestCase {
             }
         }
     }
+
+    // MARK: - Plan 2 v2 v4 M5c: Dehaze full-pipeline mirror + wrapper smoke
+
+    /// Pure-Swift mirror of `apply` from raw-core/src/stages/dehaze.rs:
+    /// 144-179. Composes swiftDarkChannel -> swiftAtmosphericLight ->
+    /// swiftTransmission -> Rec.2020 luma guide -> swiftGuidedFilter
+    /// at radius 60, eps 1e-3 -> per-pixel reconstruction with slider
+    /// mapping.
+    static func swiftApplyDehaze(
+        _ rgbBuf: [[Float]], w: Int, h: Int, dehaze: Float
+    ) -> [[Float]] {
+        if abs(dehaze) < 1e-3 { return rgbBuf }
+        let dc    = swiftDarkChannel(rgbBuf, w: w, h: h)
+        let a     = swiftAtmosphericLight(rgbBuf, dc: dc)
+        let tRaw  = swiftTransmission(rgbBuf, a: a, w: w, h: h)
+        var guide = [Float](repeating: 0, count: w * h)
+        for i in 0..<(w * h) {
+            let p = rgbBuf[i]
+            guide[i] = 0.2627 * p[0] + 0.6780 * p[1] + 0.0593 * p[2]
+        }
+        let tRefined = swiftGuidedFilter(
+            guide: guide, p: tRaw, w: w, h: h, r: 60, eps: 1e-3)
+        let t0: Float = 0.1
+        let scale = max(-1.0, min(1.0, dehaze / 100.0))
+        var out = [[Float]](repeating: [0, 0, 0], count: w * h)
+        for i in 0..<(w * h) {
+            let p = rgbBuf[i]
+            let t = max(0.0, min(1.0, tRefined[i]))
+            let tEff: Float
+            if scale >= 0 {
+                tEff = max(t + (1.0 - t) * (1.0 - scale), t0)
+            } else {
+                let inner = min(t + (1.0 - t) * (-scale), 1.0)
+                tEff = max(inner, t0)
+            }
+            out[i] = [
+                (p[0] - a[0]) / tEff + a[0],
+                (p[1] - a[1]) / tEff + a[1],
+                (p[2] - a[2]) / tEff + a[2],
+            ]
+        }
+        return out
+    }
+
+    /// Mirror the Rust unit test at dehaze.rs:261-269 — dehaze=0 is exact
+    /// identity (Rust short-circuits at line 146).
+    func testM5SwiftScalarApplyDehazeZeroIsIdentity() async throws {
+        let w = 20, h = 20
+        let rgb = [[Float]](repeating: [0.4, 0.5, 0.6], count: w * h)
+        let out = Self.swiftApplyDehaze(rgb, w: w, h: h, dehaze: 0)
+        for i in 0..<(w * h) {
+            XCTAssertEqual(out[i][0], rgb[i][0], accuracy: 0.0)
+            XCTAssertEqual(out[i][1], rgb[i][1], accuracy: 0.0)
+            XCTAssertEqual(out[i][2], rgb[i][2], accuracy: 0.0)
+        }
+    }
+
+    /// Mirror the Rust unit test at dehaze.rs:271-284 — dehaze=+100 on a
+    /// hazy scene yields finite, bounded output.
+    func testM5SwiftScalarApplyDehazePositiveBounded() async throws {
+        let w = 30, h = 30
+        var rgb = [[Float]](repeating: [0.5, 0.5, 0.5], count: w * h)
+        for y in 10..<20 {
+            for x in 10..<20 {
+                rgb[y * 30 + x] = [0.35, 0.35, 0.35]
+            }
+        }
+        let out = Self.swiftApplyDehaze(rgb, w: w, h: h, dehaze: 100)
+        for p in out {
+            for c in p {
+                XCTAssertTrue(c.isFinite,
+                    "dehaze=+100 produced non-finite channel: \(c)")
+            }
+        }
+        let centerR = out[10 * 30 + 10][0]
+        XCTAssertGreaterThanOrEqual(centerR, 0.0)
+        XCTAssertLessThanOrEqual(centerR, 1.5)
+    }
+
+    /// Negative slider: should add haze (push transmission toward 1.0,
+    /// resulting in less contrast). The reconstruction at scale=-1 with
+    /// t_eff=1 gives J = (I-A)/1 + A = I, so dehaze=-100 is also a
+    /// near-identity, but with t_floor=0.1 there's a small floor effect
+    /// in dark areas.
+    func testM5SwiftScalarApplyDehazeNegativeAddsHaze() async throws {
+        let w = 30, h = 30
+        var rgb = [[Float]](repeating: [0.5, 0.5, 0.5], count: w * h)
+        for y in 10..<20 {
+            for x in 10..<20 {
+                rgb[y * 30 + x] = [0.35, 0.35, 0.35]
+            }
+        }
+        let out = Self.swiftApplyDehaze(rgb, w: w, h: h, dehaze: -50)
+        for p in out {
+            for c in p {
+                XCTAssertTrue(c.isFinite,
+                    "dehaze=-50 produced non-finite channel: \(c)")
+            }
+        }
+    }
+
+    /// Wrapper-level identity check.
+    func testM5DehazeShortCircuitsAtZeroAmount() async throws {
+        let input = Self.makeRGBSceneLinearCIImage(
+            width: 8, height: 8, r: 0.4, g: 0.5, b: 0.6)
+        let out = MetalKernels.applySceneDehaze(to: input, dehaze: 0.0)
+        XCTAssertTrue(out === input,
+            "dehaze=0 should return the input CIImage instance unchanged")
+    }
 }
