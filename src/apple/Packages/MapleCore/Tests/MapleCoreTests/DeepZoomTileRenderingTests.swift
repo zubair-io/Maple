@@ -197,4 +197,92 @@ final class DeepZoomTileRenderingTests: XCTestCase {
             "decodePreviewTile must tag extendedLinearITUR_2020"
         )
     }
+
+    // MARK: - Task 5: RawImageCache
+
+    /// Resolve a secondary fixture, used to test that switching assets
+    /// evicts the cached entry. Walks the same 7 levels as
+    /// `fixtureURL()` to land on the repo root.
+    private func secondaryFixtureURL() -> URL? {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()  // MapleCoreTests/
+            .deletingLastPathComponent()  // Tests/
+            .deletingLastPathComponent()  // MapleCore/
+            .deletingLastPathComponent()  // Packages/
+            .deletingLastPathComponent()  // apple/
+            .deletingLastPathComponent()  // src/
+            .deletingLastPathComponent()  // repo root
+            .appendingPathComponent("test-fixtures/raws/test_0006.DNG")
+        return FileManager.default.fileExists(atPath: url.path) ? url : nil
+    }
+
+    /// Cache hit: opening the same URL twice returns the SAME handle
+    /// instance (`===`). Validates that the second call skipped the
+    /// rawler decode.
+    func testRawImageCacheReturnsSameHandleAcrossCalls() async throws {
+        guard let url = fixtureURL() else {
+            throw XCTSkip("test_0002.dng fixture not present; skipping")
+        }
+        let cache = RawImageCache()
+        let h1 = try await cache.handle(for: url)
+        let h2 = try await cache.handle(for: url)
+        XCTAssertTrue(h1 === h2, "second call must reuse cached handle")
+    }
+
+    /// Switching to a different URL evicts the previous entry; refetching
+    /// the original URL produces a NEW handle instance (different `===`).
+    func testRawImageCacheEvictsOnAssetSwitch() async throws {
+        guard let u1 = fixtureURL(), let u2 = secondaryFixtureURL() else {
+            throw XCTSkip("required fixtures not present; skipping")
+        }
+        let cache = RawImageCache()
+        let h1 = try await cache.handle(for: u1)
+        let h2 = try await cache.handle(for: u2)
+        let h1Again = try await cache.handle(for: u1)
+        XCTAssertFalse(h1 === h1Again, "switching to u2 should evict u1; refetch decodes again")
+        XCTAssertFalse(h1 === h2, "h1 and h2 are different assets")
+    }
+
+    /// Explicit `evict()` drops the cached entry; the next call decodes
+    /// again.
+    func testRawImageCacheExplicitEvict() async throws {
+        guard let url = fixtureURL() else {
+            throw XCTSkip("test_0002.dng fixture not present; skipping")
+        }
+        let cache = RawImageCache()
+        let h1 = try await cache.handle(for: url)
+        await cache.evict()
+        let cached = await cache.cachedURL
+        XCTAssertNil(cached, "evict() must clear the cached URL")
+        let h2 = try await cache.handle(for: url)
+        XCTAssertFalse(h1 === h2, "post-evict refetch must decode a fresh handle")
+    }
+
+    /// `cachedURL` reports the asset currently held — used by tests and
+    /// instrumentation to verify cache state without poking internals.
+    func testRawImageCacheCachedURLReflectsCurrentEntry() async throws {
+        guard let url = fixtureURL() else {
+            throw XCTSkip("test_0002.dng fixture not present; skipping")
+        }
+        let cache = RawImageCache()
+        let beforeOpen = await cache.cachedURL
+        XCTAssertNil(beforeOpen)
+        _ = try await cache.handle(for: url)
+        let afterOpen = await cache.cachedURL
+        XCTAssertEqual(afterOpen, url)
+    }
+
+    /// Bogus path surfaces the FFI error; the cache stays empty.
+    func testRawImageCacheNonExistentFileThrows() async {
+        let bogus = URL(fileURLWithPath: "/tmp/does_not_exist_maple_cache_test.dng")
+        let cache = RawImageCache()
+        do {
+            _ = try await cache.handle(for: bogus)
+            XCTFail("expected an error from a non-existent file")
+        } catch {
+            // expected — RAW decode fails
+        }
+        let cached = await cache.cachedURL
+        XCTAssertNil(cached, "failed open must NOT populate the cache")
+    }
 }
