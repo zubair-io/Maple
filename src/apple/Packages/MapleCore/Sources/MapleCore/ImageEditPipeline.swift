@@ -186,6 +186,76 @@ public actor ImageEditPipeline {
         }
     }
 
+    // MARK: Decode (scene-linear sized — Plan 1 v2 viewport-sized FFI)
+
+    /// Sized scene-linear decode — runs the new Rust FFI sized entry,
+    /// returning a Rec.2020 fp16 CIImage at (or below) `targetSize`.
+    /// Per ticket 06 § Product Requirements 1, 2: the editor's first
+    /// Rust-backed open routes here when `previewSize` is known. The
+    /// returned CIImage's extent fits within `targetSize` (preserving
+    /// aspect, never upscaling).
+    nonisolated public func decodeSceneLinearSized(
+        asset: AssetRef,
+        targetSize: CGSize
+    ) async -> CIImage? {
+        // Per ticket 06 § Product Requirements 2, the long edge of the
+        // requested target is the cap; pixel-accurate sizing happens in
+        // Rust. Conservative fallback if `targetSize` is degenerate
+        // (zero/negative): per ticket 06 § Open Questions, "if previewSize
+        // is unknown at the moment decode starts, the editor may use a
+        // conservative fallback cap, for example a 2MP long-edge-
+        // constrained preview." 2 MP = ~1414 px on a square; we round
+        // to 1500.
+        let longEdge: UInt32 = {
+            let w = max(1, Int(targetSize.width.rounded()))
+            let h = max(1, Int(targetSize.height.rounded()))
+            let le = max(w, h)
+            if le <= 0 { return 1500 }
+            return UInt32(le)
+        }()
+        let imageData: MapleSceneLinearImageData
+        do {
+            if let url = asset.primaryURL {
+                let scope = asset.scopeParentURL ?? url.deletingLastPathComponent()
+                let accessing = scope.startAccessingSecurityScopedResource()
+                defer { if accessing { scope.stopAccessingSecurityScopedResource() } }
+                imageData = try PipelineRenderer.renderSceneLinearSized(
+                    rawPath: url, xmpPath: nil,
+                    quality: .preview, maxLongEdge: longEdge
+                )
+            } else if let provider = asset.bytesProvider {
+                let bytes = try await provider()
+                let hint = asset.hintExtension ?? ""
+                imageData = try PipelineRenderer.renderSceneLinearSized(
+                    rawBytes: bytes, hint: hint, xmpPath: nil,
+                    quality: .preview, maxLongEdge: longEdge
+                )
+            } else {
+                return nil
+            }
+        } catch {
+            logger.error("decodeSceneLinearSized failed for \(asset.displayName, privacy: .public): \(error.localizedDescription, privacy: .public). Falling back to unsized scene-linear path.")
+            // Ticket 06 § Product Requirements 3: existing whole-preview
+            // path remains available as a fallback when the sized path
+            // fails. The unsized scene-linear entry from Task 4 is the
+            // right fallback (matched color domain); the legacy display-
+            // encoded path would mismatch the rest of `processSceneLinear`.
+            return await decodeSceneLinear(asset: asset, quality: .preview)
+        }
+        let w = imageData.width, h = imageData.height
+        let bytesPerRow = w * imageData.bytesPerPixel
+        let space = CGColorSpace(name: CGColorSpace.extendedLinearITUR_2020)!
+        return mapleStage("decode CIImage build") {
+            CIImage(
+                bitmapData: imageData.pixels,
+                bytesPerRow: bytesPerRow,
+                size: CGSize(width: w, height: h),
+                format: .RGBAh,
+                colorSpace: space
+            )
+        }
+    }
+
     // MARK: Process (scene-linear path — Plan 1 FFI split)
 
     /// Apply the Plan-1 minimal display-domain chain to a scene-linear

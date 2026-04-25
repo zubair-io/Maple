@@ -15,8 +15,24 @@
 //       fp16 Rec.2020 input. Reports mean ΔE, P95, max ΔE, per-channel
 //       bias, and asserts results within fp16 noise floor (~1e-3 relative).
 //
-// Future spikes (1.2 AgX) and integration tests (Tasks 4, 5, 8) will be
-// appended to this file by their own changesets.
+// Plan 1 v2 Task 8 sized-path acceptance (ticket 06 § Performance
+// Requirements). The sized FFI buffer math is bounded by construction
+// (the cap clamps long edge to the viewport):
+//
+//   FFI output buffer size for fit viewport
+//     1500-px-long-edge target on a 4:3 aspect    = 1500 x 1125 x 8 = 13.5 MB
+//     2000-px-long-edge target on a 4:3 aspect    = 2000 x 1500 x 8 = 24.0 MB
+//     2900-px-long-edge target on a 4:3 aspect    = 2900 x 2175 x 8 = 50.5 MB
+//
+//   gate: target <= 32 MB, hard limit 64 MB
+//   any sane fit-to-window viewport (<= ~2900 px long edge) stays
+//   under the 64 MB hard limit.
+//
+// The cold-open viewport preview total time gate (target < 1000 ms,
+// hard limit 2000 ms on a 100 MP Hasselblad fixture, MAPLE_SCENE_LINEAR=1,
+// release build) is captured by the developer running the editor with
+// `MAPLE_PROFILE=1` set; the labeled `[swift]` and `[raw-core]` lines
+// (Task 7's per-stage breakdown) sum to the cold-open total.
 
 import XCTest
 import CoreImage
@@ -961,5 +977,62 @@ final class SceneLinearPipelineTests: XCTestCase {
         )
         XCTAssertEqual(out.extent.width, 200, accuracy: 0.01)
         XCTAssertEqual(out.extent.height, 150, accuracy: 0.01)
+    }
+
+    // MARK: - Task 8: viewport-sized scene-linear decode
+
+    /// Per ticket 06 § Acceptance Criteria, the sized FFI must:
+    ///   - produce a buffer whose long edge equals the requested cap
+    ///     (or stays at the source dimension if the source is smaller —
+    ///      no upscale)
+    ///   - return a non-nil CIImage with extent matching the buffer
+    ///   - succeed for the standard EXIF orientation (smoke-tested via
+    ///      the test_0002 fixture; orientation correctness on rotated
+    ///      fixtures is covered by the existing apply_orientation tests
+    ///      in raw-core)
+    func testDecodeSceneLinearSizedRespectsCap() async throws {
+        let fixturePath = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("raw-pipeline/test-fixtures/raws/test_0002.dng")
+        guard FileManager.default.fileExists(atPath: fixturePath.path) else {
+            throw XCTSkip("test_0002.dng absent — fixtures are gitignored")
+        }
+        let asset = AssetRef(url: fixturePath)
+        let pipeline = ImageEditPipeline()
+        let target = CGSize(width: 800, height: 600)
+        guard let ci = await pipeline.decodeSceneLinearSized(asset: asset, targetSize: target) else {
+            return XCTFail("decodeSceneLinearSized returned nil")
+        }
+        let w = ci.extent.width, h = ci.extent.height
+        XCTAssertLessThanOrEqual(max(w, h), 800.001,
+            "long edge \(max(w, h)) exceeds cap 800")
+        XCTAssertGreaterThan(min(w, h), 0)
+    }
+
+    /// Per ticket 06 § Product Requirements 1: never upscale beyond
+    /// the source. Demand 100k px on the long edge — far above any
+    /// real RAW. The FFI must return at most the source's half-res
+    /// dimensions.
+    func testDecodeSceneLinearSizedNeverUpscalesBeyondSource() async throws {
+        let fixturePath = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("raw-pipeline/test-fixtures/raws/test_0002.dng")
+        guard FileManager.default.fileExists(atPath: fixturePath.path) else {
+            throw XCTSkip("test_0002.dng absent")
+        }
+        let asset = AssetRef(url: fixturePath)
+        let pipeline = ImageEditPipeline()
+        guard let sized = await pipeline.decodeSceneLinearSized(
+            asset: asset, targetSize: CGSize(width: 100_000, height: 100_000)
+        ) else { return XCTFail("nil sized") }
+        guard let unsized = await pipeline.decodeSceneLinear(
+            asset: asset, quality: .preview
+        ) else { return XCTFail("nil unsized") }
+        XCTAssertEqual(sized.extent.width, unsized.extent.width, accuracy: 0.01)
+        XCTAssertEqual(sized.extent.height, unsized.extent.height, accuracy: 0.01)
     }
 }

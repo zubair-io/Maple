@@ -937,6 +937,12 @@ public final class EditSession {
         // count instead of shrinking to one Rust pass.
         let decodeSignpostID = editSessionSignposter.makeSignpostID()
         let decodeState = editSessionSignposter.beginInterval("decode", id: decodeSignpostID)
+        // Capture the current viewport size so the scene-linear path can
+        // route through the sized FFI when known. Plan 1 v2 Task 8: the
+        // sized entry caps the Rust output's long edge at the viewport,
+        // dropping the FFI buffer from ~200 MB (half-res scene-linear) to
+        // ~12 MB for a 1500-px-long-edge target.
+        let capturedViewport = previewSize
         let task: Task<CIImage?, Never> = Task.detached(priority: .userInitiated) { [pipeline, useSceneLinear] in
             // Disk-cache fast path. Skips the Rust pipeline entirely when
             // the asset's mtime matches the cached key. Plan 1 gate: the
@@ -951,6 +957,17 @@ public final class EditSession {
                 }
             }
             // Cache miss — Rust decode, then write-back for the next open.
+            // Plan 1 v2 routing:
+            //   1. New scene-linear path AND viewport size is known →
+            //      use the sized FFI entry (ticket 06 Milestone 2).
+            //      Output is ~12 MB for a 1500-px-long-edge buffer
+            //      vs ~200 MB for the half-res scene-linear buffer.
+            //   2. New scene-linear path with no viewport hint → fall
+            //      back to the unsized entry (Task 4) so behavior is
+            //      no worse than v1.
+            //   3. Legacy path unchanged — keeps the legacy display-
+            //      encoded FFI for thumbnails and parity harness.
+            //
             // Plan 1 gate: the scene-linear path bypasses the disk cache
             // (the cache stores sRGB JPEGs, which would lose the scene-
             // linear buffer's extended range). A follow-up plan revs the
@@ -958,8 +975,16 @@ public final class EditSession {
             // Rust decode cost.
             let decoded: CIImage?
             if useSceneLinear {
-                decoded = await mapleStageAsync("rust FFI scene-linear decode") {
-                    await pipeline.decodeSceneLinear(asset: asset)
+                if capturedViewport.width > 1, capturedViewport.height > 1 {
+                    decoded = await mapleStageAsync("rust FFI scene-linear decode") {
+                        await pipeline.decodeSceneLinearSized(
+                            asset: asset, targetSize: capturedViewport
+                        )
+                    }
+                } else {
+                    decoded = await mapleStageAsync("rust FFI scene-linear decode") {
+                        await pipeline.decodeSceneLinear(asset: asset)
+                    }
                 }
             } else {
                 decoded = await mapleStageAsync("rust FFI decode") {

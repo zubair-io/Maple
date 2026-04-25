@@ -474,6 +474,190 @@ pub unsafe extern "C" fn maple_render_bytes_scene_linear(
     })
 }
 
+/// Sized scene-linear render — same as `maple_render_file_scene_linear`
+/// but downsamples to fit within `max_long_edge` on its long edge,
+/// preserving aspect ratio, never upscaling. Same return / error
+/// conventions and the same `MapleSceneLinearBuffer` output struct.
+///
+/// API choice: a single `max_long_edge` u32 instead of `max_width/
+/// max_height` simplifies WASM/Web parity (Plan 3 will mirror this on
+/// the Web FFI; one scalar keeps the JS binding signature shorter).
+/// Aspect math is local to the Rust renderer because it knows the
+/// source dimensions.
+///
+/// Plan 1 v2 — see docs/superpowers/plans/2026-04-24-ffi-split-plan-1.md
+/// Task 8 and docs/tickets/06-viewport-sized-rust-ffi-preview.md
+/// Milestone 2.
+#[no_mangle]
+pub unsafe extern "C" fn maple_render_file_scene_linear_sized(
+    raw_path: *const c_char,
+    xmp_path: *const c_char,
+    max_long_edge: u32,
+    quality_preview: i32,
+    out: *mut MapleSceneLinearBuffer,
+) -> i32 {
+    if raw_path.is_null() || out.is_null() {
+        set_last_error("null pointer argument".into());
+        return 1;
+    }
+    if max_long_edge == 0 {
+        set_last_error("max_long_edge must be > 0".into());
+        return 9;
+    }
+    let raw_path_str = match CStr::from_ptr(raw_path).to_str() {
+        Ok(s) => s.to_owned(),
+        Err(e) => { set_last_error(format!("raw_path not UTF-8: {}", e)); return 2; }
+    };
+    let xmp_path_str: Option<String> = if xmp_path.is_null() {
+        None
+    } else {
+        match CStr::from_ptr(xmp_path).to_str() {
+            Ok(s) => Some(s.to_owned()),
+            Err(e) => { set_last_error(format!("xmp_path not UTF-8: {}", e)); return 3; }
+        }
+    };
+    let out_ptr = out as usize;
+    with_large_stack(move || {
+        let raw_path = std::path::Path::new(&raw_path_str);
+        let model = match &xmp_path_str {
+            None => xmp::AdjustmentModel::default(),
+            Some(p) => match std::fs::read_to_string(p) {
+                Ok(xml) => match xmp::parse(&xml) {
+                    Ok(m) => m,
+                    Err(e) => { set_last_error(format!("xmp parse: {}", e)); return 4; }
+                },
+                Err(e) => { set_last_error(format!("xmp read: {}", e)); return 5; }
+            },
+        };
+        let raw_bytes = match raw_core::pipeline::stage("ffi_raw_read", || std::fs::read(raw_path)) {
+            Ok(b) => b,
+            Err(e) => { set_last_error(format!("raw read: {}", e)); return 6; }
+        };
+        let ext = raw_path.extension().and_then(|e| e.to_str()).unwrap_or("");
+        let raw_img = match raw_core::pipeline::stage("ffi_rawler_decode", || decode_bytes(&raw_bytes, ext)) {
+            Ok(r) => r,
+            Err(e) => { set_last_error(format!("decode: {}", e)); return 7; }
+        };
+        let quality = if quality_preview != 0 {
+            raw_core::pipeline::RenderQuality::Preview
+        } else {
+            raw_core::pipeline::RenderQuality::Full
+        };
+        let (w, h, fp16) = match raw_core::pipeline::render_scene_linear_sized_from_raw_with_quality(
+            &raw_img, &model, quality, max_long_edge,
+        ) {
+            Ok(t) => t,
+            Err(e) => { set_last_error(format!("render: {}", e)); return 8; }
+        };
+        let (fp16_ptr, _len_lanes, len_bytes) = raw_core::pipeline::stage("ffi_pack", || {
+            let mut boxed = fp16.into_boxed_slice();
+            let p = boxed.as_mut_ptr();
+            let n = boxed.len();
+            std::mem::forget(boxed);
+            (p, n, n * std::mem::size_of::<u16>())
+        });
+        unsafe {
+            *(out_ptr as *mut MapleSceneLinearBuffer) =
+                MapleSceneLinearBuffer {
+                    fp16_rgba: fp16_ptr,
+                    len_bytes,
+                    channels: 4,
+                    bytes_per_pixel: 8,
+                    width: w,
+                    height: h,
+                };
+        }
+        0
+    })
+}
+
+/// Sized scene-linear render from a byte slice — bytes equivalent of
+/// `maple_render_file_scene_linear_sized`. Same args + `raw_bytes` /
+/// `raw_len` / `hint_ext`.
+#[no_mangle]
+pub unsafe extern "C" fn maple_render_bytes_scene_linear_sized(
+    raw_bytes: *const u8,
+    raw_len: usize,
+    hint_ext: *const c_char,
+    xmp_path: *const c_char,
+    max_long_edge: u32,
+    quality_preview: i32,
+    out: *mut MapleSceneLinearBuffer,
+) -> i32 {
+    if raw_bytes.is_null() || out.is_null() {
+        set_last_error("null pointer argument".into());
+        return 1;
+    }
+    if max_long_edge == 0 {
+        set_last_error("max_long_edge must be > 0".into());
+        return 9;
+    }
+    let ext_owned: String = if hint_ext.is_null() {
+        String::new()
+    } else {
+        match CStr::from_ptr(hint_ext).to_str() {
+            Ok(s) => s.to_owned(),
+            Err(e) => { set_last_error(format!("hint_ext not UTF-8: {}", e)); return 2; }
+        }
+    };
+    let xmp_path_str: Option<String> = if xmp_path.is_null() {
+        None
+    } else {
+        match CStr::from_ptr(xmp_path).to_str() {
+            Ok(s) => Some(s.to_owned()),
+            Err(e) => { set_last_error(format!("xmp_path not UTF-8: {}", e)); return 3; }
+        }
+    };
+    let input: Vec<u8> = std::slice::from_raw_parts(raw_bytes, raw_len).to_vec();
+    let out_ptr = out as usize;
+    with_large_stack(move || {
+        let model = match &xmp_path_str {
+            None => xmp::AdjustmentModel::default(),
+            Some(p) => match std::fs::read_to_string(p) {
+                Ok(xml) => match xmp::parse(&xml) {
+                    Ok(m) => m,
+                    Err(e) => { set_last_error(format!("xmp parse: {}", e)); return 4; }
+                },
+                Err(e) => { set_last_error(format!("xmp read: {}", e)); return 5; }
+            },
+        };
+        let raw_img = match raw_core::pipeline::stage("ffi_rawler_decode", || decode_bytes(&input, &ext_owned)) {
+            Ok(r) => r,
+            Err(e) => { set_last_error(format!("decode: {}", e)); return 7; }
+        };
+        let quality = if quality_preview != 0 {
+            raw_core::pipeline::RenderQuality::Preview
+        } else {
+            raw_core::pipeline::RenderQuality::Full
+        };
+        let (w, h, fp16) = match raw_core::pipeline::render_scene_linear_sized_from_raw_with_quality(
+            &raw_img, &model, quality, max_long_edge,
+        ) {
+            Ok(t) => t,
+            Err(e) => { set_last_error(format!("render: {}", e)); return 8; }
+        };
+        let (fp16_ptr, _len_lanes, len_bytes) = raw_core::pipeline::stage("ffi_pack", || {
+            let mut boxed = fp16.into_boxed_slice();
+            let p = boxed.as_mut_ptr();
+            let n = boxed.len();
+            std::mem::forget(boxed);
+            (p, n, n * std::mem::size_of::<u16>())
+        });
+        unsafe {
+            *(out_ptr as *mut MapleSceneLinearBuffer) =
+                MapleSceneLinearBuffer {
+                    fp16_rgba: fp16_ptr,
+                    len_bytes,
+                    channels: 4,
+                    bytes_per_pixel: 8,
+                    width: w,
+                    height: h,
+                };
+        }
+        0
+    })
+}
+
 /// Free a buffer populated by `maple_render_*_scene_linear`.
 #[no_mangle]
 pub unsafe extern "C" fn maple_free_scene_linear_buffer(buffer: *mut MapleSceneLinearBuffer) {
@@ -575,5 +759,42 @@ mod tests {
         assert!(!err.is_null());
         let msg = unsafe { CStr::from_ptr(err).to_str().unwrap() };
         assert!(msg.contains("null"));
+    }
+
+    #[test]
+    fn render_scene_linear_sized_via_ffi_caps_long_edge() {
+        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../test-fixtures/raws/test_0002.dng");
+        if !path.exists() { return; }
+        let raw_cstr = CString::new(path.to_str().unwrap()).unwrap();
+        let mut buf = MapleSceneLinearBuffer::empty();
+        let max_long_edge: u32 = 800;
+        let rc = unsafe {
+            maple_render_file_scene_linear_sized(
+                raw_cstr.as_ptr(), std::ptr::null(), max_long_edge, 1, &mut buf,
+            )
+        };
+        assert_eq!(rc, 0, "render rc = {}", rc);
+        assert!(buf.width.max(buf.height) <= max_long_edge,
+            "size cap not respected: {}x{}", buf.width, buf.height);
+        assert_eq!(buf.bytes_per_pixel, 8);
+        assert_eq!(buf.len_bytes as u32, buf.width * buf.height * 8);
+        unsafe { maple_free_scene_linear_buffer(&mut buf) };
+        assert!(buf.fp16_rgba.is_null());
+    }
+
+    #[test]
+    fn sized_zero_long_edge_sets_error() {
+        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../test-fixtures/raws/test_0002.dng");
+        if !path.exists() { return; }
+        let raw_cstr = CString::new(path.to_str().unwrap()).unwrap();
+        let mut buf = MapleSceneLinearBuffer::empty();
+        let rc = unsafe {
+            maple_render_file_scene_linear_sized(
+                raw_cstr.as_ptr(), std::ptr::null(), 0, 1, &mut buf,
+            )
+        };
+        assert_eq!(rc, 9);
     }
 }
