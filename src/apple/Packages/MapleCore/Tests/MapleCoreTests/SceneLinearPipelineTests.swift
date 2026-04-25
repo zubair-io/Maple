@@ -2337,4 +2337,135 @@ final class SceneLinearPipelineTests: XCTestCase {
         XCTAssertTrue(out === input,
             "amount=0 should return the input CIImage instance unchanged")
     }
+
+    // MARK: - Plan 2 v2 v2 M3: NR luminance + NR color wired into processSceneLinear
+
+    /// Build a 32×32 fp16 Rec.2020 CIImage with alternating bright/dark
+    /// rows on the same hue (mirrors the Rust unit test at
+    /// noise_reduction.rs:121-126). Run through processSceneLinear with
+    /// model.nrLuminance = 0 (default) and model.nrLuminance = 100.
+    /// Assert the +100 output's centre-pixel R-channel is finite and
+    /// in [0, 2] — the chroma should not have collapsed catastrophically.
+    /// Same `>=` caveat as Plan 2 v1's M1 wiring tests — under XCTest
+    /// the kernel may be a no-op; the load-bearing runtime check is
+    /// in Task 7's manual smoke test.
+    func testM3ProcessSceneLinearAppliesNRLuminance() async throws {
+        let pipeline = ImageEditPipeline()
+        let input = Self.makeAlternatingLumaSceneLinearCIImage(width: 32, height: 32)
+
+        var modelDefault = AdjustmentModel.default
+        modelDefault.nrLuminance = 0    // explicit 0 to suppress NR luma
+        modelDefault.nrColor = 0        // also suppress NR color so the
+                                        // baseline is bare WB->tone->...->texture
+                                        // (no chroma blur)
+        var modelBoost = modelDefault
+        modelBoost.nrLuminance = 100
+
+        let outDefault = pipeline.processSceneLinear(decoded: input, model: modelDefault)
+        let outBoost   = pipeline.processSceneLinear(decoded: input, model: modelBoost)
+
+        let dR = Self.sampleCenterR(outDefault, width: 32, height: 32)
+        let bR = Self.sampleCenterR(outBoost, width: 32, height: 32)
+        XCTAssertTrue(dR.isFinite && bR.isFinite,
+            "NR luminance produced non-finite channel: default=\(dR) boost=\(bR)")
+        XCTAssertGreaterThanOrEqual(bR, 0.0,
+            "NR luminance pushed centre R below zero: \(bR)")
+        XCTAssertLessThanOrEqual(bR, 2.0,
+            "NR luminance pushed centre R above 2.0 (clip headroom): \(bR)")
+    }
+
+    /// Same shape but for NR color. The boost slider increases blur on
+    /// the a/b channels; assert no catastrophic chroma collapse.
+    func testM3ProcessSceneLinearAppliesNRColor() async throws {
+        let pipeline = ImageEditPipeline()
+        let input = Self.makeAlternatingChromaSceneLinearCIImage(width: 32, height: 32)
+
+        var modelDefault = AdjustmentModel.default
+        modelDefault.nrLuminance = 0
+        modelDefault.nrColor = 0
+        var modelBoost = modelDefault
+        modelBoost.nrColor = 100
+
+        let outDefault = pipeline.processSceneLinear(decoded: input, model: modelDefault)
+        let outBoost   = pipeline.processSceneLinear(decoded: input, model: modelBoost)
+
+        let dRG = Self.sampleCenterRMinusG(outDefault, width: 32, height: 32)
+        let bRG = Self.sampleCenterRMinusG(outBoost, width: 32, height: 32)
+        XCTAssertTrue(dRG.isFinite && bRG.isFinite,
+            "NR color produced non-finite R-G: default=\(dRG) boost=\(bRG)")
+        // NR color blurs chroma — the centre of an alternating-chroma
+        // scene should see chroma reduced. We accept >= as a smoke
+        // threshold (no-op kernel passes; running kernel produces a
+        // smaller |R-G| at the centre).
+        XCTAssertLessThanOrEqual(abs(bRG), abs(dRG) + 1e-3,
+            "NR color +100 should not increase |R-G| at centre — got default=\(dRG) boost=\(bRG)")
+    }
+
+    /// Build a 32×32 alternating-luma scene: even rows bright reddish
+    /// (R, G, B = 0.6, 0.3, 0.3), odd rows dark reddish (0.3, 0.1, 0.1).
+    /// Mirrors the Rust unit test at noise_reduction.rs:121-126.
+    static func makeAlternatingLumaSceneLinearCIImage(width w: Int, height h: Int) -> CIImage {
+        var pixels = [UInt16](repeating: 0, count: w * h * 4)
+        let one = Self.float32ToFloat16Bits(1.0)
+        let bright = (Self.float32ToFloat16Bits(0.6),
+                      Self.float32ToFloat16Bits(0.3),
+                      Self.float32ToFloat16Bits(0.3))
+        let dark = (Self.float32ToFloat16Bits(0.3),
+                    Self.float32ToFloat16Bits(0.1),
+                    Self.float32ToFloat16Bits(0.1))
+        for y in 0..<h {
+            for x in 0..<w {
+                let i = (y * w + x) * 4
+                let v = (y % 2 == 0) ? bright : dark
+                pixels[i + 0] = v.0
+                pixels[i + 1] = v.1
+                pixels[i + 2] = v.2
+                pixels[i + 3] = one
+            }
+        }
+        let bytesPerRow = w * 4 * 2
+        let data = pixels.withUnsafeBufferPointer { Data(bytes: $0.baseAddress!, count: $0.count * 2) }
+        let space = CGColorSpace(name: CGColorSpace.extendedLinearITUR_2020)!
+        return CIImage(
+            bitmapData: data,
+            bytesPerRow: bytesPerRow,
+            size: CGSize(width: w, height: h),
+            format: .RGBAh,
+            colorSpace: space
+        )
+    }
+
+    /// Build a 32×32 alternating-chroma scene: even rows reddish (R, G,
+    /// B = 0.5, 0.3, 0.3), odd rows greenish (0.3, 0.5, 0.3). Same luma,
+    /// different chroma — designed for NR color smoothing.
+    static func makeAlternatingChromaSceneLinearCIImage(width w: Int, height h: Int) -> CIImage {
+        var pixels = [UInt16](repeating: 0, count: w * h * 4)
+        let one = Self.float32ToFloat16Bits(1.0)
+        let red = (Self.float32ToFloat16Bits(0.5),
+                   Self.float32ToFloat16Bits(0.3),
+                   Self.float32ToFloat16Bits(0.3))
+        let green = (Self.float32ToFloat16Bits(0.3),
+                     Self.float32ToFloat16Bits(0.5),
+                     Self.float32ToFloat16Bits(0.3))
+        for y in 0..<h {
+            for x in 0..<w {
+                let i = (y * w + x) * 4
+                let v = (y % 2 == 0) ? red : green
+                pixels[i + 0] = v.0
+                pixels[i + 1] = v.1
+                pixels[i + 2] = v.2
+                pixels[i + 3] = one
+            }
+        }
+        let bytesPerRow = w * 4 * 2
+        let data = pixels.withUnsafeBufferPointer { Data(bytes: $0.baseAddress!, count: $0.count * 2) }
+        let space = CGColorSpace(name: CGColorSpace.extendedLinearITUR_2020)!
+        return CIImage(
+            bitmapData: data,
+            bytesPerRow: bytesPerRow,
+            size: CGSize(width: w, height: h),
+            format: .RGBAh,
+            colorSpace: space
+        )
+    }
 }

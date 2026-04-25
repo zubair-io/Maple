@@ -368,11 +368,33 @@ public actor ImageEditPipeline {
             texture: Float(model.texture)
         )
 
+        // Plan 2 v2 v2 M3 — Stage: SceneNRLuminance (Oklab roundtrip + shared
+        // blur on the L channel). Mirrors noise_reduction::apply_luminance
+        // from raw-core (noise_reduction.rs:20-55). Backed by the same
+        // SeparableGaussianBlur compute kernel. Radius is integer, scaled
+        // by model.nrLuminance: max(1, ceil((amount/100) * 2.0)) — at
+        // amount=100, radius=2 src px (3-pass box ~3 px tail), well inside
+        // the Deep Zoom 35 px overlap budget.
+        let withNRLuminance = MetalKernels.applySceneNRLuminance(
+            to: withTexture,
+            nrLuminance: Float(model.nrLuminance)
+        )
+
+        // Plan 2 v2 v2 M3 — Stage: SceneNRColor (Oklab roundtrip + shared
+        // blur on the a/b channels). Mirrors noise_reduction::apply_color
+        // from raw-core (noise_reduction.rs:61-96). AdjustmentModel.nrColor
+        // defaults to 25 (radius=1) — this stage runs by default. Maximum
+        // radius at amount=100 is 4 src px.
+        let withNRColor = MetalKernels.applySceneNRColor(
+            to: withNRLuminance,
+            nrColor: Float(model.nrColor)
+        )
+
         // Stage: AgX view transform — exactly once, on scene-linear data.
         // The kernel is per-channel (verified by Spike 1.2), so feeding it
         // Rec.2020 instead of sRGB only matters for out-of-gamut content.
         return MetalKernels.applyAgXViewTransform(
-            to: withTexture, contrast: Float(model.contrast)
+            to: withNRColor, contrast: Float(model.contrast)
         )
     }
 
