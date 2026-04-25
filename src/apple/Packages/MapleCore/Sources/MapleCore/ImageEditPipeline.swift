@@ -287,6 +287,17 @@ public actor ImageEditPipeline {
     }
 
     nonisolated private func applyFilters(to input: CIImage, model: AdjustmentModel, asShot: AsShotWB? = nil) -> CIImage {
+        // Diagnostic full-chain bypass. MAPLE_SKIP_SWIFT_FILTERS=1 returns the
+        // Lanczos-prescaled Rust output unmodified. The whole filter chain
+        // below runs on a buffer that's already been WB'd, tone-mapped (AgX),
+        // and sRGB-encoded by Rust — so every stage below is a second
+        // application in the wrong color space. Useful for isolating whether
+        // zoom-dependent color shifts are caused by the chain (confirmed
+        // yes → the FFI split is the real fix) or something else.
+        if ProcessInfo.processInfo.environment["MAPLE_SKIP_SWIFT_FILTERS"] != nil {
+            return input
+        }
+
         var img = input
 
         // Stage 3: White balance (temperature + tint).
