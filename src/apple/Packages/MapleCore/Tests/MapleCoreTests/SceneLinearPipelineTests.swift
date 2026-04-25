@@ -97,6 +97,37 @@
 // Final scene-linear chain after M2:
 //   Lanczos → WhiteBalance → SceneToneControls → SceneVibrance →
 //   SceneSaturation → AgX → sRGB encode at the CIContext boundary.
+//
+// Plan 2 M3 (Tasks 7-8) — sidecar plumbing summary:
+//   • decodeSceneLinear / decodeSceneLinearSized take optional xmpPath;
+//     EditSession.sharedDecode passes asset.sidecarURL when the file
+//     exists on disk (nil otherwise — first-open behaviour matches Plan 1).
+//   • highlight_recovery (raw-core's only Apple-irreplaceable dev-chain
+//     stage; runs in camera-RGB pre-DCP) responds to model.highlightRecovery
+//     via the FFI sidecar parse on the new path.
+//   • EditSession.decodedAtModel captures the model the Rust path used
+//     during decode (parsed from the sidecar inline). processSceneLinear
+//     accepts it as an optional parameter and forwards it to the
+//     WhiteBalance kernel as decodedTemperature/decodedTint, so the kernel
+//     applies only the live delta and avoids double-applying WB on saved
+//     sidecars.
+//
+//   M3 KNOWN LIMITATION — Plan 2 v1: only WB uses the decodedAtModel
+//   delta. Tone (exposure / highlights / shadows / whites / blacks),
+//   vibrance, and saturation kernels still take the live slider value
+//   directly. On a saved-sidecar image opened with non-zero values for
+//   those stages, the four stages double-apply between Rust (at decode)
+//   and Apple (at process) until the user moves any slider, which
+//   triggers a re-decode at the new model and resyncs.
+//
+//   The double-apply is mathematically bounded — no clipping or NaN risk
+//   — but visible until the first slider move. Plan 2 v2 generalises the
+//   delta to every kernel.
+//
+//   For Plan 1 Task 9's "saved sidecar adjustments work" precondition,
+//   M3 satisfies the highlight_recovery part exactly (Rust-side, the
+//   only Apple-irreplaceable stage). Other slider drift on saved
+//   sidecars is bounded but visible until the first slider move.
 
 import XCTest
 import CoreImage
