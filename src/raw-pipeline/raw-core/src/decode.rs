@@ -128,11 +128,13 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
             map_cfa_pattern(&cfg.cfa.name)?
         }
         RawPhotometricInterpretation::LinearRaw => {
-            // TODO(slice-4+): LinearRaw DNGs carry already-demosaiced RGB data and may
-            // not have a meaningful CFA pattern. Defaulting to RGGB is conservative —
-            // slice-1 fixtures don't trigger this path. Revisit when a LinearRaw
-            // fixture is added.
-            CfaPattern::Rggb
+            // DNG PhotometricInterpretation = LinearRaw (34892): the file
+            // already carries demosaiced, white-balanced 3-channel RGB.
+            // Emit the LinearRgb cfa variant; pipeline.rs routes through
+            // linearize::linearraw_to_camera_rgb instead of the mosaic path,
+            // and dcp::profile_for sets wb_already_baked so AsShotNeutral
+            // is not re-applied. See ticket #07.
+            CfaPattern::LinearRgb
         }
         RawPhotometricInterpretation::BlackIsZero => {
             return Err(Error::UnsupportedCfa("BlackIsZero (monochrome)".to_string()));
@@ -460,5 +462,19 @@ mod tests {
             Error::Decode { .. } => {}
             other => panic!("expected Error::Decode, got {:?}", other),
         }
+    }
+
+    /// Regression test for ticket #07: LinearRaw DNGs (PhotometricInterpretation
+    /// = 34892) decode with `CfaPattern::LinearRgb` and a `raw_data` buffer
+    /// of length 3 × w × h (interleaved RGB, not mosaic).
+    #[test]
+    fn decode_test_0006_linearraw_uses_linearrgb_cfa() {
+        let path = fixture_root().join("test_0006.DNG");
+        if !path.exists() { return; }
+        let raw = decode_path(&path).expect("decode LinearRaw DNG");
+        assert_eq!(raw.cfa, CfaPattern::LinearRgb,
+            "test_0006 is a LinearRaw DNG; cfa must be LinearRgb");
+        assert_eq!(raw.raw_data.len(), 3 * raw.width as usize * raw.height as usize,
+            "LinearRaw raw_data must be interleaved RGB (3 × w × h)");
     }
 }
