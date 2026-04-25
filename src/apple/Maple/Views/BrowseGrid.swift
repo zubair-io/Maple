@@ -71,6 +71,10 @@ struct BrowseGrid: View {
                                 }
                         }
                     }
+                    // UITest sentinel — the harness uses
+                    // `app.otherElements["browse-grid"]` to confirm browse
+                    // mode is active before driving thumbnail selection.
+                    .accessibilityIdentifier("browse-grid")
                     .padding(8)
                 }
                 .background(MapleTokens.bg)
@@ -305,6 +309,10 @@ struct ThumbnailCell: View {
                 .lineLimit(1)
                 .truncationMode(.middle)
         }
+        // UITest harness selector. `app.otherElements["thumb-test_0017"]`
+        // resolves the cell containing the asset whose displayName is
+        // `test_0017`. See docs/superpowers/plans/2026-04-25-xcuitest-visual-harness.md.
+        .accessibilityIdentifier("thumb-\(asset.displayName)")
         .onAppear { startLoad() }
         .onDisappear {
             loadTask?.cancel()
