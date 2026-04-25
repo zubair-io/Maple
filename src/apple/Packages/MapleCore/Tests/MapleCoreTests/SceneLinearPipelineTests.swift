@@ -60,6 +60,23 @@
 // Plan 2 wires WB → tone → vibrance → saturation → AgX into processSceneLinear,
 // then threads xmpPath through decodeSceneLinear. See
 // docs/superpowers/plans/2026-04-25-plan-2-dev-chain-metal-kernels.md.
+//
+// Plan 2 M1 milestone gate (Task 4 — Tasks 2 + 3 wired SceneToneControls
+// and SceneVibrance into processSceneLinear):
+//   xcodebuild -scheme Maple -destination 'platform=macOS' build:
+//     ** BUILD SUCCEEDED ** (Step 4.1)
+//   swift test:
+//     81 tests, 3 skipped, 0 failures (= pre-Plan-2 baseline + 2)
+//   Parity harness (BUDGET=15):
+//     0 pass / 6 fail / 1 skip — IDENTICAL to pre-Plan-2 baseline.
+//     The applyFilters legacy path is unchanged, so no regression
+//     vs the existing-broken baseline (Step 1.5 explicitly licenses
+//     proceeding from a red baseline as a regression-detector).
+//   Manual slider smoke test (Step 4.3 — exposure / highlights /
+//     shadows / whites / blacks / vibrance with MAPLE_SCENE_LINEAR=1):
+//     PENDING USER VERIFICATION — automated agent run cannot drive
+//     UI sliders. The user will toggle MAPLE_SCENE_LINEAR=1 and
+//     visually confirm each slider moves pixels on the new path.
 
 import XCTest
 import CoreImage
