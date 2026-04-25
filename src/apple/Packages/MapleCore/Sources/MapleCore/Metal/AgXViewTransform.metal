@@ -46,7 +46,7 @@ extern "C" float4 agxViewTransform(
     coreimage::sampler_h lut,   // 1D LUT as 512×1 float texture
     float contrast              // -100..+100
 ) {
-    float4 color = src.sample(src.coord());
+    float4 color = float4(src.sample(src.coord()));
     float3 p = color.rgb;
 
     // Log-encode each channel independently.

@@ -54,7 +54,7 @@ extern "C" float4 sceneSaturation(
     coreimage::sampler_h src,
     float saturation
 ) {
-    float4 color = src.sample(src.coord());
+    float4 color = float4(src.sample(src.coord()));
     if (abs(saturation) < 1e-3) return color;
     float scale = 1.0 + saturation / 100.0;
     float3 lab = rec2020_to_oklab_sat(color.rgb);

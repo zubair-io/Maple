@@ -46,7 +46,7 @@
 extern "C" float4 sharpenLuminance(
     coreimage::sampler_h src
 ) {
-    float4 c = src.sample(src.coord());
+    float4 c = float4(src.sample(src.coord()));
     float L = 0.2627 * c.r + 0.6780 * c.g + 0.0593 * c.b;
     return float4(L, L, L, c.a);
 }
@@ -62,8 +62,8 @@ extern "C" float4 sharpenEdgeMix(
     float detailAtten,
     float maskingThreshold
 ) {
-    float4 o = observed.sample(observed.coord());
-    float4 s = sharpened.sample(sharpened.coord());
+    float4 o = float4(observed.sample(observed.coord()));
+    float4 s = float4(sharpened.sample(sharpened.coord()));
 
     float edge = 1.0;
     if (maskingThreshold > 1e-3) {

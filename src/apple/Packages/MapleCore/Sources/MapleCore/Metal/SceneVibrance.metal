@@ -58,7 +58,7 @@ extern "C" float4 sceneVibrance(
     coreimage::sampler_h src,
     float vibrance   // -100..+100
 ) {
-    float4 color = src.sample(src.coord());
+    float4 color = float4(src.sample(src.coord()));
 
     if (abs(vibrance) < 1e-3) return color;
 
