@@ -567,9 +567,25 @@ public enum MetalKernels {
         // Tasks 3 + 4: overdrive + edge-aware mix.
         var sharpened = estimate
 
-        // Task 4 stub — overdrive applies only when amount > 100.
-        // Replaced in Task 4 with applySharpenOverdrive(...).
-        // For Task 3 we treat amount == 100..150 as no-overdrive.
+        // Task 4 — overdrive (amount > 100). Per sharpen.rs:65-76.
+        if amount > 100.0 {
+            if let overdriveKernel = sharpenOverdriveKernel() {
+                let overMix = (amount - 100.0) / 100.0
+                let blurredEstimate = applySeparableGaussianBlur(
+                    to: sharpened, radius: radiusPx
+                )
+                if let overdriven = overdriveKernel.apply(
+                    extent: input.extent,
+                    roiCallback: { _, rect in rect },
+                    arguments: [sharpened, blurredEstimate, overMix]
+                ) {
+                    sharpened = overdriven
+                }
+                // If the kernel-load or apply step fails, fall through
+                // with the un-overdriven sharpened. Silent fallback per
+                // the existing wrapper convention.
+            }
+        }
 
         // Task 3 — edge-aware mix.
         guard let lumaKernel = sharpenLuminanceKernel(),
@@ -688,6 +704,13 @@ public enum MetalKernels {
         _sharpenEdgeMix = loadKernel(file: "SharpenEdgeMix",
                                      function: "sharpenEdgeMix")
         return _sharpenEdgeMix
+    }
+
+    private static func sharpenOverdriveKernel() -> CIColorKernel? {
+        if let k = _sharpenOverdrive { return k }
+        _sharpenOverdrive = loadKernel(file: "SharpenOverdrive",
+                                       function: "sharpenOverdrive") as? CIColorKernel
+        return _sharpenOverdrive
     }
 
     // MARK: Private kernel loaders
