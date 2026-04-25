@@ -347,11 +347,23 @@ public actor ImageEditPipeline {
             saturation: Float(model.saturation)
         )
 
+        // Plan 2 v2 M2 — Stage: SceneClarity (unsharp mask at radius 40 in
+        // scene-linear Rec.2020 RGB). Mirrors clarity::apply from raw-core
+        // (clarity.rs:10). Backed by the shared SeparableGaussianBlur
+        // compute kernel (Task 2). The 40-pixel radius is the binding
+        // constraint for Deep Zoom's 35-pixel overlap budget — see
+        // docs/superpowers/plans/2026-04-25-deep-zoom-tile-rendering.md
+        // § Architecture point 2; do not change without re-verifying.
+        let withClarity = MetalKernels.applySceneClarity(
+            to: withSaturation,
+            clarity: Float(model.clarity)
+        )
+
         // Stage: AgX view transform — exactly once, on scene-linear data.
         // The kernel is per-channel (verified by Spike 1.2), so feeding it
         // Rec.2020 instead of sRGB only matters for out-of-gamut content.
         return MetalKernels.applyAgXViewTransform(
-            to: withSaturation, contrast: Float(model.contrast)
+            to: withClarity, contrast: Float(model.contrast)
         )
     }
 
