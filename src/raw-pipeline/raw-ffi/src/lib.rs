@@ -267,6 +267,216 @@ pub unsafe extern "C" fn maple_free_buffer(buffer: *mut MapleImageBuffer) {
     *b = MapleImageBuffer::empty();
 }
 
+/// Scene-linear FFI buffer — Rec.2020 fp16 RGBA, straight alpha, row-major.
+///
+/// `bytes_per_pixel` is always 8 (4 channels × 2 bytes per fp16 lane). It
+/// is exposed in the struct so the Apple consumer can read the layout
+/// without hard-coding the constant; future plans (e.g. higher bit depth
+/// for HDR) can change it without breaking the ABI.
+#[repr(C)]
+pub struct MapleSceneLinearBuffer {
+    /// Pointer to heap-allocated fp16 RGBA buffer. Free via
+    /// `maple_free_scene_linear_buffer`.
+    pub fp16_rgba: *mut u16,
+    /// Bytes in the buffer (= 4 * 2 * width * height = 8 * width * height).
+    pub len_bytes: usize,
+    /// Channels per pixel (always 4: R, G, B, A).
+    pub channels: u32,
+    /// Bytes per pixel (always 8 for fp16 RGBA).
+    pub bytes_per_pixel: u32,
+    pub width: u32,
+    pub height: u32,
+}
+
+impl MapleSceneLinearBuffer {
+    fn empty() -> Self {
+        Self {
+            fp16_rgba: std::ptr::null_mut(),
+            len_bytes: 0,
+            channels: 0,
+            bytes_per_pixel: 0,
+            width: 0,
+            height: 0,
+        }
+    }
+}
+
+/// Render a RAW+XMP to a scene-linear Rec.2020 fp16 RGBA buffer. Returns
+/// 0 on success, non-zero on error (call `maple_last_error`). The output
+/// pre-AgX, pre-Rec.2020->sRGB — the caller is expected to apply a view
+/// transform and gamut convert before display.
+///
+/// `quality_preview` mirrors `maple_render_file` — 1 = half-res preview,
+/// 0 = full export.
+#[no_mangle]
+pub unsafe extern "C" fn maple_render_file_scene_linear(
+    raw_path: *const c_char,
+    xmp_path: *const c_char,
+    quality_preview: i32,
+    out: *mut MapleSceneLinearBuffer,
+) -> i32 {
+    if raw_path.is_null() || out.is_null() {
+        set_last_error("null pointer argument".into());
+        return 1;
+    }
+    let raw_path_str = match CStr::from_ptr(raw_path).to_str() {
+        Ok(s) => s.to_owned(),
+        Err(e) => { set_last_error(format!("raw_path not UTF-8: {}", e)); return 2; }
+    };
+    let xmp_path_str: Option<String> = if xmp_path.is_null() {
+        None
+    } else {
+        match CStr::from_ptr(xmp_path).to_str() {
+            Ok(s) => Some(s.to_owned()),
+            Err(e) => { set_last_error(format!("xmp_path not UTF-8: {}", e)); return 3; }
+        }
+    };
+    let out_ptr = out as usize;
+    with_large_stack(move || {
+        let raw_path = std::path::Path::new(&raw_path_str);
+        let model = match &xmp_path_str {
+            None => xmp::AdjustmentModel::default(),
+            Some(p) => match std::fs::read_to_string(p) {
+                Ok(xml) => match xmp::parse(&xml) {
+                    Ok(m) => m,
+                    Err(e) => { set_last_error(format!("xmp parse: {}", e)); return 4; }
+                },
+                Err(e) => { set_last_error(format!("xmp read: {}", e)); return 5; }
+            },
+        };
+        let raw_bytes = match std::fs::read(raw_path) {
+            Ok(b) => b,
+            Err(e) => { set_last_error(format!("raw read: {}", e)); return 6; }
+        };
+        let ext = raw_path.extension().and_then(|e| e.to_str()).unwrap_or("");
+        let raw_img = match decode_bytes(&raw_bytes, ext) {
+            Ok(r) => r,
+            Err(e) => { set_last_error(format!("decode: {}", e)); return 7; }
+        };
+        let quality = if quality_preview != 0 {
+            raw_core::pipeline::RenderQuality::Preview
+        } else {
+            raw_core::pipeline::RenderQuality::Full
+        };
+        let (w, h, fp16) = match raw_core::pipeline::render_scene_linear_from_raw_with_quality(
+            &raw_img, &model, quality,
+        ) {
+            Ok(t) => t,
+            Err(e) => { set_last_error(format!("render: {}", e)); return 8; }
+        };
+        // Box the Vec<u16> so we can hand the raw pointer + len to the caller.
+        let mut boxed = fp16.into_boxed_slice();
+        let fp16_ptr = boxed.as_mut_ptr();
+        let len_lanes = boxed.len();
+        let len_bytes = len_lanes * std::mem::size_of::<u16>();
+        std::mem::forget(boxed);
+        unsafe {
+            *(out_ptr as *mut MapleSceneLinearBuffer) =
+                MapleSceneLinearBuffer {
+                    fp16_rgba: fp16_ptr,
+                    len_bytes,
+                    channels: 4,
+                    bytes_per_pixel: 8,
+                    width: w,
+                    height: h,
+                };
+        }
+        0
+    })
+}
+
+/// Render a RAW from a byte slice to a scene-linear Rec.2020 fp16 RGBA
+/// buffer. Mirrors `maple_render_bytes` for the new path.
+#[no_mangle]
+pub unsafe extern "C" fn maple_render_bytes_scene_linear(
+    raw_bytes: *const u8,
+    raw_len: usize,
+    hint_ext: *const c_char,
+    xmp_path: *const c_char,
+    quality_preview: i32,
+    out: *mut MapleSceneLinearBuffer,
+) -> i32 {
+    if raw_bytes.is_null() || out.is_null() {
+        set_last_error("null pointer argument".into());
+        return 1;
+    }
+    let ext_owned: String = if hint_ext.is_null() {
+        String::new()
+    } else {
+        match CStr::from_ptr(hint_ext).to_str() {
+            Ok(s) => s.to_owned(),
+            Err(e) => { set_last_error(format!("hint_ext not UTF-8: {}", e)); return 2; }
+        }
+    };
+    let xmp_path_str: Option<String> = if xmp_path.is_null() {
+        None
+    } else {
+        match CStr::from_ptr(xmp_path).to_str() {
+            Ok(s) => Some(s.to_owned()),
+            Err(e) => { set_last_error(format!("xmp_path not UTF-8: {}", e)); return 3; }
+        }
+    };
+    let input: Vec<u8> = std::slice::from_raw_parts(raw_bytes, raw_len).to_vec();
+    let out_ptr = out as usize;
+    with_large_stack(move || {
+        let model = match &xmp_path_str {
+            None => xmp::AdjustmentModel::default(),
+            Some(p) => match std::fs::read_to_string(p) {
+                Ok(xml) => match xmp::parse(&xml) {
+                    Ok(m) => m,
+                    Err(e) => { set_last_error(format!("xmp parse: {}", e)); return 4; }
+                },
+                Err(e) => { set_last_error(format!("xmp read: {}", e)); return 5; }
+            },
+        };
+        let raw_img = match decode_bytes(&input, &ext_owned) {
+            Ok(r) => r,
+            Err(e) => { set_last_error(format!("decode: {}", e)); return 7; }
+        };
+        let quality = if quality_preview != 0 {
+            raw_core::pipeline::RenderQuality::Preview
+        } else {
+            raw_core::pipeline::RenderQuality::Full
+        };
+        let (w, h, fp16) = match raw_core::pipeline::render_scene_linear_from_raw_with_quality(
+            &raw_img, &model, quality,
+        ) {
+            Ok(t) => t,
+            Err(e) => { set_last_error(format!("render: {}", e)); return 8; }
+        };
+        let mut boxed = fp16.into_boxed_slice();
+        let fp16_ptr = boxed.as_mut_ptr();
+        let len_lanes = boxed.len();
+        let len_bytes = len_lanes * std::mem::size_of::<u16>();
+        std::mem::forget(boxed);
+        unsafe {
+            *(out_ptr as *mut MapleSceneLinearBuffer) =
+                MapleSceneLinearBuffer {
+                    fp16_rgba: fp16_ptr,
+                    len_bytes,
+                    channels: 4,
+                    bytes_per_pixel: 8,
+                    width: w,
+                    height: h,
+                };
+        }
+        0
+    })
+}
+
+/// Free a buffer populated by `maple_render_*_scene_linear`.
+#[no_mangle]
+pub unsafe extern "C" fn maple_free_scene_linear_buffer(buffer: *mut MapleSceneLinearBuffer) {
+    if buffer.is_null() { return; }
+    let b = &mut *buffer;
+    if !b.fp16_rgba.is_null() {
+        let len_lanes = b.len_bytes / std::mem::size_of::<u16>();
+        let slice = std::slice::from_raw_parts_mut(b.fp16_rgba, len_lanes);
+        drop(Box::from_raw(slice as *mut [u16]));
+    }
+    *b = MapleSceneLinearBuffer::empty();
+}
+
 /// Returns the most recent error message for the current thread, or null.
 /// The returned pointer remains valid until the next FFI call on this thread.
 #[no_mangle]
@@ -320,6 +530,36 @@ mod tests {
     fn null_arg_sets_error() {
         let mut buf = MapleImageBuffer::empty();
         let rc = unsafe { maple_render_file(std::ptr::null(), std::ptr::null(), 0, &mut buf) };
+        assert_eq!(rc, 1);
+        let err = unsafe { maple_last_error() };
+        assert!(!err.is_null());
+        let msg = unsafe { CStr::from_ptr(err).to_str().unwrap() };
+        assert!(msg.contains("null"));
+    }
+
+    #[test]
+    fn render_scene_linear_default_model_via_ffi() {
+        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../test-fixtures/raws/test_0002.dng");
+        if !path.exists() { return; }
+        let raw_cstr = CString::new(path.to_str().unwrap()).unwrap();
+        let mut buf = MapleSceneLinearBuffer::empty();
+        let rc = unsafe {
+            maple_render_file_scene_linear(raw_cstr.as_ptr(), std::ptr::null(), 1, &mut buf)
+        };
+        assert_eq!(rc, 0, "render rc = {}", rc);
+        assert!(buf.width > 0 && buf.height > 0);
+        assert_eq!(buf.channels, 4);
+        assert_eq!(buf.bytes_per_pixel, 8);
+        assert_eq!(buf.len_bytes as u32, buf.width * buf.height * 8);
+        unsafe { maple_free_scene_linear_buffer(&mut buf) };
+        assert!(buf.fp16_rgba.is_null());
+    }
+
+    #[test]
+    fn scene_linear_null_arg_sets_error() {
+        let mut buf = MapleSceneLinearBuffer::empty();
+        let rc = unsafe { maple_render_file_scene_linear(std::ptr::null(), std::ptr::null(), 0, &mut buf) };
         assert_eq!(rc, 1);
         let err = unsafe { maple_last_error() };
         assert!(!err.is_null());
