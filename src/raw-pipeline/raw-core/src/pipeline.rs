@@ -29,6 +29,9 @@ pub fn render_from_raw(raw: &RawImage, model: &AdjustmentModel) -> Result<(u32, 
 /// stage, memory peak drops from ~6 GB to ~1.5 GB on a 100 MP RAW, and a
 /// cold decode lands in seconds rather than minutes. `Full` is the export
 /// path — same pixel-exact output the parity harness locks down.
+/// `Preview` returns the buffer at the half-res rendered dimensions —
+/// callers must scale to display dimensions themselves (CIImage transform
+/// on Apple, texture upload on Web).
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum RenderQuality {
     Preview,
@@ -95,16 +98,15 @@ pub fn render_from_raw_with_quality(
     // Apply EXIF orientation last — rotating/flipping sRGB u8 is cheap and
     // keeps every upstream stage indifferent to sensor-vs-display framing.
     let (w, h, bytes) = apply_orientation(&bytes, scene.width, scene.height, raw.orientation);
-    // Both branches return the buffer at its actual sensor dimensions —
-    // the `Preview` branch is half-res in both axes (because of
-    // `demosaic::half_res`), and Apple/Web consumers handle the
-    // resolution gap via their lazy display transform (CIImage scale on
-    // Apple; texture upload on Web). Pixel-doubling here added ~300 MB
-    // of FFI traffic and 4× the allocator pressure on a 100 MP RAW for
-    // no extra information.
+    // Both branches return the buffer at its actual rendered dimensions —
+    // `Full` matches the sensor, `Preview` is half-res in both axes
+    // (because of `demosaic::half_res`), and Apple/Web consumers handle
+    // the resolution gap via their lazy display transform (CIImage scale
+    // on Apple; texture upload on Web). Pixel-doubling here added ~300 MB
+    // of FFI traffic and 4× the allocator pressure on a 100 MP RAW for no
+    // extra information.
     Ok((w, h, bytes))
 }
-
 
 #[cfg(test)]
 mod tests {

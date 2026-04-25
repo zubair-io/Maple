@@ -103,8 +103,10 @@ impl MapleImageBuffer {
 /// `quality_preview` selects the internal demosaic / downsample strategy:
 ///   0 → `RenderQuality::Full`    (bilinear or HA demosaic, full resolution;
 ///                                  export path, matches the parity harness)
-///   1 → `RenderQuality::Preview` (half-res quad demosaic, 4× fewer pixels
-///                                  downstream; use for interactive fast-phase
+///   1 → `RenderQuality::Preview` (half-res quad demosaic; the returned
+///                                  buffer is at half the sensor's dimensions
+///                                  in both axes — caller must scale for
+///                                  display; use for interactive fast-phase
 ///                                  so a 100MP RAW decodes in seconds)
 #[no_mangle]
 pub unsafe extern "C" fn maple_render_file(
@@ -181,7 +183,9 @@ pub unsafe extern "C" fn maple_render_file(
 /// `xmp_path` may be null, in which case `AdjustmentModel::default()` is used.
 /// `hint_ext` must be a UTF-8 C string naming the RAW extension (without dot).
 /// `quality_preview` mirrors `maple_render_file` — 1 = half-res preview
-/// demosaic for the fast interactive path, 0 = full export quality.
+/// demosaic for the fast interactive path (returned buffer is at half the
+/// sensor's dimensions in both axes; caller must scale for display),
+/// 0 = full export quality.
 #[no_mangle]
 pub unsafe extern "C" fn maple_render_bytes(
     raw_bytes: *const u8,
