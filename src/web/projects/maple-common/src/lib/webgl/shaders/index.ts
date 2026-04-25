@@ -9,13 +9,15 @@ import vertexSource from './vertex.glsl?raw';
 import whiteBalanceSource from './white-balance.frag?raw';
 import sceneToneControlsSource from './scene-tone-controls.frag?raw';
 import sceneVibranceSource from './scene-vibrance.frag?raw';
+import sceneSaturationSource from './scene-saturation.frag?raw';
 
 export const SHADERS = {
   vertex: vertexSource,
   whiteBalance: whiteBalanceSource,
   sceneToneControls: sceneToneControlsSource,
   sceneVibrance: sceneVibranceSource,
-  // sceneSaturation, agxViewTransform are added by Tasks 5-6.
+  sceneSaturation: sceneSaturationSource,
+  // agxViewTransform added by Task 6.
 } as const;
 
 export type ShaderKey = keyof typeof SHADERS;
