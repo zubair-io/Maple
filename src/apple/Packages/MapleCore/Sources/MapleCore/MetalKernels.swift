@@ -60,6 +60,13 @@ public enum MetalKernels {
     // path as the other CIColorKernel sources.
     private static var _sceneUnsharp: CIColorKernel?
 
+    // Plan 2 v2 v2 — SceneNRLuminance shared kernels (M3a, Task 2). Two
+    // CIColorKernels: extractL (rec2020 -> oklab L splat for the blur
+    // input) and combine (rec2020 + blurredL -> rec2020 with new L).
+    // Matches the established lazy / process-lifetime cache pattern.
+    private static var _sceneNRLuminanceExtract: CIColorKernel?
+    private static var _sceneNRLuminanceCombine: CIColorKernel?
+
     // MARK: SceneToneControls
 
     public static func applySceneToneControls(
@@ -356,6 +363,66 @@ public enum MetalKernels {
         return applySceneUnsharp(to: input, blurred: blurred, amount: amount)
     }
 
+    // MARK: SceneNRLuminance (Plan 2 v2 v2 M3a)
+
+    /// Apply scene-linear Rec.2020 luminance noise reduction (Oklab
+    /// roundtrip + shared blur on the L channel). Mirrors
+    /// `noise_reduction::apply_luminance` from raw-core/src/stages/
+    /// noise_reduction.rs:20-55.
+    ///
+    /// `nrLuminance` is in [0, 100]; 0 is identity (short-circuit at
+    /// |amount| < 1e-3 mirrors noise_reduction.rs:22). Higher values
+    /// scale the integer blur radius via `radius = max(1, ceil((amount
+    /// / 100) * 2.0))` — matching the Rust integer math at
+    /// noise_reduction.rs:24-25 byte-for-byte. Maximum effective radius
+    /// at amount=100 is 2 source pixels (3-pass box ~3 px tail), well
+    /// inside the Deep Zoom 35 px overlap budget.
+    ///
+    /// Composition: extractL runs first (one CIColorKernel.apply,
+    /// rec2020 -> oklab and splat L -> (L, L, L, alpha)), then
+    /// applySeparableGaussianBlur runs at the integer radius, then
+    /// combine runs (one CIColorKernel.apply, original rec2020 +
+    /// blurred-L -> rec2020 with new L). Three downstream `apply`
+    /// calls per slider tick — same shape as Plan 2 v2 v1's
+    /// applySceneClarity (two applies: blur + sceneUnsharp), with
+    /// the additional extract step to splat L into 3 channels.
+    public static func applySceneNRLuminance(
+        to input: CIImage,
+        nrLuminance: Float
+    ) -> CIImage {
+        if abs(nrLuminance) < 1e-3 { return input }
+        // Integer radius mirrors noise_reduction.rs:24-25 byte-for-byte.
+        let scaled = (nrLuminance / 100.0) * 2.0
+        let ceiled = Int(ceilf(scaled))
+        let radius = max(1, ceiled)
+
+        guard let extract = sceneNRLuminanceExtractKernel(),
+              let combine = sceneNRLuminanceCombineKernel() else {
+            return input
+        }
+
+        // Step 1: rec2020 -> oklab -> (L, L, L, alpha) on full extent.
+        guard let lOnly = extract.apply(
+            extent: input.extent,
+            roiCallback: { _, rect in rect },
+            arguments: [input]
+        ) else { return input }
+
+        // Step 2: blur the L plane at integer radius (shared compute
+        // kernel; the wrapper short-circuits to `lOnly` on radius == 0
+        // but we already filtered amount==0 above, so radius >= 1).
+        let blurredL = applySeparableGaussianBlur(to: lOnly, radius: radius)
+
+        // Step 3: combine — sample original rec2020 + blurred L; emit
+        // rec2020 with new L. The `amount` arg is unused inside the
+        // combine kernel (see SceneNRLuminance.metal header comment).
+        return combine.apply(
+            extent: input.extent,
+            roiCallback: { _, rect in rect },
+            arguments: [input, blurredL, nrLuminance / 100.0]
+        ) ?? input
+    }
+
     /// Shared per-pixel mix kernel: `out = src + (src - blurred) * amount`.
     /// Used by `applySceneClarity` and `applySceneTexture` — the only
     /// difference between the two stages is the upstream blur's radius.
@@ -380,6 +447,20 @@ public enum MetalKernels {
         _sceneUnsharp = loadKernel(file: "SceneUnsharp",
                                    function: "sceneUnsharp") as? CIColorKernel
         return _sceneUnsharp
+    }
+
+    private static func sceneNRLuminanceExtractKernel() -> CIColorKernel? {
+        if let k = _sceneNRLuminanceExtract { return k }
+        _sceneNRLuminanceExtract = loadKernel(file: "SceneNRLuminance",
+                                              function: "nrLuminanceExtractL") as? CIColorKernel
+        return _sceneNRLuminanceExtract
+    }
+
+    private static func sceneNRLuminanceCombineKernel() -> CIColorKernel? {
+        if let k = _sceneNRLuminanceCombine { return k }
+        _sceneNRLuminanceCombine = loadKernel(file: "SceneNRLuminance",
+                                              function: "nrLuminanceCombine") as? CIColorKernel
+        return _sceneNRLuminanceCombine
     }
 
     // MARK: Private kernel loaders
