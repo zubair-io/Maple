@@ -244,6 +244,13 @@ public final class EditSession {
     // MARK: Internals
 
     @ObservationIgnored private let pipeline: ImageEditPipeline
+    /// True if the editor should use the Plan-1 scene-linear FFI path.
+    /// Gated by the `MAPLE_SCENE_LINEAR` env var so the legacy path stays
+    /// the default until parity is verified. Plan 1 Task 9 flips the
+    /// default and removes the gate.
+    @ObservationIgnored private let useSceneLinear: Bool = {
+        ProcessInfo.processInfo.environment["MAPLE_SCENE_LINEAR"] != nil
+    }()
     /// File-backed sidecar store. `nil` for sourceless assets (PhotoKit, self-
     /// hosted API) where sidecar persistence goes through the source's
     /// `writeXMP` API instead.
@@ -791,9 +798,16 @@ public final class EditSession {
         do {
             let image: CIImage
             if let cached, alreadyDecodedID == asset.id {
-                // Cached decode — apply filter chain only. Hot path.
-                image = await Task.detached(priority: .userInitiated) {
-                    pipeline.process(decoded: cached, model: m, targetSize: targetSize, asShot: asShot)
+                // Cached decode — apply chain only. Hot path. Plan 1
+                // gate selects between legacy `process` (sRGB u8 input,
+                // full filter chain) and `processSceneLinear` (Rec.2020
+                // fp16 input, AgX-only chain).
+                image = await Task.detached(priority: .userInitiated) { [useSceneLinear] in
+                    if useSceneLinear {
+                        return pipeline.processSceneLinear(decoded: cached, model: m, targetSize: targetSize, asShot: asShot)
+                    } else {
+                        return pipeline.process(decoded: cached, model: m, targetSize: targetSize, asShot: asShot)
+                    }
                 }.value
             } else {
                 // Cold decode — run the Rust FFI once, cache the result.
@@ -818,8 +832,12 @@ public final class EditSession {
                 // Process is cheap (CoreImage filter chain) — run it per
                 // phase with the caller's targetSize. Not shared with peers
                 // because targetSize differs between fast and refine.
-                let processed = await Task.detached(priority: .userInitiated) {
-                    pipeline.process(decoded: decoded, model: m, targetSize: targetSize, asShot: asShot)
+                let processed = await Task.detached(priority: .userInitiated) { [useSceneLinear] in
+                    if useSceneLinear {
+                        return pipeline.processSceneLinear(decoded: decoded, model: m, targetSize: targetSize, asShot: asShot)
+                    } else {
+                        return pipeline.process(decoded: decoded, model: m, targetSize: targetSize, asShot: asShot)
+                    }
                 }.value
                 image = processed
             }
@@ -905,21 +923,39 @@ public final class EditSession {
         // count instead of shrinking to one Rust pass.
         let decodeSignpostID = editSessionSignposter.makeSignpostID()
         let decodeState = editSessionSignposter.beginInterval("decode", id: decodeSignpostID)
-        let task: Task<CIImage?, Never> = Task.detached(priority: .userInitiated) { [pipeline] in
+        let task: Task<CIImage?, Never> = Task.detached(priority: .userInitiated) { [pipeline, useSceneLinear] in
             // Disk-cache fast path. Skips the Rust pipeline entirely when
-            // the asset's mtime matches the cached key.
-            if let url = asset.primaryURL,
+            // the asset's mtime matches the cached key. Plan 1 gate: the
+            // scene-linear path skips this — see the comment by the
+            // `pipeline.decodeSceneLinear` call below.
+            if !useSceneLinear,
+               let url = asset.primaryURL,
                let cached = await DecodedBufferCache.shared.decoded(for: url) {
                 return cached
             }
             // Cache miss — Rust decode, then write-back for the next open.
-            guard let decoded = await pipeline.decode(asset: asset) else { return nil }
-            if let url = asset.primaryURL {
+            // Plan 1 gate: the scene-linear path bypasses the disk cache
+            // (the cache stores sRGB JPEGs, which would lose the scene-
+            // linear buffer's extended range). Plan 3 will rev the cache
+            // format; for now scene-linear opens always pay the Rust
+            // decode cost.
+            let decoded: CIImage?
+            if useSceneLinear {
+                decoded = await pipeline.decodeSceneLinear(asset: asset)
+            } else {
+                decoded = await pipeline.decode(asset: asset)
+            }
+            guard let decoded = decoded else { return nil }
+            if !useSceneLinear, let url = asset.primaryURL {
                 // Fire-and-forget. JPEG-encoding a 100 MP CIImage takes ~1–2 s;
                 // gating `task.value` on it pushes that delay onto the
                 // published `decodedImage`. The cache is purely a perf assist
                 // for the next cold open — losing one write on app crash is
                 // fine, blocking the user is not.
+                //
+                // Plan 1: scene-linear path skips the cache write — the
+                // cache stores JPEGs, which can't round-trip extended-range
+                // fp16. Plan 3 reworks the cache format.
                 let captured = decoded
                 Task.detached(priority: .utility) {
                     await DecodedBufferCache.shared.storeDecoded(captured, for: url)

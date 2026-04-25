@@ -935,4 +935,31 @@ final class SceneLinearPipelineTests: XCTestCase {
         XCTAssertEqual(processed.extent.width, 50, accuracy: 0.01)
         XCTAssertEqual(processed.extent.height, 50, accuracy: 0.01)
     }
+
+    // MARK: - Task 5: EditSession routing
+
+    /// EditSession routes through `processSceneLinear` when MAPLE_SCENE_LINEAR
+    /// is set in the launching environment. We can't toggle env in-process,
+    /// but we can invoke the pipeline directly — this test confirms that
+    /// passing a pre-decoded scene-linear-tagged CIImage through
+    /// `pipeline.processSceneLinear` produces a non-nil output extent that
+    /// matches `targetSize`. The full env-gated EditSession flow is
+    /// covered by manual A/B testing in Task 6 (the env var is set in the
+    /// Maple.xcscheme).
+    func testProcessSceneLinearProducesValidExtentForTargetSize() {
+        let pipeline = ImageEditPipeline()
+        let space = CGColorSpace(name: CGColorSpace.extendedLinearITUR_2020)!
+        let decoded = CIImage(color: CIColor(red: 0.18, green: 0.18, blue: 0.18))
+            .cropped(to: CGRect(x: 0, y: 0, width: 800, height: 600))
+            .matchedToWorkingSpace(from: space) ?? CIImage(
+                color: CIColor(red: 0.18, green: 0.18, blue: 0.18)
+            ).cropped(to: CGRect(x: 0, y: 0, width: 800, height: 600))
+        let out = pipeline.processSceneLinear(
+            decoded: decoded,
+            model: .default,
+            targetSize: CGSize(width: 200, height: 200)
+        )
+        XCTAssertEqual(out.extent.width, 200, accuracy: 0.01)
+        XCTAssertEqual(out.extent.height, 150, accuracy: 0.01)
+    }
 }
