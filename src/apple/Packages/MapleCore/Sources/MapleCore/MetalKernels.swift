@@ -74,6 +74,21 @@ public enum MetalKernels {
     private static var _sceneNRColorExtract: CIColorKernel?
     private static var _sceneNRColorCombine: CIColorKernel?
 
+    // Plan 2 v2 v3 — SceneSharpen kernels (M4, Tasks 2 + 3 + 4). Five
+    // CIColorKernels orchestrated by applySceneSharpen:
+    //   * rlRatio + rlMultiply: per-iteration RL arithmetic (Task 2).
+    //   * sharpenLuminance + sharpenEdgeMix: edge-aware final mix (Task 3).
+    //   * sharpenOverdrive: optional unsharp boost when amount > 100 (Task 4).
+    // All five share the lazy / process-lifetime cache pattern.
+    private static var _rlRatio: CIColorKernel?
+    private static var _rlMultiply: CIColorKernel?
+    private static var _sharpenLuminance: CIColorKernel?
+    // sharpenEdgeMix may be CIKernel (not CIColorKernel) if Task 3's
+    // micro-spike shows neighbour sampling requires the spatial variant —
+    // see Task 3 Step 3.1. Field is typed `CIKernel?` to accept either.
+    private static var _sharpenEdgeMix: CIKernel?
+    private static var _sharpenOverdrive: CIColorKernel?
+
     // MARK: SceneToneControls
 
     public static func applySceneToneControls(
@@ -479,6 +494,131 @@ public enum MetalKernels {
         ) ?? input
     }
 
+    // MARK: SceneSharpen (Plan 2 v2 v3 M4)
+
+    /// Apply scene-linear Rec.2020 capture sharpening (3-iteration
+    /// Richardson-Lucy with Gaussian PSF + edge-aware mix). Mirrors
+    /// `sharpen::apply` from raw-core/src/stages/sharpen.rs:22-124.
+    ///
+    /// Slider params (per AdjustmentModel.swift:47-50, mirroring xmp.rs:
+    /// 35-38):
+    ///   * amount: 0..150, default 0. 0 skips, 100 is full RL, >100 adds
+    ///     unsharp overdrive.
+    ///   * radius: 0.5..3.0, default 0.5. PSF Gaussian sigma; converted
+    ///     to integer box radius via clamp(0.5, 3.0).round().max(1)
+    ///     mirroring sharpen.rs:33-34.
+    ///   * detail: 0..100, default 25. Edge-attenuation strength.
+    ///   * masking: 0..100, default 0. Edge-mask threshold.
+    ///
+    /// Short-circuits to identity when |amount| < 1e-3 mirroring
+    /// sharpen.rs:30.
+    ///
+    /// **Task 2 partial implementation:** RL iterations only. Overdrive
+    /// (amount > 100, Task 4) and edge-aware mix (Task 3) are not yet
+    /// applied — the wrapper returns the post-RL `sharpened` directly
+    /// (equivalent to amount=100, masking=0, detail=irrelevant). This is
+    /// a stepping stone; Tasks 3 + 4 layer on the missing pieces.
+    public static func applySceneSharpen(
+        to input: CIImage,
+        amount: Float,
+        radius: Float,
+        detail: Float,
+        masking: Float
+    ) -> CIImage {
+        if abs(amount) < 1e-3 { return input }
+
+        // Integer radius mirrors sharpen.rs:33-34 byte-for-byte:
+        //   radius_px = radius.clamp(0.5, 3.0).round() as usize;
+        //   let radius_px = radius_px.max(1);
+        let clamped = max(0.5, min(3.0, radius))
+        let rounded = Int(roundf(clamped))
+        let radiusPx = max(1, rounded)
+
+        guard let ratioKernel = rlRatioKernel(),
+              let multiplyKernel = rlMultiplyKernel() else {
+            return input
+        }
+
+        // Task 2: 3 iterations of Richardson-Lucy. observed = input,
+        // estimate starts as input; after 3 iters, sharpened = estimate.
+        let observed = input
+        var estimate = input
+
+        for _ in 0..<3 {
+            // reblur = blur(estimate, radius_px)
+            let reblur = applySeparableGaussianBlur(to: estimate, radius: radiusPx)
+            // ratio = observed / max(reblur, EPSILON)
+            guard let ratio = ratioKernel.apply(
+                extent: input.extent,
+                roiCallback: { _, rect in rect },
+                arguments: [observed, reblur]
+            ) else { return input }
+            // correction = blur(ratio, radius_px)
+            let correction = applySeparableGaussianBlur(to: ratio, radius: radiusPx)
+            // estimate = estimate * correction
+            guard let nextEstimate = multiplyKernel.apply(
+                extent: input.extent,
+                roiCallback: { _, rect in rect },
+                arguments: [estimate, correction]
+            ) else { return input }
+            estimate = nextEstimate
+        }
+
+        // Tasks 3 + 4: overdrive + edge-aware mix.
+        var sharpened = estimate
+
+        // Task 4 — overdrive (amount > 100). Per sharpen.rs:65-76.
+        if amount > 100.0 {
+            if let overdriveKernel = sharpenOverdriveKernel() {
+                let overMix = (amount - 100.0) / 100.0
+                let blurredEstimate = applySeparableGaussianBlur(
+                    to: sharpened, radius: radiusPx
+                )
+                if let overdriven = overdriveKernel.apply(
+                    extent: input.extent,
+                    roiCallback: { _, rect in rect },
+                    arguments: [sharpened, blurredEstimate, overMix]
+                ) {
+                    sharpened = overdriven
+                }
+                // If the kernel-load or apply step fails, fall through
+                // with the un-overdriven sharpened. Silent fallback per
+                // the existing wrapper convention.
+            }
+        }
+
+        // Task 3 — edge-aware mix.
+        guard let lumaKernel = sharpenLuminanceKernel(),
+              let mixKernel = sharpenEdgeMixKernel() else {
+            return sharpened
+        }
+
+        let overallMix = max(0.0, min(1.5, amount / 100.0))
+        let detailAtten = max(0.0, min(1.0, detail / 100.0))
+        let maskingThreshold = max(0.0, min(1.0, masking / 100.0))
+
+        // Step 1: extract Rec.2020 BT.2020 luma from observed.
+        guard let lumaPlane = lumaKernel.apply(
+            extent: input.extent,
+            roiCallback: { _, rect in rect },
+            arguments: [observed]
+        ) else { return sharpened }
+
+        // Step 2: edge-aware mix.
+        return mixKernel.apply(
+            extent: input.extent,
+            roiCallback: { _, rect in rect },
+            arguments: [
+                observed,
+                sharpened,
+                lumaPlane,
+                overallMix,
+                detailAtten,
+                maskingThreshold,
+            ]
+        ) ?? sharpened
+    }
+
     /// Shared per-pixel mix kernel: `out = src + (src - blurred) * amount`.
     /// Used by `applySceneClarity` and `applySceneTexture` — the only
     /// difference between the two stages is the upstream blur's radius.
@@ -531,6 +671,46 @@ public enum MetalKernels {
         _sceneNRColorCombine = loadKernel(file: "SceneNRColor",
                                           function: "nrColorCombine") as? CIColorKernel
         return _sceneNRColorCombine
+    }
+
+    // MARK: Sharpen kernel loaders (Plan 2 v2 v3 M4)
+
+    private static func rlRatioKernel() -> CIColorKernel? {
+        if let k = _rlRatio { return k }
+        _rlRatio = loadKernel(file: "RichardsonLucyMixer",
+                              function: "rlRatio") as? CIColorKernel
+        return _rlRatio
+    }
+
+    private static func rlMultiplyKernel() -> CIColorKernel? {
+        if let k = _rlMultiply { return k }
+        _rlMultiply = loadKernel(file: "RichardsonLucyMixer",
+                                 function: "rlMultiply") as? CIColorKernel
+        return _rlMultiply
+    }
+
+    private static func sharpenLuminanceKernel() -> CIColorKernel? {
+        if let k = _sharpenLuminance { return k }
+        _sharpenLuminance = loadKernel(file: "SharpenEdgeMix",
+                                       function: "sharpenLuminance") as? CIColorKernel
+        return _sharpenLuminance
+    }
+
+    private static func sharpenEdgeMixKernel() -> CIKernel? {
+        if let k = _sharpenEdgeMix { return k }
+        // Note: NOT cast to CIColorKernel — `sharpenEdgeMix` does
+        // neighbour sampling on `luma`, which requires CIKernel
+        // (spatial). Per Task 3 Step 3.1 spike result.
+        _sharpenEdgeMix = loadKernel(file: "SharpenEdgeMix",
+                                     function: "sharpenEdgeMix")
+        return _sharpenEdgeMix
+    }
+
+    private static func sharpenOverdriveKernel() -> CIColorKernel? {
+        if let k = _sharpenOverdrive { return k }
+        _sharpenOverdrive = loadKernel(file: "SharpenOverdrive",
+                                       function: "sharpenOverdrive") as? CIColorKernel
+        return _sharpenOverdrive
     }
 
     // MARK: Private kernel loaders
