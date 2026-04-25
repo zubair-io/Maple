@@ -6,17 +6,30 @@
 //! from a true Gaussian and runs in O(n) per pixel independent of radius.
 
 use crate::image::{ColorSpace, Image};
+use rayon::prelude::*;
 
 /// Separable box blur of a single channel plane.
 /// `buf` is row-major w×h. Returns a new blurred buffer.
+///
+/// Both sweeps run in parallel via rayon:
+/// * **Horizontal sweep** writes `tmp` row by row; each row's output is a
+///   disjoint `w`-element slice, so `par_chunks_mut(w)` is safe and trivial.
+/// * **Vertical sweep** reads `tmp` column-by-column (stride `w`) and
+///   historically wrote back into a row-major `out` via the same stride.
+///   That stride-`w` scatter prevents a clean parallel-mut over rows. The
+///   fix: write the vertical pass into a column-major `tmp_col` buffer
+///   (each column is a contiguous `h`-element slice, so `par_chunks_mut(h)`
+///   is safe), then transpose column-major → row-major in a final parallel
+///   pass. Memory cost: one extra w×h f32 buffer (same size as `tmp`).
+///   CPU cost: one extra pass, amortized against doing the full sweep in
+///   parallel on 8+ cores.
 fn box_blur_channel(buf: &[f32], w: usize, h: usize, r: usize) -> Vec<f32> {
     if r == 0 { return buf.to_vec(); }
 
+    // --- Horizontal sweep: row-parallel, row-major output ---
     let mut tmp = vec![0.0f32; buf.len()];
-    // Horizontal.
-    for y in 0..h {
+    tmp.par_chunks_mut(w).enumerate().for_each(|(y, out_row)| {
         let row = &buf[y * w..(y + 1) * w];
-        let mut out_row = vec![0.0f32; w];
         let right0 = r.min(w - 1);
         let mut acc: f32 = row[0..=right0].iter().sum();
         let mut count = right0 + 1;
@@ -26,12 +39,15 @@ fn box_blur_channel(buf: &[f32], w: usize, h: usize, r: usize) -> Vec<f32> {
             if x > r     { acc -= row[x - r - 1]; count -= 1; }
             out_row[x] = acc / count as f32;
         }
-        tmp[y * w..(y + 1) * w].copy_from_slice(&out_row);
-    }
-    // Vertical.
-    let mut out = vec![0.0f32; buf.len()];
-    for x in 0..w {
-        let mut out_col = vec![0.0f32; h];
+    });
+
+    // --- Vertical sweep: column-parallel into a column-major scratch ---
+    //
+    // `tmp_col[x * h + y]` = `tmp[y * w + x]` after blur along y.
+    // Each column is a contiguous `h`-element chunk of `tmp_col`, and
+    // columns don't overlap, so par_chunks_mut(h) is safe.
+    let mut tmp_col = vec![0.0f32; buf.len()];
+    tmp_col.par_chunks_mut(h).enumerate().for_each(|(x, out_col)| {
         let bot0 = r.min(h - 1);
         let mut acc: f32 = (0..=bot0).map(|i| tmp[i * w + x]).sum();
         let mut count = bot0 + 1;
@@ -41,8 +57,15 @@ fn box_blur_channel(buf: &[f32], w: usize, h: usize, r: usize) -> Vec<f32> {
             if y > r     { acc -= tmp[(y - r - 1) * w + x]; count -= 1; }
             out_col[y] = acc / count as f32;
         }
-        for y in 0..h { out[y * w + x] = out_col[y]; }
-    }
+    });
+
+    // --- Transpose column-major → row-major (parallel by output row) ---
+    let mut out = vec![0.0f32; buf.len()];
+    out.par_chunks_mut(w).enumerate().for_each(|(y, out_row)| {
+        for x in 0..w {
+            out_row[x] = tmp_col[x * h + y];
+        }
+    });
     out
 }
 
@@ -132,5 +155,42 @@ mod tests {
         for (a, b) in after.pixels.iter().zip(before.iter()) {
             assert_eq!(a, b);
         }
+    }
+
+    #[test]
+    fn blur_asymmetric_horizontal_stripe_preserves_axis() {
+        // A single bright horizontal stripe on a wide-short image. After
+        // a box blur, energy must spread *vertically* (because the stripe
+        // is already uniform horizontally) and leave the horizontal
+        // profile untouched within the row. An axis-swap in the vertical
+        // sweep (e.g. reading column-major data as row-major during the
+        // transpose) would shift energy into the wrong axis.
+        let w = 40;
+        let h = 10;
+        let mut img = Image::new(w as u32, h as u32, ColorSpace::SceneLinearRec2020);
+        for p in &mut img.pixels { *p = [0.0; 3]; }
+        // Stripe at row 5, all columns.
+        for x in 0..w { img.pixels[5 * w + x] = [1.0, 0.0, 0.0]; }
+
+        let blurred = gaussian_blur_rgb(&img, 3);
+
+        // Every row in [0..h] has the same value at every column (the
+        // stripe was uniform horizontally). Check this by picking two
+        // arbitrary columns on row 4 and asserting they agree.
+        for row in 0..h {
+            let left  = blurred.pixels[row * w + 3][0];
+            let right = blurred.pixels[row * w + (w - 3)][0];
+            assert!((left - right).abs() < 1e-5,
+                "row {}: left={}, right={} (horizontal profile should be uniform)",
+                row, left, right);
+        }
+
+        // Row 5 (the stripe) must have the max response; rows 0 and h-1
+        // must have less. This locks the vertical axis of the sweep.
+        let stripe  = blurred.pixels[5 * w][0];
+        let top_row = blurred.pixels[0 * w][0];
+        let bot_row = blurred.pixels[(h - 1) * w][0];
+        assert!(stripe > top_row, "stripe row not brightest: stripe={}, top={}", stripe, top_row);
+        assert!(stripe > bot_row, "stripe row not brightest: stripe={}, bot={}", stripe, bot_row);
     }
 }
