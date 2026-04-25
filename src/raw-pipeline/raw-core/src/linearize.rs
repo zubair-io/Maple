@@ -1,11 +1,19 @@
-use crate::image::{ColorSpace, Image, RawImage};
+use crate::image::{CfaPattern, ColorSpace, Image, RawImage};
 use rayon::prelude::*;
 
 /// Sensor linearization per spec § 3.2.
 /// `linear = (raw - black) / (white - black)` clamped to [0, 1].
 /// Produces a three-channel `Image` where only the CFA-appropriate channel is
 /// populated per pixel; the other two are zero. (Demosaic fills them in.)
+///
+/// **Must NOT be called on `CfaPattern::LinearRgb` data** — that variant has
+/// already-demosaiced interleaved RGB, not a Bayer mosaic, and `raw_data` is
+/// `3 × w × h` instead of `w × h`. Use [`linearraw_to_camera_rgb`] instead.
 pub fn sensor_linearize(raw: &RawImage) -> Image {
+    debug_assert_ne!(raw.cfa, CfaPattern::LinearRgb,
+        "sensor_linearize must not be called on LinearRgb data; \
+         use linearraw_to_camera_rgb instead. See ticket #07.");
+
     let w = raw.width as usize;
     let mut img = Image::new(raw.width, raw.height, ColorSpace::CameraNativeMosaic);
 
@@ -27,6 +35,48 @@ pub fn sensor_linearize(raw: &RawImage) -> Image {
             }
         });
     img
+}
+
+/// LinearRaw decode entry. Reshape interleaved `[R₀ G₀ B₀ R₁ G₁ B₁ …]`
+/// `raw.raw_data` into a `CameraNativeLinearRgb` `Image`, normalizing
+/// per-channel by `(white_level - black_level)`. Skips both
+/// `sensor_linearize` (1 SPP scanline) and `demosaic::*` because the
+/// data is already 3-channel RGB. Caller dispatches based on
+/// `raw.cfa == CfaPattern::LinearRgb`. See ticket #07.
+pub fn linearraw_to_camera_rgb(raw: &RawImage) -> crate::Result<Image> {
+    debug_assert_eq!(raw.cfa, CfaPattern::LinearRgb);
+    let w = raw.width as usize;
+    let h = raw.height as usize;
+    let expected = 3 * w * h;
+    if raw.raw_data.len() != expected {
+        return Err(crate::Error::Decode {
+            path: std::path::PathBuf::from("<linearraw>"),
+            reason: format!(
+                "LinearRaw raw_data length {} != 3 × {} × {} = {} (expected interleaved RGB)",
+                raw.raw_data.len(), w, h, expected
+            ),
+        });
+    }
+    let wl = raw.white_level as f32;
+    // For LinearRaw, black levels per the investigation are typically
+    // 0/0/0 — but we honor metadata: index 0 = R, 1 = G, 2 = B
+    // (the 4th slot is unused, mirrors RGGB's [R, Gr, Gb, B]).
+    let bl_r = raw.black_level[0] as f32;
+    let bl_g = raw.black_level[1] as f32;
+    let bl_b = raw.black_level[3] as f32;
+    let denom_r = (wl - bl_r).max(1.0);
+    let denom_g = (wl - bl_g).max(1.0);
+    let denom_b = (wl - bl_b).max(1.0);
+
+    let mut img = Image::new(raw.width, raw.height, ColorSpace::CameraNativeLinearRgb);
+    img.pixels.par_iter_mut().enumerate().for_each(|(idx, px)| {
+        let off = idx * 3;
+        let r = ((raw.raw_data[off    ] as f32 - bl_r) / denom_r).clamp(0.0, 1.0);
+        let g = ((raw.raw_data[off + 1] as f32 - bl_g) / denom_g).clamp(0.0, 1.0);
+        let b = ((raw.raw_data[off + 2] as f32 - bl_b) / denom_b).clamp(0.0, 1.0);
+        *px = [r, g, b];
+    });
+    Ok(img)
 }
 
 #[cfg(test)]
