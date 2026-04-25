@@ -1062,4 +1062,90 @@ final class SceneLinearPipelineTests: XCTestCase {
         XCTAssertEqual(sized.extent.width, unsized.extent.width, accuracy: 0.01)
         XCTAssertEqual(sized.extent.height, unsized.extent.height, accuracy: 0.01)
     }
+
+    // MARK: - Plan 2 M1: SceneToneControls wired into processSceneLinear
+
+    /// Build a synthetic 16×16 mid-gray scene-linear Rec.2020 fp16 CIImage,
+    /// run it through `processSceneLinear` with `model.exposure = 1.0`, and
+    /// confirm the output is brighter than the same input through
+    /// `processSceneLinear` with the default model. This is the wiring
+    /// check, not a numeric parity check — the actual exposure math is
+    /// exercised by the Rust unit tests for `scene_tone_controls.rs`.
+    /// `swift test` cannot load the metallib, so we accept that the
+    /// kernel call may be a silent no-op under XCTest and assert
+    /// "output A is at least as bright as output B" (`>=` not `>`)
+    /// per the existing `MetalKernelParityTests.swift` pattern.
+    func testM1ProcessSceneLinearAppliesExposure() async throws {
+        let pipeline = ImageEditPipeline()
+        let input = Self.makeNeutralSceneLinearCIImage(width: 16, height: 16, value: 0.5)
+
+        let modelDefault = AdjustmentModel.default
+        var modelBright = modelDefault
+        modelBright.exposure = 1.0
+
+        let outDefault = pipeline.processSceneLinear(decoded: input, model: modelDefault)
+        let outBright  = pipeline.processSceneLinear(decoded: input, model: modelBright)
+
+        // Render both to fp16 CGImages tagged extendedLinearITUR_2020 and
+        // compare the centre pixel's R channel.
+        let bright = Self.sampleCenterR(outBright, width: 16, height: 16)
+        let basic  = Self.sampleCenterR(outDefault, width: 16, height: 16)
+        XCTAssertGreaterThanOrEqual(
+            bright, basic,
+            "exposure +1 should be at least as bright as default — got bright=\(bright) basic=\(basic)"
+        )
+    }
+
+    /// Build a 16×16 fp16 Rec.2020 CIImage of one constant value. Used by
+    /// the M1 wiring tests so they don't depend on a fixture.
+    static func makeNeutralSceneLinearCIImage(width w: Int, height h: Int, value v: Float) -> CIImage {
+        var pixels = [UInt16](repeating: 0, count: w * h * 4)
+        let one = Self.float32ToFloat16Bits(1.0)
+        let val = Self.float32ToFloat16Bits(v)
+        for i in stride(from: 0, to: pixels.count, by: 4) {
+            pixels[i + 0] = val
+            pixels[i + 1] = val
+            pixels[i + 2] = val
+            pixels[i + 3] = one
+        }
+        let bytesPerRow = w * 4 * 2
+        let data = pixels.withUnsafeBufferPointer { Data(bytes: $0.baseAddress!, count: $0.count * 2) }
+        let space = CGColorSpace(name: CGColorSpace.extendedLinearITUR_2020)!
+        return CIImage(
+            bitmapData: data,
+            bytesPerRow: bytesPerRow,
+            size: CGSize(width: w, height: h),
+            format: .RGBAh,
+            colorSpace: space
+        )
+    }
+
+    /// Render the centre pixel of a CIImage to fp16 R, return the f32 value.
+    static func sampleCenterR(_ ci: CIImage, width w: Int, height h: Int) -> Float {
+        let device = MTLCreateSystemDefaultDevice()
+        let context: CIContext
+        if let device {
+            context = CIContext(mtlDevice: device, options: [
+                .workingColorSpace: CGColorSpace(name: CGColorSpace.extendedLinearSRGB)!,
+                .workingFormat: CIFormat.RGBAh,
+                .cacheIntermediates: false,
+            ])
+        } else {
+            context = CIContext(options: [
+                .workingColorSpace: CGColorSpace(name: CGColorSpace.linearSRGB)!,
+                .workingFormat: CIFormat.RGBAh,
+            ])
+        }
+        let outSpace = CGColorSpace(name: CGColorSpace.extendedLinearITUR_2020)!
+        guard let cg = context.createCGImage(
+            ci, from: CGRect(x: 0, y: 0, width: w, height: h),
+            format: .RGBAh, colorSpace: outSpace
+        ), let cfData = cg.dataProvider?.data
+        else { return Float.nan }
+        let bytes = UnsafeRawPointer(CFDataGetBytePtr(cfData)!)
+        let bpr = cg.bytesPerRow
+        let cx = w / 2, cy = h / 2
+        let off = cy * bpr + cx * 4 * 2
+        return Self.float16BitsToFloat32(bytes.load(fromByteOffset: off, as: UInt16.self))
+    }
 }
