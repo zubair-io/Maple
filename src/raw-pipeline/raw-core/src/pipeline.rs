@@ -23,6 +23,10 @@ use crate::{
 /// chosen so a 30-char name and a 10-char duration line up in a
 /// monospace terminal — easy to eyeball "demosaic dominates" vs.
 /// "every stage is 200 ms."
+///
+/// Note: any value of `MAPLE_PROFILE` enables logging (`is_some()`
+/// gates on existence, not value). `MAPLE_PROFILE=0` and `MAPLE_PROFILE=`
+/// both turn it on. `unset MAPLE_PROFILE` is the only way to disable.
 #[inline]
 fn stage<T>(name: &'static str, f: impl FnOnce() -> T) -> T {
     let t = Instant::now();
