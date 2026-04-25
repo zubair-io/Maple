@@ -303,11 +303,20 @@ public actor ImageEditPipeline {
             blacks: Float(model.blacks)
         )
 
+        // Plan 2 M1 — Stage: SceneVibrance (Oklab chroma boost with
+        // skin-tone protection). Mirrors vibrance.rs (raw-core); the
+        // Oklab matrices in the kernel match the Rust source verbatim
+        // — verified by Plan 2 pre-flight Step 1.4.
+        let withVibrance = MetalKernels.applySceneVibrance(
+            to: withTone,
+            vibrance: Float(model.vibrance)
+        )
+
         // Stage: AgX view transform — exactly once, on scene-linear data.
         // The kernel is per-channel (verified by Spike 1.2), so feeding it
         // Rec.2020 instead of sRGB only matters for out-of-gamut content.
         return MetalKernels.applyAgXViewTransform(
-            to: withTone, contrast: Float(model.contrast)
+            to: withVibrance, contrast: Float(model.contrast)
         )
     }
 
