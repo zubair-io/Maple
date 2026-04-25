@@ -13,6 +13,16 @@ import UIKit
 struct MapleApp: App {
     init() {
         Self.installMemoryPressureObserver()
+
+        #if DEBUG
+        // Plan 1 regression net: if the AgX metallib doesn't load, we'll
+        // display raw scene-linear data on the new path. Catch at app
+        // launch, not at first-pixel-displayed. See
+        // docs/superpowers/plans/2026-04-24-ffi-split-plan-1.md Task 4
+        // Step 4.0a.
+        assert(MapleCore.MetalKernels.agxKernel() != nil,
+            "AgX Metal kernel failed to load — view transform will silently no-op on the scene-linear path. Verify AgXViewTransform.metal is in the Metal sources for this build target.")
+        #endif
     }
 
     var body: some Scene {
