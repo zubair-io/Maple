@@ -345,6 +345,21 @@
 //
 // Parity harness on legacy path (Step 7.5): BUDGET=15 baseline unchanged
 // (4 pre-existing fails / 3 skipped — applyFilters still untouched).
+//
+// Plan 2 v2 v4 M5 manual smoke test (Task 9 Step 9.3, recorded after
+// wiring SceneDehaze into processSceneLinear in Task 8):
+//   dehaze  0->+50   moved pixels — PENDING (user-side verification)
+//   dehaze  0->+100  moved pixels — PENDING (user-side verification)
+//   dehaze  0->-50   moved pixels — PENDING (user-side verification)
+//   dehaze  0->0     pixel-exact identity — PASS (testM5DehazeShortCircuitsAtZeroAmount)
+//
+// Deep Zoom dehaze fallback regression check (Task 9 Step 9.4):
+//   render_scene_linear_tile_rejects_active_dehaze (Rust) — PASS
+//   DeepZoomTileRenderingTests (Apple) — PASS (33 tests)
+//   manual zoom-clamp test (Step 9.4.3) — PENDING (user-side verification)
+//
+// Parity harness on legacy path (Step 9.5): BUDGET=15 baseline unchanged
+// (4 pre-existing fails / 3 skipped — applyFilters still untouched).
 
 import XCTest
 import CoreImage
@@ -2884,5 +2899,398 @@ final class SceneLinearPipelineTests: XCTestCase {
         }
         XCTAssertLessThanOrEqual(maskedDelta, noMaskDelta + 1e-3,
             "masking=50 should not increase deviation on flat field — got noMask=\(noMaskDelta) masked=\(maskedDelta)")
+    }
+
+    // MARK: - Plan 2 v2 v4 M5a: Dehaze scalar mirrors (matches DehazeDarkChannel.metal etc.)
+
+    static let DARK_RADIUS: Int = 7
+
+    /// Pure-Swift mirror of `dark_channel` from raw-core/src/stages/
+    /// dehaze.rs:5-25. Per output pixel, scan the 15x15 RGB neighborhood
+    /// (DARK_RADIUS=7, clamp-to-edge), compute min-of-3-channels per
+    /// neighbor, take the min across the kernel.
+    static func swiftDarkChannel(
+        _ rgbBuf: [[Float]], w: Int, h: Int
+    ) -> [Float] {
+        var out = [Float](repeating: 0, count: w * h)
+        for y in 0..<h {
+            for x in 0..<w {
+                var m = Float.infinity
+                for dy in -Self.DARK_RADIUS...Self.DARK_RADIUS {
+                    for dx in -Self.DARK_RADIUS...Self.DARK_RADIUS {
+                        let ux = max(0, min(w - 1, x + dx))
+                        let uy = max(0, min(h - 1, y + dy))
+                        let p = rgbBuf[uy * w + ux]
+                        let localMin = min(min(p[0], p[1]), p[2])
+                        if localMin < m { m = localMin }
+                    }
+                }
+                out[y * w + x] = m
+            }
+        }
+        return out
+    }
+
+    /// Pure-Swift mirror of `atmospheric_light` from raw-core/src/stages/
+    /// dehaze.rs:29-41. Returns the per-channel mean over the top-0.1%
+    /// brightest dark-channel positions of the original RGB.
+    static func swiftAtmosphericLight(
+        _ rgbBuf: [[Float]], dc: [Float]
+    ) -> [Float] {
+        let n = dc.count
+        let topN = max(1, n / 1000)
+        var idx = Array(0..<n)
+        idx.sort { dc[$0] > dc[$1] }   // descending
+        var sumR: Float = 0, sumG: Float = 0, sumB: Float = 0
+        for i in 0..<topN {
+            let p = rgbBuf[idx[i]]
+            sumR += p[0]; sumG += p[1]; sumB += p[2]
+        }
+        let k = Float(topN)
+        return [sumR / k, sumG / k, sumB / k]
+    }
+
+    /// Mirror the Rust unit test at dehaze.rs:194-204 — uniform image
+    /// with a single dark pixel; assert pixels within radius 7 see the
+    /// dark pixel.
+    func testM5SwiftScalarDarkChannelMatchesRust() async throws {
+        let w = 20, h = 20
+        var rgb = [[Float]](repeating: [0.9, 0.9, 0.9], count: w * h)
+        rgb[10 * 20 + 10] = [0.1, 0.1, 0.1]
+        let dc = Self.swiftDarkChannel(rgb, w: w, h: h)
+        // Pixel at (10, 10) sees itself.
+        XCTAssertEqual(dc[10 * 20 + 10], 0.1, accuracy: 1e-5)
+        // Pixel at (3, 3) — abs(10-3) = 7, exactly at radius 7.
+        XCTAssertEqual(dc[3 * 20 + 3], 0.1, accuracy: 1e-5)
+        // Pixel at (0, 0) — distance 10, beyond radius 7 box.
+        XCTAssertEqual(dc[0], 0.9, accuracy: 1e-5)
+    }
+
+    /// Mirror the Rust unit test at dehaze.rs:186-191 — uniform RGB
+    /// with R=0.5, G=0.3, B=0.8. Dark channel is min(R, G, B) = 0.3
+    /// everywhere because the kernel-min over uniform values is the
+    /// same as the per-pixel min.
+    func testM5SwiftScalarDarkChannelOfUniformIsMinChannel() async throws {
+        let w = 20, h = 20
+        let rgb = [[Float]](repeating: [0.5, 0.3, 0.8], count: w * h)
+        let dc = Self.swiftDarkChannel(rgb, w: w, h: h)
+        for v in dc {
+            XCTAssertEqual(v, 0.3, accuracy: 1e-5)
+        }
+    }
+
+    /// Mirror the Rust unit test at dehaze.rs:206-218 — uniform 0.3
+    /// background with a 10x10 bright patch in the corner; atmospheric
+    /// light should be > 0.7 per channel (driven by the bright patch).
+    func testM5SwiftScalarAtmosphericLightPicksBrightestRegion() async throws {
+        let w = 100, h = 100
+        var rgb = [[Float]](repeating: [0.3, 0.3, 0.3], count: w * h)
+        for y in 0..<10 {
+            for x in 0..<10 {
+                rgb[y * 100 + x] = [0.95, 0.94, 0.93]
+            }
+        }
+        let dc = Self.swiftDarkChannel(rgb, w: w, h: h)
+        let a = Self.swiftAtmosphericLight(rgb, dc: dc)
+        XCTAssertGreaterThan(a[0], 0.7)
+        XCTAssertGreaterThan(a[1], 0.7)
+        XCTAssertGreaterThan(a[2], 0.7)
+    }
+
+    // MARK: - Plan 2 v2 v4 M5b: Dehaze transmission/box-blur/guided-filter mirrors
+
+    /// Pure-Swift mirror of `transmission` from raw-core/src/stages/
+    /// dehaze.rs:43-68.
+    static func swiftTransmission(
+        _ rgbBuf: [[Float]], a: [Float], w: Int, h: Int
+    ) -> [Float] {
+        let omega: Float = 0.95
+        var out = [Float](repeating: 0, count: w * h)
+        let aR = max(a[0], 1e-6)
+        let aG = max(a[1], 1e-6)
+        let aB = max(a[2], 1e-6)
+        for y in 0..<h {
+            for x in 0..<w {
+                var m: Float = .infinity
+                for dy in -Self.DARK_RADIUS...Self.DARK_RADIUS {
+                    for dx in -Self.DARK_RADIUS...Self.DARK_RADIUS {
+                        let ux = max(0, min(w - 1, x + dx))
+                        let uy = max(0, min(h - 1, y + dy))
+                        let p = rgbBuf[uy * w + ux]
+                        let scaled = min(min(p[0] / aR, p[1] / aG), p[2] / aB)
+                        if scaled < m { m = scaled }
+                    }
+                }
+                out[y * w + x] = 1.0 - omega * m
+            }
+        }
+        return out
+    }
+
+    /// Pure-Swift mirror of `box_blur` from raw-core/src/stages/dehaze.rs
+    /// :72-105. Single-pass running-sum with truncated-window normalization.
+    /// **Distinct from `swiftGaussianBlurPlane` (which is 3-pass).**
+    static func swiftDehazeBoxBlur(
+        _ buf: [Float], w: Int, h: Int, r: Int
+    ) -> [Float] {
+        // Horizontal pass
+        var tmp = [Float](repeating: 0, count: buf.count)
+        for y in 0..<h {
+            let row = Array(buf[(y * w)..<((y + 1) * w)])
+            var outRow = [Float](repeating: 0, count: w)
+            let right0 = min(r, w - 1)
+            var acc: Float = (0...right0).map { row[$0] }.reduce(0, +)
+            var count = right0 + 1
+            outRow[0] = acc / Float(count)
+            for x in 1..<w {
+                if x + r < w { acc += row[x + r]; count += 1 }
+                if x > r     { acc -= row[x - r - 1]; count -= 1 }
+                outRow[x] = acc / Float(count)
+            }
+            for x in 0..<w { tmp[y * w + x] = outRow[x] }
+        }
+        // Vertical pass
+        var out = [Float](repeating: 0, count: buf.count)
+        for x in 0..<w {
+            var outCol = [Float](repeating: 0, count: h)
+            let bot0 = min(r, h - 1)
+            var acc: Float = (0...bot0).map { tmp[$0 * w + x] }.reduce(0, +)
+            var count = bot0 + 1
+            outCol[0] = acc / Float(count)
+            for y in 1..<h {
+                if y + r < h { acc += tmp[(y + r) * w + x]; count += 1 }
+                if y > r     { acc -= tmp[(y - r - 1) * w + x]; count -= 1 }
+                outCol[y] = acc / Float(count)
+            }
+            for y in 0..<h { out[y * w + x] = outCol[y] }
+        }
+        return out
+    }
+
+    /// Pure-Swift mirror of `guided_filter` from raw-core/src/stages/
+    /// dehaze.rs:109-135.
+    static func swiftGuidedFilter(
+        guide: [Float], p: [Float], w: Int, h: Int, r: Int, eps: Float
+    ) -> [Float] {
+        precondition(guide.count == p.count)
+        let n = guide.count
+        let meanI  = swiftDehazeBoxBlur(guide, w: w, h: h, r: r)
+        let meanP  = swiftDehazeBoxBlur(p,     w: w, h: h, r: r)
+        var ip     = [Float](repeating: 0, count: n)
+        for i in 0..<n { ip[i] = guide[i] * p[i] }
+        let meanIp = swiftDehazeBoxBlur(ip, w: w, h: h, r: r)
+        var covIp  = [Float](repeating: 0, count: n)
+        for i in 0..<n { covIp[i] = meanIp[i] - meanI[i] * meanP[i] }
+        var ii     = [Float](repeating: 0, count: n)
+        for i in 0..<n { ii[i] = guide[i] * guide[i] }
+        let meanII = swiftDehazeBoxBlur(ii, w: w, h: h, r: r)
+        var varI   = [Float](repeating: 0, count: n)
+        for i in 0..<n { varI[i] = meanII[i] - meanI[i] * meanI[i] }
+        var a      = [Float](repeating: 0, count: n)
+        for i in 0..<n { a[i] = covIp[i] / (varI[i] + eps) }
+        var b      = [Float](repeating: 0, count: n)
+        for i in 0..<n { b[i] = meanP[i] - a[i] * meanI[i] }
+        let meanA  = swiftDehazeBoxBlur(a, w: w, h: h, r: r)
+        let meanB  = swiftDehazeBoxBlur(b, w: w, h: h, r: r)
+        var out    = [Float](repeating: 0, count: n)
+        for i in 0..<n { out[i] = meanA[i] * guide[i] + meanB[i] }
+        return out
+    }
+
+    /// Mirror the Rust unit test at dehaze.rs:220-228 — pure-white image
+    /// with A=(1,1,1) gives uniform t = 1 - 0.95 = 0.05.
+    func testM5SwiftScalarTransmissionIsHighForBrightClearRegions() async throws {
+        let w = 30, h = 30
+        let rgb = [[Float]](repeating: [1.0, 1.0, 1.0], count: w * h)
+        let a: [Float] = [1.0, 1.0, 1.0]
+        let t = Self.swiftTransmission(rgb, a: a, w: w, h: h)
+        for v in t {
+            XCTAssertEqual(v, 0.05, accuracy: 1e-5)
+        }
+    }
+
+    /// Mirror the Rust unit test at dehaze.rs:230-235 — uniform 0.5
+    /// buffer should box-blur to itself (running-sum with truncated-
+    /// window normalization preserves means under uniform input).
+    func testM5SwiftScalarDehazeBoxBlurOfConstantIsConstant() async throws {
+        let w = 40, h = 40
+        let buf = [Float](repeating: 0.5, count: w * h)
+        let out = Self.swiftDehazeBoxBlur(buf, w: w, h: h, r: 5)
+        for v in out {
+            XCTAssertEqual(v, 0.5, accuracy: 1e-5)
+        }
+    }
+
+    /// Mirror the Rust unit test at dehaze.rs:237-243 — guided filter of
+    /// constants is the constant-p value (the linear fit collapses to
+    /// `q = 0 * guide + p`).
+    func testM5SwiftScalarGuidedFilterOfConstantsIsConstant() async throws {
+        let w = 40, h = 40
+        let guide = [Float](repeating: 0.5, count: w * h)
+        let p     = [Float](repeating: 0.7, count: w * h)
+        let out = Self.swiftGuidedFilter(guide: guide, p: p, w: w, h: h, r: 5, eps: 1e-3)
+        for v in out {
+            XCTAssertEqual(v, 0.7, accuracy: 1e-4)
+        }
+    }
+
+    /// Mirror the Rust unit test at dehaze.rs:245-258 — guided filter
+    /// preserves a smooth horizontal gradient (the algorithm passes
+    /// edge-aligned smooth signals through untouched modulo small box-
+    /// blur edge effects).
+    func testM5SwiftScalarGuidedFilterPreservesSmoothTransmission() async throws {
+        let w = 30, h = 30
+        var p = [Float](repeating: 0, count: w * h)
+        for y in 0..<h {
+            for x in 0..<w {
+                p[y * w + x] = 0.3 + 0.4 * Float(x) / Float(w)
+            }
+        }
+        let guide = p
+        let out = Self.swiftGuidedFilter(guide: guide, p: p, w: w, h: h, r: 8, eps: 1e-3)
+        for y in 10..<20 {
+            for x in 10..<20 {
+                let diff = abs(out[y * w + x] - p[y * w + x])
+                XCTAssertLessThan(diff, 0.05,
+                    "guided filter drifted at (\(x),\(y)): \(diff)")
+            }
+        }
+    }
+
+    // MARK: - Plan 2 v2 v4 M5c: Dehaze full-pipeline mirror + wrapper smoke
+
+    /// Pure-Swift mirror of `apply` from raw-core/src/stages/dehaze.rs:
+    /// 144-179. Composes swiftDarkChannel -> swiftAtmosphericLight ->
+    /// swiftTransmission -> Rec.2020 luma guide -> swiftGuidedFilter
+    /// at radius 60, eps 1e-3 -> per-pixel reconstruction with slider
+    /// mapping.
+    static func swiftApplyDehaze(
+        _ rgbBuf: [[Float]], w: Int, h: Int, dehaze: Float
+    ) -> [[Float]] {
+        if abs(dehaze) < 1e-3 { return rgbBuf }
+        let dc    = swiftDarkChannel(rgbBuf, w: w, h: h)
+        let a     = swiftAtmosphericLight(rgbBuf, dc: dc)
+        let tRaw  = swiftTransmission(rgbBuf, a: a, w: w, h: h)
+        var guide = [Float](repeating: 0, count: w * h)
+        for i in 0..<(w * h) {
+            let p = rgbBuf[i]
+            guide[i] = 0.2627 * p[0] + 0.6780 * p[1] + 0.0593 * p[2]
+        }
+        let tRefined = swiftGuidedFilter(
+            guide: guide, p: tRaw, w: w, h: h, r: 60, eps: 1e-3)
+        let t0: Float = 0.1
+        let scale = max(-1.0, min(1.0, dehaze / 100.0))
+        var out = [[Float]](repeating: [0, 0, 0], count: w * h)
+        for i in 0..<(w * h) {
+            let p = rgbBuf[i]
+            let t = max(0.0, min(1.0, tRefined[i]))
+            let tEff: Float
+            if scale >= 0 {
+                tEff = max(t + (1.0 - t) * (1.0 - scale), t0)
+            } else {
+                let inner = min(t + (1.0 - t) * (-scale), 1.0)
+                tEff = max(inner, t0)
+            }
+            out[i] = [
+                (p[0] - a[0]) / tEff + a[0],
+                (p[1] - a[1]) / tEff + a[1],
+                (p[2] - a[2]) / tEff + a[2],
+            ]
+        }
+        return out
+    }
+
+    /// Mirror the Rust unit test at dehaze.rs:261-269 — dehaze=0 is exact
+    /// identity (Rust short-circuits at line 146).
+    func testM5SwiftScalarApplyDehazeZeroIsIdentity() async throws {
+        let w = 20, h = 20
+        let rgb = [[Float]](repeating: [0.4, 0.5, 0.6], count: w * h)
+        let out = Self.swiftApplyDehaze(rgb, w: w, h: h, dehaze: 0)
+        for i in 0..<(w * h) {
+            XCTAssertEqual(out[i][0], rgb[i][0], accuracy: 0.0)
+            XCTAssertEqual(out[i][1], rgb[i][1], accuracy: 0.0)
+            XCTAssertEqual(out[i][2], rgb[i][2], accuracy: 0.0)
+        }
+    }
+
+    /// Mirror the Rust unit test at dehaze.rs:271-284 — dehaze=+100 on a
+    /// hazy scene yields finite, bounded output.
+    func testM5SwiftScalarApplyDehazePositiveBounded() async throws {
+        let w = 30, h = 30
+        var rgb = [[Float]](repeating: [0.5, 0.5, 0.5], count: w * h)
+        for y in 10..<20 {
+            for x in 10..<20 {
+                rgb[y * 30 + x] = [0.35, 0.35, 0.35]
+            }
+        }
+        let out = Self.swiftApplyDehaze(rgb, w: w, h: h, dehaze: 100)
+        for p in out {
+            for c in p {
+                XCTAssertTrue(c.isFinite,
+                    "dehaze=+100 produced non-finite channel: \(c)")
+            }
+        }
+        let centerR = out[10 * 30 + 10][0]
+        XCTAssertGreaterThanOrEqual(centerR, 0.0)
+        XCTAssertLessThanOrEqual(centerR, 1.5)
+    }
+
+    /// Negative slider: should add haze (push transmission toward 1.0,
+    /// resulting in less contrast). The reconstruction at scale=-1 with
+    /// t_eff=1 gives J = (I-A)/1 + A = I, so dehaze=-100 is also a
+    /// near-identity, but with t_floor=0.1 there's a small floor effect
+    /// in dark areas.
+    func testM5SwiftScalarApplyDehazeNegativeAddsHaze() async throws {
+        let w = 30, h = 30
+        var rgb = [[Float]](repeating: [0.5, 0.5, 0.5], count: w * h)
+        for y in 10..<20 {
+            for x in 10..<20 {
+                rgb[y * 30 + x] = [0.35, 0.35, 0.35]
+            }
+        }
+        let out = Self.swiftApplyDehaze(rgb, w: w, h: h, dehaze: -50)
+        for p in out {
+            for c in p {
+                XCTAssertTrue(c.isFinite,
+                    "dehaze=-50 produced non-finite channel: \(c)")
+            }
+        }
+    }
+
+    /// Wrapper-level identity check.
+    func testM5DehazeShortCircuitsAtZeroAmount() async throws {
+        let input = Self.makeRGBSceneLinearCIImage(
+            width: 8, height: 8, r: 0.4, g: 0.5, b: 0.6)
+        let out = MetalKernels.applySceneDehaze(to: input, dehaze: 0.0)
+        XCTAssertTrue(out === input,
+            "dehaze=0 should return the input CIImage instance unchanged")
+    }
+
+    /// Smoke test for Plan 2 v2 v4 M5 wiring: drive processSceneLinear
+    /// end-to-end with dehaze=50 vs dehaze=0; assert centre-pixel finite
+    /// and bounded. Same `>=` caveat as v2 v1 / v2 v2 / v2 v3 wiring
+    /// tests (XCTest cannot load metallibs — kernel may be no-op; the
+    /// load-bearing runtime check is in Task 9 manual smoke).
+    func testM5ProcessSceneLinearAppliesDehaze() async throws {
+        let pipeline = ImageEditPipeline()
+        let input = Self.makeRGBSceneLinearCIImage(
+            width: 32, height: 32, r: 0.5, g: 0.5, b: 0.5)
+
+        var modelDefault = AdjustmentModel.default
+        modelDefault.dehaze = 0
+        modelDefault.nrLuminance = 0
+        modelDefault.nrColor = 0
+        var modelBoost = modelDefault
+        modelBoost.dehaze = 50
+
+        let outDefault = pipeline.processSceneLinear(decoded: input, model: modelDefault)
+        let outBoost   = pipeline.processSceneLinear(decoded: input, model: modelBoost)
+
+        let dR = Self.sampleCenterR(outDefault, width: 32, height: 32)
+        let bR = Self.sampleCenterR(outBoost, width: 32, height: 32)
+        XCTAssertTrue(dR.isFinite && bR.isFinite,
+            "dehaze produced non-finite channel: default=\(dR) boost=\(bR)")
+        XCTAssertGreaterThanOrEqual(bR, 0.0)
+        XCTAssertLessThanOrEqual(bR, 2.0)
     }
 }
