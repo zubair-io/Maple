@@ -87,11 +87,42 @@ public actor TileManager {
     private var inFlight: [TileKey: Task<CIImage, Error>] = [:]
     private let rawCache: RawImageCache
 
+    // Tile-completion notification (Task 8 / Plan 3).
+    //
+    // EditSession's deep-zoom path returns a `CIImage` from `update(...)`
+    // immediately, even when no tiles are cached yet — it relies on the
+    // upscaled preview underlay to fill the gap. As tiles render in the
+    // background, EditSession needs to know so it can re-call `update`
+    // and re-publish the composite. We surface that as an
+    // `AsyncStream<TileKey>` callers subscribe to via `events()`. The
+    // stream yields ONE element per tile insert (cache hit or
+    // synchronous test insert), is multicast (every active subscriber
+    // sees every event), and stays alive for the lifetime of the
+    // `TileManager`. Subscribers terminate their loop by cancelling
+    // their task; the stream itself never finishes during the actor's
+    // lifetime.
+    //
+    // Implementation: a list of continuations is held inside the actor.
+    // `events()` constructs a fresh `AsyncStream`, registers its
+    // continuation under a unique id, and arranges to drop the
+    // continuation on stream termination so a subscriber that walks
+    // away doesn't leak.
+    private var nextSubscriberID: UInt64 = 0
+    private var subscribers: [UInt64: AsyncStream<TileKey>.Continuation] = [:]
+
     /// Construct with the shared `RawImageCache` (Task 5). Tile renders
     /// resolve their handle through the cache so the rawler decode runs
     /// once per asset — see Plan 3 Task 5.
     public init(rawCache: RawImageCache) {
         self.rawCache = rawCache
+    }
+
+    deinit {
+        // Defensive: terminate every outstanding subscriber so any task
+        // awaiting `for await _ in stream` exits cleanly. Actor-isolated
+        // properties can be touched from `deinit` since Swift 5.10.
+        for (_, cont) in subscribers { cont.finish() }
+        subscribers.removeAll()
     }
 
     // MARK: - Public API
@@ -180,6 +211,42 @@ public actor TileManager {
         inFlight.removeAll()
     }
 
+    /// Subscribe to tile-completion events. The returned stream yields a
+    /// `TileKey` every time a new tile is inserted into the cache — by
+    /// the background fetch path or by the synchronous test entries.
+    /// Multiple subscribers are supported; each gets every event. The
+    /// stream stays alive for the lifetime of this `TileManager`; cancel
+    /// the awaiting task to disconnect.
+    public func events() -> AsyncStream<TileKey> {
+        let id = nextSubscriberID
+        nextSubscriberID &+= 1
+        return AsyncStream<TileKey> { continuation in
+            // Register synchronously inside the build closure — the
+            // closure runs on the actor's executor because `events()`
+            // is actor-isolated, so a direct dictionary write is safe.
+            self.subscribers[id] = continuation
+            continuation.onTermination = { [weak self] _ in
+                // Termination can fire from any task; hop back to the
+                // actor to mutate the dictionary.
+                Task { [weak self] in
+                    await self?.removeSubscriber(id: id)
+                }
+            }
+        }
+    }
+
+    /// Drop a subscriber by id. Called from each subscription's
+    /// termination handler.
+    private func removeSubscriber(id: UInt64) {
+        subscribers.removeValue(forKey: id)
+    }
+
+    /// Yield a `TileKey` to every active subscriber. Called whenever a
+    /// tile lands in `entries`.
+    private func notifyTileInserted(_ key: TileKey) {
+        for (_, cont) in subscribers { cont.yield(key) }
+    }
+
     // MARK: - Geometry helpers (pure, nonisolated for testability)
 
     /// Compute the set of 512-pixel grid coordinates that cover
@@ -241,12 +308,14 @@ public actor TileManager {
     public func testFetchTileSync(key: TileKey, asset: AssetRef) async throws {
         let image = try await fetch(key: key, asset: asset)
         entries[key] = Entry(image: image)
+        notifyTileInserted(key)
     }
 
     /// Insert a synthetic tile under `key`. Bypasses the fetch path —
     /// for tests that want to populate the cache directly.
     public func testInsertTile(key: TileKey, image: CIImage) {
         entries[key] = Entry(image: image)
+        notifyTileInserted(key)
     }
 
     /// Number of tiles currently cached.
@@ -301,11 +370,13 @@ public actor TileManager {
         )
     }
 
-    /// Background-task completion handler. Stores the rendered tile
-    /// and clears the in-flight slot.
+    /// Background-task completion handler. Stores the rendered tile,
+    /// clears the in-flight slot, and notifies subscribers so the
+    /// editor can re-composite.
     private func completeFetch(key: TileKey, image: CIImage) {
         entries[key] = Entry(image: image)
         inFlight.removeValue(forKey: key)
+        notifyTileInserted(key)
     }
 
     // MARK: - Sidecar mtime lookup

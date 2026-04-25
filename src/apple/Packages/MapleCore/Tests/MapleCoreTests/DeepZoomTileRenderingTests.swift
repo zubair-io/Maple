@@ -446,6 +446,99 @@ final class DeepZoomTileRenderingTests: XCTestCase {
         XCTAssertEqual(after, 0)
     }
 
+    // MARK: - Task 8: tile-completion AsyncStream
+
+    /// `events()` yields a `TileKey` for every cache insert. Drives the
+    /// EditSession re-composite trigger: when a tile lands in the
+    /// background, the event fires and the editor knows to re-call
+    /// `update(...)` and republish the composite.
+    ///
+    /// Test strategy: subscribe, then synchronously insert two synthetic
+    /// tiles via `testInsertTile`. We expect to see exactly two events.
+    /// To avoid hanging on the never-finishing stream, we collect from
+    /// the iterator with a short timeout via `Task.race`-style pattern
+    /// (Task.sleep + Task.cancel).
+    func testTileManagerEventsFireOnInsert() async throws {
+        let mgr = TileManager(rawCache: RawImageCache())
+        let img = Self.makeTinyCIImage()
+        let url = URL(fileURLWithPath: "/tmp/events_test.dng")
+        let urlHash = TileManager.urlHash(url)
+        let stream = await mgr.events()
+        // Collect events on a background task so the test can drive
+        // inserts on the main one.
+        let collector = Task<[TileKey], Never> {
+            var collected: [TileKey] = []
+            for await key in stream {
+                collected.append(key)
+                if collected.count >= 2 { break }
+            }
+            return collected
+        }
+        // Defensive cancel after 2 seconds in case events never arrive.
+        let cancelTask = Task {
+            try? await Task.sleep(for: .milliseconds(2000))
+            collector.cancel()
+        }
+        // Yield once so the collector has reached its `for await` before
+        // we insert. Without this, fast inserts can race ahead of the
+        // subscriber on slow CI; the test would still pass on multicast,
+        // but the wait-and-then-insert pattern is what real callers do.
+        await Task.yield()
+        let k1 = TileKey(urlHash: urlHash, sidecarMtime: .distantPast,
+                         viewTransformVersion: 2, zoomBucket: 1,
+                         tileX: 0, tileY: 0)
+        let k2 = TileKey(urlHash: urlHash, sidecarMtime: .distantPast,
+                         viewTransformVersion: 2, zoomBucket: 1,
+                         tileX: 1, tileY: 0)
+        await mgr.testInsertTile(key: k1, image: img)
+        await mgr.testInsertTile(key: k2, image: img)
+        let received = await collector.value
+        cancelTask.cancel()
+        XCTAssertEqual(received.count, 2, "expected one event per insert")
+        XCTAssertTrue(received.contains(k1), "k1 must be reported")
+        XCTAssertTrue(received.contains(k2), "k2 must be reported")
+    }
+
+    /// Multiple subscribers each receive every event (multicast).
+    func testTileManagerEventsAreMulticast() async throws {
+        let mgr = TileManager(rawCache: RawImageCache())
+        let img = Self.makeTinyCIImage()
+        let url = URL(fileURLWithPath: "/tmp/multicast_test.dng")
+        let urlHash = TileManager.urlHash(url)
+        let s1 = await mgr.events()
+        let s2 = await mgr.events()
+        let c1 = Task<Int, Never> {
+            var n = 0
+            for await _ in s1 {
+                n += 1
+                if n >= 1 { break }
+            }
+            return n
+        }
+        let c2 = Task<Int, Never> {
+            var n = 0
+            for await _ in s2 {
+                n += 1
+                if n >= 1 { break }
+            }
+            return n
+        }
+        let cancelTask = Task {
+            try? await Task.sleep(for: .milliseconds(2000))
+            c1.cancel(); c2.cancel()
+        }
+        await Task.yield()
+        let key = TileKey(urlHash: urlHash, sidecarMtime: .distantPast,
+                          viewTransformVersion: 2, zoomBucket: 1,
+                          tileX: 5, tileY: 5)
+        await mgr.testInsertTile(key: key, image: img)
+        let n1 = await c1.value
+        let n2 = await c2.value
+        cancelTask.cancel()
+        XCTAssertEqual(n1, 1, "subscriber 1 must see the insert")
+        XCTAssertEqual(n2, 1, "subscriber 2 must see the same insert")
+    }
+
     /// Tiny CIImage for cache accounting tests — synthetic, no decode.
     static func makeTinyCIImage() -> CIImage {
         let side = 8
