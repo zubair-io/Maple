@@ -33,6 +33,7 @@ public enum MetalKernels {
     private static var _sceneToneControls: CIColorKernel?
     private static var _sceneVibrance: CIColorKernel?
     private static var _whiteBalance: CIColorKernel?
+    private static var _sceneSaturation: CIColorKernel?
     private static var _agxViewTransform: CIKernel?
 
     // MARK: SceneToneControls
@@ -96,6 +97,24 @@ public enum MetalKernels {
             extent: input.extent,
             roiCallback: { _, rect in rect },
             arguments: args
+        ) ?? input
+    }
+
+    // MARK: SceneSaturation
+
+    /// Apply scene-linear Oklab uniform chroma scale. Mirrors
+    /// `saturation::apply` from raw-core (saturation.rs:12). The math
+    /// scales Oklab a/b uniformly by `1 + saturation/100`; no skin-tone
+    /// protection (that lives in `applySceneVibrance`).
+    public static func applySceneSaturation(
+        to input: CIImage,
+        saturation: Float
+    ) -> CIImage {
+        guard let kernel = sceneSaturationKernel() else { return input }
+        return kernel.apply(
+            extent: input.extent,
+            roiCallback: { _, rect in rect },
+            arguments: [input, saturation]
         ) ?? input
     }
 
@@ -171,6 +190,13 @@ public enum MetalKernels {
         _whiteBalance = loadKernel(file: "WhiteBalance",
                                    function: "whiteBalance") as? CIColorKernel
         return _whiteBalance
+    }
+
+    private static func sceneSaturationKernel() -> CIColorKernel? {
+        if let k = _sceneSaturation { return k }
+        _sceneSaturation = loadKernel(file: "SceneSaturation",
+                                      function: "sceneSaturation") as? CIColorKernel
+        return _sceneSaturation
     }
 
     public static func agxKernel() -> CIKernel? {
