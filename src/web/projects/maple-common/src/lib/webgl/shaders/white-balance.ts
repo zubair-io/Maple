@@ -71,6 +71,9 @@ vec3 xy_to_xyz(float x, float y, float Y) {
 
 // Per-channel Rec.2020 gain to move from D65 to (cct, tint).
 // Normalized so green = 1. Mirrors WhiteBalance.metal:69-82.
+//
+// M*v (GLSL column-vector convention) — same vec3 args Apple's Metal
+// uses. The WB ratio (target / d65) cancels matrix-layout asymmetries.
 vec3 wb_gains(float cct, float tint) {
     vec2 xy = cct_to_xy(cct);
     float y = xy.y + tint * 0.001;

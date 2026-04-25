@@ -50,6 +50,16 @@
                 "glob": "**/workerHelpers.js",
                 "input": "projects/maple-common/src/lib/raw-pipeline/pkg",
                 "output": "/pkg"
+              },
+              {
+                "glob": "synthetic-input.bin",
+                "input": "projects/maple-common/src/lib/webgl/dev/fixtures",
+                "output": "/dev-fixtures"
+              },
+              {
+                "glob": "reference.png",
+                "input": "projects/maple-common/src/lib/webgl/dev/fixtures",
+                "output": "/dev-fixtures"
               }
             ],
             "styles": ["projects/maple-hosted/src/styles.scss"],

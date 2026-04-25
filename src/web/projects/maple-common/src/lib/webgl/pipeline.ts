@@ -96,7 +96,12 @@ export class Pipeline {
       {
         antialias: false,
         premultipliedAlpha: false,
-        preserveDrawingBuffer: false,
+        // M3 will flip back to `false` when the pipeline drives the
+        // production canvas (per CLAUDE.md no-allocation render-loop
+        // budget). M2.1's dev page needs the buffer to persist after
+        // render so the human-eyeballable canvas matches the readPixels
+        // output the snapshot tests assert against.
+        preserveDrawingBuffer: true,
         colorSpace: 'srgb',
       } as WebGLContextAttributes,
     ) as WebGL2RenderingContext | null;
