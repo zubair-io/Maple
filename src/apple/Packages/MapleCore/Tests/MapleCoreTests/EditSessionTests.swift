@@ -68,7 +68,7 @@ final class EditSessionTests: XCTestCase {
         // Trigger persist via the public render path. This kicks
         // _scheduleRender(.fast) → fast publish → _scheduleRefine →
         // skip branch → persistCurrentPreviewToCache.
-        await session.ensureRenderStarted()
+        session.ensureRenderStarted()
 
         // Poll for the cache file to appear. The persist path runs through
         // a 250 ms refine debounce, then a `.utility`-priority detached
