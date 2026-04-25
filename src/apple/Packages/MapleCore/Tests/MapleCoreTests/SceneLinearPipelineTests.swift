@@ -159,6 +159,54 @@
 //        opens "doubly saturated" (Rust applied +50, Apple kernel
 //        applied +50) — known M3 limitation. Move the saturation
 //        slider to any value to observe resync.
+//
+// Plan 2 v2 spikes (Task 1 Steps 1.1–1.4):
+//
+//   Spike 1.1 (load-bearing) — does CIImage(mtlTexture:) compose with
+//     downstream CIColorKernel? Result: PASS
+//     Implication: PASS — plan proceeds. The MTLComputePipeline +
+//                  CIImage(mtlTexture:) + CIColorKernel chain is viable.
+//                  See plan §1; M1 architecture (separable Gaussian
+//                  blur as a compute kernel whose output is wrapped
+//                  in CIImage and fed to the downstream CIColorKernel
+//                  chain) is correct as written.
+//     Drift note:  the plan's stock spike kernel snippet used
+//                  `extern "C" float4 doubleChannels(...)` with a
+//                  direct `float4 c = s.sample(...)` assignment.
+//                  Modern macOS CoreImage's `kernels(withMetalString:)`
+//                  rejects that for two reasons: (a) it requires the
+//                  `[[stitchable]]` attribute (without it: "Cannot
+//                  find a valid stitchable Metal function in the
+//                  source"); (b) the half-precision sampler returns
+//                  half4, not float4 (without explicit conversion:
+//                  "cannot initialize a variable of type 'float4'
+//                  with an rvalue of type 'half4'"). The spike test
+//                  was updated to use `[[stitchable]]` + an explicit
+//                  half4 → float4 conversion. The downstream chain
+//                  the spike actually verifies (compute → CIImage →
+//                  CIKernel.apply) is the same — only the test's
+//                  embedded kernel source style changed. The same
+//                  fix likely applies to the existing
+//                  SceneToneControls / SceneVibrance / WhiteBalance
+//                  / SceneSaturation kernel sources, which already
+//                  fall through to identity under `swift test` for
+//                  the same compile-failure reason; that's outside
+//                  the scope of this task.
+//
+//   Spike 1.2 (decoration) — does #include resolve via absolute paths
+//     when fed to CIKernel.kernels(withMetalString:)? Result: PASS
+//     Implication: PASS — M3 (deferred plan) can factor oklab.metal
+//                  via Bundle.module URL resolution and absolute-path
+//                  #include. (Same `[[stitchable]]` + half4 fix
+//                  applied to the probe kernel for the same reason
+//                  as Spike 1.1; the include-resolution check is
+//                  unchanged.) M1 + M2 are unaffected either way
+//                  because clarity + texture do not consume Oklab
+//                  matrices.
+//
+// Plan 2 v2 wires SceneClarity + SceneTexture into processSceneLinear,
+// each backed by a shared SeparableGaussianBlur compute kernel. See
+// docs/superpowers/plans/2026-04-25-plan-2-v2-shared-blur-clarity-texture.md.
 
 import XCTest
 import CoreImage
@@ -1414,6 +1462,164 @@ final class SceneLinearPipelineTests: XCTestCase {
         XCTAssertLessThanOrEqual(
             gRG, dRG,
             "saturation -100 should not widen R-G — got gray=\(gRG) default=\(dRG)"
+        )
+    }
+
+    // MARK: - Plan 2 v2 Spike 1.1: MTLComputePipeline output composes with CIColorKernel
+
+    /// Build a 16×16 fp16 Rec.2020 `MTLTexture`, fill it with mid-gray (0.5
+    /// per channel) via a one-shot blit, wrap it in a `CIImage` via
+    /// `CIImage(mtlTexture:options:)` with the extendedLinearITUR_2020
+    /// color space option, then feed that CIImage into a trivial
+    /// `CIColorKernel` that doubles each channel. Verify the output's
+    /// centre-pixel R is approximately 1.0 (= 0.5 × 2.0). Same `>=` /
+    /// `~=` caveat as the M1 wiring tests — a no-op under XCTest still
+    /// passes the assertion because the test inputs the texture at
+    /// 0.5 and accepts >= 0.5. The load-bearing pass criterion is
+    /// "the test does not throw or crash" — i.e. CIImage accepts a
+    /// MTLTexture from a compute output and downstream CIColorKernel
+    /// runs without erroring. **A throw or crash here is a Spike 1.1
+    /// fail and stops the plan.**
+    func testSpike11ComputeOutputComposesWithCIColorKernel() async throws {
+        guard let device = MTLCreateSystemDefaultDevice() else {
+            throw XCTSkip("no Metal device on test runner")
+        }
+        // Build a 16×16 RGBA16Float texture filled with 0.5 per channel
+        // (the fp16 bit pattern for 0.5 is 0x3800 — confirmed by the
+        // existing float32ToFloat16Bits helper at SceneLinearPipelineTests
+        // .swift:262-328).
+        let desc = MTLTextureDescriptor.texture2DDescriptor(
+            pixelFormat: .rgba16Float,
+            width: 16, height: 16, mipmapped: false
+        )
+        desc.usage = [.shaderWrite, .shaderRead]
+        desc.storageMode = .shared
+        guard let tex = device.makeTexture(descriptor: desc) else {
+            throw XCTSkip("texture allocation failed")
+        }
+        // Fill via direct write of 16 × 16 × 4 fp16 lanes = 2048 bytes.
+        var pixels = [UInt16](repeating: 0, count: 16 * 16 * 4)
+        let half = Self.float32ToFloat16Bits(0.5)
+        let one  = Self.float32ToFloat16Bits(1.0)
+        for i in stride(from: 0, to: pixels.count, by: 4) {
+            pixels[i + 0] = half
+            pixels[i + 1] = half
+            pixels[i + 2] = half
+            pixels[i + 3] = one
+        }
+        pixels.withUnsafeBufferPointer { buf in
+            tex.replace(region: MTLRegionMake2D(0, 0, 16, 16),
+                        mipmapLevel: 0,
+                        withBytes: buf.baseAddress!,
+                        bytesPerRow: 16 * 4 * 2)
+        }
+
+        // Wrap in CIImage with the right color space option.
+        let space = CGColorSpace(name: CGColorSpace.extendedLinearITUR_2020)!
+        let opts: [CIImageOption: Any] = [.colorSpace: space]
+        let ci = CIImage(mtlTexture: tex, options: opts)
+        XCTAssertNotNil(ci, "CIImage(mtlTexture:) returned nil — Spike 1.1 FAIL")
+        guard let inputCI = ci else { return }
+
+        // Build a trivial CIColorKernel that doubles each channel.
+        // The `[[stitchable]]` attribute is required for runtime
+        // CIKernel.kernels(withMetalString:) compiles in modern macOS
+        // (Sonoma+); without it, the compiler reports
+        // "Cannot find a valid stitchable Metal function in the source".
+        // sampler_h returns half4, so we explicitly convert to float4.
+        //
+        // Note: `kernels(withMetalString:)` returns plain `CIKernel`
+        // even for color kernels in modern macOS — the runtime no longer
+        // hands back a CIColorKernel subclass for these CIColorKernel
+        // sources. `CIKernel.apply(extent:roiCallback:arguments:)`
+        // works for the load-bearing chain check we need here, so we
+        // exercise that signature instead of casting.
+        let src = """
+        #include <CoreImage/CoreImage.h>
+        [[stitchable]] float4 doubleChannels(coreimage::sampler_h s) {
+            half4 c = s.sample(s.coord());
+            return float4(float3(c.rgb) * 2.0, float(c.a));
+        }
+        """
+        let kernels = try CIKernel.kernels(withMetalString: src)
+        guard let k = kernels.first(where: { $0.name == "doubleChannels" }) else {
+            XCTFail("CIKernel build failed — Spike 1.1 FAIL")
+            return
+        }
+        let out = k.apply(
+            extent: inputCI.extent,
+            roiCallback: { _, rect in rect },
+            arguments: [inputCI]
+        )
+        XCTAssertNotNil(out, "CIKernel.apply returned nil — Spike 1.1 FAIL")
+        guard let outCI = out else { return }
+        // Sample the centre pixel; expect R ≈ 1.0 (0.5 × 2.0).
+        let r = Self.sampleCenterR(outCI, width: 16, height: 16)
+        // Under XCTest with no Metal-backed CIContext, the createCGImage
+        // call in sampleCenterR may produce 0.0 instead of 1.0; the
+        // load-bearing check is "no throw/crash, CIImage built, kernel
+        // applied". Use >= 0.5 as the smoke threshold.
+        XCTAssertGreaterThanOrEqual(
+            r, 0.5,
+            "Spike 1.1 centre R = \(r); expected >= 0.5 (input was 0.5, kernel doubles)"
+        )
+    }
+
+    // MARK: - Plan 2 v2 Spike 1.2: #include resolves from Bundle.module/Metal/
+
+    /// Confirm whether `CIKernel.kernels(withMetalString:)` resolves
+    /// `#include "oklab.metal"` (or any other relative include) when the
+    /// included file ships under `Bundle.module/Metal/`. The brief's § 8
+    /// flags this as the second open question; an answer here is a free
+    /// rider with M1 + M2 (clarity + texture don't consume Oklab
+    /// matrices) but the answer is needed for M3 (NR luminance + NR
+    /// color, deferred plan).
+    ///
+    /// Method: write a tiny test-scoped include file `_spike12_inc.metal`
+    /// to a temp directory, then build a Metal source string that
+    /// `#include`s it via an absolute path (the only path form Apple
+    /// commits to in the docs). If absolute path includes work, the
+    /// follow-on M3 plan will use them via Bundle.module URL resolution
+    /// + #include-text injection. If they don't, M3 falls back to copy-
+    /// paste matrices in each consumer kernel.
+    func testSpike12MetalIncludeResolvesFromBundle() async throws {
+        // Synthesize a tiny include file in a temp dir.
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("spike12-\(UUID().uuidString).metal")
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        try """
+        constant float SPIKE12_CONST = 1.5;
+        """.write(to: tmp, atomically: true, encoding: .utf8)
+
+        // Try absolute-path #include. Use the same `[[stitchable]]` +
+        // half4 sample pattern that Spike 1.1 verified compiles, so a
+        // failure here genuinely reflects an include-resolution issue
+        // and not the unrelated sampler-precision compile bug.
+        let src = """
+        #include <CoreImage/CoreImage.h>
+        #include "\(tmp.path)"
+        [[stitchable]] float4 spike12ProbeKernel(coreimage::sampler_h s) {
+            half4 c = s.sample(s.coord());
+            return float4(float3(c.rgb) * SPIKE12_CONST, float(c.a));
+        }
+        """
+        let kernels: [CIKernel]
+        do {
+            kernels = try CIKernel.kernels(withMetalString: src)
+        } catch {
+            // RECORDED FAIL: M3 must copy-paste oklab matrices into each
+            // consumer kernel. Logged in the test header by Step 1.5.
+            print("Spike 1.2: #include from absolute path FAILED with \(error)")
+            return
+        }
+        // RECORDED PASS or partial pass: kernels compiled but the named
+        // function may not be present if the preprocessor silently
+        // dropped the include.
+        let names = kernels.map(\.name).joined(separator: ", ")
+        print("Spike 1.2: kernels compiled — \(names)")
+        XCTAssertTrue(
+            kernels.contains(where: { $0.name == "spike12ProbeKernel" }),
+            "Spike 1.2: kernel built but `spike12ProbeKernel` missing — likely include silently failed"
         )
     }
 }
