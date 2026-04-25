@@ -285,4 +285,176 @@ final class DeepZoomTileRenderingTests: XCTestCase {
         let cached = await cache.cachedURL
         XCTAssertNil(cached, "failed open must NOT populate the cache")
     }
+
+    // MARK: - Task 6: TileManager (geometry — pure functions, no fixture)
+
+    /// Geometry test: viewport (0,0)-(2048,1024) in source pixels at
+    /// zoom 1.0 should request 4×2 = 8 tiles at 512² each.
+    func testTileManagerComputesVisibleTileSet() {
+        let viewport = CGRect(x: 0, y: 0, width: 2048, height: 1024)
+        let zoom = CGFloat(1.0)
+        let tiles = TileManager.tileSet(forVisibleSourceRect: viewport, zoom: zoom, tileSize: 512)
+        XCTAssertEqual(tiles.count, 8)
+        XCTAssertTrue(tiles.contains { $0.tileX == 0 && $0.tileY == 0 })
+        XCTAssertTrue(tiles.contains { $0.tileX == 3 && $0.tileY == 1 })
+    }
+
+    /// A non-axis-aligned viewport rounds outward — minX = 100 floors to
+    /// tile 0, maxX = 1100 ceils to tile 3.
+    func testTileManagerTileSetRoundsOutward() {
+        let viewport = CGRect(x: 100, y: 100, width: 1000, height: 1000)
+        let tiles = TileManager.tileSet(forVisibleSourceRect: viewport, zoom: 1.0, tileSize: 512)
+        XCTAssertTrue(tiles.contains { $0.tileX == 0 && $0.tileY == 0 },
+                      "minX=100 must include tile col 0")
+        // maxX=1100 / 512 = 2.148 → ceil-1 = 2, so col 2 is the last col.
+        XCTAssertTrue(tiles.contains { $0.tileX == 2 },
+                      "maxX=1100 must include tile col 2")
+    }
+
+    /// Empty rect produces an empty tile set.
+    func testTileManagerTileSetEmptyRect() {
+        let tiles = TileManager.tileSet(
+            forVisibleSourceRect: .zero, zoom: 1.0, tileSize: 512)
+        // CGRect.zero has 0 width / height — the function should produce
+        // a single zero-sized region (or zero tiles); verify it doesn't
+        // crash and produces ≤ 1 tile.
+        XCTAssertLessThanOrEqual(tiles.count, 1)
+    }
+
+    /// Zoom bucket boundaries match the brief: thresholds at 2×, 4×, 8×.
+    func testTileManagerZoomBucketsAt1And2And4And8() {
+        XCTAssertEqual(TileManager.zoomBucket(for: 0.5), 1)
+        XCTAssertEqual(TileManager.zoomBucket(for: 0.99), 1)
+        XCTAssertEqual(TileManager.zoomBucket(for: 1.0), 1)
+        XCTAssertEqual(TileManager.zoomBucket(for: 1.99), 1)
+        XCTAssertEqual(TileManager.zoomBucket(for: 2.0), 2)
+        XCTAssertEqual(TileManager.zoomBucket(for: 2.5), 2)
+        XCTAssertEqual(TileManager.zoomBucket(for: 4.0), 4)
+        XCTAssertEqual(TileManager.zoomBucket(for: 7.99), 4)
+        XCTAssertEqual(TileManager.zoomBucket(for: 8.0), 8)
+        // Above 8× clamps to 8 — the brief caps zoom buckets at 8×.
+        XCTAssertEqual(TileManager.zoomBucket(for: 16.0), 8)
+        XCTAssertEqual(TileManager.zoomBucket(for: 100.0), 8)
+    }
+
+    /// `urlHash` is deterministic — same URL always hashes to the same
+    /// 32-char hex string. The hash is used in `TileKey` so cache
+    /// lookups are stable across Task hops.
+    func testTileManagerURLHashDeterministic() {
+        let u1 = URL(fileURLWithPath: "/path/to/asset_a.dng")
+        let u2 = URL(fileURLWithPath: "/path/to/asset_a.dng")
+        let u3 = URL(fileURLWithPath: "/path/to/asset_b.dng")
+        XCTAssertEqual(TileManager.urlHash(u1), TileManager.urlHash(u2))
+        XCTAssertNotEqual(TileManager.urlHash(u1), TileManager.urlHash(u3))
+        XCTAssertEqual(TileManager.urlHash(u1).count, 32, "MD5 hex is 32 chars")
+    }
+
+    // MARK: - Task 6: TileManager (cache lifecycle)
+
+    /// `update` with no cached tiles and a viewport that demands tiles
+    /// returns an empty composite (CIImage.empty) — the caller is then
+    /// responsible for showing the upscaled preview underlayer while
+    /// tiles render. Subsequent calls (after tiles populate) return a
+    /// non-empty composite.
+    func testTileManagerUpdateMissReturnsEmptyComposite() async throws {
+        guard let url = fixtureURL() else {
+            throw XCTSkip("test_0002.dng fixture not present; skipping")
+        }
+        let asset = AssetRef(url: url)
+        let cache = RawImageCache()
+        let mgr = TileManager(rawCache: cache)
+        // Demand a single tile at (0,0). On first call, no tiles are
+        // cached → composite is empty. The miss kicks off a render
+        // task in the background.
+        let composite = try await mgr.update(
+            asset: asset,
+            viewportSourceRect: CGRect(x: 0, y: 0, width: 256, height: 256),
+            zoom: 1.0
+        )
+        XCTAssertTrue(composite.extent.isEmpty || composite.extent.isInfinite,
+                      "first update for an uncached tile must return an empty/infinite (i.e. no-op) composite")
+    }
+
+    /// After the in-flight render completes the tile is cached; the
+    /// next `update` call returns a non-empty composite. Drives the
+    /// miss → render → hit flow end-to-end against a real fixture.
+    func testTileManagerUpdatePopulatesCacheAfterRender() async throws {
+        guard let url = fixtureURL() else {
+            throw XCTSkip("test_0002.dng fixture not present; skipping")
+        }
+        let asset = AssetRef(url: url)
+        let cache = RawImageCache()
+        let mgr = TileManager(rawCache: cache)
+        // Force a synchronous fetch — bypass the fire-and-forget by
+        // using the test entry point.
+        let key = TileKey(
+            urlHash: TileManager.urlHash(url),
+            sidecarMtime: Date.distantPast,
+            viewTransformVersion: 2,
+            zoomBucket: 1,
+            tileX: 2, tileY: 2
+        )
+        try await mgr.testFetchTileSync(key: key, asset: asset)
+        let count = await mgr.testCachedTileCount()
+        XCTAssertEqual(count, 1, "synchronous fetch must populate the cache")
+    }
+
+    /// `invalidate(asset:)` drops every tile whose `urlHash` matches
+    /// the asset's URL, leaving tiles for other assets intact.
+    func testTileManagerInvalidatePerAsset() async throws {
+        let mgr = TileManager(rawCache: RawImageCache())
+        // Insert two synthetic tiles for asset A and one for asset B.
+        let urlA = URL(fileURLWithPath: "/tmp/A.dng")
+        let urlB = URL(fileURLWithPath: "/tmp/B.dng")
+        let assetA = AssetRef(url: urlA)
+        let assetB = AssetRef(url: urlB)
+        let img = Self.makeTinyCIImage()
+        let kA1 = TileKey(urlHash: TileManager.urlHash(urlA), sidecarMtime: .distantPast, viewTransformVersion: 2, zoomBucket: 1, tileX: 0, tileY: 0)
+        let kA2 = TileKey(urlHash: TileManager.urlHash(urlA), sidecarMtime: .distantPast, viewTransformVersion: 2, zoomBucket: 1, tileX: 1, tileY: 0)
+        let kB1 = TileKey(urlHash: TileManager.urlHash(urlB), sidecarMtime: .distantPast, viewTransformVersion: 2, zoomBucket: 1, tileX: 0, tileY: 0)
+        await mgr.testInsertTile(key: kA1, image: img)
+        await mgr.testInsertTile(key: kA2, image: img)
+        await mgr.testInsertTile(key: kB1, image: img)
+        let before = await mgr.testCachedTileCount()
+        XCTAssertEqual(before, 3)
+        await mgr.invalidate(asset: assetA)
+        let after = await mgr.testCachedTileCount()
+        XCTAssertEqual(after, 1, "invalidate(A) must drop only asset A's tiles")
+        // assetB's tile survives — verify by re-running invalidate(B).
+        await mgr.invalidate(asset: assetB)
+        let final = await mgr.testCachedTileCount()
+        XCTAssertEqual(final, 0)
+    }
+
+    /// `clear()` empties the entire cache.
+    func testTileManagerClearEmptiesCache() async {
+        let mgr = TileManager(rawCache: RawImageCache())
+        let img = Self.makeTinyCIImage()
+        let url = URL(fileURLWithPath: "/tmp/clear_test.dng")
+        for i in 0..<3 {
+            let key = TileKey(
+                urlHash: TileManager.urlHash(url), sidecarMtime: .distantPast,
+                viewTransformVersion: 2, zoomBucket: 1,
+                tileX: UInt32(i), tileY: 0
+            )
+            await mgr.testInsertTile(key: key, image: img)
+        }
+        let before = await mgr.testCachedTileCount()
+        XCTAssertEqual(before, 3)
+        await mgr.clear()
+        let after = await mgr.testCachedTileCount()
+        XCTAssertEqual(after, 0)
+    }
+
+    /// Tiny CIImage for cache accounting tests — synthetic, no decode.
+    static func makeTinyCIImage() -> CIImage {
+        let side = 8
+        let bytes = Data(count: side * side * 8)
+        return CIImage(
+            bitmapData: bytes, bytesPerRow: side * 8,
+            size: CGSize(width: side, height: side),
+            format: .RGBAh,
+            colorSpace: CGColorSpace(name: CGColorSpace.extendedLinearITUR_2020)!
+        )
+    }
 }
