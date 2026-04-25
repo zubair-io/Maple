@@ -149,6 +149,17 @@ struct FullImageView: View {
                         .gesture(magnificationGesture(viewport: geo.size))
                         .simultaneousGesture(dragGesture(viewport: geo.size))
                         .onTapGesture(count: 2) { resetZoom() }
+                        // UITest harness sentinel — the identifier only
+                        // appears once the refine pass has published a
+                        // preview AND `isRendering` has flipped false.
+                        // The harness waits via NSPredicate(exists==1) on
+                        // `app.otherElements["canvas-render-ready"]`. See
+                        // docs/superpowers/plans/2026-04-25-xcuitest-visual-harness.md.
+                        .accessibilityIdentifier(
+                            (!session.isRendering && session.renderedPreview != nil)
+                                ? "canvas-render-ready"
+                                : "canvas-rendering"
+                        )
                 } else {
                     // Placeholder while rendering
                     RoundedRectangle(cornerRadius: 8)
