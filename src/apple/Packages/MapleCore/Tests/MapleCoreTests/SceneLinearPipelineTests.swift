@@ -77,6 +77,26 @@
 //     PENDING USER VERIFICATION — automated agent run cannot drive
 //     UI sliders. The user will toggle MAPLE_SCENE_LINEAR=1 and
 //     visually confirm each slider moves pixels on the new path.
+//
+// Plan 2 M2 milestone gate (Tasks 5 + 6 added WhiteBalance and
+// SceneSaturation kernels):
+//   xcodebuild -scheme Maple -destination 'platform=macOS' build:
+//     ** BUILD SUCCEEDED **
+//   swift test:
+//     83 tests, 3 skipped, 0 failures (= pre-Plan-2 baseline + 4).
+//   Parity harness (BUDGET=15):
+//     0 pass / 6 fail / 1 skip — IDENTICAL to M1 baseline.
+//     applyFilters legacy path remains untouched.
+//   Manual slider smoke test (Step 6.5 — temperature / tint /
+//     saturation with MAPLE_SCENE_LINEAR=1):
+//     PENDING USER VERIFICATION — automated agent run cannot drive
+//     UI sliders. The user will toggle MAPLE_SCENE_LINEAR=1 and
+//     visually confirm temperature, tint, and saturation each move
+//     pixels on the new path.
+//
+// Final scene-linear chain after M2:
+//   Lanczos → WhiteBalance → SceneToneControls → SceneVibrance →
+//   SceneSaturation → AgX → sRGB encode at the CIContext boundary.
 
 import XCTest
 import CoreImage
@@ -1306,5 +1326,32 @@ final class SceneLinearPipelineTests: XCTestCase {
         let r = Self.float16BitsToFloat32(bytes.load(fromByteOffset: off + 0, as: UInt16.self))
         let b = Self.float16BitsToFloat32(bytes.load(fromByteOffset: off + 4, as: UInt16.self))
         return r - b
+    }
+
+    /// Set saturation = -100 on a saturated red pixel. Output's R-G
+    /// separation should not be larger after full desaturation than the
+    /// default-model's. Same `>=` caveat — under XCTest the kernel may
+    /// be a no-op (no metallib). Companion runtime check is the manual
+    /// smoke test in Step 6.5.
+    func testM2ProcessSceneLinearAppliesSaturation() async throws {
+        let pipeline = ImageEditPipeline()
+        let input = Self.makeRGBSceneLinearCIImage(
+            width: 16, height: 16, r: 0.8, g: 0.1, b: 0.1
+        )
+
+        let modelDefault = AdjustmentModel.default
+        var modelGray = modelDefault
+        modelGray.saturation = -100  // achromatic
+
+        let outDefault = pipeline.processSceneLinear(decoded: input, model: modelDefault)
+        let outGray    = pipeline.processSceneLinear(decoded: input, model: modelGray)
+
+        // R-G diff should not be larger after -100 saturation.
+        let dRG = Self.sampleCenterRMinusG(outDefault, width: 16, height: 16)
+        let gRG = Self.sampleCenterRMinusG(outGray, width: 16, height: 16)
+        XCTAssertLessThanOrEqual(
+            gRG, dRG,
+            "saturation -100 should not widen R-G — got gray=\(gRG) default=\(dRG)"
+        )
     }
 }

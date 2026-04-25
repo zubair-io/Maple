@@ -329,11 +329,21 @@ public actor ImageEditPipeline {
             vibrance: Float(model.vibrance)
         )
 
+        // Plan 2 M2 — Stage: SceneSaturation (Oklab uniform chroma scale).
+        // Mirrors `saturation::apply` from raw-core (saturation.rs:12).
+        // Uses the same Oklab matrices as SceneVibrance.metal
+        // (intentionally repeated; Metal doesn't share `constant` globals
+        // between .metal files).
+        let withSaturation = MetalKernels.applySceneSaturation(
+            to: withVibrance,
+            saturation: Float(model.saturation)
+        )
+
         // Stage: AgX view transform — exactly once, on scene-linear data.
         // The kernel is per-channel (verified by Spike 1.2), so feeding it
         // Rec.2020 instead of sRGB only matters for out-of-gamut content.
         return MetalKernels.applyAgXViewTransform(
-            to: withVibrance, contrast: Float(model.contrast)
+            to: withSaturation, contrast: Float(model.contrast)
         )
     }
 
