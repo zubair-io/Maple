@@ -1,0 +1,615 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Plan 3 M2.1 verification spikes</title>
+    <style>
+      body {
+        font-family: ui-monospace, Menlo, monospace;
+        padding: 16px;
+        max-width: 880px;
+      }
+      h1 {
+        font-size: 18px;
+      }
+      h2 {
+        font-size: 14px;
+        margin-top: 24px;
+      }
+      pre {
+        background: #111;
+        color: #e6e6e6;
+        padding: 12px;
+        border-radius: 6px;
+        white-space: pre-wrap;
+        word-break: break-all;
+      }
+      .pass {
+        color: #4ade80;
+      }
+      .fail {
+        color: #f87171;
+      }
+      .skip {
+        color: #fbbf24;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Plan 3 M2.1 — WebGL2 verification spikes</h1>
+    <canvas id="cv" width="2" height="2" style="display: none"></canvas>
+    <p>
+      Spikes 1.1, 1.2, 1.3 from
+      <code>docs/superpowers/plans/2026-04-25-plan-3-m2-webgl-shaders.md</code>.
+    </p>
+
+    <h2>Spike 1.1 — fp16 sampling parity Metal vs WebGL2</h2>
+    <pre id="s11">running...</pre>
+
+    <h2>Spike 1.2 — AgX LUT edge sampling math</h2>
+    <pre id="s12">running...</pre>
+
+    <h2>Spike 1.3 — fp16 readback availability</h2>
+    <pre id="s13">running...</pre>
+
+    <h2>Machine-readable JSON</h2>
+    <pre id="json">running...</pre>
+
+    <script>
+      // ------------------------------------------------------------------
+      // Shared helpers
+      // ------------------------------------------------------------------
+
+      // IEEE 754 binary16 -> JS f32. Used to interpret Uint16Array readback.
+      function fp16f(h) {
+        const s = (h >> 15) & 1;
+        const e = (h >> 10) & 0x1f;
+        const m = h & 0x3ff;
+        if (e === 0) return (s ? -1 : 1) * Math.pow(2, -14) * (m / 1024);
+        if (e === 31) return m ? NaN : s ? -Infinity : Infinity;
+        return (s ? -1 : 1) * Math.pow(2, e - 15) * (1 + m / 1024);
+      }
+
+      // JS f32 -> binary16 round-to-nearest-even. Used for input synthesis.
+      function f32_to_fp16(val) {
+        const f32 = new Float32Array(1);
+        const u32 = new Uint32Array(f32.buffer);
+        f32[0] = val;
+        const x = u32[0];
+        const sign = (x >>> 16) & 0x8000;
+        let mant = x & 0x7fffff;
+        let exp = (x >>> 23) & 0xff;
+        if (exp === 0xff) {
+          return sign | 0x7c00 | (mant ? 0x200 : 0);
+        }
+        exp = exp - 127 + 15;
+        if (exp >= 0x1f) return sign | 0x7c00; // overflow -> Inf
+        if (exp <= 0) {
+          if (exp < -10) return sign; // underflow -> 0
+          mant = (mant | 0x800000) >> (1 - exp);
+          if (mant & 0x1000) mant += 0x2000; // round
+          return sign | (mant >> 13);
+        }
+        if (mant & 0x1000) {
+          mant += 0x2000;
+          if (mant & 0x800000) {
+            mant = 0;
+            exp += 1;
+            if (exp >= 0x1f) return sign | 0x7c00;
+          }
+        }
+        return sign | (exp << 10) | (mant >> 13);
+      }
+
+      function compileShader(gl, type, src) {
+        const s = gl.createShader(type);
+        gl.shaderSource(s, src);
+        gl.compileShader(s);
+        if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
+          throw new Error('compile: ' + gl.getShaderInfoLog(s));
+        }
+        return s;
+      }
+
+      function linkProgram(gl, vsSrc, fsSrc) {
+        const prog = gl.createProgram();
+        gl.attachShader(prog, compileShader(gl, gl.VERTEX_SHADER, vsSrc));
+        gl.attachShader(prog, compileShader(gl, gl.FRAGMENT_SHADER, fsSrc));
+        gl.linkProgram(prog);
+        if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) {
+          throw new Error('link: ' + gl.getProgramInfoLog(prog));
+        }
+        return prog;
+      }
+
+      const VS_FULLSCREEN = `#version 300 es
+void main() {
+  vec2 p = vec2((gl_VertexID & 1) == 0 ? -1.0 : 3.0,
+                (gl_VertexID & 2) == 0 ? -1.0 : 3.0);
+  gl_Position = vec4(p, 0.0, 1.0);
+}`;
+
+      // Container for cross-spike results.
+      const RESULTS = {
+        ua: navigator.userAgent,
+        spike11: null,
+        spike12: null,
+        spike13: null,
+      };
+
+      function showJson() {
+        document.getElementById('json').textContent = JSON.stringify(RESULTS, null, 2);
+      }
+
+      // ------------------------------------------------------------------
+      // Spike 1.1 — fp16 sampling parity Metal vs WebGL2
+      // ------------------------------------------------------------------
+      // Upload a 2x2 RGBA16F texture with known fp16 bit patterns, sample at
+      // UV=(0.5, 0.5) with LINEAR filtering, read back, compare bit pattern.
+      //
+      // At UV=(0.5, 0.5) on a 2x2 texture the bilinear sample is the average
+      // of all four texels.
+      //   Top-left   = (0.5, 0.5, 0.5, 1.0)   bit patterns 0x3800 0x3800 0x3800 0x3c00
+      //   Top-right  = (1.0, 1.0, 1.0, 1.0)   bit patterns 0x3c00 0x3c00 0x3c00 0x3c00
+      //   Bottom-left = same
+      //   Bottom-right = same
+      // Average per channel:
+      //   R: (0.5 + 1.0 + 1.0 + 1.0) / 4 = 0.875 -> fp16 = 0x3b00
+      //   G: same = 0x3b00
+      //   B: same = 0x3b00
+      //   A: (1.0 + 1.0 + 1.0 + 1.0) / 4 = 1.0 -> fp16 = 0x3c00
+      //
+      // IEEE 754 binary16 round-to-nearest-even must produce 0x3b00 exactly;
+      // any other value indicates non-IEEE rounding in the GPU/driver.
+
+      (() => {
+        const log = (s) => {
+          document.getElementById('s11').textContent = s;
+        };
+        const out = { verdict: 'PENDING', detail: '' };
+        RESULTS.spike11 = out;
+
+        const gl = document.getElementById('cv').getContext('webgl2', {
+          antialias: false,
+          premultipliedAlpha: false,
+        });
+        if (!gl) {
+          out.verdict = 'FAIL';
+          out.detail = 'WebGL2 unavailable';
+          log('FAIL: WebGL2 unavailable');
+          showJson();
+          return;
+        }
+        const haveCBHF = !!gl.getExtension('EXT_color_buffer_half_float');
+        const haveTFL = !!gl.getExtension('OES_texture_float_linear');
+        if (!haveCBHF || !haveTFL) {
+          out.verdict = 'FAIL';
+          out.detail = `extensions missing — CBHF=${haveCBHF} TFL=${haveTFL}`;
+          log(out.detail);
+          showJson();
+          return;
+        }
+
+        // Source 2x2 RGBA16F. Top-left = (0.5, 0.5, 0.5, 1.0); rest = (1,1,1,1).
+        const tex = gl.createTexture();
+        gl.bindTexture(gl.TEXTURE_2D, tex);
+        const data = new Uint16Array([
+          0x3800,
+          0x3800,
+          0x3800,
+          0x3c00, // (0,0) = (0.5, 0.5, 0.5, 1.0)
+          0x3c00,
+          0x3c00,
+          0x3c00,
+          0x3c00, // (1,0) = (1.0, 1.0, 1.0, 1.0)
+          0x3c00,
+          0x3c00,
+          0x3c00,
+          0x3c00, // (0,1)
+          0x3c00,
+          0x3c00,
+          0x3c00,
+          0x3c00, // (1,1)
+        ]);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, 2, 2, 0, gl.RGBA, gl.HALF_FLOAT, data);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+
+        // Render to a 1x1 RGBA16F FBO, sampling at UV = (0.5, 0.5).
+        const fbTex = gl.createTexture();
+        gl.bindTexture(gl.TEXTURE_2D, fbTex);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, 1, 1, 0, gl.RGBA, gl.HALF_FLOAT, null);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+        const fb = gl.createFramebuffer();
+        gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+        gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, fbTex, 0);
+
+        const fbStatus = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
+        if (fbStatus !== gl.FRAMEBUFFER_COMPLETE) {
+          out.verdict = 'FAIL';
+          out.detail = `FBO incomplete: 0x${fbStatus.toString(16)}`;
+          log(out.detail);
+          showJson();
+          return;
+        }
+
+        const fsSrc = `#version 300 es
+    precision highp float;
+    uniform sampler2D u;
+    out vec4 o;
+    void main() { o = texture(u, vec2(0.5, 0.5)); }`;
+        const prog = linkProgram(gl, VS_FULLSCREEN, fsSrc);
+        gl.useProgram(prog);
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, tex);
+        gl.uniform1i(gl.getUniformLocation(prog, 'u'), 0);
+        gl.viewport(0, 0, 1, 1);
+        gl.drawArrays(gl.TRIANGLES, 0, 3);
+
+        const sampled = new Uint16Array(4);
+        gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.HALF_FLOAT, sampled);
+        const err = gl.getError();
+        if (err !== gl.NO_ERROR) {
+          out.verdict = 'FAIL';
+          out.detail = `readPixels err 0x${err.toString(16)}`;
+          log(out.detail);
+          showJson();
+          return;
+        }
+
+        const expected = [0x3b00, 0x3b00, 0x3b00, 0x3c00];
+        const matchExact =
+          sampled[0] === 0x3b00 &&
+          sampled[1] === 0x3b00 &&
+          sampled[2] === 0x3b00 &&
+          sampled[3] === 0x3c00;
+        // Also accept +/-1 LSB drift (some drivers round-to-zero / round-half-up).
+        const matchLsb = [0, 1, 2, 3].every((i) => Math.abs(sampled[i] - expected[i]) <= 1);
+
+        out.sampled = Array.from(sampled).map((h) => '0x' + h.toString(16).padStart(4, '0'));
+        out.expected = expected.map((h) => '0x' + h.toString(16).padStart(4, '0'));
+        out.sampledFloats = Array.from(sampled).map(fp16f);
+        if (matchExact) {
+          out.verdict = 'PASS';
+          out.detail = 'IEEE 754 round-to-nearest-even, identical bit patterns';
+        } else if (matchLsb) {
+          out.verdict = 'PASS-LSB';
+          out.detail = 'within 1 LSB of expected (acceptable for color pipeline)';
+        } else {
+          out.verdict = 'FAIL';
+          out.detail = 'bit patterns differ by > 1 LSB';
+        }
+
+        const lines = [
+          `sampled at center: ${out.sampled.join(' ')}`,
+          `expected:          ${out.expected.join(' ')}`,
+          `floats:            ${out.sampledFloats.map((v) => v.toFixed(4)).join(' ')}`,
+          `verdict:           ${out.verdict}  (${out.detail})`,
+        ];
+        log(lines.join('\n'));
+        showJson();
+      })();
+
+      // ------------------------------------------------------------------
+      // Spike 1.2 — AgX LUT edge sampling math
+      // ------------------------------------------------------------------
+      // Upload a 4-texel R16F texture [0.0, 0.25, 0.75, 1.0] (4x1) with
+      // LINEAR + CLAMP_TO_EDGE. Sample at the same logical t=0.0, 0.5, 1.0
+      // using two formulas:
+      //   (a) Apple Metal:   `t * (LUT_SIZE - 1) / LUT_SIZE`
+      //                       (so t=1 -> 3/4 = 0.75; texel center grid is at 0.125, 0.375, 0.625, 0.875)
+      //   (b) Symmetric:      `(t * (LUT_SIZE - 1) + 0.5) / LUT_SIZE`
+      //                       (so t=1 -> 3.5/4 = 0.875; lands exactly on last texel center)
+      //
+      // At t=1 with formula (a), UV=0.75 sits exactly between texel 2 (center 0.625, val 0.75)
+      // and texel 3 (center 0.875, val 1.0). Bilinear midpoint = 0.875. Wait — but the brief
+      // quotes "~0.6875" — that's wrong arithmetic. Let me recompute:
+      //   UV = 0.75. Pixel-space coord = 0.75 * 4 - 0.5 = 2.5 (between texel 2 and 3).
+      //   Bilinear weight to texel 3 = 0.5. Result = 0.5 * 0.75 + 0.5 * 1.0 = 0.875.
+      // So formula (a) at t=1 actually yields 0.875, not 0.6875. The brief's expected value
+      // is incorrect; record both observed values and let the reader judge.
+      //
+      // At t=1 with formula (b), UV=0.875. Pixel-space coord = 0.875 * 4 - 0.5 = 3.0
+      // (lands exactly on texel 3 center). Result = 1.0 exactly.
+
+      (() => {
+        const log = (s) => {
+          document.getElementById('s12').textContent = s;
+        };
+        const out = { verdict: 'PENDING', detail: '' };
+        RESULTS.spike12 = out;
+
+        const gl = document.getElementById('cv').getContext('webgl2');
+        if (!gl) {
+          out.verdict = 'FAIL';
+          out.detail = 'WebGL2 unavailable';
+          log(out.detail);
+          showJson();
+          return;
+        }
+        if (!gl.getExtension('OES_texture_float_linear')) {
+          out.verdict = 'FAIL';
+          out.detail = 'OES_texture_float_linear missing';
+          log(out.detail);
+          showJson();
+          return;
+        }
+        if (!gl.getExtension('EXT_color_buffer_half_float')) {
+          out.verdict = 'FAIL';
+          out.detail = 'EXT_color_buffer_half_float missing';
+          log(out.detail);
+          showJson();
+          return;
+        }
+
+        // 4-texel R16F: [0, 0.25, 0.75, 1.0].
+        const fp16 = new Uint16Array([
+          f32_to_fp16(0.0),
+          f32_to_fp16(0.25),
+          f32_to_fp16(0.75),
+          f32_to_fp16(1.0),
+        ]);
+        const tex = gl.createTexture();
+        gl.bindTexture(gl.TEXTURE_2D, tex);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.R16F, 4, 1, 0, gl.RED, gl.HALF_FLOAT, fp16);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+
+        const fbTex = gl.createTexture();
+        gl.bindTexture(gl.TEXTURE_2D, fbTex);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, 1, 1, 0, gl.RGBA, gl.HALF_FLOAT, null);
+        const fb = gl.createFramebuffer();
+        gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+        gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, fbTex, 0);
+        if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) {
+          out.verdict = 'FAIL';
+          out.detail = 'FBO incomplete';
+          log(out.detail);
+          showJson();
+          return;
+        }
+
+        // Pack four samples into one RGBA pixel.
+        const fsSrc = `#version 300 es
+    precision highp float;
+    uniform sampler2D u;
+    uniform float u_t0_apple;   // t=0 with formula (a)
+    uniform float u_t1_apple;   // t=1 with formula (a)
+    uniform float u_t1_sym;     // t=1 with formula (b)
+    uniform float u_thalf_apple; // t=0.5 with formula (a)
+    layout(location = 0) out vec4 o;
+    void main() {
+      o.r = texture(u, vec2(u_t0_apple,    0.5)).r;
+      o.g = texture(u, vec2(u_t1_apple,    0.5)).r;
+      o.b = texture(u, vec2(u_t1_sym,      0.5)).r;
+      o.a = texture(u, vec2(u_thalf_apple, 0.5)).r;
+    }`;
+        const prog = linkProgram(gl, VS_FULLSCREEN, fsSrc);
+        gl.useProgram(prog);
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, tex);
+        gl.uniform1i(gl.getUniformLocation(prog, 'u'), 0);
+        // Formula (a): t * (N-1) / N, with N = 4.
+        gl.uniform1f(gl.getUniformLocation(prog, 'u_t0_apple'), (0.0 * 3.0) / 4.0); // 0.0
+        gl.uniform1f(gl.getUniformLocation(prog, 'u_t1_apple'), (1.0 * 3.0) / 4.0); // 0.75
+        gl.uniform1f(gl.getUniformLocation(prog, 'u_t1_sym'), (1.0 * 3.0 + 0.5) / 4.0); // 0.875
+        gl.uniform1f(gl.getUniformLocation(prog, 'u_thalf_apple'), (0.5 * 3.0) / 4.0); // 0.375
+        gl.viewport(0, 0, 1, 1);
+        gl.drawArrays(gl.TRIANGLES, 0, 3);
+
+        const sampled = new Uint16Array(4);
+        gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.HALF_FLOAT, sampled);
+        const err = gl.getError();
+        if (err !== gl.NO_ERROR) {
+          out.verdict = 'FAIL';
+          out.detail = `readPixels err 0x${err.toString(16)}`;
+          log(out.detail);
+          showJson();
+          return;
+        }
+
+        const t0Apple = fp16f(sampled[0]);
+        const t1Apple = fp16f(sampled[1]);
+        const t1Sym = fp16f(sampled[2]);
+        const tHalfApple = fp16f(sampled[3]);
+
+        // Computed expectations (in fp32; fp16 should be within 0.001):
+        // t=0   formula (a): UV=0,    pixel=−0.5, clamp -> texel 0 = 0.0          -> 0.0
+        // t=1   formula (a): UV=0.75, pixel=2.5,  bilinear of texels 2 and 3      -> 0.875
+        // t=1   formula (b): UV=0.875, pixel=3.0, exactly texel 3                 -> 1.0
+        // t=0.5 formula (a): UV=0.375, pixel=1.0, exactly texel 1                 -> 0.25
+        const exp_t0 = 0.0;
+        const exp_t1a = 0.875;
+        const exp_t1b = 1.0;
+        const exp_th = 0.25;
+        const tol = 0.005; // allow 5 LSB of fp16 slack
+        const within = (a, b) => Math.abs(a - b) <= tol;
+        const ok =
+          within(t0Apple, exp_t0) &&
+          within(t1Apple, exp_t1a) &&
+          within(t1Sym, exp_t1b) &&
+          within(tHalfApple, exp_th);
+
+        out.t0_apple = t0Apple;
+        out.t1_apple = t1Apple;
+        out.t1_sym = t1Sym;
+        out.thalf_apple = tHalfApple;
+        out.expected = { t0: exp_t0, t1_apple: exp_t1a, t1_sym: exp_t1b, t_half: exp_th };
+        out.verdict = ok ? 'PASS' : 'FAIL';
+        out.detail = ok
+          ? 'WebGL2 LINEAR + CLAMP_TO_EDGE matches predicted bilinear math'
+          : 'sampling does NOT match predicted bilinear math';
+        // Diagnostic: what does Apple actually do at t=1?
+        // Both (a) and (b) are deterministic UV math. The shader applies whichever
+        // we choose; the open question is which one Apple's Metal uses inside its
+        // CIKernel sampler. The brief flags this as "compare to Apple-rendered ref"
+        // (which is in M2.4's parity gate, not this spike). Spike 1.2's job here
+        // is just to confirm WebGL2's math is consistent and predictable.
+        out.note =
+          'Apple-vs-WebGL UV-formula match is deferred to M2.4 parity gate; ' +
+          'this spike confirms WebGL2 LINEAR + CLAMP_TO_EDGE math is predictable.';
+
+        const lines = [
+          `t=0.0   formula (a):   ${t0Apple.toFixed(4)}   (expect ${exp_t0.toFixed(4)})`,
+          `t=1.0   formula (a):   ${t1Apple.toFixed(4)}   (expect ${exp_t1a.toFixed(4)} = bilin(0.75, 1.0))`,
+          `t=1.0   formula (b):   ${t1Sym.toFixed(4)}   (expect ${exp_t1b.toFixed(4)} = exact texel 3)`,
+          `t=0.5   formula (a):   ${tHalfApple.toFixed(4)}   (expect ${exp_th.toFixed(4)} = exact texel 1)`,
+          `verdict:                ${out.verdict}  (${out.detail})`,
+        ];
+        log(lines.join('\n'));
+        showJson();
+      })();
+
+      // ------------------------------------------------------------------
+      // Spike 1.3 — fp16 readback availability
+      // ------------------------------------------------------------------
+      // Render a known fp16 value to an RGBA16F FBO, then attempt readPixels
+      // with HALF_FLOAT into a Uint16Array. WebGL2 spec allows it; Safari has
+      // historically been picky about non-RGBA float readback paths.
+
+      (() => {
+        const log = (s) => {
+          document.getElementById('s13').textContent = s;
+        };
+        const out = { verdict: 'PENDING', detail: '' };
+        RESULTS.spike13 = out;
+
+        const gl = document.getElementById('cv').getContext('webgl2');
+        if (!gl) {
+          out.verdict = 'FAIL';
+          out.detail = 'WebGL2 unavailable';
+          log(out.detail);
+          showJson();
+          return;
+        }
+        if (!gl.getExtension('EXT_color_buffer_half_float')) {
+          out.verdict = 'FAIL';
+          out.detail = 'EXT_color_buffer_half_float missing';
+          log(out.detail);
+          showJson();
+          return;
+        }
+        const fbTex = gl.createTexture();
+        gl.bindTexture(gl.TEXTURE_2D, fbTex);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, 1, 1, 0, gl.RGBA, gl.HALF_FLOAT, null);
+        const fb = gl.createFramebuffer();
+        gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+        gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, fbTex, 0);
+        if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) {
+          out.verdict = 'FAIL';
+          out.detail = 'FBO incomplete';
+          log(out.detail);
+          showJson();
+          return;
+        }
+
+        const fsSrc = `#version 300 es
+    precision highp float;
+    out vec4 o;
+    void main() { o = vec4(1.0, 0.5, 0.25, 1.0); }`;
+        const prog = linkProgram(gl, VS_FULLSCREEN, fsSrc);
+        gl.useProgram(prog);
+        gl.viewport(0, 0, 1, 1);
+        gl.drawArrays(gl.TRIANGLES, 0, 3);
+
+        const implFormat = gl.getParameter(gl.IMPLEMENTATION_COLOR_READ_FORMAT);
+        const implType = gl.getParameter(gl.IMPLEMENTATION_COLOR_READ_TYPE);
+        const formatIsRgba = implFormat === gl.RGBA;
+        const typeIsHalf = implType === gl.HALF_FLOAT;
+
+        // Try fp16 native readback.
+        let nativeOk = false;
+        let nativeMsg = '';
+        let lanesNative = null;
+        try {
+          const u = new Uint16Array(4);
+          gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.HALF_FLOAT, u);
+          const err = gl.getError();
+          if (err !== gl.NO_ERROR) {
+            nativeMsg = `readPixels(HALF_FLOAT) err 0x${err.toString(16)}`;
+          } else {
+            nativeOk = true;
+            lanesNative = Array.from(u).map((h) => '0x' + h.toString(16).padStart(4, '0'));
+            // 0x3c00 = 1.0; 0x3800 = 0.5; 0x3400 = 0.25.
+            const exp = [0x3c00, 0x3800, 0x3400, 0x3c00];
+            const exact = [0, 1, 2, 3].every((i) => u[i] === exp[i]);
+            const lsb = [0, 1, 2, 3].every((i) => Math.abs(u[i] - exp[i]) <= 1);
+            nativeMsg = exact
+              ? 'OK exact'
+              : lsb
+                ? 'OK within 1 LSB'
+                : `lanes drift > 1 LSB (got ${lanesNative.join(' ')})`;
+          }
+        } catch (e) {
+          nativeMsg = 'readPixels threw: ' + e.message;
+        }
+
+        // Try fallback: read into Float32Array via FLOAT (some drivers prefer this).
+        let floatOk = false;
+        let floatMsg = '';
+        let lanesFloat = null;
+        try {
+          const u = new Float32Array(4);
+          gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.FLOAT, u);
+          const err = gl.getError();
+          if (err !== gl.NO_ERROR) {
+            floatMsg = `readPixels(FLOAT) err 0x${err.toString(16)}`;
+          } else {
+            floatOk = true;
+            lanesFloat = Array.from(u);
+          }
+        } catch (e) {
+          floatMsg = 'readPixels(FLOAT) threw: ' + e.message;
+        }
+
+        out.implFormat = formatIsRgba ? 'RGBA' : '0x' + implFormat.toString(16);
+        out.implType = typeIsHalf ? 'HALF_FLOAT' : '0x' + implType.toString(16);
+        out.nativeOk = nativeOk;
+        out.nativeMsg = nativeMsg;
+        out.lanesNative = lanesNative;
+        out.floatOk = floatOk;
+        out.floatMsg = floatMsg;
+        out.lanesFloat = lanesFloat;
+
+        if (nativeOk) {
+          out.verdict = 'PASS';
+          out.detail = 'native HALF_FLOAT readback works';
+        } else if (floatOk) {
+          out.verdict = 'PASS-FLOAT-FALLBACK';
+          out.detail = 'native HALF_FLOAT readback failed; FLOAT fallback works';
+        } else {
+          out.verdict = 'FAIL';
+          out.detail = `both readback paths failed: native=${nativeMsg}; float=${floatMsg}`;
+        }
+
+        log(
+          [
+            `IMPLEMENTATION_COLOR_READ_FORMAT == RGBA:        ${formatIsRgba}`,
+            `IMPLEMENTATION_COLOR_READ_TYPE   == HALF_FLOAT:  ${typeIsHalf}`,
+            `native HALF_FLOAT readback:                      ${nativeOk ? 'OK' : 'FAIL'} (${nativeMsg})`,
+            `FLOAT readback fallback:                         ${floatOk ? 'OK' : 'FAIL'} (${floatMsg})`,
+            `lanes (native fp16 hex): ${lanesNative ? lanesNative.join(' ') : '(N/A)'}`,
+            `lanes (float fallback):   ${lanesFloat ? lanesFloat.map((v) => v.toFixed(4)).join(' ') : '(N/A)'}`,
+            `verdict:                                         ${out.verdict}  (${out.detail})`,
+          ].join('\n'),
+        );
+        showJson();
+      })();
+
+      // Surface any uncaught JS errors so the Playwright runner can see them.
+      window.addEventListener('error', (e) => {
+        RESULTS.uncaughtError = String((e.error && e.error.stack) || e.message || e);
+        document.getElementById('json').textContent = JSON.stringify(RESULTS, null, 2);
+      });
+
+      // Mark the document complete for Playwright to grab.
+      window.__SPIKE_DONE__ = true;
+      window.__SPIKE_RESULTS__ = RESULTS;
+    </script>
+  </body>
+</html>
