@@ -21,6 +21,25 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
+# Fast-path: skip if no Rust source has changed since the last successful
+# build. Stamp is touched at the end on success. Set FORCE_WASM_REBUILD=1 or
+# pass --force to bypass.
+WORKSPACE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+STAMP="$SCRIPT_DIR/pkg/.build-stamp"
+
+if [[ "${FORCE_WASM_REBUILD:-}" != "1" && "${1:-}" != "--force" && \
+      -f "$STAMP" && -d "$SCRIPT_DIR/pkg" ]]; then
+    changes=$(find "$WORKSPACE_DIR" \
+        \( -type d \( -name target -o -name .git -o -name pkg \) -prune \) -o \
+        -type f \( -name '*.rs' -o -name 'Cargo.toml' -o -name 'Cargo.lock' \) \
+        -newer "$STAMP" -print 2>/dev/null | head -n 1)
+    if [[ -z "$changes" ]]; then
+        echo "[raw-wasm] No source changes since last build — skipping."
+        exit 0
+    fi
+    echo "[raw-wasm] change detected: $changes"
+fi
+
 if ! command -v wasm-pack >/dev/null 2>&1; then
   echo "ERROR: wasm-pack not found. Install with: cargo install wasm-pack" >&2
   exit 1
@@ -34,6 +53,8 @@ wasm-pack build \
   -- \
   --features parallel \
   -Z build-std=panic_abort,std
+
+touch "$STAMP"
 
 echo ""
 echo "[raw-wasm] Build complete: $(pwd)/pkg"
