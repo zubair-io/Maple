@@ -287,11 +287,27 @@ public actor ImageEditPipeline {
         asShot: AsShotWB? = nil
     ) -> CIImage {
         let scaled = Self.prescaleForDisplay(decoded, targetSize: targetSize)
+
+        // Plan 2 M1 — Stage: SceneToneControls (exposure / highlights /
+        // shadows / whites / blacks). Per-pixel scene-linear Rec.2020 op.
+        // Kernel mirrors `scene_tone_controls.rs` from raw-core; whites/
+        // blacks semantics (`w_gain = 1 + whites/200`, `b_add = blacks/400`)
+        // are identical on both sides — verified by Plan 2 pre-flight
+        // Step 1.3.
+        let withTone = MetalKernels.applySceneToneControls(
+            to: scaled,
+            exposure: Float(model.exposure),
+            highlights: Float(model.highlights),
+            shadows: Float(model.shadows),
+            whites: Float(model.whites),
+            blacks: Float(model.blacks)
+        )
+
         // Stage: AgX view transform — exactly once, on scene-linear data.
         // The kernel is per-channel (verified by Spike 1.2), so feeding it
         // Rec.2020 instead of sRGB only matters for out-of-gamut content.
         return MetalKernels.applyAgXViewTransform(
-            to: scaled, contrast: Float(model.contrast)
+            to: withTone, contrast: Float(model.contrast)
         )
     }
 
