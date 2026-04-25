@@ -22,8 +22,48 @@ struct MapleApp: App {
         // Step 4.0a.
         assert(MetalKernels.agxKernel() != nil,
             "AgX Metal kernel failed to load — view transform will silently no-op on the scene-linear path. Verify AgXViewTransform.metal is in the Metal sources for this build target.")
+
+        // UITest harness hook. The test driver launches the app with
+        // `MAPLE_UITEST_FIXTURE=<basename>` (resolved against
+        // `MAPLE_UITEST_FIXTURE_ROOT`, defaulting to the repo's
+        // `test-fixtures/raws/`). AppShell consumes this on `.task`,
+        // calls `BrowseViewModel.loadSingleAsset(url:)`, and auto-flips
+        // into Full-image mode so the harness skips picker / folder
+        // navigation. Spike A (2026-04-25) confirmed env vars survive
+        // the macOS sandbox. See
+        // docs/superpowers/plans/2026-04-25-xcuitest-visual-harness.md.
+        if let fixture = ProcessInfo.processInfo.environment["MAPLE_UITEST_FIXTURE"],
+           !fixture.isEmpty {
+            let root = ProcessInfo.processInfo.environment["MAPLE_UITEST_FIXTURE_ROOT"]
+                ?? Self.defaultFixtureRoot()
+            let url = URL(fileURLWithPath: root)
+                .appendingPathComponent(fixture)
+            if FileManager.default.fileExists(atPath: url.path) {
+                MapleApp.uitestFixtureURL = url
+            }
+        }
         #endif
     }
+
+    #if DEBUG
+    /// Stashed by `init()` when `MAPLE_UITEST_FIXTURE` resolves to an
+    /// existing file. AppShell consumes via `.task` on the macOS shell.
+    /// Nil in production (the env var is read inside `#if DEBUG`).
+    nonisolated(unsafe) static var uitestFixtureURL: URL?
+
+    /// Best-effort default for `MAPLE_UITEST_FIXTURE_ROOT`. Used only when
+    /// the env var is unset; matches the layout the harness expects. The
+    /// path walks up from the running app bundle to the repo root, but a
+    /// CI runner with the test bundle elsewhere will set the env var
+    /// explicitly per `xcodebuild test … MAPLE_UITEST_FIXTURE_ROOT=…`.
+    private static func defaultFixtureRoot() -> String {
+        // CWD when xcodebuild test launches Maple.app on macOS is
+        // typically the working directory of the xcodebuild invocation,
+        // but we don't rely on that — fall back to a path the harness
+        // can override.
+        return FileManager.default.currentDirectoryPath + "/test-fixtures/raws"
+    }
+    #endif
 
     var body: some Scene {
         WindowGroup {
