@@ -545,7 +545,10 @@ public final class EditSession {
 
         // Try the disk cache first — it's the last-known-good develop
         // and lands in ~10 ms if present.
-        if await self.seedFromCachedPreview(for: openedAsset) {
+        let cachedHit = await mapleStageAsync("cached preview lookup") {
+            await self.seedFromCachedPreview(for: openedAsset)
+        }
+        if cachedHit {
             self._scheduleRender(phase: .fast)
         }
 
@@ -553,7 +556,10 @@ public final class EditSession {
         // `decodedImage` so sliders have something to filter against
         // even if there was no cache hit. Won't overwrite a preceding
         // cache seed because the guards check `decodedForAssetID`.
-        if await self.seedFromEmbeddedPreview(for: openedAsset) {
+        let embeddedHit = await mapleStageAsync("embedded preview seed") {
+            await self.seedFromEmbeddedPreview(for: openedAsset)
+        }
+        if embeddedHit {
             self._scheduleRender(phase: .fast)
         }
 
@@ -788,12 +794,18 @@ public final class EditSession {
         let phaseState = editSessionSignposter.beginInterval(phaseName, id: phaseSignpostID)
         defer { editSessionSignposter.endInterval(phaseName, phaseState) }
 
+        let filterStageName: StaticString = (phase == .fast)
+            ? "filter chain (.fast)"
+            : "filter chain (.refine)"
+
         do {
             let image: CIImage
             if let cached, alreadyDecodedID == asset.id {
                 // Cached decode — apply filter chain only. Hot path.
                 image = await Task.detached(priority: .userInitiated) {
-                    pipeline.process(decoded: cached, model: m, targetSize: targetSize, asShot: asShot)
+                    mapleStage(filterStageName) {
+                        pipeline.process(decoded: cached, model: m, targetSize: targetSize, asShot: asShot)
+                    }
                 }.value
             } else {
                 // Cold decode — run the Rust FFI once, cache the result.
@@ -819,7 +831,9 @@ public final class EditSession {
                 // phase with the caller's targetSize. Not shared with peers
                 // because targetSize differs between fast and refine.
                 let processed = await Task.detached(priority: .userInitiated) {
-                    pipeline.process(decoded: decoded, model: m, targetSize: targetSize, asShot: asShot)
+                    mapleStage(filterStageName) {
+                        pipeline.process(decoded: decoded, model: m, targetSize: targetSize, asShot: asShot)
+                    }
                 }.value
                 image = processed
             }
@@ -908,12 +922,19 @@ public final class EditSession {
         let task: Task<CIImage?, Never> = Task.detached(priority: .userInitiated) { [pipeline] in
             // Disk-cache fast path. Skips the Rust pipeline entirely when
             // the asset's mtime matches the cached key.
-            if let url = asset.primaryURL,
-               let cached = await DecodedBufferCache.shared.decoded(for: url) {
-                return cached
+            if let url = asset.primaryURL {
+                let cached = await mapleStageAsync("decoded cache lookup") {
+                    await DecodedBufferCache.shared.decoded(for: url)
+                }
+                if let cached {
+                    return cached
+                }
             }
             // Cache miss — Rust decode, then write-back for the next open.
-            guard let decoded = await pipeline.decode(asset: asset) else { return nil }
+            let decoded = await mapleStageAsync("rust FFI decode") {
+                await pipeline.decode(asset: asset)
+            }
+            guard let decoded else { return nil }
             if let url = asset.primaryURL {
                 // Fire-and-forget. JPEG-encoding a 100 MP CIImage takes ~1–2 s;
                 // gating `task.value` on it pushes that delay onto the
@@ -922,7 +943,9 @@ public final class EditSession {
                 // fine, blocking the user is not.
                 let captured = decoded
                 Task.detached(priority: .utility) {
-                    await DecodedBufferCache.shared.storeDecoded(captured, for: url)
+                    await mapleStageAsync("decoded cache store") {
+                        await DecodedBufferCache.shared.storeDecoded(captured, for: url)
+                    }
                 }
             }
             return decoded
