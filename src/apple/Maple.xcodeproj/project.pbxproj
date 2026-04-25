@@ -197,25 +197,6 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
-		A1F0005100000000000000A1 /* Build Rust xcframework */ = {
-			isa = PBXShellScriptBuildPhase;
-			alwaysOutOfDate = 1;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputFileListPaths = (
-			);
-			inputPaths = (
-			);
-			name = "Build Rust xcframework";
-			outputFileListPaths = (
-			);
-			outputPaths = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/sh;
-			shellScript = "set -eu\n# build-xcframework.sh internally fast-paths when no Rust source has\n# changed since the last successful build, so this is cheap on no-op builds.\nif [ \"${CONFIGURATION:-}\" = \"Release\" ]; then\n  bash \"${SRCROOT}/scripts/build-xcframework.sh\" --release\nelse\n  bash \"${SRCROOT}/scripts/build-xcframework.sh\"\nfi\n";
-		};
 		A1F0005000000000000000A1 /* Clean test fixtures */ = {
 			isa = PBXShellScriptBuildPhase;
 			alwaysOutOfDate = 1;
@@ -234,6 +215,25 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "set -eu\nFIXTURES=\"${SRCROOT}/../../test-fixtures/raws\"\nif [ -d \"$FIXTURES\" ]; then\n  find \"$FIXTURES\" -type d -name .maple -prune -exec rm -rf {} +\n  find \"$FIXTURES\" -type f -name '*.xmp' -delete\nfi\n";
+		};
+		A1F0005100000000000000A1 /* Build Rust xcframework */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Build Rust xcframework";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -eu\n# build-xcframework.sh internally fast-paths when no Rust source has\n# changed since the last successful build, so this is cheap on no-op builds.\nif [ \"${CONFIGURATION:-}\" = \"Release\" ]; then\n  bash \"${SRCROOT}/scripts/build-xcframework.sh\" --release\nelse\n  bash \"${SRCROOT}/scripts/build-xcframework.sh\"\nfi\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -405,7 +405,6 @@
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_FILE_ACCESS_PICTURE_FOLDER = readwrite;
 				ENABLE_HARDENED_RUNTIME = YES;
-				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				ENABLE_INCOMING_NETWORK_CONNECTIONS = NO;
 				ENABLE_OUTGOING_NETWORK_CONNECTIONS = NO;
 				ENABLE_PREVIEWS = YES;
@@ -418,6 +417,7 @@
 				ENABLE_RESOURCE_ACCESS_PHOTO_LIBRARY = YES;
 				ENABLE_RESOURCE_ACCESS_PRINTING = NO;
 				ENABLE_RESOURCE_ACCESS_USB = NO;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = Maple;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.photography";
@@ -445,7 +445,7 @@
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MARKETING_VERSION = 0.1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = app.justmaple.maple;
+				PRODUCT_BUNDLE_IDENTIFIER = app.justmaple.aperture;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				RUNTIME_EXCEPTION_ALLOW_DYLD_ENVIRONMENT_VARIABLES = NO;
 				RUNTIME_EXCEPTION_ALLOW_JIT = NO;
@@ -475,7 +475,6 @@
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_FILE_ACCESS_PICTURE_FOLDER = readwrite;
 				ENABLE_HARDENED_RUNTIME = YES;
-				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				ENABLE_INCOMING_NETWORK_CONNECTIONS = NO;
 				ENABLE_OUTGOING_NETWORK_CONNECTIONS = NO;
 				ENABLE_PREVIEWS = YES;
@@ -488,6 +487,7 @@
 				ENABLE_RESOURCE_ACCESS_PHOTO_LIBRARY = YES;
 				ENABLE_RESOURCE_ACCESS_PRINTING = NO;
 				ENABLE_RESOURCE_ACCESS_USB = NO;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = Maple;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.photography";
@@ -515,7 +515,7 @@
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MARKETING_VERSION = 0.1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = app.justmaple.maple;
+				PRODUCT_BUNDLE_IDENTIFIER = app.justmaple.aperture;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				RUNTIME_EXCEPTION_ALLOW_DYLD_ENVIRONMENT_VARIABLES = NO;
 				RUNTIME_EXCEPTION_ALLOW_JIT = NO;
