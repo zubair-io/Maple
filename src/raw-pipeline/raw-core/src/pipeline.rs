@@ -810,6 +810,82 @@ mod tests {
         }
     }
 
+    /// M3 commutativity gate: render test_0017.dng via the original
+    /// late-downsample path (full-res develop, then
+    /// `downsample_image_area`) and the new early-downsample path
+    /// (`develop_scene_linear_sized_from_raw_with_quality` runs
+    /// downsample right after demosaic), then compare per-channel
+    /// f32 mean delta in scene-linear Rec.2020.
+    ///
+    /// Budget: mean per-channel delta ≤ 0.005 in linear-light. The
+    /// expected dominant source of difference is the
+    /// non-commutativity of (downsample ∘ filter) vs
+    /// (filter ∘ downsample); for natural scenes at the default
+    /// AdjustmentModel (sharpen_amount=0, nr_luminance=0,
+    /// nr_color=25 with radius 1 px, clarity=0, dehaze=0) this is
+    /// dominated by the nr_color blur and bounded by the
+    /// downsample kernel's low-pass character.
+    ///
+    /// Skips if test_0017.dng is absent (gitignored fixtures).
+    #[test]
+    fn early_vs_late_downsample_within_fp16_tolerance() {
+        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../test-fixtures/raws/test_0017.dng");
+        if !path.exists() { return; }
+        let bytes = std::fs::read(&path).expect("read raw");
+        let raw = crate::decode::decode_bytes(&bytes, "dng").expect("decode");
+        let model = AdjustmentModel::default();
+        let max_long_edge: u32 = 1500;
+
+        // Late-downsample: full-res develop, then downsample.
+        let mut late = develop_scene_linear_from_raw_with_quality(
+            &raw, &model, RenderQuality::Preview,
+        ).expect("late develop");
+        downsample_image_area(&mut late, max_long_edge);
+
+        // Early-downsample: new helper runs downsample post-demosaic.
+        let early = develop_scene_linear_sized_from_raw_with_quality(
+            &raw, &model, RenderQuality::Preview, max_long_edge,
+        ).expect("early develop");
+
+        // Sizes must match — both end at <= max_long_edge on the long edge.
+        assert_eq!(early.width, late.width, "width mismatch");
+        assert_eq!(early.height, late.height, "height mismatch");
+        assert_eq!(early.pixels.len(), late.pixels.len(), "pixel count mismatch");
+
+        let n = early.pixels.len();
+        let mut sum_dr = 0.0f64;
+        let mut sum_dg = 0.0f64;
+        let mut sum_db = 0.0f64;
+        let mut max_dr = 0.0f32;
+        let mut max_dg = 0.0f32;
+        let mut max_db = 0.0f32;
+        for (a, b) in early.pixels.iter().zip(late.pixels.iter()) {
+            let dr = (a[0] - b[0]).abs();
+            let dg = (a[1] - b[1]).abs();
+            let db = (a[2] - b[2]).abs();
+            sum_dr += dr as f64;
+            sum_dg += dg as f64;
+            sum_db += db as f64;
+            if dr > max_dr { max_dr = dr; }
+            if dg > max_dg { max_dg = dg; }
+            if db > max_db { max_db = db; }
+        }
+        let mean_dr = (sum_dr / n as f64) as f32;
+        let mean_dg = (sum_dg / n as f64) as f32;
+        let mean_db = (sum_db / n as f64) as f32;
+        eprintln!(
+            "early-vs-late: mean dR={:.5} dG={:.5} dB={:.5}  max dR={:.5} dG={:.5} dB={:.5}",
+            mean_dr, mean_dg, mean_db, max_dr, max_dg, max_db,
+        );
+
+        // Mean per-channel delta budget. 0.005 in [0, ~5] scene-linear
+        // headroom is ~0.1% of typical scene values.
+        assert!(mean_dr < 0.005, "mean R delta {} > 0.005", mean_dr);
+        assert!(mean_dg < 0.005, "mean G delta {} > 0.005", mean_dg);
+        assert!(mean_db < 0.005, "mean B delta {} > 0.005", mean_db);
+    }
+
     // Sanity tests for f32_to_f16_bits — guards against the bit-isolation
     // bug Spike 1.1 caught on the Apple side. `0x3c00` is the fp16 bit
     // pattern of 1.0; `0x4000` is 2.0; `0x3e00` is 1.5; `0x0000` is 0.0.
