@@ -1,0 +1,42 @@
+.page {
+  font-family: monospace;
+  padding: 16px;
+  color: #eee;
+  background: #111;
+  min-height: 100vh;
+}
+
+.error-banner {
+  background: #401818;
+  color: #fbb;
+  padding: 8px;
+  border: 1px solid #c44;
+  margin-bottom: 16px;
+  border-radius: 4px;
+}
+
+.panes {
+  display: flex;
+  gap: 16px;
+}
+
+.pane {
+  flex: 1;
+}
+
+.image {
+  image-rendering: pixelated;
+  width: 256px;
+  height: 256px;
+  border: 1px solid #555;
+  display: block;
+  background: #222;
+}
+
+.metrics {
+  margin-top: 16px;
+
+  > div {
+    line-height: 1.6;
+  }
+}
