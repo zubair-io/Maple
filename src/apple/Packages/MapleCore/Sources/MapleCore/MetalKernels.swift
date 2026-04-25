@@ -128,6 +128,26 @@ public enum MetalKernels {
         return agxLUTImage(from: data)
     }
 
+    /// Raw bytes of the embedded agx_lut.bin (f32 LE, 512 entries = 2048 bytes).
+    /// Exposed so tests outside the `MapleCore` module can load the same
+    /// LUT binary the Rust + Metal paths use; `Bundle.module` in a test
+    /// target points at the test bundle, not at MapleCore's resource bundle.
+    /// Tries `Metal/agx_lut.bin` (where SwiftPM's `.copy("Metal")` lands it)
+    /// then bundle-root as a fallback for hand-bundled deployments.
+    public static func agxLUTBytes() -> Data? {
+        if let url = Bundle.module.url(
+            forResource: "agx_lut", withExtension: "bin", subdirectory: "Metal"
+        ) {
+            return try? Data(contentsOf: url)
+        }
+        if let url = Bundle.module.url(
+            forResource: "agx_lut", withExtension: "bin"
+        ) {
+            return try? Data(contentsOf: url)
+        }
+        return nil
+    }
+
     private static func agxLUTImage(from data: Data) -> CIImage? {
         let count = data.count / 4
         guard count > 0 else { return nil }
