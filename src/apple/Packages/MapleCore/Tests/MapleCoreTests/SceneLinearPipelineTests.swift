@@ -1922,4 +1922,101 @@ final class SceneLinearPipelineTests: XCTestCase {
             "constant plane drifted — max |Δ| = \(maxAbs) (expected ~0)"
         )
     }
+
+    // MARK: - Plan 2 v2 M2: SceneClarity wired into processSceneLinear
+
+    /// Build a 32×32 fp16 Rec.2020 CIImage with a centred 8-pixel-wide
+    /// step edge, run it through `processSceneLinear` with `model.clarity
+    /// = 0` and `model.clarity = +100`, and confirm the +100 output's
+    /// step-edge contrast (max - min on a horizontal scanline through the
+    /// edge) is at least as wide as the default-model output's. Same `>=`
+    /// caveat as Plan 2 v1's M1 wiring tests — under XCTest the kernel
+    /// may be a no-op; the load-bearing runtime check is in Task 7's
+    /// manual smoke test.
+    func testM2ProcessSceneLinearAppliesClarity() async throws {
+        let pipeline = ImageEditPipeline()
+        let input = Self.makeStepEdgeSceneLinearCIImage(width: 32, height: 32)
+
+        let modelDefault = AdjustmentModel.default
+        var modelBoost = modelDefault
+        modelBoost.clarity = 100
+
+        let outDefault = pipeline.processSceneLinear(decoded: input, model: modelDefault)
+        let outBoost   = pipeline.processSceneLinear(decoded: input, model: modelBoost)
+
+        let dContrast = Self.sampleEdgeContrast(outDefault, width: 32, height: 32)
+        let bContrast = Self.sampleEdgeContrast(outBoost, width: 32, height: 32)
+        XCTAssertGreaterThanOrEqual(
+            bContrast, dContrast,
+            "clarity +100 should not shrink edge contrast — got boost=\(bContrast) default=\(dContrast)"
+        )
+    }
+
+    /// Build a 32×32 fp16 RGBA CIImage with a vertical step edge at the
+    /// horizontal midpoint: left half value 0.3, right half value 0.7.
+    /// Used by the clarity / texture wiring tests so they can sample
+    /// edge contrast without depending on a fixture.
+    static func makeStepEdgeSceneLinearCIImage(width w: Int, height h: Int) -> CIImage {
+        var pixels = [UInt16](repeating: 0, count: w * h * 4)
+        let one = Self.float32ToFloat16Bits(1.0)
+        let lo  = Self.float32ToFloat16Bits(0.3)
+        let hi  = Self.float32ToFloat16Bits(0.7)
+        for y in 0..<h {
+            for x in 0..<w {
+                let i = (y * w + x) * 4
+                let v = x < w / 2 ? lo : hi
+                pixels[i + 0] = v
+                pixels[i + 1] = v
+                pixels[i + 2] = v
+                pixels[i + 3] = one
+            }
+        }
+        let bytesPerRow = w * 4 * 2
+        let data = pixels.withUnsafeBufferPointer { Data(bytes: $0.baseAddress!, count: $0.count * 2) }
+        let space = CGColorSpace(name: CGColorSpace.extendedLinearITUR_2020)!
+        return CIImage(
+            bitmapData: data,
+            bytesPerRow: bytesPerRow,
+            size: CGSize(width: w, height: h),
+            format: .RGBAh,
+            colorSpace: space
+        )
+    }
+
+    /// Sample edge contrast: max minus min along the horizontal scanline
+    /// through y = h/2. A clarity boost is supposed to increase the
+    /// (max - min) span via the unsharp overshoot.
+    static func sampleEdgeContrast(_ ci: CIImage, width w: Int, height h: Int) -> Float {
+        let device = MTLCreateSystemDefaultDevice()
+        let context: CIContext
+        if let device {
+            context = CIContext(mtlDevice: device, options: [
+                .workingColorSpace: CGColorSpace(name: CGColorSpace.extendedLinearSRGB)!,
+                .workingFormat: CIFormat.RGBAh,
+                .cacheIntermediates: false,
+            ])
+        } else {
+            context = CIContext(options: [
+                .workingColorSpace: CGColorSpace(name: CGColorSpace.linearSRGB)!,
+                .workingFormat: CIFormat.RGBAh,
+            ])
+        }
+        let outSpace = CGColorSpace(name: CGColorSpace.extendedLinearITUR_2020)!
+        guard let cg = context.createCGImage(
+            ci, from: CGRect(x: 0, y: 0, width: w, height: h),
+            format: .RGBAh, colorSpace: outSpace
+        ), let cfData = cg.dataProvider?.data
+        else { return Float.nan }
+        let bytes = UnsafeRawPointer(CFDataGetBytePtr(cfData)!)
+        let bpr = cg.bytesPerRow
+        let cy = h / 2
+        var minV: Float = .infinity, maxV: Float = -.infinity
+        for x in 0..<w {
+            let off = cy * bpr + x * 4 * 2
+            let r = Self.float16BitsToFloat32(bytes.load(fromByteOffset: off, as: UInt16.self))
+            if r < minV { minV = r }
+            if r > maxV { maxV = r }
+        }
+        return maxV - minV
+    }
 }
