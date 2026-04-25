@@ -881,6 +881,286 @@ pub unsafe extern "C" fn maple_free_scene_linear_buffer(buffer: *mut MapleSceneL
     *b = MapleSceneLinearBuffer::empty();
 }
 
+// =====================================================================
+// Opaque handle for cached rawler-decoded RawImage + parsed XMP.
+// =====================================================================
+//
+// Plan 3 (Ticket 06 M4) — see
+// docs/superpowers/plans/2026-04-25-deep-zoom-tile-rendering.md Task 3.
+//
+// The handle keeps the decoded `RawImage` plus the parsed
+// `AdjustmentModel` alive across multiple tile renders so a 100 MP
+// rawler decode (~3-5 s cold) runs once per asset open instead of once
+// per tile. Apple side wraps the opaque pointer in a `MapleRawHandleBox`
+// final class whose `deinit` calls `maple_close_raw_handle`. Rust side
+// owns a `Box<MapleRawHandleInner>`.
+//
+// Deliberate design choices:
+//
+//   - The xmp file is parsed once at `maple_open_raw_handle` time and
+//     stored alongside the RawImage. Tile renders therefore don't
+//     need a per-call model serialization (no serde / json dep on
+//     raw-ffi). To re-render with a different model the caller closes
+//     the handle and reopens with a new xmp path.
+//
+//   - The struct exposed in the C ABI is `#[repr(C)]` with a single
+//     `*mut c_void` field, identical in shape to a forward-declared
+//     opaque struct. cbindgen emits a typedef for callers.
+//
+//   - Same error code semantics as the file/bytes tile entries: 10 for
+//     dehaze-active, 11 for upscale-attempt, 9 for bad geometry.
+
+/// Internal state behind the opaque pointer. Not exposed in the C ABI.
+struct MapleRawHandleInner {
+    raw: raw_core::image::RawImage,
+    model: xmp::AdjustmentModel,
+}
+
+/// Opaque handle to a decoded RawImage + parsed AdjustmentModel.
+/// Allocate via `maple_open_raw_handle` (or
+/// `maple_open_raw_handle_bytes`); free via `maple_close_raw_handle`.
+/// The pointee layout is intentionally undocumented; callers must treat
+/// `*mut MapleRawHandle` as opaque.
+#[repr(C)]
+pub struct MapleRawHandle {
+    /// Opaque pointer to a heap-allocated `MapleRawHandleInner`. Not
+    /// introspected by callers.
+    inner: *mut std::ffi::c_void,
+}
+
+/// Open a RAW + optional XMP sidecar into an opaque handle suitable for
+/// repeated tile rendering. The handle owns the rawler-decoded mosaic
+/// and the parsed AdjustmentModel; subsequent calls to
+/// `maple_render_handle_scene_linear_tile` skip both.
+///
+/// `xmp_path` may be null — in that case `AdjustmentModel::default()`
+/// is stored in the handle.
+///
+/// Returns 0 on success and writes the handle pointer into
+/// `*handle_out`. Non-zero on error (call `maple_last_error` for the
+/// message). The output handle pointer is always written: it is null
+/// on error and non-null on success.
+///
+/// The caller must eventually free the handle via
+/// `maple_close_raw_handle`. Failing to do so leaks the underlying
+/// `RawImage` (~30-300 MB depending on sensor resolution).
+#[no_mangle]
+pub unsafe extern "C" fn maple_open_raw_handle(
+    raw_path: *const c_char,
+    xmp_path: *const c_char,
+    handle_out: *mut *mut MapleRawHandle,
+) -> i32 {
+    if raw_path.is_null() || handle_out.is_null() {
+        set_last_error("null pointer argument".into());
+        return 1;
+    }
+    // Initialize the out pointer to null defensively so callers that
+    // ignore the rc and read the slot still see a sentinel value.
+    *handle_out = std::ptr::null_mut();
+    let raw_path_str = match CStr::from_ptr(raw_path).to_str() {
+        Ok(s) => s.to_owned(),
+        Err(e) => { set_last_error(format!("raw_path not UTF-8: {}", e)); return 2; }
+    };
+    let xmp_path_str: Option<String> = if xmp_path.is_null() {
+        None
+    } else {
+        match CStr::from_ptr(xmp_path).to_str() {
+            Ok(s) => Some(s.to_owned()),
+            Err(e) => { set_last_error(format!("xmp_path not UTF-8: {}", e)); return 3; }
+        }
+    };
+    let handle_out_addr = handle_out as usize;
+    with_large_stack(move || {
+        let raw_path = std::path::Path::new(&raw_path_str);
+        let model = match &xmp_path_str {
+            None => xmp::AdjustmentModel::default(),
+            Some(p) => match std::fs::read_to_string(p) {
+                Ok(xml) => match xmp::parse(&xml) {
+                    Ok(m) => m,
+                    Err(e) => { set_last_error(format!("xmp parse: {}", e)); return 4; }
+                },
+                Err(e) => { set_last_error(format!("xmp read: {}", e)); return 5; }
+            },
+        };
+        let raw_bytes = match raw_core::pipeline::stage("ffi_raw_read", || std::fs::read(raw_path)) {
+            Ok(b) => b,
+            Err(e) => { set_last_error(format!("raw read: {}", e)); return 6; }
+        };
+        let ext = raw_path.extension().and_then(|e| e.to_str()).unwrap_or("");
+        let raw_img = match raw_core::pipeline::stage("ffi_rawler_decode", || decode_bytes(&raw_bytes, ext)) {
+            Ok(r) => r,
+            Err(e) => { set_last_error(format!("decode: {}", e)); return 7; }
+        };
+        let inner = Box::new(MapleRawHandleInner { raw: raw_img, model });
+        let inner_ptr = Box::into_raw(inner) as *mut std::ffi::c_void;
+        let handle = Box::new(MapleRawHandle { inner: inner_ptr });
+        unsafe {
+            *(handle_out_addr as *mut *mut MapleRawHandle) = Box::into_raw(handle);
+        }
+        0
+    })
+}
+
+/// Bytes-variant of `maple_open_raw_handle`. Decodes from an in-memory
+/// RAW byte slice (PhotoKit / network-source codepaths). `hint_ext` is
+/// the extension without the leading dot (e.g. `"dng"`); pass null or
+/// empty for content-sniff fallback.
+#[no_mangle]
+pub unsafe extern "C" fn maple_open_raw_handle_bytes(
+    raw_bytes: *const u8,
+    raw_len: usize,
+    hint_ext: *const c_char,
+    xmp_path: *const c_char,
+    handle_out: *mut *mut MapleRawHandle,
+) -> i32 {
+    if raw_bytes.is_null() || handle_out.is_null() {
+        set_last_error("null pointer argument".into());
+        return 1;
+    }
+    *handle_out = std::ptr::null_mut();
+    let ext_owned: String = if hint_ext.is_null() {
+        String::new()
+    } else {
+        match CStr::from_ptr(hint_ext).to_str() {
+            Ok(s) => s.to_owned(),
+            Err(e) => { set_last_error(format!("hint_ext not UTF-8: {}", e)); return 2; }
+        }
+    };
+    let xmp_path_str: Option<String> = if xmp_path.is_null() {
+        None
+    } else {
+        match CStr::from_ptr(xmp_path).to_str() {
+            Ok(s) => Some(s.to_owned()),
+            Err(e) => { set_last_error(format!("xmp_path not UTF-8: {}", e)); return 3; }
+        }
+    };
+    let input: Vec<u8> = std::slice::from_raw_parts(raw_bytes, raw_len).to_vec();
+    let handle_out_addr = handle_out as usize;
+    with_large_stack(move || {
+        let model = match &xmp_path_str {
+            None => xmp::AdjustmentModel::default(),
+            Some(p) => match std::fs::read_to_string(p) {
+                Ok(xml) => match xmp::parse(&xml) {
+                    Ok(m) => m,
+                    Err(e) => { set_last_error(format!("xmp parse: {}", e)); return 4; }
+                },
+                Err(e) => { set_last_error(format!("xmp read: {}", e)); return 5; }
+            },
+        };
+        let raw_img = match raw_core::pipeline::stage("ffi_rawler_decode", || decode_bytes(&input, &ext_owned)) {
+            Ok(r) => r,
+            Err(e) => { set_last_error(format!("decode: {}", e)); return 7; }
+        };
+        let inner = Box::new(MapleRawHandleInner { raw: raw_img, model });
+        let inner_ptr = Box::into_raw(inner) as *mut std::ffi::c_void;
+        let handle = Box::new(MapleRawHandle { inner: inner_ptr });
+        unsafe {
+            *(handle_out_addr as *mut *mut MapleRawHandle) = Box::into_raw(handle);
+        }
+        0
+    })
+}
+
+/// Render a tile from a previously opened raw handle. Same arguments
+/// and error codes as `maple_render_file_scene_linear_tile` minus the
+/// path / xmp handling — the handle already carries the decoded
+/// `RawImage` and parsed `AdjustmentModel`.
+///
+/// Error codes:
+///   - 1: null pointer argument
+///   - 9: bad tile geometry (src_w/src_h/out_w/out_h == 0)
+///   - 10: dehaze active in the handle's model — tile path unsafe
+///   - 11: upscale attempt (out > src) — tile path is downscale-only
+///   - 8: any other error from the core tile renderer
+#[no_mangle]
+pub unsafe extern "C" fn maple_render_handle_scene_linear_tile(
+    handle: *const MapleRawHandle,
+    src_x: u32,
+    src_y: u32,
+    src_w: u32,
+    src_h: u32,
+    out_w: u32,
+    out_h: u32,
+    quality_preview: i32,
+    out: *mut MapleSceneLinearBuffer,
+) -> i32 {
+    if handle.is_null() || out.is_null() {
+        set_last_error("null pointer argument".into());
+        return 1;
+    }
+    if src_w == 0 || src_h == 0 || out_w == 0 || out_h == 0 {
+        set_last_error("src_w/src_h/out_w/out_h must be > 0".into());
+        return 9;
+    }
+    let inner_ptr = (*handle).inner as *const MapleRawHandleInner;
+    if inner_ptr.is_null() {
+        set_last_error("handle has been freed".into());
+        return 1;
+    }
+    let inner: &MapleRawHandleInner = &*inner_ptr;
+    let raw_addr = (&inner.raw) as *const _ as usize;
+    let model_addr = (&inner.model) as *const _ as usize;
+    let out_ptr = out as usize;
+    let quality = if quality_preview != 0 {
+        raw_core::pipeline::RenderQuality::Preview
+    } else {
+        raw_core::pipeline::RenderQuality::Full
+    };
+    with_large_stack(move || {
+        // SAFETY: caller guarantees the handle is alive for the
+        // duration of this call (caller is the actor-isolated
+        // RawImageCache; see Task 5). The references read here live in
+        // the heap-boxed `MapleRawHandleInner` whose lifetime is tied
+        // to the matching `maple_close_raw_handle` call.
+        let raw_img: &raw_core::image::RawImage = unsafe { &*(raw_addr as *const raw_core::image::RawImage) };
+        let model: &xmp::AdjustmentModel = unsafe { &*(model_addr as *const xmp::AdjustmentModel) };
+        let (w, h, fp16) = match raw_core::pipeline::render_scene_linear_tile_from_raw_with_quality(
+            raw_img, model, src_x, src_y, src_w, src_h, out_w, out_h, quality,
+        ) {
+            Ok(t) => t,
+            Err(e) => {
+                let msg = format!("{}", e);
+                set_last_error(msg.clone());
+                if msg.contains("dehaze") { return 10; }
+                if msg.contains("upscale") || msg.contains("downscale-only") { return 11; }
+                return 8;
+            }
+        };
+        let (fp16_ptr, _len_lanes, len_bytes) = raw_core::pipeline::stage("ffi_pack", || {
+            let mut boxed = fp16.into_boxed_slice();
+            let p = boxed.as_mut_ptr();
+            let n = boxed.len();
+            std::mem::forget(boxed);
+            (p, n, n * std::mem::size_of::<u16>())
+        });
+        unsafe {
+            *(out_ptr as *mut MapleSceneLinearBuffer) =
+                MapleSceneLinearBuffer {
+                    fp16_rgba: fp16_ptr,
+                    len_bytes,
+                    channels: 4,
+                    bytes_per_pixel: 8,
+                    width: w,
+                    height: h,
+                };
+        }
+        0
+    })
+}
+
+/// Free a `MapleRawHandle` and its inner `RawImage` + `AdjustmentModel`.
+/// No-op when `handle` is null. Apple's `MapleRawHandleBox.deinit` calls
+/// this on cache eviction or asset switch.
+#[no_mangle]
+pub unsafe extern "C" fn maple_close_raw_handle(handle: *mut MapleRawHandle) {
+    if handle.is_null() { return; }
+    let h = Box::from_raw(handle);
+    if !h.inner.is_null() {
+        let inner = h.inner as *mut MapleRawHandleInner;
+        drop(Box::from_raw(inner));
+    }
+}
+
 /// Returns the most recent error message for the current thread, or null.
 /// The returned pointer remains valid until the next FFI call on this thread.
 #[no_mangle]
@@ -1182,5 +1462,198 @@ mod tests {
             )
         };
         assert_eq!(rc, 11, "out_h>src_h must rc=11, got {}", rc);
+    }
+
+    // -----------------------------------------------------------------
+    // MapleRawHandle FFI tests (Plan deep-zoom-tile-rendering Task 3).
+    // -----------------------------------------------------------------
+
+    /// Null pointer to `maple_open_raw_handle` returns 1; the out
+    /// pointer is initialized to null on error.
+    #[test]
+    fn open_raw_handle_null_arg_sets_error() {
+        let mut handle: *mut MapleRawHandle = std::ptr::null_mut();
+        let rc = unsafe {
+            maple_open_raw_handle(std::ptr::null(), std::ptr::null(), &mut handle)
+        };
+        assert_eq!(rc, 1);
+        assert!(handle.is_null());
+        let err = unsafe { maple_last_error() };
+        assert!(!err.is_null());
+        let msg = unsafe { CStr::from_ptr(err).to_str().unwrap() };
+        assert!(msg.contains("null"));
+    }
+
+    /// Null handle to `maple_render_handle_scene_linear_tile` returns 1.
+    #[test]
+    fn render_handle_null_arg_sets_error() {
+        let mut buf = MapleSceneLinearBuffer::empty();
+        let rc = unsafe {
+            maple_render_handle_scene_linear_tile(
+                std::ptr::null(), 0, 0, 512, 512, 256, 256, 0, &mut buf,
+            )
+        };
+        assert_eq!(rc, 1);
+    }
+
+    /// `maple_close_raw_handle(null)` is a no-op (no crash).
+    #[test]
+    fn close_raw_handle_null_is_noop() {
+        unsafe { maple_close_raw_handle(std::ptr::null_mut()) };
+    }
+
+    /// Open a handle, render a tile, close. Verifies the round-trip
+    /// works end-to-end. Fixture-gated.
+    #[test]
+    fn raw_handle_round_trip_renders_tile() {
+        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../test-fixtures/raws/test_0002.dng");
+        if !path.exists() { return; }
+        let raw_cstr = CString::new(path.to_str().unwrap()).unwrap();
+        let mut handle: *mut MapleRawHandle = std::ptr::null_mut();
+        let rc = unsafe {
+            maple_open_raw_handle(raw_cstr.as_ptr(), std::ptr::null(), &mut handle)
+        };
+        assert_eq!(rc, 0, "open rc = {}", rc);
+        assert!(!handle.is_null());
+        let mut buf = MapleSceneLinearBuffer::empty();
+        let rc = unsafe {
+            maple_render_handle_scene_linear_tile(
+                handle, 1024, 1024, 512, 512, 256, 256, 0, &mut buf,
+            )
+        };
+        assert_eq!(rc, 0, "render rc = {}", rc);
+        assert_eq!(buf.width, 256);
+        assert_eq!(buf.height, 256);
+        assert_eq!(buf.channels, 4);
+        assert_eq!(buf.bytes_per_pixel, 8);
+        assert_eq!(buf.len_bytes as u32, buf.width * buf.height * 8);
+        // Verify alpha lane is fp16 1.0 in every pixel.
+        let n_lanes = buf.len_bytes / std::mem::size_of::<u16>();
+        let lanes = unsafe { std::slice::from_raw_parts(buf.fp16_rgba, n_lanes) };
+        let alpha_ok = lanes.chunks_exact(4).filter(|c| c[3] == 0x3c00).count();
+        assert_eq!(alpha_ok, (buf.width * buf.height) as usize);
+        unsafe {
+            maple_free_scene_linear_buffer(&mut buf);
+            maple_close_raw_handle(handle);
+        }
+    }
+
+    /// Multiple tile renders against the same handle reuse the cached
+    /// decoded mosaic. Sanity check on the lifecycle: open once, render
+    /// 3 different tiles, close once.
+    #[test]
+    fn raw_handle_renders_multiple_tiles() {
+        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../test-fixtures/raws/test_0002.dng");
+        if !path.exists() { return; }
+        let raw_cstr = CString::new(path.to_str().unwrap()).unwrap();
+        let mut handle: *mut MapleRawHandle = std::ptr::null_mut();
+        let rc = unsafe {
+            maple_open_raw_handle(raw_cstr.as_ptr(), std::ptr::null(), &mut handle)
+        };
+        assert_eq!(rc, 0);
+        // Render three non-overlapping tiles.
+        let coords: [(u32, u32); 3] = [(0, 0), (1024, 0), (0, 1024)];
+        for (sx, sy) in coords.iter() {
+            let mut buf = MapleSceneLinearBuffer::empty();
+            let rc = unsafe {
+                maple_render_handle_scene_linear_tile(
+                    handle, *sx, *sy, 512, 512, 256, 256, 0, &mut buf,
+                )
+            };
+            assert_eq!(rc, 0, "tile ({},{}) rc = {}", sx, sy, rc);
+            assert_eq!(buf.width, 256);
+            assert_eq!(buf.height, 256);
+            unsafe { maple_free_scene_linear_buffer(&mut buf) };
+        }
+        unsafe { maple_close_raw_handle(handle) };
+    }
+
+    /// Handle opened with an XMP that sets dehaze != 0 propagates the
+    /// dehaze rejection (rc=10) on tile render — the model is locked
+    /// at handle-open time. Fixture-gated.
+    #[test]
+    fn raw_handle_with_dehaze_xmp_returns_rc10() {
+        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../test-fixtures/raws/test_0002.dng");
+        if !path.exists() { return; }
+        let xmp_path = std::env::temp_dir().join("handle-dehaze.xmp");
+        std::fs::write(
+            &xmp_path,
+            r#"<?xml version="1.0"?><x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/" crs:Dehaze="50"/></rdf:RDF></x:xmpmeta>"#,
+        ).unwrap();
+        let raw_cstr = CString::new(path.to_str().unwrap()).unwrap();
+        let xmp_cstr = CString::new(xmp_path.to_str().unwrap()).unwrap();
+        let mut handle: *mut MapleRawHandle = std::ptr::null_mut();
+        let rc = unsafe {
+            maple_open_raw_handle(raw_cstr.as_ptr(), xmp_cstr.as_ptr(), &mut handle)
+        };
+        assert_eq!(rc, 0, "open rc = {}", rc);
+        let mut buf = MapleSceneLinearBuffer::empty();
+        let rc = unsafe {
+            maple_render_handle_scene_linear_tile(
+                handle, 1024, 1024, 512, 512, 256, 256, 0, &mut buf,
+            )
+        };
+        assert_eq!(rc, 10, "expected dehaze rc=10, got {}", rc);
+        unsafe {
+            maple_free_scene_linear_buffer(&mut buf);
+            maple_close_raw_handle(handle);
+        }
+        let _ = std::fs::remove_file(&xmp_path);
+    }
+
+    /// Render handle rejects upscale (out > src) with rc=11.
+    #[test]
+    fn raw_handle_upscale_returns_rc11() {
+        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../test-fixtures/raws/test_0002.dng");
+        if !path.exists() { return; }
+        let raw_cstr = CString::new(path.to_str().unwrap()).unwrap();
+        let mut handle: *mut MapleRawHandle = std::ptr::null_mut();
+        let rc = unsafe {
+            maple_open_raw_handle(raw_cstr.as_ptr(), std::ptr::null(), &mut handle)
+        };
+        assert_eq!(rc, 0);
+        let mut buf = MapleSceneLinearBuffer::empty();
+        let rc = unsafe {
+            maple_render_handle_scene_linear_tile(
+                handle, 1024, 1024, 256, 256, 512, 256, 0, &mut buf,
+            )
+        };
+        assert_eq!(rc, 11, "out_w>src_w must rc=11, got {}", rc);
+        unsafe { maple_close_raw_handle(handle) };
+    }
+
+    /// Bytes-variant open + render + close round-trip. Fixture-gated.
+    #[test]
+    fn raw_handle_bytes_round_trip() {
+        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../test-fixtures/raws/test_0002.dng");
+        if !path.exists() { return; }
+        let bytes = std::fs::read(&path).unwrap();
+        let ext = CString::new("dng").unwrap();
+        let mut handle: *mut MapleRawHandle = std::ptr::null_mut();
+        let rc = unsafe {
+            maple_open_raw_handle_bytes(
+                bytes.as_ptr(), bytes.len(), ext.as_ptr(), std::ptr::null(), &mut handle,
+            )
+        };
+        assert_eq!(rc, 0, "open_bytes rc = {}", rc);
+        assert!(!handle.is_null());
+        let mut buf = MapleSceneLinearBuffer::empty();
+        let rc = unsafe {
+            maple_render_handle_scene_linear_tile(
+                handle, 1024, 1024, 512, 512, 256, 256, 0, &mut buf,
+            )
+        };
+        assert_eq!(rc, 0);
+        assert_eq!(buf.width, 256);
+        assert_eq!(buf.height, 256);
+        unsafe {
+            maple_free_scene_linear_buffer(&mut buf);
+            maple_close_raw_handle(handle);
+        }
     }
 }

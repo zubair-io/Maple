@@ -47,6 +47,21 @@ typedef struct MapleSceneLinearBuffer {
 } MapleSceneLinearBuffer;
 
 /**
+ * Opaque handle to a decoded RawImage + parsed AdjustmentModel.
+ * Allocate via `maple_open_raw_handle` (or
+ * `maple_open_raw_handle_bytes`); free via `maple_close_raw_handle`.
+ * The pointee layout is intentionally undocumented; callers must treat
+ * `*mut MapleRawHandle` as opaque.
+ */
+typedef struct MapleRawHandle {
+  /**
+   * Opaque pointer to a heap-allocated `MapleRawHandleInner`. Not
+   * introspected by callers.
+   */
+  void *inner;
+} MapleRawHandle;
+
+/**
  * Render a RAW+XMP to an sRGB 8-bit RGB buffer. Returns 0 on success, non-zero
  * on error (call `maple_last_error` for a description). `xmp_path` may be null,
  * in which case AdjustmentModel::default() is used.
@@ -203,6 +218,70 @@ int32_t maple_render_bytes_scene_linear_tile(const uint8_t *raw_bytes,
  * Free a buffer populated by `maple_render_*_scene_linear`.
  */
 void maple_free_scene_linear_buffer(struct MapleSceneLinearBuffer *buffer);
+
+/**
+ * Open a RAW + optional XMP sidecar into an opaque handle suitable for
+ * repeated tile rendering. The handle owns the rawler-decoded mosaic
+ * and the parsed AdjustmentModel; subsequent calls to
+ * `maple_render_handle_scene_linear_tile` skip both.
+ *
+ * `xmp_path` may be null — in that case `AdjustmentModel::default()`
+ * is stored in the handle.
+ *
+ * Returns 0 on success and writes the handle pointer into
+ * `*handle_out`. Non-zero on error (call `maple_last_error` for the
+ * message). The output handle pointer is always written: it is null
+ * on error and non-null on success.
+ *
+ * The caller must eventually free the handle via
+ * `maple_close_raw_handle`. Failing to do so leaks the underlying
+ * `RawImage` (~30-300 MB depending on sensor resolution).
+ */
+int32_t maple_open_raw_handle(const char *raw_path,
+                              const char *xmp_path,
+                              struct MapleRawHandle **handle_out);
+
+/**
+ * Bytes-variant of `maple_open_raw_handle`. Decodes from an in-memory
+ * RAW byte slice (PhotoKit / network-source codepaths). `hint_ext` is
+ * the extension without the leading dot (e.g. `"dng"`); pass null or
+ * empty for content-sniff fallback.
+ */
+int32_t maple_open_raw_handle_bytes(const uint8_t *raw_bytes,
+                                    uintptr_t raw_len,
+                                    const char *hint_ext,
+                                    const char *xmp_path,
+                                    struct MapleRawHandle **handle_out);
+
+/**
+ * Render a tile from a previously opened raw handle. Same arguments
+ * and error codes as `maple_render_file_scene_linear_tile` minus the
+ * path / xmp handling — the handle already carries the decoded
+ * `RawImage` and parsed `AdjustmentModel`.
+ *
+ * Error codes:
+ *   - 1: null pointer argument
+ *   - 9: bad tile geometry (src_w/src_h/out_w/out_h == 0)
+ *   - 10: dehaze active in the handle's model — tile path unsafe
+ *   - 11: upscale attempt (out > src) — tile path is downscale-only
+ *   - 8: any other error from the core tile renderer
+ */
+int32_t maple_render_handle_scene_linear_tile(const struct MapleRawHandle *handle,
+                                              uint32_t src_x,
+                                              uint32_t src_y,
+                                              uint32_t src_w,
+                                              uint32_t src_h,
+                                              uint32_t out_w,
+                                              uint32_t out_h,
+                                              int32_t quality_preview,
+                                              struct MapleSceneLinearBuffer *out);
+
+/**
+ * Free a `MapleRawHandle` and its inner `RawImage` + `AdjustmentModel`.
+ * No-op when `handle` is null. Apple's `MapleRawHandleBox.deinit` calls
+ * this on cache eviction or asset switch.
+ */
+void maple_close_raw_handle(struct MapleRawHandle *handle);
 
 /**
  * Returns the most recent error message for the current thread, or null.
