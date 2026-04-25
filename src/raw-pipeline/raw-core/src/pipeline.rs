@@ -297,6 +297,93 @@ pub fn render_scene_linear_from_raw_with_quality(
     Ok((w, h, fp16))
 }
 
+/// Area-average downsample an `Image`'s f32 RGB pixel buffer to fit within
+/// `max_long_edge` on its long edge while preserving the aspect ratio.
+/// **Never upscales** (ticket 06 § Product Requirements 1) — if the source
+/// long edge is already <= `max_long_edge`, returns the image unmodified.
+///
+/// Same algorithm as `api::downsample_to_rgba` but in f32 RGB: integer
+/// source-row spans are averaged into each destination pixel, no
+/// premultiplied-alpha or gamma considerations because the buffer is
+/// straight scene-linear with no alpha channel. A higher-quality Lanczos
+/// or Mitchell variant lands as a follow-up (ticket 06 Milestone 3).
+///
+/// Mutates `image` in place; updates `image.width` and `image.height` to
+/// the new dimensions.
+pub fn downsample_image_area(image: &mut crate::image::Image, max_long_edge: u32) {
+    let (sw, sh) = (image.width, image.height);
+    let long_edge = sw.max(sh);
+    if long_edge <= max_long_edge { return; }
+    let (dw, dh) = if sw >= sh {
+        let scale = max_long_edge as f64 / sw as f64;
+        (max_long_edge, ((sh as f64 * scale).round() as u32).max(1))
+    } else {
+        let scale = max_long_edge as f64 / sh as f64;
+        (((sw as f64 * scale).round() as u32).max(1), max_long_edge)
+    };
+    let sw_u = sw as usize;
+    let mut out: Vec<[f32; 3]> = Vec::with_capacity((dw as usize) * (dh as usize));
+    for y in 0..dh {
+        let y0 = ((y as u64) * (sh as u64) / (dh as u64)) as usize;
+        let y1 = (((y + 1) as u64) * (sh as u64) / (dh as u64)).max((y0 + 1) as u64) as usize;
+        let y1 = y1.min(sh as usize);
+        for x in 0..dw {
+            let x0 = ((x as u64) * (sw as u64) / (dw as u64)) as usize;
+            let x1 = (((x + 1) as u64) * (sw as u64) / (dw as u64)).max((x0 + 1) as u64) as usize;
+            let x1 = x1.min(sw as usize);
+            let (mut sr, mut sg, mut sb, mut n) = (0.0f32, 0.0f32, 0.0f32, 0u32);
+            for sy in y0..y1 {
+                for sx in x0..x1 {
+                    let p = image.pixels[sy * sw_u + sx];
+                    sr += p[0]; sg += p[1]; sb += p[2]; n += 1;
+                }
+            }
+            let nf = n.max(1) as f32;
+            out.push([sr / nf, sg / nf, sb / nf]);
+        }
+    }
+    image.pixels = out;
+    image.width = dw;
+    image.height = dh;
+}
+
+/// Sized scene-linear render entry. Same shared development chain as
+/// `render_scene_linear_from_raw_with_quality`, then downsample to fit
+/// within `max_long_edge` (single scalar — see Plan 1 v2 Task 8 API
+/// decision: long-edge simplifies WASM parity and aspect math is local
+/// to the renderer; per ticket 06 § Open Questions). Never upscales.
+///
+/// Plan 1 v2 (FFI split + viewport-sized) — the Apple side imports this
+/// buffer at the target dimensions and runs Lanczos prescale + AgX kernel
+/// + sRGB encode in CoreImage.
+pub fn render_scene_linear_sized_from_raw_with_quality(
+    raw: &RawImage,
+    model: &AdjustmentModel,
+    quality: RenderQuality,
+    max_long_edge: u32,
+) -> Result<(u32, u32, Vec<u16>)> {
+    let mut scene = develop_scene_linear_from_raw_with_quality(raw, model, quality)?;
+    stage("downsample_area_f32", || downsample_image_area(&mut scene, max_long_edge));
+    let (w0, h0) = (scene.width, scene.height);
+    let rgba_f32 = stage("pack_rgba_f32_sized", || {
+        let mut v = Vec::with_capacity(scene.pixels.len() * 4);
+        for p in &scene.pixels {
+            v.push(p[0]);
+            v.push(p[1]);
+            v.push(p[2]);
+            v.push(1.0);
+        }
+        v
+    });
+    let (w, h, oriented_f32) = stage("apply_orientation_rgba_sized", || {
+        apply_orientation_f32_rgba(&rgba_f32, w0, h0, raw.orientation)
+    });
+    let fp16: Vec<u16> = stage("pack_fp16_sized", || {
+        oriented_f32.iter().map(|&v| f32_to_f16_bits(v)).collect()
+    });
+    Ok((w, h, fp16))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -375,6 +462,34 @@ mod tests {
         let nonzero = fp16_rgba.iter().filter(|&&v| v != 0 && v != 0x3c00).count();
         assert!(nonzero > (fp16_rgba.len() / 10),
             "buffer mostly zero: {} non-zero/non-alpha lanes", nonzero);
+    }
+
+    /// Sized scene-linear FFI entry: caps the long edge at a viewport
+    /// budget. Verify: the returned buffer's long edge equals the cap
+    /// (or stays at the source dimension if the source is smaller — no
+    /// upscale per ticket 06 § Product Requirements 1), and the alpha
+    /// lane is 1.0 everywhere.
+    #[test]
+    fn render_scene_linear_sized_test_0002_caps_long_edge_at_1500() {
+        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../test-fixtures/raws/test_0002.dng");
+        if !path.exists() { return; }
+        let bytes = std::fs::read(&path).expect("read raw");
+        let raw = crate::decode::decode_bytes(&bytes, "dng").expect("decode");
+        let model = AdjustmentModel::default();
+        let max_long_edge: u32 = 1500;
+        let (w, h, fp16_rgba) = render_scene_linear_sized_from_raw_with_quality(
+            &raw, &model, RenderQuality::Preview, max_long_edge,
+        ).expect("scene-linear sized preview render");
+        // Cap respected on the long edge.
+        assert!(w.max(h) <= max_long_edge,
+            "long edge exceeded cap: {}x{} > {}", w, h, max_long_edge);
+        // Buffer length matches.
+        assert_eq!(fp16_rgba.len() as u32, 4 * w * h);
+        // Alpha = 1.0 everywhere.
+        for chunk in fp16_rgba.chunks_exact(4) {
+            assert_eq!(chunk[3], 0x3c00, "alpha != 1.0 in sized buffer");
+        }
     }
 
     // Sanity tests for f32_to_f16_bits — guards against the bit-isolation

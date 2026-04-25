@@ -116,6 +116,41 @@ int32_t maple_render_bytes_scene_linear(const uint8_t *raw_bytes,
                                         struct MapleSceneLinearBuffer *out);
 
 /**
+ * Sized scene-linear render — same as `maple_render_file_scene_linear`
+ * but downsamples to fit within `max_long_edge` on its long edge,
+ * preserving aspect ratio, never upscaling. Same return / error
+ * conventions and the same `MapleSceneLinearBuffer` output struct.
+ *
+ * API choice: a single `max_long_edge` u32 instead of `max_width/
+ * max_height` simplifies WASM/Web parity (Plan 3 will mirror this on
+ * the Web FFI; one scalar keeps the JS binding signature shorter).
+ * Aspect math is local to the Rust renderer because it knows the
+ * source dimensions.
+ *
+ * Plan 1 v2 — see docs/superpowers/plans/2026-04-24-ffi-split-plan-1.md
+ * Task 8 and docs/tickets/06-viewport-sized-rust-ffi-preview.md
+ * Milestone 2.
+ */
+int32_t maple_render_file_scene_linear_sized(const char *raw_path,
+                                             const char *xmp_path,
+                                             uint32_t max_long_edge,
+                                             int32_t quality_preview,
+                                             struct MapleSceneLinearBuffer *out);
+
+/**
+ * Sized scene-linear render from a byte slice — bytes equivalent of
+ * `maple_render_file_scene_linear_sized`. Same args + `raw_bytes` /
+ * `raw_len` / `hint_ext`.
+ */
+int32_t maple_render_bytes_scene_linear_sized(const uint8_t *raw_bytes,
+                                              uintptr_t raw_len,
+                                              const char *hint_ext,
+                                              const char *xmp_path,
+                                              uint32_t max_long_edge,
+                                              int32_t quality_preview,
+                                              struct MapleSceneLinearBuffer *out);
+
+/**
  * Free a buffer populated by `maple_render_*_scene_linear`.
  */
 void maple_free_scene_linear_buffer(struct MapleSceneLinearBuffer *buffer);

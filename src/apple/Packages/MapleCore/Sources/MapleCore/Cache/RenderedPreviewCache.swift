@@ -86,6 +86,12 @@ public actor RenderedPreviewCache {
 
     // MARK: - Cache key
 
+    // Plan 1 v2 Task 8: rendered-preview cache writes from the sized scene-
+    // linear path key on size — the key tuple's existing
+    // `(urlHash, sidecar mtime, screenWidth, viewTransformVersion)` is
+    // sufficient because `screenWidth` is the size bucket (per ticket 06
+    // § Product Requirements 5). The rest of the cache contract (mtime,
+    // sidecar mtime, view transform version) is unchanged.
     private func cacheKey(for url: URL, screenWidth: Int) -> String {
         let sidecarMtime = sidecarMtimeString(for: url)
         let components = "\(urlHash(url.path))_\(sidecarMtime)_\(screenWidth)_v\(viewTransformVersion)"
