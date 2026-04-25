@@ -39,10 +39,14 @@ pub fn sensor_linearize(raw: &RawImage) -> Image {
 
 /// LinearRaw decode entry. Reshape interleaved `[R₀ G₀ B₀ R₁ G₁ B₁ …]`
 /// `raw.raw_data` into a `CameraNativeLinearRgb` `Image`, normalizing
-/// per-channel by `(white_level - black_level)`. Skips both
-/// `sensor_linearize` (1 SPP scanline) and `demosaic::*` because the
-/// data is already 3-channel RGB. Caller dispatches based on
-/// `raw.cfa == CfaPattern::LinearRgb`. See ticket #07.
+/// per-channel by `(white_level - black_level)` and undoing the converter's
+/// AsShotNeutral pre-bake by multiplying each channel by `AsShotNeutral`.
+/// After this step the data is in the same space the Bayer path produces
+/// (camera-native RGB *before* WB pre-gain), so `dcp::apply` consumes it
+/// identically and the existing `scene_white_xyz = inv(CM) · AsShotNeutral`
+/// math holds. Skips both `sensor_linearize` (1 SPP scanline) and
+/// `demosaic::*` because the data is already 3-channel RGB. Caller
+/// dispatches based on `raw.cfa == CfaPattern::LinearRgb`. See ticket #07.
 pub fn linearraw_to_camera_rgb(raw: &RawImage) -> crate::Result<Image> {
     debug_assert_eq!(raw.cfa, CfaPattern::LinearRgb);
     let w = raw.width as usize;
@@ -68,12 +72,23 @@ pub fn linearraw_to_camera_rgb(raw: &RawImage) -> crate::Result<Image> {
     let denom_g = (wl - bl_g).max(1.0);
     let denom_b = (wl - bl_b).max(1.0);
 
+    // Adobe DNG Converter writes LinearRaw with AsShotNeutral pre-applied,
+    // so a scene-neutral patch reads as roughly `(1, 1, 1)`. To restore the
+    // "camera reads AsShotNeutral on a neutral patch" invariant the rest of
+    // the pipeline expects (Bayer-equivalent), multiply each channel by the
+    // matching component of AsShotNeutral. After this, dcp::apply with the
+    // Bayer-style `scene_white_xyz = inv(CM) · AsShotNeutral` is correct.
+    // See ticket #07.
+    let asn_r = raw.as_shot_neutral[0];
+    let asn_g = raw.as_shot_neutral[1];
+    let asn_b = raw.as_shot_neutral[2];
+
     let mut img = Image::new(raw.width, raw.height, ColorSpace::CameraNativeLinearRgb);
     img.pixels.par_iter_mut().enumerate().for_each(|(idx, px)| {
         let off = idx * 3;
-        let r = ((raw.raw_data[off    ] as f32 - bl_r) / denom_r).clamp(0.0, 1.0);
-        let g = ((raw.raw_data[off + 1] as f32 - bl_g) / denom_g).clamp(0.0, 1.0);
-        let b = ((raw.raw_data[off + 2] as f32 - bl_b) / denom_b).clamp(0.0, 1.0);
+        let r = ((raw.raw_data[off    ] as f32 - bl_r) / denom_r).clamp(0.0, 1.0) * asn_r;
+        let g = ((raw.raw_data[off + 1] as f32 - bl_g) / denom_g).clamp(0.0, 1.0) * asn_g;
+        let b = ((raw.raw_data[off + 2] as f32 - bl_b) / denom_b).clamp(0.0, 1.0) * asn_b;
         *px = [r, g, b];
     });
     Ok(img)
@@ -148,7 +163,8 @@ mod tests {
     /// `linearraw_to_camera_rgb` lays the data into `Image::pixels[k] = [R, G, B]`
     /// channel-major. Pre-bug (every-other-column misroute via the Bayer
     /// path), the second pixel would pick up neighbor blue samples; this
-    /// test catches that regression.
+    /// test catches that regression. Uses identity AsShotNeutral so the
+    /// pre-bake-undo step is a no-op and the test isolates the laydown.
     #[test]
     fn linearraw_to_camera_rgb_lays_data_channel_major() {
         let raw_data: Vec<u16> = vec![
@@ -194,6 +210,42 @@ mod tests {
                 assert!((got - want).abs() < 1e-5,
                     "pixel {} channel {}: got {}, want {}", k, c, got, want);
             }
+        }
+    }
+
+    /// Regression test for ticket #07: `linearraw_to_camera_rgb` undoes the
+    /// converter's AsShotNeutral pre-bake. A neutral patch in the LinearRaw
+    /// file (raw value `(K, K, K)` for some K) should land at
+    /// `(K × asn[0], K × asn[1], K × asn[2]) / white_level` after the helper
+    /// — i.e. the pre-WB camera reading.
+    #[test]
+    fn linearraw_to_camera_rgb_undoes_as_shot_neutral_pre_bake() {
+        // Adobe LinearRaw of a neutral patch reads roughly (K, K, K). Use a
+        // typical Canon AsShotNeutral [0.606, 1.0, 0.462] and verify the
+        // helper restores the pre-WB camera reading.
+        let raw_data: Vec<u16> = vec![100, 100, 100]; // 1 px neutral
+        let raw = RawImage {
+            width: 1, height: 1,
+            cfa: CfaPattern::LinearRgb,
+            black_level: [0, 0, 0, 0],
+            white_level: 1000,
+            raw_data,
+            as_shot_neutral: [0.606276, 1.0, 0.46188504],
+            as_shot_cct: None,
+            camera_make: "Test".into(),
+            camera_model: "Test".into(),
+            color_matrices: std::collections::HashMap::new(),
+            orientation: crate::image::ExifOrientation::Normal,
+            baseline_exposure: 0.0,
+        };
+        let img = linearraw_to_camera_rgb(&raw).expect("LinearRaw decode");
+        let p = img.pixels[0];
+        let n = 100.0 / 1000.0; // raw / white_level
+        let expected = [n * 0.606276, n * 1.0, n * 0.46188504];
+        for c in 0..3 {
+            assert!((p[c] - expected[c]).abs() < 1e-5,
+                "channel {}: got {}, want {} (n × asn[{}] = {} × {} = {})",
+                c, p[c], expected[c], c, n, raw.as_shot_neutral[c], expected[c]);
         }
     }
 
