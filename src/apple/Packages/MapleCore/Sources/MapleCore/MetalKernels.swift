@@ -52,6 +52,14 @@ public enum MetalKernels {
     /// the other kernel slots above.
     private static var _metalDevice: MTLDevice?
 
+    // Plan 2 v2 — SceneUnsharp shared mix kernel (Task 4). One CIColorKernel
+    // mirrors the per-pixel `out = src + (src - blurred) * amount` mix from
+    // raw-core/src/stages/clarity.rs:16-20 and texture.rs:16-20 (the two
+    // Rust files are byte-identical at the mix level; only the upstream
+    // blur radius differs). Loaded via the same `loadKernel(file:function:)`
+    // path as the other CIColorKernel sources.
+    private static var _sceneUnsharp: CIColorKernel?
+
     // MARK: SceneToneControls
 
     public static func applySceneToneControls(
@@ -302,6 +310,76 @@ public enum MetalKernels {
 
         let opts: [CIImageOption: Any] = [.colorSpace: space]
         return CIImage(mtlTexture: texPong, options: opts) ?? input
+    }
+
+    // MARK: SceneClarity / SceneTexture (Plan 2 v2 M2)
+
+    /// Apply scene-linear Rec.2020 clarity (unsharp mask at radius 40).
+    /// Mirrors `clarity::apply` from raw-core/src/stages/clarity.rs:10.
+    /// `clarity` is in [-100, +100]; 0 is identity (short-circuit at
+    /// |clarity| < 1e-3 mirrors clarity.rs:12). The 40-pixel radius is
+    /// the binding constraint for Deep Zoom's 35-pixel overlap budget
+    /// (per docs/superpowers/plans/2026-04-25-deep-zoom-tile-rendering.md
+    /// § "Architecture" point 2). Do not change the radius without
+    /// re-verifying that overlap.
+    ///
+    /// Composition: this calls `applySeparableGaussianBlur(to:radius:40)`
+    /// then mixes via the shared `sceneUnsharp` kernel. Both branches
+    /// silent-fallback to identity if any kernel-load step fails.
+    public static func applySceneClarity(
+        to input: CIImage,
+        clarity: Float
+    ) -> CIImage {
+        if abs(clarity) < 1e-3 { return input }
+        let amount = clarity / 100.0
+        let blurred = applySeparableGaussianBlur(to: input, radius: 40)
+        return applySceneUnsharp(to: input, blurred: blurred, amount: amount)
+    }
+
+    /// Apply scene-linear Rec.2020 texture (unsharp mask at radius 3).
+    /// Mirrors `texture::apply` from raw-core/src/stages/texture.rs:10.
+    /// `texture` is in [-100, +100]; 0 is identity (short-circuit at
+    /// |texture| < 1e-3 mirrors texture.rs:12).
+    ///
+    /// Composition: this calls `applySeparableGaussianBlur(to:radius:3)`
+    /// then mixes via the shared `sceneUnsharp` kernel. The mix kernel
+    /// is the same instance used by `applySceneClarity` — the only
+    /// difference is the upstream blur's radius (3 vs 40), which lives
+    /// in the blur scratch and is invisible to this kernel.
+    public static func applySceneTexture(
+        to input: CIImage,
+        texture: Float
+    ) -> CIImage {
+        if abs(texture) < 1e-3 { return input }
+        let amount = texture / 100.0
+        let blurred = applySeparableGaussianBlur(to: input, radius: 3)
+        return applySceneUnsharp(to: input, blurred: blurred, amount: amount)
+    }
+
+    /// Shared per-pixel mix kernel: `out = src + (src - blurred) * amount`.
+    /// Used by `applySceneClarity` and `applySceneTexture` — the only
+    /// difference between the two stages is the upstream blur's radius.
+    /// Mirrors clarity.rs:16-20 and texture.rs:16-20 byte-for-byte (the
+    /// two are byte-identical at the per-pixel mix level; the diff is
+    /// confirmed in Task 4 Step 4.1 of the plan).
+    private static func applySceneUnsharp(
+        to input: CIImage,
+        blurred: CIImage,
+        amount: Float
+    ) -> CIImage {
+        guard let kernel = sceneUnsharpKernel() else { return input }
+        return kernel.apply(
+            extent: input.extent,
+            roiCallback: { _, rect in rect },
+            arguments: [input, blurred, amount]
+        ) ?? input
+    }
+
+    private static func sceneUnsharpKernel() -> CIColorKernel? {
+        if let k = _sceneUnsharp { return k }
+        _sceneUnsharp = loadKernel(file: "SceneUnsharp",
+                                   function: "sceneUnsharp") as? CIColorKernel
+        return _sceneUnsharp
     }
 
     // MARK: Private kernel loaders
