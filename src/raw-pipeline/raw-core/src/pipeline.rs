@@ -1,3 +1,5 @@
+use std::time::Instant;
+
 use crate::{
     color::dcp,
     demosaic, linearize,
@@ -10,6 +12,26 @@ use crate::{
     view::{agx, encode},
     xmp::AdjustmentModel,
 };
+
+/// Wraps a pipeline stage with `Instant::now()` timing, emitting one line
+/// to stderr when `MAPLE_PROFILE` is set in the environment. When unset
+/// the only cost is a single `Instant::now()` call and a `getenv` —
+/// negligible relative to per-pixel work, so we leave it on in release
+/// builds and let the env var gate the actual output.
+///
+/// Format: `[raw-core] <stage_name>            <elapsed>`. The width is
+/// chosen so a 30-char name and a 10-char duration line up in a
+/// monospace terminal — easy to eyeball "demosaic dominates" vs.
+/// "every stage is 200 ms."
+#[inline]
+fn stage<T>(name: &'static str, f: impl FnOnce() -> T) -> T {
+    let t = Instant::now();
+    let r = f();
+    if std::env::var_os("MAPLE_PROFILE").is_some() {
+        eprintln!("[raw-core] {:<30} {:>10.2?}", name, t.elapsed());
+    }
+    r
+}
 
 /// Per spec § 02 filter chain, slice-1 through slice-5 subset:
 /// * Highlight reconstruction (§ 3.3a), SceneToneControls (§ 3.6 steps 1-5),
@@ -43,14 +65,14 @@ pub fn render_from_raw_with_quality(
     model: &AdjustmentModel,
     quality: RenderQuality,
 ) -> Result<(u32, u32, Vec<u8>)> {
-    let mosaic = linearize::sensor_linearize(raw);
-    let mut camera_rgb = match quality {
+    let mosaic = stage("linearize", || linearize::sensor_linearize(raw));
+    let mut camera_rgb = stage("demosaic", || match quality {
         RenderQuality::Preview => demosaic::half_res(&mosaic, raw.cfa),
         #[cfg(feature = "high-quality-demosaic")]
         RenderQuality::Full => demosaic::hamilton_adams(&mosaic, raw.cfa),
         #[cfg(not(feature = "high-quality-demosaic"))]
         RenderQuality::Full => demosaic::bilinear(&mosaic, raw.cfa),
-    };
+    });
 
     // WB pre-gain (camera_rgb /= AsShotNeutral) is intentionally NOT applied
     // here despite being the DNG spec's step 4 per § 1.4.4.5. Applying it in
@@ -72,32 +94,34 @@ pub fn render_from_raw_with_quality(
     // commutative with the linear CM that follows, so we apply in the
     // camera-native space for clarity — one multiply per channel.
     if raw.baseline_exposure.abs() > 1e-4 {
-        let be_gain = raw.baseline_exposure.exp2();
-        for p in &mut camera_rgb.pixels {
-            p[0] *= be_gain;
-            p[1] *= be_gain;
-            p[2] *= be_gain;
-        }
+        stage("baseline_exposure", || {
+            let be_gain = raw.baseline_exposure.exp2();
+            for p in &mut camera_rgb.pixels {
+                p[0] *= be_gain;
+                p[1] *= be_gain;
+                p[2] *= be_gain;
+            }
+        });
     }
-    highlight_recovery::apply(&mut camera_rgb, model.highlight_recovery);
-    let profile = dcp::profile_for(raw)?;
-    let mut scene = dcp::apply(&camera_rgb, &profile)?;
-    white_balance::apply(&mut scene, model.temperature, model.tint);
-    scene_tone_controls::apply(&mut scene, model);
-    vibrance::apply(&mut scene, model.vibrance);
-    saturation::apply(&mut scene, model.saturation);
-    clarity::apply(&mut scene, model.clarity);
-    texture::apply(&mut scene, model.texture);
-    dehaze::apply(&mut scene, model.dehaze);
-    sharpen::apply(&mut scene, model.sharpen_amount, model.sharpen_radius, model.sharpen_detail, model.sharpen_masking);
-    noise_reduction::apply_luminance(&mut scene, model.nr_luminance);
-    noise_reduction::apply_color(&mut scene, model.nr_color);
-    agx::apply(&mut scene, model.contrast);
-    encode::rec2020_to_srgb(&mut scene);
-    let bytes = encode::quantize_u8(&mut scene);
+    stage("highlight_recovery", || highlight_recovery::apply(&mut camera_rgb, model.highlight_recovery));
+    let profile = stage("dcp::profile_for", || dcp::profile_for(raw))?;
+    let mut scene = stage("dcp::apply", || dcp::apply(&camera_rgb, &profile))?;
+    stage("white_balance", || white_balance::apply(&mut scene, model.temperature, model.tint));
+    stage("scene_tone_controls", || scene_tone_controls::apply(&mut scene, model));
+    stage("vibrance", || vibrance::apply(&mut scene, model.vibrance));
+    stage("saturation", || saturation::apply(&mut scene, model.saturation));
+    stage("clarity", || clarity::apply(&mut scene, model.clarity));
+    stage("texture", || texture::apply(&mut scene, model.texture));
+    stage("dehaze", || dehaze::apply(&mut scene, model.dehaze));
+    stage("sharpen", || sharpen::apply(&mut scene, model.sharpen_amount, model.sharpen_radius, model.sharpen_detail, model.sharpen_masking));
+    stage("nr_luminance", || noise_reduction::apply_luminance(&mut scene, model.nr_luminance));
+    stage("nr_color", || noise_reduction::apply_color(&mut scene, model.nr_color));
+    stage("agx", || agx::apply(&mut scene, model.contrast));
+    stage("rec2020_to_srgb", || encode::rec2020_to_srgb(&mut scene));
+    let bytes = stage("quantize_u8", || encode::quantize_u8(&mut scene));
     // Apply EXIF orientation last — rotating/flipping sRGB u8 is cheap and
     // keeps every upstream stage indifferent to sensor-vs-display framing.
-    let (w, h, bytes) = apply_orientation(&bytes, scene.width, scene.height, raw.orientation);
+    let (w, h, bytes) = stage("apply_orientation", || apply_orientation(&bytes, scene.width, scene.height, raw.orientation));
     // Both branches return the buffer at its actual rendered dimensions —
     // `Full` matches the sensor, `Preview` is half-res in both axes
     // (because of `demosaic::half_res`), and Apple/Web consumers handle
