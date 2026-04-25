@@ -783,3 +783,4 @@ EOF
 - Shared `CIContext` singleton in `ImageEditPipeline` ([EditSession.swift:347](src/apple/Packages/MapleCore/Sources/MapleCore/EditSession.swift:347)) so a 100-image grid pre-pop doesn't create 100 contexts.
 - Web side: no GPU pipeline, no two-phase render. Plan after the WebGL2 path lands.
 - Long-term: split `maple_render_file` into decode-once + apply-adjustments so the interactive open path doesn't run AgX + sRGB encode every cold open.
+- **`nr_color` (Oklab chroma blur) dominates `raw-core` wall time at 2.46 s / ~93% of total on `test_0002.dng`** — captured as [ticket #05](../../tickets/05-optimize-nr-color-chroma-blur.md) after the Task 5 `MAPLE_PROFILE` baseline exposed it. Needs its own brainstorm + spec round; the two-axis search space (algorithmic: plane-only blur / skip Oklab round-trip / tighter radius scale; parallel: `rayon` scanlines / tiling / SIMD / P-core pinning) is documented on the ticket.
