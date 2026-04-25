@@ -4,6 +4,11 @@
 
 **Goal:** Cut `_Maple`'s cold-open RAW decode from ~20 s to sub-second on 100 MP files by parallelising the `raw-core` per-pixel stages with rayon and caching the final decoded u8 sRGB buffer to disk so subsequent opens skip the Rust pipeline entirely.
 
+> **Update (2026-04-24):** The `upsample_2x_nearest_rgb8` helper this plan
+> introduced was later removed in commit `6bb2a7c` (open-path-perf Task 3) —
+> Apple/Web consumers handle the half-vs-native gap via their lazy display
+> transform. References to the helper below are historical.
+
 **Architecture:**
 1. **Rayon** on the six hottest per-pixel stages (`linearize`, `demosaic::half_res`, `color::dcp::apply`, `view::agx::apply`, `view::encode::rec2020_to_srgb`, `view::encode::quantize_u8`, `pipeline::upsample_2x_nearest_rgb8`). Each stage is embarrassingly parallel (row- or pixel-independent); `par_iter_mut` / `par_chunks_exact_mut` gets 6–10× on Apple Silicon.
 2. **`DecodedBufferCache`** on the Swift side, writing the decoded JPEG under `<folder>/.maple/decoded/<hash>.jpg` keyed on `(primaryURL, primaryMtime, rust_version)`. `EditSession.sharedDecode` reads it before spawning Rust; writes it after Rust completes. Follows the same pattern as the existing `RenderedPreviewCache` but caches the *pre-adjustment* output so slider math is applied against it, not the fully-rendered previous state.
