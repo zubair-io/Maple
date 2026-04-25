@@ -411,10 +411,24 @@ struct FullImageView: View {
 struct CIImageView: View {
     let image: CIImage
 
+    /// Render-time CIContext. Output color space is sRGB so the
+    /// Rec.2020->sRGB encode happens here, deterministically, exactly
+    /// once on both legacy and scene-linear paths. Without this the
+    /// scene-linear path's extendedLinearITUR_2020-tagged input lands
+    /// in an implementation-defined pixel space at write-out — wide
+    /// gamut on P3 hardware, primary-mismatched on others. See
+    /// docs/superpowers/plans/2026-04-24-ffi-split-plan-1.md Task 4
+    /// Step 4.0b.
     private static let context = CIContext()
+    private static let outputColorSpace = CGColorSpace(name: CGColorSpace.sRGB)!
 
     var body: some View {
-        if let cgImg = Self.context.createCGImage(image, from: image.extent) {
+        if let cgImg = Self.context.createCGImage(
+            image,
+            from: image.extent,
+            format: .RGBA8,
+            colorSpace: Self.outputColorSpace
+        ) {
             #if os(macOS)
             Image(nsImage: NSImage(cgImage: cgImg, size: .zero))
                 .resizable()

@@ -42,6 +42,23 @@ public struct MapleImageData: Sendable {
     }
 }
 
+// MARK: - MapleSceneLinearImageData
+
+/// Pixel buffer returned by `PipelineRenderer.renderSceneLinear`.
+/// Pixels are packed Rec.2020 fp16 RGBA, row-major, 8 bytes per pixel
+/// (R G B A as four `Float16` lanes). Straight (non-premultiplied) alpha,
+/// always 1.0 in Plan 1.
+public struct MapleSceneLinearImageData: Sendable {
+    public let width: Int
+    public let height: Int
+    public let channels: Int            // always 4
+    public let bytesPerPixel: Int       // always 8
+    /// Packed fp16 RGBA bytes; `pixels.count == 8 * width * height`.
+    public let pixels: Data
+
+    public var pixelCount: Int { width * height }
+}
+
 // MARK: - PipelineRenderer
 
 /// Thread-safe renderer around the Rust `raw-ffi` staticlib.
@@ -130,6 +147,58 @@ public struct PipelineRenderer: Sendable {
         }
     }
 
+    // MARK: Scene-linear render (Plan 1 FFI split)
+
+    /// Render a RAW file to a Rec.2020 fp16 RGBA scene-linear buffer.
+    /// The Apple consumer is expected to import the buffer as a CIImage
+    /// tagged `CGColorSpace.extendedLinearITUR_2020` and apply a view
+    /// transform (AgX) + gamut convert (Rec.2020 → sRGB) downstream.
+    ///
+    /// Plan 1 wire — see
+    /// docs/superpowers/plans/2026-04-24-ffi-split-plan-1.md.
+    public static func renderSceneLinear(
+        rawPath: URL,
+        xmpPath: URL? = nil,
+        quality: Quality = .full
+    ) throws -> MapleSceneLinearImageData {
+        try rawPath.withPathCString { rawCStr in
+            if let xmpPath {
+                return try xmpPath.withPathCString { xmpCStr in
+                    try _renderSceneLinear(rawCStr: rawCStr, xmpCStr: xmpCStr, quality: quality)
+                }
+            } else {
+                return try _renderSceneLinear(rawCStr: rawCStr, xmpCStr: nil, quality: quality)
+            }
+        }
+    }
+
+    public static func renderSceneLinear(
+        rawBytes: Data,
+        hint: String,
+        xmpPath: URL? = nil,
+        quality: Quality = .full
+    ) throws -> MapleSceneLinearImageData {
+        guard let hintCStr = hint.cString(using: .utf8) else {
+            throw PipelineError.hintEncodingError(hint)
+        }
+        return try rawBytes.withUnsafeBytes { (buf: UnsafeRawBufferPointer) in
+            let base = buf.baseAddress?.assumingMemoryBound(to: UInt8.self)
+            if let xmpPath {
+                return try xmpPath.withPathCString { xmpCStr in
+                    try _renderSceneLinearBytes(
+                        ptr: base, len: buf.count,
+                        hintCStr: hintCStr, xmpCStr: xmpCStr, quality: quality
+                    )
+                }
+            } else {
+                return try _renderSceneLinearBytes(
+                    ptr: base, len: buf.count,
+                    hintCStr: hintCStr, xmpCStr: nil, quality: quality
+                )
+            }
+        }
+    }
+
     // MARK: Private helpers
 
     private static func _render(rawCStr: UnsafePointer<CChar>,
@@ -177,6 +246,69 @@ public struct PipelineRenderer: Sendable {
         return MapleImageData(
             width: Int(buf.width),
             height: Int(buf.height),
+            pixels: data
+        )
+    }
+
+    // MARK: Private helpers — scene-linear
+
+    private static func _renderSceneLinear(
+        rawCStr: UnsafePointer<CChar>,
+        xmpCStr: UnsafePointer<CChar>?,
+        quality: Quality
+    ) throws -> MapleSceneLinearImageData {
+        var buf = MapleSceneLinearBuffer(
+            fp16_rgba: nil, len_bytes: 0, channels: 0,
+            bytes_per_pixel: 0, width: 0, height: 0
+        )
+        let rc = maple_render_file_scene_linear(rawCStr, xmpCStr, quality.rawValue, &buf)
+        guard rc == 0 else {
+            let msg = maple_last_error().map { String(cString: $0) } ?? "unknown error"
+            throw PipelineError.renderFailed(code: Int(rc), message: msg)
+        }
+        defer { maple_free_scene_linear_buffer(&buf) }
+        guard buf.len_bytes > 0, let ptr = buf.fp16_rgba else {
+            throw PipelineError.renderFailed(code: Int(rc), message: "empty scene-linear buffer")
+        }
+        let data = Data(bytes: ptr, count: Int(buf.len_bytes))
+        return MapleSceneLinearImageData(
+            width: Int(buf.width),
+            height: Int(buf.height),
+            channels: Int(buf.channels),
+            bytesPerPixel: Int(buf.bytes_per_pixel),
+            pixels: data
+        )
+    }
+
+    private static func _renderSceneLinearBytes(
+        ptr: UnsafePointer<UInt8>?,
+        len: Int,
+        hintCStr: [CChar],
+        xmpCStr: UnsafePointer<CChar>?,
+        quality: Quality
+    ) throws -> MapleSceneLinearImageData {
+        var buf = MapleSceneLinearBuffer(
+            fp16_rgba: nil, len_bytes: 0, channels: 0,
+            bytes_per_pixel: 0, width: 0, height: 0
+        )
+        let rc = hintCStr.withUnsafeBufferPointer { hintPtr -> Int32 in
+            maple_render_bytes_scene_linear(ptr, UInt(len), hintPtr.baseAddress,
+                                            xmpCStr, quality.rawValue, &buf)
+        }
+        guard rc == 0 else {
+            let msg = maple_last_error().map { String(cString: $0) } ?? "unknown error"
+            throw PipelineError.renderFailed(code: Int(rc), message: msg)
+        }
+        defer { maple_free_scene_linear_buffer(&buf) }
+        guard buf.len_bytes > 0, let bufPtr = buf.fp16_rgba else {
+            throw PipelineError.renderFailed(code: Int(rc), message: "empty scene-linear buffer")
+        }
+        let data = Data(bytes: bufPtr, count: Int(buf.len_bytes))
+        return MapleSceneLinearImageData(
+            width: Int(buf.width),
+            height: Int(buf.height),
+            channels: Int(buf.channels),
+            bytesPerPixel: Int(buf.bytes_per_pixel),
             pixels: data
         )
     }
