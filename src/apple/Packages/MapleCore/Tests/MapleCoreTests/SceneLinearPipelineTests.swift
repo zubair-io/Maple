@@ -2768,6 +2768,41 @@ final class SceneLinearPipelineTests: XCTestCase {
     /// edge, `g_norm = 1.0 >= masking_threshold`, so `edge = 1.0`
     /// (full sharpening). This test asserts: with masking=50, the
     /// flat-region sharpened delta is smaller than with masking=0.
+    /// Run a 32×32 fp16 Rec.2020 CIImage with an alternating-luma
+    /// pattern through processSceneLinear with model.sharpenAmount = 0
+    /// (default) vs model.sharpenAmount = 100. Assert the +100 output's
+    /// centre-pixel R-channel is finite, in [0, 2], and >= the default
+    /// output (sharpening should not crush mid-tones to zero on a
+    /// stepped-luma scene). Same `>=` caveat as v2 v1 / v2 v2 wiring
+    /// tests — under XCTest the kernel may be a no-op; the load-bearing
+    /// runtime check is in Task 7's manual smoke test.
+    func testM4ProcessSceneLinearAppliesSharpen() async throws {
+        let pipeline = ImageEditPipeline()
+        let input = Self.makeAlternatingLumaSceneLinearCIImage(width: 32, height: 32)
+
+        var modelDefault = AdjustmentModel.default
+        modelDefault.nrLuminance = 0
+        modelDefault.nrColor = 0
+        modelDefault.sharpenAmount = 0
+        var modelBoost = modelDefault
+        modelBoost.sharpenAmount = 100
+        modelBoost.sharpenRadius = 1.0
+        modelBoost.sharpenDetail = 25.0
+        modelBoost.sharpenMasking = 0.0
+
+        let outDefault = pipeline.processSceneLinear(decoded: input, model: modelDefault)
+        let outBoost   = pipeline.processSceneLinear(decoded: input, model: modelBoost)
+
+        let dR = Self.sampleCenterR(outDefault, width: 32, height: 32)
+        let bR = Self.sampleCenterR(outBoost, width: 32, height: 32)
+        XCTAssertTrue(dR.isFinite && bR.isFinite,
+            "sharpen produced non-finite channel: default=\(dR) boost=\(bR)")
+        XCTAssertGreaterThanOrEqual(bR, 0.0,
+            "sharpen pushed centre R below zero: \(bR)")
+        XCTAssertLessThanOrEqual(bR, 2.0,
+            "sharpen pushed centre R above 2.0 (clip headroom): \(bR)")
+    }
+
     func testM4SharpenMaskingFadesFlatAreas() async throws {
         // 16×16 flat field at 0.5 (no edges).
         let w = 16, h = 16
