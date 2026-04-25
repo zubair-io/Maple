@@ -359,11 +359,20 @@ public actor ImageEditPipeline {
             clarity: Float(model.clarity)
         )
 
+        // Plan 2 v2 M2 — Stage: SceneTexture (unsharp mask at radius 3 in
+        // scene-linear Rec.2020 RGB). Mirrors texture::apply from raw-core
+        // (texture.rs:10). Backed by the same SeparableGaussianBlur
+        // compute kernel as clarity (Task 2); only the radius differs.
+        let withTexture = MetalKernels.applySceneTexture(
+            to: withClarity,
+            texture: Float(model.texture)
+        )
+
         // Stage: AgX view transform — exactly once, on scene-linear data.
         // The kernel is per-channel (verified by Spike 1.2), so feeding it
         // Rec.2020 instead of sRGB only matters for out-of-gamut content.
         return MetalKernels.applyAgXViewTransform(
-            to: withClarity, contrast: Float(model.contrast)
+            to: withTexture, contrast: Float(model.contrast)
         )
     }
 
