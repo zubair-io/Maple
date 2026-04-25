@@ -19,8 +19,8 @@ extern "C" float4 sharpenOverdrive(
     coreimage::sampler_h blurredEstimate,
     float overMix
 ) {
-    float4 e = estimate.sample(estimate.coord());
-    float4 b = blurredEstimate.sample(blurredEstimate.coord());
+    float4 e = float4(estimate.sample(estimate.coord()));
+    float4 b = float4(blurredEstimate.sample(blurredEstimate.coord()));
     if (abs(overMix) < 1e-3) return e;
     float3 mixed = e.rgb + (e.rgb - b.rgb) * overMix;
     return float4(mixed, e.a);
