@@ -89,6 +89,32 @@ public enum MetalKernels {
     private static var _sharpenEdgeMix: CIKernel?
     private static var _sharpenOverdrive: CIColorKernel?
 
+    // Plan 2 v2 v4 — Dehaze chain compute pipelines + libraries.
+    // The 6 dehaze .metal sources are split across 4 MTLLibraries to
+    // keep individual library compile times short — each is a single
+    // `makeLibrary(source:)` call on first use, cached for the process
+    // lifetime. Pipelines are built lazily on first use via
+    // `dehazeDarkChannelPipeline()` etc.
+    private static var _dehazeDarkAtmoTransLib: MTLLibrary?
+    private static var _dehazeGuideLib: MTLLibrary?
+    private static var _dehazeBoxBlurLib: MTLLibrary?
+    private static var _dehazeGuidedFilterLib: MTLLibrary?
+
+    private static var _dehazeDarkChannelPipeline: MTLComputePipelineState?
+    private static var _dehazeAtmoPartialPipeline: MTLComputePipelineState?
+    private static var _dehazeAtmoFinalPipeline: MTLComputePipelineState?
+    private static var _dehazeTransmissionPipeline: MTLComputePipelineState?
+    private static var _dehazeGuidePipeline: MTLComputePipelineState?
+    private static var _dehazeBoxBlurHPipeline: MTLComputePipelineState?
+    private static var _dehazeBoxBlurVPipeline: MTLComputePipelineState?
+    private static var _dehazeBuildIpPipeline: MTLComputePipelineState?
+    private static var _dehazeBuildIIPipeline: MTLComputePipelineState?
+    private static var _dehazeCombineABPipeline: MTLComputePipelineState?
+    private static var _dehazeUnpackRPipeline: MTLComputePipelineState?
+    private static var _dehazeUnpackGPipeline: MTLComputePipelineState?
+
+    private static var _dehazeReconstruct: CIColorKernel?
+
     // MARK: SceneToneControls
 
     public static func applySceneToneControls(
@@ -494,6 +520,300 @@ public enum MetalKernels {
         ) ?? input
     }
 
+    // MARK: SceneDehaze (Plan 2 v2 v4 M5)
+
+    /// Apply scene-linear Rec.2020 dehaze. Mirrors `dehaze::apply` from
+    /// raw-core/src/stages/dehaze.rs:144-179.
+    ///
+    /// `dehaze` is in [-100, +100]; 0 is identity (short-circuit at
+    /// |dehaze| < 1e-3 mirrors dehaze.rs:146). Positive removes haze;
+    /// negative adds haze. The 67 px stencil (15x15 dark-channel + 60
+    /// guided-filter box) exceeds Deep Zoom's 35 px overlap budget;
+    /// the deep-zoom UI clamps maxPixelScale to fit-zoom when this
+    /// slider is non-zero. See docs/superpowers/plans/2026-04-25-deep-
+    /// zoom-tile-rendering.md Architecture point 3.
+    ///
+    /// Composition (single MTLCommandBuffer pair, with one CPU sync
+    /// between them to sort the per-threadgroup partial buffer):
+    ///   1. Render input CIImage to fp16 RGBA scratch (texSrc).
+    ///   2. dehazeDarkChannel(texSrc -> texDark).
+    ///   3. dehazeAtmoPartial (per-tg top-1 -> partialBuf).
+    ///   4. CPU sync: read partialBuf, sort descending, write back.
+    ///   5. dehazeAtmoFinal (-> atmoBuf, 3 floats).
+    ///   6. dehazeBuildGuide(texSrc -> texGuide).
+    ///   7. dehazeTransmission(texSrc, atmoBuf -> texTrans).
+    ///   8. Guided filter on (texGuide, texTrans):
+    ///      8a. dehaze single-pass box-blur of texGuide -> texMeanI.
+    ///          NOT the v2 v1 SeparableGaussianBlur — see plan §
+    ///          "Box-blur semantics for guided filter".
+    ///      8b. box-blur of texTrans -> texMeanP.
+    ///      8c. dehazeBuildIp(texGuide, texTrans -> texIp), box-blur ->
+    ///          texMeanIp.
+    ///      8d. dehazeBuildII(texGuide -> texII), box-blur -> texMeanII.
+    ///      8e. dehazeCombineAB -> texPackedAB (rg16Float).
+    ///      8f. dehazeUnpackR(texPackedAB -> texAUnpack), box-blur ->
+    ///          texMeanA.
+    ///      8g. dehazeUnpackG(texPackedAB -> texBUnpack), box-blur ->
+    ///          texMeanB.
+    ///   9. Wrap texSrc, texMeanA, texMeanB, texGuide as CIImages.
+    ///  10. dehazeReconstruct CIColorKernel — final per-pixel J = (I-A)/
+    ///      max(t_eff, 0.1) + A with slider mapping.
+    ///
+    /// Returns identity (the input CIImage instance unchanged) on:
+    ///   - |dehaze| < 1e-3
+    ///   - any kernel-load / pipeline-build / texture-alloc step fails
+    ///     (silent fallback per the existing wrapper convention)
+    public static func applySceneDehaze(
+        to input: CIImage,
+        dehaze: Float
+    ) -> CIImage {
+        if abs(dehaze) < 1e-3 { return input }
+        let scale = max(-1.0, min(1.0, dehaze / 100.0))
+
+        guard let device = metalDevice(),
+              let queue = device.makeCommandQueue(),
+              let pDark = dehazeDarkChannelPipeline(),
+              let pAtmoPartial = dehazeAtmoPartialPipeline(),
+              let pAtmoFinal = dehazeAtmoFinalPipeline(),
+              let pTrans = dehazeTransmissionPipeline(),
+              let pGuide = dehazeGuidePipeline(),
+              let pBoxH = dehazeBoxBlurHPipeline(),
+              let pBoxV = dehazeBoxBlurVPipeline(),
+              let pBuildIp = dehazeBuildIpPipeline(),
+              let pBuildII = dehazeBuildIIPipeline(),
+              let pCombineAB = dehazeCombineABPipeline(),
+              let pUnpackR = dehazeUnpackRPipeline(),
+              let pUnpackG = dehazeUnpackGPipeline(),
+              let kReconstruct = dehazeReconstructKernel() else {
+            return input
+        }
+
+        let extent = input.extent
+        let w = max(1, Int(extent.width.rounded()))
+        let h = max(1, Int(extent.height.rounded()))
+
+        // RGBA fp16 source render target.
+        let descRGBA = MTLTextureDescriptor.texture2DDescriptor(
+            pixelFormat: .rgba16Float, width: w, height: h, mipmapped: false)
+        descRGBA.usage = [.shaderRead, .shaderWrite, .renderTarget]
+        descRGBA.storageMode = .private
+
+        // Single-channel fp16 scratch (.r16Float).
+        let descSC = MTLTextureDescriptor.texture2DDescriptor(
+            pixelFormat: .r16Float, width: w, height: h, mipmapped: false)
+        descSC.usage = [.shaderRead, .shaderWrite]
+        descSC.storageMode = .private
+
+        // Two-channel fp16 packed (a, b).
+        let descRG = MTLTextureDescriptor.texture2DDescriptor(
+            pixelFormat: .rg16Float, width: w, height: h, mipmapped: false)
+        descRG.usage = [.shaderRead, .shaderWrite]
+        descRG.storageMode = .private
+
+        guard let texSrc = device.makeTexture(descriptor: descRGBA),
+              let texDark = device.makeTexture(descriptor: descSC),
+              let texGuide = device.makeTexture(descriptor: descSC),
+              let texTrans = device.makeTexture(descriptor: descSC),
+              let texMeanI = device.makeTexture(descriptor: descSC),
+              let texMeanP = device.makeTexture(descriptor: descSC),
+              let texIp = device.makeTexture(descriptor: descSC),
+              let texMeanIp = device.makeTexture(descriptor: descSC),
+              let texII = device.makeTexture(descriptor: descSC),
+              let texMeanII = device.makeTexture(descriptor: descSC),
+              let texPackedAB = device.makeTexture(descriptor: descRG),
+              let texAUnpack = device.makeTexture(descriptor: descSC),
+              let texBUnpack = device.makeTexture(descriptor: descSC),
+              let texMeanA = device.makeTexture(descriptor: descSC),
+              let texMeanB = device.makeTexture(descriptor: descSC),
+              let texPing = device.makeTexture(descriptor: descSC) else {
+            return input
+        }
+
+        // Render input -> texSrc.
+        let space = CGColorSpace(name: CGColorSpace.extendedLinearITUR_2020)!
+        let ciCtx = CIContext(mtlDevice: device, options: [
+            .workingColorSpace: CGColorSpace(name: CGColorSpace.extendedLinearSRGB)!,
+            .workingFormat: CIFormat.RGBAh,
+            .cacheIntermediates: false,
+        ])
+        guard let cb1 = queue.makeCommandBuffer() else { return input }
+        ciCtx.render(input, to: texSrc, commandBuffer: cb1, bounds: extent, colorSpace: space)
+
+        let tgX = (w + 15) / 16
+        let tgY = (h + 15) / 16
+
+        // Helper: dispatch a 2D compute kernel filling (w, h) with 16x16
+        // threadgroup tiles. Returns false on encoder failure.
+        func dispatch2D(
+            _ pipeline: MTLComputePipelineState,
+            on cb: MTLCommandBuffer,
+            configure: (MTLComputeCommandEncoder) -> Void
+        ) -> Bool {
+            guard let enc = cb.makeComputeCommandEncoder() else { return false }
+            enc.setComputePipelineState(pipeline)
+            configure(enc)
+            let tg = MTLSize(width: 16, height: 16, depth: 1)
+            let tgCount = MTLSize(
+                width:  tgX,
+                height: tgY,
+                depth: 1)
+            enc.dispatchThreadgroups(tgCount, threadsPerThreadgroup: tg)
+            enc.endEncoding()
+            return true
+        }
+
+        // Box-blur helper: 1 H pass + 1 V pass via texPing scratch.
+        // Reads from `srcTex`, writes to `dstTex`. (No 3-pass approximation —
+        // dehaze guided filter expects single-pass running-sum.)
+        let boxRadius: UInt32 = 60
+        func boxBlurSingleChannel(
+            _ srcTex: MTLTexture, _ dstTex: MTLTexture, on cb: MTLCommandBuffer
+        ) -> Bool {
+            // H pass: srcTex -> texPing.
+            var radius = boxRadius
+            guard dispatch2D(pBoxH, on: cb, configure: { enc in
+                enc.setTexture(srcTex, index: 0)
+                enc.setTexture(texPing, index: 1)
+                enc.setBytes(&radius, length: 4, index: 0)
+            }) else { return false }
+            // V pass: texPing -> dstTex.
+            return dispatch2D(pBoxV, on: cb, configure: { enc in
+                enc.setTexture(texPing, index: 0)
+                enc.setTexture(dstTex, index: 1)
+                enc.setBytes(&radius, length: 4, index: 0)
+            })
+        }
+
+        // 1. Dark channel.
+        guard dispatch2D(pDark, on: cb1, configure: { enc in
+            enc.setTexture(texSrc, index: 0)
+            enc.setTexture(texDark, index: 1)
+        }) else { return input }
+
+        // 2. Atmospheric-light pass 1 (per-tg top-1).
+        let partialCount = tgX * tgY
+        let totalPixels = UInt32(w * h)
+        let topN = max(UInt32(1), totalPixels / 1000)
+        guard let partialBuf = device.makeBuffer(
+            length: partialCount * MemoryLayout<SIMD4<Float>>.stride,
+            options: .storageModeShared) else { return input }
+        var partialDims = SIMD2<UInt32>(UInt32(tgX), UInt32(tgY))
+        guard dispatch2D(pAtmoPartial, on: cb1, configure: { enc in
+            enc.setTexture(texSrc, index: 0)
+            enc.setTexture(texDark, index: 1)
+            enc.setBuffer(partialBuf, offset: 0, index: 0)
+            enc.setBytes(&partialDims, length: MemoryLayout<SIMD2<UInt32>>.size, index: 1)
+        }) else { return input }
+
+        // Commit cb1 and wait — we need to read partialBuf back, sort, then
+        // dispatch the final reduce on cb2.
+        cb1.commit()
+        cb1.waitUntilCompleted()
+
+        // CPU sort the partial buffer descending by .x (dark-channel value).
+        let partialPtr = partialBuf.contents()
+            .bindMemory(to: SIMD4<Float>.self, capacity: partialCount)
+        var partials = Array(UnsafeBufferPointer(start: partialPtr, count: partialCount))
+        partials.sort { $0.x > $1.x }
+        for (i, v) in partials.enumerated() { partialPtr[i] = v }
+
+        // Build atmoBuf (3 floats output).
+        guard let atmoBuf = device.makeBuffer(
+            length: 3 * MemoryLayout<Float>.stride,
+            options: .storageModeShared) else { return input }
+
+        // 3. Atmospheric-light pass 2 (final reduce).
+        guard let cb2 = queue.makeCommandBuffer() else { return input }
+        var partialCountU32 = UInt32(partialCount)
+        var topNU32 = topN
+        guard let encAtmo = cb2.makeComputeCommandEncoder() else { return input }
+        encAtmo.setComputePipelineState(pAtmoFinal)
+        encAtmo.setBuffer(partialBuf, offset: 0, index: 0)
+        encAtmo.setBuffer(atmoBuf,    offset: 0, index: 1)
+        encAtmo.setBytes(&partialCountU32, length: 4, index: 2)
+        encAtmo.setBytes(&topNU32, length: 4, index: 3)
+        encAtmo.dispatchThreadgroups(
+            MTLSize(width: 1, height: 1, depth: 1),
+            threadsPerThreadgroup: MTLSize(width: 1, height: 1, depth: 1))
+        encAtmo.endEncoding()
+
+        // 4. Guide.
+        guard dispatch2D(pGuide, on: cb2, configure: { enc in
+            enc.setTexture(texSrc, index: 0)
+            enc.setTexture(texGuide, index: 1)
+        }) else { return input }
+
+        // 5. Transmission.
+        guard dispatch2D(pTrans, on: cb2, configure: { enc in
+            enc.setTexture(texSrc, index: 0)
+            enc.setTexture(texTrans, index: 1)
+            enc.setBuffer(atmoBuf, offset: 0, index: 0)
+        }) else { return input }
+
+        // 6. Guided filter — 8 box-blurs + build_Ip + build_II + combineAB
+        //    + unpack R/G.
+        guard boxBlurSingleChannel(texGuide, texMeanI, on: cb2) else { return input }
+        guard boxBlurSingleChannel(texTrans, texMeanP, on: cb2) else { return input }
+        guard dispatch2D(pBuildIp, on: cb2, configure: { enc in
+            enc.setTexture(texGuide, index: 0)
+            enc.setTexture(texTrans, index: 1)
+            enc.setTexture(texIp, index: 2)
+        }) else { return input }
+        guard boxBlurSingleChannel(texIp, texMeanIp, on: cb2) else { return input }
+        guard dispatch2D(pBuildII, on: cb2, configure: { enc in
+            enc.setTexture(texGuide, index: 0)
+            enc.setTexture(texII, index: 1)
+        }) else { return input }
+        guard boxBlurSingleChannel(texII, texMeanII, on: cb2) else { return input }
+        var eps: Float = 1e-3
+        guard dispatch2D(pCombineAB, on: cb2, configure: { enc in
+            enc.setTexture(texMeanI, index: 0)
+            enc.setTexture(texMeanP, index: 1)
+            enc.setTexture(texMeanIp, index: 2)
+            enc.setTexture(texMeanII, index: 3)
+            enc.setTexture(texPackedAB, index: 4)
+            enc.setBytes(&eps, length: 4, index: 0)
+        }) else { return input }
+        // Unpack a -> single-channel scratch, then box-blur into texMeanA.
+        guard dispatch2D(pUnpackR, on: cb2, configure: { enc in
+            enc.setTexture(texPackedAB, index: 0)
+            enc.setTexture(texAUnpack, index: 1)
+        }) else { return input }
+        guard boxBlurSingleChannel(texAUnpack, texMeanA, on: cb2) else { return input }
+        // Unpack b -> single-channel scratch, then box-blur into texMeanB.
+        guard dispatch2D(pUnpackG, on: cb2, configure: { enc in
+            enc.setTexture(texPackedAB, index: 0)
+            enc.setTexture(texBUnpack, index: 1)
+        }) else { return input }
+        guard boxBlurSingleChannel(texBUnpack, texMeanB, on: cb2) else { return input }
+
+        cb2.commit()
+        cb2.waitUntilCompleted()
+        // We need atmoBuf to be visible on CPU before we read A_r/A_g/A_b
+        // for the CIColorKernel arguments, hence the wait.
+
+        // 7. Reconstruction CIColorKernel.
+        // Wrap the 4 outputs as CIImages (texSrc, texMeanA, texMeanB, texGuide).
+        let opts: [CIImageOption: Any] = [.colorSpace: space]
+        guard let imgSrc = CIImage(mtlTexture: texSrc, options: opts),
+              let imgMeanA = CIImage(mtlTexture: texMeanA, options: opts),
+              let imgMeanB = CIImage(mtlTexture: texMeanB, options: opts),
+              let imgGuide = CIImage(mtlTexture: texGuide, options: opts) else {
+            return input
+        }
+
+        let atmoPtr = atmoBuf.contents().bindMemory(to: Float.self, capacity: 3)
+        let A_r = atmoPtr[0]
+        let A_g = atmoPtr[1]
+        let A_b = atmoPtr[2]
+
+        return kReconstruct.apply(
+            extent: input.extent,
+            roiCallback: { _, rect in rect },
+            arguments: [imgSrc, imgMeanA, imgMeanB, imgGuide, A_r, A_g, A_b, scale]
+        ) ?? input
+    }
+
     // MARK: SceneSharpen (Plan 2 v2 v3 M4)
 
     /// Apply scene-linear Rec.2020 capture sharpening (3-iteration
@@ -832,6 +1152,345 @@ public enum MetalKernels {
             return nil
         }
         return _separableBoxBlurVPipeline
+    }
+
+    // MARK: Dehaze — private library loaders (Plan 2 v2 v4)
+
+    /// Compile DehazeDarkChannel + DehazeAtmosphericLight + DehazeTransmission
+    /// to a single runtime `MTLLibrary`. Source comes from `Bundle.module/
+    /// Metal/` (verbatim copy via Package.swift `.copy("Metal")`). Three
+    /// related kernels share one library so the Metal compiler can run a
+    /// single compile invocation. Sources concatenated as plain text.
+    private static func dehazeDarkAtmoTransLibrary() -> MTLLibrary? {
+        if let lib = _dehazeDarkAtmoTransLib { return lib }
+        guard let device = metalDevice() else { return nil }
+        let parts = ["DehazeDarkChannel", "DehazeAtmosphericLight", "DehazeTransmission"]
+        var joined = ""
+        for name in parts {
+            guard let data = metalSource(name),
+                  let s = String(data: data, encoding: .utf8) else {
+                os_log(.error, log: kernelLog,
+                    "Dehaze .metal source %{public}@ not found in Bundle.module/Metal/", name)
+                return nil
+            }
+            joined += s + "\n"
+        }
+        do {
+            _dehazeDarkAtmoTransLib = try device.makeLibrary(source: joined, options: nil)
+            return _dehazeDarkAtmoTransLib
+        } catch {
+            os_log(.error, log: kernelLog,
+                "MTLDevice.makeLibrary(source:) failed for Dehaze dark-atmo-trans: %{public}@",
+                String(describing: error))
+            return nil
+        }
+    }
+
+    private static func dehazeDarkChannelPipeline() -> MTLComputePipelineState? {
+        if let p = _dehazeDarkChannelPipeline { return p }
+        guard let device = metalDevice(),
+              let lib = dehazeDarkAtmoTransLibrary(),
+              let fn = lib.makeFunction(name: "dehazeDarkChannel") else {
+            os_log(.error, log: kernelLog,
+                "dehazeDarkChannel function missing from compiled library")
+            return nil
+        }
+        do {
+            _dehazeDarkChannelPipeline = try device.makeComputePipelineState(function: fn)
+        } catch {
+            os_log(.error, log: kernelLog,
+                "makeComputePipelineState(dehazeDarkChannel) failed: %{public}@",
+                String(describing: error))
+            return nil
+        }
+        return _dehazeDarkChannelPipeline
+    }
+
+    private static func dehazeAtmoPartialPipeline() -> MTLComputePipelineState? {
+        if let p = _dehazeAtmoPartialPipeline { return p }
+        guard let device = metalDevice(),
+              let lib = dehazeDarkAtmoTransLibrary(),
+              let fn = lib.makeFunction(name: "dehazeAtmoPartial") else {
+            os_log(.error, log: kernelLog,
+                "dehazeAtmoPartial function missing from compiled library")
+            return nil
+        }
+        do {
+            _dehazeAtmoPartialPipeline = try device.makeComputePipelineState(function: fn)
+        } catch {
+            os_log(.error, log: kernelLog,
+                "makeComputePipelineState(dehazeAtmoPartial) failed: %{public}@",
+                String(describing: error))
+            return nil
+        }
+        return _dehazeAtmoPartialPipeline
+    }
+
+    private static func dehazeAtmoFinalPipeline() -> MTLComputePipelineState? {
+        if let p = _dehazeAtmoFinalPipeline { return p }
+        guard let device = metalDevice(),
+              let lib = dehazeDarkAtmoTransLibrary(),
+              let fn = lib.makeFunction(name: "dehazeAtmoFinal") else {
+            os_log(.error, log: kernelLog,
+                "dehazeAtmoFinal function missing from compiled library")
+            return nil
+        }
+        do {
+            _dehazeAtmoFinalPipeline = try device.makeComputePipelineState(function: fn)
+        } catch {
+            os_log(.error, log: kernelLog,
+                "makeComputePipelineState(dehazeAtmoFinal) failed: %{public}@",
+                String(describing: error))
+            return nil
+        }
+        return _dehazeAtmoFinalPipeline
+    }
+
+    private static func dehazeTransmissionPipeline() -> MTLComputePipelineState? {
+        if let p = _dehazeTransmissionPipeline { return p }
+        guard let device = metalDevice(),
+              let lib = dehazeDarkAtmoTransLibrary(),
+              let fn = lib.makeFunction(name: "dehazeTransmission") else {
+            os_log(.error, log: kernelLog,
+                "dehazeTransmission function missing from compiled library")
+            return nil
+        }
+        do {
+            _dehazeTransmissionPipeline = try device.makeComputePipelineState(function: fn)
+        } catch {
+            os_log(.error, log: kernelLog,
+                "makeComputePipelineState(dehazeTransmission) failed: %{public}@",
+                String(describing: error))
+            return nil
+        }
+        return _dehazeTransmissionPipeline
+    }
+
+    private static func dehazeGuideLibrary() -> MTLLibrary? {
+        if let lib = _dehazeGuideLib { return lib }
+        guard let device = metalDevice(),
+              let data = metalSource("DehazeGuide"),
+              let source = String(data: data, encoding: .utf8) else {
+            os_log(.error, log: kernelLog,
+                "DehazeGuide.metal source not found in Bundle.module/Metal/")
+            return nil
+        }
+        do {
+            _dehazeGuideLib = try device.makeLibrary(source: source, options: nil)
+            return _dehazeGuideLib
+        } catch {
+            os_log(.error, log: kernelLog,
+                "MTLDevice.makeLibrary(source:) failed for DehazeGuide: %{public}@",
+                String(describing: error))
+            return nil
+        }
+    }
+
+    private static func dehazeGuidePipeline() -> MTLComputePipelineState? {
+        if let p = _dehazeGuidePipeline { return p }
+        guard let device = metalDevice(),
+              let lib = dehazeGuideLibrary(),
+              let fn = lib.makeFunction(name: "dehazeBuildGuide") else {
+            os_log(.error, log: kernelLog,
+                "dehazeBuildGuide function missing from compiled library")
+            return nil
+        }
+        do {
+            _dehazeGuidePipeline = try device.makeComputePipelineState(function: fn)
+        } catch {
+            os_log(.error, log: kernelLog,
+                "makeComputePipelineState(dehazeBuildGuide) failed: %{public}@",
+                String(describing: error))
+            return nil
+        }
+        return _dehazeGuidePipeline
+    }
+
+    private static func dehazeBoxBlurLibrary() -> MTLLibrary? {
+        if let lib = _dehazeBoxBlurLib { return lib }
+        guard let device = metalDevice(),
+              let data = metalSource("DehazeBoxBlur"),
+              let source = String(data: data, encoding: .utf8) else {
+            os_log(.error, log: kernelLog,
+                "DehazeBoxBlur.metal source not found in Bundle.module/Metal/")
+            return nil
+        }
+        do {
+            _dehazeBoxBlurLib = try device.makeLibrary(source: source, options: nil)
+            return _dehazeBoxBlurLib
+        } catch {
+            os_log(.error, log: kernelLog,
+                "MTLDevice.makeLibrary(source:) failed for DehazeBoxBlur: %{public}@",
+                String(describing: error))
+            return nil
+        }
+    }
+
+    private static func dehazeBoxBlurHPipeline() -> MTLComputePipelineState? {
+        if let p = _dehazeBoxBlurHPipeline { return p }
+        guard let device = metalDevice(),
+              let lib = dehazeBoxBlurLibrary(),
+              let fn = lib.makeFunction(name: "dehazeBoxBlurH") else {
+            os_log(.error, log: kernelLog,
+                "dehazeBoxBlurH function missing from compiled library")
+            return nil
+        }
+        do {
+            _dehazeBoxBlurHPipeline = try device.makeComputePipelineState(function: fn)
+        } catch {
+            os_log(.error, log: kernelLog,
+                "makeComputePipelineState(dehazeBoxBlurH) failed: %{public}@",
+                String(describing: error))
+            return nil
+        }
+        return _dehazeBoxBlurHPipeline
+    }
+
+    private static func dehazeBoxBlurVPipeline() -> MTLComputePipelineState? {
+        if let p = _dehazeBoxBlurVPipeline { return p }
+        guard let device = metalDevice(),
+              let lib = dehazeBoxBlurLibrary(),
+              let fn = lib.makeFunction(name: "dehazeBoxBlurV") else {
+            os_log(.error, log: kernelLog,
+                "dehazeBoxBlurV function missing from compiled library")
+            return nil
+        }
+        do {
+            _dehazeBoxBlurVPipeline = try device.makeComputePipelineState(function: fn)
+        } catch {
+            os_log(.error, log: kernelLog,
+                "makeComputePipelineState(dehazeBoxBlurV) failed: %{public}@",
+                String(describing: error))
+            return nil
+        }
+        return _dehazeBoxBlurVPipeline
+    }
+
+    private static func dehazeGuidedFilterLibrary() -> MTLLibrary? {
+        if let lib = _dehazeGuidedFilterLib { return lib }
+        guard let device = metalDevice(),
+              let data = metalSource("DehazeGuidedFilter"),
+              let source = String(data: data, encoding: .utf8) else {
+            os_log(.error, log: kernelLog,
+                "DehazeGuidedFilter.metal source not found in Bundle.module/Metal/")
+            return nil
+        }
+        do {
+            _dehazeGuidedFilterLib = try device.makeLibrary(source: source, options: nil)
+            return _dehazeGuidedFilterLib
+        } catch {
+            os_log(.error, log: kernelLog,
+                "MTLDevice.makeLibrary(source:) failed for DehazeGuidedFilter: %{public}@",
+                String(describing: error))
+            return nil
+        }
+    }
+
+    private static func dehazeBuildIpPipeline() -> MTLComputePipelineState? {
+        if let p = _dehazeBuildIpPipeline { return p }
+        guard let device = metalDevice(),
+              let lib = dehazeGuidedFilterLibrary(),
+              let fn = lib.makeFunction(name: "dehazeBuildIp") else {
+            os_log(.error, log: kernelLog,
+                "dehazeBuildIp function missing from compiled library")
+            return nil
+        }
+        do {
+            _dehazeBuildIpPipeline = try device.makeComputePipelineState(function: fn)
+        } catch {
+            os_log(.error, log: kernelLog,
+                "makeComputePipelineState(dehazeBuildIp) failed: %{public}@",
+                String(describing: error))
+            return nil
+        }
+        return _dehazeBuildIpPipeline
+    }
+
+    private static func dehazeBuildIIPipeline() -> MTLComputePipelineState? {
+        if let p = _dehazeBuildIIPipeline { return p }
+        guard let device = metalDevice(),
+              let lib = dehazeGuidedFilterLibrary(),
+              let fn = lib.makeFunction(name: "dehazeBuildII") else {
+            os_log(.error, log: kernelLog,
+                "dehazeBuildII function missing from compiled library")
+            return nil
+        }
+        do {
+            _dehazeBuildIIPipeline = try device.makeComputePipelineState(function: fn)
+        } catch {
+            os_log(.error, log: kernelLog,
+                "makeComputePipelineState(dehazeBuildII) failed: %{public}@",
+                String(describing: error))
+            return nil
+        }
+        return _dehazeBuildIIPipeline
+    }
+
+    private static func dehazeCombineABPipeline() -> MTLComputePipelineState? {
+        if let p = _dehazeCombineABPipeline { return p }
+        guard let device = metalDevice(),
+              let lib = dehazeGuidedFilterLibrary(),
+              let fn = lib.makeFunction(name: "dehazeCombineAB") else {
+            os_log(.error, log: kernelLog,
+                "dehazeCombineAB function missing from compiled library")
+            return nil
+        }
+        do {
+            _dehazeCombineABPipeline = try device.makeComputePipelineState(function: fn)
+        } catch {
+            os_log(.error, log: kernelLog,
+                "makeComputePipelineState(dehazeCombineAB) failed: %{public}@",
+                String(describing: error))
+            return nil
+        }
+        return _dehazeCombineABPipeline
+    }
+
+    private static func dehazeUnpackRPipeline() -> MTLComputePipelineState? {
+        if let p = _dehazeUnpackRPipeline { return p }
+        guard let device = metalDevice(),
+              let lib = dehazeGuidedFilterLibrary(),
+              let fn = lib.makeFunction(name: "dehazeUnpackR") else {
+            os_log(.error, log: kernelLog,
+                "dehazeUnpackR function missing from compiled library")
+            return nil
+        }
+        do {
+            _dehazeUnpackRPipeline = try device.makeComputePipelineState(function: fn)
+        } catch {
+            os_log(.error, log: kernelLog,
+                "makeComputePipelineState(dehazeUnpackR) failed: %{public}@",
+                String(describing: error))
+            return nil
+        }
+        return _dehazeUnpackRPipeline
+    }
+
+    private static func dehazeUnpackGPipeline() -> MTLComputePipelineState? {
+        if let p = _dehazeUnpackGPipeline { return p }
+        guard let device = metalDevice(),
+              let lib = dehazeGuidedFilterLibrary(),
+              let fn = lib.makeFunction(name: "dehazeUnpackG") else {
+            os_log(.error, log: kernelLog,
+                "dehazeUnpackG function missing from compiled library")
+            return nil
+        }
+        do {
+            _dehazeUnpackGPipeline = try device.makeComputePipelineState(function: fn)
+        } catch {
+            os_log(.error, log: kernelLog,
+                "makeComputePipelineState(dehazeUnpackG) failed: %{public}@",
+                String(describing: error))
+            return nil
+        }
+        return _dehazeUnpackGPipeline
+    }
+
+    private static func dehazeReconstructKernel() -> CIColorKernel? {
+        if let k = _dehazeReconstruct { return k }
+        _dehazeReconstruct = loadKernel(file: "DehazeReconstruct",
+                                        function: "dehazeReconstruct") as? CIColorKernel
+        return _dehazeReconstruct
     }
 
     // MARK: Helpers
