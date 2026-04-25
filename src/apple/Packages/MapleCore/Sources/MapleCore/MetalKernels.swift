@@ -67,6 +67,13 @@ public enum MetalKernels {
     private static var _sceneNRLuminanceExtract: CIColorKernel?
     private static var _sceneNRLuminanceCombine: CIColorKernel?
 
+    // Plan 2 v2 v2 — SceneNRColor shared kernels (M3b, Task 4). Two
+    // CIColorKernels: extractAB (rec2020 -> oklab a/b pack for the
+    // blur input) and combine (rec2020 + blurredAB -> rec2020 with
+    // new a/b). Same lazy / process-lifetime cache pattern.
+    private static var _sceneNRColorExtract: CIColorKernel?
+    private static var _sceneNRColorCombine: CIColorKernel?
+
     // MARK: SceneToneControls
 
     public static func applySceneToneControls(
@@ -423,6 +430,55 @@ public enum MetalKernels {
         ) ?? input
     }
 
+    // MARK: SceneNRColor (Plan 2 v2 v2 M3b)
+
+    /// Apply scene-linear Rec.2020 chroma noise reduction (Oklab
+    /// roundtrip + shared blur on the a/b channels). Mirrors
+    /// `noise_reduction::apply_color` from raw-core/src/stages/
+    /// noise_reduction.rs:61-96.
+    ///
+    /// `nrColor` is in [0, 100]; 0 is identity. The default
+    /// `AdjustmentModel.nrColor` is 25 (radius=1), so this wrapper
+    /// runs by default — meaning AdjustmentModel.default produces
+    /// chroma-blurred output with one box-blur radius. Higher slider
+    /// values scale the integer blur radius via `radius = max(1,
+    /// ceil((amount / 100) * 4.0))`. Maximum effective radius at
+    /// amount=100 is 4 source pixels (3-pass box ~3 px tail), well
+    /// inside the Deep Zoom 35 px overlap budget.
+    ///
+    /// Composition: same shape as applySceneNRLuminance — extractAB
+    /// runs first (rec2020 -> oklab and pack (a, b, 0, alpha)), then
+    /// applySeparableGaussianBlur at the integer radius, then combine
+    /// (rec2020 + blurred-AB -> rec2020 with new a/b).
+    public static func applySceneNRColor(
+        to input: CIImage,
+        nrColor: Float
+    ) -> CIImage {
+        if abs(nrColor) < 1e-3 { return input }
+        let scaled = (nrColor / 100.0) * 4.0
+        let ceiled = Int(ceilf(scaled))
+        let radius = max(1, ceiled)
+
+        guard let extract = sceneNRColorExtractKernel(),
+              let combine = sceneNRColorCombineKernel() else {
+            return input
+        }
+
+        guard let abPlane = extract.apply(
+            extent: input.extent,
+            roiCallback: { _, rect in rect },
+            arguments: [input]
+        ) else { return input }
+
+        let blurredAB = applySeparableGaussianBlur(to: abPlane, radius: radius)
+
+        return combine.apply(
+            extent: input.extent,
+            roiCallback: { _, rect in rect },
+            arguments: [input, blurredAB, nrColor / 100.0]
+        ) ?? input
+    }
+
     /// Shared per-pixel mix kernel: `out = src + (src - blurred) * amount`.
     /// Used by `applySceneClarity` and `applySceneTexture` — the only
     /// difference between the two stages is the upstream blur's radius.
@@ -461,6 +517,20 @@ public enum MetalKernels {
         _sceneNRLuminanceCombine = loadKernel(file: "SceneNRLuminance",
                                               function: "nrLuminanceCombine") as? CIColorKernel
         return _sceneNRLuminanceCombine
+    }
+
+    private static func sceneNRColorExtractKernel() -> CIColorKernel? {
+        if let k = _sceneNRColorExtract { return k }
+        _sceneNRColorExtract = loadKernel(file: "SceneNRColor",
+                                          function: "nrColorExtractAB") as? CIColorKernel
+        return _sceneNRColorExtract
+    }
+
+    private static func sceneNRColorCombineKernel() -> CIColorKernel? {
+        if let k = _sceneNRColorCombine { return k }
+        _sceneNRColorCombine = loadKernel(file: "SceneNRColor",
+                                          function: "nrColorCombine") as? CIColorKernel
+        return _sceneNRColorCombine
     }
 
     // MARK: Private kernel loaders
