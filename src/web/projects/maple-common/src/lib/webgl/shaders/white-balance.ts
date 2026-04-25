@@ -1,5 +1,11 @@
-#version 300 es
-// WhiteBalance.frag — port of WhiteBalance.metal:84-107 (Plan 3 M2.1).
+// white-balance.ts — port of WhiteBalance.metal:84-107 (Plan 3 M2.1).
+// GLSL ES 3.0 fragment shader source as a TypeScript template literal.
+//
+// See vertex.ts for why the GLSL is shipped inline rather than via a
+// `.glsl?raw` import (ng-packagr can't load that).
+
+export const WHITE_BALANCE_FRAGMENT_SOURCE = /* glsl */ `#version 300 es
+// WhiteBalance.frag — port of WhiteBalance.metal:84-107.
 //
 // Input: scene-linear D65-Rec.2020 fp16 RGBA texture (DCP-neutralized).
 // Two WB triples in / RGB out; alpha pass-through.
@@ -23,21 +29,15 @@ const vec3 XYZ_D65 = vec3(0.9504, 1.0000, 1.0888);
 
 // XYZ (D65) to Rec.2020 — byte-identical to WhiteBalance.metal:32-36.
 //
-// Both Metal `float3x3` and GLSL `mat3` constructors take COLUMNS as
-// `float3`/`vec3` arguments. Apple's source-of-truth comment at
-// WhiteBalance.metal:30-31 says "Each `float3` argument is a row of the
-// Rust matrix" — that's how the Apple author thinks of the matrix in
-// the source, but Metal stores those vectors as columns. To match
-// Apple's runtime behaviour (so M*v in WebGL == M*v in Metal), the
-// GLSL `mat3` must take the SAME `vec3` arguments as Apple, layered as
-// columns. The end-result matrix differs from the standard XYZ→Rec.2020
-// definition by a transpose, but for the white-balance ratio code below
-// (`g_live / g_decoded`) any consistent transformation cancels, and
-// matching Apple bit-for-bit is what M2.1's snapshot test asserts.
+// Both Metal float3x3 and GLSL mat3 constructors take COLUMNS as
+// vec3 arguments. Apple's source comment "each float3 is a row" is
+// the Apple author's mental model; runtime Metal stores them as
+// columns. Mirroring Apple bit-for-bit (same vec3 args in the same
+// order) is what keeps M*v parity, not standard-matrix correctness.
 const mat3 M_XYZ_D65_TO_REC2020 = mat3(
-    vec3( 1.7166512, -0.3556708, -0.2533663),  // mirrors Apple's first float3 arg
-    vec3(-0.6666844,  1.6164812,  0.0157685),  // mirrors Apple's second float3 arg
-    vec3( 0.0176399, -0.0427706,  0.9421031)   // mirrors Apple's third float3 arg
+    vec3( 1.7166512, -0.3556708, -0.2533663),
+    vec3(-0.6666844,  1.6164812,  0.0157685),
+    vec3( 0.0176399, -0.0427706,  0.9421031)
 );
 
 // Hernández-Andrés (1999) polynomial. CCT (Kelvin) → CIE xy.
@@ -105,3 +105,4 @@ void main() {
     );
     outColor = vec4(color.rgb * ratio, color.a);
 }
+`;
