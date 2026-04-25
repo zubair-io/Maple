@@ -11,6 +11,20 @@
 
 import CoreImage
 import Foundation
+import OSLog
+
+private let kernelLog = OSLog(subsystem: "app.justmaple.maple", category: "MetalKernels")
+
+/// True when the current process is hosting XCTest. Used to suppress the
+/// DEBUG `assertionFailure` in `applyAgXViewTransform` when the unit-test
+/// build doesn't compile the .metal sources to a metallib (Bundle.module
+/// has no `default.metallib`, so the kernel loader returns nil — that's
+/// expected under `swift test`, not a regression). The full Xcode build
+/// does compile and embed the metallib, so the assertion still fires
+/// there if a future change drops it.
+private let isRunningUnderXCTest: Bool = {
+    NSClassFromString("XCTestCase") != nil
+}()
 
 // MARK: - MetalKernels (namespace)
 
@@ -60,14 +74,42 @@ public enum MetalKernels {
         to input: CIImage,
         contrast: Float
     ) -> CIImage {
-        guard let kernel = agxKernel() else { return input }
-        guard let lut = agxLUTImage() else { return input }
+        guard let kernel = agxKernel() else {
+            os_log(.error, log: kernelLog,
+                "AgX kernel failed to load — view transform NOT applied; output will be raw scene-linear data. Check that AgXViewTransform.metal is bundled in the build.")
+            #if DEBUG
+            if !isRunningUnderXCTest {
+                assertionFailure("AgX kernel must load — see os_log .error above")
+            }
+            #endif
+            return input
+        }
+        guard let lut = agxLUTImage() else {
+            os_log(.error, log: kernelLog,
+                "AgX LUT image failed to load — view transform NOT applied; output will be raw scene-linear data. Check that agx_lut.bin is bundled.")
+            #if DEBUG
+            if !isRunningUnderXCTest {
+                assertionFailure("AgX LUT must load — see os_log .error above")
+            }
+            #endif
+            return input
+        }
 
-        return kernel.apply(
+        guard let out = kernel.apply(
             extent: input.extent,
             roiCallback: { _, rect in rect },
             arguments: [input, lut, contrast]
-        ) ?? input
+        ) else {
+            os_log(.error, log: kernelLog,
+                "AgX kernel.apply returned nil — view transform NOT applied; output will be raw scene-linear data.")
+            #if DEBUG
+            if !isRunningUnderXCTest {
+                assertionFailure("AgX kernel.apply must succeed — see os_log .error above")
+            }
+            #endif
+            return input
+        }
+        return out
     }
 
     // MARK: Private kernel loaders
@@ -88,7 +130,7 @@ public enum MetalKernels {
         return _sceneVibrance
     }
 
-    private static func agxKernel() -> CIKernel? {
+    public static func agxKernel() -> CIKernel? {
         if let k = _agxViewTransform { return k }
         guard let src = metalSource("AgXViewTransform") else { return nil }
         _agxViewTransform = try? CIKernel(functionName: "agxViewTransform",
