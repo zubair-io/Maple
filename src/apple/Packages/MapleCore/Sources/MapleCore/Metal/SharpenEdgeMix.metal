@@ -43,7 +43,7 @@
 
 // Per-pixel: extract Rec.2020 BT.2020 luma; splat into RGB.
 // Matches sharpen.rs:87-89: 0.2627 * r + 0.6780 * g + 0.0593 * b.
-extern "C" float4 sharpenLuminance(
+[[stitchable]] float4 sharpenLuminance(
     coreimage::sampler_h src
 ) {
     float4 c = float4(src.sample(src.coord()));
@@ -54,7 +54,7 @@ extern "C" float4 sharpenLuminance(
 // Edge-aware mix. Computes gradient magnitude via central-difference
 // 4-tap reads on the luma plane, applies the masking threshold, and
 // mixes observed -> sharpened by the per-pixel mix factor.
-extern "C" float4 sharpenEdgeMix(
+[[stitchable]] float4 sharpenEdgeMix(
     coreimage::sampler_h observed,
     coreimage::sampler_h sharpened,
     coreimage::sampler_h luma,

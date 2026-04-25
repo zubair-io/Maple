@@ -81,7 +81,7 @@ float3 wb_gains(float cct, float tint) {
     return float3(gain[0] / g, 1.0, gain[2] / g);
 }
 
-extern "C" float4 whiteBalance(
+[[stitchable]] float4 whiteBalance(
     coreimage::sampler_h src,
     float liveTemperature,
     float liveTint,

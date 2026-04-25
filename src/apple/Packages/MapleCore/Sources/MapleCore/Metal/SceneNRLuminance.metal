@@ -71,7 +71,7 @@ float3 oklab_to_rec2020_nrl(float3 lab) {
     return M_lms_to_rec2020_nrl * lms;
 }
 
-extern "C" float4 nrLuminanceExtractL(
+[[stitchable]] float4 nrLuminanceExtractL(
     coreimage::sampler_h src
 ) {
     float4 color = float4(src.sample(src.coord()));
@@ -79,7 +79,7 @@ extern "C" float4 nrLuminanceExtractL(
     return float4(lab.x, lab.x, lab.x, color.a);
 }
 
-extern "C" float4 nrLuminanceCombine(
+[[stitchable]] float4 nrLuminanceCombine(
     coreimage::sampler_h src,
     coreimage::sampler_h blurredL,
     float amount  // unused; see header comment
