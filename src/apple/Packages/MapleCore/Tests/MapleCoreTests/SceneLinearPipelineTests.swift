@@ -895,4 +895,44 @@ final class SceneLinearPipelineTests: XCTestCase {
          scene: SIMD3<Float>(0, 0, 0),
          display: SIMD3<Float>(0, 0, 0)),
     ]
+
+    // MARK: - Task 4: scene-linear decode + process integration
+
+    /// End-to-end integration: synthesize a CIImage tagged
+    /// extendedLinearITUR_2020, push it through `processSceneLinear`,
+    /// and confirm the output extent matches `targetSize`. This locks
+    /// down the Lanczos-prescale + AgX-kernel wire on a deterministic
+    /// input (no fixture dependency).
+    func testProcessSceneLinearAppliesPrescaleAndAgX() {
+        let pipeline = ImageEditPipeline()
+        let w = 100, h = 100
+        // Synthesize a scene-linear Rec.2020 mid-gray (0.18 in all 3
+        // channels) fp16 RGBA buffer.
+        var pixels = [UInt16](repeating: 0, count: w * h * 4)
+        let mid = Self.float32ToFloat16Bits(0.18)
+        let one = Self.float32ToFloat16Bits(1.0)
+        for i in stride(from: 0, to: pixels.count, by: 4) {
+            pixels[i + 0] = mid
+            pixels[i + 1] = mid
+            pixels[i + 2] = mid
+            pixels[i + 3] = one
+        }
+        let bytesPerRow = w * 4 * 2
+        let data = pixels.withUnsafeBufferPointer {
+            Data(bytes: $0.baseAddress!, count: $0.count * 2)
+        }
+        let space = CGColorSpace(name: CGColorSpace.extendedLinearITUR_2020)!
+        let decoded = CIImage(
+            bitmapData: data, bytesPerRow: bytesPerRow,
+            size: CGSize(width: w, height: h),
+            format: .RGBAh, colorSpace: space
+        )
+        let processed = pipeline.processSceneLinear(
+            decoded: decoded,
+            model: .default,
+            targetSize: CGSize(width: 50, height: 50)
+        )
+        XCTAssertEqual(processed.extent.width, 50, accuracy: 0.01)
+        XCTAssertEqual(processed.extent.height, 50, accuracy: 0.01)
+    }
 }

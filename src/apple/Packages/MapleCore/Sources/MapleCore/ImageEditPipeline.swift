@@ -135,6 +135,94 @@ public actor ImageEditPipeline {
         return ciImage(from: imageData, phase: .refine)
     }
 
+    // MARK: Decode (scene-linear path — Plan 1 FFI split)
+
+    /// Decode the RAW into a Rec.2020 fp16 scene-linear CIImage via the
+    /// new Rust FFI. Used by the FFI-split path (Plan 1) — the buffer is
+    /// pre-AgX, pre-Rec.2020->sRGB, so callers must apply a view transform
+    /// before display. Tagged `extendedLinearITUR_2020` so CoreImage
+    /// applies the correct primaries-to-working-space matrix on read.
+    nonisolated public func decodeSceneLinear(
+        asset: AssetRef,
+        quality: PipelineRenderer.Quality = .preview
+    ) async -> CIImage? {
+        let imageData: MapleSceneLinearImageData
+        do {
+            if let url = asset.primaryURL {
+                let scope = asset.scopeParentURL ?? url.deletingLastPathComponent()
+                let accessing = scope.startAccessingSecurityScopedResource()
+                defer { if accessing { scope.stopAccessingSecurityScopedResource() } }
+                imageData = try PipelineRenderer.renderSceneLinear(
+                    rawPath: url, xmpPath: nil, quality: quality
+                )
+            } else if let provider = asset.bytesProvider {
+                let bytes = try await provider()
+                let hint = asset.hintExtension ?? ""
+                imageData = try PipelineRenderer.renderSceneLinear(
+                    rawBytes: bytes, hint: hint, xmpPath: nil, quality: quality
+                )
+            } else {
+                return nil
+            }
+        } catch {
+            logger.error("decodeSceneLinear failed for \(asset.displayName, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
+        // Build a CIImage directly from the fp16 RGBA buffer tagged with
+        // extendedLinearITUR_2020. `CIImage(bitmapData:bytesPerRow:size:format:colorSpace:)`
+        // copies the bytes — `imageData.pixels` can be released after the
+        // call returns.
+        let w = imageData.width, h = imageData.height
+        let bytesPerRow = w * imageData.bytesPerPixel
+        let space = CGColorSpace(name: CGColorSpace.extendedLinearITUR_2020)!
+        return CIImage(
+            bitmapData: imageData.pixels,
+            bytesPerRow: bytesPerRow,
+            size: CGSize(width: w, height: h),
+            format: .RGBAh,
+            colorSpace: space
+        )
+    }
+
+    // MARK: Process (scene-linear path — Plan 1 FFI split)
+
+    /// Apply the Plan-1 minimal display-domain chain to a scene-linear
+    /// CIImage decoded by `decodeSceneLinear`:
+    ///
+    ///   1. Lanczos prescale (now numerically meaningful — input is
+    ///      scene-linear Rec.2020 fp16, not display-encoded sRGB u8).
+    ///   2. AgX Metal kernel — exactly one display-domain op. The
+    ///      `applyAgXViewTransform` wrapper hard-fails (DEBUG) / logs
+    ///      `os_log` `.error` (Release) on kernel-load failure rather
+    ///      than silently returning the untransformed scene-linear
+    ///      image (see Task 4 Step 4.0a).
+    ///
+    /// The Rec.2020->sRGB encode happens at the `CIContext.createCGImage`
+    /// call site in `FullImageView.CIImageView` (forced to sRGB output
+    /// by Task 4 Step 4.0b). The encode is therefore exactly once,
+    /// outside the development chain, and deterministic.
+    ///
+    /// `model` is reserved for future plans (Plan 2 ports the development
+    /// chain). In Plan 1 only `model.contrast` is consumed (it modulates
+    /// the AgX sigmoid slope).
+    ///
+    /// `asShot` is unused in Plan 1; reserved for the WB Metal kernel
+    /// in Plan 2.
+    nonisolated public func processSceneLinear(
+        decoded: CIImage,
+        model: AdjustmentModel,
+        targetSize: CGSize? = nil,
+        asShot: AsShotWB? = nil
+    ) -> CIImage {
+        let scaled = Self.prescaleForDisplay(decoded, targetSize: targetSize)
+        // Stage: AgX view transform — exactly once, on scene-linear data.
+        // The kernel is per-channel (verified by Spike 1.2), so feeding it
+        // Rec.2020 instead of sRGB only matters for out-of-gamut content.
+        return MetalKernels.applyAgXViewTransform(
+            to: scaled, contrast: Float(model.contrast)
+        )
+    }
+
     // MARK: Process (on top of a cached decode)
 
     /// Apply the filter chain to a pre-decoded CIImage. `targetSize`, if
