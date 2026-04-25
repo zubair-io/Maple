@@ -262,6 +262,18 @@ budget instead of the source sensor size.
 - Add crop/tile parameters for 1:1 zoom and deep zoom.
 - Include tile overlap for demosaic/neighborhood filters.
 - Promote the tile path only after viewport-sized preview is stable.
+- Status: Plans 1-3 complete (Plan 3 =
+  `docs/superpowers/plans/2026-04-25-deep-zoom-tile-rendering.md`)
+  delivers Milestones 1-3 of M4: single-tile cold render via CLI,
+  Apple `TileManager` actor + composite over fixed viewport, and
+  `FullImageView` wiring for `MagnifyGesture` / `Cmd+1` / `Cmd+=` /
+  `Cmd+-` / `Cmd+scroll`. Phase-1 scope excludes prefetch ring, disk
+  persistence, Web tile parity, 2:1+ upsampling, dehaze-active deep
+  zoom, and gesture velocity prediction (each is its own follow-up).
+- Gate: deep-zoom path requires `MAPLE_SCENE_LINEAR=1` because it
+  consumes the new scene-linear FFI. When the env gate is unset,
+  `Cmd+1` falls back to the legacy display-encoded
+  `RenderedPreviewCache` upscale (no tile rendering — same as today).
 
 ## Risks
 
