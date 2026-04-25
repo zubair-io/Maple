@@ -11,7 +11,9 @@ import { Injectable, OnDestroy } from '@angular/core';
 import { BehaviorSubject, Observable } from 'rxjs';
 import type {
   DecodedImage,
+  DecodedSceneLinearImage,
   DecodeRequest,
+  DecodeSceneLinearRequest,
   WorkerResponse,
 } from './raw-pipeline.types';
 
@@ -21,10 +23,16 @@ export class RawPipelineService implements OnDestroy {
   private nextId = 1;
   private pending = new Map<
     number,
-    {
-      resolve: (img: DecodedImage) => void;
-      reject: (err: Error) => void;
-    }
+    | {
+        kind: 'legacy';
+        resolve: (img: DecodedImage) => void;
+        reject: (err: Error) => void;
+      }
+    | {
+        kind: 'scene-linear';
+        resolve: (img: DecodedSceneLinearImage) => void;
+        reject: (err: Error) => void;
+      }
   >();
 
   // T10: threaded-state signal. `null` = not yet reported by the worker.
@@ -62,7 +70,7 @@ export class RawPipelineService implements OnDestroy {
         const handler = this.pending.get(msg.id);
         if (!handler) return;
         this.pending.delete(msg.id);
-        if (msg.type === 'decode-success') {
+        if (msg.type === 'decode-success' && handler.kind === 'legacy') {
           handler.resolve({
             width: msg.width,
             height: msg.height,
@@ -70,8 +78,31 @@ export class RawPipelineService implements OnDestroy {
             asShotTemperature: msg.asShotTemperature,
             asShotTint: msg.asShotTint,
           });
-        } else {
+        } else if (msg.type === 'decode-error' && handler.kind === 'legacy') {
           handler.reject(new Error(msg.message));
+        } else if (
+          msg.type === 'decode-scene-linear-success' &&
+          handler.kind === 'scene-linear'
+        ) {
+          handler.resolve({
+            width: msg.width,
+            height: msg.height,
+            fp16Rgba: new Uint16Array(msg.fp16Rgba),
+            asShotTemperature: msg.asShotTemperature,
+            asShotTint: msg.asShotTint,
+          });
+        } else if (
+          msg.type === 'decode-scene-linear-error' &&
+          handler.kind === 'scene-linear'
+        ) {
+          handler.reject(new Error(msg.message));
+        } else {
+          // Mismatched response type and handler kind — should never happen
+          // because ids are unique and the worker only emits success/error
+          // matching the request type. Reject defensively to avoid hangs.
+          handler.reject(
+            new Error(`raw-pipeline: handler kind mismatch (${msg.type})`),
+          );
         }
       });
       this.worker.addEventListener('error', (e) => {
@@ -125,12 +156,82 @@ export class RawPipelineService implements OnDestroy {
     performance.mark(`maple:decode:${id}:start`);
     return new Promise<DecodedImage>((resolve, reject) => {
       this.pending.set(id, {
+        kind: 'legacy',
         resolve: (result) => {
           performance.mark(`maple:decode:${id}:end`);
           performance.measure(
             `maple:decode`,
             `maple:decode:${id}:start`,
             `maple:decode:${id}:end`,
+          );
+          resolve(result);
+        },
+        reject,
+      });
+      worker.postMessage(request, [buffer]);
+    });
+  }
+
+  /**
+   * Decode a RAW byte buffer to a scene-linear Rec.2020 fp16 RGBA image.
+   * Pre-AgX, pre-Rec.2020->sRGB — the caller (Plan 3 M3 WebGL2 chain) is
+   * expected to apply a view transform before display.
+   *
+   * Shares the same single-in-flight serialization gate as `decode()` —
+   * concurrent calls (across either method) are queued so the WASM heap
+   * never holds more than one decode's scratch buffers at once.
+   *
+   * @param qualityPreview `true` (default) runs the half-res Preview
+   *   pipeline (matches Apple's editor first-paint cost). `false` runs
+   *   full-res Full — used for export.
+   */
+  decodeSceneLinear(
+    bytes: Uint8Array,
+    ext: string,
+    xmp?: string,
+    qualityPreview: boolean = true,
+  ): Promise<DecodedSceneLinearImage> {
+    const run = () => this.decodeSceneLinearOnce(bytes, ext, xmp, qualityPreview);
+    const next = this.decodeChain.then(run, run);
+    this.decodeChain = next.catch(() => undefined);
+    return next;
+  }
+
+  private decodeSceneLinearOnce(
+    bytes: Uint8Array,
+    ext: string,
+    xmp: string | undefined,
+    qualityPreview: boolean,
+  ): Promise<DecodedSceneLinearImage> {
+    let worker: Worker;
+    try {
+      worker = this.ensureWorker();
+    } catch {
+      return Promise.reject(new Error('RawPipelineService: worker unavailable'));
+    }
+    const id = this.nextId++;
+    const buffer = bytes.buffer.slice(
+      bytes.byteOffset,
+      bytes.byteOffset + bytes.byteLength,
+    ) as ArrayBuffer;
+    const request: DecodeSceneLinearRequest = {
+      id,
+      type: 'decode-scene-linear',
+      bytes: buffer,
+      ext,
+      xmp,
+      qualityPreview,
+    };
+    performance.mark(`maple:decode-scene-linear:${id}:start`);
+    return new Promise<DecodedSceneLinearImage>((resolve, reject) => {
+      this.pending.set(id, {
+        kind: 'scene-linear',
+        resolve: (result) => {
+          performance.mark(`maple:decode-scene-linear:${id}:end`);
+          performance.measure(
+            `maple:decode-scene-linear`,
+            `maple:decode-scene-linear:${id}:start`,
+            `maple:decode-scene-linear:${id}:end`,
           );
           resolve(result);
         },
