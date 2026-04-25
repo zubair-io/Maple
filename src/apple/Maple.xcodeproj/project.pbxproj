@@ -96,6 +96,7 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = A1F0001100000000000000A1 /* Build configuration list for PBXNativeTarget "Maple" */;
 			buildPhases = (
+				A1F0005100000000000000A1 /* Build Rust xcframework */,
 				A1F0005000000000000000A1 /* Clean test fixtures */,
 				A1F0001200000000000000A1 /* Sources */,
 				A1F0000A00000000000000A1 /* Frameworks */,
@@ -196,6 +197,25 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
+		A1F0005100000000000000A1 /* Build Rust xcframework */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Build Rust xcframework";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -eu\n# build-xcframework.sh internally fast-paths when no Rust source has\n# changed since the last successful build, so this is cheap on no-op builds.\nif [ \"${CONFIGURATION:-}\" = \"Release\" ]; then\n  bash \"${SRCROOT}/scripts/build-xcframework.sh\" --release\nelse\n  bash \"${SRCROOT}/scripts/build-xcframework.sh\"\nfi\n";
+		};
 		A1F0005000000000000000A1 /* Clean test fixtures */ = {
 			isa = PBXShellScriptBuildPhase;
 			alwaysOutOfDate = 1;
@@ -385,6 +405,7 @@
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_FILE_ACCESS_PICTURE_FOLDER = readwrite;
 				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				ENABLE_INCOMING_NETWORK_CONNECTIONS = NO;
 				ENABLE_OUTGOING_NETWORK_CONNECTIONS = NO;
 				ENABLE_PREVIEWS = YES;
@@ -424,7 +445,7 @@
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MARKETING_VERSION = 0.1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = app.justmaple.aperture;
+				PRODUCT_BUNDLE_IDENTIFIER = app.justmaple.maple;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				RUNTIME_EXCEPTION_ALLOW_DYLD_ENVIRONMENT_VARIABLES = NO;
 				RUNTIME_EXCEPTION_ALLOW_JIT = NO;
@@ -454,6 +475,7 @@
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_FILE_ACCESS_PICTURE_FOLDER = readwrite;
 				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				ENABLE_INCOMING_NETWORK_CONNECTIONS = NO;
 				ENABLE_OUTGOING_NETWORK_CONNECTIONS = NO;
 				ENABLE_PREVIEWS = YES;
@@ -493,7 +515,7 @@
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MARKETING_VERSION = 0.1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = app.justmaple.aperture;
+				PRODUCT_BUNDLE_IDENTIFIER = app.justmaple.maple;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				RUNTIME_EXCEPTION_ALLOW_DYLD_ENVIRONMENT_VARIABLES = NO;
 				RUNTIME_EXCEPTION_ALLOW_JIT = NO;

@@ -457,6 +457,30 @@ public final class EditSession {
         await decodeAndRender(targetSize: nil, phase: .refine)
     }
 
+    /// Bake the current model against a fresh full-quality decode for export.
+    ///
+    /// The editor's cached `decodedImage` comes from a half-res preview
+    /// decode (`Quality.preview` — quad demosaic) so slider ticks stay
+    /// responsive on a 100 MP RAW. Reusing that cache for export would ship
+    /// preview-quality pixels to disk. This entry point bypasses the cache
+    /// and runs the parity-gated `Quality.full` path; intentionally slow,
+    /// call only from explicit export flows.
+    public func renderForExport() async throws -> CIImage {
+        let asset = self.asset
+        let pipeline = self.pipeline
+        let m = self.model
+        let asShot: ImageEditPipeline.AsShotWB? = {
+            guard let cct = asShotCCT, let t = asShotTint else { return nil }
+            return ImageEditPipeline.AsShotWB(temperature: cct, tint: t)
+        }()
+        guard let decoded = await pipeline.decode(asset: asset, quality: .full) else {
+            throw RenderError.pipelineFailed
+        }
+        return await Task.detached(priority: .userInitiated) {
+            pipeline.process(decoded: decoded, model: m, targetSize: nil, asShot: asShot)
+        }.value
+    }
+
     /// Kick off a render for the current model. Views call this in `.task`
     /// when they become the active editor so the first frame doesn't wait
     /// on a slider move. Cheap to call redundantly — reuses the decoded

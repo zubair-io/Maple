@@ -55,6 +55,31 @@ echo "    frameworks: $FRAMEWORKS_DIR"
 echo "    profile:    $PROFILE"
 
 # ---------------------------------------------------------------------------
+# 0a. Fast-path: skip if no Rust source has changed since the last build.
+#
+# Stamp file is touched at the end of a successful build. If no `.rs`,
+# `Cargo.toml`, `Cargo.lock`, or `cbindgen.toml` under the raw-pipeline
+# workspace is newer than the stamp, AND the xcframework still exists, we
+# can short-circuit. `--force` bypasses the check.
+# ---------------------------------------------------------------------------
+XCFW_OUT_PROBE="$NATIVE_DIR/Frameworks/RawPipeline.xcframework"
+STAMP="$NATIVE_DIR/Frameworks/.xcframework-stamp.$PROFILE"
+
+if [[ "${FORCE_XCFRAMEWORK_REBUILD:-}" != "1" && "${1:-}" != "--force" && \
+      -f "$STAMP" && -d "$XCFW_OUT_PROBE" ]]; then
+    changes=$(find "$RAW_PIPELINE_DIR" \
+        \( -type d \( -name target -o -name .git -o -name pkg \) -prune \) -o \
+        -type f \( -name '*.rs' -o -name 'Cargo.toml' -o -name 'Cargo.lock' \
+                  -o -name 'cbindgen.toml' -o -name '*.h' \) \
+        -newer "$STAMP" -print 2>/dev/null | head -n 1)
+    if [[ -z "$changes" ]]; then
+        echo "==> No raw-pipeline changes since last build — skipping."
+        exit 0
+    fi
+    echo "    change detected: $changes"
+fi
+
+# ---------------------------------------------------------------------------
 # 0. Validate tools
 # ---------------------------------------------------------------------------
 for tool in cargo cbindgen xcodebuild; do
@@ -195,6 +220,9 @@ xcodebuild -create-xcframework \
 # 6. Cleanup staging dir
 # ---------------------------------------------------------------------------
 rm -rf "$STAGING"
+
+# Mark this build as up-to-date for the staleness fast-path.
+touch "$STAMP"
 
 echo ""
 echo "==> Done."
