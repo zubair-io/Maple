@@ -539,6 +539,154 @@ final class DeepZoomTileRenderingTests: XCTestCase {
         XCTAssertEqual(n2, 1, "subscriber 2 must see the same insert")
     }
 
+    // MARK: - Task 8: EditSession.computeVisibleSourceRect (pure math)
+
+    /// Centred viewport at zoom 1.0 returns a rect centred on the image
+    /// with viewport-pixel-sized extent. Sanity check for the core math.
+    func testComputeVisibleSourceRectAtZoom1Centered() {
+        let rect = EditSession.computeVisibleSourceRect(
+            viewport: CGSize(width: 1000, height: 800),
+            zoom: 1.0,
+            imageSize: CGSize(width: 4000, height: 3000),
+            panOffset: .zero,
+            displayScale: 2.0
+        )
+        // viewportPx = 2000×1600, visibleSrc = 2000×1600, centred on (2000,1500)
+        // → minX = 1000, minY = 700.
+        XCTAssertEqual(rect.origin.x, 1000, accuracy: 0.01)
+        XCTAssertEqual(rect.origin.y, 700, accuracy: 0.01)
+        XCTAssertEqual(rect.size.width, 2000, accuracy: 0.01)
+        XCTAssertEqual(rect.size.height, 1600, accuracy: 0.01)
+    }
+
+    /// Zoom 2.0 halves the visible source-pixel extent compared to 1.0.
+    func testComputeVisibleSourceRectAtZoom2HalvesExtent() {
+        let rect = EditSession.computeVisibleSourceRect(
+            viewport: CGSize(width: 1000, height: 800),
+            zoom: 2.0,
+            imageSize: CGSize(width: 4000, height: 3000),
+            panOffset: .zero,
+            displayScale: 2.0
+        )
+        // visibleSrc = 1000×800, centred → minX=1500, minY=1100.
+        XCTAssertEqual(rect.origin.x, 1500, accuracy: 0.01)
+        XCTAssertEqual(rect.origin.y, 1100, accuracy: 0.01)
+        XCTAssertEqual(rect.size.width, 1000, accuracy: 0.01)
+        XCTAssertEqual(rect.size.height, 800, accuracy: 0.01)
+    }
+
+    /// A non-zero pan offset shifts the visible rect away from centre
+    /// in the OPPOSITE direction (rightward drag exposes the left side
+    /// of the source image, so the rect's minX decreases).
+    func testComputeVisibleSourceRectShiftsForPanOffset() {
+        let rect = EditSession.computeVisibleSourceRect(
+            viewport: CGSize(width: 1000, height: 800),
+            zoom: 2.0,
+            imageSize: CGSize(width: 4000, height: 3000),
+            panOffset: CGSize(width: 100, height: 50),
+            displayScale: 2.0
+        )
+        // panSrcX = 100*2/2 = 100. centerX = 2000-100 = 1900.
+        // minX = 1900 - 500 = 1400. Same logic for y.
+        XCTAssertEqual(rect.origin.x, 1400, accuracy: 0.01)
+        XCTAssertEqual(rect.origin.y, 1050, accuracy: 0.01)
+        XCTAssertEqual(rect.size.width, 1000, accuracy: 0.01)
+        XCTAssertEqual(rect.size.height, 800, accuracy: 0.01)
+    }
+
+    /// Fit mode (zoom == 0) and unset image extent both return .zero so
+    /// EditSession's deep-zoom branch is disabled.
+    func testComputeVisibleSourceRectReturnsZeroForFitMode() {
+        let rect = EditSession.computeVisibleSourceRect(
+            viewport: CGSize(width: 1000, height: 800),
+            zoom: 0.0,
+            imageSize: CGSize(width: 4000, height: 3000),
+            panOffset: .zero,
+            displayScale: 2.0
+        )
+        XCTAssertEqual(rect, .zero)
+    }
+
+    func testComputeVisibleSourceRectReturnsZeroForUnsetImageSize() {
+        let rect = EditSession.computeVisibleSourceRect(
+            viewport: CGSize(width: 1000, height: 800),
+            zoom: 1.0,
+            imageSize: nil,
+            panOffset: .zero,
+            displayScale: 2.0
+        )
+        XCTAssertEqual(rect, .zero)
+    }
+
+    /// When the visible region is larger than the image (heavy zoom-out
+    /// of a small image), the rect clamps to the image extent so we
+    /// never ask for off-grid tiles.
+    func testComputeVisibleSourceRectClampsToImageBounds() {
+        let rect = EditSession.computeVisibleSourceRect(
+            viewport: CGSize(width: 4000, height: 3000),
+            zoom: 1.0,
+            imageSize: CGSize(width: 1000, height: 800),
+            panOffset: .zero,
+            displayScale: 1.0
+        )
+        XCTAssertEqual(rect.origin.x, 0, accuracy: 0.01)
+        XCTAssertEqual(rect.origin.y, 0, accuracy: 0.01)
+        XCTAssertEqual(rect.size.width, 1000, accuracy: 0.01)
+        XCTAssertEqual(rect.size.height, 800, accuracy: 0.01)
+    }
+
+    /// Different display scales scale the source-pixel extent inversely:
+    /// a Retina (displayScale 2) display sees TWICE as many source
+    /// pixels as a 1× display at the same zoom + viewport size.
+    func testComputeVisibleSourceRectRespectsDisplayScale() {
+        let r1 = EditSession.computeVisibleSourceRect(
+            viewport: CGSize(width: 500, height: 500),
+            zoom: 1.0,
+            imageSize: CGSize(width: 4000, height: 4000),
+            panOffset: .zero,
+            displayScale: 1.0
+        )
+        let r2 = EditSession.computeVisibleSourceRect(
+            viewport: CGSize(width: 500, height: 500),
+            zoom: 1.0,
+            imageSize: CGSize(width: 4000, height: 4000),
+            panOffset: .zero,
+            displayScale: 2.0
+        )
+        // r1 sees 500 src-px wide; r2 sees 1000.
+        XCTAssertEqual(r1.size.width, 500, accuracy: 0.01)
+        XCTAssertEqual(r2.size.width, 1000, accuracy: 0.01)
+    }
+
+    // MARK: - Task 8: EditSession deep-zoom wiring
+
+    /// `updateTileVisibleRegion` writes through to `viewportSourceRect`
+    /// and `pixelScale`. Smoke test for the public API EditSession
+    /// exposes to FullImageView.
+    @MainActor
+    func testEditSessionUpdateTileVisibleRegionPersists() {
+        let tmp = URL(fileURLWithPath: "/tmp/maple_session_smoke.dng")
+        let asset = AssetRef(url: tmp)
+        let session = EditSession(asset: asset)
+        let rect = CGRect(x: 100, y: 200, width: 1000, height: 800)
+        session.updateTileVisibleRegion(viewport: rect, zoom: 1.5)
+        XCTAssertEqual(session.viewportSourceRect, rect)
+        XCTAssertEqual(session.pixelScale, 1.5, accuracy: 0.001)
+    }
+
+    /// `updateTileVisibleRegion(zoom: 0)` with an empty rect leaves
+    /// pixelScale at 0 (fit mode) and the rect at zero — disabling
+    /// the deep-zoom branch.
+    @MainActor
+    func testEditSessionUpdateTileVisibleRegionFitMode() {
+        let tmp = URL(fileURLWithPath: "/tmp/maple_session_fit.dng")
+        let asset = AssetRef(url: tmp)
+        let session = EditSession(asset: asset)
+        session.updateTileVisibleRegion(viewport: .zero, zoom: 0)
+        XCTAssertEqual(session.viewportSourceRect, .zero)
+        XCTAssertEqual(session.pixelScale, 0, accuracy: 0.001)
+    }
+
     /// Tiny CIImage for cache accounting tests — synthetic, no decode.
     static func makeTinyCIImage() -> CIImage {
         let side = 8

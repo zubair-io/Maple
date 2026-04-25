@@ -96,6 +96,23 @@ struct FullImageView: View {
         return pixelScale
     }
 
+    /// Push the current visible source rect + zoom to the session. Called
+    /// from every path that mutates `pixelScale` or `panOffset` so the
+    /// tile manager always sees the live viewport. Wraps the pure
+    /// helper `EditSession.computeVisibleSourceRect(...)` so the math
+    /// is unit-testable from MapleCoreTests.
+    private func notifyVisibleRegion() {
+        let zoom = effectivePixelScale(viewport: viewportSize)
+        let visible = EditSession.computeVisibleSourceRect(
+            viewport: viewportSize,
+            zoom: zoom,
+            imageSize: imageExtent,
+            panOffset: panOffset,
+            displayScale: displayScale
+        )
+        session.updateTileVisibleRegion(viewport: visible, zoom: zoom)
+    }
+
     // MARK: - Body
 
     var body: some View {
@@ -327,6 +344,9 @@ struct FullImageView: View {
                 // the current bitmap. Commit once on release so target-size
                 // refinements don't swap brightness mid-pinch.
                 session.pixelScale = effectivePixelScale(viewport: viewport)
+                // Plan 3 — push the new visible rect to the tile
+                // manager so the deep-zoom branch (>= 1.0) re-targets.
+                notifyVisibleRegion()
             }
     }
 
@@ -348,6 +368,8 @@ struct FullImageView: View {
             .onEnded { _ in
                 if pixelScale > 0 {
                     basePan = panOffset
+                    // Plan 3 — pan committed; push new visible rect.
+                    notifyVisibleRegion()
                 }
             }
     }
@@ -362,6 +384,8 @@ struct FullImageView: View {
             basePan = .zero
             session.pixelScale = effectivePixelScale(viewport: viewportSize)
         }
+        // Plan 3 — fit mode disables the deep-zoom branch (zero rect).
+        notifyVisibleRegion()
     }
 
     private func setZoom(to scale: CGFloat) {
@@ -372,6 +396,7 @@ struct FullImageView: View {
             basePan = .zero
             session.pixelScale = pixelScale
         }
+        notifyVisibleRegion()
     }
 
     private func zoomIn() {
@@ -384,6 +409,7 @@ struct FullImageView: View {
             baseScale = pixelScale
             session.pixelScale = pixelScale
         }
+        notifyVisibleRegion()
     }
 
     private func zoomOut() {
@@ -402,6 +428,7 @@ struct FullImageView: View {
             }
             session.pixelScale = effectivePixelScale(viewport: viewportSize)
         }
+        notifyVisibleRegion()
     }
 }
 

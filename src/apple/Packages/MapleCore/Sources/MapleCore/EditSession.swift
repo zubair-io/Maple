@@ -443,6 +443,62 @@ public final class EditSession {
         }
     }
 
+    /// Compute the visible region in oriented full-image source-pixel
+    /// coords from the on-screen viewport (in points), the current
+    /// zoom (real-px-per-image-px), the native image extent, and the
+    /// current pan offset (in points; positive = image dragged right /
+    /// down). `displayScale` is points → real pixels.
+    ///
+    /// Math: at `zoom` real-px-per-image-px, a `viewport.width` (points)
+    /// frame shows `viewport.width * displayScale / zoom` source pixels
+    /// horizontally. The viewport center maps to the image center
+    /// adjusted by the current pan; clamp to the image extent so a
+    /// viewport that overhangs the image doesn't ask for off-grid
+    /// tiles. Returns `.zero` for zoom==0 / unset image extent.
+    ///
+    /// Pure function — easier to unit-test than the FullImageView
+    /// member that wires SwiftUI state in. `nonisolated` so callers
+    /// (FullImageView at construction time, MapleCoreTests off-main)
+    /// can invoke it without an actor hop. See `EditSessionDeepZoomTests`.
+    nonisolated public static func computeVisibleSourceRect(
+        viewport: CGSize,
+        zoom: CGFloat,
+        imageSize: CGSize?,
+        panOffset: CGSize,
+        displayScale: CGFloat
+    ) -> CGRect {
+        guard let imageSize, zoom > 0,
+              imageSize.width > 0, imageSize.height > 0,
+              viewport.width > 0, viewport.height > 0,
+              displayScale > 0
+        else { return .zero }
+        let viewportPx = CGSize(
+            width: viewport.width * displayScale,
+            height: viewport.height * displayScale
+        )
+        let visibleSrcW = viewportPx.width / zoom
+        let visibleSrcH = viewportPx.height / zoom
+        // Pan: panOffset is in points (positive = image dragged right).
+        // Convert to source pixels and shift the visible rect's origin
+        // opposite the pan (a right drag exposes the image's left side).
+        let panSrcX = panOffset.width * displayScale / zoom
+        let panSrcY = panOffset.height * displayScale / zoom
+        let centerX = imageSize.width / 2 - panSrcX
+        let centerY = imageSize.height / 2 - panSrcY
+        let unclampedMinX = centerX - visibleSrcW / 2
+        let unclampedMinY = centerY - visibleSrcH / 2
+        // Clamp: origin >= 0 and origin + size <= imageSize (allowing
+        // the visible rect to be smaller than the image when zoomed in,
+        // and clamped to the image when the visible region is larger).
+        let maxOriginX = max(0, imageSize.width - visibleSrcW)
+        let maxOriginY = max(0, imageSize.height - visibleSrcH)
+        let minX = max(0, min(unclampedMinX, maxOriginX))
+        let minY = max(0, min(unclampedMinY, maxOriginY))
+        let w = min(visibleSrcW, imageSize.width)
+        let h = min(visibleSrcH, imageSize.height)
+        return CGRect(x: minX, y: minY, width: w, height: h)
+    }
+
     /// Load model + culling from disk; call once after init.
     ///
     /// Flow:
