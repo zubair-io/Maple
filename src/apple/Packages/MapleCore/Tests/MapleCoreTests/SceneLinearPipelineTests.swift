@@ -3250,4 +3250,32 @@ final class SceneLinearPipelineTests: XCTestCase {
         XCTAssertTrue(out === input,
             "dehaze=0 should return the input CIImage instance unchanged")
     }
+
+    /// Smoke test for Plan 2 v2 v4 M5 wiring: drive processSceneLinear
+    /// end-to-end with dehaze=50 vs dehaze=0; assert centre-pixel finite
+    /// and bounded. Same `>=` caveat as v2 v1 / v2 v2 / v2 v3 wiring
+    /// tests (XCTest cannot load metallibs — kernel may be no-op; the
+    /// load-bearing runtime check is in Task 9 manual smoke).
+    func testM5ProcessSceneLinearAppliesDehaze() async throws {
+        let pipeline = ImageEditPipeline()
+        let input = Self.makeRGBSceneLinearCIImage(
+            width: 32, height: 32, r: 0.5, g: 0.5, b: 0.5)
+
+        var modelDefault = AdjustmentModel.default
+        modelDefault.dehaze = 0
+        modelDefault.nrLuminance = 0
+        modelDefault.nrColor = 0
+        var modelBoost = modelDefault
+        modelBoost.dehaze = 50
+
+        let outDefault = pipeline.processSceneLinear(decoded: input, model: modelDefault)
+        let outBoost   = pipeline.processSceneLinear(decoded: input, model: modelBoost)
+
+        let dR = Self.sampleCenterR(outDefault, width: 32, height: 32)
+        let bR = Self.sampleCenterR(outBoost, width: 32, height: 32)
+        XCTAssertTrue(dR.isFinite && bR.isFinite,
+            "dehaze produced non-finite channel: default=\(dR) boost=\(bR)")
+        XCTAssertGreaterThanOrEqual(bR, 0.0)
+        XCTAssertLessThanOrEqual(bR, 2.0)
+    }
 }
