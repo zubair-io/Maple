@@ -70,12 +70,19 @@ final class EditSessionTests: XCTestCase {
         // skip branch → persistCurrentPreviewToCache.
         await session.ensureRenderStarted()
 
-        // Allow the 250 ms refine sleep + the utility-priority cache write
-        // to land. Generous — cache write is ~10 ms but CI varies.
-        try await Task.sleep(for: .milliseconds(1500))
-
+        // Poll for the cache file to appear. The persist path runs through
+        // a 250 ms refine debounce, then a `.utility`-priority detached
+        // task, then a JPEG encode + atomic write — most of the time this
+        // lands within ~400 ms but utility QoS can queue behind unrelated
+        // work under CI load. Cap at 5 s so a real bug fails fast.
         let mapleDir = tmp.appendingPathComponent(".maple/previews")
-        let files = (try? FileManager.default.contentsOfDirectory(atPath: mapleDir.path)) ?? []
+        let deadline = Date().addingTimeInterval(5.0)
+        var files: [String] = []
+        while Date() < deadline {
+            files = (try? FileManager.default.contentsOfDirectory(atPath: mapleDir.path)) ?? []
+            if !files.isEmpty { break }
+            try await Task.sleep(for: .milliseconds(50))
+        }
         XCTAssertFalse(files.isEmpty, "RenderedPreviewCache should have written a file under .maple/previews")
     }
 
