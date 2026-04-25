@@ -46,6 +46,11 @@
 			path = MapleUITests;
 			sourceTree = "<group>";
 		};
+		A1F0006B00000000000000A1 /* MapleTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = MapleTests;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -150,6 +155,9 @@
 			);
 			dependencies = (
 				A1F0001800000000000000A1 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				A1F0006B00000000000000A1 /* MapleTests */,
 			);
 			name = MapleTests;
 			packageProductDependencies = (
