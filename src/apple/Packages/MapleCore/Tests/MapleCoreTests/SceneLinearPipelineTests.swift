@@ -2981,4 +2981,164 @@ final class SceneLinearPipelineTests: XCTestCase {
         XCTAssertGreaterThan(a[1], 0.7)
         XCTAssertGreaterThan(a[2], 0.7)
     }
+
+    // MARK: - Plan 2 v2 v4 M5b: Dehaze transmission/box-blur/guided-filter mirrors
+
+    /// Pure-Swift mirror of `transmission` from raw-core/src/stages/
+    /// dehaze.rs:43-68.
+    static func swiftTransmission(
+        _ rgbBuf: [[Float]], a: [Float], w: Int, h: Int
+    ) -> [Float] {
+        let omega: Float = 0.95
+        var out = [Float](repeating: 0, count: w * h)
+        let aR = max(a[0], 1e-6)
+        let aG = max(a[1], 1e-6)
+        let aB = max(a[2], 1e-6)
+        for y in 0..<h {
+            for x in 0..<w {
+                var m: Float = .infinity
+                for dy in -Self.DARK_RADIUS...Self.DARK_RADIUS {
+                    for dx in -Self.DARK_RADIUS...Self.DARK_RADIUS {
+                        let ux = max(0, min(w - 1, x + dx))
+                        let uy = max(0, min(h - 1, y + dy))
+                        let p = rgbBuf[uy * w + ux]
+                        let scaled = min(min(p[0] / aR, p[1] / aG), p[2] / aB)
+                        if scaled < m { m = scaled }
+                    }
+                }
+                out[y * w + x] = 1.0 - omega * m
+            }
+        }
+        return out
+    }
+
+    /// Pure-Swift mirror of `box_blur` from raw-core/src/stages/dehaze.rs
+    /// :72-105. Single-pass running-sum with truncated-window normalization.
+    /// **Distinct from `swiftGaussianBlurPlane` (which is 3-pass).**
+    static func swiftDehazeBoxBlur(
+        _ buf: [Float], w: Int, h: Int, r: Int
+    ) -> [Float] {
+        // Horizontal pass
+        var tmp = [Float](repeating: 0, count: buf.count)
+        for y in 0..<h {
+            let row = Array(buf[(y * w)..<((y + 1) * w)])
+            var outRow = [Float](repeating: 0, count: w)
+            let right0 = min(r, w - 1)
+            var acc: Float = (0...right0).map { row[$0] }.reduce(0, +)
+            var count = right0 + 1
+            outRow[0] = acc / Float(count)
+            for x in 1..<w {
+                if x + r < w { acc += row[x + r]; count += 1 }
+                if x > r     { acc -= row[x - r - 1]; count -= 1 }
+                outRow[x] = acc / Float(count)
+            }
+            for x in 0..<w { tmp[y * w + x] = outRow[x] }
+        }
+        // Vertical pass
+        var out = [Float](repeating: 0, count: buf.count)
+        for x in 0..<w {
+            var outCol = [Float](repeating: 0, count: h)
+            let bot0 = min(r, h - 1)
+            var acc: Float = (0...bot0).map { tmp[$0 * w + x] }.reduce(0, +)
+            var count = bot0 + 1
+            outCol[0] = acc / Float(count)
+            for y in 1..<h {
+                if y + r < h { acc += tmp[(y + r) * w + x]; count += 1 }
+                if y > r     { acc -= tmp[(y - r - 1) * w + x]; count -= 1 }
+                outCol[y] = acc / Float(count)
+            }
+            for y in 0..<h { out[y * w + x] = outCol[y] }
+        }
+        return out
+    }
+
+    /// Pure-Swift mirror of `guided_filter` from raw-core/src/stages/
+    /// dehaze.rs:109-135.
+    static func swiftGuidedFilter(
+        guide: [Float], p: [Float], w: Int, h: Int, r: Int, eps: Float
+    ) -> [Float] {
+        precondition(guide.count == p.count)
+        let n = guide.count
+        let meanI  = swiftDehazeBoxBlur(guide, w: w, h: h, r: r)
+        let meanP  = swiftDehazeBoxBlur(p,     w: w, h: h, r: r)
+        var ip     = [Float](repeating: 0, count: n)
+        for i in 0..<n { ip[i] = guide[i] * p[i] }
+        let meanIp = swiftDehazeBoxBlur(ip, w: w, h: h, r: r)
+        var covIp  = [Float](repeating: 0, count: n)
+        for i in 0..<n { covIp[i] = meanIp[i] - meanI[i] * meanP[i] }
+        var ii     = [Float](repeating: 0, count: n)
+        for i in 0..<n { ii[i] = guide[i] * guide[i] }
+        let meanII = swiftDehazeBoxBlur(ii, w: w, h: h, r: r)
+        var varI   = [Float](repeating: 0, count: n)
+        for i in 0..<n { varI[i] = meanII[i] - meanI[i] * meanI[i] }
+        var a      = [Float](repeating: 0, count: n)
+        for i in 0..<n { a[i] = covIp[i] / (varI[i] + eps) }
+        var b      = [Float](repeating: 0, count: n)
+        for i in 0..<n { b[i] = meanP[i] - a[i] * meanI[i] }
+        let meanA  = swiftDehazeBoxBlur(a, w: w, h: h, r: r)
+        let meanB  = swiftDehazeBoxBlur(b, w: w, h: h, r: r)
+        var out    = [Float](repeating: 0, count: n)
+        for i in 0..<n { out[i] = meanA[i] * guide[i] + meanB[i] }
+        return out
+    }
+
+    /// Mirror the Rust unit test at dehaze.rs:220-228 — pure-white image
+    /// with A=(1,1,1) gives uniform t = 1 - 0.95 = 0.05.
+    func testM5SwiftScalarTransmissionIsHighForBrightClearRegions() async throws {
+        let w = 30, h = 30
+        let rgb = [[Float]](repeating: [1.0, 1.0, 1.0], count: w * h)
+        let a: [Float] = [1.0, 1.0, 1.0]
+        let t = Self.swiftTransmission(rgb, a: a, w: w, h: h)
+        for v in t {
+            XCTAssertEqual(v, 0.05, accuracy: 1e-5)
+        }
+    }
+
+    /// Mirror the Rust unit test at dehaze.rs:230-235 — uniform 0.5
+    /// buffer should box-blur to itself (running-sum with truncated-
+    /// window normalization preserves means under uniform input).
+    func testM5SwiftScalarDehazeBoxBlurOfConstantIsConstant() async throws {
+        let w = 40, h = 40
+        let buf = [Float](repeating: 0.5, count: w * h)
+        let out = Self.swiftDehazeBoxBlur(buf, w: w, h: h, r: 5)
+        for v in out {
+            XCTAssertEqual(v, 0.5, accuracy: 1e-5)
+        }
+    }
+
+    /// Mirror the Rust unit test at dehaze.rs:237-243 — guided filter of
+    /// constants is the constant-p value (the linear fit collapses to
+    /// `q = 0 * guide + p`).
+    func testM5SwiftScalarGuidedFilterOfConstantsIsConstant() async throws {
+        let w = 40, h = 40
+        let guide = [Float](repeating: 0.5, count: w * h)
+        let p     = [Float](repeating: 0.7, count: w * h)
+        let out = Self.swiftGuidedFilter(guide: guide, p: p, w: w, h: h, r: 5, eps: 1e-3)
+        for v in out {
+            XCTAssertEqual(v, 0.7, accuracy: 1e-4)
+        }
+    }
+
+    /// Mirror the Rust unit test at dehaze.rs:245-258 — guided filter
+    /// preserves a smooth horizontal gradient (the algorithm passes
+    /// edge-aligned smooth signals through untouched modulo small box-
+    /// blur edge effects).
+    func testM5SwiftScalarGuidedFilterPreservesSmoothTransmission() async throws {
+        let w = 30, h = 30
+        var p = [Float](repeating: 0, count: w * h)
+        for y in 0..<h {
+            for x in 0..<w {
+                p[y * w + x] = 0.3 + 0.4 * Float(x) / Float(w)
+            }
+        }
+        let guide = p
+        let out = Self.swiftGuidedFilter(guide: guide, p: p, w: w, h: h, r: 8, eps: 1e-3)
+        for y in 10..<20 {
+            for x in 10..<20 {
+                let diff = abs(out[y * w + x] - p[y * w + x])
+                XCTAssertLessThan(diff, 0.05,
+                    "guided filter drifted at (\(x),\(y)): \(diff)")
+            }
+        }
+    }
 }
