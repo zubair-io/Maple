@@ -84,6 +84,16 @@
 
 ---
 
+## Errata — spike findings amendment (read first)
+
+The Plan 1 spike agents that ran Task 1 caught two bugs in the plan as originally written. Both are corrected inline below in the affected steps; this section exists so a future executor reading top-to-bottom sees them before the corrections appear in context.
+
+1. **Step 1.3.1 maple-cli command does not run as written.** The original step prescribed `maple-cli batch <(printf '{"jobs":[...]}')` to capture the legacy-path baseline. Spike 1.3 (commit `5ffdc3d`) found three problems: (a) `batch` takes `--manifest <path>`, not a positional `<(...)` arg; (b) the manifest schema is `{"cases": [...]}`, not `{"jobs": [...]}`; (c) **maple-cli has no preview-quality flag at all** — `do_render` always runs `RenderQuality::Full`, and the `quality: u8` arg on `Cmd::Render` controls JPEG output quality, not pipeline render quality. The user's recorded **4.74 s baseline (hard stop ≤ 5.21 s)** came from the **Apple Preview path** through `maple_render_file(..., quality_preview=1, ...)`, exercised via the running app under `MAPLE_PROFILE=1` — not via the CLI. The canonical reproducible procedure is `docs/measurement/2026-04-25-ffi-decode-baseline.md`; Step 1.3.1 below now references it directly.
+
+2. **`float32ToFloat16Bits` helper had a mantissa-bit isolation bug.** The original Spike 1.1 helper used `(bits >> 13) & 0x3fff` followed by `mant >> 4`, which leaks the four lowest bits of the float32 stored exponent into the fp16 mantissa. On `1.5` it produced fp16 bits `0x3FE0` decoding to ~1.97 — a 31% positive bias. The corrected version (which isolates float32 mantissa bits 0..22 and stored exponent bits 23..30 separately, with round-to-nearest-even on the dropped bits) is committed in `src/apple/Packages/MapleCore/Tests/MapleCoreTests/SceneLinearPipelineTests.swift` and is the canonical source. The Spike 1.1 listing below has been replaced with the corrected helper; if any future task re-introduces an inline fp16 encoder it must match that file.
+
+---
+
 ## Task 1: Verification spikes (BLOCKING)
 
 **Files:**
@@ -237,21 +247,63 @@ final class SceneLinearPipelineTests: XCTestCase {
     /// IEEE 754 binary16 encode of a Float32. Used for synthesizing fp16
     /// CIImage input without pulling in `Float16` (which has scattered
     /// platform availability under SwiftPM tests).
+    ///
+    /// **Canonical source:** the production-correct version of this helper
+    /// lives in `src/apple/Packages/MapleCore/Tests/MapleCoreTests/SceneLinearPipelineTests.swift`
+    /// (search for the comment "isolate mantissa bits 0..22 and exponent
+    /// bits 23..30 separately, with round-to-nearest-even"). Always copy
+    /// from that file — do not re-derive. The earlier inline draft of this
+    /// helper (using `(bits >> 13) & 0x3fff` followed by `mant >> 4`) leaked
+    /// four exponent bits into the fp16 mantissa and produced a 31% positive
+    /// bias on `1.5` (Spike 1.1 caught this — see Errata at top of plan).
+    /// The version below isolates the float32 mantissa (bits 0..22) and the
+    /// stored exponent (bits 23..30) separately and rounds half-to-even on
+    /// the dropped bits.
     static func float32ToFloat16Bits(_ x: Float) -> UInt16 {
         let bits = x.bitPattern
         let sign = UInt16((bits >> 16) & 0x8000)
-        var mant = Int32((bits >> 13) & 0x3fff)
-        let expon = Int32((bits >> 23) & 0xff) - 127 + 15
-        if expon <= 0 {
-            // Subnormal / zero
-            if expon < -10 { return sign }
-            mant = (mant | 0x4000) >> (1 - expon)
-            return sign | UInt16(mant)
-        } else if expon >= 31 {
-            return sign | 0x7c00 // inf
-        } else {
-            return sign | (UInt16(expon) << 10) | UInt16(mant >> 4)
+        let storedExp = Int32((bits >> 23) & 0xff)
+        let mantBits = bits & 0x007fffff           // 23-bit float32 mantissa
+        if storedExp == 0xff {
+            // Inf / NaN
+            return sign | 0x7c00 | UInt16((mantBits != 0) ? 0x0001 : 0)
         }
+        let unbiasedExp = storedExp - 127
+        let fp16Exp = unbiasedExp + 15
+        if fp16Exp >= 31 {
+            return sign | 0x7c00 // overflow → inf
+        }
+        if fp16Exp <= 0 {
+            // Subnormal / underflow.
+            if fp16Exp < -10 { return sign }
+            // Add the implicit 1 and shift right to align in fp16 space.
+            // fp16 subnormal precision = 10 bits below 2^-14.
+            let mantWithImplicit = mantBits | 0x00800000
+            let shift = UInt32(14 - unbiasedExp)
+            // Round-to-nearest-even on the shifted-out bits.
+            let shifted = mantWithImplicit >> (shift - 10 - 1) // keep 1 guard bit
+            let rounded = (shifted + 1) >> 1                    // round half-up; good enough for synth data
+            return sign | UInt16(rounded & 0x03ff)
+        }
+        // Normal range. Extract top 10 mantissa bits, with round-to-nearest
+        // on the next bit.
+        let top10 = (mantBits >> 13) & 0x03ff
+        let roundBit = (mantBits >> 12) & 0x1
+        let stickyBits = mantBits & 0x0fff
+        var fp16Mant = top10
+        // Round half to nearest-even.
+        if roundBit != 0, (stickyBits != 0 || (fp16Mant & 0x1) != 0) {
+            fp16Mant += 1
+            if fp16Mant > 0x3ff {
+                fp16Mant = 0
+                let bumpedExp = fp16Exp + 1
+                if bumpedExp >= 31 {
+                    return sign | 0x7c00
+                }
+                return sign | (UInt16(bumpedExp) << 10)
+            }
+        }
+        return sign | (UInt16(fp16Exp) << 10) | UInt16(fp16Mant)
     }
 
     /// IEEE 754 binary16 decode to Float32.
@@ -426,11 +478,19 @@ EOF
 
 - [ ] **Step 1.3.1: Capture the baseline timing for the legacy path.**
 
-Run: `cd src/raw-pipeline && MAPLE_PROFILE=1 cargo run --release -p maple-cli -- batch <(printf '{"jobs":[{"raw":"test-fixtures/raws/dji-mavic3pro-100mp.dng","quality":"preview"}]}') --out-dir /tmp/spike-1-3-baseline 2>&1 | tee /tmp/spike-1-3-baseline.log | tail -30`
+> **Errata (Plan 1 spike findings amendment).** The earlier draft of this step prescribed `cargo run --release -p maple-cli -- batch <(printf '{"jobs":[...]}') --out-dir ...`. That command does not run: `batch` takes `--manifest <path>` (not a positional `<(...)` arg), the manifest schema is `{"cases": [...]}` (not `{"jobs": [...]}`), and **maple-cli has no preview-quality flag at all** — `do_render` always runs `RenderQuality::Full`, so the CLI cannot produce the user's 4.74 s baseline by definition. Use the canonical procedure instead.
+>
+> **Canonical procedure (read first):** `docs/measurement/2026-04-25-ffi-decode-baseline.md`. That document is the source of truth for the measurement; this step summarizes it for context only.
+>
+> **Procedure summary (4 lines):**
+> 1. Build the macOS app in **Debug** (`cd src/apple && xcodebuild -project Maple.xcodeproj -scheme Maple -destination 'platform=macOS' build`). The user's 4.74 s number is from a Debug build, not Release — keep apples-to-apples.
+> 2. Launch with `MAPLE_PROFILE=1 open -a /Users/$USER/Library/Developer/Xcode/DerivedData/Maple-*/Build/Products/Debug/Maple.app`. Open the 100 MP Hasselblad fixture (`test-fixtures/raws/dji-mavic3pro-100mp.dng`); quit & relaunch between runs to ensure cold start; do this 5 times.
+> 3. After Task 7 lands, the Apple-side log lines `[swift] decode FFI call`, `[swift] decode result copy`, `[swift] decode CIImage build` are emitted alongside the Rust `[raw-core] <stage>` lines (capture via `log stream --predicate 'subsystem == "app.justmaple.maple"'` plus stderr). Until Task 7 lands, the conflated `[swift] rust FFI decode` is the cold-open observation.
+> 4. Take the **median** of the 5 cold-open totals. The Plan 1 reference baseline is **4.74 s** (median, current `main` after `nr_color` hoist + rayon work) and the **hard-stop threshold is ≤ 5.21 s** (4.74 s + 10%). Above the threshold, Spike 1.3 fails and Plan 1 stops before Task 5 wires the new path into `EditSession`.
 
 (If the 100 MP fixture is absent — `test-fixtures/raws/` is gitignored — substitute the largest fixture that does exist via `ls src/raw-pipeline/test-fixtures/raws/*.dng` and use its path. The 100 MP target matters; if no fixture is at least ~50 MP, downgrade Spike 1.3 to a "the new path doesn't allocate inside the render loop" sanity check via `cargo flamegraph` — record this downgrade in the commit message.)
 
-Expected: a `[raw-core]` line per stage. Note the `agx`, `rec2020_to_srgb`, `quantize_u8`, and `apply_orientation` lines — these are the stages the new path skips. Their summed wall time is the floor of the savings the new path produces in raw-core.
+Expected: per-stage `[raw-core]` lines plus the Apple-side `[swift]` stage lines (after Task 7). Note the Rust `agx`, `rec2020_to_srgb`, `quantize_u8`, and `apply_orientation` lines — these are the stages the new path skips. Their summed wall time is the floor of the savings the new path produces in raw-core.
 
 - [ ] **Step 1.3.2: Record the baseline numbers.**
 
@@ -700,19 +760,58 @@ fn apply_orientation_f32_rgba(
 
 /// IEEE 754 binary16 encode of a `f32`. Matches the format CIImage.RGBAh
 /// expects on the Apple side. Pure scalar — fp16 storage is u16 lanes.
+///
+/// **Canonical reference (Swift mirror):** `src/apple/Packages/MapleCore/Tests/MapleCoreTests/SceneLinearPipelineTests.swift::float32ToFloat16Bits`.
+/// Always copy from there — do not re-derive. The earlier inline draft of
+/// this helper (using `(bits >> 13) & 0x3fff` followed by `mant >> 4`) leaked
+/// four exponent bits into the fp16 mantissa and produced a 31% positive
+/// bias on `1.5` (Spike 1.1 caught this on the Swift side; the Rust helper
+/// has the same shape and the same bug). See Errata at top of plan.
+/// The version below isolates the float32 mantissa (bits 0..22) and the
+/// stored exponent (bits 23..30) separately and rounds half-to-even on
+/// the dropped bits.
 fn f32_to_f16_bits(x: f32) -> u16 {
     let bits = x.to_bits();
     let sign = ((bits >> 16) & 0x8000) as u16;
-    let mut mant = ((bits >> 13) & 0x3fff) as i32;
-    let expon = (((bits >> 23) & 0xff) as i32) - 127 + 15;
-    if expon <= 0 {
-        if expon < -10 { return sign; }
-        mant = (mant | 0x4000) >> (1 - expon);
-        return sign | (mant as u16);
-    } else if expon >= 31 {
-        return sign | 0x7c00; // inf
+    let stored_exp = ((bits >> 23) & 0xff) as i32;
+    let mant_bits = bits & 0x007f_ffff; // 23-bit f32 mantissa
+    if stored_exp == 0xff {
+        // Inf / NaN
+        return sign | 0x7c00 | (if mant_bits != 0 { 0x0001 } else { 0 });
     }
-    sign | ((expon as u16) << 10) | ((mant as u16) >> 4)
+    let unbiased_exp = stored_exp - 127;
+    let fp16_exp = unbiased_exp + 15;
+    if fp16_exp >= 31 {
+        return sign | 0x7c00; // overflow → inf
+    }
+    if fp16_exp <= 0 {
+        // Subnormal / underflow.
+        if fp16_exp < -10 { return sign; }
+        // Add the implicit 1 and shift right to align in fp16 space.
+        let mant_with_implicit = mant_bits | 0x0080_0000;
+        let shift = (14 - unbiased_exp) as u32;
+        let shifted = mant_with_implicit >> (shift - 10 - 1); // keep 1 guard bit
+        let rounded = (shifted + 1) >> 1;                     // round half-up
+        return sign | ((rounded & 0x03ff) as u16);
+    }
+    // Normal range. Top 10 mantissa bits, with round-to-nearest-even on
+    // the dropped bit (12 = bit just below the 10 we keep).
+    let top10 = (mant_bits >> 13) & 0x03ff;
+    let round_bit = (mant_bits >> 12) & 0x1;
+    let sticky_bits = mant_bits & 0x0fff;
+    let mut fp16_mant = top10;
+    if round_bit != 0 && (sticky_bits != 0 || (fp16_mant & 0x1) != 0) {
+        fp16_mant += 1;
+        if fp16_mant > 0x3ff {
+            fp16_mant = 0;
+            let bumped_exp = fp16_exp + 1;
+            if bumped_exp >= 31 {
+                return sign | 0x7c00;
+            }
+            return sign | ((bumped_exp as u16) << 10);
+        }
+    }
+    sign | ((fp16_exp as u16) << 10) | (fp16_mant as u16)
 }
 
 /// Scene-linear render entry. Runs the same development chain as
