@@ -22,7 +22,7 @@ float smoothstep_f(float e0, float e1, float x) {
     return t * t * (3.0 - 2.0 * t);
 }
 
-extern "C" float4 sceneToneControls(
+[[stitchable]] float4 sceneToneControls(
     coreimage::sampler_h src,
     float exposure,
     float highlights,

@@ -14,7 +14,7 @@
 
 #include <CoreImage/CoreImage.h>
 
-extern "C" float4 sharpenOverdrive(
+[[stitchable]] float4 sharpenOverdrive(
     coreimage::sampler_h estimate,
     coreimage::sampler_h blurredEstimate,
     float overMix

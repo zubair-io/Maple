@@ -50,7 +50,7 @@ float3 oklab_to_rec2020_sat(float3 lab) {
     return M_lms_to_rec2020_sat * lms;
 }
 
-extern "C" float4 sceneSaturation(
+[[stitchable]] float4 sceneSaturation(
     coreimage::sampler_h src,
     float saturation
 ) {
