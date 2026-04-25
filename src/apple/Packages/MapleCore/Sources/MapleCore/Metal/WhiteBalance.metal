@@ -88,7 +88,7 @@ extern "C" float4 whiteBalance(
     float decodedTemperature,
     float decodedTint
 ) {
-    float4 color = src.sample(src.coord());
+    float4 color = float4(src.sample(src.coord()));
 
     // Identity short-circuit when live == decoded.
     if (abs(liveTemperature - decodedTemperature) < 0.5 &&

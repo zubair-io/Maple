@@ -33,8 +33,8 @@ extern "C" float4 rlRatio(
     coreimage::sampler_h reblur
 ) {
     const float EPSILON = 1e-5;
-    float4 o = observed.sample(observed.coord());
-    float4 rb = reblur.sample(reblur.coord());
+    float4 o = float4(observed.sample(observed.coord()));
+    float4 rb = float4(reblur.sample(reblur.coord()));
     float3 ratio = o.rgb / max(rb.rgb, float3(EPSILON));
     return float4(ratio, o.a);
 }
@@ -45,7 +45,7 @@ extern "C" float4 rlMultiply(
     coreimage::sampler_h estimate,
     coreimage::sampler_h correction
 ) {
-    float4 e = estimate.sample(estimate.coord());
-    float4 c = correction.sample(correction.coord());
+    float4 e = float4(estimate.sample(estimate.coord()));
+    float4 c = float4(correction.sample(correction.coord()));
     return float4(e.rgb * c.rgb, e.a);
 }

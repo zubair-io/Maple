@@ -30,8 +30,8 @@ extern "C" float4 sceneUnsharp(
     coreimage::sampler_h blurred,
     float amount
 ) {
-    float4 s = src.sample(src.coord());
-    float4 b = blurred.sample(blurred.coord());
+    float4 s = float4(src.sample(src.coord()));
+    float4 b = float4(blurred.sample(blurred.coord()));
     if (abs(amount) < 1e-3) return s;
     float3 mixed = s.rgb + (s.rgb - b.rgb) * amount;
     return float4(mixed, s.a);
