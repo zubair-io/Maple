@@ -64,11 +64,21 @@ pub enum RenderQuality {
     Full,
 }
 
-pub fn render_from_raw_with_quality(
+/// Run the entire development chain through `nr_color` and return the
+/// developed `Image` in `ColorSpace::SceneLinearRec2020`. Shared by both
+/// the legacy display-encoded entry (`render_from_raw_with_quality`) and
+/// the scene-linear FFI entry (`render_scene_linear_from_raw_with_quality`)
+/// so the two paths can never drift.
+///
+/// Stages: linearize, demosaic, baseline_exposure, highlight_recovery,
+/// dcp::profile_for + dcp::apply (camera RGB → SceneLinearRec2020),
+/// white_balance, scene_tone_controls, vibrance, saturation, clarity,
+/// texture, dehaze, sharpen, nr_luminance, nr_color.
+pub fn develop_scene_linear_from_raw_with_quality(
     raw: &RawImage,
     model: &AdjustmentModel,
     quality: RenderQuality,
-) -> Result<(u32, u32, Vec<u8>)> {
+) -> Result<crate::image::Image> {
     let mosaic = stage("linearize", || linearize::sensor_linearize(raw));
     let mut camera_rgb = stage("demosaic", || match quality {
         RenderQuality::Preview => demosaic::half_res(&mosaic, raw.cfa),
@@ -120,6 +130,15 @@ pub fn render_from_raw_with_quality(
     stage("sharpen", || sharpen::apply(&mut scene, model.sharpen_amount, model.sharpen_radius, model.sharpen_detail, model.sharpen_masking));
     stage("nr_luminance", || noise_reduction::apply_luminance(&mut scene, model.nr_luminance));
     stage("nr_color", || noise_reduction::apply_color(&mut scene, model.nr_color));
+    Ok(scene)
+}
+
+pub fn render_from_raw_with_quality(
+    raw: &RawImage,
+    model: &AdjustmentModel,
+    quality: RenderQuality,
+) -> Result<(u32, u32, Vec<u8>)> {
+    let mut scene = develop_scene_linear_from_raw_with_quality(raw, model, quality)?;
     stage("agx", || agx::apply(&mut scene, model.contrast));
     stage("rec2020_to_srgb", || encode::rec2020_to_srgb(&mut scene));
     let bytes = stage("quantize_u8", || encode::quantize_u8(&mut scene));
