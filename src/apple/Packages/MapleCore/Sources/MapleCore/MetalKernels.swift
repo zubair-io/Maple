@@ -952,6 +952,246 @@ public enum MetalKernels {
         return _dehazeAtmoFinalPipeline
     }
 
+    private static func dehazeTransmissionPipeline() -> MTLComputePipelineState? {
+        if let p = _dehazeTransmissionPipeline { return p }
+        guard let device = metalDevice(),
+              let lib = dehazeDarkAtmoTransLibrary(),
+              let fn = lib.makeFunction(name: "dehazeTransmission") else {
+            os_log(.error, log: kernelLog,
+                "dehazeTransmission function missing from compiled library")
+            return nil
+        }
+        do {
+            _dehazeTransmissionPipeline = try device.makeComputePipelineState(function: fn)
+        } catch {
+            os_log(.error, log: kernelLog,
+                "makeComputePipelineState(dehazeTransmission) failed: %{public}@",
+                String(describing: error))
+            return nil
+        }
+        return _dehazeTransmissionPipeline
+    }
+
+    private static func dehazeGuideLibrary() -> MTLLibrary? {
+        if let lib = _dehazeGuideLib { return lib }
+        guard let device = metalDevice(),
+              let data = metalSource("DehazeGuide"),
+              let source = String(data: data, encoding: .utf8) else {
+            os_log(.error, log: kernelLog,
+                "DehazeGuide.metal source not found in Bundle.module/Metal/")
+            return nil
+        }
+        do {
+            _dehazeGuideLib = try device.makeLibrary(source: source, options: nil)
+            return _dehazeGuideLib
+        } catch {
+            os_log(.error, log: kernelLog,
+                "MTLDevice.makeLibrary(source:) failed for DehazeGuide: %{public}@",
+                String(describing: error))
+            return nil
+        }
+    }
+
+    private static func dehazeGuidePipeline() -> MTLComputePipelineState? {
+        if let p = _dehazeGuidePipeline { return p }
+        guard let device = metalDevice(),
+              let lib = dehazeGuideLibrary(),
+              let fn = lib.makeFunction(name: "dehazeBuildGuide") else {
+            os_log(.error, log: kernelLog,
+                "dehazeBuildGuide function missing from compiled library")
+            return nil
+        }
+        do {
+            _dehazeGuidePipeline = try device.makeComputePipelineState(function: fn)
+        } catch {
+            os_log(.error, log: kernelLog,
+                "makeComputePipelineState(dehazeBuildGuide) failed: %{public}@",
+                String(describing: error))
+            return nil
+        }
+        return _dehazeGuidePipeline
+    }
+
+    private static func dehazeBoxBlurLibrary() -> MTLLibrary? {
+        if let lib = _dehazeBoxBlurLib { return lib }
+        guard let device = metalDevice(),
+              let data = metalSource("DehazeBoxBlur"),
+              let source = String(data: data, encoding: .utf8) else {
+            os_log(.error, log: kernelLog,
+                "DehazeBoxBlur.metal source not found in Bundle.module/Metal/")
+            return nil
+        }
+        do {
+            _dehazeBoxBlurLib = try device.makeLibrary(source: source, options: nil)
+            return _dehazeBoxBlurLib
+        } catch {
+            os_log(.error, log: kernelLog,
+                "MTLDevice.makeLibrary(source:) failed for DehazeBoxBlur: %{public}@",
+                String(describing: error))
+            return nil
+        }
+    }
+
+    private static func dehazeBoxBlurHPipeline() -> MTLComputePipelineState? {
+        if let p = _dehazeBoxBlurHPipeline { return p }
+        guard let device = metalDevice(),
+              let lib = dehazeBoxBlurLibrary(),
+              let fn = lib.makeFunction(name: "dehazeBoxBlurH") else {
+            os_log(.error, log: kernelLog,
+                "dehazeBoxBlurH function missing from compiled library")
+            return nil
+        }
+        do {
+            _dehazeBoxBlurHPipeline = try device.makeComputePipelineState(function: fn)
+        } catch {
+            os_log(.error, log: kernelLog,
+                "makeComputePipelineState(dehazeBoxBlurH) failed: %{public}@",
+                String(describing: error))
+            return nil
+        }
+        return _dehazeBoxBlurHPipeline
+    }
+
+    private static func dehazeBoxBlurVPipeline() -> MTLComputePipelineState? {
+        if let p = _dehazeBoxBlurVPipeline { return p }
+        guard let device = metalDevice(),
+              let lib = dehazeBoxBlurLibrary(),
+              let fn = lib.makeFunction(name: "dehazeBoxBlurV") else {
+            os_log(.error, log: kernelLog,
+                "dehazeBoxBlurV function missing from compiled library")
+            return nil
+        }
+        do {
+            _dehazeBoxBlurVPipeline = try device.makeComputePipelineState(function: fn)
+        } catch {
+            os_log(.error, log: kernelLog,
+                "makeComputePipelineState(dehazeBoxBlurV) failed: %{public}@",
+                String(describing: error))
+            return nil
+        }
+        return _dehazeBoxBlurVPipeline
+    }
+
+    private static func dehazeGuidedFilterLibrary() -> MTLLibrary? {
+        if let lib = _dehazeGuidedFilterLib { return lib }
+        guard let device = metalDevice(),
+              let data = metalSource("DehazeGuidedFilter"),
+              let source = String(data: data, encoding: .utf8) else {
+            os_log(.error, log: kernelLog,
+                "DehazeGuidedFilter.metal source not found in Bundle.module/Metal/")
+            return nil
+        }
+        do {
+            _dehazeGuidedFilterLib = try device.makeLibrary(source: source, options: nil)
+            return _dehazeGuidedFilterLib
+        } catch {
+            os_log(.error, log: kernelLog,
+                "MTLDevice.makeLibrary(source:) failed for DehazeGuidedFilter: %{public}@",
+                String(describing: error))
+            return nil
+        }
+    }
+
+    private static func dehazeBuildIpPipeline() -> MTLComputePipelineState? {
+        if let p = _dehazeBuildIpPipeline { return p }
+        guard let device = metalDevice(),
+              let lib = dehazeGuidedFilterLibrary(),
+              let fn = lib.makeFunction(name: "dehazeBuildIp") else {
+            os_log(.error, log: kernelLog,
+                "dehazeBuildIp function missing from compiled library")
+            return nil
+        }
+        do {
+            _dehazeBuildIpPipeline = try device.makeComputePipelineState(function: fn)
+        } catch {
+            os_log(.error, log: kernelLog,
+                "makeComputePipelineState(dehazeBuildIp) failed: %{public}@",
+                String(describing: error))
+            return nil
+        }
+        return _dehazeBuildIpPipeline
+    }
+
+    private static func dehazeBuildIIPipeline() -> MTLComputePipelineState? {
+        if let p = _dehazeBuildIIPipeline { return p }
+        guard let device = metalDevice(),
+              let lib = dehazeGuidedFilterLibrary(),
+              let fn = lib.makeFunction(name: "dehazeBuildII") else {
+            os_log(.error, log: kernelLog,
+                "dehazeBuildII function missing from compiled library")
+            return nil
+        }
+        do {
+            _dehazeBuildIIPipeline = try device.makeComputePipelineState(function: fn)
+        } catch {
+            os_log(.error, log: kernelLog,
+                "makeComputePipelineState(dehazeBuildII) failed: %{public}@",
+                String(describing: error))
+            return nil
+        }
+        return _dehazeBuildIIPipeline
+    }
+
+    private static func dehazeCombineABPipeline() -> MTLComputePipelineState? {
+        if let p = _dehazeCombineABPipeline { return p }
+        guard let device = metalDevice(),
+              let lib = dehazeGuidedFilterLibrary(),
+              let fn = lib.makeFunction(name: "dehazeCombineAB") else {
+            os_log(.error, log: kernelLog,
+                "dehazeCombineAB function missing from compiled library")
+            return nil
+        }
+        do {
+            _dehazeCombineABPipeline = try device.makeComputePipelineState(function: fn)
+        } catch {
+            os_log(.error, log: kernelLog,
+                "makeComputePipelineState(dehazeCombineAB) failed: %{public}@",
+                String(describing: error))
+            return nil
+        }
+        return _dehazeCombineABPipeline
+    }
+
+    private static func dehazeUnpackRPipeline() -> MTLComputePipelineState? {
+        if let p = _dehazeUnpackRPipeline { return p }
+        guard let device = metalDevice(),
+              let lib = dehazeGuidedFilterLibrary(),
+              let fn = lib.makeFunction(name: "dehazeUnpackR") else {
+            os_log(.error, log: kernelLog,
+                "dehazeUnpackR function missing from compiled library")
+            return nil
+        }
+        do {
+            _dehazeUnpackRPipeline = try device.makeComputePipelineState(function: fn)
+        } catch {
+            os_log(.error, log: kernelLog,
+                "makeComputePipelineState(dehazeUnpackR) failed: %{public}@",
+                String(describing: error))
+            return nil
+        }
+        return _dehazeUnpackRPipeline
+    }
+
+    private static func dehazeUnpackGPipeline() -> MTLComputePipelineState? {
+        if let p = _dehazeUnpackGPipeline { return p }
+        guard let device = metalDevice(),
+              let lib = dehazeGuidedFilterLibrary(),
+              let fn = lib.makeFunction(name: "dehazeUnpackG") else {
+            os_log(.error, log: kernelLog,
+                "dehazeUnpackG function missing from compiled library")
+            return nil
+        }
+        do {
+            _dehazeUnpackGPipeline = try device.makeComputePipelineState(function: fn)
+        } catch {
+            os_log(.error, log: kernelLog,
+                "makeComputePipelineState(dehazeUnpackG) failed: %{public}@",
+                String(describing: error))
+            return nil
+        }
+        return _dehazeUnpackGPipeline
+    }
+
     // MARK: Helpers
 
     /// Load + runtime-compile one named CIKernel from a `.metal` source file
