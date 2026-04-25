@@ -64,11 +64,21 @@ pub enum RenderQuality {
     Full,
 }
 
-pub fn render_from_raw_with_quality(
+/// Run the entire development chain through `nr_color` and return the
+/// developed `Image` in `ColorSpace::SceneLinearRec2020`. Shared by both
+/// the legacy display-encoded entry (`render_from_raw_with_quality`) and
+/// the scene-linear FFI entry (`render_scene_linear_from_raw_with_quality`)
+/// so the two paths can never drift.
+///
+/// Stages: linearize, demosaic, baseline_exposure, highlight_recovery,
+/// dcp::profile_for + dcp::apply (camera RGB → SceneLinearRec2020),
+/// white_balance, scene_tone_controls, vibrance, saturation, clarity,
+/// texture, dehaze, sharpen, nr_luminance, nr_color.
+pub fn develop_scene_linear_from_raw_with_quality(
     raw: &RawImage,
     model: &AdjustmentModel,
     quality: RenderQuality,
-) -> Result<(u32, u32, Vec<u8>)> {
+) -> Result<crate::image::Image> {
     let mosaic = stage("linearize", || linearize::sensor_linearize(raw));
     let mut camera_rgb = stage("demosaic", || match quality {
         RenderQuality::Preview => demosaic::half_res(&mosaic, raw.cfa),
@@ -120,6 +130,15 @@ pub fn render_from_raw_with_quality(
     stage("sharpen", || sharpen::apply(&mut scene, model.sharpen_amount, model.sharpen_radius, model.sharpen_detail, model.sharpen_masking));
     stage("nr_luminance", || noise_reduction::apply_luminance(&mut scene, model.nr_luminance));
     stage("nr_color", || noise_reduction::apply_color(&mut scene, model.nr_color));
+    Ok(scene)
+}
+
+pub fn render_from_raw_with_quality(
+    raw: &RawImage,
+    model: &AdjustmentModel,
+    quality: RenderQuality,
+) -> Result<(u32, u32, Vec<u8>)> {
+    let mut scene = develop_scene_linear_from_raw_with_quality(raw, model, quality)?;
     stage("agx", || agx::apply(&mut scene, model.contrast));
     stage("rec2020_to_srgb", || encode::rec2020_to_srgb(&mut scene));
     let bytes = stage("quantize_u8", || encode::quantize_u8(&mut scene));
@@ -134,6 +153,148 @@ pub fn render_from_raw_with_quality(
     // of FFI traffic and 4× the allocator pressure on a 100 MP RAW for no
     // extra information.
     Ok((w, h, bytes))
+}
+
+/// Apply EXIF orientation to a packed `[f32; 4]` RGBA buffer (treated as
+/// straight alpha — alpha lane is always 1.0 here, but we copy it through
+/// for symmetry with the future development chain).
+///
+/// Mirrors `apply_orientation` from `image.rs:159-193`, just in fp32 RGBA
+/// instead of u8 RGB. We reproduce the per-orientation source mapping
+/// instead of going through u8 because the new path never quantizes.
+fn apply_orientation_f32_rgba(
+    rgba: &[f32], w: u32, h: u32, orient: crate::image::ExifOrientation,
+) -> (u32, u32, Vec<f32>) {
+    use crate::image::ExifOrientation;
+    let (sw, sh) = (w as usize, h as usize);
+    debug_assert_eq!(rgba.len(), sw * sh * 4, "RGBA f32 buffer size mismatch");
+    if orient == ExifOrientation::Normal {
+        return (w, h, rgba.to_vec());
+    }
+    let (new_w, new_h) = if orient.swaps_wh() { (h, w) } else { (w, h) };
+    let (dw, dh) = (new_w as usize, new_h as usize);
+    let mut out = vec![0.0f32; dw * dh * 4];
+    for yp in 0..dh {
+        for xp in 0..dw {
+            let (sx, sy) = match orient {
+                ExifOrientation::Normal          => (xp, yp),
+                ExifOrientation::HorizontalFlip  => (sw - 1 - xp, yp),
+                ExifOrientation::Rotate180       => (sw - 1 - xp, sh - 1 - yp),
+                ExifOrientation::VerticalFlip    => (xp, sh - 1 - yp),
+                ExifOrientation::Transpose       => (yp, xp),
+                ExifOrientation::Rotate90        => (yp, sh - 1 - xp),
+                ExifOrientation::Transverse      => (sw - 1 - yp, sh - 1 - xp),
+                ExifOrientation::Rotate270       => (sw - 1 - yp, xp),
+            };
+            let si = (sy * sw + sx) * 4;
+            let di = (yp * dw + xp) * 4;
+            out[di]     = rgba[si];
+            out[di + 1] = rgba[si + 1];
+            out[di + 2] = rgba[si + 2];
+            out[di + 3] = rgba[si + 3];
+        }
+    }
+    (new_w, new_h, out)
+}
+
+/// IEEE 754 binary16 encode of a `f32`. Matches the format CIImage.RGBAh
+/// expects on the Apple side. Pure scalar — fp16 storage is u16 lanes.
+///
+/// This implementation isolates the float32 mantissa (bits 0..22) and
+/// stored exponent (bits 23..30) **separately** before re-packing into
+/// fp16. A naive `(bits >> 13) & 0x3fff` masks 14 bits including 4 bits
+/// from the float32 stored exponent, which then leak into the fp16
+/// mantissa via `mant >> 4` and produce ~31% positive bias on common
+/// values like 1.5 (read back as ~1.97). Spike 1.1 caught this on the
+/// Apple side; the same math lives here so the FFI handoff is correct.
+/// See `SceneLinearPipelineTests.swift` for the cross-check.
+fn f32_to_f16_bits(x: f32) -> u16 {
+    let bits = x.to_bits();
+    let sign: u16 = ((bits >> 16) & 0x8000) as u16;
+    let stored_exp: i32 = ((bits >> 23) & 0xff) as i32;
+    let mant_bits: u32 = bits & 0x007fffff;            // 23-bit float32 mantissa
+    if stored_exp == 0xff {
+        // Inf / NaN — preserve NaN-ness via a non-zero mantissa flag.
+        return sign | 0x7c00 | (if mant_bits != 0 { 0x0001 } else { 0 });
+    }
+    let unbiased_exp = stored_exp - 127;
+    let fp16_exp = unbiased_exp + 15;
+    if fp16_exp >= 31 {
+        return sign | 0x7c00; // overflow → inf
+    }
+    if fp16_exp <= 0 {
+        // Subnormal / underflow.
+        if fp16_exp < -10 { return sign; }
+        // Add the implicit 1 and shift right to align in fp16 space.
+        // fp16 subnormal precision = 10 bits below 2^-14.
+        let mant_with_implicit = mant_bits | 0x00800000;
+        let shift = (14 - unbiased_exp) as u32;
+        // Round-to-nearest-even on the shifted-out bits.
+        let shifted = mant_with_implicit >> (shift - 10 - 1); // keep 1 guard bit
+        let rounded = (shifted + 1) >> 1;                      // round half-up
+        return sign | ((rounded & 0x03ff) as u16);
+    }
+    // Normal range. Extract top 10 mantissa bits, with round-to-nearest
+    // on the next bit.
+    let top10 = (mant_bits >> 13) & 0x03ff;
+    let round_bit = (mant_bits >> 12) & 0x1;
+    let sticky_bits = mant_bits & 0x0fff;
+    let mut fp16_mant = top10;
+    // Round half to nearest-even.
+    if round_bit != 0 && (sticky_bits != 0 || (fp16_mant & 0x1) != 0) {
+        fp16_mant += 1;
+        if fp16_mant > 0x3ff {
+            // Mantissa overflow on round — bump exponent, mantissa goes to 0.
+            let bumped_exp = fp16_exp + 1;
+            if bumped_exp >= 31 {
+                return sign | 0x7c00;
+            }
+            return sign | ((bumped_exp as u16) << 10);
+        }
+    }
+    sign | ((fp16_exp as u16) << 10) | (fp16_mant as u16)
+}
+
+/// Scene-linear render entry. Runs the same development chain as
+/// `render_from_raw_with_quality` (via the shared
+/// `develop_scene_linear_from_raw_with_quality` helper — Step 2.4a)
+/// but stops after `nr_color` and packs to fp16 RGBA without the view
+/// transform tail. Output is packed Rec.2020 fp16 RGBA (8 bytes/pixel),
+/// straight alpha = 1.0, row-major. Returned `Vec<u16>` is the fp16 bit
+/// pattern; the FFI hands the underlying bytes to the caller via
+/// `bytemuck::cast_slice`.
+///
+/// Plan 1 (FFI split) — the Apple side imports this buffer as a CIImage
+/// tagged extendedLinearITUR_2020 and runs Lanczos prescale + AgX kernel
+/// + sRGB encode in CoreImage. See
+/// docs/superpowers/plans/2026-04-24-ffi-split-plan-1.md.
+pub fn render_scene_linear_from_raw_with_quality(
+    raw: &RawImage,
+    model: &AdjustmentModel,
+    quality: RenderQuality,
+) -> Result<(u32, u32, Vec<u16>)> {
+    let scene = develop_scene_linear_from_raw_with_quality(raw, model, quality)?;
+    // STOP: no agx::apply, no rec2020_to_srgb, no quantize_u8.
+    // Pack [f32;3] + alpha=1.0 to packed [f32;4] RGBA, then orient, then
+    // convert to fp16 lanes for the FFI handoff.
+    let (w0, h0) = (scene.width, scene.height);
+    let rgba_f32 = stage("pack_rgba_f32", || {
+        let mut v = Vec::with_capacity(scene.pixels.len() * 4);
+        for p in &scene.pixels {
+            v.push(p[0]);
+            v.push(p[1]);
+            v.push(p[2]);
+            v.push(1.0);
+        }
+        v
+    });
+    let (w, h, oriented_f32) = stage("apply_orientation_rgba", || {
+        apply_orientation_f32_rgba(&rgba_f32, w0, h0, raw.orientation)
+    });
+    let fp16: Vec<u16> = stage("pack_fp16", || {
+        oriented_f32.iter().map(|&v| f32_to_f16_bits(v)).collect()
+    });
+    Ok((w, h, fp16))
 }
 
 #[cfg(test)]
@@ -182,5 +343,71 @@ mod tests {
         let mean_bright: u64 = bright.iter().map(|&b| b as u64).sum::<u64>() / bright.len() as u64;
         assert!(mean_bright > mean_baseline,
             "+4EV ({}) should exceed baseline ({})", mean_bright, mean_baseline);
+    }
+
+    /// New scene-linear FFI entry. Returns Rec.2020 fp16 RGBA, half-res for
+    /// Preview, full for Full. Verify: the buffer is 8 bytes/pixel (4 ×
+    /// fp16), alpha is 1.0 everywhere, and the buffer is non-zero.
+    #[test]
+    fn render_scene_linear_test_0002_preview_returns_rec2020_fp16_rgba() {
+        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../test-fixtures/raws/test_0002.dng");
+        if !path.exists() { return; }
+        let bytes = std::fs::read(&path).expect("read raw");
+        let raw = crate::decode::decode_bytes(&bytes, "dng").expect("decode");
+        let model = AdjustmentModel::default();
+        let (w, h, fp16_rgba) = render_scene_linear_from_raw_with_quality(
+            &raw, &model, RenderQuality::Preview
+        ).expect("scene-linear preview render");
+        // Each pixel = 4 channels × 2 bytes = 8 bytes; the Vec is u16 (fp16
+        // bit pattern), so length = 4 × w × h.
+        assert_eq!(fp16_rgba.len() as u32, 4 * w * h,
+            "expected 4 × w × h fp16 lanes, got {} for {}×{}",
+            fp16_rgba.len(), w, h);
+        // Alpha (every 4th lane) must be the fp16 pattern of 1.0 (0x3c00).
+        let mut alpha_ok = 0usize;
+        for chunk in fp16_rgba.chunks_exact(4) {
+            if chunk[3] == 0x3c00 { alpha_ok += 1; }
+        }
+        assert_eq!(alpha_ok, (w * h) as usize,
+            "expected {} alpha=1.0 lanes, got {}", w * h, alpha_ok);
+        // Buffer is not all zeros.
+        let nonzero = fp16_rgba.iter().filter(|&&v| v != 0 && v != 0x3c00).count();
+        assert!(nonzero > (fp16_rgba.len() / 10),
+            "buffer mostly zero: {} non-zero/non-alpha lanes", nonzero);
+    }
+
+    // Sanity tests for f32_to_f16_bits — guards against the bit-isolation
+    // bug Spike 1.1 caught on the Apple side. `0x3c00` is the fp16 bit
+    // pattern of 1.0; `0x4000` is 2.0; `0x3e00` is 1.5; `0x0000` is 0.0.
+    #[test]
+    fn f32_to_f16_bits_zero_one_half_two() {
+        assert_eq!(f32_to_f16_bits(0.0), 0x0000);
+        assert_eq!(f32_to_f16_bits(1.0), 0x3c00);
+        assert_eq!(f32_to_f16_bits(2.0), 0x4000);
+        assert_eq!(f32_to_f16_bits(1.5), 0x3e00);
+    }
+
+    /// Round-trip 1.5 through fp16 and back. The buggy form would return
+    /// ~1.97 for 1.5; the correct isolation returns 1.5 exactly (1.5 is
+    /// representable in fp16).
+    #[test]
+    fn f32_to_f16_bits_one_point_five_round_trips_exact() {
+        let bits = f32_to_f16_bits(1.5);
+        // Decode fp16 -> f32 manually.
+        let sign = ((bits & 0x8000) as u32) << 16;
+        let exp = ((bits & 0x7c00) >> 10) as u32;
+        let mant = (bits & 0x03ff) as u32;
+        let f = if exp == 0 && mant == 0 {
+            f32::from_bits(sign)
+        } else if exp == 0x1f {
+            f32::from_bits(sign | 0x7f800000 | (mant << 13))
+        } else {
+            // Normal: rebias exponent and shift mantissa.
+            let f32_exp = (exp + 127 - 15) << 23;
+            f32::from_bits(sign | f32_exp | (mant << 13))
+        };
+        assert!((f - 1.5).abs() < 1e-6,
+            "1.5 round-trip: got {} (fp16 bits 0x{:04x})", f, bits);
     }
 }
