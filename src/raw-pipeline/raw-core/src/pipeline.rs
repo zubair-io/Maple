@@ -445,8 +445,14 @@ pub fn render_scene_linear_sized_from_raw_with_quality(
     quality: RenderQuality,
     max_long_edge: u32,
 ) -> Result<(u32, u32, Vec<u16>)> {
-    let mut scene = develop_scene_linear_from_raw_with_quality(raw, model, quality)?;
-    stage("downsample_area_f32", || downsample_image_area(&mut scene, max_long_edge));
+    // M3: develop with the early-downsample helper. The downsample
+    // happens immediately after demosaic so post-demosaic stages run
+    // on the viewport-sized buffer. The post-pipeline
+    // `downsample_image_area` call this function used to make is now
+    // inside the helper.
+    let scene = develop_scene_linear_sized_from_raw_with_quality(
+        raw, model, quality, max_long_edge,
+    )?;
     let (w0, h0) = (scene.width, scene.height);
     let rgba_f32 = stage("pack_rgba_f32_sized", || {
         let mut v = Vec::with_capacity(scene.pixels.len() * 4);
