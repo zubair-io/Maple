@@ -142,4 +142,87 @@ mod tests {
         let img = sensor_linearize(&raw);
         assert_eq!(img.space, ColorSpace::CameraNativeMosaic);
     }
+
+    /// Regression test for ticket #07: a 2×2 LinearRaw image with deliberately
+    /// distinct R/G/B values per pixel verifies that
+    /// `linearraw_to_camera_rgb` lays the data into `Image::pixels[k] = [R, G, B]`
+    /// channel-major. Pre-bug (every-other-column misroute via the Bayer
+    /// path), the second pixel would pick up neighbor blue samples; this
+    /// test catches that regression.
+    #[test]
+    fn linearraw_to_camera_rgb_lays_data_channel_major() {
+        let raw_data: Vec<u16> = vec![
+            // px 0: R=100  G=200  B=300
+            100, 200, 300,
+            // px 1: R=400  G=500  B=600
+            400, 500, 600,
+            // px 2: R=700  G=800  B=900
+            700, 800, 900,
+            // px 3: R=1000 G=1100 B=1200
+            1000, 1100, 1200,
+        ];
+        let raw = RawImage {
+            width: 2, height: 2,
+            cfa: CfaPattern::LinearRgb,
+            black_level: [0, 0, 0, 0],
+            white_level: 1500,
+            raw_data,
+            as_shot_neutral: [1.0, 1.0, 1.0],
+            as_shot_cct: None,
+            camera_make: "Test".into(),
+            camera_model: "Test".into(),
+            color_matrices: std::collections::HashMap::new(),
+            orientation: crate::image::ExifOrientation::Normal,
+            baseline_exposure: 0.0,
+        };
+        let img = linearraw_to_camera_rgb(&raw).expect("LinearRaw decode");
+        assert_eq!(img.width, 2);
+        assert_eq!(img.height, 2);
+        assert_eq!(img.space, ColorSpace::CameraNativeLinearRgb);
+        // Each pixel's R/G/B are normalized by white_level=1500.
+        let n = 1.0 / 1500.0;
+        let exp = [
+            [100.0 * n, 200.0 * n, 300.0 * n],
+            [400.0 * n, 500.0 * n, 600.0 * n],
+            [700.0 * n, 800.0 * n, 900.0 * n],
+            [1000.0 * n, 1100.0 * n, 1200.0 * n],
+        ];
+        for k in 0..4 {
+            for c in 0..3 {
+                let got = img.pixels[k][c];
+                let want = exp[k][c];
+                assert!((got - want).abs() < 1e-5,
+                    "pixel {} channel {}: got {}, want {}", k, c, got, want);
+            }
+        }
+    }
+
+    /// Regression test for ticket #07: `linearraw_to_camera_rgb` rejects
+    /// `raw_data` lengths that aren't 3 × w × h with a clear `Error::Decode`.
+    #[test]
+    fn linearraw_to_camera_rgb_rejects_wrong_buffer_length() {
+        let raw = RawImage {
+            width: 4, height: 4,
+            cfa: CfaPattern::LinearRgb,
+            black_level: [0, 0, 0, 0],
+            white_level: 1023,
+            // Length 16 instead of 48 — should error.
+            raw_data: vec![0; 16],
+            as_shot_neutral: [1.0, 1.0, 1.0],
+            as_shot_cct: None,
+            camera_make: "Test".into(),
+            camera_model: "Test".into(),
+            color_matrices: std::collections::HashMap::new(),
+            orientation: crate::image::ExifOrientation::Normal,
+            baseline_exposure: 0.0,
+        };
+        let err = linearraw_to_camera_rgb(&raw).unwrap_err();
+        match err {
+            crate::Error::Decode { reason, .. } => {
+                assert!(reason.contains("LinearRaw raw_data length"),
+                    "unexpected error message: {}", reason);
+            }
+            other => panic!("expected Error::Decode, got {:?}", other),
+        }
+    }
 }
