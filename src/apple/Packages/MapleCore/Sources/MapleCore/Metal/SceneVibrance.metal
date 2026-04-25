@@ -54,7 +54,7 @@ float smoothstep_v(float e0, float e1, float x) {
     return t * t * (3.0 - 2.0 * t);
 }
 
-extern "C" float4 sceneVibrance(
+[[stitchable]] float4 sceneVibrance(
     coreimage::sampler_h src,
     float vibrance   // -100..+100
 ) {

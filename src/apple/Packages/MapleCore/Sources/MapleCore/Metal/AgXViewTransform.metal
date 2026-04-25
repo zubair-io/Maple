@@ -41,7 +41,7 @@ float apply_contrast(float t, float contrast) {
     return clamp(shifted, 0.0, 1.0);
 }
 
-extern "C" float4 agxViewTransform(
+[[stitchable]] float4 agxViewTransform(
     coreimage::sampler_h src,
     coreimage::sampler_h lut,   // 1D LUT as 512×1 float texture
     float contrast              // -100..+100

@@ -28,7 +28,7 @@
 
 // Per-pixel ratio: observed / max(reblur, EPSILON) per channel.
 // Matches sharpen.rs:46-53.
-extern "C" float4 rlRatio(
+[[stitchable]] float4 rlRatio(
     coreimage::sampler_h observed,
     coreimage::sampler_h reblur
 ) {
@@ -41,7 +41,7 @@ extern "C" float4 rlRatio(
 
 // Per-pixel multiply: estimate * correction per channel.
 // Matches sharpen.rs:56-60.
-extern "C" float4 rlMultiply(
+[[stitchable]] float4 rlMultiply(
     coreimage::sampler_h estimate,
     coreimage::sampler_h correction
 ) {

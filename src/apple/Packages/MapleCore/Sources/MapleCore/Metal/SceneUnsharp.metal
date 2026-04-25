@@ -25,7 +25,7 @@
 
 #include <CoreImage/CoreImage.h>
 
-extern "C" float4 sceneUnsharp(
+[[stitchable]] float4 sceneUnsharp(
     coreimage::sampler_h src,
     coreimage::sampler_h blurred,
     float amount

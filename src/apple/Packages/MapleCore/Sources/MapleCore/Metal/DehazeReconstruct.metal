@@ -21,7 +21,7 @@
 
 #include <CoreImage/CoreImage.h>
 
-extern "C" float4 dehazeReconstruct(
+[[stitchable]] float4 dehazeReconstruct(
     coreimage::sampler_h src,
     coreimage::sampler_h meanA,
     coreimage::sampler_h meanB,
