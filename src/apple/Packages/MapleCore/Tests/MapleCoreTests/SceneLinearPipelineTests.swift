@@ -298,6 +298,53 @@
 //       computation moves to a separate sharpenGradient(luma) ->
 //       gradMagPlane kernel (CIKernel, neighbour sampling); the mix
 //       kernel becomes per-pixel safe.
+//
+// Plan 2 v2 v3 wires SceneSharpen into processSceneLinear, backed by
+// the shared SeparableGaussianBlur compute kernel (3 RL iters × 2
+// blurs each + optional overdrive blur = up to 7 blur passes per
+// slider tick) plus five small CIColorKernel/CIKernel functions
+// (rlRatio, rlMultiply, sharpenLuminance, sharpenEdgeMix,
+// sharpenOverdrive). See docs/superpowers/plans/
+// 2026-04-25-plan-2-v2-sharpen.md.
+//
+// Plan 2 v2 v3 M4 milestone gate (Task 7, recorded after wiring
+// SceneSharpen into processSceneLinear in Task 6):
+//   xcodebuild macOS build:                       PASS (** BUILD SUCCEEDED **)
+//   swift test (full suite):                      PASS (138 tests, 3 skipped, 0 failures)
+//   testM4SwiftScalarApplySharpenMatchesRust:     PASS
+//   testM4SwiftScalarApplySharpenZeroIsIdentity:  PASS
+//   testM4SharpenShortCircuitsAtZeroAmount:       PASS
+//   testM4SharpenMaskingFadesFlatAreas:           PASS
+//   testM4ProcessSceneLinearAppliesSharpen:       PASS
+//   DeepZoomTileRenderingTests (33 tests):        PASS — 35 px overlap budget
+//                                                 preserved by construction;
+//                                                 sharpen 9 px stencil <<< 35 px.
+//   Parity harness on legacy path (BUDGET=15):    4 pre-existing fails / 3 skipped
+//                                                 unchanged (test_0000/0007/
+//                                                 0015/0017 pre-existing fails;
+//                                                 test_0002/0006/0013 skipped) —
+//                                                 applyFilters untouched.
+//
+// Plan 2 v2 v3 M4 manual smoke test (Task 7 Step 7.3, recorded after
+// wiring SceneSharpen into processSceneLinear in Task 6):
+//   sharpenAmount   0 -> +100   moved pixels — PENDING (user-side verification)
+//   sharpenAmount   100 -> +150 moved pixels — PENDING (user-side verification)
+//   sharpenRadius   0.5 -> 3.0  moved pixels — PENDING (user-side verification)
+//   sharpenDetail   25 -> 100   moved pixels — PENDING (user-side verification)
+//   sharpenMasking  0 -> 50     moved pixels — PENDING (user-side verification)
+//   sharpenMasking  50 -> 0     moved pixels — PENDING (user-side verification)
+//   sharpenAmount   100 -> 0    moved pixels — PENDING (user-side verification)
+//
+// Manual smoke is the load-bearing runtime check that `swift test`
+// cannot perform (metallib not loaded under XCTest). See plan Task 7
+// Step 7.3.
+//
+// Deep Zoom regression check (Task 7 Step 7.4):
+//   DeepZoomTileRenderingTests — PASS (33 tests; 35 px overlap budget
+//   preserved by construction; sharpen 9 px stencil <<< 35 px).
+//
+// Parity harness on legacy path (Step 7.5): BUDGET=15 baseline unchanged
+// (4 pre-existing fails / 3 skipped — applyFilters still untouched).
 
 import XCTest
 import CoreImage
