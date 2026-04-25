@@ -145,12 +145,12 @@ pub unsafe extern "C" fn maple_render_file(
                 Err(e) => { set_last_error(format!("xmp read: {}", e)); return 5; }
             },
         };
-        let raw_bytes = match std::fs::read(raw_path) {
+        let raw_bytes = match raw_core::pipeline::stage("ffi_raw_read", || std::fs::read(raw_path)) {
             Ok(b) => b,
             Err(e) => { set_last_error(format!("raw read: {}", e)); return 6; }
         };
         let ext = raw_path.extension().and_then(|e| e.to_str()).unwrap_or("");
-        let raw_img = match decode_bytes(&raw_bytes, ext) {
+        let raw_img = match raw_core::pipeline::stage("ffi_rawler_decode", || decode_bytes(&raw_bytes, ext)) {
             Ok(r) => r,
             Err(e) => { set_last_error(format!("decode: {}", e)); return 7; }
         };
@@ -163,10 +163,13 @@ pub unsafe extern "C" fn maple_render_file(
             Ok(t) => t,
             Err(e) => { set_last_error(format!("render: {}", e)); return 8; }
         };
-        let mut boxed = bytes.into_boxed_slice();
-        let rgb = boxed.as_mut_ptr();
-        let len = boxed.len();
-        std::mem::forget(boxed);
+        let (rgb, len) = raw_core::pipeline::stage("ffi_pack", || {
+            let mut boxed = bytes.into_boxed_slice();
+            let p = boxed.as_mut_ptr();
+            let n = boxed.len();
+            std::mem::forget(boxed);
+            (p, n)
+        });
         unsafe {
             *(out_ptr as *mut MapleImageBuffer) =
                 MapleImageBuffer { rgb, len, width: w, height: h };
@@ -230,7 +233,7 @@ pub unsafe extern "C" fn maple_render_bytes(
                 Err(e) => { set_last_error(format!("xmp read: {}", e)); return 5; }
             },
         };
-        let raw_img = match decode_bytes(&input, &ext_owned) {
+        let raw_img = match raw_core::pipeline::stage("ffi_rawler_decode", || decode_bytes(&input, &ext_owned)) {
             Ok(r) => r,
             Err(e) => { set_last_error(format!("decode: {}", e)); return 7; }
         };
@@ -243,10 +246,13 @@ pub unsafe extern "C" fn maple_render_bytes(
             Ok(t) => t,
             Err(e) => { set_last_error(format!("render: {}", e)); return 8; }
         };
-        let mut boxed = out_bytes.into_boxed_slice();
-        let rgb = boxed.as_mut_ptr();
-        let len = boxed.len();
-        std::mem::forget(boxed);
+        let (rgb, len) = raw_core::pipeline::stage("ffi_pack", || {
+            let mut boxed = out_bytes.into_boxed_slice();
+            let p = boxed.as_mut_ptr();
+            let n = boxed.len();
+            std::mem::forget(boxed);
+            (p, n)
+        });
         unsafe {
             *(out_ptr as *mut MapleImageBuffer) =
                 MapleImageBuffer { rgb, len, width: w, height: h };
@@ -344,12 +350,12 @@ pub unsafe extern "C" fn maple_render_file_scene_linear(
                 Err(e) => { set_last_error(format!("xmp read: {}", e)); return 5; }
             },
         };
-        let raw_bytes = match std::fs::read(raw_path) {
+        let raw_bytes = match raw_core::pipeline::stage("ffi_raw_read", || std::fs::read(raw_path)) {
             Ok(b) => b,
             Err(e) => { set_last_error(format!("raw read: {}", e)); return 6; }
         };
         let ext = raw_path.extension().and_then(|e| e.to_str()).unwrap_or("");
-        let raw_img = match decode_bytes(&raw_bytes, ext) {
+        let raw_img = match raw_core::pipeline::stage("ffi_rawler_decode", || decode_bytes(&raw_bytes, ext)) {
             Ok(r) => r,
             Err(e) => { set_last_error(format!("decode: {}", e)); return 7; }
         };
@@ -365,11 +371,13 @@ pub unsafe extern "C" fn maple_render_file_scene_linear(
             Err(e) => { set_last_error(format!("render: {}", e)); return 8; }
         };
         // Box the Vec<u16> so we can hand the raw pointer + len to the caller.
-        let mut boxed = fp16.into_boxed_slice();
-        let fp16_ptr = boxed.as_mut_ptr();
-        let len_lanes = boxed.len();
-        let len_bytes = len_lanes * std::mem::size_of::<u16>();
-        std::mem::forget(boxed);
+        let (fp16_ptr, _len_lanes, len_bytes) = raw_core::pipeline::stage("ffi_pack", || {
+            let mut boxed = fp16.into_boxed_slice();
+            let p = boxed.as_mut_ptr();
+            let n = boxed.len();
+            std::mem::forget(boxed);
+            (p, n, n * std::mem::size_of::<u16>())
+        });
         unsafe {
             *(out_ptr as *mut MapleSceneLinearBuffer) =
                 MapleSceneLinearBuffer {
@@ -429,7 +437,7 @@ pub unsafe extern "C" fn maple_render_bytes_scene_linear(
                 Err(e) => { set_last_error(format!("xmp read: {}", e)); return 5; }
             },
         };
-        let raw_img = match decode_bytes(&input, &ext_owned) {
+        let raw_img = match raw_core::pipeline::stage("ffi_rawler_decode", || decode_bytes(&input, &ext_owned)) {
             Ok(r) => r,
             Err(e) => { set_last_error(format!("decode: {}", e)); return 7; }
         };
@@ -444,11 +452,13 @@ pub unsafe extern "C" fn maple_render_bytes_scene_linear(
             Ok(t) => t,
             Err(e) => { set_last_error(format!("render: {}", e)); return 8; }
         };
-        let mut boxed = fp16.into_boxed_slice();
-        let fp16_ptr = boxed.as_mut_ptr();
-        let len_lanes = boxed.len();
-        let len_bytes = len_lanes * std::mem::size_of::<u16>();
-        std::mem::forget(boxed);
+        let (fp16_ptr, _len_lanes, len_bytes) = raw_core::pipeline::stage("ffi_pack", || {
+            let mut boxed = fp16.into_boxed_slice();
+            let p = boxed.as_mut_ptr();
+            let n = boxed.len();
+            std::mem::forget(boxed);
+            (p, n, n * std::mem::size_of::<u16>())
+        });
         unsafe {
             *(out_ptr as *mut MapleSceneLinearBuffer) =
                 MapleSceneLinearBuffer {

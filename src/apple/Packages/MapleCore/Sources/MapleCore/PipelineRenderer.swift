@@ -213,7 +213,9 @@ public struct PipelineRenderer: Sendable {
         defer { maple_free_buffer(&buf) }
 
         let byteCount = Int(buf.len)
-        let data = Data(bytes: buf.rgb!, count: byteCount)
+        let data = mapleStage("decode result copy") {
+            Data(bytes: buf.rgb!, count: byteCount)
+        }
         return MapleImageData(
             width: Int(buf.width),
             height: Int(buf.height),
@@ -242,7 +244,9 @@ public struct PipelineRenderer: Sendable {
         guard byteCount > 0, let rgb = buf.rgb else {
             throw PipelineError.renderFailed(code: Int(rc), message: "empty buffer")
         }
-        let data = Data(bytes: rgb, count: byteCount)
+        let data = mapleStage("decode result copy") {
+            Data(bytes: rgb, count: byteCount)
+        }
         return MapleImageData(
             width: Int(buf.width),
             height: Int(buf.height),
@@ -270,7 +274,9 @@ public struct PipelineRenderer: Sendable {
         guard buf.len_bytes > 0, let ptr = buf.fp16_rgba else {
             throw PipelineError.renderFailed(code: Int(rc), message: "empty scene-linear buffer")
         }
-        let data = Data(bytes: ptr, count: Int(buf.len_bytes))
+        let data = mapleStage("decode result copy") {
+            Data(bytes: ptr, count: Int(buf.len_bytes))
+        }
         return MapleSceneLinearImageData(
             width: Int(buf.width),
             height: Int(buf.height),
@@ -303,7 +309,9 @@ public struct PipelineRenderer: Sendable {
         guard buf.len_bytes > 0, let bufPtr = buf.fp16_rgba else {
             throw PipelineError.renderFailed(code: Int(rc), message: "empty scene-linear buffer")
         }
-        let data = Data(bytes: bufPtr, count: Int(buf.len_bytes))
+        let data = mapleStage("decode result copy") {
+            Data(bytes: bufPtr, count: Int(buf.len_bytes))
+        }
         return MapleSceneLinearImageData(
             width: Int(buf.width),
             height: Int(buf.height),
