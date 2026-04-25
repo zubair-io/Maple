@@ -368,6 +368,29 @@ public actor ImageEditPipeline {
             texture: Float(model.texture)
         )
 
+        // Plan 2 v2 v4 (sibling, in flight) — Stage: SceneDehaze inserts here
+        // between texture and sharpen. Until v4 lands, the chain skips
+        // dehaze and feeds withTexture directly into sharpen. Per Rust at
+        // pipeline.rs:129-130: dehaze before sharpen.
+
+        // Plan 2 v2 v3 M4 — Stage: SceneSharpen (3-iter Richardson-Lucy +
+        // edge-aware mix in scene-linear Rec.2020 RGB). Mirrors
+        // sharpen::apply from raw-core (sharpen.rs:22-124). Orchestrates
+        // the shared SeparableGaussianBlur compute kernel (3 RL iters ×
+        // 2 blurs each + optional overdrive blur = up to 7 blur passes)
+        // plus the small per-pixel kernels rlRatio, rlMultiply,
+        // sharpenLuminance, sharpenEdgeMix, sharpenOverdrive. Maximum
+        // effective stencil at sharpen_radius=3.0 is ~9 src px (3 RL
+        // iters × box of radius ≤3 + 1 px central-difference for the
+        // gradient), well inside the Deep Zoom 35 px overlap budget.
+        let withSharpen = MetalKernels.applySceneSharpen(
+            to: withTexture,
+            amount: Float(model.sharpenAmount),
+            radius: Float(model.sharpenRadius),
+            detail: Float(model.sharpenDetail),
+            masking: Float(model.sharpenMasking)
+        )
+
         // Plan 2 v2 v2 M3 — Stage: SceneNRLuminance (Oklab roundtrip + shared
         // blur on the L channel). Mirrors noise_reduction::apply_luminance
         // from raw-core (noise_reduction.rs:20-55). Backed by the same
@@ -376,7 +399,7 @@ public actor ImageEditPipeline {
         // amount=100, radius=2 src px (3-pass box ~3 px tail), well inside
         // the Deep Zoom 35 px overlap budget.
         let withNRLuminance = MetalKernels.applySceneNRLuminance(
-            to: withTexture,
+            to: withSharpen,
             nrLuminance: Float(model.nrLuminance)
         )
 
