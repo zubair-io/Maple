@@ -1250,4 +1250,61 @@ final class SceneLinearPipelineTests: XCTestCase {
         let g = Self.float16BitsToFloat32(bytes.load(fromByteOffset: off + 2, as: UInt16.self))
         return r - g
     }
+
+    // MARK: - Plan 2 M2: WhiteBalance wired into processSceneLinear
+
+    /// Drag temperature warm (3000 K) on a neutral mid-gray pixel. The
+    /// output's R-B difference should be at least as red as the default
+    /// model's. Same `>=` caveat as the M1 tests — under XCTest the
+    /// kernel may be a no-op (no metallib), so we use >=. The companion
+    /// runtime check is the manual smoke test in Step 6.5.
+    func testM2ProcessSceneLinearAppliesTemperature() async throws {
+        let pipeline = ImageEditPipeline()
+        let input = Self.makeNeutralSceneLinearCIImage(width: 16, height: 16, value: 0.5)
+
+        let modelDefault = AdjustmentModel.default
+        var modelWarm = modelDefault
+        modelWarm.temperature = 3000
+
+        let outDefault = pipeline.processSceneLinear(decoded: input, model: modelDefault)
+        let outWarm    = pipeline.processSceneLinear(decoded: input, model: modelWarm)
+
+        let dRmB = Self.sampleCenterRMinusB(outDefault, width: 16, height: 16)
+        let wRmB = Self.sampleCenterRMinusB(outWarm, width: 16, height: 16)
+        XCTAssertGreaterThanOrEqual(
+            wRmB, dRmB,
+            "warm temperature should redden — got warm=\(wRmB) default=\(dRmB)"
+        )
+    }
+
+    /// Returns center-pixel R minus B. Positive = redder than blue.
+    static func sampleCenterRMinusB(_ ci: CIImage, width w: Int, height h: Int) -> Float {
+        let device = MTLCreateSystemDefaultDevice()
+        let context: CIContext
+        if let device {
+            context = CIContext(mtlDevice: device, options: [
+                .workingColorSpace: CGColorSpace(name: CGColorSpace.extendedLinearSRGB)!,
+                .workingFormat: CIFormat.RGBAh,
+                .cacheIntermediates: false,
+            ])
+        } else {
+            context = CIContext(options: [
+                .workingColorSpace: CGColorSpace(name: CGColorSpace.linearSRGB)!,
+                .workingFormat: CIFormat.RGBAh,
+            ])
+        }
+        let outSpace = CGColorSpace(name: CGColorSpace.extendedLinearITUR_2020)!
+        guard let cg = context.createCGImage(
+            ci, from: CGRect(x: 0, y: 0, width: w, height: h),
+            format: .RGBAh, colorSpace: outSpace
+        ), let cfData = cg.dataProvider?.data
+        else { return Float.nan }
+        let bytes = UnsafeRawPointer(CFDataGetBytePtr(cfData)!)
+        let bpr = cg.bytesPerRow
+        let cx = w / 2, cy = h / 2
+        let off = cy * bpr + cx * 4 * 2
+        let r = Self.float16BitsToFloat32(bytes.load(fromByteOffset: off + 0, as: UInt16.self))
+        let b = Self.float16BitsToFloat32(bytes.load(fromByteOffset: off + 4, as: UInt16.self))
+        return r - b
+    }
 }
