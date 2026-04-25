@@ -142,6 +142,80 @@ pub fn develop_scene_linear_from_raw_with_quality(
     Ok(scene)
 }
 
+/// Sized variant of `develop_scene_linear_from_raw_with_quality` that
+/// runs `linearize` + `demosaic` (or `linearraw_to_camera_rgb` for
+/// LinearRaw fixtures), then immediately downsamples the camera-RGB
+/// buffer to fit within `max_long_edge`, then runs the rest of the
+/// development chain on the smaller buffer. Saves ~8× on every
+/// post-demosaic stage when the source is 100 MP and the viewport is
+/// ~3 MP. See ticket 06 § Recommended Milestones / Milestone 3 and
+/// docs/superpowers/specs/2026-04-25-ticket-06-m3-earlier-downsample-brief.md.
+///
+/// Per-stage profile labels are prefixed `sized_` so MAPLE_PROFILE=1
+/// traces don't collide with the full-res `develop_…` labels — same
+/// convention the tile path uses (`tile_*`).
+///
+/// Never upscales: `downsample_image_area` early-returns when the
+/// source long edge is already <= `max_long_edge`. In that case this
+/// helper is functionally identical to
+/// `develop_scene_linear_from_raw_with_quality`, only with `sized_*`
+/// stage labels.
+pub fn develop_scene_linear_sized_from_raw_with_quality(
+    raw: &RawImage,
+    model: &AdjustmentModel,
+    quality: RenderQuality,
+    max_long_edge: u32,
+) -> Result<crate::image::Image> {
+    let mut camera_rgb = match raw.cfa {
+        crate::image::CfaPattern::LinearRgb => {
+            stage("sized_linearraw_decode", || linearize::linearraw_to_camera_rgb(raw))?
+        }
+        _ => {
+            let mosaic = stage("sized_linearize", || linearize::sensor_linearize(raw));
+            stage("sized_demosaic", || match quality {
+                RenderQuality::Preview => demosaic::half_res(&mosaic, raw.cfa),
+                #[cfg(feature = "high-quality-demosaic")]
+                RenderQuality::Full => demosaic::hamilton_adams(&mosaic, raw.cfa),
+                #[cfg(not(feature = "high-quality-demosaic"))]
+                RenderQuality::Full => demosaic::bilinear(&mosaic, raw.cfa),
+            })
+        }
+    };
+
+    // Early downsample — the heart of this milestone. After this call
+    // every later stage runs on the viewport-sized buffer instead of
+    // the half-res sensor buffer. `downsample_image_area` is a no-op
+    // when the source long edge is already <= `max_long_edge`.
+    stage("sized_downsample_area_f32", || {
+        downsample_image_area(&mut camera_rgb, max_long_edge)
+    });
+
+    if raw.baseline_exposure.abs() > 1e-4 {
+        stage("sized_baseline_exposure", || {
+            let be_gain = raw.baseline_exposure.exp2();
+            for p in &mut camera_rgb.pixels {
+                p[0] *= be_gain;
+                p[1] *= be_gain;
+                p[2] *= be_gain;
+            }
+        });
+    }
+    stage("sized_highlight_recovery", || highlight_recovery::apply(&mut camera_rgb, model.highlight_recovery));
+    let profile = stage("sized_dcp_profile_for", || dcp::profile_for(raw))?;
+    let mut scene = stage("sized_dcp_apply", || dcp::apply(&camera_rgb, &profile))?;
+    stage("sized_white_balance", || white_balance::apply(&mut scene, model.temperature, model.tint));
+    stage("sized_scene_tone_controls", || scene_tone_controls::apply(&mut scene, model));
+    stage("sized_vibrance", || vibrance::apply(&mut scene, model.vibrance));
+    stage("sized_saturation", || saturation::apply(&mut scene, model.saturation));
+    stage("sized_clarity", || clarity::apply(&mut scene, model.clarity));
+    stage("sized_texture", || texture::apply(&mut scene, model.texture));
+    stage("sized_dehaze", || dehaze::apply(&mut scene, model.dehaze));
+    stage("sized_sharpen", || sharpen::apply(&mut scene, model.sharpen_amount, model.sharpen_radius, model.sharpen_detail, model.sharpen_masking));
+    stage("sized_nr_luminance", || noise_reduction::apply_luminance(&mut scene, model.nr_luminance));
+    stage("sized_nr_color", || noise_reduction::apply_color(&mut scene, model.nr_color));
+    Ok(scene)
+}
+
 pub fn render_from_raw_with_quality(
     raw: &RawImage,
     model: &AdjustmentModel,
