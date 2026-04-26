@@ -14,12 +14,14 @@ pub const AGX_MAX_EV: f32 = 6.5;
 pub const AGX_MID_GRAY: f32 = 0.18;
 
 /// Display-linear value at the mid-gray log-pivot (norm = MID_NORM).
-/// Computed from the Blender polynomial at norm = (0 - MIN_EV)/EV_RANGE.
-/// This is NOT a tunable; it's the value Blender's AgX_Default_Contrast
-/// curve produces at that position.
-pub const AGX_MID_DISPLAY: f32 = 0.496731;
+/// Computed from the Maple AgX polynomial at norm = (0-MIN_EV)/EV_RANGE.
+/// Maple AgX is photography-tuned: this anchor sits near MID_GRAY
+/// (~0.18), preserving mid-gray through the curve. Blender 4.x AgX
+/// (the prior shape) lifted it to ~0.50 for cinematic look.
+pub const AGX_MID_DISPLAY: f32 = 0.237056;
 
-/// Blender 4.x AgX_Base default contrast slope.
+/// Slope-modulation constant. Mirrored across platforms so the
+/// contrast slider drives identical behavior in Rust / Metal / WebGL.
 pub const AGX_BASE_SLOPE: f32 = 2.4;
 
 /// Size of the per-channel sigmoid LUT embedded in agx_lut.bin.
@@ -29,4 +31,4 @@ pub const AGX_LUT_SIZE: usize = 512;
 /// (due to coefficient edits or LUT recompute), bump this. It is
 /// propagated into RenderedPreviewCache's viewTransformVersion
 /// so every cached preview re-renders on the next cold open.
-pub const AGX_VERSION: u32 = 5;
+pub const AGX_VERSION: u32 = 6;
