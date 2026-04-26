@@ -187,8 +187,11 @@ struct AppShell: View {
             // `isFullImage` drives Ticket 12 bugs 4/5/8: the panel auto-flips
             // to Develop on entry, back to Info on exit, and hides the
             // Develop segment entirely while the user is in Browse mode.
+            // Width: iPad expands the column toward `max` (~half the screen
+            // when balanced), so DetailPanelWidth tightens the range there
+            // to just fit the slider rail. macOS keeps the original range.
             DetailPanel(session: selectedSession, isFullImage: mode == .fullImage)
-                .navigationSplitViewColumnWidth(min: 240, ideal: 280, max: 360)
+                .modifier(DetailPanelWidth())
         }
         .navigationSplitViewStyle(.balanced)
     }
@@ -748,6 +751,28 @@ struct SMBPickerSheet: View {
         }
         .padding(20)
         .frame(minWidth: 380)
+    }
+}
+
+// MARK: - Detail panel width
+
+/// Platform-scoped column width for the detail pane.
+/// - macOS: 240/280/360 — generous, matches the mockup width.
+/// - iPad: 240/260/280 — tightened because `NavigationSplitView` on iPad
+///   pulls the column toward `max` and ignores `ideal`. Without this clamp
+///   the detail pane eats roughly half the screen on a 12.9" iPad in
+///   landscape, leaving the slider rail floating in whitespace.
+private struct DetailPanelWidth: ViewModifier {
+    func body(content: Content) -> some View {
+        #if os(iOS)
+        if UIDevice.current.userInterfaceIdiom == .pad {
+            content.navigationSplitViewColumnWidth(min: 240, ideal: 260, max: 280)
+        } else {
+            content.navigationSplitViewColumnWidth(min: 240, ideal: 280, max: 360)
+        }
+        #else
+        content.navigationSplitViewColumnWidth(min: 240, ideal: 280, max: 360)
+        #endif
     }
 }
 
