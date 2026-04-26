@@ -70,20 +70,18 @@ struct FullImageView: View {
                    viewportPx.height / imageSize.height)
     }
 
-    /// Image pixel extent for fit / zoom math. Prefers `nativeImageSize` so
-    /// the math is stable across fast-phase, refine-phase, cached-preview,
-    /// and embedded-JPEG paints — those buffers can differ in extent from
-    /// the real sensor dimensions (half-res decode + upscale, viewport-sized
-    /// cache, 2048-max embedded preview). `renderedPreview.extent` is the
-    /// fallback for the first paint before `nativeImageSize` is seeded.
+    /// Image pixel extent for fit / zoom math. ONLY trusts
+    /// `session.nativeImageSize` — every other source (`renderedPreview`,
+    /// embedded JPEG, sized-FFI buffer) carries a smaller extent that, if
+    /// fed into the canvas/zoom math, anchors "100%" to a preview-resolution
+    /// baseline. The user reported this directly: opening an image on iPad
+    /// before the metadata-seed completed left "100%" displaying the
+    /// embedded-JPEG dims (~2048 px long edge) instead of native (~12000 px).
+    /// Returning `nil` while waiting forces the placeholder branch in `body`
+    /// rather than rendering at the wrong scale.
     private var imageExtent: CGSize? {
-        if session.nativeImageSize != .zero {
-            return session.nativeImageSize
-        }
-        if let ci = session.renderedPreview {
-            return ci.extent.size
-        }
-        return nil
+        guard session.nativeImageSize != .zero else { return nil }
+        return session.nativeImageSize
     }
 
     /// Resolves "fit" mode to a concrete scale. Reads `viewportSize` so the
@@ -121,19 +119,16 @@ struct FullImageView: View {
                 // Background
                 MapleTokens.imageCanvas.ignoresSafeArea()
 
-                if let ci = session.showingOriginal ? nil : session.renderedPreview {
+                if let ci = session.showingOriginal ? nil : session.renderedPreview,
+                   let virtualSize = imageExtent {
                     // Frame on the *virtual* image size — `nativeImageSize`
-                    // once the decode has landed, otherwise the current
-                    // buffer's extent as a best-effort. The CIImage itself
-                    // may be at a smaller resolution (embedded preview,
-                    // cached JPEG, half-res fast phase) and CoreImage will
-                    // upscale to fill this frame. Keying the frame off
-                    // `ci.extent` instead causes the picture to collapse
-                    // whenever the preview buffer is smaller than native
-                    // (embedded JPEG landed but decode hasn't) — the frame
-                    // shrinks along with the buffer and the viewport looks
-                    // like it went blank.
-                    let virtualSize = imageExtent ?? ci.extent.size
+                    // exclusively. The CIImage itself may be at a smaller
+                    // resolution (embedded preview, cached JPEG, half-res
+                    // fast phase) and CoreImage will upscale to fill this
+                    // frame. Falling back to `ci.extent.size` here would
+                    // collapse the canvas to preview dims while waiting
+                    // for native to seed — the user reported exactly this
+                    // on iPad. Wait for `imageExtent` instead.
                     let scale = effectivePixelScale(viewport: geo.size)
                     // `scale` is real-px-per-image-px; SwiftUI frames are in
                     // points, so divide by displayScale. Matches reference
