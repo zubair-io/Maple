@@ -444,6 +444,8 @@ struct FullImageView: View {
 struct CIImageView: View {
     let image: CIImage
 
+    @Environment(\.displayScale) private var displayScale
+
     /// Render-time CIContext. Output color space is sRGB so the
     /// Rec.2020->sRGB encode happens here, deterministically, exactly
     /// once on both legacy and scene-linear paths. Without this the
@@ -462,17 +464,23 @@ struct CIImageView: View {
             format: .RGBA8,
             colorSpace: Self.outputColorSpace
         ) {
-            #if os(macOS)
-            Image(nsImage: NSImage(cgImage: cgImg, size: .zero))
+            // `Image(decorative:scale:orientation:)` is the explicit
+            // pixel-to-point API and works identically on macOS and iOS.
+            // The previous `Image(nsImage: NSImage(cgImage:size:.zero))`
+            // path on macOS adopts the cgImage's pixel dimensions as the
+            // NSImage's natural size in POINTS — at displayScale=2.0 that
+            // yields a natural size twice the intended display size, and
+            // `.resizable().aspectRatio(.fit)` does not reliably scale
+            // down when natural points exceed the proposed frame. The
+            // user reported this directly: a full-canvas-extent composite
+            // from the deep-zoom refine pass renders at 2× the expected
+            // zoom on macOS once the cgImage size exceeds the frame.
+            // `Image(decorative:scale:)` carries the displayScale
+            // explicitly, so 11648 px ÷ 2.0 = 5824 pt matches the frame.
+            Image(decorative: cgImg, scale: displayScale, orientation: .up)
                 .resizable()
                 .interpolation(.high)
                 .aspectRatio(contentMode: .fit)
-            #else
-            Image(uiImage: UIImage(cgImage: cgImg))
-                .resizable()
-                .interpolation(.high)
-                .aspectRatio(contentMode: .fit)
-            #endif
         } else {
             Color.gray
         }
