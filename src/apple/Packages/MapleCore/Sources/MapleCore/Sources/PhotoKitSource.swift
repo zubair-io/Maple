@@ -14,6 +14,14 @@
 // RAW bytes: PHImageRequestOptions with PHImageRequestOptionsVersion.unadjusted
 // and allowNetworkAccess=false to get the full RAW buffer for the Rust
 // pipeline.
+//
+// Library-change observation: the source registers with the process-wide
+// `PhotoKitChangeObserver` singleton at init and clears its cached fetch
+// result on any library change. PhotoKit's `PHFetchResult` is a snapshot —
+// after a change in another app, calling `enumerateObjects` on a stale result
+// throws an obscure error rather than reporting the new contents. Mirroring
+// the working `../Maple/.../PhotoKit/PhotoKitBridge.swift` pattern: drop the
+// snapshot on change so the next `fetchAssets(for:)` re-queries.
 
 import Foundation
 import Photos
@@ -26,13 +34,37 @@ public actor PhotoKitSource {
     // MARK: State
 
     private var fetchResult: PHFetchResult<PHAsset>?
+    private var lastFilter: PhotoKitFilter?
     private var authStatus: PHAuthorizationStatus = .notDetermined
+    private var changeObserverToken: UUID?
 
     /// O(1). Backed by the PHFetchResult count (SQLite `COUNT(*)` on the
     /// predicate, not an array length).
     public var count: Int { fetchResult?.count ?? 0 }
 
-    public init() {}
+    public init() {
+        // Subscribe to library-change notifications so a photo added in
+        // another app invalidates our cached snapshot. The handler runs on
+        // a PhotoKit-private thread; we hop to the actor with `Task`.
+        let token = PhotoKitChangeObserver.shared.subscribe { [weak self] in
+            guard let self else { return }
+            Task { await self.invalidateSnapshot() }
+        }
+        // `actor` init can write to `self` directly without an async hop.
+        self.changeObserverToken = token
+    }
+
+    deinit {
+        if let token = changeObserverToken {
+            PhotoKitChangeObserver.shared.unsubscribe(token)
+        }
+    }
+
+    /// Drop the cached fetch result so the next `images()` call re-queries.
+    /// Called from the change-observer fan-out.
+    private func invalidateSnapshot() {
+        fetchResult = nil
+    }
 
     // MARK: Public API
 
@@ -42,15 +74,22 @@ public actor PhotoKitSource {
         try await fetchAssets(for: .all)
     }
 
-    /// Configure the source to apply `filter`. Access is (re)requested here
-    /// so first-time callers still see the permission prompt. Returns as
-    /// soon as PhotoKit has run the predicate — no iteration of the result.
+    /// Configure the source to apply `filter`. Authorization is checked
+    /// (synchronously, via `PHPhotoLibrary.authorizationStatus(for:)`) but
+    /// NOT requested here — the AppShell-level callers either prompt the
+    /// user from the grid's "Grant Access" button or via the dedicated
+    /// `PhotoKitLibrary.requestAuthorization()` call before reaching here.
+    /// Throwing on a not-yet-granted status would suppress the lazy fetch
+    /// the AppShell wires up between auth grant and source build.
+    /// Returns as soon as PhotoKit has run the predicate — no iteration
+    /// of the result.
     public func fetchAssets(for filter: PhotoKitFilter) async throws {
-        let status = await PHPhotoLibrary.requestAuthorization(for: .readWrite)
+        let status = PHPhotoLibrary.authorizationStatus(for: .readWrite)
         authStatus = status
         guard status == .authorized || status == .limited else {
             throw PhotoKitError.accessDenied(status)
         }
+        lastFilter = filter
         fetchResult = Self.buildFetchResult(for: filter)
     }
 
@@ -95,20 +134,48 @@ public actor PhotoKitSource {
 
     /// Fetch the raw image bytes for an asset by localIdentifier (for the
     /// Rust pipeline). Returns nil if the asset is not available locally.
+    /// Network access is enabled so iCloud-Photos-only assets can be
+    /// downloaded on demand — without it `requestImageDataAndOrientation`
+    /// returns nil bytes for any asset whose original lives in iCloud and
+    /// hasn't been pulled to this device, which is the default state for a
+    /// huge fraction of large libraries on Apple-silicon Macs / iPads.
+    /// The reference repo's `requestCGImage` helper enables network access
+    /// for the same reason.
     public func rawData(for localID: String) async -> Data? {
         guard let phAsset = phAsset(for: localID) else { return nil }
         return await withCheckedContinuation { continuation in
             let options = PHImageRequestOptions()
             options.version = .unadjusted
             options.deliveryMode = .highQualityFormat
-            options.isNetworkAccessAllowed = false
+            options.isNetworkAccessAllowed = true
             options.isSynchronous = false
+
+            // `requestImageDataAndOrientation` with `.highQualityFormat`
+            // should fire the callback exactly once, but PhotoKit's docs
+            // explicitly warn callers to handle multiple invocations on
+            // some delivery modes. Guard the continuation with a one-shot
+            // latch — resuming it twice fatally crashes the process under
+            // `withCheckedContinuation`, and a defensive guard costs us
+            // nothing.
+            final class ResumeLatch: @unchecked Sendable {
+                private let lock = NSLock()
+                private var fired = false
+                func tryFire() -> Bool {
+                    lock.lock(); defer { lock.unlock() }
+                    if fired { return false }
+                    fired = true
+                    return true
+                }
+            }
+            let latch = ResumeLatch()
 
             PHImageManager.default().requestImageDataAndOrientation(
                 for: phAsset,
                 options: options
             ) { data, _, _, _ in
-                continuation.resume(returning: data)
+                if latch.tryFire() {
+                    continuation.resume(returning: data)
+                }
             }
         }
     }
@@ -123,8 +190,21 @@ extension PhotoKitSource: ImageSource {
     /// one SQLite query per asset and takes minutes on large libraries.
     /// Consumers that need the file basename/extension look it up lazily
     /// when the asset is actually opened (see `rawBytes(for:)`).
+    ///
+    /// If the cached snapshot was invalidated by the library-change observer
+    /// between `fetchAssets(for:)` and this call, transparently re-fetch
+    /// using the last filter so the caller doesn't see a spurious empty
+    /// list. Throwing `notAuthorized` here (rather than returning empty)
+    /// surfaces the wider problem — the AppShell's auth check rejected the
+    /// load before reaching this point — so an unexpected nil snapshot is a
+    /// programming error worth logging, not a silent zero.
     public func images() async throws -> [ImageRef] {
-        guard let result = fetchResult else { return [] }
+        if fetchResult == nil, let filter = lastFilter {
+            try await fetchAssets(for: filter)
+        }
+        guard let result = fetchResult else {
+            throw PhotoKitError.notFetched
+        }
         var refs: [ImageRef] = []
         refs.reserveCapacity(result.count)
         var cancelled = false
@@ -172,11 +252,17 @@ extension PhotoKitSource: ImageSource {
 
 public enum PhotoKitError: Error, LocalizedError, Sendable {
     case accessDenied(PHAuthorizationStatus)
+    /// `images()` was called before `fetchAssets(for:)` set up a snapshot —
+    /// AppShell should drive the source with `try await source.fetchAssets`
+    /// first.
+    case notFetched
 
     public var errorDescription: String? {
         switch self {
         case .accessDenied(let status):
             return "Photo Library access denied (status: \(status.rawValue)). Grant access in Settings."
+        case .notFetched:
+            return "Photo Library asset list requested before the predicate was applied — call fetchAssets(for:) first."
         }
     }
 }
