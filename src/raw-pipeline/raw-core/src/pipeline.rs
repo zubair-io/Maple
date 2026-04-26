@@ -663,7 +663,6 @@ pub fn render_scene_linear_tile_from_raw_with_quality(
                 out_w, out_h, src_w, src_h)
         ));
     }
-    let mosaic_full = stage("tile_linearize", || linearize::sensor_linearize(raw));
     // (src_x, src_y, src_w, src_h) are in DISPLAY-oriented source coords —
     // that's what callers (Apple TileManager, maple-cli `tile` subcommand)
     // know about. Translate to sensor coords before cropping the mosaic.
@@ -674,13 +673,21 @@ pub fn render_scene_linear_tile_from_raw_with_quality(
     // the display tile coords the caller asked for.
     let (s_x, s_y, s_w, s_h) = raw.orientation.display_rect_to_sensor(
         src_x, src_y, src_w, src_h,
-        mosaic_full.width, mosaic_full.height,
+        raw.width, raw.height,
     );
     let (rect, (left_pad, top_pad)) = pad_and_clamp_mosaic_rect(
         s_x, s_y, s_w, s_h, TILE_OVERLAP_PX,
-        mosaic_full.width, mosaic_full.height,
+        raw.width, raw.height,
     );
-    let mosaic = stage("tile_mosaic_crop", || crop_mosaic_to_padded_rect(&mosaic_full, rect));
+    // Linearize ONLY the padded crop region — not the full sensor.
+    // For a 100 MP RAW (~12288×8192) the per-tile cost was ~480 ms;
+    // a 512+overlap region is ~582×582 px, ~10 ms. ~50× speedup with
+    // 23 visible tiles → ~10 s total. Bayer phase is preserved because
+    // `pad_and_clamp_mosaic_rect` aligns start corners to even.
+    let (rx, ry, rw, rh) = rect;
+    let mosaic = stage("tile_linearize", || {
+        linearize::sensor_linearize_region(raw, rx, ry, rw, rh)
+    });
     let scene = develop_scene_linear_from_padded_mosaic(&mosaic, raw, model, quality)?;
 
     // Trim the overlap, leaving the inner s_w × s_h block in SENSOR coords

@@ -10,27 +10,53 @@ use rayon::prelude::*;
 /// already-demosaiced interleaved RGB, not a Bayer mosaic, and `raw_data` is
 /// `3 × w × h` instead of `w × h`. Use [`linearraw_to_camera_rgb`] instead.
 pub fn sensor_linearize(raw: &RawImage) -> Image {
+    sensor_linearize_region(raw, 0, 0, raw.width, raw.height)
+}
+
+/// Linearize a single rectangular region of the sensor. Output is an
+/// `Image` of size `(rect_w, rect_h)` — only the requested rect is
+/// processed, not the full sensor. Used by the tile path so a 100 MP
+/// RAW doesn't pay the full ~480 ms of linearize work per visible tile;
+/// instead each tile linearizes its ~512×512-region (with overlap) in
+/// a few ms.
+///
+/// `rect_x` and `rect_y` MUST be even-aligned for Bayer-phase
+/// preservation (the caller is `pad_and_clamp_mosaic_rect`, which
+/// rounds the start corners down to even). The CFA pattern indexing
+/// uses absolute sensor coords so the returned mosaic carries the
+/// correct color-at-position assignments.
+pub fn sensor_linearize_region(
+    raw: &RawImage,
+    rect_x: u32, rect_y: u32, rect_w: u32, rect_h: u32,
+) -> Image {
     debug_assert_ne!(raw.cfa, CfaPattern::LinearRgb,
         "sensor_linearize must not be called on LinearRgb data; \
          use linearraw_to_camera_rgb instead. See ticket #07.");
+    debug_assert!(rect_x + rect_w <= raw.width && rect_y + rect_h <= raw.height,
+        "rect ({},{},{},{}) out of bounds for sensor ({},{})",
+        rect_x, rect_y, rect_w, rect_h, raw.width, raw.height);
 
-    let w = raw.width as usize;
-    let mut img = Image::new(raw.width, raw.height, ColorSpace::CameraNativeMosaic);
+    let sensor_w = raw.width as usize;
+    let rw = rect_w as usize;
+    let mut img = Image::new(rect_w, rect_h, ColorSpace::CameraNativeMosaic);
 
     let wl = raw.white_level as f32;
     img.pixels
-        .par_chunks_mut(w)
+        .par_chunks_mut(rw)
         .enumerate()
-        .for_each(|(y, row)| {
-            let raw_row = &raw.raw_data[y * w..(y + 1) * w];
-            for (x, px) in row.iter_mut().enumerate() {
-                // Per-CFA-position black level: index as 2*(y&1) + (x&1).
-                let bl_idx = ((y & 1) << 1) | (x & 1);
+        .for_each(|(local_y, row)| {
+            let abs_y = rect_y as usize + local_y;
+            let raw_row = &raw.raw_data[abs_y * sensor_w..(abs_y + 1) * sensor_w];
+            for (local_x, px) in row.iter_mut().enumerate() {
+                let abs_x = rect_x as usize + local_x;
+                // Per-CFA-position black level: index as 2*(y&1) + (x&1)
+                // in absolute sensor coords (CFA pattern is absolute).
+                let bl_idx = ((abs_y & 1) << 1) | (abs_x & 1);
                 let bl = raw.black_level[bl_idx] as f32;
                 let denom = (wl - bl).max(1.0);
-                let raw_v = raw_row[x] as f32;
+                let raw_v = raw_row[abs_x] as f32;
                 let v = ((raw_v - bl) / denom).clamp(0.0, 1.0);
-                let color = raw.cfa.color_at(x as u32, y as u32) as usize;
+                let color = raw.cfa.color_at(abs_x as u32, abs_y as u32) as usize;
                 px[color] = v;
             }
         });
