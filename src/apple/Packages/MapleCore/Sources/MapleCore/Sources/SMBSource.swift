@@ -3,8 +3,13 @@
 // Provides read access to RAW files on an SMB share (NAS / Samba server).
 // XMP sidecar writes are retried with exponential back-off.
 //
+// The listing call recursively walks the connected share root and surfaces
+// every RAW file regardless of folder depth, because the typical NAS layout
+// is `/Photos/<event>/<file>.dng` and a non-recursive root scan returns
+// nothing on shares that contain only sub-folders at the top level.
+//
 // AMSMB2 v4 API notes:
-//   - contentsOfDirectory returns [[URLResourceKey: Any]] — use .nameKey, .isDirectoryKey
+//   - contentsOfDirectory returns [[URLResourceKey: Any]] — use .nameKey, .isDirectoryKey, .pathKey
 //   - contents(atPath:range:) returns Data directly
 //   - write(data:toPath:progress:) async throws
 //   - disconnectShare(gracefully:) async throws
@@ -103,15 +108,31 @@ public actor SMBSource {
 
     // MARK: Private
 
+    /// Recursively enumerate RAW files under `path`. AMSMB2's `recursive: true`
+    /// flag walks the whole subtree in one round-trip and stamps each entry's
+    /// `.pathKey` with its full share-relative path (e.g.
+    /// `/Photos/2024/IMG_001.dng`). Directories and dotfiles are skipped.
+    ///
+    /// Recursive enumeration matches the user's expectation that "open the
+    /// share, see all my photos" works regardless of whether the RAWs sit at
+    /// the share root or three folders deep — the prior non-recursive walk
+    /// returned an empty list whenever the root contained only sub-folders,
+    /// which is the common NAS layout (`/Photos/`, `/Backups/`, etc.).
     private func listRAWFiles(at path: String, client: SMB2Manager) async throws -> [SMBAsset] {
-        let entries = try await client.contentsOfDirectory(atPath: path)
+        let entries = try await client.contentsOfDirectory(atPath: path, recursive: true)
         return entries.compactMap { attrs -> SMBAsset? in
             guard let name = attrs[.nameKey] as? String else { return nil }
+            // Skip dotfiles (`.DS_Store`, `.maple/`, etc.).
+            if name.hasPrefix(".") { return nil }
             let isDir = attrs[.isDirectoryKey] as? Bool ?? false
             guard !isDir else { return nil }
             let ext = (name as NSString).pathExtension.lowercased()
             guard RAWExtensions.all.contains(ext) else { return nil }
-            let fullPath = (path as NSString).appendingPathComponent(name)
+            // `.pathKey` is the full share-relative path stamped by AMSMB2's
+            // recursive walk; fall back to joining `path + name` when the
+            // server didn't populate it (non-recursive root scan).
+            let fullPath = (attrs[.pathKey] as? String)
+                ?? (path as NSString).appendingPathComponent(name)
             return SMBAsset(path: fullPath)
         }.sorted { $0.path < $1.path }
     }
@@ -139,14 +160,14 @@ public actor SMBSource {
 
 extension SMBSource: ImageSource {
     /// Map enumerated `SMBAsset`s to `ImageRef`. `id` is the share-relative
-    /// path (stable for the lifetime of this connection); `url` is synthesised
-    /// as `smb://host/share/path` for display only.
+    /// path (stable for the lifetime of this connection). `url` is left `nil`
+    /// so `BrowseViewModel.loadSource` routes byte reads through
+    /// `rawBytes(for:)` (the bytes-provider branch) — the Rust decode pipeline
+    /// can't open an `smb://` URL as a file URL, so the prior synthetic URL
+    /// caused decodes to fail silently downstream.
     public func images() async throws -> [ImageRef] {
-        let host = credentials?.host ?? ""
-        let share = credentials?.share ?? ""
         return _assets.map { a in
-            let url = URL(string: "smb://\(host)/\(share)\(a.path)")
-            return ImageRef(id: a.path, displayName: a.name, url: url)
+            ImageRef(id: a.path, displayName: a.name, url: nil)
         }
     }
 
