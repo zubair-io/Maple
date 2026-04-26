@@ -163,6 +163,46 @@ impl ExifOrientation {
             Self::Transpose | Self::Rotate90 | Self::Transverse | Self::Rotate270
         )
     }
+
+    /// Map a rect in DISPLAY-oriented coordinates to a rect in SENSOR
+    /// (un-oriented) coordinates. `sw`/`sh` are the sensor dimensions.
+    /// Used by the tile FFI so callers can pass display-oriented tile
+    /// coords (which is what they care about) and the Rust pipeline
+    /// translates to the sensor coords it actually crops from.
+    ///
+    /// For transpose-family orientations the rect's width and height
+    /// swap (because display W = sensor H and vice versa).
+    pub fn display_rect_to_sensor(
+        self,
+        dx: u32, dy: u32, dw: u32, dh: u32,
+        sw: u32, sh: u32,
+    ) -> (u32, u32, u32, u32) {
+        match self {
+            Self::Normal          => (dx, dy, dw, dh),
+            Self::HorizontalFlip  => (sw.saturating_sub(dx + dw), dy, dw, dh),
+            Self::Rotate180       => (
+                sw.saturating_sub(dx + dw),
+                sh.saturating_sub(dy + dh),
+                dw, dh,
+            ),
+            Self::VerticalFlip    => (dx, sh.saturating_sub(dy + dh), dw, dh),
+            // Transpose family — swap dims. The inverse mapping below
+            // mirrors the per-pixel reads in `apply_orientation` (see
+            // table at lines ~191-200): for each, sensor (sx, sy) is
+            // derived from display (xp, yp). Apply the same to rect
+            // corners and take the bounding box; for axis-aligned 90°
+            // rotations / transposes the result simplifies to the rect
+            // expressions below.
+            Self::Transpose       => (dy, dx, dh, dw),
+            Self::Rotate90        => (dy, sh.saturating_sub(dx + dw), dh, dw),
+            Self::Transverse      => (
+                sw.saturating_sub(dy + dh),
+                sh.saturating_sub(dx + dw),
+                dh, dw,
+            ),
+            Self::Rotate270       => (sw.saturating_sub(dy + dh), dx, dh, dw),
+        }
+    }
 }
 
 /// Apply EXIF orientation to a packed-u8-RGB buffer. Returns `(new_w, new_h,
