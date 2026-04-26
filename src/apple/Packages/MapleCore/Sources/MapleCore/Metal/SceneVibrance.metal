@@ -13,6 +13,12 @@
 
 // Rec.2020 to LMS (Björn Ottosson Oklab, 2020).
 // From: https://bottosson.github.io/posts/oklab/
+//
+// Each `float3` argument to `float3x3(...)` becomes a COLUMN of the
+// resulting Metal matrix, but the values below are the ROWS of the
+// math matrix (matching the Rust source's row-major layout). Using
+// `v * M_metal` therefore produces `M_math * v` — see SceneSaturation
+// header for the full Bug 2 / Ticket 12 explanation.
 constant float3x3 M_rec2020_to_lms = float3x3(
     float3(0.6370481, 0.2657101, 0.0365291),
     float3(0.3320989, 0.6936245, 0.0374060),
@@ -38,15 +44,15 @@ constant float3x3 M_lms_to_rec2020 = float3x3(
 );
 
 float3 rec2020_to_oklab(float3 rgb) {
-    float3 lms = M_rec2020_to_lms * rgb;
+    float3 lms = rgb * M_rec2020_to_lms;
     float3 lms_nl = sign(lms) * pow(abs(lms), float3(1.0 / 3.0));
-    return M_lms_to_oklab * lms_nl;
+    return lms_nl * M_lms_to_oklab;
 }
 
 float3 oklab_to_rec2020(float3 lab) {
-    float3 lms_nl = M_oklab_to_lms * lab;
+    float3 lms_nl = lab * M_oklab_to_lms;
     float3 lms = lms_nl * lms_nl * lms_nl;
-    return M_lms_to_rec2020 * lms;
+    return lms * M_lms_to_rec2020;
 }
 
 float smoothstep_v(float e0, float e1, float x) {

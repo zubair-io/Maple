@@ -70,8 +70,11 @@ float3 wb_gains(float cct, float tint) {
     float2 xy = cct_to_xy(cct);
     float y = xy.y + tint * 0.001;
     float3 xyz_target = xy_to_xyz(xy.x, y, 1.0);
-    float3 target_rec2020 = M_XYZ_D65_TO_REC2020 * xyz_target;
-    float3 d65_rec2020    = M_XYZ_D65_TO_REC2020 * XYZ_D65;
+    // Matrix layout: each `float3` to `float3x3(...)` is a COLUMN of the
+    // Metal matrix but a ROW of the math matrix — use `v * M_metal` to
+    // compute `M_math * v`. See SceneSaturation.metal header / Bug 2.
+    float3 target_rec2020 = xyz_target * M_XYZ_D65_TO_REC2020;
+    float3 d65_rec2020    = XYZ_D65    * M_XYZ_D65_TO_REC2020;
     float3 gain = float3(
         target_rec2020[0] / d65_rec2020[0],
         target_rec2020[1] / d65_rec2020[1],

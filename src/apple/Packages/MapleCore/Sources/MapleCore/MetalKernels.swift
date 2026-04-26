@@ -1,8 +1,18 @@
-// MetalKernels.swift — Swift wrapper around the custom CIColorKernels.
+// MetalKernels.swift — Swift wrapper around the custom Metal CIKernels.
 //
 // Kernels are compiled from Metal source at app launch on first use.
-// We use CIColorKernel for per-pixel operations (no sampling of adjacent
-// pixels) and CIKernel for AgXViewTransform (which needs a LUT sampler).
+//
+// IMPORTANT: every cached kernel slot below is `CIKernel?`, never
+// `CIColorKernel?`. All scene-linear kernels in this module use
+// `coreimage::sampler_h` arguments (so they can sample at the source
+// coord), which makes `CIKernel.kernels(withMetalString:)` return
+// general `CIKernel` instances — NOT `CIColorKernel`. Casting those
+// with `as? CIColorKernel` returns nil, and the wrapper functions
+// silently `return input` — the user-visible symptom is that every
+// slider except contrast (the AgX `sample_t` kernel, which IS a
+// CIColorKernel) becomes a no-op. Bug 2 in Ticket 12 was exactly
+// this. Do not reintroduce the CIColorKernel cast for `sampler_h`
+// kernels.
 //
 // Parity with Rust: the same AgX LUT binary (agx_lut.bin) is embedded here
 // via Bundle.module so both paths use the identical sigmoid table.
@@ -31,18 +41,24 @@ private let isRunningUnderXCTest: Bool = {
 
 public enum MetalKernels {
     // Kernels are compiled lazily on first access.
-    private static var _sceneToneControls: CIColorKernel?
-    private static var _sceneVibrance: CIColorKernel?
-    private static var _whiteBalance: CIColorKernel?
-    private static var _sceneSaturation: CIColorKernel?
+    //
+    // Slot type is `CIKernel?` — see file header. `sampler_h`-based kernels
+    // are returned by `CIKernel.kernels(withMetalString:)` as `CIKernel`,
+    // not `CIColorKernel`; the `as? CIColorKernel` cast that used to live
+    // in the loaders silently nulled them out and made every slider except
+    // contrast a no-op (Bug 2 in Ticket 12).
+    private static var _sceneToneControls: CIKernel?
+    private static var _sceneVibrance: CIKernel?
+    private static var _whiteBalance: CIKernel?
+    private static var _sceneSaturation: CIKernel?
     private static var _agxViewTransform: CIKernel?
 
     // Plan 2 v2 — SeparableGaussianBlur compute pipelines + shared helpers.
     // The blur is a `MTLComputePipeline` (not a `CIKernel`) because it
     // composes 6 stateful dispatches with ping-pong scratch textures.
     // Output is wrapped in a `CIImage` via `CIImage(mtlTexture:)` so the
-    // downstream `CIColorKernel` chain (clarity / texture wrappers, added
-    // in Task 4) consumes it like any other CIImage. This compute → CI
+    // downstream `CIKernel` chain (clarity / texture wrappers, added in
+    // Task 4) consumes it like any other CIImage. This compute → CI
     // handoff was verified by Spike 1.1.
     private static var _separableGaussianBlurLib: MTLLibrary?
     private static var _separableBoxBlurHPipeline: MTLComputePipelineState?
@@ -52,42 +68,41 @@ public enum MetalKernels {
     /// the other kernel slots above.
     private static var _metalDevice: MTLDevice?
 
-    // Plan 2 v2 — SceneUnsharp shared mix kernel (Task 4). One CIColorKernel
-    // mirrors the per-pixel `out = src + (src - blurred) * amount` mix from
+    // Plan 2 v2 — SceneUnsharp shared mix kernel (Task 4). Mirrors the
+    // per-pixel `out = src + (src - blurred) * amount` mix from
     // raw-core/src/stages/clarity.rs:16-20 and texture.rs:16-20 (the two
     // Rust files are byte-identical at the mix level; only the upstream
     // blur radius differs). Loaded via the same `loadKernel(file:function:)`
-    // path as the other CIColorKernel sources.
-    private static var _sceneUnsharp: CIColorKernel?
+    // path as the other kernel sources.
+    private static var _sceneUnsharp: CIKernel?
 
     // Plan 2 v2 v2 — SceneNRLuminance shared kernels (M3a, Task 2). Two
-    // CIColorKernels: extractL (rec2020 -> oklab L splat for the blur
-    // input) and combine (rec2020 + blurredL -> rec2020 with new L).
-    // Matches the established lazy / process-lifetime cache pattern.
-    private static var _sceneNRLuminanceExtract: CIColorKernel?
-    private static var _sceneNRLuminanceCombine: CIColorKernel?
+    // kernels: extractL (rec2020 -> oklab L splat for the blur input) and
+    // combine (rec2020 + blurredL -> rec2020 with new L). Matches the
+    // established lazy / process-lifetime cache pattern.
+    private static var _sceneNRLuminanceExtract: CIKernel?
+    private static var _sceneNRLuminanceCombine: CIKernel?
 
     // Plan 2 v2 v2 — SceneNRColor shared kernels (M3b, Task 4). Two
-    // CIColorKernels: extractAB (rec2020 -> oklab a/b pack for the
-    // blur input) and combine (rec2020 + blurredAB -> rec2020 with
-    // new a/b). Same lazy / process-lifetime cache pattern.
-    private static var _sceneNRColorExtract: CIColorKernel?
-    private static var _sceneNRColorCombine: CIColorKernel?
+    // kernels: extractAB (rec2020 -> oklab a/b pack for the blur input)
+    // and combine (rec2020 + blurredAB -> rec2020 with new a/b). Same
+    // lazy / process-lifetime cache pattern.
+    private static var _sceneNRColorExtract: CIKernel?
+    private static var _sceneNRColorCombine: CIKernel?
 
     // Plan 2 v2 v3 — SceneSharpen kernels (M4, Tasks 2 + 3 + 4). Five
-    // CIColorKernels orchestrated by applySceneSharpen:
+    // kernels orchestrated by applySceneSharpen:
     //   * rlRatio + rlMultiply: per-iteration RL arithmetic (Task 2).
     //   * sharpenLuminance + sharpenEdgeMix: edge-aware final mix (Task 3).
     //   * sharpenOverdrive: optional unsharp boost when amount > 100 (Task 4).
     // All five share the lazy / process-lifetime cache pattern.
-    private static var _rlRatio: CIColorKernel?
-    private static var _rlMultiply: CIColorKernel?
-    private static var _sharpenLuminance: CIColorKernel?
-    // sharpenEdgeMix may be CIKernel (not CIColorKernel) if Task 3's
-    // micro-spike shows neighbour sampling requires the spatial variant —
-    // see Task 3 Step 3.1. Field is typed `CIKernel?` to accept either.
+    private static var _rlRatio: CIKernel?
+    private static var _rlMultiply: CIKernel?
+    private static var _sharpenLuminance: CIKernel?
+    // sharpenEdgeMix uses neighbour sampling on `luma`, which requires
+    // the general (spatial) CIKernel — same slot type as everything else.
     private static var _sharpenEdgeMix: CIKernel?
-    private static var _sharpenOverdrive: CIColorKernel?
+    private static var _sharpenOverdrive: CIKernel?
 
     // Plan 2 v2 v4 — Dehaze chain compute pipelines + libraries.
     // The 6 dehaze .metal sources are split across 4 MTLLibraries to
@@ -113,7 +128,7 @@ public enum MetalKernels {
     private static var _dehazeUnpackRPipeline: MTLComputePipelineState?
     private static var _dehazeUnpackGPipeline: MTLComputePipelineState?
 
-    private static var _dehazeReconstruct: CIColorKernel?
+    private static var _dehazeReconstruct: CIKernel?
 
     // MARK: SceneToneControls
 
@@ -951,78 +966,77 @@ public enum MetalKernels {
         ) ?? input
     }
 
-    private static func sceneUnsharpKernel() -> CIColorKernel? {
+    private static func sceneUnsharpKernel() -> CIKernel? {
         if let k = _sceneUnsharp { return k }
         _sceneUnsharp = loadKernel(file: "SceneUnsharp",
-                                   function: "sceneUnsharp") as? CIColorKernel
+                                   function: "sceneUnsharp")
         return _sceneUnsharp
     }
 
-    private static func sceneNRLuminanceExtractKernel() -> CIColorKernel? {
+    private static func sceneNRLuminanceExtractKernel() -> CIKernel? {
         if let k = _sceneNRLuminanceExtract { return k }
         _sceneNRLuminanceExtract = loadKernel(file: "SceneNRLuminance",
-                                              function: "nrLuminanceExtractL") as? CIColorKernel
+                                              function: "nrLuminanceExtractL")
         return _sceneNRLuminanceExtract
     }
 
-    private static func sceneNRLuminanceCombineKernel() -> CIColorKernel? {
+    private static func sceneNRLuminanceCombineKernel() -> CIKernel? {
         if let k = _sceneNRLuminanceCombine { return k }
         _sceneNRLuminanceCombine = loadKernel(file: "SceneNRLuminance",
-                                              function: "nrLuminanceCombine") as? CIColorKernel
+                                              function: "nrLuminanceCombine")
         return _sceneNRLuminanceCombine
     }
 
-    private static func sceneNRColorExtractKernel() -> CIColorKernel? {
+    private static func sceneNRColorExtractKernel() -> CIKernel? {
         if let k = _sceneNRColorExtract { return k }
         _sceneNRColorExtract = loadKernel(file: "SceneNRColor",
-                                          function: "nrColorExtractAB") as? CIColorKernel
+                                          function: "nrColorExtractAB")
         return _sceneNRColorExtract
     }
 
-    private static func sceneNRColorCombineKernel() -> CIColorKernel? {
+    private static func sceneNRColorCombineKernel() -> CIKernel? {
         if let k = _sceneNRColorCombine { return k }
         _sceneNRColorCombine = loadKernel(file: "SceneNRColor",
-                                          function: "nrColorCombine") as? CIColorKernel
+                                          function: "nrColorCombine")
         return _sceneNRColorCombine
     }
 
     // MARK: Sharpen kernel loaders (Plan 2 v2 v3 M4)
 
-    private static func rlRatioKernel() -> CIColorKernel? {
+    private static func rlRatioKernel() -> CIKernel? {
         if let k = _rlRatio { return k }
         _rlRatio = loadKernel(file: "RichardsonLucyMixer",
-                              function: "rlRatio") as? CIColorKernel
+                              function: "rlRatio")
         return _rlRatio
     }
 
-    private static func rlMultiplyKernel() -> CIColorKernel? {
+    private static func rlMultiplyKernel() -> CIKernel? {
         if let k = _rlMultiply { return k }
         _rlMultiply = loadKernel(file: "RichardsonLucyMixer",
-                                 function: "rlMultiply") as? CIColorKernel
+                                 function: "rlMultiply")
         return _rlMultiply
     }
 
-    private static func sharpenLuminanceKernel() -> CIColorKernel? {
+    private static func sharpenLuminanceKernel() -> CIKernel? {
         if let k = _sharpenLuminance { return k }
         _sharpenLuminance = loadKernel(file: "SharpenEdgeMix",
-                                       function: "sharpenLuminance") as? CIColorKernel
+                                       function: "sharpenLuminance")
         return _sharpenLuminance
     }
 
     private static func sharpenEdgeMixKernel() -> CIKernel? {
         if let k = _sharpenEdgeMix { return k }
-        // Note: NOT cast to CIColorKernel — `sharpenEdgeMix` does
-        // neighbour sampling on `luma`, which requires CIKernel
-        // (spatial). Per Task 3 Step 3.1 spike result.
+        // `sharpenEdgeMix` does neighbour sampling on `luma`, which
+        // requires CIKernel (spatial). Per Task 3 Step 3.1 spike result.
         _sharpenEdgeMix = loadKernel(file: "SharpenEdgeMix",
                                      function: "sharpenEdgeMix")
         return _sharpenEdgeMix
     }
 
-    private static func sharpenOverdriveKernel() -> CIColorKernel? {
+    private static func sharpenOverdriveKernel() -> CIKernel? {
         if let k = _sharpenOverdrive { return k }
         _sharpenOverdrive = loadKernel(file: "SharpenOverdrive",
-                                       function: "sharpenOverdrive") as? CIColorKernel
+                                       function: "sharpenOverdrive")
         return _sharpenOverdrive
     }
 
@@ -1034,32 +1048,36 @@ public enum MetalKernels {
     // (verbatim file copy, no build-time compilation). At runtime we load
     // the source text and compile via `CIKernel.kernels(withMetalString:)`,
     // then pluck the named kernel out of the result.
+    //
+    // Slot type is intentionally `CIKernel?` — see the file header for why
+    // a `CIColorKernel` cast here would silently null the slot for every
+    // `sampler_h`-based kernel in this module.
 
-    private static func sceneToneControlsKernel() -> CIColorKernel? {
+    private static func sceneToneControlsKernel() -> CIKernel? {
         if let k = _sceneToneControls { return k }
         _sceneToneControls = loadKernel(file: "SceneToneControls",
-                                        function: "sceneToneControls") as? CIColorKernel
+                                        function: "sceneToneControls")
         return _sceneToneControls
     }
 
-    private static func sceneVibranceKernel() -> CIColorKernel? {
+    private static func sceneVibranceKernel() -> CIKernel? {
         if let k = _sceneVibrance { return k }
         _sceneVibrance = loadKernel(file: "SceneVibrance",
-                                    function: "sceneVibrance") as? CIColorKernel
+                                    function: "sceneVibrance")
         return _sceneVibrance
     }
 
-    private static func whiteBalanceKernel() -> CIColorKernel? {
+    private static func whiteBalanceKernel() -> CIKernel? {
         if let k = _whiteBalance { return k }
         _whiteBalance = loadKernel(file: "WhiteBalance",
-                                   function: "whiteBalance") as? CIColorKernel
+                                   function: "whiteBalance")
         return _whiteBalance
     }
 
-    private static func sceneSaturationKernel() -> CIColorKernel? {
+    private static func sceneSaturationKernel() -> CIKernel? {
         if let k = _sceneSaturation { return k }
         _sceneSaturation = loadKernel(file: "SceneSaturation",
-                                      function: "sceneSaturation") as? CIColorKernel
+                                      function: "sceneSaturation")
         return _sceneSaturation
     }
 
@@ -1479,10 +1497,10 @@ public enum MetalKernels {
         return _dehazeUnpackGPipeline
     }
 
-    private static func dehazeReconstructKernel() -> CIColorKernel? {
+    private static func dehazeReconstructKernel() -> CIKernel? {
         if let k = _dehazeReconstruct { return k }
         _dehazeReconstruct = loadKernel(file: "DehazeReconstruct",
-                                        function: "dehazeReconstruct") as? CIColorKernel
+                                        function: "dehazeReconstruct")
         return _dehazeReconstruct
     }
 
