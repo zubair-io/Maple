@@ -664,22 +664,34 @@ pub fn render_scene_linear_tile_from_raw_with_quality(
         ));
     }
     let mosaic_full = stage("tile_linearize", || linearize::sensor_linearize(raw));
+    // (src_x, src_y, src_w, src_h) are in DISPLAY-oriented source coords —
+    // that's what callers (Apple TileManager, maple-cli `tile` subcommand)
+    // know about. Translate to sensor coords before cropping the mosaic.
+    // For non-Normal orientations (e.g. Rotate 270 CW on Canon CR2), the
+    // sensor rect is at a rotated position and the dims may swap. The
+    // final `apply_orientation_f32_rgba` step rotates the developed tile
+    // back into display orientation, so the returned tile lines up with
+    // the display tile coords the caller asked for.
+    let (s_x, s_y, s_w, s_h) = raw.orientation.display_rect_to_sensor(
+        src_x, src_y, src_w, src_h,
+        mosaic_full.width, mosaic_full.height,
+    );
     let (rect, (left_pad, top_pad)) = pad_and_clamp_mosaic_rect(
-        src_x, src_y, src_w, src_h, TILE_OVERLAP_PX,
+        s_x, s_y, s_w, s_h, TILE_OVERLAP_PX,
         mosaic_full.width, mosaic_full.height,
     );
     let mosaic = stage("tile_mosaic_crop", || crop_mosaic_to_padded_rect(&mosaic_full, rect));
     let scene = develop_scene_linear_from_padded_mosaic(&mosaic, raw, model, quality)?;
 
-    // Trim the overlap, leaving the inner src_w × src_h block. For half-res
-    // Preview the trim coords halve too — the cropped mosaic was half-resed
-    // by `demosaic::half_res`, so the inner region is at
-    // `(left_pad / 2, top_pad / 2)` with size `(src_w / 2, src_h / 2)`. For
-    // `Full` quality the chain preserves dimensions, so it's
-    // `(left_pad, top_pad)` with `(src_w, src_h)`.
+    // Trim the overlap, leaving the inner s_w × s_h block in SENSOR coords
+    // (rotation applied below). For half-res Preview the trim coords
+    // halve too — the cropped mosaic was half-resed by `demosaic::half_res`,
+    // so the inner region is at `(left_pad / 2, top_pad / 2)` with size
+    // `(s_w / 2, s_h / 2)`. For `Full` quality the chain preserves
+    // dimensions, so it's `(left_pad, top_pad)` with `(s_w, s_h)`.
     let (inner_lp, inner_tp, inner_w, inner_h) = match quality {
-        RenderQuality::Preview => (left_pad / 2, top_pad / 2, src_w / 2, src_h / 2),
-        RenderQuality::Full    => (left_pad,     top_pad,     src_w,     src_h),
+        RenderQuality::Preview => (left_pad / 2, top_pad / 2, s_w / 2, s_h / 2),
+        RenderQuality::Full    => (left_pad,     top_pad,     s_w,     s_h),
     };
     let mut sized = stage("tile_trim_inner", || {
         trim_image_to_inner(&scene, inner_lp, inner_tp, inner_w, inner_h)
@@ -699,10 +711,11 @@ pub fn render_scene_linear_tile_from_raw_with_quality(
         v
     });
 
-    // Orient the tile in fp32 RGBA. The `(src_x, src_y)` argument is in
-    // source-pixel (sensor) coordinates, so the returned tile's pixel
-    // space is post-orientation, matching the unsized scene-linear FFI
-    // entry's output.
+    // Orient the tile in fp32 RGBA. Per the conversion at the top of
+    // this function, the cropped sensor data corresponds to the caller's
+    // display rect; rotating it now produces a tile in display
+    // orientation that lines up with the display tile coords the caller
+    // asked for.
     let (w, h, oriented_f32) = stage("tile_apply_orientation_rgba", || {
         apply_orientation_f32_rgba(&rgba_f32, w0, h0, raw.orientation)
     });
