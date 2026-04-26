@@ -183,7 +183,11 @@ struct AppShell: View {
             // Detail panel is always in the right column per the mockup.
             // Sliders are disabled when no session is selected; Info tab
             // is the default when entering the app.
-            DetailPanel(session: selectedSession)
+            //
+            // `isFullImage` drives Ticket 12 bugs 4/5/8: the panel auto-flips
+            // to Develop on entry, back to Info on exit, and hides the
+            // Develop segment entirely while the user is in Browse mode.
+            DetailPanel(session: selectedSession, isFullImage: mode == .fullImage)
                 .navigationSplitViewColumnWidth(min: 240, ideal: 280, max: 360)
         }
         .navigationSplitViewStyle(.balanced)
