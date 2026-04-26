@@ -59,16 +59,19 @@ constant float3x3 M_lms_to_rec2020_nrl = float3x3(
     float3(-0.0247447, 0.0438581, 1.0759636)
 );
 
+// Matrix layout: each `float3` to `float3x3(...)` is a COLUMN of the
+// Metal matrix but a ROW of the math matrix — use `v * M_metal` to
+// compute `M_math * v`. See SceneSaturation.metal header / Bug 2.
 float3 rec2020_to_oklab_nrl(float3 rgb) {
-    float3 lms = M_rec2020_to_lms_nrl * rgb;
+    float3 lms = rgb * M_rec2020_to_lms_nrl;
     float3 lms_nl = sign(lms) * pow(abs(lms), float3(1.0 / 3.0));
-    return M_lms_to_oklab_nrl * lms_nl;
+    return lms_nl * M_lms_to_oklab_nrl;
 }
 
 float3 oklab_to_rec2020_nrl(float3 lab) {
-    float3 lms_nl = M_oklab_to_lms_nrl * lab;
+    float3 lms_nl = lab * M_oklab_to_lms_nrl;
     float3 lms = lms_nl * lms_nl * lms_nl;
-    return M_lms_to_rec2020_nrl * lms;
+    return lms * M_lms_to_rec2020_nrl;
 }
 
 [[stitchable]] float4 nrLuminanceExtractL(
