@@ -1,0 +1,20 @@
+# cbindgen config for raw-ffi.
+#
+# Enables the `pano` Cargo feature so the panorama FFI surface
+# (PanoOptions, PanoHandle, pano_stitch, etc.) is included in the
+# generated header. See `src/apple/scripts/build-xcframework.sh`.
+
+language = "C"
+
+[parse]
+parse_deps = false
+
+[parse.expand]
+features = ["pano"]
+
+# When the pano feature is enabled at cbindgen-parse time we want the
+# symbols emitted unconditionally in the generated header (no #ifdef
+# wrapper). The mapping below silences cbindgen's "Missing [defines]"
+# warning by saying "feature = pano" → always-true at C level.
+[defines]
+"feature = pano" = "1"

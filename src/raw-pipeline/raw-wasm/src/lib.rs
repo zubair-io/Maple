@@ -297,3 +297,111 @@ mod tests {
         assert!(any_nonzero_rgb, "all R/G/B lanes were zero — pipeline failure");
     }
 }
+
+// =============================================================================
+// Panorama output-buffer accessors for wasm-bindgen (T2.3)
+// Gated behind `--features pano`.  Without the feature: zero new WASM exports,
+// zero new deps, byte-identical output.
+// =============================================================================
+
+#[cfg(feature = "pano")]
+mod pano {
+    use pano_core::PanoImage;
+    use wasm_bindgen::prelude::*;
+
+    /// Opaque JS-facing handle wrapping a stitched panorama buffer.
+    ///
+    /// Exposed to JS as `PanoHandle`.  No public constructor today — lifecycle
+    /// (creation via `pano_stitch`, release via `pano_free`) lands in T5.1.
+    /// The accessors below are the only JS-visible surface for T2.3.
+    #[wasm_bindgen]
+    pub struct PanoHandle {
+        image: PanoImage,
+        /// Lazily populated f16 interleaved RGB cache.  Empty in this MVP stub.
+        f16_cache: Vec<u16>,
+    }
+
+    #[wasm_bindgen]
+    impl PanoHandle {
+        /// Width of the panorama in pixels.
+        #[wasm_bindgen(getter)]
+        pub fn width(&self) -> u32 {
+            self.image.width
+        }
+
+        /// Height of the panorama in pixels.
+        #[wasm_bindgen(getter)]
+        pub fn height(&self) -> u32 {
+            self.image.height
+        }
+
+        /// Returns the f32 RGB pixel buffer as a `Float32Array`-compatible
+        /// `Vec<f32>`.  Interleaved RGB, row-major; length is
+        /// `width * height * 3`.
+        ///
+        /// Clones the buffer on each call (wasm-bindgen copies `Vec<f32>` to
+        /// JS heap).  The T5.1 implementation will expose a zero-copy view
+        /// via `Uint8Array::view`.
+        #[wasm_bindgen(js_name = pixelsF32)]
+        pub fn pixels_f32(&self) -> Vec<f32> {
+            self.image.pixels.clone()
+        }
+
+        /// Returns the f16 (half-precision, stored as `u16`) RGB pixel buffer.
+        ///
+        /// In this MVP stub the f16 cache is always empty, so this returns an
+        /// empty `Vec`.  T5.1 populates the cache during `pano_stitch`.
+        #[wasm_bindgen(js_name = pixelsF16)]
+        pub fn pixels_f16(&self) -> Vec<u16> {
+            self.f16_cache.clone()
+        }
+    }
+
+    /// Construct a `PanoHandle` from a `PanoImage`.
+    ///
+    /// Not exposed to JS (no `#[wasm_bindgen]` on the free function); used
+    /// by Rust-side tests and the future `pano_stitch` entry.
+    #[allow(dead_code)] // used in tests below; pano_stitch (T5.1) will use it in production
+    pub fn handle_from_image(img: PanoImage) -> PanoHandle {
+        PanoHandle { image: img, f16_cache: Vec::new() }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use pano_core::{ColorSpace, PanoImage};
+
+        fn make_test_image() -> PanoImage {
+            // PanoImage::new marks all pixels valid automatically.
+            let mut img = PanoImage::new(2, 1, ColorSpace::rec2020_d65_linear());
+            img.pixels = vec![0.1, 0.2, 0.3, 0.4, 0.5, 0.6];
+            img
+        }
+
+        #[test]
+        fn pano_handle_width_height() {
+            let h = handle_from_image(make_test_image());
+            assert_eq!(h.width(), 2);
+            assert_eq!(h.height(), 1);
+        }
+
+        #[test]
+        fn pano_handle_pixels_f32_roundtrip() {
+            let h = handle_from_image(make_test_image());
+            let px = h.pixels_f32();
+            assert_eq!(px.len(), 6);
+            assert!((px[0] - 0.1).abs() < 1e-6, "R0={}", px[0]);
+            assert!((px[1] - 0.2).abs() < 1e-6, "G0={}", px[1]);
+            assert!((px[2] - 0.3).abs() < 1e-6, "B0={}", px[2]);
+        }
+
+        #[test]
+        fn pano_handle_pixels_f16_empty_stub() {
+            let h = handle_from_image(make_test_image());
+            assert!(
+                h.pixels_f16().is_empty(),
+                "f16 cache should be empty in MVP stub"
+            );
+        }
+    }
+}

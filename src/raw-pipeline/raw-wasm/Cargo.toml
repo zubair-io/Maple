@@ -10,6 +10,7 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 raw-core = { path = "../raw-core" }
+pano-core = { path = "../pano-core", optional = true }
 wasm-bindgen = "0.2"
 thiserror.workspace = true
 
@@ -37,3 +38,7 @@ default = []
 # Enable the parallel (rayon + wasm-bindgen-rayon) thread-pool entry points.
 # The WASM build turns this on via `wasm-pack build -- --features parallel`.
 parallel = ["dep:wasm-bindgen-rayon", "dep:rayon"]
+# Pull in pano-core and expose the JS-facing output-buffer accessors needed
+# for the T2.3 web-side smoke run.  The full lifecycle (pano_stitch, options
+# struct) lands in T5.1.  Off by default — bundle size unchanged when absent.
+pano = ["dep:pano-core"]

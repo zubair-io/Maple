@@ -10,4 +10,18 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 
 [dependencies]
 raw-core = { path = "../raw-core" }
+pano-core = { path = "../pano-core", optional = true }
+half = { version = "2", optional = true }
+nalgebra = { version = "0.33", optional = true }
 thiserror.workspace = true
+
+[dev-dependencies]
+# Used by ffi_smoke integration test to encode synthetic PNG buffers in-memory.
+png.workspace = true
+
+[features]
+default = []
+# Pull in pano-core and expose the full pano FFI surface (T5.1).
+# Off by default — no effect on bundle size or generated headers when
+# the feature is absent.
+pano = ["dep:pano-core", "dep:half", "dep:nalgebra"]

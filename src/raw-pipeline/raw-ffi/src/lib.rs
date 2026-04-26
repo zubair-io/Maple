@@ -669,8 +669,8 @@ pub unsafe extern "C" fn maple_render_bytes_scene_linear_sized(
 /// plus:
 ///   - 9:  `src_w/src_h/out_w/out_h == 0` — bad tile geometry.
 ///   - 10: `model.dehaze != 0` — tile path is not supported (radius 67
-///          exceeds the 35 px overlap pad). Caller should fall back to
-///          fit-zoom rendering.
+///     exceeds the 35 px overlap pad). Caller should fall back to
+///     fit-zoom rendering.
 ///   - 11: `out_w > src_w || out_h > src_h` — tile path is downscale-only.
 ///
 /// Plan 3 — see docs/superpowers/plans/2026-04-25-deep-zoom-tile-rendering.md
@@ -1654,6 +1654,483 @@ mod tests {
         unsafe {
             maple_free_scene_linear_buffer(&mut buf);
             maple_close_raw_handle(handle);
+        }
+    }
+}
+
+// =============================================================================
+// Panorama FFI surface (T2.3 accessors + T5.1 full lifecycle)
+// Gated behind `--features pano`.  Without the feature: zero new symbols,
+// zero new deps, byte-identical output.
+//
+// Error codes for pano_stitch (T5.1):
+//   0   success
+//  -1   invalid arguments (null pointers, n_inputs < 2)
+//  -2   decode failure for one of the inputs
+//  -3   stitch failure (ORB, matching, BA, warp, seam, blend pipeline error)
+//  -4   output write failure (currently unused; reserved for future export path)
+//
+// DCP byte arrays (`dcps` / `dcp_lens`):
+//   Accepted in the C ABI per spec § 6.2 but currently passed through as
+//   `None` on the Rust side.  rawler reads embedded DCPs from the DNG
+//   container itself; per-frame DCP override is a P5+ refinement.  The
+//   parameters exist in the ABI to avoid a breaking change when that
+//   refinement lands.
+// =============================================================================
+
+#[cfg(feature = "pano")]
+pub mod pano {
+    use half::f16;
+    use pano_core::{
+        ba::{homography::ransac_homography, lm::solve_with_keypoints},
+        features::OrbDetector,
+        matching::BruteForceMatcher,
+        types::{Camera, Distortion, PanoImage},
+        Blender, CpuWarper, FeatureDetector, FeatureMatcher, GraphCutSeamFinder,
+        Matches, Projection, SeamFinder, Warper,
+    };
+
+    /// Configuration passed to `pano_stitch`.
+    ///
+    /// Fields mirror the C ABI struct so cbindgen/the build-script heredoc
+    /// emits the right layout:
+    ///   - `projection`:    0 = Rectilinear, 1 = Cylindrical, 2 = Spherical
+    ///   - `parallax_mode`: 0 = Homography, 1 = TpsMesh (TPS unimplemented; ignored)
+    ///   - `max_dimension`: long-edge clamp in pixels, 0 = unconstrained
+    #[repr(C)]
+    pub struct PanoOptions {
+        pub projection: u32,
+        pub parallax_mode: u32,
+        pub max_dimension: u32,
+    }
+
+    /// Opaque handle wrapping a stitched panorama image and a precomputed
+    /// f16 RGB pixel cache.
+    ///
+    /// # Safety
+    /// All FFI functions that accept `*const PanoHandle` require that the
+    /// pointer is non-null and that the pointed-to handle was constructed by
+    /// `pano_stitch` (or `handle_from_image` in tests).  A null pointer
+    /// always returns a null/zero result rather than dereferencing.
+    pub struct PanoHandle {
+        pub(crate) image: PanoImage,
+        /// Eagerly-populated f16 interleaved RGB cache.
+        /// Length == image.width * image.height * 3 (3 channels × f16).
+        pub(crate) f16_cache: Vec<u16>,
+    }
+
+    // -----------------------------------------------------------------
+    // Internal helpers
+    // -----------------------------------------------------------------
+
+    /// Build a `PanoHandle` from a `PanoImage`, eagerly converting the f32 RGB
+    /// pixels to f16 for the GPU-upload cache.
+    pub fn handle_from_image(img: PanoImage) -> Box<PanoHandle> {
+        let f16_cache: Vec<u16> = img.pixels
+            .iter()
+            .map(|&v| f16::from_f32(v).to_bits())
+            .collect();
+        Box::new(PanoHandle { image: img, f16_cache })
+    }
+
+    /// Run the classical stitching pipeline on two decoded `PanoImage`s.
+    ///
+    /// Mirrors the `stitch` function in `pano-smoke`'s binary.
+    fn stitch_two(img_a: PanoImage, img_b: PanoImage) -> Result<PanoImage, String> {
+        let image_size = (img_a.width.max(img_b.width), img_a.height.max(img_b.height));
+
+        // Feature detection.
+        let detector = OrbDetector::default();
+        let feats_a = detector.detect(&img_a)
+            .map_err(|e| format!("detect A: {e}"))?;
+        let feats_b = detector.detect(&img_b)
+            .map_err(|e| format!("detect B: {e}"))?;
+
+        // Matching.
+        let matcher = BruteForceMatcher::default();
+        let matches = matcher.match_pairs(&feats_a, &feats_b)
+            .map_err(|e| format!("match: {e}"))?;
+
+        // Cameras — RANSAC + BA when enough matches, identity fallback otherwise.
+        let cameras: Vec<Camera> = if matches.inliers.len() >= 8 {
+            let (_, inlier_idxs) = ransac_homography(
+                &feats_a.keypoints, &feats_b.keypoints, &matches.inliers, 3.0, 2000, 42,
+            ).ok_or_else(|| "RANSAC failed".to_string())?;
+
+            let ransac_matches = Matches {
+                inliers: inlier_idxs.iter().map(|&i| matches.inliers[i]).collect(),
+            };
+            let pairs = vec![(
+                0usize, 1usize,
+                ransac_matches,
+                feats_a.keypoints.clone(),
+                feats_b.keypoints.clone(),
+            )];
+            solve_with_keypoints(2, &pairs, image_size, 42)
+                .map_err(|e| format!("BA: {e}"))?
+        } else {
+            // Identity fallback — build the 3×3 identity matrix for both
+            // cameras without pulling nalgebra into raw-ffi's direct deps.
+            let focal = image_size.0.max(image_size.1) as f32;
+            let identity = nalgebra::Matrix3::<f32>::identity();
+            vec![
+                Camera { focal, rotation: identity, distortion: Distortion::default() },
+                Camera { focal, rotation: identity, distortion: Distortion::default() },
+            ]
+        };
+
+        // Warp.
+        let warper = CpuWarper::new();
+        let warp = |img: &PanoImage, cam: &Camera| -> Result<PanoImage, String> {
+            let warped = warper.warp(img, cam, Projection::Rectilinear)
+                .map_err(|e| format!("warp: {e}"))?;
+            // Embed into a canvas matching the input size if the warped result
+            // is smaller (identity warp preserves dimensions).
+            if warped.width == image_size.0 && warped.height == image_size.1 {
+                return Ok(warped);
+            }
+            let mut canvas = PanoImage::new(image_size.0, image_size.1, img.color);
+            for i in 0..(image_size.0 as usize * image_size.1 as usize) {
+                canvas.validity.set(i, false);
+            }
+            let cw = warped.width.min(image_size.0) as usize;
+            let ch = warped.height.min(image_size.1) as usize;
+            for y in 0..ch {
+                for x in 0..cw {
+                    let si = y * warped.width as usize + x;
+                    let di = y * image_size.0 as usize + x;
+                    canvas.pixels[di * 3] = warped.pixels[si * 3];
+                    canvas.pixels[di * 3 + 1] = warped.pixels[si * 3 + 1];
+                    canvas.pixels[di * 3 + 2] = warped.pixels[si * 3 + 2];
+                    if warped.validity[si] {
+                        canvas.validity.set(di, true);
+                    }
+                }
+            }
+            Ok(canvas)
+        };
+
+        let warped_a = warp(&img_a, &cameras[0])?;
+        let warped_b = warp(&img_b, &cameras[1])?;
+
+        // Seam + blend.
+        let seam_finder = GraphCutSeamFinder::new();
+        let seams = seam_finder.seams(&[&warped_a, &warped_b])
+            .map_err(|e| format!("seam: {e}"))?;
+
+        let blender = pano_core::MultiBandBlender::default();
+        let result = blender.blend(&[&warped_a, &warped_b], &seams)
+            .map_err(|e| format!("blend: {e}"))?;
+
+        Ok(result)
+    }
+
+    // -----------------------------------------------------------------
+    // Public FFI surface
+    // -----------------------------------------------------------------
+
+    /// Stitch `n_inputs` RAW/PNG/JPEG byte slices into a panorama.
+    ///
+    /// # Arguments
+    /// * `inputs`      — array of `n_inputs` pointers, each to a byte slice.
+    /// * `input_lens`  — array of `n_inputs` byte-slice lengths.
+    /// * `n_inputs`    — number of inputs (must be ≥ 2).
+    /// * `dcps` — parallel array of DCP byte-slice pointers (may be null
+    ///   entries); accepted in the ABI but currently ignored —
+    ///   rawler reads embedded DCPs from the DNG container.
+    /// * `dcp_lens` — lengths of the DCP slices (ignored alongside `dcps`).
+    /// * `options`     — stitch options struct; may be null (defaults applied).
+    /// * `out_handle`  — on success, receives a heap-allocated `*mut PanoHandle`.
+    ///
+    /// # Return value
+    ///   0  success; `*out_handle` is non-null and caller-owned.
+    ///  -1  invalid arguments (null inputs/out_handle, n_inputs < 2, null
+    ///      element pointer).
+    ///  -2  decode failure for one of the inputs.
+    ///  -3  stitch pipeline failure (ORB / match / BA / warp / blend error).
+    ///
+    /// # Safety
+    /// All input pointers must be valid for `n_inputs` reads.  `out_handle` must
+    /// be non-null.  On success the caller owns the handle and must eventually
+    /// call `pano_free`.
+    #[no_mangle]
+    pub unsafe extern "C" fn pano_stitch(
+        inputs: *const *const u8,
+        input_lens: *const usize,
+        n_inputs: usize,
+        _dcps: *const *const u8,       // accepted, ignored (see module comment)
+        _dcp_lens: *const usize,       // accepted, ignored
+        _options: *const PanoOptions,  // accepted; defaults used for MVP
+        out_handle: *mut *mut PanoHandle,
+    ) -> i32 {
+        // Validate outer args.
+        if inputs.is_null() || input_lens.is_null() || out_handle.is_null() {
+            return -1;
+        }
+        if n_inputs < 2 {
+            return -1;
+        }
+        // Initialize out pointer defensively.
+        *out_handle = std::ptr::null_mut();
+
+        // Copy each input slice into owned Vecs while validating pointers.
+        let mut owned: Vec<Vec<u8>> = Vec::with_capacity(n_inputs);
+        for i in 0..n_inputs {
+            let ptr = *inputs.add(i);
+            let len = *input_lens.add(i);
+            if ptr.is_null() {
+                return -1;
+            }
+            owned.push(std::slice::from_raw_parts(ptr, len).to_vec());
+        }
+
+        // Decode each input.
+        let mut images: Vec<PanoImage> = Vec::with_capacity(n_inputs);
+        for bytes in &owned {
+            match pano_core::decode_bytes(bytes) {
+                Ok(img) => images.push(img),
+                Err(_) => return -2,
+            }
+        }
+
+        // For the MVP: stitch the first two images.
+        // N > 2 inputs: pairwise composition is a P4+ refinement.
+        let img_a = images.remove(0);
+        let img_b = images.remove(0);
+
+        let result = match stitch_two(img_a, img_b) {
+            Ok(r) => r,
+            Err(_) => return -3,
+        };
+
+        let handle = handle_from_image(result);
+        *out_handle = Box::into_raw(handle);
+        0
+    }
+
+    /// Return the panorama width in pixels.
+    ///
+    /// Returns 0 if `handle` is null.
+    ///
+    /// # Safety
+    /// `handle` must be a non-null pointer to a live `PanoHandle`.
+    #[no_mangle]
+    pub unsafe extern "C" fn pano_get_width(handle: *const PanoHandle) -> u32 {
+        if handle.is_null() { return 0; }
+        (*handle).image.width
+    }
+
+    /// Return the panorama height in pixels.
+    ///
+    /// Returns 0 if `handle` is null.
+    ///
+    /// # Safety
+    /// `handle` must be a non-null pointer to a live `PanoHandle`.
+    #[no_mangle]
+    pub unsafe extern "C" fn pano_get_height(handle: *const PanoHandle) -> u32 {
+        if handle.is_null() { return 0; }
+        (*handle).image.height
+    }
+
+    /// Return the number of f16 elements in the pixel buffer
+    /// (`width * height * 3`; **elements**, not bytes).
+    ///
+    /// Returns 0 if `handle` is null.
+    ///
+    /// # Safety
+    /// `handle` must be a non-null pointer to a live `PanoHandle`.
+    #[no_mangle]
+    pub unsafe extern "C" fn pano_get_pixels_len(handle: *const PanoHandle) -> usize {
+        if handle.is_null() { return 0; }
+        (*handle).f16_cache.len()
+    }
+
+    /// Return a pointer to the f16 (half-precision, stored as `u16`) RGB
+    /// pixel buffer owned by `handle`.
+    ///
+    /// The buffer is interleaved RGB f16, row-major, with
+    /// `pano_get_pixels_len(handle)` elements.  The pointer is valid for
+    /// the lifetime of the handle.
+    ///
+    /// Returns null if `handle` is null or the buffer is empty.
+    ///
+    /// # Safety
+    /// `handle` must be a non-null pointer to a live `PanoHandle`.
+    #[no_mangle]
+    pub unsafe extern "C" fn pano_get_pixels_f16(handle: *const PanoHandle) -> *const u16 {
+        if handle.is_null() {
+            return std::ptr::null();
+        }
+        let h = &*handle;
+        if h.f16_cache.is_empty() {
+            return std::ptr::null();
+        }
+        h.f16_cache.as_ptr()
+    }
+
+    /// Return a pointer to the f32 RGB pixel data owned by `handle`.
+    ///
+    /// The pixel buffer is interleaved RGB f32, row-major, with
+    /// `handle.image.width * handle.image.height * 3` elements.
+    /// The pointer is valid for the lifetime of the handle.
+    /// Returns null if `handle` is null.
+    ///
+    /// # Safety
+    /// `handle` must be a non-null pointer to a live `PanoHandle`.
+    #[no_mangle]
+    pub unsafe extern "C" fn pano_get_pixels_f32(handle: *const PanoHandle) -> *const f32 {
+        if handle.is_null() {
+            return std::ptr::null();
+        }
+        let h = &*handle;
+        h.image.pixels.as_ptr()
+    }
+
+    /// Free a `PanoHandle` allocated by `pano_stitch`.
+    ///
+    /// No-op when `handle` is null.
+    ///
+    /// # Safety
+    /// `handle` must be null or a pointer returned by `pano_stitch` that has
+    /// not already been freed.
+    #[no_mangle]
+    pub unsafe extern "C" fn pano_free(handle: *mut PanoHandle) {
+        if !handle.is_null() {
+            drop(Box::from_raw(handle));
+        }
+    }
+
+    // -----------------------------------------------------------------
+    // Unit tests (lib-internal, no fixture required)
+    // -----------------------------------------------------------------
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use pano_core::{ColorSpace, PanoImage};
+
+        fn make_test_image() -> PanoImage {
+            let mut img = PanoImage::new(3, 1, ColorSpace::rec2020_d65_linear());
+            img.pixels = vec![0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9];
+            img
+        }
+
+        #[test]
+        fn pano_get_pixels_f32_returns_correct_pointer() {
+            let handle = handle_from_image(make_test_image());
+            let ptr = unsafe { pano_get_pixels_f32(&*handle) };
+            assert!(!ptr.is_null());
+            let r = unsafe { *ptr };
+            let g = unsafe { *ptr.add(1) };
+            let b = unsafe { *ptr.add(2) };
+            assert!((r - 0.1).abs() < 1e-6, "R mismatch: {r}");
+            assert!((g - 0.2).abs() < 1e-6, "G mismatch: {g}");
+            assert!((b - 0.3).abs() < 1e-6, "B mismatch: {b}");
+        }
+
+        #[test]
+        fn pano_get_pixels_f32_null_handle_returns_null() {
+            let ptr = unsafe { pano_get_pixels_f32(std::ptr::null()) };
+            assert!(ptr.is_null());
+        }
+
+        #[test]
+        fn pano_get_pixels_f16_populated_after_handle_from_image() {
+            let handle = handle_from_image(make_test_image());
+            let ptr = unsafe { pano_get_pixels_f16(&*handle) };
+            assert!(!ptr.is_null(), "f16 cache should be populated by handle_from_image");
+            let len = unsafe { pano_get_pixels_len(&*handle) };
+            assert_eq!(len, 9, "3×1 image has 9 RGB f16 elements");
+        }
+
+        #[test]
+        fn pano_get_pixels_f16_null_handle_returns_null() {
+            let ptr = unsafe { pano_get_pixels_f16(std::ptr::null()) };
+            assert!(ptr.is_null());
+        }
+
+        #[test]
+        fn pano_get_width_height_correct() {
+            let handle = handle_from_image(PanoImage::new(7, 3, ColorSpace::rec2020_d65_linear()));
+            let w = unsafe { pano_get_width(&*handle) };
+            let h = unsafe { pano_get_height(&*handle) };
+            assert_eq!(w, 7);
+            assert_eq!(h, 3);
+        }
+
+        #[test]
+        fn pano_get_pixels_len_is_w_times_h_times_3() {
+            let handle = handle_from_image(PanoImage::new(4, 5, ColorSpace::rec2020_d65_linear()));
+            let len = unsafe { pano_get_pixels_len(&*handle) };
+            assert_eq!(len, 4 * 5 * 3);
+        }
+
+        #[test]
+        fn pano_free_null_is_noop() {
+            unsafe { pano_free(std::ptr::null_mut()) };
+        }
+
+        #[test]
+        fn handle_from_image_preserves_dimensions() {
+            let handle = handle_from_image(make_test_image());
+            assert_eq!(handle.image.width, 3);
+            assert_eq!(handle.image.height, 1);
+            assert_eq!(handle.image.pixels.len(), 9);
+        }
+
+        /// Null pointer to pano_stitch returns -1.
+        #[test]
+        fn pano_stitch_null_inputs_returns_minus1() {
+            let mut out: *mut PanoHandle = std::ptr::null_mut();
+            let rc = unsafe {
+                pano_stitch(
+                    std::ptr::null(), std::ptr::null(), 2,
+                    std::ptr::null(), std::ptr::null(),
+                    std::ptr::null(),
+                    &mut out,
+                )
+            };
+            assert_eq!(rc, -1);
+            assert!(out.is_null());
+        }
+
+        /// n_inputs < 2 returns -1.
+        #[test]
+        fn pano_stitch_single_input_returns_minus1() {
+            let dummy: Vec<u8> = vec![0u8; 4];
+            let ptrs: Vec<*const u8> = vec![dummy.as_ptr()];
+            let lens: Vec<usize> = vec![dummy.len()];
+            let mut out: *mut PanoHandle = std::ptr::null_mut();
+            let rc = unsafe {
+                pano_stitch(
+                    ptrs.as_ptr(), lens.as_ptr(), 1,
+                    std::ptr::null(), std::ptr::null(),
+                    std::ptr::null(),
+                    &mut out,
+                )
+            };
+            assert_eq!(rc, -1);
+            assert!(out.is_null());
+        }
+
+        /// Invalid (non-image) bytes return -2.
+        #[test]
+        fn pano_stitch_invalid_bytes_returns_minus2() {
+            let garbage_a: Vec<u8> = vec![0xDEu8; 64];
+            let garbage_b: Vec<u8> = vec![0xADu8; 64];
+            let ptrs: Vec<*const u8> = vec![garbage_a.as_ptr(), garbage_b.as_ptr()];
+            let lens: Vec<usize> = vec![garbage_a.len(), garbage_b.len()];
+            let mut out: *mut PanoHandle = std::ptr::null_mut();
+            let rc = unsafe {
+                pano_stitch(
+                    ptrs.as_ptr(), lens.as_ptr(), 2,
+                    std::ptr::null(), std::ptr::null(),
+                    std::ptr::null(),
+                    &mut out,
+                )
+            };
+            assert_eq!(rc, -2);
+            assert!(out.is_null());
         }
     }
 }

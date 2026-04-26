@@ -39,6 +39,9 @@ pub use xmp::AdjustmentModel;
 pub mod pipeline;
 pub use pipeline::render_from_raw;
 
+pub mod pano;
+pub use pano::{decode_for_pano, develop_for_pano, PanoIngest};
+
 pub mod api;
 pub use api::{
     apply, decode_raw, encode as encode_out, histogram, preview, read_exif, thumbnail, waveform,

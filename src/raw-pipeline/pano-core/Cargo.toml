@@ -1,0 +1,52 @@
+[package]
+name = "pano-core"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+raw-core = { path = "../raw-core" }
+imageproc = "0.25"
+nalgebra = "0.33"
+argmin = "0.10"
+arrsac = "0.10"
+rand = "0.8"
+rand_distr = "0.4"
+wgpu = "23"
+bytemuck.workspace = true
+palette = "0.7"
+bitvec = "1"
+pathfinding = "4"
+thiserror.workspace = true
+tracing = "0.1"
+rayon = { workspace = true }
+half = "2"
+png.workspace = true
+clap.workspace = true
+image.workspace = true
+
+[dependencies.ort]
+# v2 is still in release-candidate at the time of writing — pin the rc track.
+version = "2.0.0-rc.12"
+default-features = false
+features = ["load-dynamic"]
+optional = true
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+
+[features]
+# Spec § 9 defaults to ["ml-aliked", "ml-lightglue", "gpu-wgpu"]. The ml-*
+# features pull `ort` (ONNX Runtime), which lands in P3. Until then
+# they're opt-in so the P1 classical baseline builds without the
+# extra dep tree. Re-promote to default once T3.1 wires `ort`.
+default = ["gpu-wgpu"]
+ml-aliked = ["dep:ort"]
+ml-lightglue = ["dep:ort"]
+ml-superpoint = ["dep:ort"]   # research license — never default
+ml-udis = ["dep:ort"]         # parallax composition — opt-in
+ml-depth = ["dep:ort"]        # depth-aware blend — opt-in
+gpu-wgpu = []                  # wgpu is unconditionally pulled today; flag retained for symmetry
+heif = []                      # libheif-rs gated, native-only; off by default
