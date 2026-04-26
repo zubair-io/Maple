@@ -1146,7 +1146,55 @@ public final class EditSession {
 
         do {
             let image: CIImage
-            if let cached, alreadyDecodedID == asset.id {
+            // Refine path needs FULL resolution at the refined target.
+            // The shared decode caches a viewport-sized buffer (~1810 px
+            // long edge on iPad); processing it for refine would just
+            // restretch the same low-res pixels — that's the user's
+            // "100% doesn't look full resolution" symptom. When the
+            // refined target exceeds what's cached (or any time we're
+            // on the refine pass and want the full sensor-side run),
+            // bypass the cache and run a fresh sized FFI decode at the
+            // refine target. Single asset → RawImageCache de-dupes the
+            // rawler decode (commit 3602889), so the only added work is
+            // the develop chain at native res.
+            let needsFreshHighResDecode: Bool = {
+                guard phase == .refine, let target = targetSize else { return false }
+                guard let cached else { return true }
+                return cached.extent.width + 0.5 < target.width
+                    || cached.extent.height + 0.5 < target.height
+            }()
+            if needsFreshHighResDecode, let target = targetSize {
+                let sidecar: URL? = {
+                    guard let url = asset.sidecarURL,
+                          FileManager.default.fileExists(atPath: url.path)
+                    else { return nil }
+                    return url
+                }()
+                let assetCapture = asset
+                let pipelineCapture = pipeline
+                let decoded = await mapleStageAsync("rust FFI scene-linear decode (refine)") {
+                    await pipelineCapture.decodeSceneLinearSized(
+                        asset: assetCapture, targetSize: target, xmpPath: sidecar
+                    )
+                }
+                guard !Task.isCancelled else {
+                    isRendering = false
+                    return
+                }
+                guard let decoded else {
+                    throw RenderError.pipelineFailed
+                }
+                let freshDecodedAtModel = self.decodedAtModel
+                let processed = await Task.detached(priority: .userInitiated) {
+                    mapleStage(filterStageName) {
+                        pipeline.processSceneLinear(
+                            decoded: decoded, model: m, targetSize: target,
+                            asShot: asShot, decodedAtModel: freshDecodedAtModel
+                        )
+                    }
+                }.value
+                image = processed
+            } else if let cached, alreadyDecodedID == asset.id {
                 // Cached decode — apply scene-linear chain only. Hot path.
                 image = await Task.detached(priority: .userInitiated) {
                     mapleStage(filterStageName) {
