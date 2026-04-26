@@ -14,6 +14,17 @@
 // change, both must be updated together (and the Rust constants in
 // `color::oklab` along with them). The `_sat` suffix avoids any
 // cross-file symbol-resolution ambiguity inside the metallib.
+//
+// IMPORTANT: each `float3` argument to `float3x3(...)` becomes a
+// COLUMN of the resulting Metal matrix. The values below are the ROWS
+// of the math matrix (matching how the Rust source writes them in
+// row-major order). To compute the standard matrix-vector product
+// `M_math * v` we therefore use `v * M_metal`, which is equivalent
+// to `transpose(M_metal) * v`. The earlier `M_metal * v` form was
+// computing `transpose(M_math) * v` and produced nonsense outputs
+// (R≈5.4, G≈-2.0 on a fully-desaturated red) once the kernels actually
+// started running. See Bug 2 / Ticket 12 for the cast-side companion
+// fix that made this latent matrix-orientation bug visible.
 constant float3x3 M_rec2020_to_lms_sat = float3x3(
     float3(0.6370481, 0.2657101, 0.0365291),
     float3(0.3320989, 0.6936245, 0.0374060),
@@ -39,15 +50,15 @@ constant float3x3 M_lms_to_rec2020_sat = float3x3(
 );
 
 float3 rec2020_to_oklab_sat(float3 rgb) {
-    float3 lms = M_rec2020_to_lms_sat * rgb;
+    float3 lms = rgb * M_rec2020_to_lms_sat;
     float3 lms_nl = sign(lms) * pow(abs(lms), float3(1.0 / 3.0));
-    return M_lms_to_oklab_sat * lms_nl;
+    return lms_nl * M_lms_to_oklab_sat;
 }
 
 float3 oklab_to_rec2020_sat(float3 lab) {
-    float3 lms_nl = M_oklab_to_lms_sat * lab;
+    float3 lms_nl = lab * M_oklab_to_lms_sat;
     float3 lms = lms_nl * lms_nl * lms_nl;
-    return M_lms_to_rec2020_sat * lms;
+    return lms * M_lms_to_rec2020_sat;
 }
 
 [[stitchable]] float4 sceneSaturation(
