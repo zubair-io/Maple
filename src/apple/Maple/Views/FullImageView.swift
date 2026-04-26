@@ -52,63 +52,71 @@ struct FullImageView: View {
     /// sensible memory budgets.
     private let maxPixelScale: CGFloat = 8.0
 
-    // MARK: - Fit math (ported from reference's `fitPixelScale`)
+    // MARK: - Canvas math (Ticket 10 item I — DRY value type)
 
-    /// Fit-to-viewport pixel scale. Real pixels per image pixel.
-    /// Both viewport and image sizes are converted to real pixels first so
-    /// the ratio is meaningful on retina displays.
-    private func fitPixelScale(viewport: CGSize, imageSize: CGSize?) -> CGFloat {
-        guard let imageSize,
-              imageSize.width > 0, imageSize.height > 0,
-              viewport.width > 0, viewport.height > 0
-        else { return 1 }
+    /// Build a `CanvasMath` snapshot from the current view state. The
+    /// session's `nativeImageSize` is the only trustworthy image extent
+    /// (every other source — `renderedPreview`, embedded JPEG, sized-FFI
+    /// buffer — carries a smaller extent that, if fed into the
+    /// canvas/zoom math, anchors "100%" to a preview-resolution
+    /// baseline). When `nativeImageSize` is `.zero` the body's
+    /// `imageExtent` accessor returns nil and we fall through to the
+    /// placeholder branch — see notes on `CanvasMath.imageExtent`.
+    ///
+    /// `viewport` is in POINTS (SwiftUI's `geo.size`); we convert to
+    /// real pixels here once so all `CanvasMath`-derived math operates
+    /// on the same unit.
+    private func canvasMath(viewport: CGSize) -> CanvasMath {
         let viewportPx = CGSize(
             width: viewport.width * displayScale,
             height: viewport.height * displayScale
         )
-        return min(viewportPx.width / imageSize.width,
-                   viewportPx.height / imageSize.height)
+        return CanvasMath(
+            viewportPx: viewportPx,
+            nativeImageSize: session.nativeImageSize,
+            pixelScale: pixelScale,
+            panOffset: panOffset,
+            displayScale: displayScale
+        )
     }
 
-    /// Image pixel extent for fit / zoom math. ONLY trusts
-    /// `session.nativeImageSize` — every other source (`renderedPreview`,
-    /// embedded JPEG, sized-FFI buffer) carries a smaller extent that, if
-    /// fed into the canvas/zoom math, anchors "100%" to a preview-resolution
-    /// baseline. The user reported this directly: opening an image on iPad
-    /// before the metadata-seed completed left "100%" displaying the
-    /// embedded-JPEG dims (~2048 px long edge) instead of native (~12000 px).
-    /// Returning `nil` while waiting forces the placeholder branch in `body`
-    /// rather than rendering at the wrong scale.
-    private var imageExtent: CGSize? {
-        guard session.nativeImageSize != .zero else { return nil }
-        return session.nativeImageSize
-    }
-
-    /// Resolves "fit" mode to a concrete scale. Reads `viewportSize` so the
-    /// toolbar/keyboard paths (which don't have a `GeometryReader` in scope)
-    /// can share the same math as gestures.
+    /// Resolves "fit" mode to a concrete scale. Reads `viewport` so the
+    /// toolbar/keyboard paths (which don't have a `GeometryReader` in
+    /// scope) can share the same math as gestures.
     private func effectivePixelScale(viewport: CGSize) -> CGFloat {
-        if pixelScale == 0 {
-            return fitPixelScale(viewport: viewport, imageSize: imageExtent)
-        }
-        return pixelScale
+        canvasMath(viewport: viewport).effectivePixelScale
+    }
+
+    /// Real-screen-pixels-per-image-pixel for fit-to-viewport. Used by
+    /// gestures + zoomOut to anchor "snap back to fit" math against the
+    /// viewport's fit scale (independent of the user's current zoom).
+    private func fitPixelScale(viewport: CGSize) -> CGFloat {
+        canvasMath(viewport: viewport).fitPixelScale
     }
 
     /// Push the current visible source rect + zoom to the session. Called
     /// from every path that mutates `pixelScale` or `panOffset` so the
-    /// tile manager always sees the live viewport. Wraps the pure
-    /// helper `EditSession.computeVisibleSourceRect(...)` so the math
-    /// is unit-testable from MapleCoreTests.
+    /// tile manager always sees the live viewport.
     private func notifyVisibleRegion() {
-        let zoom = effectivePixelScale(viewport: viewportSize)
-        let visible = EditSession.computeVisibleSourceRect(
-            viewport: viewportSize,
-            zoom: zoom,
-            imageSize: imageExtent,
-            panOffset: panOffset,
-            displayScale: displayScale
+        let math = canvasMath(viewport: viewportSize)
+        session.updateTileVisibleRegion(
+            viewport: math.visibleSourceRect,
+            zoom: math.effectivePixelScale
         )
-        session.updateTileVisibleRegion(viewport: visible, zoom: zoom)
+    }
+
+    /// Push viewport size + resolved pixel scale to the session. Called
+    /// on first mount, on viewport resize, and after the metadata seed
+    /// publishes a real `nativeImageSize` (where the fit-resolved scale
+    /// changes from the pre-decode estimate to the real value). Captures
+    /// the points → real-pixels conversion + `effectivePixelScale` in one
+    /// place so we don't re-derive them at three call sites.
+    private func syncSessionToViewport(_ viewport: CGSize) {
+        let math = canvasMath(viewport: viewport)
+        // `previewSize` is in real screen pixels — the pipeline's target
+        // matches hardware and CoreImage auto-tiles only when it must.
+        session.previewSize = math.viewportPx
+        session.pixelScale = math.effectivePixelScale
     }
 
     // MARK: - Body
@@ -120,7 +128,7 @@ struct FullImageView: View {
                 MapleTokens.imageCanvas.ignoresSafeArea()
 
                 if let ci = session.showingOriginal ? nil : session.renderedPreview,
-                   let virtualSize = imageExtent {
+                   let frameInPoints = canvasMath(viewport: geo.size).displayFrameInPoints {
                     // Frame on the *virtual* image size — `nativeImageSize`
                     // exclusively. The CIImage itself may be at a smaller
                     // resolution (embedded preview, cached JPEG, half-res
@@ -128,18 +136,12 @@ struct FullImageView: View {
                     // frame. Falling back to `ci.extent.size` here would
                     // collapse the canvas to preview dims while waiting
                     // for native to seed — the user reported exactly this
-                    // on iPad. Wait for `imageExtent` instead.
-                    let scale = effectivePixelScale(viewport: geo.size)
-                    // `scale` is real-px-per-image-px; SwiftUI frames are in
-                    // points, so divide by displayScale. Matches reference
-                    // Maple's inline sizing approach — explicit frame
-                    // instead of `.scaleEffect`, which gives predictable
-                    // pan math (`panOffset` is in points applied directly).
-                    let displayW = virtualSize.width * scale / displayScale
-                    let displayH = virtualSize.height * scale / displayScale
-
+                    // on iPad. `CanvasMath.displayFrameInPoints` returns
+                    // nil when the native size hasn't seeded, so the
+                    // placeholder branch fires instead of the wrong-scale
+                    // canvas.
                     CIImageView(image: ci)
-                        .frame(width: displayW, height: displayH)
+                        .frame(width: frameInPoints.width, height: frameInPoints.height)
                         .offset(panOffset)
                         .gesture(magnificationGesture(viewport: geo.size))
                         .simultaneousGesture(dragGesture(viewport: geo.size))
@@ -212,29 +214,19 @@ struct FullImageView: View {
             }
             .onAppear {
                 viewportSize = geo.size
-                // previewSize in real screen pixels so the pipeline's target
-                // matches hardware and CoreImage auto-tiles only when it must.
-                session.previewSize = CGSize(
-                    width: geo.size.width * displayScale,
-                    height: geo.size.height * displayScale
-                )
-                session.pixelScale = effectivePixelScale(viewport: geo.size)
+                syncSessionToViewport(geo.size)
                 session.ensureRenderStarted()
             }
             .onChange(of: geo.size) { _, newSize in
                 viewportSize = newSize
-                session.previewSize = CGSize(
-                    width: newSize.width * displayScale,
-                    height: newSize.height * displayScale
-                )
-                session.pixelScale = effectivePixelScale(viewport: newSize)
+                syncSessionToViewport(newSize)
             }
             .onChange(of: session.nativeImageSize) { _, _ in
                 // Before the decode publishes real dimensions, fit mode has
                 // to guess. Recompute once the size lands so the idle refine
                 // stays at viewport resolution instead of accidentally
                 // targeting the full preview buffer on first open.
-                session.pixelScale = effectivePixelScale(viewport: viewportSize)
+                syncSessionToViewport(viewportSize)
             }
             .onChange(of: session.asset.id) { _, _ in
                 // Asset switched under us (SwiftUI may reuse the view
@@ -244,7 +236,7 @@ struct FullImageView: View {
                 pixelScale = 0
                 panOffset = .zero
                 basePan = .zero
-                session.pixelScale = effectivePixelScale(viewport: viewportSize)
+                syncSessionToViewport(viewportSize)
             }
         }
         .background(MapleTokens.imageCanvas)
@@ -326,13 +318,13 @@ struct FullImageView: View {
                 let start = pinchStartScale ?? effectivePixelScale(viewport: viewport)
                 if pinchStartScale == nil { pinchStartScale = start }
 
-                let fit = fitPixelScale(viewport: viewport, imageSize: imageExtent)
+                let fit = fitPixelScale(viewport: viewport)
                 let newScale = max(fit * 0.5, min(start * value.magnification, maxPixelScale))
                 pixelScale = newScale
             }
             .onEnded { value in
                 let start = pinchStartScale ?? effectivePixelScale(viewport: viewport)
-                let fit = fitPixelScale(viewport: viewport, imageSize: imageExtent)
+                let fit = fitPixelScale(viewport: viewport)
                 let newScale = max(fit * 0.5, min(start * value.magnification, maxPixelScale))
                 pixelScale = newScale
                 baseScale = newScale
@@ -419,7 +411,7 @@ struct FullImageView: View {
     }
 
     private func zoomOut() {
-        let fit = fitPixelScale(viewport: viewportSize, imageSize: imageExtent)
+        let fit = fitPixelScale(viewport: viewportSize)
         let current = pixelScale == 0 ? fit : pixelScale
         withAnimation(.easeInOut(duration: 0.15)) {
             let next = current / 1.25
