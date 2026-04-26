@@ -142,6 +142,80 @@ pub fn develop_scene_linear_from_raw_with_quality(
     Ok(scene)
 }
 
+/// Sized variant of `develop_scene_linear_from_raw_with_quality` that
+/// runs `linearize` + `demosaic` (or `linearraw_to_camera_rgb` for
+/// LinearRaw fixtures), then immediately downsamples the camera-RGB
+/// buffer to fit within `max_long_edge`, then runs the rest of the
+/// development chain on the smaller buffer. Saves ~8× on every
+/// post-demosaic stage when the source is 100 MP and the viewport is
+/// ~3 MP. See ticket 06 § Recommended Milestones / Milestone 3 and
+/// docs/superpowers/specs/2026-04-25-ticket-06-m3-earlier-downsample-brief.md.
+///
+/// Per-stage profile labels are prefixed `sized_` so MAPLE_PROFILE=1
+/// traces don't collide with the full-res `develop_…` labels — same
+/// convention the tile path uses (`tile_*`).
+///
+/// Never upscales: `downsample_image_area` early-returns when the
+/// source long edge is already <= `max_long_edge`. In that case this
+/// helper is functionally identical to
+/// `develop_scene_linear_from_raw_with_quality`, only with `sized_*`
+/// stage labels.
+pub fn develop_scene_linear_sized_from_raw_with_quality(
+    raw: &RawImage,
+    model: &AdjustmentModel,
+    quality: RenderQuality,
+    max_long_edge: u32,
+) -> Result<crate::image::Image> {
+    let mut camera_rgb = match raw.cfa {
+        crate::image::CfaPattern::LinearRgb => {
+            stage("sized_linearraw_decode", || linearize::linearraw_to_camera_rgb(raw))?
+        }
+        _ => {
+            let mosaic = stage("sized_linearize", || linearize::sensor_linearize(raw));
+            stage("sized_demosaic", || match quality {
+                RenderQuality::Preview => demosaic::half_res(&mosaic, raw.cfa),
+                #[cfg(feature = "high-quality-demosaic")]
+                RenderQuality::Full => demosaic::hamilton_adams(&mosaic, raw.cfa),
+                #[cfg(not(feature = "high-quality-demosaic"))]
+                RenderQuality::Full => demosaic::bilinear(&mosaic, raw.cfa),
+            })
+        }
+    };
+
+    // Early downsample — the heart of this milestone. After this call
+    // every later stage runs on the viewport-sized buffer instead of
+    // the half-res sensor buffer. `downsample_image_area` is a no-op
+    // when the source long edge is already <= `max_long_edge`.
+    stage("sized_downsample_area_f32", || {
+        downsample_image_area(&mut camera_rgb, max_long_edge)
+    });
+
+    if raw.baseline_exposure.abs() > 1e-4 {
+        stage("sized_baseline_exposure", || {
+            let be_gain = raw.baseline_exposure.exp2();
+            for p in &mut camera_rgb.pixels {
+                p[0] *= be_gain;
+                p[1] *= be_gain;
+                p[2] *= be_gain;
+            }
+        });
+    }
+    stage("sized_highlight_recovery", || highlight_recovery::apply(&mut camera_rgb, model.highlight_recovery));
+    let profile = stage("sized_dcp_profile_for", || dcp::profile_for(raw))?;
+    let mut scene = stage("sized_dcp_apply", || dcp::apply(&camera_rgb, &profile))?;
+    stage("sized_white_balance", || white_balance::apply(&mut scene, model.temperature, model.tint));
+    stage("sized_scene_tone_controls", || scene_tone_controls::apply(&mut scene, model));
+    stage("sized_vibrance", || vibrance::apply(&mut scene, model.vibrance));
+    stage("sized_saturation", || saturation::apply(&mut scene, model.saturation));
+    stage("sized_clarity", || clarity::apply(&mut scene, model.clarity));
+    stage("sized_texture", || texture::apply(&mut scene, model.texture));
+    stage("sized_dehaze", || dehaze::apply(&mut scene, model.dehaze));
+    stage("sized_sharpen", || sharpen::apply(&mut scene, model.sharpen_amount, model.sharpen_radius, model.sharpen_detail, model.sharpen_masking));
+    stage("sized_nr_luminance", || noise_reduction::apply_luminance(&mut scene, model.nr_luminance));
+    stage("sized_nr_color", || noise_reduction::apply_color(&mut scene, model.nr_color));
+    Ok(scene)
+}
+
 pub fn render_from_raw_with_quality(
     raw: &RawImage,
     model: &AdjustmentModel,
@@ -371,8 +445,14 @@ pub fn render_scene_linear_sized_from_raw_with_quality(
     quality: RenderQuality,
     max_long_edge: u32,
 ) -> Result<(u32, u32, Vec<u16>)> {
-    let mut scene = develop_scene_linear_from_raw_with_quality(raw, model, quality)?;
-    stage("downsample_area_f32", || downsample_image_area(&mut scene, max_long_edge));
+    // M3: develop with the early-downsample helper. The downsample
+    // happens immediately after demosaic so post-demosaic stages run
+    // on the viewport-sized buffer. The post-pipeline
+    // `downsample_image_area` call this function used to make is now
+    // inside the helper.
+    let scene = develop_scene_linear_sized_from_raw_with_quality(
+        raw, model, quality, max_long_edge,
+    )?;
     let (w0, h0) = (scene.width, scene.height);
     let rgba_f32 = stage("pack_rgba_f32_sized", || {
         let mut v = Vec::with_capacity(scene.pixels.len() * 4);
@@ -728,6 +808,82 @@ mod tests {
         for chunk in fp16_rgba.chunks_exact(4) {
             assert_eq!(chunk[3], 0x3c00, "alpha != 1.0 in sized buffer");
         }
+    }
+
+    /// M3 commutativity gate: render test_0017.dng via the original
+    /// late-downsample path (full-res develop, then
+    /// `downsample_image_area`) and the new early-downsample path
+    /// (`develop_scene_linear_sized_from_raw_with_quality` runs
+    /// downsample right after demosaic), then compare per-channel
+    /// f32 mean delta in scene-linear Rec.2020.
+    ///
+    /// Budget: mean per-channel delta ≤ 0.005 in linear-light. The
+    /// expected dominant source of difference is the
+    /// non-commutativity of (downsample ∘ filter) vs
+    /// (filter ∘ downsample); for natural scenes at the default
+    /// AdjustmentModel (sharpen_amount=0, nr_luminance=0,
+    /// nr_color=25 with radius 1 px, clarity=0, dehaze=0) this is
+    /// dominated by the nr_color blur and bounded by the
+    /// downsample kernel's low-pass character.
+    ///
+    /// Skips if test_0017.dng is absent (gitignored fixtures).
+    #[test]
+    fn early_vs_late_downsample_within_fp16_tolerance() {
+        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../test-fixtures/raws/test_0017.dng");
+        if !path.exists() { return; }
+        let bytes = std::fs::read(&path).expect("read raw");
+        let raw = crate::decode::decode_bytes(&bytes, "dng").expect("decode");
+        let model = AdjustmentModel::default();
+        let max_long_edge: u32 = 1500;
+
+        // Late-downsample: full-res develop, then downsample.
+        let mut late = develop_scene_linear_from_raw_with_quality(
+            &raw, &model, RenderQuality::Preview,
+        ).expect("late develop");
+        downsample_image_area(&mut late, max_long_edge);
+
+        // Early-downsample: new helper runs downsample post-demosaic.
+        let early = develop_scene_linear_sized_from_raw_with_quality(
+            &raw, &model, RenderQuality::Preview, max_long_edge,
+        ).expect("early develop");
+
+        // Sizes must match — both end at <= max_long_edge on the long edge.
+        assert_eq!(early.width, late.width, "width mismatch");
+        assert_eq!(early.height, late.height, "height mismatch");
+        assert_eq!(early.pixels.len(), late.pixels.len(), "pixel count mismatch");
+
+        let n = early.pixels.len();
+        let mut sum_dr = 0.0f64;
+        let mut sum_dg = 0.0f64;
+        let mut sum_db = 0.0f64;
+        let mut max_dr = 0.0f32;
+        let mut max_dg = 0.0f32;
+        let mut max_db = 0.0f32;
+        for (a, b) in early.pixels.iter().zip(late.pixels.iter()) {
+            let dr = (a[0] - b[0]).abs();
+            let dg = (a[1] - b[1]).abs();
+            let db = (a[2] - b[2]).abs();
+            sum_dr += dr as f64;
+            sum_dg += dg as f64;
+            sum_db += db as f64;
+            if dr > max_dr { max_dr = dr; }
+            if dg > max_dg { max_dg = dg; }
+            if db > max_db { max_db = db; }
+        }
+        let mean_dr = (sum_dr / n as f64) as f32;
+        let mean_dg = (sum_dg / n as f64) as f32;
+        let mean_db = (sum_db / n as f64) as f32;
+        eprintln!(
+            "early-vs-late: mean dR={:.5} dG={:.5} dB={:.5}  max dR={:.5} dG={:.5} dB={:.5}",
+            mean_dr, mean_dg, mean_db, max_dr, max_dg, max_db,
+        );
+
+        // Mean per-channel delta budget. 0.005 in [0, ~5] scene-linear
+        // headroom is ~0.1% of typical scene values.
+        assert!(mean_dr < 0.005, "mean R delta {} > 0.005", mean_dr);
+        assert!(mean_dg < 0.005, "mean G delta {} > 0.005", mean_dg);
+        assert!(mean_db < 0.005, "mean B delta {} > 0.005", mean_db);
     }
 
     // Sanity tests for f32_to_f16_bits — guards against the bit-isolation

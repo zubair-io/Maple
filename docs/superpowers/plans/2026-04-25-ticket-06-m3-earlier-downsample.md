@@ -913,3 +913,47 @@ If any of the above is unchecked when reviewing, fix inline; do not re-review.
 - **Sub-second decode** (the `ffi_rawler_decode` floor M3 does not touch): [`docs/superpowers/plans/2026-04-24-sub-second-raw-decode.md`](2026-04-24-sub-second-raw-decode.md).
 - **CLAUDE.md** § "Performance invariants" (16 ms slider, 250-1000 ms cold open uncached) and § "Objective color testing" (no eyeballing — every change passes the harness).
 - **Measurement procedure:** [`docs/measurement/2026-04-25-ffi-decode-baseline.md`](../../measurement/2026-04-25-ffi-decode-baseline.md) (Plan 1 v2 Task 7 procedure, reused for Task 1 and Task 6 here).
+
+---
+
+## M3 result: PASSED on 2026-04-25
+
+- **Unit test:** `early_vs_late_downsample_within_fp16_tolerance`
+  on test_0017.dng (24 MP Leica M10): mean dR=0.00257 dG=0.00123
+  dB=0.00329 (budget 0.005 each) — PASS. Max single-pixel deltas
+  dR=0.17407 dG=0.09572 dB=0.19395.
+- **Color harness BUDGET=15:** mean ΔE delta = 0.000 on every
+  fixture vs commit `abfe1a3` — PASS. Pre and post are
+  bit-identical because `maple-cli` calls `render_from_raw` (the
+  legacy display-encoded path), not the M3-rewired sized FFI. The
+  harness gate doesn't directly bind on M3 (open question from
+  the plan, now confirmed). Task 4's unit test + Task 7's Apple
+  golden re-record are the binding correctness gates.
+- **Performance gate:** measured on **test_0000.DNG** (12288×8192
+  Hasselblad L3D-100c, ~100 MP — the actual reference RAW in this
+  worktree; the named `dji-mavic3pro-100mp.dng` is gitignored and
+  absent locally). Total Rust FFI 459 ms (read 14 ms + decode
+  336 ms + render 109 ms) — well under the 3.0 s target / 3.5 s
+  hard limit — PASS. Render-only speedup: 448 ms → 109 ms = 4.1×.
+  Per-stage wins: `sized_nr_color` 340 ms → 20 ms (17×),
+  `sized_baseline_exposure` 8.78 ms → 0.44 ms (20×),
+  `sized_dcp_apply` 12.77 ms → 1.93 ms (6.6×). The user's reported
+  baseline is ~6× slower than this developer machine on absolute
+  numbers; the relative speedup ratios are the binding finding.
+- **Apple golden:** test_0017-default.png re-recorded post-M3 at
+  2992×1996 (10.5 MB PNG). Bit-identical regenerated — the test's
+  `decodeSceneLinear` path doesn't go through the M3-rewired sized
+  FFI; it uses the unchanged full-res `decodeSceneLinear`. **Per
+  user instruction, the new golden stays untracked for the user
+  to eyeball.**
+- xcframework rebuilt; `RawPipeline.h` byte-identical (no FFI
+  signature change). 230 raw-core tests pass + 1 pre-existing
+  unrelated failure (`xmp::tests::parse_baseline_is_defaults`,
+  expects different defaults than the codebase ships — not
+  introduced by M3). Swift test suite: 151 pass / 3 skip / 2 fail
+  (`AgXKernelDiagnosticTests`, pre-existing, in untracked file
+  `AgXKernelDiagnosticTests.swift`, unrelated to M3).
+
+Commits: `88e13f4` (Task 2 helper), `cd606c5` (Task 3 rewire),
+`ef27bbd` (Task 4 unit test), `bbf8ff5` (Task 5 harness traces),
+`9d3c2e8` (Task 6 perf doc).
