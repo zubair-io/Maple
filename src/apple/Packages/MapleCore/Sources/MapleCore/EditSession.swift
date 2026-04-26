@@ -959,6 +959,13 @@ public final class EditSession {
         let visible = viewportSourceRect
         let zoom = pixelScale
         let assetRef = self.asset
+        // Capture the current preview as a fallback for transparent
+        // regions of the tile composite. Without it, unloaded portions
+        // of the canvas render as BLACK (CGImage from a CIImage with
+        // transparent regions over an sRGB workspace fills with black,
+        // not preview content). User reported "image goes to black"
+        // when the deep-zoom composite published.
+        let existingPreview = renderedPreview
         do {
             let composite = try await mgr.update(
                 asset: assetRef,
@@ -967,15 +974,17 @@ public final class EditSession {
                 totalSourceSize: nativeImageSize
             )
             guard gen == renderGeneration, !Task.isCancelled else { return }
-            // The composite is the visible tile set in oriented
-            // full-image source-pixel coords. CIImage.empty() comes
-            // back when no tile has rendered yet — leave the existing
-            // `renderedPreview` (the upscaled cached preview) in place
-            // so the user keeps seeing pixels until the first tile
-            // lands. The events stream re-kicks this method when that
-            // happens.
             if !composite.extent.isEmpty {
-                renderedPreview = composite
+                // Composite the tile-canvas OVER an upscaled version of
+                // the existing preview. Tiles cover the visible viewport;
+                // the upscaled preview fills everything else (blurry but
+                // not black). As more tiles land, more of the canvas
+                // becomes pixel-perfect — the rest stays preview-quality.
+                renderedPreview = compositeWithPreviewUnderlay(
+                    composite,
+                    underlay: existingPreview,
+                    canvasSize: nativeImageSize
+                )
             }
             renderError = nil
         } catch {
@@ -984,6 +993,42 @@ public final class EditSession {
             )
             renderError = error
         }
+    }
+
+    /// Place the tile composite (full-canvas extent, transparent where
+    /// no tiles loaded) over an upscaled `underlay` (preview-quality
+    /// image) so unloaded regions show preview pixels instead of black.
+    /// The output extent equals `canvasSize`.
+    @MainActor
+    private func compositeWithPreviewUnderlay(
+        _ composite: CIImage,
+        underlay: CIImage?,
+        canvasSize: CGSize
+    ) -> CIImage {
+        let canvasRect = CGRect(origin: .zero, size: canvasSize)
+        guard let underlay,
+              underlay.extent.width > 0,
+              underlay.extent.height > 0,
+              canvasSize.width > 0,
+              canvasSize.height > 0
+        else {
+            return composite
+        }
+        // Scale the underlay to the full canvas. Translate origin to
+        // (0, 0) first because some preview-source CIImages carry a
+        // non-zero origin (cropped buffers, embedded JPEGs).
+        let originNormalized = underlay.transformed(by: CGAffineTransform(
+            translationX: -underlay.extent.origin.x,
+            y: -underlay.extent.origin.y
+        ))
+        let sx = canvasSize.width / underlay.extent.width
+        let sy = canvasSize.height / underlay.extent.height
+        let scaledUnderlay = originNormalized
+            .transformed(by: CGAffineTransform(scaleX: sx, y: sy))
+            .cropped(to: canvasRect)
+        return composite
+            .composited(over: scaledUnderlay)
+            .cropped(to: canvasRect)
     }
 
     /// Lazy create the session's `TileManager` and start the
