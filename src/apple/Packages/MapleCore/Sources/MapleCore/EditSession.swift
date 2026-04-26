@@ -943,7 +943,7 @@ public final class EditSession {
                 asset: assetRef,
                 viewportSourceRect: visible,
                 zoom: zoom,
-                totalSourceHeight: nativeImageSize.height
+                totalSourceSize: nativeImageSize
             )
             guard gen == renderGeneration, !Task.isCancelled else { return }
             // The composite is the visible tile set in oriented
