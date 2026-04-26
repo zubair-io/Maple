@@ -7,6 +7,14 @@
 // Rejects / Albums" tree, and to enumerate the user's albums.
 //
 // Filter semantics live in `PhotoKitSource.fetchAssets(for:)`.
+//
+// `PhotoKitChangeObserver` is a process-wide singleton that registers as a
+// `PHPhotoLibraryChangeObserver` and fans changes out to subscribers. Without
+// it the sidebar's album list and the grid's fetch result go stale the first
+// time the user adds a photo in another app — the working reference at
+// `../Maple/.../PhotoKit/PhotoKitBridge.swift` registers the observer at
+// PhotoKitSource init; we mirror that pattern here so the same fan-out is
+// available to both the sidebar facade and the source actor.
 
 import Foundation
 import Photos
@@ -81,5 +89,63 @@ public enum PhotoKitLibrary {
             ))
         }
         return out
+    }
+}
+
+// MARK: - PhotoKitChangeObserver
+
+/// Process-wide PhotoKit change-observation singleton. PhotoKit only delivers
+/// `photoLibraryDidChange` to objects that registered themselves via
+/// `PHPhotoLibrary.shared().register(_:)` — the registration must happen on a
+/// long-lived object, not on a transient actor that might get torn down
+/// between a source switch and the change notification arriving. The
+/// reference repo's `PhotoKitBridge` did this; we mirror the long-lived
+/// observer pattern here as a singleton so the sidebar's album list and the
+/// active source can both subscribe without each registering its own observer
+/// (PhotoKit will silently drop a second registration of the same instance).
+public final class PhotoKitChangeObserver: NSObject, PHPhotoLibraryChangeObserver, @unchecked Sendable {
+
+    public static let shared = PhotoKitChangeObserver()
+
+    private let lock = NSLock()
+    private var subscribers: [UUID: @Sendable () -> Void] = [:]
+    private var registered = false
+
+    private override init() {
+        super.init()
+    }
+
+    /// Subscribe to library-change notifications. The handler runs on a
+    /// PhotoKit-private thread; subscribers must marshal to their own actor.
+    /// Returns a token; pass it to `unsubscribe(_:)` to detach.
+    @discardableResult
+    public func subscribe(_ handler: @escaping @Sendable () -> Void) -> UUID {
+        let token = UUID()
+        lock.lock()
+        subscribers[token] = handler
+        let needRegister = !registered
+        registered = true
+        lock.unlock()
+        if needRegister {
+            // Register lazily — the first time anyone cares about library
+            // changes. PhotoKit must see the same instance every time, so we
+            // register `self` (the singleton) only once for the life of the
+            // process. Subsequent register calls would no-op anyway.
+            PHPhotoLibrary.shared().register(self)
+        }
+        return token
+    }
+
+    public func unsubscribe(_ token: UUID) {
+        lock.lock()
+        subscribers.removeValue(forKey: token)
+        lock.unlock()
+    }
+
+    public func photoLibraryDidChange(_ changeInstance: PHChange) {
+        lock.lock()
+        let handlers = Array(subscribers.values)
+        lock.unlock()
+        for handler in handlers { handler() }
     }
 }
