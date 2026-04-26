@@ -25,6 +25,8 @@ Plan ready at `docs/superpowers/plans/2026-04-25-plan-3-m3-angular- wiring.md`. 
 
 Run the visual-diff harness against every committed `crs:` slider casein `test-fixtures/references/<stem>/xmp/`, not just `baseline.xmp`. ~1day. Catches regressions in slider semantics (vibrance, sharpening,NR) that a single baseline render can't.
 
+**v1 landed 2026-04-26** at `src/apple/MapleUITests/SliderMatrixUITests.swift` (`testSliderMatrixVsACRReferences`). Iterates every `test_NNNN/down/<case>.png` reference, stages a tmp dir with the matching XMP renamed to `<stem>.xmp`, relaunches Maple per case, screenshots the canvas, and CIEDE2000-diffs at a 1024px common long edge. Budgets are deliberately loose (mean ≤ 25, p95 ≤ 50, max ≤ 100, bias ≤ 0.10) to absorb the Maple-AgX-vs-ACR view-transform delta — ratchet downward as the pipeline tightens. Run via `xcodebuild test -project src/apple/Maple.xcodeproj -scheme Maple -destination 'platform=macOS' -only-testing:MapleUITests/SliderMatrixUITests`. Skip-passes when `test-fixtures/raws/` or `test-fixtures/references/<stem>/down/` are absent.
+
 ### D — Plan 2 v2 follow-up — `oklab.metal` shared include
 
 Plan 2 v2's NR-luminance, NR-color, vibrance, saturation, and claritykernels each redeclare the Oklab forward/inverse matrices. Extract toa shared `oklab.metal` header consumed via `#include` (CIKernel + MSLboth support this when the file lives next to the entry point in theMetal/ resource bundle). ~½ day. Pure refactor — no behaviour change.
