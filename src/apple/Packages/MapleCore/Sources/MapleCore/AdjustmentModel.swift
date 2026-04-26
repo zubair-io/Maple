@@ -44,8 +44,21 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
     public var dehaze: Double           // -100..100, default 0
 
     // Detail — sharpening
-    public var sharpenAmount: Double    // 0..150, default 0
-    public var sharpenRadius: Double    // 0.5..3.0, default 0.5
+    //
+    // Defaults mirror ACR / Lightroom raw-file profile sharpening — a small
+    // amount of capture-sharpening at the lens-blur radius — rather than the
+    // "no edits applied" identity (0 / 0.5) the Rust `AdjustmentModel::default()`
+    // uses. First-open of a sidecar-less RAW should look as sharp as ACR's
+    // default-import, not soft. See Ticket 12 Bug 3 for context.
+    //
+    // The field _ranges_ are unchanged (sharpenRadius is documented 0.5..3.0
+    // and the slider clamps to that range); the Rust `sharpen::apply` call
+    // also clamps internally before turning radius into an integer box width,
+    // so a default of 5 is rounded to the upper bound (3) on render. We keep
+    // the spec-mandated default value verbatim so a future widening of the
+    // radius range (anti-aliased Gaussian, etc.) doesn't silently lose it.
+    public var sharpenAmount: Double    // 0..150, default 45 (was 0)
+    public var sharpenRadius: Double    // 0.5..3.0, default 5 (was 0.5)
     public var sharpenDetail: Double    // 0..100, default 25
     public var sharpenMasking: Double   // 0..100, default 0
 
@@ -70,8 +83,8 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
         clarity: Double = 0,
         texture: Double = 0,
         dehaze: Double = 0,
-        sharpenAmount: Double = 0,
-        sharpenRadius: Double = 0.5,
+        sharpenAmount: Double = 45,
+        sharpenRadius: Double = 5,
         sharpenDetail: Double = 25,
         sharpenMasking: Double = 0,
         nrLuminance: Double = 0,
