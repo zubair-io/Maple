@@ -363,7 +363,6 @@ struct AppShell: View {
             browseVM.loadFolder(url: url)
             librarySelection = .folder(path: url.path)
             libraryTitle = url.lastPathComponent
-            primeSessionsForCurrentAssets()
             return
         }
         openSubFolder(url: url, rootBookmark: bookmark)
@@ -430,7 +429,6 @@ struct AppShell: View {
             // Non-recursive walk of the sub-folder — the grid shows only
             // RAWs directly inside it, matching Finder-style drill-down.
             browseVM.loadFolder(url: url)
-            primeSessionsForCurrentAssets()
         }
     }
 
@@ -488,7 +486,6 @@ struct AppShell: View {
                 bookmark: folder.bookmark,
                 lastOpened: Date()
             ))
-            primeSessionsForCurrentAssets()
         }
     }
 
@@ -525,7 +522,6 @@ struct AppShell: View {
                 try await source.fetchAssets(for: filter)
                 await browseVM.loadSource(source)
                 SourceSelectionStore.save(.photoKitFilter(filter))
-                primeSessionsForCurrentAssets()
             } catch {
                 browseVM.loadError = error
             }
@@ -568,7 +564,6 @@ struct AppShell: View {
                 libraryTitle = "\(credentials.host) / \(credentials.share)"
                 mode = .browse
                 currentRootBookmark = nil
-                primeSessionsForCurrentAssets()
             } catch {
                 browseVM.loadError = error
             }
@@ -603,7 +598,6 @@ struct AppShell: View {
             libraryTitle = baseURL.host ?? baseURL.absoluteString
             mode = .browse
             currentRootBookmark = nil
-            primeSessionsForCurrentAssets()
         }
     }
 
@@ -660,7 +654,6 @@ struct AppShell: View {
             librarySelection = .folder(path: folderURL.path)
             libraryTitle = folderURL.lastPathComponent
             browseVM.loadFolder(url: folderURL)
-            primeSessionsForCurrentAssets()
         case .photoKit, .photoKitFilter:
             // Do NOT auto-load Photos on cold start. The user opted into
             // PhotoKit in a previous session; that's no excuse to ambush them
@@ -688,15 +681,6 @@ struct AppShell: View {
         let session = EditSession(asset: asset)
         sessions[asset.id] = session
         Task { await session.loadSidecar() }
-    }
-
-    /// Eager prime — kept as a no-op shim for the call sites that used
-    /// to invoke it. Sessions now materialise on cell appear via
-    /// `ensureSession(for:)`. Removing the call sites entirely would
-    /// be cleaner but expands the diff further than the scope of this
-    /// fix; keep the empty body so the call sites still compile.
-    private func primeSessionsForCurrentAssets() {
-        // Intentionally empty. See `ensureSession(for:)` above.
     }
 
     // MARK: - Security scope lifecycle
