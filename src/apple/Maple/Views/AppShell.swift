@@ -161,7 +161,8 @@ struct AppShell: View {
                         sessions: $sessions,
                         onGrantPhotosAccess: { grantPhotosAccessAndLoad() },
                         onNavigateFolder: { url in navigateFolder(url) },
-                        onOpenEditor: { asset in openEditor(for: asset) }
+                        onOpenEditor: { asset in openEditor(for: asset) },
+                        onPrimeSession: { asset in ensureSession(for: asset) }
                     )
                 case .fullImage:
                     if let session = selectedSession {
@@ -674,12 +675,28 @@ struct AppShell: View {
     }
 
     @MainActor
+    /// Lazy per-asset session creation. Called from `BrowseGrid`'s
+    /// thumbnail-cell `.onAppear` so a session is built only when the
+    /// cell scrolls into view, NOT eagerly across the entire folder.
+    /// User reported on iPad: opening a 70-asset folder fired 70+
+    /// `loadSidecar()` calls — every one a `CIRAWFilter` instantiation
+    /// and an XMP store read for an asset the user might never tap.
+    /// SwiftUI's `LazyVGrid` already defers cell instantiation; this
+    /// closes the matching gap on the session model.
+    private func ensureSession(for asset: AssetRef) {
+        guard sessions[asset.id] == nil else { return }
+        let session = EditSession(asset: asset)
+        sessions[asset.id] = session
+        Task { await session.loadSidecar() }
+    }
+
+    /// Eager prime — kept as a no-op shim for the call sites that used
+    /// to invoke it. Sessions now materialise on cell appear via
+    /// `ensureSession(for:)`. Removing the call sites entirely would
+    /// be cleaner but expands the diff further than the scope of this
+    /// fix; keep the empty body so the call sites still compile.
     private func primeSessionsForCurrentAssets() {
-        for asset in browseVM.assets where sessions[asset.id] == nil {
-            let session = EditSession(asset: asset)
-            sessions[asset.id] = session
-            Task { await session.loadSidecar() }
-        }
+        // Intentionally empty. See `ensureSession(for:)` above.
     }
 
     // MARK: - Security scope lifecycle

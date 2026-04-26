@@ -310,6 +310,15 @@ public final class EditSession {
     /// invoked again after `invalidateDecodedCache()` (e.g. on asset reload).
     /// Mirrors the `decodedImage` field in the Maple reference's EditSession.
     @ObservationIgnored private var decodedImage: CIImage?
+
+    /// Actual underlying pixel resolution of `decodedImage` BEFORE the
+    /// `decodedForNativeCanvas` upscale. The CIImage's `.extent` reports
+    /// the native canvas dims (because that helper applies an affine
+    /// scale + crop), but the pixel data is at the original sized-FFI
+    /// output resolution — typically ~viewport. The refine path uses
+    /// this to decide whether the cached buffer can serve a high-res
+    /// target or a fresh native-target decode is needed.
+    @ObservationIgnored private var decodedRawResolution: CGSize = .zero
     @ObservationIgnored private var decodedForAssetID: AssetRef.ID?
 
     /// Plan 2 M3 — model snapshot at the moment `sharedDecode`'s Rust FFI
@@ -827,6 +836,7 @@ public final class EditSession {
         guard self.asset.id == asset.id, decodedForAssetID != asset.id else { return false }
         renderedPreview = cached
         decodedImage = decodedForNativeCanvas(cached, asset: asset)
+        decodedRawResolution = cached.extent.size
         decodedForAssetID = asset.id
         editSessionLogger.debug(
             "cached preview seeded decode extent=\(cached.extent.width)x\(cached.extent.height)"
@@ -852,6 +862,7 @@ public final class EditSession {
         guard self.asset.id == asset.id, decodedForAssetID != asset.id else { return false }
         renderedPreview = ci
         decodedImage = decodedForNativeCanvas(ci, asset: asset)
+        decodedRawResolution = ci.extent.size
         decodedForAssetID = asset.id
         editSessionSignposter.emitEvent("embedded paint")
         editSessionLogger.debug(
@@ -1150,18 +1161,17 @@ public final class EditSession {
             // The shared decode caches a viewport-sized buffer (~1810 px
             // long edge on iPad); processing it for refine would just
             // restretch the same low-res pixels — that's the user's
-            // "100% doesn't look full resolution" symptom. When the
-            // refined target exceeds what's cached (or any time we're
-            // on the refine pass and want the full sensor-side run),
-            // bypass the cache and run a fresh sized FFI decode at the
-            // refine target. Single asset → RawImageCache de-dupes the
-            // rawler decode (commit 3602889), so the only added work is
-            // the develop chain at native res.
+            // "100% doesn't look full resolution" symptom. Compare
+            // against `decodedRawResolution` (the actual pixel
+            // dimensions of the cached buffer BEFORE the affine upscale
+            // applied by `decodedForNativeCanvas`). The CIImage's
+            // `.extent` reports the upscaled native dims and would
+            // make this check vacuously false.
             let needsFreshHighResDecode: Bool = {
                 guard phase == .refine, let target = targetSize else { return false }
-                guard let cached else { return true }
-                return cached.extent.width + 0.5 < target.width
-                    || cached.extent.height + 0.5 < target.height
+                guard cached != nil, decodedRawResolution.width > 0 else { return true }
+                return decodedRawResolution.width + 0.5 < target.width
+                    || decodedRawResolution.height + 0.5 < target.height
             }()
             if needsFreshHighResDecode, let target = targetSize {
                 let sidecar: URL? = {
@@ -1289,6 +1299,7 @@ public final class EditSession {
     /// from disk or when the underlying asset bytes may have changed.
     public func invalidateDecodedCache() {
         decodedImage = nil
+        decodedRawResolution = .zero
         decodedForAssetID = nil
         decodeTask = nil
         decodeTaskAssetID = nil
@@ -1405,6 +1416,7 @@ public final class EditSession {
 
         let normalized = decodedForNativeCanvas(decoded, asset: asset)
         decodedImage = normalized
+        decodedRawResolution = decoded.extent.size
         decodedForAssetID = asset.id
         // Plan 2 M3 — capture the model the Rust path used during decode
         // so processSceneLinear's WhiteBalance kernel can compute the

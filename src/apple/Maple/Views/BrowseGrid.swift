@@ -27,6 +27,10 @@ struct BrowseGrid: View {
     /// Double-click on an image cell. Shell switches into Full-image / Edit
     /// mode with that asset as the active session.
     var onOpenEditor: ((AssetRef) -> Void)? = nil
+    /// Called from each thumbnail cell's `.onAppear`. Used by AppShell to
+    /// lazily create per-asset `EditSession`s only when their cell scrolls
+    /// into view, instead of eagerly priming every asset in the folder.
+    var onPrimeSession: ((AssetRef) -> Void)? = nil
 
     private let columns = [GridItem(.adaptive(minimum: 140, maximum: 200), spacing: 4)]
 
@@ -59,6 +63,14 @@ struct BrowseGrid: View {
                                           session: sessions[asset.id],
                                           source: vm.currentSource)
                                 .id(asset.id)
+                                // Lazy session prime — fires when SwiftUI
+                                // instantiates this cell (i.e. when it
+                                // scrolls into view in the LazyVGrid).
+                                // Replaces the previous eager
+                                // `primeSessionsForCurrentAssets()` which
+                                // built a session per asset in the folder
+                                // regardless of visibility.
+                                .onAppear { onPrimeSession?(asset) }
                                 // Single click selects (highlights cell, Info
                                 // pane refreshes).
                                 .onTapGesture {
