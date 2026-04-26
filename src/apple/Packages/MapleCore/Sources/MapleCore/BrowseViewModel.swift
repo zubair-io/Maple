@@ -224,6 +224,23 @@ public final class BrowseViewModel {
         photosAuthNeeded = true
     }
 
+    /// Wipe the prior source's grid state and flip into the loading-spinner
+    /// empty state ahead of an async PhotoKit fetch. Without this the user
+    /// keeps seeing the previous folder's tiles for as long as the PhotoKit
+    /// fetch + enumeration takes (seconds on large libraries) and assumes
+    /// the click did nothing. Bumping `loadGeneration` here cancels any
+    /// stale folder-load that's still resolving from a previous click.
+    public func beginLoadingPhotosFilter() {
+        loadGeneration &+= 1
+        assets = []
+        subfolders = []
+        selectedID = nil
+        currentSource = nil
+        loadError = nil
+        isLoading = true
+        photosAuthNeeded = false
+    }
+
     /// Seed the grid with a single filesystem asset and select it. Used by
     /// the UITest harness to bypass folder browsing entirely — the test
     /// driver passes a fixture path via `MAPLE_UITEST_FIXTURE` and the

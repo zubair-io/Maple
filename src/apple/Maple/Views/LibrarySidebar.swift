@@ -58,6 +58,10 @@ struct LibrarySidebar: View {
     @State private var savedShares: [SMBCredentialStore.SavedShare] = []
     @State private var savedServers: [URL] = []
 
+    /// Token returned by `PhotoKitChangeObserver.subscribe` — held for the
+    /// view's lifetime so we can unsubscribe in `.task`'s cancellation.
+    @State private var photosChangeToken: UUID?
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
@@ -70,7 +74,29 @@ struct LibrarySidebar: View {
             .padding(.vertical, 4)
         }
         .background(MapleTokens.sidebar)
-        .task { await refreshAll() }
+        .task {
+            await refreshAll()
+            // Subscribe to library-change notifications so albums refresh
+            // the moment the user adds/removes one in another app.
+            // Subscriptions live on a process-wide singleton observer that
+            // PhotoKit registers exactly once per process; safe to call
+            // every appearance.
+            let token = PhotoKitChangeObserver.shared.subscribe {
+                Task { @MainActor in
+                    await refreshAll()
+                }
+            }
+            photosChangeToken = token
+        }
+        // `.task` is implicitly cancelled when the view leaves the hierarchy;
+        // unsubscribe alongside it. Without explicit cleanup the singleton
+        // would accumulate dead handler references on every view rebuild.
+        .onDisappear {
+            if let token = photosChangeToken {
+                PhotoKitChangeObserver.shared.unsubscribe(token)
+                photosChangeToken = nil
+            }
+        }
         // Refresh the saved-folders list the moment the store changes — so a
         // folder just picked via .fileImporter shows up without a restart.
         .onReceive(
