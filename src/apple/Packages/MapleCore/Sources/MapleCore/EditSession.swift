@@ -545,10 +545,18 @@ public final class EditSession {
     /// Hydration is silent for sessions pre-created by the browse grid; a
     /// render is scheduled only if the editor has already requested pixels.
     public func loadSidecar() async {
-        // (1) RAW metadata (no decode): seed the final virtual canvas size
-        // and the as-shot white balance before any embedded preview paints.
+        // (1) As-shot white balance — needed by Browse so the WB chip
+        // shows the correct value without opening the editor. Cheap
+        // (CIRAWFilter property reads, no decode).
+        //
+        // `seedNativeImageSizeFromMetadata` is intentionally deferred
+        // to `ensureRenderStarted()`. Reading the canonical sensor dims
+        // builds a `CIRAWFilter` per asset; running it for every
+        // session in the browse grid trips a long stall on iPad with
+        // many fixtures. Native dims are only consumed by FullImageView
+        // (canvas frame, fit math), so the read can wait until the
+        // user actually opens the asset.
         if let url = asset.primaryURL {
-            seedNativeImageSizeFromMetadata(url)
             if let asShot = ImageMetadataReader.readAsShotWB(from: url) {
                 self.asShotCCT = asShot.temperature
                 self.asShotTint = asShot.tint
