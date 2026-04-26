@@ -102,15 +102,22 @@ struct TabButton: View {
 struct InfoTab: View {
     let session: EditSession?
 
+    /// EXIF dump loaded asynchronously when the session changes. Reading it
+    /// inside `body` would either block the main thread (URL path uses
+    /// `CGImageSourceCreateWithURL` which can hit disk) or, for sourceless
+    /// PhotoKit/Self-Hosted assets, require an async `bytesProvider` call
+    /// that can't happen synchronously inside a view body. We hop into a
+    /// detached Task on `.task(id:)` and write the result back here.
+    @State private var exif: [ImageMetadataReader.ExifEntry] = []
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
+            // Name + as-shot WB sit above the EXIF dump because they're the
+            // two values the user reaches for most often during cull.
             SectionHeader("File")
-            // Name = filename with extension. Path = parent directory only.
             InfoRow("Name", session?.asset.primaryURL?.lastPathComponent
                          ?? session?.asset.displayName
                          ?? "—")
-            InfoRow("Path", session?.asset.primaryURL?
-                                .deletingLastPathComponent().path ?? "—")
 
             if let cct = session?.asShotCCT {
                 Divider().overlay(MapleTokens.border).padding(.vertical, 4)
@@ -118,6 +125,17 @@ struct InfoTab: View {
                 InfoRow("Temp", String(format: "%.0f K", cct))
                 if let t = session?.asShotTint {
                     InfoRow("Tint", String(format: "%.0f", t))
+                }
+            }
+
+            // Full EXIF dump grouped by section. Sections render in the order
+            // the reader produced them (Image → Camera → Exposure → GPS →
+            // File) — see `ImageMetadataReader.exifEntries` for ordering.
+            ForEach(exifSections, id: \.self) { section in
+                Divider().overlay(MapleTokens.border).padding(.vertical, 4)
+                SectionHeader(section)
+                ForEach(exif.filter { $0.section == section }) { entry in
+                    InfoRow(entry.label, entry.value)
                 }
             }
 
@@ -141,6 +159,58 @@ struct InfoTab: View {
             .padding(.horizontal, 12)
         }
         .padding(.vertical, 12)
+        // Reload EXIF whenever the session's asset changes — `task(id:)`
+        // cancels the prior task on switch so we don't paint stale rows.
+        .task(id: session?.asset.id) {
+            await loadExif()
+        }
+    }
+
+    /// Distinct sections in the order they first appear in `exif`. Avoids
+    /// hard-coding section names so adding a new section in the reader
+    /// surfaces it automatically.
+    private var exifSections: [String] {
+        var seen: [String] = []
+        for entry in exif where !seen.contains(entry.section) {
+            seen.append(entry.section)
+        }
+        return seen
+    }
+
+    /// Off-main read so a slow filesystem (NAS / external drive / iCloud
+    /// re-fetch) doesn't lock the UI. PhotoKit / Self-Hosted assets pull
+    /// bytes through `bytesProvider` — that's already async. Either way the
+    /// final write back into `exif` happens on the main actor.
+    private func loadExif() async {
+        guard let session else {
+            exif = []
+            return
+        }
+        let asset = session.asset
+        let entries: [ImageMetadataReader.ExifEntry]
+        if let url = asset.primaryURL {
+            entries = await Task.detached(priority: .userInitiated) {
+                ImageMetadataReader.readExifProperties(from: url)
+            }.value
+        } else if let provider = asset.bytesProvider {
+            // Sourceless asset (PhotoKit, Self-Hosted). The provider call
+            // can be expensive (network fetch) — keep it off main.
+            let displayPath = asset.displayName
+            entries = await Task.detached(priority: .userInitiated) { () -> [ImageMetadataReader.ExifEntry] in
+                guard let data = try? await provider() else { return [] }
+                return ImageMetadataReader.readExifProperties(
+                    from: data,
+                    byteCount: data.count,
+                    displayPath: displayPath
+                )
+            }.value
+        } else {
+            entries = []
+        }
+        // Re-check identity after the await — the user may have switched
+        // assets while bytes were fetching.
+        guard session.asset.id == asset.id else { return }
+        exif = entries
     }
 }
 
@@ -157,11 +227,13 @@ struct InfoRow: View {
             Text(label)
                 .font(.system(size: 11))
                 .foregroundStyle(MapleTokens.textMuted)
-                .frame(width: 60, alignment: .trailing)
+                .frame(width: 80, alignment: .trailing)
             Text(value)
                 .font(.system(size: 11))
                 .foregroundStyle(MapleTokens.textMain)
-                .lineLimit(2)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .lineLimit(3)
+                .textSelection(.enabled)
         }
         .padding(.horizontal, 12)
     }
