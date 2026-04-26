@@ -11,36 +11,64 @@
 
 #include <CoreImage/CoreImage.h>
 
-// Rec.2020 to LMS (Björn Ottosson Oklab, 2020).
-// From: https://bottosson.github.io/posts/oklab/
+// Oklab matrices — bit-for-bit equivalent to Rust's canonical chain in
+// `src/raw-pipeline/raw-core/src/color/oklab.rs`:
+//
+//   rec2020 -> sRGB (M_REC2020_TO_SRGB)
+//           -> LMS  (M1_SRGB_TO_LMS, Bottosson 2020)
+//           -> cbrt
+//           -> Oklab (M2_LMS_TO_LAB, Bottosson 2020)
+//
+// `M_rec2020_to_lms` is the precomputed product
+// `M1_SRGB_TO_LMS @ M_REC2020_TO_SRGB`; `M_lms_to_rec2020` is the
+// precomputed product `M_REC2020_TO_SRGB^-1 @ M1_SRGB_TO_LMS^-1`.
+// Both computed in float64 numpy from the Rust source-of-truth matrices
+// (matrices.rs / oklab.rs), rounded to 8 significant digits.
+//
+// Replaces the previous Bradford-style direct rec2020->LMS triple that
+// did NOT route via sRGB and disagreed with Rust on low-chroma hue
+// direction (Ticket 12 follow-up to Bug 2). Rust's `oklab.rs` is the
+// single source of truth — do not edit these in isolation.
+//
+// TODO codegen: lift these four matrices + the WebGL/Rust copies into
+// `src/scripts/codegen/` once that scaffold lands. Today there is no
+// codegen directory, so all three platforms hold the same constants
+// by hand. Same TODO mirrored in SceneSaturation/NRColor/NRLuminance.metal
+// and the GLSL shaders.
 //
 // Each `float3` argument to `float3x3(...)` becomes a COLUMN of the
 // resulting Metal matrix, but the values below are the ROWS of the
 // math matrix (matching the Rust source's row-major layout). Using
 // `v * M_metal` therefore produces `M_math * v` — see SceneSaturation
 // header for the full Bug 2 / Ticket 12 explanation.
+
+// M_rec2020_to_lms = M1_SRGB_TO_LMS @ M_REC2020_TO_SRGB.
 constant float3x3 M_rec2020_to_lms = float3x3(
-    float3(0.6370481, 0.2657101, 0.0365291),
-    float3(0.3320989, 0.6936245, 0.0374060),
-    float3(0.0002832, 0.0182337, 0.9994374)
+    float3( 0.61673040,  0.36021433,  0.02309135),
+    float3( 0.26509597,  0.63584589,  0.09906860),
+    float3( 0.10005846,  0.20389689,  0.69599049)
 );
 
+// M_lms_to_oklab = M2_LMS_TO_LAB (Bottosson 2020). Bit-identical to
+// Rust; preserved at the high-precision Bottosson reference values.
 constant float3x3 M_lms_to_oklab = float3x3(
     float3(0.2104542553, 0.7936177850, -0.0040720468),
     float3(1.9779984951, -2.4285922050, 0.4505937099),
     float3(0.0259040371, 0.7827717662, -0.8086757660)
 );
 
+// M_oklab_to_lms = inverse(M2_LMS_TO_LAB).
 constant float3x3 M_oklab_to_lms = float3x3(
     float3(1.0000000000, 0.3963377774, 0.2158037573),
     float3(1.0000000000, -0.1055613458, -0.0638541728),
     float3(1.0000000000, -0.0894841775, -1.2914855480)
 );
 
+// M_lms_to_rec2020 = inverse(M_REC2020_TO_SRGB) @ inverse(M1_SRGB_TO_LMS).
 constant float3x3 M_lms_to_rec2020 = float3x3(
-    float3(1.6970305, -0.7288047, 0.0413840),
-    float3(-0.5065012, 1.6510782, -0.0577547),
-    float3(-0.0247447, 0.0438581, 1.0759636)
+    float3( 2.13995843, -1.24643838,  0.10642154),
+    float3(-0.88463381,  2.16319054, -0.27856253),
+    float3(-0.04848752, -0.45453369,  1.50310914)
 );
 
 float3 rec2020_to_oklab(float3 rgb) {

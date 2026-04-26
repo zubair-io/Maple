@@ -7,9 +7,23 @@ export const SCENE_SATURATION_FRAGMENT_SOURCE = /* glsl */ `#version 300 es
 // Uniform chroma scale in Oklab. No skin-tone protection (vibrance has
 // it; saturation is meant to be uniform).
 //
-// Matrices duplicated from scene-vibrance.ts — see SceneSaturation.metal:11-16
-// for the rationale (per-metallib symbol scoping; GLSL has the same
-// restriction across separate compilation units).
+// Matrices duplicated from scene-vibrance.ts — see SceneSaturation.metal
+// header for the rationale (per-metallib symbol scoping; GLSL has the
+// same restriction across separate compilation units).
+//
+// As of Ticket 12 follow-up, the matrices are bit-for-bit equivalent
+// to Rust's canonical Oklab chain in
+// src/raw-pipeline/raw-core/src/color/oklab.rs — precomputed products
+// of Bottosson M1/M2 with M_REC2020_TO_SRGB. See SceneSaturation.metal
+// header for full derivation.
+//
+// TODO codegen: lift these four matrices into src/scripts/codegen/ once
+// the scaffold lands. Today all three platforms hold these by hand.
+//
+// Matrix layout note: GLSL mat3(c0, c1, c2) takes COLUMNS, and the
+// shader uses M*v form, so each vec3 arg below is a COLUMN of the
+// math matrix. (Apple's Metal sibling uses ROW form because Metal
+// uses v*M — same math matrix, different arg orientation.)
 
 precision highp float;
 
@@ -19,34 +33,36 @@ out vec4 outColor;
 uniform sampler2D uSrc;
 uniform float uSaturation;  // -100..+100
 
+// M_rec2020_to_lms_sat = M1_SRGB_TO_LMS @ M_REC2020_TO_SRGB
+// (numpy float64, rounded to 8 sig figs). vec3 args are COLUMNS.
 const mat3 M_rec2020_to_lms_sat = mat3(
-    vec3(0.6370481, 0.2657101, 0.0365291),
-    vec3(0.3320989, 0.6936245, 0.0374060),
-    vec3(0.0002832, 0.0182337, 0.9994374)
+    vec3( 0.61673040,  0.26509597,  0.10005846),
+    vec3( 0.36021433,  0.63584589,  0.20389689),
+    vec3( 0.02309135,  0.09906860,  0.69599049)
 );
 
+// M_lms_to_oklab_sat = M2_LMS_TO_LAB (Bottosson 2020). vec3 args are COLUMNS.
 const mat3 M_lms_to_oklab_sat = mat3(
-    vec3(0.2104542553,  0.7936177850, -0.0040720468),
-    vec3(1.9779984951, -2.4285922050,  0.4505937099),
-    vec3(0.0259040371,  0.7827717662, -0.8086757660)
+    vec3( 0.2104542553,  1.9779984951,  0.0259040371),
+    vec3( 0.7936177850, -2.4285922050,  0.7827717662),
+    vec3(-0.0040720468,  0.4505937099, -0.8086757660)
 );
 
+// M_oklab_to_lms_sat = inverse(M2_LMS_TO_LAB). vec3 args are COLUMNS.
 const mat3 M_oklab_to_lms_sat = mat3(
     vec3(1.0000000000,  1.0000000000,  1.0000000000),
     vec3(0.3963377774, -0.1055613458, -0.0894841775),
     vec3(0.2158037573, -0.0638541728, -1.2914855480)
 );
 
+// M_lms_to_rec2020_sat = inverse(M_REC2020_TO_SRGB) @ inverse(M1_SRGB_TO_LMS).
+// vec3 args are COLUMNS.
 const mat3 M_lms_to_rec2020_sat = mat3(
-    vec3( 1.6970305, -0.5065012, -0.0247447),
-    vec3(-0.7288047,  1.6510782,  0.0438581),
-    vec3( 0.0413840, -0.0577547,  1.0759636)
+    vec3( 2.13995843, -0.88463381, -0.04848752),
+    vec3(-1.24643838,  2.16319054, -0.45453369),
+    vec3( 0.10642154, -0.27856253,  1.50310914)
 );
 
-// See scene-vibrance.ts for the matrix-layout note. The chain is M*v
-// in GLSL with the same vec3 args Apple's float3x3() takes — the
-// non-standard Oklab roundtrip cancels through Apple's stored inverse
-// matrices, preserving pixel-level parity with the Apple runtime.
 vec3 rec2020_to_oklab_sat(vec3 rgb) {
     vec3 lms = M_rec2020_to_lms_sat * rgb;
     vec3 lms_nl = sign(lms) * pow(abs(lms), vec3(1.0 / 3.0));
