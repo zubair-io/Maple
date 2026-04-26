@@ -149,6 +149,22 @@ python3 src/scripts/compare_images.py \
 
 Brief: `docs/superpowers/specs/2026-04-25-xcuitest-visual-harness-brief.md`. Plan: `docs/superpowers/plans/2026-04-25-xcuitest-visual-harness.md`.
 
+### Slider-matrix harness
+
+Companion test class `SliderMatrixUITests` (Ticket 10-C) at `src/apple/MapleUITests/SliderMatrixUITests.swift`. Iterates every committed slider XMP under `test-fixtures/references/test_NNNN/xmp/` against the matching ACR-rendered reference at `test-fixtures/references/test_NNNN/down/<case>.png`. Per case: stages a tmp dir with the RAW + XMP renamed to `<stem>.xmp`, relaunches Maple pointed at the tmp, screenshots the canvas, resizes both to 1024px long edge, CIEDE2000-diffs.
+
+Run:
+
+```bash
+xcodebuild test \
+  -project src/apple/Maple.xcodeproj \
+  -scheme Maple \
+  -destination 'platform=macOS' \
+  -only-testing:MapleUITests/SliderMatrixUITests
+```
+
+Budgets are loose (mean ≤ 25, p95 ≤ 50, max ≤ 100, bias ≤ 0.10) to absorb the Maple-AgX-vs-ACR view-transform delta — ratchet downward as the pipeline tightens. Skip-passes when fixtures or references are absent. JSON-per-case report goes to stderr; failed cases attach candidate + reference PNGs as `XCTAttachment`s for triage.
+
 ## Build & test — Web
 
 ```bash
