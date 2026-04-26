@@ -51,6 +51,23 @@
 7. **`pano-smoke` is the smoke binary** at
    `src/raw-pipeline/pano-core/src/bin/pano-smoke.rs`. The
    `pano-cli` polished CLI is parked as P7 work.
+8. **MVP canvas sizing is wrong for non-identity rotations.**
+   `pano-smoke::compute_canvas_size` takes `max(width)`/`max(height)`
+   of the inputs — it does NOT project warped image corners. So any
+   image whose rotation pushes pixels outside the input bounding
+   box gets clipped, and the output canvas can never grow beyond
+   single-image dimensions. Observed when chain-stitching all 21
+   pano_01 DNGs: 100% RANSAC inlier rate at every step, but final
+   output stays 5376×3956 (one image's size). Fix requires:
+   (a) projecting each input's 4 corners through the camera
+   homography to find the union bounding box; (b) refactoring
+   `warp_to_canvas` to place each warp at its projected offset
+   inside the larger canvas. Tracked as a critical P2 follow-up.
+9. **N-image stitching uses iterative pairwise chain.** Each
+   chain step's BA uncertainty feeds the next; quality compounds
+   downward. Production needs joint BA across all images + single
+   warp+blend pass. Without this, even with the canvas fix, long
+   chains will drift. P2 follow-up.
 
 This document is the **work-breakdown** for the panorama pipeline spec. It is
 not a redesign — see the spec for architecture, dependencies, FFI shape,
