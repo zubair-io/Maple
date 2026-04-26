@@ -141,13 +141,15 @@ public actor TileManager {
     /// 4× = 4 source pixels per screen pixel) and gets quantized to a
     /// zoom bucket via `zoomBucket(for:)`.
     ///
-    /// `totalSourceHeight` is the oriented full-image height in source
-    /// pixels (i.e. `EditSession.nativeImageSize.height`). It anchors
-    /// the Y-flip that reconciles tile-grid Y-down (rows top-to-bottom)
-    /// with CoreImage's Y-up rasterization. Without it, the visible
-    /// tile grid renders flipped vertically — every tile is correct in
-    /// isolation, but tile (0, 0) lands at the bottom and tile (0, N)
-    /// at the top.
+    /// `totalSourceSize` is the oriented full-image size in source
+    /// pixels (i.e. `EditSession.nativeImageSize`). It anchors the
+    /// Y-flip that reconciles tile-grid Y-down (rows top-to-bottom)
+    /// with CoreImage's Y-up rasterization, AND it sets the returned
+    /// composite's extent so the consuming `CIImageView` (which builds
+    /// a CGImage from `image.extent`) sees the full canvas, not just
+    /// the visible tile bounding box. Without that, SwiftUI's
+    /// `aspectRatio(.fit)` shrinks the partial composite into a small
+    /// letterboxed render.
     ///
     /// Throws are reserved for future use (e.g. surfacing pipeline
     /// errors); the current implementation never throws and just
@@ -156,7 +158,7 @@ public actor TileManager {
         asset: AssetRef,
         viewportSourceRect: CGRect,
         zoom: CGFloat,
-        totalSourceHeight: CGFloat
+        totalSourceSize: CGSize
     ) async throws -> CIImage {
         guard let url = asset.primaryURL else {
             // Sourceless assets (PhotoKit / SelfHosted) don't have a
@@ -168,7 +170,15 @@ public actor TileManager {
         let bucket = Self.zoomBucket(for: zoom)
         let positions = Self.tileSet(forVisibleSourceRect: viewportSourceRect, zoom: zoom)
 
-        var composite = CIImage.empty()
+        // Start with a transparent canvas at the full-image extent so
+        // `composite.extent` always equals `(0, 0, totalW, totalH)` —
+        // matches what the consuming `CIImageView`/`SwiftUI.Image` sizing
+        // assumes. Without this anchor, an early composite covering only
+        // a few visible tiles has a tiny extent, and `aspectRatio(.fit)`
+        // shrinks the rendered image instead of placing it correctly
+        // within the full canvas.
+        let canvasRect = CGRect(origin: .zero, size: totalSourceSize)
+        var composite = CIImage.empty().cropped(to: canvasRect)
         for pos in positions {
             let key = TileKey(
                 urlHash: urlHash,
@@ -186,15 +196,15 @@ public actor TileManager {
                 //
                 // Y-flip: tile-grid rows are top-down (tileY=0 is the
                 // top tile in oriented source space) but CoreImage Y is
-                // up. Place each tile at `totalSourceHeight - (tileY+1)
-                // * tileSize` so source-row 0 lands at the top of the
-                // rasterized output. Without this flip, the composite
-                // renders upside-down — every tile correct internally,
-                // but the GRID flips top-to-bottom (P0 visual bug).
+                // up. Place each tile at `totalSourceSize.height -
+                // (tileY+1) * tileSize` so source-row 0 lands at the top
+                // of the rasterized output. Without this flip, the
+                // composite renders upside-down — every tile correct in
+                // isolation, but the GRID flips top-to-bottom.
                 let ts = CGFloat(Self.tileSizeSourcePx)
                 let placed = entry.image.transformed(by: CGAffineTransform(
                     translationX: CGFloat(key.tileX) * ts,
-                    y: totalSourceHeight - CGFloat(Int(key.tileY) + 1) * ts
+                    y: totalSourceSize.height - CGFloat(Int(key.tileY) + 1) * ts
                 ))
                 composite = placed.composited(over: composite)
                 continue
