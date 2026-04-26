@@ -1174,6 +1174,23 @@ public final class EditSession {
                     || decodedRawResolution.height + 0.5 < target.height
             }()
             if needsFreshHighResDecode, let target = targetSize {
+                // Bail out BEFORE the expensive decode if a newer
+                // refine has already been scheduled. Without this,
+                // two `decodeAndRender(.refine)` tasks for the same
+                // asset can both pass the early `Task.isCancelled`
+                // check, hit the 10 s native decode in parallel, and
+                // produce two finished results — only the second one
+                // is published, the first is wasted work. User saw
+                // this directly: the trace logged
+                // `[swift] rust FFI scene-linear decode (refine)`
+                // twice with two interleaved pipeline runs.
+                if let gen, gen != renderGeneration {
+                    editSessionLogger.debug(
+                        "decodeAndRender gen=\(gen) stale before high-res decode (current=\(self.renderGeneration)), dropping early"
+                    )
+                    isRendering = false
+                    return
+                }
                 let sidecar: URL? = {
                     guard let url = asset.sidecarURL,
                           FileManager.default.fileExists(atPath: url.path)
@@ -1188,6 +1205,13 @@ public final class EditSession {
                     )
                 }
                 guard !Task.isCancelled else {
+                    isRendering = false
+                    return
+                }
+                if let gen, gen != renderGeneration {
+                    editSessionLogger.debug(
+                        "decodeAndRender gen=\(gen) stale after high-res decode (current=\(self.renderGeneration)), dropping result"
+                    )
                     isRendering = false
                     return
                 }
