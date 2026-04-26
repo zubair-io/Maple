@@ -18,6 +18,13 @@
 
 set -euo pipefail
 
+# Xcode's "Run Script" phase launches with a minimal PATH that omits
+# `~/.cargo/bin` and Homebrew, so cargo/rustc/cbindgen are not on PATH by
+# default. Prepend the standard Rust toolchain location and Homebrew
+# prefixes so the same script works whether invoked from a terminal
+# (no-op — PATH already has these) or from Xcode.
+export PATH="$HOME/.cargo/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 NATIVE_DIR="$(dirname "$SCRIPT_DIR")"
 # Walk up from NATIVE_DIR to find src/raw-pipeline (works whether invoked from
