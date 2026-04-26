@@ -19,6 +19,9 @@
 
 import SwiftUI
 import MapleCore
+#if os(iOS)
+import UIKit
+#endif
 
 // MARK: - AppShell
 
@@ -64,7 +67,13 @@ struct AppShell: View {
     var body: some View {
         Group {
             #if os(iOS)
-            adaptiveShell
+            // iPad: three-column NavigationSplitView (matches Mac shell —
+            // sidebar gives folder nav). iPhone: TabView single-column collapse.
+            if UIDevice.current.userInterfaceIdiom == .pad {
+                macShell
+            } else {
+                adaptiveShell
+            }
             #else
             macShell
             #endif
