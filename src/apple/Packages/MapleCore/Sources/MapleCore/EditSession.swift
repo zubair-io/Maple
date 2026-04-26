@@ -342,6 +342,58 @@ public final class EditSession {
     @ObservationIgnored private var decodeTask: Task<CIImage?, Never>?
     @ObservationIgnored private var decodeTaskAssetID: AssetRef.ID?
 
+    /// Ticket 10 item H — refine-decode coalescer. Maps `(asset, target)`
+    /// to an in-flight `decodeSceneLinearSized` task so that two refine
+    /// schedules at the same target collapse to one Rust call.
+    ///
+    /// Why this exists: `_scheduleRefine`'s 250 ms debounce + the
+    /// stale-gen bail-out in `decodeAndRender` (commit `d4eed05`) both
+    /// fire BEFORE the decode starts. Once a refine is inside the
+    /// synchronous Rust call (~10 s on a 100 MP RAW), nothing
+    /// short-circuits a sibling refine that arrives a moment later — it
+    /// passes the gen check, enters the Rust call in parallel, and only
+    /// the second result publishes (the first is wasted CPU). The
+    /// coalescer fixes the race: the second arrival sees the in-flight
+    /// task and awaits its value instead of starting its own.
+    ///
+    /// The stale-gen bail-out is preserved as a fast-fail check — when
+    /// it catches the race the coalescer never gets called, which keeps
+    /// the dictionary cleaner. When the bail-out misses (both tasks
+    /// past it), the coalescer is the safety net.
+    ///
+    /// Keyed by `(asset.id, integer-rounded width × height)` because the
+    /// target sizes that arrive at the refine boundary are point-derived
+    /// floats whose fractional bits aren't load-bearing — two refines
+    /// with target widths 1500.0 and 1500.0001 should still collapse.
+    @ObservationIgnored private var refineDecodeTasks: [RefineDecodeKey: RefineDecodeSlot] = [:]
+    @ObservationIgnored private var refineDecodeSlotCounter: UInt64 = 0
+
+    /// Slot value paired with a `Task<CIImage?, Never>` so cleanup at
+    /// task completion can match its own insertion (vs. a sibling that
+    /// raced in via `invalidateDecodedCache` + a new schedule). `Task`
+    /// itself is a value type — no `===` to compare instances — so we
+    /// disambiguate via a monotonically-increasing slot id.
+    fileprivate struct RefineDecodeSlot {
+        let id: UInt64
+        let task: Task<CIImage?, Never>
+    }
+
+    /// Composite key for the refine-decode coalescer dictionary. Hashes
+    /// asset identity together with integer-quantised target dimensions
+    /// so floating-point jitter from layout passes doesn't bypass the
+    /// dedupe.
+    fileprivate struct RefineDecodeKey: Hashable {
+        let assetID: AssetRef.ID
+        let widthPx: Int
+        let heightPx: Int
+
+        init(assetID: AssetRef.ID, target: CGSize) {
+            self.assetID = assetID
+            self.widthPx = Int(target.width.rounded())
+            self.heightPx = Int(target.height.rounded())
+        }
+    }
+
     // MARK: Deep zoom (Plan 3 / Ticket 06 M4)
 
     /// Tile manager for deep-zoom (`pixelScale >= 1.0`) refine renders.
@@ -1198,10 +1250,22 @@ public final class EditSession {
                 }()
                 let assetCapture = asset
                 let pipelineCapture = pipeline
-                let decoded = await mapleStageAsync("rust FFI scene-linear decode (refine)") {
-                    await pipelineCapture.decodeSceneLinearSized(
-                        asset: assetCapture, targetSize: target, xmpPath: sidecar
-                    )
+                // Ticket 10 item H — coalesce concurrent refine decodes
+                // by `(asset, target)`. The stale-gen bail-out above is
+                // a fast-fail check; this is the safety net for the race
+                // where two `decodeAndRender(.refine)` tasks both pass
+                // the gen check, both enter the synchronous Rust call,
+                // and one's work ends up wasted. Joining the in-flight
+                // task here means the second arrival re-uses the first
+                // call's result rather than double-decoding.
+                let decoded = await coalescedRefineDecode(
+                    asset: assetCapture, target: target
+                ) {
+                    await mapleStageAsync("rust FFI scene-linear decode (refine)") {
+                        await pipelineCapture.decodeSceneLinearSized(
+                            asset: assetCapture, targetSize: target, xmpPath: sidecar
+                        )
+                    }
                 }
                 guard !Task.isCancelled else {
                     isRendering = false
@@ -1326,6 +1390,13 @@ public final class EditSession {
         decodedForAssetID = nil
         decodeTask = nil
         decodeTaskAssetID = nil
+        // Ticket 10 item H — clear the refine-decode coalescer so a fresh
+        // schedule against the same `(asset, target)` doesn't piggy-back
+        // on a now-stale in-flight decode (which captured the prior
+        // sidecar / xmp state). In-flight tasks aren't cancelled here —
+        // their detached work runs to completion and their result is
+        // dropped by the gen check upstream.
+        refineDecodeTasks.removeAll()
         // Plan 2 M3 — the next decode will re-parse the sidecar; clear
         // the cached snapshot so the WB delta can't compose against a
         // stale decode-time model.
@@ -1452,6 +1523,51 @@ public final class EditSession {
             decodeTaskAssetID = nil
         }
         return normalized
+    }
+
+    /// Ticket 10 item H — coalesce concurrent refine decodes by
+    /// `(asset, target)`. Returns the decoded `CIImage?` from the Rust
+    /// FFI, running the underlying call at most once per
+    /// `(asset, target)` even when multiple refine schedules race
+    /// past the stale-gen bail-out and arrive here in parallel.
+    ///
+    /// The closure parameter is the actual decode call — usually
+    /// `pipeline.decodeSceneLinearSized`, but tests inject a counter so
+    /// they can verify N concurrent invocations collapse to one.
+    ///
+    /// Register-before-await ordering matters: we synchronously install
+    /// the task in `refineDecodeTasks` BEFORE the first `await` so a
+    /// sibling caller arriving during the Rust call sees the in-flight
+    /// task and joins. The same race fix applied to `sharedDecode` —
+    /// see commit `3602889`.
+    @discardableResult
+    internal func coalescedRefineDecode(
+        asset: AssetRef,
+        target: CGSize,
+        decode: @escaping @Sendable () async -> CIImage?
+    ) async -> CIImage? {
+        let key = RefineDecodeKey(assetID: asset.id, target: target)
+        if let existing = refineDecodeTasks[key] {
+            editSessionLogger.debug(
+                "coalescedRefineDecode joined in-flight task for \(target.width, format: .fixed(precision: 0))x\(target.height, format: .fixed(precision: 0))"
+            )
+            return await existing.task.value
+        }
+        refineDecodeSlotCounter &+= 1
+        let slotID = refineDecodeSlotCounter
+        let task = Task<CIImage?, Never>.detached(priority: .userInitiated) {
+            await decode()
+        }
+        refineDecodeTasks[key] = RefineDecodeSlot(id: slotID, task: task)
+        let result = await task.value
+        // Cleanup. Only clear if the slot still holds our slot id — an
+        // `invalidateDecodedCache` call between register and completion
+        // could have nil-ed the dictionary, and a subsequent call could
+        // have inserted a new task at the same key. Don't clobber it.
+        if refineDecodeTasks[key]?.id == slotID {
+            refineDecodeTasks[key] = nil
+        }
+        return result
     }
 
     /// Plan 2 M3 — parse the asset's sidecar (if present on disk) into
