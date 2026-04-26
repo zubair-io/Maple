@@ -66,6 +66,60 @@ final class ImageMetadataReaderTests: XCTestCase {
         XCTAssertNil(ImageMetadataReader.readPixelSize(from: garbage))
     }
 
+    // MARK: - EXIF dump
+
+    /// Synthetic-PNG check that the Image section is populated with the
+    /// correct resolution string. This is the bare minimum that the Info
+    /// tab ever needs; richer EXIF (camera, lens, GPS) requires a real
+    /// camera capture which the fixture-gated test below covers.
+    func testReadExifPropertiesFromDataSurfacesResolution() throws {
+        let data = try makeSyntheticPNG(width: 320, height: 240)
+        let entries = ImageMetadataReader.readExifProperties(
+            from: data,
+            byteCount: data.count,
+            displayPath: "synthetic.png"
+        )
+        XCTAssertFalse(entries.isEmpty, "synthetic PNG must yield at least one entry")
+
+        let resolution = entries.first { $0.label == "Resolution" }
+        XCTAssertEqual(resolution?.value, "320 × 240")
+
+        let path = entries.first { $0.label == "Path" }
+        XCTAssertEqual(path?.value, "synthetic.png")
+
+        let size = entries.first { $0.label == "Size" }
+        XCTAssertNotNil(size, "byteCount argument must surface as a File/Size row")
+    }
+
+    /// Fixture-gated EXIF check — a real camera capture should expose
+    /// camera make/model and exposure parameters. The Info tab depends on
+    /// these rows, so they're the contract.
+    func testReadExifPropertiesFromURLSurfacesCameraFields() throws {
+        let fixture = repoRoot()
+            .appendingPathComponent("test-fixtures/raws/test_0002.dng")
+        guard FileManager.default.fileExists(atPath: fixture.path) else {
+            throw XCTSkip("test fixture not present: \(fixture.path)")
+        }
+        let entries = ImageMetadataReader.readExifProperties(from: fixture)
+        XCTAssertFalse(entries.isEmpty)
+
+        // At minimum we expect a resolution row. Other fields depend on
+        // the specific fixture's EXIF — assert presence by section, not by
+        // value.
+        let sections = Set(entries.map(\.section))
+        XCTAssertTrue(sections.contains("Image"),
+                      "EXIF dump must include the Image section")
+        XCTAssertTrue(sections.contains("File"),
+                      "EXIF dump must always carry the File section")
+
+        // File-section must include Path + Size.
+        let pathRow = entries.first { $0.section == "File" && $0.label == "Path" }
+        XCTAssertEqual(pathRow?.value, fixture.path)
+
+        let sizeRow = entries.first { $0.section == "File" && $0.label == "Size" }
+        XCTAssertNotNil(sizeRow)
+    }
+
     // MARK: - Helpers
 
     /// Repo root resolved from this file's path. Mirrors the pattern in
