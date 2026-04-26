@@ -24,7 +24,16 @@
 // snapshot on change so the next `fetchAssets(for:)` re-queries.
 
 import Foundation
+import CoreGraphics
+import ImageIO
 import Photos
+import UniformTypeIdentifiers
+
+#if canImport(AppKit)
+import AppKit
+#elseif canImport(UIKit)
+import UIKit
+#endif
 
 // MARK: - PhotoKitSource
 
@@ -179,7 +188,112 @@ public actor PhotoKitSource {
             }
         }
     }
+
+    /// Request a thumbnail for the given PHAsset via PhotoKit and return JPEG
+    /// bytes encoded at the spec-mandated quality (q = 0.82). The request is
+    /// keyed at the spec thumbnail size (256 px long edge) — Photos already
+    /// keeps a low-res preview cache, so this is roughly 5–50 ms per image
+    /// versus 300–500 ms for a full Rust develop.
+    ///
+    /// Multi-resume guard: `.opportunistic` delivery mode fires the result
+    /// handler twice (degraded preview, then final). We resume the
+    /// continuation exactly once on the final, non-degraded callback.
+    public func thumbData(for localID: String) async -> Data? {
+        guard let phAsset = phAsset(for: localID) else { return nil }
+        let target = ThumbnailDiskCache.defaultThumbSize
+
+        let platformImage: PlatformImage? = await withCheckedContinuation { continuation in
+            let options = PHImageRequestOptions()
+            options.version = .current
+            options.deliveryMode = .opportunistic
+            options.resizeMode = .fast
+            options.isNetworkAccessAllowed = true
+            options.isSynchronous = false
+
+            // Resume-latch — `.opportunistic` calls the handler at least
+            // twice (low-res, then hi-res). Resuming a continuation more
+            // than once is a fatal trap.
+            final class ResumeLatch: @unchecked Sendable {
+                private var resumed = false
+                private let lock = NSLock()
+                func tryResume() -> Bool {
+                    lock.lock(); defer { lock.unlock() }
+                    if resumed { return false }
+                    resumed = true
+                    return true
+                }
+            }
+            let latch = ResumeLatch()
+
+            PHImageManager.default().requestImage(
+                for: phAsset,
+                targetSize: target,
+                contentMode: .aspectFill,
+                options: options
+            ) { image, info in
+                // Errored or cancelled — final callback, latch and bail.
+                if (info?[PHImageErrorKey] as? Error) != nil
+                    || (info?[PHImageCancelledKey] as? Bool) == true {
+                    if latch.tryResume() { continuation.resume(returning: nil) }
+                    return
+                }
+                // Skip the degraded preview — wait for the hi-res result.
+                if (info?[PHImageResultIsDegradedKey] as? Bool) == true {
+                    return
+                }
+                // Final, non-degraded result.
+                guard latch.tryResume() else { return }
+                continuation.resume(returning: image)
+            }
+        }
+
+        guard let image = platformImage else { return nil }
+        return Self.jpegBytes(from: image)
+    }
+
+    // MARK: - JPEG encoding
+
+    /// Encode a platform image (NSImage on macOS, UIImage on iOS/iPadOS) to
+    /// JPEG bytes at the spec quality (`ThumbnailDiskCache.jpegQuality`). The
+    /// CGImage path goes through ImageIO so both platforms share the same
+    /// encoder behaviour.
+    private static func jpegBytes(from image: PlatformImage) -> Data? {
+        guard let cg = cgImage(from: image) else { return nil }
+        let data = NSMutableData()
+        let type = (UTType.jpeg.identifier as CFString)
+        guard let dest = CGImageDestinationCreateWithData(data, type, 1, nil) else {
+            return nil
+        }
+        let options: [CFString: Any] = [
+            kCGImageDestinationLossyCompressionQuality: ThumbnailDiskCache.jpegQuality
+        ]
+        CGImageDestinationAddImage(dest, cg, options as CFDictionary)
+        guard CGImageDestinationFinalize(dest) else { return nil }
+        return data as Data
+    }
+
+    private static func cgImage(from image: PlatformImage) -> CGImage? {
+        #if canImport(UIKit)
+        return image.cgImage
+        #elseif canImport(AppKit)
+        var rect = CGRect(origin: .zero, size: image.size)
+        return image.cgImage(forProposedRect: &rect, context: nil, hints: nil)
+        #else
+        return nil
+        #endif
+    }
 }
+
+// MARK: - PlatformImage
+
+/// Cross-platform alias so the thumb pipeline doesn't fork on `#if` per call.
+/// `PHImageManager.requestImage` returns `UIImage?` on UIKit platforms and
+/// `NSImage?` on AppKit.
+#if canImport(UIKit)
+private typealias PlatformImage = UIImage
+#elseif canImport(AppKit)
+private typealias PlatformImage = NSImage
+#endif
 
 // MARK: - ImageSource conformance
 
@@ -223,13 +337,15 @@ extension PhotoKitSource: ImageSource {
         return refs
     }
 
-    /// TODO(P0.1): wire `PHImageManager.requestImage(for:targetSize:...)` with
-    /// `deliveryMode = .opportunistic` to return a ~512 px JPEG here. Without
-    /// it, `ThumbnailLoader` falls through to rendering each tile from the
-    /// full RAW bytes — fast after the disk cache warms, painful on the first
-    /// browse of a new PhotoKit library. Implementing this turns cold browse
-    /// from "decode every tile" into "serve Photos' cached preview."
-    public func thumb(for ref: ImageRef) async throws -> Data? { nil }
+    /// PhotoKit fast path — request a 256-px thumbnail via
+    /// `PHImageManager.requestImage` and JPEG-encode at q=0.82. Without this,
+    /// `ThumbnailLoader` falls through to rendering each tile from the full
+    /// RAW bytes (full iCloud download + Rust develop per cell) — painful
+    /// on the first browse of a new PhotoKit library. Photos' own preview
+    /// store is already cached, so this is ~5–50 ms per image.
+    public func thumb(for ref: ImageRef) async throws -> Data? {
+        return await thumbData(for: ref.id)
+    }
     public func preview(for ref: ImageRef) async throws -> Data? { nil }
 
     public func rawBytes(for ref: ImageRef) async throws -> Data {
