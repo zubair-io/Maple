@@ -407,7 +407,8 @@ final class DeepZoomTileRenderingTests: XCTestCase {
         let composite = try await mgr.update(
             asset: asset,
             viewportSourceRect: CGRect(x: 0, y: 0, width: 256, height: 256),
-            zoom: 1.0
+            zoom: 1.0,
+            totalSourceHeight: 4000
         )
         XCTAssertTrue(composite.extent.isEmpty || composite.extent.isInfinite,
                       "first update for an uncached tile must return an empty/infinite (i.e. no-op) composite")

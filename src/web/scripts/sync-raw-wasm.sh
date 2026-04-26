@@ -7,7 +7,9 @@ PKG_SOURCE="$(cd "$WORKSPACE_ROOT/../raw-pipeline/raw-wasm/pkg" && pwd)"
 PKG_DEST="$WORKSPACE_ROOT/projects/maple-common/src/lib/raw-pipeline/pkg"
 
 if [ ! -d "$PKG_SOURCE" ]; then
-  echo "ERROR: $PKG_SOURCE does not exist. Run 'wasm-pack build --target web --release' in src/raw-pipeline/raw-wasm first." >&2
+  echo "ERROR: $PKG_SOURCE does not exist. Run src/raw-pipeline/scripts/build-raw-wasm.sh first." >&2
+  echo "       (wasm-bindgen-rayon needs --features parallel + -Z build-std flags;" >&2
+  echo "        the helper script wraps the canonical wasm-pack invocation.)" >&2
   exit 1
 fi
 

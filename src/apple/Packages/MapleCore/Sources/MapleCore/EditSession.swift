@@ -942,7 +942,8 @@ public final class EditSession {
             let composite = try await mgr.update(
                 asset: assetRef,
                 viewportSourceRect: visible,
-                zoom: zoom
+                zoom: zoom,
+                totalSourceHeight: nativeImageSize.height
             )
             guard gen == renderGeneration, !Task.isCancelled else { return }
             // The composite is the visible tile set in oriented

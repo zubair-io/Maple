@@ -1,5 +1,3 @@
-use std::time::Instant;
-
 use crate::{
     color::dcp,
     demosaic, linearize,
@@ -27,14 +25,26 @@ use crate::{
 /// Note: any value of `MAPLE_PROFILE` enables logging (`is_some()`
 /// gates on existence, not value). `MAPLE_PROFILE=0` and `MAPLE_PROFILE=`
 /// both turn it on. `unset MAPLE_PROFILE` is the only way to disable.
+///
+/// `wasm32-unknown-unknown` has no `std::time::Instant` (`time not
+/// implemented on this platform` panic), so the timing wrapper is a
+/// pass-through there. `MAPLE_PROFILE` would also be meaningless in a
+/// browser worker — there's no env-var to set.
+#[cfg(not(target_arch = "wasm32"))]
 #[inline]
 pub fn stage<T>(name: &'static str, f: impl FnOnce() -> T) -> T {
-    let t = Instant::now();
+    let t = std::time::Instant::now();
     let r = f();
     if std::env::var_os("MAPLE_PROFILE").is_some() {
         eprintln!("[raw-core] {:<30} {:>10.2?}", name, t.elapsed());
     }
     r
+}
+
+#[cfg(target_arch = "wasm32")]
+#[inline]
+pub fn stage<T>(_name: &'static str, f: impl FnOnce() -> T) -> T {
+    f()
 }
 
 /// Per spec § 02 filter chain, slice-1 through slice-5 subset:
