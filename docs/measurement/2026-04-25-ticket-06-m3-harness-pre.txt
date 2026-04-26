@@ -1,0 +1,12 @@
+test_color_pipeline: budgets — mean=15 p95=30 max=60 bias=0.05
+test_color_pipeline: 7 fixture(s) in /Users/riabuz/Projects/_Maple/.claude/worktrees/keen-gould-063563/test-fixtures/raws
+
+FAIL test_0000                                     mean=14.69 p95=39.40 max=97.12 bias=(+0.099,+0.095,+0.099)  failures: p95 39.40>30, max 97.12>60, bias_R +0.099>0.05, bias_G +0.095>0.05, bias_B +0.099>0.05
+SKIP test_0002                                     no embedded preview metadata
+FAIL test_0006                                     mean=11.52 p95=17.41 max=30.58 bias=(+0.085,+0.097,-0.000)  failures: bias_R +0.085>0.05, bias_G +0.097>0.05
+FAIL test_0007                                     mean= 9.47 p95=35.34 max=95.45 bias=(+0.017,+0.020,+0.017)  failures: p95 35.34>30, max 95.45>60
+SKIP test_0013                                     orientation=Rotate 90 CW (sensor-vs-display mismatch)
+FAIL test_0015                                     mean=12.13 p95=21.64 max=51.60 bias=(+0.059,-0.019,-0.073)  failures: bias_R +0.059>0.05, bias_B -0.073>0.05
+FAIL test_0017                                     mean= 8.67 p95=20.67 max=88.00 bias=(+0.037,+0.016,+0.025)  failures: max 88.00>60
+
+test_color_pipeline: 0 pass, 5 fail, 2 skip
