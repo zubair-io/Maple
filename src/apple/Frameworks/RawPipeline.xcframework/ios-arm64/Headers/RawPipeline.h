@@ -3,6 +3,18 @@
 #include <stdint.h>
 #include <stdlib.h>
 
+/**
+ * Opaque handle wrapping a stitched panorama image and a precomputed
+ * f16 RGB pixel cache.
+ *
+ * # Safety
+ * All FFI functions that accept `*const PanoHandle` require that the
+ * pointer is non-null and that the pointed-to handle was constructed by
+ * `pano_stitch` (or `handle_from_image` in tests).  A null pointer
+ * always returns a null/zero result rather than dereferencing.
+ */
+typedef struct PanoHandle PanoHandle;
+
 typedef struct MapleImageBuffer {
   /**
    * Pointer to heap-allocated RGB u8 buffer. Free via `maple_free_buffer`.
@@ -60,6 +72,21 @@ typedef struct MapleRawHandle {
    */
   void *inner;
 } MapleRawHandle;
+
+/**
+ * Configuration passed to `pano_stitch`.
+ *
+ * Fields mirror the C ABI struct so cbindgen/the build-script heredoc
+ * emits the right layout:
+ *   - `projection`:    0 = Rectilinear, 1 = Cylindrical, 2 = Spherical
+ *   - `parallax_mode`: 0 = Homography, 1 = TpsMesh (TPS unimplemented; ignored)
+ *   - `max_dimension`: long-edge clamp in pixels, 0 = unconstrained
+ */
+typedef struct PanoOptions {
+  uint32_t projection;
+  uint32_t parallax_mode;
+  uint32_t max_dimension;
+} PanoOptions;
 
 /**
  * Render a RAW+XMP to an sRGB 8-bit RGB buffer. Returns 0 on success, non-zero
@@ -177,8 +204,8 @@ int32_t maple_render_bytes_scene_linear_sized(const uint8_t *raw_bytes,
  * plus:
  *   - 9:  `src_w/src_h/out_w/out_h == 0` — bad tile geometry.
  *   - 10: `model.dehaze != 0` — tile path is not supported (radius 67
- *          exceeds the 35 px overlap pad). Caller should fall back to
- *          fit-zoom rendering.
+ *     exceeds the 35 px overlap pad). Caller should fall back to
+ *     fit-zoom rendering.
  *   - 11: `out_w > src_w || out_h > src_h` — tile path is downscale-only.
  *
  * Plan 3 — see docs/superpowers/plans/2026-04-25-deep-zoom-tile-rendering.md
@@ -288,3 +315,107 @@ void maple_close_raw_handle(struct MapleRawHandle *handle);
  * The returned pointer remains valid until the next FFI call on this thread.
  */
 const char *maple_last_error(void);
+
+/**
+ * Stitch `n_inputs` RAW/PNG/JPEG byte slices into a panorama.
+ *
+ * # Arguments
+ * * `inputs`      — array of `n_inputs` pointers, each to a byte slice.
+ * * `input_lens`  — array of `n_inputs` byte-slice lengths.
+ * * `n_inputs`    — number of inputs (must be ≥ 2).
+ * * `dcps` — parallel array of DCP byte-slice pointers (may be null
+ *   entries); accepted in the ABI but currently ignored —
+ *   rawler reads embedded DCPs from the DNG container.
+ * * `dcp_lens` — lengths of the DCP slices (ignored alongside `dcps`).
+ * * `options`     — stitch options struct; may be null (defaults applied).
+ * * `out_handle`  — on success, receives a heap-allocated `*mut PanoHandle`.
+ *
+ * # Return value
+ *   0  success; `*out_handle` is non-null and caller-owned.
+ *  -1  invalid arguments (null inputs/out_handle, n_inputs < 2, null
+ *      element pointer).
+ *  -2  decode failure for one of the inputs.
+ *  -3  stitch pipeline failure (ORB / match / BA / warp / blend error).
+ *
+ * # Safety
+ * All input pointers must be valid for `n_inputs` reads.  `out_handle` must
+ * be non-null.  On success the caller owns the handle and must eventually
+ * call `pano_free`.
+ */
+int32_t pano_stitch(const uint8_t *const *inputs,
+                    const uintptr_t *input_lens,
+                    uintptr_t n_inputs,
+                    const uint8_t *const *_dcps,
+                    const uintptr_t *_dcp_lens,
+                    const struct PanoOptions *_options,
+                    struct PanoHandle **out_handle);
+
+/**
+ * Return the panorama width in pixels.
+ *
+ * Returns 0 if `handle` is null.
+ *
+ * # Safety
+ * `handle` must be a non-null pointer to a live `PanoHandle`.
+ */
+uint32_t pano_get_width(const struct PanoHandle *handle);
+
+/**
+ * Return the panorama height in pixels.
+ *
+ * Returns 0 if `handle` is null.
+ *
+ * # Safety
+ * `handle` must be a non-null pointer to a live `PanoHandle`.
+ */
+uint32_t pano_get_height(const struct PanoHandle *handle);
+
+/**
+ * Return the number of f16 elements in the pixel buffer
+ * (`width * height * 3`; **elements**, not bytes).
+ *
+ * Returns 0 if `handle` is null.
+ *
+ * # Safety
+ * `handle` must be a non-null pointer to a live `PanoHandle`.
+ */
+uintptr_t pano_get_pixels_len(const struct PanoHandle *handle);
+
+/**
+ * Return a pointer to the f16 (half-precision, stored as `u16`) RGB
+ * pixel buffer owned by `handle`.
+ *
+ * The buffer is interleaved RGB f16, row-major, with
+ * `pano_get_pixels_len(handle)` elements.  The pointer is valid for
+ * the lifetime of the handle.
+ *
+ * Returns null if `handle` is null or the buffer is empty.
+ *
+ * # Safety
+ * `handle` must be a non-null pointer to a live `PanoHandle`.
+ */
+const uint16_t *pano_get_pixels_f16(const struct PanoHandle *handle);
+
+/**
+ * Return a pointer to the f32 RGB pixel data owned by `handle`.
+ *
+ * The pixel buffer is interleaved RGB f32, row-major, with
+ * `handle.image.width * handle.image.height * 3` elements.
+ * The pointer is valid for the lifetime of the handle.
+ * Returns null if `handle` is null.
+ *
+ * # Safety
+ * `handle` must be a non-null pointer to a live `PanoHandle`.
+ */
+const float *pano_get_pixels_f32(const struct PanoHandle *handle);
+
+/**
+ * Free a `PanoHandle` allocated by `pano_stitch`.
+ *
+ * No-op when `handle` is null.
+ *
+ * # Safety
+ * `handle` must be null or a pointer returned by `pano_stitch` that has
+ * not already been freed.
+ */
+void pano_free(struct PanoHandle *handle);

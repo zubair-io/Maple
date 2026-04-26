@@ -56,6 +56,13 @@ if [[ "${1:-}" == "--release" ]]; then
     CARGO_PROFILE_FLAG="--release"
 fi
 
+# Pass --features pano to enable the panorama FFI surface (T5.1).
+# Set MAPLE_PANO=0 in the environment to omit it (e.g. for minimal CI builds).
+PANO_FEATURE_FLAG="--features pano"
+if [[ "${MAPLE_PANO:-1}" == "0" ]]; then
+    PANO_FEATURE_FLAG=""
+fi
+
 echo "==> build-xcframework.sh"
 echo "    raw-ffi:    $RAW_FFI_DIR"
 echo "    frameworks: $FRAMEWORKS_DIR"
@@ -126,6 +133,7 @@ build_target() {
         CARGO_TARGET_DIR="$CARGO_TARGET_DIR" cargo build $CARGO_PROFILE_FLAG \
             --target "$triple" \
             --package raw-ffi \
+            $PANO_FEATURE_FLAG \
             2>&1
     )
 }
@@ -143,6 +151,9 @@ mkdir -p "$INCLUDE_DIR" "$HEADERS_DIR"
 echo "==> cbindgen — generating RawPipeline.h"
 (
     cd "$RAW_FFI_DIR"
+    # Feature gating happens via raw-ffi/cbindgen.toml ([parse.expand].features).
+    # cbindgen does not accept --features as a CLI flag (cargo's flag, not
+    # cbindgen's); the toml is the supported path.
     cbindgen \
         --lang C \
         --output "$INCLUDE_DIR/RawPipeline.h" \
