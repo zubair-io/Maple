@@ -743,16 +743,19 @@ public final class EditSession {
            let url = asset.primaryURL {
             seedNativeImageSizeFromMetadata(url)
         }
-        // Only metadata is allowed to seed `nativeImageSize`. The previous
-        // `nativeImageSize = decodedSize` fallback for missing metadata
-        // permanently anchored the canvas to the SIZED-FFI buffer's preview
-        // dims (e.g. 1500 px) — every "100%" rendered at preview resolution
-        // forever. The slack-grow path below still fires if metadata
-        // underreported AND a later full-quality decode lands.
-        if nativeImageSize != .zero,
-           decodedSize.pixelArea > nativeImageSize.pixelArea * 1.10 {
-            nativeImageSize = decodedSize
-        }
+        // ONLY metadata is allowed to seed `nativeImageSize`. Earlier
+        // versions of this method had a "slack-grow" path that wrote
+        // `decodedSize` whenever it was 10% larger than the current
+        // native — but the SIZED-FFI buffer's dimensions are
+        // VIEWPORT-DERIVED (target ≈ viewport-edge × displayScale, NOT
+        // sensor dims). User reported on iPad: 100 MP image → first
+        // sized FFI returned 2084×1389 → slack-grow promoted it to
+        // "native" → "100%" rendered at 2084 px instead of ~12000.
+        // Trusting metadata exclusively means the canvas waits for a
+        // real sensor-dim seed before showing pixels at all (better
+        // than the wrong scale). When metadata is unavailable for an
+        // asset (PhotoKit / Self-Hosted), the canvas waits forever —
+        // tracked in audit fix A (sourceless-metadata path).
 
         guard nativeImageSize.width > 0,
               nativeImageSize.height > 0,
