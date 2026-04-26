@@ -585,13 +585,10 @@ fn stitch(inputs: &[PathBuf], output: &Path, _max_dim: u32) -> Result<(), String
             inputs.len()
         ));
     }
-    if inputs.len() > 8 {
-        return Err(format!("at most 8 inputs supported, got {}", inputs.len()));
-    }
 
     // --- 1. Load images ----------------------------------------------------
     eprintln!("pano-smoke: loading {} images", inputs.len());
-    let pano_images: Vec<PanoImage> = inputs
+    let mut pano_images: Vec<PanoImage> = inputs
         .iter()
         .map(|p| {
             eprintln!("pano-smoke:   {}", p.display());
@@ -599,27 +596,72 @@ fn stitch(inputs: &[PathBuf], output: &Path, _max_dim: u32) -> Result<(), String
         })
         .collect::<Result<Vec<_>, _>>()?;
 
-    // For the 2-image MVP use images 0 and 1.
-    let img_a = &pano_images[0];
-    let img_b = &pano_images[1];
-
-    if img_a.width != img_b.width || img_a.height != img_b.height {
-        return Err(format!(
-            "input images must be the same size for the MVP: {}×{} vs {}×{}",
-            img_a.width, img_a.height, img_b.width, img_b.height
-        ));
+    // --- N-image stitching: iterative pairwise chain ----------------------
+    //
+    // MVP approach: stitch images[0]+images[1] → canvas, then chain
+    // canvas+images[2] → canvas, etc. Errors accumulate across iterations
+    // (each step's BA uncertainty feeds the next), so quality degrades for
+    // long chains.  For production-grade N-image panoramas a joint BA
+    // across all images + single warp+blend pass is needed; tracked as a
+    // P2 follow-up in docs/tasks/04-maple-panorama-spec.md.
+    //
+    // The 2-image case takes the fast path (no chain overhead).
+    if pano_images.len() == 2 {
+        let result = stitch_pair(pano_images.remove(0), pano_images.remove(0), 0)?;
+        write_stitch(&result, output)?;
+        eprintln!("pano-smoke: done.");
+        return Ok(());
     }
 
-    let image_size = (img_a.width, img_b.height);
+    eprintln!(
+        "pano-smoke: chaining {} images pairwise (errors accumulate; quality MVP)",
+        pano_images.len()
+    );
+
+    let mut iter = pano_images.into_iter();
+    let mut canvas = iter.next().expect("at least 2 inputs validated above");
+    for (idx, next) in iter.enumerate() {
+        eprintln!(
+            "pano-smoke: --- chain step {}/{} (canvas + image {}) ---",
+            idx + 1,
+            inputs.len() - 1,
+            idx + 2
+        );
+        canvas = stitch_pair(canvas, next, idx + 1)?;
+    }
+
+    write_stitch(&canvas, output)?;
+    eprintln!("pano-smoke: done.");
+    Ok(())
+}
+
+fn write_stitch(result: &PanoImage, output: &Path) -> Result<(), String> {
+    eprintln!("pano-smoke:   output {}×{}", result.width, result.height);
+    eprintln!("pano-smoke: writing {}", output.display());
+    if let Some(parent) = output.parent() {
+        if !parent.as_os_str().is_empty() {
+            fs::create_dir_all(parent)
+                .map_err(|e| format!("cannot create output dir {}: {e}", parent.display()))?;
+        }
+    }
+    write_pano_image_as_png16(result, output)
+}
+
+fn stitch_pair(img_a: PanoImage, img_b: PanoImage, step: usize) -> Result<PanoImage, String> {
+    let _ = step;
+    // BA needs a single (width, height) hint for its focal-length prior;
+    // use the smaller of the two inputs so the prior stays in a sane
+    // range when chain stitching mixes a wide canvas with a narrow image.
+    let image_size = (img_a.width.min(img_b.width), img_a.height.min(img_b.height));
 
     // --- 2. Detect features ------------------------------------------------
     eprintln!("pano-smoke: detecting features");
     let detector = OrbDetector::default();
     let feats_a = detector
-        .detect(img_a)
+        .detect(&img_a)
         .map_err(|e| format!("detect on image A failed: {e}"))?;
     let feats_b = detector
-        .detect(img_b)
+        .detect(&img_b)
         .map_err(|e| format!("detect on image B failed: {e}"))?;
 
     eprintln!(
@@ -716,11 +758,10 @@ fn stitch(inputs: &[PathBuf], output: &Path, _max_dim: u32) -> Result<(), String
     // --- 6. Warp -----------------------------------------------------------
     eprintln!("pano-smoke: warping images");
     let warper = CpuWarper::new();
-    let pano_refs: Vec<&PanoImage> = pano_images.iter().collect();
-    let (canvas_w, canvas_h) = compute_canvas_size(&pano_refs);
+    let (canvas_w, canvas_h) = compute_canvas_size(&[&img_a, &img_b]);
 
-    let warped_a = warp_to_canvas(&warper, img_a, &cameras[0], canvas_w, canvas_h)?;
-    let warped_b = warp_to_canvas(&warper, img_b, &cameras[1], canvas_w, canvas_h)?;
+    let warped_a = warp_to_canvas(&warper, &img_a, &cameras[0], canvas_w, canvas_h)?;
+    let warped_b = warp_to_canvas(&warper, &img_b, &cameras[1], canvas_w, canvas_h)?;
 
     // Count valid pixels for diagnostic output.
     let valid_a = warped_a.validity.count_ones();
@@ -737,24 +778,9 @@ fn stitch(inputs: &[PathBuf], output: &Path, _max_dim: u32) -> Result<(), String
     // --- 8. Blend ----------------------------------------------------------
     eprintln!("pano-smoke: blending");
     let blender = pano_core::MultiBandBlender::default();
-    let result = blender
+    blender
         .blend(&[&warped_a, &warped_b], &seams)
-        .map_err(|e| format!("blending failed: {e}"))?;
-
-    eprintln!("pano-smoke:   output {}×{}", result.width, result.height);
-
-    // --- 9. Write PNG16 ----------------------------------------------------
-    eprintln!("pano-smoke: writing {}", output.display());
-    if let Some(parent) = output.parent() {
-        if !parent.as_os_str().is_empty() {
-            fs::create_dir_all(parent)
-                .map_err(|e| format!("cannot create output dir {}: {e}", parent.display()))?;
-        }
-    }
-    write_pano_image_as_png16(&result, output)?;
-
-    eprintln!("pano-smoke: done.");
-    Ok(())
+        .map_err(|e| format!("blending failed: {e}"))
 }
 
 // ---------------------------------------------------------------------------
