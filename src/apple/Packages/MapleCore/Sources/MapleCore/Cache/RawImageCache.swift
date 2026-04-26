@@ -39,12 +39,23 @@ public actor RawImageCache {
 
     private var current: Entry?
 
+    /// In-flight decode tasks, keyed by URL. The deep-zoom tile path
+    /// fires N concurrent `handle(for:)` calls (one per visible tile),
+    /// and without this map every concurrent call would START its own
+    /// `ffi_rawler_decode` because `current` is nil while the first
+    /// decode awaits. User reported on iPad: 20 visible tiles → 20
+    /// parallel decodes of a 100 MP RAW → 7-22 s per decode under
+    /// memory contention. With this map, the second-through-Nth caller
+    /// just await the same `Task` the first caller started.
+    private var pendingDecodes: [URL: Task<MapleRawHandle, Error>] = [:]
+
     public init() {}
 
     /// Returns the cached handle for `url` if its mtime hasn't changed
     /// since the cached entry was decoded, otherwise evicts and decodes
     /// fresh. The decode runs on a detached task at user-initiated
-    /// priority so the actor isn't blocked.
+    /// priority so the actor isn't blocked. Concurrent callers for the
+    /// same URL share a single in-flight decode (see `pendingDecodes`).
     ///
     /// Throws whatever `PipelineRenderer.openRawHandle(rawPath:)`
     /// throws — typically `PipelineError.renderFailed` for missing
@@ -56,15 +67,27 @@ public actor RawImageCache {
            entry.mtime == mtime {
             return entry.handle
         }
+        // Concurrent caller for the same URL — share the in-flight Task.
+        if let pending = pendingDecodes[url] {
+            return try await pending.value
+        }
         // Different asset OR same asset with newer sidecar — evict and
         // decode. Eviction happens BEFORE the decode so that if the
         // decode throws we don't leave a stale cached handle behind.
         current = nil
-        let handle = try await Task.detached(priority: .userInitiated) {
+        let task = Task.detached(priority: .userInitiated) {
             try PipelineRenderer.openRawHandle(rawPath: url, xmpPath: nil)
-        }.value
-        current = Entry(url: url, mtime: mtime, handle: handle)
-        return handle
+        }
+        pendingDecodes[url] = task
+        do {
+            let handle = try await task.value
+            current = Entry(url: url, mtime: mtime, handle: handle)
+            pendingDecodes.removeValue(forKey: url)
+            return handle
+        } catch {
+            pendingDecodes.removeValue(forKey: url)
+            throw error
+        }
     }
 
     /// Force eviction. Useful when the editor switches assets and the
@@ -73,6 +96,10 @@ public actor RawImageCache {
     /// call. Idempotent; safe to call when the cache is already empty.
     public func evict() {
         current = nil
+        // Don't cancel pending decodes — a caller may still be awaiting
+        // them. They'll resolve and just not get cached afterward (the
+        // entry won't be re-set since `current` is nil and the URL no
+        // longer matches anything).
     }
 
     /// Currently cached URL, if any. Used by tests and instrumentation
