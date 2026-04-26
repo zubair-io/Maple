@@ -141,13 +141,22 @@ public actor TileManager {
     /// 4× = 4 source pixels per screen pixel) and gets quantized to a
     /// zoom bucket via `zoomBucket(for:)`.
     ///
+    /// `totalSourceHeight` is the oriented full-image height in source
+    /// pixels (i.e. `EditSession.nativeImageSize.height`). It anchors
+    /// the Y-flip that reconciles tile-grid Y-down (rows top-to-bottom)
+    /// with CoreImage's Y-up rasterization. Without it, the visible
+    /// tile grid renders flipped vertically — every tile is correct in
+    /// isolation, but tile (0, 0) lands at the bottom and tile (0, N)
+    /// at the top.
+    ///
     /// Throws are reserved for future use (e.g. surfacing pipeline
     /// errors); the current implementation never throws and just
     /// returns whatever's in cache.
     public func update(
         asset: AssetRef,
         viewportSourceRect: CGRect,
-        zoom: CGFloat
+        zoom: CGFloat,
+        totalSourceHeight: CGFloat
     ) async throws -> CIImage {
         guard let url = asset.primaryURL else {
             // Sourceless assets (PhotoKit / SelfHosted) don't have a
@@ -174,9 +183,18 @@ public actor TileManager {
                 // and composite over what we already have. Each tile
                 // is rendered at 512 source-pixel scale (the FFI's
                 // `outW/outH` is locked at 512 in the basic path).
+                //
+                // Y-flip: tile-grid rows are top-down (tileY=0 is the
+                // top tile in oriented source space) but CoreImage Y is
+                // up. Place each tile at `totalSourceHeight - (tileY+1)
+                // * tileSize` so source-row 0 lands at the top of the
+                // rasterized output. Without this flip, the composite
+                // renders upside-down — every tile correct internally,
+                // but the GRID flips top-to-bottom (P0 visual bug).
+                let ts = CGFloat(Self.tileSizeSourcePx)
                 let placed = entry.image.transformed(by: CGAffineTransform(
-                    translationX: CGFloat(key.tileX) * CGFloat(Self.tileSizeSourcePx),
-                    y: CGFloat(key.tileY) * CGFloat(Self.tileSizeSourcePx)
+                    translationX: CGFloat(key.tileX) * ts,
+                    y: totalSourceHeight - CGFloat(Int(key.tileY) + 1) * ts
                 ))
                 composite = placed.composited(over: composite)
                 continue
