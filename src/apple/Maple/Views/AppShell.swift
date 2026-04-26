@@ -523,6 +523,15 @@ struct AppShell: View {
             browseVM.setPhotosAuthNeeded()
             return
         }
+        // Clear the prior source's assets immediately so the user sees the
+        // grid flip to "Loading…" the moment they click a Photos filter,
+        // instead of staring at the previous folder's tiles while the
+        // PhotoKit fetch + enumeration runs in the background. Without this,
+        // a user clicking "All Photos" from a populated filesystem folder
+        // perceives the click as having done nothing for several seconds —
+        // particularly painful on libraries large enough to make
+        // `images()` enumeration take noticeable wall time.
+        browseVM.beginLoadingPhotosFilter()
         Task { @MainActor in
             let source = PhotoKitSource()
             do {
