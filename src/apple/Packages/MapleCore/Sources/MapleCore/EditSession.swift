@@ -322,6 +322,58 @@ public final class EditSession {
     @ObservationIgnored private var decodeTask: Task<CIImage?, Never>?
     @ObservationIgnored private var decodeTaskAssetID: AssetRef.ID?
 
+    /// Ticket 10 item H — refine-decode coalescer. Maps `(asset, target)`
+    /// to an in-flight `decodeSceneLinearSized` task so that two refine
+    /// schedules at the same target collapse to one Rust call.
+    ///
+    /// Why this exists: `_scheduleRefine`'s 250 ms debounce + the
+    /// stale-gen bail-out in `decodeAndRender` (commit `d4eed05`) both
+    /// fire BEFORE the decode starts. Once a refine is inside the
+    /// synchronous Rust call (~10 s on a 100 MP RAW), nothing
+    /// short-circuits a sibling refine that arrives a moment later — it
+    /// passes the gen check, enters the Rust call in parallel, and only
+    /// the second result publishes (the first is wasted CPU). The
+    /// coalescer fixes the race: the second arrival sees the in-flight
+    /// task and awaits its value instead of starting its own.
+    ///
+    /// The stale-gen bail-out is preserved as a fast-fail check — when
+    /// it catches the race the coalescer never gets called, which keeps
+    /// the dictionary cleaner. When the bail-out misses (both tasks
+    /// past it), the coalescer is the safety net.
+    ///
+    /// Keyed by `(asset.id, integer-rounded width × height)` because the
+    /// target sizes that arrive at the refine boundary are point-derived
+    /// floats whose fractional bits aren't load-bearing — two refines
+    /// with target widths 1500.0 and 1500.0001 should still collapse.
+    @ObservationIgnored private var refineDecodeTasks: [RefineDecodeKey: RefineDecodeSlot] = [:]
+    @ObservationIgnored private var refineDecodeSlotCounter: UInt64 = 0
+
+    /// Slot value paired with a `Task<CIImage?, Never>` so cleanup at
+    /// task completion can match its own insertion (vs. a sibling that
+    /// raced in via `invalidateDecodedCache` + a new schedule). `Task`
+    /// itself is a value type — no `===` to compare instances — so we
+    /// disambiguate via a monotonically-increasing slot id.
+    fileprivate struct RefineDecodeSlot {
+        let id: UInt64
+        let task: Task<CIImage?, Never>
+    }
+
+    /// Composite key for the refine-decode coalescer dictionary. Hashes
+    /// asset identity together with integer-quantised target dimensions
+    /// so floating-point jitter from layout passes doesn't bypass the
+    /// dedupe.
+    fileprivate struct RefineDecodeKey: Hashable {
+        let assetID: AssetRef.ID
+        let widthPx: Int
+        let heightPx: Int
+
+        init(assetID: AssetRef.ID, target: CGSize) {
+            self.assetID = assetID
+            self.widthPx = Int(target.width.rounded())
+            self.heightPx = Int(target.height.rounded())
+        }
+    }
+
     // MARK: Deep zoom (Plan 3 / Ticket 06 M4)
 
     /// Tile manager for deep-zoom (`pixelScale >= 1.0`) refine renders.
@@ -364,11 +416,28 @@ public final class EditSession {
         }
     }
 
+    /// Snapshot of the canvas state — viewport, native size, zoom — that
+    /// drives every fit/zoom/target/visible-rect derivation. Centralising
+    /// the math in `CanvasMath` (Ticket 10 item I) eliminates the dual
+    /// `EditSession.pixelScale` (resolved value) vs.
+    /// `FullImageView.@State pixelScale` (`0` = fit) source-of-truth
+    /// problem — both consumers now build the same value type from the
+    /// same inputs. `displayScale` defaults to 1 here because the session
+    /// works in real pixels; the View passes its own displayScale when it
+    /// needs the points-relative `displayFrameInPoints` accessor.
+    public var canvasMath: CanvasMath {
+        CanvasMath(
+            viewportPx: previewSize,
+            nativeImageSize: nativeImageSize,
+            pixelScale: pixelScale
+        )
+    }
+
     /// Fast-phase target — render at viewport resolution so every filter
     /// intermediate stays small. `nil` falls through to `ImageEditPipeline`'s
     /// built-in 2MP cap.
     private var fastTargetSize: CGSize? {
-        previewSize == .zero ? nil : previewSize
+        canvasMath.fastTargetSize
     }
 
     /// Refined-phase target — `nativeImageSize × min(pixelScale, 1.0)`,
@@ -382,18 +451,7 @@ public final class EditSession {
     /// populated yet (first decode is in flight). Once the decode lands,
     /// subsequent refines use the native-anchored path.
     private var refinedTargetSize: CGSize? {
-        guard let fast = fastTargetSize else { return nil }
-        if nativeImageSize == .zero {
-            // Pre-decode fallback. Constrain to 8× fast to avoid a huge
-            // target being set while the scheduler waits for the first
-            // decode; once native is known the normal branch takes over.
-            let mult = min(max(1.0, pixelScale), 8.0)
-            return CGSize(width: fast.width * mult, height: fast.height * mult)
-        }
-        let scale = min(max(pixelScale, 0), 1.0)
-        let w = max(nativeImageSize.width * scale, fast.width)
-        let h = max(nativeImageSize.height * scale, fast.height)
-        return CGSize(width: w, height: h)
+        canvasMath.refinedTargetSize
     }
 
     // MARK: Init
@@ -472,17 +530,24 @@ public final class EditSession {
     /// current pan offset (in points; positive = image dragged right /
     /// down). `displayScale` is points → real pixels.
     ///
-    /// Math: at `zoom` real-px-per-image-px, a `viewport.width` (points)
-    /// frame shows `viewport.width * displayScale / zoom` source pixels
-    /// horizontally. The viewport center maps to the image center
-    /// adjusted by the current pan; clamp to the image extent so a
-    /// viewport that overhangs the image doesn't ask for off-grid
-    /// tiles. Returns `.zero` for zoom==0 / unset image extent.
+    /// Thin forwarder around `CanvasMath.visibleSourceRect`; kept on
+    /// `EditSession` so existing call sites (`FullImageView`,
+    /// `EditSessionDeepZoomTests`) don't have to thread the value type
+    /// in just to read this one rect. The actual math lives in
+    /// `CanvasMath` (Ticket 10 item I).
     ///
-    /// Pure function — easier to unit-test than the FullImageView
-    /// member that wires SwiftUI state in. `nonisolated` so callers
-    /// (FullImageView at construction time, MapleCoreTests off-main)
-    /// can invoke it without an actor hop. See `EditSessionDeepZoomTests`.
+    /// Important contract difference vs. `CanvasMath.visibleSourceRect`:
+    /// here `zoom == 0` is treated as "disabled" and returns `.zero`
+    /// (the deep-zoom branch in `_scheduleRefine` reads `.isEmpty` to
+    /// decide whether to route through the tile manager). `CanvasMath`
+    /// treats `pixelScale == 0` as "fit" and resolves it. Callers that
+    /// pass a literal zero through this helper (e.g. fit-mode toolbar
+    /// reset) want the disabled semantics; the View already
+    /// pre-resolves `pixelScale` to a non-zero value via
+    /// `effectivePixelScale` before calling here.
+    ///
+    /// `nonisolated` so callers (`FullImageView` at construction time,
+    /// `MapleCoreTests` off-main) can invoke it without an actor hop.
     nonisolated public static func computeVisibleSourceRect(
         viewport: CGSize,
         zoom: CGFloat,
@@ -490,36 +555,22 @@ public final class EditSession {
         panOffset: CGSize,
         displayScale: CGFloat
     ) -> CGRect {
-        guard let imageSize, zoom > 0,
-              imageSize.width > 0, imageSize.height > 0,
-              viewport.width > 0, viewport.height > 0,
-              displayScale > 0
-        else { return .zero }
+        // Preserve the disabled-on-zero contract — `CanvasMath`'s
+        // `visibleSourceRect` would resolve 0 → fit and return a real
+        // rect. Tests + deep-zoom branch depend on `.zero` here.
+        guard zoom > 0 else { return .zero }
         let viewportPx = CGSize(
             width: viewport.width * displayScale,
             height: viewport.height * displayScale
         )
-        let visibleSrcW = viewportPx.width / zoom
-        let visibleSrcH = viewportPx.height / zoom
-        // Pan: panOffset is in points (positive = image dragged right).
-        // Convert to source pixels and shift the visible rect's origin
-        // opposite the pan (a right drag exposes the image's left side).
-        let panSrcX = panOffset.width * displayScale / zoom
-        let panSrcY = panOffset.height * displayScale / zoom
-        let centerX = imageSize.width / 2 - panSrcX
-        let centerY = imageSize.height / 2 - panSrcY
-        let unclampedMinX = centerX - visibleSrcW / 2
-        let unclampedMinY = centerY - visibleSrcH / 2
-        // Clamp: origin >= 0 and origin + size <= imageSize (allowing
-        // the visible rect to be smaller than the image when zoomed in,
-        // and clamped to the image when the visible region is larger).
-        let maxOriginX = max(0, imageSize.width - visibleSrcW)
-        let maxOriginY = max(0, imageSize.height - visibleSrcH)
-        let minX = max(0, min(unclampedMinX, maxOriginX))
-        let minY = max(0, min(unclampedMinY, maxOriginY))
-        let w = min(visibleSrcW, imageSize.width)
-        let h = min(visibleSrcH, imageSize.height)
-        return CGRect(x: minX, y: minY, width: w, height: h)
+        let canvas = CanvasMath(
+            viewportPx: viewportPx,
+            nativeImageSize: imageSize ?? .zero,
+            pixelScale: zoom,
+            panOffset: panOffset,
+            displayScale: displayScale
+        )
+        return canvas.visibleSourceRect
     }
 
     /// Load model + culling from disk; call once after init.
@@ -1223,10 +1274,22 @@ public final class EditSession {
                 }()
                 let assetCapture = asset
                 let pipelineCapture = pipeline
-                let decoded = await mapleStageAsync("rust FFI scene-linear decode (refine)") {
-                    await pipelineCapture.decodeSceneLinearSized(
-                        asset: assetCapture, targetSize: target, xmpPath: sidecar
-                    )
+                // Ticket 10 item H — coalesce concurrent refine decodes
+                // by `(asset, target)`. The stale-gen bail-out above is
+                // a fast-fail check; this is the safety net for the race
+                // where two `decodeAndRender(.refine)` tasks both pass
+                // the gen check, both enter the synchronous Rust call,
+                // and one's work ends up wasted. Joining the in-flight
+                // task here means the second arrival re-uses the first
+                // call's result rather than double-decoding.
+                let decoded = await coalescedRefineDecode(
+                    asset: assetCapture, target: target
+                ) {
+                    await mapleStageAsync("rust FFI scene-linear decode (refine)") {
+                        await pipelineCapture.decodeSceneLinearSized(
+                            asset: assetCapture, targetSize: target, xmpPath: sidecar
+                        )
+                    }
                 }
                 guard !Task.isCancelled else {
                     isRendering = false
@@ -1351,6 +1414,13 @@ public final class EditSession {
         decodedForAssetID = nil
         decodeTask = nil
         decodeTaskAssetID = nil
+        // Ticket 10 item H — clear the refine-decode coalescer so a fresh
+        // schedule against the same `(asset, target)` doesn't piggy-back
+        // on a now-stale in-flight decode (which captured the prior
+        // sidecar / xmp state). In-flight tasks aren't cancelled here —
+        // their detached work runs to completion and their result is
+        // dropped by the gen check upstream.
+        refineDecodeTasks.removeAll()
         // Plan 2 M3 — the next decode will re-parse the sidecar; clear
         // the cached snapshot so the WB delta can't compose against a
         // stale decode-time model.
@@ -1477,6 +1547,51 @@ public final class EditSession {
             decodeTaskAssetID = nil
         }
         return normalized
+    }
+
+    /// Ticket 10 item H — coalesce concurrent refine decodes by
+    /// `(asset, target)`. Returns the decoded `CIImage?` from the Rust
+    /// FFI, running the underlying call at most once per
+    /// `(asset, target)` even when multiple refine schedules race
+    /// past the stale-gen bail-out and arrive here in parallel.
+    ///
+    /// The closure parameter is the actual decode call — usually
+    /// `pipeline.decodeSceneLinearSized`, but tests inject a counter so
+    /// they can verify N concurrent invocations collapse to one.
+    ///
+    /// Register-before-await ordering matters: we synchronously install
+    /// the task in `refineDecodeTasks` BEFORE the first `await` so a
+    /// sibling caller arriving during the Rust call sees the in-flight
+    /// task and joins. The same race fix applied to `sharedDecode` —
+    /// see commit `3602889`.
+    @discardableResult
+    internal func coalescedRefineDecode(
+        asset: AssetRef,
+        target: CGSize,
+        decode: @escaping @Sendable () async -> CIImage?
+    ) async -> CIImage? {
+        let key = RefineDecodeKey(assetID: asset.id, target: target)
+        if let existing = refineDecodeTasks[key] {
+            editSessionLogger.debug(
+                "coalescedRefineDecode joined in-flight task for \(target.width, format: .fixed(precision: 0))x\(target.height, format: .fixed(precision: 0))"
+            )
+            return await existing.task.value
+        }
+        refineDecodeSlotCounter &+= 1
+        let slotID = refineDecodeSlotCounter
+        let task = Task<CIImage?, Never>.detached(priority: .userInitiated) {
+            await decode()
+        }
+        refineDecodeTasks[key] = RefineDecodeSlot(id: slotID, task: task)
+        let result = await task.value
+        // Cleanup. Only clear if the slot still holds our slot id — an
+        // `invalidateDecodedCache` call between register and completion
+        // could have nil-ed the dictionary, and a subsequent call could
+        // have inserted a new task at the same key. Don't clobber it.
+        if refineDecodeTasks[key]?.id == slotID {
+            refineDecodeTasks[key] = nil
+        }
+        return result
     }
 
     /// Plan 2 M3 — parse the asset's sidecar (if present on disk) into
