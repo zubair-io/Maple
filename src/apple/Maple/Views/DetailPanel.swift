@@ -18,23 +18,31 @@ struct DetailPanel: View {
     /// panel stays visible with disabled controls so the layout doesn't jump.
     let session: EditSession?
 
+    /// Whether the AppShell is currently in Full-image mode. Drives:
+    /// - Bug 4: enter Full-image → auto-switch tab to Develop.
+    /// - Bug 5: leave Full-image → auto-switch tab to Info.
+    /// - Bug 8: in Browse, the Develop tab is hidden entirely (not disabled).
+    /// Defaults to `false` for the iPhone TabView shell, where the panel is
+    /// reached as its own root tab — there's no Browse/Full-image distinction
+    /// at the panel level on phone, so the Develop tab stays visible.
+    var isFullImage: Bool = false
+
     /// Default to Info — the spec + mockup put culling + file metadata first.
-    /// Develop becomes the active tab once the user opens the editor
-    /// (double-click an image in Browse mode).
+    /// Flips automatically on `isFullImage` transitions (see `.onChange` below).
     @State private var selectedTab: PanelTab = .info
-    /// When a session becomes non-nil (i.e. the editor opened), auto-switch
-    /// to Develop. Going back to Browse doesn't auto-flip back to Info — the
-    /// user may still want to see their last adjustments.
-    @State private var lastHadSession: Bool = false
 
     enum PanelTab { case info, develop }
 
     var body: some View {
         VStack(spacing: 0) {
-            // Tab bar
+            // Tab bar — Develop is hidden in Browse mode (Bug 8). When the
+            // segment isn't rendered, taps can't even reach it; this is the
+            // "hidden, not disabled" requirement from the ticket.
             HStack(spacing: 0) {
                 TabButton(title: "Info",    isSelected: selectedTab == .info)    { selectedTab = .info    }
-                TabButton(title: "Develop", isSelected: selectedTab == .develop) { selectedTab = .develop }
+                if isFullImage {
+                    TabButton(title: "Develop", isSelected: selectedTab == .develop) { selectedTab = .develop }
+                }
             }
             .background(MapleTokens.sidebar)
 
@@ -54,6 +62,14 @@ struct DetailPanel: View {
         // capped in AppShell via navigationSplitViewColumnWidth.
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(MapleTokens.sidebar)
+        // Auto-switch tabs when the AppShell crosses the Browse↔Full-image
+        // boundary. Bugs 4 + 5: opening the editor lands on Develop, returning
+        // to Browse lands on Info. The transition fires once per mode change,
+        // so the user can still pick the other tab manually inside that mode
+        // without us snapping it back.
+        .onChange(of: isFullImage) { _, nowFullImage in
+            selectedTab = nowFullImage ? .develop : .info
+        }
     }
 }
 
