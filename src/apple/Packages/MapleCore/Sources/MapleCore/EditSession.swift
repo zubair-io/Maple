@@ -217,19 +217,7 @@ public final class EditSession {
 
     // MARK: Render output
 
-    public var renderedPreview: CIImage? {
-        didSet {
-            let oldExt = oldValue?.extent ?? .zero
-            let newExt = renderedPreview?.extent ?? .zero
-            guard oldExt != newExt else { return }
-            print(
-                "[canvas] renderedPreview extent " +
-                "\(Int(oldExt.width))x\(Int(oldExt.height)) -> " +
-                "\(Int(newExt.width))x\(Int(newExt.height)) " +
-                "origin=(\(Int(newExt.origin.x)),\(Int(newExt.origin.y)))"
-            )
-        }
-    }
+    public var renderedPreview: CIImage?
     public var renderPhase: RenderPhase = .fast
     public var isRendering: Bool = false
     /// Last render error, if any. Views can surface a banner when non-nil.
@@ -241,15 +229,7 @@ public final class EditSession {
     /// can legitimately differ from native (half-res decode + CoreImage
     /// upscale on display), and anchoring zoom against the preview extent
     /// produces inconsistent targets across fast/refine and slider ticks.
-    public private(set) var nativeImageSize: CGSize = .zero {
-        didSet {
-            guard nativeImageSize != oldValue else { return }
-            print(
-                "[canvas] nativeImageSize \(Int(oldValue.width))x\(Int(oldValue.height)) -> " +
-                "\(Int(nativeImageSize.width))x\(Int(nativeImageSize.height))"
-            )
-        }
-    }
+    public private(set) var nativeImageSize: CGSize = .zero
 
     // MARK: Zoom / pan
 

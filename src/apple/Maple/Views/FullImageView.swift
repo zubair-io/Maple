@@ -138,15 +138,6 @@ struct FullImageView: View {
                     let displayW = virtualSize.width * scale / displayScale
                     let displayH = virtualSize.height * scale / displayScale
 
-                    let _ = print(
-                        "[canvas] body geo=\(Int(geo.size.width))x\(Int(geo.size.height))pt " +
-                        "displayScale=\(displayScale) " +
-                        "native=\(Int(session.nativeImageSize.width))x\(Int(session.nativeImageSize.height))px " +
-                        "viewPxScale=\(pixelScale) sessPxScale=\(session.pixelScale) effScale=\(scale) " +
-                        "frame=\(Int(displayW))x\(Int(displayH))pt " +
-                        "ci.extent=\(Int(ci.extent.width))x\(Int(ci.extent.height))px"
-                    )
-
                     CIImageView(image: ci)
                         .frame(width: displayW, height: displayH)
                         .offset(panOffset)
@@ -473,11 +464,6 @@ struct CIImageView: View {
             format: .RGBA8,
             colorSpace: Self.outputColorSpace
         ) {
-            let _ = print(
-                "[canvas] CIImageView cgImg=\(cgImg.width)x\(cgImg.height)px " +
-                "ciExtent=\(Int(image.extent.width))x\(Int(image.extent.height))px " +
-                "imageScale=\(displayScale)"
-            )
             // `Image(decorative:scale:orientation:)` is the explicit
             // pixel-to-point API and works identically on macOS and iOS.
             // The previous `Image(nsImage: NSImage(cgImage:size:.zero))`
