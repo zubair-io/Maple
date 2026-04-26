@@ -44,14 +44,52 @@ public enum ImageMetadataReader {
     /// metadata. This is intentionally metadata-only so the full-image view
     /// can lay out an embedded preview on the final virtual canvas before
     /// the expensive RAW decode finishes.
+    ///
+    /// Resolution strategy:
+    ///   1. `CIRAWFilter.outputImage.extent` for RAW formats — Apple's RAW
+    ///      filter knows how to surface the SENSOR dims (post-orientation).
+    ///      This is the most reliable path for files where ImageIO's IFD 0
+    ///      is an embedded JPEG preview rather than the sensor data (the
+    ///      common case for camera DNGs and Apple ProRAW).
+    ///   2. Otherwise, walk every subimage in the CGImageSource and pick
+    ///      the LARGEST. Single-subimage formats (most JPEGs) have only
+    ///      index 0; multi-subimage formats (DNG, HEIC) expose the full-
+    ///      sensor data as a non-zero index, so reading index 0 alone
+    ///      systematically underreports.
+    ///
+    /// Per CIImage docs, building a `CIRAWFilter` does NOT decode pixels;
+    /// `outputImage.extent` is computed from metadata (cheap). User
+    /// reported on iPad: 100 MP image → metadata returned 1040×693 (the
+    /// embedded preview at IFD 0) → "100% zoom" rendered at preview size.
+    /// Walking subimages or routing through CIRAWFilter fixes it.
     public static func readPixelSize(from url: URL) -> PixelSize? {
-        guard let src = CGImageSourceCreateWithURL(url as CFURL, nil),
-              let props = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any],
-              let width = number(props[kCGImagePropertyPixelWidth]),
-              let height = number(props[kCGImagePropertyPixelHeight])
-        else { return nil }
-        let orientation = number(props[kCGImagePropertyOrientation]).map(Int.init)
-        return orientedPixelSize(width: width, height: height, orientationValue: orientation)
+        // RAW path — fast extent read, doesn't decode pixels.
+        if let filter = CIRAWFilter(imageURL: url),
+           let img = filter.outputImage {
+            let w = Double(img.extent.width)
+            let h = Double(img.extent.height)
+            if w > 0, h > 0 {
+                // CIRAWFilter's outputImage.extent is already display-oriented.
+                return PixelSize(width: w, height: h)
+            }
+        }
+        // Fallback — walk every subimage, return the largest.
+        guard let src = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
+        let count = CGImageSourceGetCount(src)
+        var best: (w: Double, h: Double, orient: Int?)? = nil
+        for i in 0..<count {
+            guard let props = CGImageSourceCopyPropertiesAtIndex(src, i, nil) as? [CFString: Any],
+                  let w = number(props[kCGImagePropertyPixelWidth]),
+                  let h = number(props[kCGImagePropertyPixelHeight])
+            else { continue }
+            let curArea = best.map { $0.w * $0.h } ?? -1
+            if w * h > curArea {
+                let o = number(props[kCGImagePropertyOrientation]).map(Int.init)
+                best = (w, h, o)
+            }
+        }
+        guard let best else { return nil }
+        return orientedPixelSize(width: best.w, height: best.h, orientationValue: best.orient)
     }
 
     static func orientedPixelSize(
