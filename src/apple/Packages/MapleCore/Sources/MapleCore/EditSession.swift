@@ -746,6 +746,10 @@ public final class EditSession {
         await rustTask.value
     }
 
+    /// Synchronous URL-driven seed. Used by `decodedForNativeCanvas` (the
+    /// hot render path) and by `ensureRenderStarted`. Sourceless assets
+    /// (no `primaryURL`) need the async variant below — they have to pull
+    /// bytes through `bytesProvider` first.
     private func seedNativeImageSizeFromMetadata(_ url: URL) {
         guard nativeImageSize == .zero,
               let size = ImageMetadataReader.readPixelSize(from: url)?.cgSize,
@@ -755,11 +759,51 @@ public final class EditSession {
         nativeImageSize = size
     }
 
+    /// Sourceless-aware variant. PhotoKit and Self-Hosted assets surface
+    /// bytes through `bytesProvider` without a stable URL — without this
+    /// path `nativeImageSize` stays zero and `imageExtent` returns nil, so
+    /// the canvas shows the placeholder forever (audit fix A / Ticket 10
+    /// item J). Reads bytes through the provider, runs the Data-based
+    /// `readPixelSize` (which walks every subimage exactly like the URL
+    /// path), and writes the result back on the main actor.
+    @MainActor
+    private func seedNativeImageSizeFromMetadataAsync(_ asset: AssetRef) async {
+        guard nativeImageSize == .zero else { return }
+        if let url = asset.primaryURL {
+            seedNativeImageSizeFromMetadata(url)
+            return
+        }
+        guard let provider = asset.bytesProvider else { return }
+        guard let data = try? await provider() else { return }
+        let hint = asset.hintExtension
+        // Re-check identity + native-size after the await — the user may
+        // have switched assets while bytes were fetching.
+        guard nativeImageSize == .zero, self.asset.id == asset.id else { return }
+        guard let size = ImageMetadataReader
+            .readPixelSize(from: data, identifierHint: hint)?.cgSize,
+              size.width > 0, size.height > 0
+        else { return }
+        nativeImageSize = size
+    }
+
     private func decodedForNativeCanvas(_ decoded: CIImage, asset: AssetRef) -> CIImage {
         let decodedSize = decoded.extent.size
-        if nativeImageSize == .zero,
-           let url = asset.primaryURL {
+        if nativeImageSize == .zero, let url = asset.primaryURL {
             seedNativeImageSizeFromMetadata(url)
+        } else if nativeImageSize == .zero, asset.bytesProvider != nil {
+            // Sourceless asset — bytes-based seed is async; kick it off so
+            // a subsequent render hop sees the real native size. The
+            // current call returns the unscaled decode (the guard below
+            // bails when nativeImageSize is still zero) which is correct:
+            // the next `_scheduleRender` after the seed lands will
+            // re-normalise to the real canvas.
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                await self.seedNativeImageSizeFromMetadataAsync(asset)
+                if self.asset.id == asset.id, self.nativeImageSize != .zero {
+                    self._scheduleRender(phase: .fast)
+                }
+            }
         }
         // ONLY metadata is allowed to seed `nativeImageSize`. Earlier
         // versions of this method had a "slack-grow" path that wrote
