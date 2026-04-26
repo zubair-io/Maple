@@ -170,15 +170,27 @@ public actor TileManager {
         let bucket = Self.zoomBucket(for: zoom)
         let positions = Self.tileSet(forVisibleSourceRect: viewportSourceRect, zoom: zoom)
 
-        // Start with a transparent canvas at the full-image extent so
-        // `composite.extent` always equals `(0, 0, totalW, totalH)` —
-        // matches what the consuming `CIImageView`/`SwiftUI.Image` sizing
-        // assumes. Without this anchor, an early composite covering only
-        // a few visible tiles has a tiny extent, and `aspectRatio(.fit)`
-        // shrinks the rendered image instead of placing it correctly
-        // within the full canvas.
+        // Anchor the composite to the FULL image canvas. CIImage.empty()
+        // has empty extent (origin ∞, size 0); cropping it to the canvas
+        // rect still yields an empty-extent image, so compositing tiles
+        // over it leaves `composite.extent` = the bounding box of placed
+        // tiles only (e.g. a 4×6-tile strip at origin (2560, 1316) for a
+        // mid-canvas viewport). The consuming `CIImageView` then builds a
+        // CGImage of THOSE dims and SwiftUI's `aspectRatio(.fit)`
+        // stretches the strip into the landscape frame — looks like a
+        // ~2× zoom but is actually a wrong-aspect-ratio fit. User
+        // reported this exactly at extent=2048x3072 origin=(2560,1316)
+        // on a 7216x5412 canvas.
+        //
+        // Use `CIImage(color: .clear)` instead — infinite-extent solid
+        // clear — and crop it to the canvas. The crop produces a finite
+        // canvas-extent transparent image. After tile compositing, force
+        // a final `cropped(to: canvasRect)` as belt-and-suspenders so the
+        // returned extent always equals the canvas regardless of CoreImage
+        // optimizer behavior.
         let canvasRect = CGRect(origin: .zero, size: totalSourceSize)
-        var composite = CIImage.empty().cropped(to: canvasRect)
+        let canvas = CIImage(color: CIColor.clear).cropped(to: canvasRect)
+        var composite = canvas
         for pos in positions {
             let key = TileKey(
                 urlHash: urlHash,
@@ -216,7 +228,11 @@ public actor TileManager {
                 inFlight[key] = task
             }
         }
-        return composite
+        // Belt-and-suspenders: force the returned extent to equal the
+        // canvas. CoreImage's compositor may simplify away the clear
+        // anchor in some configurations, so a final crop guarantees
+        // consumers see `extent == canvasRect`.
+        return composite.cropped(to: canvasRect)
     }
 
     /// Drop every tile whose `urlHash` matches the asset's URL. Tiles
