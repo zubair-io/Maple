@@ -723,13 +723,14 @@ public final class EditSession {
            let url = asset.primaryURL {
             seedNativeImageSizeFromMetadata(url)
         }
-        if nativeImageSize == .zero {
-            nativeImageSize = decodedSize
-        } else if decodedSize.pixelArea > nativeImageSize.pixelArea * 1.10 {
-            // If metadata was missing or underreported but the decode gives
-            // us a larger real image, trust the decode. Never shrink here:
-            // preview-quality RAW decodes and decoded-buffer cache hits may
-            // be half-res, and using that as native doubles the fit zoom.
+        // Only metadata is allowed to seed `nativeImageSize`. The previous
+        // `nativeImageSize = decodedSize` fallback for missing metadata
+        // permanently anchored the canvas to the SIZED-FFI buffer's preview
+        // dims (e.g. 1500 px) — every "100%" rendered at preview resolution
+        // forever. The slack-grow path below still fires if metadata
+        // underreported AND a later full-quality decode lands.
+        if nativeImageSize != .zero,
+           decodedSize.pixelArea > nativeImageSize.pixelArea * 1.10 {
             nativeImageSize = decodedSize
         }
 
