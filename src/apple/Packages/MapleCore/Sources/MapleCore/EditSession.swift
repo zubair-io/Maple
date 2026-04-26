@@ -148,6 +148,27 @@ public struct AssetRef: Identifiable, Sendable, Equatable, Hashable {
 @MainActor
 @Observable
 public final class EditSession {
+    /// Master switch for the deep-zoom tile path. When `false` (the
+    /// current default), `_scheduleRefine` always uses the whole-image
+    /// sized-FFI refine even at zoom > 1.0 — slower at very high zoom
+    /// (~7 s for a 100 MP RAW on iPad) but produces pixel-perfect
+    /// colors, no tile-boundary artifacts. When `true`, deep-zoom kicks
+    /// in at `pixelScale >= 1.0` and renders 512² tiles on demand.
+    ///
+    /// Off by default while the per-tile color-parity ticket is open:
+    /// the tile pipeline runs each filter chain independently per
+    /// tile, and local-context stages (sharpen, clarity, NR) see
+    /// different overlap context at tile boundaries — visible as
+    /// faint seams or per-tile color shifts. Flip back on once the
+    /// color parity work lands.
+    ///
+    /// Public + non-isolated so callers can flip it from any actor
+    /// (e.g. a Settings UI toggle, a launch arg, a UITest harness).
+    /// Stored as `nonisolated(unsafe)` because it's effectively a
+    /// process-wide read-mostly config flag — racy reads return `false`
+    /// or `true` and that's fine.
+    nonisolated(unsafe) public static var deepZoomEnabled: Bool = false
+
     public let asset: AssetRef
 
     // MARK: Model
@@ -925,7 +946,18 @@ public final class EditSession {
             // memory stays bounded and slider/pan latency hits the
             // brief's 16 ms target on cache hits. The fit-zoom path
             // below is unchanged for `pixelScale < 1.0`.
-            if pixelScale >= 1.0,
+            //
+            // Gated by `EditSession.deepZoomEnabled`. Default OFF —
+            // the per-tile pipeline has known color-discontinuity
+            // artifacts at tile boundaries (local-context stages like
+            // sharpen/clarity see different overlap context per tile).
+            // When OFF, refine falls through to the sized-FFI path
+            // below, which renders the full image once at the refined
+            // target size — slower at very high zoom but pixel-perfect
+            // colors. Flip ON once the per-tile color parity ticket
+            // lands.
+            if Self.deepZoomEnabled,
+               pixelScale >= 1.0,
                !viewportSourceRect.isEmpty,
                let _ = asset.primaryURL {
                 await refineDeepZoom(gen: gen)
