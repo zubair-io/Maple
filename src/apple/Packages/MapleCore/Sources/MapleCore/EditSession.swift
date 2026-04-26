@@ -384,11 +384,28 @@ public final class EditSession {
         }
     }
 
+    /// Snapshot of the canvas state — viewport, native size, zoom — that
+    /// drives every fit/zoom/target/visible-rect derivation. Centralising
+    /// the math in `CanvasMath` (Ticket 10 item I) eliminates the dual
+    /// `EditSession.pixelScale` (resolved value) vs.
+    /// `FullImageView.@State pixelScale` (`0` = fit) source-of-truth
+    /// problem — both consumers now build the same value type from the
+    /// same inputs. `displayScale` defaults to 1 here because the session
+    /// works in real pixels; the View passes its own displayScale when it
+    /// needs the points-relative `displayFrameInPoints` accessor.
+    public var canvasMath: CanvasMath {
+        CanvasMath(
+            viewportPx: previewSize,
+            nativeImageSize: nativeImageSize,
+            pixelScale: pixelScale
+        )
+    }
+
     /// Fast-phase target — render at viewport resolution so every filter
     /// intermediate stays small. `nil` falls through to `ImageEditPipeline`'s
     /// built-in 2MP cap.
     private var fastTargetSize: CGSize? {
-        previewSize == .zero ? nil : previewSize
+        canvasMath.fastTargetSize
     }
 
     /// Refined-phase target — `nativeImageSize × min(pixelScale, 1.0)`,
@@ -402,18 +419,7 @@ public final class EditSession {
     /// populated yet (first decode is in flight). Once the decode lands,
     /// subsequent refines use the native-anchored path.
     private var refinedTargetSize: CGSize? {
-        guard let fast = fastTargetSize else { return nil }
-        if nativeImageSize == .zero {
-            // Pre-decode fallback. Constrain to 8× fast to avoid a huge
-            // target being set while the scheduler waits for the first
-            // decode; once native is known the normal branch takes over.
-            let mult = min(max(1.0, pixelScale), 8.0)
-            return CGSize(width: fast.width * mult, height: fast.height * mult)
-        }
-        let scale = min(max(pixelScale, 0), 1.0)
-        let w = max(nativeImageSize.width * scale, fast.width)
-        let h = max(nativeImageSize.height * scale, fast.height)
-        return CGSize(width: w, height: h)
+        canvasMath.refinedTargetSize
     }
 
     // MARK: Init
@@ -492,17 +498,24 @@ public final class EditSession {
     /// current pan offset (in points; positive = image dragged right /
     /// down). `displayScale` is points → real pixels.
     ///
-    /// Math: at `zoom` real-px-per-image-px, a `viewport.width` (points)
-    /// frame shows `viewport.width * displayScale / zoom` source pixels
-    /// horizontally. The viewport center maps to the image center
-    /// adjusted by the current pan; clamp to the image extent so a
-    /// viewport that overhangs the image doesn't ask for off-grid
-    /// tiles. Returns `.zero` for zoom==0 / unset image extent.
+    /// Thin forwarder around `CanvasMath.visibleSourceRect`; kept on
+    /// `EditSession` so existing call sites (`FullImageView`,
+    /// `EditSessionDeepZoomTests`) don't have to thread the value type
+    /// in just to read this one rect. The actual math lives in
+    /// `CanvasMath` (Ticket 10 item I).
     ///
-    /// Pure function — easier to unit-test than the FullImageView
-    /// member that wires SwiftUI state in. `nonisolated` so callers
-    /// (FullImageView at construction time, MapleCoreTests off-main)
-    /// can invoke it without an actor hop. See `EditSessionDeepZoomTests`.
+    /// Important contract difference vs. `CanvasMath.visibleSourceRect`:
+    /// here `zoom == 0` is treated as "disabled" and returns `.zero`
+    /// (the deep-zoom branch in `_scheduleRefine` reads `.isEmpty` to
+    /// decide whether to route through the tile manager). `CanvasMath`
+    /// treats `pixelScale == 0` as "fit" and resolves it. Callers that
+    /// pass a literal zero through this helper (e.g. fit-mode toolbar
+    /// reset) want the disabled semantics; the View already
+    /// pre-resolves `pixelScale` to a non-zero value via
+    /// `effectivePixelScale` before calling here.
+    ///
+    /// `nonisolated` so callers (`FullImageView` at construction time,
+    /// `MapleCoreTests` off-main) can invoke it without an actor hop.
     nonisolated public static func computeVisibleSourceRect(
         viewport: CGSize,
         zoom: CGFloat,
@@ -510,36 +523,22 @@ public final class EditSession {
         panOffset: CGSize,
         displayScale: CGFloat
     ) -> CGRect {
-        guard let imageSize, zoom > 0,
-              imageSize.width > 0, imageSize.height > 0,
-              viewport.width > 0, viewport.height > 0,
-              displayScale > 0
-        else { return .zero }
+        // Preserve the disabled-on-zero contract — `CanvasMath`'s
+        // `visibleSourceRect` would resolve 0 → fit and return a real
+        // rect. Tests + deep-zoom branch depend on `.zero` here.
+        guard zoom > 0 else { return .zero }
         let viewportPx = CGSize(
             width: viewport.width * displayScale,
             height: viewport.height * displayScale
         )
-        let visibleSrcW = viewportPx.width / zoom
-        let visibleSrcH = viewportPx.height / zoom
-        // Pan: panOffset is in points (positive = image dragged right).
-        // Convert to source pixels and shift the visible rect's origin
-        // opposite the pan (a right drag exposes the image's left side).
-        let panSrcX = panOffset.width * displayScale / zoom
-        let panSrcY = panOffset.height * displayScale / zoom
-        let centerX = imageSize.width / 2 - panSrcX
-        let centerY = imageSize.height / 2 - panSrcY
-        let unclampedMinX = centerX - visibleSrcW / 2
-        let unclampedMinY = centerY - visibleSrcH / 2
-        // Clamp: origin >= 0 and origin + size <= imageSize (allowing
-        // the visible rect to be smaller than the image when zoomed in,
-        // and clamped to the image when the visible region is larger).
-        let maxOriginX = max(0, imageSize.width - visibleSrcW)
-        let maxOriginY = max(0, imageSize.height - visibleSrcH)
-        let minX = max(0, min(unclampedMinX, maxOriginX))
-        let minY = max(0, min(unclampedMinY, maxOriginY))
-        let w = min(visibleSrcW, imageSize.width)
-        let h = min(visibleSrcH, imageSize.height)
-        return CGRect(x: minX, y: minY, width: w, height: h)
+        let canvas = CanvasMath(
+            viewportPx: viewportPx,
+            nativeImageSize: imageSize ?? .zero,
+            pixelScale: zoom,
+            panOffset: panOffset,
+            displayScale: displayScale
+        )
+        return canvas.visibleSourceRect
     }
 
     /// Load model + culling from disk; call once after init.
