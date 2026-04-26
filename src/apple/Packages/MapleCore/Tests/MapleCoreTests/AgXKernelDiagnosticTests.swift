@@ -1,29 +1,21 @@
-// AgXKernelDiagnosticTests.swift — diagnostic for the brightness investigation
-// (2026-04-25 keen-gould-063563).
+// AgXKernelDiagnosticTests.swift — regression net for AgX silent-no-op.
 //
-// Purpose: determine whether `MetalKernels.agxKernel()` actually loads on
-// this branch (which lacks the `[[stitchable]]` attribute and the inline
-// AgX sigmoid fix from main commit 8ff4142). If the kernel load fails,
-// `applyAgXViewTransform` silently returns its input unchanged
-// (MetalKernels.swift:206-241), and the rest of `processSceneLinear` ships
-// scene-linear Rec.2020 fp16 to the CIContext, which sRGB-encodes it for
-// PNG. That produces midtone u8 values around 105-110 on this fixture —
-// exactly what the committed golden test_0017-default.png shows.
+// Purpose: detect a broken Apple-side AgX kernel load. If the kernel fails
+// to compile or `[[stitchable]]` regresses, `applyAgXViewTransform` silently
+// returns its input unchanged (MetalKernels.swift), and the canvas displays
+// scene-linear-encoded-as-sRGB output instead of view-transformed.
 //
-// This test does NOT modify production code. It only probes:
-//
-//   1. Does `MetalKernels.agxKernel()` return non-nil?
-//   2. Does `MetalKernels.agxLUTImage()` return non-nil?
-//   3. Apply AgX to a synthetic mid-gray (0.18) Rec.2020 input. Render
-//      to sRGB u8. Expected u8 with working AgX: ~187. Observed if AgX
-//      silently no-ops: ~117 (scene 0.18 Rec.2020 -> sRGB encoded).
-//
-// The test asserts diagnostic information loudly via XCTContext.
+// Probe input: scene-linear 1.0 (white). Maple AgX rolls this off to
+// display-linear ~0.64, which encodes to sRGB u8 ~211. A no-op AgX would
+// pass through to display-linear 1.0, which sRGB-encodes to u8 255 (clipped
+// white). A broken kernel returning zero produces u8 ~0. All three are
+// distinguishable. Mid-gray (0.18) was the original probe but Maple AgX
+// preserves mid-gray on the curve, so working-AgX and no-op produce the
+// same u8 there — a brighter probe is required.
 //
 // Cross-links:
-//   docs/tickets/08-agx-metal-kernel-lut-sampler.md
 //   src/apple/Packages/MapleCore/Sources/MapleCore/Metal/AgXViewTransform.metal
-//   src/apple/Packages/MapleCore/Sources/MapleCore/MetalKernels.swift:202-242
+//   src/apple/Packages/MapleCore/Sources/MapleCore/MetalKernels.swift
 
 import XCTest
 import CoreImage
@@ -34,11 +26,13 @@ import AppKit
 final class AgXKernelDiagnosticTests: XCTestCase {
 
     /// Sanity probe: does the AgX kernel load, does the LUT load, and what
-    /// does AgX produce on synthetic scene-linear 0.18 mid-gray?
+    /// does AgX produce on synthetic scene-linear 1.0 (white)?
     ///
-    /// Expected with working AgX: u8 ~= 187 (Blender 4.x polynomial @ MID_NORM).
-    /// Expected when AgX no-ops:  u8 ~= 117 (scene 0.18 Rec.2020 -> sRGB encoded).
-    func testAgXKernelOnMidGray() throws {
+    /// Expected with working Maple AgX: u8 ~= 211 (polynomial @ norm 0.756 →
+    ///                                  display-linear 0.64 → sRGB ≈ 0.83).
+    /// Expected when AgX no-ops:        u8 == 255 (passthrough sRGB-encode of 1.0).
+    /// Expected when AgX returns zero:  u8 == 0.
+    func testAgXKernelOnHighlight() throws {
         // (1) Probe kernel load.
         let kernel = MetalKernels.agxKernel()
         XCTContext.runActivity(named: "AgX kernel load") { _ in
@@ -60,19 +54,18 @@ final class AgXKernelDiagnosticTests: XCTestCase {
             }
         }
 
-        // (3) Synthetic mid-gray probe — independent of the kernel-load
-        // outcome. Build a 4x4 fp16 RGBA Rec.2020 image with all pixels at
-        // (0.18, 0.18, 0.18). Apply `applyAgXViewTransform`. Render to sRGB
-        // u8 via the same CIContext shape `processSceneLinear`'s caller
-        // uses. Inspect the output's centre pixel.
+        // (3) Synthetic scene-linear-1.0 (white) probe — independent of the
+        // kernel-load outcome. Build a 4x4 fp16 RGBA Rec.2020 image with all
+        // pixels at (1.0, 1.0, 1.0). Apply `applyAgXViewTransform`. Render
+        // to sRGB u8 via the same CIContext shape `processSceneLinear`'s
+        // caller uses. Inspect the output's centre pixel.
         let w = 4, h = 4
         var pixels = [UInt16](repeating: 0, count: w * h * 4)
-        let halfOnePoint18 = float32_to_half(0.18)
         let halfOne = float32_to_half(1.0)
         for i in 0..<(w * h) {
-            pixels[i * 4 + 0] = halfOnePoint18
-            pixels[i * 4 + 1] = halfOnePoint18
-            pixels[i * 4 + 2] = halfOnePoint18
+            pixels[i * 4 + 0] = halfOne
+            pixels[i * 4 + 1] = halfOne
+            pixels[i * 4 + 2] = halfOne
             pixels[i * 4 + 3] = halfOne
         }
         let rec2020 = CGColorSpace(name: CGColorSpace.extendedLinearITUR_2020)!
@@ -121,32 +114,36 @@ final class AgXKernelDiagnosticTests: XCTestCase {
         let centre = readCentrePixelU8(cg)
         let r = centre.0, g = centre.1, b = centre.2
         print("AGX_PROBE: centre pixel u8 = (\(r), \(g), \(b))")
-        print("AGX_PROBE: expected with working AgX = ~187 (188 +/- 1)")
-        print("AGX_PROBE: expected with AgX silently no-op = ~117 (scene 0.18 -> sRGB encode)")
+        print("AGX_PROBE: expected with working Maple AgX = ~211 (highlight roll-off on scene 1.0)")
+        print("AGX_PROBE: expected with AgX silently no-op = 255 (scene 1.0 passthrough → clipped white)")
 
-        // Hard assertion: a working AgX produces u8 ~187.
-        // A no-op produces u8 ~117 (scene 0.18 Rec.2020 directly sRGB-encoded).
-        // Everything else is "kernel ran but wrong" (e.g. all-zero LUT bug
-        // from ticket #08).
-        let isWorking = abs(Int(r) - 187) <= 4
-        let isNoOp = abs(Int(r) - 117) <= 4
+        // Hard assertion: working Maple AgX rolls scene 1.0 to display ~0.64
+        // → sRGB ~0.83 → u8 ~211. A no-op passes through to u8 255 (clipped
+        // white). A broken kernel returning zero produces u8 ~0. Tolerance
+        // ±8 absorbs Rec.2020→sRGB matrix swing on white plus quantization.
+        let isWorking = abs(Int(r) - 211) <= 8
+        let isNoOp = r >= 252
+        let isZero = r <= 4
         XCTContext.runActivity(named: "AgX behaviour classification") { _ in
             if isWorking {
                 print("AGX_PROBE: VERDICT = AgX kernel ran correctly.")
             } else if isNoOp {
                 XCTFail(
-                    "AgX silently no-op'd: midtone u8 = (\(r), \(g), \(b)) ~ scene 0.18 " +
-                    "Rec.2020 directly sRGB-encoded (no AgX). " +
-                    "applyAgXViewTransform is returning its input unchanged. " +
-                    "Likely cause: AgXViewTransform.metal lacks `[[stitchable]]` " +
-                    "(commit 1102c16 added it on `main` — this branch is behind)."
+                    "AgX silently no-op'd: highlight u8 = (\(r), \(g), \(b)) ~ scene 1.0 " +
+                    "Rec.2020 passthrough (no AgX). applyAgXViewTransform is returning " +
+                    "its input unchanged. Likely cause: AgXViewTransform.metal kernel " +
+                    "load failure (check `[[stitchable]]` attribute or kernel compile errors)."
+                )
+            } else if isZero {
+                XCTFail(
+                    "AgX returning zero: u8 = (\(r), \(g), \(b)). Kernel ran but " +
+                    "output is black — check polynomial coefficients or LUT binding."
                 )
             } else {
                 XCTFail(
-                    "AgX produced unexpected output: u8 = (\(r), \(g), \(b)). " +
-                    "Not the expected 187 (working) and not 117 (no-op). " +
-                    "Likely a different bug — check AgX LUT, contrast modulation, " +
-                    "or per-channel transfer."
+                    "AgX produced unexpected output on scene 1.0: u8 = (\(r), \(g), \(b)). " +
+                    "Not the expected 211 (Maple AgX), not 255 (no-op), not 0 (broken). " +
+                    "Polynomial coefficients may have drifted from agx_coeffs.rs."
                 )
             }
         }
