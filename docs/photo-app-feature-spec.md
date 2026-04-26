@@ -150,15 +150,38 @@
 
 **Goal:** Panorama stitching, masking, retouching, geometry, and batch tools.
 
-### Panorama stitching
+### Panorama stitching (two presets)
 
-- Select source images from library or filesystem
-- Feature detection via Vision framework (`VNHomographicImageRegistrationRequest`)
-- Seam blending via vImage multi-band blending
-- Projection options: Cylindrical, Spherical, Perspective
-- Auto-crop with boundary warp fill option
-- Output as full-resolution TIFF or HEIC; retains non-destructive edit capability
-- Supports exposure-bracketed source sets (HDR panorama)
+Select source images from the library or filesystem and stitch them into a
+single seamless panorama. Two presets are available at stitch time:
+
+**Quick preset — Vision + Metal + vImage (JPEG/HEIF, Apple platforms only)**
+
+The Quick preset is a native-Apple fast path suited to JPEG and HEIF inputs.
+Feature detection uses `VNHomographicImageRegistrationRequest`; seam blending
+uses `MPSImageLaplacianPyramid` and `vImage` multi-band resampling. Projection
+options: Cylindrical, Spherical, Perspective. Output is a full-resolution TIFF
+or HEIC; the resulting image retains non-destructive edit capability via the
+normal adjustment pipeline. DNG inputs are not supported on this preset (use
+Quality instead).
+
+**Quality preset — Rust pano-core (DNG default, cross-platform, parity-gated)**
+
+The Quality preset routes through the shared Rust `pano-core` library, the
+same scene-linear ProPhoto float32 working space used by the RAW development
+pipeline. Feature detection uses ALIKED + LightGlue neural matching (ORB
+classical fallback when ML is unavailable); seam finding uses graph-cut
+min-cost seams; blending uses a multi-band Laplacian pyramid. Bundle adjustment
+runs the full rotation-based BA with Levenberg-Marquardt. GPU stages (warp,
+pyramid, blend) run on Metal on Apple platforms and WebGPU in the browser. The
+Quality preset is the default for DNG inputs and the only cross-platform path.
+Pixel parity between the Apple and web export paths is a merge gate.
+
+Both presets share the same UI: source selection, projection picker, auto-crop,
+and the non-destructive edit capability. The preset selector is exposed as an
+option in the stitch dialog. For design details and the work plan see
+[`docs/tickets/04-maple-panorama-spec.md`](../docs/tickets/04-maple-panorama-spec.md)
+and [`docs/tasks/04-maple-panorama-spec.md`](../docs/tasks/04-maple-panorama-spec.md).
 
 ### Masking system
 

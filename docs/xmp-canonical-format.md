@@ -205,6 +205,104 @@ Imported sidecars retain their original version string.
 
 ---
 
+---
+
+## `papp:Panorama` schema (T5.6)
+
+Defined in
+[`Sources/MapleCore/Sidecar/PanoramaSidecar.swift`](../src/apple/Packages/MapleCore/Sources/MapleCore/Sidecar/PanoramaSidecar.swift).
+
+### Namespace disambiguation
+
+The `papp:` prefix (`http://ns.justmaple.app/1.0/`) is already used for
+flat scalar attributes (`papp:HighlightRecoveryMode`, `papp:Flag`,
+`papp:ColorLabel`). Panorama metadata uses the same URI but expresses itself
+as a **nested element** child of `rdf:Description` — not as additional
+flat attributes — so there is no name collision. No new namespace URI is
+required.
+
+### Structure
+
+```xml
+<papp:Panorama>
+
+  <papp:PanoSourceList>
+    <rdf:Seq>
+      <rdf:li rdf:parseType="Resource">
+        <papp:SourcePath>/abs/path/to/frame.dng</papp:SourcePath>
+        <!-- papp:SourceBookmark is optional (base64 security-scoped bookmark) -->
+        <papp:SourceBookmark>YmFzZTY0…</papp:SourceBookmark>
+        <papp:SourceHash>sha256hexdigest</papp:SourceHash>
+        <papp:FocalLength>50</papp:FocalLength>
+        <papp:ExposureValue>0</papp:ExposureValue>
+      </rdf:li>
+      <!-- one <rdf:li> per source image -->
+    </rdf:Seq>
+  </papp:PanoSourceList>
+
+  <papp:PanoAlignment rdf:parseType="Resource">
+    <papp:Homography>
+      <rdf:Seq>
+        <!-- 9 elements, row-major 3×3 float; identity = 1 0 0 / 0 1 0 / 0 0 1 -->
+        <rdf:li>1</rdf:li>
+        <rdf:li>0</rdf:li>
+        <!-- … 7 more … -->
+      </rdf:Seq>
+    </papp:Homography>
+    <papp:BAResidual>0.42</papp:BAResidual>
+  </papp:PanoAlignment>
+
+  <papp:PanoOutput rdf:parseType="Resource">
+    <papp:OutputWidth>8192</papp:OutputWidth>
+    <papp:OutputHeight>2048</papp:OutputHeight>
+    <!-- rectilinear | cylindrical | spherical -->
+    <papp:OutputProjection>cylindrical</papp:OutputProjection>
+  </papp:PanoOutput>
+
+  <!-- Quick | Quality -->
+  <papp:PanoPreset>Quality</papp:PanoPreset>
+
+</papp:Panorama>
+```
+
+### Field definitions
+
+| Field | Type | Notes |
+|---|---|---|
+| `papp:SourcePath` | string | Absolute filesystem path at stitch time |
+| `papp:SourceBookmark` | string (base64) | Security-scoped bookmark; optional |
+| `papp:SourceHash` | string (hex) | SHA-256 of the source image bytes |
+| `papp:FocalLength` | float (mm) | From EXIF; 0 if unknown |
+| `papp:ExposureValue` | float (EV) | From EXIF; 0 if unknown |
+| `papp:Homography` | rdf:Seq of 9 floats | Row-major 3×3; identity when alignment not computed |
+| `papp:BAResidual` | float | Mean BA reprojection residual in pixels; 0 when not computed |
+| `papp:OutputWidth` | uint32 | Stitched panorama width in pixels |
+| `papp:OutputHeight` | uint32 | Stitched panorama height in pixels |
+| `papp:OutputProjection` | string | `rectilinear`, `cylindrical`, or `spherical` |
+| `papp:PanoPreset` | string | `Quick` (Vision fast path) or `Quality` (Rust pano-core) |
+
+### Number formatting
+
+Same rules as the top-level number-formatting section: integer when whole
+(`"1"`, `"50"`), otherwise 2 decimal places with trailing zeros stripped
+(`"0.42"`, `"0.5"`).
+
+### Round-trip contract
+
+`PanoramaXMPSerializer.serialize(_:)` → `PanoramaXMPParser.parse(_:)` must
+reproduce the original `PanoramaSidecar` struct with field-level equality.
+Idempotency: serialize → parse → serialize must produce byte-identical XML.
+Verified by `PappSchemaTests` in `Tests/MapleCoreTests/`.
+
+### Passthrough
+
+The `papp:Panorama` element is treated as an unknown nested element by the
+existing `XMPParser` / `XMPSerializer` (which handle `AdjustmentModel` and
+`CullingState`). It survives round-trips through those parsers via the
+`passthroughNodes` mechanism described in the "Passthrough" section above.
+
+---
+
 ## Test contract
 
 Both parsers must produce the same `AdjustmentModel` from any valid input, and
