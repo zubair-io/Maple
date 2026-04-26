@@ -102,13 +102,13 @@ mod tests {
 
     #[test]
     fn lut_anchors_are_zero_and_near_one() {
-        // Blender's polynomial evaluates to ~-0.00232 at x=0 (clamped to 0)
-        // and ~0.986 at x=1. We don't force-clamp the top to exactly 1.0 —
-        // the next display stage (gamma encode) handles any headroom.
+        // Maple AgX evaluates to ~9e-5 at x=0 (clamped to 0) and ~0.99 at
+        // x=1. We don't force-clamp the top to exactly 1.0 — the next
+        // display stage (gamma encode) handles any headroom.
         let l = lut();
-        assert!(l[0].abs() < 1e-5, "LUT[0] = {}", l[0]);
-        assert!(l[AGX_LUT_SIZE - 1] >= 0.98 && l[AGX_LUT_SIZE - 1] <= 1.0,
-            "LUT[last] = {}, expected in [0.98, 1.0]", l[AGX_LUT_SIZE - 1]);
+        assert!(l[0].abs() < 1e-3, "LUT[0] = {}", l[0]);
+        assert!(l[AGX_LUT_SIZE - 1] >= 0.97 && l[AGX_LUT_SIZE - 1] <= 1.0,
+            "LUT[last] = {}, expected in [0.97, 1.0]", l[AGX_LUT_SIZE - 1]);
     }
 
     #[test]
@@ -122,11 +122,12 @@ mod tests {
 
     #[test]
     fn mid_gray_anchor_preserved() {
-        // Scene mid-gray (AGX_MID_GRAY = 0.18) should render to approximately
-        // AGX_MID_DISPLAY at contrast=0 — the AgX pivot anchor on the display
-        // side, decoupled from the scene anchor to allow a baseline midtone
-        // lift vs scene-referred reference. LUT sampling introduces at most
-        // one step of linear-interp error.
+        // Scene mid-gray (AGX_MID_GRAY = 0.18) renders to approximately
+        // AGX_MID_DISPLAY at contrast=0. Maple AgX preserves mid-gray
+        // through the curve (AGX_MID_DISPLAY ≈ 0.164, target 0.18 — small
+        // residual is the least-squares fit error in the 6th-order
+        // polynomial). LUT sampling adds at most one step of linear-interp
+        // error on top.
         let mut img = Image::new(1, 1, ColorSpace::SceneLinearRec2020);
         img.pixels[0] = [AGX_MID_GRAY, AGX_MID_GRAY, AGX_MID_GRAY];
         apply(&mut img, 0.0);

@@ -87,6 +87,7 @@
 				A1F0000D00000000000000A1 /* Packages */,
 				A1F0000E00000000000000A1 /* Frameworks */,
 				A1F0000F00000000000000A1 /* Products */,
+				E3FF1B052F9D8CE600FD7E5E /* Recovered References */,
 			);
 			sourceTree = "<group>";
 		};
@@ -113,6 +114,15 @@
 				A1F0006000000000000000A1 /* MapleUITests.xctest */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		E3FF1B052F9D8CE600FD7E5E /* Recovered References */ = {
+			isa = PBXGroup;
+			children = (
+				A1F0006B00000000000000A1 /* MapleTests */,
+				A1F0006100000000000000A1 /* MapleUITests */,
+			);
+			name = "Recovered References";
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -719,20 +729,20 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		A1F0006600000000000000A1 /* Build configuration list for PBXNativeTarget "MapleUITests" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				A1F0006700000000000000A1 /* Debug */,
-				A1F0006800000000000000A1 /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
 		A1F0001B00000000000000A1 /* Build configuration list for PBXProject "Maple" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				A1F0001D00000000000000A1 /* Debug */,
 				A1F0001E00000000000000A1 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A1F0006600000000000000A1 /* Build configuration list for PBXNativeTarget "MapleUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A1F0006700000000000000A1 /* Debug */,
+				A1F0006800000000000000A1 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

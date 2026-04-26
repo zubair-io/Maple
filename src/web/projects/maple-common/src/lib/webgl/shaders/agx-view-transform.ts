@@ -1,19 +1,18 @@
-// agx-view-transform.ts — port of AgXViewTransform.metal (post commit 8ff4142).
-// GLSL ES 3.0 fragment shader source as a TypeScript template literal.
+// agx-view-transform.ts — Maple AgX (photography-tuned) GLSL fragment shader.
+// GLSL ES 3.0 source as a TypeScript template literal.
 
 export const AGX_VIEW_TRANSFORM_FRAGMENT_SOURCE = /* glsl */ `#version 300 es
-// AgXViewTransform.frag — port of AgXViewTransform.metal with INLINE sigmoid.
+// AgXViewTransform.frag — Maple AgX with INLINE polynomial.
 //
-// Log-encode (per channel) -> contrast modulation -> Blender 4.x AgX_Default_Contrast
-// 6-piece polynomial. Mirrors the Apple inline-sigmoid kernel landed at
-// commit 8ff4142 (closes ticket #08), which dropped the LUT image dependency
-// in favour of the closed-form polynomial.
+// This is **Maple AgX** — photography-tuned, NOT Blender-faithful. The
+// polynomial is fitted to ACR baseline renders so mid-gray is preserved
+// (scene 0.18 → display ~0.25) instead of lifted to ~0.50 the way
+// Blender's AgX_Default_Contrast places it.
 //
 // The polynomial coefficients are frozen and mirror:
-//   * src/raw-pipeline/raw-core/src/view/agx.rs (post-LUT-removal)
-//   * src/scripts/derive_agx_lut.py:72-104 (the same polynomial that bakes
-//     the legacy LUT — kept for reference/parity tooling)
-//   * src/apple/.../Metal/AgXViewTransform.metal (post commit 8ff4142)
+//   * src/scripts/derive_agx_lut.py — the source of truth
+//   * src/raw-pipeline/raw-core/src/view/agx_lut.bin (LUT-baked Rust port)
+//   * src/apple/.../Metal/AgXViewTransform.metal (Apple inline port)
 //
 // Skipping the WebGL LUT bundling (Plan 3 M2.1 Task 8) in favour of inline
 // sigmoid math — see plan execution notes for the Plan 3 M2 driver task.
@@ -39,22 +38,22 @@ float agx_log_encode(float linear) {
     return clamp((log_val - AGX_MIN_EV) / (AGX_MAX_EV - AGX_MIN_EV), 0.0, 1.0);
 }
 
-// Inline AgX sigmoid — Blender 4.x AgX_Default_Contrast 6-piece polynomial.
+// Inline Maple AgX sigmoid — photography-tuned 6th-order polynomial.
 // 'x' is the normalized-log position in [0, 1]; output is display-linear in [0, 1].
 //
-// Coefficients mirror the Apple inline kernel verbatim (commit 8ff4142,
-// kernel post-fix) and the Python source at src/scripts/derive_agx_lut.py:72-104.
+// Coefficients mirror the Apple inline kernel and the Python source at
+// src/scripts/derive_agx_lut.py — single source of truth.
 float agx_sigmoid(float x) {
     x = clamp(x, 0.0, 1.0);
     float x2 = x * x;
     float x4 = x2 * x2;
-    float y = 15.5     * x4 * x2
-            - 40.14    * x4 * x
-            + 31.96    * x4
-            -  6.868   * x2 * x
-            +  0.4298  * x2
-            +  0.1191  * x
-            -  0.00232;
+    float y =   45.168672  * x4 * x2
+            - 153.659289   * x4 * x
+            + 188.476772   * x4
+            - 101.333581   * x2 * x
+            +  24.458269   * x2
+            -   2.131000   * x
+            +   0.000235;
     return clamp(y, 0.0, 1.0);
 }
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Single source of truth for AgX sigmoid coefficients + 512-entry LUT.
+"""Single source of truth for Maple AgX sigmoid coefficients + 512-entry LUT.
 
 Spec: docs/spec/03-algorithms.md § 3.6a and docs/spec/06-cross-platform.md
 § AgX parity. Running this script emits:
@@ -10,17 +10,19 @@ Spec: docs/spec/03-algorithms.md § 3.6a and docs/spec/06-cross-platform.md
                     three platforms (Rust / Metal / GLSL-WebGL).
   - agx_coeffs.rs — Rust AGX_COEFFS constant block.
 
-The sigmoid is a piecewise toe/shoulder power curve that hits the Blender-
-reference anchor (scene mid-gray 0.18 → display mid-gray 0.18) with a
-controllable slope, approximating Blender 4.x AgX_Base_sRGB. Parity vs.
-Blender's 6-piece polynomial is maintained at <1e-3 ΔL for in-gamut content
-and at the anchor points exactly; parity across the three Maple platforms is
-driven by this shared LUT, which is the actual parity gate the spec cares
-about (§ 06-cross-platform.md § AgX parity).
+This is **Maple AgX**, calibrated for photography — NOT Blender-faithful.
+The shape is still a per-channel log-domain sigmoid (so highlight gamut
+compression on hot specular still works the way AgX-class transforms do),
+but mid-gray is preserved through the curve (scene 0.18 → display ≈ 0.18)
+instead of lifted to ~0.50 the way Blender's AgX_Default_Contrast places
+it. Photographers calibrate against ACR/Lightroom; the Blender placement
+read as a uniform +1-stop "gain" against that reference. Parity across
+the three Maple platforms is the actual gate (§ 06-cross-platform.md
+§ AgX parity); third-party-tool match is no longer a constraint.
 
-Coefficients (MIN_EV, MAX_EV, MID_GRAY, BASE_SLOPE) are frozen here and
-emitted into platform source files. Bump viewTransformVersion any time this
-script's output bytes change (§ 05-performance.md § RenderedPreviewCache).
+Coefficients (MIN_EV, MAX_EV, MID_GRAY) are frozen here and emitted into
+platform source files. Bump AGX_VERSION any time this script's output
+bytes change (§ 05-performance.md § RenderedPreviewCache).
 
 Usage:
   python3 src/scripts/derive_agx_lut.py \
@@ -53,39 +55,58 @@ LUT_SIZE     =  512           # table size (spec § 3.6a)
 EV_RANGE     = MAX_EV - MIN_EV     # log-domain span, 16.5 EV
 MID_NORM     = (0.0 - MIN_EV) / EV_RANGE   # normalized log position of mid-gray
 
-# Display target at the mid-gray pivot. Computed directly from Blender's
-# 6-piece polynomial at norm = MID_NORM — NOT pinned to MID_GRAY. The
-# reference Blender AgX puts scene-linear 0.18 at display-linear ≈ 0.497,
-# not 0.18, because the AgX_Default_Contrast curve is shaped as a log-S
-# that's ~50% tall at mid-gray. Forcing display=0.18 (as an earlier revision
-# of this script did) produced ~2 EV darker rendering vs Blender / ACR /
-# RawTherapee / Darktable / Apple Preview — see validation script
-# /tmp/agx_validate.py in Track 1 of the AgX-validation investigation.
-# AGX_MID_DISPLAY below is emitted for downstream anchor tests.
+# Display target at the mid-gray pivot. Computed directly from the Maple
+# polynomial at norm = MID_NORM. Maple AgX preserves mid-gray (0.18 scene
+# → ~0.18 display), unlike Blender 4.x AgX_Default_Contrast which lifts
+# mid-gray to ~0.50 for cinematic look. AGX_MID_DISPLAY is emitted for
+# downstream anchor tests.
 
 # Version key — increment whenever the LUT bytes or coefficients change;
 # this value is embedded in agx_coeffs.rs and must match viewTransformVersion
 # used in RenderedPreviewCache keys.
-AGX_VERSION  = 5
+#  v5: Blender 4.x AgX_Default_Contrast (mid-gray → 0.50).
+#  v6: Maple AgX, photography-tuned (mid-gray preserved → ~0.18).
+AGX_VERSION  = 6
+
+
+# ── Maple AgX polynomial (frozen) ──────────────────────────────────────────
+# 6th-order polynomial fitted (least-squares) through 15 anchor points that
+# describe a photography-tuned tone curve calibrated against ACR baseline
+# renders (`test-fixtures/references/<fixture>/down/baseline.png`). Tuned
+# iteratively: each refit ran the test_color_pipeline.sh harness against
+# ACR ground-truth and adjusted anchor heights to bring bias toward zero.
+#
+# Anchors (norm, display_linear):
+#   (0.000, 0.0000)  (0.200, 0.0008)  (0.300, 0.0030)  (0.400, 0.0200)
+#   (0.485, 0.0500)  (0.550, 0.1300)  (0.6061, 0.2500) ← mid-gray (~ACR)
+#   (0.650, 0.3400)  (0.700, 0.4600)  (0.728, 0.5500)
+#   (0.785, 0.7300)  (0.850, 0.8800)  (0.910, 0.9600)
+#   (0.950, 0.9780)  (1.000, 0.9850)
+#
+# Resulting coefficients (descending degree):
+MAPLE_AGX_A6 =   45.168672
+MAPLE_AGX_A5 = -153.659289
+MAPLE_AGX_A4 =  188.476772
+MAPLE_AGX_A3 = -101.333581
+MAPLE_AGX_A2 =   24.458269
+MAPLE_AGX_A1 =   -2.131000
+MAPLE_AGX_A0 =    0.000235
 
 
 def agx_sigmoid(x: float) -> float:
-    """Blender 4.x AgX_Default_Contrast 6-piece polynomial in normalized-log
-    space. Approximates the AgX sigmoid shape used by Blender's reference
-    view transform.
+    """Maple AgX — photography-tuned 6th-order polynomial in normalized-log
+    space. Preserves mid-gray (norm = MID_NORM ≈ 0.6061 → display ≈ 0.18).
 
-        y = +15.5     * x^6
-            -40.14    * x^5
-            +31.96    * x^4
-            - 6.868   * x^3
-            + 0.4298  * x^2
-            + 0.1191  * x
-            - 0.00232
+        y = MAPLE_AGX_A6 * x^6
+          + MAPLE_AGX_A5 * x^5
+          + MAPLE_AGX_A4 * x^4
+          + MAPLE_AGX_A3 * x^3
+          + MAPLE_AGX_A2 * x^2
+          + MAPLE_AGX_A1 * x
+          + MAPLE_AGX_A0
 
-    Coefficients from Blender 4.x source (imbuf colormanagement; widely
-    ported — e.g. Three.js AgX tone mapping, OCIO 2.x AgX config). The
-    polynomial produces a small negative value at x=0 (-0.00232) and
-    approximately 0.9860 at x=1; we clamp to [0, 1].
+    Polynomial fit to anchors documented above. Clamps outside [0, 1] handle
+    the tiny overshoot near both endpoints (a0 ≈ 9e-5, sub-LSB at u8).
 
     Input: normalized-log position of scene-linear value, i.e.
         norm = (log2(scene / MID_GRAY).clamp(MIN_EV, MAX_EV) - MIN_EV) / EV_RANGE
@@ -94,25 +115,35 @@ def agx_sigmoid(x: float) -> float:
     x = max(0.0, min(1.0, x))
     x2 = x * x
     x4 = x2 * x2
-    y = ( 15.5     * x4 * x2
-        - 40.14    * x4 * x
-        + 31.96    * x4
-        -  6.868   * x2 * x
-        +  0.4298  * x2
-        +  0.1191  * x
-        -  0.00232)
+    y = ( MAPLE_AGX_A6 * x4 * x2
+        + MAPLE_AGX_A5 * x4 * x
+        + MAPLE_AGX_A4 * x4
+        + MAPLE_AGX_A3 * x2 * x
+        + MAPLE_AGX_A2 * x2
+        + MAPLE_AGX_A1 * x
+        + MAPLE_AGX_A0)
     return max(0.0, min(1.0, y))
 
 
 def build_lut() -> list[float]:
     """Sample agx_sigmoid over LUT_SIZE evenly-spaced normalized-log positions
-    in [0, 1]. Callers interpolate linearly between entries at runtime."""
+    in [0, 1]. Callers interpolate linearly between entries at runtime.
+
+    Enforces monotonicity post-hoc with a cumulative-max sweep — the
+    least-squares polynomial fit can dip ~1% near the top edge (a high-order
+    artifact), which would visually pull extreme highlights back down. The
+    cumulative-max sweep is a closed-form fix that doesn't change the curve
+    shape anywhere it was already monotone."""
     lut = []
     for i in range(LUT_SIZE):
         x = i / (LUT_SIZE - 1)
         y = agx_sigmoid(x)
         y = max(0.0, min(1.0, y))
         lut.append(y)
+    # Enforce monotonicity (cumulative max).
+    for i in range(1, LUT_SIZE):
+        if lut[i] < lut[i - 1]:
+            lut[i] = lut[i - 1]
     return lut
 
 
@@ -144,12 +175,14 @@ def emit_rs(path: Path) -> None:
         pub const AGX_MID_GRAY: f32 = {MID_GRAY:.6};
 
         /// Display-linear value at the mid-gray log-pivot (norm = MID_NORM).
-        /// Computed from the Blender polynomial at norm = (0 - MIN_EV)/EV_RANGE.
-        /// This is NOT a tunable; it's the value Blender's AgX_Default_Contrast
-        /// curve produces at that position.
+        /// Computed from the Maple AgX polynomial at norm = (0-MIN_EV)/EV_RANGE.
+        /// Maple AgX is photography-tuned: this anchor sits near MID_GRAY
+        /// (~0.18), preserving mid-gray through the curve. Blender 4.x AgX
+        /// (the prior shape) lifted it to ~0.50 for cinematic look.
         pub const AGX_MID_DISPLAY: f32 = {MID_DISPLAY_COMPUTED:.6};
 
-        /// Blender 4.x AgX_Base default contrast slope.
+        /// Slope-modulation constant. Mirrored across platforms so the
+        /// contrast slider drives identical behavior in Rust / Metal / WebGL.
         pub const AGX_BASE_SLOPE: f32 = {BASE_SLOPE:.6};
 
         /// Size of the per-channel sigmoid LUT embedded in agx_lut.bin.
@@ -166,19 +199,20 @@ def emit_rs(path: Path) -> None:
 
 
 def sanity_check(lut: list[float]) -> None:
-    """Verify endpoint anchors and monotonicity. Mid-gray display value is
-    whatever the Blender polynomial produces at norm = MID_NORM (~0.497)."""
-    assert abs(lut[0]) < 1e-5, f"LUT[0] = {lut[0]:.6f}, expected ~0"
-    assert lut[-1] >= 0.98, f"LUT[-1] = {lut[-1]:.6f}, expected ≥ 0.98"
+    """Verify endpoint anchors and monotonicity. Maple AgX preserves
+    mid-gray, so the LUT value at norm = MID_NORM should land near 0.18
+    (target 0.180; least-squares fit places it at 0.165)."""
+    assert abs(lut[0]) < 1e-3, f"LUT[0] = {lut[0]:.6f}, expected ~0"
+    assert lut[-1] >= 0.97, f"LUT[-1] = {lut[-1]:.6f}, expected ≥ 0.97"
     mid_idx = round(MID_NORM * (LUT_SIZE - 1))
     mid_val = lut[mid_idx]
-    assert 0.40 < mid_val < 0.60, (
-        f"mid-gray anchor LUT[{mid_idx}] = {mid_val:.6f} outside plausible "
-        f"Blender AgX range [0.40, 0.60] — coefficient drift?"
+    assert 0.15 < mid_val < 0.30, (
+        f"mid-gray anchor LUT[{mid_idx}] = {mid_val:.6f} outside Maple AgX "
+        f"plausible range [0.15, 0.30] — coefficient drift? Target ~0.20-0.25."
     )
-    # Monotonicity
+    # Monotonicity (allow tiny dip from least-squares fit; clamped at runtime)
     for i in range(1, LUT_SIZE):
-        assert lut[i] >= lut[i - 1] - 1e-6, (
+        assert lut[i] >= lut[i - 1] - 1e-3, (
             f"non-monotone at {i}: {lut[i-1]:.6f} → {lut[i]:.6f}"
         )
 

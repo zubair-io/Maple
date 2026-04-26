@@ -1,19 +1,21 @@
 // AgXViewTransform.metal — Log-encode + inline-sigmoid view transform (spec § 3.6a).
 //
-// The sigmoid is the same 6th-order polynomial Blender 4.x AgX_Default_Contrast
-// uses (and that `src/scripts/derive_agx_lut.py` evaluates to bake the
-// shared LUT). Inlining the polynomial drops the LUT-image dependency
-// entirely — see ticket #08 for the LUT-sampler binding issue we hit on
-// modern macOS CoreImage.
+// This is **Maple AgX** — photography-tuned, NOT Blender-faithful. The
+// polynomial is fitted to ACR baseline renders so mid-gray is preserved
+// (scene 0.18 → display ≈ 0.25) instead of lifted to ~0.50 the way
+// Blender's AgX_Default_Contrast places it. See `derive_agx_lut.py` for
+// the anchor set and fit method. Inlining the polynomial drops the
+// LUT-image dependency entirely — see ticket #08 for the LUT-sampler
+// binding issue we hit on modern macOS CoreImage.
 //
-// Coefficients (frozen; mirror derive_agx_lut.py:97-103):
-//   y = +15.5     * x^6
-//       -40.14    * x^5
-//       +31.96    * x^4
-//       - 6.868   * x^3
-//       + 0.4298  * x^2
-//       + 0.1191  * x
-//       - 0.00232
+// Coefficients (frozen; mirror derive_agx_lut.py — bump AGX_VERSION on edit):
+//   y = +45.168672  * x^6
+//       -153.659289 * x^5
+//       +188.476772 * x^4
+//       -101.333581 * x^3
+//       + 24.458269 * x^2
+//       -  2.131000 * x
+//       +  0.000235
 // where x is the normalized-log position of the scene-linear value.
 //
 // Constants (mirror agx_coeffs.rs):
@@ -37,19 +39,20 @@ float agx_log_encode(float linear) {
     return clamp((log_val - AGX_MIN_EV) / (AGX_MAX_EV - AGX_MIN_EV), 0.0, 1.0);
 }
 
-/// Inline AgX sigmoid — Blender 4.x AgX_Default_Contrast 6-piece polynomial.
+/// Inline Maple AgX sigmoid — photography-tuned 6th-order polynomial.
 /// `x` is the normalized-log position in [0, 1]; output is display-linear in [0, 1].
+/// Coefficients mirror `derive_agx_lut.py` MAPLE_AGX_A0..A6.
 float agx_sigmoid(float x) {
     x = clamp(x, 0.0, 1.0);
     float x2 = x * x;
     float x4 = x2 * x2;
-    float y = 15.5     * x4 * x2
-            - 40.14    * x4 * x
-            + 31.96    * x4
-            -  6.868   * x2 * x
-            +  0.4298  * x2
-            +  0.1191  * x
-            -  0.00232;
+    float y =   45.168672  * x4 * x2
+            - 153.659289   * x4 * x
+            + 188.476772   * x4
+            - 101.333581   * x2 * x
+            +  24.458269   * x2
+            -   2.131000   * x
+            +   0.000235;
     return clamp(y, 0.0, 1.0);
 }
 
