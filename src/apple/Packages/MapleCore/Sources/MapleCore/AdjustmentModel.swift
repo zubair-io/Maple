@@ -51,14 +51,17 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
     // uses. First-open of a sidecar-less RAW should look as sharp as ACR's
     // default-import, not soft. See Ticket 12 Bug 3 for context.
     //
-    // The field _ranges_ are unchanged (sharpenRadius is documented 0.5..3.0
-    // and the slider clamps to that range); the Rust `sharpen::apply` call
-    // also clamps internally before turning radius into an integer box width,
-    // so a default of 5 is rounded to the upper bound (3) on render. We keep
-    // the spec-mandated default value verbatim so a future widening of the
-    // radius range (anti-aliased Gaussian, etc.) doesn't silently lose it.
+    // sharpenRadius default revised from 5 to 1.0 (this commit). The earlier
+    // value of 5 was outside the documented field range 0.5..3.0; both the
+    // Rust `sharpen::apply` and Apple Metal kernel clamp internally to 3.0
+    // and round to integer-px box width, so radius=5 silently rendered as
+    // radius=3 — pegged at the upper bound. Combined with amount=45 (3 RL
+    // iterations at full strength) on high-contrast-edge inputs (e.g. a
+    // ColorChecker chart) the 3-px stencil produced visible chroma halos.
+    // 1.0 is ACR's actual raw-file default and the value the docstring
+    // range implies as typical capture-sharpening.
     public var sharpenAmount: Double    // 0..150, default 45 (was 0)
-    public var sharpenRadius: Double    // 0.5..3.0, default 5 (was 0.5)
+    public var sharpenRadius: Double    // 0.5..3.0, default 1.0 (was 0.5, briefly 5)
     public var sharpenDetail: Double    // 0..100, default 25
     public var sharpenMasking: Double   // 0..100, default 0
 
@@ -84,7 +87,7 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
         texture: Double = 0,
         dehaze: Double = 0,
         sharpenAmount: Double = 45,
-        sharpenRadius: Double = 5,
+        sharpenRadius: Double = 1.0,
         sharpenDetail: Double = 25,
         sharpenMasking: Double = 0,
         nrLuminance: Double = 0,
