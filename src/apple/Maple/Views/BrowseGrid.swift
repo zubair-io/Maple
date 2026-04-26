@@ -53,7 +53,18 @@ struct BrowseGrid: View {
                         // Sub-folders first — Finder-style — then images.
                         ForEach(vm.subfolders, id: \.self) { url in
                             FolderCell(url: url)
+                                // Single click is a no-op (would select if
+                                // we had a folder-selection model). Order
+                                // matches image cells: count: 1 first, then
+                                // count: 2 — SwiftUI prefers the longer
+                                // sequence when both are attached.
                                 .onTapGesture {
+                                    // Reserved for future selection.
+                                }
+                                // Double click navigates into the folder —
+                                // matches Finder behavior + image-cell
+                                // double-click-to-open semantics (Bug 7).
+                                .onTapGesture(count: 2) {
                                     onNavigateFolder?(url)
                                 }
                         }
