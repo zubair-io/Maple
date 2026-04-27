@@ -465,9 +465,26 @@ public actor ImageEditPipeline {
             to: withNRLuminance,
             nrColor: Float(model.nrColor)
         )
-        return MetalKernels.applyAgXViewTransform(
-            to: withNRColor, contrast: Float(model.contrast)
-        )
+        // Non-RAW input is ALREADY display-encoded content (sRGB JPEG, HEIF
+        // photo, PNG screenshot). The bytes were tone-mapped at capture by
+        // the camera or the renderer that produced them; their dynamic
+        // range is bounded to [0, 1] in the source color space.
+        //
+        // AgX is a scene-referred view transform — it expects extended
+        // dynamic range (highlights well above 1.0) and tone-maps that
+        // down into display range. Applying AgX to display-bound input
+        // double-tone-maps: white at 1.0 compresses to ~0.82, the user
+        // sees screenshots come back dim and warm. ACR / Lightroom skip
+        // their default tone curve on non-RAW for the same reason.
+        //
+        // The contrast slider (which AgX normally consumes via curve
+        // slope modulation) is currently unused on the non-RAW path —
+        // future work could route it through a separate display-curve
+        // contrast stage if the slider needs to do anything visible.
+        // For default sliders today, output is near-passthrough — white
+        // stays white.
+        let _ = model.contrast  // explicitly unused; see comment above
+        return withNRColor
     }
 
     // MARK: Process (scene-linear path — Plan 1 FFI split)
