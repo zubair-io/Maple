@@ -1370,6 +1370,9 @@ mod tests {
             color_matrices,
             orientation: ExifOrientation::Normal,
             baseline_exposure: 0.0,
+            hsm_data1: None,
+            hsm_data2: None,
+            plt: None,
         }
     }
 }

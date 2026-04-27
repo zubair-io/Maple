@@ -362,6 +362,9 @@ mod tests {
             color_matrices: cms,
             orientation: crate::image::ExifOrientation::Normal,
             baseline_exposure: 0.0,
+            hsm_data1: None,
+            hsm_data2: None,
+            plt: None,
         }
     }
 
@@ -530,6 +533,9 @@ mod tests {
             color_matrices: cms,
             orientation: crate::image::ExifOrientation::Normal,
             baseline_exposure: 0.0,
+            hsm_data1: None,
+            hsm_data2: None,
+            plt: None,
         };
         let profile = profile_for(&raw).unwrap();
 
@@ -582,6 +588,9 @@ mod tests {
             color_matrices: cms.clone(),
             orientation: crate::image::ExifOrientation::Normal,
             baseline_exposure: 0.0,
+            hsm_data1: None,
+            hsm_data2: None,
+            plt: None,
         };
         let prof_linear = profile_for(&raw_linear).unwrap();
         // Pre-bake undo lives in linearize::linearraw_to_camera_rgb, not in
@@ -634,6 +643,9 @@ mod tests {
             color_matrices: cms,
             orientation: crate::image::ExifOrientation::Normal,
             baseline_exposure: 0.0,
+            hsm_data1: None,
+            hsm_data2: None,
+            plt: None,
         };
         let profile = profile_for(&raw).unwrap();
         // Neutral (1,1,1) camera neutral → should land near D65 CCT → interpolated
