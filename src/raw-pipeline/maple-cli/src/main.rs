@@ -1,6 +1,6 @@
 use clap::{Parser, Subcommand, ValueEnum};
 use raw_core::decode::decode_bytes;
-use raw_core::pipeline::render_from_raw;
+use raw_core::pipeline::{render_from_raw, render_from_raw_with_quality, RenderQuality};
 use raw_core::xmp;
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
@@ -18,6 +18,22 @@ fn render_path(
     Ok(render_from_raw(&raw, model)?)
 }
 
+/// Variant of `render_path` that lets the caller override `RenderQuality`.
+/// Used by `do_render` when `--demosaic amaze` (or `full` / `preview`) is
+/// passed on the CLI; the default `--demosaic full` matches `render_path`'s
+/// behaviour, so existing harnesses (`test_color_pipeline.sh`,
+/// `calibrate_color_pipeline.sh`) are unaffected.
+fn render_path_with_quality(
+    raw_path: &Path,
+    model: &xmp::AdjustmentModel,
+    quality: RenderQuality,
+) -> Result<(u32, u32, Vec<u8>), Box<dyn std::error::Error>> {
+    let bytes = std::fs::read(raw_path)?;
+    let ext = raw_path.extension().and_then(|e| e.to_str()).unwrap_or("");
+    let raw = decode_bytes(&bytes, ext)?;
+    Ok(render_from_raw_with_quality(&raw, model, quality)?)
+}
+
 /// Shell helper: write a buffer to disk.
 fn write_bytes(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     std::fs::write(path, bytes)
@@ -28,6 +44,30 @@ enum OutputFormat {
     Png,
     Jpeg,
     Tiff,
+}
+
+/// Demosaic / `RenderQuality` choice exposed on the CLI. `Full` is the
+/// default and matches the historical `maple-cli render` behaviour
+/// (Hamilton-Adams when compiled with `high-quality-demosaic`, bilinear
+/// otherwise) — the parity harnesses depend on this default. `Amaze`
+/// switches to the AMaZE demosaic for finer-detail / moiré-resistant
+/// renders. `Preview` exists for symmetry with the FFI/tile path so a
+/// user can generate a half-res candidate from the CLI.
+#[derive(ValueEnum, Clone, Copy, Debug)]
+enum DemosaicChoice {
+    Preview,
+    Full,
+    Amaze,
+}
+
+impl From<DemosaicChoice> for RenderQuality {
+    fn from(c: DemosaicChoice) -> Self {
+        match c {
+            DemosaicChoice::Preview => RenderQuality::Preview,
+            DemosaicChoice::Full    => RenderQuality::Full,
+            DemosaicChoice::Amaze   => RenderQuality::Amaze,
+        }
+    }
 }
 
 #[derive(Parser)]
@@ -58,6 +98,12 @@ enum Cmd {
         /// JPEG quality 1..100 (default 92). Ignored for PNG/TIFF.
         #[arg(long, default_value_t = 92)]
         quality: u8,
+        /// Demosaic algorithm: `full` (default — Hamilton-Adams or bilinear
+        /// per cargo features), `amaze` (higher-quality, slower), or
+        /// `preview` (half-res quad). The default keeps the historical
+        /// `maple-cli render` behaviour the parity harnesses depend on.
+        #[arg(long, value_enum, default_value_t = DemosaicChoice::Full)]
+        demosaic: DemosaicChoice,
     },
     /// Render every case in a JSON manifest.
     Batch {
@@ -96,7 +142,8 @@ enum Cmd {
         #[arg(long = "out-w")] out_w: u32,
         #[arg(long = "out-h")] out_h: u32,
         #[arg(long)] out: PathBuf,
-        /// Quality: `preview` (half-res quad demosaic) or `full`. Default `full`.
+        /// Quality: `preview` (half-res quad demosaic), `full`, or `amaze`
+        /// (high-quality AMaZE demosaic). Default `full`.
         #[arg(long, default_value = "full")]
         quality: String,
     },
@@ -129,7 +176,7 @@ struct Manifest {
 fn main() -> ExitCode {
     let cli = Cli::parse();
     match cli.cmd {
-        Cmd::Render { raw, params, out, format, quality } => run_or_exit(do_render(&raw, params.as_deref(), &out, format, quality)),
+        Cmd::Render { raw, params, out, format, quality, demosaic } => run_or_exit(do_render(&raw, params.as_deref(), &out, format, quality, demosaic)),
         Cmd::Batch { manifest, out_dir, cases_filter } => {
             run_or_exit(do_batch(&manifest, &out_dir, cases_filter.as_deref()))
         }
@@ -167,12 +214,23 @@ fn do_render(
     out: &Path,
     format: Option<OutputFormat>,
     quality: u8,
+    demosaic: DemosaicChoice,
 ) -> Result<i32, Box<dyn std::error::Error>> {
     let model = match params {
         Some(p) => xmp::parse(&std::fs::read_to_string(p)?)?,
         None => xmp::AdjustmentModel::default(),
     };
-    let (w, h, bytes) = render_path(raw, &model)?;
+    // `DemosaicChoice::Full` (the default) routes through `render_path`
+    // for byte-for-byte identity with the historical entry the parity
+    // harnesses depend on. Non-default choices route through the
+    // quality-aware entry. `render_from_raw` itself dispatches to
+    // `render_from_raw_with_quality(_, _, RenderQuality::Full)` so the
+    // two paths produce the same bytes when `demosaic == Full`, but we
+    // keep the dispatch explicit to make the harness invariant obvious.
+    let (w, h, bytes) = match demosaic {
+        DemosaicChoice::Full => render_path(raw, &model)?,
+        other                => render_path_with_quality(raw, &model, other.into())?,
+    };
     let fmt = format.unwrap_or_else(|| infer_format(out));
     let encoded = match fmt {
         OutputFormat::Png  => raw_core::png::encode(w, h, &bytes)?,
@@ -200,7 +258,7 @@ fn do_batch(
         }
         let flat = case.name.replace('/', "_");
         let out_png = out_dir.join(format!("{}.png", flat));
-        match do_render(&case.raw, Some(&case.xmp), &out_png, None, 92) {
+        match do_render(&case.raw, Some(&case.xmp), &out_png, None, 92, DemosaicChoice::Full) {
             Ok(_) => {
                 eprintln!("ok  {}", case.name);
                 ok += 1;
@@ -322,8 +380,9 @@ fn do_tile(
     let q = match quality {
         "preview" => RenderQuality::Preview,
         "full"    => RenderQuality::Full,
+        "amaze"   => RenderQuality::Amaze,
         other     => return Err(format!(
-            "invalid quality '{}': use 'preview' or 'full'", other).into()),
+            "invalid quality '{}': use 'preview', 'full', or 'amaze'", other).into()),
     };
     let (w, h, fp16) = render_scene_linear_tile_from_raw_with_quality(
         &raw_img, &model, src_x, src_y, src_w, src_h, out_w, out_h, q,
