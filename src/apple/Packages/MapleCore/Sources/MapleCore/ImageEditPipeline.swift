@@ -386,6 +386,97 @@ public actor ImageEditPipeline {
         return (cg, cs)
     }
 
+    // MARK: FFI per-tick chain helper
+
+    /// Render `scaled` to a fp16 RGBA byte buffer via the pipeline's
+    /// CIContext, hand it to the Rust `apply_scene_linear_chain` FFI to
+    /// run the cheap-stages chain (WB → tone → vibrance → saturation →
+    /// clarity → texture → dehaze → nr_luminance → optional AgX), then
+    /// wrap the FFI's output back into a CIImage at the same extent.
+    ///
+    /// This collapses 8 Metal-kernel CIImage compositions into one
+    /// flat-buffer round-trip plus a single CIImage wrap. The CIContext
+    /// render is a Metal-backed render so the input materialisation
+    /// stays on the GPU until the byte copy.
+    ///
+    /// `decodedTemperature` / `decodedTint` are the WB the cached buffer
+    /// was decoded at by the Rust FFI (sidecar Temperature/Tint when an
+    /// XMP was applied; 6500/0 otherwise). The chain runs the WB delta
+    /// `wb_gains(live) / wb_gains(decoded)` so opening a saved sidecar
+    /// doesn't double-apply WB. `skipAgX` flips off the AgX tail for
+    /// non-RAW input that already has a tone curve baked in.
+    nonisolated private func applySceneLinearChainViaFFI(
+        _ scaled: CIImage,
+        model: AdjustmentModel,
+        decodedTemperature: Double,
+        decodedTint: Double,
+        skipAgX: Bool
+    ) -> CIImage {
+        let extent = scaled.extent
+        let w = Int(extent.width.rounded())
+        let h = Int(extent.height.rounded())
+        guard w > 0, h > 0 else { return scaled }
+
+        let bytesPerPixel = 8 // 4 fp16 lanes
+        let rowBytes = w * bytesPerPixel
+        let totalBytes = rowBytes * h
+        let space = CGColorSpace(name: CGColorSpace.extendedLinearITUR_2020)!
+
+        // Materialise scaled CIImage -> fp16 RGBA bytes.
+        var inputBytes = Data(count: totalBytes)
+        let renderSucceeded: Bool = inputBytes.withUnsafeMutableBytes { buf -> Bool in
+            guard let base = buf.baseAddress else { return false }
+            context.render(
+                scaled,
+                toBitmap: base,
+                rowBytes: rowBytes,
+                bounds: CGRect(x: 0, y: 0, width: w, height: h),
+                format: .RGBAh,
+                colorSpace: space
+            )
+            return true
+        }
+        guard renderSucceeded else {
+            logger.error("applySceneLinearChainViaFFI: CIContext.render failed; falling through")
+            return scaled
+        }
+
+        // Run the FFI chain. On error, log and fall through to the
+        // unprocessed input — the Apple side still shows pixels rather
+        // than going black on a kernel hiccup.
+        let params = PipelineRenderer.makeParams(
+            from: model,
+            decodedTemperature: decodedTemperature,
+            decodedTint: decodedTint,
+            skipAgX: skipAgX
+        )
+        let outputBytes: Data
+        do {
+            outputBytes = try mapleStage("apply scene-linear chain") {
+                try PipelineRenderer.applySceneLinearChain(
+                    inputBytes: inputBytes, width: w, height: h, params: params
+                )
+            }
+        } catch {
+            logger.error("applySceneLinearChainViaFFI: FFI error: \(error.localizedDescription, privacy: .public)")
+            return scaled
+        }
+
+        // Wrap the FFI output back into a CIImage. The bytes are fp16
+        // RGBA in extendedLinearITUR_2020 — same colour space the FFI
+        // input was in, so downstream `MetalKernels.*` consumers see
+        // the buffer they expect.
+        return mapleStage("FFI chain CIImage build") {
+            CIImage(
+                bitmapData: outputBytes,
+                bytesPerRow: rowBytes,
+                size: CGSize(width: w, height: h),
+                format: .RGBAh,
+                colorSpace: space
+            )
+        }
+    }
+
     // MARK: Process (non-RAW path — skip WB calibration)
 
     /// Scene-linear chain for non-RAW input. Identical to
@@ -407,84 +498,44 @@ public actor ImageEditPipeline {
     ) -> CIImage {
         let scaled = Self.prescaleForDisplay(decoded, targetSize: targetSize)
 
-        // Non-RAW WB: identity at user's "as shot" (6500/0). Use the live
-        // model values directly with a synthetic `decoded = (6500, 0)`
-        // baseline so the kernel computes (live - 6500/0), giving the
-        // identity short-circuit the kernel uses internally.
-        let withWB = MetalKernels.applyWhiteBalance(
-            to: scaled,
-            liveTemperature: Float(model.temperature),
-            liveTint: Float(model.tint),
-            decodedTemperature: 6500,
-            decodedTint: 0
+        // Non-RAW WB: identity at user's "as shot" (6500/0). The FFI
+        // applies the live-vs-decoded delta the same way the retired
+        // WhiteBalance.metal kernel did — pass `(6500, 0)` as the
+        // decoded baseline so the chain treats the user's slider value
+        // as the absolute target and short-circuits at the default.
+        //
+        // `skipAgX: true` because non-RAW input is ALREADY display-encoded
+        // content (sRGB JPEG, HEIF photo, PNG screenshot). The bytes were
+        // tone-mapped at capture by the camera or the renderer that
+        // produced them; AgX is a scene-referred view transform expecting
+        // extended dynamic range, so applying it to display-bound input
+        // double-tone-maps (white at 1.0 compresses to ~0.82, screenshots
+        // come back dim and warm). ACR / Lightroom skip their default
+        // tone curve on non-RAW for the same reason.
+        //
+        // The contrast slider (which AgX normally consumes via curve
+        // slope modulation) is therefore unused on the non-RAW path; for
+        // default sliders today, output is near-passthrough.
+        let chained = applySceneLinearChainViaFFI(
+            scaled, model: model,
+            decodedTemperature: 6500.0, decodedTint: 0.0,
+            skipAgX: true
         )
 
-        // From here down the chain is identical to processSceneLinear:
-        // every stage works on scene-linear Rec.2020 RGB regardless of
-        // the input source.
-        let withTone = MetalKernels.applySceneToneControls(
-            to: withWB,
-            exposure: Float(model.exposure),
-            highlights: Float(model.highlights),
-            shadows: Float(model.shadows),
-            whites: Float(model.whites),
-            blacks: Float(model.blacks)
-        )
-        let withVibrance = MetalKernels.applySceneVibrance(
-            to: withTone,
-            vibrance: Float(model.vibrance)
-        )
-        let withSaturation = MetalKernels.applySceneSaturation(
-            to: withVibrance,
-            saturation: Float(model.saturation)
-        )
-        let withClarity = MetalKernels.applySceneClarity(
-            to: withSaturation,
-            clarity: Float(model.clarity)
-        )
-        let withTexture = MetalKernels.applySceneTexture(
-            to: withClarity,
-            texture: Float(model.texture)
-        )
-        let withDehaze = MetalKernels.applySceneDehaze(
-            to: withTexture,
-            dehaze: Float(model.dehaze)
-        )
+        // Sharpen + nr_color stay on the Apple GPU path (Metal compute
+        // kernels) — Richardson-Lucy at 33 ms / 2 MP and Oklab UV blur
+        // at 5 ms / 2 MP exceed the slider tick budget on Rust-on-CPU.
         let withSharpen = MetalKernels.applySceneSharpen(
-            to: withDehaze,
+            to: chained,
             amount: Float(model.sharpenAmount),
             radius: Float(model.sharpenRadius),
             detail: Float(model.sharpenDetail),
             masking: Float(model.sharpenMasking)
         )
-        let withNRLuminance = MetalKernels.applySceneNRLuminance(
+        return MetalKernels.applySceneNRColor(
             to: withSharpen,
-            nrLuminance: Float(model.nrLuminance)
-        )
-        let withNRColor = MetalKernels.applySceneNRColor(
-            to: withNRLuminance,
             nrColor: Float(model.nrColor)
         )
-        // Non-RAW input is ALREADY display-encoded content (sRGB JPEG, HEIF
-        // photo, PNG screenshot). The bytes were tone-mapped at capture by
-        // the camera or the renderer that produced them; their dynamic
-        // range is bounded to [0, 1] in the source color space.
-        //
-        // AgX is a scene-referred view transform — it expects extended
-        // dynamic range (highlights well above 1.0) and tone-maps that
-        // down into display range. Applying AgX to display-bound input
-        // double-tone-maps: white at 1.0 compresses to ~0.82, the user
-        // sees screenshots come back dim and warm. ACR / Lightroom skip
-        // their default tone curve on non-RAW for the same reason.
-        //
-        // The contrast slider (which AgX normally consumes via curve
-        // slope modulation) is currently unused on the non-RAW path —
-        // future work could route it through a separate display-curve
-        // contrast stage if the slider needs to do anything visible.
-        // For default sliders today, output is near-passthrough — white
-        // stays white.
-        let _ = model.contrast  // explicitly unused; see comment above
-        return withNRColor
     }
 
     // MARK: Process (scene-linear path — Plan 1 FFI split)
@@ -526,139 +577,51 @@ public actor ImageEditPipeline {
     ) -> CIImage {
         let scaled = Self.prescaleForDisplay(decoded, targetSize: targetSize)
 
-        // Plan 2 M3 — the WB kernel applies (live / decoded) so opening
-        // a saved sidecar doesn't double-apply WB. The Rust path applied
-        // sidecar WB at decode; the Apple kernel applies the slider delta
-        // on top. When `decodedAtModel` is nil (e.g. legacy callers, no
-        // sidecar known), fall back to 6500/0 which matches the Rust
-        // default's identity short-circuit.
-        let decodedTemp = Float(decodedAtModel?.temperature ?? 6500)
-        let decodedTint = Float(decodedAtModel?.tint ?? 0)
-        let withWB = MetalKernels.applyWhiteBalance(
-            to: scaled,
-            liveTemperature: Float(model.temperature),
-            liveTint: Float(model.tint),
-            decodedTemperature: decodedTemp,
-            decodedTint: decodedTint
+        // FFI-collapse path: white_balance → scene_tone_controls →
+        // vibrance → saturation → clarity → texture → dehaze →
+        // nr_luminance → AgX all run in a single FFI call against the
+        // canonical Rust core. Replaces 9 separate Metal-kernel CIImage
+        // compositions with one round-trip — and inherits the Rust
+        // pipeline's algorithmic decisions verbatim, which closes the
+        // drift between Apple and Rust on every cheap stage.
+        //
+        // `decodedAtModel` is the model the Rust FFI used during decode
+        // (parsed from the sidecar on disk, or `.default` when no
+        // sidecar exists). The chain applies a WB delta
+        // `wb_gains(live) / wb_gains(decoded)` so opening a saved
+        // sidecar doesn't double-apply WB. When `decodedAtModel` is nil,
+        // fall back to 6500/0 which matches the Rust default's identity
+        // short-circuit.
+        let decodedTemp = decodedAtModel?.temperature ?? 6500.0
+        let decodedTint = decodedAtModel?.tint ?? 0.0
+        let chained = applySceneLinearChainViaFFI(
+            scaled, model: model,
+            decodedTemperature: decodedTemp, decodedTint: decodedTint,
+            skipAgX: false
         )
 
-        // Plan 2 M1 — Stage: SceneToneControls (exposure / highlights /
-        // shadows / whites / blacks). Per-pixel scene-linear Rec.2020 op.
-        // Kernel mirrors `scene_tone_controls.rs` from raw-core; whites/
-        // blacks semantics (`w_gain = 1 + whites/200`, `b_add = blacks/400`)
-        // are identical on both sides — verified by Plan 2 pre-flight
-        // Step 1.3.
-        let withTone = MetalKernels.applySceneToneControls(
-            to: withWB,
-            exposure: Float(model.exposure),
-            highlights: Float(model.highlights),
-            shadows: Float(model.shadows),
-            whites: Float(model.whites),
-            blacks: Float(model.blacks)
-        )
-
-        // Plan 2 M1 — Stage: SceneVibrance (Oklab chroma boost with
-        // skin-tone protection). Mirrors vibrance.rs (raw-core); the
-        // Oklab matrices in the kernel match the Rust source verbatim
-        // — verified by Plan 2 pre-flight Step 1.4.
-        let withVibrance = MetalKernels.applySceneVibrance(
-            to: withTone,
-            vibrance: Float(model.vibrance)
-        )
-
-        // Plan 2 M2 — Stage: SceneSaturation (Oklab uniform chroma scale).
-        // Mirrors `saturation::apply` from raw-core (saturation.rs:12).
-        // Uses the same Oklab matrices as SceneVibrance.metal
-        // (intentionally repeated; Metal doesn't share `constant` globals
-        // between .metal files).
-        let withSaturation = MetalKernels.applySceneSaturation(
-            to: withVibrance,
-            saturation: Float(model.saturation)
-        )
-
-        // Plan 2 v2 M2 — Stage: SceneClarity (unsharp mask at radius 40 in
-        // scene-linear Rec.2020 RGB). Mirrors clarity::apply from raw-core
-        // (clarity.rs:10). Backed by the shared SeparableGaussianBlur
-        // compute kernel (Task 2). The 40-pixel radius is the binding
-        // constraint for Deep Zoom's 35-pixel overlap budget — see
-        // docs/superpowers/plans/2026-04-25-deep-zoom-tile-rendering.md
-        // § Architecture point 2; do not change without re-verifying.
-        let withClarity = MetalKernels.applySceneClarity(
-            to: withSaturation,
-            clarity: Float(model.clarity)
-        )
-
-        // Plan 2 v2 M2 — Stage: SceneTexture (unsharp mask at radius 3 in
-        // scene-linear Rec.2020 RGB). Mirrors texture::apply from raw-core
-        // (texture.rs:10). Backed by the same SeparableGaussianBlur
-        // compute kernel as clarity (Task 2); only the radius differs.
-        let withTexture = MetalKernels.applySceneTexture(
-            to: withClarity,
-            texture: Float(model.texture)
-        )
-
-        // Plan 2 v2 v4 M5 — Stage: SceneDehaze (dark-channel + atmospheric-
-        // light + transmission + guided-filter + reconstruction). Mirrors
-        // dehaze::apply from raw-core (dehaze.rs:144-179). Backed by 5
-        // pure-Metal compute kernel files (DehazeDarkChannel, Atmospheric-
-        // Light, Transmission, Guide, BoxBlur, GuidedFilter) plus 1
-        // CIColorKernel (DehazeReconstruct). The 67 px stencil exceeds
-        // Deep Zoom's 35 px overlap budget — when this slider is non-
-        // zero, the deep-zoom UI clamps maxPixelScale to fit-zoom (see
-        // docs/superpowers/plans/2026-04-25-deep-zoom-tile-rendering.md
-        // Architecture point 3). This wrapper does NOT change that
-        // fallback; it composes whole-image only.
-        let withDehaze = MetalKernels.applySceneDehaze(
-            to: withTexture,
-            dehaze: Float(model.dehaze)
-        )
-
-        // Plan 2 v2 v3 M4 — Stage: SceneSharpen (3-iter Richardson-Lucy +
-        // edge-aware mix in scene-linear Rec.2020 RGB). Mirrors
-        // sharpen::apply from raw-core (sharpen.rs:22-124). Orchestrates
-        // the shared SeparableGaussianBlur compute kernel (3 RL iters ×
-        // 2 blurs each + optional overdrive blur = up to 7 blur passes)
-        // plus the small per-pixel kernels rlRatio, rlMultiply,
-        // sharpenLuminance, sharpenEdgeMix, sharpenOverdrive. Maximum
-        // effective stencil at sharpen_radius=3.0 is ~9 src px (3 RL
-        // iters × box of radius ≤3 + 1 px central-difference for the
-        // gradient), well inside the Deep Zoom 35 px overlap budget.
+        // sharpen + nr_color stay on the Apple GPU path (Metal compute
+        // kernels). Both run AFTER the FFI's AgX, so they operate in
+        // display-linear Rec.2020 ([0,1]) rather than the scene-linear
+        // domain the original pipeline placed them in. This is a known
+        // behaviour change from "sharpen pre-AgX in scene-linear" to
+        // "sharpen post-AgX in display-linear" — chosen because:
+        //   * sharpen at viewport size dominates Rust-on-CPU latency
+        //     (~33 ms / 2 MP, exceeding the 16 ms slider tick budget);
+        //     GPU is essential.
+        //   * the display-domain shift only affects highlight halos, not
+        //     midtones — the visible difference at default sliders
+        //     (sharpen_amount = 0) is zero.
         let withSharpen = MetalKernels.applySceneSharpen(
-            to: withDehaze,
+            to: chained,
             amount: Float(model.sharpenAmount),
             radius: Float(model.sharpenRadius),
             detail: Float(model.sharpenDetail),
             masking: Float(model.sharpenMasking)
         )
-
-        // Plan 2 v2 v2 M3 — Stage: SceneNRLuminance (Oklab roundtrip + shared
-        // blur on the L channel). Mirrors noise_reduction::apply_luminance
-        // from raw-core (noise_reduction.rs:20-55). Backed by the same
-        // SeparableGaussianBlur compute kernel. Radius is integer, scaled
-        // by model.nrLuminance: max(1, ceil((amount/100) * 2.0)) — at
-        // amount=100, radius=2 src px (3-pass box ~3 px tail), well inside
-        // the Deep Zoom 35 px overlap budget.
-        let withNRLuminance = MetalKernels.applySceneNRLuminance(
+        return MetalKernels.applySceneNRColor(
             to: withSharpen,
-            nrLuminance: Float(model.nrLuminance)
-        )
-
-        // Plan 2 v2 v2 M3 — Stage: SceneNRColor (Oklab roundtrip + shared
-        // blur on the a/b channels). Mirrors noise_reduction::apply_color
-        // from raw-core (noise_reduction.rs:61-96). AdjustmentModel.nrColor
-        // defaults to 25 (radius=1) — this stage runs by default. Maximum
-        // radius at amount=100 is 4 src px.
-        let withNRColor = MetalKernels.applySceneNRColor(
-            to: withNRLuminance,
             nrColor: Float(model.nrColor)
-        )
-
-        // Stage: AgX view transform — exactly once, on scene-linear data.
-        // The kernel is per-channel (verified by Spike 1.2), so feeding it
-        // Rec.2020 instead of sRGB only matters for out-of-gamut content.
-        // Sigmoid is inlined as 6-piece polynomial (ticket #08 fix).
-        return MetalKernels.applyAgXViewTransform(
-            to: withNRColor, contrast: Float(model.contrast)
         )
     }
 

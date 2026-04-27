@@ -398,6 +398,165 @@ fn f32_to_f16_bits(x: f32) -> u16 {
     sign | ((fp16_exp as u16) << 10) | (fp16_mant as u16)
 }
 
+/// IEEE 754 binary16 decode to `f32`. Inverse of `f32_to_f16_bits`. Used
+/// by `apply_scene_linear_chain` to unpack the caller's fp16 RGBA bytes
+/// (CIImage `RGBAh` working format) back into the f32 the per-stage
+/// `apply` functions in `crate::stages` operate on.
+fn f16_bits_to_f32(bits: u16) -> f32 {
+    let sign = ((bits & 0x8000) as u32) << 16;
+    let exp = ((bits >> 10) & 0x1f) as u32;
+    let mant = (bits & 0x03ff) as u32;
+    let f = if exp == 0 && mant == 0 {
+        // ±0
+        f32::from_bits(sign)
+    } else if exp == 0 {
+        // Subnormal: value = mant * 2^-24
+        let mut m = mant;
+        let mut e: i32 = -14;
+        while m & 0x0400 == 0 {
+            m <<= 1;
+            e -= 1;
+        }
+        m &= 0x03ff;
+        let f32_exp = ((e + 127) as u32) << 23;
+        f32::from_bits(sign | f32_exp | (m << 13))
+    } else if exp == 0x1f {
+        // Inf / NaN
+        f32::from_bits(sign | 0x7f800000 | (mant << 13))
+    } else {
+        let f32_exp = (exp + 127 - 15) << 23;
+        f32::from_bits(sign | f32_exp | (mant << 13))
+    };
+    f
+}
+
+/// Apply the per-tick scene-linear chain to an already-decoded fp16 RGBA
+/// scene-linear Rec.2020 buffer.
+///
+/// Stages, in order: `white_balance::apply_delta` → `scene_tone_controls`
+/// → `vibrance` → `saturation` → `clarity` → `texture` → `dehaze` →
+/// `nr_luminance` → `agx`.
+///
+/// **Deliberately omits** `sharpen` and `nr_color`. Those two stages are
+/// kept on the Apple GPU path (Metal compute pipelines) because:
+///   * sharpen at viewport size dominates Rust-on-CPU latency (~33 ms on a
+///     2 MP buffer, exceeding the 16 ms slider tick budget); GPU is
+///     essential.
+///   * nr_color is borderline (~5 ms) but architecturally easier to leave
+///     on Metal alongside sharpen than to split the FFI surface.
+///
+/// `decoded_temp`/`decoded_tint` are the WB the cached buffer was decoded
+/// at by the Rust FFI (sidecar `Temperature`/`Tint` fields when an XMP
+/// was passed to `decodeSceneLinear`, else 6500/0). The chain applies
+/// the **delta** `wb_gains(live) / wb_gains(decoded)` so opening a saved
+/// sidecar doesn't double-apply WB. Pass `(6500.0, 0.0)` for the "no
+/// sidecar applied at decode" common case.
+///
+/// `skip_agx` flips off the AgX view transform tail. Set true for the
+/// non-RAW input path, where the JPEG / HEIF input already has a tone
+/// curve baked in by the camera and applying AgX would double-tone-map.
+///
+/// Input is parsed as packed fp16 RGBA, row-major, 4 lanes per pixel
+/// (`bytes_per_pixel = 8`). Alpha is read but ignored — the output writes
+/// alpha=1.0 unconditionally because every stage in the chain operates on
+/// straight RGB and `Image::pixels` is `Vec<[f32; 3]>`.
+///
+/// Output is the same packed fp16 RGBA layout: post-AgX
+/// `DisplayLinearRec2020` ([0,1]) when `skip_agx == false`, else still
+/// scene-linear `SceneLinearRec2020` (unbounded). The Apple side re-tags
+/// the CIImage as `extendedLinearITUR_2020` for the optional sharpen /
+/// nr_color Metal kernels to consume, then sRGB-encodes at the
+/// `CIContext.createCGImage` boundary.
+///
+/// Performance notes (per the worktree-agent-a1ee8a4c brief):
+/// At 2 MP viewport size, every stage in this chain runs in <2 ms with
+/// the exception of dehaze (which short-circuits to a no-op when
+/// `model.dehaze == 0`, the default). Whole-chain target: <10 ms.
+pub fn apply_scene_linear_chain(
+    in_fp16_rgba: &[u16],
+    width: u32,
+    height: u32,
+    model: &AdjustmentModel,
+    decoded_temp: f32,
+    decoded_tint: f32,
+    skip_agx: bool,
+) -> Result<Vec<u16>> {
+    use crate::image::{ColorSpace, Image};
+    use crate::stages::{
+        clarity, dehaze, noise_reduction, saturation, scene_tone_controls, texture, vibrance,
+        white_balance,
+    };
+    use crate::view::agx;
+
+    let pixel_count = (width as usize) * (height as usize);
+    if in_fp16_rgba.len() != pixel_count * 4 {
+        return Err(crate::error::Error::Pipeline(format!(
+            "apply_scene_linear_chain: input length {} != width({}) * height({}) * 4 = {}",
+            in_fp16_rgba.len(),
+            width,
+            height,
+            pixel_count * 4
+        )));
+    }
+
+    // Decode fp16 RGBA -> Image (Vec<[f32; 3]>, alpha discarded).
+    let mut img = stage("ffi_chain_unpack_fp16", || {
+        let mut pixels: Vec<[f32; 3]> = Vec::with_capacity(pixel_count);
+        for chunk in in_fp16_rgba.chunks_exact(4) {
+            let r = f16_bits_to_f32(chunk[0]);
+            let g = f16_bits_to_f32(chunk[1]);
+            let b = f16_bits_to_f32(chunk[2]);
+            pixels.push([r, g, b]);
+        }
+        Image {
+            width,
+            height,
+            pixels,
+            space: ColorSpace::SceneLinearRec2020,
+        }
+    });
+
+    // Per-stage application — mirrors `develop_scene_linear_from_raw_with_quality`
+    // from `pipeline.rs:182-192`, with sharpen + nr_color intentionally
+    // omitted. The order MUST match the Rust reference so calibrate_color_pipeline
+    // remains the canonical metric.
+    stage("ffi_chain_white_balance", || {
+        white_balance::apply_delta(&mut img, model.temperature, model.tint, decoded_temp, decoded_tint)
+    });
+    stage("ffi_chain_scene_tone_controls", || {
+        scene_tone_controls::apply(&mut img, model)
+    });
+    stage("ffi_chain_vibrance", || vibrance::apply(&mut img, model.vibrance));
+    stage("ffi_chain_saturation", || {
+        saturation::apply(&mut img, model.saturation)
+    });
+    stage("ffi_chain_clarity", || clarity::apply(&mut img, model.clarity));
+    stage("ffi_chain_texture", || texture::apply(&mut img, model.texture));
+    stage("ffi_chain_dehaze", || dehaze::apply(&mut img, model.dehaze));
+    // sharpen omitted — kept on Metal GPU path (~33 ms at viewport on CPU)
+    stage("ffi_chain_nr_luminance", || {
+        noise_reduction::apply_luminance(&mut img, model.nr_luminance)
+    });
+    // nr_color omitted — kept on Metal GPU path alongside sharpen
+    if !skip_agx {
+        stage("ffi_chain_agx", || agx::apply(&mut img, model.contrast));
+    }
+
+    // Pack post-AgX (DisplayLinearRec2020, [0,1]) back to fp16 RGBA.
+    let fp16 = stage("ffi_chain_pack_fp16", || {
+        let mut v: Vec<u16> = Vec::with_capacity(pixel_count * 4);
+        let alpha_one = f32_to_f16_bits(1.0);
+        for p in &img.pixels {
+            v.push(f32_to_f16_bits(p[0]));
+            v.push(f32_to_f16_bits(p[1]));
+            v.push(f32_to_f16_bits(p[2]));
+            v.push(alpha_one);
+        }
+        v
+    });
+    Ok(fp16)
+}
+
 /// Scene-linear render entry. Runs the same development chain as
 /// `render_from_raw_with_quality` (via the shared
 /// `develop_scene_linear_from_raw_with_quality` helper — Step 2.4a)
@@ -1033,6 +1192,88 @@ mod tests {
         assert_eq!(f32_to_f16_bits(1.0), 0x3c00);
         assert_eq!(f32_to_f16_bits(2.0), 0x4000);
         assert_eq!(f32_to_f16_bits(1.5), 0x3e00);
+    }
+
+    /// `f16_bits_to_f32` is the inverse of `f32_to_f16_bits` for the
+    /// canonical sentinel values. Values exactly representable in fp16
+    /// (0, 1, 1.5, 2) must round-trip with zero error.
+    #[test]
+    fn f16_bits_to_f32_inverse_of_f32_to_f16_bits() {
+        for x in [0.0f32, 1.0, 1.5, 2.0, 0.5, -1.0, -0.25] {
+            let bits = f32_to_f16_bits(x);
+            let back = f16_bits_to_f32(bits);
+            assert!((back - x).abs() < 1e-6,
+                "round-trip {}: got {} (fp16 bits 0x{:04x})", x, back, bits);
+        }
+    }
+
+    /// `apply_scene_linear_chain` over a default model is the AgX-only
+    /// transform (every other stage short-circuits at default values). On
+    /// a flat mid-gray input the output should be a constant non-zero
+    /// post-AgX value (no NaN, no negative).
+    #[test]
+    fn apply_scene_linear_chain_default_model_yields_agx_only() {
+        let w = 4u32;
+        let h = 4u32;
+        let pixels = (w * h) as usize;
+        let g = f32_to_f16_bits(0.18);
+        let one = f32_to_f16_bits(1.0);
+        let mut input: Vec<u16> = Vec::with_capacity(pixels * 4);
+        for _ in 0..pixels {
+            input.push(g);
+            input.push(g);
+            input.push(g);
+            input.push(one);
+        }
+        let model = AdjustmentModel::default();
+        let out = apply_scene_linear_chain(&input, w, h, &model, 6500.0, 0.0, false)
+            .expect("apply_scene_linear_chain default-model");
+        assert_eq!(out.len(), input.len());
+        let r = f16_bits_to_f32(out[0]);
+        let g_out = f16_bits_to_f32(out[1]);
+        let b = f16_bits_to_f32(out[2]);
+        let a = f16_bits_to_f32(out[3]);
+        assert!(r > 0.0 && r < 1.0, "R out of [0,1]: {}", r);
+        assert!(g_out > 0.0 && g_out < 1.0, "G out of [0,1]: {}", g_out);
+        assert!(b > 0.0 && b < 1.0, "B out of [0,1]: {}", b);
+        assert!((a - 1.0).abs() < 1e-3, "alpha must be 1.0: {}", a);
+        assert!((r - g_out).abs() < 1e-3, "R != G: {} vs {}", r, g_out);
+        assert!((g_out - b).abs() < 1e-3, "G != B: {} vs {}", g_out, b);
+    }
+
+    /// `skip_agx` keeps the buffer in scene-linear domain — mid-gray
+    /// 0.18 stays 0.18 (modulo fp16 rounding).
+    #[test]
+    fn apply_scene_linear_chain_skip_agx_preserves_scene_linear() {
+        let w = 4u32;
+        let h = 4u32;
+        let pixels = (w * h) as usize;
+        let g = f32_to_f16_bits(0.18);
+        let one = f32_to_f16_bits(1.0);
+        let mut input: Vec<u16> = Vec::with_capacity(pixels * 4);
+        for _ in 0..pixels {
+            input.push(g);
+            input.push(g);
+            input.push(g);
+            input.push(one);
+        }
+        let model = AdjustmentModel::default();
+        let out = apply_scene_linear_chain(&input, w, h, &model, 6500.0, 0.0, true)
+            .expect("apply_scene_linear_chain skip_agx");
+        let r = f16_bits_to_f32(out[0]);
+        // Default model = identity for every cheap stage. With skip_agx
+        // we expect input ≈ output (modulo fp16 round-trip).
+        assert!((r - 0.18).abs() < 0.01,
+            "skip_agx default-model should be identity at scene-linear, got R={}", r);
+    }
+
+    /// Length mismatch surfaces as a Pipeline error, not a panic.
+    #[test]
+    fn apply_scene_linear_chain_rejects_size_mismatch() {
+        let model = AdjustmentModel::default();
+        let bogus_input = vec![0u16; 10];
+        let r = apply_scene_linear_chain(&bogus_input, 4, 4, &model, 6500.0, 0.0, false);
+        assert!(r.is_err(), "size mismatch must error");
     }
 
     /// Round-trip 1.5 through fp16 and back. The buggy form would return
