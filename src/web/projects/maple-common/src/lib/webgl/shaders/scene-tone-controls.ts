@@ -64,10 +64,23 @@ void main() {
         p *= w_gain;
     }
 
-    // 5. Blacks — linear shift; can go negative in scene-linear (per metal:69-72).
+    // 5. Blacks — additive shift, then floor at 0 to keep deep shadows
+    //    physical (no negative scene-linear values).
+    //
+    // Pre-fix: \`p += uBlacks/400\` could drive deep-shadow pixels
+    // negative; the downstream AgX shader log-encodes per channel and
+    // clamps the negative to display ≈ 0, but if any channel survives
+    // just-positive (typically R in skin) the result is R-only —
+    // pink/magenta speckle on what should be a uniform crush.
+    // See Bug A in Ticket 11 / 11-Bugs.md and the investigation spec
+    // at docs/superpowers/specs/2026-04-26-blacks-clarity-bug-investigation.md.
+    //
+    // Post-fix: floor each channel at 0 immediately after the shift.
+    // Mirrors raw-core/src/stages/scene_tone_controls.rs:80 and
+    // SceneToneControls.metal:69-94 byte-for-byte at the algorithm level.
     if (abs(uBlacks) >= 1e-3) {
         float b_add = uBlacks / 400.0;
-        p += b_add;
+        p = max(p + b_add, vec3(0.0));
     }
 
     outColor = vec4(p, color.a);
