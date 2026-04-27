@@ -103,20 +103,30 @@ public struct AssetRef: Identifiable, Sendable, Equatable, Hashable {
         return primaryURL?.deletingPathExtension().lastPathComponent ?? "Untitled"
     }
 
+    /// Explicit isRaw override set by sources that know their format ahead
+    /// of bytes (PhotoKit's dataUTI, Self-Hosted's API metadata). When set,
+    /// `isRaw` returns this value directly; when nil, the extension-based
+    /// fallback applies.
+    public let explicitIsRaw: Bool?
+
     /// True when the asset should route through the Rust RAW decode path
     /// (rawler → DCP → demosaic → scene-linear chain). False routes through
     /// the Apple non-RAW path (`CGImageSource` → embedded ICC → scene-linear
     /// chain that skips the WB calibration / DCP / demosaic stages).
     ///
-    /// Detection prefers the extension when one is available — `dng` is a
-    /// RAW format even though `ImageIO` can also decode some DNGs. iPhone
-    /// ProRAW lives on this fence and deserves the full pipeline.
+    /// Detection order:
+    ///   1. `explicitIsRaw` — sources that know their format up front.
+    ///   2. Extension on `primaryURL` — e.g. `dng` is RAW, `heic` is non-RAW.
+    ///   3. `hintExtension` — when no URL is available.
+    ///   4. Default: RAW. Maintains historical behaviour for PhotoKit/
+    ///      SelfHosted refs that haven't been classified yet.
     ///
-    /// `nil` extension (PhotoKit / Self-Hosted with no hint) defaults to
-    /// `true` (RAW) — historical behaviour. Callers that want strict
-    /// magic-byte sniffing should call `Self.detectIsRaw(bytes:)` and pass
-    /// the result via `AssetRef.init(...)` explicitly.
+    /// `dng` is RAW even though ImageIO can also decode it — iPhone ProRAW
+    /// deserves the full DCP / HSM / PTC pipeline.
     public var isRaw: Bool {
+        if let explicitIsRaw {
+            return explicitIsRaw
+        }
         let ext: String
         if let primaryURL {
             ext = primaryURL.pathExtension.lowercased()
@@ -186,6 +196,7 @@ public struct AssetRef: Identifiable, Sendable, Equatable, Hashable {
         self.bytesProvider = nil
         self.stableID = nil
         self.scopeParentURL = scopeParentURL
+        self.explicitIsRaw = nil
     }
 
     /// Construct an `AssetRef` for a source without a filesystem URL
@@ -194,9 +205,14 @@ public struct AssetRef: Identifiable, Sendable, Equatable, Hashable {
     /// weakly, not strongly, if they want the session to deinit cleanly.
     /// `stableID` is the upstream cross-session identifier used as the
     /// thumbnail cache key (e.g. an API maple:id, a PHAsset localIdentifier).
+    /// `explicitIsRaw` lets the source declare the format up front (e.g.
+    /// PhotoKit's dataUTI on iCloud-resident HEIF) — without it the
+    /// extension fallback or the magic-byte sniff at first byte fetch
+    /// classifies the asset.
     public init(displayName: String,
                 hintExtension: String?,
                 stableID: String? = nil,
+                explicitIsRaw: Bool? = nil,
                 bytesProvider: @escaping BytesProvider) {
         self.id = UUID()
         self.primaryURL = nil
@@ -205,6 +221,7 @@ public struct AssetRef: Identifiable, Sendable, Equatable, Hashable {
         self.bytesProvider = bytesProvider
         self.stableID = stableID
         self.scopeParentURL = nil
+        self.explicitIsRaw = explicitIsRaw
     }
 
     public static func == (lhs: AssetRef, rhs: AssetRef) -> Bool {
@@ -1593,23 +1610,82 @@ public final class EditSession {
         // dropping the FFI buffer from ~200 MB (half-res scene-linear) to
         // ~12 MB for a 1500-px-long-edge target.
         let capturedViewport = previewSize
-        let isRaw = asset.isRaw
+        // Resolve the RAW vs non-RAW dispatch:
+        //   1. AssetRef-level classification (extension or explicitIsRaw)
+        //      is the fast path — file-shaped sources hit this.
+        //   2. PhotoKit / Self-Hosted assets without an extension hint
+        //      need a magic-byte sniff at first byte fetch. We do that
+        //      below in the detached task before picking a decoder, so
+        //      iPhone HEIF photos (no URL, no hint) route correctly.
+        let extensionIsRaw = asset.isRaw
+        let needsSniff = asset.primaryURL == nil && asset.hintExtension == nil && asset.explicitIsRaw == nil
         let task: Task<CIImage?, Never> = Task.detached(priority: .userInitiated) { [pipeline] in
             // Decode dispatch — RAW assets go through the Rust FFI; non-RAW
             // (HEIF / HEIC / JPEG / PNG) goes through ImageIO + Core Image.
             // The non-RAW path is Apple-only — see decodeSceneLinearNonRaw
             // in ImageEditPipeline.swift. Web has its own non-RAW path via
             // browser-native Image decode.
-            if !isRaw {
+            //
+            // Resolve the format for sourceless-without-hint assets via
+            // a magic-byte sniff. Pre-fetch bytes once, classify, then
+            // hand the same bytes through to the matching decoder via a
+            // synthetic AssetRef whose bytesProvider returns the cached
+            // bytes.
+            var dispatchAsset = asset
+            var dispatchIsRaw = extensionIsRaw
+            if needsSniff, let provider = asset.bytesProvider {
+                if let bytes = try? await provider() {
+                    if let detected = AssetRef.detectIsRaw(bytes: bytes) {
+                        dispatchIsRaw = detected
+                    }
+                    // Wrap the bytes in a synthetic ref so the chosen
+                    // decoder reuses the bytes we just fetched (a second
+                    // bytesProvider call against PhotoKit / Self-Hosted
+                    // would re-do an iCloud fetch).
+                    let cachedBytes = bytes
+                    let displayName = asset.displayName
+                    let hint: String? = {
+                        // Promote the magic-byte-derived classification
+                        // to an extension hint so downstream readers
+                        // (CIRAWFilter for metadata) can pick the right
+                        // backend. Default to "heic" / "jpg" / "png" as
+                        // matches detectIsRaw.
+                        if dispatchIsRaw { return asset.hintExtension }
+                        if bytes.count >= 4 {
+                            if bytes[0] == 0xFF, bytes[1] == 0xD8 { return "jpg" }
+                            if bytes[0] == 0x89, bytes[1] == 0x50 { return "png" }
+                            if bytes.count >= 8 {
+                                if bytes[4] == 0x66, bytes[5] == 0x74,
+                                   bytes[6] == 0x79, bytes[7] == 0x70 {
+                                    return "heic"
+                                }
+                            }
+                        }
+                        return asset.hintExtension
+                    }()
+                    dispatchAsset = AssetRef(
+                        displayName: displayName,
+                        hintExtension: hint,
+                        stableID: asset.stableID,
+                        explicitIsRaw: dispatchIsRaw,
+                        bytesProvider: { cachedBytes }
+                    )
+                }
+            }
+
+            if !dispatchIsRaw {
                 let target: CGSize? = (capturedViewport.width > 1 && capturedViewport.height > 1)
                     ? capturedViewport
                     : nil
                 return await mapleStageAsync("ImageIO non-RAW decode") {
                     await pipeline.decodeSceneLinearNonRaw(
-                        asset: asset, targetSize: target
+                        asset: dispatchAsset, targetSize: target
                     )
                 }
             }
+            // Re-bind asset to the dispatch ref so the rest of the block
+            // uses the cached-bytes provider when sniff fired.
+            let asset = dispatchAsset
 
             // Scene-linear FFI routing:
             //   1. Viewport size is known → use the sized FFI entry
