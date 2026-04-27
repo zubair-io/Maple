@@ -14,8 +14,14 @@ Cargo.lock.bak
 # wasm-pack / wasm-bindgen output
 src/raw-pipeline/raw-wasm/pkg/
 
-# raw-wasm synced into maple-common (rebuilt via scripts/sync-raw-wasm.sh)
-src/web/projects/maple-common/src/lib/raw-pipeline/pkg/
+# raw-wasm synced into maple-common (rebuilt via scripts/sync-raw-wasm.sh).
+# The wasm-pack output (raw_wasm_bg.wasm + .ts bindings) is generated and
+# huge, so ignore the dir contents — but keep the hand-written .js / .d.ts
+# stubs that let `ng test` / `ng build` resolve the import without first
+# running wasm-pack.
+src/web/projects/maple-common/src/lib/raw-pipeline/pkg/*
+!src/web/projects/maple-common/src/lib/raw-pipeline/pkg/raw_wasm.js
+!src/web/projects/maple-common/src/lib/raw-pipeline/pkg/raw_wasm.d.ts
 
 # Swift / SPM
 .build/

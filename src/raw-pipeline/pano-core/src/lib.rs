@@ -12,6 +12,7 @@ pub mod error;
 pub mod features;
 pub mod ingest;
 pub mod matching;
+pub mod pipeline;
 pub mod seam;
 pub mod traits;
 pub mod types;
@@ -19,6 +20,7 @@ pub mod util;
 pub mod warp;
 
 pub use ba::RotationOnlyBA;
+pub use pipeline::stitch_images;
 pub use blend::MultiBandBlender;
 pub use color::{ColorSpace, Primaries, Transfer, WhitePoint};
 pub use error::PanoError;

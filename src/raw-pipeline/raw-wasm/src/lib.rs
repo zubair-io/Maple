@@ -306,23 +306,138 @@ mod tests {
 
 #[cfg(feature = "pano")]
 mod pano {
-    use pano_core::PanoImage;
+    use half::f16;
+    use js_sys::Array;
+    use pano_core::{PanoImage, PipelineOptions};
     use wasm_bindgen::prelude::*;
+
+    // -------------------------------------------------------------------------
+    // PanoramaOptions — JS-facing stitch configuration.
+    // -------------------------------------------------------------------------
+
+    /// Stitch configuration passed from JS to `PanoHandle::stitch`.
+    ///
+    /// Field semantics:
+    /// - `projection`:    0 = Rectilinear, 1 = Cylindrical (default), 2 = Spherical
+    /// - `parallax_mode`: 0 = Homography (default), 1 = TPS (ignored in MVP)
+    /// - `max_dimension`: long-edge clamp in pixels; 0 = unconstrained (default)
+    #[wasm_bindgen]
+    #[derive(Clone, Copy)]
+    pub struct PanoramaOptions {
+        pub projection: u32,
+        pub parallax_mode: u32,
+        pub max_dimension: u32,
+    }
+
+    #[wasm_bindgen]
+    impl PanoramaOptions {
+        /// Construct options with defaults: cylindrical, homography, unconstrained.
+        #[wasm_bindgen(constructor)]
+        pub fn new() -> PanoramaOptions {
+            PanoramaOptions {
+                projection: 1,      // Cylindrical
+                parallax_mode: 0,   // Homography
+                max_dimension: 0,   // unconstrained
+            }
+        }
+    }
+
+    impl Default for PanoramaOptions {
+        fn default() -> Self { Self::new() }
+    }
+
+    impl From<PanoramaOptions> for PipelineOptions {
+        fn from(o: PanoramaOptions) -> Self {
+            use pano_core::types::{ParallaxMode, Projection};
+            let projection = match o.projection {
+                0 => Projection::Rectilinear,
+                2 => Projection::Spherical,
+                _ => Projection::Cylindrical,
+            };
+            let parallax_mode = match o.parallax_mode {
+                1 => ParallaxMode::TpsMesh,
+                _ => ParallaxMode::Homography,
+            };
+            PipelineOptions {
+                projection,
+                output_color: pano_core::ColorSpace::rec2020_d65_linear(),
+                max_dimension: o.max_dimension,
+                parallax_mode,
+            }
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // PanoHandle — opaque stitched-panorama buffer.
+    // -------------------------------------------------------------------------
 
     /// Opaque JS-facing handle wrapping a stitched panorama buffer.
     ///
-    /// Exposed to JS as `PanoHandle`.  No public constructor today — lifecycle
-    /// (creation via `pano_stitch`, release via `pano_free`) lands in T5.1.
-    /// The accessors below are the only JS-visible surface for T2.3.
+    /// Construction: `PanoHandle.stitch(images, options)`.
+    /// Pixel access: `pixelsF32()` / `pixelsF16()`.
+    ///
+    /// Tech debt: each accessor **clones** the entire pixel buffer to the JS
+    /// heap (wasm-bindgen semantics).  For a 100 MP panorama this is ~1.2 GB
+    /// per call — the service layer must call each accessor at most once and
+    /// cache the result.  A zero-copy Uint8Array::view approach is a T6+
+    /// follow-up once wasm-bindgen exposes it stably.
     #[wasm_bindgen]
     pub struct PanoHandle {
         image: PanoImage,
-        /// Lazily populated f16 interleaved RGB cache.  Empty in this MVP stub.
+        /// Eagerly-populated f16 interleaved RGB cache.
+        /// Length == image.width * image.height * 3 (RGB, no alpha).
         f16_cache: Vec<u16>,
     }
 
     #[wasm_bindgen]
     impl PanoHandle {
+        // ----- factory -------------------------------------------------------
+
+        /// Stitch a JS Array of `Uint8Array` byte buffers (PNG / JPEG each)
+        /// into a panorama.
+        ///
+        /// `images` must contain at least 2 entries.  Each entry must be a
+        /// `Uint8Array` containing a valid PNG or JPEG (DNG is accepted but
+        /// requires a pano-enabled WASM build and may be slow).
+        ///
+        /// Returns a `PanoHandle` with the f16 cache pre-populated.  Throws a
+        /// JS `Error` on decode or stitch failure.
+        #[wasm_bindgen]
+        pub fn stitch(images: Array, options: PanoramaOptions) -> Result<PanoHandle, JsValue> {
+            if images.length() < 2 {
+                return Err(JsValue::from_str(
+                    "PanoHandle.stitch: need at least 2 images",
+                ));
+            }
+
+            // Convert each JS Uint8Array to an owned Vec<u8>.
+            let mut decoded: Vec<PanoImage> = Vec::with_capacity(images.length() as usize);
+            for i in 0..images.length() {
+                let item = images.get(i);
+                // Accept Uint8Array entries.
+                let u8arr = js_sys::Uint8Array::from(item);
+                let bytes: Vec<u8> = u8arr.to_vec();
+                let img = pano_core::decode_bytes(&bytes)
+                    .map_err(|e| JsValue::from_str(&format!("decode image {i}: {e}")))?;
+                decoded.push(img);
+            }
+
+            // Run the classical pipeline.
+            let pipeline_opts: PipelineOptions = options.into();
+            let result = pano_core::stitch_images(&decoded, &pipeline_opts)
+                .map_err(|e| JsValue::from_str(&format!("stitch: {e}")))?;
+
+            // Eagerly compute f16 cache (called at most once — see tech debt note).
+            let f16_cache: Vec<u16> = result.pixels
+                .iter()
+                .map(|&v| f16::from_f32(v).to_bits())
+                .collect();
+
+            Ok(PanoHandle { image: result, f16_cache })
+        }
+
+        // ----- accessors -----------------------------------------------------
+
         /// Width of the panorama in pixels.
         #[wasm_bindgen(getter)]
         pub fn width(&self) -> u32 {
@@ -339,9 +454,8 @@ mod pano {
         /// `Vec<f32>`.  Interleaved RGB, row-major; length is
         /// `width * height * 3`.
         ///
-        /// Clones the buffer on each call (wasm-bindgen copies `Vec<f32>` to
-        /// JS heap).  The T5.1 implementation will expose a zero-copy view
-        /// via `Uint8Array::view`.
+        /// **Clones the buffer on each call** — call at most once and cache
+        /// on the JS side.  See tech-debt note on `PanoHandle`.
         #[wasm_bindgen(js_name = pixelsF32)]
         pub fn pixels_f32(&self) -> Vec<f32> {
             self.image.pixels.clone()
@@ -349,22 +463,32 @@ mod pano {
 
         /// Returns the f16 (half-precision, stored as `u16`) RGB pixel buffer.
         ///
-        /// In this MVP stub the f16 cache is always empty, so this returns an
-        /// empty `Vec`.  T5.1 populates the cache during `pano_stitch`.
+        /// Interleaved RGB, row-major; length is `width * height * 3`.
+        /// After `PanoHandle::stitch` the cache is pre-populated, so this is
+        /// the zero-extra-encode path.
+        ///
+        /// **Clones the cache on each call** — call at most once and cache
+        /// on the JS side.  See tech-debt note on `PanoHandle`.
         #[wasm_bindgen(js_name = pixelsF16)]
         pub fn pixels_f16(&self) -> Vec<u16> {
             self.f16_cache.clone()
         }
     }
 
-    /// Construct a `PanoHandle` from a `PanoImage`.
-    ///
-    /// Not exposed to JS (no `#[wasm_bindgen]` on the free function); used
-    /// by Rust-side tests and the future `pano_stitch` entry.
-    #[allow(dead_code)] // used in tests below; pano_stitch (T5.1) will use it in production
+    /// Construct a `PanoHandle` from a `PanoImage` (Rust-internal; not
+    /// exposed to JS).  Used by tests.
+    #[allow(dead_code)]
     pub fn handle_from_image(img: PanoImage) -> PanoHandle {
-        PanoHandle { image: img, f16_cache: Vec::new() }
+        let f16_cache: Vec<u16> = img.pixels
+            .iter()
+            .map(|&v| f16::from_f32(v).to_bits())
+            .collect();
+        PanoHandle { image: img, f16_cache }
     }
+
+    // -------------------------------------------------------------------------
+    // Tests
+    // -------------------------------------------------------------------------
 
     #[cfg(test)]
     mod tests {
@@ -396,12 +520,22 @@ mod pano {
         }
 
         #[test]
-        fn pano_handle_pixels_f16_empty_stub() {
+        fn pano_handle_pixels_f16_populated() {
             let h = handle_from_image(make_test_image());
-            assert!(
-                h.pixels_f16().is_empty(),
-                "f16 cache should be empty in MVP stub"
+            // f16 cache is now eagerly populated — 2 pixels × 3 channels.
+            assert_eq!(
+                h.pixels_f16().len(),
+                6,
+                "f16 cache should have 6 elements (2 pixels × 3 channels)"
             );
+        }
+
+        #[test]
+        fn pano_options_defaults() {
+            let o = PanoramaOptions::new();
+            assert_eq!(o.projection, 1, "default projection should be Cylindrical (1)");
+            assert_eq!(o.parallax_mode, 0, "default parallax_mode should be Homography (0)");
+            assert_eq!(o.max_dimension, 0, "default max_dimension should be 0 (unconstrained)");
         }
     }
 }
