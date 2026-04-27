@@ -438,22 +438,31 @@ struct CIImageView: View {
 
     @Environment(\.displayScale) private var displayScale
 
-    /// Render-time CIContext. Output color space is sRGB so the
-    /// Rec.2020->sRGB encode happens here, deterministically, exactly
-    /// once on both legacy and scene-linear paths. Without this the
-    /// scene-linear path's extendedLinearITUR_2020-tagged input lands
-    /// in an implementation-defined pixel space at write-out — wide
-    /// gamut on P3 hardware, primary-mismatched on others. See
-    /// docs/superpowers/plans/2026-04-24-ffi-split-plan-1.md Task 4
-    /// Step 4.0b.
+    /// Render-time CIContext. Output color space is Display P3 (extended
+    /// linear conversion happens inside Core Image as it transcodes from
+    /// the working `extendedLinearITUR_2020` / `extendedLinearSRGB`),
+    /// pixel format is `.RGBA16` (16-bit-per-channel half-float) so the
+    /// wide-gamut samples from the scene-linear chain don't get clipped
+    /// to 8-bit-sRGB on the way to the canvas.
+    ///
+    /// On P3 displays this surfaces the wider-than-sRGB content (saturated
+    /// reds/greens/blues that would otherwise clamp at the sRGB primary
+    /// triangle). On sRGB displays the OS still tone-maps cleanly — the
+    /// canvas just doesn't gain anything visually but doesn't regress.
+    /// 16-bit reduces banding on smooth gradients (sky, skin shadows).
+    ///
+    /// Earlier docs ref (sRGB 8-bit rationale): see
+    /// docs/superpowers/plans/2026-04-24-ffi-split-plan-1.md Task 4 Step
+    /// 4.0b — the determinism reasoning still holds, the choice of P3+16
+    /// over sRGB+8 is the gamut/depth upgrade.
     private static let context = CIContext()
-    private static let outputColorSpace = CGColorSpace(name: CGColorSpace.sRGB)!
+    private static let outputColorSpace = CGColorSpace(name: CGColorSpace.displayP3)!
 
     var body: some View {
         if let cgImg = Self.context.createCGImage(
             image,
             from: image.extent,
-            format: .RGBA8,
+            format: .RGBA16,
             colorSpace: Self.outputColorSpace
         ) {
             // `Image(decorative:scale:orientation:)` is the explicit
