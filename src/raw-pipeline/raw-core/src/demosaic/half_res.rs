@@ -2,12 +2,41 @@ use crate::image::{CfaPattern, ColorSpace, Image};
 use rayon::prelude::*;
 
 /// Half-resolution quad demosaic per spec § 3.3.2.
-/// Each 2×2 Bayer quad collapses to one RGB pixel: R at the R position,
-/// G is the average of the two Gs, B at the B position. Output is
-/// half-width and half-height. Input must be `CameraNativeMosaic`.
+/// Each output pixel is the centred average of a 4×4 mosaic window — 4 R
+/// samples, 8 G samples, 4 B samples — collapsing two Bayer quads in
+/// each axis into one RGB output pixel. Output is half-width and
+/// half-height. Input must be `CameraNativeMosaic`.
 ///
 /// Fast path for large sensors (spec says 100MP Hasselblad drops to 25MP).
 /// Non-even sensor dimensions crop one row/column as needed.
+///
+/// **Why a 4×4 window, not the natural 2×2 Bayer quad.**
+///
+/// The naive "one quad per output pixel" form (R from the single R-position,
+/// B from the single B-position, average the two Gs) gives every output
+/// pixel a single mosaic sample per chroma channel. There is no spatial
+/// smoothing, so per-pixel sensor shot noise propagates 1:1 into the
+/// preview. On RAWs with strong channel imbalance (e.g. Hasselblad H5D-40,
+/// where the as-shot WB ratios are ~[0.40, 1.0, 0.77]), the inv(CM) stage
+/// later amplifies any chroma jitter and it surfaces as visible per-pixel
+/// chroma noise on saturated patches. test_0004's Digital ColorChecker SG
+/// renders the worst-case here — vivid red and yellow patches show
+/// chromatic static at preview quality, while the full-resolution
+/// Hamilton-Adams demosaic (which averages over a wider window) is clean.
+///
+/// The 4×4 form averages over the *four* Bayer quads centred at the
+/// output pixel, giving 4 R + 8 G + 4 B samples per output. The mean is
+/// unchanged on uniform patches; the variance drops by ≥4× per channel
+/// (standard √N noise reduction). The sample positions for output (x, y)
+/// span input columns 2x-1..2x+2 and rows 2y-1..2y+2 — the centroid of
+/// that window is (2x+0.5, 2y+0.5), identical to the legacy 2×2 form,
+/// so the spatial alignment doesn't shift.
+///
+/// At image borders we clamp to the in-bounds rectangle [0, in_w-1] ×
+/// [0, in_h-1]; output pixels with fewer in-bounds samples just average
+/// the available ones. That matches the bilinear demosaic's mirror /
+/// clamp border treatment in spirit (no out-of-range reads, no
+/// disproportionate weighting).
 pub fn half_res(mosaic: &Image, cfa: CfaPattern) -> Image {
     mosaic.assert_space(ColorSpace::CameraNativeMosaic);
     let in_w = mosaic.width as usize;
@@ -16,34 +45,47 @@ pub fn half_res(mosaic: &Image, cfa: CfaPattern) -> Image {
     let out_h = in_h / 2;
     let mut out = Image::new(out_w as u32, out_h as u32, ColorSpace::CameraNativeLinearRgb);
 
-    // For each 2×2 quad, positions (2x, 2y), (2x+1, 2y), (2x, 2y+1), (2x+1, 2y+1).
-    // The color at each is known from cfa.color_at. Collect R, G_sum, G_count, B.
+    // Sample a 4×4 window around each output pixel and accumulate by
+    // channel. The window column range is 2x-1..=2x+2 (4 inputs); same
+    // for rows. Border pixels clamp to the in-bounds range; the count
+    // arrays divide out the actual number of samples used for each
+    // channel so a smaller-window output pixel is still the correct
+    // unweighted mean of its samples (no disproportionate weighting on
+    // edge / corner output pixels).
     out.pixels
         .par_chunks_mut(out_w)
         .enumerate()
         .for_each(|(y, row)| {
             for (x, out_px) in row.iter_mut().enumerate() {
-                let positions = [
-                    (2 * x,     2 * y,     mosaic.pixels[2 * y * in_w + 2 * x]),
-                    (2 * x + 1, 2 * y,     mosaic.pixels[2 * y * in_w + (2 * x + 1)]),
-                    (2 * x,     2 * y + 1, mosaic.pixels[(2 * y + 1) * in_w + 2 * x]),
-                    (2 * x + 1, 2 * y + 1, mosaic.pixels[(2 * y + 1) * in_w + (2 * x + 1)]),
-                ];
+                let mut sum = [0.0f32; 3];
+                let mut count = [0u32; 3];
 
-                let mut rgb = [0.0f32; 3];
-                let mut g_sum = 0.0f32;
-                let mut g_count = 0.0f32;
-                for (px, py, p) in positions.iter() {
-                    let c = cfa.color_at(*px as u32, *py as u32) as usize;
-                    // `p[c]` is the only channel populated at that mosaic position.
-                    if c == 1 {
-                        g_sum += p[1];
-                        g_count += 1.0;
-                    } else {
-                        rgb[c] = p[c];
+                // Window covers mosaic rows 2y-1..=2y+2 and cols 2x-1..=2x+2.
+                // i32 arithmetic so the y == 0 / x == 0 edges don't underflow.
+                let x0 = (2 * x as i32) - 1;
+                let y0 = (2 * y as i32) - 1;
+                for dy in 0..4i32 {
+                    let py = y0 + dy;
+                    if py < 0 || (py as usize) >= in_h { continue; }
+                    let py_us = py as usize;
+                    let row_off = py_us * in_w;
+                    for dx in 0..4i32 {
+                        let px = x0 + dx;
+                        if px < 0 || (px as usize) >= in_w { continue; }
+                        let px_us = px as usize;
+                        let c = cfa.color_at(px as u32, py as u32) as usize;
+                        // `mosaic.pixels[i][c]` is the only channel populated
+                        // at that mosaic position — every other channel of
+                        // the same pixel slot is zero by construction.
+                        sum[c] += mosaic.pixels[row_off + px_us][c];
+                        count[c] += 1;
                     }
                 }
-                rgb[1] = if g_count > 0.0 { g_sum / g_count } else { 0.0 };
+
+                let mut rgb = [0.0f32; 3];
+                for c in 0..3 {
+                    rgb[c] = if count[c] > 0 { sum[c] / count[c] as f32 } else { 0.0 };
+                }
                 *out_px = rgb;
             }
         });
