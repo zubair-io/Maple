@@ -1,5 +1,6 @@
 use crate::{
     color::{
+        hsm::{self, HsmTable},
         illuminant::Illuminant,
         matrices::{M_PRO_TO_XYZ_D50, XYZ_D50, bradford_adapt, m_pro_to_rec2020},
     },
@@ -45,6 +46,16 @@ pub struct DcpProfile {
     /// `inv(CM) · (1, 1, 1)` instead of `inv(CM) · as_shot_neutral`,
     /// preventing a double WB application. See ticket #07.
     pub wb_already_baked: bool,
+    /// Per-illuminant ProfileHueSatMap, already lerped to `scene_cct` when
+    /// the source DNG ships both `ProfileHueSatMapData1` and
+    /// `ProfileHueSatMapData2` (DNG 1.6 § 6.6.5). When only one is present,
+    /// it's used as-is regardless of CCT (the spec's single-illuminant
+    /// case). When neither is present (vendor RAW, or DNG without HSM),
+    /// this is `None` and `apply` skips the HSM stage. The table is applied
+    /// in ProPhoto-D50 space, between the chromatic adaptation step and
+    /// the gamut conversion to Rec.2020 — the same point in the chain
+    /// the DNG SDK reference uses (`dng_color_spec.cpp`).
+    pub hsm: Option<HsmTable>,
 }
 
 impl DcpProfile {
@@ -71,6 +82,9 @@ impl DcpProfile {
             // LinearRaw; default to false (the Bayer / vendor-RAW case).
             // `profile_for` overrides this for actual LinearRaw inputs.
             wb_already_baked: false,
+            // No HSM available from a bare embedded CM; profile_for fills
+            // this in for real DNGs that ship the tags.
+            hsm: None,
         }
     }
 }
@@ -87,7 +101,7 @@ fn normalize_to_y1(xyz: crate::math::Vec3) -> crate::math::Vec3 {
 /// Apply DCP to camera-native linear RGB, producing scene-linear Rec.2020 D65.
 /// Single-illuminant and interpolated-dual-illuminant profiles both flow
 /// through this path; single-CM skips the interpolation but uses the same
-/// Bradford / FM logic. No HSM, no PLT.
+/// Bradford / FM logic.
 ///
 /// DNG's `ColorMatrix` is defined `XYZ → camera`; for decoding we use its
 /// inverse (spec § 3.4 step 1). The chromatic adaptation to D50 (step 2)
@@ -95,42 +109,97 @@ fn normalize_to_y1(xyz: crate::math::Vec3) -> crate::math::Vec3 {
 /// not the nearer calibration illuminant — that distinction is what drives
 /// the per-fixture color cast when omitted. When `forward_matrix` is
 /// present, Bradford is skipped entirely: FM absorbs the CA per spec.
+///
+/// When `profile.hsm` is `Some`, the ProfileHueSatMap is applied in
+/// ProPhoto-D50 space (per DNG SDK reference `dng_color_spec.cpp` —
+/// HueSatMap operates in the profile's working space, which the DNG spec
+/// defines as RIMM-RGB / linear ProPhoto D50). The result then projects
+/// to Rec.2020 D65 via `m_pro_to_rec2020`. When `None`, the camera→Rec.2020
+/// chain folds into a single matrix multiply per pixel — the original
+/// (pre-Ticket-10c) fast path.
 pub fn apply(camera: &Image, profile: &DcpProfile) -> crate::Result<Image> {
+    apply_with_post_pro(camera, profile, None)
+}
+
+/// Internal: same as [`apply`] but lets the caller hook in a second table
+/// (the ProfileLookTable) that runs in the same ProPhoto-D50 space, right
+/// after HSM. PLT is conceptually a "look" baked into the profile and per
+/// spec § 6.7 also belongs in the camera profile's working space.
+///
+/// This unification matters when both HSM and PLT are present: we avoid
+/// going Camera → ProPhoto → apply HSM → Rec.2020 → apply PLT (which would
+/// require PLT to "see" Rec.2020 RGB), keeping both stages in their proper
+/// linear-ProPhoto-D50 space.
+pub fn apply_with_plt(
+    camera: &Image,
+    profile: &DcpProfile,
+    plt: Option<&hsm::HsmTable>,
+) -> crate::Result<Image> {
+    apply_with_post_pro(camera, profile, plt)
+}
+
+fn apply_with_post_pro(
+    camera: &Image,
+    profile: &DcpProfile,
+    post_pro: Option<&hsm::HsmTable>,
+) -> crate::Result<Image> {
     camera.assert_space(ColorSpace::CameraNativeLinearRgb);
 
     let cam_to_xyz = profile.color_matrix.inverse().ok_or_else(|| {
         crate::Error::Dcp("ColorMatrix is singular, cannot invert to camera→XYZ".into())
     })?;
 
-    let exit = m_pro_to_rec2020();
-    let m = if let Some(fm) = profile.forward_matrix {
-        // FM is defined XYZ-scene → ProPhoto D50 with CA baked in.
-        //   rgb_rec2020 = exit * fm * inv(CM) * rgb_cam
-        exit.mul_mat(&fm).mul_mat(&cam_to_xyz)
+    // Camera RGB → ProPhoto D50: identical algebra to the original
+    // single-matrix path, just stopped one matrix earlier so we can run
+    // HSM and/or PLT in ProPhoto space when present.
+    let cam_to_pro = if let Some(fm) = profile.forward_matrix {
+        // FM is XYZ_scene → ProPhoto D50 with CA baked in.
+        fm.mul_mat(&cam_to_xyz)
     } else {
-        // No FM: Bradford from the source white `inv(CM) * (1, 1, 1)` (what
-        // inv(CM) actually produces for a pre-gained neutral pixel) to D50,
-        // then inverse-ProPhoto to enter ProPhoto D50. Caller MUST pre-gain
-        // camera RGB by 1/AsShotNeutral before calling.
-        //
-        // Empirical finding: real DNG CMs follow `CM * XYZ_scene_white =
-        // AsShotNeutral` (the pre-gain target), NOT `= (1, 1, 1)`. So the
-        // scene illuminant's Planckian-locus white is NOT what inv(CM)
-        // produces for neutral — `inv(CM) * (1, 1, 1)` is. Using the
-        // Planckian locus directly introduces strong hue shift on real
-        // fixtures (measured +11 ΔE regression on test_0001 and test_0002).
+        // Bradford-adapt from the scene white to D50, then inverse-ProPhoto
+        // to enter ProPhoto D50. See the `apply` doc on this same file
+        // for why scene_white_xyz is the right Bradford source.
         let adapt = bradford_adapt(profile.scene_white_xyz, XYZ_D50);
         let inv_pro = M_PRO_TO_XYZ_D50.inverse().expect("ProPhoto matrix is invertible");
-        exit.mul_mat(&inv_pro).mul_mat(&adapt).mul_mat(&cam_to_xyz)
+        inv_pro.mul_mat(&adapt).mul_mat(&cam_to_xyz)
     };
 
+    let needs_pro_intermediate = profile.hsm.is_some() || post_pro.is_some();
+    if needs_pro_intermediate {
+        // Slow path: project to ProPhoto D50, run HSM and/or PLT, then
+        // project to Rec.2020 D65. Cost: two matmuls + 0..2 HSM lookups
+        // per pixel, vs one matmul on the fast path. The intermediate
+        // `Image` is tagged `CameraNativeLinearRgb` only because we don't
+        // have a `ProPhotoLinearD50` color-space variant — `hsm::apply`
+        // doesn't enforce a tag, only the data layout.
+        let mut pro = Image::new(camera.width, camera.height, ColorSpace::CameraNativeLinearRgb);
+        pro.pixels
+            .par_iter_mut()
+            .zip(camera.pixels.par_iter())
+            .for_each(|(o, p)| { *o = cam_to_pro.mul_vec(*p); });
+        if let Some(table) = profile.hsm.as_ref() {
+            hsm::apply(&mut pro, table);
+        }
+        if let Some(table) = post_pro {
+            hsm::apply(&mut pro, table);
+        }
+        let exit = m_pro_to_rec2020();
+        let mut out = Image::new(camera.width, camera.height, ColorSpace::SceneLinearRec2020);
+        out.pixels
+            .par_iter_mut()
+            .zip(pro.pixels.par_iter())
+            .for_each(|(o, p)| { *o = exit.mul_vec(*p); });
+        return Ok(out);
+    }
+
+    // Fast path: no HSM, no PLT. Fold cam_to_pro and exit into one matrix.
+    let exit = m_pro_to_rec2020();
+    let m = exit.mul_mat(&cam_to_pro);
     let mut out = Image::new(camera.width, camera.height, ColorSpace::SceneLinearRec2020);
     out.pixels
         .par_iter_mut()
         .zip(camera.pixels.par_iter())
-        .for_each(|(o, p)| {
-            *o = m.mul_vec(*p);
-        });
+        .for_each(|(o, p)| { *o = m.mul_vec(*p); });
     Ok(out)
 }
 
@@ -224,11 +293,19 @@ fn compute_scene_cct_single(cm: Matrix3, wb_neutral: [f32; 3], fallback: f32) ->
 /// `dcp::apply` Bradford from re-applying WB on top of the bake. The CCT
 /// estimate still uses `wb_neutral` because the ShotNeutral metadata still
 /// records the scene illuminant correctly. See ticket #07.
+///
+/// `hsm_cold` / `hsm_warm` are the corresponding ProfileHueSatMapData1/2
+/// tables. When both are present and shape-compatible, they're lerped per
+/// reciprocal CCT (DNG 1.6 § 6.6.5) using the SAME parameter `t` derived
+/// from `as_shot_cct`. When only one is present, it's used as-is. When
+/// neither is present, the resulting profile carries `hsm = None`.
 pub fn interpolated_profile(
     m_cold: Matrix3, illum_cold: Illuminant,
     m_warm: Matrix3, illum_warm: Illuminant,
     wb_neutral: [f32; 3],
     wb_already_baked: bool,
+    hsm_cold: Option<&HsmTable>,
+    hsm_warm: Option<&HsmTable>,
 ) -> DcpProfile {
     let cct_cold = illum_cold.cct();
     let cct_warm = illum_warm.cct();
@@ -245,6 +322,7 @@ pub fn interpolated_profile(
     let scene_white_xyz = cm.inverse()
         .map(|inv| normalize_to_y1(inv.mul_vec(neutral_for_white)))
         .unwrap_or(crate::color::matrices::XYZ_D65);
+    let hsm = lerp_hsm_for_cct(hsm_cold, hsm_warm, cct_cold, cct_warm, as_shot_cct);
     DcpProfile {
         illuminant: if (cct_cold - as_shot_cct).abs() < (cct_warm - as_shot_cct).abs() {
             illum_cold
@@ -256,6 +334,42 @@ pub fn interpolated_profile(
         scene_cct: as_shot_cct,
         scene_white_xyz,
         wb_already_baked,
+        hsm,
+    }
+}
+
+/// Pick or interpolate an HSM table for a target scene CCT, mirroring the
+/// reciprocal-CCT algorithm in `interpolate_cm`. Used by both
+/// `interpolated_profile` (dual-illuminant DCP path) and `profile_for`
+/// (single-illuminant fallback that may still ship one HSM).
+///
+/// Returns `None` only when both inputs are `None` or when a dual table
+/// pair has incompatible dims/encoding (in which case we conservatively
+/// pick the cold table; HSM failure shouldn't break decode).
+fn lerp_hsm_for_cct(
+    hsm_cold: Option<&HsmTable>,
+    hsm_warm: Option<&HsmTable>,
+    cct_cold: f32, cct_warm: f32,
+    cct_target: f32,
+) -> Option<HsmTable> {
+    match (hsm_cold, hsm_warm) {
+        (Some(c), Some(w)) => {
+            // Same `t` formula used by `interpolate_cm`, kept inline so the
+            // two functions can drift together if the CCT model ever changes.
+            if (cct_cold - cct_warm).abs() < 1.0 {
+                return Some(c.clone());
+            }
+            let inv_t1 = 1.0 / cct_cold;
+            let inv_t2 = 1.0 / cct_warm;
+            let inv_target = 1.0 / cct_target;
+            let t = ((inv_target - inv_t1) / (inv_t2 - inv_t1)).clamp(0.0, 1.0);
+            // If shapes don't match (rare malformed DNG), fall back to the
+            // cold table — applying a same-shape mismatch ratio would crash.
+            hsm::lerp_tables(c, w, t).or_else(|| Some(c.clone()))
+        }
+        (Some(c), None) => Some(c.clone()),
+        (None, Some(w)) => Some(w.clone()),
+        (None, None) => None,
     }
 }
 
@@ -296,9 +410,18 @@ pub fn profile_for(raw: &RawImage) -> crate::Result<DcpProfile> {
                 m_warm, il_warm,
                 raw.as_shot_neutral,
                 wb_already_baked,
+                raw.hsm_data1.as_ref(),
+                raw.hsm_data2.as_ref(),
             ));
         }
     }
+
+    // Single-illuminant HSM resolution. If only one of HSM1/HSM2 is present,
+    // use it directly; if both are present (rare in single-CM profiles —
+    // shouldn't happen, but tolerate), prefer HSM1 (the cold-side per spec
+    // convention). For the dual-CM path above, the proper reciprocal lerp
+    // runs inside `interpolated_profile`.
+    let single_hsm: Option<HsmTable> = raw.hsm_data1.clone().or_else(|| raw.hsm_data2.clone());
 
     // Single-illuminant fallback: prefer D65, then D50, then anything. The
     // scene CCT is still derived from AsShotNeutral + the lone CM (spec § 3.4
@@ -319,6 +442,7 @@ pub fn profile_for(raw: &RawImage) -> crate::Result<DcpProfile> {
                 scene_cct,
                 scene_white_xyz,
                 wb_already_baked,
+                hsm: single_hsm,
             });
         }
     }
@@ -337,6 +461,7 @@ pub fn profile_for(raw: &RawImage) -> crate::Result<DcpProfile> {
             scene_cct,
             scene_white_xyz,
             wb_already_baked,
+            hsm: single_hsm,
         });
     }
     Err(crate::Error::Dcp(format!(
@@ -380,6 +505,7 @@ mod tests {
             scene_cct: Illuminant::D65.cct(),
             scene_white_xyz: crate::color::matrices::XYZ_D65,
             wb_already_baked: false,
+            hsm: None,
         };
         let mut img = Image::new(2, 2, ColorSpace::CameraNativeLinearRgb);
         for p in &mut img.pixels { *p = [0.18, 0.18, 0.18]; }
