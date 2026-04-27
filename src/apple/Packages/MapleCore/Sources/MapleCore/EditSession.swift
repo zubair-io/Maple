@@ -1688,10 +1688,39 @@ public final class EditSession {
     /// existed at either decode time or now) is also valid. A captured
     /// mtime followed by a sidecar deletion (or vice versa) is treated
     /// as a change and invalidates.
-    fileprivate func decodedCacheIsFreshForCurrentAsset() -> Bool {
+    ///
+    /// `internal` so the test suite can probe the cache state machine
+    /// without standing up a full Rust decode.
+    internal func decodedCacheIsFreshForCurrentAsset() -> Bool {
         guard decodedForAssetID == asset.id else { return false }
         let live = Self.sidecarMtime(for: asset)
         return live == decodedSidecarMtime
+    }
+
+    /// Test hook — manually populate the cache fields with a synthetic
+    /// CIImage so unit tests can verify the freshness check, the mtime-
+    /// change invalidation contract, and the invalidate-clears-fields
+    /// invariant without paying the Rust FFI's full-decode cost. NOT
+    /// for production use; cold/hot decode paths set these via
+    /// `sharedDecode`.
+    internal func _testSeedDecodedCache(
+        decoded: CIImage,
+        rawResolution: CGSize,
+        sidecarMtime: Date?,
+        decodedAtModel: AdjustmentModel? = nil
+    ) {
+        self.decodedImage = decoded
+        self.decodedRawResolution = rawResolution
+        self.decodedForAssetID = self.asset.id
+        self.decodedSidecarMtime = sidecarMtime
+        self.decodedAtModel = decodedAtModel
+    }
+
+    /// Test inspector — true when `decodedImage` has been populated for
+    /// the current asset. Mirrors the cold/hot dispatch the
+    /// `decodeAndRender` cached branch relies on.
+    internal var _testDecodedCachePopulated: Bool {
+        decodedImage != nil && decodedForAssetID == asset.id
     }
 }
 
