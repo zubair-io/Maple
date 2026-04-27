@@ -103,6 +103,81 @@ public struct AssetRef: Identifiable, Sendable, Equatable, Hashable {
         return primaryURL?.deletingPathExtension().lastPathComponent ?? "Untitled"
     }
 
+    /// True when the asset should route through the Rust RAW decode path
+    /// (rawler → DCP → demosaic → scene-linear chain). False routes through
+    /// the Apple non-RAW path (`CGImageSource` → embedded ICC → scene-linear
+    /// chain that skips the WB calibration / DCP / demosaic stages).
+    ///
+    /// Detection prefers the extension when one is available — `dng` is a
+    /// RAW format even though `ImageIO` can also decode some DNGs. iPhone
+    /// ProRAW lives on this fence and deserves the full pipeline.
+    ///
+    /// `nil` extension (PhotoKit / Self-Hosted with no hint) defaults to
+    /// `true` (RAW) — historical behaviour. Callers that want strict
+    /// magic-byte sniffing should call `Self.detectIsRaw(bytes:)` and pass
+    /// the result via `AssetRef.init(...)` explicitly.
+    public var isRaw: Bool {
+        let ext: String
+        if let primaryURL {
+            ext = primaryURL.pathExtension.lowercased()
+        } else if let hint = hintExtension {
+            ext = hint.lowercased()
+        } else {
+            // No URL, no hint — assume RAW so existing PhotoKit / Self-
+            // Hosted RAW fixtures keep their behaviour. The non-RAW path
+            // is opt-in via an explicit hint extension.
+            return true
+        }
+        if NonRawImageExtensions.all.contains(ext) {
+            return false
+        }
+        // Anything not in the non-RAW set (including the empty string)
+        // routes through the RAW path. This covers the entire
+        // RAWExtensions.all set plus formats we haven't seen yet.
+        return true
+    }
+
+    /// Magic-byte sniff for the first ~16 bytes of an image. Used by
+    /// PhotoKit's bytes-provider path when the source returns HEIF/JPEG
+    /// without forwarding an extension hint. Returns `nil` when the
+    /// signature is unrecognised — caller should fall back to extension
+    /// detection (or assume RAW per the historical default).
+    ///
+    /// Signatures:
+    ///   - JPEG: `FF D8 FF`
+    ///   - PNG:  `89 50 4E 47 0D 0A 1A 0A`
+    ///   - HEIF: ftyp box at offset 4 with major brand `heic`/`heix`/
+    ///           `mif1`/`heim`/`heis`/`hevc`/`hevm`/`hevs`/`avif`
+    public static func detectIsRaw(bytes: Data) -> Bool? {
+        guard bytes.count >= 12 else { return nil }
+        // JPEG magic.
+        if bytes[0] == 0xFF, bytes[1] == 0xD8, bytes[2] == 0xFF {
+            return false
+        }
+        // PNG magic.
+        if bytes.count >= 8,
+           bytes[0] == 0x89, bytes[1] == 0x50, bytes[2] == 0x4E, bytes[3] == 0x47,
+           bytes[4] == 0x0D, bytes[5] == 0x0A, bytes[6] == 0x1A, bytes[7] == 0x0A {
+            return false
+        }
+        // HEIF / HEIC — `ftyp` box at offset 4, brand at offset 8.
+        let ftypBytes: [UInt8] = [0x66, 0x74, 0x79, 0x70]  // "ftyp"
+        if bytes[4] == ftypBytes[0], bytes[5] == ftypBytes[1],
+           bytes[6] == ftypBytes[2], bytes[7] == ftypBytes[3] {
+            // Read 4-char brand at offset 8.
+            let brand = String(bytes: bytes[8..<12], encoding: .ascii) ?? ""
+            let nonRawBrands: Set<String> = [
+                "heic", "heix", "mif1", "heim", "heis",
+                "hevc", "hevm", "hevs", "avif",
+            ]
+            if nonRawBrands.contains(brand) {
+                return false
+            }
+        }
+        // Unknown signature — caller falls back.
+        return nil
+    }
+
     public init(url: URL, scopeParentURL: URL? = nil) {
         self.id = UUID()
         self.primaryURL = url
