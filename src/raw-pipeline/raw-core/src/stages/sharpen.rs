@@ -36,20 +36,35 @@ pub fn apply(
     // --- Richardson-Lucy 3 iterations ---
     // O = observed; E_n = current estimate; P = Gaussian PSF.
     // E_{n+1} = E_n * (conv(O / conv(E_n, P), P))
+    //
+    // RL is derived for non-negative photon counts. Scene-linear after DCP
+    // can carry strongly negative values on saturated colored patches
+    // (inv(CM) projecting an out-of-gamut color into negative camera RGB).
+    // Naively dividing observed_negative / reblur_clamped_to_EPSILON
+    // produces a huge negative ratio that propagates into the
+    // multiplicative update and poisons whole rows of pixels — that's the
+    // "red bands across the colorchecker" we hit on test_0004 (Hasselblad
+    // H5D-40 ColorChecker SG, ~0.5% of pixels with scene-linear < 0).
+    //
+    // Guard: skip the RL update on any pixel/channel where either operand
+    // is non-positive — set ratio = 1.0 there so `estimate *= correction`
+    // is a no-op for the negative regions. The Hamilton-Jacobi argument
+    // for RL convergence assumes positivity; this is the standard guard
+    // (RawTherapee, scikit-image and AstroPixelProcessor all do the same).
     let observed = img.clone();
     let mut estimate = img.clone();
 
     for _ in 0..RL_ITERS {
         let reblur = gaussian_blur_rgb(&estimate, radius_px);
-        // ratio = observed / max(reblur, EPSILON), per-pixel per-channel
+        // ratio = observed / reblur, gated on positivity (see comment above).
         let mut ratio = Image::new(img.width, img.height, ColorSpace::SceneLinearRec2020);
         for i in 0..observed.pixels.len() {
             let o = observed.pixels[i];
             let rb = reblur.pixels[i];
             ratio.pixels[i] = [
-                o[0] / rb[0].max(EPSILON),
-                o[1] / rb[1].max(EPSILON),
-                o[2] / rb[2].max(EPSILON),
+                if o[0] > EPSILON && rb[0] > EPSILON { o[0] / rb[0] } else { 1.0 },
+                if o[1] > EPSILON && rb[1] > EPSILON { o[1] / rb[1] } else { 1.0 },
+                if o[2] > EPSILON && rb[2] > EPSILON { o[2] / rb[2] } else { 1.0 },
             ];
         }
         let correction = gaussian_blur_rgb(&ratio, radius_px);
@@ -185,6 +200,38 @@ mod tests {
         for p in &img.pixels {
             for &c in p {
                 assert!(c.is_finite());
+            }
+        }
+    }
+
+    /// Regression test for the test_0004 (Hasselblad H5D-40 ColorChecker SG)
+    /// "red bands across the colorchecker" bug. Strongly negative scene-linear
+    /// values produced by inv(CM) projecting saturated colored patches were
+    /// dividing by EPSILON-clamped reblur, blowing up to huge ratios that
+    /// poisoned whole rows. The guard in the RL inner loop short-circuits
+    /// the update where either operand is non-positive.
+    ///
+    /// The test seeds a near-flat field with one strongly-negative R pixel
+    /// (-0.5, like the fixture's worst SG patch) and asserts the sharpened
+    /// output stays bounded — pre-fix this exceeded |R| > 100 in nearby pixels.
+    #[test]
+    fn negative_pixels_do_not_explode_after_rl() {
+        let w = 16u32;
+        let h = 16u32;
+        let mut img = Image::new(w, h, ColorSpace::SceneLinearRec2020);
+        for p in &mut img.pixels {
+            *p = [0.18, 0.18, 0.18]; // mid-gray neutral
+        }
+        // One strongly negative R pixel (mimics test_0004 worst case).
+        img.pixels[(h / 2 * w + w / 2) as usize] = [-0.5, 0.18, 0.18];
+        apply(&mut img, 40.0, 1.0, 25.0, 0.0);
+        for (i, p) in img.pixels.iter().enumerate() {
+            for (c, &v) in p.iter().enumerate() {
+                assert!(v.is_finite(),
+                    "pixel {} channel {} is NOT finite: {}", i, c, v);
+                assert!(v.abs() < 5.0,
+                    "pixel {} channel {} blew up: {} (pre-fix this exceeded 100)",
+                    i, c, v);
             }
         }
     }
