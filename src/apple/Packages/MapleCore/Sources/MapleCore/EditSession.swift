@@ -755,6 +755,22 @@ public final class EditSession {
             guard let cct = asShotCCT, let t = asShotTint else { return nil }
             return ImageEditPipeline.AsShotWB(temperature: cct, tint: t)
         }()
+
+        // Non-RAW export — ImageIO decode + non-RAW chain. Skip the Rust
+        // FFI entirely (which would reject HEIF / JPEG bytes).
+        if !asset.isRaw {
+            guard let decoded = await pipeline.decodeSceneLinearNonRaw(
+                asset: asset, targetSize: nil
+            ) else {
+                throw RenderError.pipelineFailed
+            }
+            return await Task.detached(priority: .userInitiated) {
+                pipeline.processSceneLinearNonRaw(
+                    decoded: decoded, model: m, targetSize: nil
+                )
+            }.value
+        }
+
         // Pass the asset's sidecar URL through to the scene-linear FFI so
         // the Rust path applies highlight_recovery (Apple-irreplaceable
         // pre-DCP stage). The FFI also pre-applies the rest of the model
@@ -1323,6 +1339,10 @@ public final class EditSession {
                 return decodedRawResolution.width + 0.5 < target.width
                     || decodedRawResolution.height + 0.5 < target.height
             }()
+            // Dispatch the kernel chain on asset.isRaw — non-RAW skips the
+            // WB-calibration kernel (the JPEG was baked at the source-light
+            // already) and uses processSceneLinearNonRaw.
+            let isRaw = asset.isRaw
             if needsFreshHighResDecode, let target = targetSize {
                 // Bail out BEFORE the expensive decode if a newer
                 // refine has already been scheduled. Without this,
@@ -1360,7 +1380,14 @@ public final class EditSession {
                 let decoded = await coalescedRefineDecode(
                     asset: assetCapture, target: target
                 ) {
-                    await mapleStageAsync("rust FFI scene-linear decode (refine)") {
+                    if !isRaw {
+                        return await mapleStageAsync("ImageIO non-RAW decode (refine)") {
+                            await pipelineCapture.decodeSceneLinearNonRaw(
+                                asset: assetCapture, targetSize: target
+                            )
+                        }
+                    }
+                    return await mapleStageAsync("rust FFI scene-linear decode (refine)") {
                         await pipelineCapture.decodeSceneLinearSized(
                             asset: assetCapture, targetSize: target, xmpPath: sidecar
                         )
@@ -1383,7 +1410,12 @@ public final class EditSession {
                 let freshDecodedAtModel = self.decodedAtModel
                 let processed = await Task.detached(priority: .userInitiated) {
                     mapleStage(filterStageName) {
-                        pipeline.processSceneLinear(
+                        if !isRaw {
+                            return pipeline.processSceneLinearNonRaw(
+                                decoded: decoded, model: m, targetSize: target
+                            )
+                        }
+                        return pipeline.processSceneLinear(
                             decoded: decoded, model: m, targetSize: target,
                             asShot: asShot, decodedAtModel: freshDecodedAtModel
                         )
@@ -1394,24 +1426,30 @@ public final class EditSession {
                 // Cached decode — apply scene-linear chain only. Hot path.
                 image = await Task.detached(priority: .userInitiated) {
                     mapleStage(filterStageName) {
-                        pipeline.processSceneLinear(
+                        if !isRaw {
+                            return pipeline.processSceneLinearNonRaw(
+                                decoded: cached, model: m, targetSize: targetSize
+                            )
+                        }
+                        return pipeline.processSceneLinear(
                             decoded: cached, model: m, targetSize: targetSize,
                             asShot: asShot, decodedAtModel: cachedDecodedAtModel
                         )
                     }
                 }.value
             } else {
-                // Cold decode — run the Rust FFI once, cache the result.
-                // Dedupe: if another render phase is already awaiting a
-                // decode for this asset, piggy-back on its Task rather than
-                // starting a concurrent one. SwiftUI can fire previewSize
-                // and pixelScale didSets in rapid succession as the
-                // viewport lays itself out, which used to schedule several
-                // cold decodes in parallel — each observing `decodedImage`
-                // still nil because no sibling had written it yet. The
-                // result was N concurrent Rust FFI decodes on a 100MP RAW
-                // with no survivor ever reaching the published-preview
-                // assignment. Single in-flight decode per asset fixes it.
+                // Cold decode — run the Rust FFI once (RAW) or ImageIO once
+                // (non-RAW), cache the result. Dedupe: if another render
+                // phase is already awaiting a decode for this asset, piggy-
+                // back on its Task rather than starting a concurrent one.
+                // SwiftUI can fire previewSize and pixelScale didSets in
+                // rapid succession as the viewport lays itself out, which
+                // used to schedule several cold decodes in parallel — each
+                // observing `decodedImage` still nil because no sibling had
+                // written it yet. The result was N concurrent Rust FFI
+                // decodes on a 100MP RAW with no survivor ever reaching the
+                // published-preview assignment. Single in-flight decode per
+                // asset fixes it.
                 let decoded = await sharedDecode(asset: asset, pipeline: pipeline)
                 guard !Task.isCancelled else {
                     isRendering = false
@@ -1429,7 +1467,12 @@ public final class EditSession {
                 // because targetSize differs between fast and refine.
                 let processed = await Task.detached(priority: .userInitiated) {
                     mapleStage(filterStageName) {
-                        pipeline.processSceneLinear(
+                        if !isRaw {
+                            return pipeline.processSceneLinearNonRaw(
+                                decoded: decoded, model: m, targetSize: targetSize
+                            )
+                        }
+                        return pipeline.processSceneLinear(
                             decoded: decoded, model: m, targetSize: targetSize,
                             asShot: asShot, decodedAtModel: freshDecodedAtModel
                         )
@@ -1550,7 +1593,24 @@ public final class EditSession {
         // dropping the FFI buffer from ~200 MB (half-res scene-linear) to
         // ~12 MB for a 1500-px-long-edge target.
         let capturedViewport = previewSize
+        let isRaw = asset.isRaw
         let task: Task<CIImage?, Never> = Task.detached(priority: .userInitiated) { [pipeline] in
+            // Decode dispatch — RAW assets go through the Rust FFI; non-RAW
+            // (HEIF / HEIC / JPEG / PNG) goes through ImageIO + Core Image.
+            // The non-RAW path is Apple-only — see decodeSceneLinearNonRaw
+            // in ImageEditPipeline.swift. Web has its own non-RAW path via
+            // browser-native Image decode.
+            if !isRaw {
+                let target: CGSize? = (capturedViewport.width > 1 && capturedViewport.height > 1)
+                    ? capturedViewport
+                    : nil
+                return await mapleStageAsync("ImageIO non-RAW decode") {
+                    await pipeline.decodeSceneLinearNonRaw(
+                        asset: asset, targetSize: target
+                    )
+                }
+            }
+
             // Scene-linear FFI routing:
             //   1. Viewport size is known → use the sized FFI entry
             //      (ticket 06 Milestone 2). Output is ~12 MB for a

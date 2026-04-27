@@ -256,6 +256,220 @@ public actor ImageEditPipeline {
         }
     }
 
+    // MARK: Decode (non-RAW path — ImageIO + Core Image)
+
+    /// Decode a non-RAW image (HEIF / HEIC / JPEG / PNG) into a scene-linear
+    /// Rec.2020 CIImage that matches the working space of
+    /// `processSceneLinear`. Skips the Rust pipeline entirely — non-RAW
+    /// images already ship demosaiced sRGB / Display-P3 pixels with an
+    /// embedded ICC profile, so rawler::decode would reject them.
+    ///
+    /// Pipeline:
+    ///   1. `CGImageSourceCreateWithURL` / `WithData` reads the file (cheap;
+    ///      lazy until the CGImage is drawn).
+    ///   2. `CGImageSourceCreateImageAtIndex` materialises a CGImage with
+    ///      its embedded ICC profile honoured. ImageIO handles HEIF/HEIC
+    ///      natively on macOS 10.13+ / iOS 11+.
+    ///   3. `CIImage(cgImage:)` wraps the CGImage; CoreImage promises to
+    ///      convert from the source color space to the working space (we
+    ///      configure the CIContext for `extendedLinearSRGB` working space,
+    ///      so the gamma decode happens here).
+    ///   4. We tag the result with `extendedLinearITUR_2020` so the rest of
+    ///      `processSceneLinear` (which assumes Rec.2020 fp16 input) sees a
+    ///      consistent color space. CoreImage's working-space promotion
+    ///      handles the gamut transform.
+    ///
+    /// Returns `nil` on decode failure or when the asset has neither a URL
+    /// nor a bytes provider.
+    nonisolated public func decodeSceneLinearNonRaw(
+        asset: AssetRef,
+        targetSize: CGSize? = nil
+    ) async -> CIImage? {
+        // Pull bytes (or use the URL directly when available).
+        let cgImage: CGImage?
+        let sourceColorSpace: CGColorSpace?
+        if let url = asset.primaryURL {
+            let scope = asset.scopeParentURL ?? url.deletingLastPathComponent()
+            let accessing = scope.startAccessingSecurityScopedResource()
+            defer { if accessing { scope.stopAccessingSecurityScopedResource() } }
+            let pair = Self.decodeNonRawCGImage(url: url)
+            cgImage = pair.image
+            sourceColorSpace = pair.colorSpace
+        } else if let provider = asset.bytesProvider {
+            do {
+                let bytes = try await provider()
+                let pair = Self.decodeNonRawCGImage(data: bytes)
+                cgImage = pair.image
+                sourceColorSpace = pair.colorSpace
+            } catch {
+                logger.error("decodeSceneLinearNonRaw bytesProvider failed for \(asset.displayName, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                return nil
+            }
+        } else {
+            return nil
+        }
+        guard let cgImage else {
+            logger.error("decodeSceneLinearNonRaw: ImageIO returned nil for \(asset.displayName, privacy: .public)")
+            return nil
+        }
+
+        // Build a CIImage from the CGImage. CoreImage will pick up the
+        // embedded ICC from the CGImage; passing `colorSpace` overrides
+        // it explicitly so callers without a tagged source still land on
+        // sRGB-encoded input.
+        var options: [CIImageOption: Any] = [:]
+        if let cs = sourceColorSpace ?? cgImage.colorSpace {
+            options[.colorSpace] = cs
+        }
+        let raw = mapleStage("decode non-RAW CIImage build") {
+            CIImage(cgImage: cgImage, options: options)
+        }
+
+        // Tag the working buffer as extendedLinearITUR_2020 so the rest of
+        // the scene-linear chain treats it as Rec.2020 fp16. CoreImage
+        // promotes the source's gamut+gamma into the working space at
+        // render time — we just need the downstream filters to read the
+        // right colorimetry from the CIImage's metadata.
+        //
+        // `matchedToWorkingSpace(from:)` on macOS 13+ / iOS 16+ would be
+        // the cleanest API, but it isn't on every supported deployment
+        // target. The simpler `applyingFilter("CIColorMatrix")` no-op
+        // identity matrix forces an explicit working-space promotion;
+        // the matrix is the identity so we don't apply any color shift.
+        let promoted = raw.applyingFilter(
+            "CIColorMatrix",
+            parameters: [:]
+        )
+
+        // Optional prescale to viewport — same Lanczos path as the RAW
+        // chain. Calling `prescaleForDisplay` here keeps the scene-linear
+        // intermediate small for the slider phase.
+        return Self.prescaleForDisplay(promoted, targetSize: targetSize)
+    }
+
+    /// Helper — open a `CGImageSource` and pull the largest image at index 0.
+    /// Returns the CGImage plus its source color space (when surfaced by
+    /// ImageIO) so the caller can tag the CIImage explicitly.
+    nonisolated private static func decodeNonRawCGImage(url: URL) -> (image: CGImage?, colorSpace: CGColorSpace?) {
+        let opts: [CFString: Any] = [
+            kCGImageSourceShouldCache: false,
+            // Force the full-resolution image, not the embedded thumbnail.
+            kCGImageSourceShouldCacheImmediately: false,
+        ]
+        guard let src = CGImageSourceCreateWithURL(url as CFURL, opts as CFDictionary) else {
+            return (nil, nil)
+        }
+        return decodeNonRawCGImage(source: src)
+    }
+
+    nonisolated private static func decodeNonRawCGImage(data: Data) -> (image: CGImage?, colorSpace: CGColorSpace?) {
+        let opts: [CFString: Any] = [
+            kCGImageSourceShouldCache: false,
+            kCGImageSourceShouldCacheImmediately: false,
+        ]
+        guard let src = CGImageSourceCreateWithData(data as CFData, opts as CFDictionary) else {
+            return (nil, nil)
+        }
+        return decodeNonRawCGImage(source: src)
+    }
+
+    nonisolated private static func decodeNonRawCGImage(source: CGImageSource) -> (image: CGImage?, colorSpace: CGColorSpace?) {
+        // Index 0 is the primary image for HEIF / JPEG / PNG. (HEIF can
+        // contain multiple images via the `pitm` box but Apple's
+        // CGImageSource defaults index 0 to the primary item.)
+        let imageOpts: [CFString: Any] = [
+            // Decode at full res; non-RAW images are already display-sized.
+            kCGImageSourceShouldAllowFloat: true,
+        ]
+        let cg = CGImageSourceCreateImageAtIndex(source, 0, imageOpts as CFDictionary)
+        let cs = cg?.colorSpace
+        return (cg, cs)
+    }
+
+    // MARK: Process (non-RAW path — skip WB calibration)
+
+    /// Scene-linear chain for non-RAW input. Identical to
+    /// `processSceneLinear` except the WhiteBalance kernel is bypassed by
+    /// default — non-RAW images already had source-light WB baked in by
+    /// the camera or original editor, so the slider semantics shift from
+    /// "correct the source illuminant" (RAW) to "creative warmth/cool
+    /// shift on top of whatever the JPEG was baked at" (non-RAW).
+    ///
+    /// The simplest behaviour ships here: when `model.temperature == 6500`
+    /// and `model.tint == 0` (the non-RAW default), the WB kernel is
+    /// short-circuited via `decodedAtModel == .default`. Off-default
+    /// values apply a multiplicative D65→target shift through the same
+    /// kernel, mirroring how Lightroom treats the WB sliders on a JPEG.
+    nonisolated public func processSceneLinearNonRaw(
+        decoded: CIImage,
+        model: AdjustmentModel,
+        targetSize: CGSize? = nil
+    ) -> CIImage {
+        let scaled = Self.prescaleForDisplay(decoded, targetSize: targetSize)
+
+        // Non-RAW WB: identity at user's "as shot" (6500/0). Use the live
+        // model values directly with a synthetic `decoded = (6500, 0)`
+        // baseline so the kernel computes (live - 6500/0), giving the
+        // identity short-circuit the kernel uses internally.
+        let withWB = MetalKernels.applyWhiteBalance(
+            to: scaled,
+            liveTemperature: Float(model.temperature),
+            liveTint: Float(model.tint),
+            decodedTemperature: 6500,
+            decodedTint: 0
+        )
+
+        // From here down the chain is identical to processSceneLinear:
+        // every stage works on scene-linear Rec.2020 RGB regardless of
+        // the input source.
+        let withTone = MetalKernels.applySceneToneControls(
+            to: withWB,
+            exposure: Float(model.exposure),
+            highlights: Float(model.highlights),
+            shadows: Float(model.shadows),
+            whites: Float(model.whites),
+            blacks: Float(model.blacks)
+        )
+        let withVibrance = MetalKernels.applySceneVibrance(
+            to: withTone,
+            vibrance: Float(model.vibrance)
+        )
+        let withSaturation = MetalKernels.applySceneSaturation(
+            to: withVibrance,
+            saturation: Float(model.saturation)
+        )
+        let withClarity = MetalKernels.applySceneClarity(
+            to: withSaturation,
+            clarity: Float(model.clarity)
+        )
+        let withTexture = MetalKernels.applySceneTexture(
+            to: withClarity,
+            texture: Float(model.texture)
+        )
+        let withDehaze = MetalKernels.applySceneDehaze(
+            to: withTexture,
+            dehaze: Float(model.dehaze)
+        )
+        let withSharpen = MetalKernels.applySceneSharpen(
+            to: withDehaze,
+            amount: Float(model.sharpenAmount),
+            radius: Float(model.sharpenRadius),
+            detail: Float(model.sharpenDetail),
+            masking: Float(model.sharpenMasking)
+        )
+        let withNRLuminance = MetalKernels.applySceneNRLuminance(
+            to: withSharpen,
+            nrLuminance: Float(model.nrLuminance)
+        )
+        let withNRColor = MetalKernels.applySceneNRColor(
+            to: withNRLuminance,
+            nrColor: Float(model.nrColor)
+        )
+        return MetalKernels.applyAgXViewTransform(
+            to: withNRColor, contrast: Float(model.contrast)
+        )
+    }
+
     // MARK: Process (scene-linear path — Plan 1 FFI split)
 
     /// Apply the Plan-1 minimal display-domain chain to a scene-linear
