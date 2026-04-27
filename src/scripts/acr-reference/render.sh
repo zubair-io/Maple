@@ -34,9 +34,13 @@ echo "           log: $MAPLE_ROOT/test-fixtures/references/acr_batch.log"
 echo ""
 
 # `do javascript of file` is blocking — osascript returns when the .jsx returns.
+# AppleEvent default timeout is 120 s; a full 18-RAW × 43-case batch runs
+# 75–90 minutes, so wrap in `with timeout` (24 h, ample headroom).
 # The .jsx runs silently (DialogModes.NO) except for the final alert().
 osascript -e "tell application \"$PHOTOSHOP_APP\" to activate" \
-          -e "tell application \"$PHOTOSHOP_APP\" to do javascript of file \"$JSX\""
+          -e "with timeout of 86400 seconds" \
+          -e "tell application \"$PHOTOSHOP_APP\" to do javascript of file \"$JSX\"" \
+          -e "end timeout"
 
 echo ""
 echo "render.sh: done. Check acr_batch.log for per-case timing + errors."
