@@ -369,13 +369,9 @@ struct ThumbnailCell: View {
     var body: some View {
         VStack(spacing: 4) {
             ZStack(alignment: .bottomLeading) {
+                // `thumbnailImage` already enforces 1:1 aspect ratio and
+                // clips to the rounded rectangle — see its docs for why.
                 thumbnailImage
-                    // Square cell — always 1:1 regardless of source aspect.
-                    // The `fit` content mode here is on the outer container;
-                    // the inner Image inside `thumbnailImage` controls
-                    // fill-vs-fit via `displayMode.contentMode`.
-                    .aspectRatio(1, contentMode: .fit)
-                    .clipShape(RoundedRectangle(cornerRadius: 4))
 
                 // Culling badges
                 if let session {
@@ -416,31 +412,41 @@ struct ThumbnailCell: View {
 
     @ViewBuilder
     private var thumbnailImage: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 4)
-                .fill(MapleTokens.surfaceAlt)
-                .overlay {
+        // Pattern: `Rectangle().overlay { Image }` not `ZStack { Rect, Image }`.
+        //
+        // Why: with a plain ZStack, the ZStack's bounds expand to fit its
+        // largest child. An `Image().resizable().aspectRatio(.fill)` reports a
+        // preferred size *larger* than the proposed size (that's how fill
+        // mode works — short edge fills, long edge overflows). So the ZStack
+        // grows to that overflowing size and an inner `.clipped()` ends up
+        // clipping at the wrong (too-big) frame. By making the placeholder
+        // Rectangle the size-defining child and putting the Image in
+        // `.overlay`, the layout is anchored to the Rectangle's bounds.
+        // `.aspectRatio(1, .fit)` forces the Rectangle into a square at the
+        // cell's offered width, and `.clipShape(RoundedRectangle)` clips the
+        // overflowing overlay to that square, with rounded corners.
+        Rectangle()
+            .fill(MapleTokens.surfaceAlt)
+            .overlay {
+                if let data = thumbData, let cgImg = Self.cgImage(from: data) {
+                    #if os(macOS)
+                    Image(nsImage: NSImage(cgImage: cgImg, size: .zero))
+                        .resizable()
+                        .aspectRatio(contentMode: displayMode.contentMode)
+                        .transition(.opacity)
+                    #else
+                    Image(uiImage: UIImage(cgImage: cgImg))
+                        .resizable()
+                        .aspectRatio(contentMode: displayMode.contentMode)
+                        .transition(.opacity)
+                    #endif
+                } else {
                     Image(systemName: "photo")
                         .foregroundStyle(MapleTokens.textMuted)
                 }
-            if let data = thumbData, let cgImg = Self.cgImage(from: data) {
-                #if os(macOS)
-                Image(nsImage: NSImage(cgImage: cgImg, size: .zero))
-                    .resizable()
-                    .aspectRatio(contentMode: displayMode.contentMode)
-                    .transition(.opacity)
-                #else
-                Image(uiImage: UIImage(cgImage: cgImg))
-                    .resizable()
-                    .aspectRatio(contentMode: displayMode.contentMode)
-                    .transition(.opacity)
-                #endif
             }
-        }
-        // Without `.clipped()` the fill-mode image overflows the
-        // RoundedRectangle's frame and renders into adjacent cells. Apply
-        // it whether or not we have data — placeholder is already inside.
-        .clipped()
+            .aspectRatio(1, contentMode: .fit)
+            .clipShape(RoundedRectangle(cornerRadius: 4))
     }
 
     // MARK: - Loading
