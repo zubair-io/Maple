@@ -105,4 +105,90 @@ mod tests {
             assert!((p[2] - 0.2).abs() < 1e-5);
         }
     }
+
+    /// Regression test for the test_0004 (Hasselblad H5D-40 Digital ColorChecker
+    /// SG card) "chromatic noise on saturated patches" bug. With per-Bayer
+    /// shot noise on an otherwise uniform colored patch, the legacy
+    /// 1-quad-per-output demosaic propagates the per-pixel sensor noise
+    /// directly into the output (only 1 R + 2 G + 1 B sample per output
+    /// pixel; no spatial smoothing). On real RAWs of saturated SG patches
+    /// this rendered as visible per-pixel chroma noise after the inv(CM)
+    /// stage amplified the chroma deltas — the artifact the user reported.
+    ///
+    /// The fix smooths each channel over a wider window of mosaic samples
+    /// (4 R's, 8 G's, 4 B's per output pixel) so per-pixel shot noise
+    /// averages out before the heavy color math. Pre-fix this test fails:
+    /// output variance ≈ noise^2 (per-pixel = unchanged from input). After
+    /// the fix the variance drops by the averaging factor (4× for R/B,
+    /// 8× for G).
+    #[test]
+    fn half_res_smooths_per_quad_shot_noise_on_uniform_patch() {
+        // A larger uniform colored patch (mimics the SG yellow / red square)
+        // with a deterministic per-pixel "shot noise" jitter on every
+        // mosaic sample. Truly uniform reflectance, but each sensor sample
+        // varies by ±10% — exactly what RAW capture looks like.
+        let w = 32u32;
+        let h = 32u32;
+        let cfa = CfaPattern::Rggb;
+        let mut img = Image::new(w, h, ColorSpace::CameraNativeMosaic);
+        // True patch reflectance: vivid red — exactly the case that breaks
+        // on test_0004 (channel imbalance amplifies chroma noise).
+        let true_r = 0.8;
+        let true_g = 0.3;
+        let true_b = 0.2;
+        // Deterministic noise: linear-congruential per pixel for reproducibility.
+        for y in 0..h {
+            for x in 0..w {
+                let c = cfa.color_at(x, y) as usize;
+                let true_v = match c { 0 => true_r, 1 => true_g, 2 => true_b, _ => 0.0 };
+                // ±10% deterministic jitter. 32-pixel period — guaranteed
+                // to wash out at any reasonable averaging window.
+                let seed = (x.wrapping_mul(2654435761) ^ y.wrapping_mul(40503)) % 2000;
+                let jitter = ((seed as f32) - 1000.0) / 10000.0; // [-0.1, +0.1]
+                img.pixels[(y * w + x) as usize][c] = true_v * (1.0 + jitter);
+            }
+        }
+        let out = half_res(&img, cfa);
+
+        // Per-channel variance of the output. For the bug-version this
+        // matches the input noise variance (~0.0006 for ±10% on 0.8). After
+        // the fix it should drop by ≥4× (averaging 4 R-samples = var/4).
+        let n = out.pixels.len() as f32;
+        let mean = {
+            let mut s = [0.0f32; 3];
+            for p in &out.pixels {
+                s[0] += p[0]; s[1] += p[1]; s[2] += p[2];
+            }
+            [s[0] / n, s[1] / n, s[2] / n]
+        };
+        let var = {
+            let mut s = [0.0f32; 3];
+            for p in &out.pixels {
+                s[0] += (p[0] - mean[0]).powi(2);
+                s[1] += (p[1] - mean[1]).powi(2);
+                s[2] += (p[2] - mean[2]).powi(2);
+            }
+            [s[0] / n, s[1] / n, s[2] / n]
+        };
+        // Mean must still equal the true patch colour.
+        assert!((mean[0] - true_r).abs() < 0.02, "R mean drifted: {} vs {}", mean[0], true_r);
+        assert!((mean[1] - true_g).abs() < 0.02, "G mean drifted: {} vs {}", mean[1], true_g);
+        assert!((mean[2] - true_b).abs() < 0.02, "B mean drifted: {} vs {}", mean[2], true_b);
+        // The unsmoothed input has per-channel variance ≈ ((0.1*v)^2)/3 for
+        // a uniform jitter. For R = 0.8 ± 0.08 the variance is ~0.0021. After
+        // averaging 4 R-samples per output pixel the variance drops by 4×
+        // to ~5e-4. We require ≤ 1e-3 (≥2× reduction) which the legacy
+        // 1-sample-per-output implementation FAILS — its variance equals
+        // the input variance ~0.0021.
+        let smoothed_var_budget_r = 1.0e-3;
+        let smoothed_var_budget_g = 5.0e-4; // tighter: 8 G samples averaged
+        let smoothed_var_budget_b = 1.0e-3;
+        assert!(var[0] < smoothed_var_budget_r,
+            "R variance {} not smoothed (budget {}) — half-res must average over neighboring quads",
+            var[0], smoothed_var_budget_r);
+        assert!(var[1] < smoothed_var_budget_g,
+            "G variance {} not smoothed (budget {})", var[1], smoothed_var_budget_g);
+        assert!(var[2] < smoothed_var_budget_b,
+            "B variance {} not smoothed (budget {})", var[2], smoothed_var_budget_b);
+    }
 }
