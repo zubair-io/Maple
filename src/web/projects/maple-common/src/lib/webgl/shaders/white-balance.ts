@@ -40,23 +40,29 @@ const mat3 M_XYZ_D65_TO_REC2020 = mat3(
     vec3( 0.0176399, -0.0427706,  0.9421031)
 );
 
-// Hernández-Andrés (1999) polynomial. CCT (Kelvin) → CIE xy.
-// Mirrors WhiteBalance.metal:40-58 / white_balance.rs:9-24.
+// CCT (Kelvin) → CIE xy on the Planckian (blackbody) locus per
+// Hernández-Andrés et al. 1999, "Calculating correlated color temperatures
+// across the entire gamut of daylight and skylight chromaticities"
+// (Applied Optics 38(27), 5703–5709). Valid 1667K–25000K; clamped to
+// [2000K, 25000K] (ACR exposes 2000K–50000K; clamp the upper end).
+//
+// Mirrors cct_to_xy in WhiteBalance.metal / white_balance.rs —
+// coefficients must stay byte-identical across Rust / Metal / WebGL.
 vec2 cct_to_xy(float cct) {
-    float t  = clamp(cct, 2000.0, 15000.0);
+    float t  = clamp(cct, 2000.0, 25000.0);
     float t2 = t * t;
     float t3 = t2 * t;
     float x;
-    if (t <= 7000.0) {
-        x =  0.244063
-          + 99.11           / t
-          + 2967800.0       / t2
-          - 4607000000.0    / t3;
+    if (t <= 4000.0) {
+        x =  0.179910
+          + 0.8776956e3   / t
+          - 0.2343589e6   / t2
+          - 0.2661239e9   / t3;
     } else {
-        x =  0.237040
-          + 247.48          / t
-          + 1901800.0       / t2
-          - 2006400000.0    / t3;
+        x =  0.240390
+          + 0.2226347e3   / t
+          + 2.1070379e6   / t2
+          - 3.0258469e9   / t3;
     }
     float y = -3.000 * x * x + 2.870 * x - 0.275;
     return vec2(x, y);
