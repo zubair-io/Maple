@@ -103,6 +103,91 @@ public struct AssetRef: Identifiable, Sendable, Equatable, Hashable {
         return primaryURL?.deletingPathExtension().lastPathComponent ?? "Untitled"
     }
 
+    /// Explicit isRaw override set by sources that know their format ahead
+    /// of bytes (PhotoKit's dataUTI, Self-Hosted's API metadata). When set,
+    /// `isRaw` returns this value directly; when nil, the extension-based
+    /// fallback applies.
+    public let explicitIsRaw: Bool?
+
+    /// True when the asset should route through the Rust RAW decode path
+    /// (rawler → DCP → demosaic → scene-linear chain). False routes through
+    /// the Apple non-RAW path (`CGImageSource` → embedded ICC → scene-linear
+    /// chain that skips the WB calibration / DCP / demosaic stages).
+    ///
+    /// Detection order:
+    ///   1. `explicitIsRaw` — sources that know their format up front.
+    ///   2. Extension on `primaryURL` — e.g. `dng` is RAW, `heic` is non-RAW.
+    ///   3. `hintExtension` — when no URL is available.
+    ///   4. Default: RAW. Maintains historical behaviour for PhotoKit/
+    ///      SelfHosted refs that haven't been classified yet.
+    ///
+    /// `dng` is RAW even though ImageIO can also decode it — iPhone ProRAW
+    /// deserves the full DCP / HSM / PTC pipeline.
+    public var isRaw: Bool {
+        if let explicitIsRaw {
+            return explicitIsRaw
+        }
+        let ext: String
+        if let primaryURL {
+            ext = primaryURL.pathExtension.lowercased()
+        } else if let hint = hintExtension {
+            ext = hint.lowercased()
+        } else {
+            // No URL, no hint — assume RAW so existing PhotoKit / Self-
+            // Hosted RAW fixtures keep their behaviour. The non-RAW path
+            // is opt-in via an explicit hint extension.
+            return true
+        }
+        if NonRawImageExtensions.all.contains(ext) {
+            return false
+        }
+        // Anything not in the non-RAW set (including the empty string)
+        // routes through the RAW path. This covers the entire
+        // RAWExtensions.all set plus formats we haven't seen yet.
+        return true
+    }
+
+    /// Magic-byte sniff for the first ~16 bytes of an image. Used by
+    /// PhotoKit's bytes-provider path when the source returns HEIF/JPEG
+    /// without forwarding an extension hint. Returns `nil` when the
+    /// signature is unrecognised — caller should fall back to extension
+    /// detection (or assume RAW per the historical default).
+    ///
+    /// Signatures:
+    ///   - JPEG: `FF D8 FF`
+    ///   - PNG:  `89 50 4E 47 0D 0A 1A 0A`
+    ///   - HEIF: ftyp box at offset 4 with major brand `heic`/`heix`/
+    ///           `mif1`/`heim`/`heis`/`hevc`/`hevm`/`hevs`/`avif`
+    public static func detectIsRaw(bytes: Data) -> Bool? {
+        guard bytes.count >= 12 else { return nil }
+        // JPEG magic.
+        if bytes[0] == 0xFF, bytes[1] == 0xD8, bytes[2] == 0xFF {
+            return false
+        }
+        // PNG magic.
+        if bytes.count >= 8,
+           bytes[0] == 0x89, bytes[1] == 0x50, bytes[2] == 0x4E, bytes[3] == 0x47,
+           bytes[4] == 0x0D, bytes[5] == 0x0A, bytes[6] == 0x1A, bytes[7] == 0x0A {
+            return false
+        }
+        // HEIF / HEIC — `ftyp` box at offset 4, brand at offset 8.
+        let ftypBytes: [UInt8] = [0x66, 0x74, 0x79, 0x70]  // "ftyp"
+        if bytes[4] == ftypBytes[0], bytes[5] == ftypBytes[1],
+           bytes[6] == ftypBytes[2], bytes[7] == ftypBytes[3] {
+            // Read 4-char brand at offset 8.
+            let brand = String(bytes: bytes[8..<12], encoding: .ascii) ?? ""
+            let nonRawBrands: Set<String> = [
+                "heic", "heix", "mif1", "heim", "heis",
+                "hevc", "hevm", "hevs", "avif",
+            ]
+            if nonRawBrands.contains(brand) {
+                return false
+            }
+        }
+        // Unknown signature — caller falls back.
+        return nil
+    }
+
     public init(url: URL, scopeParentURL: URL? = nil) {
         self.id = UUID()
         self.primaryURL = url
@@ -111,6 +196,7 @@ public struct AssetRef: Identifiable, Sendable, Equatable, Hashable {
         self.bytesProvider = nil
         self.stableID = nil
         self.scopeParentURL = scopeParentURL
+        self.explicitIsRaw = nil
     }
 
     /// Construct an `AssetRef` for a source without a filesystem URL
@@ -119,9 +205,14 @@ public struct AssetRef: Identifiable, Sendable, Equatable, Hashable {
     /// weakly, not strongly, if they want the session to deinit cleanly.
     /// `stableID` is the upstream cross-session identifier used as the
     /// thumbnail cache key (e.g. an API maple:id, a PHAsset localIdentifier).
+    /// `explicitIsRaw` lets the source declare the format up front (e.g.
+    /// PhotoKit's dataUTI on iCloud-resident HEIF) — without it the
+    /// extension fallback or the magic-byte sniff at first byte fetch
+    /// classifies the asset.
     public init(displayName: String,
                 hintExtension: String?,
                 stableID: String? = nil,
+                explicitIsRaw: Bool? = nil,
                 bytesProvider: @escaping BytesProvider) {
         self.id = UUID()
         self.primaryURL = nil
@@ -130,6 +221,7 @@ public struct AssetRef: Identifiable, Sendable, Equatable, Hashable {
         self.bytesProvider = bytesProvider
         self.stableID = stableID
         self.scopeParentURL = nil
+        self.explicitIsRaw = explicitIsRaw
     }
 
     public static func == (lhs: AssetRef, rhs: AssetRef) -> Bool {
@@ -688,6 +780,22 @@ public final class EditSession {
             guard let cct = asShotCCT, let t = asShotTint else { return nil }
             return ImageEditPipeline.AsShotWB(temperature: cct, tint: t)
         }()
+
+        // Non-RAW export — ImageIO decode + non-RAW chain. Skip the Rust
+        // FFI entirely (which would reject HEIF / JPEG bytes).
+        if !asset.isRaw {
+            guard let decoded = await pipeline.decodeSceneLinearNonRaw(
+                asset: asset, targetSize: nil
+            ) else {
+                throw RenderError.pipelineFailed
+            }
+            return await Task.detached(priority: .userInitiated) {
+                pipeline.processSceneLinearNonRaw(
+                    decoded: decoded, model: m, targetSize: nil
+                )
+            }.value
+        }
+
         // Pass the asset's sidecar URL through to the scene-linear FFI so
         // the Rust path applies highlight_recovery (Apple-irreplaceable
         // pre-DCP stage). The FFI also pre-applies the rest of the model
@@ -1356,6 +1464,11 @@ public final class EditSession {
             // mtime change — the Rust path bakes sidecar-driven stages
             // (highlight_recovery, profile-driven WB) before returning,
             // so an external XMP edit demands a fresh decode.
+            //
+            // Dispatch the kernel chain on asset.isRaw — non-RAW skips
+            // the WB-calibration kernel (the JPEG was baked at the
+            // source-light already) and uses processSceneLinearNonRaw.
+            let isRaw = asset.isRaw
             let cacheFresh = (cached != nil)
                 && alreadyDecodedID == asset.id
                 && decodedCacheIsFreshForCurrentAsset()
@@ -1368,24 +1481,30 @@ public final class EditSession {
                 // the requested target pixels do.
                 image = await Task.detached(priority: .userInitiated) {
                     mapleStage(filterStageName) {
-                        pipeline.processSceneLinear(
+                        if !isRaw {
+                            return pipeline.processSceneLinearNonRaw(
+                                decoded: cached, model: m, targetSize: targetSize
+                            )
+                        }
+                        return pipeline.processSceneLinear(
                             decoded: cached, model: m, targetSize: targetSize,
                             asShot: asShot, decodedAtModel: cachedDecodedAtModel
                         )
                     }
                 }.value
             } else {
-                // Cold decode — run the Rust FFI once, cache the result.
-                // Dedupe: if another render phase is already awaiting a
-                // decode for this asset, piggy-back on its Task rather than
-                // starting a concurrent one. SwiftUI can fire previewSize
-                // and pixelScale didSets in rapid succession as the
-                // viewport lays itself out, which used to schedule several
-                // cold decodes in parallel — each observing `decodedImage`
-                // still nil because no sibling had written it yet. The
-                // result was N concurrent Rust FFI decodes on a 100MP RAW
-                // with no survivor ever reaching the published-preview
-                // assignment. Single in-flight decode per asset fixes it.
+                // Cold decode — run the Rust FFI once (RAW) or ImageIO once
+                // (non-RAW), cache the result. Dedupe: if another render
+                // phase is already awaiting a decode for this asset, piggy-
+                // back on its Task rather than starting a concurrent one.
+                // SwiftUI can fire previewSize and pixelScale didSets in
+                // rapid succession as the viewport lays itself out, which
+                // used to schedule several cold decodes in parallel — each
+                // observing `decodedImage` still nil because no sibling had
+                // written it yet. The result was N concurrent Rust FFI
+                // decodes on a 100MP RAW with no survivor ever reaching the
+                // published-preview assignment. Single in-flight decode per
+                // asset fixes it.
                 let decoded = await sharedDecode(asset: asset, pipeline: pipeline)
                 guard !Task.isCancelled else {
                     isRendering = false
@@ -1403,7 +1522,12 @@ public final class EditSession {
                 // because targetSize differs between fast and refine.
                 let processed = await Task.detached(priority: .userInitiated) {
                     mapleStage(filterStageName) {
-                        pipeline.processSceneLinear(
+                        if !isRaw {
+                            return pipeline.processSceneLinearNonRaw(
+                                decoded: decoded, model: m, targetSize: targetSize
+                            )
+                        }
+                        return pipeline.processSceneLinear(
                             decoded: decoded, model: m, targetSize: targetSize,
                             asShot: asShot, decodedAtModel: freshDecodedAtModel
                         )
@@ -1536,19 +1660,13 @@ public final class EditSession {
         //     — the cached buffer covers the whole canvas but only those
         //     pixels actually run through the chain.
         //
-        // Why not the sized FFI? Earlier (ticket 06 M2) `decodeSceneLinearSized`
-        // capped the cold-decode buffer at viewport size for a smaller
-        // working set. It fixed cold-open memory but made every refine at
-        // higher zoom recross the FFI (~10 s per slider tick on a 100 MP
-        // RAW), which is the flicker the user reported. The embedded JPEG
-        // seed (`seedFromEmbeddedPreview`) covers the cold-paint latency
-        // window — full-res Rust decode runs in the background while the
-        // viewport already shows pixels.
-        //
-        // The on-disk DecodedBufferCache (sRGB JPEGs) is bypassed — it
-        // can't round-trip extended-range fp16. A follow-up plan revs the
-        // cache format; for now scene-linear opens always pay the Rust
-        // decode cost.
+        // RAW vs non-RAW dispatch:
+        //   1. AssetRef-level classification (extension or explicitIsRaw)
+        //      is the fast path — file-shaped sources hit this.
+        //   2. PhotoKit / Self-Hosted assets without an extension hint
+        //      need a magic-byte sniff at first byte fetch. We do that
+        //      below in the detached task before picking a decoder, so
+        //      iPhone HEIF photos (no URL, no hint) route correctly.
         //
         // Plan 2 M3 — pass the asset's sidecar URL through to the
         // scene-linear FFI so highlight_recovery (Rust-side, pre-DCP)
@@ -1556,7 +1674,75 @@ public final class EditSession {
         // URL when a sidecar file exists on disk; nil keeps the Rust
         // default model (highlight_recovery = Off) so first-open (no
         // sidecar) behaviour matches Plan 1.
+        let extensionIsRaw = asset.isRaw
+        let needsSniff = asset.primaryURL == nil && asset.hintExtension == nil && asset.explicitIsRaw == nil
         let task: Task<CIImage?, Never> = Task.detached(priority: .userInitiated) { [pipeline] in
+            // Decode dispatch — RAW assets go through the Rust FFI; non-RAW
+            // (HEIF / HEIC / JPEG / PNG) goes through ImageIO + Core Image.
+            // The non-RAW path is Apple-only — see decodeSceneLinearNonRaw
+            // in ImageEditPipeline.swift. Web has its own non-RAW path via
+            // browser-native Image decode.
+            //
+            // Resolve the format for sourceless-without-hint assets via
+            // a magic-byte sniff. Pre-fetch bytes once, classify, then
+            // hand the same bytes through to the matching decoder via a
+            // synthetic AssetRef whose bytesProvider returns the cached
+            // bytes.
+            var dispatchAsset = asset
+            var dispatchIsRaw = extensionIsRaw
+            if needsSniff, let provider = asset.bytesProvider {
+                if let bytes = try? await provider() {
+                    if let detected = AssetRef.detectIsRaw(bytes: bytes) {
+                        dispatchIsRaw = detected
+                    }
+                    // Wrap the bytes in a synthetic ref so the chosen
+                    // decoder reuses the bytes we just fetched (a second
+                    // bytesProvider call against PhotoKit / Self-Hosted
+                    // would re-do an iCloud fetch).
+                    let cachedBytes = bytes
+                    let displayName = asset.displayName
+                    let hint: String? = {
+                        // Promote the magic-byte-derived classification
+                        // to an extension hint so downstream readers
+                        // (CIRAWFilter for metadata) can pick the right
+                        // backend. Default to "heic" / "jpg" / "png" as
+                        // matches detectIsRaw.
+                        if dispatchIsRaw { return asset.hintExtension }
+                        if bytes.count >= 4 {
+                            if bytes[0] == 0xFF, bytes[1] == 0xD8 { return "jpg" }
+                            if bytes[0] == 0x89, bytes[1] == 0x50 { return "png" }
+                            if bytes.count >= 8 {
+                                if bytes[4] == 0x66, bytes[5] == 0x74,
+                                   bytes[6] == 0x79, bytes[7] == 0x70 {
+                                    return "heic"
+                                }
+                            }
+                        }
+                        return asset.hintExtension
+                    }()
+                    dispatchAsset = AssetRef(
+                        displayName: displayName,
+                        hintExtension: hint,
+                        stableID: asset.stableID,
+                        explicitIsRaw: dispatchIsRaw,
+                        bytesProvider: { cachedBytes }
+                    )
+                }
+            }
+
+            if !dispatchIsRaw {
+                // Non-RAW path: ImageIO decode at full extent (no target
+                // size — the cache feeds every fast/refine pass at any
+                // size, same shape as the RAW path).
+                return await mapleStageAsync("ImageIO non-RAW decode") {
+                    await pipeline.decodeSceneLinearNonRaw(
+                        asset: dispatchAsset, targetSize: nil
+                    )
+                }
+            }
+            // Re-bind asset to the dispatch ref so the rest of the block
+            // uses the cached-bytes provider when sniff fired.
+            let asset = dispatchAsset
             let sidecar: URL? = {
                 guard let url = asset.sidecarURL,
                       FileManager.default.fileExists(atPath: url.path)

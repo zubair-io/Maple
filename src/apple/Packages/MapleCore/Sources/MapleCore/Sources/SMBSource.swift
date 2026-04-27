@@ -127,7 +127,7 @@ public actor SMBSource {
             let isDir = attrs[.isDirectoryKey] as? Bool ?? false
             guard !isDir else { return nil }
             let ext = (name as NSString).pathExtension.lowercased()
-            guard RAWExtensions.all.contains(ext) else { return nil }
+            guard SupportedImageExtensions.all.contains(ext) else { return nil }
             // `.pathKey` is the full share-relative path stamped by AMSMB2's
             // recursive walk; fall back to joining `path + name` when the
             // server didn't populate it (non-recursive root scan).
