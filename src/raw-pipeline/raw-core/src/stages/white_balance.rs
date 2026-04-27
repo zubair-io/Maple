@@ -97,6 +97,44 @@ pub fn apply(img: &mut Image, temperature: f32, tint: f32) {
     }
 }
 
+/// Apply only the **delta** between the live WB and the WB the cached
+/// decode was rendered at. Mirrors the (now-retired) Apple
+/// `WhiteBalance.metal` kernel — net gain =
+/// `wb_gains(live) / wb_gains(decoded)`, identity short-circuit when
+/// `live == decoded`.
+///
+/// Used by the per-tick FFI entry (`apply_scene_linear_chain`) so the
+/// Apple side can hand us a buffer that was decoded at one WB and have
+/// us apply the slider's delta on top, without double-counting the
+/// decoded WB. When the caller passes `decoded == 6500/0`, the
+/// `g_decoded` term is the identity gain and the ratio collapses to
+/// `g_live` — equivalent to calling `apply(img, live_temp, live_tint)`
+/// directly.
+pub fn apply_delta(
+    img: &mut Image,
+    live_temp: f32,
+    live_tint: f32,
+    decoded_temp: f32,
+    decoded_tint: f32,
+) {
+    img.assert_space(ColorSpace::SceneLinearRec2020);
+    if (live_temp - decoded_temp).abs() < 0.5 && (live_tint - decoded_tint).abs() < 0.5 {
+        return; // identity short-circuit when live == decoded
+    }
+    let g_live = wb_gains(live_temp, live_tint);
+    let g_decoded = wb_gains(decoded_temp, decoded_tint);
+    let ratio = [
+        g_live[0] / g_decoded[0].max(1e-6),
+        g_live[1] / g_decoded[1].max(1e-6),
+        g_live[2] / g_decoded[2].max(1e-6),
+    ];
+    for p in &mut img.pixels {
+        p[0] *= ratio[0];
+        p[1] *= ratio[1];
+        p[2] *= ratio[2];
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -210,6 +248,52 @@ mod tests {
                 "G should exceed R for green tint, got G={} R={}", p[1], p[0]);
             assert!(p[1] > p[2],
                 "G should exceed B for green tint, got G={} B={}", p[1], p[2]);
+        }
+    }
+
+    #[test]
+    fn apply_delta_identity_when_live_equals_decoded() {
+        let mut img = Image::new(2, 2, ColorSpace::SceneLinearRec2020);
+        for p in &mut img.pixels { *p = [0.3, 0.4, 0.5]; }
+        apply_delta(&mut img, 5000.0, 10.0, 5000.0, 10.0);
+        for p in &img.pixels {
+            assert_eq!(p, &[0.3, 0.4, 0.5]);
+        }
+    }
+
+    #[test]
+    fn apply_delta_decoded_at_default_matches_apply() {
+        let mut img_a = Image::new(2, 2, ColorSpace::SceneLinearRec2020);
+        let mut img_b = Image::new(2, 2, ColorSpace::SceneLinearRec2020);
+        for (a, b) in img_a.pixels.iter_mut().zip(img_b.pixels.iter_mut()) {
+            *a = [0.4, 0.4, 0.4];
+            *b = [0.4, 0.4, 0.4];
+        }
+        apply(&mut img_a, 3000.0, -50.0);
+        apply_delta(&mut img_b, 3000.0, -50.0, 6500.0, 0.0);
+        for (a, b) in img_a.pixels.iter().zip(img_b.pixels.iter()) {
+            for c in 0..3 {
+                let rel_err = (a[c] - b[c]).abs() / a[c].max(1e-6);
+                assert!(rel_err < 0.01,
+                    "channel {} apply={} apply_delta={} rel_err={}",
+                    c, a[c], b[c], rel_err);
+            }
+        }
+    }
+
+    #[test]
+    fn apply_delta_round_trip_undoes_decoded() {
+        let mut img = Image::new(2, 2, ColorSpace::SceneLinearRec2020);
+        for p in &mut img.pixels { *p = [0.4, 0.4, 0.4]; }
+        apply(&mut img, 3000.0, 0.0);
+        apply_delta(&mut img, 6500.0, 0.0, 3000.0, 0.0);
+        for p in &img.pixels {
+            for c in 0..3 {
+                let err = (p[c] - 0.4).abs();
+                assert!(err < 0.005,
+                    "round-trip channel {}: got {}, expected ~0.4 (err={})",
+                    c, p[c], err);
+            }
         }
     }
 }

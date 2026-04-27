@@ -741,6 +741,100 @@ public struct PipelineRenderer: Sendable {
     }
 }
 
+// MARK: - applySceneLinearChain (per-tick FFI — collapses Metal kernel chain)
+
+extension PipelineRenderer {
+    /// Build the C-ABI `MapleAdjustmentParams` from the Swift-side model.
+    /// `decodedTemperature/decodedTint` are the WB the cached buffer was
+    /// decoded at by the Rust FFI (sidecar `Temperature`/`Tint` when an
+    /// XMP was applied, else 6500/0). `skipAgX` flips off the AgX view
+    /// transform tail — used by the non-RAW path so we don't double-
+    /// tone-map already-display-encoded JPEG / HEIF input.
+    public static func makeParams(
+        from model: AdjustmentModel,
+        decodedTemperature: Double = 6500.0,
+        decodedTint: Double = 0.0,
+        skipAgX: Bool = false
+    ) -> MapleAdjustmentParams {
+        return MapleAdjustmentParams(
+            temperature: Float(model.temperature),
+            tint: Float(model.tint),
+            exposure: Float(model.exposure),
+            contrast: Float(model.contrast),
+            highlights: Float(model.highlights),
+            shadows: Float(model.shadows),
+            whites: Float(model.whites),
+            blacks: Float(model.blacks),
+            vibrance: Float(model.vibrance),
+            saturation: Float(model.saturation),
+            clarity: Float(model.clarity),
+            texture: Float(model.texture),
+            nr_luminance: Float(model.nrLuminance),
+            dehaze: Float(model.dehaze),
+            decoded_temperature: Float(decodedTemperature),
+            decoded_tint: Float(decodedTint),
+            skip_agx: skipAgX ? 1 : 0
+        )
+    }
+
+    /// Run the Rust per-tick scene-linear chain (white_balance → tone →
+    /// vibrance → saturation → clarity → texture → dehaze → nr_luminance
+    /// → AgX) over an already-decoded fp16 RGBA buffer. Sharpen and
+    /// nr_color stay on the Apple GPU path (Metal compute kernels).
+    ///
+    /// Input data layout: packed fp16 RGBA, row-major, 8 bytes/pixel,
+    /// `extendedLinearITUR_2020` colourspace, straight alpha.
+    ///
+    /// Output is the same dimensions / layout, post-AgX
+    /// (`DisplayLinearRec2020`, [0,1]) when `params.skip_agx == 0`, or
+    /// scene-linear (`SceneLinearRec2020`) when `skip_agx != 0`. Caller
+    /// wraps it back into a `CIImage` for the optional sharpen +
+    /// nr_color Metal kernels.
+    ///
+    /// Architectural intent: the per-stage Metal kernel chain on the
+    /// Apple side (`MetalKernels.applyWhiteBalance` through
+    /// `applyAgXViewTransform`) was a duplicate implementation of the
+    /// canonical Rust pipeline. This entry calls the Rust functions
+    /// directly so Apple and Rust can never drift on the cheap-stage
+    /// chain — see `pipeline::apply_scene_linear_chain` in raw-core.
+    ///
+    /// `inputBytes` must be exactly `8 * width * height` bytes (each
+    /// pixel = 4 fp16 lanes). Throws on size mismatch or chain failure.
+    public static func applySceneLinearChain(
+        inputBytes: Data,
+        width: Int,
+        height: Int,
+        params: MapleAdjustmentParams
+    ) throws -> Data {
+        let lanes = width * height * 4
+        let expectedBytes = lanes * MemoryLayout<UInt16>.size
+        guard inputBytes.count == expectedBytes else {
+            throw PipelineError.renderFailed(
+                code: 9,
+                message: "applySceneLinearChain: input \(inputBytes.count) bytes != expected \(expectedBytes)"
+            )
+        }
+        var output = Data(count: expectedBytes)
+        let rc = output.withUnsafeMutableBytes { outBuf -> Int32 in
+            let outPtr = outBuf.bindMemory(to: UInt16.self).baseAddress!
+            return inputBytes.withUnsafeBytes { inBuf -> Int32 in
+                let inPtr = inBuf.bindMemory(to: UInt16.self).baseAddress!
+                var p = params
+                return maple_apply_scene_linear_chain(
+                    inPtr, UInt32(width), UInt32(height),
+                    &p,
+                    outPtr
+                )
+            }
+        }
+        guard rc == 0 else {
+            let msg = maple_last_error().map { String(cString: $0) } ?? "unknown error"
+            throw PipelineError.renderFailed(code: Int(rc), message: msg)
+        }
+        return output
+    }
+}
+
 // MARK: - MapleRawHandle (Swift wrapper around the opaque C handle)
 
 /// Sendable wrapper for the opaque `*mut MapleRawHandle` returned by
