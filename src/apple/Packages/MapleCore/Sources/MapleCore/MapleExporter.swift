@@ -151,15 +151,22 @@ public struct MapleExporter: Sendable {
             return data
 
         case .heicP3:
-            guard let data = context.heifRepresentation(of: image, format: .RGBA8, colorSpace: cs, options: [
+            // RGBA16 = 16-bit half-float per channel (HEIC supports 10-bit
+            // and bumps file size only ~5%; gives the P3 gamut headroom
+            // it deserves without 8-bit posterization on smooth gradients).
+            guard let data = context.heifRepresentation(of: image, format: .RGBA16, colorSpace: cs, options: [
                 kCGImageDestinationLossyCompressionQuality as CIImageRepresentationOption:
                     options.quality
             ]) else { throw ExportError.encodeFailed(options.format) }
             return data
 
         case .tiff16:
-            // Render to 16-bit via ImageIO
-            guard let cgImg = context.createCGImage(image, from: image.extent) else {
+            // 16-bit per channel — this case was previously named
+            // `tiff16` but used `createCGImage` without `format:` (which
+            // defaults to 8-bit BGRA). Explicit `.RGBA16` honors the name.
+            guard let cgImg = context.createCGImage(
+                image, from: image.extent, format: .RGBA16, colorSpace: cs
+            ) else {
                 throw ExportError.encodeFailed(options.format)
             }
             let mutableData = NSMutableData()

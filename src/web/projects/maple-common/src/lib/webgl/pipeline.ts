@@ -81,16 +81,24 @@ export class Pipeline {
    * Create a Pipeline bound to the given canvas. Throws WebglFp16Unsupported
    * if EXT_color_buffer_half_float or OES_texture_float_linear is missing.
    *
-   * The canvas is tagged with `colorSpace: 'srgb'` per CLAUDE.md
-   * § "Build & test — Web" — wide-gamut browsers (P3 Macs) otherwise
-   * interpret the canvas in display-P3 and warm tones shift pink.
+   * The canvas is tagged with `colorSpace: 'display-p3'` so wide-gamut
+   * browsers (P3 Macs / iPads / iPhones) display the wider color volume
+   * the scene-linear chain produces, instead of clipping to the sRGB
+   * primary triangle. The previous `'srgb'` tag was a workaround for
+   * pre-P3 ramp-up — Apple platforms now consistently honor 'display-p3',
+   * and CSS Color 4 mandates it as a valid value. On non-P3 displays the
+   * browser tone-maps cleanly — no regression.
+   *
+   * Mirrors the Apple-side change in FullImageView.CIImageView (sRGB 8-bit
+   * → Display P3 16-bit) so both platforms render to the same color
+   * volume. See the matching docstring there for the full rationale.
    */
   static async create(canvas: HTMLCanvasElement): Promise<Pipeline> {
     // The WebGL2RenderingContextAttributes typings (DOM lib) include
     // `colorSpace` since recent TS, but Angular's narrower lib bundle
     // surfaces the canvas's broad `RenderingContext` union. Cast through
-    // unknown so the option object can carry `colorSpace: 'srgb'` (per
-    // CLAUDE.md § "Build & test — Web") without TS narrowing complaints.
+    // unknown so the option object can carry `colorSpace: 'display-p3'`
+    // without TS narrowing complaints.
     const gl = canvas.getContext(
       'webgl2',
       {
@@ -102,7 +110,7 @@ export class Pipeline {
         // render so the human-eyeballable canvas matches the readPixels
         // output the snapshot tests assert against.
         preserveDrawingBuffer: true,
-        colorSpace: 'srgb',
+        colorSpace: 'display-p3',
       } as WebGLContextAttributes,
     ) as WebGL2RenderingContext | null;
     if (!gl) {
