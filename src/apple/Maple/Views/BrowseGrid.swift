@@ -11,6 +11,53 @@ import AppKit
 import UIKit
 #endif
 
+// MARK: - GridDisplayMode
+
+/// How image cells display their thumbnails inside the square cell box.
+/// Folder cells ignore this — they always render as the icon-style tile.
+///
+/// - `.fill`: image scales to FILL the square, cropping any overflow on the
+///   long edge. Default. Reads as a tightly-packed cover-style grid.
+/// - `.fit`: image scales to FIT inside the square, leaving letterbox /
+///   pillarbox bars on the short edge. Full content visible.
+enum GridDisplayMode {
+    case fill
+    case fit
+
+    /// SwiftUI `ContentMode` for the image inside the square frame.
+    var contentMode: ContentMode {
+        switch self {
+        case .fill: return .fill
+        case .fit:  return .fit
+        }
+    }
+
+    /// Toggle helper.
+    var toggled: GridDisplayMode {
+        switch self {
+        case .fill: return .fit
+        case .fit:  return .fill
+        }
+    }
+
+    /// SF Symbol shown on the toolbar button. Convention: show the OPPOSITE
+    /// icon as the action target (i.e. while in fill we offer "switch to fit").
+    var toggleIconName: String {
+        switch self {
+        case .fill: return "rectangle.arrowtriangle.2.inward"  // → fit (compress)
+        case .fit:  return "rectangle.arrowtriangle.2.outward" // → fill (expand)
+        }
+    }
+
+    /// Accessibility label for the toolbar button.
+    var toggleAccessibilityLabel: String {
+        switch self {
+        case .fill: return "Fit images to cell"
+        case .fit:  return "Fill cells with images"
+        }
+    }
+}
+
 // MARK: - BrowseGrid View
 
 struct BrowseGrid: View {
@@ -18,6 +65,10 @@ struct BrowseGrid: View {
     /// receive the instance directly — no `@ObservedObject` wrapper.
     let vm: BrowseViewModel
     @Binding var sessions: [AssetRef.ID: EditSession]
+    /// How image cells render their thumbnails. Owned by the parent shell so
+    /// the toolbar toggle survives BrowseGrid view re-creation. Defaults to
+    /// `.fill` when the parent doesn't pass a binding.
+    var displayMode: Binding<GridDisplayMode>? = nil
     /// Fired by the empty state's "Grant Access" button when
     /// `vm.photosAuthNeeded` is true. `nil` in previews / non-Photos flows.
     var onGrantPhotosAccess: (() -> Void)? = nil
@@ -31,6 +82,15 @@ struct BrowseGrid: View {
     /// lazily create per-asset `EditSession`s only when their cell scrolls
     /// into view, instead of eagerly priming every asset in the folder.
     var onPrimeSession: ((AssetRef) -> Void)? = nil
+
+    /// Local fallback when no parent binding is supplied (e.g. previews).
+    /// Real toolbar wiring lives on `AppShell`.
+    @State private var localDisplayMode: GridDisplayMode = .fill
+
+    /// Resolved mode — parent binding wins; otherwise the local @State.
+    private var resolvedDisplayMode: GridDisplayMode {
+        displayMode?.wrappedValue ?? localDisplayMode
+    }
 
     private let columns = [GridItem(.adaptive(minimum: 140, maximum: 200), spacing: 4)]
 
@@ -72,7 +132,8 @@ struct BrowseGrid: View {
                             ThumbnailCell(asset: asset,
                                           isSelected: vm.selectedID == asset.id,
                                           session: sessions[asset.id],
-                                          source: vm.currentSource)
+                                          source: vm.currentSource,
+                                          displayMode: resolvedDisplayMode)
                                 .id(asset.id)
                                 // Lazy session prime — fires when SwiftUI
                                 // instantiates this cell (i.e. when it
@@ -290,6 +351,10 @@ struct ThumbnailCell: View {
     /// SelfHosted) to call `ImageSource.thumb(for:)` before falling back to a
     /// full RAW render. `nil` for the URL-keyed filesystem path.
     let source: (any ImageSource)?
+    /// Cell layout — fill (cropped to square) vs fit (letterboxed inside
+    /// the square). Cell shape is always 1:1; only the image's content
+    /// mode changes.
+    let displayMode: GridDisplayMode
 
     /// JPEG bytes from `ThumbnailLoader`. `nil` while the cell is loading or
     /// the render failed; in both cases we keep the placeholder visible.
@@ -305,7 +370,11 @@ struct ThumbnailCell: View {
         VStack(spacing: 4) {
             ZStack(alignment: .bottomLeading) {
                 thumbnailImage
-                    .aspectRatio(3/2, contentMode: .fit)
+                    // Square cell — always 1:1 regardless of source aspect.
+                    // The `fit` content mode here is on the outer container;
+                    // the inner Image inside `thumbnailImage` controls
+                    // fill-vs-fit via `displayMode.contentMode`.
+                    .aspectRatio(1, contentMode: .fit)
                     .clipShape(RoundedRectangle(cornerRadius: 4))
 
                 // Culling badges
@@ -358,16 +427,20 @@ struct ThumbnailCell: View {
                 #if os(macOS)
                 Image(nsImage: NSImage(cgImage: cgImg, size: .zero))
                     .resizable()
-                    .scaledToFill()
+                    .aspectRatio(contentMode: displayMode.contentMode)
                     .transition(.opacity)
                 #else
                 Image(uiImage: UIImage(cgImage: cgImg))
                     .resizable()
-                    .scaledToFill()
+                    .aspectRatio(contentMode: displayMode.contentMode)
                     .transition(.opacity)
                 #endif
             }
         }
+        // Without `.clipped()` the fill-mode image overflows the
+        // RoundedRectangle's frame and renders into adjacent cells. Apply
+        // it whether or not we have data — placeholder is already inside.
+        .clipped()
     }
 
     // MARK: - Loading
