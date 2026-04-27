@@ -19,6 +19,8 @@ pub use image::{CfaPattern, ColorSpace, ExifOrientation, Image, RawImage};
 
 pub mod decode;
 
+pub mod dng_ifd_walker;
+
 pub mod linearize;
 
 pub mod demosaic;
