@@ -135,8 +135,18 @@ pub fn lerp_tables(cold: &HsmTable, warm: &HsmTable, t: f32) -> Option<HsmTable>
 /// Per DNG 1.6 § 6.6.4: when `encoding == Srgb`, the per-channel pixel
 /// value is sRGB-encoded before HSV decomposition and sRGB-decoded after
 /// HSV recomposition. We use the standard piecewise sRGB transfer.
+///
+/// Per DNG 1.6 § 6.6.2: pixels with any negative R/G/B component are
+/// passed through unchanged. HSV decomposition isn't well-defined for
+/// negative components (saturation drops out of [0, 1]), and the round-
+/// trip can move pixels by a large fraction of a unit. The guard below
+/// keeps the out-of-gamut wide-gamut tail intact.
 pub fn apply(img: &mut Image, table: &HsmTable) {
     img.pixels.par_iter_mut().for_each(|p| {
+        // 0. Spec-mandated negative-component bypass.
+        if p[0] < 0.0 || p[1] < 0.0 || p[2] < 0.0 {
+            return;
+        }
         // 1. Pre-encode if sRGB (operates on each channel independently).
         let mut rgb = *p;
         if matches!(table.encoding, HsmEncoding::Srgb) {
