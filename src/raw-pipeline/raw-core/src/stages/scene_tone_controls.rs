@@ -77,11 +77,40 @@ pub fn apply(img: &mut Image, model: &AdjustmentModel) {
             p[2] *= w_gain;
         }
 
-        // 5. Blacks — linear shift near zero (can produce small negatives).
+        // 5. Blacks — linear shift near zero, then floor at 0 to keep
+        //    deep shadows physical (no negative scene-linear values).
+        //
+        // Pre-fix: `p += blacks/400` could drive deep-shadow pixels
+        // negative (e.g. blacks=-50 subtracts 0.125 across all channels;
+        // a luma-0.05 pixel after Shadows attenuation lands at -0.08).
+        // AgX's per-channel log-encode then clamps the negative to
+        // log2(1e-10), which floors that channel at display ≈ 0. If
+        // even one channel survives just-positive (typically R in skin
+        // tones), the AgX output is R-only — a pink/magenta speckle
+        // where the user expects a uniform crush. With Sharpen at radius
+        // 1 amplifying any per-channel mismatch, this surfaces as the
+        // "magenta noise on skin" artifact reported in Ticket 11 (Bug A
+        // / 11-Bugs.md). On the Apple fp16 path the same negative-input
+        // funnel into AgX appears as the white-plateau symptom in the
+        // user screenshot. Same architectural root, different downstream.
+        //
+        // Post-fix: each channel is clamped to >= 0 immediately after
+        // the additive shift. `blacks=-50` still attenuates deep
+        // shadows (the multiplicative Shadows step ahead of this is
+        // unchanged, and the additive shift still subtracts 0.125
+        // *before* the floor — so a pixel at scene-linear 0.20 still
+        // ends at 0.075, only pixels below 0.125 floor at 0). Result:
+        // deep shadows go uniformly to display black, no per-channel
+        // residue, no pink fringe.
+        //
+        // Behavioural change: blacks<0 no longer synthesises negative
+        // scene values. ACR doesn't do this either — the toe in ACR's
+        // black-point shift is non-negative. See investigation spec
+        // docs/superpowers/specs/2026-04-26-blacks-clarity-bug-investigation.md.
         if apply_blacks {
-            p[0] += b_add;
-            p[1] += b_add;
-            p[2] += b_add;
+            p[0] = (p[0] + b_add).max(0.0);
+            p[1] = (p[1] + b_add).max(0.0);
+            p[2] = (p[2] + b_add).max(0.0);
         }
     }
 }
@@ -187,14 +216,50 @@ mod tests {
     }
 
     #[test]
-    fn blacks_shifts_additively_can_go_negative() {
+    fn blacks_shift_floors_at_zero_for_deep_shadows() {
+        // A scene-linear 0.0 pixel + blacks=-100 (b_add = -0.25) used
+        // to land at -0.25 in scene-linear, which fed into AgX log-encode
+        // as a clamp-to-zero per channel. Any per-channel asymmetry from
+        // upstream (e.g. WB / DCP residue, sharpen halos) then surfaced
+        // as R-only / pink speckle on what should be uniform black.
+        // The post-fix floor at 0 preserves the architectural intent
+        // (blacks<0 crushes deep shadows toward black) without producing
+        // negative scene values. See Bug A in Ticket 11 / 11-Bugs.md and
+        // the investigation spec under docs/superpowers/specs/.
         let mut img = fresh_img([0.0, 0.0, 0.0]);
         let mut m = model_default();
         m.blacks = -100.0;
         apply(&mut img, &m);
-        // b_add = -100/400 = -0.25; output = -0.25 (negative, valid scene-linear)
         for &c in &img.pixels[0] {
-            assert!((c - (-0.25)).abs() < 1e-5, "{} != -0.25", c);
+            assert_eq!(c, 0.0, "blacks-floored pixel must be exactly 0, got {}", c);
+        }
+    }
+
+    #[test]
+    fn blacks_negative_attenuates_low_midtones_above_floor() {
+        // A pixel at 0.20 with blacks=-50 (b_add=-0.125) lands at 0.075
+        // (still positive). Verifies the additive shift is still applied
+        // and only floors at zero — it doesn't no-op above the floor.
+        let mut img = fresh_img([0.20, 0.20, 0.20]);
+        let mut m = model_default();
+        m.blacks = -50.0;
+        apply(&mut img, &m);
+        for &c in &img.pixels[0] {
+            assert!((c - 0.075).abs() < 1e-6, "{} != 0.075", c);
+        }
+    }
+
+    #[test]
+    fn blacks_positive_lifts_uniformly() {
+        // blacks=+100 → b_add=+0.25; a 0.0 pixel lifts to +0.25.
+        // No change in this direction — the floor only matters for
+        // negative shifts that could push pixels below 0.
+        let mut img = fresh_img([0.0, 0.0, 0.0]);
+        let mut m = model_default();
+        m.blacks = 100.0;
+        apply(&mut img, &m);
+        for &c in &img.pixels[0] {
+            assert!((c - 0.25).abs() < 1e-6, "{} != 0.25", c);
         }
     }
 
