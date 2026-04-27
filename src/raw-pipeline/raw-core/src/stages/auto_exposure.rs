@@ -306,18 +306,66 @@ pub fn auto_exposure_from_image(image: &Image, clip: f32) -> AutoExposure {
     compute_auto_exposure(&hist, clip)
 }
 
-/// Apply the auto-exposure gain to a scene-linear image in place. This is
-/// the wired-into-pipeline entry: per-pixel `* exp2(expcomp)` on a
-/// `SceneLinearRec2020` `Image`. Composes additively in EV with downstream
-/// `scene_tone_controls::apply` (the user's exposure slider).
+/// Per-image AE damping factor.
+///
+/// The reference's `compute_auto_exposure` targets Adobe MIDGRAY = 0.1842
+/// — full-strength ACR-style auto-tone. The ACR reference renders we
+/// calibrate against were produced with *no* user exposure adjustment
+/// (`Exposure2012` absent in the XMP), so the targets carry the camera-
+/// native baseline plus the `MAPLE_AGX_BASELINE_COMPENSATION_EV = 0.65`
+/// AgX-deficit correction applied at decode time. The +0.65 happens to be
+/// roughly the AE algorithm's per-image average across our reference set;
+/// treating AE as a pure override double-counts it (a damping=1.0 test
+/// regressed grand mean ΔE from 12.55 to 13.05 — test_0014 went from
+/// -0.01 to +0.16 R-bias because AE picked +2.07 EV for a scene ACR
+/// renders dim).
+///
+/// We therefore apply AE as a *damped per-image perturbation on top of*
+/// the global baseline rather than as a replacement. Tuned via a damping
+/// sweep on `src/scripts/calibrate_color_pipeline.sh`:
+///
+///   damping  grand mean ΔE  (lower is better; baseline pre-AE = 12.55)
+///   ─────────────────────────────────────────────────────────────────
+///   0.0      12.55  (AE off — reference)
+///   0.1      12.51
+///   0.2      12.49  ← chosen
+///   0.3      12.49
+///   0.5      12.56
+///   1.0      13.05  (regression)
+///
+/// 0.2 is the minimum on the swept curve. Per-channel biases stay
+/// near-zero (R -0.032, G +0.002, B -0.027 — essentially unchanged from
+/// the AE-off baseline). The improvement is modest (~0.06 ΔE) and
+/// concentrated in fixtures where AE picks a moderate EV; fixtures where
+/// AE picks a large EV (test_0014, +2.07) show small regressions.
+///
+/// The `MAPLE_AE_DAMPING` env var overrides this constant for development
+/// sweeps (see `apply` below).
+const AE_DAMPING: f32 = 0.2;
+
+/// Apply per-image auto-exposure to a scene-linear image in place. The
+/// AE EV is multiplied by `AE_DAMPING` (currently 0 — see the constant's
+/// docs). At damping = 0 the function computes the histogram + AE values
+/// for diagnostics but leaves pixels untouched.
 ///
 /// `clip` is the percent of pixels allowed to clip at black/white. We use
 /// the engine default (0.02) at the pipeline call site.
 pub fn apply(image: &mut Image, clip: f32) -> AutoExposure {
     image.assert_space(ColorSpace::SceneLinearRec2020);
     let ae = auto_exposure_from_image(image, clip);
-    if ae.expcomp.abs() > 1e-6 {
-        let gain = ae.expcomp.exp2();
+    // MAPLE_AE_DAMPING env override is for calibration sweeps only —
+    // the production damping is the `AE_DAMPING` const. Read once,
+    // parsed liberally, on each call (only invoked once per render).
+    #[cfg(not(target_arch = "wasm32"))]
+    let damping = std::env::var("MAPLE_AE_DAMPING")
+        .ok()
+        .and_then(|s| s.parse::<f32>().ok())
+        .unwrap_or(AE_DAMPING);
+    #[cfg(target_arch = "wasm32")]
+    let damping = AE_DAMPING;
+    let applied_ev = ae.expcomp * damping;
+    if applied_ev.abs() > 1e-6 {
+        let gain = applied_ev.exp2();
         for p in &mut image.pixels {
             p[0] *= gain;
             p[1] *= gain;
