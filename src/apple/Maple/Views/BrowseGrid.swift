@@ -44,8 +44,8 @@ enum GridDisplayMode {
     /// icon as the action target (i.e. while in fill we offer "switch to fit").
     var toggleIconName: String {
         switch self {
-        case .fill: return "rectangle.arrowtriangle.2.inward"  // → fit (compress)
-        case .fit:  return "rectangle.arrowtriangle.2.outward" // → fill (expand)
+        case .fill: return "rectangle.compress.vertical"  // → fit (shrink content)
+        case .fit:  return "rectangle.expand.vertical"    // → fill (cover cell)
         }
     }
 

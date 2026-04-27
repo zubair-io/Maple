@@ -47,6 +47,11 @@ struct AppShell: View {
     private enum Mode { case browse, fullImage }
     @State private var mode: Mode = .browse
 
+    // BrowseGrid layout — fill (cropped square cover) vs fit (letterboxed).
+    // Session-scoped only; no UserDefaults persistence by design (see the
+    // toolbar button below).
+    @State private var browseDisplayMode: GridDisplayMode = .fill
+
     // The root bookmark for the currently-open folder tree — used to claim
     // security scope when the user clicks a sub-folder cell inside the grid.
     @State private var currentRootBookmark: Data?
@@ -159,6 +164,7 @@ struct AppShell: View {
                     BrowseGrid(
                         vm: browseVM,
                         sessions: $sessions,
+                        displayMode: $browseDisplayMode,
                         onGrantPhotosAccess: { grantPhotosAccessAndLoad() },
                         onNavigateFolder: { url in navigateFolder(url) },
                         onOpenEditor: { asset in openEditor(for: asset) },
@@ -204,6 +210,7 @@ struct AppShell: View {
                 BrowseGrid(
                     vm: browseVM,
                     sessions: $sessions,
+                    displayMode: $browseDisplayMode,
                     onGrantPhotosAccess: { grantPhotosAccessAndLoad() },
                     onNavigateFolder: { url in navigateFolder(url) },
                     onOpenEditor: { asset in openEditor(for: asset) }
@@ -257,6 +264,21 @@ struct AppShell: View {
                         .foregroundStyle(MapleTokens.textMuted)
                 }
                 .accessibilityLabel("Search")
+            }
+        }
+        // Grid fill/fit toggle — only relevant in browse mode. Persists for
+        // the session via @State on AppShell. The button shows the OPPOSITE
+        // icon as the action target (see `GridDisplayMode.toggleIconName`).
+        if mode == .browse {
+            ToolbarItem(placement: .automatic) {
+                Button {
+                    browseDisplayMode = browseDisplayMode.toggled
+                } label: {
+                    Image(systemName: browseDisplayMode.toggleIconName)
+                        .foregroundStyle(MapleTokens.textMuted)
+                }
+                .accessibilityLabel(browseDisplayMode.toggleAccessibilityLabel)
+                .accessibilityIdentifier("browse-grid-display-mode-toggle")
             }
         }
         ToolbarItem(placement: .automatic) {
