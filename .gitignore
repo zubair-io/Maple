@@ -57,6 +57,7 @@ __screenshots__/
 
 # Claude Code / agent tooling
 .claude/
+.worktrees/
 
 # Playwright test output (src/web/e2e runs)
 test-results/
