@@ -113,6 +113,21 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
     let offset_tag = root_ifd.as_ref()
         .and_then(|ifd| ifd.get_entry(DngTag::BaselineExposureOffset)
             .map(|e| e.value.force_f32(0)));
+    // Maple AgX baseline compensation. The Maple AgX retune (commit
+    // a730f2d) puts mid-gray ~0.65 EV lower than canonical Blender 4.x
+    // AgX (AGX_MID_DISPLAY = 0.237 vs Blender's ~0.5). The
+    // calibrate_color_pipeline.sh harness measured a uniform ~7%
+    // negative bias across 14 of 16 baseline fixtures vs ACR — that
+    // matches a ~0.65 EV scene-linear deficit at the AgX shoulder.
+    //
+    // Applied here ON TOP of the per-fixture BaselineExposure (DNG tag
+    // OR camconst lookup) so per-body correctness is preserved. The
+    // constant represents the difference between Maple AgX and the
+    // canonical AgX reference — Ticket 10 item A. Removing the constant
+    // (or retuning AGX_MID_DISPLAY back toward 0.5) is the principled
+    // long-term fix; this is the empirical compensation that lands
+    // ACR-equivalent brightness today.
+    const MAPLE_AGX_BASELINE_COMPENSATION_EV: f32 = 0.65;
     let baseline_exposure = match (baseline_tag, offset_tag) {
         (Some(b), Some(o)) => b + o,
         (Some(b), None)    => b,
@@ -120,7 +135,7 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
         (None, None)       => crate::camera_calibration::baseline_exposure(
             &raw.clean_make, &raw.clean_model
         ),
-    };
+    } + MAPLE_AGX_BASELINE_COMPENSATION_EV;
 
     // ── 2. CFA pattern ────────────────────────────────────────────────────
     let cfa = match &raw.photometric {
@@ -421,13 +436,19 @@ mod tests {
     }
 
     /// Regression test for BaselineExposure reading (DNG § C.1.2, tag 50730).
+    /// test_0000.DNG carries BaselineExposure = 1.01 EV in metadata;
+    /// `MAPLE_AGX_BASELINE_COMPENSATION_EV = 0.65` is added on top so the
+    /// returned value is 1.66 EV. If the constant changes, update this
+    /// expected value accordingly.
     #[test]
     fn decode_test_0000_reads_baseline_exposure() {
         let path = fixture_root().join("test_0000.DNG");
         if !path.exists() { return; }
         let raw = decode_path(&path).expect("decode Hasselblad DNG");
-        assert!((raw.baseline_exposure - 1.01).abs() < 0.01,
-            "expected BaselineExposure ≈ 1.01 EV, got {:.4}", raw.baseline_exposure);
+        let expected = 1.01 + 0.65;
+        assert!((raw.baseline_exposure - expected).abs() < 0.01,
+            "expected BaselineExposure ≈ {:.2} EV (1.01 DNG + 0.65 Maple AgX comp), got {:.4}",
+            expected, raw.baseline_exposure);
     }
 
     /// Regression test for fix #4 (EXIF orientation): test_0003.CR2 was shot

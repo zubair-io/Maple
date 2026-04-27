@@ -909,11 +909,15 @@ mod tests {
             mean_dr, mean_dg, mean_db, max_dr, max_dg, max_db,
         );
 
-        // Mean per-channel delta budget. 0.005 in [0, ~5] scene-linear
-        // headroom is ~0.1% of typical scene values.
-        assert!(mean_dr < 0.005, "mean R delta {} > 0.005", mean_dr);
-        assert!(mean_dg < 0.005, "mean G delta {} > 0.005", mean_dg);
-        assert!(mean_db < 0.005, "mean B delta {} > 0.005", mean_db);
+        // Mean per-channel delta budget. 0.006 in [0, ~5] scene-linear
+        // headroom is ~0.12% of typical scene values. Bumped from 0.005
+        // to 0.006 after the Maple AgX baseline-compensation +0.65 EV
+        // (decode.rs MAPLE_AGX_BASELINE_COMPENSATION_EV) scales scene
+        // values up ~1.57x, marginally enlarging fp16 absolute rounding
+        // error. The early-vs-late equivalence invariant still holds.
+        assert!(mean_dr < 0.006, "mean R delta {} > 0.006", mean_dr);
+        assert!(mean_dg < 0.006, "mean G delta {} > 0.006", mean_dg);
+        assert!(mean_db < 0.006, "mean B delta {} > 0.006", mean_db);
     }
 
     // Sanity tests for f32_to_f16_bits — guards against the bit-isolation
