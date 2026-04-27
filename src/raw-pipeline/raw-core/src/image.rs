@@ -2,6 +2,8 @@ use std::collections::HashMap;
 
 use crate::color::hsm::HsmTable;
 use crate::color::illuminant::Illuminant;
+use crate::color::profile_gain_table_map::ProfileGainTableMap;
+use crate::color::profile_tone_curve::ProfileToneCurve;
 use crate::math::Matrix3;
 
 /// Tracks the colorspace of each `Image` at runtime. Stages `debug_assert!`
@@ -143,6 +145,19 @@ pub struct RawImage {
     /// (DNG 1.6 § 6.7), before any user-space adjustments. Encodes the
     /// camera-profile-baked "look" (e.g. "Camera Vivid" vs "Camera Standard").
     pub plt: Option<HsmTable>,
+    /// DNG ProfileToneCurve (tag 50940). 1D piecewise-linear tone curve, stored
+    /// as `(input, output)` float pairs both in [0, 1]. Applied in
+    /// profile-working space (linear ProPhoto D50, per DNG 1.4 § 6.4.4 — the
+    /// same space HSM/PLT operate in). When `None`, the stage is skipped.
+    /// Apple iPhone DNGs ship a 257-pair PTC; most other vendors (Hasselblad,
+    /// Leica, Nikon, ...) omit it.
+    pub profile_tone_curve: Option<ProfileToneCurve>,
+    /// DNG ProfileGainTableMap (tag 52525, DNG 1.6 § 6.8). Spatially-varying
+    /// per-channel gain map; lives in a SubIFD on iPhone DNGs (reachable via
+    /// `dng_ifd_walker`). Applied in scene-linear space after PLT. `None` for
+    /// any RAW that doesn't ship the tag, or when the binary header cannot be
+    /// parsed confidently — see [`ProfileGainTableMap::from_bytes`].
+    pub profile_gain_table_map: Option<ProfileGainTableMap>,
 }
 
 /// EXIF orientation (TIFF tag 0x0112). Values 1-8 per the spec. `Normal` is
