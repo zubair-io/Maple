@@ -541,11 +541,22 @@ struct AdjustSlider: View {
     }
 
     var body: some View {
-        HStack(spacing: 8) {
-            Text(label)
-                .font(.system(size: 10))
-                .foregroundStyle(MapleTokens.textMuted)
-                .frame(width: 70, alignment: .trailing)
+        // Two rows:
+        //   1. Label (left-aligned) + Value (right-aligned, monospaced).
+        //   2. Gradient track + system slider stacked.
+        // Gives the slider the full panel width to play with — the
+        // single-row layout had to compete for horizontal space with two
+        // text columns and felt cramped at iPad/macOS-narrow widths.
+        VStack(spacing: 2) {
+            HStack {
+                Text(label)
+                    .font(.system(size: 11))
+                    .foregroundStyle(MapleTokens.textMain)
+                Spacer()
+                Text(String(format: format, value))
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(MapleTokens.textMain)
+            }
 
             // Gradient track + system slider with clear tint stacked together.
             // The gradient signals what direction the slider is moving toward
@@ -572,11 +583,6 @@ struct AdjustSlider: View {
                     value = defaultValue
                 }
             }
-
-            Text(String(format: format, value))
-                .font(.system(size: 10, design: .monospaced))
-                .foregroundStyle(MapleTokens.textMain)
-                .frame(width: 45, alignment: .trailing)
         }
     }
 }
