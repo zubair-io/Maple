@@ -138,12 +138,24 @@ pub fn develop_scene_linear_from_raw_with_quality(
     }
     stage("highlight_recovery", || highlight_recovery::apply(&mut camera_rgb, model.highlight_recovery));
     let profile = stage("dcp::profile_for", || dcp::profile_for(raw))?;
-    // dcp::apply_with_plt runs HSM (from `profile.hsm`) and PLT (from
-    // `raw.plt`) BOTH in linear-ProPhoto-D50 space, between the chromatic
-    // adaptation and the gamut conversion to Rec.2020 — DNG 1.6 § 6.6 +
-    // § 6.7. When neither is present, falls through to the fast
-    // single-matmul path inside dcp::apply.
-    let mut scene = stage("dcp::apply", || dcp::apply_with_plt(&camera_rgb, &profile, raw.plt.as_ref()))?;
+    // dcp::apply_with_plt_and_ptc runs HSM (from `profile.hsm`),
+    // ProfileToneCurve (from `raw.profile_tone_curve`), and PLT (from
+    // `raw.plt`) ALL in linear-ProPhoto-D50 space, between the chromatic
+    // adaptation and the gamut conversion to Rec.2020. Order per Adobe
+    // DNG SDK reference: HSM → PTC → PLT (DNG 1.4 § 6.4.4 + DNG 1.6
+    // § 6.6/§ 6.7). When all three are absent, falls through to the
+    // fast single-matmul path.
+    let mut scene = stage("dcp::apply", || dcp::apply_with_plt_and_ptc(
+        &camera_rgb, &profile, raw.plt.as_ref(), raw.profile_tone_curve.as_ref(),
+    ))?;
+    // ProfileGainTableMap (DNG 1.6 § 6.8) — spatially-varying RGB gain.
+    // Applied AFTER the gamut conversion, in scene-linear Rec.2020. No-op
+    // when raw.profile_gain_table_map is None (most fixtures).
+    if let Some(pgtm) = raw.profile_gain_table_map.as_ref() {
+        stage("profile_gain_table_map", || {
+            crate::color::profile_gain_table_map::apply(&mut scene, pgtm)
+        });
+    }
     stage("white_balance", || white_balance::apply(&mut scene, model.temperature, model.tint));
     stage("scene_tone_controls", || scene_tone_controls::apply(&mut scene, model));
     stage("vibrance", || vibrance::apply(&mut scene, model.vibrance));
@@ -217,7 +229,14 @@ pub fn develop_scene_linear_sized_from_raw_with_quality(
     }
     stage("sized_highlight_recovery", || highlight_recovery::apply(&mut camera_rgb, model.highlight_recovery));
     let profile = stage("sized_dcp_profile_for", || dcp::profile_for(raw))?;
-    let mut scene = stage("sized_dcp_apply", || dcp::apply_with_plt(&camera_rgb, &profile, raw.plt.as_ref()))?;
+    let mut scene = stage("sized_dcp_apply", || dcp::apply_with_plt_and_ptc(
+        &camera_rgb, &profile, raw.plt.as_ref(), raw.profile_tone_curve.as_ref(),
+    ))?;
+    if let Some(pgtm) = raw.profile_gain_table_map.as_ref() {
+        stage("sized_profile_gain_table_map", || {
+            crate::color::profile_gain_table_map::apply(&mut scene, pgtm)
+        });
+    }
     stage("sized_white_balance", || white_balance::apply(&mut scene, model.temperature, model.tint));
     stage("sized_scene_tone_controls", || scene_tone_controls::apply(&mut scene, model));
     stage("sized_vibrance", || vibrance::apply(&mut scene, model.vibrance));
@@ -606,7 +625,14 @@ fn develop_scene_linear_from_padded_mosaic(
     }
     stage("tile_highlight_recovery", || highlight_recovery::apply(&mut camera_rgb, model.highlight_recovery));
     let profile = stage("tile_dcp_profile_for", || dcp::profile_for(raw))?;
-    let mut scene = stage("tile_dcp_apply", || dcp::apply_with_plt(&camera_rgb, &profile, raw.plt.as_ref()))?;
+    let mut scene = stage("tile_dcp_apply", || dcp::apply_with_plt_and_ptc(
+        &camera_rgb, &profile, raw.plt.as_ref(), raw.profile_tone_curve.as_ref(),
+    ))?;
+    if let Some(pgtm) = raw.profile_gain_table_map.as_ref() {
+        stage("tile_profile_gain_table_map", || {
+            crate::color::profile_gain_table_map::apply(&mut scene, pgtm)
+        });
+    }
     stage("tile_white_balance", || white_balance::apply(&mut scene, model.temperature, model.tint));
     stage("tile_scene_tone_controls", || scene_tone_controls::apply(&mut scene, model));
     stage("tile_vibrance", || vibrance::apply(&mut scene, model.vibrance));
@@ -768,6 +794,42 @@ mod tests {
         eprintln!("render: {}x{}, zero={:.1}%, max={:.1}%, mean={}",
             w, h, zero_ratio*100.0, max_ratio*100.0,
             bytes.iter().map(|&b| b as u64).sum::<u64>() / bytes.len() as u64);
+    }
+
+    /// Integration test for ProfileToneCurve end-to-end on test_0013
+    /// (Apple iPhone 12 Pro DNG). Verifies:
+    /// 1. RawImage carries the parsed PTC (decode-side wiring).
+    /// 2. The pipeline renders cleanly with PTC applied — no panics, no
+    ///    NaN, plausible output statistics.
+    /// 3. Render WITH PTC differs from render WITHOUT PTC (so the new
+    ///    stage actually runs; guards against silent no-op regressions).
+    #[test]
+    fn render_test_0013_runs_profile_tone_curve() {
+        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../test-fixtures/raws/test_0013.DNG");
+        if !path.exists() { return; }
+        let bytes = std::fs::read(&path).unwrap();
+        let raw = crate::decode::decode_bytes(&bytes, "dng").expect("decode iPhone");
+        assert!(raw.profile_tone_curve.is_some(),
+            "test_0013 must surface a ProfileToneCurve");
+        let model = AdjustmentModel::default();
+        let (w, h, with_ptc) = render_from_raw(&raw, &model).expect("render with PTC");
+        assert_eq!(with_ptc.len() as u32, w * h * 3);
+        // Plausibility: not all zero, not all saturated.
+        let zero_ratio = with_ptc.iter().filter(|b| **b == 0).count() as f32 / with_ptc.len() as f32;
+        let sat_ratio = with_ptc.iter().filter(|b| **b == 255).count() as f32 / with_ptc.len() as f32;
+        assert!(zero_ratio < 0.5, "render too dark: {:.1}% zeros", zero_ratio * 100.0);
+        assert!(sat_ratio < 0.5, "render too bright: {:.1}% saturated", sat_ratio * 100.0);
+        // Render WITHOUT PTC by stripping the field — output MUST differ.
+        let mut raw_no_ptc = raw.clone();
+        raw_no_ptc.profile_tone_curve = None;
+        let (_, _, without_ptc) = render_from_raw(&raw_no_ptc, &model).unwrap();
+        assert_eq!(with_ptc.len(), without_ptc.len());
+        let diffs: usize = with_ptc.iter().zip(without_ptc.iter())
+            .filter(|(a, b)| a != b).count();
+        assert!(diffs > with_ptc.len() / 100,
+            "PTC stage had no measurable effect on test_0013: {} of {} bytes differ",
+            diffs, with_ptc.len());
     }
 
     #[test]
