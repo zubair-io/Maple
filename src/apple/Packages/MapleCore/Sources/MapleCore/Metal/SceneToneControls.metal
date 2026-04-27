@@ -65,10 +65,30 @@ float smoothstep_f(float e0, float e1, float x) {
         p *= w_gain;
     }
 
-    // 5. Blacks — linear shift (can go negative in scene-linear)
+    // 5. Blacks — additive shift, then floor at 0 to keep deep shadows
+    //    physical (no negative scene-linear values).
+    //
+    // Pre-fix: `p += blacks/400` could drive deep-shadow pixels negative
+    // (e.g. blacks=-50 subtracts 0.125 across all channels). When the
+    // downstream AgX shader log-encodes per channel, negative values
+    // clamp to log2(1e-10), producing display ≈ 0 — but if even one
+    // channel survives just-positive (typically R in skin tones), the
+    // AgX output is R-only, surfacing as pink/magenta speckle on what
+    // should be uniform black. With Sharpen at radius 1 amplifying
+    // per-channel mismatch, this is the magenta-on-skin artifact in
+    // the user screenshot for Ticket 11 / 11-Bugs.md (Bug A). On the
+    // Apple fp16 path the same negative-input funnel additionally
+    // shows up as the white-plateau symptom — sampler_h precision
+    // makes the negative-channel funnel into AgX brittle.
+    //
+    // Post-fix: floor each channel at 0 immediately after the
+    // additive shift. Mirrors the Rust raw-core implementation in
+    // src/raw-pipeline/raw-core/src/stages/scene_tone_controls.rs:80
+    // byte-for-byte at the algorithm level. See the investigation spec
+    // under docs/superpowers/specs/2026-04-26-blacks-clarity-bug-investigation.md.
     if (abs(blacks) >= 1e-3) {
         float b_add = blacks / 400.0;
-        p += b_add;
+        p = max(p + b_add, float3(0.0));
     }
 
     return float4(p, color.a);
