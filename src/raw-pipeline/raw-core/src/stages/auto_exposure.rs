@@ -308,40 +308,26 @@ pub fn auto_exposure_from_image(image: &Image, clip: f32) -> AutoExposure {
 
 /// Per-image AE damping factor.
 ///
-/// The reference's `compute_auto_exposure` targets Adobe MIDGRAY = 0.1842
-/// — full-strength ACR-style auto-tone. The ACR reference renders we
-/// calibrate against were produced with *no* user exposure adjustment
-/// (`Exposure2012` absent in the XMP), so the targets carry the camera-
-/// native baseline plus the `MAPLE_AGX_BASELINE_COMPENSATION_EV = 0.65`
-/// AgX-deficit correction applied at decode time. The +0.65 happens to be
-/// roughly the AE algorithm's per-image average across our reference set;
-/// treating AE as a pure override double-counts it (a damping=1.0 test
-/// regressed grand mean ΔE from 12.55 to 13.05 — test_0014 went from
-/// -0.01 to +0.16 R-bias because AE picked +2.07 EV for a scene ACR
-/// renders dim).
+/// Currently 0.0 — auto-exposure does NOT modify pixels by default.
 ///
-/// We therefore apply AE as a *damped per-image perturbation on top of*
-/// the global baseline rather than as a replacement. Tuned via a damping
-/// sweep on `src/scripts/calibrate_color_pipeline.sh`:
+/// History: was set to 0.2 (commit d431fcf) after a sweep against
+/// ACR-rendered references showed it produced a small grand-mean ΔE
+/// improvement (12.55 → 12.49 = ~0.06). That tuning was wrong-target:
+/// we were calibrating Maple-AgX brightness toward ACR's Adobe-Color
+/// brightness. Maple chose AgX as the platform view transform; ACR
+/// uses a different proprietary tone curve. They produce different
+/// images by design. Tuning AE to push AgX toward ACR fights the
+/// view-transform's intended look.
 ///
-///   damping  grand mean ΔE  (lower is better; baseline pre-AE = 12.55)
-///   ─────────────────────────────────────────────────────────────────
-///   0.0      12.55  (AE off — reference)
-///   0.1      12.51
-///   0.2      12.49  ← chosen
-///   0.3      12.49
-///   0.5      12.56
-///   1.0      13.05  (regression)
+/// AE remains as infrastructure for a future user-facing "Auto"
+/// button — the algorithm computes the histogram + AE EV correctly
+/// and `AutoExposure` is returned to the caller. The default
+/// production behavior is identity (damping = 0); a user-facing
+/// auto-tone toggle would wire this knob explicitly.
 ///
-/// 0.2 is the minimum on the swept curve. Per-channel biases stay
-/// near-zero (R -0.032, G +0.002, B -0.027 — essentially unchanged from
-/// the AE-off baseline). The improvement is modest (~0.06 ΔE) and
-/// concentrated in fixtures where AE picks a moderate EV; fixtures where
-/// AE picks a large EV (test_0014, +2.07) show small regressions.
-///
-/// The `MAPLE_AE_DAMPING` env var overrides this constant for development
-/// sweeps (see `apply` below).
-const AE_DAMPING: f32 = 0.2;
+/// The `MAPLE_AE_DAMPING` env var still overrides this constant for
+/// development sweeps (see `apply` below).
+const AE_DAMPING: f32 = 0.0;
 
 /// Apply per-image auto-exposure to a scene-linear image in place. The
 /// AE EV is multiplied by `AE_DAMPING` (currently 0 — see the constant's
