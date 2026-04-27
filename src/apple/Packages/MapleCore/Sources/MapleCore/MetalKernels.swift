@@ -74,7 +74,26 @@ public enum MetalKernels {
     // Rust files are byte-identical at the mix level; only the upstream
     // blur radius differs). Loaded via the same `loadKernel(file:function:)`
     // path as the other kernel sources.
+    //
+    // Ticket 11 Bug B note: this per-channel-RGB unsharp kernel is no
+    // longer used by `applySceneClarity` / `applySceneTexture` — both
+    // stages now flow through SceneClarity.metal (luma-space, chroma-
+    // preserving) to fix the magenta/cyan halo on coloured edges. The
+    // SceneUnsharp source / loader stay in place for any future stage
+    // that genuinely wants per-channel high-frequency boost without the
+    // ratio rescale, but no production code path references it today.
     private static var _sceneUnsharp: CIKernel?
+
+    // Ticket 11 Bug B (luma-space clarity / texture). Two kernels from
+    // SceneClarity.metal: extractLuma (rec2020 -> (luma, luma, luma))
+    // feeds the existing SeparableGaussianBlur scratch, then combine
+    // (rec2020 + blurredLuma -> rec2020 with luma boost) re-applies the
+    // boost as an RGB-uniform multiplier. Mirrors the Rust luma-space
+    // clarity / texture in raw-core/src/stages/clarity.rs and
+    // raw-core/src/stages/texture.rs (algorithm-identical; the only
+    // difference between clarity & texture is the upstream blur radius).
+    private static var _clarityExtractLuma: CIKernel?
+    private static var _clarityCombine: CIKernel?
 
     // Plan 2 v2 v2 — SceneNRLuminance shared kernels (M3a, Task 2). Two
     // kernels: extractL (rec2020 -> oklab L splat for the blur input) and
@@ -377,46 +396,83 @@ public enum MetalKernels {
 
     // MARK: SceneClarity / SceneTexture (Plan 2 v2 M2)
 
-    /// Apply scene-linear Rec.2020 clarity (unsharp mask at radius 40).
-    /// Mirrors `clarity::apply` from raw-core/src/stages/clarity.rs:10.
-    /// `clarity` is in [-100, +100]; 0 is identity (short-circuit at
-    /// |clarity| < 1e-3 mirrors clarity.rs:12). The 40-pixel radius is
-    /// the binding constraint for Deep Zoom's 35-pixel overlap budget
+    /// Apply scene-linear Rec.2020 clarity (luma-space unsharp mask at
+    /// radius 40). Mirrors `clarity::apply` from
+    /// raw-core/src/stages/clarity.rs at the algorithm level.
+    /// `clarity` is in [-100, +100]; 0 is identity. The 40-pixel radius
+    /// is the binding constraint for Deep Zoom's 35-pixel overlap budget
     /// (per docs/superpowers/plans/2026-04-25-deep-zoom-tile-rendering.md
     /// § "Architecture" point 2). Do not change the radius without
     /// re-verifying that overlap.
     ///
-    /// Composition: this calls `applySeparableGaussianBlur(to:radius:40)`
-    /// then mixes via the shared `sceneUnsharp` kernel. Both branches
-    /// silent-fallback to identity if any kernel-load step fails.
+    /// Composition (3 CIKernel.apply calls + 1 compute blur):
+    ///   1. `clarityExtractLuma`   — splat dot(rgb, LUMA_REC2020) into RGB
+    ///   2. `applySeparableGaussianBlur(to:radius:40)` on that splat
+    ///   3. `clarityCombine`       — multiply rgb by (boost / max(luma, 1e-6))
+    ///
+    /// Ticket 11 Bug B fix: the previous implementation was a per-channel
+    /// RGB unsharp via `sceneUnsharp` (`out = src + (src - blurred) *
+    /// amount` per channel). At amount=1.0 on coloured edges that
+    /// asymmetrically boosted R/G/B, surfacing as magenta/cyan halos
+    /// around fine detail (Bug B in 11-Bugs.md). The luma-space variant
+    /// preserves chromaticity exactly: R:G:B ratios are unchanged because
+    /// the same scalar `boost / luma` multiplies all three channels.
+    ///
+    /// Silent-fallback to identity if any kernel-load step fails (matches
+    /// the established convention in the other wrappers).
     public static func applySceneClarity(
         to input: CIImage,
         clarity: Float
     ) -> CIImage {
         if abs(clarity) < 1e-3 { return input }
         let amount = clarity / 100.0
-        let blurred = applySeparableGaussianBlur(to: input, radius: 40)
-        return applySceneUnsharp(to: input, blurred: blurred, amount: amount)
+        return applyLumaSpaceUnsharp(to: input, radius: 40, amount: amount)
     }
 
-    /// Apply scene-linear Rec.2020 texture (unsharp mask at radius 3).
-    /// Mirrors `texture::apply` from raw-core/src/stages/texture.rs:10.
-    /// `texture` is in [-100, +100]; 0 is identity (short-circuit at
-    /// |texture| < 1e-3 mirrors texture.rs:12).
+    /// Apply scene-linear Rec.2020 texture (luma-space unsharp mask at
+    /// radius 3). Mirrors `texture::apply` from
+    /// raw-core/src/stages/texture.rs at the algorithm level.
+    /// `texture` is in [-100, +100]; 0 is identity.
     ///
-    /// Composition: this calls `applySeparableGaussianBlur(to:radius:3)`
-    /// then mixes via the shared `sceneUnsharp` kernel. The mix kernel
-    /// is the same instance used by `applySceneClarity` — the only
-    /// difference is the upstream blur's radius (3 vs 40), which lives
-    /// in the blur scratch and is invisible to this kernel.
+    /// Identical algorithm to `applySceneClarity` — only the radius
+    /// differs (3 vs 40). Same chroma-preservation argument applies, and
+    /// the same kernel pair (`clarityExtractLuma` + `clarityCombine`) is
+    /// reused — only the blur radius changes.
     public static func applySceneTexture(
         to input: CIImage,
         texture: Float
     ) -> CIImage {
         if abs(texture) < 1e-3 { return input }
         let amount = texture / 100.0
-        let blurred = applySeparableGaussianBlur(to: input, radius: 3)
-        return applySceneUnsharp(to: input, blurred: blurred, amount: amount)
+        return applyLumaSpaceUnsharp(to: input, radius: 3, amount: amount)
+    }
+
+    /// Shared implementation for clarity (radius 40) and texture
+    /// (radius 3) — luma-extract → blur-luma → combine-as-RGB-multiplier.
+    /// Mirrors `clarity::apply` / `texture::apply` in
+    /// raw-core/src/stages/{clarity,texture}.rs.
+    private static func applyLumaSpaceUnsharp(
+        to input: CIImage,
+        radius: Int,
+        amount: Float
+    ) -> CIImage {
+        guard let extract = clarityExtractLumaKernel(),
+              let combine = clarityCombineKernel() else {
+            return input
+        }
+        guard let lumaSplat = extract.apply(
+            extent: input.extent,
+            roiCallback: { _, rect in rect },
+            arguments: [input]
+        ) else {
+            return input
+        }
+        let blurredLuma = applySeparableGaussianBlur(to: lumaSplat, radius: radius)
+        return combine.apply(
+            extent: input.extent,
+            roiCallback: { _, rect in rect },
+            arguments: [input, blurredLuma, amount]
+        ) ?? input
     }
 
     // MARK: SceneNRLuminance (Plan 2 v2 v2 M3a)
@@ -971,6 +1027,24 @@ public enum MetalKernels {
         _sceneUnsharp = loadKernel(file: "SceneUnsharp",
                                    function: "sceneUnsharp")
         return _sceneUnsharp
+    }
+
+    /// Loaders for the Ticket 11 Bug B luma-space clarity / texture
+    /// kernels. Both functions live in SceneClarity.metal (extractLuma
+    /// + combine). Same `loadKernel(file:function:)` pattern as the
+    /// other kernel sources; cached for the process lifetime.
+    private static func clarityExtractLumaKernel() -> CIKernel? {
+        if let k = _clarityExtractLuma { return k }
+        _clarityExtractLuma = loadKernel(file: "SceneClarity",
+                                         function: "clarityExtractLuma")
+        return _clarityExtractLuma
+    }
+
+    private static func clarityCombineKernel() -> CIKernel? {
+        if let k = _clarityCombine { return k }
+        _clarityCombine = loadKernel(file: "SceneClarity",
+                                     function: "clarityCombine")
+        return _clarityCombine
     }
 
     private static func sceneNRLuminanceExtractKernel() -> CIKernel? {
