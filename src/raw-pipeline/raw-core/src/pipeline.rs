@@ -985,6 +985,8 @@ mod tests {
             hsm_data1: None,
             hsm_data2: None,
             plt: None,
+            profile_tone_curve: None,
+            profile_gain_table_map: None,
         }
     }
 
