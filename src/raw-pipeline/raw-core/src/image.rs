@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use crate::color::hsm::HsmTable;
 use crate::color::illuminant::Illuminant;
 use crate::math::Matrix3;
 
@@ -125,6 +126,23 @@ pub struct RawImage {
     /// 0.18-mid-gray reference. For DNG files this is read from the TIFF tag;
     /// for vendor RAW it falls back to [`camera_calibration`]. Default is 0.0.
     pub baseline_exposure: f32,
+    /// DNG ProfileHueSatMap for the StdA-side calibration illuminant
+    /// (`ProfileHueSatMapData1`, tag 50938). Applied as a per-pixel HSV-space
+    /// lookup inside the DCP path — see `dcp::apply` for the integration
+    /// point. `None` for vendor RAW formats that don't ship a DCP profile and
+    /// for DNGs that omit the HSM tags.
+    pub hsm_data1: Option<HsmTable>,
+    /// DNG ProfileHueSatMap for the D65-side calibration illuminant
+    /// (`ProfileHueSatMapData2`, tag 50939). When both `hsm_data1` and
+    /// `hsm_data2` are present, the DCP path interpolates them per
+    /// reciprocal CCT before applying — DNG 1.6 § 6.6.5.
+    pub hsm_data2: Option<HsmTable>,
+    /// DNG ProfileLookTable (`ProfileLookTableData`, tag 50982). Single table
+    /// — the spec doesn't define a dual-illuminant variant. Applied AFTER
+    /// the DCP / chromatic adaptation step in scene-linear Rec.2020 D65
+    /// (DNG 1.6 § 6.7), before any user-space adjustments. Encodes the
+    /// camera-profile-baked "look" (e.g. "Camera Vivid" vs "Camera Standard").
+    pub plt: Option<HsmTable>,
 }
 
 /// EXIF orientation (TIFF tag 0x0112). Values 1-8 per the spec. `Normal` is

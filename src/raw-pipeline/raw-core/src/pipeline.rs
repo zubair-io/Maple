@@ -138,7 +138,12 @@ pub fn develop_scene_linear_from_raw_with_quality(
     }
     stage("highlight_recovery", || highlight_recovery::apply(&mut camera_rgb, model.highlight_recovery));
     let profile = stage("dcp::profile_for", || dcp::profile_for(raw))?;
-    let mut scene = stage("dcp::apply", || dcp::apply(&camera_rgb, &profile))?;
+    // dcp::apply_with_plt runs HSM (from `profile.hsm`) and PLT (from
+    // `raw.plt`) BOTH in linear-ProPhoto-D50 space, between the chromatic
+    // adaptation and the gamut conversion to Rec.2020 — DNG 1.6 § 6.6 +
+    // § 6.7. When neither is present, falls through to the fast
+    // single-matmul path inside dcp::apply.
+    let mut scene = stage("dcp::apply", || dcp::apply_with_plt(&camera_rgb, &profile, raw.plt.as_ref()))?;
     stage("white_balance", || white_balance::apply(&mut scene, model.temperature, model.tint));
     stage("scene_tone_controls", || scene_tone_controls::apply(&mut scene, model));
     stage("vibrance", || vibrance::apply(&mut scene, model.vibrance));
@@ -212,7 +217,7 @@ pub fn develop_scene_linear_sized_from_raw_with_quality(
     }
     stage("sized_highlight_recovery", || highlight_recovery::apply(&mut camera_rgb, model.highlight_recovery));
     let profile = stage("sized_dcp_profile_for", || dcp::profile_for(raw))?;
-    let mut scene = stage("sized_dcp_apply", || dcp::apply(&camera_rgb, &profile))?;
+    let mut scene = stage("sized_dcp_apply", || dcp::apply_with_plt(&camera_rgb, &profile, raw.plt.as_ref()))?;
     stage("sized_white_balance", || white_balance::apply(&mut scene, model.temperature, model.tint));
     stage("sized_scene_tone_controls", || scene_tone_controls::apply(&mut scene, model));
     stage("sized_vibrance", || vibrance::apply(&mut scene, model.vibrance));
@@ -601,7 +606,7 @@ fn develop_scene_linear_from_padded_mosaic(
     }
     stage("tile_highlight_recovery", || highlight_recovery::apply(&mut camera_rgb, model.highlight_recovery));
     let profile = stage("tile_dcp_profile_for", || dcp::profile_for(raw))?;
-    let mut scene = stage("tile_dcp_apply", || dcp::apply(&camera_rgb, &profile))?;
+    let mut scene = stage("tile_dcp_apply", || dcp::apply_with_plt(&camera_rgb, &profile, raw.plt.as_ref()))?;
     stage("tile_white_balance", || white_balance::apply(&mut scene, model.temperature, model.tint));
     stage("tile_scene_tone_controls", || scene_tone_controls::apply(&mut scene, model));
     stage("tile_vibrance", || vibrance::apply(&mut scene, model.vibrance));
@@ -977,6 +982,9 @@ mod tests {
             color_matrices: std::collections::HashMap::new(),
             orientation: crate::image::ExifOrientation::Normal,
             baseline_exposure: 0.0,
+            hsm_data1: None,
+            hsm_data2: None,
+            plt: None,
         }
     }
 

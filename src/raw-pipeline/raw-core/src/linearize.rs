@@ -175,6 +175,9 @@ mod tests {
             color_matrices: std::collections::HashMap::new(),
             orientation: crate::image::ExifOrientation::Normal,
             baseline_exposure: 0.0,
+            hsm_data1: None,
+            hsm_data2: None,
+            plt: None,
         }
     }
 
@@ -251,6 +254,9 @@ mod tests {
             color_matrices: std::collections::HashMap::new(),
             orientation: crate::image::ExifOrientation::Normal,
             baseline_exposure: 0.0,
+            hsm_data1: None,
+            hsm_data2: None,
+            plt: None,
         };
         let img = linearraw_to_camera_rgb(&raw).expect("LinearRaw decode");
         assert_eq!(img.width, 2);
@@ -298,6 +304,9 @@ mod tests {
             color_matrices: std::collections::HashMap::new(),
             orientation: crate::image::ExifOrientation::Normal,
             baseline_exposure: 0.0,
+            hsm_data1: None,
+            hsm_data2: None,
+            plt: None,
         };
         let img = linearraw_to_camera_rgb(&raw).expect("LinearRaw decode");
         let p = img.pixels[0];
@@ -328,6 +337,9 @@ mod tests {
             color_matrices: std::collections::HashMap::new(),
             orientation: crate::image::ExifOrientation::Normal,
             baseline_exposure: 0.0,
+            hsm_data1: None,
+            hsm_data2: None,
+            plt: None,
         };
         let err = linearraw_to_camera_rgb(&raw).unwrap_err();
         match err {
