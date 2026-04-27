@@ -1076,7 +1076,116 @@ public final class EditSession {
                 persistCurrentPreviewToCache()
                 return
             }
+            // Visible-region refine. With a full-native cached decode
+            // available (Piece 1), the only refine cost left is the
+            // CoreImage materialise step — and at high zoom that step
+            // is what gets billed for "100% feels heavy on slider tick"
+            // because it's running the kernel chain across the whole
+            // canvas. By cropping the lazy chain to `viewportSourceRect`
+            // before calling `createCGImage`, CoreImage's planner
+            // computes filters only for the visible window and we
+            // composite the fresh visible patch over the prior preview
+            // (upscaled to the canvas) so unrendered regions still show
+            // the last-good pixels instead of black.
+            //
+            // Fallback to the legacy whole-canvas refine when the View
+            // hasn't pushed a visible rect yet (Browse-grid prewarmed
+            // sessions, the seed-from-metadata phase before
+            // `notifyVisibleRegion` fires).
+            let visible = viewportSourceRect
+            if !visible.isEmpty,
+               nativeImageSize.width > 0, nativeImageSize.height > 0,
+               decodedCacheIsFreshForCurrentAsset(),
+               decodedImage != nil {
+                await refineVisibleRegion(visibleRect: visible, gen: gen)
+                return
+            }
             await decodeAndRender(targetSize: refinedTargetSize, phase: .refine, gen: gen)
+        }
+    }
+
+    /// Visible-region refine path. Mirrors the deep-zoom composite
+    /// pattern (`compositeWithPreviewUnderlay`) but feeds the cached
+    /// full-native scene-linear decode into the standard
+    /// `processSceneLinear` chain rather than the per-tile decoder.
+    /// The kernel chain is lazy until `materializeRegion` forces a
+    /// rasterise of `visibleRect` only, so the CoreImage planner spends
+    /// shader time on viewport-sized pixel counts even at 100% zoom on
+    /// a 100 MP RAW.
+    @MainActor
+    private func refineVisibleRegion(visibleRect: CGRect, gen: UInt64) async {
+        guard let cached = decodedImage else { return }
+        let assetID = asset.id
+        let canvasSize = nativeImageSize
+        let pipeline = self.pipeline
+        let m = model
+        let cachedDecodedAtModel = decodedAtModel
+        let asShot: ImageEditPipeline.AsShotWB? = {
+            guard let cct = asShotCCT, let t = asShotTint else { return nil }
+            return ImageEditPipeline.AsShotWB(temperature: cct, tint: t)
+        }()
+        let priorPreview = renderedPreview
+
+        renderPhase = .refine
+        isRendering = true
+        defer { isRendering = false }
+
+        let phaseSignpostID = editSessionSignposter.makeSignpostID()
+        let phaseState = editSessionSignposter.beginInterval("refine", id: phaseSignpostID)
+        defer { editSessionSignposter.endInterval("refine", phaseState) }
+
+        editSessionLogger.debug(
+            "refineVisibleRegion gen=\(gen) rect=\(visibleRect.origin.x, format: .fixed(precision: 0)),\(visibleRect.origin.y, format: .fixed(precision: 0)) \(visibleRect.width, format: .fixed(precision: 0))x\(visibleRect.height, format: .fixed(precision: 0))"
+        )
+
+        // Run the kernel chain at the cached buffer's full extent (no
+        // prescale). The crop+materialise below tells the CoreImage
+        // planner which slice to actually compute, so the lazy graph
+        // shouldn't run filters across the whole canvas.
+        let materialised = await Task.detached(priority: .userInitiated) {
+            () -> CIImage? in
+            mapleStage("filter chain (.refine visible-region)") {
+                let chain = pipeline.processSceneLinear(
+                    decoded: cached, model: m, targetSize: nil,
+                    asShot: asShot, decodedAtModel: cachedDecodedAtModel
+                )
+                let cropped = chain.cropped(to: visibleRect)
+                guard let cg = pipeline.materializeRegion(cropped, rect: visibleRect)
+                else { return nil }
+                let fresh = CIImage(cgImage: cg).transformed(
+                    by: CGAffineTransform(translationX: visibleRect.minX, y: visibleRect.minY)
+                )
+                return fresh
+            }
+        }.value
+
+        guard gen == renderGeneration, !Task.isCancelled else {
+            editSessionLogger.debug(
+                "refineVisibleRegion gen=\(gen) stale (current=\(self.renderGeneration)), dropping"
+            )
+            return
+        }
+        guard self.asset.id == assetID else { return }
+        guard let materialised else {
+            editSessionLogger.warning("refineVisibleRegion materialise failed; keeping fast preview")
+            return
+        }
+
+        // Composite the freshly-rendered viewport patch over the prior
+        // preview (upscaled to the canvas). Unrendered canvas regions
+        // show the last good preview rather than black, which matches
+        // the deep-zoom path's "progressive refine" UX.
+        let composite = compositeWithPreviewUnderlay(
+            materialised, underlay: priorPreview, canvasSize: canvasSize
+        )
+        renderedPreview = composite
+        renderError = nil
+
+        if let url = asset.primaryURL {
+            Task.detached(priority: .utility) { [composite] in
+                await ThumbnailLoader.shared.updateThumbnailFromRender(composite, for: url)
+            }
+            persistCurrentPreviewToCache()
         }
     }
 
