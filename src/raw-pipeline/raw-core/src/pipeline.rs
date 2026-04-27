@@ -4,12 +4,18 @@ use crate::{
     error::Result,
     image::{apply_orientation, RawImage},
     stages::{
-        clarity, dehaze, highlight_recovery, noise_reduction, saturation,
+        auto_exposure, clarity, dehaze, highlight_recovery, noise_reduction, saturation,
         scene_tone_controls, sharpen, texture, vibrance, white_balance,
     },
     view::{agx, encode},
     xmp::AdjustmentModel,
 };
+
+/// Engine default for the histogram-shape AE clip percentage. 0.02% of
+/// pixels at each end of the histogram are allowed to clip when computing
+/// black-point and white-clip thresholds. See
+/// `stages::auto_exposure::compute_auto_exposure`.
+const AUTO_EXPOSURE_CLIP_PCT: f32 = 0.02;
 
 /// Wraps a pipeline stage with `Instant::now()` timing, emitting one line
 /// to stderr when `MAPLE_PROFILE` is set in the environment. When unset
@@ -144,6 +150,15 @@ pub fn develop_scene_linear_from_raw_with_quality(
     // § 6.7. When neither is present, falls through to the fast
     // single-matmul path inside dcp::apply.
     let mut scene = stage("dcp::apply", || dcp::apply_with_plt(&camera_rgb, &profile, raw.plt.as_ref()))?;
+    // Per-image histogram-shape auto-exposure. Operates on the post-DCP
+    // scene-linear Rec.2020 image; deterministic; pure math. Replaces the
+    // empirical `MAPLE_AGX_BASELINE_COMPENSATION_EV = 0.65` constant in
+    // decode.rs that fixed the average bias but not the per-image variance
+    // — see ../docs/superpowers/specs/ for the calibrate harness motivation.
+    // Runs BEFORE scene_tone_controls so the user's exposure slider stacks
+    // additively (in EV) on top of the auto-tuned baseline: slider=0 →
+    // baseline auto-exposure, slider>0 → brighter, slider<0 → darker.
+    stage("auto_exposure", || auto_exposure::apply(&mut scene, AUTO_EXPOSURE_CLIP_PCT));
     stage("white_balance", || white_balance::apply(&mut scene, model.temperature, model.tint));
     stage("scene_tone_controls", || scene_tone_controls::apply(&mut scene, model));
     stage("vibrance", || vibrance::apply(&mut scene, model.vibrance));
@@ -218,6 +233,7 @@ pub fn develop_scene_linear_sized_from_raw_with_quality(
     stage("sized_highlight_recovery", || highlight_recovery::apply(&mut camera_rgb, model.highlight_recovery));
     let profile = stage("sized_dcp_profile_for", || dcp::profile_for(raw))?;
     let mut scene = stage("sized_dcp_apply", || dcp::apply_with_plt(&camera_rgb, &profile, raw.plt.as_ref()))?;
+    stage("sized_auto_exposure", || auto_exposure::apply(&mut scene, AUTO_EXPOSURE_CLIP_PCT));
     stage("sized_white_balance", || white_balance::apply(&mut scene, model.temperature, model.tint));
     stage("sized_scene_tone_controls", || scene_tone_controls::apply(&mut scene, model));
     stage("sized_vibrance", || vibrance::apply(&mut scene, model.vibrance));
@@ -607,6 +623,15 @@ fn develop_scene_linear_from_padded_mosaic(
     stage("tile_highlight_recovery", || highlight_recovery::apply(&mut camera_rgb, model.highlight_recovery));
     let profile = stage("tile_dcp_profile_for", || dcp::profile_for(raw))?;
     let mut scene = stage("tile_dcp_apply", || dcp::apply_with_plt(&camera_rgb, &profile, raw.plt.as_ref()))?;
+    // NOTE: auto_exposure intentionally omitted on the tile path. A tile is
+    // a sub-region of the image, so its histogram is not representative of
+    // the whole scene — running AE here would give a different gain per
+    // tile, producing visible discontinuities at tile borders. Wiring AE
+    // into the tile path correctly requires precomputing the EV from the
+    // full image once and threading it through. Today the tile path will
+    // render slightly darker than the full-image path (by whatever EV the
+    // full path's AE picked); this is a known follow-up. The same
+    // architectural reason already excludes dehaze from this path.
     stage("tile_white_balance", || white_balance::apply(&mut scene, model.temperature, model.tint));
     stage("tile_scene_tone_controls", || scene_tone_controls::apply(&mut scene, model));
     stage("tile_vibrance", || vibrance::apply(&mut scene, model.vibrance));
