@@ -64,7 +64,15 @@ pub fn render_from_raw(raw: &RawImage, model: &AdjustmentModel) -> Result<(u32, 
 /// half-resolution quad demosaic — 4× fewer pixels feed every downstream
 /// stage, memory peak drops from ~6 GB to ~1.5 GB on a 100 MP RAW, and a
 /// cold decode lands in seconds rather than minutes. `Full` is the export
-/// path — same pixel-exact output the parity harness locks down.
+/// path — same pixel-exact output the parity harness locks down (uses
+/// Hamilton-Adams when compiled with `high-quality-demosaic`, bilinear
+/// otherwise). `Amaze` is a higher-quality export option backed by the
+/// AMaZE demosaic — slower than HA, but resolves finer detail and resists
+/// moiré on Bayer-pattern-prone content (fabric, building façades, etc.);
+/// for X-Trans / `LinearRgb` fixtures the AMaZE path falls through to the
+/// CFA-aware path that doesn't run AMaZE at all (linearraw_to_camera_rgb
+/// or hamilton_adams), so requesting `Amaze` on a non-Bayer source is
+/// safe — it just doesn't do anything different from `Full`.
 /// `Preview` returns the buffer at the half-res rendered dimensions —
 /// callers must scale to display dimensions themselves (CIImage transform
 /// on Apple, texture upload on Web).
@@ -72,6 +80,7 @@ pub fn render_from_raw(raw: &RawImage, model: &AdjustmentModel) -> Result<(u32, 
 pub enum RenderQuality {
     Preview,
     Full,
+    Amaze,
 }
 
 /// Run the entire development chain through `nr_color` and return the
@@ -103,6 +112,7 @@ pub fn develop_scene_linear_from_raw_with_quality(
                 RenderQuality::Full => demosaic::hamilton_adams(&mosaic, raw.cfa),
                 #[cfg(not(feature = "high-quality-demosaic"))]
                 RenderQuality::Full => demosaic::bilinear(&mosaic, raw.cfa),
+                RenderQuality::Amaze => demosaic::amaze(&mosaic, raw.cfa),
             })
         }
     };
@@ -205,6 +215,7 @@ pub fn develop_scene_linear_sized_from_raw_with_quality(
                 RenderQuality::Full => demosaic::hamilton_adams(&mosaic, raw.cfa),
                 #[cfg(not(feature = "high-quality-demosaic"))]
                 RenderQuality::Full => demosaic::bilinear(&mosaic, raw.cfa),
+                RenderQuality::Amaze => demosaic::amaze(&mosaic, raw.cfa),
             })
         }
     };
@@ -612,6 +623,7 @@ fn develop_scene_linear_from_padded_mosaic(
         RenderQuality::Full => demosaic::hamilton_adams(mosaic, raw.cfa),
         #[cfg(not(feature = "high-quality-demosaic"))]
         RenderQuality::Full => demosaic::bilinear(mosaic, raw.cfa),
+        RenderQuality::Amaze => demosaic::amaze(mosaic, raw.cfa),
     });
     if raw.baseline_exposure.abs() > 1e-4 {
         stage("tile_baseline_exposure", || {
@@ -729,7 +741,8 @@ pub fn render_scene_linear_tile_from_raw_with_quality(
     // dimensions, so it's `(left_pad, top_pad)` with `(s_w, s_h)`.
     let (inner_lp, inner_tp, inner_w, inner_h) = match quality {
         RenderQuality::Preview => (left_pad / 2, top_pad / 2, s_w / 2, s_h / 2),
-        RenderQuality::Full    => (left_pad,     top_pad,     s_w,     s_h),
+        // `Amaze` preserves dimensions like `Full` — same trim coords.
+        RenderQuality::Full | RenderQuality::Amaze => (left_pad, top_pad, s_w, s_h),
     };
     let mut sized = stage("tile_trim_inner", || {
         trim_image_to_inner(&scene, inner_lp, inner_tp, inner_w, inner_h)
@@ -1256,5 +1269,89 @@ mod tests {
         ).expect("even coords tile");
         assert_eq!((w_odd, h_odd), (256, 256));
         assert_eq!((w_even, h_even), (256, 256));
+    }
+
+    /// AMaZE should resolve finer detail than Hamilton-Adams at full
+    /// resolution. Renders the same Bayer DNG twice (once Full, once
+    /// Amaze) through the entire scene-linear chain, then for each
+    /// developed buffer:
+    ///   * Computes the per-pixel green-channel gradient magnitude
+    ///     (|dx| + |dy|) summed over the whole frame — the "high-frequency
+    ///     energy". AMaZE's variance-driven H/V selection preserves edge
+    ///     detail HA blurs over, so total HF energy should be
+    ///     equal-or-greater under AMaZE.
+    ///   * Confirms the global mean barely moves — AMaZE is a detail
+    ///     refinement, not a tone change. The test budget allows at most
+    ///     5% drift in mean luminance.
+    /// Skips when test_0002.dng is absent (gitignored fixtures).
+    #[test]
+    fn amaze_resolves_finer_detail_than_hamilton_adams() {
+        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../test-fixtures/raws/test_0002.dng");
+        if !path.exists() { return; }
+        let bytes = std::fs::read(&path).expect("read raw");
+        let raw = crate::decode::decode_bytes(&bytes, "dng").expect("decode");
+        let model = AdjustmentModel::default();
+
+        let ha = develop_scene_linear_from_raw_with_quality(
+            &raw, &model, RenderQuality::Full,
+        ).expect("HA develop");
+        let amz = develop_scene_linear_from_raw_with_quality(
+            &raw, &model, RenderQuality::Amaze,
+        ).expect("AMaZE develop");
+        assert_eq!((ha.width, ha.height), (amz.width, amz.height));
+
+        let w = ha.width as usize;
+        let h = ha.height as usize;
+
+        // Total green-channel mean — should hardly move between HA/AMaZE.
+        let mean_g = |buf: &crate::image::Image| -> f64 {
+            let s: f64 = buf.pixels.iter().map(|p| p[1] as f64).sum();
+            s / buf.pixels.len() as f64
+        };
+        let m_ha = mean_g(&ha);
+        let m_amz = mean_g(&amz);
+        let mean_drift = ((m_amz - m_ha) / m_ha).abs();
+        assert!(mean_drift < 0.05,
+            "AMaZE shifted overall green mean by {:.3}% (HA mean = {:.4}, AMaZE = {:.4}); \
+             expected ≤ 5%",
+            mean_drift * 100.0, m_ha, m_amz);
+
+        // High-frequency energy via the L1 gradient magnitude on the green
+        // channel. We skip a 4-pixel border so AMaZE's edge-fallback
+        // pixels (where it reverts to bilinear-difference) don't
+        // dominate. Comparing a pure detail metric, not a per-pixel
+        // ΔE — the goal is "AMaZE preserves more detail," not "AMaZE
+        // shifts color."
+        let hf_energy = |buf: &crate::image::Image| -> f64 {
+            let mut sum = 0.0_f64;
+            for y in 4..h - 4 {
+                for x in 4..w - 4 {
+                    let i = y * w + x;
+                    let g = buf.pixels[i][1];
+                    let dx = (buf.pixels[i + 1][1] - buf.pixels[i - 1][1]).abs();
+                    let dy = (buf.pixels[i + w][1] - buf.pixels[i - w][1]).abs();
+                    let _ = g;
+                    sum += (dx + dy) as f64;
+                }
+            }
+            sum
+        };
+        let hf_ha = hf_energy(&ha);
+        let hf_amz = hf_energy(&amz);
+        eprintln!("amaze vs hamilton-adams: mean_g HA={:.4} AMaZE={:.4} (drift={:.3}%); \
+                   HF energy HA={:.0} AMaZE={:.0} (ratio={:.3}×)",
+            m_ha, m_amz, mean_drift * 100.0, hf_ha, hf_amz, hf_amz / hf_ha);
+
+        // AMaZE's HF energy must be at least as high as HA's. The 0.99
+        // floor (1% slack) absorbs tiny per-pixel noise differences from
+        // AMaZE's adaptive median bound on saturated edges, which can
+        // very-slightly suppress one HA-only zipper. The expected
+        // direction is hf_amz > hf_ha; in practice the ratio sits well
+        // above 1.0 on natural fixtures.
+        assert!(hf_amz / hf_ha >= 0.99,
+            "AMaZE HF energy {:.0} below HA HF energy {:.0} (ratio {:.3} < 0.99) — \
+             AMaZE should preserve at least as much green-channel detail as HA",
+            hf_amz, hf_ha, hf_amz / hf_ha);
     }
 }
