@@ -292,6 +292,22 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
         map
     };
 
+    // ── 9. HSM / PLT (DNG § 6.6 / § 6.7) ──────────────────────────────────
+    // Same pattern as BaselineExposure (§ 1b): rawler stores these tags
+    // unparsed in the Root IFD; we read them by tag and assemble HsmTable
+    // structs. Both HSM and PLT share the algorithm in `color::hsm`. Tags:
+    //   50937 ProfileHueSatMapDims (3 × LONG)        → [hue, sat, val]
+    //   50938 ProfileHueSatMapData1 (FLOAT[*])
+    //   50939 ProfileHueSatMapData2 (FLOAT[*])       (optional 2nd illuminant)
+    //   50981 ProfileLookTableDims (3 × LONG)        → [hue, sat, val]
+    //   50982 ProfileLookTableData (FLOAT[*])
+    //   51107 ProfileHueSatMapEncoding (LONG)        0 = Linear (default), 1 = sRGB
+    //   51108 ProfileLookTableEncoding (LONG)        same
+    //
+    // Vendor RAWs (CR2, ARW, RW2, NEF, …) don't ship a DCP profile so all
+    // four reads return None; the per-pixel apply step falls through cleanly.
+    let (hsm_data1, hsm_data2, plt) = read_hsm_plt(&root_ifd);
+
     Ok(RawImage {
         width,
         height,
@@ -306,7 +322,77 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
         color_matrices,
         orientation,
         baseline_exposure,
+        hsm_data1,
+        hsm_data2,
+        plt,
     })
+}
+
+/// Read ProfileHueSatMap1/2 + ProfileLookTable from a DNG Root IFD.
+/// Returns `(hsm1, hsm2, plt)` — each `None` when the tag is absent or
+/// malformed. All four bail to `None` on `ifd == None` (vendor RAW path).
+fn read_hsm_plt(
+    root_ifd: &Option<std::rc::Rc<rawler::formats::tiff::IFD>>,
+) -> (
+    Option<crate::color::hsm::HsmTable>,
+    Option<crate::color::hsm::HsmTable>,
+    Option<crate::color::hsm::HsmTable>,
+) {
+    let ifd = match root_ifd.as_ref() {
+        Some(i) => i.as_ref(),
+        None => return (None, None, None),
+    };
+    let hsm_dims = read_dims(ifd, DngTag::ProfileHueSatMapDims);
+    let hsm_enc = read_encoding(ifd, DngTag::ProfileHueSatMapEncoding);
+    let hsm1 = hsm_dims.and_then(|dims| {
+        read_floats(ifd, DngTag::ProfileHueSatMapData1)
+            .and_then(|data| crate::color::hsm::HsmTable::new(dims, data, hsm_enc))
+    });
+    let hsm2 = hsm_dims.and_then(|dims| {
+        read_floats(ifd, DngTag::ProfileHueSatMapData2)
+            .and_then(|data| crate::color::hsm::HsmTable::new(dims, data, hsm_enc))
+    });
+
+    let plt_dims = read_dims(ifd, DngTag::ProfileLookTableDims);
+    let plt_enc = read_encoding(ifd, DngTag::ProfileLookTableEncoding);
+    let plt = plt_dims.and_then(|dims| {
+        read_floats(ifd, DngTag::ProfileLookTableData)
+            .and_then(|data| crate::color::hsm::HsmTable::new(dims, data, plt_enc))
+    });
+    (hsm1, hsm2, plt)
+}
+
+/// Read a 3-tuple LONG dims tag. Returns `None` if absent or malformed.
+fn read_dims(ifd: &rawler::formats::tiff::IFD, tag: DngTag) -> Option<[u32; 3]> {
+    let entry = ifd.get_entry(tag)?;
+    if entry.value.count() < 3 { return None; }
+    let h = entry.value.force_u32(0);
+    let s = entry.value.force_u32(1);
+    let v = entry.value.force_u32(2);
+    if h == 0 || s == 0 || v == 0 { return None; }
+    Some([h, s, v])
+}
+
+/// Read a FLOAT array tag into `Vec<f32>`. Returns `None` if absent.
+/// Coerces non-Float types via `force_f32` per index — fine for the small
+/// per-tag arrays we deal with here.
+fn read_floats(ifd: &rawler::formats::tiff::IFD, tag: DngTag) -> Option<Vec<f32>> {
+    let entry = ifd.get_entry(tag)?;
+    let n = entry.value.count();
+    if n == 0 { return None; }
+    let mut out = Vec::with_capacity(n);
+    for i in 0..n {
+        out.push(entry.value.force_f32(i));
+    }
+    Some(out)
+}
+
+/// Read a single LONG encoding tag (0 = Linear, 1 = sRGB). Defaults to
+/// Linear per DNG 1.6 § 6.6.4 when absent.
+fn read_encoding(ifd: &rawler::formats::tiff::IFD, tag: DngTag) -> crate::color::hsm::HsmEncoding {
+    ifd.get_entry(tag)
+        .map(|e| crate::color::hsm::HsmEncoding::from_u32(e.value.force_u32(0)))
+        .unwrap_or(crate::color::hsm::HsmEncoding::Linear)
 }
 
 /// Map rawler's `Orientation` enum to our `ExifOrientation`. Used as the
@@ -483,6 +569,53 @@ mod tests {
             Error::Decode { .. } => {}
             other => panic!("expected Error::Decode, got {:?}", other),
         }
+    }
+
+    /// Regression test for HSM tag reading (DNG § 6.6 / Ticket 10c).
+    /// test_0000.DNG (Hasselblad 100 MP) ships ProfileHueSatMapData1 +
+    /// ProfileHueSatMapData2 with dims [36, 10, 1] (per `exiftool`). After
+    /// decode, both `hsm_data1` and `hsm_data2` must be `Some(_)`, the
+    /// dims must match, and the data length must be 36 × 10 × 1 × 3 = 1080
+    /// floats per illuminant.
+    #[test]
+    fn decode_test_0000_reads_dual_illuminant_hsm() {
+        let path = fixture_root().join("test_0000.DNG");
+        if !path.exists() { return; }
+        let raw = decode_path(&path).expect("decode Hasselblad DNG");
+        let h1 = raw.hsm_data1.as_ref().expect("test_0000 ships HSM data 1");
+        let h2 = raw.hsm_data2.as_ref().expect("test_0000 ships HSM data 2");
+        assert_eq!(h1.dims, [36, 10, 1], "expected DNG-typical [36,10,1]");
+        assert_eq!(h2.dims, [36, 10, 1]);
+        assert_eq!(h1.data.len(), 36 * 10 * 1 * 3);
+        assert_eq!(h2.data.len(), 36 * 10 * 1 * 3);
+        // No PLT in this fixture.
+        assert!(raw.plt.is_none(), "test_0000 has no PLT");
+    }
+
+    /// Regression test for PLT tag reading. test_0017.dng (Leica M10) ships a
+    /// tiny 3 × 2 × 1 PLT with all-zero hueDeltas and unit sat/val scales —
+    /// effectively a no-op identity table.
+    #[test]
+    fn decode_test_0017_reads_plt() {
+        let path = fixture_root().join("test_0017.dng");
+        if !path.exists() { return; }
+        let raw = decode_path(&path).expect("decode Leica DNG");
+        let plt = raw.plt.as_ref().expect("test_0017 ships a PLT");
+        assert_eq!(plt.dims, [3, 2, 1], "expected Leica's [3,2,1] no-op shape");
+        assert_eq!(plt.data.len(), 3 * 2 * 1 * 3);
+    }
+
+    /// Vendor RAW (CR2 / ARW / NEF / RAF / X3F) never carry a DCP — confirm
+    /// the decoder cleanly reports `None` for all HSM/PLT tables. test_0010
+    /// is a Canon CR2.
+    #[test]
+    fn decode_vendor_raw_yields_no_hsm_or_plt() {
+        let path = fixture_root().join("test_0010.CR2");
+        if !path.exists() { return; }
+        let raw = decode_path(&path).expect("decode CR2");
+        assert!(raw.hsm_data1.is_none(), "CR2 should not carry HSM");
+        assert!(raw.hsm_data2.is_none(), "CR2 should not carry HSM");
+        assert!(raw.plt.is_none(), "CR2 should not carry PLT");
     }
 
     /// Regression test for ticket #07: LinearRaw DNGs (PhotometricInterpretation
