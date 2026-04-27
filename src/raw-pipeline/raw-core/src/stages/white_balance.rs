@@ -4,20 +4,33 @@ use crate::{
     math::Vec3,
 };
 
-/// CCT (Kelvin) → CIE xy chromaticity using the Hernández-Andrés (1999) polynomial.
-/// Valid in [3000K, 15000K]; mild error outside.
+/// CCT (Kelvin) → CIE xy chromaticity on the **Planckian (blackbody) locus**
+/// via Hernández-Andrés et al. 1999, "Calculating correlated color
+/// temperatures across the entire gamut of daylight and skylight
+/// chromaticities" (Applied Optics 38(27), 5703–5709).
+///
+/// Valid range: 1667K – 25000K. Clamped to [2000K, 25000K] here because
+/// (a) ACR's slider exposes 2000K–50000K and (b) the polynomial is
+/// not defined above 25000K — clamping the upper bound matches what
+/// ACR appears to do internally.
+///
+/// Earlier versions of this function used the Krystek 1985 D-illuminant
+/// polynomial. That fits the daylight locus (~4000K–25000K) and
+/// extrapolates poorly at the warm end: at 2000K it under-cooled
+/// vs ACR's slider. The slider-visual-matrix harness on test_0002
+/// surfaced the magnitude error after the direction fix landed.
 pub fn cct_to_xy(cct: f32) -> (f32, f32) {
-    let t = cct.clamp(2000.0, 15000.0);
-    let x = if t <= 7000.0 {
-         0.244_063
-       + 99.11   / t
-       + 2_967_800.0 / (t * t)
-       - 4_607_000_000.0 / (t * t * t)
+    let t = cct.clamp(2000.0, 25000.0);
+    let x = if t <= 4000.0 {
+         0.179_910
+       + 0.877_695_6e3 / t
+       - 0.234_358_9e6 / (t * t)
+       - 0.266_123_9e9 / (t * t * t)
     } else {
-         0.237_040
-       + 247.48 / t
-       + 1_901_800.0 / (t * t)
-       - 2_006_400_000.0 / (t * t * t)
+         0.240_390
+       + 0.222_634_7e3 / t
+       + 2.107_037_9e6 / (t * t)
+       - 3.025_846_9e9 / (t * t * t)
     };
     let y = -3.000 * x * x + 2.870 * x - 0.275;
     (x, y)
@@ -157,6 +170,32 @@ mod tests {
             assert!(p[2] > p[1],
                 "B should exceed G for magenta tint, got B={} G={}", p[2], p[1]);
         }
+    }
+
+    #[test]
+    fn extreme_warm_2000k_cools_strongly() {
+        // ACR exposes 2000K at the cool end of the Temperature slider.
+        // Krystek's daylight polynomial under-cools at 2000K vs ACR;
+        // Hernández-Andrés's Planckian polynomial cools much harder
+        // (R drops to ~0.41, B rises to ~5.34 at 2000K).
+        let gains = wb_gains(2000.0, 0.0);
+        assert!(gains[0] < 0.6,
+            "R should fall below 0.6 to deeply cool a 2000K source, got {}", gains[0]);
+        assert!(gains[2] > 3.0,
+            "B should exceed 3.0 to deeply cool a 2000K source, got {}", gains[2]);
+    }
+
+    #[test]
+    fn extreme_cool_50000k_warms_strongly() {
+        // ACR exposes 50000K at the warm end of the Temperature slider.
+        // Hernández-Andrés is defined only to 25000K, so the polynomial
+        // clamps above that — matches ACR's apparent behaviour. At the
+        // 25000K clamp R~1.18 (warming) and B~0.57 (cool-source kill).
+        let gains = wb_gains(50000.0, 0.0);
+        assert!(gains[0] > 1.15,
+            "R should boost above 1.15 to warm a 50000K (clamped 25000K) source, got {}", gains[0]);
+        assert!(gains[2] < 0.6,
+            "B should fall below 0.6 to warm a 50000K source, got {}", gains[2]);
     }
 
     #[test]
