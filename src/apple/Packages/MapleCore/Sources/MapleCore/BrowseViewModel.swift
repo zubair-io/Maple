@@ -100,7 +100,7 @@ public final class BrowseViewModel {
             let isDir = (try? entry.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
             if isDir {
                 subs.append(entry)
-            } else if RAWExtensions.all.contains(entry.pathExtension.lowercased()) {
+            } else if SupportedImageExtensions.all.contains(entry.pathExtension.lowercased()) {
                 raws.append(entry)
             }
         }
