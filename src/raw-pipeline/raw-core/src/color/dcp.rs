@@ -490,6 +490,8 @@ mod tests {
             hsm_data1: None,
             hsm_data2: None,
             plt: None,
+            profile_tone_curve: None,
+            profile_gain_table_map: None,
         }
     }
 
@@ -662,6 +664,8 @@ mod tests {
             hsm_data1: None,
             hsm_data2: None,
             plt: None,
+            profile_tone_curve: None,
+            profile_gain_table_map: None,
         };
         let profile = profile_for(&raw).unwrap();
 
@@ -717,6 +721,8 @@ mod tests {
             hsm_data1: None,
             hsm_data2: None,
             plt: None,
+            profile_tone_curve: None,
+            profile_gain_table_map: None,
         };
         let prof_linear = profile_for(&raw_linear).unwrap();
         // Pre-bake undo lives in linearize::linearraw_to_camera_rgb, not in
@@ -772,6 +778,8 @@ mod tests {
             hsm_data1: None,
             hsm_data2: None,
             plt: None,
+            profile_tone_curve: None,
+            profile_gain_table_map: None,
         };
         let profile = profile_for(&raw).unwrap();
         // Neutral (1,1,1) camera neutral → should land near D65 CCT → interpolated
@@ -931,6 +939,8 @@ mod tests {
             hsm_data1: Some(h1),
             hsm_data2: Some(h2),
             plt: None,
+            profile_tone_curve: None,
+            profile_gain_table_map: None,
         };
         let profile = profile_for(&raw).unwrap();
         let resolved_hsm = profile.hsm.as_ref().expect("dual-HSM path resolves to a table");
