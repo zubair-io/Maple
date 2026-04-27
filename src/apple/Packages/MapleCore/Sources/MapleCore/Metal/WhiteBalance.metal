@@ -64,21 +64,36 @@ float3 xy_to_xyz(float x, float y, float Y) {
     return float3(X, Y, Z);
 }
 
-// Per-channel Rec.2020 gain to move from D65 to (cct, tint).
-// Normalized so green = 1. Mirrors wb_gains() in white_balance.rs:34-50.
+// Per-channel Rec.2020 gain to compensate for a SOURCE-LIGHT (cct, tint)
+// — i.e. render the scene as neutral D65 by inverting the source-light
+// chromaticity. Mirrors wb_gains() in white_balance.rs (post-fix).
+//
+// ACR convention: cct slider value is the COLOR TEMPERATURE OF THE LIGHT
+// THE PHOTO WAS TAKEN UNDER. To neutralize, apply gain = D65 / source.
+// Warm source (2000K) → low gain[R], high gain[B] → cools the image.
+//
+// The previous version computed `target / D65` which inverted the
+// direction (warm slider WARMED the image). slider_visual_matrix.py
+// surfaced this on test_0002 — temperature_min(2000K) rendered red/
+// magenta where ACR rendered blue. Fix: flip the ratio.
 float3 wb_gains(float cct, float tint) {
+    // ACR tint semantics: slider value is the IMAGE-direction shift
+    // (positive = add green, negative = add magenta). To produce that
+    // shift via gain = D65/source, the source must be in the OPPOSITE
+    // chromaticity direction. Subtract (not add) tint from y.
+    // Mirrors white_balance.rs::wb_gains.
     float2 xy = cct_to_xy(cct);
-    float y = xy.y + tint * 0.001;
-    float3 xyz_target = xy_to_xyz(xy.x, y, 1.0);
+    float y = xy.y - tint * 0.001;
+    float3 xyz_source = xy_to_xyz(xy.x, y, 1.0);
     // Matrix layout: each `float3` to `float3x3(...)` is a COLUMN of the
     // Metal matrix but a ROW of the math matrix — use `v * M_metal` to
     // compute `M_math * v`. See SceneSaturation.metal header / Bug 2.
-    float3 target_rec2020 = xyz_target * M_XYZ_D65_TO_REC2020;
+    float3 source_rec2020 = xyz_source * M_XYZ_D65_TO_REC2020;
     float3 d65_rec2020    = XYZ_D65    * M_XYZ_D65_TO_REC2020;
     float3 gain = float3(
-        target_rec2020[0] / d65_rec2020[0],
-        target_rec2020[1] / d65_rec2020[1],
-        target_rec2020[2] / d65_rec2020[2]
+        d65_rec2020[0] / source_rec2020[0],
+        d65_rec2020[1] / source_rec2020[1],
+        d65_rec2020[2] / source_rec2020[2]
     );
     float g = max(gain[1], 1e-6);
     return float3(gain[0] / g, 1.0, gain[2] / g);
