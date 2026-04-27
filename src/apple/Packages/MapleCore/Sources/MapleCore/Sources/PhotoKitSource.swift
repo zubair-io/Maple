@@ -151,6 +151,15 @@ public actor PhotoKitSource {
     /// The reference repo's `requestCGImage` helper enables network access
     /// for the same reason.
     public func rawData(for localID: String) async -> Data? {
+        await rawDataWithMetadata(for: localID)?.data
+    }
+
+    /// Variant of `rawData(for:)` that also returns the data UTI so the
+    /// caller can drive the non-RAW vs RAW dispatch in EditSession (HEIF
+    /// photos shipped from an iPhone don't have a stable extension; the
+    /// UTI is what tells us whether we're looking at `public.heic` /
+    /// `public.jpeg` / `public.png` vs `com.adobe.raw-image`).
+    public func rawDataWithMetadata(for localID: String) async -> (data: Data, dataUTI: String?)? {
         guard let phAsset = phAsset(for: localID) else { return nil }
         return await withCheckedContinuation { continuation in
             let options = PHImageRequestOptions()
@@ -181,9 +190,13 @@ public actor PhotoKitSource {
             PHImageManager.default().requestImageDataAndOrientation(
                 for: phAsset,
                 options: options
-            ) { data, _, _, _ in
+            ) { data, dataUTI, _, _ in
                 if latch.tryFire() {
-                    continuation.resume(returning: data)
+                    if let data {
+                        continuation.resume(returning: (data, dataUTI))
+                    } else {
+                        continuation.resume(returning: nil)
+                    }
                 }
             }
         }

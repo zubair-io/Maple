@@ -180,7 +180,7 @@ public actor FilesystemSource {
         )
 
         _assets = contents
-            .filter { RAWExtensions.all.contains($0.pathExtension.lowercased()) }
+            .filter { SupportedImageExtensions.all.contains($0.pathExtension.lowercased()) }
             .sorted { $0.lastPathComponent < $1.lastPathComponent }
             .map { FileAsset(url: $0) }
     }
@@ -258,6 +258,38 @@ public enum RAWExtensions {
         "mrw", "erf", "3fr", "fff", "iiq",
         "cap", "tif", "tiff",
     ]
+}
+
+// MARK: - NonRawImageExtensions
+
+public enum NonRawImageExtensions {
+    /// Known non-RAW image extensions (lowercase). These ship demosaiced
+    /// sRGB / Display-P3 pixels with an embedded ICC profile and skip the
+    /// rawler decode + DCP / demosaic / WB calibration stages — see
+    /// `decodeSceneLinearNonRaw` in EditSession / ImageEditPipeline.
+    ///
+    /// `tif` / `tiff` are intentionally NOT listed here; they remain in
+    /// `RAWExtensions.all` because camera-sourced TIFFs (Phase One IIQ
+    /// tethered captures, scientific cameras) carry sensor data that the
+    /// Rust pipeline has to demosaic. Plain photographic TIFFs would
+    /// route through the RAW path and `rawler` falls back gracefully on
+    /// non-Bayer TIFF — the OPEN dispatch is what splits the chain.
+    public static let all: Set<String> = [
+        "heic", "heif",
+        "jpg", "jpeg", "jpe",
+        "png",
+    ]
+}
+
+// MARK: - SupportedImageExtensions
+
+public enum SupportedImageExtensions {
+    /// Union of `RAWExtensions.all` + `NonRawImageExtensions.all` — what
+    /// the LISTING phase (folder enumeration, fileImporter content types,
+    /// drag-and-drop) accepts. The OPEN phase still branches on the
+    /// extension to dispatch to the right decoder; only the listing gate
+    /// uses this union.
+    public static let all: Set<String> = RAWExtensions.all.union(NonRawImageExtensions.all)
 }
 
 // MARK: - macOS folder picker helper
