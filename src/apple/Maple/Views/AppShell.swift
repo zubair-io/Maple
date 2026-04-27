@@ -239,9 +239,14 @@ struct AppShell: View {
 
     @ToolbarContentBuilder
     private var browseToolbar: some ToolbarContent {
-        // When editing, a Back-to-Library button takes over the leading
-        // toolbar slot (escape also works).
-        ToolbarItem(placement: .automatic) {
+        // Toolbar items at `.navigation` placement land on the LEADING edge
+        // of the title bar — right of the sidebar-toggle button, left of
+        // the navigationTitle. When the sidebar is closed the placement
+        // collapses to "right after the menu/sidebar button, before the
+        // image name." Per UX request: back/share/zoom controls live in
+        // the header next to the menu button rather than at the trailing
+        // edge after the title.
+        ToolbarItem(placement: .navigation) {
             if mode == .fullImage {
                 Button("Back", systemImage: "chevron.left") {
                     mode = .browse
@@ -259,7 +264,7 @@ struct AppShell: View {
                 .accessibilityLabel("Search")
             }
         }
-        ToolbarItem(placement: .automatic) {
+        ToolbarItem(placement: .navigation) {
             Button("Export", systemImage: "square.and.arrow.up") {
                 showExport = true
             }

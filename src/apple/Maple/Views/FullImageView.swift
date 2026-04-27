@@ -254,9 +254,12 @@ struct FullImageView: View {
             basePan = .zero
         }
         .toolbar {
-            // Zoom controls. Buttons mirror the reference's toolbar items;
-            // keyboard shortcuts match (⌘0 Fit, ⌘1 100%, ⌘= in, ⌘- out).
-            ToolbarItemGroup(placement: .automatic) {
+            // Zoom controls grouped on the LEADING toolbar edge (right of
+            // the sidebar-toggle / Back, before the navigationTitle) per
+            // the same UX rule as browseToolbar — header controls cluster
+            // next to the menu button rather than across the title bar.
+            // Keyboard shortcuts match (⌘0 Fit, ⌘1 100%, ⌘= in, ⌘- out).
+            ToolbarItemGroup(placement: .navigation) {
                 Button("Fit", systemImage: "arrow.down.right.and.arrow.up.left") {
                     resetZoom()
                 }
