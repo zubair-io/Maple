@@ -457,6 +457,27 @@ public actor ImageEditPipeline {
         return context.createCGImage(scaled, from: scaled.extent)
     }
 
+    // MARK: Materialise a region (visible-rect refine)
+
+    /// Force CoreImage to materialise `image` over the given `rect` into
+    /// a CGImage using the pipeline's Metal-backed context. Equivalent
+    /// to `CIContext.createCGImage(image, from: rect, format:colorSpace:)`,
+    /// exposed so EditSession's visible-region refine path can reuse the
+    /// shared context (avoids spinning up a sibling Metal command queue
+    /// per slider tick).
+    ///
+    /// Output format is `RGBAh` + extended-linear Rec.2020 — the same
+    /// working-space the CIImageView re-encodes from when it lands the
+    /// final P3 raster, so this step doesn't introduce a colour-space
+    /// trip beyond what the canvas will already do.
+    nonisolated public func materializeRegion(
+        _ image: CIImage,
+        rect: CGRect
+    ) -> CGImage? {
+        let cs = CGColorSpace(name: CGColorSpace.extendedLinearITUR_2020)!
+        return context.createCGImage(image, from: rect, format: .RGBAh, colorSpace: cs)
+    }
+
     // MARK: Prescale helper (tiling-friendly)
 
     /// Lanczos-downscale `input` to fit within `targetSize` (aspect

@@ -301,6 +301,17 @@ public final class EditSession {
     @ObservationIgnored private var decodedRawResolution: CGSize = .zero
     @ObservationIgnored private var decodedForAssetID: AssetRef.ID?
 
+    /// Sidecar file modification time at the moment `decodedImage` was
+    /// captured. Bumping the sidecar (e.g. an external XMP edit, a paste-
+    /// adjustments flow that writes through the file) MUST invalidate the
+    /// cache because the Rust decode bakes sidecar-driven stages
+    /// (highlight_recovery, profile-driven WB) before returning. The cold-
+    /// path `sharedDecode` writes this; the hot path checks it via
+    /// `sidecarMtimeMatchesCache` before reusing `decodedImage`.
+    /// `nil` means no sidecar was on disk at decode time — equivalent to
+    /// a fresh open.
+    @ObservationIgnored private var decodedSidecarMtime: Date?
+
     /// Plan 2 M3 — model snapshot at the moment `sharedDecode`'s Rust FFI
     /// ran. Used by `processSceneLinear`'s WhiteBalance kernel as the
     /// "decoded WB" reference so the kernel applies only the live delta
@@ -323,23 +334,20 @@ public final class EditSession {
     @ObservationIgnored private var decodeTaskAssetID: AssetRef.ID?
 
     /// Ticket 10 item H — refine-decode coalescer. Maps `(asset, target)`
-    /// to an in-flight `decodeSceneLinearSized` task so that two refine
-    /// schedules at the same target collapse to one Rust call.
+    /// to an in-flight decode task so that two callers at the same
+    /// target collapse to one underlying decode call.
     ///
-    /// Why this exists: `_scheduleRefine`'s 250 ms debounce + the
-    /// stale-gen bail-out in `decodeAndRender` (commit `d4eed05`) both
-    /// fire BEFORE the decode starts. Once a refine is inside the
-    /// synchronous Rust call (~10 s on a 100 MP RAW), nothing
-    /// short-circuits a sibling refine that arrives a moment later — it
-    /// passes the gen check, enters the Rust call in parallel, and only
-    /// the second result publishes (the first is wasted CPU). The
-    /// coalescer fixes the race: the second arrival sees the in-flight
-    /// task and awaits its value instead of starting its own.
-    ///
-    /// The stale-gen bail-out is preserved as a fast-fail check — when
-    /// it catches the race the coalescer never gets called, which keeps
-    /// the dictionary cleaner. When the bail-out misses (both tasks
-    /// past it), the coalescer is the safety net.
+    /// Originally this guarded the per-refine `decodeSceneLinearSized`
+    /// call against the cross-debounce race where two refines both
+    /// passed the stale-gen check and entered the Rust FFI in parallel.
+    /// After the decoded-image cache rework (commit on this branch),
+    /// refine no longer crosses the FFI — it always reuses the
+    /// full-native cached buffer captured by `sharedDecode`. The
+    /// coalescer is preserved as a public-facing internal API
+    /// (`coalescedRefineDecode`) so the test suite
+    /// `EditSessionRefineCoalesceTests` continues to verify its
+    /// register-before-await semantics, and as a safety net for any
+    /// future re-introduction of a sized refine path.
     ///
     /// Keyed by `(asset.id, integer-rounded width × height)` because the
     /// target sizes that arrive at the refine boundary are point-derived
@@ -1068,7 +1076,116 @@ public final class EditSession {
                 persistCurrentPreviewToCache()
                 return
             }
+            // Visible-region refine. With a full-native cached decode
+            // available (Piece 1), the only refine cost left is the
+            // CoreImage materialise step — and at high zoom that step
+            // is what gets billed for "100% feels heavy on slider tick"
+            // because it's running the kernel chain across the whole
+            // canvas. By cropping the lazy chain to `viewportSourceRect`
+            // before calling `createCGImage`, CoreImage's planner
+            // computes filters only for the visible window and we
+            // composite the fresh visible patch over the prior preview
+            // (upscaled to the canvas) so unrendered regions still show
+            // the last-good pixels instead of black.
+            //
+            // Fallback to the legacy whole-canvas refine when the View
+            // hasn't pushed a visible rect yet (Browse-grid prewarmed
+            // sessions, the seed-from-metadata phase before
+            // `notifyVisibleRegion` fires).
+            let visible = viewportSourceRect
+            if !visible.isEmpty,
+               nativeImageSize.width > 0, nativeImageSize.height > 0,
+               decodedCacheIsFreshForCurrentAsset(),
+               decodedImage != nil {
+                await refineVisibleRegion(visibleRect: visible, gen: gen)
+                return
+            }
             await decodeAndRender(targetSize: refinedTargetSize, phase: .refine, gen: gen)
+        }
+    }
+
+    /// Visible-region refine path. Mirrors the deep-zoom composite
+    /// pattern (`compositeWithPreviewUnderlay`) but feeds the cached
+    /// full-native scene-linear decode into the standard
+    /// `processSceneLinear` chain rather than the per-tile decoder.
+    /// The kernel chain is lazy until `materializeRegion` forces a
+    /// rasterise of `visibleRect` only, so the CoreImage planner spends
+    /// shader time on viewport-sized pixel counts even at 100% zoom on
+    /// a 100 MP RAW.
+    @MainActor
+    private func refineVisibleRegion(visibleRect: CGRect, gen: UInt64) async {
+        guard let cached = decodedImage else { return }
+        let assetID = asset.id
+        let canvasSize = nativeImageSize
+        let pipeline = self.pipeline
+        let m = model
+        let cachedDecodedAtModel = decodedAtModel
+        let asShot: ImageEditPipeline.AsShotWB? = {
+            guard let cct = asShotCCT, let t = asShotTint else { return nil }
+            return ImageEditPipeline.AsShotWB(temperature: cct, tint: t)
+        }()
+        let priorPreview = renderedPreview
+
+        renderPhase = .refine
+        isRendering = true
+        defer { isRendering = false }
+
+        let phaseSignpostID = editSessionSignposter.makeSignpostID()
+        let phaseState = editSessionSignposter.beginInterval("refine", id: phaseSignpostID)
+        defer { editSessionSignposter.endInterval("refine", phaseState) }
+
+        editSessionLogger.debug(
+            "refineVisibleRegion gen=\(gen) rect=\(visibleRect.origin.x, format: .fixed(precision: 0)),\(visibleRect.origin.y, format: .fixed(precision: 0)) \(visibleRect.width, format: .fixed(precision: 0))x\(visibleRect.height, format: .fixed(precision: 0))"
+        )
+
+        // Run the kernel chain at the cached buffer's full extent (no
+        // prescale). The crop+materialise below tells the CoreImage
+        // planner which slice to actually compute, so the lazy graph
+        // shouldn't run filters across the whole canvas.
+        let materialised = await Task.detached(priority: .userInitiated) {
+            () -> CIImage? in
+            mapleStage("filter chain (.refine visible-region)") {
+                let chain = pipeline.processSceneLinear(
+                    decoded: cached, model: m, targetSize: nil,
+                    asShot: asShot, decodedAtModel: cachedDecodedAtModel
+                )
+                let cropped = chain.cropped(to: visibleRect)
+                guard let cg = pipeline.materializeRegion(cropped, rect: visibleRect)
+                else { return nil }
+                let fresh = CIImage(cgImage: cg).transformed(
+                    by: CGAffineTransform(translationX: visibleRect.minX, y: visibleRect.minY)
+                )
+                return fresh
+            }
+        }.value
+
+        guard gen == renderGeneration, !Task.isCancelled else {
+            editSessionLogger.debug(
+                "refineVisibleRegion gen=\(gen) stale (current=\(self.renderGeneration)), dropping"
+            )
+            return
+        }
+        guard self.asset.id == assetID else { return }
+        guard let materialised else {
+            editSessionLogger.warning("refineVisibleRegion materialise failed; keeping fast preview")
+            return
+        }
+
+        // Composite the freshly-rendered viewport patch over the prior
+        // preview (upscaled to the canvas). Unrendered canvas regions
+        // show the last good preview rather than black, which matches
+        // the deep-zoom path's "progressive refine" UX.
+        let composite = compositeWithPreviewUnderlay(
+            materialised, underlay: priorPreview, canvasSize: canvasSize
+        )
+        renderedPreview = composite
+        renderError = nil
+
+        if let url = asset.primaryURL {
+            Task.detached(priority: .utility) { [composite] in
+                await ThumbnailLoader.shared.updateThumbnailFromRender(composite, for: url)
+            }
+            persistCurrentPreviewToCache()
         }
     }
 
@@ -1232,91 +1349,23 @@ public final class EditSession {
 
         do {
             let image: CIImage
-            // Refine path needs FULL resolution at the refined target.
-            // The shared decode caches a viewport-sized buffer (~1810 px
-            // long edge on iPad); processing it for refine would just
-            // restretch the same low-res pixels — that's the user's
-            // "100% doesn't look full resolution" symptom. Compare
-            // against `decodedRawResolution` (the actual pixel
-            // dimensions of the cached buffer BEFORE the affine upscale
-            // applied by `decodedForNativeCanvas`). The CIImage's
-            // `.extent` reports the upscaled native dims and would
-            // make this check vacuously false.
-            let needsFreshHighResDecode: Bool = {
-                guard phase == .refine, let target = targetSize else { return false }
-                guard cached != nil, decodedRawResolution.width > 0 else { return true }
-                return decodedRawResolution.width + 0.5 < target.width
-                    || decodedRawResolution.height + 0.5 < target.height
-            }()
-            if needsFreshHighResDecode, let target = targetSize {
-                // Bail out BEFORE the expensive decode if a newer
-                // refine has already been scheduled. Without this,
-                // two `decodeAndRender(.refine)` tasks for the same
-                // asset can both pass the early `Task.isCancelled`
-                // check, hit the 10 s native decode in parallel, and
-                // produce two finished results — only the second one
-                // is published, the first is wasted work. User saw
-                // this directly: the trace logged
-                // `[swift] rust FFI scene-linear decode (refine)`
-                // twice with two interleaved pipeline runs.
-                if let gen, gen != renderGeneration {
-                    editSessionLogger.debug(
-                        "decodeAndRender gen=\(gen) stale before high-res decode (current=\(self.renderGeneration)), dropping early"
-                    )
-                    isRendering = false
-                    return
-                }
-                let sidecar: URL? = {
-                    guard let url = asset.sidecarURL,
-                          FileManager.default.fileExists(atPath: url.path)
-                    else { return nil }
-                    return url
-                }()
-                let assetCapture = asset
-                let pipelineCapture = pipeline
-                // Ticket 10 item H — coalesce concurrent refine decodes
-                // by `(asset, target)`. The stale-gen bail-out above is
-                // a fast-fail check; this is the safety net for the race
-                // where two `decodeAndRender(.refine)` tasks both pass
-                // the gen check, both enter the synchronous Rust call,
-                // and one's work ends up wasted. Joining the in-flight
-                // task here means the second arrival re-uses the first
-                // call's result rather than double-decoding.
-                let decoded = await coalescedRefineDecode(
-                    asset: assetCapture, target: target
-                ) {
-                    await mapleStageAsync("rust FFI scene-linear decode (refine)") {
-                        await pipelineCapture.decodeSceneLinearSized(
-                            asset: assetCapture, targetSize: target, xmpPath: sidecar
-                        )
-                    }
-                }
-                guard !Task.isCancelled else {
-                    isRendering = false
-                    return
-                }
-                if let gen, gen != renderGeneration {
-                    editSessionLogger.debug(
-                        "decodeAndRender gen=\(gen) stale after high-res decode (current=\(self.renderGeneration)), dropping result"
-                    )
-                    isRendering = false
-                    return
-                }
-                guard let decoded else {
-                    throw RenderError.pipelineFailed
-                }
-                let freshDecodedAtModel = self.decodedAtModel
-                let processed = await Task.detached(priority: .userInitiated) {
-                    mapleStage(filterStageName) {
-                        pipeline.processSceneLinear(
-                            decoded: decoded, model: m, targetSize: target,
-                            asShot: asShot, decodedAtModel: freshDecodedAtModel
-                        )
-                    }
-                }.value
-                image = processed
-            } else if let cached, alreadyDecodedID == asset.id {
-                // Cached decode — apply scene-linear chain only. Hot path.
+            // Cache validity: the decoded buffer is full-native and
+            // covers every fast/refine target the canvas can request, so
+            // the only thing that flips the cache stale (without an
+            // explicit `invalidateDecodedCache()` call) is a sidecar
+            // mtime change — the Rust path bakes sidecar-driven stages
+            // (highlight_recovery, profile-driven WB) before returning,
+            // so an external XMP edit demands a fresh decode.
+            let cacheFresh = (cached != nil)
+                && alreadyDecodedID == asset.id
+                && decodedCacheIsFreshForCurrentAsset()
+            if let cached, cacheFresh {
+                // Cached decode — apply scene-linear chain only. Hot path
+                // for slider/zoom/pan after first decode lands. The
+                // CoreImage filter graph fuses `processSceneLinear`'s
+                // lazy Lanczos prescale with the kernel chain so the
+                // 200 MB fp16 intermediate never materialises — only
+                // the requested target pixels do.
                 image = await Task.detached(priority: .userInitiated) {
                     mapleStage(filterStageName) {
                         pipeline.processSceneLinear(
@@ -1412,6 +1461,7 @@ public final class EditSession {
         decodedImage = nil
         decodedRawResolution = .zero
         decodedForAssetID = nil
+        decodedSidecarMtime = nil
         decodeTask = nil
         decodeTaskAssetID = nil
         // Ticket 10 item H — clear the refine-decode coalescer so a fresh
@@ -1469,50 +1519,52 @@ public final class EditSession {
         // count instead of shrinking to one Rust pass.
         let decodeSignpostID = editSessionSignposter.makeSignpostID()
         let decodeState = editSessionSignposter.beginInterval("decode", id: decodeSignpostID)
-        // Capture the current viewport size so the scene-linear path can
-        // route through the sized FFI when known. Plan 1 v2 Task 8: the
-        // sized entry caps the Rust output's long edge at the viewport,
-        // dropping the FFI buffer from ~200 MB (half-res scene-linear) to
-        // ~12 MB for a 1500-px-long-edge target.
-        let capturedViewport = previewSize
+        // Decoded-image cache architecture (ported from Maple reference's
+        // EditSession.swift):
+        //
+        //   • Decode ONCE per asset open at full sensor extent (half-res
+        //     preview demosaic — the unsized scene-linear FFI). This costs
+        //     ~200 MB resident fp16 for a 100 MP RAW but means slider/zoom/
+        //     pan never re-cross the FFI for the lifetime of the session.
+        //   • The full-resolution cached buffer feeds every fast/refine
+        //     pass — `processSceneLinear`'s lazy Lanczos prescale fuses the
+        //     downscale with the filter chain so CoreImage materialises
+        //     only the requested target pixels, not the full intermediate.
+        //   • At high zoom (refine target ≥ fast target), Piece 2's
+        //     visible-region rendering crops the materialise step to the
+        //     viewport rect via `CIContext.createCGImage(from: visibleRect)`
+        //     — the cached buffer covers the whole canvas but only those
+        //     pixels actually run through the chain.
+        //
+        // Why not the sized FFI? Earlier (ticket 06 M2) `decodeSceneLinearSized`
+        // capped the cold-decode buffer at viewport size for a smaller
+        // working set. It fixed cold-open memory but made every refine at
+        // higher zoom recross the FFI (~10 s per slider tick on a 100 MP
+        // RAW), which is the flicker the user reported. The embedded JPEG
+        // seed (`seedFromEmbeddedPreview`) covers the cold-paint latency
+        // window — full-res Rust decode runs in the background while the
+        // viewport already shows pixels.
+        //
+        // The on-disk DecodedBufferCache (sRGB JPEGs) is bypassed — it
+        // can't round-trip extended-range fp16. A follow-up plan revs the
+        // cache format; for now scene-linear opens always pay the Rust
+        // decode cost.
+        //
+        // Plan 2 M3 — pass the asset's sidecar URL through to the
+        // scene-linear FFI so highlight_recovery (Rust-side, pre-DCP)
+        // responds to the saved highlightRecovery setting. Only pass a
+        // URL when a sidecar file exists on disk; nil keeps the Rust
+        // default model (highlight_recovery = Off) so first-open (no
+        // sidecar) behaviour matches Plan 1.
         let task: Task<CIImage?, Never> = Task.detached(priority: .userInitiated) { [pipeline] in
-            // Scene-linear FFI routing:
-            //   1. Viewport size is known → use the sized FFI entry
-            //      (ticket 06 Milestone 2). Output is ~12 MB for a
-            //      1500-px-long-edge buffer vs ~200 MB for the half-res
-            //      scene-linear buffer.
-            //   2. No viewport hint → fall back to the unsized entry
-            //      (Task 4) so behavior is no worse than v1.
-            //
-            // The on-disk DecodedBufferCache (sRGB JPEGs) is bypassed —
-            // it can't round-trip extended-range fp16. A follow-up plan
-            // revs the cache format; for now scene-linear opens always
-            // pay the Rust decode cost.
-            //
-            // Plan 2 M3 — pass the asset's sidecar URL through to the
-            // scene-linear FFI so highlight_recovery (Rust-side, pre-DCP)
-            // responds to the saved highlightRecovery setting. Only pass
-            // a URL when a sidecar file exists on disk; nil keeps the
-            // Rust default model (highlight_recovery = Off) so first-open
-            // (no sidecar) behaviour matches Plan 1.
             let sidecar: URL? = {
                 guard let url = asset.sidecarURL,
                       FileManager.default.fileExists(atPath: url.path)
                 else { return nil }
                 return url
             }()
-            let decoded: CIImage?
-            if capturedViewport.width > 1, capturedViewport.height > 1 {
-                decoded = await mapleStageAsync("rust FFI scene-linear decode") {
-                    await pipeline.decodeSceneLinearSized(
-                        asset: asset, targetSize: capturedViewport,
-                        xmpPath: sidecar
-                    )
-                }
-            } else {
-                decoded = await mapleStageAsync("rust FFI scene-linear decode") {
-                    await pipeline.decodeSceneLinear(asset: asset, xmpPath: sidecar)
-                }
+            let decoded = await mapleStageAsync("rust FFI scene-linear decode") {
+                await pipeline.decodeSceneLinear(asset: asset, xmpPath: sidecar)
             }
             guard let decoded else { return nil }
             return decoded
@@ -1542,6 +1594,7 @@ public final class EditSession {
         // the sidecar gate above: nil when no sidecar exists on disk
         // (Rust used .default), or the parsed sidecar model otherwise.
         decodedAtModel = Self.parseSidecarModel(for: asset)
+        decodedSidecarMtime = Self.sidecarMtime(for: asset)
         if decodeTaskAssetID == asset.id {
             decodeTask = nil
             decodeTaskAssetID = nil
@@ -1612,6 +1665,62 @@ public final class EditSession {
             return .default
         }
         return m
+    }
+
+    /// Read the asset's sidecar mtime, or `nil` when no sidecar is on
+    /// disk. Used to seal the decoded-image cache against external XMP
+    /// edits — if the sidecar is rewritten (paste-adjustments, an
+    /// external editor, the indexer), the next render must trigger a
+    /// fresh decode rather than apply the new model on top of the stale
+    /// pre-DCP buffer. Sourceless assets (no `sidecarURL`) return `nil`;
+    /// they don't have a file-shaped sidecar to track.
+    private static func sidecarMtime(for asset: AssetRef) -> Date? {
+        guard let url = asset.sidecarURL,
+              let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
+              let mtime = attrs[.modificationDate] as? Date
+        else { return nil }
+        return mtime
+    }
+
+    /// Decoded-cache validity check. The cache is valid for the live hot
+    /// path only when (asset matches) AND (sidecar mtime matches the
+    /// capture). Mtime is `Date?` — a nil-vs-nil comparison (no sidecar
+    /// existed at either decode time or now) is also valid. A captured
+    /// mtime followed by a sidecar deletion (or vice versa) is treated
+    /// as a change and invalidates.
+    ///
+    /// `internal` so the test suite can probe the cache state machine
+    /// without standing up a full Rust decode.
+    internal func decodedCacheIsFreshForCurrentAsset() -> Bool {
+        guard decodedForAssetID == asset.id else { return false }
+        let live = Self.sidecarMtime(for: asset)
+        return live == decodedSidecarMtime
+    }
+
+    /// Test hook — manually populate the cache fields with a synthetic
+    /// CIImage so unit tests can verify the freshness check, the mtime-
+    /// change invalidation contract, and the invalidate-clears-fields
+    /// invariant without paying the Rust FFI's full-decode cost. NOT
+    /// for production use; cold/hot decode paths set these via
+    /// `sharedDecode`.
+    internal func _testSeedDecodedCache(
+        decoded: CIImage,
+        rawResolution: CGSize,
+        sidecarMtime: Date?,
+        decodedAtModel: AdjustmentModel? = nil
+    ) {
+        self.decodedImage = decoded
+        self.decodedRawResolution = rawResolution
+        self.decodedForAssetID = self.asset.id
+        self.decodedSidecarMtime = sidecarMtime
+        self.decodedAtModel = decodedAtModel
+    }
+
+    /// Test inspector — true when `decodedImage` has been populated for
+    /// the current asset. Mirrors the cold/hot dispatch the
+    /// `decodeAndRender` cached branch relies on.
+    internal var _testDecodedCachePopulated: Bool {
+        decodedImage != nil && decodedForAssetID == asset.id
     }
 }
 
