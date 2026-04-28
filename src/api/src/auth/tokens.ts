@@ -44,6 +44,10 @@ export function verifyAccessToken(jwt: string, secret: string): AccessClaims {
   const expected = b64urlEncode(hmac(sha256, utf8(secret), utf8(`${h}.${p}`)));
   if (!timingSafeEqual(s, expected)) throw new Error("bad signature");
   const claims = JSON.parse(b64urlDecode(p).toString("utf8")) as AccessClaims;
+  if (typeof claims.sub !== "string" || typeof claims.email !== "string"
+      || (claims.role !== "owner" && claims.role !== "member")) {
+    throw new Error("malformed claims");
+  }
   if (typeof claims.exp !== "number" || claims.exp * 1000 < Date.now()) {
     throw new Error("token expired");
   }
