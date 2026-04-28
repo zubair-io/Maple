@@ -525,4 +525,34 @@ mod tests {
         assert!(bytes.len() >= 8 + pixel_bytes,
             "file size {} too small for {} pixel bytes", bytes.len(), pixel_bytes);
     }
+
+    #[test]
+    fn round_trip_through_raw_core_decoder() {
+        use crate::decode::decode_bytes;
+
+        let dng = SyntheticGreyDng::default();
+        let bytes = dng.write_to_bytes();
+
+        let raw = decode_bytes(&bytes, "dng")
+            .expect("synthetic DNG must decode via raw-core");
+
+        assert_eq!(raw.width, 64);
+        assert_eq!(raw.height, 64);
+        assert_eq!(raw.cfa, CfaPattern::Rggb);
+        assert_eq!(raw.white_level, 65535);
+        // black_level is per-CFA-position; all four should be 0 since we
+        // wrote a single BlackLevel = 0.
+        assert!(raw.black_level.iter().all(|&b| b == 0),
+            "expected black_level all zero, got {:?}", raw.black_level);
+        // AsShotNeutral round-trips (small float tolerance for rational div).
+        assert!((raw.as_shot_neutral[0] - 0.5).abs() < 1e-3);
+        assert!((raw.as_shot_neutral[1] - 1.0).abs() < 1e-3);
+        assert!((raw.as_shot_neutral[2] - 0.5).abs() < 1e-3);
+        // Raw pixel buffer length matches w * h.
+        assert_eq!(raw.raw_data.len(), (64 * 64) as usize);
+        // Spot-check one R, G, B sample. RGGB at (0,0)=R, (1,0)=G, (1,1)=B.
+        assert_eq!(raw.raw_data[0],         5898);   // (0,0) R
+        assert_eq!(raw.raw_data[1],         11796);  // (1,0) G
+        assert_eq!(raw.raw_data[64 + 1],    5898);   // (1,1) B
+    }
 }
