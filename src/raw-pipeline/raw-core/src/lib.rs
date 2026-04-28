@@ -35,6 +35,9 @@ pub mod jpeg;
 
 pub mod tiff;
 
+#[cfg(any(test, feature = "test-support"))]
+pub mod test_support;
+
 pub mod xmp;
 pub use xmp::AdjustmentModel;
 
