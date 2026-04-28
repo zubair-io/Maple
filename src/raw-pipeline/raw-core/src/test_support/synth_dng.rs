@@ -1,5 +1,23 @@
 //! Synthetic Bayer DNG writer — see Task 2 onward.
 
+pub(crate) fn write_u16_le(buf: &mut Vec<u8>, v: u16) {
+    buf.extend_from_slice(&v.to_le_bytes());
+}
+
+pub(crate) fn write_u32_le(buf: &mut Vec<u8>, v: u32) {
+    buf.extend_from_slice(&v.to_le_bytes());
+}
+
+pub(crate) fn write_rational(buf: &mut Vec<u8>, num: u32, den: u32) {
+    write_u32_le(buf, num);
+    write_u32_le(buf, den);
+}
+
+pub(crate) fn write_srational(buf: &mut Vec<u8>, num: i32, den: i32) {
+    buf.extend_from_slice(&num.to_le_bytes());
+    buf.extend_from_slice(&den.to_le_bytes());
+}
+
 /// Compute per-CFA-position 16-bit raw values that decode to a uniform
 /// scene-linear neutral `linear_value` after black subtract, dynamic-range
 /// normalisation, and WB. `as_shot_neutral` follows DNG semantics
@@ -71,5 +89,34 @@ mod tests {
         assert_eq!(r, 100);
         assert_eq!(g, 100);
         assert_eq!(b, 100);
+    }
+
+    #[test]
+    fn writes_u16_le() {
+        let mut buf = Vec::new();
+        write_u16_le(&mut buf, 0x1234);
+        assert_eq!(buf, vec![0x34, 0x12]);
+    }
+
+    #[test]
+    fn writes_u32_le() {
+        let mut buf = Vec::new();
+        write_u32_le(&mut buf, 0xDEAD_BEEF);
+        assert_eq!(buf, vec![0xEF, 0xBE, 0xAD, 0xDE]);
+    }
+
+    #[test]
+    fn writes_rational_le() {
+        let mut buf = Vec::new();
+        write_rational(&mut buf, 1, 2);
+        assert_eq!(buf, vec![1, 0, 0, 0, 2, 0, 0, 0]);
+    }
+
+    #[test]
+    fn writes_srational_le() {
+        let mut buf = Vec::new();
+        write_srational(&mut buf, -1, 2);
+        // -1 as i32 little-endian = 0xFFFFFFFF
+        assert_eq!(buf, vec![0xFF, 0xFF, 0xFF, 0xFF, 2, 0, 0, 0]);
     }
 }
