@@ -26,6 +26,7 @@ pub use blend::MultiBandBlender;
 pub use color::{ColorSpace, Primaries, Transfer, WhitePoint};
 pub use error::PanoError;
 pub use features::OrbDetector;
+pub use features::AkazeDetector;
 pub use ingest::{decode_bytes, decode_input, sniff_format, PanoFormat, PanoInput};
 pub use matching::BruteForceMatcher;
 pub use seam::GraphCutSeamFinder;

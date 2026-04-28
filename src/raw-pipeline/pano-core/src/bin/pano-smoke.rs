@@ -47,7 +47,7 @@ use std::path::{Path, PathBuf};
 use clap::Parser;
 use pano_core::{
     ba::{homography::ransac_homography, lm::solve_with_keypoints},
-    features::OrbDetector,
+    features::akaze::AkazeDetector,
     matching::BruteForceMatcher,
     types::{Camera, PanoImage},
     Blender, ColorSpace, CpuWarper, FeatureDetector, FeatureMatcher, GraphCutSeamFinder, Matches,
@@ -607,7 +607,7 @@ fn stitch_pair(img_a: PanoImage, img_b: PanoImage, step: usize) -> Result<PanoIm
 
     // --- 2. Detect features ------------------------------------------------
     eprintln!("pano-smoke: detecting features");
-    let detector = OrbDetector::default();
+    let detector = AkazeDetector::default();
     let feats_a = detector
         .detect(&img_a)
         .map_err(|e| format!("detect on image A failed: {e}"))?;
