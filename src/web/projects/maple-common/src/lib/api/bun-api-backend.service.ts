@@ -48,6 +48,42 @@ export interface ApiDirListing {
   entries: ApiDirEntry[];
 }
 
+export type IndexerStage = 'discover' | 'hash' | 'exif' | 'thumb' | 'ai' | 'mongo';
+
+export interface IndexerStageCounters {
+  inFlight: number;
+  errors: number;
+  deadLetter: number;
+}
+
+export interface IndexerChannelInfo {
+  depth: number;
+  capacity: number;
+}
+
+export interface IndexerStatus {
+  paused: boolean;
+  pools: Record<IndexerStage, number>;
+  channels: Record<IndexerStage, IndexerChannelInfo>;
+  stages: Record<IndexerStage, IndexerStageCounters>;
+}
+
+export interface IndexerDeadLetterItem {
+  id?: string;
+  stage: string;
+  jobId?: string;
+  absPath?: string;
+  error?: string;
+  attempts?: number;
+  failedAt?: string;
+}
+
+export interface IndexerDeadLetterPage {
+  items: IndexerDeadLetterItem[];
+  total: number;
+  warning?: string;
+}
+
 @Injectable({ providedIn: 'root' })
 export class BunApiBackendService {
   private readonly http = inject(HttpClient);
@@ -98,5 +134,29 @@ export class BunApiBackendService {
     return this.http.put<void>(`${this.base}/assets/${assetId}/xmp`, xml, {
       headers: { 'Content-Type': 'application/xml' },
     });
+  }
+
+  getIndexerStatus(): Observable<IndexerStatus> {
+    return this.http.get<IndexerStatus>(`${this.base}/indexer/status`);
+  }
+
+  setIndexerWorkers(workers: Partial<Record<IndexerStage, number>>): Observable<{ ok: boolean; status: IndexerStatus }> {
+    return this.http.put<{ ok: boolean; status: IndexerStatus }>(
+      `${this.base}/indexer/config`,
+      { workers },
+    );
+  }
+
+  pauseIndexer(): Observable<{ ok: boolean; status: IndexerStatus }> {
+    return this.http.post<{ ok: boolean; status: IndexerStatus }>(`${this.base}/indexer/pause`, {});
+  }
+
+  resumeIndexer(): Observable<{ ok: boolean; status: IndexerStatus }> {
+    return this.http.post<{ ok: boolean; status: IndexerStatus }>(`${this.base}/indexer/resume`, {});
+  }
+
+  listDeadLetter(limit = 200): Observable<IndexerDeadLetterPage> {
+    const params = new HttpParams().set('limit', String(limit));
+    return this.http.get<IndexerDeadLetterPage>(`${this.base}/indexer/dead-letter`, { params });
   }
 }

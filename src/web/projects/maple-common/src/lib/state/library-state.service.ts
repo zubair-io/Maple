@@ -139,6 +139,17 @@ export class LibraryStateService {
     this.pickerVisible.set(false);
   }
 
+  /** True while the indexer admin panel is open. */
+  readonly adminVisible = signal(false);
+
+  openIndexerAdmin(): void {
+    this.adminVisible.set(true);
+  }
+
+  closeIndexerAdmin(): void {
+    this.adminVisible.set(false);
+  }
+
   /**
    * Map from AssetId to the remote API asset id (Self-Hosted only).
    * Needed because the grid works on local UUIDs but the API talks in its own ids.

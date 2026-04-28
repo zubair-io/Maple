@@ -114,3 +114,17 @@
 .panel-right.hidden {
   border-left: none;
 }
+
+/* Indexer admin modal */
+.admin-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+.admin-dialog { display: flex; flex-direction: column; gap: 12px; }
+.admin-footer { display: flex; justify-content: flex-end; }
+.admin-close { padding: 6px 14px; font-size: 13px; }

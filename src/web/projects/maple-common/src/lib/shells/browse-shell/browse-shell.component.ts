@@ -14,6 +14,7 @@ import { ErrorBannerComponent } from '../../components/error-banner/error-banner
 import { MapleIconComponent } from '../../icons/maple-icon.component';
 import { LibraryPickerComponent } from '../../components/library-picker/library-picker.component';
 import { LibraryPickerModalComponent } from '../../components/library-picker-modal/library-picker-modal.component';
+import { IndexerAdminComponent } from '../../components/indexer-admin/indexer-admin.component';
 
 @Component({
   selector: 'browse-shell',
@@ -28,6 +29,7 @@ import { LibraryPickerModalComponent } from '../../components/library-picker-mod
     MapleIconComponent,
     LibraryPickerComponent,
     LibraryPickerModalComponent,
+    IndexerAdminComponent,
   ],
   templateUrl: './browse-shell.component.html',
   styleUrl: './browse-shell.component.scss',

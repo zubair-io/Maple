@@ -20,6 +20,16 @@
       <maple-icon name="search" [size]="12" color="var(--maple-text-muted)" />
     </div>
 
+    <!-- Indexer status button -->
+    <div
+      class="chrome-btn"
+      title="Indexer status"
+      (click)="state.openIndexerAdmin()"
+      aria-label="Open indexer admin"
+    >
+      <maple-icon name="scope" [size]="13" color="var(--maple-text-muted)" />
+    </div>
+
     <div class="toolbar-spacer"></div>
 
     <!-- Export -->
@@ -84,3 +94,14 @@
 </div>
 
 <app-library-picker-modal />
+
+@if (state.adminVisible()) {
+  <div class="admin-backdrop" (click)="state.closeIndexerAdmin()">
+    <div class="admin-dialog" (click)="$event.stopPropagation()">
+      <app-indexer-admin />
+      <div class="admin-footer">
+        <button class="admin-close" type="button" (click)="state.closeIndexerAdmin()">Close</button>
+      </div>
+    </div>
+  </div>
+}
