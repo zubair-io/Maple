@@ -451,6 +451,28 @@ export class LibraryStateService {
   }
 
   /**
+   * Self-Hosted: register a new library folder, then refresh the tree.
+   * Called by LibraryPickerComponent on the empty-state of BrowseShell.
+   */
+  addLibraryFolder(absPath: string): void {
+    if (this.backend !== 'self-hosted') return;
+
+    this.backendLoading.set(true);
+    this.backendError.set(null);
+
+    this.api.registerFolder(absPath).subscribe({
+      next: () => {
+        this.loadFolderTree();
+      },
+      error: (err: HttpErrorResponse) => {
+        this.backendLoading.set(false);
+        const detail = err?.error?.error ?? err?.message ?? 'Unknown error';
+        this.backendError.set(`Failed to register folder: ${detail}`);
+      },
+    });
+  }
+
+  /**
    * Self-Hosted: fetch the assets for `folder`, populate the grid, and select
    * the first asset. Called from `loadFolderTree` (auto-open) and from the
    * folder-tree sidebar when the user picks another folder.

@@ -8,7 +8,8 @@
 import { TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
-import { Subject, of } from 'rxjs';
+import { Subject, of, throwError } from 'rxjs';
+import { HttpErrorResponse } from '@angular/common/http';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 import { LibraryStateService } from './library-state.service';
@@ -68,7 +69,14 @@ class ApiStub {
   getRawBytes = vi.fn(() => new Subject<ArrayBuffer>().asObservable());
   getThumb = vi.fn(() => new Subject<Blob>().asObservable());
   getAsset = vi.fn();
-  registerFolder = vi.fn();
+  registerFolder = vi.fn(() =>
+    of({
+      id: 'f1',
+      path: '/photos',
+      name: 'photos',
+      assetCount: 0,
+    } satisfies ApiFolder),
+  );
 }
 
 describe('LibraryStateService — Self-Hosted passthrough round-trip (T4-followup)', () => {
@@ -123,5 +131,36 @@ describe('LibraryStateService — Self-Hosted passthrough round-trip (T4-followu
     const body = api.putBodies[0];
     expect(body).toContain('<myvendor:custom');
     expect(body).toContain('>X</myvendor:custom>');
+  });
+
+  describe('addLibraryFolder (self-hosted)', () => {
+    it('POSTs the path and refreshes the tree on success', () => {
+      const folder: ApiFolder = { id: 'f1', path: '/photos', name: 'photos', assetCount: 0 };
+      api.registerFolder = vi.fn(() => of(folder));
+      api.listFolders = vi.fn(() => of([folder]));
+
+      svc.addLibraryFolder('/photos');
+
+      expect(api.registerFolder).toHaveBeenCalledWith('/photos');
+      expect(api.listFolders).toHaveBeenCalled();
+      expect(svc.backendEmpty()).toBe(false);
+    });
+
+    it('sets backendError on failure', () => {
+      api.registerFolder = vi.fn(() =>
+        throwError(
+          () =>
+            new HttpErrorResponse({
+              error: { error: 'nope' },
+              status: 400,
+              statusText: 'Bad Request',
+            }),
+        ),
+      );
+
+      svc.addLibraryFolder('/bad');
+
+      expect(svc.backendError()).toContain('nope');
+    });
   });
 });
