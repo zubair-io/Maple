@@ -78,14 +78,75 @@ export interface IndexerTaskDoc {
 export type IndexerTaskWithId = WithId<IndexerTaskDoc>;
 
 // ---------------------------------------------------------------------------
-// User (Phase 5 — scaffolded)
+// User
 // ---------------------------------------------------------------------------
 
-export interface UserDoc {
-  email: string;
-  /** WebAuthn credential IDs (base64url). */
-  credential_ids: string[];
-  created_at: string;
-}
+export type UserRole = "owner" | "member";
 
+export interface UserDoc {
+  email: string;             // unique, lowercased
+  role: UserRole;
+  created_at: string;
+  last_seen_at: string | null;
+}
 export type UserWithId = WithId<UserDoc>;
+
+// ---------------------------------------------------------------------------
+// Credential (one user → many passkeys)
+// ---------------------------------------------------------------------------
+
+export interface CredentialDoc {
+  user_id: ObjectId;
+  credential_id: string;     // base64url, unique
+  public_key: Buffer;        // COSE key
+  counter: number;
+  transports: string[];
+  device_label: string;
+  created_at: string;
+  last_used_at: string | null;
+}
+export type CredentialWithId = WithId<CredentialDoc>;
+
+// ---------------------------------------------------------------------------
+// Invite
+// ---------------------------------------------------------------------------
+
+export interface InviteDoc {
+  code: string;              // 8-char base32, unique
+  email: string;             // lowercased
+  invited_by: ObjectId;
+  expires_at: Date;          // TTL
+  consumed_at: string | null;
+}
+export type InviteWithId = WithId<InviteDoc>;
+
+// ---------------------------------------------------------------------------
+// Refresh token
+// ---------------------------------------------------------------------------
+
+export interface RefreshTokenDoc {
+  user_id: ObjectId;
+  token_hash: string;        // sha256(raw)
+  issued_at: string;
+  expires_at: Date;          // TTL
+  revoked_at: string | null;
+  replaced_by: ObjectId | null;
+  device_label: string;
+}
+export type RefreshTokenWithId = WithId<RefreshTokenDoc>;
+
+// ---------------------------------------------------------------------------
+// WebAuthn challenge (5-min TTL)
+// ---------------------------------------------------------------------------
+
+export type ChallengePurpose = "register" | "authenticate" | "add_credential";
+
+export interface ChallengeDoc {
+  challenge: string;         // base64url
+  purpose: ChallengePurpose;
+  user_id: ObjectId | null;
+  email: string | null;
+  invite_code: string | null;
+  expires_at: Date;          // TTL
+}
+export type ChallengeWithId = WithId<ChallengeDoc>;
