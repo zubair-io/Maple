@@ -893,7 +893,7 @@ fn stitch(inputs: &[PathBuf], output: &Path, _max_dim: u32, projection: Projecti
 
     eprintln!("pano-smoke: warping {} images", n);
     let warper = CpuWarper::new();
-    let warped: Vec<PanoImage> = pano_images
+    let mut warped: Vec<PanoImage> = pano_images
         .iter()
         .zip(cameras.iter())
         .enumerate()
@@ -907,6 +907,24 @@ fn stitch(inputs: &[PathBuf], output: &Path, _max_dim: u32, projection: Projecti
             Ok(w)
         })
         .collect::<Result<Vec<_>, String>>()?;
+
+    // --- Gain compensation -------------------------------------------------
+    // Solve per-image gain from overlap brightness before seam finding so
+    // brightness banding at seams is minimised.
+    // Collect gains with immutable refs first, then apply with mutable refs.
+    let gain_result = {
+        let warped_refs: Vec<&PanoImage> = warped.iter().collect();
+        pano_core::compensation::gain::solve_per_image_gain(&warped_refs)
+    };
+    match gain_result {
+        Ok(gains) => {
+            eprintln!("pano-smoke: gains = {:?}", gains);
+            let _ = pano_core::compensation::gain::apply_gains(&mut warped, &gains);
+        }
+        Err(e) => {
+            eprintln!("pano-smoke: gain compensation skipped ({e})");
+        }
+    }
 
     // Seam + blend: pairwise chain (seam/blend currently only support 2 images).
     // Chain: blend warped[0] + warped[1] → running_canvas, then
@@ -1068,15 +1086,38 @@ fn stitch_pair(img_a: PanoImage, img_b: PanoImage, step: usize) -> Result<PanoIm
         canvas.width, canvas.height
     );
 
-    let warped_a = pano_core::warp::warp_image_to_canvas(&warper, &img_a, &cameras[0], &canvas)
+    let mut warped_a = pano_core::warp::warp_image_to_canvas(&warper, &img_a, &cameras[0], &canvas)
         .map_err(|e| format!("warp A failed: {e}"))?;
-    let warped_b = pano_core::warp::warp_image_to_canvas(&warper, &img_b, &cameras[1], &canvas)
+    let mut warped_b = pano_core::warp::warp_image_to_canvas(&warper, &img_b, &cameras[1], &canvas)
         .map_err(|e| format!("warp B failed: {e}"))?;
 
     // Count valid pixels for diagnostic output.
     let valid_a = warped_a.validity.count_ones();
     let valid_b = warped_b.validity.count_ones();
     eprintln!("pano-smoke:   warped A valid_px={valid_a}  warped B valid_px={valid_b}");
+
+    // --- Gain compensation ------------------------------------------------
+    // Apply before seam finding so brightness banding at seams is minimised.
+    // Collect gains with immutable refs first, then apply with mutable refs.
+    {
+        let mut pair = [warped_a, warped_b];
+        let gain_result = {
+            let pair_refs: Vec<&PanoImage> = pair.iter().collect();
+            pano_core::compensation::gain::solve_per_image_gain(&pair_refs)
+        };
+        match gain_result {
+            Ok(gains) => {
+                eprintln!("pano-smoke: gains = {:?}", gains);
+                let _ = pano_core::compensation::gain::apply_gains(&mut pair, &gains);
+            }
+            Err(e) => {
+                eprintln!("pano-smoke: gain compensation skipped ({e})");
+            }
+        }
+        let [wa, wb] = pair;
+        warped_a = wa;
+        warped_b = wb;
+    }
 
     // --- 7. Seam finding ---------------------------------------------------
     eprintln!("pano-smoke: finding seams");
