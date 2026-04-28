@@ -90,6 +90,28 @@
     and let BA optimise general projective transforms (or
     use translation-aware essential-matrix decomposition).
     Tracked as the highest-impact P2 follow-up after joint BA.
+12. **Tech-debt resolutions landed (commits 47b6a54 + c133870).**
+    - **B1 — RANSAC backend.** `ransac_homography` now dispatches
+      through `arrsac::Arrsac::model_inliers` (USAC-MAGSAC) via a
+      `sample_consensus::Estimator + Model` impl on `Homography +
+      Correspondence`. The hand-rolled 2000-iter loop is preserved
+      as `ransac_homography_handrolled` for parity comparison.
+    - **B2 — Bundle adjustment.** `solve_with_keypoints`'s inner
+      loop now does proper Levenberg-Marquardt with adaptive
+      damping (μ × 10 on rejection, μ ÷ 10 on acceptance), capping
+      retries at 6 per outer iteration. argmin 0.10 doesn't ship LM
+      so the inner loop is hand-rolled (~80 lines); when argmin
+      adds LM with variable-size residuals we can switch.
+    - **B3 — Seam finder.** Dijkstra is **kept** as the right
+      algorithm for the typical case after analysis: on a horizontal
+      panorama the shortest-path and min-cut seams are identical;
+      `pathfinding`'s only max-flow primitive (Edmonds-Karp,
+      O(V·E²)) is too slow for 100MP overlaps; the Boykov-Kolmogorov
+      max-flow vision papers cite has no Rust port. A B-K port is
+      tracked as a P2 follow-up for the topologies Dijkstra can't
+      handle (vertical panos, seams wrapping around objects).
+      Documented in detail in `pano-core/src/seam/graph_cut.rs`
+      module header.
 
 This document is the **work-breakdown** for the panorama pipeline spec. It is
 not a redesign — see the spec for architecture, dependencies, FFI shape,

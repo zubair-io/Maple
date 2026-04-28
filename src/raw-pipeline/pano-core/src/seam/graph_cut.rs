@@ -3,18 +3,36 @@
 //!
 //! ## Algorithm choice
 //!
-//! The spec offers either `pathfinding::directed::astar` / `dijkstra`
-//! *or* `pathfinding::matrix` max-flow primitives.  For the MVP we use
-//! **Dijkstra on a grid graph** because:
+//! We use **Dijkstra on a grid graph** because:
 //!
-//! - The seam problem is naturally a single-source single-sink shortest-path
-//!   problem (top row → bottom row of the overlap region) rather than a
-//!   max-flow / min-cut problem.
-//! - `pathfinding::directed::dijkstra` provides O((E + V) log V) complexity
-//!   which is more than adequate for typical overlap regions.
-//! - True max-flow graph-cut (Boykov–Kolmogorov) gives better seam quality
-//!   on wide-overlap panoramas but is deferred to a follow-up task per spec
-//!   § 11 and the pragmatic scope guidance.
+//! - The seam problem on a horizontal panorama is naturally a
+//!   single-source single-sink shortest-path problem (top row → bottom
+//!   row of the overlap region); for that topology Dijkstra and
+//!   max-flow / min-cut yield the same seam.
+//! - `pathfinding::directed::dijkstra` is O((V + E) log V) — for a
+//!   typical 1000×1000 overlap region, milliseconds-class.
+//! - `pathfinding::edmonds_karp_sparse` (the only max-flow primitive
+//!   in `pathfinding`) is O(V · E²); on a 100 MP panorama overlap
+//!   that is orders of magnitude too slow. The Boykov–Kolmogorov
+//!   max-flow that vision papers use ("Graphcut Textures", Kwatra
+//!   et al. 2003) doesn't have a Rust port; vendoring one is the
+//!   right move when we hit the topology where it matters.
+//!
+//! ## When max-flow would matter
+//!
+//! Dijkstra finds a single monotonic-in-y shortest path. That's
+//! exactly the right shape for horizontal panoramas where the seam
+//! runs vertically through the overlap. Max-flow / min-cut handles
+//! topologies Dijkstra can't:
+//! - vertical panoramas (camera held in portrait, panned vertically),
+//! - panoramas where the optimal seam wraps around an object that
+//!   crosses the overlap (e.g. a tree branch, a streetlight),
+//! - T-junction multi-image overlaps.
+//!
+//! For the MVP corpus and typical handheld horizontal panoramas the
+//! difference is invisible. Switching to a vendored Boykov–Kolmogorov
+//! max-flow is tracked as a P2 follow-up — the trait surface here
+//! (`SeamFinder`) is stable and would not change.
 //!
 //! ## Cost function
 //!
