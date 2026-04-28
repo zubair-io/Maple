@@ -29,7 +29,7 @@ export const requireAuth = new Elysia({ name: "requireAuth" })
 export const requireOwner = new Elysia({ name: "requireOwner" })
   .use(requireAuth)
   .onBeforeHandle({ as: "scoped" }, ({ auth, set }) => {
-    if (auth.user.role !== "owner") {
+    if (!auth || auth.user.role !== "owner") {
       set.status = 403;
       return { error: "owner role required" };
     }
