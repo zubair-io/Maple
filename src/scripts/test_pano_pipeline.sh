@@ -279,6 +279,117 @@ PY
 done
 
 # ---------------------------------------------------------------------------
+# pano_01 — 21-image DNG regression gate
+#
+# Separate from the synthetic fixture loop above.  The inputs are the raw
+# DNG sequence from test-fixtures/raws/pano_01/ (gitignored).  The reference
+# is the saved output from the first accepted stitch at
+# test-fixtures/pano/references/pano_01_reference.png (also gitignored).
+#
+# Logic:
+#   • Inputs absent  → silent skip (no message, no count change).
+#   • Inputs present but reference absent → skip-pass with message.
+#   • Both present   → stitch + diff against reference; gate on ΔE ≤ 30 first
+#     cut (loose — regression only, not quality vs. ground truth).
+#
+# The ΔE 30 budget is intentionally loose: we're gating on pipeline
+# regression, not perceptual quality vs. an external reference.
+# ---------------------------------------------------------------------------
+PANO01_DIR="${PANO01_DIR:-$REPO_ROOT/test-fixtures/raws/pano_01}"
+PANO01_REF="$REFS_DIR/pano_01_reference.png"
+PANO01_BUDGET="${PANO01_BUDGET:-30}"
+PANO01_BUDGET_P95="$(awk -v b="$PANO01_BUDGET" 'BEGIN { printf "%g", b * 2 }')"
+PANO01_BUDGET_MAX="$(awk -v b="$PANO01_BUDGET" 'BEGIN { printf "%g", b * 4 }')"
+PANO01_BUDGET_BIAS="${PANO01_BUDGET_BIAS:-0.20}"
+
+if [[ -f "$PANO01_DIR/PANO0001.DNG" ]]; then
+  if [[ ! -f "$PANO01_REF" ]]; then
+    echo "test_pano_pipeline: pano_01 inputs present but no reference at $PANO01_REF — skipping"
+    echo "test_pano_pipeline: (generate reference via: pano-smoke --projection spherical <inputs> -o pano_01_full.png)"
+    echo "test_pano_pipeline: (then: mkdir -p $REFS_DIR && cp pano_01_full.png $PANO01_REF)"
+    SKIP_COUNT=$((SKIP_COUNT + 1))
+  else
+    echo "test_pano_pipeline: pano_01 — 21-image regression run (budget mean≤$PANO01_BUDGET bias≤$PANO01_BUDGET_BIAS)"
+
+    # Build input array.
+    PANO01_INPUTS=()
+    for _i in $(seq -f "%04g" 1 21); do
+      PANO01_INPUTS+=("$PANO01_DIR/PANO${_i}.DNG")
+    done
+
+    PANO01_CAND="$WORKDIR/pano_01.candidate.png"
+
+    # Stitch.
+    if ! "$PANO_SMOKE" --projection spherical "${PANO01_INPUTS[@]}" -o "$PANO01_CAND" \
+         >"$WORKDIR/pano_01.stitch.stdout" \
+         2>"$WORKDIR/pano_01.stitch.stderr"; then
+      printf "FAIL %-45s pano_01 stitch failed (see %s)\n" "pano_01" "$WORKDIR/pano_01.stitch.stderr"
+      FAIL_COUNT=$((FAIL_COUNT + 1))
+    else
+      # Resize candidate to match reference dimensions if needed.
+      PANO01_RESIZED="$WORKDIR/pano_01.candidate.resized.png"
+      if ! python3 - "$PANO01_CAND" "$PANO01_REF" "$PANO01_RESIZED" <<'PY' 2>"$WORKDIR/pano_01.resize.err"
+from PIL import Image
+import sys
+cand = Image.open(sys.argv[1]).convert("RGB")
+ref  = Image.open(sys.argv[2]).convert("RGB")
+if cand.size == ref.size:
+    cand.save(sys.argv[3])
+else:
+    cand.resize(ref.size, Image.LANCZOS).save(sys.argv[3])
+PY
+      then
+        printf "FAIL %-45s pano_01 resize failed (see %s)\n" "pano_01" "$WORKDIR/pano_01.resize.err"
+        FAIL_COUNT=$((FAIL_COUNT + 1))
+      else
+        # Diff.
+        if ! pano01_diff_json="$(python3 "$COMPARE_PY" "$PANO01_RESIZED" "$PANO01_REF" 2>"$WORKDIR/pano_01.diff.err")"; then
+          printf "FAIL %-45s pano_01 compare_images.py errored (see %s)\n" "pano_01" "$WORKDIR/pano_01.diff.err"
+          FAIL_COUNT=$((FAIL_COUNT + 1))
+        else
+          # Budget-check.
+          set +e
+          pano01_status_line="$(python3 - "$pano01_diff_json" "$PANO01_BUDGET" "$PANO01_BUDGET_P95" "$PANO01_BUDGET_MAX" "$PANO01_BUDGET_BIAS" "pano_01" <<'PY'
+import json, sys
+js, b_mean, b_p95, b_max, b_bias, stem = sys.argv[1:7]
+b_mean = float(b_mean); b_p95 = float(b_p95); b_max = float(b_max); b_bias = float(b_bias)
+d = json.loads(js)
+if "error" in d:
+    print(f"FAIL {stem:<45s} {d['error']}")
+    sys.exit(1)
+mean   = d["mean_deltaE"]
+p95    = d["p95_deltaE"]
+mx     = d["max_deltaE"]
+br, bg, bb = d["bias_r"], d["bias_g"], d["bias_b"]
+fails = []
+if mean > b_mean: fails.append(f"mean {mean:.2f}>{b_mean:g}")
+if p95  > b_p95:  fails.append(f"p95 {p95:.2f}>{b_p95:g}")
+if mx   > b_max:  fails.append(f"max {mx:.2f}>{b_max:g}")
+for n, v in (("R", br), ("G", bg), ("B", bb)):
+    if abs(v) > b_bias: fails.append(f"bias_{n} {v:+.3f}>{b_bias:g}")
+verdict = "PASS" if not fails else "FAIL"
+detail = f"mean={mean:5.2f} p95={p95:5.2f} max={mx:5.2f} bias=({br:+.3f},{bg:+.3f},{bb:+.3f})"
+extra  = "" if not fails else "  failures: " + ", ".join(fails)
+print(f"{verdict} {stem:<45s} {detail}{extra}")
+sys.exit(0 if not fails else 1)
+PY
+          )"
+          pano01_rc=$?
+          set -e
+
+          echo "$pano01_status_line"
+          if (( pano01_rc == 0 )); then
+            PASS_COUNT=$((PASS_COUNT + 1))
+          else
+            FAIL_COUNT=$((FAIL_COUNT + 1))
+          fi
+        fi
+      fi
+    fi
+  fi
+fi
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 echo ""
