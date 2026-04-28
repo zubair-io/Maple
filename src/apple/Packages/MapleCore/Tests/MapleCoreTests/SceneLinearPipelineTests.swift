@@ -2367,16 +2367,11 @@ final class SceneLinearPipelineTests: XCTestCase {
         }
     }
 
-    /// Identity check at the Swift wrapper level: applySceneNRLuminance
-    /// with amount=0 returns the input CIImage instance (===).
-    func testM3NRLuminanceShortCircuitsAtZeroAmount() async throws {
-        let input = Self.makeRGBSceneLinearCIImage(
-            width: 8, height: 8, r: 0.4, g: 0.5, b: 0.6
-        )
-        let out = MetalKernels.applySceneNRLuminance(to: input, nrLuminance: 0.0)
-        XCTAssertTrue(out === input,
-            "amount=0 should return the input CIImage instance unchanged")
-    }
+    // Note: `testM3NRLuminanceShortCircuitsAtZeroAmount` was retired
+    // alongside the `applySceneNRLuminance` Apple Metal wrapper — the
+    // NR-luminance stage now runs in the Rust FFI's
+    // `apply_scene_linear_chain`. The scalar Rust-mirror coverage
+    // (`testM3aSwiftScalarApplyLuminance*`) above remains.
 
     // MARK: - Plan 2 v2 v2 M3b: apply_color scalar parity vs Rust
 
@@ -3264,14 +3259,11 @@ final class SceneLinearPipelineTests: XCTestCase {
         }
     }
 
-    /// Wrapper-level identity check.
-    func testM5DehazeShortCircuitsAtZeroAmount() async throws {
-        let input = Self.makeRGBSceneLinearCIImage(
-            width: 8, height: 8, r: 0.4, g: 0.5, b: 0.6)
-        let out = MetalKernels.applySceneDehaze(to: input, dehaze: 0.0)
-        XCTAssertTrue(out === input,
-            "dehaze=0 should return the input CIImage instance unchanged")
-    }
+    // Note: `testM5DehazeShortCircuitsAtZeroAmount` was retired alongside
+    // the `applySceneDehaze` Apple Metal wrapper — the dehaze stage now
+    // runs in the Rust FFI's `apply_scene_linear_chain`. The scalar
+    // Rust-mirror coverage above (`testM5SwiftScalarApplyDehaze*`)
+    // remains.
 
     /// Smoke test for Plan 2 v2 v4 M5 wiring: drive processSceneLinear
     /// end-to-end with dehaze=50 vs dehaze=0; assert centre-pixel finite

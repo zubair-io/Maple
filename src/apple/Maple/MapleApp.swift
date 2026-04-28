@@ -15,12 +15,12 @@ struct MapleApp: App {
         Self.installMemoryPressureObserver()
 
         #if DEBUG
-        // Plan 1 regression net: if the AgX kernel doesn't load, we'll
-        // display raw scene-linear data on the new path. Catch at app
-        // launch, not at first-pixel-displayed. Ticket #08 fix inlined
-        // the sigmoid so the kernel no longer needs a LUT image.
-        assert(MetalKernels.agxKernel() != nil,
-            "AgX Metal kernel failed to load — view transform will silently no-op on the scene-linear path. Verify AgXViewTransform.metal is in the Metal sources for this build target.")
+        // Note: the Plan 1 AgX-kernel load assertion was retired when the
+        // Rust FFI's `apply_scene_linear_chain` subsumed AgX (the Apple
+        // Metal AgX kernel was deleted alongside the other 8 cheap-stage
+        // kernels). The view transform now lives entirely on the Rust
+        // path; if it fails to apply, the FFI returns an error rather
+        // than a silent no-op.
 
         // UITest harness hook. The test driver launches the app with
         // `MAPLE_UITEST_FIXTURE=<basename>` (resolved against
