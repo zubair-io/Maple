@@ -143,22 +143,32 @@ For every output pixel `p`:
 
 Catches: demosaic seams on a flat patch, sharpen halos firing on noise-free input, vignette / clarity local-contrast leaking into a constant signal, any spatial filter that doesn't pass DC unchanged.
 
-### Tolerance budgets (8-bit LSB)
+### Pipeline checkpoints
 
-| View transform | ε_color | ε_flat | Notes                                          |
-| -------------- | ------- | ------ | ---------------------------------------------- |
-| Linear         | 0       | 0      | Pure pass-through math, must be exact          |
-| sRGB           | 1       | 1      | LUT quantization                               |
-| AgX            | 2       | 2      | LUT + tone curve interp                        |
+Maple's production pipeline ships exactly one view transform (AgX). To get bisection power without inventing test-only view transforms, we sample at two checkpoints:
+
+| Checkpoint           | What it asserts                                         | API used                                                         |
+| -------------------- | ------------------------------------------------------- | ---------------------------------------------------------------- |
+| `SceneLinear`        | linearize + demosaic + WB + DCP preserve neutrality     | `pipeline::render_scene_linear_from_raw_with_quality`            |
+| `DisplayEncodedSrgb` | full production chain (incl. AgX + sRGB encode) preserves neutrality | `pipeline::render_from_raw`                                      |
+
+A failure that shows up at `DisplayEncodedSrgb` but not at `SceneLinear` localises the bug to the view tail (AgX, Rec.2020→sRGB, gamma encode). A failure at both points to the scene-linear chain.
+
+### Tolerance budgets
+
+| Checkpoint           | ε_color (relative) | ε_flat (relative) | Notes                                                        |
+| -------------------- | ------------------ | ----------------- | ------------------------------------------------------------ |
+| `SceneLinear` (f32)  | 1e-5               | 1e-5              | Float math, demosaic averaging — should be near-exact        |
+| `DisplayEncodedSrgb` (8-bit LSB) | 2      | 2                 | AgX LUT interp + gamma encode + quantize                     |
 
 Budgets ratchet downward only — same convention as `BUDGET` in `test_color_pipeline.sh`. CI rejects any PR that raises a budget.
 
 ### Test sweep
 
-Three grey levels × three view transforms = nine cases per harness run:
+Three grey levels × two checkpoints = six cases per harness run:
 
 - `L ∈ {0.05, 0.18, 0.50}`
-- `view ∈ {Linear, Srgb, Agx}`
+- `checkpoint ∈ {SceneLinear, DisplayEncodedSrgb}`
 
 Each case <1ms to render at 64×64; total harness time well under a second.
 
@@ -170,26 +180,30 @@ Each case <1ms to render at 64×64; total harness time well under a second.
 
 ```rust
 #[test]
-fn neutral_in_neutral_out_linear() { run_case(0.18, ViewTransform::Linear, 0, 0); }
+fn neutral_scene_linear_018()  { run_scene_linear_case(0.18, 1e-5, 1e-5); }
 
 #[test]
-fn neutral_in_neutral_out_srgb()   { run_case(0.18, ViewTransform::Srgb, 1, 1); }
+fn neutral_display_srgb_018()  { run_display_case(0.18, 2, 2); }
 
-#[test]
-fn neutral_in_neutral_out_agx()    { run_case(0.18, ViewTransform::Agx, 2, 2); }
-
-// Parameterized sweep across L ∈ {0.05, 0.18, 0.50} and all three view transforms.
+// Parameterized sweep across L ∈ {0.05, 0.18, 0.50} for both checkpoints.
 ```
 
-`run_case(L, view, ε_color, ε_flat)`:
+`run_scene_linear_case(L, ε_color, ε_flat)`:
 
 1. Construct `SyntheticGreyDng { linear_value: L, ..Default::default() }`.
 2. Write to `tempfile::tempdir()`.
-3. Run the full Maple pipeline (same entry point `maple-cli single` uses) with the requested view transform.
-4. Read the resulting PNG into a buffer.
-5. Assert invariant A: per-pixel `|R-G| ≤ ε_color ∧ |R-B| ≤ ε_color`.
-6. Assert invariant B: per-pixel `|p - mean| ≤ ε_flat`.
-7. On failure, attach a per-pixel ΔRGB heatmap as a side artifact (reusing `src/scripts/diff_heatmap.py` style).
+3. Decode via `decode::decode_bytes`.
+4. Run `pipeline::render_scene_linear_from_raw_with_quality` with `RenderQuality::Full`.
+5. For each f32 pixel, assert `|R-G| ≤ ε_color ∧ |R-B| ≤ ε_color`.
+6. Assert spatial flatness: `|p - mean| ≤ ε_flat`.
+
+`run_display_case(L, ε_color, ε_flat)`:
+
+1–3 same as above.
+4. Run `pipeline::render_from_raw` (production AgX → sRGB → u8).
+5. For each u8 RGB triple, assert `|R-G| ≤ ε_color ∧ |R-B| ≤ ε_color`.
+6. Assert spatial flatness.
+7. On failure, attach a per-pixel ΔRGB heatmap PNG as a debug artifact in `tempdir()`.
 
 Tests are gated on the `test-support` feature.
 
@@ -239,7 +253,7 @@ Useful for ad-hoc debugging of pipeline regressions, parity bisection across pla
 
 ## Acceptance criteria
 
-- `src/scripts/test_synthetic_grey.sh` exits 0 on `main` with all 9 cases passing.
+- `src/scripts/test_synthetic_grey.sh` exits 0 on `main` with all 6 cases passing.
 - Generator round-trips through Maple's existing DNG decoder (i.e. `decode.rs` reads back the same width/height/CFA/black/white/AsShotNeutral that `SyntheticGreyDng` wrote).
 - `cargo run --example synth-grey -- --value 0.18 --out /tmp/g.dng` produces a DNG that, when fed to `maple-cli single`, renders to a visually neutral grey patch (sanity check; the unit tests are the real gate).
 - The new test gate runs in <2 seconds wall-clock locally.
