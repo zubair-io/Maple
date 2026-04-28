@@ -155,6 +155,7 @@ export interface PipelineStatus {
   channels: Record<Stage, { depth: number; capacity: number }>;
   stages: Record<Stage, StageCounters>;
   pools: Record<Stage, number>;
+  paused: boolean;
 }
 
 export class Pipeline {
@@ -171,6 +172,9 @@ export class Pipeline {
   private pools: Record<Stage, number>;
   private workers: Map<Stage, Promise<void>[]> = new Map();
   private running = false;
+  private paused = false;
+  private gate: Promise<void> = Promise.resolve();
+  private gateResolver: () => void = () => {};
 
   constructor(
     channels: PipelineChannels | undefined = undefined,
@@ -201,6 +205,7 @@ export class Pipeline {
         mongo: { ...this.counters.mongo },
       },
       pools: { ...this.pools },
+      paused: this.paused,
     };
   }
 
@@ -241,12 +246,33 @@ export class Pipeline {
     }
   }
 
+  pause(): void {
+    if (this.paused) return;
+    this.paused = true;
+    this.gate = new Promise<void>((resolve) => {
+      this.gateResolver = resolve;
+    });
+  }
+
+  resume(): void {
+    if (!this.paused) return;
+    this.paused = false;
+    this.gateResolver();
+    this.gate = Promise.resolve();
+  }
+
   private spawnStage(stage: Stage, handler: (job: PipelineJob) => Promise<void>): void {
     const arr: Promise<void>[] = [];
     this.workers.set(stage, arr);
     const runner = async (): Promise<void> => {
       const iter = this.channelFor(stage).take();
-      for await (const job of iter) {
+      while (true) {
+        const result = await iter.next();
+        if (result.done) break;
+        // Gate: wait here (after dequeue, before processing) so pause() halts
+        // workers between jobs. In-flight work already underway is unaffected.
+        await this.gate;
+        const job = result.value;
         this.counters[stage].inFlight++;
         try {
           await withRetry(stage, job, handler, (err) => {
@@ -281,7 +307,13 @@ export class Pipeline {
     if (!arr) return;
     const run = async (): Promise<void> => {
       const iter = this.channelFor(stage).take();
-      for await (const job of iter) {
+      while (true) {
+        const result = await iter.next();
+        if (result.done) break;
+        // Gate: wait here (after dequeue, before processing) so pause() halts
+        // workers between jobs. In-flight work already underway is unaffected.
+        await this.gate;
+        const job = result.value;
         this.counters[stage].inFlight++;
         try {
           await withRetry(stage, job, handler, (err) => {
