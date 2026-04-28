@@ -42,15 +42,15 @@ The server listens on `http://localhost:3000`. The Angular UI is served from `/`
 static-UI handler resolves the bundle at `src/web/dist/maple-self-hosted/browser/` — build with
 `cd src/web && npm run build:self-hosted` (or `ng build maple-self-hosted --configuration=production`).
 
-### 4. Register a photo library folder
+### 4. Pick a library folder in the UI
 
-```bash
-curl -X POST http://localhost:3000/api/folders \
-  -H "Content-Type: application/json" \
-  -d '{"path": "/absolute/path/to/your/photos"}'
-```
+Open `http://localhost:3000`. On first run, the empty browse shell shows a
+**library picker** — navigate to your photos folder (or any subdirectory of
+your Docker mount) and click "Use this folder". The Indexer starts scanning
+in the background.
 
-The Indexer immediately starts scanning the folder in the background, indexing files and generating thumbnails.
+(For scripted setup you can still POST to `/api/folders` directly:
+`curl -X POST http://localhost:3000/api/folders -H 'Content-Type: application/json' -d '{"path":"/photos"}'`.)
 
 ## Environment variables
 
