@@ -269,16 +269,17 @@ impl JointBAProblem {
             let (r_j, focal_j) = self.cam_params(*cj, params);
 
             for (pa, pb) in pts_a.iter().zip(pts_b.iter()) {
-                // K_i^-1 · pa
+                // K_i^-1 · pa  — a ray in camera i's local frame
                 let xn_i = (pa[0] - cx) / focal_i;
                 let yn_i = (pa[1] - cy) / focal_i;
                 let ray_cam_i = Vector3::new(xn_i, yn_i, 1.0);
 
-                // R_i^T · ray_cam_i  (world frame)
-                let ray_world = r_i.transpose() * ray_cam_i;
+                // R_i · ray_cam_i  → world frame
+                // (R_i is the camera-to-world rotation; R_i^T maps world→cam)
+                let ray_world = r_i * ray_cam_i;
 
-                // R_j · ray_world  (into cam j)
-                let ray_cam_j = r_j * ray_world;
+                // R_j^T · ray_world  → into camera j's local frame
+                let ray_cam_j = r_j.transpose() * ray_world;
 
                 if ray_cam_j.z.abs() < 1e-12 {
                     // Degenerate — push a large residual so it gets penalised.
