@@ -2076,6 +2076,7 @@ dependencies = [
  "rand_distr",
  "raw-core",
  "rayon",
+ "sample-consensus",
  "thiserror 2.0.18",
  "tracing",
  "wasm-bindgen",

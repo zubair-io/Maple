@@ -1,19 +1,17 @@
 //! DLT homography estimation and RANSAC fitting.
 //!
 //! ## Algorithm
-//! Normalised DLT (8-point / 4-point) for the homography estimate, with a
-//! hand-rolled RANSAC loop on top.
-//!
-//! `arrsac` integration was evaluated but the `sample-consensus` trait
-//! ecosystem requires a concrete data-point type that is awkward to bridge to
-//! nalgebra's `Matrix3<f64>` without significant boilerplate.  The hand-rolled
-//! N=2000-iteration RANSAC is simpler, deterministic (given a seed), and
-//! adequate for ≥4 correspondences.  This is noted as technical debt: a
-//! future refactor can migrate to `arrsac` once the trait surface stabilises.
+//! Normalised DLT (8-point / 4-point) for the homography estimate.
+//! Outlier rejection via `arrsac` (USAC-MAGSAC variant), implemented
+//! through the `sample-consensus` traits below. A hand-rolled
+//! deterministic 2000-iteration RANSAC is retained as
+//! [`ransac_homography_handrolled`] for the pano-smoke regression
+//! gate; the public [`ransac_homography`] dispatches to arrsac.
 
 use nalgebra::{Matrix3, Vector3};
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
+use sample_consensus::{Consensus, Estimator, Model};
 
 use crate::types::{Keypoint, Match};
 
@@ -124,11 +122,133 @@ pub fn dlt_homography(pts_a: &[(f64, f64)], pts_b: &[(f64, f64)]) -> Option<Homo
     Some(Homography(h / h[(2, 2)]))
 }
 
-/// RANSAC homography estimation.
+// ---------------------------------------------------------------------------
+// sample-consensus glue for arrsac
+// ---------------------------------------------------------------------------
+
+/// Datum for arrsac: a single (a, b) keypoint correspondence in pixel
+/// coordinates.
+#[derive(Clone, Copy, Debug)]
+pub struct Correspondence {
+    pub ax: f64,
+    pub ay: f64,
+    pub bx: f64,
+    pub by: f64,
+}
+
+impl Model<Correspondence> for Homography {
+    fn residual(&self, data: &Correspondence) -> f64 {
+        // Square root of reprojection so the residual matches arrsac's
+        // pixel-distance threshold semantics directly.
+        self.reprojection_sq(data.ax, data.ay, data.bx, data.by).sqrt()
+    }
+}
+
+/// `Estimator` that fits a homography from at least 4 correspondences via
+/// normalised DLT.
+pub struct DltHomographyEstimator;
+
+impl Estimator<Correspondence> for DltHomographyEstimator {
+    type Model = Homography;
+    type ModelIter = Vec<Homography>;
+    const MIN_SAMPLES: usize = 4;
+
+    fn estimate<I>(&self, data: I) -> Self::ModelIter
+    where
+        I: Iterator<Item = Correspondence> + Clone,
+    {
+        let pts: Vec<Correspondence> = data.collect();
+        if pts.len() < Self::MIN_SAMPLES {
+            return Vec::new();
+        }
+        let pts_a: Vec<(f64, f64)> = pts.iter().map(|c| (c.ax, c.ay)).collect();
+        let pts_b: Vec<(f64, f64)> = pts.iter().map(|c| (c.bx, c.by)).collect();
+        match dlt_homography(&pts_a, &pts_b) {
+            Some(h) => vec![h],
+            None => Vec::new(),
+        }
+    }
+}
+
+/// RANSAC homography estimation via `arrsac`.
 ///
 /// Returns the best-fitting homography and the inlier indices into `matches`.
-/// Hand-rolled N-iteration RANSAC (see module-level note on `arrsac`).
+/// `inlier_threshold_px` is the pixel reprojection threshold; `max_iterations`
+/// is forwarded as `arrsac`'s `max_candidate_hypotheses`.
 pub fn ransac_homography(
+    kps_a: &[Keypoint],
+    kps_b: &[Keypoint],
+    matches: &[Match],
+    inlier_threshold_px: f64,
+    max_iterations: usize,
+    seed: u64,
+) -> Option<(Homography, Vec<usize>)> {
+    if matches.len() < 4 {
+        return None;
+    }
+
+    // Build the data array (in match order so inlier indices map back).
+    let data: Vec<Correspondence> = matches
+        .iter()
+        .map(|m| {
+            let ka = &kps_a[m.a as usize];
+            let kb = &kps_b[m.b as usize];
+            Correspondence {
+                ax: ka.x as f64,
+                ay: ka.y as f64,
+                bx: kb.x as f64,
+                by: kb.y as f64,
+            }
+        })
+        .collect();
+
+    let rng = StdRng::seed_from_u64(seed);
+    let mut arrsac = arrsac::Arrsac::new(inlier_threshold_px, rng)
+        .max_candidate_hypotheses(max_iterations);
+
+    let estimator = DltHomographyEstimator;
+    let (model, inliers) =
+        arrsac.model_inliers(&estimator, data.iter().copied())?;
+
+    // Refit on all inliers via DLT (arrsac may have selected the best
+    // 4-point sample but a refit on all inliers tightens the result).
+    let inliers_vec: Vec<usize> = inliers.into_iter().collect();
+    if inliers_vec.len() >= 4 {
+        let pts_a: Vec<(f64, f64)> = inliers_vec
+            .iter()
+            .map(|&i| (data[i].ax, data[i].ay))
+            .collect();
+        let pts_b: Vec<(f64, f64)> = inliers_vec
+            .iter()
+            .map(|&i| (data[i].bx, data[i].by))
+            .collect();
+        if let Some(refined) = dlt_homography(&pts_a, &pts_b) {
+            // Re-count inliers with the refined model.
+            let thresh_sq = inlier_threshold_px * inlier_threshold_px;
+            let refined_inliers: Vec<usize> = data
+                .iter()
+                .enumerate()
+                .filter_map(|(i, c)| {
+                    let err = refined.reprojection_sq(c.ax, c.ay, c.bx, c.by);
+                    if err < thresh_sq {
+                        Some(i)
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            return Some((refined, refined_inliers));
+        }
+    }
+
+    Some((model, inliers_vec))
+}
+
+/// Hand-rolled deterministic RANSAC (kept for parity with the pre-arrsac
+/// behaviour). Same signature as [`ransac_homography`]; useful for the
+/// regression gate when comparing arrsac output against the older path.
+#[allow(dead_code)]
+pub fn ransac_homography_handrolled(
     kps_a: &[Keypoint],
     kps_b: &[Keypoint],
     matches: &[Match],
