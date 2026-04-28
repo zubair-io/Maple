@@ -347,4 +347,109 @@ export const authRoutes = new Elysia({ prefix: "/api/auth" })
         await rescindInvite(params.code);
         return new Response(null, { status: 204 });
       })
-  );
+  )
+
+  // ----- /me + credential management (user-scoped) -----
+  // Mount routes via a sub-Elysia so requireAuth's scoped derive only
+  // applies here. Note: `.group("/", g => g.use(requireAuth)...)` does not
+  // resolve in this Elysia version — see Task A10 implementation notes.
+  .use(requireAuth)
+  .get("/me", async ({ auth }) => {
+    const userId = new ObjectId(auth.user.sub);
+    const user = await (await usersCollection()).findOne({ _id: userId });
+    const creds = await (await credentialsCollection())
+      .find(
+        { user_id: userId },
+        { projection: { _id: 1, device_label: 1, last_used_at: 1, created_at: 1 } }
+      )
+      .toArray();
+    return {
+      user: user
+        ? { id: user._id.toHexString(), email: user.email, role: user.role }
+        : null,
+      credentials: creds.map((c) => ({
+        id: c._id.toHexString(),
+        device_label: c.device_label,
+        last_used_at: c.last_used_at,
+        created_at: c.created_at,
+      })),
+    };
+  })
+
+  // ----- add another credential -----
+  .post("/credentials/options", async ({ auth }) => {
+    const userId = new ObjectId(auth.user.sub);
+    const existing = await (await credentialsCollection())
+      .find({ user_id: userId }, { projection: { credential_id: 1 } })
+      .toArray();
+    return buildRegistrationOptions({
+      email: auth.user.email,
+      inviteCode: null,
+      existingUserId: userId,
+      excludeCredentialIds: existing.map((e) => e.credential_id),
+    });
+  })
+
+  .post(
+    "/credentials/verify",
+    async ({ auth, body, set }) => {
+      const userId = new ObjectId(auth.user.sub);
+      const clientChallenge = body.credential?.response?.clientDataJSON
+        ? JSON.parse(
+            Buffer.from(body.credential.response.clientDataJSON, "base64url").toString()
+          ).challenge
+        : "";
+      const challengeRow = await consumeChallenge(clientChallenge);
+      if (
+        challengeRow.purpose !== "add_credential" ||
+        !challengeRow.user_id ||
+        !challengeRow.user_id.equals(userId)
+      ) {
+        set.status = 400;
+        return { error: "challenge mismatch" };
+      }
+      const verification = await verifyRegistration({
+        response: body.credential,
+        expectedChallenge: challengeRow.challenge,
+      });
+      if (!verification.verified || !verification.registrationInfo) {
+        set.status = 400;
+        return { error: "verification failed" };
+      }
+      const reg = verification.registrationInfo;
+      const c = await credentialsCollection();
+      const ins = await c.insertOne({
+        user_id: userId,
+        credential_id: reg.credential.id,
+        public_key: Buffer.from(reg.credential.publicKey),
+        counter: reg.credential.counter,
+        transports: (body.credential.response?.transports ?? []) as string[],
+        device_label: body.device_label,
+        created_at: new Date().toISOString(),
+        last_used_at: new Date().toISOString(),
+      });
+      return { credential_id: ins.insertedId.toHexString() };
+    },
+    {
+      body: t.Object({
+        credential: t.Any(),
+        device_label: t.String({ minLength: 1, maxLength: 64 }),
+      }),
+    }
+  )
+
+  .delete("/credentials/:id", async ({ auth, params, set }) => {
+    const userId = new ObjectId(auth.user.sub);
+    const c = await credentialsCollection();
+    const count = await c.countDocuments({ user_id: userId });
+    if (count <= 1) {
+      set.status = 409;
+      return { error: "cannot remove last credential" };
+    }
+    const r = await c.deleteOne({ _id: new ObjectId(params.id), user_id: userId });
+    if (r.deletedCount === 0) {
+      set.status = 404;
+      return { error: "not found" };
+    }
+    return new Response(null, { status: 204 });
+  });
