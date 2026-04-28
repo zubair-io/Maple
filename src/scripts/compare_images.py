@@ -26,6 +26,11 @@ import numpy as np
 from PIL import Image
 import colour
 
+# Disable PIL's decompression-bomb guard. Real panoramas (pano_01:
+# 22818×7922 ≈ 180 MP) trip the default 178 MP cap; we trust our own
+# inputs.
+Image.MAX_IMAGE_PIXELS = None
+
 
 def load_srgb(path: str) -> np.ndarray:
     im = Image.open(path).convert("RGB")

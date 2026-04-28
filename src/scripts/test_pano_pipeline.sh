@@ -220,6 +220,9 @@ for a_file in "${A_FILES[@]}"; do
   if ! python3 - "$cand_png" "$ref_file" "$cand_resized" <<'PY' 2>"$WORKDIR/${stem}.resize.err"
 import sys
 from PIL import Image
+# pano_01's 180 MP canvas trips PIL's default decompression-bomb guard
+# (limit = ~178 MP). The canvas is legitimately that big; disable the cap.
+Image.MAX_IMAGE_PIXELS = None
 cand = Image.open(sys.argv[1]).convert("RGB")
 ref  = Image.open(sys.argv[2]).convert("RGB")
 if cand.size == ref.size:
@@ -331,6 +334,8 @@ if [[ -f "$PANO01_DIR/PANO0001.DNG" ]]; then
       if ! python3 - "$PANO01_CAND" "$PANO01_REF" "$PANO01_RESIZED" <<'PY' 2>"$WORKDIR/pano_01.resize.err"
 from PIL import Image
 import sys
+# pano_01's 180 MP canvas trips PIL's default decompression-bomb guard.
+Image.MAX_IMAGE_PIXELS = None
 cand = Image.open(sys.argv[1]).convert("RGB")
 ref  = Image.open(sys.argv[2]).convert("RGB")
 if cand.size == ref.size:
