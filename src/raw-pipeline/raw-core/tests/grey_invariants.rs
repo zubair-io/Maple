@@ -53,3 +53,56 @@ fn neutral_scene_linear_018() {
     // Ratchet downward as the chain tightens.
     run_scene_linear_case(0.18, 1e-4, 1e-4);
 }
+
+use raw_core::pipeline::render_from_raw;
+
+/// Render a synthetic grey DNG through the full production pipeline
+/// (AgX + sRGB + u8 quantize) and assert per-pixel neutrality + flatness
+/// in 8-bit LSB.
+fn run_display_case(linear_value: f32, eps_color: i32, eps_flat: i32) {
+    let dng = SyntheticGreyDng {
+        linear_value,
+        ..Default::default()
+    };
+    let bytes = dng.write_to_bytes();
+    let raw = raw_core::decode::decode_bytes(&bytes, "dng")
+        .expect("synthetic DNG must decode");
+
+    let model = AdjustmentModel::default();
+    let (w, h, rgb) = render_from_raw(&raw, &model)
+        .expect("full pipeline render must succeed");
+
+    let n = (w * h) as usize;
+    assert_eq!(rgb.len(), n * 3);
+
+    // Invariant A: per-pixel R == G == B in 8-bit LSB.
+    for i in 0..n {
+        let r = rgb[i*3]     as i32;
+        let g = rgb[i*3 + 1] as i32;
+        let b = rgb[i*3 + 2] as i32;
+        assert!((r - g).abs() <= eps_color,
+            "pixel {}: |R-G| = {} > {} (R={} G={} B={})", i, (r-g).abs(), eps_color, r, g, b);
+        assert!((r - b).abs() <= eps_color,
+            "pixel {}: |R-B| = {} > {} (R={} G={} B={})", i, (r-b).abs(), eps_color, r, g, b);
+    }
+
+    // Invariant B: per-channel flatness in 8-bit LSB.
+    let mean = |chan: usize| -> i32 {
+        let s: i32 = (0..n).map(|i| rgb[i*3 + chan] as i32).sum();
+        (s + n as i32 / 2) / n as i32  // round-half-up
+    };
+    let (mr, mg, mb) = (mean(0), mean(1), mean(2));
+    for i in 0..n {
+        assert!((rgb[i*3]     as i32 - mr).abs() <= eps_flat,
+            "pixel {} R={} deviates from mean {} by > {}", i, rgb[i*3], mr, eps_flat);
+        assert!((rgb[i*3 + 1] as i32 - mg).abs() <= eps_flat,
+            "pixel {} G={} deviates from mean {} by > {}", i, rgb[i*3 + 1], mg, eps_flat);
+        assert!((rgb[i*3 + 2] as i32 - mb).abs() <= eps_flat,
+            "pixel {} B={} deviates from mean {} by > {}", i, rgb[i*3 + 2], mb, eps_flat);
+    }
+}
+
+#[test]
+fn neutral_display_srgb_018() {
+    run_display_case(0.18, 2, 2);
+}
