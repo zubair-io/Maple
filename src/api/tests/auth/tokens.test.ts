@@ -21,6 +21,11 @@ describe("tokens", () => {
     expect(() => verifyAccessToken(bad, SECRET)).toThrow();
   });
 
+  it("rejects a token signed with a different secret", () => {
+    const jwt = signAccessToken({ sub: "u1", email: "a@b.c", role: "owner" }, SECRET);
+    expect(() => verifyAccessToken(jwt, "y".repeat(32))).toThrow(/signature/i);
+  });
+
   it("rejects an expired access token", () => {
     const jwt = signAccessToken(
       { sub: "u1", email: "a@b.c", role: "owner" },
