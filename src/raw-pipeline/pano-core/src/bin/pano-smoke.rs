@@ -926,28 +926,110 @@ fn stitch(inputs: &[PathBuf], output: &Path, _max_dim: u32, projection: Projecti
         }
     }
 
-    // Seam + blend: pairwise chain (seam/blend currently only support 2 images).
-    // Chain: blend warped[0] + warped[1] → running_canvas, then
-    //        blend running_canvas + warped[2] → running_canvas, etc.
-    eprintln!("pano-smoke: seam + blend ({} images, pairwise chain)", warped.len());
-    // Default to BK max-flow seam finder (handles non-monotonic seams).
-    let seam_finder = GraphCutMaxFlowSeamFinder::new();
+    // Single-pass N-way blend (replaces the prior chained pairwise blend).
+    // The chain blew its working set across N=21 frames on a 180 MP canvas:
+    // each step rebuilt a full pyramid pair, peaking at ~17 GB. The streaming
+    // accumulator in MultiBandBlender::blend_n processes one image at a time,
+    // dropping each pyramid before the next is allocated, so peak memory is
+    // ~2× canvas regardless of N.
+    eprintln!(
+        "pano-smoke: building per-image partition masks ({} images)",
+        warped.len()
+    );
+    let weight_masks = build_partition_masks(&warped);
+
+    eprintln!("pano-smoke: streaming N-way blend");
     let blender = pano_core::MultiBandBlender::default();
+    let warped_refs: Vec<&PanoImage> = warped.iter().collect();
+    let result = blender
+        .blend_n(&warped_refs, &weight_masks)
+        .map_err(|e| format!("blend_n failed: {e}"))?;
 
-    let mut running = warped[0].clone();
-    for (i, next) in warped[1..].iter().enumerate() {
-        eprintln!("pano-smoke:   blend step {}/{}", i + 1, warped.len() - 1);
-        let seams = seam_finder
-            .seams(&[&running, next])
-            .map_err(|e| format!("seam finding step {} failed: {e}", i + 1))?;
-        running = blender
-            .blend(&[&running, next], &seams)
-            .map_err(|e| format!("blend step {} failed: {e}", i + 1))?;
-    }
-
-    write_stitch(&running, output)?;
+    write_stitch(&result, output)?;
     eprintln!("pano-smoke: done.");
     Ok(())
+}
+
+/// Build a per-image weight mask for streaming N-way blend.
+///
+/// Voronoi-style: each canvas pixel goes to whichever image is valid at
+/// that location and whose footprint center is closest. Weights are then
+/// normalised per-pixel so they partition unity (Σ_i weight_i = 1.0 at
+/// every pixel that has at least one valid input).
+///
+/// Pixels where NO image is valid get 0.0 across all masks — the
+/// resulting RGB is undefined; the output's validity bitmap (set by
+/// blend_n) marks them as invalid.
+///
+/// Quality vs computed graph-cut seams: this is a soft Voronoi
+/// partition, so seams pass through whatever happens to be at the
+/// midpoint between two images' centers. Good enough for the MVP;
+/// graph-cut N-way seams are a follow-up that plugs into the same
+/// `weight_masks` parameter shape.
+fn build_partition_masks(warped: &[PanoImage]) -> Vec<Vec<f32>> {
+    let n = warped.len();
+    if n == 0 {
+        return Vec::new();
+    }
+    let w = warped[0].width;
+    let h = warped[0].height;
+    let n_pixels = (w as usize) * (h as usize);
+
+    // Compute each warped image's footprint center (mean of valid pixel
+    // coords). For images with no valid pixels (shouldn't happen post-warp
+    // but guard anyway), use the canvas center.
+    let mut centers: Vec<(f32, f32)> = Vec::with_capacity(n);
+    for img in warped {
+        let mut sx = 0.0_f64;
+        let mut sy = 0.0_f64;
+        let mut count = 0u64;
+        for y in 0..h {
+            for x in 0..w {
+                let idx = (y * w + x) as usize;
+                if img.validity[idx] {
+                    sx += x as f64;
+                    sy += y as f64;
+                    count += 1;
+                }
+            }
+        }
+        if count > 0 {
+            centers.push(((sx / count as f64) as f32, (sy / count as f64) as f32));
+        } else {
+            centers.push((w as f32 / 2.0, h as f32 / 2.0));
+        }
+    }
+
+    // For each pixel: if image i is valid there, weight_i ∝ 1 / (1 + dist²)
+    // where dist is the canvas-pixel distance to image i's center. Then
+    // normalise so Σ_i weight_i = 1.0.
+    let mut masks: Vec<Vec<f32>> = (0..n).map(|_| vec![0.0_f32; n_pixels]).collect();
+
+    for y in 0..h {
+        for x in 0..w {
+            let idx = (y * w + x) as usize;
+            // First pass: raw inverse-square weights for valid images.
+            let mut total = 0.0_f32;
+            for i in 0..n {
+                if warped[i].validity[idx] {
+                    let dx = x as f32 - centers[i].0;
+                    let dy = y as f32 - centers[i].1;
+                    let d2 = dx * dx + dy * dy;
+                    let w_raw = 1.0 / (1.0 + d2);
+                    masks[i][idx] = w_raw;
+                    total += w_raw;
+                }
+            }
+            // Normalise to sum to 1.0.
+            if total > 1e-12 {
+                for i in 0..n {
+                    masks[i][idx] /= total;
+                }
+            }
+        }
+    }
+
+    masks
 }
 
 fn write_stitch(result: &PanoImage, output: &Path) -> Result<(), String> {
