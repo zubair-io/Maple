@@ -40,7 +40,7 @@ pub mod pipeline;
 pub use pipeline::render_from_raw;
 
 pub mod pano;
-pub use pano::{decode_for_pano, develop_for_pano, PanoIngest};
+pub use pano::{decode_for_pano, develop_for_pano, GimbalAngles, PanoIngest};
 
 pub mod api;
 pub use api::{

@@ -25,6 +25,20 @@ pub struct PanoIngest {
     pub orientation: ExifOrientation,
     pub camera_make: String,
     pub camera_model: String,
+    /// Drone gimbal angles in degrees, when the source image is from
+    /// a DJI drone (or any device that writes drone-dji XMP). `None`
+    /// otherwise.
+    pub gimbal: Option<GimbalAngles>,
+}
+
+/// Gimbal orientation angles recorded by a DJI drone into the
+/// `drone-dji` XMP namespace (`GimbalYawDegree`, `GimbalPitchDegree`,
+/// `GimbalRollDegree`). All values are in degrees.
+#[derive(Debug, Clone, Copy)]
+pub struct GimbalAngles {
+    pub yaw_deg: f32,
+    pub pitch_deg: f32,
+    pub roll_deg: f32,
 }
 
 /// Run the raw → camera RGB → DCP chain on a `RawImage` and return the
@@ -58,12 +72,114 @@ pub fn develop_for_pano(raw: &RawImage) -> Result<Image> {
 pub fn decode_for_pano(bytes: &[u8], ext: &str) -> Result<PanoIngest> {
     let raw = crate::decode::decode_bytes(bytes, ext)?;
     let image = develop_for_pano(&raw)?;
+
+    // ── Gimbal angles from embedded XMP ──────────────────────────────────────
+    // DJI DNGs embed a drone-dji XMP packet inside TIFF tag 0x02BC (700).
+    // Strategy: extract XMP bytes from rawler's root IFD via TiffCommonTag::Xmp,
+    // then grep for the three gimbal keys. This path is entirely optional —
+    // any failure leaves `gimbal: None`.
+    //
+    // Implementation note: rawler's decoder exposes the root IFD but does not
+    // offer a high-level `xmp()` accessor. We read tag 700 directly via the
+    // same WellKnownIFD::Root + get_entry pattern used in decode.rs for
+    // BaselineExposure. The `tiff` workspace crate is NOT needed because rawler
+    // already parses the TIFF structure for us; its Value::Byte variant holds
+    // the raw XMP UTF-8 bytes.
+    let gimbal = extract_xmp_from_bytes(bytes)
+        .as_deref()
+        .and_then(extract_gimbal_from_xmp);
+
     Ok(PanoIngest {
         image,
         orientation: raw.orientation,
         camera_make: raw.camera_make,
         camera_model: raw.camera_model,
+        gimbal,
     })
+}
+
+/// Extract the raw XMP packet from the input bytes.
+///
+/// Attempts two strategies in order:
+/// 1. **rawler root IFD** — ask rawler's decoder for tag 0x02BC (`TiffCommonTag::Xmp`).
+///    This is the cleanest path and works for all DNG/TIFF-container formats.
+/// 2. **Byte scan fallback** — scan the raw bytes for the literal `<x:xmpmeta`
+///    ... `</x:xmpmeta>` packet, which DJI embeds as plain UTF-8. This is
+///    tolerant of formats where rawler's IFD parse doesn't surface tag 700.
+fn extract_xmp_from_bytes(bytes: &[u8]) -> Option<String> {
+    // Strategy 1: rawler root IFD, tag 700
+    {
+        use rawler::decoders::{RawDecodeParams, WellKnownIFD};
+        use rawler::rawsource::RawSource;
+        use rawler::tags::TiffCommonTag;
+
+        let source = RawSource::new_from_slice(bytes).with_path(
+            std::path::Path::new("rawfile.dng"),
+        );
+        let _params = RawDecodeParams::default();
+        if let Some(decoder) = rawler::get_decoder(&source).ok() {
+            if let Some(ifd) = decoder.ifd(WellKnownIFD::Root).ok().flatten() {
+                if let Some(entry) = ifd.get_entry(TiffCommonTag::Xmp) {
+                    let xmp_bytes = entry.value.get_data();
+                    if let Ok(s) = std::str::from_utf8(xmp_bytes) {
+                        return Some(s.to_string());
+                    }
+                }
+            }
+        }
+    }
+
+    // Strategy 2: scan raw bytes for the XMP packet start/end markers.
+    // DJI embeds XMP as plain ASCII/UTF-8 directly in the TIFF stream.
+    let s = std::str::from_utf8(bytes).ok()?;
+    let start = s.find("<x:xmpmeta")?;
+    let end = s[start..].find("</x:xmpmeta>").map(|i| start + i + 12)?;
+    Some(s[start..end].to_string())
+}
+
+/// Parse the three DJI gimbal angle fields from an XMP string.
+///
+/// Returns `None` if any of the three fields is absent or unparseable.
+fn extract_gimbal_from_xmp(xmp: &str) -> Option<GimbalAngles> {
+    let yaw = grep_dji_attr(xmp, "GimbalYawDegree")?;
+    let pitch = grep_dji_attr(xmp, "GimbalPitchDegree")?;
+    let roll = grep_dji_attr(xmp, "GimbalRollDegree")?;
+    Some(GimbalAngles {
+        yaw_deg: yaw,
+        pitch_deg: pitch,
+        roll_deg: roll,
+    })
+}
+
+/// Tolerant grep for a DJI XMP attribute value.
+///
+/// DJI writes gimbal fields in two forms:
+/// - Element:   `<drone-dji:GimbalYawDegree>+87.9</drone-dji:GimbalYawDegree>`
+/// - Attribute: `drone-dji:GimbalYawDegree="+87.9"`
+///
+/// Both contain `GimbalYawDegree` followed (eventually) by a signed decimal.
+/// We skip punctuation/whitespace after the key name, then collect the first
+/// signed numeric token.
+fn grep_dji_attr(xmp: &str, key: &str) -> Option<f32> {
+    let idx = xmp.find(key)?;
+    let after = &xmp[idx + key.len()..];
+    let mut chars = after.chars().peekable();
+    // Skip non-numeric characters until the start of a signed decimal token.
+    while let Some(&c) = chars.peek() {
+        if c == '+' || c == '-' || c.is_ascii_digit() {
+            break;
+        }
+        chars.next();
+    }
+    let mut buf = String::new();
+    for c in chars {
+        if c == '+' || c == '-' || c.is_ascii_digit() || c == '.' || c == 'e' || c == 'E' {
+            buf.push(c);
+        } else if !buf.is_empty() {
+            break;
+        }
+    }
+    buf.parse().ok()
 }
 
 #[cfg(test)]
@@ -155,5 +271,58 @@ mod tests {
             baseline_g,
             brighter_g,
         );
+    }
+
+    #[test]
+    fn grep_dji_attr_element_form() {
+        let xmp = r#"<drone-dji:GimbalYawDegree>+87.9</drone-dji:GimbalYawDegree>"#;
+        let v = super::grep_dji_attr(xmp, "GimbalYawDegree").expect("should parse");
+        assert!((v - 87.9).abs() < 0.01, "got {}", v);
+    }
+
+    #[test]
+    fn grep_dji_attr_attribute_form() {
+        let xmp = r#"drone-dji:GimbalPitchDegree="-1.3""#;
+        let v = super::grep_dji_attr(xmp, "GimbalPitchDegree").expect("should parse");
+        assert!((v + 1.3).abs() < 0.01, "got {}", v);
+    }
+
+    #[test]
+    fn grep_dji_attr_zero() {
+        let xmp = r#"<drone-dji:GimbalRollDegree>+0.0</drone-dji:GimbalRollDegree>"#;
+        let v = super::grep_dji_attr(xmp, "GimbalRollDegree").expect("should parse");
+        assert!(v.abs() < 0.01, "got {}", v);
+    }
+
+    #[test]
+    fn extract_gimbal_from_xmp_full_packet() {
+        let xmp = r#"<x:xmpmeta xmlns:x="adobe:ns:meta/">
+          <rdf:RDF>
+            <rdf:Description
+              drone-dji:GimbalYawDegree="+87.9"
+              drone-dji:GimbalPitchDegree="-1.3"
+              drone-dji:GimbalRollDegree="+0.0"
+            />
+          </rdf:RDF>
+        </x:xmpmeta>"#;
+        let g = super::extract_gimbal_from_xmp(xmp).expect("should parse gimbal");
+        assert!((g.yaw_deg - 87.9).abs() < 0.01);
+        assert!((g.pitch_deg + 1.3).abs() < 0.01);
+        assert!(g.roll_deg.abs() < 0.01);
+    }
+
+    #[test]
+    #[ignore] // fixture-gated — requires test-fixtures/raws/pano_01/
+    fn pano_01_dng_exposes_gimbal_angles() {
+        let path = std::path::Path::new(
+            "/Users/riabuz/Projects/_Maple/test-fixtures/raws/pano_01/PANO0001.DNG",
+        );
+        if !path.exists() { return; }
+        let bytes = std::fs::read(path).unwrap();
+        let ingest = decode_for_pano(&bytes, "dng").unwrap();
+        let gimbal = ingest.gimbal.expect("expected gimbal angles in DJI DNG");
+        assert!((gimbal.yaw_deg - 87.9).abs() < 0.5, "yaw={}", gimbal.yaw_deg);
+        assert!((gimbal.pitch_deg + 1.3).abs() < 0.5, "pitch={}", gimbal.pitch_deg);
+        assert!((gimbal.roll_deg - 0.0).abs() < 0.5, "roll={}", gimbal.roll_deg);
     }
 }
