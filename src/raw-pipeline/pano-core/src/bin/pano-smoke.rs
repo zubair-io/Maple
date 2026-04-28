@@ -95,6 +95,12 @@ struct Cli {
     #[arg(long, default_value_t = 0)]
     max_dim: u32,
 
+    /// Projection to use for the output canvas: cylindrical, spherical, or rectilinear.
+    /// Default is cylindrical (horizontal panoramas). Use spherical for multi-row
+    /// panoramas with significant pitch coverage (e.g. pano_01).
+    #[arg(long, default_value = "cylindrical", value_name = "PROJECTION")]
+    projection: String,
+
     /// Generate deterministic synthetic fixtures into DIR and exit.
     #[arg(long, value_name = "DIR")]
     gen_fixtures: Option<PathBuf>,
@@ -657,7 +663,7 @@ fn compute_homography_chain_priors(
     Ok(priors)
 }
 
-fn stitch(inputs: &[PathBuf], output: &Path, _max_dim: u32) -> Result<(), String> {
+fn stitch(inputs: &[PathBuf], output: &Path, _max_dim: u32, projection: Projection) -> Result<(), String> {
     if inputs.len() < 2 {
         return Err(format!(
             "need at least 2 input images, got {}",
@@ -665,8 +671,9 @@ fn stitch(inputs: &[PathBuf], output: &Path, _max_dim: u32) -> Result<(), String
         ));
     }
 
-    // For 2 images, use the existing pair path (no joint-BA overhead).
-    if inputs.len() == 2 {
+    // For 2 images with default (cylindrical) projection, use the existing
+    // pair path (no joint-BA overhead).
+    if inputs.len() == 2 && matches!(projection, Projection::Cylindrical) {
         let img_a = load_image_any_format(&inputs[0])?;
         let img_b = load_image_any_format(&inputs[1])?;
         let result = stitch_pair(img_a, img_b, 0)?;
@@ -850,11 +857,11 @@ fn stitch(inputs: &[PathBuf], output: &Path, _max_dim: u32) -> Result<(), String
     eprintln!("pano-smoke: computing canvas");
     let img_refs: Vec<&PanoImage> = pano_images.iter().collect();
     let canvas =
-        pano_core::warp::compute_canvas(&img_refs, &cameras, Projection::Cylindrical)
+        pano_core::warp::compute_canvas(&img_refs, &cameras, projection)
             .map_err(|e| format!("compute_canvas failed: {e}"))?;
     eprintln!(
-        "pano-smoke:   canvas {}×{} (cylindrical)",
-        canvas.width, canvas.height
+        "pano-smoke:   canvas {}×{} ({:?})",
+        canvas.width, canvas.height, projection
     );
 
     eprintln!("pano-smoke: warping {} images", n);
@@ -1073,7 +1080,12 @@ fn main() {
             .output
             .clone()
             .unwrap_or_else(|| PathBuf::from("panorama.png"));
-        stitch(&cli.inputs, &output, cli.max_dim)
+        let projection = match cli.projection.to_ascii_lowercase().as_str() {
+            "spherical" => Projection::Spherical,
+            "rectilinear" => Projection::Rectilinear,
+            _ => Projection::Cylindrical,
+        };
+        stitch(&cli.inputs, &output, cli.max_dim, projection)
     };
 
     if let Err(e) = result {

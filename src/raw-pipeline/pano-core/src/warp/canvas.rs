@@ -110,11 +110,12 @@ pub fn compute_canvas(
 
     match projection {
         Projection::Cylindrical => compute_cylindrical_canvas(images, cameras),
-        Projection::Rectilinear | Projection::Spherical => {
+        Projection::Spherical => compute_spherical_canvas(images, cameras),
+        Projection::Rectilinear => {
             // Fallback: input-sized canvas centered on image 0. Documented
-            // as MVP — multi-image rectilinear/spherical canvases are a
-            // follow-up (the cylindrical case covers the common
-            // horizontal-pan use case).
+            // as MVP — multi-image rectilinear canvases are a follow-up
+            // (the cylindrical and spherical cases cover the common
+            // horizontal-pan and multi-row panorama use cases).
             let w = images.iter().map(|i| i.width).max().unwrap_or(0);
             let h = images.iter().map(|i| i.height).max().unwrap_or(0);
             let focal = cameras[0].focal;
@@ -271,6 +272,131 @@ fn compute_cylindrical_canvas(
     })
 }
 
+fn compute_spherical_canvas(
+    images: &[&PanoImage],
+    cameras: &[Camera],
+) -> Result<Canvas, PanoError> {
+    use std::f32::consts::PI;
+
+    let mut lambda_min = f32::INFINITY;
+    let mut lambda_max = f32::NEG_INFINITY;
+    let mut phi_min = f32::INFINITY;
+    let mut phi_max = f32::NEG_INFINITY;
+    let mut total_lambdas_per_pixel: f64 = 0.0;
+    let mut total_samples: u64 = 0;
+
+    // Sample a 5×5 grid of points across each image (corners + edges
+    // + center), project each into spherical (λ, φ), grow the union bbox.
+    const GRID: usize = 5;
+
+    for (img, cam) in images.iter().zip(cameras.iter()) {
+        let k = camera_k_f64(cam.focal as f64, img.width, img.height);
+        let k_inv = k
+            .try_inverse()
+            .ok_or_else(|| PanoError::Warp("singular camera K".into()))?;
+        let r = cam.rotation.cast::<f64>();
+
+        let mut img_lambda_min = f32::INFINITY;
+        let mut img_lambda_max = f32::NEG_INFINITY;
+
+        let w = img.width as f64;
+        let h = img.height as f64;
+        let mut prev_lambda: Option<f32> = None;
+
+        for gy in 0..=GRID {
+            for gx in 0..=GRID {
+                let px = (gx as f64) * w / (GRID as f64);
+                let py = (gy as f64) * h / (GRID as f64);
+                let uv = Vector3::new(px, py, 1.0);
+                let ray_cam = k_inv * uv;
+                // World ray = R · K^-1 · uv.
+                let world = r * ray_cam;
+
+                // Project to unit sphere: λ = atan2(x, z), φ = asin(y / |world|).
+                let norm = world.norm();
+                if norm < 1e-9 {
+                    continue;
+                }
+                let lambda = world.x.atan2(world.z) as f32;
+                let phi = (world.y / norm).clamp(-1.0, 1.0).asin() as f32;
+
+                // Unwrap λ relative to previous sample so the bbox doesn't
+                // wrap around the ±π discontinuity for an image that
+                // straddles it.
+                let lambda_unwrapped = if let Some(prev) = prev_lambda {
+                    let d = lambda - prev;
+                    if d > PI {
+                        lambda - 2.0 * PI
+                    } else if d < -PI {
+                        lambda + 2.0 * PI
+                    } else {
+                        lambda
+                    }
+                } else {
+                    lambda
+                };
+                prev_lambda = Some(lambda_unwrapped);
+
+                img_lambda_min = img_lambda_min.min(lambda_unwrapped);
+                img_lambda_max = img_lambda_max.max(lambda_unwrapped);
+                phi_min = phi_min.min(phi);
+                phi_max = phi_max.max(phi);
+            }
+        }
+
+        lambda_min = lambda_min.min(img_lambda_min);
+        lambda_max = lambda_max.max(img_lambda_max);
+
+        // Track per-image angular density for the resolution policy.
+        let img_lambda_span = img_lambda_max - img_lambda_min;
+        if img_lambda_span > 0.0 && img.width > 0 {
+            total_lambdas_per_pixel += (img_lambda_span / img.width as f32) as f64;
+            total_samples += 1;
+        }
+    }
+
+    if !lambda_min.is_finite() || !lambda_max.is_finite() {
+        return Err(PanoError::Warp(
+            "compute_canvas: failed to project any image corner (spherical)".into(),
+        ));
+    }
+
+    // Resolution: pick a pixel pitch matching the median per-image density.
+    let lambda_per_pixel = if total_samples > 0 {
+        (total_lambdas_per_pixel / total_samples as f64) as f32
+    } else {
+        2.0 * PI / images[0].width as f32
+    };
+
+    let lambda_span = (lambda_max - lambda_min).max(1e-3);
+    let phi_span = (phi_max - phi_min).max(1e-3);
+
+    let canvas_w = (lambda_span / lambda_per_pixel).round() as u32;
+    // Vertical pixel pitch: 1 pixel covers 1/focal radians vertically —
+    // same logic as the cylindrical h_per_pixel (h = y/focal on the unit
+    // cylinder; for sphere the elevation φ ≈ y/focal for small angles,
+    // and we use the same approximation for consistency).
+    let phi_per_pixel = 1.0 / cameras[0].focal.max(1.0);
+    let canvas_h = (phi_span / phi_per_pixel).round().max(1.0) as u32;
+
+    const MAX_W: u32 = 65_535;
+    const MAX_H: u32 = 32_767;
+    let canvas_w = canvas_w.clamp(1, MAX_W);
+    let canvas_h = canvas_h.clamp(1, MAX_H);
+
+    Ok(Canvas {
+        width: canvas_w,
+        height: canvas_h,
+        projection: Projection::Spherical,
+        params: CanvasParams::Spherical {
+            lambda_min,
+            lambda_max,
+            phi_min,
+            phi_max,
+        },
+    })
+}
+
 fn camera_k_f64(focal: f64, width: u32, height: u32) -> nalgebra::Matrix3<f64> {
     nalgebra::Matrix3::new(
         focal,
@@ -303,10 +429,18 @@ pub fn warp_image_to_canvas(
         } => warp_cylindrical_canvas(
             img, cam, canvas.width, canvas.height, *theta_min, *theta_max, *h_min, *h_max,
         ),
-        CanvasParams::Rectilinear { .. } | CanvasParams::Spherical { .. } => {
+        CanvasParams::Spherical {
+            lambda_min,
+            lambda_max,
+            phi_min,
+            phi_max,
+        } => warp_spherical_canvas(
+            img, cam, canvas.width, canvas.height, *lambda_min, *lambda_max, *phi_min, *phi_max,
+        ),
+        CanvasParams::Rectilinear { .. } => {
             // Fallback: render at input size + paste at (0, 0). Same
             // behavior as before this module landed; multi-image
-            // non-cylindrical canvases are a P2 follow-up.
+            // rectilinear canvases are a follow-up.
             let warped = warper.warp(img, cam, canvas.projection)?;
             embed_at_origin(&warped, canvas.width, canvas.height, img)
         }
@@ -425,6 +559,91 @@ fn warp_cylindrical_canvas(
     Ok(out)
 }
 
+fn warp_spherical_canvas(
+    img: &PanoImage,
+    cam: &Camera,
+    canvas_w: u32,
+    canvas_h: u32,
+    lambda_min: f32,
+    lambda_max: f32,
+    phi_min: f32,
+    phi_max: f32,
+) -> Result<PanoImage, PanoError> {
+    let (iw, ih) = (img.width, img.height);
+    let k_in = camera_k_f64(cam.focal as f64, iw, ih);
+    let r_inv = cam.rotation.transpose().cast::<f64>();
+
+    let lambda_span = lambda_max - lambda_min;
+    let phi_span = phi_max - phi_min;
+
+    let mut out = PanoImage::new(canvas_w, canvas_h, img.color);
+    for i in 0..((canvas_w * canvas_h) as usize) {
+        out.validity.set(i, false);
+    }
+
+    let cw_f = canvas_w as f32;
+    let ch_f = canvas_h as f32;
+
+    for cy in 0..canvas_h {
+        for cx in 0..canvas_w {
+            // Map canvas pixel → spherical (λ, φ).
+            let lambda = lambda_min + (cx as f32 / cw_f) * lambda_span;
+            let phi = phi_min + (cy as f32 / ch_f) * phi_span;
+
+            // Spherical → 3D world ray.
+            let cos_phi = (phi as f64).cos();
+            let sin_phi = (phi as f64).sin();
+            let cos_lambda = (lambda as f64).cos();
+            let sin_lambda = (lambda as f64).sin();
+            let ray = Vector3::new(cos_phi * sin_lambda, sin_phi, cos_phi * cos_lambda);
+
+            // World → input camera frame via R^-1.
+            let cam_ray = r_inv * ray;
+            if cam_ray.z <= 0.0 {
+                continue;
+            }
+
+            // Project into input image via K.
+            let xn = cam_ray.x / cam_ray.z;
+            let yn = cam_ray.y / cam_ray.z;
+            let p = k_in * Vector3::new(xn, yn, 1.0);
+            let u = p.x as f32;
+            let v = p.y as f32;
+
+            // Reject samples outside the input.
+            if u < 0.0 || v < 0.0 || u >= (iw - 1) as f32 || v >= (ih - 1) as f32 {
+                continue;
+            }
+
+            // Bilinear sample.
+            let x0 = u.floor() as u32;
+            let y0 = v.floor() as u32;
+            let dx = u - x0 as f32;
+            let dy = v - y0 as f32;
+
+            let p00 = pixel_rgb(img, x0, y0);
+            let p10 = pixel_rgb(img, x0 + 1, y0);
+            let p01 = pixel_rgb(img, x0, y0 + 1);
+            let p11 = pixel_rgb(img, x0 + 1, y0 + 1);
+
+            let mut rgb = [0.0f32; 3];
+            for c in 0..3 {
+                let top = p00[c] * (1.0 - dx) + p10[c] * dx;
+                let bot = p01[c] * (1.0 - dx) + p11[c] * dx;
+                rgb[c] = top * (1.0 - dy) + bot * dy;
+            }
+
+            let di = (cy as usize) * (canvas_w as usize) + (cx as usize);
+            out.pixels[di * 3] = rgb[0];
+            out.pixels[di * 3 + 1] = rgb[1];
+            out.pixels[di * 3 + 2] = rgb[2];
+            out.validity.set(di, true);
+        }
+    }
+
+    Ok(out)
+}
+
 #[inline]
 fn pixel_rgb(img: &PanoImage, x: u32, y: u32) -> [f32; 3] {
     let i = ((y as usize) * (img.width as usize) + (x as usize)) * 3;
@@ -507,6 +726,57 @@ mod tests {
         assert_eq!(warped.width, canvas.width);
         assert_eq!(warped.height, canvas.height);
         // Most pixels should be valid (single image fills its own canvas).
+        let valid_frac = warped.validity.count_ones() as f32
+            / (warped.width * warped.height) as f32;
+        assert!(valid_frac > 0.5, "valid_frac={valid_frac}");
+    }
+
+    #[test]
+    fn compute_canvas_spherical_two_yaw_rotated_grows_horizontally() {
+        let img = PanoImage::new(256, 128, ColorSpace::rec2020_d65_linear());
+        let cam_a = identity_camera(256.0);
+        let angle = 30.0_f32.to_radians();
+        let r_yaw = Matrix3::new(
+            angle.cos(), 0.0, angle.sin(),
+            0.0, 1.0, 0.0,
+            -angle.sin(), 0.0, angle.cos(),
+        );
+        let cam_b = Camera { focal: 256.0, rotation: r_yaw, distortion: Distortion::default() };
+
+        let single = compute_canvas(&[&img], &[cam_a.clone()], Projection::Spherical).unwrap();
+        let dual = compute_canvas(&[&img, &img], &[cam_a, cam_b], Projection::Spherical).unwrap();
+        assert!(dual.width > single.width, "dual.w={} single.w={}", dual.width, single.width);
+    }
+
+    #[test]
+    fn compute_canvas_spherical_pitch_grows_vertically() {
+        let img = PanoImage::new(256, 128, ColorSpace::rec2020_d65_linear());
+        let cam_a = identity_camera(256.0);
+        let angle = 30.0_f32.to_radians();
+        let r_pitch = Matrix3::new(
+            1.0, 0.0, 0.0,
+            0.0, angle.cos(), -angle.sin(),
+            0.0, angle.sin(), angle.cos(),
+        );
+        let cam_b = Camera { focal: 256.0, rotation: r_pitch, distortion: Distortion::default() };
+
+        let single = compute_canvas(&[&img], &[cam_a.clone()], Projection::Spherical).unwrap();
+        let dual = compute_canvas(&[&img, &img], &[cam_a, cam_b], Projection::Spherical).unwrap();
+        assert!(dual.height > single.height, "dual.h={} single.h={}", dual.height, single.height);
+    }
+
+    #[test]
+    fn warp_spherical_canvas_identity_returns_canvas_sized_output() {
+        let mut img = PanoImage::new(64, 64, ColorSpace::rec2020_d65_linear());
+        for i in 0..(64 * 64 * 3) {
+            img.pixels[i] = 0.5;
+        }
+        let cam = identity_camera(64.0);
+        let canvas = compute_canvas(&[&img], &[cam.clone()], Projection::Spherical).unwrap();
+        let warper = CpuWarper::new();
+        let warped = warp_image_to_canvas(&warper, &img, &cam, &canvas).unwrap();
+        assert_eq!(warped.width, canvas.width);
+        assert_eq!(warped.height, canvas.height);
         let valid_frac = warped.validity.count_ones() as f32
             / (warped.width * warped.height) as f32;
         assert!(valid_frac > 0.5, "valid_frac={valid_frac}");
