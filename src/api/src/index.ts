@@ -15,6 +15,9 @@
  */
 
 import { Elysia } from "elysia";
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { dirname } from "node:path";
+import { randomBytes } from "node:crypto";
 import { healthRoutes } from "./routes/health.ts";
 import { foldersRoutes } from "./routes/folders.ts";
 import { assetsRoutes } from "./routes/assets.ts";
@@ -27,6 +30,29 @@ import { getIndexerService } from "./indexer/service.ts";
 
 const PORT = Number(process.env.PORT ?? 3000);
 const CORS_ORIGIN = process.env.MAPLE_CORS_ORIGIN ?? "*";
+
+// ---------------------------------------------------------------------------
+// JWT secret bootstrap
+// ---------------------------------------------------------------------------
+//
+// Resolves MAPLE_JWT_SECRET in priority order:
+//   1. Explicit env var (caller-managed; e.g. CI, secret store).
+//   2. File on disk at MAPLE_JWT_SECRET_FILE or `./.maple/jwt.secret`.
+//   3. Generate 32 random bytes (base64url), persist with mode 0o600,
+//      and use that. The .maple/ directory is gitignored.
+function ensureJwtSecret(): void {
+  if (process.env.MAPLE_JWT_SECRET) return;
+  const path = process.env.MAPLE_JWT_SECRET_FILE ?? "./.maple/jwt.secret";
+  if (existsSync(path)) {
+    process.env.MAPLE_JWT_SECRET = readFileSync(path, "utf8").trim();
+    return;
+  }
+  mkdirSync(dirname(path), { recursive: true });
+  const secret = randomBytes(32).toString("base64url");
+  writeFileSync(path, secret, { mode: 0o600 });
+  process.env.MAPLE_JWT_SECRET = secret;
+  console.log(`[server] generated JWT secret at ${path}`);
+}
 
 // ---------------------------------------------------------------------------
 // Build the Elysia app
@@ -95,6 +121,7 @@ const app = new Elysia()
 // ---------------------------------------------------------------------------
 
 async function start(): Promise<void> {
+  ensureJwtSecret();
   console.log(`\nMaple Self Hosted v0.1.0`);
   console.log(`Listening on http://localhost:${PORT}`);
   console.log(`MongoDB: ${process.env.MAPLE_MONGO_URI ?? "mongodb://localhost:27017"}`);
