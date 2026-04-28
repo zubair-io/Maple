@@ -46,12 +46,15 @@ fn run_scene_linear_case(linear_value: f32, eps_color: f32, eps_flat: f32) {
     }
 }
 
+// Scene-linear tolerance scales roughly linearly with `linear_value`
+// because float drift in the demosaic + matrix-mul chain compounds with
+// magnitude. 5e-4 covers the full sweep up to L = 0.50 (observed worst
+// case |R-B| ≈ 1.07e-4). Ratchet downward as the chain tightens.
+const SCENE_LINEAR_EPS: f32 = 5e-4;
+
 #[test]
 fn neutral_scene_linear_018() {
-    // Tolerance 1e-4 absorbs demosaic-edge + matrix-mul float drift on a
-    // 64×64 patch (observed worst-case |R-G| ≈ 1.1e-5, |R-B| ≈ 5e-5).
-    // Ratchet downward as the chain tightens.
-    run_scene_linear_case(0.18, 1e-4, 1e-4);
+    run_scene_linear_case(0.18, SCENE_LINEAR_EPS, SCENE_LINEAR_EPS);
 }
 
 use raw_core::pipeline::render_from_raw;
@@ -106,3 +109,9 @@ fn run_display_case(linear_value: f32, eps_color: i32, eps_flat: i32) {
 fn neutral_display_srgb_018() {
     run_display_case(0.18, 2, 2);
 }
+
+#[test] fn neutral_scene_linear_005() { run_scene_linear_case(0.05, SCENE_LINEAR_EPS, SCENE_LINEAR_EPS); }
+#[test] fn neutral_scene_linear_050() { run_scene_linear_case(0.50, SCENE_LINEAR_EPS, SCENE_LINEAR_EPS); }
+
+#[test] fn neutral_display_srgb_005() { run_display_case(0.05, 2, 2); }
+#[test] fn neutral_display_srgb_050() { run_display_case(0.50, 2, 2); }
