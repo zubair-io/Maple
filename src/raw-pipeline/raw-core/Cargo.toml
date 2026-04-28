@@ -20,6 +20,7 @@ sha1 = "0.10"
 serde.workspace = true
 serde_json.workspace = true
 tempfile = "3"
+clap = { workspace = true }
 
 [features]
 # Opt-in integration tests that shell out to compare_images.py.
