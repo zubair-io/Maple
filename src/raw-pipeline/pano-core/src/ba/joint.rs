@@ -27,6 +27,49 @@ pub struct JointRotationFocalBA {
     pub max_iters: usize,
     /// Convergence threshold on parameter step norm. Default 1e-6.
     pub step_tolerance: f64,
+    /// Soft-prior penalty weight on rotation error.
+    ///
+    /// When `priors` are supplied and `lambda_rotation > 0`, an extra
+    /// residual block is appended to the LM problem:
+    ///
+    /// ```text
+    /// r_prior_i = √λ · (ω_i − ω_prior_i)         for each free camera i
+    /// ```
+    ///
+    /// where ω is the camera's rotation in axis-angle form (radians) and
+    /// ω_prior is the prior's rotation expressed the same way. This keeps
+    /// BA tethered to gimbal/IMU priors while still letting the
+    /// reprojection signal pull cameras into pixel-accurate alignment.
+    ///
+    /// Scale guidance: reprojection residuals are in pixels. To make a
+    /// 1° rotation drift cost roughly the same as a 1-px reprojection
+    /// error per match, set λ ≈ (180/π)² ≈ 3300. Typical values:
+    ///
+    /// - 0.0:   no prior penalty (legacy behaviour).
+    /// - 3300:  1° rotation drift ≈ 1 px-equivalent residual per axis.
+    /// - 33000: 1° rotation drift ≈ 3.16 px-equivalent residuals per
+    ///   axis, ≈ 30 px equivalent across the 3-axis vector. Strong
+    ///   anchor — the default for DJI gimbal priors.
+    /// - 1e6:   essentially "fix to prior" — equivalent to gimbal-direct
+    ///   with a tiny refinement allowance.
+    ///
+    /// Default 0.0 (off) for backward compatibility; pano-smoke turns
+    /// it on when gimbal priors are present.
+    pub lambda_rotation: f64,
+    /// Soft-prior penalty weight on focal error.
+    ///
+    /// Same idea as `lambda_rotation` but on focal length:
+    ///
+    /// ```text
+    /// r_prior_focal_i = √λ_f · (f_i − f_prior_i) / f_prior_i
+    /// ```
+    ///
+    /// Scale: divides by the prior focal so the residual is unitless
+    /// fractional error. λ_f = 100 means a 10% focal drift adds ~1
+    /// px-equivalent residual.
+    ///
+    /// Default 0.0 (off).
+    pub lambda_focal: f64,
 }
 
 impl Default for JointRotationFocalBA {
@@ -34,6 +77,8 @@ impl Default for JointRotationFocalBA {
         Self {
             max_iters: 100,
             step_tolerance: 1e-6,
+            lambda_rotation: 0.0,
+            lambda_focal: 0.0,
         }
     }
 }
@@ -198,12 +243,37 @@ pub fn solve_joint_with_priors(
     // -----------------------------------------------------------------------
     // Step 2-4: LM optimisation.
     // -----------------------------------------------------------------------
+    //
+    // Build prior axis-angle vectors + focals for each free camera (1..n).
+    // None entries are kept as None; the solver treats those as no-prior
+    // (zero contribution to the prior residual block).
+    let prior_omegas: Vec<Option<Vector3<f64>>> = (1..n_cams)
+        .map(|i| {
+            priors
+                .and_then(|pv| pv.get(i))
+                .and_then(|p| p.as_ref())
+                .map(|p| rodrigues_log(&p.rotation))
+        })
+        .collect();
+    let prior_focals: Vec<Option<f64>> = (1..n_cams)
+        .map(|i| {
+            priors
+                .and_then(|pv| pv.get(i))
+                .and_then(|p| p.as_ref())
+                .map(|p| p.focal as f64)
+        })
+        .collect();
+
     let problem = JointBAProblem {
         pair_data,
         n_cams,
         focal0,
         cx,
         cy,
+        prior_omegas,
+        prior_focals,
+        lambda_rotation: config.lambda_rotation,
+        lambda_focal: config.lambda_focal,
     };
 
     let refined = problem.solve_lm(params, config);
@@ -364,6 +434,18 @@ struct JointBAProblem {
     focal0: f64,
     cx: f64,
     cy: f64,
+    /// Per-free-camera (i.e. cameras 1..n_cams) rotation prior in axis-angle.
+    /// None = no prior (zero contribution to the prior residual block).
+    /// Length = n_cams - 1.
+    prior_omegas: Vec<Option<Vector3<f64>>>,
+    /// Per-free-camera focal prior in pixels. None = no prior.
+    /// Length = n_cams - 1.
+    prior_focals: Vec<Option<f64>>,
+    /// Soft-prior weight on rotation error (square-rooted at use site so
+    /// LM sees `√λ · Δω` as the residual). 0.0 disables the prior.
+    lambda_rotation: f64,
+    /// Soft-prior weight on focal error (relative). 0.0 disables.
+    lambda_focal: f64,
 }
 
 impl JointBAProblem {
@@ -422,6 +504,50 @@ impl JointBAProblem {
 
                 res.push(u_hat - pb[0]);
                 res.push(v_hat - pb[1]);
+            }
+        }
+
+        // -------------------------------------------------------------------
+        // Append soft-prior residuals — one block per free camera.
+        //
+        // Layout (only when λ > 0 and a prior exists):
+        //   √λ_rot · (ω_i − ω_prior_i)         ← 3 rows
+        //   √λ_f   · (f_i − f_prior_i) / f_p   ← 1 row
+        //
+        // For free cameras with no prior, the block is omitted entirely.
+        // -------------------------------------------------------------------
+        let sqrt_lr = self.lambda_rotation.max(0.0).sqrt();
+        let sqrt_lf = self.lambda_focal.max(0.0).sqrt();
+
+        for k in 0..self.prior_omegas.len() {
+            let slot = k * 4;
+            // Rotation prior — 3 rows.
+            if sqrt_lr > 0.0 {
+                if let Some(om_p) = self.prior_omegas[k] {
+                    let dx = params[slot] - om_p.x;
+                    let dy = params[slot + 1] - om_p.y;
+                    let dz = params[slot + 2] - om_p.z;
+                    res.push(sqrt_lr * dx);
+                    res.push(sqrt_lr * dy);
+                    res.push(sqrt_lr * dz);
+                } else {
+                    res.push(0.0);
+                    res.push(0.0);
+                    res.push(0.0);
+                }
+            }
+            // Focal prior — 1 row.
+            if sqrt_lf > 0.0 {
+                if let Some(f_p) = self.prior_focals[k] {
+                    if f_p.abs() > 1e-9 {
+                        let df = (params[slot + 3] - f_p) / f_p;
+                        res.push(sqrt_lf * df);
+                    } else {
+                        res.push(0.0);
+                    }
+                } else {
+                    res.push(0.0);
+                }
             }
         }
         res
@@ -583,6 +709,7 @@ fn skew(v: Vector3<f64>) -> Matrix3<f64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::types::{Keypoint, Match};
 
     #[test]
     fn rodrigues_zero_is_identity() {
@@ -616,5 +743,96 @@ mod tests {
         assert!(v.x.abs() < 1e-9, "v.x = {}", v.x);
         assert!(v.y.abs() < 1e-9, "v.y = {}", v.y);
         assert!((v.z + 1.0).abs() < 1e-9, "v.z = {} (expect -1)", v.z);
+    }
+
+    /// With strong λ_rotation, BA refuses to drift far from the prior even
+    /// when the inlier matches strongly suggest a different rotation.
+    /// This is the key invariant Step 4 must enforce: prior wins when
+    /// matches are bad (which is the DJI zero-displacement scenario).
+    #[test]
+    fn high_lambda_rotation_keeps_solution_near_prior() {
+        // 2 cameras, 1 pair. The pair contains 4 zero-displacement
+        // correspondences (pa == pb), which would normally pull camera 1
+        // toward identity rotation. The prior says camera 1 is rotated
+        // 20° around Y (yaw); we want BA to land near 20°, not 0°.
+        let prior_yaw_deg = 20.0_f64;
+        let prior_omega = Vector3::new(0.0, prior_yaw_deg.to_radians(), 0.0);
+        let prior_rotation = rodrigues_exp(prior_omega);
+
+        // Synthesise zero-displacement matches (pa == pb in a 1024×768 image).
+        let kps = vec![
+            Keypoint { x: 100.0, y: 100.0, scale: 1.0, angle: 0.0, response: 1.0 },
+            Keypoint { x: 200.0, y: 300.0, scale: 1.0, angle: 0.0, response: 1.0 },
+            Keypoint { x: 800.0, y: 400.0, scale: 1.0, angle: 0.0, response: 1.0 },
+            Keypoint { x: 500.0, y: 600.0, scale: 1.0, angle: 0.0, response: 1.0 },
+        ];
+        let feats = vec![
+            Features { keypoints: kps.clone(), descriptors: vec![], descriptor_dim: 0 },
+            Features { keypoints: kps.clone(), descriptors: vec![], descriptor_dim: 0 },
+        ];
+        let matches = Matches {
+            inliers: vec![
+                Match { a: 0, b: 0, distance: 0.0 },
+                Match { a: 1, b: 1, distance: 0.0 },
+                Match { a: 2, b: 2, distance: 0.0 },
+                Match { a: 3, b: 3, distance: 0.0 },
+            ],
+        };
+        let pairs = vec![(0_usize, 1_usize, matches)];
+        let priors_vec = vec![
+            Some(CameraPrior { rotation: Matrix3::identity(), focal: 1000.0 }),
+            Some(CameraPrior { rotation: prior_rotation, focal: 1000.0 }),
+        ];
+
+        // High lambda: BA should land near 20° yaw, not at 0°.
+        //
+        // Math: 4 zero-displacement matches at focal=1000 have reprojection
+        // error ≈ focal·tan(20°) ≈ 364 px each → total match cost ≈ 1.0M.
+        // Prior cost at identity (= 20° drift) = λ · (0.349 rad)² ≈ 0.122·λ.
+        // For prior to dominate we need λ ≳ 1e7. Use 1e9 to be safe.
+        let config_high = JointRotationFocalBA {
+            max_iters: 200,
+            step_tolerance: 1e-9,
+            lambda_rotation: 1.0e9,
+            lambda_focal: 0.0,
+        };
+        let cams_high = solve_joint_with_priors(
+            &feats,
+            &pairs,
+            (1024, 768),
+            Some(&priors_vec),
+            &config_high,
+        )
+        .expect("solve must succeed");
+        let omega_high = rodrigues_log(&cams_high[1].rotation.cast::<f64>());
+        let yaw_high_deg = omega_high.y.to_degrees();
+        assert!(
+            (yaw_high_deg - prior_yaw_deg).abs() < 1.0,
+            "high-λ solver should keep yaw near prior {prior_yaw_deg}°, got {yaw_high_deg}°"
+        );
+
+        // Zero lambda: BA should drift toward identity (the matches'
+        // "answer"). Confirm the difference from prior is large to validate
+        // that the prior is what's holding cams_high near 20°.
+        let config_zero = JointRotationFocalBA {
+            max_iters: 50,
+            step_tolerance: 1e-6,
+            lambda_rotation: 0.0,
+            lambda_focal: 0.0,
+        };
+        let cams_zero = solve_joint_with_priors(
+            &feats,
+            &pairs,
+            (1024, 768),
+            Some(&priors_vec),
+            &config_zero,
+        )
+        .expect("solve must succeed");
+        let omega_zero = rodrigues_log(&cams_zero[1].rotation.cast::<f64>());
+        let yaw_zero_deg = omega_zero.y.to_degrees();
+        assert!(
+            (yaw_zero_deg - prior_yaw_deg).abs() > (yaw_high_deg - prior_yaw_deg).abs() + 0.5,
+            "zero-λ should drift further from prior than high-λ: zero={yaw_zero_deg}°, high={yaw_high_deg}°, prior={prior_yaw_deg}°"
+        );
     }
 }

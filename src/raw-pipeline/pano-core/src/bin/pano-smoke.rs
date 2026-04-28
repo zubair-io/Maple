@@ -53,7 +53,7 @@ use pano_core::{
         lm::solve_with_keypoints,
     },
     features::akaze::AkazeDetector,
-    matching::{gms_filter, BruteForceMatcher},
+    matching::{gimbal_filter, gms_filter, predicted_homography, BruteForceMatcher},
     types::{Camera, Features, Matches, PanoImage},
     Blender, ColorSpace, CpuWarper, FeatureDetector, FeatureMatcher,
     GraphCutMaxFlowSeamFinder,
@@ -721,23 +721,38 @@ fn stitch(inputs: &[PathBuf], output: &Path, _max_dim: u32, projection: Projecti
     let n = inputs.len();
     eprintln!("pano-smoke: loading {} images (joint BA path)", n);
 
-    // Load images and extract gimbal angles where available.
+    // Load images and extract gimbal angles + EXIF focal-in-pixels where available.
+    //
+    // `focal_pixels` is the per-image focal length already converted to pixels
+    // (read from EXIF `FocalLengthIn35mmFormat` or physical `FocalLength` +
+    // a sensor-width lookup). When present it replaces the old `image_width`
+    // hardcode that was off by ~25–33% on DJI L2D-20c (5376 px image vs.
+    // ~3584 px true focal at 24 mm equivalent). That bias was a primary
+    // cause of misalignment in pano_01.
     let mut pano_images: Vec<PanoImage> = Vec::with_capacity(n);
     let mut gimbal_priors: Vec<Option<(f32, f32, f32)>> = Vec::with_capacity(n); // (yaw, pitch, roll) degrees
+    let mut focal_pixels_per_image: Vec<Option<f32>> = Vec::with_capacity(n);
+    let mut distortion_per_image: Vec<Option<(f32, f32)>> = Vec::with_capacity(n);
 
     for p in inputs {
         eprintln!("pano-smoke:   {}", p.display());
         let bytes = fs::read(p).map_err(|e| format!("cannot read {}: {e}", p.display()))?;
-        // Try to get gimbal from raw_core::decode_for_pano for DNGs.
-        let gimbal = if pano_core::ingest::sniff_format(&bytes) == pano_core::ingest::PanoFormat::Raw {
+        // Try to get gimbal + focal + lens distortion from raw_core for DNGs.
+        let (gimbal, focal_px, dist) = if pano_core::ingest::sniff_format(&bytes) == pano_core::ingest::PanoFormat::Raw {
             match raw_core::decode_for_pano(&bytes, "dng") {
-                Ok(ingest) => ingest.gimbal.map(|g| (g.yaw_deg, g.pitch_deg, g.roll_deg)),
-                Err(_) => None,
+                Ok(ingest) => (
+                    ingest.gimbal.map(|g| (g.yaw_deg, g.pitch_deg, g.roll_deg)),
+                    ingest.focal_pixels,
+                    ingest.distortion,
+                ),
+                Err(_) => (None, None, None),
             }
         } else {
-            None
+            (None, None, None)
         };
         gimbal_priors.push(gimbal);
+        focal_pixels_per_image.push(focal_px);
+        distortion_per_image.push(dist);
 
         let img = pano_core::decode_bytes(&bytes)
             .map_err(|e| format!("decode failed for {}: {e}", p.display()))?;
@@ -765,17 +780,28 @@ fn stitch(inputs: &[PathBuf], output: &Path, _max_dim: u32, projection: Projecti
         })
         .collect::<Result<Vec<_>, String>>()?;
 
-    // --- 3. Match consecutive pairs: loose BF → GMS → RANSAC ----------------
+    // --- 3. Match consecutive pairs: loose BF → GMS → gimbal filter → RANSAC -
     //
     // GMS (Bian et al. 2017) filters by spatial-motion-consistency, which
     // discards the zero-displacement matches that high-overlap consecutive
     // panorama frames produce when the descriptor matcher prefers
     // matching-self over matching-rotated. We feed BF a loose Lowe ratio
     // (0.95) so the population GMS has to score is large enough.
+    //
+    // GMS alone leaks zero-displacement matches when overlap is high enough
+    // that the zero-shift cluster is internally motion-consistent (everything
+    // moves by Δ = 0 uniformly). The gimbal filter closes that gap: it
+    // rejects matches whose observed shift disagrees with the gimbal-predicted
+    // homography by more than a tolerance ball (default 100 px ≈ 1.5° angular
+    // error budget on a 3584-px focal).  Only runs when both images of the
+    // pair have gimbal data.
     eprintln!(
-        "pano-smoke: loose BF → GMS → RANSAC over {} consecutive pairs",
+        "pano-smoke: loose BF → GMS → (gimbal filter when available) → RANSAC over {} consecutive pairs",
         n - 1
     );
+    let gimbal_tol_px: f64 = 100.0;
+    let cx_image = image_size.0 as f64 / 2.0;
+    let cy_image = image_size.1 as f64 / 2.0;
     let matcher = BruteForceMatcher::new(0.95, false);
     let mut pairs: Vec<(usize, usize, Matches)> = Vec::new();
     let mut min_pair_inliers: usize = usize::MAX;
@@ -802,7 +828,51 @@ fn stitch(inputs: &[PathBuf], output: &Path, _max_dim: u32, projection: Projecti
             gms.inliers.len()
         );
 
-        let ransac_input = if gms.inliers.len() >= 8 {
+        // Gimbal-aware filter: only when both images of this pair have
+        // gimbal data AND a per-image EXIF focal. Otherwise pass GMS
+        // through unchanged.
+        let gimbal_filtered: Matches =
+            if let (Some((y_i, p_i, r_i)), Some((y_j, p_j, r_j)), Some(f_i), Some(f_j)) = (
+                gimbal_priors[i],
+                gimbal_priors[j],
+                focal_pixels_per_image[i],
+                focal_pixels_per_image[j],
+            ) {
+                let r_a = gimbal_to_rotation(y_i, p_i, r_i).cast::<f64>();
+                let r_b = gimbal_to_rotation(y_j, p_j, r_j).cast::<f64>();
+                let h_pred = predicted_homography(
+                    &r_a,
+                    f_i as f64,
+                    &r_b,
+                    f_j as f64,
+                    (cx_image, cy_image),
+                );
+                let kept = gimbal_filter(
+                    &gms,
+                    &all_features[i],
+                    &all_features[j],
+                    &h_pred,
+                    gimbal_tol_px,
+                );
+                eprintln!(
+                    "pano-smoke:   pair ({i},{j}): GMS {} → gimbal-filter {} (tol={gimbal_tol_px:.0} px)",
+                    gms.inliers.len(),
+                    kept.inliers.len()
+                );
+                kept
+            } else {
+                gms.clone()
+            };
+
+        let ransac_input = if gimbal_filtered.inliers.len() >= 8 {
+            &gimbal_filtered
+        } else if gms.inliers.len() >= 8 {
+            // Gimbal filter too aggressive (tolerance too tight or gimbal
+            // priors too far off) — fall back to GMS-only.
+            eprintln!(
+                "pano-smoke:   pair ({i},{j}): gimbal filter kept {} — falling back to GMS-only",
+                gimbal_filtered.inliers.len()
+            );
             &gms
         } else {
             // GMS too aggressive — fall back to the pre-GMS population so
@@ -854,62 +924,148 @@ fn stitch(inputs: &[PathBuf], output: &Path, _max_dim: u32, projection: Projecti
 
     // --- 4. Camera pose estimation -----------------------------------------
     //
-    // For DJI inputs (gimbal angles available for every image) we use the
-    // gimbal directly as camera poses. This isn't a workaround any more —
-    // it's the right answer:
+    // For DJI inputs (gimbal angles available for every image) we run joint
+    // BA seeded from gimbal priors with a strong rotation soft-prior penalty.
+    // This is the result of Steps 1-4 of the right-way fix:
     //
-    // **Empirical finding (5-image pano_01, after GMS):** even with ~12K
-    // RANSAC inlier matches per pair (after loose BF → GMS → RANSAC), joint
-    // BA initialised from gimbal priors of 21°, 21.5°, 38.6°, 32.3°
-    // converged to all-identity rotations. The dominant motion model that
-    // fits the inlier population IS zero-displacement, because high-overlap
-    // panorama frames (~75% overlap) have most pixels matching at the same
-    // pixel position regardless of camera rotation. GMS doesn't reject those
-    // matches because zero-displacement IS spatially-consistent (everything
-    // moves by Δ = 0 uniformly). RANSAC picks the larger consensus, which
-    // is the zero-displacement cluster.
+    // - Step 1 (EXIF focal): the focal_prior is now correct (~3584 px on
+    //   DJI L2D-20c, not the 5376 image-width hardcode that was off by ~33%).
+    // - Step 2 (gimbal-aware match filter): GMS leaks zero-displacement
+    //   matches when the zero-shift cluster is internally motion-consistent.
+    //   We project each match's expected pixel via the gimbal-predicted
+    //   homography and reject any match outside a 100 px tolerance ball.
+    //   That collapses the bogus 12K identity-driven RANSAC inliers to a
+    //   few hundred genuinely-rotated matches per pair.
+    // - Step 4 (rotation soft prior): with clean matches, BA can usefully
+    //   refine each camera's rotation. The soft prior `λ · |ω − ω_gimbal|²`
+    //   keeps each rotation close to the gimbal estimate; the matches pull
+    //   it slightly toward pixel-accurate alignment. This catches gimbal
+    //   drift / mechanical play that the hardware can't self-report.
     //
-    // Gimbal hardware reports orientation to ~0.1°. Trusting it over a BA
-    // step that the matches actively pull towards identity is the correct
-    // call.
-    //
-    // The non-DJI path runs joint BA on GMS-filtered matches with
-    // homography-chain priors — there GMS+BA does measurably help because
-    // there's no zero-displacement consensus problem (frames are usually
-    // shot with deliberate displacement / parallax instead of high overlap
-    // around a fixed pivot).
+    // The earlier "gimbal-direct" path is preserved as a fallback when BA
+    // fails (e.g. all pairs have <8 inliers after gimbal filter).
     let has_all_gimbal = gimbal_priors.iter().all(|g| g.is_some());
-    let focal_prior = image_size.0.max(image_size.1) as f32;
+
+    // Derive the focal-pixel prior from EXIF when available.
+    //
+    // We use the median of the per-image EXIF focals — robust against any
+    // single-image read failure and against minor firmware-rounding jitter
+    // (DJI sometimes writes the 35 mm-equivalent focal as an integer that
+    // rounds to one of two values across a single panorama burst). When
+    // no EXIF focal is available for any image we fall back to the old
+    // image-dimension prior so synthetic / hand-cropped tests still work.
+    let exif_focals: Vec<f32> = focal_pixels_per_image
+        .iter()
+        .filter_map(|f| f.map(|x| x as f32))
+        .collect();
+    let focal_prior: f32 = if !exif_focals.is_empty() {
+        let mut sorted = exif_focals.clone();
+        sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let median = sorted[sorted.len() / 2];
+        eprintln!(
+            "pano-smoke: focal_prior={median:.1} px (median of {} EXIF reads; \
+             image_size hardcode would have been {:.1})",
+            exif_focals.len(),
+            image_size.0.max(image_size.1) as f32
+        );
+        median
+    } else {
+        let f = image_size.0.max(image_size.1) as f32;
+        eprintln!(
+            "pano-smoke: focal_prior={f:.1} px (no EXIF focal in any input — \
+             falling back to image_size.max)"
+        );
+        f
+    };
     let _ = min_pair_inliers; // surfaced via per-pair logs above; not used for routing
+
+    // Helper: compute relative gimbal rotation for camera `i` (cam 0 is the
+    // gauge — its rotation is identity).
+    let compute_relative_gimbal = |gimbal_priors: &[Option<(f32, f32, f32)>], i: usize| -> Option<nalgebra::Matrix3<f32>> {
+        let r0 = gimbal_priors[0].as_ref().map(|(y, p, r)| gimbal_to_rotation(*y, *p, *r))?;
+        let (y, p, r) = gimbal_priors[i]?;
+        let r_abs = gimbal_to_rotation(y, p, r);
+        Some(r0.transpose() * r_abs)
+    };
 
     let cameras: Vec<Camera> = if has_all_gimbal {
         eprintln!(
-            "pano-smoke: gimbal-direct camera poses (DJI input; BA-from-matches \
-             collapses on zero-displacement consensus — see source comment)"
+            "pano-smoke: BA-with-rotation-soft-prior (DJI input; \
+             λ_rot=33000 anchor on gimbal, focal anchor at EXIF prior)"
         );
 
-        let r0_raw = gimbal_priors[0]
-            .as_ref()
-            .map(|(y, p, r)| gimbal_to_rotation(*y, *p, *r))
-            .unwrap();
-        let r0_inv = r0_raw.transpose();
-
-        gimbal_priors
-            .iter()
-            .map(|g| {
-                let (yaw_deg, pitch_deg, roll_deg) = g.unwrap();
-                let r_abs = gimbal_to_rotation(yaw_deg, pitch_deg, roll_deg);
-                let r_rel = r0_inv * r_abs;
+        // Build per-camera priors from gimbal angles + EXIF focal.
+        let priors: Vec<Option<CameraPrior>> = (0..n)
+            .map(|i| {
+                let r_rel = compute_relative_gimbal(&gimbal_priors, i)?;
                 let omega = rodrigues_log(&r_rel.cast::<f64>());
                 let deg = omega.norm().to_degrees();
-                eprintln!("pano-smoke:   gimbal_cam omega_deg={deg:.1}  yaw={yaw_deg:.1}");
-                Camera {
-                    focal: focal_prior,
-                    rotation: r_rel,
-                    distortion: pano_core::types::Distortion::default(),
-                }
+                let focal_i = focal_pixels_per_image[i].unwrap_or(focal_prior);
+                eprintln!(
+                    "pano-smoke:   gimbal_prior[{i}] omega_deg={deg:.1}  focal={focal_i:.1}",
+                );
+                Some(CameraPrior {
+                    rotation: r_rel.cast::<f64>(),
+                    focal: focal_i,
+                })
             })
-            .collect()
+            .collect();
+
+        let ba_config = JointRotationFocalBA {
+            max_iters: 200,
+            step_tolerance: 1e-6,
+            // 1° rotation drift from prior contributes ~3.16 px-equivalent
+            // residual per axis (~30 px across 3 axes per camera). Strong
+            // enough to dominate any residual zero-displacement signal that
+            // slipped past the gimbal filter, weak enough to let cleanly
+            // matched features pull each rotation by ≪1° if they
+            // consistently disagree with the gimbal.
+            lambda_rotation: 33_000.0,
+            // Focal: keep within ~1% of prior. λ_f=10000 means a 1% drift
+            // adds ~10 px-equivalent residual per camera.
+            lambda_focal: 10_000.0,
+        };
+
+        let mut cams = match solve_joint_with_priors(
+            &all_features,
+            &pairs,
+            image_size,
+            Some(&priors),
+            &ba_config,
+        ) {
+            Ok(cams) => cams,
+            Err(e) => {
+                // BA failed (no usable correspondences). Fall back to
+                // gimbal-direct so the pipeline still produces output.
+                eprintln!(
+                    "pano-smoke: BA failed ({e}) — falling back to gimbal-direct"
+                );
+                priors
+                    .iter()
+                    .map(|p| {
+                        let prior = p.unwrap();
+                        Camera {
+                            focal: prior.focal,
+                            rotation: prior.rotation.cast::<f32>(),
+                            distortion: pano_core::types::Distortion::default(),
+                        }
+                    })
+                    .collect::<Vec<_>>()
+            }
+        };
+
+        // Attach per-image lens distortion (read from DNG WarpRectilinear).
+        // BA does not optimise distortion; the values come straight from
+        // the DNG's lens profile and are passed through to the warper.
+        for (i, cam) in cams.iter_mut().enumerate() {
+            if let Some((k1, k2)) = distortion_per_image[i] {
+                cam.distortion = pano_core::types::Distortion { k1, k2 };
+                eprintln!(
+                    "pano-smoke:   cam[{i}] distortion k1={k1:.4}  k2={k2:.4}",
+                );
+            }
+        }
+        cams
     } else {
         eprintln!("pano-smoke: GMS-filtered joint BA with homography-chain priors");
         let priors = compute_homography_chain_priors(&pairs, &all_features, n, image_size)?;
@@ -926,6 +1082,8 @@ fn stitch(inputs: &[PathBuf], output: &Path, _max_dim: u32, projection: Projecti
         let ba_config = JointRotationFocalBA {
             max_iters: 200,
             step_tolerance: 1e-6,
+            lambda_rotation: 0.0,
+            lambda_focal: 0.0,
         };
         solve_joint_with_priors(
             &all_features,

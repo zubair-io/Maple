@@ -23,6 +23,30 @@ use crate::types::{Camera, PanoImage, Projection};
 use crate::warp::cpu::CpuWarper;
 use crate::Warper;
 
+/// Forward radial distortion in normalised camera coordinates
+/// (one focal length per unit). Same Brown-Conrady model as the
+/// `undistort` helper in `warp/cpu.rs`:
+///
+/// ```text
+/// r' = r · (1 + k1·r² + k2·r⁴)
+/// ```
+///
+/// "Forward" here means: given an ideal (undistorted) normalised
+/// coordinate, return the distorted one — i.e. the position the lens
+/// actually projects to on the sensor. Used to sample the input image
+/// at the right place when back-projecting a canvas pixel.
+///
+/// Returns the input unchanged when both coefficients are zero.
+#[inline]
+fn forward_distort_xy(xn: f64, yn: f64, k1: f32, k2: f32) -> (f64, f64) {
+    if k1 == 0.0 && k2 == 0.0 {
+        return (xn, yn);
+    }
+    let r2 = xn * xn + yn * yn;
+    let factor = 1.0 + (k1 as f64) * r2 + (k2 as f64) * r2 * r2;
+    (xn * factor, yn * factor)
+}
+
 /// Output frame that one or more warped images composite into.
 #[derive(Debug, Clone)]
 pub struct Canvas {
@@ -517,10 +541,17 @@ fn warp_cylindrical_canvas(
                 continue;
             }
 
-            // Project into input image via K.
+            // Apply forward radial distortion in normalised coords —
+            // this places the back-projected ray where the real lens
+            // would have projected it on the sensor. Without this, we
+            // sample from the wrong pixel at the image periphery.
             let xn = cam_ray.x / cam_ray.z;
             let yn = cam_ray.y / cam_ray.z;
-            let p = k_in * Vector3::new(xn, yn, 1.0);
+            let (xn_d, yn_d) =
+                forward_distort_xy(xn, yn, cam.distortion.k1, cam.distortion.k2);
+
+            // Project into input image via K.
+            let p = k_in * Vector3::new(xn_d, yn_d, 1.0);
             let u = p.x as f32;
             let v = p.y as f32;
 
@@ -603,10 +634,16 @@ fn warp_spherical_canvas(
                 continue;
             }
 
-            // Project into input image via K.
+            // Apply forward radial distortion (Brown-Conrady k1, k2) so we
+            // sample the input at the correct sensor location. See the
+            // matching comment in warp_cylindrical_canvas.
             let xn = cam_ray.x / cam_ray.z;
             let yn = cam_ray.y / cam_ray.z;
-            let p = k_in * Vector3::new(xn, yn, 1.0);
+            let (xn_d, yn_d) =
+                forward_distort_xy(xn, yn, cam.distortion.k1, cam.distortion.k2);
+
+            // Project into input image via K.
+            let p = k_in * Vector3::new(xn_d, yn_d, 1.0);
             let u = p.x as f32;
             let v = p.y as f32;
 
