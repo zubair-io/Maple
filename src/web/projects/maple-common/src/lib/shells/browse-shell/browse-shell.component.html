@@ -64,12 +64,7 @@
           <app-error-banner [message]="err" (retry)="onRetryLoad()" />
         }
         @if (state.backendEmpty() && !state.backendLoading() && !state.backendError()) {
-          <app-error-banner
-            message="No folders indexed yet."
-            hintLabel="Configure folders in admin…"
-            hintHref="/api/indexer/status"
-            [showRetry]="false"
-          />
+          <app-library-picker (pick)="state.addLibraryFolder($event)" />
         }
       } @else {
         <app-drop-zone />
