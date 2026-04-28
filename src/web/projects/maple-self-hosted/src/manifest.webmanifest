@@ -1,6 +1,6 @@
 {
-  "name": "Maple Self Hosted",
-  "short_name": "Maple SH",
+  "name": "Maple",
+  "short_name": "Maple",
   "start_url": "/browse",
   "display": "standalone",
   "background_color": "#1c1917",
