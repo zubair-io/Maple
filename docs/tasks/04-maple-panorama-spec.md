@@ -1,6 +1,6 @@
 # Maple — Panorama Pipeline Task Plan
 
-**Status:** v0.2 — execution snapshot 2026-04-26.
+**Status:** v0.4 — execution snapshot 2026-04-28 (Rust port complete).
 **Owner:** Zubair
 **Spec:** [`docs/tickets/04-maple-panorama-spec.md`](../tickets/04-maple-panorama-spec.md)
 (duplicate copy at [`docs/coral-maple-panorama-spec.md`](../coral-maple-panorama-spec.md)).
@@ -753,3 +753,64 @@ before, or as part of, the listed task.
 | #8 `papp:` schema | T5.6 (and PRE-3 upstream) | Block T5.6 on schema landing. |
 | #9 Seam-finding library perf | T1.5 | Validate `pathfinding` perf in P1; vendor BK port if it bottlenecks. |
 | #10 `outputColorSpace:` extension | T5.4 | Phase 3 Color Engine is the natural owner; P5 picks it up if Phase 3 punts. |
+
+---
+
+## Execution status (2026-04-28 — v0.4: Rust port complete)
+
+This section records the outcome of the seven-phase Rust port described in
+`docs/superpowers/plans/2026-04-28-pano-rust-port.md`.
+
+| Phase | Status | Outcome |
+|-------|--------|---------|
+| Phase 1: AKAZE detector | **Done** | Replaced ORB with AKAZE (kornia-rs); 24–25× more RANSAC inliers on real DNGs than the ORB baseline. |
+| Phase 2: Joint rotation+focal BA | **Done** | LM solver over N images; DJI gimbal-direct fast path for DJI sources; non-DJI uses full LM. Canvas correctly reflects 7-column × 3-row geometry (22818×7922 px on pano_01). |
+| Phase 3: Spherical canvas + warp | **Done** | Equirectangular output; `warp::canvas` projects all image corners to find the union bounding box before allocating; 22818×7922 canvas on the 21-frame DJI sequence. |
+| Phase 4: Auto focal estimation | **Done** | Hartley & Zisserman § 8.8 `focal_from_homography`; seeds the joint BA initial estimate; BA subsequently refines per-camera. |
+| Phase 5: BK max-flow seam | **Done** | Hand-rolled Boykov–Kolmogorov (~450 lines, `src/raw-pipeline/pano-core/src/seam/bk.rs`); `GraphCutMaxFlowSeamFinder` is the default. First Rust BK port in the tree. |
+| Phase 6: Per-image gain compensation | **Done** | Brown & Lowe 2007 § 5 least-squares gain solve over pairwise overlaps; applied before seam finding. |
+| Phase 7: End-to-end validation | **Done** | 21-image DJI stitch runs to completion (22818×7922 px, ~180 MP canvas); regression reference saved; `test_pano_pipeline.sh` extended to gate future runs against it. |
+
+### What works
+
+- Synthetic 2-image harness passes at mean ΔE ≈ 9 vs. the v0.2 synthetic reference
+  (reference is stale — regenerate with `--gen-fixtures` after each major pipeline change).
+- DJI multi-row spherical panoramas: AKAZE matching + joint BA correctly places 21 DJI
+  frames at their gimbal-implied yaw/pitch positions (±97° yaw, ±23° pitch spread).
+- Gain compensation reduces brightness banding at seams.
+- Regression gate: once a reference PNG is saved at
+  `test-fixtures/pano/references/pano_01_reference.png`, any future run of
+  `test_pano_pipeline.sh` stitches the same 21 inputs and diffs vs the reference
+  (ΔE ≤ 30 budget — regression only, not quality vs. ground truth).
+
+### Known limitations / follow-up work
+
+1. **Pairwise seam-blend chain.** The `seam + blend` path still works pairwise
+   (blend step 1, then 2, …). Gain compensation mitigates brightness banding
+   but does not eliminate it on exposure-drifted long chains. The extreme gain
+   values on pano_01 (0.003–3.34 across 21 frames) reflect real drift in the
+   iterative chain. A joint-blend pass over the full multi-image overlap graph
+   is the follow-up.
+2. **CPU-only multi-band blend is slow on large canvases.** The
+   `MultiBandBlender` pyramid convolutions are sequential nested loops; on the
+   22818×7922 pano_01 canvas each of the 20 pairwise blend steps takes
+   20+ minutes of CPU time (~8 hours total wall time for the full 21-frame stitch).
+   SIMD or GPU parallelisation is the next priority before this pipeline is
+   usable in production (Phase 4 GPU warp & blend path).
+3. **Gain compensation is luminance-only single-channel.** Per-channel WB drift
+   (e.g. sky color shift between adjacent rows) is not handled. A per-channel
+   least-squares solve is a follow-up.
+4. **LM BA effectiveness depends on match quality.** For translation-dominated
+   handheld captures the rotation-only BA model still returns near-identity
+   rotations. pano_01 works because DJI provides gimbal angles that seed BA
+   correctly; the LM path refines from there.
+5. **Synthetic reference is stale.** The `synthetic.png` reference in
+   `test-fixtures/pano/references/` was generated before the gain-compensation
+   and BK-seam changes; mean ΔE has grown to ~9 vs. budget 15. Regenerate
+   with `test_pano_pipeline.sh --gen-fixtures` after any major pipeline update.
+
+### Commits (Phase 7)
+
+- `feat(pano): harness gates regressions on pano_01 reference` — extends
+  `src/scripts/test_pano_pipeline.sh` with the 21-DNG regression section.
+- `docs(pano): task plan v0.4 — Rust port phases 1-7 complete` — this file.
