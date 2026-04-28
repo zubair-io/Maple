@@ -33,6 +33,7 @@ import {
   revokeOne,
 } from "../auth/refresh_store.ts";
 import { requireAuth, requireOwner } from "../auth/middleware.ts";
+import { rateLimit } from "../auth/rate_limit.ts";
 
 function jwtSecret(): string {
   const s = process.env.MAPLE_JWT_SECRET;
@@ -52,7 +53,12 @@ export const authRoutes = new Elysia({ prefix: "/api/auth" })
   // ----- register/options -----
   .post(
     "/register/options",
-    async ({ body, set }) => {
+    async ({ body, set, request }) => {
+      const ip = (request.headers.get("x-forwarded-for") ?? request.headers.get("x-real-ip") ?? "anon")
+        .split(",")[0].trim();
+      if (!rateLimit(`auth:${ip}`, 10, 60_000)) {
+        set.status = 429; return { error: "rate limited" };
+      }
       const email = body.email.toLowerCase();
       const claimed = await isClaimed();
       if (claimed) {
@@ -173,7 +179,12 @@ export const authRoutes = new Elysia({ prefix: "/api/auth" })
   // ----- login/options -----
   .post(
     "/login/options",
-    async ({ body, set }) => {
+    async ({ body, set, request }) => {
+      const ip = (request.headers.get("x-forwarded-for") ?? request.headers.get("x-real-ip") ?? "anon")
+        .split(",")[0].trim();
+      if (!rateLimit(`auth:${ip}`, 10, 60_000)) {
+        set.status = 429; return { error: "rate limited" };
+      }
       const email = body.email.toLowerCase();
       const u = await (await usersCollection()).findOne({ email });
       if (!u) {
@@ -273,7 +284,12 @@ export const authRoutes = new Elysia({ prefix: "/api/auth" })
   // ----- refresh -----
   .post(
     "/refresh",
-    async ({ body, cookie, set }) => {
+    async ({ body, cookie, set, request }) => {
+      const ip = (request.headers.get("x-forwarded-for") ?? request.headers.get("x-real-ip") ?? "anon")
+        .split(",")[0].trim();
+      if (!rateLimit(`auth:${ip}`, 10, 60_000)) {
+        set.status = 429; return { error: "rate limited" };
+      }
       const cookieRaw = cookie.maple_refresh?.value as string | undefined;
       const raw: string | undefined = body.refresh_token ?? cookieRaw;
       if (!raw) {
