@@ -26,6 +26,7 @@ half = "2"
 png.workspace = true
 clap.workspace = true
 image.workspace = true
+tempfile = "3"
 
 [dependencies.ort]
 # v2 is still in release-candidate at the time of writing — pin the rc track.

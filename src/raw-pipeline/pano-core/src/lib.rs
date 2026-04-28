@@ -6,6 +6,7 @@
 #![forbid(unsafe_code)]
 
 pub mod ba;
+pub mod backends;
 pub mod blend;
 pub mod color;
 pub mod error;
