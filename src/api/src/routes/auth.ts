@@ -1,59 +1,150 @@
 /**
- * WebAuthn / passkey auth scaffold — Phase 5 deferral.
+ * WebAuthn / passkey auth routes.
  *
- * Per spec § 00 "Phase 5": authentication is deferred. These routes exist
- * but enforce nothing. A future phase will complete the implementation.
- *
- * Routes:
- *   POST /api/auth/register — initiate WebAuthn registration
- *   POST /api/auth/verify   — verify WebAuthn assertion
- *   GET  /api/auth/status   — returns { authenticated: true } always (no enforcement)
+ * Phase A: bootstrap probe + registration (claim path / invited member path).
+ * Tasks A8/A9/A10 will append login/refresh/logout, credential management,
+ * and invite endpoints to this same chain.
  */
 
 import { Elysia, t } from "elysia";
+import {
+  usersCollection,
+  credentialsCollection,
+  invitesCollection,
+} from "../db/client.ts";
+import {
+  buildRegistrationOptions,
+  verifyRegistration,
+  consumeChallenge,
+} from "../auth/webauthn.ts";
+import { redeemInvite } from "../auth/invites.ts";
+import { signAccessToken } from "../auth/tokens.ts";
+import { issueRefreshToken } from "../auth/refresh_store.ts";
 
-const PHASE5_NOTE =
-  "WebAuthn auth is deferred to Phase 5 (spec § 00). " +
-  "No enforcement is active in this build.";
+function jwtSecret(): string {
+  const s = process.env.MAPLE_JWT_SECRET;
+  if (!s || s.length < 16) throw new Error("MAPLE_JWT_SECRET unset or too short");
+  return s;
+}
+
+async function isClaimed(): Promise<boolean> {
+  const u = await usersCollection();
+  return (await u.countDocuments({}, { limit: 1 })) > 0;
+}
 
 export const authRoutes = new Elysia({ prefix: "/api/auth" })
-  // Registration challenge
+  // ----- bootstrap -----
+  .get("/bootstrap", async () => ({ claimed: await isClaimed() }))
+
+  // ----- register/options -----
   .post(
-    "/register",
+    "/register/options",
     async ({ body, set }) => {
-      // TODO (Phase 5): generate WebAuthn registration challenge,
-      // store pending challenge in session, return PublicKeyCredentialCreationOptions.
-      console.info("[auth] /register called (no-op — Phase 5 deferred)");
-      set.status = 501;
+      const email = body.email.toLowerCase();
+      const claimed = await isClaimed();
+      if (claimed) {
+        if (!body.invite_code) {
+          set.status = 403;
+          return { error: "invite required" };
+        }
+        // Peek at invite without consuming (consumed on verify).
+        const inv = await (await invitesCollection()).findOne({ code: body.invite_code });
+        if (!inv || inv.consumed_at || inv.expires_at.getTime() < Date.now()) {
+          set.status = 410;
+          return { error: "invite invalid" };
+        }
+        if (inv.email !== email) {
+          set.status = 410;
+          return { error: "invite/email mismatch" };
+        }
+      }
+      return buildRegistrationOptions({
+        email,
+        inviteCode: body.invite_code ?? null,
+        existingUserId: null,
+        excludeCredentialIds: [],
+      });
+    },
+    {
+      body: t.Object({
+        email: t.String({ format: "email" }),
+        invite_code: t.Optional(t.String()),
+      }),
+    }
+  )
+
+  // ----- register/verify -----
+  .post(
+    "/register/verify",
+    async ({ body, set }) => {
+      const email = body.email.toLowerCase();
+      const clientChallenge = body.credential?.response?.clientDataJSON
+        ? JSON.parse(
+            Buffer.from(body.credential.response.clientDataJSON, "base64url").toString()
+          ).challenge
+        : "";
+      const challengeRow = await consumeChallenge(clientChallenge);
+      if (challengeRow.purpose !== "register" || challengeRow.email !== email) {
+        set.status = 400;
+        return { error: "challenge mismatch" };
+      }
+      const verification = await verifyRegistration({
+        response: body.credential,
+        expectedChallenge: challengeRow.challenge,
+      });
+      if (!verification.verified || !verification.registrationInfo) {
+        set.status = 400;
+        return { error: "verification failed" };
+      }
+
+      const claimed = await isClaimed();
+      if (claimed) {
+        if (!challengeRow.invite_code) {
+          set.status = 403;
+          return { error: "invite required" };
+        }
+        await redeemInvite(challengeRow.invite_code, email);
+      }
+
+      const role: "owner" | "member" = claimed ? "member" : "owner";
+      const u = await usersCollection();
+      const userIns = await u.insertOne({
+        email,
+        role,
+        created_at: new Date().toISOString(),
+        last_seen_at: new Date().toISOString(),
+      });
+
+      const reg = verification.registrationInfo;
+      const c = await credentialsCollection();
+      await c.insertOne({
+        user_id: userIns.insertedId,
+        credential_id: reg.credential.id,
+        public_key: Buffer.from(reg.credential.publicKey),
+        counter: reg.credential.counter,
+        transports: (body.credential.response?.transports ?? []) as string[],
+        device_label: body.device_label,
+        created_at: new Date().toISOString(),
+        last_used_at: new Date().toISOString(),
+      });
+
+      const access_token = signAccessToken(
+        { sub: userIns.insertedId.toHexString(), email, role },
+        jwtSecret()
+      );
+      const refresh = await issueRefreshToken(userIns.insertedId, body.device_label);
       return {
-        error: "Not implemented",
-        note: PHASE5_NOTE,
-        email: body.email,
+        access_token,
+        refresh_token: refresh.raw,
+        user: { id: userIns.insertedId.toHexString(), email, role },
       };
     },
     {
       body: t.Object({
         email: t.String({ format: "email" }),
+        invite_code: t.Optional(t.String()),
+        device_label: t.String({ minLength: 1, maxLength: 64 }),
+        credential: t.Any(),
       }),
     }
-  )
-
-  // Assertion verification
-  .post(
-    "/verify",
-    async ({ set }) => {
-      // TODO (Phase 5): verify WebAuthn assertion, set session cookie.
-      console.info("[auth] /verify called (no-op — Phase 5 deferred)");
-      set.status = 501;
-      return {
-        error: "Not implemented",
-        note: PHASE5_NOTE,
-      };
-    }
-  )
-
-  // Auth status (always authenticated in this build — no enforcement)
-  .get("/status", () => ({
-    authenticated: true,
-    note: PHASE5_NOTE,
-  }));
+  );
