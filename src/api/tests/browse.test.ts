@@ -5,9 +5,12 @@ import * as fs from "node:fs/promises";
 
 describe("listDir", () => {
   let tmpRoot: string;
+  let realTmpRoot: string;
 
   beforeAll(async () => {
     tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "maple-browse-"));
+    // Resolve symlinks so assertions match the realpath form returned by listDir.
+    realTmpRoot = await fs.realpath(tmpRoot);
     await fs.mkdir(path.join(tmpRoot, "photos"));
     await fs.mkdir(path.join(tmpRoot, "docs"));
     await fs.writeFile(path.join(tmpRoot, "readme.txt"), "x");
@@ -25,7 +28,7 @@ describe("listDir", () => {
     delete process.env.MAPLE_ROOTS;
 
     expect(res.ok).toBe(true);
-    expect(res.data!.path).toBe(tmpRoot);
+    expect(res.data!.path).toBe(realTmpRoot);
     const names = res.data!.entries.map((e) => e.name).sort();
     expect(names).toEqual(["docs", "photos"]); // hidden + non-dirs filtered
   });
@@ -74,7 +77,7 @@ describe("listDir", () => {
     delete process.env.MAPLE_ROOTS;
     const res = await listDir(tmpRoot, false);
     expect(res.ok).toBe(true);
-    expect(res.data!.parent).toBe(path.dirname(tmpRoot));
+    expect(res.data!.parent).toBe(path.dirname(realTmpRoot));
   });
 
   it("returns null parent for filesystem root", async () => {
