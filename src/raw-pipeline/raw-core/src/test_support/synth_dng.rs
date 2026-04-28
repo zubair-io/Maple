@@ -1,5 +1,202 @@
 //! Synthetic Bayer DNG writer — see Task 2 onward.
 
+use crate::color::illuminant::Illuminant;
+use crate::image::CfaPattern;
+use std::io;
+use std::path::Path;
+
+// DNG-specific TIFF tag IDs. Subset of what raw-core's decoder reads.
+const TAG_NEW_SUBFILE_TYPE:        u16 = 254;
+const TAG_IMAGE_WIDTH:             u16 = 256;
+const TAG_IMAGE_LENGTH:            u16 = 257;
+const TAG_BITS_PER_SAMPLE:         u16 = 258;
+const TAG_COMPRESSION:             u16 = 259;
+const TAG_PHOTOMETRIC:             u16 = 262;
+const TAG_STRIP_OFFSETS:           u16 = 273;
+const TAG_SAMPLES_PER_PIXEL:       u16 = 277;
+const TAG_ROWS_PER_STRIP:          u16 = 278;
+const TAG_STRIP_BYTE_COUNTS:       u16 = 279;
+const TAG_PLANAR_CONFIG:           u16 = 284;
+const TAG_CFA_REPEAT_PATTERN_DIM:  u16 = 33421;
+const TAG_CFA_PATTERN:             u16 = 33422;
+const TAG_DNG_VERSION:             u16 = 50706;
+const TAG_DNG_BACKWARD_VERSION:    u16 = 50707;
+const TAG_UNIQUE_CAMERA_MODEL:     u16 = 50708;
+const TAG_BLACK_LEVEL:             u16 = 50714;
+const TAG_WHITE_LEVEL:             u16 = 50717;
+const TAG_COLOR_MATRIX_1:          u16 = 50721;
+const TAG_CAMERA_CALIBRATION_1:    u16 = 50723;
+const TAG_ANALOG_BALANCE:          u16 = 50727;
+const TAG_AS_SHOT_NEUTRAL:         u16 = 50728;
+const TAG_BASELINE_EXPOSURE:       u16 = 50730;
+const TAG_CALIBRATION_ILLUMINANT_1:u16 = 50778;
+
+// CFA-photometric value
+const PHOTOMETRIC_CFA: u16 = 32803;
+
+// Illuminant code: 21 = D65 per EXIF spec.
+const CALIBRATION_ILLUMINANT_D65: u16 = 21;
+
+/// Synthesised Bayer DNG with a flat scene-linear neutral patch. See spec
+/// `docs/superpowers/specs/2026-04-28-synthetic-grey-dng-design.md`.
+#[derive(Clone, Debug)]
+pub struct SyntheticGreyDng {
+    /// Scene-linear neutral target after black subtract + WB. Range 0.0-1.0.
+    pub linear_value: f32,
+    pub width: u32,
+    pub height: u32,
+    pub cfa: CfaPattern,
+    pub illuminant: Illuminant,
+}
+
+impl Default for SyntheticGreyDng {
+    fn default() -> Self {
+        Self {
+            linear_value: 0.18,
+            width: 64,
+            height: 64,
+            cfa: CfaPattern::Rggb,
+            illuminant: Illuminant::D65,
+        }
+    }
+}
+
+impl SyntheticGreyDng {
+    pub fn write_to(&self, path: &Path) -> io::Result<()> {
+        std::fs::write(path, self.write_to_bytes())
+    }
+
+    pub fn write_to_bytes(&self) -> Vec<u8> {
+        // Layout:
+        //   [TIFF header 8 bytes]
+        //   [IFD0 directory + overflow data]
+        //   [pixel strip]
+        //
+        // We assemble the IFD into a probe buffer first to learn its size,
+        // then re-serialise with the real strip offset and pad pixels last.
+
+        let header_size: u32 = 8;
+        let ifd0_offset = header_size;
+        let strip_byte_count = (self.width as usize) * (self.height as usize) * 2;
+
+        // First pass: build with a dummy strip offset to learn IFD size.
+        let probe_ifd = self.build_ifd0(/*strip_offset*/ 0);
+        let mut probe_buf = Vec::new();
+        probe_ifd.serialise_into(&mut probe_buf, ifd0_offset);
+        let ifd_size = probe_buf.len() as u32;
+
+        // Real strip offset = after header + IFD.
+        let strip_offset = ifd0_offset + ifd_size;
+
+        // Second pass: real IFD with correct strip offset.
+        let real_ifd = self.build_ifd0(strip_offset);
+        let mut buf: Vec<u8> = Vec::with_capacity(
+            (header_size as usize) + (ifd_size as usize) + strip_byte_count,
+        );
+
+        // Header
+        buf.extend_from_slice(b"II");                  // little-endian
+        write_u16_le(&mut buf, 0x002A);                // TIFF magic
+        write_u32_le(&mut buf, ifd0_offset);
+
+        // IFD0 directory + overflow
+        real_ifd.serialise_into(&mut buf, ifd0_offset);
+
+        // Pixel strip
+        let strip = self.build_strip();
+        buf.extend_from_slice(&strip);
+
+        buf
+    }
+
+    fn build_ifd0(&self, strip_offset: u32) -> Ifd {
+        let strip_byte_count = (self.width as u32) * (self.height as u32) * 2;
+
+        let mut ifd = Ifd::new();
+        ifd.add_long(TAG_NEW_SUBFILE_TYPE, 0);
+        ifd.add_long(TAG_IMAGE_WIDTH, self.width);
+        ifd.add_long(TAG_IMAGE_LENGTH, self.height);
+        ifd.add_short(TAG_BITS_PER_SAMPLE, 16);
+        ifd.add_short(TAG_COMPRESSION, 1);            // uncompressed
+        ifd.add_short(TAG_PHOTOMETRIC, PHOTOMETRIC_CFA);
+        ifd.add_long(TAG_STRIP_OFFSETS, strip_offset);
+        ifd.add_short(TAG_SAMPLES_PER_PIXEL, 1);
+        ifd.add_long(TAG_ROWS_PER_STRIP, self.height);
+        ifd.add_long(TAG_STRIP_BYTE_COUNTS, strip_byte_count);
+        ifd.add_short(TAG_PLANAR_CONFIG, 1);          // chunky
+
+        // CFA: 2x2 pattern, RGGB bytes
+        ifd.add_shorts(TAG_CFA_REPEAT_PATTERN_DIM, vec![2, 2]);
+        ifd.add_bytes(TAG_CFA_PATTERN, self.cfa_pattern_bytes());
+
+        // DNG identity
+        ifd.add_bytes(TAG_DNG_VERSION,           vec![1, 4, 0, 0]);
+        ifd.add_bytes(TAG_DNG_BACKWARD_VERSION,  vec![1, 0, 0, 0]);
+        ifd.add_ascii(TAG_UNIQUE_CAMERA_MODEL,   "Maple Synthetic");
+
+        // Linearisation
+        ifd.add_short(TAG_BLACK_LEVEL, 0);
+        ifd.add_short(TAG_WHITE_LEVEL, 65535);
+
+        // Color: identity matrices, AsShotNeutral = (0.5, 1.0, 0.5)
+        ifd.add_srationals(TAG_COLOR_MATRIX_1,
+            vec![(1, 1), (0, 1), (0, 1),
+                 (0, 1), (1, 1), (0, 1),
+                 (0, 1), (0, 1), (1, 1)]);
+        ifd.add_srationals(TAG_CAMERA_CALIBRATION_1,
+            vec![(1, 1), (0, 1), (0, 1),
+                 (0, 1), (1, 1), (0, 1),
+                 (0, 1), (0, 1), (1, 1)]);
+        ifd.add_rationals(TAG_ANALOG_BALANCE, vec![(1, 1), (1, 1), (1, 1)]);
+        ifd.add_rationals(TAG_AS_SHOT_NEUTRAL,
+            vec![(1, 2), (1, 1), (1, 2)]);   // 0.5, 1.0, 0.5
+        ifd.add_srationals(TAG_BASELINE_EXPOSURE, vec![(0, 1)]);
+        ifd.add_short(TAG_CALIBRATION_ILLUMINANT_1, CALIBRATION_ILLUMINANT_D65);
+
+        ifd
+    }
+
+    fn build_strip(&self) -> Vec<u8> {
+        let (raw_r, raw_g, raw_b) = compute_raw_values(
+            self.linear_value, self.as_shot_neutral_array(), 0, 65535,
+        );
+        let n = (self.width as usize) * (self.height as usize);
+        let mut buf = Vec::with_capacity(n * 2);
+        // Walk row-major, emit 16-bit LE per CFA position.
+        for y in 0..self.height {
+            for x in 0..self.width {
+                let v = match self.cfa.color_at(x, y) {
+                    0 => raw_r,
+                    1 => raw_g,
+                    2 => raw_b,
+                    _ => unreachable!(),
+                };
+                write_u16_le(&mut buf, v);
+            }
+        }
+        buf
+    }
+
+    fn cfa_pattern_bytes(&self) -> Vec<u8> {
+        // 4 bytes for 2x2 pattern, 0=R, 1=G, 2=B
+        match self.cfa {
+            CfaPattern::Rggb => vec![0, 1, 1, 2],
+            CfaPattern::Bggr => vec![2, 1, 1, 0],
+            CfaPattern::Grbg => vec![1, 0, 2, 1],
+            CfaPattern::Gbrg => vec![1, 2, 0, 1],
+            CfaPattern::LinearRgb => panic!(
+                "SyntheticGreyDng with CfaPattern::LinearRgb is unsupported \
+                 — synthesise a Bayer pattern (Rggb/Bggr/Grbg/Gbrg) instead"),
+        }
+    }
+
+    fn as_shot_neutral_array(&self) -> [f32; 3] {
+        // Fixed daylight balance baked into AsShotNeutral. Future variants
+        // could vary this with `self.illuminant`.
+        [0.5, 1.0, 0.5]
+    }
+}
+
 const TYPE_BYTE: u16 = 1;
 const TYPE_ASCII: u16 = 2;
 const TYPE_SHORT: u16 = 3;
@@ -301,5 +498,31 @@ mod tests {
         // file_offset + 2 + 12 + 4 = 118.
         let expected_overflow_offset: u32 = file_offset + 2 + 12 + 4;
         assert_eq!(&buf[10..14], &expected_overflow_offset.to_le_bytes());
+    }
+
+    #[test]
+    fn write_to_bytes_emits_tiff_magic() {
+        let dng = SyntheticGreyDng::default();
+        let bytes = dng.write_to_bytes();
+        // TIFF II (little-endian) header: 0x49 0x49 0x2A 0x00
+        assert_eq!(&bytes[0..4], &[0x49, 0x49, 0x2A, 0x00]);
+        // IFD0 offset is at bytes 4..8, must be >= 8.
+        let ifd0 = u32::from_le_bytes(bytes[4..8].try_into().unwrap());
+        assert!(ifd0 >= 8, "IFD0 offset {} must be >= 8", ifd0);
+    }
+
+    #[test]
+    fn write_to_bytes_pixel_buffer_size_matches_dimensions() {
+        let dng = SyntheticGreyDng {
+            width: 32,
+            height: 32,
+            ..Default::default()
+        };
+        let bytes = dng.write_to_bytes();
+        // Pixel buffer = width * height * 2 bytes (16-bit). Total file
+        // size must include header (8) + IFD + overflow + pixels.
+        let pixel_bytes = 32 * 32 * 2;
+        assert!(bytes.len() >= 8 + pixel_bytes,
+            "file size {} too small for {} pixel bytes", bytes.len(), pixel_bytes);
     }
 }
