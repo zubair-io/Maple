@@ -523,60 +523,11 @@ fn gen_fixtures(dir: &Path) -> Result<(), String> {
 // ---------------------------------------------------------------------------
 // Stitching pipeline
 // ---------------------------------------------------------------------------
-
-/// Place two `PanoImage`s (assumed to be the same size for the MVP) onto a
-/// shared canvas.  For the 2-image case this is identity — the warper already
-/// produces same-size output.  Returns (canvas_width, canvas_height).
-fn compute_canvas_size(images: &[&PanoImage]) -> (u32, u32) {
-    let w = images.iter().map(|i| i.width).max().unwrap_or(0);
-    let h = images.iter().map(|i| i.height).max().unwrap_or(0);
-    (w, h)
-}
-
-/// Warp an image onto a canvas of the given size.
-///
-/// For the identity camera (rotation = I), the image sits at its original
-/// position.  The output canvas is padded with invalid pixels outside the
-/// warped footprint.
-fn warp_to_canvas(
-    warper: &CpuWarper,
-    img: &PanoImage,
-    cam: &Camera,
-    canvas_w: u32,
-    canvas_h: u32,
-) -> Result<PanoImage, String> {
-    // The warper produces same-size output.  If the canvas is larger, we'd need
-    // to composite — for the MVP, canvas == input size, so this is a simple warp.
-    let warped = warper
-        .warp(img, cam, Projection::Rectilinear)
-        .map_err(|e| format!("warp failed: {e}"))?;
-
-    // If the canvas is the same size as the warped output, we're done.
-    if warped.width == canvas_w && warped.height == canvas_h {
-        return Ok(warped);
-    }
-
-    // Otherwise, embed into canvas (zero-pad).
-    let mut canvas = PanoImage::new(canvas_w, canvas_h, img.color);
-    for i in 0..(canvas_w as usize * canvas_h as usize) {
-        canvas.validity.set(i, false);
-    }
-    let copy_w = warped.width.min(canvas_w) as usize;
-    let copy_h = warped.height.min(canvas_h) as usize;
-    for y in 0..copy_h {
-        for x in 0..copy_w {
-            let si = y * (warped.width as usize) + x;
-            let di = y * (canvas_w as usize) + x;
-            canvas.pixels[di * 3] = warped.pixels[si * 3];
-            canvas.pixels[di * 3 + 1] = warped.pixels[si * 3 + 1];
-            canvas.pixels[di * 3 + 2] = warped.pixels[si * 3 + 2];
-            if warped.validity[si] {
-                canvas.validity.set(di, true);
-            }
-        }
-    }
-    Ok(canvas)
-}
+//
+// Canvas computation + canvas-aware warping live in
+// `pano_core::warp::canvas` — the previous local helpers
+// `compute_canvas_size` / `warp_to_canvas` returned single-image-sized
+// canvases and silently clipped any non-identity rotation.
 
 fn stitch(inputs: &[PathBuf], output: &Path, _max_dim: u32) -> Result<(), String> {
     if inputs.len() < 2 {
@@ -758,10 +709,23 @@ fn stitch_pair(img_a: PanoImage, img_b: PanoImage, step: usize) -> Result<PanoIm
     // --- 6. Warp -----------------------------------------------------------
     eprintln!("pano-smoke: warping images");
     let warper = CpuWarper::new();
-    let (canvas_w, canvas_h) = compute_canvas_size(&[&img_a, &img_b]);
 
-    let warped_a = warp_to_canvas(&warper, &img_a, &cameras[0], canvas_w, canvas_h)?;
-    let warped_b = warp_to_canvas(&warper, &img_b, &cameras[1], canvas_w, canvas_h)?;
+    // Cylindrical canvas sized to the union of both images' projected
+    // footprints — see pano-core::warp::canvas. The previous
+    // compute_canvas_size returned max(input dims) and silently clipped
+    // any pixel pushed outside the input bbox by a non-identity rotation.
+    let canvas =
+        pano_core::warp::compute_canvas(&[&img_a, &img_b], &cameras, Projection::Cylindrical)
+            .map_err(|e| format!("compute_canvas failed: {e}"))?;
+    eprintln!(
+        "pano-smoke:   canvas {}×{} (cylindrical)",
+        canvas.width, canvas.height
+    );
+
+    let warped_a = pano_core::warp::warp_image_to_canvas(&warper, &img_a, &cameras[0], &canvas)
+        .map_err(|e| format!("warp A failed: {e}"))?;
+    let warped_b = pano_core::warp::warp_image_to_canvas(&warper, &img_b, &cameras[1], &canvas)
+        .map_err(|e| format!("warp B failed: {e}"))?;
 
     // Count valid pixels for diagnostic output.
     let valid_a = warped_a.validity.count_ones();

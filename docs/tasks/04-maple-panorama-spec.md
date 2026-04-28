@@ -68,6 +68,28 @@
    downward. Production needs joint BA across all images + single
    warp+blend pass. Without this, even with the canvas fix, long
    chains will drift. P2 follow-up.
+10. **Canvas-aware warping landed (`pano-core::warp::canvas`).**
+    Computes the union bounding box of all images' projected
+    footprints on the chosen surface (cylindrical primary,
+    rectilinear/spherical pass-through), allocates a canvas at
+    that size, warps each image into the canvas at its projected
+    position. Auto-fallback to Rectilinear+input-size when every
+    camera is near-identity (preserves the synthetic harness's
+    bit-aligned passthrough). Used by `pano-smoke` for the per-pair
+    warp.
+11. **BA rotation-only model fails on translation-dominated
+    handheld panoramas.** Real consecutive PANO shots are usually
+    related by **camera translation** (sideways drift), not by
+    pivot-in-place rotation around the optical center. Our
+    `solve_with_keypoints` decomposes pairwise homography as
+    `H ≈ K · R · K^-1` and recovers identity rotations for
+    translation-dominated input — that's why `pano_01`'s 21
+    images, despite 96–100% RANSAC inlier rates per pair, all
+    composite into a single-image-sized canvas (BA thinks they're
+    the same shot). Proper fix: drop the rotation-only assumption
+    and let BA optimise general projective transforms (or
+    use translation-aware essential-matrix decomposition).
+    Tracked as the highest-impact P2 follow-up after joint BA.
 
 This document is the **work-breakdown** for the panorama pipeline spec. It is
 not a redesign — see the spec for architecture, dependencies, FFI shape,
