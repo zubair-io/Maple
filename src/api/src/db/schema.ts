@@ -5,7 +5,7 @@
  *   - folders   : registered library roots
  *   - assets    : per-file metadata index (non-authoritative; sidecars are truth)
  *   - indexer_queue : pending background tasks
- *   - users     : Phase 5 auth (scaffolded only)
+ *   - users, credentials, invites, refresh_tokens, challenges : auth (Phase A)
  */
 
 import type { ObjectId, WithId } from "mongodb";
@@ -115,7 +115,7 @@ export interface InviteDoc {
   code: string;              // 8-char base32, unique
   email: string;             // lowercased
   invited_by: ObjectId;
-  expires_at: Date;          // TTL
+  expires_at: Date;          // TTL — MUST be a Date (TTL monitor ignores ISO strings)
   consumed_at: string | null;
 }
 export type InviteWithId = WithId<InviteDoc>;
@@ -128,7 +128,7 @@ export interface RefreshTokenDoc {
   user_id: ObjectId;
   token_hash: string;        // sha256(raw)
   issued_at: string;
-  expires_at: Date;          // TTL
+  expires_at: Date;          // TTL — MUST be a Date (TTL monitor ignores ISO strings)
   revoked_at: string | null;
   replaced_by: ObjectId | null;
   device_label: string;
@@ -147,6 +147,6 @@ export interface ChallengeDoc {
   user_id: ObjectId | null;
   email: string | null;
   invite_code: string | null;
-  expires_at: Date;          // TTL
+  expires_at: Date;          // TTL — MUST be a Date (TTL monitor ignores ISO strings)
 }
 export type ChallengeWithId = WithId<ChallengeDoc>;

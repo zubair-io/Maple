@@ -122,6 +122,10 @@ export async function ensureIndexes(): Promise<void> {
   await db.collection("indexer_queue").createIndex({ status: 1 });
 
   const users = await usersCollection();
+  try { await users.dropIndex("email_1"); }
+  catch (err) {
+    if (!(err instanceof Error) || !/IndexNotFound|index not found/i.test(err.message)) throw err;
+  }
   await users.createIndex({ email: 1 }, { unique: true, collation: { locale: "en", strength: 2 } });
 
   const creds = await credentialsCollection();
