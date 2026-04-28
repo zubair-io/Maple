@@ -46,11 +46,15 @@ use std::path::{Path, PathBuf};
 
 use clap::Parser;
 use pano_core::{
-    ba::{homography::ransac_homography, lm::solve_with_keypoints},
+    ba::{
+        homography::{ransac_homography, rotation_from_homography},
+        joint::{rodrigues_log, solve_joint_with_priors, CameraPrior, JointRotationFocalBA},
+        lm::solve_with_keypoints,
+    },
     features::akaze::AkazeDetector,
     matching::BruteForceMatcher,
-    types::{Camera, PanoImage},
-    Blender, ColorSpace, CpuWarper, FeatureDetector, FeatureMatcher, GraphCutSeamFinder, Matches,
+    types::{Camera, Features, Matches, PanoImage},
+    Blender, ColorSpace, CpuWarper, FeatureDetector, FeatureMatcher, GraphCutSeamFinder,
     Projection, SeamFinder, Warper,
 };
 use raw_core::color::matrices::M_REC2020_TO_SRGB;
@@ -529,6 +533,130 @@ fn gen_fixtures(dir: &Path) -> Result<(), String> {
 // `compute_canvas_size` / `warp_to_canvas` returned single-image-sized
 // canvases and silently clipped any non-identity rotation.
 
+/// Convert DJI gimbal Euler angles (yaw, pitch, roll in degrees) to a
+/// rotation matrix representing the camera's pose in the world frame.
+///
+/// DJI convention (drone-body frame):
+/// - Yaw: rotation around Y axis (up), positive = clockwise viewed from above
+/// - Pitch: rotation around X axis, positive = nose up
+/// - Roll: rotation around Z axis, positive = right wing up
+///
+/// We use the aerospace ZYX convention: R = Ryaw * Rpitch * Rroll.
+/// Camera 0 is the gauge fix — BA normalises relative to it.
+fn gimbal_to_rotation(yaw_deg: f32, pitch_deg: f32, roll_deg: f32) -> nalgebra::Matrix3<f32> {
+    let yaw = (yaw_deg as f64).to_radians();
+    let pitch = (pitch_deg as f64).to_radians();
+    let roll = (roll_deg as f64).to_radians();
+
+    // Ry (yaw about Y axis — horizontal pan)
+    let ry = nalgebra::Matrix3::new(
+        yaw.cos(),  0.0, yaw.sin(),
+        0.0,        1.0, 0.0,
+       -yaw.sin(),  0.0, yaw.cos(),
+    );
+    // Rx (pitch about X axis — tilt)
+    let rx = nalgebra::Matrix3::new(
+        1.0, 0.0,          0.0,
+        0.0, pitch.cos(), -pitch.sin(),
+        0.0, pitch.sin(),  pitch.cos(),
+    );
+    // Rz (roll about Z axis)
+    let rz = nalgebra::Matrix3::new(
+        roll.cos(), -roll.sin(), 0.0,
+        roll.sin(),  roll.cos(), 0.0,
+        0.0,         0.0,        1.0,
+    );
+    (ry * rx * rz).cast::<f32>()
+}
+
+/// Build per-camera rotation priors by BFS over pairwise homographies.
+///
+/// For each pair (i, j) with inlier matches, fits a homography and extracts
+/// the rotation. Then chains via BFS from camera 0 to get absolute rotations
+/// for all cameras. Used to initialise joint BA before LM refinement.
+fn compute_homography_chain_priors(
+    pairs: &[(usize, usize, Matches)],
+    features: &[Features],
+    n_cams: usize,
+    image_size: (u32, u32),
+) -> Result<Vec<Option<CameraPrior>>, String> {
+    use std::collections::VecDeque;
+
+    let focal_d = image_size.0.max(image_size.1) as f64;
+    let (img_w, img_h) = (image_size.0 as f64, image_size.1 as f64);
+
+    // Edge: (cam_i, cam_j, inlier_count, rotation i→j)
+    struct Edge {
+        a: usize,
+        b: usize,
+        weight: i64,
+        rotation: nalgebra::Matrix3<f64>,
+    }
+
+    let mut edges: Vec<Edge> = Vec::new();
+
+    for (ci, cj, matches) in pairs {
+        if matches.inliers.len() < 4 {
+            continue;
+        }
+        let kps_i = &features[*ci].keypoints;
+        let kps_j = &features[*cj].keypoints;
+
+        let ransac_result = ransac_homography(kps_i, kps_j, &matches.inliers, 5.0, 500, 42);
+        let rotation = if let Some((h, _)) = ransac_result {
+            rotation_from_homography(&h, focal_d, img_w, img_h)
+        } else {
+            nalgebra::Matrix3::identity()
+        };
+
+        edges.push(Edge {
+            a: *ci,
+            b: *cj,
+            weight: -(matches.inliers.len() as i64),
+            rotation,
+        });
+    }
+
+    // MST via Kruskal (pathfinding crate is not available in pano-smoke directly,
+    // so use a simple union-find approach for a spanning tree).
+    // Since pairs are consecutive (0,1),(1,2),...,(N-2,N-1), the MST is just
+    // the chain itself — no MST needed.
+    // Build adjacency list from all edges.
+    let mut adj: Vec<Vec<(usize, nalgebra::Matrix3<f64>)>> = vec![Vec::new(); n_cams];
+    for edge in &edges {
+        adj[edge.a].push((edge.b, edge.rotation));
+        adj[edge.b].push((edge.a, edge.rotation.transpose()));
+    }
+
+    // BFS from camera 0.
+    let mut rotations: Vec<nalgebra::Matrix3<f64>> = vec![nalgebra::Matrix3::identity(); n_cams];
+    let mut visited = vec![false; n_cams];
+    visited[0] = true;
+    let mut queue: VecDeque<usize> = VecDeque::new();
+    queue.push_back(0);
+    while let Some(cur) = queue.pop_front() {
+        for &(nbr, r_edge) in &adj[cur] {
+            if !visited[nbr] {
+                visited[nbr] = true;
+                rotations[nbr] = rotations[cur] * r_edge;
+                queue.push_back(nbr);
+            }
+        }
+    }
+
+    let priors: Vec<Option<CameraPrior>> = rotations
+        .iter()
+        .map(|r| {
+            Some(CameraPrior {
+                rotation: r.cast::<f64>(),
+                focal: focal_d as f32,
+            })
+        })
+        .collect();
+
+    Ok(priors)
+}
+
 fn stitch(inputs: &[PathBuf], output: &Path, _max_dim: u32) -> Result<(), String> {
     if inputs.len() < 2 {
         return Err(format!(
@@ -537,51 +665,234 @@ fn stitch(inputs: &[PathBuf], output: &Path, _max_dim: u32) -> Result<(), String
         ));
     }
 
-    // --- 1. Load images ----------------------------------------------------
-    eprintln!("pano-smoke: loading {} images", inputs.len());
-    let mut pano_images: Vec<PanoImage> = inputs
-        .iter()
-        .map(|p| {
-            eprintln!("pano-smoke:   {}", p.display());
-            load_image_any_format(p)
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-
-    // --- N-image stitching: iterative pairwise chain ----------------------
-    //
-    // MVP approach: stitch images[0]+images[1] → canvas, then chain
-    // canvas+images[2] → canvas, etc. Errors accumulate across iterations
-    // (each step's BA uncertainty feeds the next), so quality degrades for
-    // long chains.  For production-grade N-image panoramas a joint BA
-    // across all images + single warp+blend pass is needed; tracked as a
-    // P2 follow-up in docs/tasks/04-maple-panorama-spec.md.
-    //
-    // The 2-image case takes the fast path (no chain overhead).
-    if pano_images.len() == 2 {
-        let result = stitch_pair(pano_images.remove(0), pano_images.remove(0), 0)?;
+    // For 2 images, use the existing pair path (no joint-BA overhead).
+    if inputs.len() == 2 {
+        let img_a = load_image_any_format(&inputs[0])?;
+        let img_b = load_image_any_format(&inputs[1])?;
+        let result = stitch_pair(img_a, img_b, 0)?;
         write_stitch(&result, output)?;
         eprintln!("pano-smoke: done.");
         return Ok(());
     }
 
-    eprintln!(
-        "pano-smoke: chaining {} images pairwise (errors accumulate; quality MVP)",
-        pano_images.len()
-    );
+    // --- N-image joint BA path (Phase 2) ----------------------------------
+    //
+    // 1. Decode all N inputs.
+    // 2. Detect AKAZE features in each image.
+    // 3. Match consecutive pairs (0,1), (1,2), ..., (N-2,N-1) via BruteForce
+    //    + RANSAC.
+    // 4. Single joint BA over all N cameras.
+    // 5. Single canvas computation, single warp pass, seam, blend.
 
-    let mut iter = pano_images.into_iter();
-    let mut canvas = iter.next().expect("at least 2 inputs validated above");
-    for (idx, next) in iter.enumerate() {
-        eprintln!(
-            "pano-smoke: --- chain step {}/{} (canvas + image {}) ---",
-            idx + 1,
-            inputs.len() - 1,
-            idx + 2
-        );
-        canvas = stitch_pair(canvas, next, idx + 1)?;
+    let n = inputs.len();
+    eprintln!("pano-smoke: loading {} images (joint BA path)", n);
+
+    // Load images and extract gimbal angles where available.
+    let mut pano_images: Vec<PanoImage> = Vec::with_capacity(n);
+    let mut gimbal_priors: Vec<Option<(f32, f32, f32)>> = Vec::with_capacity(n); // (yaw, pitch, roll) degrees
+
+    for p in inputs {
+        eprintln!("pano-smoke:   {}", p.display());
+        let bytes = fs::read(p).map_err(|e| format!("cannot read {}: {e}", p.display()))?;
+        // Try to get gimbal from raw_core::decode_for_pano for DNGs.
+        let gimbal = if pano_core::ingest::sniff_format(&bytes) == pano_core::ingest::PanoFormat::Raw {
+            match raw_core::decode_for_pano(&bytes, "dng") {
+                Ok(ingest) => ingest.gimbal.map(|g| (g.yaw_deg, g.pitch_deg, g.roll_deg)),
+                Err(_) => None,
+            }
+        } else {
+            None
+        };
+        gimbal_priors.push(gimbal);
+
+        let img = pano_core::decode_bytes(&bytes)
+            .map_err(|e| format!("decode failed for {}: {e}", p.display()))?;
+        pano_images.push(img);
     }
 
-    write_stitch(&canvas, output)?;
+    let image_size = {
+        let w = pano_images.iter().map(|i| i.width).min().unwrap_or(0);
+        let h = pano_images.iter().map(|i| i.height).min().unwrap_or(0);
+        (w, h)
+    };
+
+    // --- 2. Detect features -----------------------------------------------
+    eprintln!("pano-smoke: detecting features in {} images", n);
+    let detector = AkazeDetector::default();
+    let all_features: Vec<Features> = pano_images
+        .iter()
+        .enumerate()
+        .map(|(i, img)| {
+            let f = detector
+                .detect(img)
+                .map_err(|e| format!("detect on image {i} failed: {e}"))?;
+            eprintln!("pano-smoke:   image[{i}]: {} kps", f.keypoints.len());
+            Ok(f)
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+
+    // --- 3. Match consecutive pairs + RANSAC --------------------------------
+    eprintln!("pano-smoke: matching + RANSAC {} consecutive pairs", n - 1);
+    let matcher = BruteForceMatcher::default();
+    let mut pairs: Vec<(usize, usize, Matches)> = Vec::new();
+
+    for i in 0..(n - 1) {
+        let j = i + 1;
+        let raw = matcher
+            .match_pairs(&all_features[i], &all_features[j])
+            .map_err(|e| format!("matching pair ({i},{j}) failed: {e}"))?;
+
+        eprintln!(
+            "pano-smoke:   pair ({i},{j}): {} raw matches",
+            raw.inliers.len()
+        );
+
+
+        if raw.inliers.len() < 8 {
+            eprintln!(
+                "pano-smoke:   WARNING pair ({i},{j}) has only {} matches — \
+                 skipping RANSAC, using raw",
+                raw.inliers.len()
+            );
+            pairs.push((i, j, raw));
+            continue;
+        }
+
+        let ransac_result = ransac_homography(
+            &all_features[i].keypoints,
+            &all_features[j].keypoints,
+            &raw.inliers,
+            3.0,
+            2000,
+            42,
+        );
+
+        let inlier_matches = if let Some((_, inlier_idxs)) = ransac_result {
+            eprintln!(
+                "pano-smoke:   pair ({i},{j}): RANSAC inliers={}/{}",
+                inlier_idxs.len(),
+                raw.inliers.len()
+            );
+            Matches {
+                inliers: inlier_idxs.iter().map(|&k| raw.inliers[k]).collect(),
+            }
+        } else {
+            eprintln!("pano-smoke:   WARNING pair ({i},{j}): RANSAC failed — using raw matches");
+            raw
+        };
+        pairs.push((i, j, inlier_matches));
+    }
+
+    // --- 4. Camera pose estimation -----------------------------------------
+    //
+    // When DJI gimbal angles are available for ALL images, use them directly
+    // as the camera rotations — no BA needed, the gimbal is highly accurate.
+    //
+    // When gimbal is missing (PNG/JPEG or non-DJI inputs), run joint BA
+    // from homography-chain init priors.
+    let has_all_gimbal = gimbal_priors.iter().all(|g| g.is_some());
+    let cameras: Vec<Camera> = if has_all_gimbal {
+        eprintln!("pano-smoke: all images have gimbal angles — using gimbal as camera poses (skipping BA)");
+        let focal_prior = image_size.0.max(image_size.1) as f32;
+
+        // Normalize: camera 0 is the gauge. All cameras get R relative to cam 0.
+        // R_0 = gimbal_to_rotation(yaw_0, ...) — we need R_0^-1 * R_i for each i.
+        let r0_raw = gimbal_priors[0].as_ref().map(|(y, p, r)| gimbal_to_rotation(*y, *p, *r)).unwrap();
+        let r0_inv = r0_raw.transpose(); // R is orthogonal so R^T = R^-1
+
+        gimbal_priors.iter().map(|g| {
+            let (yaw_deg, pitch_deg, roll_deg) = g.unwrap();
+            let r_abs = gimbal_to_rotation(yaw_deg, pitch_deg, roll_deg);
+            // Relative rotation: R_rel = R_0^-1 * R_i
+            let r_rel = (r0_inv * r_abs).cast::<f32>();
+            let omega = rodrigues_log(&r_rel.cast::<f64>());
+            let deg = omega.norm().to_degrees();
+            eprintln!("pano-smoke:   gimbal_cam omega_deg={deg:.1}  yaw={yaw_deg:.1}");
+            Camera {
+                focal: focal_prior,
+                rotation: r_rel,
+                distortion: pano_core::types::Distortion::default(),
+            }
+        }).collect()
+    } else {
+        eprintln!("pano-smoke: no gimbal — running joint BA from homography-chain init");
+        let hom_priors = compute_homography_chain_priors(&pairs, &all_features, n, image_size)?;
+        for (i, p) in hom_priors.iter().enumerate() {
+            if let Some(prior) = p {
+                let omega = rodrigues_log(&prior.rotation);
+                let deg = omega.norm().to_degrees();
+                eprintln!("pano-smoke:   hom_prior[{i}] omega_deg={deg:.1}  focal={:.1}", prior.focal);
+            }
+        }
+        let ba_config = JointRotationFocalBA { max_iters: 200, step_tolerance: 1e-6 };
+        solve_joint_with_priors(
+            &all_features, &pairs, image_size, Some(&hom_priors), &ba_config,
+        )
+        .map_err(|e| format!("joint BA failed: {e}"))?
+    };
+
+    for (i, cam) in cameras.iter().enumerate() {
+        let r = cam.rotation;
+        // Print rotation as approximate yaw (atan2 of R[0][2], R[2][2]).
+        let yaw_deg = r[(0, 2)].atan2(r[(2, 2)]).to_degrees();
+        // Also print the axis-angle to see the full rotation.
+        use pano_core::ba::joint::rodrigues_log;
+        let omega = rodrigues_log(&r.cast::<f64>());
+        let omega_deg = omega.norm().to_degrees();
+        eprintln!(
+            "pano-smoke:   cam[{i}] focal={:.1}  approx_yaw={:.1}°  omega_deg={:.1}°  R[0..2]=[{:.3},{:.3},{:.3}]",
+            cam.focal, yaw_deg, omega_deg,
+            r[(0, 0)], r[(0, 1)], r[(0, 2)]
+        );
+    }
+
+    // --- 5. Canvas + warp + seam + blend ------------------------------------
+    eprintln!("pano-smoke: computing canvas");
+    let img_refs: Vec<&PanoImage> = pano_images.iter().collect();
+    let canvas =
+        pano_core::warp::compute_canvas(&img_refs, &cameras, Projection::Cylindrical)
+            .map_err(|e| format!("compute_canvas failed: {e}"))?;
+    eprintln!(
+        "pano-smoke:   canvas {}×{} (cylindrical)",
+        canvas.width, canvas.height
+    );
+
+    eprintln!("pano-smoke: warping {} images", n);
+    let warper = CpuWarper::new();
+    let warped: Vec<PanoImage> = pano_images
+        .iter()
+        .zip(cameras.iter())
+        .enumerate()
+        .map(|(i, (img, cam))| {
+            let w = pano_core::warp::warp_image_to_canvas(&warper, img, cam, &canvas)
+                .map_err(|e| format!("warp image {i} failed: {e}"))?;
+            eprintln!(
+                "pano-smoke:   warped[{i}] valid_px={}",
+                w.validity.count_ones()
+            );
+            Ok(w)
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+
+    // Seam + blend: pairwise chain (seam/blend currently only support 2 images).
+    // Chain: blend warped[0] + warped[1] → running_canvas, then
+    //        blend running_canvas + warped[2] → running_canvas, etc.
+    eprintln!("pano-smoke: seam + blend ({} images, pairwise chain)", warped.len());
+    let seam_finder = GraphCutSeamFinder::new();
+    let blender = pano_core::MultiBandBlender::default();
+
+    let mut running = warped[0].clone();
+    for (i, next) in warped[1..].iter().enumerate() {
+        eprintln!("pano-smoke:   blend step {}/{}", i + 1, warped.len() - 1);
+        let seams = seam_finder
+            .seams(&[&running, next])
+            .map_err(|e| format!("seam finding step {} failed: {e}", i + 1))?;
+        running = blender
+            .blend(&[&running, next], &seams)
+            .map_err(|e| format!("blend step {} failed: {e}", i + 1))?;
+    }
+
+    write_stitch(&running, output)?;
     eprintln!("pano-smoke: done.");
     Ok(())
 }

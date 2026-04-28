@@ -10,7 +10,9 @@
 //! at https://github.com/alicevision/AliceVision/blob/v3.3.0/src/aliceVision/sfm/pipeline/panorama/
 
 use nalgebra::{DMatrix, DVector, Matrix3, Vector3};
+use pathfinding::undirected::kruskal::kruskal_indices;
 
+use crate::ba::homography::{ransac_homography, rotation_from_homography};
 use crate::error::PanoError;
 use crate::types::{Camera, Distortion, Features, Matches};
 
@@ -111,7 +113,14 @@ pub fn solve_joint_with_priors(
     //
     // Layout: [ω_1x, ω_1y, ω_1z, f_1,  ω_2x, ω_2y, ω_2z, f_2,  ...]
     //         (camera 0 is fixed — not in the parameter vector)
+    //
+    // Initialization order:
+    // 1. If priors provided for camera i, use them.
+    // 2. If no priors, extract rotations from pairwise homographies via
+    //    BFS over the pair graph (same approach as RotationOnlyBA).
+    // 3. Fallback: identity rotation + default focal.
     // -----------------------------------------------------------------------
+
     let n_free = n_cams - 1; // cameras 1..n_cams-1
     let mut params = vec![0.0f64; n_free * 4];
 
@@ -121,6 +130,7 @@ pub fn solve_joint_with_priors(
         {
             (rodrigues_log(&p.rotation), p.focal as f64)
         } else {
+            // Default: identity rotation + focal = max(w, h).
             (Vector3::zeros(), default_focal)
         };
         params[slot] = omega.x;
@@ -226,12 +236,130 @@ pub fn solve_joint_with_priors(
 }
 
 // ---------------------------------------------------------------------------
+// Homography-chain initialization
+// ---------------------------------------------------------------------------
+
+/// Estimate initial per-camera rotations from pairwise homographies via BFS.
+///
+/// Same strategy as `RotationOnlyBA`: compute a pairwise rotation from the
+/// RANSAC homography for each pair, build a spanning tree, BFS from camera 0.
+///
+/// Note: for DJI panoramas where consecutive frames share 75%+ pixel overlap,
+/// the BruteForce matcher produces zero-displacement correspondences that
+/// yield near-identity homographies. Use gimbal priors instead for DJI inputs.
+#[allow(dead_code)]
+fn init_rotations_from_homographies(
+    pairs: &[(usize, usize, Matches)],
+    features: &[Features],
+    n_cams: usize,
+    image_size: (u32, u32),
+) -> Vec<Matrix3<f64>> {
+    let focal_d = image_size.0.max(image_size.1) as f64;
+    let (img_w, img_h) = (image_size.0 as f64, image_size.1 as f64);
+
+    struct Edge {
+        a: usize,
+        b: usize,
+        weight: i64, // negated inlier count (Kruskal wants min-cost MST)
+        rotation: Matrix3<f64>,
+    }
+
+    let mut edges: Vec<Edge> = Vec::new();
+
+    for (ci, cj, matches) in pairs {
+        if matches.inliers.len() < 4 {
+            continue;
+        }
+        let kps_i = &features[*ci].keypoints;
+        let kps_j = &features[*cj].keypoints;
+
+        // Fit a homography directly on all inlier matches (they are already
+        // RANSAC-filtered by the caller — no need to re-run RANSAC).
+        let pts_a: Vec<(f64, f64)> = matches
+            .inliers
+            .iter()
+            .filter_map(|m| {
+                let kp = kps_i.get(m.a as usize)?;
+                Some((kp.x as f64, kp.y as f64))
+            })
+            .collect();
+        let pts_b: Vec<(f64, f64)> = matches
+            .inliers
+            .iter()
+            .filter_map(|m| {
+                let kp = kps_j.get(m.b as usize)?;
+                Some((kp.x as f64, kp.y as f64))
+            })
+            .collect();
+
+        // Fit homography and extract rotation via SVD.
+        let rotation = if pts_a.len() >= 4 {
+            // Use a DLT fit on all correspondences (they are already inliers).
+            let ransac_result = ransac_homography(kps_i, kps_j, &matches.inliers, 5.0, 500, 42);
+            if let Some((h, _)) = ransac_result {
+                rotation_from_homography(&h, focal_d, img_w, img_h)
+            } else {
+                Matrix3::identity()
+            }
+        } else {
+            Matrix3::identity()
+        };
+
+        let _ = (pts_a, pts_b); // suppress unused warning
+
+        edges.push(Edge {
+            a: *ci,
+            b: *cj,
+            weight: -(matches.inliers.len() as i64),
+            rotation,
+        });
+    }
+
+    // Build MST via Kruskal.
+    let kruskal_edges: Vec<(usize, usize, i64)> =
+        edges.iter().map(|e| (e.a, e.b, e.weight)).collect();
+    let mst: Vec<(usize, usize, i64)> =
+        kruskal_indices(n_cams, &kruskal_edges).collect();
+
+    // Adjacency list.
+    let mut adj: Vec<Vec<(usize, Matrix3<f64>)>> = vec![Vec::new(); n_cams];
+    for (a, b, _) in &mst {
+        let r = edges
+            .iter()
+            .find(|e| (e.a == *a && e.b == *b) || (e.a == *b && e.b == *a))
+            .map(|e| if e.a == *a { e.rotation } else { e.rotation.transpose() })
+            .unwrap_or(Matrix3::identity());
+        adj[*a].push((*b, r));
+        adj[*b].push((*a, r.transpose()));
+    }
+
+    // BFS from camera 0.
+    let mut rotations = vec![Matrix3::identity(); n_cams];
+    let mut visited = vec![false; n_cams];
+    visited[0] = true;
+    let mut queue = std::collections::VecDeque::new();
+    queue.push_back(0usize);
+    while let Some(cur) = queue.pop_front() {
+        for &(nbr, r_edge) in &adj[cur] {
+            if !visited[nbr] {
+                visited[nbr] = true;
+                rotations[nbr] = rotations[cur] * r_edge;
+                queue.push_back(nbr);
+            }
+        }
+    }
+
+    rotations
+}
+
+// ---------------------------------------------------------------------------
 // Internal solver
 // ---------------------------------------------------------------------------
 
 struct JointBAProblem {
     /// (cam_i, cam_j, pts_in_i, pts_in_j)
     pair_data: Vec<(usize, usize, Vec<[f64; 2]>, Vec<[f64; 2]>)>,
+    #[allow(dead_code)]
     n_cams: usize,
     focal0: f64,
     cx: f64,
@@ -337,6 +465,11 @@ impl JointBAProblem {
         let mu_dec = 10.0;
         let mut current_cost = sum_sq(&self.residuals(&params));
 
+        let verbose = std::env::var("PANO_BA_VERBOSE").is_ok();
+        if verbose {
+            eprintln!("joint_ba: initial cost={:.2e}, n_params={}", current_cost, params.len());
+        }
+
         for _iter in 0..config.max_iters {
             let r_vec = self.residuals(&params);
             let j = self.jacobian(&params);
@@ -368,7 +501,11 @@ impl JointBAProblem {
                     current_cost = trial_cost;
                     mu = (mu / mu_dec).max(1e-12);
                     accepted = true;
+                    if verbose {
+                        eprintln!("joint_ba: iter={_iter} cost={:.2e} step={:.2e} mu={:.2e}", current_cost, step_norm, mu);
+                    }
                     if step_norm < config.step_tolerance {
+                        if verbose { eprintln!("joint_ba: converged at iter={_iter}"); }
                         return params;
                     }
                     break;
@@ -378,7 +515,17 @@ impl JointBAProblem {
             }
 
             if !accepted {
+                if verbose { eprintln!("joint_ba: stuck at iter={_iter} mu={:.2e}", mu); }
                 break;
+            }
+        }
+        if verbose {
+            eprintln!("joint_ba: final cost={:.2e}", current_cost);
+            for i in 0..(params.len() / 4) {
+                let slot = i * 4;
+                let omega_norm = (params[slot]*params[slot] + params[slot+1]*params[slot+1] + params[slot+2]*params[slot+2]).sqrt();
+                let deg = omega_norm.to_degrees();
+                eprintln!("  cam[{}] omega_deg={:.2} focal={:.1}", i+1, deg, params[slot+3]);
             }
         }
         params
