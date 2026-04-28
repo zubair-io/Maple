@@ -4,3 +4,4 @@
 //! or the `synth-grey` example.
 
 pub mod synth_dng;
+pub mod predictions;
