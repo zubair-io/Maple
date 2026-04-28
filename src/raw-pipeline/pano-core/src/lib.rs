@@ -20,7 +20,9 @@ pub mod types;
 pub mod util;
 pub mod warp;
 
-pub use ba::RotationOnlyBA;
+pub use ba::{
+    solve_joint, solve_joint_with_priors, CameraPrior, JointRotationFocalBA, RotationOnlyBA,
+};
 pub use pipeline::stitch_images;
 pub use blend::MultiBandBlender;
 pub use color::{ColorSpace, Primaries, Transfer, WhitePoint};
