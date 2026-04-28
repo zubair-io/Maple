@@ -9,6 +9,7 @@ pub mod ba;
 pub mod backends;
 pub mod blend;
 pub mod color;
+pub mod compensation;
 pub mod error;
 pub mod features;
 pub mod ingest;
@@ -23,6 +24,7 @@ pub mod warp;
 pub use ba::{
     solve_joint, solve_joint_with_priors, CameraPrior, JointRotationFocalBA, RotationOnlyBA,
 };
+pub use compensation::gain::{apply_gains, solve_per_image_gain};
 pub use pipeline::stitch_images;
 pub use blend::MultiBandBlender;
 pub use color::{ColorSpace, Primaries, Transfer, WhitePoint};
