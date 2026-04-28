@@ -16,10 +16,16 @@ import {
   buildRegistrationOptions,
   verifyRegistration,
   consumeChallenge,
+  buildAuthenticationOptions,
+  verifyAuthentication,
 } from "../auth/webauthn.ts";
 import { redeemInvite } from "../auth/invites.ts";
-import { signAccessToken } from "../auth/tokens.ts";
-import { issueRefreshToken } from "../auth/refresh_store.ts";
+import { signAccessToken, REFRESH_TTL_SECONDS } from "../auth/tokens.ts";
+import {
+  issueRefreshToken,
+  rotateRefreshToken,
+  revokeOne,
+} from "../auth/refresh_store.ts";
 
 function jwtSecret(): string {
   const s = process.env.MAPLE_JWT_SECRET;
@@ -76,7 +82,7 @@ export const authRoutes = new Elysia({ prefix: "/api/auth" })
   // ----- register/verify -----
   .post(
     "/register/verify",
-    async ({ body, set }) => {
+    async ({ body, set, cookie }) => {
       const email = body.email.toLowerCase();
       const clientChallenge = body.credential?.response?.clientDataJSON
         ? JSON.parse(
@@ -133,6 +139,14 @@ export const authRoutes = new Elysia({ prefix: "/api/auth" })
         jwtSecret()
       );
       const refresh = await issueRefreshToken(userIns.insertedId, body.device_label);
+      cookie.maple_refresh.set({
+        value: refresh.raw,
+        httpOnly: true,
+        secure: true,
+        sameSite: "lax",
+        path: "/",
+        maxAge: REFRESH_TTL_SECONDS,
+      });
       return {
         access_token,
         refresh_token: refresh.raw,
@@ -147,4 +161,165 @@ export const authRoutes = new Elysia({ prefix: "/api/auth" })
         credential: t.Any(),
       }),
     }
+  )
+
+  // ----- login/options -----
+  .post(
+    "/login/options",
+    async ({ body, set }) => {
+      const email = body.email.toLowerCase();
+      const u = await (await usersCollection()).findOne({ email });
+      if (!u) {
+        set.status = 404;
+        return { error: "no such user" };
+      }
+      return buildAuthenticationOptions(u._id, email);
+    },
+    { body: t.Object({ email: t.String({ format: "email" }) }) }
+  )
+
+  // ----- login/verify -----
+  .post(
+    "/login/verify",
+    async ({ body, set, cookie }) => {
+      const email = body.email.toLowerCase();
+      const clientChallenge = body.credential?.response?.clientDataJSON
+        ? JSON.parse(
+            Buffer.from(body.credential.response.clientDataJSON, "base64url").toString()
+          ).challenge
+        : "";
+      let challengeRow;
+      try {
+        challengeRow = await consumeChallenge(clientChallenge);
+      } catch {
+        set.status = 400;
+        return { error: "challenge invalid" };
+      }
+      if (challengeRow.purpose !== "authenticate" || challengeRow.email !== email) {
+        set.status = 400;
+        return { error: "challenge mismatch" };
+      }
+      const user = await (await usersCollection()).findOne({ email });
+      if (!user) {
+        set.status = 404;
+        return { error: "no such user" };
+      }
+      const cred = await (await credentialsCollection()).findOne({
+        user_id: user._id,
+        credential_id: body.credential.id,
+      });
+      if (!cred) {
+        set.status = 400;
+        return { error: "unknown credential" };
+      }
+      const verification = await verifyAuthentication({
+        response: body.credential,
+        expectedChallenge: challengeRow.challenge,
+        credential: cred,
+      });
+      if (!verification.verified) {
+        set.status = 400;
+        return { error: "verification failed" };
+      }
+
+      await (await credentialsCollection()).updateOne(
+        { _id: cred._id },
+        {
+          $set: {
+            counter: verification.authenticationInfo.newCounter,
+            last_used_at: new Date().toISOString(),
+          },
+        }
+      );
+      await (await usersCollection()).updateOne(
+        { _id: user._id },
+        { $set: { last_seen_at: new Date().toISOString() } }
+      );
+
+      const access_token = signAccessToken(
+        { sub: user._id.toHexString(), email: user.email, role: user.role },
+        jwtSecret()
+      );
+      const refresh = await issueRefreshToken(user._id, cred.device_label);
+      cookie.maple_refresh.set({
+        value: refresh.raw,
+        httpOnly: true,
+        secure: true,
+        sameSite: "lax",
+        path: "/",
+        maxAge: REFRESH_TTL_SECONDS,
+      });
+      return {
+        access_token,
+        refresh_token: refresh.raw,
+        user: { id: user._id.toHexString(), email: user.email, role: user.role },
+      };
+    },
+    {
+      body: t.Object({
+        email: t.String({ format: "email" }),
+        credential: t.Any(),
+      }),
+    }
+  )
+
+  // ----- refresh -----
+  .post(
+    "/refresh",
+    async ({ body, cookie, set }) => {
+      const cookieRaw = cookie.maple_refresh?.value as string | undefined;
+      const raw: string | undefined = body.refresh_token ?? cookieRaw;
+      if (!raw) {
+        set.status = 401;
+        return { error: "no refresh token" };
+      }
+      let fresh;
+      try {
+        fresh = await rotateRefreshToken(raw);
+      } catch (err) {
+        set.status = 401;
+        return { error: (err as Error).message };
+      }
+      const user = await (await usersCollection()).findOne({ _id: fresh.userId });
+      if (!user) {
+        set.status = 401;
+        return { error: "user gone" };
+      }
+      const access_token = signAccessToken(
+        { sub: user._id.toHexString(), email: user.email, role: user.role },
+        jwtSecret()
+      );
+      // Re-set the cookie if the request used cookie auth.
+      if (cookieRaw) {
+        cookie.maple_refresh.set({
+          value: fresh.raw,
+          httpOnly: true,
+          secure: true,
+          sameSite: "lax",
+          path: "/",
+          maxAge: REFRESH_TTL_SECONDS,
+        });
+      }
+      return { access_token, refresh_token: fresh.raw };
+    },
+    { body: t.Object({ refresh_token: t.Optional(t.String()) }) }
+  )
+
+  // ----- logout -----
+  .post(
+    "/logout",
+    async ({ body, cookie }) => {
+      const cookieRaw = cookie.maple_refresh?.value as string | undefined;
+      const raw: string | undefined = body.refresh_token ?? cookieRaw;
+      if (raw) {
+        try {
+          await revokeOne(raw);
+        } catch {
+          /* swallow */
+        }
+      }
+      cookie.maple_refresh?.remove();
+      return new Response(null, { status: 204 });
+    },
+    { body: t.Object({ refresh_token: t.Optional(t.String()) }) }
   );
