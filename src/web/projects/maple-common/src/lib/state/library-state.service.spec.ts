@@ -133,6 +133,28 @@ describe('LibraryStateService — Self-Hosted passthrough round-trip (T4-followu
     expect(body).toContain('>X</myvendor:custom>');
   });
 
+  describe('library picker visibility', () => {
+    it('toggles via openLibraryPicker / closeLibraryPicker', () => {
+      expect(svc.pickerVisible()).toBe(false);
+      svc.openLibraryPicker();
+      expect(svc.pickerVisible()).toBe(true);
+      svc.closeLibraryPicker();
+      expect(svc.pickerVisible()).toBe(false);
+    });
+
+    it('addLibraryFolder closes the picker on success', () => {
+      const folder: ApiFolder = { id: 'f1', path: '/photos', name: 'photos', assetCount: 0 };
+      api.registerFolder = vi.fn(() => of(folder));
+      api.listFolders = vi.fn(() => of([folder]));
+
+      svc.openLibraryPicker();
+      expect(svc.pickerVisible()).toBe(true);
+      svc.addLibraryFolder('/photos');
+      // registerFolder and listFolders are `of(...)` — resolve synchronously.
+      expect(svc.pickerVisible()).toBe(false);
+    });
+  });
+
   describe('addLibraryFolder (self-hosted)', () => {
     it('POSTs the path and refreshes the tree on success', () => {
       const folder: ApiFolder = { id: 'f1', path: '/photos', name: 'photos', assetCount: 0 };

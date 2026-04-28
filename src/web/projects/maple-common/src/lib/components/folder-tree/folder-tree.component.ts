@@ -120,9 +120,57 @@ import { SidebarEntry } from '../../models/folder';
         overflow: hidden;
         text-overflow: ellipsis;
       }
+
+      .folder-tree-header {
+        display: flex;
+        align-items: center;
+        padding: 8px 10px 4px 12px;
+      }
+
+      .header-label {
+        font-family: var(--maple-font);
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--maple-text-muted);
+        letter-spacing: 0.04em;
+        flex: 1;
+      }
+
+      .add-folder-btn {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 20px;
+        height: 20px;
+        padding: 0;
+        border: none;
+        background: transparent;
+        border-radius: 4px;
+        color: var(--maple-text-muted);
+        font-size: 16px;
+        line-height: 1;
+        cursor: pointer;
+        transition: background 120ms, color 120ms;
+      }
+
+      .add-folder-btn:hover {
+        background: var(--maple-bg-hover);
+        color: var(--maple-text-main);
+      }
     `,
   ],
   template: `
+    <div class="folder-tree-header">
+      <span class="header-label">Library</span>
+      <button
+        class="add-folder-btn"
+        type="button"
+        title="Add a folder to your library"
+        (click)="state.openLibraryPicker()"
+        aria-label="Add folder"
+      >+</button>
+    </div>
+
     @for (section of state.sidebarTree(); track section.id) {
       <!-- Section header (e.g. "Folders", "Photos Library") -->
       <div class="section-header" (click)="state.toggleSection(section.id)">

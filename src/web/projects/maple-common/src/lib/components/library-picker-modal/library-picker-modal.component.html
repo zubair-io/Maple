@@ -1,0 +1,10 @@
+@if (state.pickerVisible()) {
+  <div class="backdrop" (click)="onBackdropClick()">
+    <div class="dialog" (click)="$event.stopPropagation()">
+      <app-library-picker
+        (pick)="onPick($event)"
+        (cancel)="onCancel()"
+      />
+    </div>
+  </div>
+}

@@ -31,6 +31,7 @@ export * from './lib/api/bun-api-backend.service';
 export * from './lib/components/loading-banner/loading-banner.component';
 export * from './lib/components/error-banner/error-banner.component';
 export * from './lib/components/library-picker/library-picker.component';
+export * from './lib/components/library-picker-modal/library-picker-modal.component';
 
 // P5: File System Access API + .maple/ cache protocol
 export * from './lib/folder-access/folder-access.types';
