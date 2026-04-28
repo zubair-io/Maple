@@ -126,18 +126,25 @@ pub fn decode_for_pano(bytes: &[u8], ext: &str) -> Result<PanoIngest> {
 
 /// Extract pixel focal length from EXIF tags.
 ///
-/// Strategy:
-/// 1. Read `FocalLengthIn35mmFormat` (tag 0xa405) — when present, this
-///    is the most reliable path: pixel focal = `image_width × f_35mm / 36`,
-///    because the 35mm-equivalent encodes the camera's actual horizontal
-///    angle of view, and 36mm is the full-frame sensor width by definition.
-/// 2. Fallback: read `FocalLength` (tag 0x920a) and look up the camera's
-///    sensor width by `Make + Model`. Currently we only have the L2D-20c
-///    Hasselblad lookup; other cameras fall through to None.
+/// Strategy (preferring precision over universality):
+/// 1. **Physical `FocalLength` (tag 0x920a) × sensor-width lookup**
+///    when both are available. EXIF `FocalLength` is a rational with
+///    sub-mm precision (e.g. 12.3 mm on the L2D-20c) and the sensor
+///    width is a known constant per model — together they give a
+///    pixel focal that's accurate to better than 1%.
+/// 2. **Fallback: `FocalLengthIn35mmFormat`** (tag 0xa405). Universal
+///    across cameras but reported as an integer mm in many firmwares.
+///    For the L2D-20c this rounds 24.6 → 24 (a 2.5% bias) which BA
+///    then has to absorb into focal drift.  Used when no sensor-width
+///    lookup is available for the model.
 ///
-/// Returns `None` if neither tag is present or values are degenerate.
-/// Caller should fall back to whatever prior they were using before
-/// (typically `image_width as f32`, which biases focal high by 5-30%).
+/// Returns `None` if neither path resolves. Caller should fall back to
+/// whatever prior they were using before (typically `image_width as f32`,
+/// which biases focal high by 5–30%).
+///
+/// Empirical note: with strategy 1 enabled, BA's focal drift on
+/// pano_01's outer-row cameras drops from +9% to +1–2% (the residual
+/// being unmodelled translation parallax — see follow-up Item 2).
 fn extract_focal_pixels(bytes: &[u8], image_width: u32) -> Option<f32> {
     use rawler::decoders::{RawDecodeParams, WellKnownIFD};
     use rawler::rawsource::RawSource;
@@ -149,9 +156,34 @@ fn extract_focal_pixels(bytes: &[u8], image_width: u32) -> Option<f32> {
     let decoder = rawler::get_decoder(&source).ok()?;
     let exif_ifd = decoder.ifd(WellKnownIFD::Exif).ok().flatten()?;
 
-    // Strategy 1: 35mm equivalent (EXIF SHORT, single value).
-    // Tag 0xa405 = FocalLengthIn35mmFormat. Use get_usize so a non-
-    // numeric Value variant cleanly returns None instead of panicking.
+    // Strategy 1: physical FocalLength (rational, sub-mm precision)
+    // + sensor-width lookup. This is the high-precision path.
+    let focal_mm = exif_ifd
+        .get_entry(ExifTag::FocalLength)
+        .and_then(|e| e.value.get_f32(0).ok().flatten())
+        .filter(|&f| f > 0.5 && f < 1000.0);
+
+    let model = decoder.ifd(WellKnownIFD::Root).ok().flatten().and_then(|ifd| {
+        ifd.get_entry(rawler::tags::TiffCommonTag::Model)
+            .and_then(|e| {
+                let bytes = e.value.get_data();
+                std::str::from_utf8(bytes)
+                    .ok()
+                    .map(|s| s.trim_end_matches('\0').to_string())
+            })
+    });
+
+    if let (Some(f_mm), Some(model_str)) = (focal_mm, model.as_deref()) {
+        if let Some(sensor_w_mm) = sensor_width_for_model(model_str) {
+            return Some((image_width as f32) * f_mm / sensor_w_mm);
+        }
+    }
+
+    // Strategy 2: 35mm equivalent (EXIF SHORT, single value).
+    // Used when no sensor-width lookup is available for the camera
+    // model. Note: many firmwares write this as an integer, which
+    // rounds the true value (e.g. DJI L2D-20c real 24.6mm → 24mm
+    // EXIF) — strategy 1 above sidesteps that rounding when possible.
     if let Some(entry) = exif_ifd.get_entry(ExifTag::FocalLengthIn35mmFormat) {
         if let Ok(Some(f_35mm)) = entry.value.get_usize(0) {
             let f = f_35mm as f32;
@@ -161,31 +193,7 @@ fn extract_focal_pixels(bytes: &[u8], image_width: u32) -> Option<f32> {
         }
     }
 
-    // Strategy 2: physical FocalLength (rational) + sensor-width lookup.
-    let focal_mm = exif_ifd
-        .get_entry(ExifTag::FocalLength)
-        .and_then(|e| e.value.get_f32(0).ok().flatten())
-        .filter(|&f| f > 0.5 && f < 1000.0)?;
-
-    // Look up sensor width by camera model. Stub: L2D-20c is 17.3mm
-    // (4/3"); L3D-100c (Mavic 3 Pro main) is 17.3mm too (4/3"). Other
-    // models fall through to None and the caller keeps its prior.
-    let model = decoder
-        .ifd(WellKnownIFD::Root)
-        .ok()
-        .flatten()
-        .and_then(|ifd| {
-            ifd.get_entry(rawler::tags::TiffCommonTag::Model)
-                .and_then(|e| {
-                    let bytes = e.value.get_data();
-                    std::str::from_utf8(bytes)
-                        .ok()
-                        .map(|s| s.trim_end_matches('\0').to_string())
-                })
-        })?;
-    let sensor_width_mm = sensor_width_for_model(&model)?;
-
-    Some((image_width as f32) * focal_mm / sensor_width_mm)
+    None
 }
 
 /// Extract Brown-Conrady radial-distortion coefficients (k1, k2) from
@@ -601,11 +609,16 @@ mod tests {
     #[test]
     #[ignore] // fixture-gated — requires test-fixtures/raws/pano_01/
     fn pano_01_dng_exposes_focal_pixels() {
-        // L2D-20c with 28mm-eq focal on a 5376-px-wide image:
-        //   f_px = 5376 × 28 / 36 = 4181.33...
-        // The earlier hardcoded prior of `image_width = 5376` was off
-        // by ~28% — every gimbal-derived projection landed proportionally
-        // off-target, accumulating into visible stitch misalignment.
+        // DJI L2D-20c on a 5376 × 3956 image:
+        //   physical FocalLength = 12.3 mm (EXIF, sub-mm precision)
+        //   4/3" sensor width    = 17.3 mm
+        //   f_px = 5376 × 12.3 / 17.3 ≈ 3822.7
+        //
+        // Strategy 1 (physical + sensor lookup) gives this value.
+        // Strategy 2 (35mm-equiv = 24, integer-rounded) would give
+        // 5376 × 24 / 36 = 3584 — off by ~6.5%, which BA had to
+        // absorb as a +9% focal drift on outer-row cameras before
+        // we promoted strategy 1 to first-priority.
         let path = std::path::Path::new(
             "/Users/riabuz/Projects/_Maple/test-fixtures/raws/pano_01/PANO0001.DNG",
         );
@@ -617,21 +630,23 @@ mod tests {
         let f_px = ingest
             .focal_pixels
             .expect("expected focal_pixels for DJI L2D-20c DNG");
-        // DJI Mavic 3 Pro Hasselblad L2D-20c reports 24 mm equivalent on
-        // the wide camera, giving 5376 × 24 / 36 = 3584 px exact.
-        // (Some firmwares may write 28 — allow a wide tolerance band.)
-        let expected_24mm = 5376.0_f32 * 24.0 / 36.0; // = 3584.0
-        let expected_28mm = 5376.0_f32 * 28.0 / 36.0; // = 4181.33
-        let close_to_either = (f_px - expected_24mm).abs() < 50.0
-            || (f_px - expected_28mm).abs() < 200.0;
+        // Expected from strategy 1: 3822.7 ± a few px (depending on
+        // exact EXIF rational rounding for FocalLength).
+        let expected_phys = 5376.0_f32 * 12.3 / 17.3; // ≈ 3822.7
         assert!(
-            close_to_either,
-            "focal_pixels = {f_px}, expected ≈ {expected_24mm} or {expected_28mm}",
+            (f_px - expected_phys).abs() < 50.0,
+            "focal_pixels = {f_px}, expected ≈ {expected_phys} (strategy 1: physical + sensor)",
         );
         // Sanity: must NOT equal the old image_width hardcode.
         assert!(
             (f_px - 5376.0).abs() > 500.0,
             "focal_pixels still equals image_width — extraction silently fell back",
+        );
+        // Sanity: must NOT equal the strategy-2 integer-rounded path.
+        // (If it does, strategy 1 silently fell through.)
+        assert!(
+            (f_px - 3584.0).abs() > 50.0,
+            "focal_pixels = {f_px} matches strategy-2 (rounded 24mm-eq) — strategy 1 should have fired first",
         );
     }
 

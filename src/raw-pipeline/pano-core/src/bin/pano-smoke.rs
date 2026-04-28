@@ -768,7 +768,7 @@ fn stitch(inputs: &[PathBuf], output: &Path, _max_dim: u32, projection: Projecti
     // --- 2. Detect features -----------------------------------------------
     eprintln!("pano-smoke: detecting features in {} images", n);
     let detector = AkazeDetector::default();
-    let all_features: Vec<Features> = pano_images
+    let mut all_features: Vec<Features> = pano_images
         .iter()
         .enumerate()
         .map(|(i, img)| {
@@ -779,6 +779,49 @@ fn stitch(inputs: &[PathBuf], output: &Path, _max_dim: u32, projection: Projecti
             Ok(f)
         })
         .collect::<Result<Vec<_>, String>>()?;
+
+    // --- 2b. Undistort detected keypoints ---------------------------------
+    //
+    // Detected keypoints sit on the distorted (raw sensor) image. If we
+    // hand those to bundle adjustment as-is, BA assumes pinhole projection
+    // and tries to explain the residual radial compression by adjusting
+    // focal — which is exactly what we observed in Steps 4-5 (cam[3,4]
+    // focals drifting to 3747-3821 px from the EXIF prior of 3584).
+    //
+    // Pre-undistorting once here puts every keypoint into ideal-pinhole
+    // coordinates. Match indices stay valid (we modify positions in place,
+    // not the index arrays). Descriptors stay valid because AKAZE
+    // descriptors are computed from local image patches centred on the
+    // (distorted) keypoint position; we don't re-extract.
+    //
+    // Only runs for cameras where we have BOTH a per-image focal and
+    // distortion coefficients (always true for DJI DNGs after Steps 1+5,
+    // never true for synthetic / non-DNG inputs which have no distortion).
+    let mut undistorted_count = 0usize;
+    for (i, feats) in all_features.iter_mut().enumerate() {
+        if let (Some(focal), Some((k1, k2))) = (focal_pixels_per_image[i], distortion_per_image[i])
+        {
+            if k1 == 0.0 && k2 == 0.0 {
+                continue;
+            }
+            let cx = pano_images[i].width as f32 / 2.0;
+            let cy = pano_images[i].height as f32 / 2.0;
+            for kp in feats.keypoints.iter_mut() {
+                let (px, py) = pano_core::warp::distortion::undistort_pixel(
+                    kp.x, kp.y, cx, cy, focal, k1, k2,
+                );
+                kp.x = px;
+                kp.y = py;
+            }
+            undistorted_count += 1;
+        }
+    }
+    if undistorted_count > 0 {
+        eprintln!(
+            "pano-smoke: undistorted keypoints in {undistorted_count}/{n} images \
+             (Brown-Conrady inverse, 8 fixed-point iters)"
+        );
+    }
 
     // --- 3. Match consecutive pairs: loose BF → GMS → gimbal filter → RANSAC -
     //
@@ -864,21 +907,43 @@ fn stitch(inputs: &[PathBuf], output: &Path, _max_dim: u32, projection: Projecti
                 gms.clone()
             };
 
+        // When gimbal data is available, the gimbal filter's verdict is
+        // authoritative: a tiny survivor count means the matches genuinely
+        // don't agree with the gimbal-predicted homography (typical for
+        // small-rotation pairs where the drone drifted between frames and
+        // most "matches" are zero-displacement noise). Falling back to
+        // the un-filtered population would feed BA exactly the bad
+        // matches the filter just rejected.
+        //
+        // Skip the pair entirely in that case — BA's rotation soft prior
+        // covers the missing pairwise constraint via the chain of other
+        // pairs and the gimbal prior on each camera.
+        let have_gimbal_data = gimbal_priors[i].is_some()
+            && gimbal_priors[j].is_some()
+            && focal_pixels_per_image[i].is_some()
+            && focal_pixels_per_image[j].is_some();
+
         let ransac_input = if gimbal_filtered.inliers.len() >= 8 {
             &gimbal_filtered
-        } else if gms.inliers.len() >= 8 {
-            // Gimbal filter too aggressive (tolerance too tight or gimbal
-            // priors too far off) — fall back to GMS-only.
+        } else if have_gimbal_data {
+            // Gimbal filter rejected ≥99% of matches — trust the filter.
+            // Skip this pair; soft prior carries the constraint.
             eprintln!(
-                "pano-smoke:   pair ({i},{j}): gimbal filter kept {} — falling back to GMS-only",
+                "pano-smoke:   pair ({i},{j}): gimbal filter kept only {} — \
+                 SKIPPING pair (matches disagree with gimbal; BA prior carries pose)",
                 gimbal_filtered.inliers.len()
+            );
+            min_pair_inliers = min_pair_inliers.min(gimbal_filtered.inliers.len());
+            continue;
+        } else if gms.inliers.len() >= 8 {
+            // No gimbal data at all — fall back to GMS-only.
+            eprintln!(
+                "pano-smoke:   pair ({i},{j}): no gimbal data; using GMS-only ({} matches)",
+                gms.inliers.len()
             );
             &gms
         } else {
-            // GMS too aggressive — fall back to the pre-GMS population so
-            // RANSAC at least sees something. This is the "very low overlap
-            // or pure-translation" failure mode; a downstream decision will
-            // route to gimbal-direct if necessary.
+            // GMS too aggressive — last-ditch fallback to raw BF matches.
             eprintln!(
                 "pano-smoke:   pair ({i},{j}): GMS kept {} — falling back to raw matches for RANSAC",
                 gms.inliers.len()
@@ -1021,9 +1086,15 @@ fn stitch(inputs: &[PathBuf], output: &Path, _max_dim: u32, projection: Projecti
             // matched features pull each rotation by ≪1° if they
             // consistently disagree with the gimbal.
             lambda_rotation: 33_000.0,
-            // Focal: keep within ~1% of prior. λ_f=10000 means a 1% drift
-            // adds ~10 px-equivalent residual per camera.
-            lambda_focal: 10_000.0,
+            // Focal: tight anchor on the EXIF prior. At λ_f=1e6 a 1% drift
+            // contributes ~100 px-equivalent residual per camera, a 5% drift
+            // ~2500. This is intentional: with sub-mm-precision physical
+            // FocalLength + sensor lookup the prior is accurate to <1%, so
+            // any sizeable BA-driven focal drift is BA misinterpreting
+            // unmodelled parallax (Item 2, translation modeling) as a
+            // focal-length error. Keep focal locked to truth and let
+            // translation absorb the parallax once Item 2 lands.
+            lambda_focal: 1_000_000.0,
         };
 
         let mut cams = match solve_joint_with_priors(

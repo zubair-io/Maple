@@ -21,31 +21,8 @@ use nalgebra::{Matrix3, Vector3};
 use crate::error::PanoError;
 use crate::types::{Camera, PanoImage, Projection};
 use crate::warp::cpu::CpuWarper;
+use crate::warp::distortion::forward_distort_xy;
 use crate::Warper;
-
-/// Forward radial distortion in normalised camera coordinates
-/// (one focal length per unit). Same Brown-Conrady model as the
-/// `undistort` helper in `warp/cpu.rs`:
-///
-/// ```text
-/// r' = r · (1 + k1·r² + k2·r⁴)
-/// ```
-///
-/// "Forward" here means: given an ideal (undistorted) normalised
-/// coordinate, return the distorted one — i.e. the position the lens
-/// actually projects to on the sensor. Used to sample the input image
-/// at the right place when back-projecting a canvas pixel.
-///
-/// Returns the input unchanged when both coefficients are zero.
-#[inline]
-fn forward_distort_xy(xn: f64, yn: f64, k1: f32, k2: f32) -> (f64, f64) {
-    if k1 == 0.0 && k2 == 0.0 {
-        return (xn, yn);
-    }
-    let r2 = xn * xn + yn * yn;
-    let factor = 1.0 + (k1 as f64) * r2 + (k2 as f64) * r2 * r2;
-    (xn * factor, yn * factor)
-}
 
 /// Output frame that one or more warped images composite into.
 #[derive(Debug, Clone)]
