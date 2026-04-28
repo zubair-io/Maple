@@ -158,6 +158,100 @@ fn vibrance_no_op_on_neutral() {
     }
 }
 
+/// Develop the synthetic L=0.18 grey to scene-linear with the given
+/// adjustments and return a representative pixel (everything is uniform
+/// for a flat synthetic input, so any pixel works — we read pixel 32×32).
+fn scene_linear_pixel(configure: impl FnOnce(&mut AdjustmentModel)) -> [f32; 3] {
+    let dng = SyntheticGreyDng::default();
+    let bytes = dng.write_to_bytes();
+    let raw = raw_core::decode::decode_bytes(&bytes, "dng").unwrap();
+    let mut model = AdjustmentModel::default();
+    configure(&mut model);
+    let img = develop_scene_linear_from_raw_with_quality(&raw, &model, RenderQuality::Full).unwrap();
+    img.pixels[32 * 64 + 32]
+}
+
+#[test]
+fn temp_warmer_makes_r_gt_b() {
+    let p = scene_linear_pixel(|m| m.temperature = 7500.0);
+    assert!(p[0] > p[2], "temp+1000K should warm: R={} should exceed B={}", p[0], p[2]);
+    assert!(p[0] > p[1], "temp+1000K should warm: R={} should exceed G={}", p[0], p[1]);
+}
+
+#[test]
+fn temp_cooler_makes_b_gt_r() {
+    let p = scene_linear_pixel(|m| m.temperature = 5500.0);
+    assert!(p[2] > p[0], "temp-1000K should cool: B={} should exceed R={}", p[2], p[0]);
+    assert!(p[2] > p[1], "temp-1000K should cool: B={} should exceed G={}", p[2], p[1]);
+}
+
+#[test]
+fn temp_symmetric() {
+    // |R-B| at +1000K vs -1000K: same order of magnitude. The WB curve
+    // is not perfectly linear in K (the cool side produces a larger
+    // magnitude shift than the warm side at ±1000K), so we just lock
+    // down "no sign flip and no 5x asymmetry" as a regression net.
+    let warm = scene_linear_pixel(|m| m.temperature = 7500.0);
+    let cool = scene_linear_pixel(|m| m.temperature = 5500.0);
+    let warm_delta = (warm[0] - warm[2]).abs();
+    let cool_delta = (cool[0] - cool[2]).abs();
+    let ratio = warm_delta / cool_delta;
+    assert!(ratio > 0.3 && ratio < 3.0,
+        "WB +/-1000K asymmetry: warm |R-B|={}, cool |R-B|={}, ratio={}",
+        warm_delta, cool_delta, ratio);
+}
+
+/// Maple's tint convention is INVERTED from ACR: tint>0 shifts toward
+/// green, tint<0 shifts toward magenta. (ACR: tint>0 = magenta.) Both
+/// these tests lock that convention down so a future ACR-compat refactor
+/// would force the issue into review.
+#[test]
+fn tint_plus_pushes_green() {
+    let default_p = scene_linear_pixel(|_| {});
+    let p = scene_linear_pixel(|m| m.tint = 50.0);
+    let default_diff = (default_p[0] + default_p[2]) - 2.0 * default_p[1];
+    let tinted_diff  = (p[0]         + p[2])         - 2.0 * p[1];
+    assert!(tinted_diff < default_diff,
+        "tint+50 should shrink R+B vs 2G (green): default {} → tinted {}",
+        default_diff, tinted_diff);
+}
+
+#[test]
+fn tint_minus_pushes_magenta() {
+    let default_p = scene_linear_pixel(|_| {});
+    let p = scene_linear_pixel(|m| m.tint = -50.0);
+    let default_diff = (default_p[0] + default_p[2]) - 2.0 * default_p[1];
+    let tinted_diff  = (p[0]         + p[2])         - 2.0 * p[1];
+    assert!(tinted_diff > default_diff,
+        "tint-50 should grow R+B vs 2G (magenta): default {} → tinted {}",
+        default_diff, tinted_diff);
+}
+
+#[test]
+fn contrast_plus_creates_s_curve() {
+    // Contrast is AgX-internal — assert direction in display-encoded u8.
+    // Above-midtone values should brighten; below-midtone should darken.
+    fn render_mean(L: f32, configure: impl FnOnce(&mut AdjustmentModel)) -> u8 {
+        let dng = SyntheticGreyDng { linear_value: L, ..Default::default() };
+        let bytes = dng.write_to_bytes();
+        let raw = raw_core::decode::decode_bytes(&bytes, "dng").unwrap();
+        let mut model = AdjustmentModel::default();
+        configure(&mut model);
+        let (w, h, rgb) = render_from_raw(&raw, &model).unwrap();
+        let n = (w * h) as usize;
+        let s: u32 = (0..n).map(|i| rgb[i*3] as u32).sum();
+        ((s + n as u32 / 2) / n as u32) as u8
+    }
+    let above_default  = render_mean(0.50, |_| {});
+    let above_contrast = render_mean(0.50, |m| m.contrast = 50.0);
+    let below_default  = render_mean(0.05, |_| {});
+    let below_contrast = render_mean(0.05, |m| m.contrast = 50.0);
+    assert!(above_contrast > above_default,
+        "contrast+50 at L=0.50 should brighten: {} → {}", above_default, above_contrast);
+    assert!(below_contrast < below_default,
+        "contrast+50 at L=0.05 should darken: {} → {}", below_default, below_contrast);
+}
+
 /// Highlights compresses values above 1.0. Drive scene past the knee via
 /// exposure(+EV=1) on L=0.95 → scene 1.9, then highlights(+50) → 1.45.
 /// L kept off saturation because at L=1.0 the synthetic's G-channel raw
