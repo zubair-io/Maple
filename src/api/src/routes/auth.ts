@@ -7,6 +7,7 @@
  */
 
 import { Elysia, t } from "elysia";
+import { ObjectId } from "mongodb";
 import {
   usersCollection,
   credentialsCollection,
@@ -19,13 +20,19 @@ import {
   buildAuthenticationOptions,
   verifyAuthentication,
 } from "../auth/webauthn.ts";
-import { redeemInvite } from "../auth/invites.ts";
+import {
+  redeemInvite,
+  createInvite,
+  listInvites,
+  rescindInvite,
+} from "../auth/invites.ts";
 import { signAccessToken, REFRESH_TTL_SECONDS } from "../auth/tokens.ts";
 import {
   issueRefreshToken,
   rotateRefreshToken,
   revokeOne,
 } from "../auth/refresh_store.ts";
+import { requireAuth, requireOwner } from "../auth/middleware.ts";
 
 function jwtSecret(): string {
   const s = process.env.MAPLE_JWT_SECRET;
@@ -322,4 +329,22 @@ export const authRoutes = new Elysia({ prefix: "/api/auth" })
       return new Response(null, { status: 204 });
     },
     { body: t.Object({ refresh_token: t.Optional(t.String()) }) }
+  )
+
+  // ----- invites (owner-only) -----
+  .group("/invites", (g) =>
+    g.use(requireAuth).use(requireOwner)
+      .post(
+        "/",
+        async ({ body, auth }) => {
+          const inv = await createInvite(new ObjectId(auth.user.sub), body.email);
+          return { code: inv.code, expires_at: inv.expires_at };
+        },
+        { body: t.Object({ email: t.String({ format: "email" }) }) }
+      )
+      .get("/", async () => listInvites())
+      .delete("/:code", async ({ params }) => {
+        await rescindInvite(params.code);
+        return new Response(null, { status: 204 });
+      })
   );
