@@ -12,6 +12,7 @@ import { DropZoneComponent } from '../../components/drop-zone/drop-zone.componen
 import { LoadingBannerComponent } from '../../components/loading-banner/loading-banner.component';
 import { ErrorBannerComponent } from '../../components/error-banner/error-banner.component';
 import { MapleIconComponent } from '../../icons/maple-icon.component';
+import { LibraryPickerComponent } from '../../components/library-picker/library-picker.component';
 
 @Component({
   selector: 'browse-shell',
@@ -24,6 +25,7 @@ import { MapleIconComponent } from '../../icons/maple-icon.component';
     LoadingBannerComponent,
     ErrorBannerComponent,
     MapleIconComponent,
+    LibraryPickerComponent,
   ],
   templateUrl: './browse-shell.component.html',
   styleUrl: './browse-shell.component.scss',
