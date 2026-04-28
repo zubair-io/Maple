@@ -31,7 +31,7 @@ pub use features::OrbDetector;
 pub use features::AkazeDetector;
 pub use ingest::{decode_bytes, decode_input, sniff_format, PanoFormat, PanoInput};
 pub use matching::BruteForceMatcher;
-pub use seam::GraphCutSeamFinder;
+pub use seam::{GraphCutSeamFinder, GraphCutMaxFlowSeamFinder};
 pub use traits::{Blender, BundleAdjuster, FeatureDetector, FeatureMatcher, SeamFinder, Warper};
 pub use types::{
     Camera, Distortion, Features, Keypoint, Match, Matches, PanoImage, ParallaxMode,
