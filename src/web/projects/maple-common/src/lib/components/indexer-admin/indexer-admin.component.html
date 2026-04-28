@@ -1,0 +1,57 @@
+<div class="admin">
+  <header>
+    <h2>Indexer</h2>
+    @if (status(); as s) {
+      <button class="pause-btn" type="button" (click)="togglePause()">
+        {{ s.paused ? '&#x25B6; Resume' : '&#x23F8; Pause' }}
+      </button>
+    }
+  </header>
+
+  @if (error(); as e) {
+    <div class="error">{{ e }}</div>
+  }
+
+  @if (status(); as s) {
+    <table class="stages">
+      <thead>
+        <tr><th>Stage</th><th>Workers</th><th>In flight</th><th>Errors</th><th>Channel</th></tr>
+      </thead>
+      <tbody>
+        @for (st of stages; track st) {
+          <tr>
+            <td class="name">{{ st }}</td>
+            <td class="workers">
+              <input type="range" min="1" max="32" [value]="s.pools[st]"
+                (change)="setPool(st, +$any($event.target).value)" />
+              <span>{{ s.pools[st] }}</span>
+            </td>
+            <td>{{ s.stages[st].inFlight }}</td>
+            <td [class.warn]="s.stages[st].errors > 0">{{ s.stages[st].errors }}</td>
+            <td class="channel">
+              <div class="bar"><div class="fill" [style.width.%]="channelPct(st)"></div></div>
+              <span>{{ s.channels[st].depth }} / {{ s.channels[st].capacity }}</span>
+            </td>
+          </tr>
+        }
+      </tbody>
+    </table>
+  } @else {
+    <div class="loading">Loading&#x2026;</div>
+  }
+
+  @if (deadLetter().length > 0) {
+    <section class="dead-letter">
+      <h3>Dead-letter ({{ deadLetter().length }})</h3>
+      <ul>
+        @for (it of deadLetter(); track it.jobId ?? it.absPath ?? $index) {
+          <li>
+            <span class="dl-stage">{{ it.stage }}</span>
+            <span class="dl-path">{{ it.absPath || it.jobId }}</span>
+            <span class="dl-err">{{ it.error }}</span>
+          </li>
+        }
+      </ul>
+    </section>
+  }
+</div>

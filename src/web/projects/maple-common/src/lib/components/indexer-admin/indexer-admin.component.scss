@@ -1,0 +1,36 @@
+:host {
+  display: block;
+  background: var(--maple-bg-elev, #2c2c2e);
+  color: var(--maple-text-main, #f2f2f7);
+  padding: 24px;
+  border-radius: 8px;
+  width: 720px;
+  max-width: 90vw;
+  max-height: 80vh;
+  overflow-y: auto;
+}
+header { display: flex; justify-content: space-between; align-items: center; }
+header h2 { margin: 0; font-size: 16px; }
+.pause-btn { padding: 4px 12px; font-size: 12px; }
+.error { background: rgba(255, 80, 80, 0.15); padding: 8px; border-radius: 4px; margin: 8px 0; font-size: 12px; color: var(--maple-text-err, #ff6b6b); }
+
+.stages { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 12px; }
+.stages th, .stages td { padding: 6px 8px; text-align: left; border-bottom: 1px solid rgba(255,255,255,0.06); }
+.stages th { color: var(--maple-text-muted, #999); font-weight: 500; }
+.stages td.name { font-family: ui-monospace, monospace; }
+.stages td.workers { display: flex; gap: 6px; align-items: center; }
+.stages td.workers input { width: 100px; }
+.stages td.warn { color: var(--maple-text-err, #ff6b6b); }
+.channel { display: flex; gap: 8px; align-items: center; }
+.bar { width: 100px; height: 6px; background: rgba(255,255,255,0.08); border-radius: 3px; overflow: hidden; }
+.fill { height: 100%; background: var(--maple-accent, #4a8fea); }
+
+.dead-letter { margin-top: 16px; }
+.dead-letter h3 { margin: 0 0 8px 0; font-size: 13px; color: var(--maple-text-muted, #999); }
+.dead-letter ul { list-style: none; margin: 0; padding: 0; max-height: 200px; overflow-y: auto; }
+.dead-letter li { display: grid; grid-template-columns: 80px 1fr 1fr; gap: 8px; padding: 4px 0; font-size: 11px; border-bottom: 1px solid rgba(255,255,255,0.04); }
+.dl-stage { color: var(--maple-text-muted, #999); }
+.dl-path { font-family: ui-monospace, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dl-err { color: var(--maple-text-err, #ff6b6b); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.loading { padding: 24px; text-align: center; color: var(--maple-text-muted, #999); }
