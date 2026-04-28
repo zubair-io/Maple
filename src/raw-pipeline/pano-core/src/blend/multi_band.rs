@@ -26,6 +26,7 @@
 use rayon::prelude::*;
 
 use crate::blend::pyramid::{collapse_laplacian, gaussian_pyramid, laplacian_pyramid};
+use crate::color::ColorSpace;
 use crate::error::PanoError;
 use crate::traits::Blender;
 use crate::types::{PanoImage, SeamMask};
@@ -51,6 +52,157 @@ impl MultiBandBlender {
         assert!(levels >= 1, "must have at least 1 pyramid level");
         Self { levels }
     }
+
+    /// Single-pass N-image blend using a streaming accumulator.
+    ///
+    /// `weight_masks[i]` is a per-pixel f32 mask for image `i`. The masks
+    /// MUST partition unity (Σ_i weight_i(x, y) = 1.0 at every pixel),
+    /// or the output will be over-/under-bright at seam transitions.
+    ///
+    /// Algorithm:
+    /// 1. Pre-allocate N_levels output Laplacian bands (each holds the
+    ///    weighted sum of all images' contributions at that band).
+    /// 2. Stream one image at a time:
+    ///    a. Build that image's Laplacian pyramid (drops after this image).
+    ///    b. Build the Gaussian pyramid of its weight mask.
+    ///    c. For each band: `out_band += img_band × mask_band` (per-pixel).
+    /// 3. Collapse the accumulated pyramid to produce the output.
+    ///
+    /// Peak memory: O(N_levels × canvas) for the accumulator plus
+    /// O(canvas) for the current image's pyramid (which gets dropped
+    /// after each image). This is dramatically lower than the naive
+    /// "build all N pyramids first, then combine" approach (which
+    /// would be O(N × N_levels × canvas)) and is what production
+    /// stitchers (AliceVision, OpenCV) use.
+    ///
+    /// Validity: a pixel in the output is valid if any input image
+    /// is valid at that pixel.
+    pub fn blend_n(
+        &self,
+        images: &[&PanoImage],
+        weight_masks: &[Vec<f32>],
+    ) -> Result<PanoImage, PanoError> {
+        let n_images = images.len();
+        if n_images == 0 {
+            return Err(PanoError::Blend("blend_n: no inputs".into()));
+        }
+        if weight_masks.len() != n_images {
+            return Err(PanoError::Blend(format!(
+                "blend_n: image/mask count mismatch ({} vs {})",
+                n_images,
+                weight_masks.len()
+            )));
+        }
+
+        let (w, h) = (images[0].width, images[0].height);
+        let n_pixels = (w as usize) * (h as usize);
+        let color = images[0].color;
+
+        for (i, img) in images.iter().enumerate() {
+            if img.width != w || img.height != h {
+                return Err(PanoError::Blend(format!(
+                    "blend_n: image[{i}] size mismatch ({}×{} vs {w}×{h})",
+                    img.width, img.height
+                )));
+            }
+            if weight_masks[i].len() != n_pixels {
+                return Err(PanoError::Blend(format!(
+                    "blend_n: weight_masks[{i}].len() = {}, expected {n_pixels}",
+                    weight_masks[i].len()
+                )));
+            }
+        }
+
+        let levels = self.levels;
+
+        // ------------------------------------------------------------
+        // 1. Pre-allocate output bands. Each is a PanoImage at the
+        //    appropriate level resolution; pixels start at 0.0.
+        // ------------------------------------------------------------
+        let mut output_bands: Vec<PanoImage> = Vec::with_capacity(levels);
+        let mut bw = w;
+        let mut bh = h;
+        for _ in 0..levels {
+            output_bands.push(PanoImage::new(bw, bh, color));
+            // Halve dims for next level (ceiling for odd sizes —
+            // matches gaussian_down's behaviour).
+            bw = (bw + 1) / 2;
+            bh = (bh + 1) / 2;
+        }
+
+        // Track validity union: any input valid → output valid.
+        let mut valid_union = bitvec::vec::BitVec::repeat(false, n_pixels);
+
+        // ------------------------------------------------------------
+        // 2. Stream each image's contribution.
+        // ------------------------------------------------------------
+        for i in 0..n_images {
+            let img = images[i];
+
+            // Build this image's Laplacian pyramid.
+            let lap_i = laplacian_pyramid(img, levels);
+
+            // Build the Gaussian pyramid of the weight mask. Encode
+            // the mask in all 3 channels so we can reuse the existing
+            // gaussian_pyramid helper, then extract the R channel
+            // back at each level.
+            let mask_img = mask_vec_to_image(&weight_masks[i], w, h, color);
+            let mask_pyr = gaussian_pyramid(&mask_img, levels);
+
+            // Accumulate per band.
+            for b in 0..levels {
+                let band = &lap_i[b];
+                let mask_band = extract_mask_channel(&mask_pyr[b]);
+                let band_pixels = (band.width * band.height) as usize;
+                debug_assert_eq!(mask_band.len(), band_pixels);
+                debug_assert_eq!(output_bands[b].width, band.width);
+                debug_assert_eq!(output_bands[b].height, band.height);
+
+                let out = &mut output_bands[b];
+                // Parallelise across pixels.
+                out.pixels
+                    .par_chunks_exact_mut(3)
+                    .zip(band.pixels.par_chunks_exact(3))
+                    .zip(mask_band.par_iter())
+                    .for_each(|((out_px, in_px), &w_b)| {
+                        out_px[0] += in_px[0] * w_b;
+                        out_px[1] += in_px[1] * w_b;
+                        out_px[2] += in_px[2] * w_b;
+                    });
+            }
+
+            // Update validity union.
+            for px in 0..n_pixels {
+                if img.validity[px] {
+                    valid_union.set(px, true);
+                }
+            }
+
+            // lap_i and mask_pyr drop here, freeing their memory
+            // before the next iteration allocates more.
+        }
+
+        // ------------------------------------------------------------
+        // 3. Collapse the accumulated Laplacian pyramid.
+        // ------------------------------------------------------------
+        let mut result = collapse_laplacian(&output_bands);
+        result.validity = valid_union;
+        Ok(result)
+    }
+}
+
+/// Encode a per-pixel f32 mask into a PanoImage's RGB channels (so
+/// it round-trips through `gaussian_pyramid`).
+fn mask_vec_to_image(mask: &[f32], w: u32, h: u32, color: ColorSpace) -> PanoImage {
+    let mut img = PanoImage::new(w, h, color);
+    let n = (w * h) as usize;
+    debug_assert_eq!(mask.len(), n);
+    for px in 0..n {
+        img.pixels[px * 3] = mask[px];
+        img.pixels[px * 3 + 1] = mask[px];
+        img.pixels[px * 3 + 2] = mask[px];
+    }
+    img
 }
 
 // ---------------------------------------------------------------------------
@@ -257,6 +409,119 @@ mod tests {
         let out = blender.blend(&[&a, &b], &[mask_a, mask_b]).unwrap();
         assert_eq!(out.width, 16);
         assert_eq!(out.height, 16);
+    }
+
+    #[test]
+    fn blend_n_three_images_partition_unity() {
+        // Three solid images (red, green, blue) with masks that
+        // partition the canvas into thirds horizontally. Each pixel's
+        // weights sum to 1.0. The output should be red on the left,
+        // green in the middle, blue on the right (with multi-band
+        // blending smoothing the boundaries).
+        //
+        // Canvas wide enough that the gaussian-pyramid blur of mask
+        // boundaries doesn't contaminate the centre of each region:
+        // 60 wide / 3 regions = 20 px per colour, plenty of margin.
+        let blender = MultiBandBlender::with_levels(3);
+        let w = 60u32;
+        let h = 8u32;
+        let n_px = (w * h) as usize;
+        let red = solid(w, h, 1.0, 0.0, 0.0);
+        let green = solid(w, h, 0.0, 1.0, 0.0);
+        let blue = solid(w, h, 0.0, 0.0, 1.0);
+
+        let mut mask_r = vec![0.0_f32; n_px];
+        let mut mask_g = vec![0.0_f32; n_px];
+        let mut mask_b = vec![0.0_f32; n_px];
+        for y in 0..h {
+            for x in 0..w {
+                let idx = (y * w + x) as usize;
+                if x < w / 3 {
+                    mask_r[idx] = 1.0;
+                } else if x < 2 * w / 3 {
+                    mask_g[idx] = 1.0;
+                } else {
+                    mask_b[idx] = 1.0;
+                }
+            }
+        }
+
+        let out = blender
+            .blend_n(&[&red, &green, &blue], &[mask_r, mask_g, mask_b])
+            .unwrap();
+
+        assert_eq!(out.width, w);
+        assert_eq!(out.height, h);
+
+        // Far-left should be predominantly red, far-right predominantly blue,
+        // middle predominantly green.
+        let sample = |x: u32, y: u32| -> [f32; 3] {
+            let i = ((y * w + x) * 3) as usize;
+            [out.pixels[i], out.pixels[i + 1], out.pixels[i + 2]]
+        };
+
+        let left = sample(1, h / 2);
+        assert!(left[0] > 0.7, "left expected mostly red, got {left:?}");
+        assert!(left[2] < 0.2, "left expected low blue, got {left:?}");
+
+        let middle = sample(w / 2, h / 2);
+        assert!(
+            middle[1] > 0.7,
+            "middle expected mostly green, got {middle:?}"
+        );
+
+        let right = sample(w - 2, h / 2);
+        assert!(right[2] > 0.7, "right expected mostly blue, got {right:?}");
+        assert!(right[0] < 0.2, "right expected low red, got {right:?}");
+    }
+
+    #[test]
+    fn blend_n_validity_union() {
+        // Two images, each with half the canvas invalid. Output validity
+        // should be the union (everything valid).
+        let blender = MultiBandBlender::with_levels(2);
+        let w = 8u32;
+        let h = 4u32;
+        let n_px = (w * h) as usize;
+        let mut a = solid(w, h, 0.5, 0.5, 0.5);
+        let mut b = solid(w, h, 0.5, 0.5, 0.5);
+        // a invalid in right half, b invalid in left half.
+        for y in 0..h {
+            for x in (w / 2)..w {
+                a.set_invalid(x, y);
+            }
+            for x in 0..(w / 2) {
+                b.set_invalid(x, y);
+            }
+        }
+        let mut mask_a = vec![0.0_f32; n_px];
+        let mut mask_b = vec![0.0_f32; n_px];
+        for y in 0..h {
+            for x in 0..w {
+                let idx = (y * w + x) as usize;
+                if x < w / 2 {
+                    mask_a[idx] = 1.0;
+                } else {
+                    mask_b[idx] = 1.0;
+                }
+            }
+        }
+        let out = blender.blend_n(&[&a, &b], &[mask_a, mask_b]).unwrap();
+        // Every pixel should be valid (each pixel has at least one valid input).
+        for px in 0..n_px {
+            assert!(out.validity[px], "pixel {px} should be valid");
+        }
+    }
+
+    #[test]
+    fn blend_n_rejects_size_mismatch() {
+        let blender = MultiBandBlender::new();
+        let a = solid(8, 8, 0.0, 0.0, 0.0);
+        let b = solid(8, 4, 0.0, 0.0, 0.0); // wrong height
+        let mask_a = vec![0.5_f32; 8 * 8];
+        let mask_b = vec![0.5_f32; 8 * 4];
+        let result = blender.blend_n(&[&a, &b], &[mask_a, mask_b]);
+        assert!(result.is_err());
     }
 
     #[test]
