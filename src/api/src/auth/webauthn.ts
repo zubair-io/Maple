@@ -102,7 +102,12 @@ export async function verifyAuthentication(args: {
     expectedRPID: rpID(),
     credential: {
       id: args.credential.credential_id,
-      publicKey: new Uint8Array(args.credential.public_key),
+      // MongoDB returns BSON Binary (not Buffer) on read; reach into the
+      // underlying buffer rather than `new Uint8Array(binary)` which yields 0
+      // length. Works for both Buffer and Binary inputs.
+      publicKey: new Uint8Array(
+        (args.credential.public_key as { buffer: ArrayBufferLike }).buffer
+      ),
       counter: args.credential.counter,
       transports: args.credential.transports as any,
     },
