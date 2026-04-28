@@ -47,6 +47,7 @@ use std::path::{Path, PathBuf};
 use clap::Parser;
 use pano_core::{
     ba::{
+        focal::focal_from_homography,
         homography::{ransac_homography, rotation_from_homography},
         joint::{rodrigues_log, solve_joint_with_priors, CameraPrior, JointRotationFocalBA},
         lm::solve_with_keypoints,
@@ -588,7 +589,7 @@ fn compute_homography_chain_priors(
 ) -> Result<Vec<Option<CameraPrior>>, String> {
     use std::collections::VecDeque;
 
-    let focal_d = image_size.0.max(image_size.1) as f64;
+    let focal_fallback = image_size.0.max(image_size.1) as f64;
     let (img_w, img_h) = (image_size.0 as f64, image_size.1 as f64);
 
     // Edge: (cam_i, cam_j, inlier_count, rotation i→j)
@@ -600,6 +601,8 @@ fn compute_homography_chain_priors(
     }
 
     let mut edges: Vec<Edge> = Vec::new();
+    // Accumulate per-camera focal estimates from each pair that touches that camera.
+    let mut focal_estimates: Vec<Vec<f64>> = vec![Vec::new(); n_cams];
 
     for (ci, cj, matches) in pairs {
         if matches.inliers.len() < 4 {
@@ -609,11 +612,19 @@ fn compute_homography_chain_priors(
         let kps_j = &features[*cj].keypoints;
 
         let ransac_result = ransac_homography(kps_i, kps_j, &matches.inliers, 5.0, 500, 42);
-        let rotation = if let Some((h, _)) = ransac_result {
-            rotation_from_homography(&h, focal_d, img_w, img_h)
+        let (rotation, focal_est) = if let Some((h, _)) = ransac_result {
+            let r = rotation_from_homography(&h, focal_fallback, img_w, img_h);
+            let f = focal_from_homography(&h, image_size);
+            (r, f)
         } else {
-            nalgebra::Matrix3::identity()
+            (nalgebra::Matrix3::identity(), None)
         };
+
+        // Accumulate focal estimates for both cameras in this pair.
+        if let Some(f) = focal_est {
+            focal_estimates[*ci].push(f);
+            focal_estimates[*cj].push(f);
+        }
 
         edges.push(Edge {
             a: *ci,
@@ -623,10 +634,24 @@ fn compute_homography_chain_priors(
         });
     }
 
-    // MST via Kruskal (pathfinding crate is not available in pano-smoke directly,
-    // so use a simple union-find approach for a spanning tree).
-    // Since pairs are consecutive (0,1),(1,2),...,(N-2,N-1), the MST is just
-    // the chain itself — no MST needed.
+    // Compute mean focal per camera; fall back to image_w if no estimates.
+    let initial_focals: Vec<f64> = focal_estimates
+        .iter()
+        .map(|fs| {
+            if fs.is_empty() {
+                focal_fallback
+            } else {
+                let mean: f64 = fs.iter().sum::<f64>() / fs.len() as f64;
+                mean
+            }
+        })
+        .collect();
+
+    // Log the per-camera focal estimates.
+    for (i, f) in initial_focals.iter().enumerate() {
+        eprintln!("pano-smoke:   focal_est[{i}]={f:.1}  (fallback={focal_fallback:.1})");
+    }
+
     // Build adjacency list from all edges.
     let mut adj: Vec<Vec<(usize, nalgebra::Matrix3<f64>)>> = vec![Vec::new(); n_cams];
     for edge in &edges {
@@ -652,10 +677,11 @@ fn compute_homography_chain_priors(
 
     let priors: Vec<Option<CameraPrior>> = rotations
         .iter()
-        .map(|r| {
+        .enumerate()
+        .map(|(i, r)| {
             Some(CameraPrior {
                 rotation: r.cast::<f64>(),
-                focal: focal_d as f32,
+                focal: initial_focals[i] as f32,
             })
         })
         .collect();
