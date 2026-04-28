@@ -252,6 +252,39 @@ fn contrast_plus_creates_s_curve() {
         "contrast+50 at L=0.05 should darken: {} → {}", below_default, below_contrast);
 }
 
+/// Print the per-channel u8 mean for every adjustment case the Apple
+/// UITest covers. Run with `--ignored --nocapture` to dump; the integers
+/// it prints get hard-coded into SyntheticGreyUITests.swift's `cases[]`.
+///
+/// Run:
+///   cargo test -p raw-core --features test-support --test grey_adjustments \
+///       dump_display_means -- --ignored --nocapture
+#[test]
+#[ignore]
+fn dump_display_means() {
+    fn mean(label: &str, configure: impl FnOnce(&mut AdjustmentModel)) {
+        let dng = SyntheticGreyDng::default(); // L = 0.18, 64×64 RGGB
+        let bytes = dng.write_to_bytes();
+        let raw = raw_core::decode::decode_bytes(&bytes, "dng").unwrap();
+        let mut model = AdjustmentModel::default();
+        configure(&mut model);
+        let (w, h, rgb) = render_from_raw(&raw, &model).unwrap();
+        let n = (w * h) as usize;
+        let mr: u32 = (0..n).map(|i| rgb[i*3]     as u32).sum();
+        let mg: u32 = (0..n).map(|i| rgb[i*3 + 1] as u32).sum();
+        let mb: u32 = (0..n).map(|i| rgb[i*3 + 2] as u32).sum();
+        let nu = n as u32;
+        let avg = |s: u32| (s + nu / 2) / nu;
+        println!("{:24} R={} G={} B={}", label, avg(mr), avg(mg), avg(mb));
+    }
+    mean("default",          |_| {});
+    mean("exposure +1",      |m| m.exposure = 1.0);
+    mean("exposure -1",      |m| m.exposure = -1.0);
+    mean("shadows +50",      |m| m.shadows = 50.0);
+    mean("whites -50",       |m| m.whites = -50.0);
+    mean("contrast +50",     |m| m.contrast = 50.0);
+}
+
 /// Highlights compresses values above 1.0. Drive scene past the knee via
 /// exposure(+EV=1) on L=0.95 → scene 1.9, then highlights(+50) → 1.45.
 /// L kept off saturation because at L=1.0 the synthetic's G-channel raw
