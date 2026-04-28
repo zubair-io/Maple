@@ -59,7 +59,7 @@ The Indexer immediately starts scanning the folder in the background, indexing f
 | `PORT` | `3000` | HTTP listen port |
 | `MAPLE_MONGO_URI` | `mongodb://localhost:27017` | MongoDB connection string |
 | `MAPLE_MONGO_DB` | `maple_self_hosted` | MongoDB database name |
-| `MAPLE_ROOTS` | (none) | Colon-separated allowed FS roots. If unset, all registered folder paths are allowed. |
+| `MAPLE_ROOTS` | `/` | Colon-separated FS roots the server may browse and read. Defaults to `/` (Docker mount is the jail). |
 | `MAPLE_INDEXER_WORKERS` | `2` | Concurrent indexer worker threads |
 | `MAPLE_DEV` | (none) | Set to `1` to proxy UI to Angular dev server |
 | `MAPLE_DEV_ORIGIN` | `http://localhost:4201` | Angular dev server origin when `MAPLE_DEV=1` (the `maple-self-hosted` app serves on 4201) |
@@ -82,6 +82,7 @@ GET  /api/indexer/progress          — SSE stream of indexer progress
 GET  /api/auth/status               — auth status (Phase 5: always authenticated)
 POST /api/auth/register             — WebAuthn registration (Phase 5: returns 501)
 POST /api/auth/verify               — WebAuthn verify (Phase 5: returns 501)
+GET  /api/fs/list?path=<abs>&showAll=0|1   — list subdirectories under <abs> (library picker)
 GET  /                              — Angular SPA (SPA fallback for all non-API routes)
 ```
 
