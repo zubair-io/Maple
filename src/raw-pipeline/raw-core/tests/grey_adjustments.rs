@@ -83,3 +83,93 @@ fn exposure_plus1_predicts() {
         assert_neutral_display(L, |m| m.exposure = 1.0);
     }
 }
+
+#[test]
+fn exposure_minus1_predicts() {
+    for L in [0.05, 0.18, 0.50] {
+        assert_predicted_scene_linear(L, |m| m.exposure = -1.0, |s| predict_exposure(s, -1.0));
+        assert_neutral_display(L, |m| m.exposure = -1.0);
+    }
+}
+
+#[test]
+fn shadows_plus50_predicts() {
+    for L in [0.05, 0.18, 0.50] {
+        assert_predicted_scene_linear(L, |m| m.shadows = 50.0, |s| predict_shadows(s, 50.0));
+        assert_neutral_display(L, |m| m.shadows = 50.0);
+    }
+}
+
+#[test]
+fn shadows_minus50_predicts() {
+    for L in [0.05, 0.18, 0.50] {
+        assert_predicted_scene_linear(L, |m| m.shadows = -50.0, |s| predict_shadows(s, -50.0));
+        assert_neutral_display(L, |m| m.shadows = -50.0);
+    }
+}
+
+#[test]
+fn whites_plus50_predicts() {
+    for L in [0.18, 0.50, 0.80] {
+        assert_predicted_scene_linear(L, |m| m.whites = 50.0, |s| predict_whites(s, 50.0));
+        assert_neutral_display(L, |m| m.whites = 50.0);
+    }
+}
+
+#[test]
+fn whites_minus50_predicts() {
+    for L in [0.18, 0.50, 0.80] {
+        assert_predicted_scene_linear(L, |m| m.whites = -50.0, |s| predict_whites(s, -50.0));
+        assert_neutral_display(L, |m| m.whites = -50.0);
+    }
+}
+
+#[test]
+fn blacks_plus50_predicts() {
+    for L in [0.05, 0.18, 0.30] {
+        assert_predicted_scene_linear(L, |m| m.blacks = 50.0, |s| predict_blacks(s, 50.0));
+        assert_neutral_display(L, |m| m.blacks = 50.0);
+    }
+}
+
+#[test]
+fn blacks_minus50_predicts() {
+    for L in [0.05, 0.18, 0.30] {
+        assert_predicted_scene_linear(L, |m| m.blacks = -50.0, |s| predict_blacks(s, -50.0));
+        assert_neutral_display(L, |m| m.blacks = -50.0);
+    }
+}
+
+#[test]
+fn saturation_no_op_on_neutral() {
+    for L in [0.05, 0.18, 0.50] {
+        assert_predicted_scene_linear(L, |m| m.saturation = 50.0, |s| predict_saturation(s, 50.0));
+        assert_predicted_scene_linear(L, |m| m.saturation = -50.0, |s| predict_saturation(s, -50.0));
+        assert_neutral_display(L, |m| m.saturation = 50.0);
+    }
+}
+
+#[test]
+fn vibrance_no_op_on_neutral() {
+    for L in [0.05, 0.18, 0.50] {
+        assert_predicted_scene_linear(L, |m| m.vibrance = 50.0, |s| predict_vibrance(s, 50.0));
+        assert_predicted_scene_linear(L, |m| m.vibrance = -50.0, |s| predict_vibrance(s, -50.0));
+        assert_neutral_display(L, |m| m.vibrance = 50.0);
+    }
+}
+
+/// Highlights compresses values above 1.0. Drive scene past the knee via
+/// exposure(+EV=1) on L=0.95 → scene 1.9, then highlights(+50) → 1.45.
+/// L kept off saturation because at L=1.0 the synthetic's G-channel raw
+/// values land at exactly white_level and demosaic edge effects produce
+/// ~0.5% drift that exceeds the EPS_SCENE_LINEAR budget.
+#[test]
+fn highlights_compresses_above_knee() {
+    let configure = |m: &mut AdjustmentModel| {
+        m.exposure = 1.0;
+        m.highlights = 50.0;
+    };
+    let predict = |s: f32| predict_highlights(predict_exposure(s, 1.0), 50.0);
+    assert_predicted_scene_linear(0.95, configure, predict);
+    assert_neutral_display(0.95, configure);
+}
