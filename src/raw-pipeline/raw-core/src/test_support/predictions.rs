@@ -3,11 +3,68 @@
 //! predictor + production-code pair drifts together. See spec
 //! `docs/superpowers/specs/2026-04-28-grey-card-adjustment-tests-design.md`.
 
+fn smoothstep(e0: f32, e1: f32, x: f32) -> f32 {
+    let t = ((x - e0) / (e1 - e0)).clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
+}
+
 /// scene_tone_controls::apply, step 1.
 pub fn predict_exposure(scene: f32, ev: f32) -> f32 {
     if ev.abs() < 1e-6 { return scene; }
     scene * ev.exp2()
 }
+
+/// scene_tone_controls::apply, step 2. Highlights only fires above 1.0.
+pub fn predict_highlights(scene: f32, h_slider: f32) -> f32 {
+    if h_slider.abs() < 1e-3 { return scene; }
+    if scene <= 1.0 { return scene; }
+    let h_amount = h_slider / 100.0;
+    let h_denom = 1.0 + h_amount * 2.0;
+    if h_denom.abs() < 1e-6 { return scene; }
+    1.0 + (scene - 1.0) / h_denom
+}
+
+/// scene_tone_controls::apply, step 3. For a neutral pixel R=G=B=scene,
+/// luma == scene, so the per-channel math collapses to scalar math.
+pub fn predict_shadows(scene: f32, s_slider: f32) -> f32 {
+    if s_slider.abs() < 1e-3 { return scene; }
+    let s_factor = (s_slider / 100.0) * 0.5;
+    let mask = 1.0 - smoothstep(0.0, 0.1, scene);
+    let lift = mask * s_factor;
+    scene * (1.0 + lift)
+}
+
+/// scene_tone_controls::apply, step 4.
+pub fn predict_whites(scene: f32, w_slider: f32) -> f32 {
+    if w_slider.abs() < 1e-3 { return scene; }
+    let w_amount = w_slider / 200.0;
+    let weight = smoothstep(0.18, 1.0, scene);
+    let scale = if w_slider >= 0.0 {
+        let overshoot = (scene - 1.0).max(0.0);
+        1.0 + w_amount * (weight + overshoot * 4.0)
+    } else {
+        1.0 + w_amount * weight
+    };
+    let scale = scale.max(0.0);
+    scene * scale
+}
+
+/// scene_tone_controls::apply, step 5.
+pub fn predict_blacks(scene: f32, b_slider: f32) -> f32 {
+    if b_slider.abs() < 1e-3 { return scene; }
+    let b_amount = b_slider / 800.0;
+    let weight = 1.0 - smoothstep(0.0, 0.18, scene);
+    if b_slider >= 0.0 {
+        let shift = b_amount * weight;
+        (scene + shift).max(0.0)
+    } else {
+        let scale = (1.0 + b_amount * weight * 4.0).max(0.0);
+        scene * scale
+    }
+}
+
+pub fn predict_saturation(scene: f32, _s_slider: f32) -> f32 { scene }
+pub fn predict_vibrance(scene: f32, _v_slider: f32) -> f32 { scene }
 
 #[cfg(test)]
 mod tests {
@@ -51,5 +108,129 @@ mod tests {
     #[test]
     fn exposure_zero_is_identity() {
         round_trip_exposure(0.18, 0.0);
+    }
+
+    fn round_trip_highlights(scene: f32, h: f32) {
+        use crate::image::{ColorSpace, Image};
+        use crate::stages::scene_tone_controls;
+        use crate::xmp::AdjustmentModel;
+        let predicted = predict_highlights(scene, h);
+        let mut img = Image::new(1, 1, ColorSpace::SceneLinearRec2020);
+        img.pixels[0] = [scene, scene, scene];
+        let mut model = AdjustmentModel::default();
+        model.highlights = h;
+        scene_tone_controls::apply(&mut img, &model);
+        for c in 0..3 {
+            assert!((img.pixels[0][c] - predicted).abs() < 1e-6,
+                "predict_highlights({},{}) = {}, got {} (chan {})",
+                scene, h, predicted, img.pixels[0][c], c);
+        }
+    }
+
+    fn round_trip_shadows(scene: f32, s: f32) {
+        use crate::image::{ColorSpace, Image};
+        use crate::stages::scene_tone_controls;
+        use crate::xmp::AdjustmentModel;
+        let predicted = predict_shadows(scene, s);
+        let mut img = Image::new(1, 1, ColorSpace::SceneLinearRec2020);
+        img.pixels[0] = [scene, scene, scene];
+        let mut model = AdjustmentModel::default();
+        model.shadows = s;
+        scene_tone_controls::apply(&mut img, &model);
+        for c in 0..3 {
+            assert!((img.pixels[0][c] - predicted).abs() < 1e-6,
+                "predict_shadows({},{}) = {}, got {} (chan {})",
+                scene, s, predicted, img.pixels[0][c], c);
+        }
+    }
+
+    fn round_trip_whites(scene: f32, w: f32) {
+        use crate::image::{ColorSpace, Image};
+        use crate::stages::scene_tone_controls;
+        use crate::xmp::AdjustmentModel;
+        let predicted = predict_whites(scene, w);
+        let mut img = Image::new(1, 1, ColorSpace::SceneLinearRec2020);
+        img.pixels[0] = [scene, scene, scene];
+        let mut model = AdjustmentModel::default();
+        model.whites = w;
+        scene_tone_controls::apply(&mut img, &model);
+        for c in 0..3 {
+            assert!((img.pixels[0][c] - predicted).abs() < 1e-6,
+                "predict_whites({},{}) = {}, got {} (chan {})",
+                scene, w, predicted, img.pixels[0][c], c);
+        }
+    }
+
+    fn round_trip_blacks(scene: f32, b: f32) {
+        use crate::image::{ColorSpace, Image};
+        use crate::stages::scene_tone_controls;
+        use crate::xmp::AdjustmentModel;
+        let predicted = predict_blacks(scene, b);
+        let mut img = Image::new(1, 1, ColorSpace::SceneLinearRec2020);
+        img.pixels[0] = [scene, scene, scene];
+        let mut model = AdjustmentModel::default();
+        model.blacks = b;
+        scene_tone_controls::apply(&mut img, &model);
+        for c in 0..3 {
+            assert!((img.pixels[0][c] - predicted).abs() < 1e-6,
+                "predict_blacks({},{}) = {}, got {} (chan {})",
+                scene, b, predicted, img.pixels[0][c], c);
+        }
+    }
+
+    #[test] fn highlights_below_knee_is_identity()  { round_trip_highlights(0.50, 50.0); }
+    #[test] fn highlights_above_knee_compresses()   { round_trip_highlights(2.0, 50.0); }
+    #[test] fn highlights_zero_is_identity()        { round_trip_highlights(2.0, 0.0); }
+
+    #[test] fn shadows_plus50_lifts_dark()    { round_trip_shadows(0.05, 50.0); }
+    #[test] fn shadows_minus50_crushes_dark() { round_trip_shadows(0.05, -50.0); }
+    #[test] fn shadows_above_mask_no_op()     { round_trip_shadows(0.50, 50.0); }
+    #[test] fn shadows_zero_is_identity()     { round_trip_shadows(0.05, 0.0); }
+
+    #[test] fn whites_plus50_lifts_bright()   { round_trip_whites(0.50, 50.0); }
+    #[test] fn whites_minus50_pulls_bright()  { round_trip_whites(0.50, -50.0); }
+    #[test] fn whites_below_pivot_no_op()     { round_trip_whites(0.10, 50.0); }
+    #[test] fn whites_zero_is_identity()      { round_trip_whites(0.50, 0.0); }
+
+    #[test] fn blacks_plus50_lifts_floor()    { round_trip_blacks(0.05, 50.0); }
+    #[test] fn blacks_minus50_crushes_floor() { round_trip_blacks(0.05, -50.0); }
+    #[test] fn blacks_above_mid_no_op()       { round_trip_blacks(0.30, 50.0); }
+    #[test] fn blacks_zero_is_identity()      { round_trip_blacks(0.05, 0.0); }
+
+    /// Saturation and vibrance decompose the pixel into chroma + luma and
+    /// reassemble; on a true neutral the chroma is zero so the output
+    /// matches the input, but float roundoff can introduce ~4e-6 drift.
+    /// 1e-5 is enough to lock down "no significant chroma shift" while
+    /// allowing the inherent floating-point noise.
+    const SAT_VIB_EPS: f32 = 1e-5;
+
+    #[test]
+    fn saturation_no_op_on_neutral() {
+        use crate::image::{ColorSpace, Image};
+        use crate::stages::saturation as sat;
+        let mut img = Image::new(1, 1, ColorSpace::SceneLinearRec2020);
+        img.pixels[0] = [0.18, 0.18, 0.18];
+        sat::apply(&mut img, 50.0);
+        let predicted = predict_saturation(0.18, 50.0);
+        for c in 0..3 {
+            assert!((img.pixels[0][c] - predicted).abs() < SAT_VIB_EPS,
+                "saturation should not move a neutral; got {}, predicted {}",
+                img.pixels[0][c], predicted);
+        }
+    }
+
+    #[test]
+    fn vibrance_no_op_on_neutral() {
+        use crate::image::{ColorSpace, Image};
+        use crate::stages::vibrance;
+        let mut img = Image::new(1, 1, ColorSpace::SceneLinearRec2020);
+        img.pixels[0] = [0.18, 0.18, 0.18];
+        vibrance::apply(&mut img, 50.0);
+        let predicted = predict_vibrance(0.18, 50.0);
+        for c in 0..3 {
+            assert!((img.pixels[0][c] - predicted).abs() < SAT_VIB_EPS,
+                "vibrance should not move a neutral; got {}, predicted {}",
+                img.pixels[0][c], predicted);
+        }
     }
 }
