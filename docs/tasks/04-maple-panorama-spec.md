@@ -1,6 +1,6 @@
 # Maple — Panorama Pipeline Task Plan
 
-**Status:** v0.4 — execution snapshot 2026-04-28 (Rust port complete).
+**Status:** v0.5 — execution snapshot 2026-04-28 (Rust port complete + 21-image stitch unblocked).
 **Owner:** Zubair
 **Spec:** [`docs/tickets/04-maple-panorama-spec.md`](../tickets/04-maple-panorama-spec.md)
 (duplicate copy at [`docs/coral-maple-panorama-spec.md`](../coral-maple-panorama-spec.md)).
@@ -769,7 +769,7 @@ This section records the outcome of the seven-phase Rust port described in
 | Phase 4: Auto focal estimation | **Done** | Hartley & Zisserman § 8.8 `focal_from_homography`; seeds the joint BA initial estimate; BA subsequently refines per-camera. |
 | Phase 5: BK max-flow seam | **Done** | Hand-rolled Boykov–Kolmogorov (~450 lines, `src/raw-pipeline/pano-core/src/seam/bk.rs`); `GraphCutMaxFlowSeamFinder` is the default. First Rust BK port in the tree. |
 | Phase 6: Per-image gain compensation | **Done** | Brown & Lowe 2007 § 5 least-squares gain solve over pairwise overlaps; applied before seam finding. |
-| Phase 7: End-to-end validation | **Partial** | `test_pano_pipeline.sh` extended with the 21-DNG regression section (skip-passes cleanly with no reference). Full 21-frame stitch is **blocked**: pipeline reaches `blend step 1/20` on a 22818×7922 (180 MP) canvas, then the CPU multi-band blend's working set (~17 GB per step) exhausts physical memory and the process is OOM-killed. No reference PNG could be saved. Unblock = Phase 4 GPU blend, OR a smaller `--max-dim`, OR a single-pass simultaneous N-way blend (replaces the pairwise chain). |
+| Phase 7: End-to-end validation | **Done** | Full 21-frame stitch now completes end-to-end (22818×7922 ≈ 180 MP, ~730 MB PNG). Reference saved at `test-fixtures/pano/references/pano_01_reference.png`; harness regression-gates future runs against it (passes at mean ΔE 0.00 against the just-saved reference). `test_pano_pipeline.sh` extended with the 21-DNG regression section + skip-passes cleanly when reference absent. The OOM that blocked v0.4's chained pairwise blend was resolved in commits `6c44f93` + `7830c91` — see "Single-pass N-way blend" below. |
 
 ### What works
 
@@ -777,15 +777,19 @@ This section records the outcome of the seven-phase Rust port described in
   (reference is stale — regenerate with `--gen-fixtures` after each major pipeline change).
 - DJI multi-row spherical panoramas: AKAZE matching + joint BA correctly places 21 DJI
   frames at their gimbal-implied yaw/pitch positions (±97° yaw, ±23° pitch spread)
-  through the warp + gain-compensation stages. The blend stage does NOT complete on
-  a 180 MP canvas with the current CPU pipeline — see Known limitations #2.
+  through warp + gain-compensation + blend. End-to-end stitch completes on a
+  22818×7922 (~180 MP) Spherical canvas in a single process invocation.
 - Gain compensation reduces brightness banding at seams.
-- Regression gate: once a reference PNG is saved at
-  `test-fixtures/pano/references/pano_01_reference.png`, any future run of
-  `test_pano_pipeline.sh` stitches the same 21 inputs and diffs vs the reference
-  (ΔE ≤ 30 budget — regression only, not quality vs. ground truth). Currently no
-  reference exists because no successful 21-frame stitch has completed; the harness
-  skip-passes with clear instructions until one is generated.
+- Single-pass N-way blend (`MultiBandBlender::blend_n`): processes one image at a
+  time, accumulating `band × weight_mask` into pre-allocated output bands; drops
+  each pyramid before the next is allocated, so peak memory is O(N_levels × canvas)
+  regardless of N. This is what AliceVision's panoramaCompositing and OpenCV's
+  stitcher do internally.
+- Regression gate: a reference PNG sits at
+  `test-fixtures/pano/references/pano_01_reference.png`; `test_pano_pipeline.sh`
+  re-stitches the same 21 inputs and diffs vs the reference (ΔE ≤ 30 budget —
+  regression-only, not quality vs ground truth). Skip-passes when fixtures or
+  reference are absent.
 
 ### Known limitations / follow-up work
 
@@ -795,17 +799,13 @@ This section records the outcome of the seven-phase Rust port described in
    values on pano_01 (0.003–3.34 across 21 frames) reflect real drift in the
    iterative chain. A joint-blend pass over the full multi-image overlap graph
    is the follow-up.
-2. **CPU-only multi-band blend is unable to complete on 180 MP canvases on
-   typical dev hardware.** The `MultiBandBlender` pyramid convolutions are
-   sequential nested loops; on the 22818×7922 pano_01 canvas the per-step working
-   set (warped image + Laplacian pyramid + gaussian pyramid + scratch buffers)
-   approaches ~17 GB. On a 16 GB machine the first blend step swap-thrashes
-   (12M+ pageouts observed) and is eventually OOM-killed before completing
-   step 1 of 20. **Three unblock paths**, in priority order: (a) Phase 4 GPU
-   warp & blend (resolves the perf wall outright), (b) a single-pass
-   simultaneous N-way blend that allocates the canvas pyramid once instead of
-   chaining 20 pairwise blends, (c) `--max-dim 8192` clamp to keep the canvas
-   under 64 MP for now (loses resolution but unblocks the test path).
+2. **(RESOLVED in v0.5)** Previously: chained-pairwise blend OOM'd on the 180 MP
+   pano_01 canvas. v0.5 ships `MultiBandBlender::blend_n` — single-pass streaming
+   N-way blend that processes one image at a time, dropping each pyramid before
+   allocating the next. Peak memory is now O(N_levels × canvas), independent of
+   N. The 21-image pano_01 stitch completes end-to-end. Phase 4 GPU work is
+   still desirable for wall-time (the CPU blend is single-threaded inside each
+   pyramid level) but no longer blocking.
 3. **Gain compensation is luminance-only single-channel.** Per-channel WB drift
    (e.g. sky color shift between adjacent rows) is not handled. A per-channel
    least-squares solve is a follow-up.
@@ -820,6 +820,19 @@ This section records the outcome of the seven-phase Rust port described in
 
 ### Commits (Phase 7)
 
-- `feat(pano): harness gates regressions on pano_01 reference` — extends
-  `src/scripts/test_pano_pipeline.sh` with the 21-DNG regression section.
-- `docs(pano): task plan v0.4 — Rust port phases 1-7 complete` — this file.
+- `feat(pano): harness gates regressions on pano_01 reference` (`988400a`) —
+  extends `src/scripts/test_pano_pipeline.sh` with the 21-DNG regression section.
+- `docs(pano): task plan v0.4 — Rust port phases 1-7 complete` (`604f520`) +
+  the `8e6268b` correction recording the v0.4 blend OOM.
+
+### Commits (v0.5 — N-way blend unblock)
+
+- `feat(pano): MultiBandBlender::blend_n streaming N-way accumulator` (`6c44f93`)
+  — single-pass blend over N inputs; processes one image at a time, accumulates
+  `band × weight_mask` into pre-allocated output bands. 3 new unit tests pass.
+- `feat(pano): pano-smoke replaces pairwise chain with single-pass N-way blend`
+  (`7830c91`) — Voronoi-style partition masks + one `blend_n` call instead of
+  20 pairwise blends.
+- `fix(pano): lift PIL MAX_IMAGE_PIXELS for 180 MP harness paths` (`d1ac79b`) —
+  raises PIL's decompression-bomb cap so the 180 MP reference can be loaded by
+  the harness's resize + compare_images.py stages.
