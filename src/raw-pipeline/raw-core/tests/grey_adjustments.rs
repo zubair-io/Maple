@@ -201,29 +201,36 @@ fn temp_symmetric() {
         warm_delta, cool_delta, ratio);
 }
 
-/// Maple's tint convention is INVERTED from ACR: tint>0 shifts toward
-/// green, tint<0 shifts toward magenta. (ACR: tint>0 = magenta.) Both
-/// these tests lock that convention down so a future ACR-compat refactor
-/// would force the issue into review.
+/// Tint follows ACR convention: tint>0 = magenta (R+B grows vs 2G),
+/// tint<0 = green (R+B shrinks vs 2G).
+///
+/// **Known failure:** Maple currently inverts this — these two tests
+/// fail today because the production tint sign is wrong. The test
+/// failure is the alert. See spawned investigation task; do not flip
+/// the assertion to make this pass.
 #[test]
-fn tint_plus_pushes_green() {
+fn tint_plus_pushes_magenta() {
     let default_p = scene_linear_pixel(|_| {});
     let p = scene_linear_pixel(|m| m.tint = 50.0);
     let default_diff = (default_p[0] + default_p[2]) - 2.0 * default_p[1];
     let tinted_diff  = (p[0]         + p[2])         - 2.0 * p[1];
-    assert!(tinted_diff < default_diff,
-        "tint+50 should shrink R+B vs 2G (green): default {} → tinted {}",
+    assert!(tinted_diff > default_diff,
+        "tint+50 should grow R+B vs 2G (ACR convention: magenta): \
+         default {} → tinted {}. If this fails, Maple's tint sign is \
+         inverted vs ACR — investigate, do not flip the assertion.",
         default_diff, tinted_diff);
 }
 
 #[test]
-fn tint_minus_pushes_magenta() {
+fn tint_minus_pushes_green() {
     let default_p = scene_linear_pixel(|_| {});
     let p = scene_linear_pixel(|m| m.tint = -50.0);
     let default_diff = (default_p[0] + default_p[2]) - 2.0 * default_p[1];
     let tinted_diff  = (p[0]         + p[2])         - 2.0 * p[1];
-    assert!(tinted_diff > default_diff,
-        "tint-50 should grow R+B vs 2G (magenta): default {} → tinted {}",
+    assert!(tinted_diff < default_diff,
+        "tint-50 should shrink R+B vs 2G (ACR convention: green): \
+         default {} → tinted {}. If this fails, Maple's tint sign is \
+         inverted vs ACR — investigate, do not flip the assertion.",
         default_diff, tinted_diff);
 }
 
