@@ -36,6 +36,18 @@ export interface ApiAssetPage {
   limit: number;
 }
 
+export interface ApiDirEntry {
+  name: string;
+  path: string;
+  hasChildren: boolean;
+}
+
+export interface ApiDirListing {
+  path: string;
+  parent: string | null;
+  entries: ApiDirEntry[];
+}
+
 @Injectable({ providedIn: 'root' })
 export class BunApiBackendService {
   private readonly http = inject(HttpClient);
@@ -47,6 +59,12 @@ export class BunApiBackendService {
 
   registerFolder(folderPath: string): Observable<ApiFolder> {
     return this.http.post<ApiFolder>(`${this.base}/folders`, { path: folderPath });
+  }
+
+  listDir(absPath: string, showAll = false): Observable<ApiDirListing> {
+    const params = new URLSearchParams({ path: absPath });
+    if (showAll) params.set('showAll', '1');
+    return this.http.get<ApiDirListing>(`${this.base}/fs/list?${params.toString()}`);
   }
 
   listAssets(folderId: string, page = 1, limit = 100): Observable<ApiAssetPage> {
