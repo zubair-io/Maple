@@ -2,6 +2,12 @@
 resolver = "2"
 members = ["raw-core", "maple-cli", "raw-ffi", "raw-wasm", "pano-core"]
 
+# bitarray 0.2.6 (published 2020) uses `#![feature(min_const_generics)]` which
+# became stable in Rust 1.51 and is now an E0554 error on stable.  The vendored
+# copy is byte-for-byte identical except that one attribute line is removed.
+[patch.crates-io]
+bitarray = { path = "vendor/bitarray" }
+
 [workspace.package]
 edition = "2021"
 rust-version = "1.83"
