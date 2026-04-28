@@ -1,0 +1,44 @@
+<div class="picker">
+  <header>
+    <h2>Pick a library folder</h2>
+    <p class="hint">
+      Browse the server filesystem and pick a folder to index. You can register
+      additional folders later from the sidebar.
+    </p>
+  </header>
+
+  <div class="toolbar">
+    <button class="up" (click)="onUp()" [disabled]="!listing()?.parent">↑ Up</button>
+    <code class="path">{{ listing()?.path ?? 'Loading…' }}</code>
+    <label class="show-all-label">
+      <input type="checkbox" class="show-all" [checked]="showAll()" (change)="onToggleShowAll()" />
+      Show system folders
+    </label>
+  </div>
+
+  @if (loading()) {
+    <div class="status">Loading…</div>
+  } @else if (error(); as e) {
+    <div class="status error">{{ e }}</div>
+  } @else if ((listing()?.entries?.length ?? 0) === 0) {
+    <div class="status empty">(no subfolders here)</div>
+  } @else {
+    <ul class="entries">
+      @for (e of listing()!.entries; track e.path) {
+        <li class="entry" (click)="navigate(e.path)">
+          <span class="name">{{ e.name }}</span>
+          @if (e.hasChildren) {
+            <span class="chev">›</span>
+          }
+        </li>
+      }
+    </ul>
+  }
+
+  <footer>
+    <button class="cancel" type="button" (click)="cancel.emit()">Cancel</button>
+    <button class="use" type="button" (click)="onUseHere()" [disabled]="!listing()">
+      Use this folder
+    </button>
+  </footer>
+</div>
