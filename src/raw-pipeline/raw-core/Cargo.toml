@@ -28,3 +28,7 @@ golden = []
 high-quality-demosaic = []
 # Test-only DNG synthesis helpers. NEVER enable in shipping artifacts.
 test-support = []
+
+[[example]]
+name = "synth-grey"
+required-features = ["test-support"]
