@@ -14,8 +14,10 @@
 //! explicit path.
 
 mod locate;
+pub mod sfm_data;
 
 pub use locate::{locate_binaries, AlicevisionBinaries};
+pub use sfm_data::{euler_to_rotation, write_camera_init_sfm, SfmInput};
 
 use std::path::{Path, PathBuf};
 

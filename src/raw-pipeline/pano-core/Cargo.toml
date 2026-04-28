@@ -7,6 +7,8 @@ license.workspace = true
 
 [dependencies]
 raw-core = { path = "../raw-core" }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
 imageproc = "0.25"
 nalgebra = "0.33"
 argmin = "0.10"
