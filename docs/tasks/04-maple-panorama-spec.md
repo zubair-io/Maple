@@ -769,19 +769,23 @@ This section records the outcome of the seven-phase Rust port described in
 | Phase 4: Auto focal estimation | **Done** | Hartley & Zisserman § 8.8 `focal_from_homography`; seeds the joint BA initial estimate; BA subsequently refines per-camera. |
 | Phase 5: BK max-flow seam | **Done** | Hand-rolled Boykov–Kolmogorov (~450 lines, `src/raw-pipeline/pano-core/src/seam/bk.rs`); `GraphCutMaxFlowSeamFinder` is the default. First Rust BK port in the tree. |
 | Phase 6: Per-image gain compensation | **Done** | Brown & Lowe 2007 § 5 least-squares gain solve over pairwise overlaps; applied before seam finding. |
-| Phase 7: End-to-end validation | **Done** | 21-image DJI stitch runs to completion (22818×7922 px, ~180 MP canvas); regression reference saved; `test_pano_pipeline.sh` extended to gate future runs against it. |
+| Phase 7: End-to-end validation | **Partial** | `test_pano_pipeline.sh` extended with the 21-DNG regression section (skip-passes cleanly with no reference). Full 21-frame stitch is **blocked**: pipeline reaches `blend step 1/20` on a 22818×7922 (180 MP) canvas, then the CPU multi-band blend's working set (~17 GB per step) exhausts physical memory and the process is OOM-killed. No reference PNG could be saved. Unblock = Phase 4 GPU blend, OR a smaller `--max-dim`, OR a single-pass simultaneous N-way blend (replaces the pairwise chain). |
 
 ### What works
 
 - Synthetic 2-image harness passes at mean ΔE ≈ 9 vs. the v0.2 synthetic reference
   (reference is stale — regenerate with `--gen-fixtures` after each major pipeline change).
 - DJI multi-row spherical panoramas: AKAZE matching + joint BA correctly places 21 DJI
-  frames at their gimbal-implied yaw/pitch positions (±97° yaw, ±23° pitch spread).
+  frames at their gimbal-implied yaw/pitch positions (±97° yaw, ±23° pitch spread)
+  through the warp + gain-compensation stages. The blend stage does NOT complete on
+  a 180 MP canvas with the current CPU pipeline — see Known limitations #2.
 - Gain compensation reduces brightness banding at seams.
 - Regression gate: once a reference PNG is saved at
   `test-fixtures/pano/references/pano_01_reference.png`, any future run of
   `test_pano_pipeline.sh` stitches the same 21 inputs and diffs vs the reference
-  (ΔE ≤ 30 budget — regression only, not quality vs. ground truth).
+  (ΔE ≤ 30 budget — regression only, not quality vs. ground truth). Currently no
+  reference exists because no successful 21-frame stitch has completed; the harness
+  skip-passes with clear instructions until one is generated.
 
 ### Known limitations / follow-up work
 
@@ -791,12 +795,17 @@ This section records the outcome of the seven-phase Rust port described in
    values on pano_01 (0.003–3.34 across 21 frames) reflect real drift in the
    iterative chain. A joint-blend pass over the full multi-image overlap graph
    is the follow-up.
-2. **CPU-only multi-band blend is slow on large canvases.** The
-   `MultiBandBlender` pyramid convolutions are sequential nested loops; on the
-   22818×7922 pano_01 canvas each of the 20 pairwise blend steps takes
-   20+ minutes of CPU time (~8 hours total wall time for the full 21-frame stitch).
-   SIMD or GPU parallelisation is the next priority before this pipeline is
-   usable in production (Phase 4 GPU warp & blend path).
+2. **CPU-only multi-band blend is unable to complete on 180 MP canvases on
+   typical dev hardware.** The `MultiBandBlender` pyramid convolutions are
+   sequential nested loops; on the 22818×7922 pano_01 canvas the per-step working
+   set (warped image + Laplacian pyramid + gaussian pyramid + scratch buffers)
+   approaches ~17 GB. On a 16 GB machine the first blend step swap-thrashes
+   (12M+ pageouts observed) and is eventually OOM-killed before completing
+   step 1 of 20. **Three unblock paths**, in priority order: (a) Phase 4 GPU
+   warp & blend (resolves the perf wall outright), (b) a single-pass
+   simultaneous N-way blend that allocates the canvas pyramid once instead of
+   chaining 20 pairwise blends, (c) `--max-dim 8192` clamp to keep the canvas
+   under 64 MP for now (loses resolution but unblocks the test path).
 3. **Gain compensation is luminance-only single-channel.** Per-channel WB drift
    (e.g. sky color shift between adjacent rows) is not handled. A per-channel
    least-squares solve is a follow-up.
