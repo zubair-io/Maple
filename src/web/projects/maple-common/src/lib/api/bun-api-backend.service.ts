@@ -7,7 +7,7 @@
 // reverse proxy work without rebuilding the bundle.
 
 import { Injectable, inject } from '@angular/core';
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { API_BASE_URL } from './api-base-url.token';
 
@@ -62,9 +62,9 @@ export class BunApiBackendService {
   }
 
   listDir(absPath: string, showAll = false): Observable<ApiDirListing> {
-    const params = new URLSearchParams({ path: absPath });
-    if (showAll) params.set('showAll', '1');
-    return this.http.get<ApiDirListing>(`${this.base}/fs/list?${params.toString()}`);
+    let params = new HttpParams().set('path', absPath);
+    if (showAll) params = params.set('showAll', '1');
+    return this.http.get<ApiDirListing>(`${this.base}/fs/list`, { params });
   }
 
   listAssets(folderId: string, page = 1, limit = 100): Observable<ApiAssetPage> {
