@@ -128,6 +128,17 @@ export class LibraryStateService {
   /** True when the API returned zero folders (index not configured yet). */
   readonly backendEmpty = signal<boolean>(false);
 
+  /** True while the library-picker modal is open. */
+  readonly pickerVisible = signal(false);
+
+  openLibraryPicker(): void {
+    this.pickerVisible.set(true);
+  }
+
+  closeLibraryPicker(): void {
+    this.pickerVisible.set(false);
+  }
+
   /**
    * Map from AssetId to the remote API asset id (Self-Hosted only).
    * Needed because the grid works on local UUIDs but the API talks in its own ids.
@@ -462,6 +473,7 @@ export class LibraryStateService {
 
     this.api.registerFolder(absPath).subscribe({
       next: () => {
+        this.closeLibraryPicker();
         this.loadFolderTree();
       },
       error: (err: HttpErrorResponse) => {
