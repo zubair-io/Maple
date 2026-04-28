@@ -1,13 +1,14 @@
 import {
   ChangeDetectionStrategy, Component, OnDestroy, OnInit, inject, signal,
 } from '@angular/core';
-import { Subscription, interval, switchMap, startWith } from 'rxjs';
+import { Subscription } from 'rxjs';
 import {
   BunApiBackendService,
   type IndexerStage,
   type IndexerStatus,
   type IndexerDeadLetterItem,
 } from '../../api/bun-api-backend.service';
+import { IndexerEventsService } from '../../services/indexer-events.service';
 
 const STAGES: IndexerStage[] = ['discover', 'hash', 'exif', 'thumb', 'ai', 'mongo'];
 
@@ -20,6 +21,7 @@ const STAGES: IndexerStage[] = ['discover', 'hash', 'exif', 'thumb', 'ai', 'mong
 })
 export class IndexerAdminComponent implements OnInit, OnDestroy {
   private readonly api = inject(BunApiBackendService);
+  private readonly events = inject(IndexerEventsService);
 
   readonly stages = STAGES;
   readonly status = signal<IndexerStatus | null>(null);
@@ -29,16 +31,17 @@ export class IndexerAdminComponent implements OnInit, OnDestroy {
   private sub?: Subscription;
 
   ngOnInit(): void {
-    // Poll every 2 seconds while open. Live WS upgrade lands in a follow-up commit.
-    this.sub = interval(2000)
-      .pipe(
-        startWith(0),
-        switchMap(() => this.api.getIndexerStatus()),
-      )
-      .subscribe({
-        next: (s) => { this.status.set(s); this.error.set(null); },
-        error: (e) => this.error.set(e?.error?.error ?? e?.message ?? 'Status failed.'),
-      });
+    // Seed: one HTTP GET so the panel paints immediately, even before the WS handshake.
+    this.api.getIndexerStatus().subscribe({
+      next: (s) => { this.status.set(s); this.error.set(null); },
+      error: (e) => this.error.set(e?.error?.error ?? e?.message ?? 'Status failed.'),
+    });
+
+    // Live updates via WebSocket — replaces the 2-second polling loop.
+    this.events.connect();
+    this.sub = this.events.status$.subscribe((s) => {
+      if (s) this.status.set(s);
+    });
 
     this.api.listDeadLetter(50).subscribe({
       next: (p) => this.deadLetter.set(p.items),
@@ -48,6 +51,7 @@ export class IndexerAdminComponent implements OnInit, OnDestroy {
 
   ngOnDestroy(): void {
     this.sub?.unsubscribe();
+    this.events.disconnect();
   }
 
   togglePause(): void {

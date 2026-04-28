@@ -1,8 +1,18 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting, HttpTestingController } from '@angular/common/http/testing';
+import { Observable } from 'rxjs';
 import { IndexerAdminComponent } from './indexer-admin.component';
 import { API_BASE_URL } from '../../api/api-base-url.token';
+import { IndexerEventsService } from '../../services/indexer-events.service';
+
+class StubIndexerEventsService {
+  // Never emits — tests rely on the seed HTTP call, not WS frames.
+  status$ = new Observable<null>(() => { /* never emits */ });
+  connected = { set: () => {} };
+  connect() {}
+  disconnect() {}
+}
 
 const STATUS_RUNNING = {
   paused: false,
@@ -33,6 +43,7 @@ describe('IndexerAdminComponent', () => {
         provideHttpClient(),
         provideHttpClientTesting(),
         { provide: API_BASE_URL, useValue: '/api' },
+        { provide: IndexerEventsService, useClass: StubIndexerEventsService },
       ],
     });
     fixture = TestBed.createComponent(IndexerAdminComponent);
@@ -41,7 +52,6 @@ describe('IndexerAdminComponent', () => {
   });
 
   afterEach(() => {
-    // Destroy before verify so the polling interval unsubscribes first.
     fixture.destroy();
     http.verify();
   });
