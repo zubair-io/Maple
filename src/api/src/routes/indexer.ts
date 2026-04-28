@@ -4,6 +4,8 @@
  *   GET  /api/indexer/status       — pipeline snapshot
  *   PUT  /api/indexer/config       — update worker pool sizes live
  *   GET  /api/indexer/dead-letter  — list dead-lettered jobs (paginated)
+ *   POST /api/indexer/pause        — pause the pipeline (in-flight finish)
+ *   POST /api/indexer/resume       — resume after pause
  */
 
 import { Elysia, t } from "elysia";
@@ -36,6 +38,18 @@ export const indexerRoutes = new Elysia({ prefix: "/api/indexer" })
     },
     { body: ConfigBody }
   )
+
+  .post("/pause", () => {
+    const svc = getIndexerService();
+    svc.pause();
+    return { ok: true, status: svc.status() };
+  })
+
+  .post("/resume", () => {
+    const svc = getIndexerService();
+    svc.resume();
+    return { ok: true, status: svc.status() };
+  })
 
   .get(
     "/dead-letter",

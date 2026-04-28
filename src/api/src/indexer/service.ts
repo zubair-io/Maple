@@ -141,6 +141,14 @@ export class IndexerService {
     };
   }
 
+  pause(): void {
+    this.pipeline.pause();
+  }
+
+  resume(): void {
+    this.pipeline.resume();
+  }
+
   setConfig(patch: WorkerConfigPatch): void {
     const stages: Array<keyof WorkerConfigPatch> = [
       "discover", "hash", "exif", "thumb", "ai", "mongo",
