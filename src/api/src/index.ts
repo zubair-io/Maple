@@ -7,7 +7,10 @@
  *   PORT               — listen port (default: 3000)
  *   MAPLE_MONGO_URI    — MongoDB connection string (default: mongodb://localhost:27017)
  *   MAPLE_MONGO_DB     — MongoDB database name (default: maple_self_hosted)
- *   MAPLE_ROOTS        — colon-separated allowed FS roots (optional)
+ *   MAPLE_ROOTS        — colon-separated allowed FS roots for browsing &
+ *                        registered-folder access. Defaults to '/' (Docker
+ *                        mount is the jail). Set explicitly when running
+ *                        natively to limit reach.
  *   MAPLE_INDEXER_WORKERS — concurrent indexer workers (default: 2)
  *   MAPLE_DEV          — set to "1" to proxy UI to Angular dev server
  *   MAPLE_DEV_ORIGIN   — Angular dev server origin (default: http://localhost:4200)
@@ -21,6 +24,7 @@ import { assetsRoutes } from "./routes/assets.ts";
 import { indexerRoutes } from "./routes/indexer.ts";
 import { eventsRoutes } from "./routes/events.ts";
 import { authRoutes } from "./routes/auth.ts";
+import { fsRoutes } from "./routes/fs.ts";
 import { staticUiPlugin } from "./routes/static_ui.ts";
 import { getDb, ensureIndexes, closeDb } from "./db/client.ts";
 import { getIndexerService } from "./indexer/service.ts";
@@ -86,6 +90,7 @@ const app = new Elysia()
   .use(indexerRoutes)
   .use(eventsRoutes)
   .use(authRoutes)
+  .use(fsRoutes)
 
   // Static UI (catch-all — must be last)
   .use(staticUiPlugin);
