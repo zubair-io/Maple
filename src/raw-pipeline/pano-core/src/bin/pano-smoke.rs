@@ -55,8 +55,9 @@ use pano_core::{
     features::akaze::AkazeDetector,
     matching::BruteForceMatcher,
     types::{Camera, Features, Matches, PanoImage},
-    Blender, ColorSpace, CpuWarper, FeatureDetector, FeatureMatcher, GraphCutSeamFinder,
-    Projection, SeamFinder, Warper,
+    Blender, ColorSpace, CpuWarper, FeatureDetector, FeatureMatcher,
+    GraphCutMaxFlowSeamFinder,
+    Projection, SeamFinder,
 };
 use raw_core::color::matrices::M_REC2020_TO_SRGB;
 
@@ -911,7 +912,8 @@ fn stitch(inputs: &[PathBuf], output: &Path, _max_dim: u32, projection: Projecti
     // Chain: blend warped[0] + warped[1] → running_canvas, then
     //        blend running_canvas + warped[2] → running_canvas, etc.
     eprintln!("pano-smoke: seam + blend ({} images, pairwise chain)", warped.len());
-    let seam_finder = GraphCutSeamFinder::new();
+    // Default to BK max-flow seam finder (handles non-monotonic seams).
+    let seam_finder = GraphCutMaxFlowSeamFinder::new();
     let blender = pano_core::MultiBandBlender::default();
 
     let mut running = warped[0].clone();
@@ -1078,7 +1080,8 @@ fn stitch_pair(img_a: PanoImage, img_b: PanoImage, step: usize) -> Result<PanoIm
 
     // --- 7. Seam finding ---------------------------------------------------
     eprintln!("pano-smoke: finding seams");
-    let seam_finder = GraphCutSeamFinder::new();
+    // BK max-flow seam finder by default.
+    let seam_finder = GraphCutMaxFlowSeamFinder::new();
     let seams = seam_finder
         .seams(&[&warped_a, &warped_b])
         .map_err(|e| format!("seam finding failed: {e}"))?;
