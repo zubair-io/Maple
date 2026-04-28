@@ -17,7 +17,7 @@
 //!    composing the pairwise rotation extracted from the corresponding
 //!    homography.
 //!
-//! ## LM refinement (argmin GaussNewton)
+//! ## LM refinement (hand-rolled — argmin 0.10 has GN but not LM)
 //! Rotations are parameterised as axis-angle vectors `ω ∈ ℝ³` with camera 0
 //! fixed to identity.  The Rodrigues formula converts ω ↔ R on each
 //! evaluation.  We use `argmin`'s `GaussNewton` solver (which is
@@ -241,35 +241,79 @@ impl GNProblem {
         jac
     }
 
-    /// Run Gauss-Newton for `max_iters` iterations.
+    /// Run Levenberg-Marquardt for `max_iters` iterations.
     /// Returns the final parameter vector.
+    ///
+    /// LM = Gauss-Newton with adaptive damping factor μ. At each
+    /// iteration we trial a step with the current μ; if the residual
+    /// sum-of-squares drops we accept the step and divide μ by 10
+    /// (more GN-like); if it rises we reject and multiply μ by 10
+    /// (more gradient-descent-like). This is more robust than plain
+    /// GN when the linearisation is poor (early iterations on bad
+    /// initial estimates) — exactly the case rotation-only BA on
+    /// real handheld input runs into.
     fn solve(&self, mut params: Vec<f64>, max_iters: usize) -> Vec<f64> {
+        let mut mu: f64 = 1e-3;
+        let mu_inc = 10.0;
+        let mu_dec = 10.0;
+        let mut current_cost = sum_of_squares(&self.residuals(&params));
+
         for _ in 0..max_iters {
             let r = self.residuals(&params);
             let j = self.jacobian(&params);
             let jt = j.transpose();
             let jtj = &jt * &j;
-            let jtr: nalgebra::DVector<f64> = nalgebra::DVector::from_vec(r.clone()).map(|v| -v);
-            let jtr = &jt * jtr;
+            let neg_r = nalgebra::DVector::from_vec(r.clone()).map(|v| -v);
+            let jtr = &jt * neg_r;
 
-            // Solve (JᵀJ + λI) Δ = -Jᵀr  with λ=1e-4 for numerical stability.
-            let lambda = 1e-4;
-            let lhs = jtj + nalgebra::DMatrix::identity(params.len(), params.len()) * lambda;
+            // Try ever-larger μ until we find a step that decreases the
+            // cost. Cap rejected attempts so a non-convergent problem
+            // exits the outer loop instead of looping forever.
+            let mut accepted = false;
+            for _retry in 0..6 {
+                let lhs =
+                    &jtj + nalgebra::DMatrix::identity(params.len(), params.len()) * mu;
+                let Some(delta) = lhs.lu().solve(&jtr) else {
+                    mu *= mu_inc;
+                    continue;
+                };
 
-            let Some(delta) = lhs.lu().solve(&jtr) else {
-                break;
-            };
+                let trial: Vec<f64> = params
+                    .iter()
+                    .zip(delta.iter())
+                    .map(|(p, &d)| p + d)
+                    .collect();
+                let trial_cost = sum_of_squares(&self.residuals(&trial));
 
-            let step_norm: f64 = delta.iter().map(|v| v * v).sum::<f64>().sqrt();
-            for (p, &d) in params.iter_mut().zip(delta.iter()) {
-                *p += d;
+                if trial_cost < current_cost {
+                    let step_norm: f64 =
+                        delta.iter().map(|v| v * v).sum::<f64>().sqrt();
+                    params = trial;
+                    current_cost = trial_cost;
+                    mu = (mu / mu_dec).max(1e-12);
+                    accepted = true;
+                    if step_norm < 1e-6 {
+                        return params;
+                    }
+                    break;
+                } else {
+                    mu *= mu_inc;
+                }
             }
-            if step_norm < 1e-6 {
+
+            if !accepted {
+                // Gave up trying to find a downhill step — converged
+                // to a local minimum (or the linearisation is broken).
                 break;
             }
         }
         params
     }
+}
+
+#[inline]
+fn sum_of_squares(values: &[f64]) -> f64 {
+    values.iter().map(|v| v * v).sum()
 }
 
 // ---------------------------------------------------------------------------
