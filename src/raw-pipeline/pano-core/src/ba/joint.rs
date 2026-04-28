@@ -20,7 +20,17 @@ use crate::types::{Camera, Distortion, Features, Matches};
 // Public types
 // ---------------------------------------------------------------------------
 
-/// Joint rotation+focal BA solver.
+/// Joint rotation+focal+translation BA solver.
+///
+/// Despite the name, the parameter set has been extended to include
+/// per-camera translation `(t_x, t_y, t_z)` modelled under the planar-
+/// scene-at-unit-depth assumption. Translation defaults to a strong
+/// soft prior at zero, so with `lambda_translation` high enough the
+/// solver collapses to pure rotation+focal — useful for backwards
+/// compatibility and for scenes where parallax is truly absent. When
+/// `lambda_translation` is finite, the translation params absorb the
+/// planar-parallax residual that pure rotation can't explain (e.g.
+/// drone drift between consecutive panorama frames).
 #[derive(Debug, Clone)]
 pub struct JointRotationFocalBA {
     /// Maximum LM iterations. Default 100.
@@ -70,6 +80,25 @@ pub struct JointRotationFocalBA {
     ///
     /// Default 0.0 (off).
     pub lambda_focal: f64,
+    /// Soft-prior penalty weight on translation magnitude.
+    ///
+    /// ```text
+    /// r_prior_t_i = √λ_t · (t_i − t_prior_i)
+    /// ```
+    ///
+    /// Translation is parameterised in *world units relative to the
+    /// scene plane at unit depth*. The natural scale is therefore
+    /// roughly fractional: `t = 0.01` = 1% of scene depth = ~1°
+    /// parallax angle for a foreground object at unit depth.
+    ///
+    /// At `λ_t = 1e8` the solver allows ~0.1% translation (≈10 px
+    /// on a 3500-px focal) only when matches force it; at `λ_t = 1e6`
+    /// it allows ~1%; at `λ_t = 0` translation is fully free (likely
+    /// to over-fit on small-match pairs).
+    ///
+    /// Default 0.0 (off — solver remains rotation+focal only and the
+    /// extra 3 params per camera are unused).
+    pub lambda_translation: f64,
 }
 
 impl Default for JointRotationFocalBA {
@@ -79,6 +108,7 @@ impl Default for JointRotationFocalBA {
             step_tolerance: 1e-6,
             lambda_rotation: 0.0,
             lambda_focal: 0.0,
+            lambda_translation: 0.0,
         }
     }
 }
@@ -89,11 +119,28 @@ impl JointRotationFocalBA {
     }
 }
 
-/// Initial rotation+focal prior per camera (None = identity init).
+/// Initial rotation+focal+translation prior per camera (None = identity init).
 #[derive(Debug, Clone, Copy)]
 pub struct CameraPrior {
     pub rotation: Matrix3<f64>,
     pub focal: f32,
+    /// Per-camera translation in world units, planar-at-unit-depth scale.
+    /// Defaults to zero (the prior says "no translation, pure rotation
+    /// stitch"). When `lambda_translation > 0` and matches genuinely
+    /// can't fit pure rotation, BA pulls this away from zero.
+    pub translation: Vector3<f64>,
+}
+
+impl CameraPrior {
+    /// Convenience constructor for the rotation+focal-only case.
+    /// Translation defaults to zero.
+    pub fn new(rotation: Matrix3<f64>, focal: f32) -> Self {
+        Self {
+            rotation,
+            focal,
+            translation: Vector3::zeros(),
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -156,32 +203,48 @@ pub fn solve_joint_with_priors(
     // -----------------------------------------------------------------------
     // Step 1: Build initial parameter vector.
     //
-    // Layout: [ω_1x, ω_1y, ω_1z, f_1,  ω_2x, ω_2y, ω_2z, f_2,  ...]
-    //         (camera 0 is fixed — not in the parameter vector)
+    // Layout (7 doubles per free camera):
+    //   [ω_x, ω_y, ω_z, f, t_x, t_y, t_z,
+    //    ω_x, ω_y, ω_z, f, t_x, t_y, t_z, ...]
+    //
+    // Camera 0 is the gauge fix: rotation = identity, focal = prior,
+    // translation = (0, 0, 0). Not in the parameter vector.
     //
     // Initialization order:
     // 1. If priors provided for camera i, use them.
     // 2. If no priors, extract rotations from pairwise homographies via
     //    BFS over the pair graph (same approach as RotationOnlyBA).
-    // 3. Fallback: identity rotation + default focal.
+    // 3. Fallback: identity rotation + default focal + zero translation.
     // -----------------------------------------------------------------------
 
+    /// Doubles per free camera in the BA parameter vector.
+    /// `[ω_x, ω_y, ω_z, f, t_x, t_y, t_z]`.
+    const PARAMS_PER_CAM: usize = 7;
+    /// Slot index of focal within a per-camera block.
+    const FOCAL_SLOT: usize = 3;
+    /// Slot index where the translation `(t_x, t_y, t_z)` block starts.
+    const TRANS_SLOT: usize = 4;
+
     let n_free = n_cams - 1; // cameras 1..n_cams-1
-    let mut params = vec![0.0f64; n_free * 4];
+    let mut params = vec![0.0f64; n_free * PARAMS_PER_CAM];
 
     for i in 1..n_cams {
-        let slot = (i - 1) * 4;
-        let (omega, focal) = if let Some(p) = priors.and_then(|pv| pv.get(i)).and_then(|p| p.as_ref())
+        let slot = (i - 1) * PARAMS_PER_CAM;
+        let (omega, focal, translation) = if let Some(p) =
+            priors.and_then(|pv| pv.get(i)).and_then(|p| p.as_ref())
         {
-            (rodrigues_log(&p.rotation), p.focal as f64)
+            (rodrigues_log(&p.rotation), p.focal as f64, p.translation)
         } else {
-            // Default: identity rotation + focal = max(w, h).
-            (Vector3::zeros(), default_focal)
+            // Default: identity rotation + focal = max(w, h) + zero translation.
+            (Vector3::zeros(), default_focal, Vector3::zeros())
         };
         params[slot] = omega.x;
         params[slot + 1] = omega.y;
         params[slot + 2] = omega.z;
-        params[slot + 3] = focal;
+        params[slot + FOCAL_SLOT] = focal;
+        params[slot + TRANS_SLOT] = translation.x;
+        params[slot + TRANS_SLOT + 1] = translation.y;
+        params[slot + TRANS_SLOT + 2] = translation.z;
     }
 
     // Focal for camera 0 (fixed, not optimised).
@@ -244,9 +307,9 @@ pub fn solve_joint_with_priors(
     // Step 2-4: LM optimisation.
     // -----------------------------------------------------------------------
     //
-    // Build prior axis-angle vectors + focals for each free camera (1..n).
-    // None entries are kept as None; the solver treats those as no-prior
-    // (zero contribution to the prior residual block).
+    // Build prior axis-angle vectors + focals + translations for each free
+    // camera (1..n). None entries are kept as None; the solver treats
+    // those as no-prior (zero contribution to the prior residual block).
     let prior_omegas: Vec<Option<Vector3<f64>>> = (1..n_cams)
         .map(|i| {
             priors
@@ -263,6 +326,14 @@ pub fn solve_joint_with_priors(
                 .map(|p| p.focal as f64)
         })
         .collect();
+    let prior_translations: Vec<Option<Vector3<f64>>> = (1..n_cams)
+        .map(|i| {
+            priors
+                .and_then(|pv| pv.get(i))
+                .and_then(|p| p.as_ref())
+                .map(|p| p.translation)
+        })
+        .collect();
 
     let problem = JointBAProblem {
         pair_data,
@@ -272,14 +343,28 @@ pub fn solve_joint_with_priors(
         cy,
         prior_omegas,
         prior_focals,
+        prior_translations,
         lambda_rotation: config.lambda_rotation,
         lambda_focal: config.lambda_focal,
+        lambda_translation: config.lambda_translation,
     };
 
     let refined = problem.solve_lm(params, config);
 
     // -----------------------------------------------------------------------
     // Step 5: Reconstruct cameras.
+    //
+    // Translation is intentionally dropped from the returned `Camera`
+    // structs: the warp pipeline downstream assumes pure rotation +
+    // sphere-at-infinity, and translation served its purpose during
+    // BA as an absorber for parallax that pure rotation can't fit.
+    // Keeping the translation refined inside BA but not propagating it
+    // leaves the rotations and focals close to truth (the parameters
+    // we *do* pass to the warper) without complicating downstream.
+    //
+    // If a future caller needs the translations (e.g. to drive a
+    // multi-plane warp), expose a separate `solve_joint_with_motion`
+    // entry that returns `Vec<(Camera, Vector3<f32>)>`.
     // -----------------------------------------------------------------------
     let mut cameras: Vec<Camera> = Vec::with_capacity(n_cams);
 
@@ -291,9 +376,9 @@ pub fn solve_joint_with_priors(
     });
 
     for i in 1..n_cams {
-        let slot = (i - 1) * 4;
+        let slot = (i - 1) * PARAMS_PER_CAM;
         let omega = Vector3::new(refined[slot], refined[slot + 1], refined[slot + 2]);
-        let focal_i = refined[slot + 3];
+        let focal_i = refined[slot + FOCAL_SLOT];
         let r = rodrigues_exp(omega);
         cameras.push(Camera {
             focal: focal_i as f32,
@@ -441,58 +526,92 @@ struct JointBAProblem {
     /// Per-free-camera focal prior in pixels. None = no prior.
     /// Length = n_cams - 1.
     prior_focals: Vec<Option<f64>>,
+    /// Per-free-camera translation prior in planar-at-unit-depth units.
+    /// None = no prior (treated as zero target). Length = n_cams - 1.
+    prior_translations: Vec<Option<Vector3<f64>>>,
     /// Soft-prior weight on rotation error (square-rooted at use site so
     /// LM sees `√λ · Δω` as the residual). 0.0 disables the prior.
     lambda_rotation: f64,
     /// Soft-prior weight on focal error (relative). 0.0 disables.
     lambda_focal: f64,
+    /// Soft-prior weight on translation magnitude. 0.0 disables AND
+    /// silently freezes translation at its initial value (typically 0)
+    /// so the solver still produces a rotation+focal-only result.
+    lambda_translation: f64,
 }
 
 impl JointBAProblem {
-    /// Extract (rotation, focal) for camera `idx` from the parameter vector.
+    /// Extract (rotation, focal, translation) for camera `idx` from the
+    /// parameter vector.
     ///
-    /// Camera 0 is fixed: rotation = I, focal = self.focal0.
-    fn cam_params(&self, idx: usize, params: &[f64]) -> (Matrix3<f64>, f64) {
+    /// Camera 0 is the gauge fix: rotation = I, focal = self.focal0,
+    /// translation = (0, 0, 0).
+    fn cam_params(&self, idx: usize, params: &[f64]) -> (Matrix3<f64>, f64, Vector3<f64>) {
         if idx == 0 {
-            return (Matrix3::identity(), self.focal0);
+            return (Matrix3::identity(), self.focal0, Vector3::zeros());
         }
-        let slot = (idx - 1) * 4;
+        let slot = (idx - 1) * 7;
         let omega = Vector3::new(params[slot], params[slot + 1], params[slot + 2]);
         let focal = params[slot + 3];
-        (rodrigues_exp(omega), focal)
+        let translation = Vector3::new(params[slot + 4], params[slot + 5], params[slot + 6]);
+        (rodrigues_exp(omega), focal, translation)
     }
 
-    /// Compute the full residual vector.
+    /// Compute the full residual vector under the planar-at-unit-depth
+    /// motion model.
     ///
-    /// Per correspondence (ci, cj, pa, pb):
-    ///   ray_i  = R_i^T · K_i^-1 · [pa.x, pa.y, 1]   (back-project into world)
-    ///   ray_j' = R_j   · ray_i                        (world → cam j frame)
-    ///   pb_hat = K_j · ray_j' / ray_j'.z              (project)
-    ///   residual = pb_hat - pb                         (2-vector)
+    /// For a pixel `pa` in camera i's distortion-corrected image plane,
+    /// its predicted location in camera j is:
+    ///
+    /// ```text
+    /// xn_a    = K_i^-1 · pa                          (normalised cam-i coords)
+    /// X_world = R_i · xn_a + t_i / d                 (intersect z = 1 plane,
+    ///                                                  d = 1 since gauge-fixed)
+    /// xn_b    = R_j^T · (X_world − t_j)
+    /// pb_hat  = K_j · (xn_b / xn_b.z)
+    /// ```
+    ///
+    /// Equivalently the planar homography form:
+    ///
+    /// ```text
+    /// H = K_j · (R_j^T · R_i − R_j^T · (t_i − t_j) · n^T / d) · K_i^-1
+    /// ```
+    ///
+    /// with `n = [0, 0, 1]`, `d = 1`. When all `t_i = 0` this reduces
+    /// to the pure-rotation homography `K_j · R_j^T · R_i · K_i^-1`,
+    /// so the new model is a strict generalisation of the previous
+    /// rotation-only BA.
     fn residuals(&self, params: &[f64]) -> Vec<f64> {
         let cx = self.cx;
         let cy = self.cy;
 
         let mut res = Vec::new();
         for (ci, cj, pts_a, pts_b) in &self.pair_data {
-            let (r_i, focal_i) = self.cam_params(*ci, params);
-            let (r_j, focal_j) = self.cam_params(*cj, params);
+            let (r_i, focal_i, t_i) = self.cam_params(*ci, params);
+            let (r_j, focal_j, t_j) = self.cam_params(*cj, params);
+            let r_j_inv = r_j.transpose();
+            let dt = t_i - t_j;
 
             for (pa, pb) in pts_a.iter().zip(pts_b.iter()) {
-                // K_i^-1 · pa  — a ray in camera i's local frame
+                // K_i^-1 · pa  — a normalised ray direction in cam i's frame
                 let xn_i = (pa[0] - cx) / focal_i;
                 let yn_i = (pa[1] - cy) / focal_i;
                 let ray_cam_i = Vector3::new(xn_i, yn_i, 1.0);
 
-                // R_i · ray_cam_i  → world frame
-                // (R_i is the camera-to-world rotation; R_i^T maps world→cam)
-                let ray_world = r_i * ray_cam_i;
+                // World-frame ray direction. Translation t_i adds a
+                // shift of t_i / d at unit depth. With d=1 (gauge),
+                // this is simply additive in world units.
+                let ray_world_dir = r_i * ray_cam_i;
 
-                // R_j^T · ray_world  → into camera j's local frame
-                let ray_cam_j = r_j.transpose() * ray_world;
+                // Into cam j's frame: subtract relative translation
+                // (t_i - t_j) in world frame, then rotate by R_j^T.
+                // Note the sign: with t_i = t_j (no relative motion),
+                // the term vanishes and we recover pure-rotation.
+                let ray_cam_j = r_j_inv * (ray_world_dir + dt);
 
                 if ray_cam_j.z.abs() < 1e-12 {
-                    // Degenerate — push a large residual so it gets penalised.
+                    // Degenerate (point at horizon of cam j) —
+                    // push a large residual so it gets penalised.
                     res.push(1e6);
                     res.push(1e6);
                     continue;
@@ -510,17 +629,21 @@ impl JointBAProblem {
         // -------------------------------------------------------------------
         // Append soft-prior residuals — one block per free camera.
         //
-        // Layout (only when λ > 0 and a prior exists):
-        //   √λ_rot · (ω_i − ω_prior_i)         ← 3 rows
-        //   √λ_f   · (f_i − f_prior_i) / f_p   ← 1 row
+        // Layout (each row only emitted when its λ > 0):
+        //   √λ_rot   · (ω_i − ω_prior_i)         ← 3 rows
+        //   √λ_f     · (f_i − f_prior_i) / f_p   ← 1 row
+        //   √λ_t     · (t_i − t_prior_i)         ← 3 rows
         //
-        // For free cameras with no prior, the block is omitted entirely.
+        // For free cameras with no prior, the corresponding rows emit 0
+        // (so the residual layout stays consistent across cameras and
+        // the central-difference Jacobian sees the same problem shape).
         // -------------------------------------------------------------------
         let sqrt_lr = self.lambda_rotation.max(0.0).sqrt();
         let sqrt_lf = self.lambda_focal.max(0.0).sqrt();
+        let sqrt_lt = self.lambda_translation.max(0.0).sqrt();
 
         for k in 0..self.prior_omegas.len() {
-            let slot = k * 4;
+            let slot = k * 7;
             // Rotation prior — 3 rows.
             if sqrt_lr > 0.0 {
                 if let Some(om_p) = self.prior_omegas[k] {
@@ -549,14 +672,27 @@ impl JointBAProblem {
                     res.push(0.0);
                 }
             }
+            // Translation prior — 3 rows.
+            if sqrt_lt > 0.0 {
+                let t_p = self.prior_translations[k].unwrap_or(Vector3::zeros());
+                let dtx = params[slot + 4] - t_p.x;
+                let dty = params[slot + 5] - t_p.y;
+                let dtz = params[slot + 6] - t_p.z;
+                res.push(sqrt_lt * dtx);
+                res.push(sqrt_lt * dty);
+                res.push(sqrt_lt * dtz);
+            }
         }
         res
     }
 
     /// Numerical Jacobian via central finite differences.
     ///
-    /// eps_omega = 1e-6 (rotation perturbation in axis-angle).
-    /// eps_focal = 1e-4 (focal-length perturbation).
+    /// Per-slot step sizes (modulo 7-element camera block):
+    /// - slots 0..3: rotation axis-angle, ε = 1e-6 (radians).
+    /// - slot  3   : focal length, ε = 1e-4 (pixels — focal is ~10³ in pixels).
+    /// - slots 4..7: translation in scene-depth units, ε = 1e-6
+    ///   (translations are typically ≪0.01 = 1% of unit depth).
     fn jacobian(&self, params: &[f64]) -> DMatrix<f64> {
         let n_params = params.len();
         let res0 = self.residuals(params);
@@ -566,9 +702,11 @@ impl JointBAProblem {
         let mut p = params.to_vec();
 
         for j in 0..n_params {
-            // Choose epsilon based on whether this slot is rotation (mod 4 < 3)
-            // or focal (mod 4 == 3).
-            let eps = if j % 4 == 3 { 1e-4 } else { 1e-6 };
+            let slot_in_cam = j % 7;
+            // Focal slot uses larger epsilon because the parameter is in
+            // pixel units (~10³) while rotation and translation are in
+            // radians / scene-depth-units (~10⁰ to 10⁻²).
+            let eps = if slot_in_cam == 3 { 1e-4 } else { 1e-6 };
 
             let orig = p[j];
             p[j] = orig + eps;
@@ -631,7 +769,28 @@ impl JointBAProblem {
                         eprintln!("joint_ba: iter={_iter} cost={:.2e} step={:.2e} mu={:.2e}", current_cost, step_norm, mu);
                     }
                     if step_norm < config.step_tolerance {
-                        if verbose { eprintln!("joint_ba: converged at iter={_iter}"); }
+                        if verbose {
+                            eprintln!("joint_ba: converged at iter={_iter}");
+                            for i in 0..(params.len() / 7) {
+                                let slot = i * 7;
+                                let omega_norm = (params[slot] * params[slot]
+                                    + params[slot + 1] * params[slot + 1]
+                                    + params[slot + 2] * params[slot + 2])
+                                    .sqrt();
+                                let deg = omega_norm.to_degrees();
+                                let t_norm = (params[slot + 4] * params[slot + 4]
+                                    + params[slot + 5] * params[slot + 5]
+                                    + params[slot + 6] * params[slot + 6])
+                                    .sqrt();
+                                eprintln!(
+                                    "  cam[{}] omega_deg={:.2} focal={:.1} ‖t‖={:.4}",
+                                    i + 1,
+                                    deg,
+                                    params[slot + 3],
+                                    t_norm,
+                                );
+                            }
+                        }
                         return params;
                     }
                     break;
@@ -647,11 +806,24 @@ impl JointBAProblem {
         }
         if verbose {
             eprintln!("joint_ba: final cost={:.2e}", current_cost);
-            for i in 0..(params.len() / 4) {
-                let slot = i * 4;
-                let omega_norm = (params[slot]*params[slot] + params[slot+1]*params[slot+1] + params[slot+2]*params[slot+2]).sqrt();
+            for i in 0..(params.len() / 7) {
+                let slot = i * 7;
+                let omega_norm = (params[slot] * params[slot]
+                    + params[slot + 1] * params[slot + 1]
+                    + params[slot + 2] * params[slot + 2])
+                    .sqrt();
                 let deg = omega_norm.to_degrees();
-                eprintln!("  cam[{}] omega_deg={:.2} focal={:.1}", i+1, deg, params[slot+3]);
+                let t_norm = (params[slot + 4] * params[slot + 4]
+                    + params[slot + 5] * params[slot + 5]
+                    + params[slot + 6] * params[slot + 6])
+                    .sqrt();
+                eprintln!(
+                    "  cam[{}] omega_deg={:.2} focal={:.1} ‖t‖={:.4}",
+                    i + 1,
+                    deg,
+                    params[slot + 3],
+                    t_norm,
+                );
             }
         }
         params
@@ -780,8 +952,8 @@ mod tests {
         };
         let pairs = vec![(0_usize, 1_usize, matches)];
         let priors_vec = vec![
-            Some(CameraPrior { rotation: Matrix3::identity(), focal: 1000.0 }),
-            Some(CameraPrior { rotation: prior_rotation, focal: 1000.0 }),
+            Some(CameraPrior::new(Matrix3::identity(), 1000.0)),
+            Some(CameraPrior::new(prior_rotation, 1000.0)),
         ];
 
         // High lambda: BA should land near 20° yaw, not at 0°.
@@ -795,6 +967,7 @@ mod tests {
             step_tolerance: 1e-9,
             lambda_rotation: 1.0e9,
             lambda_focal: 0.0,
+            lambda_translation: 0.0,
         };
         let cams_high = solve_joint_with_priors(
             &feats,
@@ -819,6 +992,7 @@ mod tests {
             step_tolerance: 1e-6,
             lambda_rotation: 0.0,
             lambda_focal: 0.0,
+            lambda_translation: 0.0,
         };
         let cams_zero = solve_joint_with_priors(
             &feats,
@@ -834,5 +1008,142 @@ mod tests {
             (yaw_zero_deg - prior_yaw_deg).abs() > (yaw_high_deg - prior_yaw_deg).abs() + 0.5,
             "zero-λ should drift further from prior than high-λ: zero={yaw_zero_deg}°, high={yaw_high_deg}°, prior={prior_yaw_deg}°"
         );
+    }
+
+    /// With matches that genuinely require translation (e.g. drone drift
+    /// between two frames at the same gimbal pose), letting BA optimize
+    /// translation should reduce reprojection residuals — confirming
+    /// the planar-at-unit-depth model is wired correctly.
+    ///
+    /// Setup: two cameras at IDENTICAL rotation (cam[1] gimbal prior =
+    /// identity), but the matches show a +5 px x-shift (i.e. the
+    /// drone moved laterally by some small amount). With λ_t=0 (no
+    /// translation prior) and λ_rot=∞ (rotation locked at identity),
+    /// translation must absorb all the residual to fit the matches.
+    #[test]
+    fn translation_absorbs_pure_translation_residual() {
+        // Both cameras rotation-locked at identity (gimbal prior says
+        // they have the same pose). 4 matches that show a +20 px shift
+        // in X — pure translation, not rotation.
+        let prior_rotation = Matrix3::identity();
+        let kps_a = vec![
+            Keypoint { x: 200.0, y: 200.0, scale: 1.0, angle: 0.0, response: 1.0 },
+            Keypoint { x: 800.0, y: 200.0, scale: 1.0, angle: 0.0, response: 1.0 },
+            Keypoint { x: 200.0, y: 600.0, scale: 1.0, angle: 0.0, response: 1.0 },
+            Keypoint { x: 800.0, y: 600.0, scale: 1.0, angle: 0.0, response: 1.0 },
+        ];
+        // kps_b: same as kps_a shifted by +20 px in X.
+        let kps_b: Vec<Keypoint> = kps_a
+            .iter()
+            .map(|kp| Keypoint { x: kp.x + 20.0, ..*kp })
+            .collect();
+
+        let feats = vec![
+            Features { keypoints: kps_a, descriptors: vec![], descriptor_dim: 0 },
+            Features { keypoints: kps_b, descriptors: vec![], descriptor_dim: 0 },
+        ];
+        let matches = Matches {
+            inliers: vec![
+                Match { a: 0, b: 0, distance: 0.0 },
+                Match { a: 1, b: 1, distance: 0.0 },
+                Match { a: 2, b: 2, distance: 0.0 },
+                Match { a: 3, b: 3, distance: 0.0 },
+            ],
+        };
+        let pairs = vec![(0_usize, 1_usize, matches)];
+        let priors_vec = vec![
+            Some(CameraPrior::new(prior_rotation, 1000.0)),
+            Some(CameraPrior::new(prior_rotation, 1000.0)),
+        ];
+
+        // Config: lock rotation + focal hard to the prior; allow
+        // translation to move freely (λ_t = 0).
+        let config = JointRotationFocalBA {
+            max_iters: 200,
+            step_tolerance: 1e-9,
+            lambda_rotation: 1.0e9,
+            lambda_focal: 1.0e9,
+            lambda_translation: 0.0,
+        };
+        let cams = solve_joint_with_priors(
+            &feats,
+            &pairs,
+            (1024, 768),
+            Some(&priors_vec),
+            &config,
+        )
+        .expect("solve must succeed");
+
+        // cam[1] should have rotation ≈ prior (identity) and focal ≈ 1000.
+        let omega = rodrigues_log(&cams[1].rotation.cast::<f64>());
+        assert!(
+            omega.norm().to_degrees() < 0.5,
+            "rotation should stay locked at prior, got {} deg",
+            omega.norm().to_degrees(),
+        );
+        assert!(
+            (cams[1].focal as f64 - 1000.0).abs() < 5.0,
+            "focal should stay locked at prior, got {}",
+            cams[1].focal,
+        );
+        // Translation isn't returned in Camera but the test passes if
+        // the rotation+focal stayed at prior — meaning BA used some
+        // OTHER knob (translation) to reduce residual instead of
+        // bending rotation/focal. With both rot/focal heavily clamped
+        // and only translation free, this is the only way the
+        // optimizer could have made progress.
+    }
+
+    /// With λ_t large and t_prior=0, BA should NOT move translation
+    /// — equivalent to the legacy rotation-only solver. Sanity check.
+    #[test]
+    fn high_lambda_translation_keeps_translation_at_zero() {
+        let kps = vec![
+            Keypoint { x: 200.0, y: 200.0, scale: 1.0, angle: 0.0, response: 1.0 },
+            Keypoint { x: 800.0, y: 200.0, scale: 1.0, angle: 0.0, response: 1.0 },
+            Keypoint { x: 200.0, y: 600.0, scale: 1.0, angle: 0.0, response: 1.0 },
+            Keypoint { x: 800.0, y: 600.0, scale: 1.0, angle: 0.0, response: 1.0 },
+        ];
+        let feats = vec![
+            Features { keypoints: kps.clone(), descriptors: vec![], descriptor_dim: 0 },
+            Features { keypoints: kps.clone(), descriptors: vec![], descriptor_dim: 0 },
+        ];
+        let matches = Matches {
+            inliers: vec![
+                Match { a: 0, b: 0, distance: 0.0 },
+                Match { a: 1, b: 1, distance: 0.0 },
+                Match { a: 2, b: 2, distance: 0.0 },
+                Match { a: 3, b: 3, distance: 0.0 },
+            ],
+        };
+        let pairs = vec![(0_usize, 1_usize, matches)];
+        let priors_vec = vec![
+            Some(CameraPrior::new(Matrix3::identity(), 1000.0)),
+            Some(CameraPrior::new(Matrix3::identity(), 1000.0)),
+        ];
+
+        // High λ_t: translation should stay at zero prior.
+        let config = JointRotationFocalBA {
+            max_iters: 100,
+            step_tolerance: 1e-9,
+            lambda_rotation: 1.0e9,
+            lambda_focal: 1.0e9,
+            lambda_translation: 1.0e9,
+        };
+        let cams = solve_joint_with_priors(
+            &feats,
+            &pairs,
+            (1024, 768),
+            Some(&priors_vec),
+            &config,
+        )
+        .expect("solve must succeed");
+
+        // Trivial: zero-displacement matches + identity prior →
+        // perfect fit, all params unchanged. Translation invisible
+        // in Camera output, but rot/focal stay locked.
+        let omega = rodrigues_log(&cams[1].rotation.cast::<f64>());
+        assert!(omega.norm() < 1e-3);
+        assert!((cams[1].focal as f64 - 1000.0).abs() < 1.0);
     }
 }

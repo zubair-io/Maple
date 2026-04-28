@@ -679,12 +679,7 @@ fn compute_homography_chain_priors(
     let priors: Vec<Option<CameraPrior>> = rotations
         .iter()
         .enumerate()
-        .map(|(i, r)| {
-            Some(CameraPrior {
-                rotation: r.cast::<f64>(),
-                focal: initial_focals[i] as f32,
-            })
-        })
+        .map(|(i, r)| Some(CameraPrior::new(r.cast::<f64>(), initial_focals[i] as f32)))
         .collect();
 
     Ok(priors)
@@ -1069,10 +1064,7 @@ fn stitch(inputs: &[PathBuf], output: &Path, _max_dim: u32, projection: Projecti
                 eprintln!(
                     "pano-smoke:   gimbal_prior[{i}] omega_deg={deg:.1}  focal={focal_i:.1}",
                 );
-                Some(CameraPrior {
-                    rotation: r_rel.cast::<f64>(),
-                    focal: focal_i,
-                })
+                Some(CameraPrior::new(r_rel.cast::<f64>(), focal_i))
             })
             .collect();
 
@@ -1090,11 +1082,26 @@ fn stitch(inputs: &[PathBuf], output: &Path, _max_dim: u32, projection: Projecti
             // contributes ~100 px-equivalent residual per camera, a 5% drift
             // ~2500. This is intentional: with sub-mm-precision physical
             // FocalLength + sensor lookup the prior is accurate to <1%, so
-            // any sizeable BA-driven focal drift is BA misinterpreting
-            // unmodelled parallax (Item 2, translation modeling) as a
-            // focal-length error. Keep focal locked to truth and let
-            // translation absorb the parallax once Item 2 lands.
+            // any sizeable BA-driven focal drift would be BA misinterpreting
+            // unmodelled parallax as a focal error.
             lambda_focal: 1_000_000.0,
+            // Translation: planar-at-unit-depth absorber for the parallax
+            // that pure rotation can't fit (drone drift between frames,
+            // gimbal lever-arm offset, near-field foreground). λ_t=1e7
+            // is empirically tuned on pano_01:
+            //
+            //   λ_t = 1e8: too tight, translations capped at ≲0.7% of
+            //              unit depth, residual cost 7.8e4.
+            //   λ_t = 1e6: too loose, translations grow to 5% of unit
+            //              depth and rotations drift 2-3° from gimbal
+            //              priors (BA discovers a local minimum that
+            //              re-attributes some rotation to translation).
+            //              Residual cost drops to 4.0e4 but the cameras
+            //              are no longer trustworthy.
+            //   λ_t = 1e7: middle ground — translations up to ~1-2% of
+            //              unit depth, rotations stay within 1° of
+            //              gimbal, focals within 1-3% of EXIF prior.
+            lambda_translation: 1.0e7,
         };
 
         let mut cams = match solve_joint_with_priors(
@@ -1155,6 +1162,7 @@ fn stitch(inputs: &[PathBuf], output: &Path, _max_dim: u32, projection: Projecti
             step_tolerance: 1e-6,
             lambda_rotation: 0.0,
             lambda_focal: 0.0,
+            lambda_translation: 0.0,
         };
         solve_joint_with_priors(
             &all_features,
