@@ -49,6 +49,17 @@ pub struct PanoIngest {
     /// `None` if the source format isn't a DNG, the opcode list is absent,
     /// or no `WarpRectilinear` opcode is present.
     pub distortion: Option<(f32, f32)>,
+    /// Principal point in pixel coordinates, extracted from the
+    /// `WarpRectilinear` opcode's `(cx, cy)` field (normalised to
+    /// `[0, 1] × [0, 1]`, then converted to pixel coords using image
+    /// dimensions). The optical centre is typically offset 5–20 px from
+    /// the geometric image centre on consumer lenses; using the true
+    /// value sharpens BA's K matrix.
+    ///
+    /// `None` when WarpRectilinear is absent or the field isn't
+    /// well-defined for this opcode (caller should fall back to
+    /// `(image_w / 2, image_h / 2)`).
+    pub principal_point: Option<(f32, f32)>,
 }
 
 /// Gimbal orientation angles recorded by a DJI drone into the
@@ -144,6 +155,7 @@ pub fn decode_for_pano(bytes: &[u8], ext: &str) -> Result<PanoIngest> {
     let focal_pixels = extract_focal_pixels(bytes, image.width);
     let distortion = focal_pixels
         .and_then(|f_px| extract_lens_distortion(bytes, image.width, image.height, f_px));
+    let principal_point = extract_principal_point(bytes, image.width, image.height);
 
     Ok(PanoIngest {
         image,
@@ -153,6 +165,7 @@ pub fn decode_for_pano(bytes: &[u8], ext: &str) -> Result<PanoIngest> {
         gimbal,
         focal_pixels,
         distortion,
+        principal_point,
     })
 }
 
@@ -301,6 +314,16 @@ struct WarpRectilinearGreen {
     kr3: f64,
 }
 
+/// Decoded `(cx, cy)` optical centre from a DNG WarpRectilinear opcode,
+/// in **normalised image coordinates** (where (0, 0) is the top-left
+/// corner and (1, 1) is the bottom-right). Typical values are very
+/// close to (0.5, 0.5) but consumer lenses can offset by ~1 % of image
+/// dimensions either way.
+struct WarpRectilinearCenter {
+    cx: f64,
+    cy: f64,
+}
+
 /// Parse the OpcodeList3 stream (big-endian) and return the green-plane
 /// `WarpRectilinear` coefficients, if any.
 ///
@@ -368,6 +391,77 @@ fn parse_warp_rectilinear_green(stream: &[u8]) -> Option<WarpRectilinearGreen> {
         }
     }
     None
+}
+
+/// Walk OpcodeList3 to find the WarpRectilinear opcode and return its
+/// `(cx, cy)` field — the optical centre in normalised image coords
+/// (`[0, 1] × [0, 1]`).
+///
+/// Layout for WarpRectilinear params: `[u32 nplanes; nplanes × 6 ×
+/// f64 (kr0..3, kt0, kt1); 2 × f64 (cx, cy)]`. So `cx` lives at offset
+/// `4 + nplanes × 48` and `cy` at `+ 8`.
+fn parse_warp_rectilinear_center(stream: &[u8]) -> Option<WarpRectilinearCenter> {
+    let mut cursor = 0usize;
+    if stream.len() < 4 {
+        return None;
+    }
+    let n_opcodes = read_u32_be(stream, cursor)? as usize;
+    cursor += 4;
+
+    for _ in 0..n_opcodes {
+        if stream.len() < cursor + 16 {
+            return None;
+        }
+        let opcode_id = read_u32_be(stream, cursor)?;
+        let _dng_version = read_u32_be(stream, cursor + 4)?;
+        let _flags = read_u32_be(stream, cursor + 8)?;
+        let param_bytes = read_u32_be(stream, cursor + 12)? as usize;
+        cursor += 16;
+        if stream.len() < cursor + param_bytes {
+            return None;
+        }
+        let params = &stream[cursor..cursor + param_bytes];
+        cursor += param_bytes;
+
+        if opcode_id == 1 {
+            if params.len() < 4 {
+                continue;
+            }
+            let nplanes = read_u32_be(params, 0)? as usize;
+            let cxcy_off = 4 + nplanes * 48;
+            if params.len() < cxcy_off + 16 {
+                continue;
+            }
+            return Some(WarpRectilinearCenter {
+                cx: read_f64_be(params, cxcy_off)?,
+                cy: read_f64_be(params, cxcy_off + 8)?,
+            });
+        }
+    }
+    None
+}
+
+/// Extract the optical centre (principal point) from a DNG's
+/// `WarpRectilinear` opcode, converted from normalised to pixel
+/// coordinates using the supplied image dimensions.
+///
+/// Returns `None` when no `WarpRectilinear` opcode is present in the
+/// DNG's OpcodeList3.
+fn extract_principal_point(bytes: &[u8], image_w: u32, image_h: u32) -> Option<(f32, f32)> {
+    use rawler::decoders::WellKnownIFD;
+    use rawler::rawsource::RawSource;
+    use rawler::tags::DngTag;
+
+    let source = RawSource::new_from_slice(bytes).with_path(std::path::Path::new("rawfile.dng"));
+    let decoder = rawler::get_decoder(&source).ok()?;
+    let raw_ifd = decoder.ifd(WellKnownIFD::Raw).ok().flatten()?;
+    let entry = raw_ifd.get_entry(DngTag::OpcodeList3)?;
+    let opcode_bytes = entry.value.get_data();
+    let centre = parse_warp_rectilinear_center(opcode_bytes)?;
+    Some((
+        (centre.cx as f32) * (image_w as f32),
+        (centre.cy as f32) * (image_h as f32),
+    ))
 }
 
 #[inline]
@@ -1223,6 +1317,43 @@ mod tests {
         buf.extend_from_slice(&200u32.to_be_bytes()); // claim 200 bytes
         buf.extend_from_slice(&[0u8; 32]); // but only provide 32
         assert!(super::parse_gain_map(&buf).is_none());
+    }
+
+    #[test]
+    #[ignore] // fixture-gated — requires test-fixtures/raws/pano_01/
+    fn pano_01_dng_exposes_principal_point() {
+        // DJI L2D-20c lenses are well-centred — the WarpRectilinear
+        // optical centre is normally within ±2 % of the geometric
+        // image centre on a 5376 × 3956 image (so within ±107 px /
+        // ±79 px). Anything wildly off would indicate a parser bug.
+        let path = std::path::Path::new(
+            "/Users/riabuz/Projects/_Maple/test-fixtures/raws/pano_01/PANO0001.DNG",
+        );
+        if !path.exists() {
+            return;
+        }
+        let bytes = std::fs::read(path).unwrap();
+        let ingest = decode_for_pano(&bytes, "dng").unwrap();
+        let (cx, cy) = ingest
+            .principal_point
+            .expect("expected principal_point on DJI L2D-20c DNG");
+        let image_cx = (ingest.image.width as f32) / 2.0;
+        let image_cy = (ingest.image.height as f32) / 2.0;
+        let dx = cx - image_cx;
+        let dy = cy - image_cy;
+        // Print so we can see the actual offset when running with --nocapture.
+        eprintln!(
+            "principal_point=({cx:.1}, {cy:.1})  image_centre=({image_cx:.1}, {image_cy:.1})  offset=({dx:+.1}, {dy:+.1}) px"
+        );
+        // Sanity: must be within 2 % of image centre.
+        assert!(
+            dx.abs() < (ingest.image.width as f32) * 0.02,
+            "principal_point cx={cx} too far from image centre",
+        );
+        assert!(
+            dy.abs() < (ingest.image.height as f32) * 0.02,
+            "principal_point cy={cy} too far from image centre",
+        );
     }
 
     #[test]
