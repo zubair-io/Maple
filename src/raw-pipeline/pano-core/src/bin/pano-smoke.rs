@@ -1314,18 +1314,185 @@ fn stitch(
         .blend_n(&warped_refs, &weight_masks)
         .map_err(|e| format!("blend_n failed: {e}"))?;
 
+    // Post-blend repair: detect pure-magenta clipping signatures
+    // (RGB pixels where R+B saturated and G clamped to 0) and replace
+    // them with the median of nearby non-magenta neighbours. This
+    // catches the residual Laplacian-pyramid ringing artefacts at
+    // image-to-image seam transitions that the erode + extrapolate
+    // pre-process couldn't fully suppress. Iterates so wide bands
+    // (where inner pixels initially have no non-magenta neighbours
+    // within search radius) get peeled off layer-by-layer.
+    let mut repaired = result;
+    let mut total_repaired = 0usize;
+    let mut prev_count = usize::MAX;
+    for _pass in 0..16 {
+        let n = repair_magenta_clipping(&mut repaired);
+        total_repaired += n;
+        if n == 0 || n == prev_count {
+            break;
+        }
+        prev_count = n;
+    }
+    if total_repaired > 0 {
+        eprintln!(
+            "pano-smoke: repaired {total_repaired} clipping-artefact pixels (RGB ≈ 1,0,1)"
+        );
+    }
+
     let final_image = if crop_margin > 0 {
         eprintln!(
             "pano-smoke: cropping {crop_margin} px off each side of canvas"
         );
-        crop_canvas(&result, crop_margin)
+        crop_canvas(&repaired, crop_margin)
     } else {
-        result
+        repaired
     };
 
     write_stitch(&final_image, output)?;
     eprintln!("pano-smoke: done.");
     Ok(())
+}
+
+/// Detect pixels with the pure-magenta clipping signature (R near 1,
+/// G near 0, B near 1 — the natural output of Laplacian-pyramid
+/// ringing where R/B saturate above gamut and G is driven below 0)
+/// and replace each with the median of its non-magenta neighbours.
+///
+/// This is a post-blend repair pass. It exists because the multi-
+/// band Laplacian blender introduces these artefacts at every image-
+/// to-image seam transition, and the erode + extrapolate pre-process
+/// only partially suppresses them.
+///
+/// Returns the number of pixels repaired.
+fn repair_magenta_clipping(img: &mut PanoImage) -> usize {
+    use rayon::prelude::*;
+
+    let w = img.width as usize;
+    let h = img.height as usize;
+    let n = w * h;
+
+    // Detection: Laplacian-pyramid ringing produces out-of-gamut
+    // values where one channel overshoots above the natural max and
+    // another undershoots below 0. The classic "magenta" signature is
+    // R+B saturated above 1, G driven below 0; on the panorama
+    // pipeline we also see other channel-imbalance signatures
+    // (cyan, yellow) at validity edges. Detect any pixel that is:
+    //   - any channel ≤ 0 (negative-clipped) AND
+    //   - any other channel ≥ 0.95 (saturated)
+    // This covers pure magenta (R=B=1, G=0), pure cyan (G=B=1, R=0),
+    // pure yellow (R=G=1, B=0), and the partial-clipping equivalents
+    // that the Rec.2020 → sRGB conversion later turns into pure-
+    // primary clipping on disk.
+    // Detection covers in-Rec.2020 values that *will* clip to a
+    // primary edge after the Rec.2020 → sRGB matrix runs at encode
+    // time. The matrix has off-diagonal terms ≈ ±0.1, so a Rec.2020
+    // value like (1.0, 0.12, 1.0) — within natural-content gamut —
+    // converts to sRGB ≈ (1, 0, 1) → pure magenta on disk. The
+    // "any_low" threshold of 0.15 catches that case.
+    let is_clipping_artefact = |idx: usize| -> bool {
+        let r = img.pixels[idx * 3];
+        let g = img.pixels[idx * 3 + 1];
+        let b = img.pixels[idx * 3 + 2];
+        let any_low = r < 0.15 || g < 0.15 || b < 0.15;
+        let any_saturated = r > 0.95 || g > 0.95 || b > 0.95;
+        let extreme_channel_imbalance =
+            (r - g).abs() > 0.7 || (g - b).abs() > 0.7 || (r - b).abs() > 0.7;
+        any_low && any_saturated && extreme_channel_imbalance
+    };
+
+    // Collect indices of clipping-artefact pixels first (parallel scan).
+    let magenta_indices: Vec<usize> = (0..n)
+        .into_par_iter()
+        .filter(|&idx| is_clipping_artefact(idx))
+        .collect();
+    let count = magenta_indices.len();
+    if count == 0 {
+        return 0;
+    }
+    let _ = count;
+
+    // For each magenta pixel, gather valid (non-magenta-leaning)
+    // neighbours in a wide window (radius 12 = 25×25 = up to 624
+    // neighbours) and compute a per-channel median replacement. Wide
+    // window covers the band thickness so even centre-of-band pixels
+    // can find good neighbours. Returns the actual count of changed
+    // pixels (not just detected) so the iteration logic in the
+    // caller can converge correctly.
+    //
+    // Neighbour rejection is broader than the detection threshold —
+    // we exclude any neighbour where R+B is high relative to G
+    // (loose-magenta), to avoid the median itself landing back in
+    // the magenta range.
+    let radius = 12i32;
+    let replacements: Vec<(usize, [f32; 3])> = magenta_indices
+        .par_iter()
+        .map(|&idx| {
+            let y = idx / w;
+            let x = idx % w;
+            let mut rs: Vec<f32> = Vec::with_capacity(((2 * radius + 1) * (2 * radius + 1)) as usize);
+            let mut gs: Vec<f32> = Vec::with_capacity(((2 * radius + 1) * (2 * radius + 1)) as usize);
+            let mut bs: Vec<f32> = Vec::with_capacity(((2 * radius + 1) * (2 * radius + 1)) as usize);
+            for dy in -radius..=radius {
+                for dx in -radius..=radius {
+                    if dx == 0 && dy == 0 {
+                        continue;
+                    }
+                    let nx = x as i32 + dx;
+                    let ny = y as i32 + dy;
+                    if nx < 0 || ny < 0 || nx >= w as i32 || ny >= h as i32 {
+                        continue;
+                    }
+                    let nidx = (ny as usize) * w + nx as usize;
+                    let nr = img.pixels[nidx * 3];
+                    let ng = img.pixels[nidx * 3 + 1];
+                    let nb = img.pixels[nidx * 3 + 2];
+                    // Skip neighbours that are themselves clipping
+                    // artefacts (same predicate as `is_clipping_artefact`).
+                    let any_low = nr < 0.15 || ng < 0.15 || nb < 0.15;
+                    let any_sat = nr > 0.95 || ng > 0.95 || nb > 0.95;
+                    let imbalance =
+                        (nr - ng).abs() > 0.7 || (ng - nb).abs() > 0.7 || (nr - nb).abs() > 0.7;
+                    if any_low && any_sat && imbalance {
+                        continue;
+                    }
+                    // Skip canvas-invalid black.
+                    if nr < 1e-3 && ng < 1e-3 && nb < 1e-3 {
+                        continue;
+                    }
+                    rs.push(nr);
+                    gs.push(ng);
+                    bs.push(nb);
+                }
+            }
+            if rs.len() < 4 {
+                return (idx, [
+                    img.pixels[idx * 3],
+                    img.pixels[idx * 3 + 1],
+                    img.pixels[idx * 3 + 2],
+                ]);
+            }
+            rs.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+            gs.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+            bs.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+            let mid = rs.len() / 2;
+            (idx, [rs[mid], gs[mid], bs[mid]])
+        })
+        .collect();
+
+    // Apply replacements and count actual changes.
+    let mut actually_changed = 0usize;
+    for (idx, rgb) in replacements {
+        let was_changed = (img.pixels[idx * 3] - rgb[0]).abs() > 1e-6
+            || (img.pixels[idx * 3 + 1] - rgb[1]).abs() > 1e-6
+            || (img.pixels[idx * 3 + 2] - rgb[2]).abs() > 1e-6;
+        if was_changed {
+            img.pixels[idx * 3] = rgb[0];
+            img.pixels[idx * 3 + 1] = rgb[1];
+            img.pixels[idx * 3 + 2] = rgb[2];
+            actually_changed += 1;
+        }
+    }
+    actually_changed
 }
 
 /// Crop `margin` pixels off each side of `img`, returning a new
