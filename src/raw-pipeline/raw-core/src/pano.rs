@@ -64,7 +64,29 @@ pub struct GimbalAngles {
 /// Run the raw → camera RGB → DCP chain on a `RawImage` and return the
 /// scene-linear Rec.2020 D65 buffer. No user adjustments — vibrance,
 /// saturation, clarity, etc. are intentionally skipped.
+///
+/// Equivalent to [`develop_for_pano_with_gain_map`] with `gain_map: None`.
 pub fn develop_for_pano(raw: &RawImage) -> Result<Image> {
+    develop_for_pano_with_gain_map(raw, None)
+}
+
+/// Like [`develop_for_pano`] but accepts an optional vignetting `GainMap`
+/// (parsed from the DNG's `OpcodeList3 → GainMap` opcode).
+///
+/// When provided, the gain map is applied after demosaic and after the
+/// baseline-exposure correction, before the DCP color matrix runs. This
+/// is the standard place in Adobe's pipeline (the gain map corrects the
+/// per-pixel multiplicative falloff caused by the lens before any colour
+/// transform that depends on flat-field assumptions).
+///
+/// On DJI L2D-20c the gain map is ~30 % at the corners (i.e. corner
+/// pixels are multiplied by ~1.3 to compensate for vignetting). Without
+/// it the pano-stitch shows visible vertical bands at seams as each
+/// frame's dark corners abut a neighbour's bright centre.
+pub fn develop_for_pano_with_gain_map(
+    raw: &RawImage,
+    gain_map: Option<&GainMap>,
+) -> Result<Image> {
     let mut camera_rgb = match raw.cfa {
         CfaPattern::LinearRgb => linearize::linearraw_to_camera_rgb(raw)?,
         _ => {
@@ -82,6 +104,10 @@ pub fn develop_for_pano(raw: &RawImage) -> Result<Image> {
         }
     }
 
+    if let Some(gm) = gain_map {
+        apply_gain_map(&mut camera_rgb, gm);
+    }
+
     let profile = dcp::profile_for(raw)?;
     dcp::apply(&camera_rgb, &profile)
 }
@@ -89,9 +115,15 @@ pub fn develop_for_pano(raw: &RawImage) -> Result<Image> {
 /// Decode a RAW from in-memory bytes and run [`develop_for_pano`] in
 /// one shot. `ext` is the lowercase file extension used by rawler as a
 /// format hint (matching [`crate::decode::decode_bytes`]).
+///
+/// Vignetting correction (`OpcodeList3 → GainMap`) is parsed from the
+/// DNG and applied during develop, when present. When absent the
+/// pipeline falls back to no flat-field correction (matches the legacy
+/// behaviour for non-DNG inputs).
 pub fn decode_for_pano(bytes: &[u8], ext: &str) -> Result<PanoIngest> {
     let raw = crate::decode::decode_bytes(bytes, ext)?;
-    let image = develop_for_pano(&raw)?;
+    let gain_map = extract_gain_map(bytes);
+    let image = develop_for_pano_with_gain_map(&raw, gain_map.as_ref())?;
 
     // ── Gimbal angles from embedded XMP ──────────────────────────────────────
     // DJI DNGs embed a drone-dji XMP packet inside TIFF tag 0x02BC (700).
@@ -359,6 +391,250 @@ fn read_f64_be(buf: &[u8], at: usize) -> Option<f64> {
     let mut bytes = [0u8; 8];
     bytes.copy_from_slice(&buf[at..at + 8]);
     Some(f64::from_be_bytes(bytes))
+}
+
+// ---------------------------------------------------------------------------
+// GainMap (vignetting correction)
+// ---------------------------------------------------------------------------
+
+/// Decoded `WarpRectilinear`-companion vignetting gain map from a DNG's
+/// `OpcodeList3 → GainMap` opcode (id = 9).
+///
+/// Per the DNG 1.4 spec § 7.3.4: the lens projects light unevenly across
+/// the sensor (corners receive less light than the centre). DNG embeds
+/// a per-channel multiplicative gain grid that, when applied
+/// pixel-by-pixel after demosaic, undoes that falloff. A typical
+/// L2D-20c map runs from gain ≈ 1.0 at the centre to gain ≈ 1.3 at the
+/// corners on each of R, G, B independently (the channels diverge
+/// because longer wavelengths fall off less steeply).
+///
+/// We store the map decoded into a flat 32×32×3 (or whatever
+/// dimensions the DNG reports) `Vec<f32>` plus the rectangle in raw-
+/// image pixel coords it applies to. Application time uses bilinear
+/// interpolation of the grid against each output pixel's normalised
+/// position within the rectangle.
+#[derive(Clone, Debug)]
+pub struct GainMap {
+    /// Rectangle in raw-image pixel coords this map applies to:
+    /// (top, left, bottom, right). When the decoded image dimensions
+    /// differ from `right − left × bottom − top`, the map is applied
+    /// only to the matching subrectangle and pixels outside are left
+    /// untouched.
+    pub rect: (u32, u32, u32, u32),
+    /// Number of grid rows.
+    pub points_v: u32,
+    /// Number of grid columns.
+    pub points_h: u32,
+    /// Number of plane samples per grid point. 1 = single-channel
+    /// (apply same gain to all RGB), 3 = per-channel (R, G, B).
+    pub map_planes: u32,
+    /// Grid origin in normalised-rect coordinates (typically (0, 0)).
+    pub origin: (f64, f64),
+    /// Spacing between grid points in normalised-rect coordinates
+    /// (typically (1/(points_v−1), 1/(points_h−1))).
+    pub spacing: (f64, f64),
+    /// Flat row-major samples: `gain[(v × points_h + h) × map_planes + p]`.
+    /// Length = `points_v × points_h × map_planes`.
+    pub samples: Vec<f32>,
+}
+
+impl GainMap {
+    /// Sample the map at a normalised position `(u, v)` ∈ `[0, 1]²`,
+    /// returning per-channel gains `(r, g, b)`. Bilinear-interpolated
+    /// across the grid; clamped to the grid boundary on out-of-range
+    /// inputs.
+    pub fn sample(&self, u: f64, v: f64) -> (f32, f32, f32) {
+        // Convert normalised position into grid-cell coordinates.
+        let gh = ((u - self.origin.1) / self.spacing.1).clamp(
+            0.0,
+            (self.points_h.saturating_sub(1)) as f64,
+        );
+        let gv = ((v - self.origin.0) / self.spacing.0).clamp(
+            0.0,
+            (self.points_v.saturating_sub(1)) as f64,
+        );
+
+        let h0 = gh.floor() as u32;
+        let v0 = gv.floor() as u32;
+        let h1 = (h0 + 1).min(self.points_h - 1);
+        let v1 = (v0 + 1).min(self.points_v - 1);
+        let dh = (gh - h0 as f64) as f32;
+        let dv = (gv - v0 as f64) as f32;
+
+        let fetch = |row: u32, col: u32| -> (f32, f32, f32) {
+            let base = ((row * self.points_h + col) * self.map_planes) as usize;
+            let r = self.samples[base];
+            let g = if self.map_planes >= 2 { self.samples[base + 1] } else { r };
+            let b = if self.map_planes >= 3 { self.samples[base + 2] } else { r };
+            (r, g, b)
+        };
+
+        let (r00, g00, b00) = fetch(v0, h0);
+        let (r10, g10, b10) = fetch(v0, h1);
+        let (r01, g01, b01) = fetch(v1, h0);
+        let (r11, g11, b11) = fetch(v1, h1);
+
+        let lerp = |a: f32, b: f32, t: f32| a + (b - a) * t;
+        let r = lerp(lerp(r00, r10, dh), lerp(r01, r11, dh), dv);
+        let g = lerp(lerp(g00, g10, dh), lerp(g01, g11, dh), dv);
+        let b = lerp(lerp(b00, b10, dh), lerp(b01, b11, dh), dv);
+        (r, g, b)
+    }
+}
+
+/// Parse the `GainMap` opcode (id = 9) from a DNG's `OpcodeList3` tag,
+/// returning the first one we find (panoramas typically have just one).
+///
+/// Returns `None` when:
+/// - the source isn't a DNG / `OpcodeList3` is absent,
+/// - no `GainMap` opcode is present in the list (some bodies don't
+///   embed vignetting correction),
+/// - parsing fails (truncated / malformed bytes).
+pub fn extract_gain_map(bytes: &[u8]) -> Option<GainMap> {
+    use rawler::decoders::WellKnownIFD;
+    use rawler::rawsource::RawSource;
+    use rawler::tags::DngTag;
+
+    let source = RawSource::new_from_slice(bytes).with_path(std::path::Path::new("rawfile.dng"));
+    let decoder = rawler::get_decoder(&source).ok()?;
+    let raw_ifd = decoder.ifd(WellKnownIFD::Raw).ok().flatten()?;
+    let entry = raw_ifd.get_entry(DngTag::OpcodeList3)?;
+    let opcode_bytes = entry.value.get_data();
+    parse_gain_map(opcode_bytes)
+}
+
+/// Parse the OpcodeList3 stream (big-endian) and return the **first**
+/// GainMap opcode (id = 9) we find. Other opcodes (notably
+/// WarpRectilinear, id = 1) are skipped.
+fn parse_gain_map(stream: &[u8]) -> Option<GainMap> {
+    let mut cursor = 0usize;
+    if stream.len() < 4 {
+        return None;
+    }
+    let n_opcodes = read_u32_be(stream, cursor)? as usize;
+    cursor += 4;
+
+    for _ in 0..n_opcodes {
+        if stream.len() < cursor + 16 {
+            return None;
+        }
+        let opcode_id = read_u32_be(stream, cursor)?;
+        let _dng_version = read_u32_be(stream, cursor + 4)?;
+        let _flags = read_u32_be(stream, cursor + 8)?;
+        let param_bytes = read_u32_be(stream, cursor + 12)? as usize;
+        cursor += 16;
+        if stream.len() < cursor + param_bytes {
+            return None;
+        }
+        let params = &stream[cursor..cursor + param_bytes];
+        cursor += param_bytes;
+
+        if opcode_id == 9 {
+            return decode_gain_map_params(params);
+        }
+    }
+    None
+}
+
+/// Decode a `GainMap` opcode's parameter bytes into a [`GainMap`].
+///
+/// Parameter layout (big-endian, per DNG 1.4 spec § 7.3.4):
+/// - `[u32]`  Top, Left, Bottom, Right        (16 bytes)
+/// - `[u32]`  Plane, Planes                   (8 bytes)
+/// - `[u32]`  RowPitch, ColPitch              (8 bytes)
+/// - `[u32]`  MapPointsV, MapPointsH          (8 bytes)
+/// - `[f64]`  MapSpacingV, MapSpacingH        (16 bytes)
+/// - `[f64]`  MapOriginV, MapOriginH          (16 bytes)
+/// - `[u32]`  MapPlanes                       (4 bytes)
+/// - `[f32 × MapPointsV × MapPointsH × MapPlanes]`  MapGainSamples
+///
+/// Total fixed-size header: 76 bytes; sample data follows.
+fn decode_gain_map_params(params: &[u8]) -> Option<GainMap> {
+    if params.len() < 76 {
+        return None;
+    }
+    let top = read_u32_be(params, 0)?;
+    let left = read_u32_be(params, 4)?;
+    let bottom = read_u32_be(params, 8)?;
+    let right = read_u32_be(params, 12)?;
+    let _plane = read_u32_be(params, 16)?;
+    let _planes = read_u32_be(params, 20)?;
+    let _row_pitch = read_u32_be(params, 24)?;
+    let _col_pitch = read_u32_be(params, 28)?;
+    let points_v = read_u32_be(params, 32)?;
+    let points_h = read_u32_be(params, 36)?;
+    let spacing_v = read_f64_be(params, 40)?;
+    let spacing_h = read_f64_be(params, 48)?;
+    let origin_v = read_f64_be(params, 56)?;
+    let origin_h = read_f64_be(params, 64)?;
+    let map_planes = read_u32_be(params, 72)?;
+
+    let n_samples = (points_v as usize)
+        .checked_mul(points_h as usize)?
+        .checked_mul(map_planes as usize)?;
+    let sample_bytes = n_samples.checked_mul(4)?;
+    if params.len() < 76 + sample_bytes {
+        return None;
+    }
+    let mut samples = Vec::with_capacity(n_samples);
+    for k in 0..n_samples {
+        let off = 76 + k * 4;
+        let mut buf = [0u8; 4];
+        buf.copy_from_slice(&params[off..off + 4]);
+        samples.push(f32::from_be_bytes(buf));
+    }
+
+    Some(GainMap {
+        rect: (top, left, bottom, right),
+        points_v,
+        points_h,
+        map_planes,
+        origin: (origin_v, origin_h),
+        spacing: (spacing_v, spacing_h),
+        samples,
+    })
+}
+
+/// Apply a vignetting gain map to a demosaiced camera-RGB image
+/// in-place. Pixels outside the gain map's rectangle are left
+/// unmodified (we don't know what the lens did there).
+///
+/// Sampling: each output pixel's normalised position within the rect
+/// is bilinearly looked up in the gain grid and the per-channel gains
+/// multiplied into the pixel.
+fn apply_gain_map(image: &mut Image, gm: &GainMap) {
+    let (top, left, bottom, right) = gm.rect;
+    let img_w = image.width;
+    let img_h = image.height;
+
+    // Clamp the rect to the actual image bounds (DJI's GainMap rect
+    // is sometimes a few px smaller than the decoded image's "active
+    // area" — we apply only over the intersection).
+    let rx0 = left.min(img_w);
+    let ry0 = top.min(img_h);
+    let rx1 = right.min(img_w);
+    let ry1 = bottom.min(img_h);
+    if rx1 <= rx0 || ry1 <= ry0 {
+        return;
+    }
+    let rect_w = (rx1 - rx0) as f64;
+    let rect_h = (ry1 - ry0) as f64;
+    if rect_w < 1.0 || rect_h < 1.0 {
+        return;
+    }
+
+    for y in ry0..ry1 {
+        let v_norm = (y as f64 - ry0 as f64) / (rect_h - 1.0).max(1.0);
+        for x in rx0..rx1 {
+            let u_norm = (x as f64 - rx0 as f64) / (rect_w - 1.0).max(1.0);
+            let (gr, gg, gb) = gm.sample(u_norm, v_norm);
+            let idx = (y as usize) * (img_w as usize) + (x as usize);
+            let p = &mut image.pixels[idx];
+            p[0] *= gr;
+            p[1] *= gg;
+            p[2] *= gb;
+        }
+    }
 }
 
 /// Sensor width (mm) lookup by camera Model EXIF string.
@@ -761,6 +1037,227 @@ mod tests {
         buf.extend_from_slice(&1u32.to_be_bytes()); // 1 opcode
         buf.extend_from_slice(&[0u8; 8]); // only 8 bytes of the 16-byte header
         assert!(super::parse_warp_rectilinear_green(&buf).is_none());
+    }
+
+    /// Build a synthetic GainMap opcode stream with known parameters
+    /// and a 2 × 2 × 3 grid: corners marked with distinct values so we
+    /// can verify samples land in the right grid slots.
+    fn make_synthetic_gainmap_opcode_stream() -> Vec<u8> {
+        let mut buf: Vec<u8> = Vec::new();
+        buf.extend_from_slice(&1u32.to_be_bytes()); // 1 opcode
+        buf.extend_from_slice(&9u32.to_be_bytes()); // ID = GainMap
+        buf.extend_from_slice(&0x01040000u32.to_be_bytes()); // DngVersion
+        buf.extend_from_slice(&0u32.to_be_bytes()); // flags
+
+        // 2×2 grid × 3 planes = 12 samples × 4 bytes = 48 bytes data
+        // Header 76 + data 48 = 124 bytes total params.
+        buf.extend_from_slice(&124u32.to_be_bytes());
+
+        // Top, Left, Bottom, Right
+        buf.extend_from_slice(&0u32.to_be_bytes());
+        buf.extend_from_slice(&0u32.to_be_bytes());
+        buf.extend_from_slice(&100u32.to_be_bytes());
+        buf.extend_from_slice(&100u32.to_be_bytes());
+        // Plane = 0, Planes = 3
+        buf.extend_from_slice(&0u32.to_be_bytes());
+        buf.extend_from_slice(&3u32.to_be_bytes());
+        // RowPitch, ColPitch
+        buf.extend_from_slice(&1u32.to_be_bytes());
+        buf.extend_from_slice(&1u32.to_be_bytes());
+        // MapPointsV, MapPointsH = 2
+        buf.extend_from_slice(&2u32.to_be_bytes());
+        buf.extend_from_slice(&2u32.to_be_bytes());
+        // MapSpacingV, MapSpacingH = 1.0 (full grid spans 0 to 1)
+        buf.extend_from_slice(&1.0_f64.to_be_bytes());
+        buf.extend_from_slice(&1.0_f64.to_be_bytes());
+        // MapOriginV, MapOriginH = 0.0
+        buf.extend_from_slice(&0.0_f64.to_be_bytes());
+        buf.extend_from_slice(&0.0_f64.to_be_bytes());
+        // MapPlanes = 3
+        buf.extend_from_slice(&3u32.to_be_bytes());
+
+        // Samples in row-major (v, h, plane):
+        //   (0,0,R)=1.0, (0,0,G)=1.1, (0,0,B)=1.2,
+        //   (0,1,R)=2.0, (0,1,G)=2.1, (0,1,B)=2.2,
+        //   (1,0,R)=3.0, (1,0,G)=3.1, (1,0,B)=3.2,
+        //   (1,1,R)=4.0, (1,1,G)=4.1, (1,1,B)=4.2,
+        let samples: [f32; 12] = [
+            1.0, 1.1, 1.2,
+            2.0, 2.1, 2.2,
+            3.0, 3.1, 3.2,
+            4.0, 4.1, 4.2,
+        ];
+        for s in samples {
+            buf.extend_from_slice(&s.to_be_bytes());
+        }
+        buf
+    }
+
+    #[test]
+    fn parse_gain_map_synthetic_2x2() {
+        let stream = make_synthetic_gainmap_opcode_stream();
+        let gm = super::parse_gain_map(&stream).expect("parser must find GainMap");
+        assert_eq!(gm.rect, (0, 0, 100, 100));
+        assert_eq!(gm.points_v, 2);
+        assert_eq!(gm.points_h, 2);
+        assert_eq!(gm.map_planes, 3);
+        assert_eq!(gm.samples.len(), 12);
+        // Spot-check first and last sample.
+        assert!((gm.samples[0] - 1.0).abs() < 1e-6);
+        assert!((gm.samples[11] - 4.2).abs() < 1e-6);
+    }
+
+    #[test]
+    fn gain_map_sample_corners_match_grid() {
+        let stream = make_synthetic_gainmap_opcode_stream();
+        let gm = super::parse_gain_map(&stream).expect("parser must find GainMap");
+        // Corner (u=0, v=0) — top-left, should be (1.0, 1.1, 1.2).
+        let (r, g, b) = gm.sample(0.0, 0.0);
+        assert!((r - 1.0).abs() < 1e-6);
+        assert!((g - 1.1).abs() < 1e-6);
+        assert!((b - 1.2).abs() < 1e-6);
+        // Corner (u=1, v=1) — bottom-right, should be (4.0, 4.1, 4.2).
+        let (r, g, b) = gm.sample(1.0, 1.0);
+        assert!((r - 4.0).abs() < 1e-6);
+        assert!((g - 4.1).abs() < 1e-6);
+        assert!((b - 4.2).abs() < 1e-6);
+    }
+
+    #[test]
+    fn gain_map_sample_centre_is_average_of_four_corners() {
+        let stream = make_synthetic_gainmap_opcode_stream();
+        let gm = super::parse_gain_map(&stream).expect("parser must find GainMap");
+        // Centre (u=0.5, v=0.5) — average of all 4 corners on each channel.
+        let (r, g, b) = gm.sample(0.5, 0.5);
+        let exp_r = (1.0 + 2.0 + 3.0 + 4.0) / 4.0;
+        let exp_g = (1.1 + 2.1 + 3.1 + 4.1) / 4.0;
+        let exp_b = (1.2 + 2.2 + 3.2 + 4.2) / 4.0;
+        assert!((r - exp_r).abs() < 1e-6);
+        assert!((g - exp_g).abs() < 1e-6);
+        assert!((b - exp_b).abs() < 1e-6);
+    }
+
+    #[test]
+    fn gain_map_apply_multiplies_pixels() {
+        // Build a 4 × 4 image with all pixels at (1.0, 1.0, 1.0), apply
+        // a constant-2.0 gain map, expect every pixel = (2.0, 2.0, 2.0).
+        use crate::image::{ColorSpace as Cs, Image as Im};
+        let mut img = Im::new(4, 4, Cs::SceneLinearRec2020);
+        for p in &mut img.pixels {
+            *p = [1.0, 1.0, 1.0];
+        }
+        let gm = super::GainMap {
+            rect: (0, 0, 4, 4),
+            points_v: 2,
+            points_h: 2,
+            map_planes: 3,
+            origin: (0.0, 0.0),
+            spacing: (1.0, 1.0),
+            samples: vec![
+                2.0, 2.0, 2.0,
+                2.0, 2.0, 2.0,
+                2.0, 2.0, 2.0,
+                2.0, 2.0, 2.0,
+            ],
+        };
+        super::apply_gain_map(&mut img, &gm);
+        for p in &img.pixels {
+            assert!((p[0] - 2.0).abs() < 1e-6);
+            assert!((p[1] - 2.0).abs() < 1e-6);
+            assert!((p[2] - 2.0).abs() < 1e-6);
+        }
+    }
+
+    #[test]
+    fn gain_map_apply_brightens_corners_more_than_centre() {
+        // Build an image with constant pixels and a gain map that has
+        // brighter corners than centre — verify post-application that
+        // corner pixels are higher than centre pixels.
+        use crate::image::{ColorSpace as Cs, Image as Im};
+        let w = 100u32;
+        let h = 100u32;
+        let mut img = Im::new(w, h, Cs::SceneLinearRec2020);
+        for p in &mut img.pixels {
+            *p = [1.0, 1.0, 1.0];
+        }
+        // 2×2 map: 1.0 at centre... wait, 2×2 has only corners. Use 3×3.
+        let gm = super::GainMap {
+            rect: (0, 0, h, w),
+            points_v: 3,
+            points_h: 3,
+            map_planes: 1,
+            origin: (0.0, 0.0),
+            spacing: (0.5, 0.5),
+            // Centre (1,1) = 1.0 (no gain), all others = 1.5 (50 % brighter at edges).
+            samples: vec![
+                1.5, 1.5, 1.5,
+                1.5, 1.0, 1.5,
+                1.5, 1.5, 1.5,
+            ],
+        };
+        super::apply_gain_map(&mut img, &gm);
+        // Centre pixel should be ≈ 1.0 (no gain), corner pixel ≈ 1.5.
+        let centre_idx = ((h / 2) as usize) * (w as usize) + (w as usize / 2);
+        let corner_idx = 0;
+        assert!(
+            img.pixels[centre_idx][0] < 1.1,
+            "centre should keep gain ≈ 1.0, got {}",
+            img.pixels[centre_idx][0]
+        );
+        assert!(
+            img.pixels[corner_idx][0] > 1.4,
+            "corner should be brightened to ≈ 1.5, got {}",
+            img.pixels[corner_idx][0]
+        );
+    }
+
+    /// Truncated GainMap stream — must not panic, must return None.
+    #[test]
+    fn parse_gain_map_handles_truncation() {
+        // Stream claims 200 bytes of params but provides only 32.
+        let mut buf: Vec<u8> = Vec::new();
+        buf.extend_from_slice(&1u32.to_be_bytes()); // 1 opcode
+        buf.extend_from_slice(&9u32.to_be_bytes()); // ID = GainMap
+        buf.extend_from_slice(&0x01040000u32.to_be_bytes());
+        buf.extend_from_slice(&0u32.to_be_bytes());
+        buf.extend_from_slice(&200u32.to_be_bytes()); // claim 200 bytes
+        buf.extend_from_slice(&[0u8; 32]); // but only provide 32
+        assert!(super::parse_gain_map(&buf).is_none());
+    }
+
+    #[test]
+    #[ignore] // fixture-gated — requires test-fixtures/raws/pano_01/
+    fn pano_01_dng_exposes_gain_map() {
+        // DJI L2D-20c GainMap is 32 × 32 × 3 covering roughly the
+        // active sensor area. Corner gains should exceed centre by
+        // ~20–40 %.
+        let path = std::path::Path::new(
+            "/Users/riabuz/Projects/_Maple/test-fixtures/raws/pano_01/PANO0001.DNG",
+        );
+        if !path.exists() {
+            return;
+        }
+        let bytes = std::fs::read(path).unwrap();
+        let gm = super::extract_gain_map(&bytes).expect("expected GainMap on DJI L2D-20c DNG");
+
+        assert_eq!(gm.points_v, 32, "DJI L2D-20c expected 32 grid rows");
+        assert_eq!(gm.points_h, 32, "DJI L2D-20c expected 32 grid cols");
+        assert_eq!(gm.map_planes, 3, "expected 3-plane (R, G, B) gain map");
+        assert_eq!(gm.samples.len(), 32 * 32 * 3);
+
+        // Centre gain (u = v = 0.5) should be ≈ 1.0 (no vignetting at
+        // optical centre by construction). Corners should be > 1.0
+        // (correcting the lens's edge falloff).
+        let (cr, cg, cb) = gm.sample(0.5, 0.5);
+        let (kr, kg, kb) = gm.sample(0.0, 0.0);
+        assert!(
+            cr < 1.05 && cg < 1.05 && cb < 1.05,
+            "centre gain should be ≈ 1.0, got R={cr} G={cg} B={cb}"
+        );
+        assert!(
+            kr > 1.05 && kg > 1.05 && kb > 1.05,
+            "corner gain should compensate vignetting (>1.05), got R={kr} G={kg} B={kb}"
+        );
     }
 
     #[test]
