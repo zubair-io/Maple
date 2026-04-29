@@ -1125,6 +1125,7 @@ fn stitch(inputs: &[PathBuf], output: &Path, _max_dim: u32, projection: Projecti
                         Camera {
                             focal: prior.focal,
                             rotation: prior.rotation.cast::<f32>(),
+                            translation: prior.translation.cast::<f32>(),
                             distortion: pano_core::types::Distortion::default(),
                         }
                     })
@@ -1446,11 +1447,13 @@ fn stitch_pair(img_a: PanoImage, img_b: PanoImage, step: usize) -> Result<PanoIm
             Camera {
                 focal: image_size.0.max(image_size.1) as f32,
                 rotation: nalgebra::Matrix3::identity(),
+                translation: nalgebra::Vector3::zeros(),
                 distortion: pano_core::types::Distortion::default(),
             },
             Camera {
                 focal: image_size.0.max(image_size.1) as f32,
                 rotation: nalgebra::Matrix3::identity(),
+                translation: nalgebra::Vector3::zeros(),
                 distortion: pano_core::types::Distortion::default(),
             },
         ]

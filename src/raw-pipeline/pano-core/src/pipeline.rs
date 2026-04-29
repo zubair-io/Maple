@@ -74,8 +74,18 @@ fn stitch_two(img_a: &PanoImage, img_b: &PanoImage, _options: &PipelineOptions) 
         let focal = image_size.0.max(image_size.1) as f32;
         let identity = nalgebra::Matrix3::<f32>::identity();
         vec![
-            Camera { focal, rotation: identity, distortion: Distortion::default() },
-            Camera { focal, rotation: identity, distortion: Distortion::default() },
+            Camera {
+                focal,
+                rotation: identity,
+                translation: nalgebra::Vector3::zeros(),
+                distortion: Distortion::default(),
+            },
+            Camera {
+                focal,
+                rotation: identity,
+                translation: nalgebra::Vector3::zeros(),
+                distortion: Distortion::default(),
+            },
         ]
     };
 

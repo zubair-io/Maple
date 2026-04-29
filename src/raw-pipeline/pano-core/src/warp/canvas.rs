@@ -159,6 +159,7 @@ fn compute_cylindrical_canvas(
             .try_inverse()
             .ok_or_else(|| PanoError::Warp("singular camera K".into()))?;
         let r = cam.rotation.cast::<f64>();
+        let t = cam.translation.cast::<f64>();
 
         let mut img_theta_min = f32::INFINITY;
         let mut img_theta_max = f32::NEG_INFINITY;
@@ -173,8 +174,12 @@ fn compute_cylindrical_canvas(
                 let py = (gy as f64) * h / (GRID as f64);
                 let uv = Vector3::new(px, py, 1.0);
                 let ray_cam = k_inv * uv;
-                // World ray = R · K^-1 · uv.
-                let world = r * ray_cam;
+                // World point = R · K^-1 · uv + t (forward direction of
+                // BA's planar-at-unit-depth model: the cam-space ray at
+                // depth z=1, rotated into world frame, offset by camera
+                // translation). For zero translation this reduces to
+                // the legacy R·ray formula.
+                let world = r * ray_cam + t;
 
                 // Project to unit cylinder.
                 let denom = (world.x * world.x + world.z * world.z).sqrt();
@@ -296,6 +301,7 @@ fn compute_spherical_canvas(
             .try_inverse()
             .ok_or_else(|| PanoError::Warp("singular camera K".into()))?;
         let r = cam.rotation.cast::<f64>();
+        let t = cam.translation.cast::<f64>();
 
         let mut img_lambda_min = f32::INFINITY;
         let mut img_lambda_max = f32::NEG_INFINITY;
@@ -310,8 +316,10 @@ fn compute_spherical_canvas(
                 let py = (gy as f64) * h / (GRID as f64);
                 let uv = Vector3::new(px, py, 1.0);
                 let ray_cam = k_inv * uv;
-                // World ray = R · K^-1 · uv.
-                let world = r * ray_cam;
+                // World point = R · K^-1 · uv + t (planar-at-unit-depth
+                // forward, matching the warp). For zero translation this
+                // reduces to R · ray.
+                let world = r * ray_cam + t;
 
                 // Project to unit sphere: λ = atan2(x, z), φ = asin(y / |world|).
                 let norm = world.norm();
@@ -491,6 +499,8 @@ fn warp_cylindrical_canvas(
     let (iw, ih) = (img.width, img.height);
     let k_in = camera_k_f64(cam.focal as f64, iw, ih);
     let r_inv = cam.rotation.transpose().cast::<f64>();
+    // See `warp_spherical_canvas` for translation semantics.
+    let t_cam = cam.translation.cast::<f64>();
 
     let theta_span = theta_max - theta_min;
     let h_span = h_max - h_min;
@@ -509,11 +519,13 @@ fn warp_cylindrical_canvas(
             let theta = theta_min + (cx as f32 / cw_f) * theta_span;
             let h = h_min + (cy as f32 / ch_f) * h_span;
 
-            // Cylindrical → 3D ray (world frame).
-            let ray = Vector3::new(theta.sin() as f64, h as f64, theta.cos() as f64);
+            // Cylindrical → 3D world point (cylinder of unit radius).
+            let world_pt = Vector3::new(theta.sin() as f64, h as f64, theta.cos() as f64);
 
-            // World → input camera frame via R^-1.
-            let cam_ray = r_inv * ray;
+            // World → input camera frame: rotate (world_pt − t_cam) into
+            // camera coords. With t_cam = 0 this is the legacy
+            // pure-rotation R^T·r computation.
+            let cam_ray = r_inv * (world_pt - t_cam);
             if cam_ray.z <= 0.0 {
                 continue;
             }
@@ -580,6 +592,14 @@ fn warp_spherical_canvas(
     let (iw, ih) = (img.width, img.height);
     let k_in = camera_k_f64(cam.focal as f64, iw, ih);
     let r_inv = cam.rotation.transpose().cast::<f64>();
+    // Per-camera translation in scene-unit-depth coordinates (planar-at-
+    // unit-depth model, as used by BA). For scenes with no parallax
+    // (sphere-at-infinity) this is zero and the warp reduces to the
+    // pure-rotation case. When non-zero, it applies the parallax shift
+    // BA discovered: a 3D scene point at unit depth offset by t_cam in
+    // world units projects to a different sensor pixel than it would
+    // for a camera at the origin.
+    let t_cam = cam.translation.cast::<f64>();
 
     let lambda_span = lambda_max - lambda_min;
     let phi_span = phi_max - phi_min;
@@ -598,15 +618,20 @@ fn warp_spherical_canvas(
             let lambda = lambda_min + (cx as f32 / cw_f) * lambda_span;
             let phi = phi_min + (cy as f32 / ch_f) * phi_span;
 
-            // Spherical → 3D world ray.
+            // Spherical → 3D world ray (treated as a 3D scene point at
+            // unit distance from world origin — sphere-at-unit-radius
+            // approximation of the planar-at-unit-depth model BA uses).
             let cos_phi = (phi as f64).cos();
             let sin_phi = (phi as f64).sin();
             let cos_lambda = (lambda as f64).cos();
             let sin_lambda = (lambda as f64).sin();
-            let ray = Vector3::new(cos_phi * sin_lambda, sin_phi, cos_phi * cos_lambda);
+            let world_pt = Vector3::new(cos_phi * sin_lambda, sin_phi, cos_phi * cos_lambda);
 
-            // World → input camera frame via R^-1.
-            let cam_ray = r_inv * ray;
+            // World → input camera frame: rotate (world_pt − t_cam) into
+            // camera coords. With t_cam = 0 this is the legacy
+            // pure-rotation R^T·r computation; with t_cam ≠ 0 it adds
+            // the planar parallax BA optimised.
+            let cam_ray = r_inv * (world_pt - t_cam);
             if cam_ray.z <= 0.0 {
                 continue;
             }
@@ -674,6 +699,7 @@ mod tests {
         Camera {
             focal,
             rotation: Matrix3::identity(),
+            translation: Vector3::zeros(),
             distortion: Distortion::default(),
         }
     }
@@ -709,6 +735,7 @@ mod tests {
         let cam_b = Camera {
             focal: 256.0,
             rotation: r_yaw,
+            translation: Vector3::zeros(),
             distortion: Distortion::default(),
         };
         let single = compute_canvas(&[&img], &[cam_a.clone()], Projection::Cylindrical).unwrap();
@@ -755,7 +782,7 @@ mod tests {
             0.0, 1.0, 0.0,
             -angle.sin(), 0.0, angle.cos(),
         );
-        let cam_b = Camera { focal: 256.0, rotation: r_yaw, distortion: Distortion::default() };
+        let cam_b = Camera { focal: 256.0, rotation: r_yaw, translation: Vector3::zeros(), distortion: Distortion::default() };
 
         let single = compute_canvas(&[&img], &[cam_a.clone()], Projection::Spherical).unwrap();
         let dual = compute_canvas(&[&img, &img], &[cam_a, cam_b], Projection::Spherical).unwrap();
@@ -772,7 +799,7 @@ mod tests {
             0.0, angle.cos(), -angle.sin(),
             0.0, angle.sin(), angle.cos(),
         );
-        let cam_b = Camera { focal: 256.0, rotation: r_pitch, distortion: Distortion::default() };
+        let cam_b = Camera { focal: 256.0, rotation: r_pitch, translation: Vector3::zeros(), distortion: Distortion::default() };
 
         let single = compute_canvas(&[&img], &[cam_a.clone()], Projection::Spherical).unwrap();
         let dual = compute_canvas(&[&img, &img], &[cam_a, cam_b], Projection::Spherical).unwrap();

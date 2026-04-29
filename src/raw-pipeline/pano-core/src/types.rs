@@ -48,14 +48,34 @@ impl PanoImage {
 }
 
 /// Pinhole camera model used by bundle adjustment.
+///
+/// `translation` is in the planar-at-unit-depth scale used by
+/// `ba::joint::solve_joint_with_priors` — i.e. world units where the
+/// scene plane is at z = 1. Defaults to zero (pure rotation stitch).
+/// When non-zero, the canvas warp applies the corresponding parallax
+/// correction so BA-discovered translations actually affect the
+/// stitched output.
 #[derive(Debug, Clone)]
 pub struct Camera {
     /// Focal length in pixels.
     pub focal: f32,
     /// Rotation matrix in the common world frame.
     pub rotation: Matrix3<f32>,
+    /// Per-camera translation in world units (planar-at-unit-depth scale).
+    pub translation: nalgebra::Vector3<f32>,
     /// Radial distortion coefficients.
     pub distortion: Distortion,
+}
+
+impl Default for Camera {
+    fn default() -> Self {
+        Self {
+            focal: 1.0,
+            rotation: Matrix3::identity(),
+            translation: nalgebra::Vector3::zeros(),
+            distortion: Distortion::default(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default)]

@@ -333,6 +333,7 @@ impl BundleAdjuster for RotationOnlyBA {
             return Ok(vec![Camera {
                 focal: self.focal_len() as f32,
                 rotation: Matrix3::identity(),
+                translation: nalgebra::Vector3::zeros(),
                 distortion: Distortion::default(),
             }]);
         }
@@ -500,6 +501,7 @@ impl BundleAdjuster for RotationOnlyBA {
                 Camera {
                     focal: focal as f32,
                     rotation: rot32,
+                    translation: nalgebra::Vector3::zeros(),
                     distortion: Distortion::default(),
                 }
             })
@@ -553,6 +555,7 @@ pub fn solve_with_keypoints(
         return Ok(vec![Camera {
             focal: focal_d as f32,
             rotation: Matrix3::identity(),
+            translation: nalgebra::Vector3::zeros(),
             distortion: Distortion::default(),
         }]);
     }
@@ -681,6 +684,7 @@ pub fn solve_with_keypoints(
         .map(|r| Camera {
             focal: focal_d as f32,
             rotation: r.cast(),
+            translation: nalgebra::Vector3::zeros(),
             distortion: Distortion::default(),
         })
         .collect())

@@ -347,6 +347,7 @@ mod tests {
         Camera {
             focal,
             rotation: Matrix3::identity(),
+            translation: nalgebra::Vector3::zeros(),
             distortion: Distortion { k1: 0.0, k2: 0.0 },
         }
     }

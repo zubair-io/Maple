@@ -191,6 +191,7 @@ pub fn solve_joint_with_priors(
         return Ok(vec![Camera {
             focal: focal0 as f32,
             rotation: Matrix3::identity(),
+            translation: nalgebra::Vector3::<f32>::zeros(),
             distortion: Distortion::default(),
         }]);
     }
@@ -298,6 +299,7 @@ pub fn solve_joint_with_priors(
                     default_focal as f32
                 },
                 rotation: Matrix3::identity(),
+                translation: nalgebra::Vector3::<f32>::zeros(),
                 distortion: Distortion::default(),
             })
             .collect());
@@ -354,24 +356,21 @@ pub fn solve_joint_with_priors(
     // -----------------------------------------------------------------------
     // Step 5: Reconstruct cameras.
     //
-    // Translation is intentionally dropped from the returned `Camera`
-    // structs: the warp pipeline downstream assumes pure rotation +
-    // sphere-at-infinity, and translation served its purpose during
-    // BA as an absorber for parallax that pure rotation can't fit.
-    // Keeping the translation refined inside BA but not propagating it
-    // leaves the rotations and focals close to truth (the parameters
-    // we *do* pass to the warper) without complicating downstream.
-    //
-    // If a future caller needs the translations (e.g. to drive a
-    // multi-plane warp), expose a separate `solve_joint_with_motion`
-    // entry that returns `Vec<(Camera, Vector3<f32>)>`.
+    // Translation IS now propagated through `Camera.translation` so the
+    // canvas warp can apply the parallax correction BA discovered.
+    // Previously translation was dropped here on the assumption that
+    // the warp downstream couldn't use it; that assumption was wrong —
+    // it left the BA-found 100-px parallax shifts (e.g. cam[1]'s
+    // ‖t‖=0.026 on pano_01) unapplied, manifesting as visible ghosting
+    // in the stitched output.
     // -----------------------------------------------------------------------
     let mut cameras: Vec<Camera> = Vec::with_capacity(n_cams);
 
-    // Camera 0: fixed.
+    // Camera 0: gauge fix — rotation = I, focal = prior, translation = 0.
     cameras.push(Camera {
         focal: focal0 as f32,
         rotation: Matrix3::identity(),
+        translation: nalgebra::Vector3::<f32>::zeros(),
         distortion: Distortion::default(),
     });
 
@@ -379,10 +378,16 @@ pub fn solve_joint_with_priors(
         let slot = (i - 1) * PARAMS_PER_CAM;
         let omega = Vector3::new(refined[slot], refined[slot + 1], refined[slot + 2]);
         let focal_i = refined[slot + FOCAL_SLOT];
+        let translation_i = Vector3::new(
+            refined[slot + TRANS_SLOT],
+            refined[slot + TRANS_SLOT + 1],
+            refined[slot + TRANS_SLOT + 2],
+        );
         let r = rodrigues_exp(omega);
         cameras.push(Camera {
             focal: focal_i as f32,
             rotation: r.cast::<f32>(),
+            translation: translation_i.cast::<f32>(),
             distortion: Distortion::default(),
         });
     }
