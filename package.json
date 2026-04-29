@@ -1,0 +1,9 @@
+{
+  "name": "maple",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Maple — root entry-points. Sub-projects live under src/ (each with its own package.json or Cargo.toml).",
+  "scripts": {
+    "dev": "bash src/scripts/dev-self-hosted.sh"
+  }
+}
