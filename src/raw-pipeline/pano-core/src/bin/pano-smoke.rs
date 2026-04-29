@@ -869,6 +869,18 @@ fn stitch(inputs: &[PathBuf], output: &Path, _max_dim: u32, projection: Projecti
         // Gimbal-aware filter: only when both images of this pair have
         // gimbal data AND a per-image EXIF focal. Otherwise pass GMS
         // through unchanged.
+        //
+        // Auto-tuned tolerance: scales with the predicted angular
+        // motion between the two cameras. The gimbal precision is ~0.3°
+        // RMS in flight, lens distortion contributes another ~5 px
+        // residual at corners. So tolerance = max(50, 1.5 × focal × tan
+        // (gimbal_uncertainty_rad)) gives:
+        //   - small relative motion (cam[1]↔cam[2]): tighter ball
+        //     (~50 px) so we don't pass through zero-displacement
+        //     consensus that survived GMS
+        //   - large relative motion (cam[0]↔cam[1]): looser ball
+        //     (~150 px) so the genuine matches at the gimbal-predicted
+        //     shift survive the filter
         let gimbal_filtered: Matches =
             if let (Some((y_i, p_i, r_i)), Some((y_j, p_j, r_j)), Some(f_i), Some(f_j)) = (
                 gimbal_priors[i],
@@ -885,17 +897,38 @@ fn stitch(inputs: &[PathBuf], output: &Path, _max_dim: u32, projection: Projecti
                     f_j as f64,
                     (cx_image, cy_image),
                 );
+
+                // Per-pair tolerance: gimbal hardware ≈ 0.3° RMS in
+                // flight, lens distortion residual ≈ 5 px at corners,
+                // 50 px floor covers both with margin. We add a small
+                // angular term scaled by the relative rotation
+                // magnitude to absorb chained-pair drift in multi-row
+                // panos: tol = 50 + 0.05 · focal · tan(|ω|).
+                //
+                // The factor 0.05 (5 % of the predicted shift) is the
+                // budget for "gimbal disagrees with reality across this
+                // specific pair" — sufficient to recover small-rotation
+                // pairs that the previous 100 px hardcode was rejecting,
+                // without inflating large-rotation tolerances enough to
+                // poison RANSAC.
+                let r_rel = r_b.transpose() * r_a;
+                let omega_rel = pano_core::ba::joint::rodrigues_log(&r_rel);
+                let omega_mag = omega_rel.norm();
+                let pair_tol_px =
+                    50.0_f64 + 0.05 * (f_i as f64) * omega_mag.tan().max(0.0);
+
                 let kept = gimbal_filter(
                     &gms,
                     &all_features[i],
                     &all_features[j],
                     &h_pred,
-                    gimbal_tol_px,
+                    pair_tol_px,
                 );
                 eprintln!(
-                    "pano-smoke:   pair ({i},{j}): GMS {} → gimbal-filter {} (tol={gimbal_tol_px:.0} px)",
+                    "pano-smoke:   pair ({i},{j}): GMS {} → gimbal-filter {} (tol={pair_tol_px:.0} px, |ω_rel|={:.1}°)",
                     gms.inliers.len(),
-                    kept.inliers.len()
+                    kept.inliers.len(),
+                    omega_mag.to_degrees(),
                 );
                 kept
             } else {
