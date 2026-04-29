@@ -88,7 +88,21 @@ GET  /                              — Angular SPA (SPA fallback for all non-AP
 
 ## Development mode (UI hot-reload)
 
-Run the Angular dev server alongside the Bun backend:
+One command starts MongoDB, the Bun API in proxy-to-`ng serve` mode, and the
+Angular dev server:
+
+```bash
+bash src/scripts/dev-self-hosted.sh
+# or, from src/api/
+bun run dev:all
+```
+
+Open http://localhost:3000 — the API serves the SPA and proxies non-`/api`
+routes to `ng serve` on `:4201` so HMR works through one URL. Ctrl-C stops
+the API and dev server (Mongo keeps running; stop it with
+`docker compose down`).
+
+If you'd rather start the pieces individually:
 
 ```bash
 # Terminal 1: start Angular dev server for the Self-Hosted app
