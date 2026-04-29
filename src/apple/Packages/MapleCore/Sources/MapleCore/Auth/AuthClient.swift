@@ -19,7 +19,7 @@ public struct AuthMeResponse: Decodable {
 }
 
 public actor AuthClient {
-  let server: URL
+  public nonisolated let server: URL
   let urlSession: URLSession
   public init(server: URL, urlSession: URLSession = .shared) {
     self.server = server; self.urlSession = urlSession
