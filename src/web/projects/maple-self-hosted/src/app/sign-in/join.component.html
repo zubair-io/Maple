@@ -1,0 +1,30 @@
+<form (submit)="submit(); $event.preventDefault()">
+  <h2>Join this server</h2>
+  <input
+    type="email"
+    [(ngModel)]="email"
+    name="email"
+    placeholder="Email"
+    autocomplete="email"
+    required
+  />
+  <input
+    type="text"
+    [(ngModel)]="code"
+    name="code"
+    placeholder="Invite code"
+    minlength="8"
+    maxlength="8"
+    autocapitalize="characters"
+    autocomplete="one-time-code"
+    spellcheck="false"
+    required
+  />
+  <button type="submit" [disabled]="busy() || !email || code.length !== 8">
+    Create passkey
+  </button>
+  @if (error(); as e) {
+    <p class="error">{{ e }}</p>
+  }
+  <a routerLink="/sign-in">Already have an account?</a>
+</form>
