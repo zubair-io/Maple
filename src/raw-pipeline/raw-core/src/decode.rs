@@ -289,6 +289,40 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
         map
     };
 
+    // ── 8b. ForwardMatrix1 / ForwardMatrix2 (DNG § 1.4.4.3) ───────────────
+    // Camera→XYZ-D50 chromatic adaptation matrices. When present, the DCP
+    // path uses these instead of Bradford CA (see `dcp::apply`). Tags:
+    //   50964 ForwardMatrix1 (SRATIONAL[9], paired with CalibrationIlluminant1)
+    //   50965 ForwardMatrix2 (SRATIONAL[9], paired with CalibrationIlluminant2)
+    // Indexed by the same `Illuminant` keys as `color_matrices` so dual-CM
+    // interpolation can pair them up. Empty for non-Apple bodies (Canon,
+    // Nikon, Sony, Hasselblad, ...) which typically omit FM tags.
+    let forward_matrices: HashMap<CoreIlluminant, Matrix3> = {
+        let mut map = HashMap::new();
+        if let Some(ifd) = root_ifd.as_ref() {
+            // Helper: read a 9-float matrix at a tag and pair with an illuminant tag.
+            let read_fm = |fm_tag: DngTag, illum_tag: DngTag| -> Option<(CoreIlluminant, Matrix3)> {
+                let floats = read_floats(ifd.as_ref(), fm_tag)?;
+                if floats.len() < 9 { return None; }
+                let m = Matrix3([
+                    [floats[0], floats[1], floats[2]],
+                    [floats[3], floats[4], floats[5]],
+                    [floats[6], floats[7], floats[8]],
+                ]);
+                let illum_code = ifd.as_ref().get_entry(illum_tag)?.value.force_u16(0);
+                let illum = exif_illuminant_to_core(illum_code);
+                Some((illum, m))
+            };
+            if let Some((illum, m)) = read_fm(DngTag::ForwardMatrix1, DngTag::CalibrationIlluminant1) {
+                map.insert(illum, m);
+            }
+            if let Some((illum, m)) = read_fm(DngTag::ForwardMatrix2, DngTag::CalibrationIlluminant2) {
+                map.insert(illum, m);
+            }
+        }
+        map
+    };
+
     // ── 9. HSM / PLT (DNG § 6.6 / § 6.7) ──────────────────────────────────
     // Same pattern as BaselineExposure (§ 1b): rawler stores these tags
     // unparsed in the Root IFD; we read them by tag and assemble HsmTable
@@ -355,6 +389,7 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
         camera_make,
         camera_model,
         color_matrices,
+        forward_matrices,
         orientation,
         baseline_exposure,
         hsm_data1,
@@ -472,6 +507,26 @@ fn rawler_illuminant_to_core(r: &RawlerIlluminant) -> CoreIlluminant {
             let _ = other;
             CoreIlluminant::D65
         }
+    }
+}
+
+/// Map an EXIF/DNG `CalibrationIlluminant` u16 code to our `CoreIlluminant`.
+/// Used to pair `ForwardMatrix1` / `ForwardMatrix2` with their illuminants
+/// during DNG decode (rawler doesn't expose FM directly, so we read the
+/// raw IFD entries).
+///
+/// Codes per EXIF 2.32 / DNG spec § 3.4:
+/// 17 = Standard Light A, 21 = D65, 22 = D55, 23 = D50.
+/// Anything else degrades to D65 (matches `rawler_illuminant_to_core`'s
+/// fallback policy — keeps the dual-CM lerp path working when the DNG
+/// uses an exotic illuminant code).
+fn exif_illuminant_to_core(code: u16) -> CoreIlluminant {
+    match code {
+        17 => CoreIlluminant::StdA,
+        21 => CoreIlluminant::D65,
+        22 => CoreIlluminant::D55,
+        23 => CoreIlluminant::D50,
+        _  => CoreIlluminant::D65,
     }
 }
 
