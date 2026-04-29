@@ -1,12 +1,20 @@
-// SelfHostedSource.swift — URLSession-backed adapter for the Bun API.
+// SelfHostedSource.swift — adapter for the Bun API, routing all HTTP
+// through `AuthenticatedHTTPClient` so every request carries a bearer
+// token and a 401 triggers a single-flight refresh.
 //
 // Talks to the self-hosted Maple server described in spec §07. The server
 // exposes REST routes under `/api/...`; this actor maps `ImageSource`
 // methods onto those routes. No shared code with the server — the DTOs
 // here are hand-rolled minimally to match the wire format.
 //
-// Auth: a bearer token issued during pairing. Stored in Keychain via
-// `SelfHostedCredentialStore` (see SelfHostedCredentialStore.swift).
+// Auth: tokens (access + refresh) are stored in Keychain via
+// `TokenStore`, keyed on the server URL. The `AuthenticatedHTTPClient`
+// reads them via `tokensProvider` and writes back via
+// `onTokensRefreshed`. For backward compatibility with the legacy pairing
+// flow (a single static bearer token, no refresh) the initializer still
+// accepts a `token: String?` — when supplied and Keychain has nothing
+// yet, it's used as the access token (no refresh available, so 401 will
+// just propagate).
 
 import Foundation
 
@@ -17,19 +25,53 @@ public actor SelfHostedSource {
     // MARK: State
 
     private let baseURL: URL
-    private var token: String?
     private let session: URLSession
+    /// Routes every non-streaming request through here so auth + refresh
+    /// are uniform across the source.
+    private let httpClient: AuthenticatedHTTPClient
+    /// Static-token fallback for callers that haven't migrated to the
+    /// passkey/refresh flow. When set, it's used if `TokenStore` has no
+    /// tokens for `baseURL`.
+    private var legacyToken: String?
 
     /// Injectable session for tests. Production callers should rely on the
     /// convenience initialiser which picks `.shared`.
     public init(baseURL: URL, token: String?, session: URLSession = .shared) {
         self.baseURL = baseURL
-        self.token = token
         self.session = session
+        self.legacyToken = token
+
+        // Capture the legacy-token fallback into the closure so the
+        // provider can return it when Keychain has nothing for this server
+        // (e.g. tests, or pre-passkey pairings). The closure must not
+        // touch actor-isolated state, hence the local copy.
+        let legacyTokenSnapshot = token
+        let serverURL = baseURL
+        self.httpClient = AuthenticatedHTTPClient(
+            server: serverURL,
+            urlSession: session,
+            tokensProvider: {
+                if let stored = (try? TokenStore.load(server: serverURL)) ?? nil {
+                    return stored
+                }
+                if let legacy = legacyTokenSnapshot {
+                    // No refresh token available in the legacy flow; use
+                    // the static token as access. A 401 will fail through.
+                    return AuthTokens(access: legacy, refresh: "")
+                }
+                return nil
+            },
+            onTokensRefreshed: { fresh in
+                try? TokenStore.save(fresh, server: serverURL)
+            },
+            onSignOut: {
+                TokenStore.clear(server: serverURL)
+            }
+        )
     }
 
     public func setToken(_ token: String?) {
-        self.token = token
+        self.legacyToken = token
     }
 
     // MARK: Request helpers
@@ -41,17 +83,10 @@ public actor SelfHostedSource {
         return components.url!
     }
 
-    private func authorize(_ request: inout URLRequest) {
-        if let token {
-            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        }
-    }
-
     private func getData(_ url: URL) async throws -> Data {
         var req = URLRequest(url: url)
         req.httpMethod = "GET"
-        authorize(&req)
-        let (data, response) = try await session.data(for: req)
+        let (data, response) = try await httpClient.data(for: req)
         try Self.throwIfHTTPError(response, data: data)
         return data
     }
@@ -65,10 +100,22 @@ public actor SelfHostedSource {
         var req = URLRequest(url: url)
         req.httpMethod = "PUT"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        authorize(&req)
         req.httpBody = try JSONEncoder().encode(body)
-        let (data, response) = try await session.data(for: req)
+        let (data, response) = try await httpClient.data(for: req)
         try Self.throwIfHTTPError(response, data: data)
+    }
+
+    /// Fetches the current access token (Keychain → legacy fallback) for
+    /// the streaming `rawBytes` path, which can't go through
+    /// `AuthenticatedHTTPClient` because that exposes only `data(for:)`.
+    /// No 401 retry on this path: if the token is stale the caller can
+    /// re-issue and the next non-streaming call (or this call again) will
+    /// trip the client's refresh logic.
+    private func currentAccessToken() -> String? {
+        if let stored = (try? TokenStore.load(server: baseURL)) ?? nil {
+            return stored.access.isEmpty ? nil : stored.access
+        }
+        return legacyToken
     }
 
     private static func throwIfHTTPError(_ response: URLResponse, data: Data) throws {
@@ -169,7 +216,11 @@ extension SelfHostedSource: ImageSource {
         var req = URLRequest(url: endpoint)
         req.httpMethod = "GET"
         req.setValue("bytes=0-", forHTTPHeaderField: "Range")
-        authorize(&req)
+        // Streaming path bypasses `AuthenticatedHTTPClient` (which exposes
+        // only `data(for:)`), so inject the bearer token by hand.
+        if let token = currentAccessToken() {
+            req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
 
         do {
             let (asyncBytes, response) = try await session.bytes(for: req)
