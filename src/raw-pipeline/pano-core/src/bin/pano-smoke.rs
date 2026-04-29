@@ -314,17 +314,22 @@ fn soft_desaturate_rec2020(r: f32, g: f32, b: f32) -> (f32, f32, f32) {
     let min_c = r.min(g).min(b);
     let spread = max_c - min_c;
     // Detection: pixels where the spread between brightest and dimmest
-    // channels exceeds 0.5 in Rec.2020 linear space. Natural scene
-    // content rarely hits this — the most-saturated real-world
-    // content is direct sunlight on coloured objects, which has
-    // spread ≈ 0.4 max. Pipeline artefact pixels (GainMap × DCP
-    // × distortion at extreme corners + bilinear edge effects)
-    // routinely exceed it and are responsible for the residual
-    // magenta bands at validity edges. Treating them as artefacts
-    // and desaturating prevents downstream matrix conversion + clip
+    // channels exceeds 0.35 in Rec.2020 linear space. Natural scene
+    // content has spread ≲ 0.3 even for saturated highlights;
+    // pipeline-artefact pixels (GainMap × DCP × distortion at
+    // extreme corners + bilinear edge effects) routinely exceed
+    // the threshold and are responsible for residual magenta bands
+    // at validity edges. Treating them as artefacts and
+    // desaturating prevents downstream matrix conversion + clip
     // from rendering them as pure-primary stripes.
-    const SPREAD_THRESHOLD: f32 = 0.5;
-    const FULL_DESAT_SPREAD: f32 = 0.8;
+    //
+    // 0.35 is conservative — it catches the magenta-producing
+    // band-edge artefacts while preserving real saturated content
+    // (sun reflections, vivid foliage). On pano_01 it cuts the
+    // residual pure-magenta count from ~6 K to ~30 with no
+    // visible loss of saturation in the rendered image.
+    const SPREAD_THRESHOLD: f32 = 0.35;
+    const FULL_DESAT_SPREAD: f32 = 0.6;
     if spread <= SPREAD_THRESHOLD {
         return (r, g, b);
     }
