@@ -667,4 +667,33 @@ mod tests {
         assert_eq!(raw.raw_data[1],         11796);  // (1,0) G
         assert_eq!(raw.raw_data[64 + 1],    5898);   // (1,1) B
     }
+
+    #[test]
+    fn hasselblad_dcp_round_trips() {
+        use crate::decode::decode_bytes;
+        let dng = SyntheticGreyDng::default()
+            .with_hasselblad_dcp()
+            .with_simple_tone_curve();
+        let bytes = dng.write_to_bytes();
+        let raw = decode_bytes(&bytes, "dng")
+            .expect("Hasselblad-DCP synthetic must decode");
+
+        // Two color matrices populated (StdA + D65).
+        assert_eq!(raw.color_matrices.len(), 2,
+            "expected 2 illuminants, got {}", raw.color_matrices.len());
+
+        // AsShotNeutral picked up the Hasselblad override.
+        let asn = raw.as_shot_neutral;
+        assert!((asn[0] - crate::test_support::hasselblad_dcp::AS_SHOT_NEUTRAL[0]).abs() < 1e-3,
+            "as_shot_neutral[0] = {} (expected ~{})",
+            asn[0], crate::test_support::hasselblad_dcp::AS_SHOT_NEUTRAL[0]);
+        assert!((asn[1] - crate::test_support::hasselblad_dcp::AS_SHOT_NEUTRAL[1]).abs() < 1e-3);
+        assert!((asn[2] - crate::test_support::hasselblad_dcp::AS_SHOT_NEUTRAL[2]).abs() < 1e-3);
+
+        // ProfileToneCurve emitted by `with_simple_tone_curve()` round-trips.
+        let curve = raw.profile_tone_curve.as_ref()
+            .expect("ProfileToneCurve must round-trip when emitted");
+        assert_eq!(curve.points.len(), 5,
+            "expected 5 control points, got {}", curve.points.len());
+    }
 }
