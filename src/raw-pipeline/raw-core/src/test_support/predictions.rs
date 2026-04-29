@@ -56,6 +56,25 @@ pub fn predict_blacks(scene: f32, b_slider: f32) -> f32 {
 pub fn predict_saturation(scene: f32, _s_slider: f32) -> f32 { scene }
 pub fn predict_vibrance(scene: f32, _v_slider: f32) -> f32 { scene }
 
+/// Predict the post-radial-gain value at a given normalised radius.
+/// `gain_values` is a flat 1-D LUT sampled along radius [0, 1].
+/// Output = `input * gain(radius_norm)` with linear interp between
+/// adjacent LUT samples.
+pub fn predict_radial_gain(input: f32, radius_norm: f32, gain_values: &[f32]) -> f32 {
+    if gain_values.is_empty() { return input; }
+    if gain_values.len() == 1 { return input * gain_values[0]; }
+    let r = radius_norm.clamp(0.0, 1.0);
+    let n = gain_values.len();
+    let scaled = r * (n as f32 - 1.0);
+    let i = scaled.floor() as usize;
+    if i + 1 >= n {
+        return input * gain_values[n - 1];
+    }
+    let t = scaled - i as f32;
+    let g = gain_values[i] + t * (gain_values[i + 1] - gain_values[i]);
+    input * g
+}
+
 /// Mirrors color/profile_tone_curve::ProfileToneCurve::eval (linear interp
 /// between adjacent control points, endpoint clamp). For a neutral input
 /// R=G=B=scene, the production `apply` path scales by curve.eval(max)/max
@@ -284,4 +303,32 @@ mod tests {
     #[test] fn ptc_at_unity()         { round_trip_ptc(1.0,  SIMPLE_S_CURVE); }
     #[test] fn ptc_below_first_knot() { round_trip_ptc(0.10, SIMPLE_S_CURVE); }
     #[test] fn ptc_above_last_knot()  { round_trip_ptc(0.90, SIMPLE_S_CURVE); }
+
+    #[test]
+    fn radial_gain_at_center_uses_first_value() {
+        let lut = vec![1.5, 1.3, 1.0, 0.85, 0.7];
+        let g = predict_radial_gain(1.0, 0.0, &lut);
+        assert!((g - 1.5).abs() < 1e-6);
+    }
+
+    #[test]
+    fn radial_gain_at_edge_uses_last_value() {
+        let lut = vec![1.5, 1.3, 1.0, 0.85, 0.7];
+        let g = predict_radial_gain(1.0, 1.0, &lut);
+        assert!((g - 0.7).abs() < 1e-6);
+    }
+
+    #[test]
+    fn radial_gain_at_midpoint_lerps() {
+        let lut = vec![1.0, 0.5];
+        let g = predict_radial_gain(1.0, 0.5, &lut);
+        assert!((g - 0.75).abs() < 1e-6);
+    }
+
+    #[test]
+    fn radial_gain_scales_input() {
+        let lut = vec![2.0, 1.0];
+        let g = predict_radial_gain(0.5, 0.0, &lut);
+        assert!((g - 1.0).abs() < 1e-6);
+    }
 }
