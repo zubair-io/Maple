@@ -5,3 +5,4 @@
 
 pub mod synth_dng;
 pub mod predictions;
+pub mod hasselblad_dcp;
