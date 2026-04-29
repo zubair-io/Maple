@@ -70,3 +70,7 @@ export * from './lib/components/scopes/histogram.component';
 export * from './lib/components/scopes/waveform.component';
 export * from './lib/components/scopes/parade.component';
 export * from './lib/components/scopes/vectorscope.component';
+
+export * from './lib/auth/auth.service';
+export * from './lib/auth/auth.guard';
+export * from './lib/auth/auth.interceptor';
