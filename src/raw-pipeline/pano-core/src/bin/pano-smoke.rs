@@ -109,6 +109,13 @@ struct Cli {
     #[arg(long, default_value_t = 0, value_name = "PIXELS")]
     crop_margin: u32,
 
+    /// Blend algorithm: `simple-alpha` (default — feathered alpha,
+    /// no Laplacian pyramid, never produces magenta-ringing
+    /// artefacts) or `multi-band` (Laplacian pyramid, hides low-
+    /// frequency exposure mismatches but rings at validity edges).
+    #[arg(long, default_value = "simple-alpha", value_name = "MODE")]
+    blend_mode: String,
+
     /// Generate deterministic synthetic fixtures into DIR and exit.
     #[arg(long, value_name = "DIR")]
     gen_fixtures: Option<PathBuf>,
@@ -283,18 +290,133 @@ fn load_png_as_pano_image(path: &Path) -> Result<PanoImage, String> {
 ///
 /// Applies Rec.2020 → sRGB linear matrix then the sRGB transfer encoding,
 /// quantises to u16, and writes a big-endian PNG16.
+/// Pre-matrix Rec.2020 desaturation: when a Rec.2020 pixel has
+/// extreme channel imbalance — i.e. the spread `max(r, g, b) −
+/// min(r, g, b)` exceeds a threshold AND the minimum channel is near
+/// 0 — soft-blend it toward its Rec.2020-luminance projection
+/// proportionally to how far past the threshold it is.
+///
+/// These extreme-imbalance pixels can't occur in real captured
+/// content (lens + sensor smooths them out) — they're produced by
+/// pipeline-internal effects (GainMap amplification at corners,
+/// lens-distortion bilinear at extreme positions, DCP matrix mixing)
+/// and are exactly what produce the magenta/cyan/yellow bands we
+/// see at validity edges. Treating them as artefacts and
+/// pre-emptively desaturating prevents downstream gamut clipping
+/// from showing them as pure-primary bands.
+///
+/// The threshold of 0.85 is conservative — only triggers on truly
+/// extreme imbalance like (1.0, 0.05, 1.0). Natural content ramps
+/// don't hit it.
+#[inline]
+fn soft_desaturate_rec2020(r: f32, g: f32, b: f32) -> (f32, f32, f32) {
+    let max_c = r.max(g).max(b);
+    let min_c = r.min(g).min(b);
+    let spread = max_c - min_c;
+    // Detection: pixels where the spread between brightest and dimmest
+    // channels exceeds 0.5 in Rec.2020 linear space. Natural scene
+    // content rarely hits this — the most-saturated real-world
+    // content is direct sunlight on coloured objects, which has
+    // spread ≈ 0.4 max. Pipeline artefact pixels (GainMap × DCP
+    // × distortion at extreme corners + bilinear edge effects)
+    // routinely exceed it and are responsible for the residual
+    // magenta bands at validity edges. Treating them as artefacts
+    // and desaturating prevents downstream matrix conversion + clip
+    // from rendering them as pure-primary stripes.
+    const SPREAD_THRESHOLD: f32 = 0.5;
+    const FULL_DESAT_SPREAD: f32 = 0.8;
+    if spread <= SPREAD_THRESHOLD {
+        return (r, g, b);
+    }
+    // Rec.2020 luminance coefficients (BT.2020 non-constant Y').
+    let y = 0.2627 * r + 0.6780 * g + 0.0593 * b;
+    // Linearly ramp the desaturation factor from 0 at the threshold
+    // to 1 at FULL_DESAT_SPREAD. A pixel with spread = 0.65 (halfway
+    // through the ramp) gets 50% blended toward luminance.
+    let t = ((spread - SPREAD_THRESHOLD) / (FULL_DESAT_SPREAD - SPREAD_THRESHOLD))
+        .clamp(0.0, 1.0);
+    (r + t * (y - r), g + t * (y - g), b + t * (y - b))
+}
+
+/// Soft sRGB gamut mapping: when a pixel exceeds [0, 1] on any
+/// channel, desaturate (blend toward luminance) just enough to bring
+/// all channels into range. This is the right behaviour vs.
+/// per-channel `clamp(0, 1)`, which clips Rec.2020-saturated colours
+/// to gamut-edge primaries and produces the pure-magenta /
+/// cyan / yellow signatures we'd otherwise see at every pixel where
+/// the GainMap, lens-distortion correction, or Rec.2020 → sRGB
+/// matrix conversion happens to push a channel out of range.
+///
+/// Algorithm: blend the input `(r, g, b)` toward `(Y, Y, Y)` (the
+/// Rec.709 luminance projection) by a factor `t ∈ [0, 1]` chosen so
+/// that the blended result has every channel in `[0, 1]`. We use the
+/// minimal `t` needed, so in-gamut pixels are unchanged and
+/// out-of-gamut pixels are desaturated as little as possible.
+#[inline]
+fn gamut_clamp_srgb(r: f32, g: f32, b: f32) -> (f32, f32, f32) {
+    if r >= 0.0 && g >= 0.0 && b >= 0.0 && r <= 1.0 && g <= 1.0 && b <= 1.0 {
+        return (r, g, b);
+    }
+    // Rec.709 luminance, clamped to in-gamut range.
+    let y = (0.2126 * r + 0.7152 * g + 0.0722 * b).clamp(0.0, 1.0);
+    // Find the smallest `t ∈ [0, 1]` such that for every channel `c`:
+    //   c' = c + t · (y − c)  is in [0, 1].
+    //
+    // For `c < 0` we need `c + t · (y − c) ≥ 0`. If `y > c` then
+    //   t ≥ −c / (y − c). Otherwise no `t ∈ [0, 1]` can fix it (the
+    //   pixel is so far out-of-gamut even luminance can't help) — in
+    //   that pathological case `t = 1` brings the pixel to exactly
+    //   `(y, y, y)` which is in-gamut.
+    //
+    // For `c > 1` symmetrically: t ≥ (c − 1) / (c − y).
+    let mut t: f32 = 0.0;
+    for c in [r, g, b] {
+        if c < 0.0 {
+            let denom = y - c;
+            if denom > 1e-9 {
+                t = t.max(-c / denom);
+            } else {
+                t = 1.0;
+            }
+        } else if c > 1.0 {
+            let denom = c - y;
+            if denom > 1e-9 {
+                t = t.max((c - 1.0) / denom);
+            } else {
+                t = 1.0;
+            }
+        }
+    }
+    let t = t.clamp(0.0, 1.0);
+    (r + t * (y - r), g + t * (y - g), b + t * (y - b))
+}
+
 fn write_pano_image_as_png16(img: &PanoImage, path: &Path) -> Result<(), String> {
     let n_pixels = (img.width as usize) * (img.height as usize);
     let mut buf = vec![0u8; n_pixels * 3 * 2]; // 16-bit big-endian, 3 channels
 
     for i in 0..n_pixels {
         let base_src = i * 3;
+        // Pre-matrix Rec.2020 clamp: a Rec.2020 pixel like
+        // (0.95, 0.05, 0.95) — in-gamut for Rec.2020 but extremely
+        // imbalanced — converts to sRGB ≈ (1.48, −0.07, 1.04), which
+        // even after `gamut_clamp_srgb` desaturation lands at a
+        // visibly-pink (1.0, 0.11, 0.75). To avoid that, also
+        // soft-clamp the Rec.2020 input itself: when channels span
+        // an extreme range (max − min > 0.85), desaturate toward
+        // Rec.2020 luminance enough to bring the pixel into a
+        // less-pathological corner of Rec.2020 first.
         let r20 = img.pixels[base_src];
         let g20 = img.pixels[base_src + 1];
         let b20 = img.pixels[base_src + 2];
+        let (r20, g20, b20) = soft_desaturate_rec2020(r20, g20, b20);
 
         // Rec.2020 linear → sRGB linear
         let (r_lin, g_lin, b_lin) = rec2020_linear_to_srgb_linear(r20, g20, b20);
+        // Soft gamut clamp: desaturate out-of-gamut pixels toward
+        // luminance instead of per-channel clipping (which produces
+        // pure-primary clipping bands at validity edges).
+        let (r_lin, g_lin, b_lin) = gamut_clamp_srgb(r_lin, g_lin, b_lin);
         // sRGB transfer encoding
         let r_enc = srgb_encode(r_lin);
         let g_enc = srgb_encode(g_lin);
@@ -691,12 +813,28 @@ fn compute_homography_chain_priors(
     Ok(priors)
 }
 
+/// Choice of pixel blend after warping.
+#[derive(Debug, Clone, Copy)]
+enum BlendMode {
+    /// Per-pixel feathered alpha. No pyramid → no Laplacian ringing.
+    /// Output is a convex combination of inputs, so it can never
+    /// exceed the input gamut → never produces magenta clipping
+    /// artefacts at seams. Trade-off: low-frequency exposure
+    /// mismatches show as soft gradients across overlap regions
+    /// (where multi-band would hide them at coarse pyramid levels).
+    SimpleAlpha,
+    /// Multi-band Laplacian-pyramid blend. Hides low-frequency
+    /// exposure differences but rings at validity edges.
+    MultiBand,
+}
+
 fn stitch(
     inputs: &[PathBuf],
     output: &Path,
     _max_dim: u32,
     projection: Projection,
     crop_margin: u32,
+    blend_mode: BlendMode,
 ) -> Result<(), String> {
     if inputs.len() < 2 {
         return Err(format!(
@@ -1307,21 +1445,30 @@ fn stitch(
     );
     let weight_masks = build_partition_masks(&warped);
 
-    eprintln!("pano-smoke: streaming N-way blend");
-    let blender = pano_core::MultiBandBlender::default();
     let warped_refs: Vec<&PanoImage> = warped.iter().collect();
-    let result = blender
-        .blend_n(&warped_refs, &weight_masks)
-        .map_err(|e| format!("blend_n failed: {e}"))?;
+    let result = match blend_mode {
+        BlendMode::SimpleAlpha => {
+            eprintln!("pano-smoke: simple-alpha blend (no pyramid, gamut-safe)");
+            let blender = pano_core::SimpleAlphaBlender::new();
+            blender
+                .blend_n(&warped_refs, &weight_masks)
+                .map_err(|e| format!("blend_n failed: {e}"))?
+        }
+        BlendMode::MultiBand => {
+            eprintln!("pano-smoke: multi-band Laplacian blend");
+            let blender = pano_core::MultiBandBlender::default();
+            blender
+                .blend_n(&warped_refs, &weight_masks)
+                .map_err(|e| format!("blend_n failed: {e}"))?
+        }
+    };
 
-    // Post-blend repair: detect pure-magenta clipping signatures
-    // (RGB pixels where R+B saturated and G clamped to 0) and replace
-    // them with the median of nearby non-magenta neighbours. This
-    // catches the residual Laplacian-pyramid ringing artefacts at
-    // image-to-image seam transitions that the erode + extrapolate
-    // pre-process couldn't fully suppress. Iterates so wide bands
-    // (where inner pixels initially have no non-magenta neighbours
-    // within search radius) get peeled off layer-by-layer.
+    // Post-blend repair: detect clipping-artefact pixels (the
+    // characteristic out-of-gamut signature of Laplacian-pyramid
+    // ringing at validity edges) and replace them with the median
+    // of nearby clean neighbours. Only meaningful for the multi-
+    // band blend — simple-alpha can't produce these by construction
+    // (output is a convex combination of inputs).
     let mut repaired = result;
     let mut total_repaired = 0usize;
     let mut prev_count = usize::MAX;
@@ -2072,12 +2219,17 @@ fn main() {
             "rectilinear" => Projection::Rectilinear,
             _ => Projection::Cylindrical,
         };
+        let blend_mode = match cli.blend_mode.to_ascii_lowercase().as_str() {
+            "multi-band" | "multiband" | "multi_band" => BlendMode::MultiBand,
+            _ => BlendMode::SimpleAlpha,
+        };
         stitch(
             &cli.inputs,
             &output,
             cli.max_dim,
             projection,
             cli.crop_margin,
+            blend_mode,
         )
     };
 

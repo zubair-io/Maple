@@ -26,7 +26,7 @@ pub use ba::{
 };
 pub use compensation::gain::{apply_gains, solve_per_image_gain};
 pub use pipeline::stitch_images;
-pub use blend::MultiBandBlender;
+pub use blend::{MultiBandBlender, SimpleAlphaBlender};
 pub use color::{ColorSpace, Primaries, Transfer, WhitePoint};
 pub use error::PanoError;
 pub use features::OrbDetector;

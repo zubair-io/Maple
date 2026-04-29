@@ -17,6 +17,7 @@
 
 use bitvec::vec::BitVec;
 use nalgebra::{Matrix3, Vector3};
+use rayon::prelude::*;
 
 use crate::error::PanoError;
 use crate::types::{Camera, PanoImage, Projection};
@@ -506,72 +507,69 @@ fn warp_cylindrical_canvas(
     let h_span = h_max - h_min;
 
     let mut out = PanoImage::new(canvas_w, canvas_h, img.color);
-    for i in 0..((canvas_w * canvas_h) as usize) {
-        out.validity.set(i, false);
-    }
 
     let cw_f = canvas_w as f32;
     let ch_f = canvas_h as f32;
+    let row_pixels_len = (canvas_w as usize) * 3;
 
-    for cy in 0..canvas_h {
-        for cx in 0..canvas_w {
-            // Map canvas pixel → cylindrical (θ, h).
-            let theta = theta_min + (cx as f32 / cw_f) * theta_span;
-            let h = h_min + (cy as f32 / ch_f) * h_span;
+    let validity_rows: Vec<Vec<bool>> = out
+        .pixels
+        .par_chunks_exact_mut(row_pixels_len)
+        .enumerate()
+        .map(|(cy, row_chunk)| {
+            let mut row_valid = vec![false; canvas_w as usize];
+            for cx in 0..canvas_w {
+                // Map canvas pixel → cylindrical (θ, h).
+                let theta = theta_min + (cx as f32 / cw_f) * theta_span;
+                let h = h_min + (cy as f32 / ch_f) * h_span;
 
-            // Cylindrical → 3D world point (cylinder of unit radius).
-            let world_pt = Vector3::new(theta.sin() as f64, h as f64, theta.cos() as f64);
+                let world_pt =
+                    Vector3::new(theta.sin() as f64, h as f64, theta.cos() as f64);
 
-            // World → input camera frame: rotate (world_pt − t_cam) into
-            // camera coords. With t_cam = 0 this is the legacy
-            // pure-rotation R^T·r computation.
-            let cam_ray = r_inv * (world_pt - t_cam);
-            if cam_ray.z <= 0.0 {
-                continue;
+                let cam_ray = r_inv * (world_pt - t_cam);
+                if cam_ray.z <= 0.0 {
+                    continue;
+                }
+
+                let xn = cam_ray.x / cam_ray.z;
+                let yn = cam_ray.y / cam_ray.z;
+                let (xn_d, yn_d) =
+                    forward_distort_xy(xn, yn, cam.distortion.k1, cam.distortion.k2);
+
+                let p = k_in * Vector3::new(xn_d, yn_d, 1.0);
+                let u = p.x as f32;
+                let v = p.y as f32;
+
+                if u < 0.0 || v < 0.0 || u >= (iw - 1) as f32 || v >= (ih - 1) as f32 {
+                    continue;
+                }
+
+                let x0 = u.floor() as u32;
+                let y0 = v.floor() as u32;
+                let dx = u - x0 as f32;
+                let dy = v - y0 as f32;
+
+                let p00 = pixel_rgb(img, x0, y0);
+                let p10 = pixel_rgb(img, x0 + 1, y0);
+                let p01 = pixel_rgb(img, x0, y0 + 1);
+                let p11 = pixel_rgb(img, x0 + 1, y0 + 1);
+
+                let cx_base = (cx as usize) * 3;
+                for c in 0..3 {
+                    let top = p00[c] * (1.0 - dx) + p10[c] * dx;
+                    let bot = p01[c] * (1.0 - dx) + p11[c] * dx;
+                    row_chunk[cx_base + c] = top * (1.0 - dy) + bot * dy;
+                }
+                row_valid[cx as usize] = true;
             }
+            row_valid
+        })
+        .collect();
 
-            // Apply forward radial distortion in normalised coords —
-            // this places the back-projected ray where the real lens
-            // would have projected it on the sensor. Without this, we
-            // sample from the wrong pixel at the image periphery.
-            let xn = cam_ray.x / cam_ray.z;
-            let yn = cam_ray.y / cam_ray.z;
-            let (xn_d, yn_d) =
-                forward_distort_xy(xn, yn, cam.distortion.k1, cam.distortion.k2);
-
-            // Project into input image via K.
-            let p = k_in * Vector3::new(xn_d, yn_d, 1.0);
-            let u = p.x as f32;
-            let v = p.y as f32;
-
-            // Reject samples outside the input.
-            if u < 0.0 || v < 0.0 || u >= (iw - 1) as f32 || v >= (ih - 1) as f32 {
-                continue;
-            }
-
-            // Bilinear sample.
-            let x0 = u.floor() as u32;
-            let y0 = v.floor() as u32;
-            let dx = u - x0 as f32;
-            let dy = v - y0 as f32;
-
-            let p00 = pixel_rgb(img, x0, y0);
-            let p10 = pixel_rgb(img, x0 + 1, y0);
-            let p01 = pixel_rgb(img, x0, y0 + 1);
-            let p11 = pixel_rgb(img, x0 + 1, y0 + 1);
-
-            let mut rgb = [0.0f32; 3];
-            for c in 0..3 {
-                let top = p00[c] * (1.0 - dx) + p10[c] * dx;
-                let bot = p01[c] * (1.0 - dx) + p11[c] * dx;
-                rgb[c] = top * (1.0 - dy) + bot * dy;
-            }
-
-            let di = (cy as usize) * (canvas_w as usize) + (cx as usize);
-            out.pixels[di * 3] = rgb[0];
-            out.pixels[di * 3 + 1] = rgb[1];
-            out.pixels[di * 3 + 2] = rgb[2];
-            out.validity.set(di, true);
+    for (cy, row_valid) in validity_rows.into_iter().enumerate() {
+        for (cx, valid) in row_valid.into_iter().enumerate() {
+            let idx = cy * (canvas_w as usize) + cx;
+            out.validity.set(idx, valid);
         }
     }
 
@@ -605,78 +603,95 @@ fn warp_spherical_canvas(
     let phi_span = phi_max - phi_min;
 
     let mut out = PanoImage::new(canvas_w, canvas_h, img.color);
-    for i in 0..((canvas_w * canvas_h) as usize) {
-        out.validity.set(i, false);
-    }
 
     let cw_f = canvas_w as f32;
     let ch_f = canvas_h as f32;
+    let row_pixels_len = (canvas_w as usize) * 3;
 
-    for cy in 0..canvas_h {
-        for cx in 0..canvas_w {
-            // Map canvas pixel → spherical (λ, φ).
-            let lambda = lambda_min + (cx as f32 / cw_f) * lambda_span;
-            let phi = phi_min + (cy as f32 / ch_f) * phi_span;
+    // Parallel build over canvas rows. Each row produces (i) its
+    // pixel slice (already in `out.pixels` via par_chunks_exact_mut)
+    // and (ii) a Vec<bool> of validity flags, which we collect and
+    // apply to the BitVec serially after parallel work completes
+    // (BitVec doesn't support per-bit concurrent writes).
+    let validity_rows: Vec<Vec<bool>> = out
+        .pixels
+        .par_chunks_exact_mut(row_pixels_len)
+        .enumerate()
+        .map(|(cy, row_chunk)| {
+            let mut row_valid = vec![false; canvas_w as usize];
 
-            // Spherical → 3D world ray (treated as a 3D scene point at
-            // unit distance from world origin — sphere-at-unit-radius
-            // approximation of the planar-at-unit-depth model BA uses).
-            let cos_phi = (phi as f64).cos();
-            let sin_phi = (phi as f64).sin();
-            let cos_lambda = (lambda as f64).cos();
-            let sin_lambda = (lambda as f64).sin();
-            let world_pt = Vector3::new(cos_phi * sin_lambda, sin_phi, cos_phi * cos_lambda);
+            for cx in 0..canvas_w {
+                // Map canvas pixel → spherical (λ, φ).
+                let lambda = lambda_min + (cx as f32 / cw_f) * lambda_span;
+                let phi = phi_min + (cy as f32 / ch_f) * phi_span;
 
-            // World → input camera frame: rotate (world_pt − t_cam) into
-            // camera coords. With t_cam = 0 this is the legacy
-            // pure-rotation R^T·r computation; with t_cam ≠ 0 it adds
-            // the planar parallax BA optimised.
-            let cam_ray = r_inv * (world_pt - t_cam);
-            if cam_ray.z <= 0.0 {
-                continue;
+                // Spherical → 3D world ray (treated as a 3D scene point
+                // at unit distance from world origin — sphere-at-unit-
+                // radius approximation of the planar-at-unit-depth
+                // model BA uses).
+                let cos_phi = (phi as f64).cos();
+                let sin_phi = (phi as f64).sin();
+                let cos_lambda = (lambda as f64).cos();
+                let sin_lambda = (lambda as f64).sin();
+                let world_pt =
+                    Vector3::new(cos_phi * sin_lambda, sin_phi, cos_phi * cos_lambda);
+
+                // World → input camera frame: rotate (world_pt − t_cam)
+                // into camera coords. With t_cam = 0 this is the legacy
+                // pure-rotation R^T·r computation; with t_cam ≠ 0 it
+                // adds the planar parallax BA optimised.
+                let cam_ray = r_inv * (world_pt - t_cam);
+                if cam_ray.z <= 0.0 {
+                    continue;
+                }
+
+                // Apply forward radial distortion (Brown-Conrady
+                // k1, k2) so we sample the input at the correct sensor
+                // location.
+                let xn = cam_ray.x / cam_ray.z;
+                let yn = cam_ray.y / cam_ray.z;
+                let (xn_d, yn_d) =
+                    forward_distort_xy(xn, yn, cam.distortion.k1, cam.distortion.k2);
+
+                // Project into input image via K.
+                let p = k_in * Vector3::new(xn_d, yn_d, 1.0);
+                let u = p.x as f32;
+                let v = p.y as f32;
+
+                if u < 0.0 || v < 0.0 || u >= (iw - 1) as f32 || v >= (ih - 1) as f32 {
+                    continue;
+                }
+
+                // Bilinear sample.
+                let x0 = u.floor() as u32;
+                let y0 = v.floor() as u32;
+                let dx = u - x0 as f32;
+                let dy = v - y0 as f32;
+
+                let p00 = pixel_rgb(img, x0, y0);
+                let p10 = pixel_rgb(img, x0 + 1, y0);
+                let p01 = pixel_rgb(img, x0, y0 + 1);
+                let p11 = pixel_rgb(img, x0 + 1, y0 + 1);
+
+                let cx_base = (cx as usize) * 3;
+                for c in 0..3 {
+                    let top = p00[c] * (1.0 - dx) + p10[c] * dx;
+                    let bot = p01[c] * (1.0 - dx) + p11[c] * dx;
+                    row_chunk[cx_base + c] = top * (1.0 - dy) + bot * dy;
+                }
+                row_valid[cx as usize] = true;
             }
 
-            // Apply forward radial distortion (Brown-Conrady k1, k2) so we
-            // sample the input at the correct sensor location. See the
-            // matching comment in warp_cylindrical_canvas.
-            let xn = cam_ray.x / cam_ray.z;
-            let yn = cam_ray.y / cam_ray.z;
-            let (xn_d, yn_d) =
-                forward_distort_xy(xn, yn, cam.distortion.k1, cam.distortion.k2);
+            row_valid
+        })
+        .collect();
 
-            // Project into input image via K.
-            let p = k_in * Vector3::new(xn_d, yn_d, 1.0);
-            let u = p.x as f32;
-            let v = p.y as f32;
-
-            // Reject samples outside the input.
-            if u < 0.0 || v < 0.0 || u >= (iw - 1) as f32 || v >= (ih - 1) as f32 {
-                continue;
-            }
-
-            // Bilinear sample.
-            let x0 = u.floor() as u32;
-            let y0 = v.floor() as u32;
-            let dx = u - x0 as f32;
-            let dy = v - y0 as f32;
-
-            let p00 = pixel_rgb(img, x0, y0);
-            let p10 = pixel_rgb(img, x0 + 1, y0);
-            let p01 = pixel_rgb(img, x0, y0 + 1);
-            let p11 = pixel_rgb(img, x0 + 1, y0 + 1);
-
-            let mut rgb = [0.0f32; 3];
-            for c in 0..3 {
-                let top = p00[c] * (1.0 - dx) + p10[c] * dx;
-                let bot = p01[c] * (1.0 - dx) + p11[c] * dx;
-                rgb[c] = top * (1.0 - dy) + bot * dy;
-            }
-
-            let di = (cy as usize) * (canvas_w as usize) + (cx as usize);
-            out.pixels[di * 3] = rgb[0];
-            out.pixels[di * 3 + 1] = rgb[1];
-            out.pixels[di * 3 + 2] = rgb[2];
-            out.validity.set(di, true);
+    // Apply validity flags serially (BitVec write isn't safely
+    // parallelisable per bit).
+    for (cy, row_valid) in validity_rows.into_iter().enumerate() {
+        for (cx, valid) in row_valid.into_iter().enumerate() {
+            let idx = cy * (canvas_w as usize) + cx;
+            out.validity.set(idx, valid);
         }
     }
 
