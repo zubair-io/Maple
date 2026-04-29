@@ -116,6 +116,13 @@ pub struct RawImage {
     /// per-illuminant data; may contain 1-2 entries. Used by DCP for dual-
     /// illuminant reciprocal-CCT interpolation (spec § 3.4).
     pub color_matrices: HashMap<Illuminant, Matrix3>,
+    /// DNG `ForwardMatrix1` / `ForwardMatrix2` (tags 50964 / 50965), keyed by
+    /// the matching `CalibrationIlluminant`. Each is camera→XYZ-D50 per spec
+    /// § 1.4.4.3 — when present, the DCP path uses it instead of Bradford CA
+    /// (more accurate adaptation tuned per camera). May be empty when the DNG
+    /// omits the tags (most non-Apple bodies). Indexed by the same illuminants
+    /// as `color_matrices` so the dual-CM CCT lerp can pair them up.
+    pub forward_matrices: HashMap<Illuminant, Matrix3>,
     /// EXIF orientation (TIFF tag 0x0112) as captured by the camera. Applied
     /// as a final rotation/flip pass on the rendered RGB buffer to match the
     /// reference viewer's display orientation. `Normal` when metadata is
