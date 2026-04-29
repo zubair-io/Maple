@@ -30,6 +30,11 @@ const TAG_ANALOG_BALANCE:          u16 = 50727;
 const TAG_AS_SHOT_NEUTRAL:         u16 = 50728;
 const TAG_BASELINE_EXPOSURE:       u16 = 50730;
 const TAG_CALIBRATION_ILLUMINANT_1:u16 = 50778;
+const TAG_COLOR_MATRIX_2:           u16 = 50722;
+const TAG_FORWARD_MATRIX_1:         u16 = 50964;
+const TAG_FORWARD_MATRIX_2:         u16 = 50965;
+const TAG_PROFILE_TONE_CURVE:       u16 = 50940;
+const TAG_CALIBRATION_ILLUMINANT_2: u16 = 50779;
 
 // CFA-photometric value
 const PHOTOMETRIC_CFA: u16 = 32803;
@@ -184,20 +189,54 @@ impl SyntheticGreyDng {
         ifd.add_short(TAG_BLACK_LEVEL, 0);
         ifd.add_short(TAG_WHITE_LEVEL, 65535);
 
-        // Color: identity matrices, AsShotNeutral = (0.5, 1.0, 0.5)
-        ifd.add_srationals(TAG_COLOR_MATRIX_1,
-            vec![(1, 1), (0, 1), (0, 1),
-                 (0, 1), (1, 1), (0, 1),
-                 (0, 1), (0, 1), (1, 1)]);
+        // ColorMatrix1: identity unless override set (Hasselblad / similar).
+        let cm1 = self.color_matrix_1_override.unwrap_or([
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [0.0, 0.0, 1.0],
+        ]);
+        ifd.add_srationals(TAG_COLOR_MATRIX_1, matrix_to_srationals(cm1));
+
+        // CameraCalibration1 stays identity always.
         ifd.add_srationals(TAG_CAMERA_CALIBRATION_1,
             vec![(1, 1), (0, 1), (0, 1),
                  (0, 1), (1, 1), (0, 1),
                  (0, 1), (0, 1), (1, 1)]);
+
         ifd.add_rationals(TAG_ANALOG_BALANCE, vec![(1, 1), (1, 1), (1, 1)]);
-        ifd.add_rationals(TAG_AS_SHOT_NEUTRAL,
-            vec![(1, 2), (1, 1), (1, 2)]);   // 0.5, 1.0, 0.5
+
+        let asn = self.as_shot_neutral_override.unwrap_or([0.5, 1.0, 0.5]);
+        ifd.add_rationals(TAG_AS_SHOT_NEUTRAL, vec3_to_rationals(asn));
+
         ifd.add_srationals(TAG_BASELINE_EXPOSURE, vec![(0, 1)]);
-        ifd.add_short(TAG_CALIBRATION_ILLUMINANT_1, CALIBRATION_ILLUMINANT_D65);
+
+        let illum1 = self.calibration_illuminant_1_override
+            .unwrap_or(CALIBRATION_ILLUMINANT_D65);
+        ifd.add_short(TAG_CALIBRATION_ILLUMINANT_1, illum1);
+
+        // Phase 1 optional fields.
+        if let Some(cm2) = self.color_matrix_2 {
+            ifd.add_srationals(TAG_COLOR_MATRIX_2, matrix_to_srationals(cm2));
+        }
+        if let Some(illum2) = self.calibration_illuminant_2 {
+            ifd.add_short(TAG_CALIBRATION_ILLUMINANT_2, illum2);
+        }
+        if let Some(fm1) = self.forward_matrix_1 {
+            ifd.add_srationals(TAG_FORWARD_MATRIX_1, matrix_to_srationals(fm1));
+        }
+        if let Some(fm2) = self.forward_matrix_2 {
+            ifd.add_srationals(TAG_FORWARD_MATRIX_2, matrix_to_srationals(fm2));
+        }
+        if let Some(curve) = &self.profile_tone_curve {
+            // ProfileToneCurve is FLOAT-typed (DNG spec); pack (input, output)
+            // pairs as raw 32-bit floats.
+            let mut bytes = Vec::with_capacity(curve.len() * 8);
+            for (x, y) in curve {
+                bytes.extend_from_slice(&x.to_le_bytes());
+                bytes.extend_from_slice(&y.to_le_bytes());
+            }
+            ifd.entries.push(IfdEntry::Floats(TAG_PROFILE_TONE_CURVE, bytes));
+        }
 
         ifd
     }
@@ -249,6 +288,28 @@ const TYPE_SHORT: u16 = 3;
 const TYPE_LONG: u16 = 4;
 const TYPE_RATIONAL: u16 = 5;
 const TYPE_SRATIONAL: u16 = 10;
+const TYPE_FLOAT: u16 = 11;
+
+/// Convert a 3×3 f32 matrix to (i32, i32) srational pairs at 1e-6 precision.
+pub(crate) fn matrix_to_srationals(m: [[f32; 3]; 3]) -> Vec<(i32, i32)> {
+    const SCALE: f32 = 1_000_000.0;
+    let mut out = Vec::with_capacity(9);
+    for row in 0..3 {
+        for col in 0..3 {
+            let n = (m[row][col] * SCALE).round() as i32;
+            out.push((n, SCALE as i32));
+        }
+    }
+    out
+}
+
+/// Convert a [f32; 3] to (u32, u32) rational triples at 1e-6 precision.
+pub(crate) fn vec3_to_rationals(v: [f32; 3]) -> Vec<(u32, u32)> {
+    const SCALE: f32 = 1_000_000.0;
+    v.iter()
+        .map(|&x| ((x * SCALE).round() as u32, SCALE as u32))
+        .collect()
+}
 
 #[derive(Clone)]
 pub(crate) enum IfdEntry {
@@ -259,6 +320,7 @@ pub(crate) enum IfdEntry {
     Ascii(u16, String),                    // tag, NUL-terminated ASCII
     Rationals(u16, Vec<(u32, u32)>),       // tag, num/den pairs
     SRationals(u16, Vec<(i32, i32)>),      // tag, signed num/den
+    Floats(u16, Vec<u8>),                  // tag, raw bytes of f32 LE values (count = len/4)
 }
 
 impl IfdEntry {
@@ -271,6 +333,7 @@ impl IfdEntry {
             Self::Ascii(t, _)      => *t,
             Self::Rationals(t, _)  => *t,
             Self::SRationals(t, _) => *t,
+            Self::Floats(t, _)     => *t,
         }
     }
 
@@ -282,6 +345,7 @@ impl IfdEntry {
             Self::Ascii(_, _)                      => TYPE_ASCII,
             Self::Rationals(_, _)                  => TYPE_RATIONAL,
             Self::SRationals(_, _)                 => TYPE_SRATIONAL,
+            Self::Floats(_, _)                     => TYPE_FLOAT,
         }
     }
 
@@ -294,6 +358,7 @@ impl IfdEntry {
             Self::Ascii(_, s)        => s.len() as u32 + 1, // includes NUL
             Self::Rationals(_, v)    => v.len() as u32,
             Self::SRationals(_, v)   => v.len() as u32,
+            Self::Floats(_, v)       => (v.len() / 4) as u32,
         }
     }
 
@@ -319,13 +384,14 @@ impl IfdEntry {
             Self::SRationals(_, v) => {
                 for (n, d) in v { write_srational(&mut buf, *n, *d); }
             }
+            Self::Floats(_, v) => buf.extend_from_slice(v),
         }
         buf
     }
 }
 
 pub(crate) struct Ifd {
-    entries: Vec<IfdEntry>,
+    pub(crate) entries: Vec<IfdEntry>,
 }
 
 impl Ifd {
