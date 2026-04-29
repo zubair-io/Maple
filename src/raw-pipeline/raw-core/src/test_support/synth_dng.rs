@@ -47,6 +47,16 @@ pub struct SyntheticGreyDng {
     pub height: u32,
     pub cfa: CfaPattern,
     pub illuminant: Illuminant,
+
+    // Phase 1 DCP additions — None preserves existing test behavior.
+    pub color_matrix_1_override: Option<[[f32; 3]; 3]>,
+    pub color_matrix_2: Option<[[f32; 3]; 3]>,
+    pub calibration_illuminant_1_override: Option<u16>,
+    pub calibration_illuminant_2: Option<u16>,
+    pub forward_matrix_1: Option<[[f32; 3]; 3]>,
+    pub forward_matrix_2: Option<[[f32; 3]; 3]>,
+    pub profile_tone_curve: Option<Vec<(f32, f32)>>,
+    pub as_shot_neutral_override: Option<[f32; 3]>,
 }
 
 impl Default for SyntheticGreyDng {
@@ -57,6 +67,14 @@ impl Default for SyntheticGreyDng {
             height: 64,
             cfa: CfaPattern::Rggb,
             illuminant: Illuminant::D65,
+            color_matrix_1_override: None,
+            color_matrix_2: None,
+            calibration_illuminant_1_override: None,
+            calibration_illuminant_2: None,
+            forward_matrix_1: None,
+            forward_matrix_2: None,
+            profile_tone_curve: None,
+            as_shot_neutral_override: None,
         }
     }
 }
@@ -64,6 +82,34 @@ impl Default for SyntheticGreyDng {
 impl SyntheticGreyDng {
     pub fn write_to(&self, path: &Path) -> io::Result<()> {
         std::fs::write(path, self.write_to_bytes())
+    }
+
+    /// Inject the real Hasselblad L3D-100c dual-CM data from
+    /// test_0000.DNG. Replaces ColorMatrix1 (was identity) with the
+    /// StdA matrix, sets ColorMatrix2 to the D65 matrix, sets
+    /// AsShotNeutral to the real Hasselblad value (~[0.37, 1.0, 0.68]).
+    pub fn with_hasselblad_dcp(mut self) -> Self {
+        use crate::test_support::hasselblad_dcp::*;
+        self.color_matrix_1_override = Some(COLOR_MATRIX_1);
+        self.calibration_illuminant_1_override = Some(CALIBRATION_ILLUMINANT_1);
+        self.color_matrix_2 = Some(COLOR_MATRIX_2);
+        self.calibration_illuminant_2 = Some(CALIBRATION_ILLUMINANT_2);
+        self.as_shot_neutral_override = Some(AS_SHOT_NEUTRAL);
+        self
+    }
+
+    /// Hand-crafted simple S-curve PTC: 5 control points,
+    /// (0, 0), (0.18, 0.15), (0.5, 0.55), (0.82, 0.9), (1.0, 1.0).
+    /// Slight contrast lift in the midtones, monotonic.
+    pub fn with_simple_tone_curve(mut self) -> Self {
+        self.profile_tone_curve = Some(vec![
+            (0.0,  0.0),
+            (0.18, 0.15),
+            (0.5,  0.55),
+            (0.82, 0.9),
+            (1.0,  1.0),
+        ]);
+        self
     }
 
     pub fn write_to_bytes(&self) -> Vec<u8> {
