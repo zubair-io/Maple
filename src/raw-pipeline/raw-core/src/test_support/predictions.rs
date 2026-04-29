@@ -34,33 +34,23 @@ pub fn predict_shadows(scene: f32, s_slider: f32) -> f32 {
     scene * (1.0 + lift)
 }
 
-/// scene_tone_controls::apply, step 4.
+/// scene_tone_controls::apply, step 4. (Simplified to a uniform scalar
+/// gain on every pixel after the 2026-04-28 whites refactor — no
+/// luma weighting, no overshoot.)
 pub fn predict_whites(scene: f32, w_slider: f32) -> f32 {
     if w_slider.abs() < 1e-3 { return scene; }
-    let w_amount = w_slider / 200.0;
-    let weight = smoothstep(0.18, 1.0, scene);
-    let scale = if w_slider >= 0.0 {
-        let overshoot = (scene - 1.0).max(0.0);
-        1.0 + w_amount * (weight + overshoot * 4.0)
-    } else {
-        1.0 + w_amount * weight
-    };
-    let scale = scale.max(0.0);
-    scene * scale
+    let w_gain = 1.0 + w_slider / 200.0;
+    scene * w_gain
 }
 
-/// scene_tone_controls::apply, step 5.
+/// scene_tone_controls::apply, step 5. (Simplified to a uniform additive
+/// shift after the 2026-04-28 blacks refactor — no luma weighting, no
+/// per-direction multiplicative branch. Floor at 0 keeps deep shadows
+/// non-negative for AgX's per-channel log encode.)
 pub fn predict_blacks(scene: f32, b_slider: f32) -> f32 {
     if b_slider.abs() < 1e-3 { return scene; }
-    let b_amount = b_slider / 800.0;
-    let weight = 1.0 - smoothstep(0.0, 0.18, scene);
-    if b_slider >= 0.0 {
-        let shift = b_amount * weight;
-        (scene + shift).max(0.0)
-    } else {
-        let scale = (1.0 + b_amount * weight * 4.0).max(0.0);
-        scene * scale
-    }
+    let b_add = b_slider / 400.0;
+    (scene + b_add).max(0.0)
 }
 
 pub fn predict_saturation(scene: f32, _s_slider: f32) -> f32 { scene }
