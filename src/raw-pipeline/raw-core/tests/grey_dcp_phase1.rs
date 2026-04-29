@@ -80,14 +80,8 @@ fn cct_interpolation_continuous() {
 
 /// With FM populated, the DCP path bypasses Bradford CA. FM-on vs FM-off
 /// outputs should differ in scene-linear because FM and Bradford aren't
-/// equivalent in general.
-///
-/// **Known failure:** raw-core's `decode.rs` does not read the
-/// ForwardMatrix1/2 tags (50964/50965), so the production `DcpProfile`
-/// always has `forward_matrix: None` regardless of what the DNG
-/// contains. This test documents what should happen; the failure is
-/// the alarm. Real iPhone DNGs ship ForwardMatrix data; raw-core
-/// silently falls back to Bradford CA on those today.
+/// equivalent in general. Confirms the decoder reads ForwardMatrix1/2
+/// tags and the DCP path consumes them when present.
 #[test]
 fn forward_matrix_replaces_bradford() {
     // Hand-crafted near-identity FM with channel bias.

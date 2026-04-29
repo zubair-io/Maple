@@ -328,11 +328,22 @@ pub fn interpolated_profile(
     wb_already_baked: bool,
     hsm_cold: Option<&HsmTable>,
     hsm_warm: Option<&HsmTable>,
+    fm_cold: Option<Matrix3>,
+    fm_warm: Option<Matrix3>,
 ) -> DcpProfile {
     let cct_cold = illum_cold.cct();
     let cct_warm = illum_warm.cct();
     let as_shot_cct = compute_as_shot_cct(wb_neutral, m_cold, cct_cold, m_warm, cct_warm);
     let cm = interpolate_cm(m_cold, cct_cold, m_warm, cct_warm, as_shot_cct);
+    // Forward matrix: lerp by the same `t` parameter used for CM. When only
+    // one of fm_cold/fm_warm is present, use it directly. When neither is
+    // present, result is None and DCP falls back to Bradford CA.
+    let forward_matrix = match (fm_cold, fm_warm) {
+        (Some(fc), Some(fw)) => Some(interpolate_cm(fc, cct_cold, fw, cct_warm, as_shot_cct)),
+        (Some(fc), None)     => Some(fc),
+        (None, Some(fw))     => Some(fw),
+        (None, None)         => None,
+    };
     // The pipeline is NOT pre-gaining camera RGB (WB pre-gain deferred until
     // paired with per-body BaselineExposure + HSM — see pipeline.rs comment).
     // In the no-pre-gain world, a neutral scene patch enters inv(CM) as
@@ -352,7 +363,7 @@ pub fn interpolated_profile(
             illum_warm
         },
         color_matrix: cm,
-        forward_matrix: None,
+        forward_matrix,
         scene_cct: as_shot_cct,
         scene_white_xyz,
         wb_already_baked,
@@ -427,6 +438,12 @@ pub fn profile_for(raw: &RawImage) -> crate::Result<DcpProfile> {
 
     if let (Some((il_cold, m_cold)), Some((il_warm, m_warm))) = (cold, warm) {
         if il_cold != il_warm {
+            // Pair the FMs by illuminant so they lerp on the same `t` axis as
+            // the CMs. ForwardMatrix1 / ForwardMatrix2 may be absent (most
+            // bodies); when missing the dual-CM path's `forward_matrix`
+            // becomes None and DCP falls back to Bradford CA.
+            let fm_cold = raw.forward_matrices.get(&il_cold).copied();
+            let fm_warm = raw.forward_matrices.get(&il_warm).copied();
             return Ok(interpolated_profile(
                 m_cold, il_cold,
                 m_warm, il_warm,
@@ -434,6 +451,8 @@ pub fn profile_for(raw: &RawImage) -> crate::Result<DcpProfile> {
                 wb_already_baked,
                 raw.hsm_data1.as_ref(),
                 raw.hsm_data2.as_ref(),
+                fm_cold,
+                fm_warm,
             ));
         }
     }
@@ -460,7 +479,7 @@ pub fn profile_for(raw: &RawImage) -> crate::Result<DcpProfile> {
             return Ok(DcpProfile {
                 illuminant: illum,
                 color_matrix: *cm,
-                forward_matrix: None,
+                forward_matrix: raw.forward_matrices.get(&illum).copied(),
                 scene_cct,
                 scene_white_xyz,
                 wb_already_baked,
@@ -479,7 +498,7 @@ pub fn profile_for(raw: &RawImage) -> crate::Result<DcpProfile> {
         return Ok(DcpProfile {
             illuminant: **illum,
             color_matrix: **cm,
-            forward_matrix: None,
+            forward_matrix: raw.forward_matrices.get(illum).copied(),
             scene_cct,
             scene_white_xyz,
             wb_already_baked,
@@ -507,6 +526,7 @@ mod tests {
             camera_make: "Test".into(),
             camera_model: "Test".into(),
             color_matrices: cms,
+            forward_matrices: std::collections::HashMap::new(),
             orientation: crate::image::ExifOrientation::Normal,
             baseline_exposure: 0.0,
             hsm_data1: None,
@@ -681,6 +701,7 @@ mod tests {
             camera_make: "Test".into(),
             camera_model: "Test".into(),
             color_matrices: cms,
+            forward_matrices: std::collections::HashMap::new(),
             orientation: crate::image::ExifOrientation::Normal,
             baseline_exposure: 0.0,
             hsm_data1: None,
@@ -738,6 +759,7 @@ mod tests {
             camera_make: "Test".into(),
             camera_model: "Test".into(),
             color_matrices: cms.clone(),
+            forward_matrices: std::collections::HashMap::new(),
             orientation: crate::image::ExifOrientation::Normal,
             baseline_exposure: 0.0,
             hsm_data1: None,
@@ -795,6 +817,7 @@ mod tests {
             camera_make: "Test".into(),
             camera_model: "Test".into(),
             color_matrices: cms,
+            forward_matrices: std::collections::HashMap::new(),
             orientation: crate::image::ExifOrientation::Normal,
             baseline_exposure: 0.0,
             hsm_data1: None,
@@ -956,6 +979,7 @@ mod tests {
             camera_make: "Test".into(),
             camera_model: "Test".into(),
             color_matrices: cms,
+            forward_matrices: std::collections::HashMap::new(),
             orientation: crate::image::ExifOrientation::Normal,
             baseline_exposure: 0.0,
             hsm_data1: Some(h1),
