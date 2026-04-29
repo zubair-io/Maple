@@ -6,6 +6,7 @@
   "type": "module",
   "scripts": {
     "dev": "bun --watch src/index.ts",
+    "dev:all": "bash ../scripts/dev-self-hosted.sh",
     "start": "bun src/index.ts",
     "indexer": "bun src/indexer.ts",
     "typecheck": "tsc --noEmit",
