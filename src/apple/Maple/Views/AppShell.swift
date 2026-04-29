@@ -26,6 +26,26 @@ import UIKit
 // MARK: - AppShell
 
 struct AppShell: View {
+    /// Resolves an `AuthSession` for a Self-Hosted server URL (created +
+    /// bootstrapped on first request, cached at the `MapleApp` scope).
+    /// Plan 2026-04-28-passkey-auth Task B8.
+    let sessionFor: @MainActor (URL) -> AuthSession
+
+    @MainActor
+    init(sessionFor: @escaping @MainActor (URL) -> AuthSession = AppShell.defaultSessionResolver) {
+        self.sessionFor = sessionFor
+    }
+
+    /// Fallback for previews / tests — not cached across calls. Production
+    /// path always passes the real resolver from `MapleApp`. Hoisted to a
+    /// static method so the `init` default can reference it without
+    /// constructing an `AuthSession` from a non-MainActor synchronous
+    /// closure (which the compiler rejects).
+    @MainActor
+    static func defaultSessionResolver(_ server: URL) -> AuthSession {
+        AuthSession(server: server, client: AuthClient(server: server))
+    }
+
     @State private var browseVM = BrowseViewModel()
     @State private var sessions: [AssetRef.ID: EditSession] = [:]
     @State private var showExport = false
@@ -38,6 +58,14 @@ struct AppShell: View {
     // Sheet state.
     @State private var showSMBSheet = false
     @State private var showSelfHostedSheet = false
+    /// Self-Hosted "Join with invite" sheet — presented from the
+    /// `SelfHostedPickerSheet`'s "Have an invite?" button.
+    /// Plan 2026-04-28-passkey-auth Task B8.
+    @State private var showJoinWithInviteSheet = false
+    /// Sign-in sheet for the currently-selected Self-Hosted server, gated on
+    /// `AuthSession.isSignedIn`. Presented automatically when the user picks
+    /// a Self-Hosted row whose tokens haven't been restored.
+    @State private var showSignInSheet = false
 
     // Dynamic toolbar title — reflects the last-loaded source/filter.
     @State private var libraryTitle: String = "All"
@@ -62,6 +90,16 @@ struct AppShell: View {
 
     private var selectedSession: EditSession? {
         browseVM.selectedID.flatMap { sessions[$0] }
+    }
+
+    /// Throwaway `AuthSession` used as the environment value for the
+    /// `JoinWithInviteView` sheet. The view doesn't read it (it builds its
+    /// own per-URL session internally) but `@Environment(AuthSession.self)`
+    /// requires *some* value to resolve. Using `about:blank` so it never
+    /// collides with a real server URL.
+    private var placeholderJoinSession: AuthSession {
+        let url = URL(string: "about:blank")!
+        return AuthSession(server: url, client: AuthClient(server: url))
     }
 
     var body: some View {
@@ -97,10 +135,41 @@ struct AppShell: View {
             }, onCancel: { showSMBSheet = false })
         }
         .sheet(isPresented: $showSelfHostedSheet) {
-            SelfHostedPickerSheet(onConnect: { url, token in
-                showSelfHostedSheet = false
-                connectSelfHosted(baseURL: url, token: token)
-            }, onCancel: { showSelfHostedSheet = false })
+            SelfHostedPickerSheet(
+                onConnect: { url, token in
+                    showSelfHostedSheet = false
+                    connectSelfHosted(baseURL: url, token: token)
+                },
+                onJoinWithInvite: {
+                    showSelfHostedSheet = false
+                    showJoinWithInviteSheet = true
+                },
+                onCancel: { showSelfHostedSheet = false }
+            )
+        }
+        .sheet(isPresented: $showJoinWithInviteSheet) {
+            // Plan 2026-04-28-passkey-auth Task B8: Self-Hosted onboarding via
+            // invite. The view internally builds an AuthClient + AuthSession
+            // per the URL the user types in — once verification succeeds the
+            // server appears in the sidebar's Self Hosted section on next
+            // refresh (saved by SelfHostedCredentialStore.knownServers()).
+            // The view internally constructs its own AuthClient/AuthSession
+            // from the URL the user types in. The environment session is a
+            // placeholder so `@Environment(AuthSession.self)` resolves.
+            JoinWithInviteView()
+                .environment(placeholderJoinSession)
+                .frame(minWidth: 420, minHeight: 320)
+        }
+        .sheet(isPresented: $showSignInSheet) {
+            // Sign-in sheet for the currently-selected Self-Hosted server.
+            // The sheet binds to a per-server AuthSession resolved through
+            // MapleApp's cache so the result is observable across the app.
+            if case .selfHostedServer(let url) = librarySelection {
+                let session = sessionFor(url)
+                SignInView(server: url, client: AuthClient(server: url))
+                    .environment(session)
+                    .frame(minWidth: 420, minHeight: 320)
+            }
         }
         .task {
             #if DEBUG
@@ -620,12 +689,34 @@ struct AppShell: View {
     @MainActor
     private func connectSavedSelfHosted(_ url: URL) {
         Task { @MainActor in
+            // Plan 2026-04-28-passkey-auth Task B8: prefer the passkey-backed
+            // AuthSession when its tokens have been restored from Keychain;
+            // fall back to the legacy bearer-token store; otherwise present
+            // SignInView so the user can claim/sign in.
+            let session = sessionFor(url)
+            librarySelection = .selfHostedServer(url)
+            if session.isSignedIn {
+                connectSelfHosted(baseURL: url, token: nil)
+                return
+            }
+            // Give bootstrapAndRestore a moment to land if it hasn't already
+            // completed — this is fired in the session(for:) helper but it's
+            // async. If the user just clicked the row from a cold cache, the
+            // refresh hasn't returned yet.
+            await session.bootstrapAndRestore()
+            if session.isSignedIn {
+                connectSelfHosted(baseURL: url, token: nil)
+                return
+            }
+            // Legacy bearer-token bridge — keep the pre-passkey path alive
+            // until B9 replaces every Self-Hosted request with the
+            // AuthenticatedHTTPClient.
             if let token = await SelfHostedCredentialStore.shared.tokenForServerURL(url) {
                 connectSelfHosted(baseURL: url, token: token)
-            } else {
-                // Keychain miss — re-prompt.
-                showSelfHostedSheet = true
+                return
             }
+            // No credentials — open the sign-in sheet for this server.
+            showSignInSheet = true
         }
     }
 
@@ -789,6 +880,10 @@ private struct DetailPanelWidth: ViewModifier {
 
 struct SelfHostedPickerSheet: View {
     let onConnect: (URL, String?) -> Void
+    /// Plan 2026-04-28-passkey-auth Task B8: optional callback that
+    /// flips the sheet stack to `JoinWithInviteView`. Default to a no-op
+    /// so existing call sites (e.g. SettingsView) keep compiling.
+    var onJoinWithInvite: () -> Void = {}
     let onCancel: () -> Void
 
     @State private var serverURL = ""
@@ -803,6 +898,9 @@ struct SelfHostedPickerSheet: View {
                 SecureField("Bearer token (optional)", text: $token)
             }
             HStack {
+                Button("Have an invite code?", action: onJoinWithInvite)
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
                 Spacer()
                 Button("Cancel", action: onCancel)
                     .keyboardShortcut(.cancelAction)
