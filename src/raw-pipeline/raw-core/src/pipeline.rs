@@ -4,12 +4,18 @@ use crate::{
     error::Result,
     image::{apply_orientation, RawImage},
     stages::{
-        clarity, dehaze, highlight_recovery, noise_reduction, saturation,
+        auto_exposure, clarity, dehaze, highlight_recovery, noise_reduction, saturation,
         scene_tone_controls, sharpen, texture, vibrance, white_balance,
     },
     view::{agx, encode},
     xmp::AdjustmentModel,
 };
+
+/// Engine default for the histogram-shape AE clip percentage. 0.02% of
+/// pixels at each end of the histogram are allowed to clip when computing
+/// black-point and white-clip thresholds. See
+/// `stages::auto_exposure::compute_auto_exposure`.
+const AUTO_EXPOSURE_CLIP_PCT: f32 = 0.02;
 
 /// Wraps a pipeline stage with `Instant::now()` timing, emitting one line
 /// to stderr when `MAPLE_PROFILE` is set in the environment. When unset
@@ -64,7 +70,15 @@ pub fn render_from_raw(raw: &RawImage, model: &AdjustmentModel) -> Result<(u32, 
 /// half-resolution quad demosaic — 4× fewer pixels feed every downstream
 /// stage, memory peak drops from ~6 GB to ~1.5 GB on a 100 MP RAW, and a
 /// cold decode lands in seconds rather than minutes. `Full` is the export
-/// path — same pixel-exact output the parity harness locks down.
+/// path — same pixel-exact output the parity harness locks down (uses
+/// Hamilton-Adams when compiled with `high-quality-demosaic`, bilinear
+/// otherwise). `Amaze` is a higher-quality export option backed by the
+/// AMaZE demosaic — slower than HA, but resolves finer detail and resists
+/// moiré on Bayer-pattern-prone content (fabric, building façades, etc.);
+/// for X-Trans / `LinearRgb` fixtures the AMaZE path falls through to the
+/// CFA-aware path that doesn't run AMaZE at all (linearraw_to_camera_rgb
+/// or hamilton_adams), so requesting `Amaze` on a non-Bayer source is
+/// safe — it just doesn't do anything different from `Full`.
 /// `Preview` returns the buffer at the half-res rendered dimensions —
 /// callers must scale to display dimensions themselves (CIImage transform
 /// on Apple, texture upload on Web).
@@ -72,6 +86,7 @@ pub fn render_from_raw(raw: &RawImage, model: &AdjustmentModel) -> Result<(u32, 
 pub enum RenderQuality {
     Preview,
     Full,
+    Amaze,
 }
 
 /// Run the entire development chain through `nr_color` and return the
@@ -103,6 +118,7 @@ pub fn develop_scene_linear_from_raw_with_quality(
                 RenderQuality::Full => demosaic::hamilton_adams(&mosaic, raw.cfa),
                 #[cfg(not(feature = "high-quality-demosaic"))]
                 RenderQuality::Full => demosaic::bilinear(&mosaic, raw.cfa),
+                RenderQuality::Amaze => demosaic::amaze(&mosaic, raw.cfa),
             })
         }
     };
@@ -138,12 +154,32 @@ pub fn develop_scene_linear_from_raw_with_quality(
     }
     stage("highlight_recovery", || highlight_recovery::apply(&mut camera_rgb, model.highlight_recovery));
     let profile = stage("dcp::profile_for", || dcp::profile_for(raw))?;
-    // dcp::apply_with_plt runs HSM (from `profile.hsm`) and PLT (from
-    // `raw.plt`) BOTH in linear-ProPhoto-D50 space, between the chromatic
-    // adaptation and the gamut conversion to Rec.2020 — DNG 1.6 § 6.6 +
-    // § 6.7. When neither is present, falls through to the fast
-    // single-matmul path inside dcp::apply.
-    let mut scene = stage("dcp::apply", || dcp::apply_with_plt(&camera_rgb, &profile, raw.plt.as_ref()))?;
+    // dcp::apply_with_plt_and_ptc runs HSM (from `profile.hsm`),
+    // ProfileToneCurve (from `raw.profile_tone_curve`), and PLT (from
+    // `raw.plt`) ALL in linear-ProPhoto-D50 space, between the chromatic
+    // adaptation and the gamut conversion to Rec.2020. Order per Adobe
+    // DNG SDK reference: HSM → PTC → PLT (DNG 1.4 § 6.4.4 + DNG 1.6
+    // § 6.6/§ 6.7). When all three are absent, falls through to the
+    // fast single-matmul path.
+    let mut scene = stage("dcp::apply", || dcp::apply_with_plt_and_ptc(
+        &camera_rgb, &profile, raw.plt.as_ref(), raw.profile_tone_curve.as_ref(),
+    ))?;
+    // ProfileGainTableMap (DNG 1.6 § 6.8) — spatially-varying RGB gain.
+    // Applied AFTER the gamut conversion, in scene-linear Rec.2020. No-op
+    // when raw.profile_gain_table_map is None (most fixtures).
+    if let Some(pgtm) = raw.profile_gain_table_map.as_ref() {
+        stage("profile_gain_table_map", || {
+            crate::color::profile_gain_table_map::apply(&mut scene, pgtm)
+        });
+    }
+    // Damped per-image histogram-shape auto-exposure. Operates on the
+    // post-DCP/PTC/PGTM scene-linear Rec.2020 image; deterministic; pure
+    // math. Layered ON TOP of the empirical `MAPLE_AGX_BASELINE_COMPENSATION_EV
+    // = 0.65` constant in decode.rs (NOT a replacement — empirical sweep
+    // showed pure AE regressed; damping=0.2 is the calibrated sweet spot).
+    // Runs BEFORE scene_tone_controls so the user's exposure slider stacks
+    // additively (in EV) on top of the auto-tuned baseline.
+    stage("auto_exposure", || auto_exposure::apply(&mut scene, AUTO_EXPOSURE_CLIP_PCT));
     stage("white_balance", || white_balance::apply(&mut scene, model.temperature, model.tint));
     stage("scene_tone_controls", || scene_tone_controls::apply(&mut scene, model));
     stage("vibrance", || vibrance::apply(&mut scene, model.vibrance));
@@ -193,6 +229,7 @@ pub fn develop_scene_linear_sized_from_raw_with_quality(
                 RenderQuality::Full => demosaic::hamilton_adams(&mosaic, raw.cfa),
                 #[cfg(not(feature = "high-quality-demosaic"))]
                 RenderQuality::Full => demosaic::bilinear(&mosaic, raw.cfa),
+                RenderQuality::Amaze => demosaic::amaze(&mosaic, raw.cfa),
             })
         }
     };
@@ -217,7 +254,15 @@ pub fn develop_scene_linear_sized_from_raw_with_quality(
     }
     stage("sized_highlight_recovery", || highlight_recovery::apply(&mut camera_rgb, model.highlight_recovery));
     let profile = stage("sized_dcp_profile_for", || dcp::profile_for(raw))?;
-    let mut scene = stage("sized_dcp_apply", || dcp::apply_with_plt(&camera_rgb, &profile, raw.plt.as_ref()))?;
+    let mut scene = stage("sized_dcp_apply", || dcp::apply_with_plt_and_ptc(
+        &camera_rgb, &profile, raw.plt.as_ref(), raw.profile_tone_curve.as_ref(),
+    ))?;
+    if let Some(pgtm) = raw.profile_gain_table_map.as_ref() {
+        stage("sized_profile_gain_table_map", || {
+            crate::color::profile_gain_table_map::apply(&mut scene, pgtm)
+        });
+    }
+    stage("sized_auto_exposure", || auto_exposure::apply(&mut scene, AUTO_EXPOSURE_CLIP_PCT));
     stage("sized_white_balance", || white_balance::apply(&mut scene, model.temperature, model.tint));
     stage("sized_scene_tone_controls", || scene_tone_controls::apply(&mut scene, model));
     stage("sized_vibrance", || vibrance::apply(&mut scene, model.vibrance));
@@ -593,6 +638,7 @@ fn develop_scene_linear_from_padded_mosaic(
         RenderQuality::Full => demosaic::hamilton_adams(mosaic, raw.cfa),
         #[cfg(not(feature = "high-quality-demosaic"))]
         RenderQuality::Full => demosaic::bilinear(mosaic, raw.cfa),
+        RenderQuality::Amaze => demosaic::amaze(mosaic, raw.cfa),
     });
     if raw.baseline_exposure.abs() > 1e-4 {
         stage("tile_baseline_exposure", || {
@@ -606,7 +652,23 @@ fn develop_scene_linear_from_padded_mosaic(
     }
     stage("tile_highlight_recovery", || highlight_recovery::apply(&mut camera_rgb, model.highlight_recovery));
     let profile = stage("tile_dcp_profile_for", || dcp::profile_for(raw))?;
-    let mut scene = stage("tile_dcp_apply", || dcp::apply_with_plt(&camera_rgb, &profile, raw.plt.as_ref()))?;
+    let mut scene = stage("tile_dcp_apply", || dcp::apply_with_plt_and_ptc(
+        &camera_rgb, &profile, raw.plt.as_ref(), raw.profile_tone_curve.as_ref(),
+    ))?;
+    if let Some(pgtm) = raw.profile_gain_table_map.as_ref() {
+        stage("tile_profile_gain_table_map", || {
+            crate::color::profile_gain_table_map::apply(&mut scene, pgtm)
+        });
+    }
+    // NOTE: auto_exposure intentionally omitted on the tile path. A tile is
+    // a sub-region of the image, so its histogram is not representative of
+    // the whole scene — running AE here would give a different gain per
+    // tile, producing visible discontinuities at tile borders. Wiring AE
+    // into the tile path correctly requires precomputing the EV from the
+    // full image once and threading it through. Today the tile path will
+    // render slightly darker than the full-image path (by whatever EV the
+    // full path's AE picked); this is a known follow-up. The same
+    // architectural reason already excludes dehaze from this path.
     stage("tile_white_balance", || white_balance::apply(&mut scene, model.temperature, model.tint));
     stage("tile_scene_tone_controls", || scene_tone_controls::apply(&mut scene, model));
     stage("tile_vibrance", || vibrance::apply(&mut scene, model.vibrance));
@@ -703,7 +765,8 @@ pub fn render_scene_linear_tile_from_raw_with_quality(
     // dimensions, so it's `(left_pad, top_pad)` with `(s_w, s_h)`.
     let (inner_lp, inner_tp, inner_w, inner_h) = match quality {
         RenderQuality::Preview => (left_pad / 2, top_pad / 2, s_w / 2, s_h / 2),
-        RenderQuality::Full    => (left_pad,     top_pad,     s_w,     s_h),
+        // `Amaze` preserves dimensions like `Full` — same trim coords.
+        RenderQuality::Full | RenderQuality::Amaze => (left_pad, top_pad, s_w, s_h),
     };
     let mut sized = stage("tile_trim_inner", || {
         trim_image_to_inner(&scene, inner_lp, inner_tp, inner_w, inner_h)
@@ -768,6 +831,42 @@ mod tests {
         eprintln!("render: {}x{}, zero={:.1}%, max={:.1}%, mean={}",
             w, h, zero_ratio*100.0, max_ratio*100.0,
             bytes.iter().map(|&b| b as u64).sum::<u64>() / bytes.len() as u64);
+    }
+
+    /// Integration test for ProfileToneCurve end-to-end on test_0013
+    /// (Apple iPhone 12 Pro DNG). Verifies:
+    /// 1. RawImage carries the parsed PTC (decode-side wiring).
+    /// 2. The pipeline renders cleanly with PTC applied — no panics, no
+    ///    NaN, plausible output statistics.
+    /// 3. Render WITH PTC differs from render WITHOUT PTC (so the new
+    ///    stage actually runs; guards against silent no-op regressions).
+    #[test]
+    fn render_test_0013_runs_profile_tone_curve() {
+        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../test-fixtures/raws/test_0013.DNG");
+        if !path.exists() { return; }
+        let bytes = std::fs::read(&path).unwrap();
+        let raw = crate::decode::decode_bytes(&bytes, "dng").expect("decode iPhone");
+        assert!(raw.profile_tone_curve.is_some(),
+            "test_0013 must surface a ProfileToneCurve");
+        let model = AdjustmentModel::default();
+        let (w, h, with_ptc) = render_from_raw(&raw, &model).expect("render with PTC");
+        assert_eq!(with_ptc.len() as u32, w * h * 3);
+        // Plausibility: not all zero, not all saturated.
+        let zero_ratio = with_ptc.iter().filter(|b| **b == 0).count() as f32 / with_ptc.len() as f32;
+        let sat_ratio = with_ptc.iter().filter(|b| **b == 255).count() as f32 / with_ptc.len() as f32;
+        assert!(zero_ratio < 0.5, "render too dark: {:.1}% zeros", zero_ratio * 100.0);
+        assert!(sat_ratio < 0.5, "render too bright: {:.1}% saturated", sat_ratio * 100.0);
+        // Render WITHOUT PTC by stripping the field — output MUST differ.
+        let mut raw_no_ptc = raw.clone();
+        raw_no_ptc.profile_tone_curve = None;
+        let (_, _, without_ptc) = render_from_raw(&raw_no_ptc, &model).unwrap();
+        assert_eq!(with_ptc.len(), without_ptc.len());
+        let diffs: usize = with_ptc.iter().zip(without_ptc.iter())
+            .filter(|(a, b)| a != b).count();
+        assert!(diffs > with_ptc.len() / 100,
+            "PTC stage had no measurable effect on test_0013: {} of {} bytes differ",
+            diffs, with_ptc.len());
     }
 
     #[test]
@@ -985,6 +1084,8 @@ mod tests {
             hsm_data1: None,
             hsm_data2: None,
             plt: None,
+            profile_tone_curve: None,
+            profile_gain_table_map: None,
         }
     }
 
@@ -1192,5 +1293,89 @@ mod tests {
         ).expect("even coords tile");
         assert_eq!((w_odd, h_odd), (256, 256));
         assert_eq!((w_even, h_even), (256, 256));
+    }
+
+    /// AMaZE should resolve finer detail than Hamilton-Adams at full
+    /// resolution. Renders the same Bayer DNG twice (once Full, once
+    /// Amaze) through the entire scene-linear chain, then for each
+    /// developed buffer:
+    ///   * Computes the per-pixel green-channel gradient magnitude
+    ///     (|dx| + |dy|) summed over the whole frame — the "high-frequency
+    ///     energy". AMaZE's variance-driven H/V selection preserves edge
+    ///     detail HA blurs over, so total HF energy should be
+    ///     equal-or-greater under AMaZE.
+    ///   * Confirms the global mean barely moves — AMaZE is a detail
+    ///     refinement, not a tone change. The test budget allows at most
+    ///     5% drift in mean luminance.
+    /// Skips when test_0002.dng is absent (gitignored fixtures).
+    #[test]
+    fn amaze_resolves_finer_detail_than_hamilton_adams() {
+        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../test-fixtures/raws/test_0002.dng");
+        if !path.exists() { return; }
+        let bytes = std::fs::read(&path).expect("read raw");
+        let raw = crate::decode::decode_bytes(&bytes, "dng").expect("decode");
+        let model = AdjustmentModel::default();
+
+        let ha = develop_scene_linear_from_raw_with_quality(
+            &raw, &model, RenderQuality::Full,
+        ).expect("HA develop");
+        let amz = develop_scene_linear_from_raw_with_quality(
+            &raw, &model, RenderQuality::Amaze,
+        ).expect("AMaZE develop");
+        assert_eq!((ha.width, ha.height), (amz.width, amz.height));
+
+        let w = ha.width as usize;
+        let h = ha.height as usize;
+
+        // Total green-channel mean — should hardly move between HA/AMaZE.
+        let mean_g = |buf: &crate::image::Image| -> f64 {
+            let s: f64 = buf.pixels.iter().map(|p| p[1] as f64).sum();
+            s / buf.pixels.len() as f64
+        };
+        let m_ha = mean_g(&ha);
+        let m_amz = mean_g(&amz);
+        let mean_drift = ((m_amz - m_ha) / m_ha).abs();
+        assert!(mean_drift < 0.05,
+            "AMaZE shifted overall green mean by {:.3}% (HA mean = {:.4}, AMaZE = {:.4}); \
+             expected ≤ 5%",
+            mean_drift * 100.0, m_ha, m_amz);
+
+        // High-frequency energy via the L1 gradient magnitude on the green
+        // channel. We skip a 4-pixel border so AMaZE's edge-fallback
+        // pixels (where it reverts to bilinear-difference) don't
+        // dominate. Comparing a pure detail metric, not a per-pixel
+        // ΔE — the goal is "AMaZE preserves more detail," not "AMaZE
+        // shifts color."
+        let hf_energy = |buf: &crate::image::Image| -> f64 {
+            let mut sum = 0.0_f64;
+            for y in 4..h - 4 {
+                for x in 4..w - 4 {
+                    let i = y * w + x;
+                    let g = buf.pixels[i][1];
+                    let dx = (buf.pixels[i + 1][1] - buf.pixels[i - 1][1]).abs();
+                    let dy = (buf.pixels[i + w][1] - buf.pixels[i - w][1]).abs();
+                    let _ = g;
+                    sum += (dx + dy) as f64;
+                }
+            }
+            sum
+        };
+        let hf_ha = hf_energy(&ha);
+        let hf_amz = hf_energy(&amz);
+        eprintln!("amaze vs hamilton-adams: mean_g HA={:.4} AMaZE={:.4} (drift={:.3}%); \
+                   HF energy HA={:.0} AMaZE={:.0} (ratio={:.3}×)",
+            m_ha, m_amz, mean_drift * 100.0, hf_ha, hf_amz, hf_amz / hf_ha);
+
+        // AMaZE's HF energy must be at least as high as HA's. The 0.99
+        // floor (1% slack) absorbs tiny per-pixel noise differences from
+        // AMaZE's adaptive median bound on saturated edges, which can
+        // very-slightly suppress one HA-only zipper. The expected
+        // direction is hf_amz > hf_ha; in practice the ratio sits well
+        // above 1.0 on natural fixtures.
+        assert!(hf_amz / hf_ha >= 0.99,
+            "AMaZE HF energy {:.0} below HA HF energy {:.0} (ratio {:.3} < 0.99) — \
+             AMaZE should preserve at least as much green-channel detail as HA",
+            hf_amz, hf_ha, hf_amz / hf_ha);
     }
 }
