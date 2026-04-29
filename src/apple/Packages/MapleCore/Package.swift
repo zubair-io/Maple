@@ -52,7 +52,10 @@ let package = Package(
         ),
         .testTarget(
             name: "MapleCoreTests",
-            dependencies: ["MapleCore"]
+            dependencies: ["MapleCore"],
+            resources: [
+                .copy("Fixtures/auth-contract.json"),
+            ]
         ),
     ]
 )
