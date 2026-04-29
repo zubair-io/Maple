@@ -131,3 +131,41 @@ extension AuthClient {
     return (try JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:]
   }
 }
+
+// MARK: - Invites + credentials management
+
+extension AuthClient {
+  public func createInvite(email: String, accessToken: String) async throws -> (code: String, expiresAt: String) {
+    struct R: Decodable { let code: String; let expires_at: String }
+    let r: R = try await postJSON("/api/auth/invites", body: ["email": email], auth: accessToken)
+    return (r.code, r.expires_at)
+  }
+
+  public func listInvites(accessToken: String) async throws -> [[String: Any]] {
+    return try await getRaw("/api/auth/invites", auth: accessToken)
+  }
+
+  public func rescindInvite(code: String, accessToken: String) async throws {
+    var req = URLRequest(url: server.appending(path: "/api/auth/invites/\(code)"))
+    req.httpMethod = "DELETE"
+    req.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+    let (data, resp) = try await urlSession.data(for: req)
+    try checkStatus(resp, data: data)
+  }
+
+  public func deleteCredential(id: String, accessToken: String) async throws {
+    var req = URLRequest(url: server.appending(path: "/api/auth/credentials/\(id)"))
+    req.httpMethod = "DELETE"
+    req.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+    let (data, resp) = try await urlSession.data(for: req)
+    try checkStatus(resp, data: data)
+  }
+
+  func getRaw(_ path: String, auth: String?) async throws -> [[String: Any]] {
+    var req = URLRequest(url: server.appending(path: path))
+    if let auth { req.setValue("Bearer \(auth)", forHTTPHeaderField: "Authorization") }
+    let (data, resp) = try await urlSession.data(for: req)
+    try checkStatus(resp, data: data)
+    return (try JSONSerialization.jsonObject(with: data) as? [[String: Any]]) ?? []
+  }
+}
