@@ -276,9 +276,12 @@ impl SyntheticGreyDng {
     }
 
     fn as_shot_neutral_array(&self) -> [f32; 3] {
-        // Fixed daylight balance baked into AsShotNeutral. Future variants
-        // could vary this with `self.illuminant`.
-        [0.5, 1.0, 0.5]
+        // Honour the override if set — keeps the raw bayer values consistent
+        // with the AsShotNeutral tag emitted by `build_ifd0`. Without this
+        // alignment, decode would apply the IFD's WB to raw values computed
+        // for a different WB, producing non-neutral scene-linear from a
+        // synthesized neutral input.
+        self.as_shot_neutral_override.unwrap_or([0.5, 1.0, 0.5])
     }
 }
 
