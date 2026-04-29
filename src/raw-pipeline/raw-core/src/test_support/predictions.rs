@@ -56,6 +56,34 @@ pub fn predict_blacks(scene: f32, b_slider: f32) -> f32 {
 pub fn predict_saturation(scene: f32, _s_slider: f32) -> f32 { scene }
 pub fn predict_vibrance(scene: f32, _v_slider: f32) -> f32 { scene }
 
+/// Mirrors color/profile_tone_curve::ProfileToneCurve::eval (linear interp
+/// between adjacent control points, endpoint clamp). For a neutral input
+/// R=G=B=scene, the production `apply` path scales by curve.eval(max)/max
+/// where max == scene — i.e. the output is just curve.eval(scene).
+pub fn predict_tone_curve(scene: f32, control_points: &[(f32, f32)]) -> f32 {
+    if control_points.is_empty() { return scene; }
+    let first = control_points[0];
+    let last = control_points[control_points.len() - 1];
+    if scene <= first.0 { return first.1; }
+    if scene >= last.0 { return last.1; }
+
+    // Linear scan for the bracketing pair (curves are short).
+    let mut i = 0;
+    while i + 1 < control_points.len() && control_points[i + 1].0 < scene {
+        i += 1;
+    }
+    if i + 1 >= control_points.len() {
+        return last.1;
+    }
+    let (xa, ya) = control_points[i];
+    let (xb, yb) = control_points[i + 1];
+    if (xb - xa).abs() < f32::EPSILON {
+        return ya;
+    }
+    let t = (scene - xa) / (xb - xa);
+    ya + t * (yb - ya)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -223,4 +251,37 @@ mod tests {
                 img.pixels[0][c], predicted);
         }
     }
+
+    fn round_trip_ptc(scene: f32, points: &[(f32, f32)]) {
+        use crate::color::profile_tone_curve::ProfileToneCurve;
+        use crate::image::{ColorSpace, Image};
+        let curve = ProfileToneCurve::from_floats(
+            points.iter().flat_map(|(x, y)| vec![*x, *y]).collect()
+        ).expect("valid PTC");
+        let predicted = predict_tone_curve(scene, points);
+        let mut img = Image::new(1, 1, ColorSpace::SceneLinearRec2020);
+        img.pixels[0] = [scene, scene, scene];
+        crate::color::profile_tone_curve::apply(&mut img, &curve);
+        for c in 0..3 {
+            assert!((img.pixels[0][c] - predicted).abs() < 1e-6,
+                "predict_tone_curve({}) = {}, got {} (chan {})",
+                scene, predicted, img.pixels[0][c], c);
+        }
+    }
+
+    const SIMPLE_S_CURVE: &[(f32, f32)] = &[
+        (0.0,  0.0),
+        (0.18, 0.15),
+        (0.5,  0.55),
+        (0.82, 0.9),
+        (1.0,  1.0),
+    ];
+
+    #[test] fn ptc_at_origin()        { round_trip_ptc(0.0,  SIMPLE_S_CURVE); }
+    #[test] fn ptc_at_first_knot()    { round_trip_ptc(0.18, SIMPLE_S_CURVE); }
+    #[test] fn ptc_at_midpoint()      { round_trip_ptc(0.5,  SIMPLE_S_CURVE); }
+    #[test] fn ptc_at_last_knot()     { round_trip_ptc(0.82, SIMPLE_S_CURVE); }
+    #[test] fn ptc_at_unity()         { round_trip_ptc(1.0,  SIMPLE_S_CURVE); }
+    #[test] fn ptc_below_first_knot() { round_trip_ptc(0.10, SIMPLE_S_CURVE); }
+    #[test] fn ptc_above_last_knot()  { round_trip_ptc(0.90, SIMPLE_S_CURVE); }
 }
