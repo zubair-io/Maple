@@ -1,0 +1,91 @@
+.users {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 24px;
+
+  h2 {
+    margin: 0 0 16px;
+  }
+
+  h3 {
+    margin: 24px 0 8px;
+  }
+
+  .invite-form {
+    display: flex;
+    gap: 8px;
+
+    input {
+      flex: 1;
+      padding: 8px 10px;
+    }
+  }
+
+  .fresh {
+    margin-top: 16px;
+    padding: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 6px;
+
+    code {
+      font-size: 18px;
+      letter-spacing: 2px;
+    }
+
+    .qr {
+      display: block;
+      margin: 8px 0;
+      background: #fff;
+      padding: 4px;
+    }
+
+    .hint {
+      opacity: 0.6;
+      font-size: 12px;
+      margin: 0;
+    }
+  }
+
+  .invites {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+
+    li {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 8px 0;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    li.consumed {
+      opacity: 0.5;
+    }
+
+    .email {
+      font-weight: 500;
+    }
+
+    .code {
+      letter-spacing: 1px;
+      opacity: 0.85;
+    }
+
+    .meta {
+      flex: 1;
+      opacity: 0.6;
+      font-size: 12px;
+    }
+
+    .empty {
+      opacity: 0.6;
+      font-style: italic;
+    }
+  }
+
+  .error {
+    color: #ff6b6b;
+    margin-top: 12px;
+  }
+}

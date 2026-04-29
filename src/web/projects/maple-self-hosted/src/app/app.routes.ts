@@ -3,7 +3,7 @@ import { BrowseShellComponent, EditorShellComponent } from '@maple-common';
 // authGuard is not yet exported from @maple-common's public-api (see Task C6);
 // imported via deep relative path in the meantime so this task can land
 // independently of C6.
-import { authGuard } from '../../../maple-common/src/lib/auth/auth.guard';
+import { authGuard, ownerGuard } from '../../../maple-common/src/lib/auth/auth.guard';
 
 // Self-Hosted: the server already hosts the library, so the root path goes
 // straight to /browse. No landing page. All content routes are gated behind
@@ -22,5 +22,17 @@ export const routes: Routes = [
   { path: '', canActivate: [authGuard], redirectTo: 'browse', pathMatch: 'full' },
   { path: 'browse', canActivate: [authGuard], component: BrowseShellComponent },
   { path: 'edit/:id', canActivate: [authGuard], component: EditorShellComponent },
+  {
+    path: 'settings/account',
+    canActivate: [authGuard],
+    loadComponent: () =>
+      import('./settings/account/account.component').then((m) => m.AccountComponent),
+  },
+  {
+    path: 'settings/users',
+    canActivate: [authGuard, ownerGuard],
+    loadComponent: () =>
+      import('./settings/users/users.component').then((m) => m.UsersComponent),
+  },
   { path: '**', redirectTo: 'browse' },
 ];
