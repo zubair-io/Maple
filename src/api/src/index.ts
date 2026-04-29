@@ -24,6 +24,7 @@ import { assetsRoutes } from "./routes/assets.ts";
 import { indexerRoutes } from "./routes/indexer.ts";
 import { eventsRoutes } from "./routes/events.ts";
 import { authRoutes } from "./routes/auth.ts";
+import { requireAuth } from "./auth/middleware.ts";
 import { staticUiPlugin } from "./routes/static_ui.ts";
 import { getDb, ensureIndexes, closeDb } from "./db/client.ts";
 import { getIndexerService } from "./indexer/service.ts";
@@ -107,11 +108,13 @@ const app = new Elysia()
 
   // API routes (registered before static UI so they take priority)
   .use(healthRoutes)
+  .use(authRoutes)
+  // Below this line: every route requires a valid bearer.
+  .use(requireAuth)
   .use(foldersRoutes)
   .use(assetsRoutes)
   .use(indexerRoutes)
   .use(eventsRoutes)
-  .use(authRoutes)
 
   // Static UI (catch-all — must be last)
   .use(staticUiPlugin);
