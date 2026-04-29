@@ -28,10 +28,22 @@ cleanup() {
 }
 trap cleanup INT TERM
 
-# 1. Mongo (idempotent — already-up containers are fine)
-echo "[dev] starting MongoDB…"
-docker compose -f "$REPO_ROOT/src/api/docker-compose.yml" up -d mongo > /dev/null
-sleep 2
+# 1. Mongo — try Docker first; otherwise check if it's already reachable
+#    (Homebrew install, or a system-managed mongod). Don't fail hard if neither
+#    is available — the API will report DB-unavailable on each request and the
+#    user can decide what to do.
+if command -v docker > /dev/null 2>&1; then
+  echo "[dev] starting MongoDB via Docker…"
+  docker compose -f "$REPO_ROOT/src/api/docker-compose.yml" up -d mongo > /dev/null
+  sleep 2
+elif (echo > /dev/tcp/localhost/27017) 2>/dev/null; then
+  echo "[dev] MongoDB already reachable on :27017 (skipping Docker)."
+else
+  echo "[dev] WARNING: docker not found and nothing listening on :27017."
+  echo "[dev]          Start Mongo manually (brew services start mongodb-community,"
+  echo "[dev]          or 'docker compose -f src/api/docker-compose.yml up -d mongo')"
+  echo "[dev]          and the API will reconnect on its own."
+fi
 
 # 2. Bun API (background)
 echo "[dev] starting Bun API on :3000 (MAPLE_DEV=1 → proxy to :4201)…"
