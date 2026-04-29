@@ -1406,6 +1406,25 @@ fn stitch(
         })
         .collect::<Result<Vec<_>, String>>()?;
 
+    // --- Auto-trim canvas to validity-union bbox -----------------------
+    //
+    // `compute_canvas` projects a 5×5 grid per input through the
+    // spherical/cylindrical projection to estimate the union footprint,
+    // but the projection bulges between sample points so the canvas
+    // can extend several pixels past where any image actually has
+    // data. Pure-black columns at the canvas edges show up as both
+    // wasted output area and (more importantly) as transitions
+    // between valid content and zero that are visually ugly.
+    //
+    // Compute the bbox of "any image is valid here" and trim every
+    // warped image to it. Saves a small amount of canvas area and
+    // eliminates the all-black slack rows/columns at the edges.
+    // (Auto-trim is done post-blend — see `auto_trim_to_content` below.
+    // Pre-blend validity-based trimming doesn't work here because the
+    // warp marks pixels valid based on bilinear-sample in-bounds, but
+    // the resulting RGB can still be near-zero at extreme edges where
+    // the input image's actual content fades out.)
+
     // --- Gain compensation -------------------------------------------------
     // Solve per-image gain from overlap brightness before seam finding so
     // brightness banding at seams is minimised.
@@ -1491,18 +1510,98 @@ fn stitch(
         );
     }
 
+    // Auto-trim the canvas to the bounding box of non-near-zero
+    // content. compute_canvas's 5×5 grid sampling slightly
+    // overestimates the canvas extent (the spherical projection
+    // bulges between sample points), leaving black slack rows/cols
+    // at the canvas edges where no image actually has content. Trim
+    // those out so the output isn't padded with empty pixels.
+    let trimmed = if let Some(bbox) = compute_content_bbox(&repaired, 0.005) {
+        let canvas_w = repaired.width;
+        let canvas_h = repaired.height;
+        if bbox.x_min > 0
+            || bbox.y_min > 0
+            || bbox.x_max + 1 < canvas_w
+            || bbox.y_max + 1 < canvas_h
+        {
+            let new_w = bbox.x_max - bbox.x_min + 1;
+            let new_h = bbox.y_max - bbox.y_min + 1;
+            eprintln!(
+                "pano-smoke: auto-trimming canvas {}×{} → {}×{} (cropped {} px L, {} px R, {} px T, {} px B)",
+                canvas_w,
+                canvas_h,
+                new_w,
+                new_h,
+                bbox.x_min,
+                canvas_w - bbox.x_max - 1,
+                bbox.y_min,
+                canvas_h - bbox.y_max - 1,
+            );
+            trim_to_bbox(&repaired, &bbox)
+        } else {
+            repaired
+        }
+    } else {
+        repaired
+    };
+
     let final_image = if crop_margin > 0 {
         eprintln!(
             "pano-smoke: cropping {crop_margin} px off each side of canvas"
         );
-        crop_canvas(&repaired, crop_margin)
+        crop_canvas(&trimmed, crop_margin)
     } else {
-        repaired
+        trimmed
     };
 
     write_stitch(&final_image, output)?;
     eprintln!("pano-smoke: done.");
     Ok(())
+}
+
+/// Find the inclusive bounding box of pixels whose RGB max-channel
+/// exceeds `threshold` — i.e. the actual content region of the
+/// blended canvas. Used to auto-trim the slack rows/cols at the
+/// canvas edges where compute_canvas's 5×5 grid sampling
+/// overestimated the extent.
+fn compute_content_bbox(img: &PanoImage, threshold: f32) -> Option<ValidityBbox> {
+    let w = img.width;
+    let h = img.height;
+    let mut x_min = w;
+    let mut y_min = h;
+    let mut x_max: i64 = -1;
+    let mut y_max: i64 = -1;
+    for y in 0..h {
+        for x in 0..w {
+            let i = (y * w + x) as usize;
+            let r = img.pixels[i * 3];
+            let g = img.pixels[i * 3 + 1];
+            let b = img.pixels[i * 3 + 2];
+            if r > threshold || g > threshold || b > threshold {
+                if x < x_min {
+                    x_min = x;
+                }
+                if y < y_min {
+                    y_min = y;
+                }
+                if (x as i64) > x_max {
+                    x_max = x as i64;
+                }
+                if (y as i64) > y_max {
+                    y_max = y as i64;
+                }
+            }
+        }
+    }
+    if x_max < 0 || y_max < 0 {
+        return None;
+    }
+    Some(ValidityBbox {
+        x_min,
+        y_min,
+        x_max: x_max as u32,
+        y_max: y_max as u32,
+    })
 }
 
 /// Detect pixels with the pure-magenta clipping signature (R near 1,
@@ -1645,6 +1744,84 @@ fn repair_magenta_clipping(img: &mut PanoImage) -> usize {
         }
     }
     actually_changed
+}
+
+/// Inclusive bounding box of canvas pixels where at least one image
+/// has valid coverage, used to auto-trim the canvas after warping.
+struct ValidityBbox {
+    x_min: u32,
+    y_min: u32,
+    x_max: u32,
+    y_max: u32,
+}
+
+/// Find the inclusive bounding box of pixels where at least one of
+/// the supplied warped images has its validity bit set. Returns
+/// `None` when no image has any valid pixels (degenerate, shouldn't
+/// happen post-warp but guard anyway).
+fn compute_validity_union_bbox(warped: &[PanoImage]) -> Option<ValidityBbox> {
+    if warped.is_empty() {
+        return None;
+    }
+    let w = warped[0].width;
+    let h = warped[0].height;
+    let mut x_min = w;
+    let mut y_min = h;
+    let mut x_max: i64 = -1;
+    let mut y_max: i64 = -1;
+    for y in 0..h {
+        for x in 0..w {
+            let idx = (y * w + x) as usize;
+            let any_valid = warped.iter().any(|img| img.validity[idx]);
+            if any_valid {
+                if x < x_min {
+                    x_min = x;
+                }
+                if y < y_min {
+                    y_min = y;
+                }
+                if (x as i64) > x_max {
+                    x_max = x as i64;
+                }
+                if (y as i64) > y_max {
+                    y_max = y as i64;
+                }
+            }
+        }
+    }
+    if x_max < 0 || y_max < 0 {
+        return None;
+    }
+    Some(ValidityBbox {
+        x_min,
+        y_min,
+        x_max: x_max as u32,
+        y_max: y_max as u32,
+    })
+}
+
+/// Trim `img` to the inclusive bbox `bbox`, returning a new
+/// `PanoImage` of dimensions `(bbox.x_max − bbox.x_min + 1,
+/// bbox.y_max − bbox.y_min + 1)`. Both pixel data and validity
+/// bitmap are copied.
+fn trim_to_bbox(img: &PanoImage, bbox: &ValidityBbox) -> PanoImage {
+    let new_w = bbox.x_max - bbox.x_min + 1;
+    let new_h = bbox.y_max - bbox.y_min + 1;
+    let mut out = PanoImage::new(new_w, new_h, img.color);
+    let src_w = img.width;
+    for y in 0..new_h {
+        for x in 0..new_w {
+            let src_x = x + bbox.x_min;
+            let src_y = y + bbox.y_min;
+            let src_idx = (src_y * src_w + src_x) as usize;
+            let dst_idx = (y * new_w + x) as usize;
+            out.pixels[dst_idx * 3] = img.pixels[src_idx * 3];
+            out.pixels[dst_idx * 3 + 1] = img.pixels[src_idx * 3 + 1];
+            out.pixels[dst_idx * 3 + 2] = img.pixels[src_idx * 3 + 2];
+            out.validity.set(dst_idx, img.validity[src_idx]);
+        }
+    }
+    out
 }
 
 /// Crop `margin` pixels off each side of `img`, returning a new
