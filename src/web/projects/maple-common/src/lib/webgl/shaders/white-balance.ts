@@ -74,7 +74,7 @@ vec3 xy_to_xyz(float x, float y, float Y) {
 // THE PHOTO WAS TAKEN UNDER. To neutralize, apply gain = D65 / source.
 // Warm source (2000K) → low gain[R], high gain[B] → cools the image.
 //
-// Previous version computed `target / D65` which inverted the direction;
+// Previous version computed 'target / D65' which inverted the direction;
 // slider_visual_matrix.py surfaced this on test_0002 — temperature_min
 // (2000K) rendered red/magenta where ACR rendered blue. Mirrors
 // WhiteBalance.metal post-fix and white_balance.rs::wb_gains.
