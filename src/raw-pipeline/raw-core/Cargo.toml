@@ -32,3 +32,7 @@ test-support = []
 [[example]]
 name = "synth-grey"
 required-features = ["test-support"]
+
+[[example]]
+name = "extract-dcp"
+required-features = ["test-support"]
