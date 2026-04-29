@@ -29,20 +29,42 @@ pub fn xy_to_xyz(x: f32, y: f32, big_y: f32) -> Vec3 {
     [big_x, big_y, big_z]
 }
 
-/// Compute per-channel gains in linear Rec.2020 for a target (temperature, tint).
-/// Tint in [-100, 100] with 0.001 per-unit scaling (spec § 3.5).
+/// Compute per-channel gains in linear Rec.2020 for a SOURCE-LIGHT
+/// (temperature, tint). Tint in [-100, 100] with 0.001 per-unit scaling
+/// (spec § 3.5).
+///
+/// ACR convention: the temperature slider value is the COLOR TEMPERATURE
+/// OF THE LIGHT THE PHOTO WAS TAKEN UNDER. To render the scene as
+/// neutral D65 we apply the INVERSE of the source-light chromaticity:
+///   gain = D65_rec2020 / source_rec2020
+///
+/// At source = 2000K (tungsten), `source_rec2020` has high R and low B,
+/// so `gain = D65/source` gives low R and high B — cooling the image,
+/// which is the correct ACR direction for "compensate warm tungsten".
+///
+/// The previous code computed `target / D65` which made warm-CCT
+/// sliders WARM the image (the opposite of ACR). The slider-visual-
+/// matrix harness on test_0002 surfaced this immediately:
+/// temperature_min (2000K) rendered red/magenta on Maple where ACR
+/// produced blue. Fix flipped the ratio direction.
 pub fn wb_gains(temperature: f32, tint: f32) -> Vec3 {
+    // ACR tint semantics differ from temperature: the slider VALUE is the
+    // image-direction shift the user wants (positive = add green, negative
+    // = add magenta), NOT the source-light direction. To produce that
+    // image shift via a "source / D65" gain, the source must be in the
+    // OPPOSITE chromaticity direction. Subtract (rather than add) tint
+    // from y so positive tint moves source DOWN (toward magenta) → gain
+    // = D65/source pushes image UP (toward green) → image gets greener.
+    // Matches ACR's "drag right = greener" UI affordance.
     let (x, mut y) = cct_to_xy(temperature);
-    y += tint * 0.001;
-    let xyz_target = xy_to_xyz(x, y, 1.0);
-    // Transform both target and D65 reference to Rec.2020, then take ratio.
-    // This preserves scene-referred scaling: gain = (M @ target) / (M @ D65).
-    let target_rec2020 = M_XYZ_D65_TO_REC2020.mul_vec(xyz_target);
+    y -= tint * 0.001;
+    let xyz_source = xy_to_xyz(x, y, 1.0);
+    let source_rec2020 = M_XYZ_D65_TO_REC2020.mul_vec(xyz_source);
     let d65_rec2020 = M_XYZ_D65_TO_REC2020.mul_vec(XYZ_D65);
     let gain = [
-        target_rec2020[0] / d65_rec2020[0],
-        target_rec2020[1] / d65_rec2020[1],
-        target_rec2020[2] / d65_rec2020[2],
+        d65_rec2020[0] / source_rec2020[0],
+        d65_rec2020[1] / source_rec2020[1],
+        d65_rec2020[2] / source_rec2020[2],
     ];
     // Normalize so green = 1.
     let g = gain[1].max(1e-6);
@@ -76,17 +98,25 @@ mod tests {
     }
 
     #[test]
-    fn warm_temperature_boosts_red() {
+    fn warm_source_cools_image() {
+        // ACR convention: temp slider value = source-light CCT. A warm
+        // source (3000K, tungsten) means we apply COOLING to compensate
+        // — gain[R] < 1, gain[B] > 1. Reversed in the previous version.
         let gains = wb_gains(3000.0, 0.0);
-        assert!(gains[0] > 1.2, "R should boost warm, got {}", gains[0]);
-        assert!(gains[2] < 0.8, "B should cut warm, got {}", gains[2]);
+        assert!(gains[0] < 0.85,
+            "R should cut to cool a warm-source scene, got {}", gains[0]);
+        assert!(gains[2] > 1.20,
+            "B should boost to cool a warm-source scene, got {}", gains[2]);
     }
 
     #[test]
-    fn cool_temperature_boosts_blue() {
+    fn cool_source_warms_image() {
+        // Cool source (10000K, overcast) → apply WARMING to compensate.
         let gains = wb_gains(10000.0, 0.0);
-        assert!(gains[2] > 1.05, "B should boost cool, got {}", gains[2]);
-        assert!(gains[0] < 0.95, "R should cut cool, got {}", gains[0]);
+        assert!(gains[2] < 0.95,
+            "B should cut to warm a cool-source scene, got {}", gains[2]);
+        assert!(gains[0] > 1.05,
+            "R should boost to warm a cool-source scene, got {}", gains[0]);
     }
 
     #[test]
@@ -101,12 +131,46 @@ mod tests {
 
     #[test]
     fn non_default_mutates_pixels() {
+        // Warm source = 3000K → cooling correction → R cut, B boost.
         let mut img = Image::new(2, 2, ColorSpace::SceneLinearRec2020);
         for p in &mut img.pixels { *p = [0.3, 0.3, 0.3]; }
         apply(&mut img, 3000.0, 0.0);
         for p in &img.pixels {
-            assert!(p[0] > 0.3, "R should boost");
-            assert!(p[2] < 0.3, "B should cut");
+            assert!(p[0] < 0.3, "R should cut for warm-source cooling, got {}", p[0]);
+            assert!(p[2] > 0.3, "B should boost for warm-source cooling, got {}", p[2]);
+        }
+    }
+
+    #[test]
+    fn negative_tint_adds_magenta() {
+        // ACR convention: negative tint = add magenta to image (R+B up
+        // relative to G). gain[G] is normalized to 1.0 so G stays put;
+        // magenta manifests as R and B both rising above G.
+        // Surfaced by slider_visual_matrix.py — earlier flipped-direction
+        // bug had tint_min(-150) rendering green where ACR rendered magenta.
+        let mut img = Image::new(2, 2, ColorSpace::SceneLinearRec2020);
+        for p in &mut img.pixels { *p = [0.3, 0.3, 0.3]; }
+        apply(&mut img, 6500.0, -100.0);
+        for p in &img.pixels {
+            assert!(p[0] > p[1],
+                "R should exceed G for magenta tint, got R={} G={}", p[0], p[1]);
+            assert!(p[2] > p[1],
+                "B should exceed G for magenta tint, got B={} G={}", p[2], p[1]);
+        }
+    }
+
+    #[test]
+    fn positive_tint_adds_green() {
+        // Symmetric: positive tint = add green to image — R and B both
+        // drop below G (G normalized at 1.0).
+        let mut img = Image::new(2, 2, ColorSpace::SceneLinearRec2020);
+        for p in &mut img.pixels { *p = [0.3, 0.3, 0.3]; }
+        apply(&mut img, 6500.0, 100.0);
+        for p in &img.pixels {
+            assert!(p[1] > p[0],
+                "G should exceed R for green tint, got G={} R={}", p[1], p[0]);
+            assert!(p[1] > p[2],
+                "G should exceed B for green tint, got G={} B={}", p[1], p[2]);
         }
     }
 }

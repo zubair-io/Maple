@@ -118,7 +118,7 @@ fn normalize_to_y1(xyz: crate::math::Vec3) -> crate::math::Vec3 {
 /// chain folds into a single matrix multiply per pixel — the original
 /// (pre-Ticket-10c) fast path.
 pub fn apply(camera: &Image, profile: &DcpProfile) -> crate::Result<Image> {
-    apply_with_post_pro(camera, profile, None)
+    apply_with_post_pro(camera, profile, None, None)
 }
 
 /// Internal: same as [`apply`] but lets the caller hook in a second table
@@ -135,13 +135,28 @@ pub fn apply_with_plt(
     profile: &DcpProfile,
     plt: Option<&hsm::HsmTable>,
 ) -> crate::Result<Image> {
-    apply_with_post_pro(camera, profile, plt)
+    apply_with_post_pro(camera, profile, plt, None)
+}
+
+/// Like [`apply_with_plt`] but also runs the DNG 1.4 § 6.4.4
+/// ProfileToneCurve in profile-working space, between HSM and PLT.
+/// Per Adobe DNG SDK reference (`dng_camera_profile.cpp`), the canonical
+/// order is HSM → ProfileToneCurve → ProfileLookTable, all in linear
+/// ProPhoto D50.
+pub fn apply_with_plt_and_ptc(
+    camera: &Image,
+    profile: &DcpProfile,
+    plt: Option<&hsm::HsmTable>,
+    ptc: Option<&crate::color::profile_tone_curve::ProfileToneCurve>,
+) -> crate::Result<Image> {
+    apply_with_post_pro(camera, profile, plt, ptc)
 }
 
 fn apply_with_post_pro(
     camera: &Image,
     profile: &DcpProfile,
     post_pro: Option<&hsm::HsmTable>,
+    ptc: Option<&crate::color::profile_tone_curve::ProfileToneCurve>,
 ) -> crate::Result<Image> {
     camera.assert_space(ColorSpace::CameraNativeLinearRgb);
 
@@ -164,21 +179,28 @@ fn apply_with_post_pro(
         inv_pro.mul_mat(&adapt).mul_mat(&cam_to_xyz)
     };
 
-    let needs_pro_intermediate = profile.hsm.is_some() || post_pro.is_some();
+    let needs_pro_intermediate =
+        profile.hsm.is_some() || post_pro.is_some() || ptc.is_some();
     if needs_pro_intermediate {
-        // Slow path: project to ProPhoto D50, run HSM and/or PLT, then
-        // project to Rec.2020 D65. Cost: two matmuls + 0..2 HSM lookups
-        // per pixel, vs one matmul on the fast path. The intermediate
-        // `Image` is tagged `CameraNativeLinearRgb` only because we don't
-        // have a `ProPhotoLinearD50` color-space variant — `hsm::apply`
-        // doesn't enforce a tag, only the data layout.
+        // Slow path: project to ProPhoto D50, run HSM / PTC / PLT, then
+        // project to Rec.2020 D65. The intermediate `Image` is tagged
+        // `CameraNativeLinearRgb` only because we don't have a
+        // `ProPhotoLinearD50` color-space variant — `hsm::apply` and
+        // `profile_tone_curve::apply` don't enforce a tag, only the data
+        // layout.
         let mut pro = Image::new(camera.width, camera.height, ColorSpace::CameraNativeLinearRgb);
         pro.pixels
             .par_iter_mut()
             .zip(camera.pixels.par_iter())
             .for_each(|(o, p)| { *o = cam_to_pro.mul_vec(*p); });
+        // DNG SDK order: HSM (camera-hue rotation per illuminant) →
+        // ProfileToneCurve (1D tone) → ProfileLookTable (look). All in
+        // linear ProPhoto D50.
         if let Some(table) = profile.hsm.as_ref() {
             hsm::apply(&mut pro, table);
+        }
+        if let Some(curve) = ptc {
+            crate::color::profile_tone_curve::apply(&mut pro, curve);
         }
         if let Some(table) = post_pro {
             hsm::apply(&mut pro, table);
@@ -192,7 +214,7 @@ fn apply_with_post_pro(
         return Ok(out);
     }
 
-    // Fast path: no HSM, no PLT. Fold cam_to_pro and exit into one matrix.
+    // Fast path: no HSM, no PLT, no PTC. Fold cam_to_pro and exit into one matrix.
     let exit = m_pro_to_rec2020();
     let m = exit.mul_mat(&cam_to_pro);
     let mut out = Image::new(camera.width, camera.height, ColorSpace::SceneLinearRec2020);
@@ -490,6 +512,8 @@ mod tests {
             hsm_data1: None,
             hsm_data2: None,
             plt: None,
+            profile_tone_curve: None,
+            profile_gain_table_map: None,
         }
     }
 
@@ -662,6 +686,8 @@ mod tests {
             hsm_data1: None,
             hsm_data2: None,
             plt: None,
+            profile_tone_curve: None,
+            profile_gain_table_map: None,
         };
         let profile = profile_for(&raw).unwrap();
 
@@ -717,6 +743,8 @@ mod tests {
             hsm_data1: None,
             hsm_data2: None,
             plt: None,
+            profile_tone_curve: None,
+            profile_gain_table_map: None,
         };
         let prof_linear = profile_for(&raw_linear).unwrap();
         // Pre-bake undo lives in linearize::linearraw_to_camera_rgb, not in
@@ -772,6 +800,8 @@ mod tests {
             hsm_data1: None,
             hsm_data2: None,
             plt: None,
+            profile_tone_curve: None,
+            profile_gain_table_map: None,
         };
         let profile = profile_for(&raw).unwrap();
         // Neutral (1,1,1) camera neutral → should land near D65 CCT → interpolated
@@ -931,6 +961,8 @@ mod tests {
             hsm_data1: Some(h1),
             hsm_data2: Some(h2),
             plt: None,
+            profile_tone_curve: None,
+            profile_gain_table_map: None,
         };
         let profile = profile_for(&raw).unwrap();
         let resolved_hsm = profile.hsm.as_ref().expect("dual-HSM path resolves to a table");

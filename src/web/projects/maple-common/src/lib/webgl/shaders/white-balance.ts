@@ -69,21 +69,30 @@ vec3 xy_to_xyz(float x, float y, float Y) {
     return vec3(X, Y, Z);
 }
 
-// Per-channel Rec.2020 gain to move from D65 to (cct, tint).
-// Normalized so green = 1. Mirrors WhiteBalance.metal:69-82.
+// Per-channel Rec.2020 gain to compensate for a SOURCE-LIGHT (cct, tint).
+// ACR convention: cct slider value is the COLOR TEMPERATURE OF THE LIGHT
+// THE PHOTO WAS TAKEN UNDER. To neutralize, apply gain = D65 / source.
+// Warm source (2000K) → low gain[R], high gain[B] → cools the image.
 //
-// M*v (GLSL column-vector convention) — same vec3 args Apple's Metal
-// uses. The WB ratio (target / d65) cancels matrix-layout asymmetries.
+// Previous version computed `target / D65` which inverted the direction;
+// slider_visual_matrix.py surfaced this on test_0002 — temperature_min
+// (2000K) rendered red/magenta where ACR rendered blue. Mirrors
+// WhiteBalance.metal post-fix and white_balance.rs::wb_gains.
 vec3 wb_gains(float cct, float tint) {
+    // ACR tint semantics: slider value is the IMAGE-direction shift
+    // (positive = add green, negative = add magenta). To produce that
+    // shift via gain = D65/source, the source must be in the OPPOSITE
+    // chromaticity direction. Subtract (not add) tint from y.
+    // Mirrors white_balance.rs and WhiteBalance.metal.
     vec2 xy = cct_to_xy(cct);
-    float y = xy.y + tint * 0.001;
-    vec3 xyz_target  = xy_to_xyz(xy.x, y, 1.0);
-    vec3 target_rec2020 = M_XYZ_D65_TO_REC2020 * xyz_target;
+    float y = xy.y - tint * 0.001;
+    vec3 xyz_source  = xy_to_xyz(xy.x, y, 1.0);
+    vec3 source_rec2020 = M_XYZ_D65_TO_REC2020 * xyz_source;
     vec3 d65_rec2020    = M_XYZ_D65_TO_REC2020 * XYZ_D65;
     vec3 gain = vec3(
-        target_rec2020[0] / d65_rec2020[0],
-        target_rec2020[1] / d65_rec2020[1],
-        target_rec2020[2] / d65_rec2020[2]
+        d65_rec2020[0] / source_rec2020[0],
+        d65_rec2020[1] / source_rec2020[1],
+        d65_rec2020[2] / source_rec2020[2]
     );
     float g = max(gain[1], 1e-6);
     return vec3(gain[0] / g, 1.0, gain[2] / g);
