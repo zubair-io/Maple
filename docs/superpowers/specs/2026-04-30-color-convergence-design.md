@@ -263,3 +263,50 @@ Total ~30 working days for Phases 0–5. Phases 0 and 1 are on the critical path
 - Phase 6 (fixture pool expansion) — deferred until 0-5 are green.
 
 Each phase will spec → plan → execute → status separately following the same convention as Phase 0 + the existing grey-card series.
+
+### Phase 1.1 — landed 2026-05-01
+
+**Scope:** vendor-RAW BaselineExposure table population. 5 functional tasks + 1 documentation. Plan: [`docs/superpowers/plans/2026-04-30-color-convergence-phase-1-1-vendor-be-table.md`](../plans/2026-04-30-color-convergence-phase-1-1-vendor-be-table.md).
+
+**Outcome:**
+- `MAPLE_BE_OVERRIDE` env var added at `decode.rs` (commit `5cfb038`) — top-priority source of `BaselineExposure` for sweep tooling; no-op when unset.
+- `tools/calibration/derive_baseline_exposure.py` (commit `2fc6b48`) sweeps BE values per fixture, picks the value that minimizes per-channel bias magnitude vs the ACR baseline reference. Bias rather than ΔE is used as the calibration target — bias is the brightness offset BE adjusts independent of hue/saturation.
+- `tools/calibration/run_be_calibration.sh` (commit `03ff72b`) drove the sweep across 9 renderable vendor-RAW fixtures at 0.5-EV stride.
+- `camera_calibration::baseline_exposure` table populated with 7 entries (commit `90582fe`). Each cites the fixture used and bias_max improvement. Two new examples (`inspect-camera`, `normalize-camera-key`) ship as helpers for adding more bodies later. Unit test `populated_bodies_return_nonzero` asserts each entry returns its expected EV.
+- Budgets ratcheted (commit `463a605`) — 14 fixtures got tightened budgets, 5 hold (gate failures preserved as signal).
+
+**Headline numbers (fixture-level wins, mean ΔE):**
+
+| Fixture | Body | Pre | Post | Δ | Notes |
+|---|---|---|---|---|---|
+| test_0003.CR2 | Canon EOS 5DS R | 12.02 | 8.69 | **−3.33** | Now beats Coral (10.83) |
+| test_0014.NEF | Nikon D850 | 11.08 | 8.00 | **−3.08** | |
+| test_0009.CR2 | Canon EOS 5D Mark IV | 10.33 | 8.38 | −1.95 | |
+| test_0012.raf | Fujifilm GFX 50R | 14.75 | 13.01 | −1.74 | |
+| test_0004.fff | Hasselblad H5D-40 | 11.74 | 10.42 | −1.32 | |
+| test_0005.RAF | Fujifilm GFX 50S | 15.99 | 15.34 | −0.65 | |
+| test_0011.ARW | Sony A7R IV | 7.80 | 7.51 | −0.29 | |
+
+**Bias magnitude wins** are even bigger:
+- test_0003: bias_max 0.103 → 0.014 (**7.5×**)
+- test_0005: bias_max 0.128 → 0.015 (**8.7×**)
+- test_0014: bias_max 0.064 → 0.020 (**3.2×**)
+
+**Coral comparison (test_0003.CR2 vs ACR baseline):**
+
+| | mean ΔE | p95 ΔE | bias_max |
+|---|---|---|---|
+| Pre-1.1 _Maple | 12.03 | 25.10 | 0.103 |
+| Coral (../Maple) | 10.83 | 23.61 | 0.025 |
+| **Post-1.1 _Maple** | **8.65** | **22.52** | **0.014** |
+
+The user observed that Coral produced better baseline colors out of the box — verified true on vendor RAWs because Coral's no-AgX pipeline doesn't compound _Maple's missing-BE bias. **Phase 1.1 closes that gap by giving _Maple the per-body BE values its pipeline already wanted to receive**, and on test_0003 _Maple now beats Coral on every metric.
+
+**Gate state after 1.1:**
+- 11 PASS / 5 FAIL out of 16 baseline cases
+- Grand-mean ΔE: 13.42 → 14.10 (UP, but driven by the test_0006/test_0007 anomaly below; excluding those, the trend is downward)
+
+**Deferred / unexplained:**
+- **test_0006 / test_0007 anomaly (BLOCKER for Phase 1.2 confidence).** Both Canon EOS 5D Mark III DNGs render at mean=20.09 / 22.01 today against budgets seeded as 8.24 / 10.78 only days ago. A bisect at the seed commit (`9677e3e`) showed the SAME code produces the SAME (high) numbers today as it does at HEAD — meaning the regression is NOT from any commit landing since the seed. Same RAW (Apr 22), same reference PNG (Apr 26), same XMP (Apr 23), same code, different output between seed time and now. Investigation spawned as a follow-up task; Phase 1.1 holds those budgets at the seed values so the gate continues to flag them.
+- **test_0010.CR2 R-channel deficit.** Same body as test_0009 (EOS 5D Mark IV, gets BE=+0.5 from the table) but at every BE value in [-0.5, +4.0] EV the R channel stays heavily negative while G/B become positive — a non-uniform, scene-specific issue that BE alone cannot fix. Likely a WB-temperature or DCP-profile issue specific to this RAW's lighting.
+- **Phase 1.2 (DNG WB pre-gain bundle re-enable)** is the next major lever. The deferral comment at `pipeline.rs:126` warned of high-ISO chroma noise + per-channel hue shift when WB pre-gain is applied without per-body BE; with BE table now populated, that prerequisite is met. Architecture is non-trivial because the DCP path's `wb_already_baked` flag needs to flip alongside. Subsequent plan TBD.
