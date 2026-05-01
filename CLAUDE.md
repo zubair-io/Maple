@@ -209,9 +209,9 @@ cd src/raw-pipeline
 cargo test -p raw-core --lib            # ~94 tests
 cargo test -p raw-core --all-features   # includes fixture-gated tests
 
-# Color pipeline harness (CI gate)
-src/scripts/test_color_pipeline.sh                # default: mean ΔE ≤ 15
-BUDGET=5 src/scripts/test_color_pipeline.sh       # tighten as pipeline improves
+# Color pipeline harness (CI gate — diffs vs ACR references, per-case budgets in test-fixtures/budgets.json)
+src/scripts/test_color_pipeline.sh
+FILTER=baseline src/scripts/test_color_pipeline.sh   # subset to baseline cases for a fast spot-check
 
 # CLI harness — deterministic, headless, matches WASM/Swift-FFI output
 cd src/raw-pipeline
@@ -232,26 +232,43 @@ Fixtures at `test-fixtures/raws/` (repo-root, not under `src/raw-pipeline/`) are
 
 ## Objective color testing — no eyeballing
 
-Every color-pipeline change must pass the perceptual harness. Screenshot comparisons are not acceptable evidence.
+Every color-pipeline change must pass the perceptual harness against ACR-rendered references. Screenshot comparisons are not acceptable evidence.
+
+The testing surface has two layers — a broad end-to-end gate and per-domain unit/integration gates that all run in CI:
 
 ```bash
-src/scripts/test_color_pipeline.sh              # CIEDE2000 gate
+# Broad end-to-end perceptual gate (the canonical color-correctness signal).
+src/scripts/test_color_pipeline.sh
+
+# Per-domain gates (fast unit/integration tests for specific subsystems).
+src/scripts/test_synthetic_grey.sh        # neutral pipeline + flatness invariants on a hand-rolled DNG
+src/scripts/test_grey_adjustments.sh      # closed-form predictors for every scene-linear slider + ACR parity
+src/scripts/test_grey_dcp.sh              # DCP code-path coverage (ColorMatrix1/2, ForwardMatrix1/2, PTC)
 ```
 
-The harness extracts the DNG's embedded preview (via `exiftool -PreviewImageStart/Length` + `dd`), runs `maple-cli` to render the candidate, and diffs with `compare_images.py`. Reports mean ΔE₀₀, P95, max, and per-channel bias per fixture. A case passes only when all four are under budget.
+The end-to-end gate runs `maple-cli batch` against every case in `test-fixtures/references/manifest.json`, diffs each candidate vs. the ACR-rendered reference, and gates per-fixture × per-case `mean / p95 / max / bias` against `test-fixtures/budgets.json`. **Budgets are a one-way ratchet — they can only go down.** Lowering a budget happens in the same commit that delivers the improvement.
 
-Each metric has its own env-var knob. Defaults:
+Adding a new case to the end-to-end gate:
+1. Render the ACR reference and place it under `test-fixtures/references/test_NNNN/down/<case>.png`.
+2. Add the case to `test-fixtures/references/manifest.json`.
+3. Run the harness once — it will FAIL with `no-budget-entry` for the new case.
+4. Inspect the printed `mean`/`p95`/`max`/`bias`, add a `budgets.json` entry whose ceilings are roughly 5–10% above those numbers (or pipe the captured table through `tools/budget_init.py` and merge).
+5. Commit the case, manifest entry, and budgets.json entry together.
 
-| Knob          | Default       | Gate                            |
-| ------------- | ------------- | ------------------------------- |
-| `BUDGET`      | `15`          | mean ΔE₀₀                       |
-| `BUDGET_P95`  | `2 × BUDGET`  | P95 ΔE₀₀                        |
-| `BUDGET_MAX`  | `4 × BUDGET`  | max ΔE₀₀                        |
-| `BUDGET_BIAS` | `0.05`        | per-channel bias (abs, in [0,1])|
+Spot-check a single fixture:
 
-When fixtures aren't present locally (e.g. CI without the gitignored RAWs), the harness skip-passes with a "no fixtures, skipping" message and exit 0 — so CI without fixtures doesn't fail spuriously.
+```bash
+FILTER=test_0000 src/scripts/test_color_pipeline.sh
+FILTER=baseline src/scripts/test_color_pipeline.sh
+```
 
-Budgets ratchet **downward** over time. CI rejects any PR that raises a budget. Budgets move down only, by explicit commit.
+Sanity check vs the camera's embedded JPEG preview (NOT a CI gate — varies per camera body):
+
+```bash
+tools/sanity-checks/test_embedded_preview.sh
+```
+
+When fixtures aren't present locally (e.g. CI without the gitignored RAWs), every gate skip-passes with a "skipping" message and exit 0 — so CI without fixtures doesn't fail spuriously.
 
 ## Cross-platform parity
 
