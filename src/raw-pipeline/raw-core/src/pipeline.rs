@@ -884,6 +884,16 @@ fn develop_scene_linear_from_padded_mosaic(
             }
         });
     }
+
+    // WB pre-gain: matches the unsized + sized variants (Phase 1.2 contract).
+    // The DCP profile downstream runs with `wb_already_baked = true` for
+    // Bayer paths, expecting input camera RGB to have been divided by
+    // AsShotNeutral. Skip would have been required for 8-bit lossy LinearRaw
+    // but this entire function rejects LinearRaw at the top, so the only
+    // path here is Bayer — always pre-gain.
+    stage("tile_white_balance::apply_pre_gain", || {
+        white_balance::apply_pre_gain(&mut camera_rgb, raw.as_shot_neutral)
+    });
     stage("tile_highlight_recovery", || highlight_recovery::apply(&mut camera_rgb, model.highlight_recovery));
     let profile = stage("tile_dcp_profile_for", || dcp::profile_for(raw))?;
     let mut scene = stage("tile_dcp_apply", || dcp::apply_with_plt_and_ptc(
