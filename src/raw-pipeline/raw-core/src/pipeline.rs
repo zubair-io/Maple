@@ -579,8 +579,24 @@ pub fn apply_scene_linear_chain(
     // from `pipeline.rs:182-192`, with sharpen + nr_color intentionally
     // omitted. The order MUST match the Rust reference so calibrate_color_pipeline
     // remains the canonical metric.
+    //
+    // Phase 1.2 post-fix: the input fp16 buffer is the output of the FULL
+    // Rust pipeline (`render_scene_linear_from_raw_with_quality`), which
+    // now applies DNG-spec WB pre-gain at decode time and lands at D65
+    // (`inv(CM) · (1, 1, 1)` for the neutral patch). That makes the
+    // `decoded_temp / decoded_tint` parameters obsolete — the input is
+    // ALWAYS at D65 regardless of what the caller thinks the original
+    // illuminant was. Use `white_balance::apply` (single-WB) here
+    // instead of `white_balance::apply_delta` (delta from a caller-
+    // claimed reference), so we don't double-shift WB when the Apple
+    // shell passes `decoded_temp = asShotCCT` thinking we're still on
+    // the pre-Phase-1.2 contract. At `model.temperature == 6500` and
+    // `model.tint == 0` (defaults) this is identity, matching what
+    // `develop_scene_linear_from_raw_with_quality` does internally.
+    let _ = decoded_temp; // retained for ABI compatibility; ignored.
+    let _ = decoded_tint;
     stage("ffi_chain_white_balance", || {
-        white_balance::apply_delta(&mut img, model.temperature, model.tint, decoded_temp, decoded_tint)
+        white_balance::apply(&mut img, model.temperature, model.tint)
     });
     stage("ffi_chain_scene_tone_controls", || {
         scene_tone_controls::apply(&mut img, model)
