@@ -1,39 +1,22 @@
 #!/bin/bash
-# test_color_pipeline.sh — perceptual color-parity gate for the Rust raw pipeline.
+# test_embedded_preview.sh — sanity check vs. the DNG embedded JPEG preview.
 #
-# Per CLAUDE.md § "Objective color testing — no eyeballing":
-#   "Every color-pipeline change must pass the perceptual harness.
-#    Screenshot comparisons are not acceptable evidence."
+# NOT A CI GATE. The embedded preview is the camera's interpretation of the
+# RAW (camera tone curve, camera WB, sometimes camera sharpening) — it varies
+# across bodies and isn't a stable target for color correctness.
 #
-# For each DNG fixture present under <repo-root>/test-fixtures/raws/:
-#   1. Read PreviewImageStart / PreviewImageLength via exiftool.
-#   2. Extract the embedded JPEG preview via dd (the reference).
-#   3. Render the same DNG via maple-cli (the candidate, full-quality PNG).
-#   4. Resize the candidate to the reference's dimensions.
-#   5. Diff via compare_images.py (CIEDE2000 + per-channel bias).
-#   6. Compare each metric against its budget.
+# Use this script to:
+#   - Spot-check that maple-cli produces *something* in the right ballpark on a
+#     new fixture before adding it to the ACR-reference set.
+#   - Diagnose decode regressions where the rendered output is wildly off and
+#     you want a quick "is the fixture decoding at all" answer.
 #
-# Reports mean ΔE₀₀, P95, max, and per-channel bias per fixture.
-# A case passes only when all four are under budget.
+# The canonical CI color gate is src/scripts/test_color_pipeline.sh, which
+# diffs against the ACR-rendered references in test-fixtures/references/.
 #
-# CI gate: exits 0 if all present fixtures pass; non-zero if any fail.
-# If no fixtures are present (e.g. CI without the gitignored RAWs), exits 0
-# with a "no fixtures, skipping" message — CI doesn't fail spuriously.
-#
-# Env overrides (the four budgets that gate a pass):
-#   BUDGET      = mean ΔE₀₀ threshold      (default 15)
-#   BUDGET_P95  = P95  ΔE₀₀ threshold      (default 2 × BUDGET)
-#   BUDGET_MAX  = max  ΔE₀₀ threshold      (default 4 × BUDGET)
-#   BUDGET_BIAS = abs per-channel bias cap (default 0.05, i.e. 5% of [0,1])
-#
-# As of ticket #07, both DNG photometric paths (CFA mosaic, LinearRaw) are
-# covered. BlackIsZero monochrome is rejected at decode by the Rust core
-# (Error::UnsupportedCfa) and produces a render failure, not a SKIP.
-#
-# Usage:
-#   src/scripts/test_color_pipeline.sh                # default budgets
-#   BUDGET=5 src/scripts/test_color_pipeline.sh       # tighten the mean gate
-#   BUDGET=25 src/scripts/test_color_pipeline.sh      # looser budget for LinearRaw fixtures
+# Same usage and budget knobs as before:
+#   tools/sanity-checks/test_embedded_preview.sh
+#   BUDGET=5 tools/sanity-checks/test_embedded_preview.sh
 
 set -euo pipefail
 
@@ -52,7 +35,7 @@ BUDGET_MAX="${BUDGET_MAX:-$(awk -v b="$BUDGET" 'BEGIN { printf "%g", b * 4 }')}"
 BUDGET_BIAS="${BUDGET_BIAS:-0.05}"
 
 # ----- preflight -----------------------------------------------------------
-err() { printf "test_color_pipeline: %s\n" "$*" >&2; }
+err() { printf "test_embedded_preview: %s\n" "$*" >&2; }
 
 require_cmd() {
   if ! command -v "$1" >/dev/null 2>&1; then
@@ -73,15 +56,15 @@ fi
 # Build maple-cli if missing. Honors caller-provided $MAPLE_CLI.
 MAPLE_CLI="${MAPLE_CLI:-$MAPLE_CLI_RELEASE}"
 if [[ ! -x "$MAPLE_CLI" ]]; then
-  echo "test_color_pipeline: building maple-cli (release) ..."
+  echo "test_embedded_preview: building maple-cli (release) ..."
   ( cd "$REPO_ROOT/src/raw-pipeline" && cargo build --release --bin maple-cli >/dev/null )
   MAPLE_CLI="$MAPLE_CLI_RELEASE"
 fi
 
 # ----- discover fixtures ---------------------------------------------------
 if [[ ! -d "$FIXTURES_DIR" ]]; then
-  echo "test_color_pipeline: no test-fixtures/raws/ directory present — skipping"
-  echo "test_color_pipeline: (gitignored fixtures; CI without fixtures is a soft pass)"
+  echo "test_embedded_preview: no test-fixtures/raws/ directory present — skipping"
+  echo "test_embedded_preview: (gitignored fixtures; CI without fixtures is a soft pass)"
   exit 0
 fi
 
@@ -92,8 +75,8 @@ FIXTURES=( "$FIXTURES_DIR"/*.dng )
 shopt -u nocaseglob
 
 if (( ${#FIXTURES[@]} == 0 )); then
-  echo "test_color_pipeline: no DNG fixtures in $FIXTURES_DIR — skipping"
-  echo "test_color_pipeline: (gitignored fixtures; CI without fixtures is a soft pass)"
+  echo "test_embedded_preview: no DNG fixtures in $FIXTURES_DIR — skipping"
+  echo "test_embedded_preview: (gitignored fixtures; CI without fixtures is a soft pass)"
   exit 0
 fi
 
@@ -101,8 +84,8 @@ fi
 WORKDIR="$(mktemp -d -t maple-color-XXXXXX)"
 trap 'rm -rf "$WORKDIR"' EXIT
 
-echo "test_color_pipeline: budgets — mean=$BUDGET p95=$BUDGET_P95 max=$BUDGET_MAX bias=$BUDGET_BIAS"
-echo "test_color_pipeline: ${#FIXTURES[@]} fixture(s) in $FIXTURES_DIR"
+echo "test_embedded_preview: budgets — mean=$BUDGET p95=$BUDGET_P95 max=$BUDGET_MAX bias=$BUDGET_BIAS"
+echo "test_embedded_preview: ${#FIXTURES[@]} fixture(s) in $FIXTURES_DIR"
 echo ""
 
 # ----- per-fixture loop ----------------------------------------------------
@@ -235,7 +218,7 @@ done
 
 # ----- summary -------------------------------------------------------------
 echo ""
-echo "test_color_pipeline: $PASS_COUNT pass, $FAIL_COUNT fail, $SKIP_COUNT skip"
+echo "test_embedded_preview: $PASS_COUNT pass, $FAIL_COUNT fail, $SKIP_COUNT skip"
 if (( FAIL_COUNT > 0 )); then
   exit 1
 fi
