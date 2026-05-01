@@ -50,6 +50,8 @@ COMPARE_PY="$REPO_ROOT/src/scripts/compare_images.py"
 MAPLE_CLI_RELEASE="$REPO_ROOT/src/raw-pipeline/target/release/maple-cli"
 PREFERRED_RES="${PREFERRED_RES:-down}"
 FILTER="${FILTER:-}"
+BUDGETS="${BUDGETS:-$REPO_ROOT/test-fixtures/budgets.json}"
+ALLOW_MISSING_BUDGET="${ALLOW_MISSING_BUDGET:-}"
 
 # ----- preflight -----------------------------------------------------------
 err() { printf "test_color_pipeline: %s\n" "$*" >&2; }
@@ -71,6 +73,12 @@ fi
 if [[ ! -f "$MANIFEST" ]]; then
   echo "test_color_pipeline: manifest not found at $MANIFEST — skipping"
   echo "test_color_pipeline: (gitignored references; CI without references is a soft pass)"
+  exit 0
+fi
+
+if [[ ! -f "$BUDGETS" ]]; then
+  echo "test_color_pipeline: budgets file not found at $BUDGETS — skipping"
+  echo "test_color_pipeline: (run after Task 3 to seed budgets.json from current numbers)"
   exit 0
 fi
 
@@ -119,7 +127,7 @@ echo ""
 #   * a tab-separated per-case row to stdout
 #   * a one-line JSON summary on the LAST line (fixture/case rollups +
 #     grand mean) so callers can grep it for CI assertions.
-python3 - "$MANIFEST" "$CANDIDATES_DIR" "$COMPARE_PY" "$PREFERRED_RES" "$FILTER" <<'PY'
+python3 - "$MANIFEST" "$CANDIDATES_DIR" "$COMPARE_PY" "$PREFERRED_RES" "$FILTER" "$BUDGETS" "$ALLOW_MISSING_BUDGET" <<'PY'
 import json
 import os
 import sys
@@ -133,7 +141,8 @@ import colour
 # decompression-bomb heuristic. They're our ground truth; suppress.
 Image.MAX_IMAGE_PIXELS = None
 
-manifest_path, cand_dir, compare_py, preferred_res, name_filter = sys.argv[1:6]
+manifest_path, cand_dir, compare_py, preferred_res, name_filter, budgets_path, allow_missing = sys.argv[1:8]
+allow_missing = bool(allow_missing)
 
 
 def diff_inline(cand_path: str, ref_path: str) -> dict:
@@ -165,15 +174,21 @@ def diff_inline(cand_path: str, ref_path: str) -> dict:
 with open(manifest_path) as f:
     manifest = json.load(f)
 
+with open(budgets_path) as f:
+    budgets = json.load(f).get("fixtures", {})
+
+def budget_for(fixture: str, case: str) -> Optional[dict]:
+    return budgets.get(fixture, {}).get(case)
+
 cases = manifest.get("cases", [])
 if name_filter:
     cases = [c for c in cases if name_filter in c["name"]]
 
 # Header — column widths chosen so test_NNNN/<case>_max fits.
-print(f"{'fixture':<12} {'case':<22} {'n_pix':>9}  "
+print(f"{'verd':<4} {'fixture':<12} {'case':<22} {'n_pix':>9}  "
       f"{'mean':>6} {'p95':>6} {'max':>6}  "
       f"{'bR':>8} {'bG':>8} {'bB':>8}")
-print("-" * 96)
+print("-" * 100)
 
 def pick_reference(outputs: list[dict]) -> Optional[dict]:
     """Strict: only use PREFERRED_RES. Falling back to `full` (typically
@@ -235,14 +250,34 @@ for case in sorted(cases, key=lambda c: c["name"]):
     all_rows.append(row)
     per_fixture[fixture].append(row)
 
+    # Per-case budget gate.
+    bud = budget_for(fixture, case_label)
+    breach: list[str] = []
+    if bud is None:
+        if not allow_missing:
+            breach.append("no-budget-entry")
+    else:
+        if row["mean"] > bud["mean"]:
+            breach.append(f"mean {row['mean']:.2f}>{bud['mean']:.2f}")
+        if row["p95"]  > bud["p95"]:
+            breach.append(f"p95 {row['p95']:.2f}>{bud['p95']:.2f}")
+        if row["max"]  > bud["max"]:
+            breach.append(f"max {row['max']:.2f}>{bud['max']:.2f}")
+        for n, v in (("R", row["bR"]), ("G", row["bG"]), ("B", row["bB"])):
+            if abs(v) > bud["bias"]:
+                breach.append(f"bias_{n} {v:+.4f}>{bud['bias']:.4f}")
+    row["breach"] = breach
+
     # Tabular row.
     n_pix_str = f"{row['n_pixels'] / 1e6:5.2f}M" if row["n_pixels"] >= 1e6 else f"{row['n_pixels']:>8}"
-    print(f"{fixture:<12} {case_label:<22} {n_pix_str:>9}  "
+    verdict = "FAIL" if breach else "PASS"
+    extra  = ("  " + ", ".join(breach)) if breach else ""
+    print(f"{verdict} {fixture:<12} {case_label:<22} {n_pix_str:>9}  "
           f"{row['mean']:6.2f} {row['p95']:6.2f} {row['max']:6.2f}  "
-          f"{row['bR']:+8.4f} {row['bG']:+8.4f} {row['bB']:+8.4f}")
+          f"{row['bR']:+8.4f} {row['bG']:+8.4f} {row['bB']:+8.4f}{extra}")
 
 # Per-fixture aggregate.
-print("-" * 96)
+print("-" * 100)
 for fixture in sorted(per_fixture.keys()):
     rows = per_fixture[fixture]
     if not rows:
@@ -252,7 +287,7 @@ for fixture in sorted(per_fixture.keys()):
     mean_bR = sum(r["bR"] for r in rows) / n
     mean_bG = sum(r["bG"] for r in rows) / n
     mean_bB = sum(r["bB"] for r in rows) / n
-    print(f"{fixture:<12} {'(' + str(n) + ' cases)':<22} {'-':>9}  "
+    print(f"     {fixture:<12} {'(' + str(n) + ' cases)':<22} {'-':>9}  "
           f"{mean_de:6.2f} {'-':>6} {'-':>6}  "
           f"{mean_bR:+8.4f} {mean_bG:+8.4f} {mean_bB:+8.4f}")
 
@@ -263,8 +298,8 @@ if all_rows:
     grand_bR = sum(r["bR"] for r in all_rows) / n
     grand_bG = sum(r["bG"] for r in all_rows) / n
     grand_bB = sum(r["bB"] for r in all_rows) / n
-    print("=" * 96)
-    print(f"{'GRAND':<12} {'(' + str(n) + ' cases)':<22} {'-':>9}  "
+    print("=" * 100)
+    print(f"     {'GRAND':<12} {'(' + str(n) + ' cases)':<22} {'-':>9}  "
           f"{grand_mean:6.2f} {'-':>6} {'-':>6}  "
           f"{grand_bR:+8.4f} {grand_bG:+8.4f} {grand_bB:+8.4f}")
     print()
@@ -276,15 +311,15 @@ if all_rows:
     print(f"#   Cast on baseline only -> DCP / forward-matrix.")
 
 # Skip / error summary.
-print(f"# stats: {len(all_rows)} compared, "
-      f"{skipped_no_raw} skipped(no-raw), "
-      f"{skipped_no_cand} skipped(no-candidate), "
-      f"{skipped_no_ref} skipped(no-reference), "
-      f"{errors} errors")
+breach_count = sum(1 for r in all_rows if r.get("breach"))
+print(f"# stats: {len(all_rows)} compared, {breach_count} budget breach(es), "
+      f"{skipped_no_raw} skipped(no-raw), {skipped_no_cand} skipped(no-candidate), "
+      f"{skipped_no_ref} skipped(no-reference), {errors} errors")
 
 # One-line JSON summary on the very last line for CI scrapers.
 summary = {
     "compared": len(all_rows),
+    "breaches": breach_count,
     "skipped_no_raw": skipped_no_raw,
     "skipped_no_candidate": skipped_no_cand,
     "skipped_no_reference": skipped_no_ref,
@@ -296,5 +331,5 @@ summary = {
 }
 print(json.dumps(summary))
 
-sys.exit(1 if errors > 0 else 0)
+sys.exit(1 if (errors > 0 or breach_count > 0) else 0)
 PY
