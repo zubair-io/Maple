@@ -4,7 +4,9 @@
 # Test fixtures — local-only, 6.5GB of RAWs and ACR reference PNGs.
 # See docs/spec/11-testing.md and test-fixtures/references/REFERENCES.md
 # for how to regenerate or fetch these locally.
-test-fixtures/
+test-fixtures/*
+# Exception: the per-case ΔE budget table IS committed (it's the CI ratchet).
+!test-fixtures/budgets.json
 
 # Rust
 target/
