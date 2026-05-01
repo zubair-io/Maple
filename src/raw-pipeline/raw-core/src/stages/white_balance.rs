@@ -97,6 +97,42 @@ pub fn apply(img: &mut Image, temperature: f32, tint: f32) {
     }
 }
 
+/// DNG-spec WB pre-gain in camera-native linear RGB space (DNG 1.4 § 1.4.4.5
+/// step 4): divide each channel by `AsShotNeutral` so a neutral scene patch
+/// reads as `(1, 1, 1)` going into DCP. Identity short-circuit when neutral
+/// is already `(1, 1, 1)` (e.g. wb-baked LinearRaw paths after
+/// `linearize::linearraw_to_camera_rgb` undid the bake).
+///
+/// This is the canonical pre-DCP white-balance step. After this call, the
+/// downstream DCP path MUST run with `wb_already_baked=true` so the
+/// scene_white_xyz derivation uses `inv(CM) · (1, 1, 1)` instead of
+/// `inv(CM) · AsShotNeutral` (otherwise it double-applies WB).
+///
+/// Per spec, AsShotNeutral has G normalized to 1.0, so dividing by it gives
+/// gain = (1/n_r, 1.0, 1/n_b). For typical daylight `AsShotNeutral ≈
+/// [0.5, 1.0, 0.7]`, the R and B channels get amplified ~2× and ~1.4×
+/// respectively — same shape as the WB multipliers rawler exposes via
+/// `wb_coeffs` (rawler reports the reciprocals).
+pub fn apply_pre_gain(img: &mut Image, neutral: [f32; 3]) {
+    img.assert_space(ColorSpace::CameraNativeLinearRgb);
+    let n = neutral;
+    if (n[0] - 1.0).abs() < 1e-4 && (n[1] - 1.0).abs() < 1e-4 && (n[2] - 1.0).abs() < 1e-4 {
+        return; // identity short-circuit (neutral patch already reads (1,1,1))
+    }
+    // Clamp denominators away from zero — a degenerate AsShotNeutral
+    // shouldn't crash decode.
+    let g = [
+        if n[0].abs() > 1e-6 { 1.0 / n[0] } else { 1.0 },
+        if n[1].abs() > 1e-6 { 1.0 / n[1] } else { 1.0 },
+        if n[2].abs() > 1e-6 { 1.0 / n[2] } else { 1.0 },
+    ];
+    for p in &mut img.pixels {
+        p[0] *= g[0];
+        p[1] *= g[1];
+        p[2] *= g[2];
+    }
+}
+
 /// Apply only the **delta** between the live WB and the WB the cached
 /// decode was rendered at. Mirrors the (now-retired) Apple
 /// `WhiteBalance.metal` kernel — net gain =

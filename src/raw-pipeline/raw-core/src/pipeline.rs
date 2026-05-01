@@ -138,21 +138,6 @@ pub fn develop_scene_linear_from_raw_with_quality(
         }
     };
 
-    // WB pre-gain (camera_rgb /= AsShotNeutral) is intentionally NOT applied
-    // here despite being the DNG spec's step 4 per § 1.4.4.5. Applying it in
-    // isolation (without the corresponding per-body BaselineExposure from the
-    // DCP and without HSM/PLT hue correction) produced visibly worse output
-    // on fixtures without those compensations:
-    //   * high-ISO fixtures gained amplified chroma noise (R/B gains ~2×)
-    //   * fixtures without a DCP-BE value got small per-channel hue shifts
-    //     that would have been corrected by HueSatMap.
-    // Reintroduce pre-gain together with per-body BaselineExposure (sourced
-    // from Adobe DCPs) and HSM/PLT — see docs/spec/03-algorithms.md § 3.4
-    // "HueSatMap application" (deferred). The scientific conclusion (pre-gain
-    // is the DNG-conformant flow) stands; the engineering trade-off is to
-    // land it as a bundle, not piecewise. Residual cost: ~0.5 EV uniform
-    // underexposure on fixtures whose DNG lacks a BaselineExposure tag.
-
     // DNG § C.1.2: BaselineExposure is applied as a gain in a scene-linear
     // color space prior to the color-space transform. Mathematically
     // commutative with the linear CM that follows, so we apply in the
@@ -168,6 +153,26 @@ pub fn develop_scene_linear_from_raw_with_quality(
         });
     }
     dump_after("01_baseline_exposure", &camera_rgb);
+
+    // DNG WB pre-gain per spec § 1.4.4.5 step 4: divide camera RGB by
+    // AsShotNeutral so a neutral scene patch reads as (1, 1, 1) going into
+    // DCP. Re-enabled in Phase 1.2 of the color-convergence work after the
+    // per-body BaselineExposure table was populated in Phase 1.1 (which
+    // satisfied the prerequisite that originally deferred this step). See
+    // docs/superpowers/specs/2026-04-30-color-convergence-design.md.
+    //
+    // Skipped for 8-bit lossy LinearRaw DNGs (Adobe DNG Converter's
+    // perceptually-encoded output) where WB stays baked through the linearize
+    // step and DCP must derive scene_white_xyz from `inv(CM) · AsShotNeutral`
+    // as the empirical (legacy) path. See linearize::linearraw_to_camera_rgb
+    // and dcp::profile_for for the matching wb_already_baked decision.
+    let skip_pre_gain = matches!(raw.cfa, crate::image::CfaPattern::LinearRgb)
+        && raw.white_level <= 255;
+    if !skip_pre_gain {
+        stage("white_balance::apply_pre_gain", || {
+            white_balance::apply_pre_gain(&mut camera_rgb, raw.as_shot_neutral)
+        });
+    }
     stage("highlight_recovery", || highlight_recovery::apply(&mut camera_rgb, model.highlight_recovery));
     dump_after("02_highlight_recovery", &camera_rgb);
     let profile = stage("dcp::profile_for", || dcp::profile_for(raw))?;
@@ -283,6 +288,15 @@ pub fn develop_scene_linear_sized_from_raw_with_quality(
         });
     }
     dump_after("01_baseline_exposure", &camera_rgb);
+
+    // WB pre-gain (mirrors the unsized variant — see comment there).
+    let skip_pre_gain = matches!(raw.cfa, crate::image::CfaPattern::LinearRgb)
+        && raw.white_level <= 255;
+    if !skip_pre_gain {
+        stage("sized_white_balance::apply_pre_gain", || {
+            white_balance::apply_pre_gain(&mut camera_rgb, raw.as_shot_neutral)
+        });
+    }
     stage("sized_highlight_recovery", || highlight_recovery::apply(&mut camera_rgb, model.highlight_recovery));
     dump_after("02_highlight_recovery", &camera_rgb);
     let profile = stage("sized_dcp_profile_for", || dcp::profile_for(raw))?;
