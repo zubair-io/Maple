@@ -38,6 +38,9 @@ pub mod tiff;
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_support;
 
+#[cfg(feature = "stage-dump")]
+pub mod stage_dump;
+
 pub mod xmp;
 pub use xmp::AdjustmentModel;
 
