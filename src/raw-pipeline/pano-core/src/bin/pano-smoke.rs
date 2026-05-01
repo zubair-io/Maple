@@ -53,10 +53,13 @@ use pano_core::{
         lm::solve_with_keypoints,
     },
     features::akaze::AkazeDetector,
-    matching::{gimbal_filter, gms_filter, predicted_homography, BruteForceMatcher},
+    matching::{
+        build_overlap_graph_from_rotations, gimbal_filter, gms_filter,
+        predicted_homography_with_principal_points, BruteForceMatcher, OverlapGraphOptions,
+        PairCandidateReason,
+    },
     types::{Camera, Features, Matches, PanoImage},
-    Blender, ColorSpace, CpuWarper, FeatureDetector, FeatureMatcher,
-    GraphCutMaxFlowSeamFinder,
+    Blender, ColorSpace, CpuWarper, FeatureDetector, FeatureMatcher, GraphCutMaxFlowSeamFinder,
     Projection, SeamFinder,
 };
 use raw_core::color::matrices::M_REC2020_TO_SRGB;
@@ -115,6 +118,34 @@ struct Cli {
     /// frequency exposure mismatches but rings at validity edges).
     #[arg(long, default_value = "simple-alpha", value_name = "MODE")]
     blend_mode: String,
+
+    /// Partition mode:
+    /// - `distance-field` (default) — fast hard partition by argmax
+    ///   of per-image distance-from-validity-edge. Eliminates
+    ///   blend-averaging ghosts. Seams pass through validity-edge
+    ///   midpoints. O(N · canvas), no max-flow.
+    /// - `graphcut` — graph-cut min-cost seams via BK max-flow,
+    ///   routes seams through smooth regions. Optimal but slow.
+    /// - `voronoi` — legacy soft inverse-square + feather weights.
+    ///   Averages overlap content → ghosting when BA residual
+    ///   produces misalignment.
+    #[arg(long, default_value = "distance-field", value_name = "MODE")]
+    partition: String,
+
+    /// Feather radius (px) at graph-cut seam boundaries to soften
+    /// hard transitions between adjacent images. 0 = no feather
+    /// (sharp seams), 4-8 = invisible-but-narrow blend (default 4).
+    #[arg(long, default_value_t = 4, value_name = "PIXELS")]
+    seam_feather: u32,
+
+    /// Downsample factor for graph-cut seam finding. The BK max-flow
+    /// runs on a `1/factor`-resolution copy of the canvas, then the
+    /// chosen labels are upsampled. Reduces wall time from
+    /// "minutes per pair" (factor=1) to "seconds per pair" (factor=8)
+    /// for ~50 MP canvases. Seam routes are coarse to ±factor/2 px,
+    /// which is invisible after the seam feather. Default 8.
+    #[arg(long, default_value_t = 8, value_name = "FACTOR")]
+    seam_downsample: u32,
 
     /// Generate deterministic synthetic fixtures into DIR and exit.
     #[arg(long, value_name = "DIR")]
@@ -338,8 +369,7 @@ fn soft_desaturate_rec2020(r: f32, g: f32, b: f32) -> (f32, f32, f32) {
     // Linearly ramp the desaturation factor from 0 at the threshold
     // to 1 at FULL_DESAT_SPREAD. A pixel with spread = 0.65 (halfway
     // through the ramp) gets 50% blended toward luminance.
-    let t = ((spread - SPREAD_THRESHOLD) / (FULL_DESAT_SPREAD - SPREAD_THRESHOLD))
-        .clamp(0.0, 1.0);
+    let t = ((spread - SPREAD_THRESHOLD) / (FULL_DESAT_SPREAD - SPREAD_THRESHOLD)).clamp(0.0, 1.0);
     (r + t * (y - r), g + t * (y - g), b + t * (y - b))
 }
 
@@ -396,6 +426,14 @@ fn gamut_clamp_srgb(r: f32, g: f32, b: f32) -> (f32, f32, f32) {
     (r + t * (y - r), g + t * (y - g), b + t * (y - b))
 }
 
+#[inline]
+fn encoded_srgb_from_rec2020(r20: f32, g20: f32, b20: f32) -> (f32, f32, f32) {
+    let (r20, g20, b20) = soft_desaturate_rec2020(r20, g20, b20);
+    let (r_lin, g_lin, b_lin) = rec2020_linear_to_srgb_linear(r20, g20, b20);
+    let (r_lin, g_lin, b_lin) = gamut_clamp_srgb(r_lin, g_lin, b_lin);
+    (srgb_encode(r_lin), srgb_encode(g_lin), srgb_encode(b_lin))
+}
+
 fn write_pano_image_as_png16(img: &PanoImage, path: &Path) -> Result<(), String> {
     let n_pixels = (img.width as usize) * (img.height as usize);
     let mut buf = vec![0u8; n_pixels * 3 * 2]; // 16-bit big-endian, 3 channels
@@ -411,21 +449,11 @@ fn write_pano_image_as_png16(img: &PanoImage, path: &Path) -> Result<(), String>
         // an extreme range (max − min > 0.85), desaturate toward
         // Rec.2020 luminance enough to bring the pixel into a
         // less-pathological corner of Rec.2020 first.
-        let r20 = img.pixels[base_src];
-        let g20 = img.pixels[base_src + 1];
-        let b20 = img.pixels[base_src + 2];
-        let (r20, g20, b20) = soft_desaturate_rec2020(r20, g20, b20);
-
-        // Rec.2020 linear → sRGB linear
-        let (r_lin, g_lin, b_lin) = rec2020_linear_to_srgb_linear(r20, g20, b20);
-        // Soft gamut clamp: desaturate out-of-gamut pixels toward
-        // luminance instead of per-channel clipping (which produces
-        // pure-primary clipping bands at validity edges).
-        let (r_lin, g_lin, b_lin) = gamut_clamp_srgb(r_lin, g_lin, b_lin);
-        // sRGB transfer encoding
-        let r_enc = srgb_encode(r_lin);
-        let g_enc = srgb_encode(g_lin);
-        let b_enc = srgb_encode(b_lin);
+        let (r_enc, g_enc, b_enc) = encoded_srgb_from_rec2020(
+            img.pixels[base_src],
+            img.pixels[base_src + 1],
+            img.pixels[base_src + 2],
+        );
         // Quantise to u16
         let r16 = (r_enc * 65535.0 + 0.5) as u16;
         let g16 = (g_enc * 65535.0 + 0.5) as u16;
@@ -691,21 +719,39 @@ fn gimbal_to_rotation(yaw_deg: f32, pitch_deg: f32, roll_deg: f32) -> nalgebra::
 
     // Ry (yaw about Y axis — horizontal pan)
     let ry = nalgebra::Matrix3::new(
-        yaw.cos(),  0.0, yaw.sin(),
-        0.0,        1.0, 0.0,
-       -yaw.sin(),  0.0, yaw.cos(),
+        yaw.cos(),
+        0.0,
+        yaw.sin(),
+        0.0,
+        1.0,
+        0.0,
+        -yaw.sin(),
+        0.0,
+        yaw.cos(),
     );
     // Rx (pitch about X axis — tilt)
     let rx = nalgebra::Matrix3::new(
-        1.0, 0.0,          0.0,
-        0.0, pitch.cos(), -pitch.sin(),
-        0.0, pitch.sin(),  pitch.cos(),
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        pitch.cos(),
+        -pitch.sin(),
+        0.0,
+        pitch.sin(),
+        pitch.cos(),
     );
     // Rz (roll about Z axis)
     let rz = nalgebra::Matrix3::new(
-        roll.cos(), -roll.sin(), 0.0,
-        roll.sin(),  roll.cos(), 0.0,
-        0.0,         0.0,        1.0,
+        roll.cos(),
+        -roll.sin(),
+        0.0,
+        roll.sin(),
+        roll.cos(),
+        0.0,
+        0.0,
+        0.0,
+        1.0,
     );
     (ry * rx * rz).cast::<f32>()
 }
@@ -833,6 +879,28 @@ enum BlendMode {
     MultiBand,
 }
 
+/// Choice of canvas-pixel partition strategy. Determines the per-image
+/// weight mask passed to the blender.
+#[derive(Debug, Clone, Copy)]
+enum PartitionMode {
+    /// Soft inverse-square + feather weights. Smooth transitions
+    /// across overlap regions; averages mis-aligned content → ghosts
+    /// when BA residual + parallax produces pixel-level misalignment.
+    Voronoi,
+    /// Hard partition by argmax of per-image distance-from-validity-
+    /// edge. Each pixel assigned to whichever image has the deepest
+    /// "interior position" at that canvas spot. Eliminates averaging
+    /// in overlap interiors → no ghosting. Fast (O(N · canvas), no
+    /// max-flow). Seams pass through validity-edge midpoints, not
+    /// optimised for content. Default.
+    DistanceField,
+    /// Graph-cut min-cost seams via BK max-flow. Routes seams through
+    /// low-energy regions (sky, water) where the choice of source
+    /// image is invisible. Optimal but slow at 50MP+ scale even with
+    /// downsampling — use when you can spare minutes for the cut.
+    GraphCut,
+}
+
 fn stitch(
     inputs: &[PathBuf],
     output: &Path,
@@ -840,6 +908,9 @@ fn stitch(
     projection: Projection,
     crop_margin: u32,
     blend_mode: BlendMode,
+    partition_mode: PartitionMode,
+    seam_feather: u32,
+    seam_downsample: u32,
 ) -> Result<(), String> {
     if inputs.len() < 2 {
         return Err(format!(
@@ -883,26 +954,30 @@ fn stitch(
     let mut gimbal_priors: Vec<Option<(f32, f32, f32)>> = Vec::with_capacity(n); // (yaw, pitch, roll) degrees
     let mut focal_pixels_per_image: Vec<Option<f32>> = Vec::with_capacity(n);
     let mut distortion_per_image: Vec<Option<(f32, f32)>> = Vec::with_capacity(n);
+    let mut principal_points_per_image: Vec<Option<(f32, f32)>> = Vec::with_capacity(n);
 
     for p in inputs {
         eprintln!("pano-smoke:   {}", p.display());
         let bytes = fs::read(p).map_err(|e| format!("cannot read {}: {e}", p.display()))?;
         // Try to get gimbal + focal + lens distortion from raw_core for DNGs.
-        let (gimbal, focal_px, dist) = if pano_core::ingest::sniff_format(&bytes) == pano_core::ingest::PanoFormat::Raw {
-            match raw_core::decode_for_pano(&bytes, "dng") {
-                Ok(ingest) => (
-                    ingest.gimbal.map(|g| (g.yaw_deg, g.pitch_deg, g.roll_deg)),
-                    ingest.focal_pixels,
-                    ingest.distortion,
-                ),
-                Err(_) => (None, None, None),
-            }
-        } else {
-            (None, None, None)
-        };
+        let (gimbal, focal_px, dist, principal_point) =
+            if pano_core::ingest::sniff_format(&bytes) == pano_core::ingest::PanoFormat::Raw {
+                match raw_core::decode_for_pano(&bytes, "dng") {
+                    Ok(ingest) => (
+                        ingest.gimbal.map(|g| (g.yaw_deg, g.pitch_deg, g.roll_deg)),
+                        ingest.focal_pixels,
+                        ingest.distortion,
+                        ingest.principal_point,
+                    ),
+                    Err(_) => (None, None, None, None),
+                }
+            } else {
+                (None, None, None, None)
+            };
         gimbal_priors.push(gimbal);
         focal_pixels_per_image.push(focal_px);
         distortion_per_image.push(dist);
+        principal_points_per_image.push(principal_point);
 
         let img = pano_core::decode_bytes(&bytes)
             .map_err(|e| format!("decode failed for {}: {e}", p.display()))?;
@@ -954,12 +1029,13 @@ fn stitch(
             if k1 == 0.0 && k2 == 0.0 {
                 continue;
             }
-            let cx = pano_images[i].width as f32 / 2.0;
-            let cy = pano_images[i].height as f32 / 2.0;
+            let (cx, cy) = principal_points_per_image[i].unwrap_or((
+                pano_images[i].width as f32 * 0.5,
+                pano_images[i].height as f32 * 0.5,
+            ));
             for kp in feats.keypoints.iter_mut() {
-                let (px, py) = pano_core::warp::distortion::undistort_pixel(
-                    kp.x, kp.y, cx, cy, focal, k1, k2,
-                );
+                let (px, py) =
+                    pano_core::warp::distortion::undistort_pixel(kp.x, kp.y, cx, cy, focal, k1, k2);
                 kp.x = px;
                 kp.y = py;
             }
@@ -973,7 +1049,69 @@ fn stitch(
         );
     }
 
-    // --- 3. Match consecutive pairs: loose BF → GMS → gimbal filter → RANSAC -
+    let has_all_gimbal = gimbal_priors.iter().all(|g| g.is_some());
+
+    let use_overlap_graph = std::env::var("PANO_USE_OVERLAP_GRAPH").is_ok();
+    let pair_candidates: Vec<(usize, usize, PairCandidateReason)> = if has_all_gimbal && use_overlap_graph {
+        let rotations: Vec<nalgebra::Matrix3<f64>> = gimbal_priors
+            .iter()
+            .map(|g| {
+                let (y, p, r) = g.expect("has_all_gimbal checked above");
+                gimbal_to_rotation(y, p, r).cast::<f64>()
+            })
+            .collect();
+        let focals: Vec<f64> = focal_pixels_per_image
+            .iter()
+            .map(|f| f.unwrap_or(image_size.0.max(image_size.1) as f32) as f64)
+            .collect();
+        let image_sizes: Vec<(u32, u32)> = pano_images
+            .iter()
+            .map(|img| (img.width, img.height))
+            .collect();
+        let mut graph_options = OverlapGraphOptions::default();
+        graph_options.enable_skip_neighbors = true;
+        graph_options.min_estimated_overlap = 0.10;
+        let graph =
+            build_overlap_graph_from_rotations(&rotations, &focals, &image_sizes, &graph_options)
+                .map_err(|e| format!("overlap graph failed: {e}"))?;
+        eprintln!(
+            "pano-smoke: overlap graph selected {} candidate pairs across {} rows (connected={}, components={})",
+            graph.candidates.len(),
+            graph.row_count,
+            graph.is_connected,
+            graph.component_count
+        );
+        if !graph.is_connected {
+            eprintln!(
+                "pano-smoke:   WARNING overlap graph disconnected; isolated={:?}",
+                graph.isolated_pose_indices
+            );
+        }
+        let candidates: Vec<(usize, usize, PairCandidateReason)> = graph
+            .candidates
+            .iter()
+            .map(|c| (c.a, c.b, c.reason))
+            .collect();
+        if candidates.is_empty() {
+            eprintln!("pano-smoke:   overlap graph empty — falling back to input-order pairs");
+            (0..(n - 1))
+                .map(|i| (i, i + 1, PairCandidateReason::Horizontal))
+                .collect()
+        } else {
+            candidates
+        }
+    } else {
+        if has_all_gimbal {
+            eprintln!(
+                "pano-smoke: overlap graph disabled by default; set PANO_USE_OVERLAP_GRAPH=1 to enable graph-expanded BA edges"
+            );
+        }
+        (0..(n - 1))
+            .map(|i| (i, i + 1, PairCandidateReason::Horizontal))
+            .collect()
+    };
+
+    // --- 3. Match overlap pairs: loose BF → GMS → gimbal filter → RANSAC ----
     //
     // GMS (Bian et al. 2017) filters by spatial-motion-consistency, which
     // discards the zero-displacement matches that high-overlap consecutive
@@ -989,18 +1127,14 @@ fn stitch(
     // error budget on a 3584-px focal).  Only runs when both images of the
     // pair have gimbal data.
     eprintln!(
-        "pano-smoke: loose BF → GMS → (gimbal filter when available) → RANSAC over {} consecutive pairs",
-        n - 1
+        "pano-smoke: loose BF → GMS → (gimbal filter when available) → RANSAC over {} candidate pairs",
+        pair_candidates.len()
     );
-    let gimbal_tol_px: f64 = 100.0;
-    let cx_image = image_size.0 as f64 / 2.0;
-    let cy_image = image_size.1 as f64 / 2.0;
     let matcher = BruteForceMatcher::new(0.95, false);
     let mut pairs: Vec<(usize, usize, Matches)> = Vec::new();
     let mut min_pair_inliers: usize = usize::MAX;
 
-    for i in 0..(n - 1) {
-        let j = i + 1;
+    for &(i, j, candidate_reason) in &pair_candidates {
         let raw = matcher
             .match_pairs(&all_features[i], &all_features[j])
             .map_err(|e| format!("matching pair ({i},{j}) failed: {e}"))?;
@@ -1036,59 +1170,71 @@ fn stitch(
         //   - large relative motion (cam[0]↔cam[1]): looser ball
         //     (~150 px) so the genuine matches at the gimbal-predicted
         //     shift survive the filter
-        let gimbal_filtered: Matches =
-            if let (Some((y_i, p_i, r_i)), Some((y_j, p_j, r_j)), Some(f_i), Some(f_j)) = (
-                gimbal_priors[i],
-                gimbal_priors[j],
-                focal_pixels_per_image[i],
-                focal_pixels_per_image[j],
-            ) {
-                let r_a = gimbal_to_rotation(y_i, p_i, r_i).cast::<f64>();
-                let r_b = gimbal_to_rotation(y_j, p_j, r_j).cast::<f64>();
-                let h_pred = predicted_homography(
-                    &r_a,
-                    f_i as f64,
-                    &r_b,
-                    f_j as f64,
-                    (cx_image, cy_image),
-                );
+        let gimbal_filtered: Matches = if let (
+            Some((y_i, p_i, r_i)),
+            Some((y_j, p_j, r_j)),
+            Some(f_i),
+            Some(f_j),
+        ) = (
+            gimbal_priors[i],
+            gimbal_priors[j],
+            focal_pixels_per_image[i],
+            focal_pixels_per_image[j],
+        ) {
+            let r_a = gimbal_to_rotation(y_i, p_i, r_i).cast::<f64>();
+            let r_b = gimbal_to_rotation(y_j, p_j, r_j).cast::<f64>();
+            let pp_i = principal_points_per_image[i].unwrap_or((
+                pano_images[i].width as f32 * 0.5,
+                pano_images[i].height as f32 * 0.5,
+            ));
+            let pp_j = principal_points_per_image[j].unwrap_or((
+                pano_images[j].width as f32 * 0.5,
+                pano_images[j].height as f32 * 0.5,
+            ));
+            let h_pred = predicted_homography_with_principal_points(
+                &r_a,
+                f_i as f64,
+                (pp_i.0 as f64, pp_i.1 as f64),
+                &r_b,
+                f_j as f64,
+                (pp_j.0 as f64, pp_j.1 as f64),
+            );
 
-                // Per-pair tolerance: gimbal hardware ≈ 0.3° RMS in
-                // flight, lens distortion residual ≈ 5 px at corners,
-                // 50 px floor covers both with margin. We add a small
-                // angular term scaled by the relative rotation
-                // magnitude to absorb chained-pair drift in multi-row
-                // panos: tol = 50 + 0.05 · focal · tan(|ω|).
-                //
-                // The factor 0.05 (5 % of the predicted shift) is the
-                // budget for "gimbal disagrees with reality across this
-                // specific pair" — sufficient to recover small-rotation
-                // pairs that the previous 100 px hardcode was rejecting,
-                // without inflating large-rotation tolerances enough to
-                // poison RANSAC.
-                let r_rel = r_b.transpose() * r_a;
-                let omega_rel = pano_core::ba::joint::rodrigues_log(&r_rel);
-                let omega_mag = omega_rel.norm();
-                let pair_tol_px =
-                    50.0_f64 + 0.05 * (f_i as f64) * omega_mag.tan().max(0.0);
+            // Per-pair tolerance: gimbal hardware ≈ 0.3° RMS in
+            // flight, lens distortion residual ≈ 5 px at corners,
+            // 50 px floor covers both with margin. We add a small
+            // angular term scaled by the relative rotation
+            // magnitude to absorb chained-pair drift in multi-row
+            // panos: tol = 50 + 0.05 · focal · tan(|ω|).
+            //
+            // The factor 0.05 (5 % of the predicted shift) is the
+            // budget for "gimbal disagrees with reality across this
+            // specific pair" — sufficient to recover small-rotation
+            // pairs that the previous 100 px hardcode was rejecting,
+            // without inflating large-rotation tolerances enough to
+            // poison RANSAC.
+            let r_rel = r_b.transpose() * r_a;
+            let omega_rel = pano_core::ba::joint::rodrigues_log(&r_rel);
+            let omega_mag = omega_rel.norm();
+            let pair_tol_px = 50.0_f64 + 0.05 * (f_i as f64) * omega_mag.tan().max(0.0);
 
-                let kept = gimbal_filter(
-                    &gms,
-                    &all_features[i],
-                    &all_features[j],
-                    &h_pred,
-                    pair_tol_px,
-                );
-                eprintln!(
+            let kept = gimbal_filter(
+                &gms,
+                &all_features[i],
+                &all_features[j],
+                &h_pred,
+                pair_tol_px,
+            );
+            eprintln!(
                     "pano-smoke:   pair ({i},{j}): GMS {} → gimbal-filter {} (tol={pair_tol_px:.0} px, |ω_rel|={:.1}°)",
                     gms.inliers.len(),
                     kept.inliers.len(),
                     omega_mag.to_degrees(),
                 );
-                kept
-            } else {
-                gms.clone()
-            };
+            kept
+        } else {
+            gms.clone()
+        };
 
         // When gimbal data is available, the gimbal filter's verdict is
         // authoritative: a tiny survivor count means the matches genuinely
@@ -1112,8 +1258,9 @@ fn stitch(
             // Gimbal filter rejected ≥99% of matches — trust the filter.
             // Skip this pair; soft prior carries the constraint.
             eprintln!(
-                "pano-smoke:   pair ({i},{j}): gimbal filter kept only {} — \
+                "pano-smoke:   pair ({i},{j}) {:?}: gimbal filter kept only {} — \
                  SKIPPING pair (matches disagree with gimbal; BA prior carries pose)",
+                candidate_reason,
                 gimbal_filtered.inliers.len()
             );
             min_pair_inliers = min_pair_inliers.min(gimbal_filtered.inliers.len());
@@ -1139,6 +1286,13 @@ fn stitch(
                 "pano-smoke:   WARNING pair ({i},{j}) has only {} matches — skipping RANSAC",
                 ransac_input.inliers.len()
             );
+            if have_gimbal_data {
+                eprintln!(
+                    "pano-smoke:   pair ({i},{j}) {:?}: below RANSAC minimum with gimbal data — skipping",
+                    candidate_reason
+                );
+                continue;
+            }
             pairs.push((i, j, ransac_input.clone()));
             min_pair_inliers = min_pair_inliers.min(ransac_input.inliers.len());
             continue;
@@ -1155,17 +1309,40 @@ fn stitch(
 
         let inlier_matches = if let Some((_, inlier_idxs)) = ransac_result {
             eprintln!(
-                "pano-smoke:   pair ({i},{j}): RANSAC inliers={}/{}",
+                "pano-smoke:   pair ({i},{j}) {:?}: RANSAC inliers={}/{}",
+                candidate_reason,
                 inlier_idxs.len(),
                 ransac_input.inliers.len()
             );
             Matches {
-                inliers: inlier_idxs.iter().map(|&k| ransac_input.inliers[k]).collect(),
+                inliers: inlier_idxs
+                    .iter()
+                    .map(|&k| ransac_input.inliers[k])
+                    .collect(),
             }
+        } else if have_gimbal_data {
+            eprintln!(
+                "pano-smoke:   pair ({i},{j}) {:?}: RANSAC failed — skipping gimbal candidate",
+                candidate_reason
+            );
+            continue;
         } else {
             eprintln!("pano-smoke:   WARNING pair ({i},{j}): RANSAC failed — using GMS matches");
             ransac_input.clone()
         };
+        let min_ransac_inliers = match candidate_reason {
+            PairCandidateReason::Horizontal | PairCandidateReason::Vertical => 30,
+            PairCandidateReason::Skip | PairCandidateReason::Loop => 80,
+        };
+        if have_gimbal_data && inlier_matches.inliers.len() < min_ransac_inliers {
+            eprintln!(
+                "pano-smoke:   pair ({i},{j}) {:?}: only {} RANSAC inliers (< {min_ransac_inliers}) — skipping weak BA edge",
+                candidate_reason,
+                inlier_matches.inliers.len()
+            );
+            min_pair_inliers = min_pair_inliers.min(inlier_matches.inliers.len());
+            continue;
+        }
         min_pair_inliers = min_pair_inliers.min(inlier_matches.inliers.len());
         pairs.push((i, j, inlier_matches));
     }
@@ -1192,8 +1369,6 @@ fn stitch(
     //
     // The earlier "gimbal-direct" path is preserved as a fallback when BA
     // fails (e.g. all pairs have <8 inliers after gimbal filter).
-    let has_all_gimbal = gimbal_priors.iter().all(|g| g.is_some());
-
     // Derive the focal-pixel prior from EXIF when available.
     //
     // We use the median of the per-image EXIF focals — robust against any
@@ -1229,32 +1404,39 @@ fn stitch(
 
     // Helper: compute relative gimbal rotation for camera `i` (cam 0 is the
     // gauge — its rotation is identity).
-    let compute_relative_gimbal = |gimbal_priors: &[Option<(f32, f32, f32)>], i: usize| -> Option<nalgebra::Matrix3<f32>> {
-        let r0 = gimbal_priors[0].as_ref().map(|(y, p, r)| gimbal_to_rotation(*y, *p, *r))?;
-        let (y, p, r) = gimbal_priors[i]?;
-        let r_abs = gimbal_to_rotation(y, p, r);
-        Some(r0.transpose() * r_abs)
-    };
+    let compute_relative_gimbal =
+        |gimbal_priors: &[Option<(f32, f32, f32)>], i: usize| -> Option<nalgebra::Matrix3<f32>> {
+            let r0 = gimbal_priors[0]
+                .as_ref()
+                .map(|(y, p, r)| gimbal_to_rotation(*y, *p, *r))?;
+            let (y, p, r) = gimbal_priors[i]?;
+            let r_abs = gimbal_to_rotation(y, p, r);
+            Some(r0.transpose() * r_abs)
+        };
 
-    let cameras: Vec<Camera> = if has_all_gimbal {
+    let mut cameras: Vec<Camera> = if has_all_gimbal {
         eprintln!(
             "pano-smoke: BA-with-rotation-soft-prior (DJI input; \
              λ_rot=33000 anchor on gimbal, focal anchor at EXIF prior)"
         );
 
         // Build per-camera priors from gimbal angles + EXIF focal.
-        let priors: Vec<Option<CameraPrior>> = (0..n)
-            .map(|i| {
-                let r_rel = compute_relative_gimbal(&gimbal_priors, i)?;
-                let omega = rodrigues_log(&r_rel.cast::<f64>());
-                let deg = omega.norm().to_degrees();
-                let focal_i = focal_pixels_per_image[i].unwrap_or(focal_prior);
-                eprintln!(
-                    "pano-smoke:   gimbal_prior[{i}] omega_deg={deg:.1}  focal={focal_i:.1}",
-                );
-                Some(CameraPrior::new(r_rel.cast::<f64>(), focal_i))
-            })
-            .collect();
+        let priors: Vec<Option<CameraPrior>> =
+            (0..n)
+                .map(|i| {
+                    let r_rel = compute_relative_gimbal(&gimbal_priors, i)?;
+                    let omega = rodrigues_log(&r_rel.cast::<f64>());
+                    let deg = omega.norm().to_degrees();
+                    let focal_i = focal_pixels_per_image[i].unwrap_or(focal_prior);
+                    eprintln!(
+                        "pano-smoke:   gimbal_prior[{i}] omega_deg={deg:.1}  focal={focal_i:.1}",
+                    );
+                    Some(
+                        CameraPrior::new(r_rel.cast::<f64>(), focal_i)
+                            .with_principal_point(principal_points_per_image[i]),
+                    )
+                })
+                .collect();
 
         let ba_config = JointRotationFocalBA {
             max_iters: 200,
@@ -1292,7 +1474,7 @@ fn stitch(
             lambda_translation: 1.0e7,
         };
 
-        let mut cams = match solve_joint_with_priors(
+        let cams = match solve_joint_with_priors(
             &all_features,
             &pairs,
             image_size,
@@ -1303,15 +1485,14 @@ fn stitch(
             Err(e) => {
                 // BA failed (no usable correspondences). Fall back to
                 // gimbal-direct so the pipeline still produces output.
-                eprintln!(
-                    "pano-smoke: BA failed ({e}) — falling back to gimbal-direct"
-                );
+                eprintln!("pano-smoke: BA failed ({e}) — falling back to gimbal-direct");
                 priors
                     .iter()
                     .map(|p| {
                         let prior = p.unwrap();
                         Camera {
                             focal: prior.focal,
+                            principal_point: prior.principal_point,
                             rotation: prior.rotation.cast::<f32>(),
                             translation: prior.translation.cast::<f32>(),
                             distortion: pano_core::types::Distortion::default(),
@@ -1321,17 +1502,6 @@ fn stitch(
             }
         };
 
-        // Attach per-image lens distortion (read from DNG WarpRectilinear).
-        // BA does not optimise distortion; the values come straight from
-        // the DNG's lens profile and are passed through to the warper.
-        for (i, cam) in cams.iter_mut().enumerate() {
-            if let Some((k1, k2)) = distortion_per_image[i] {
-                cam.distortion = pano_core::types::Distortion { k1, k2 };
-                eprintln!(
-                    "pano-smoke:   cam[{i}] distortion k1={k1:.4}  k2={k2:.4}",
-                );
-            }
-        }
         cams
     } else {
         eprintln!("pano-smoke: GMS-filtered joint BA with homography-chain priors");
@@ -1353,15 +1523,22 @@ fn stitch(
             lambda_focal: 0.0,
             lambda_translation: 0.0,
         };
-        solve_joint_with_priors(
-            &all_features,
-            &pairs,
-            image_size,
-            Some(&priors),
-            &ba_config,
-        )
-        .map_err(|e| format!("joint BA failed: {e}"))?
+        solve_joint_with_priors(&all_features, &pairs, image_size, Some(&priors), &ba_config)
+            .map_err(|e| format!("joint BA failed: {e}"))?
     };
+
+    // Attach per-image lens metadata from DNG WarpRectilinear. BA consumes the
+    // principal point through priors when available; applying it again here
+    // also covers homography-prior and fallback paths.
+    for (i, cam) in cameras.iter_mut().enumerate() {
+        if let Some(pp) = principal_points_per_image[i] {
+            cam.principal_point = Some(pp);
+        }
+        if let Some((k1, k2)) = distortion_per_image[i] {
+            cam.distortion = pano_core::types::Distortion { k1, k2 };
+            eprintln!("pano-smoke:   cam[{i}] distortion k1={k1:.4}  k2={k2:.4}");
+        }
+    }
 
     for (i, cam) in cameras.iter().enumerate() {
         let r = cam.rotation;
@@ -1381,9 +1558,8 @@ fn stitch(
     // --- 5. Canvas + warp + seam + blend ------------------------------------
     eprintln!("pano-smoke: computing canvas");
     let img_refs: Vec<&PanoImage> = pano_images.iter().collect();
-    let canvas =
-        pano_core::warp::compute_canvas(&img_refs, &cameras, projection)
-            .map_err(|e| format!("compute_canvas failed: {e}"))?;
+    let canvas = pano_core::warp::compute_canvas(&img_refs, &cameras, projection)
+        .map_err(|e| format!("compute_canvas failed: {e}"))?;
     eprintln!(
         "pano-smoke:   canvas {}×{} ({:?})",
         canvas.width, canvas.height, projection
@@ -1443,17 +1619,19 @@ fn stitch(
         }
     }
 
-    // Erode each image's validity by 8 px and extrapolate RGB into a
+    // Erode each image's validity by 96 px and extrapolate RGB into a
     // 32-px feather band. Reduces (but does not eliminate) Laplacian-
-    // pyramid ringing at validity boundaries — the residual ringing
-    // is best handled with a final canvas crop (see `--crop-margin`)
-    // or by switching to graph-cut N-way seams (1.5).
+    // pyramid ringing and source-edge colour pollution at validity
+    // boundaries. DJI DNG edges can carry magenta-highlight artefacts
+    // after lens correction and gain-map amplification; keeping those
+    // border pixels out of the merge is safer than trying to repair
+    // them after they have been blended into the panorama.
     eprintln!(
-        "pano-smoke: eroding validity by 8 px + extrapolating RGB into feather ({} images)",
+        "pano-smoke: eroding validity by 96 px + extrapolating RGB into feather ({} images)",
         warped.len()
     );
     for img in warped.iter_mut() {
-        erode_validity(img, 8);
+        erode_validity(img, 96);
         extrapolate_into_invalid(img, 32);
     }
 
@@ -1463,11 +1641,60 @@ fn stitch(
     // accumulator in MultiBandBlender::blend_n processes one image at a time,
     // dropping each pyramid before the next is allocated, so peak memory is
     // ~2× canvas regardless of N.
-    eprintln!(
-        "pano-smoke: building per-image partition masks ({} images)",
-        warped.len()
-    );
-    let weight_masks = build_partition_masks(&warped);
+    let weight_masks = match partition_mode {
+        PartitionMode::Voronoi => {
+            eprintln!(
+                "pano-smoke: building Voronoi partition masks ({} images)",
+                warped.len()
+            );
+            build_partition_masks(&warped)
+        }
+        PartitionMode::DistanceField => {
+            let t = std::time::Instant::now();
+            let labels = pano_core::seam::compute_distance_field_labels(&warped);
+            let n = warped.len();
+            let n_pixels =
+                (warped[0].width as usize) * (warped[0].height as usize);
+            let mut masks: Vec<Vec<f32>> =
+                (0..n).map(|_| vec![0.0_f32; n_pixels]).collect();
+            for px in 0..n_pixels {
+                if labels[px] >= 0 {
+                    let i = labels[px] as usize;
+                    if i < n {
+                        masks[i][px] = 1.0;
+                    }
+                }
+            }
+            if seam_feather > 0 {
+                let w = warped[0].width;
+                let h = warped[0].height;
+                pano_core::seam::feather_binary_masks(&mut masks, w, h, seam_feather);
+            }
+            eprintln!(
+                "pano-smoke: distance-field partition ({} images, seam feather {} px) took {:?}",
+                warped.len(),
+                seam_feather,
+                t.elapsed(),
+            );
+            masks
+        }
+        PartitionMode::GraphCut => {
+            eprintln!(
+                "pano-smoke: building graph-cut N-way partition ({} images, seam feather {} px, downsample {}×)",
+                warped.len(),
+                seam_feather,
+                seam_downsample,
+            );
+            let mut masks =
+                pano_core::seam::build_n_way_binary_masks(&warped, seam_downsample);
+            if seam_feather > 0 {
+                let w = warped[0].width;
+                let h = warped[0].height;
+                pano_core::seam::feather_binary_masks(&mut masks, w, h, seam_feather);
+            }
+            masks
+        }
+    };
 
     let warped_refs: Vec<&PanoImage> = warped.iter().collect();
     let result = match blend_mode {
@@ -1490,9 +1717,10 @@ fn stitch(
     // Post-blend repair: detect clipping-artefact pixels (the
     // characteristic out-of-gamut signature of Laplacian-pyramid
     // ringing at validity edges) and replace them with the median
-    // of nearby clean neighbours. Only meaningful for the multi-
-    // band blend — simple-alpha can't produce these by construction
-    // (output is a convex combination of inputs).
+    // of nearby clean neighbours. The stricter pass handles hard
+    // clipping; the display-encoded pass below handles moderate
+    // magenta false colour that was already present in warped RAW
+    // highlights or source-image borders.
     let mut repaired = result;
     let mut total_repaired = 0usize;
     let mut prev_count = usize::MAX;
@@ -1505,8 +1733,12 @@ fn stitch(
         prev_count = n;
     }
     if total_repaired > 0 {
+        eprintln!("pano-smoke: repaired {total_repaired} clipping-artefact pixels (RGB ≈ 1,0,1)");
+    }
+    let display_magenta_repaired = suppress_display_magenta_false_color(&mut repaired);
+    if display_magenta_repaired > 0 {
         eprintln!(
-            "pano-smoke: repaired {total_repaired} clipping-artefact pixels (RGB ≈ 1,0,1)"
+            "pano-smoke: suppressed {display_magenta_repaired} display-magenta false-colour pixels"
         );
     }
 
@@ -1546,9 +1778,7 @@ fn stitch(
     };
 
     let final_image = if crop_margin > 0 {
-        eprintln!(
-            "pano-smoke: cropping {crop_margin} px off each side of canvas"
-        );
+        eprintln!("pano-smoke: cropping {crop_margin} px off each side of canvas");
         crop_canvas(&trimmed, crop_margin)
     } else {
         trimmed
@@ -1680,9 +1910,12 @@ fn repair_magenta_clipping(img: &mut PanoImage) -> usize {
         .map(|&idx| {
             let y = idx / w;
             let x = idx % w;
-            let mut rs: Vec<f32> = Vec::with_capacity(((2 * radius + 1) * (2 * radius + 1)) as usize);
-            let mut gs: Vec<f32> = Vec::with_capacity(((2 * radius + 1) * (2 * radius + 1)) as usize);
-            let mut bs: Vec<f32> = Vec::with_capacity(((2 * radius + 1) * (2 * radius + 1)) as usize);
+            let mut rs: Vec<f32> =
+                Vec::with_capacity(((2 * radius + 1) * (2 * radius + 1)) as usize);
+            let mut gs: Vec<f32> =
+                Vec::with_capacity(((2 * radius + 1) * (2 * radius + 1)) as usize);
+            let mut bs: Vec<f32> =
+                Vec::with_capacity(((2 * radius + 1) * (2 * radius + 1)) as usize);
             for dy in -radius..=radius {
                 for dx in -radius..=radius {
                     if dx == 0 && dy == 0 {
@@ -1716,11 +1949,14 @@ fn repair_magenta_clipping(img: &mut PanoImage) -> usize {
                 }
             }
             if rs.len() < 4 {
-                return (idx, [
-                    img.pixels[idx * 3],
-                    img.pixels[idx * 3 + 1],
-                    img.pixels[idx * 3 + 2],
-                ]);
+                return (
+                    idx,
+                    [
+                        img.pixels[idx * 3],
+                        img.pixels[idx * 3 + 1],
+                        img.pixels[idx * 3 + 2],
+                    ],
+                );
             }
             rs.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
             gs.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
@@ -1744,6 +1980,38 @@ fn repair_magenta_clipping(img: &mut PanoImage) -> usize {
         }
     }
     actually_changed
+}
+
+/// Suppress moderate magenta false colour that survives the hard-clipping
+/// repair. This catches pixels that are not numerically extreme in Rec.2020
+/// but still encode to visible pink after the final sRGB conversion, which is
+/// the signature seen on pano_01's clipped clouds and warped source borders.
+fn suppress_display_magenta_false_color(img: &mut PanoImage) -> usize {
+    use rayon::prelude::*;
+
+    img.pixels
+        .par_chunks_exact_mut(3)
+        .map(|px| {
+            let (r_enc, g_enc, b_enc) = encoded_srgb_from_rec2020(px[0], px[1], px[2]);
+            let magenta_excess = (r_enc - g_enc).min(b_enc - g_enc);
+            let visible_magenta = r_enc > 0.08
+                && b_enc > 0.08
+                && magenta_excess > 0.025
+                && r_enc > g_enc
+                && b_enc > g_enc;
+
+            if !visible_magenta {
+                return 0usize;
+            }
+
+            let y = 0.2627 * px[0] + 0.6780 * px[1] + 0.0593 * px[2];
+            let strength = ((magenta_excess - 0.025) / 0.12).clamp(0.55, 1.0);
+            px[0] += (y - px[0]) * strength;
+            px[1] += (y - px[1]) * strength;
+            px[2] += (y - px[2]) * strength;
+            1usize
+        })
+        .sum()
 }
 
 /// Inclusive bounding box of canvas pixels where at least one image
@@ -2298,12 +2566,14 @@ fn stitch_pair(img_a: PanoImage, img_b: PanoImage, step: usize) -> Result<PanoIm
         vec![
             Camera {
                 focal: image_size.0.max(image_size.1) as f32,
+                principal_point: None,
                 rotation: nalgebra::Matrix3::identity(),
                 translation: nalgebra::Vector3::zeros(),
                 distortion: pano_core::types::Distortion::default(),
             },
             Camera {
                 focal: image_size.0.max(image_size.1) as f32,
+                principal_point: None,
                 rotation: nalgebra::Matrix3::identity(),
                 translation: nalgebra::Vector3::zeros(),
                 distortion: pano_core::types::Distortion::default(),
@@ -2405,6 +2675,11 @@ fn main() {
             "multi-band" | "multiband" | "multi_band" => BlendMode::MultiBand,
             _ => BlendMode::SimpleAlpha,
         };
+        let partition_mode = match cli.partition.to_ascii_lowercase().as_str() {
+            "voronoi" => PartitionMode::Voronoi,
+            "graphcut" | "graph-cut" | "graph_cut" => PartitionMode::GraphCut,
+            _ => PartitionMode::DistanceField,
+        };
         stitch(
             &cli.inputs,
             &output,
@@ -2412,6 +2687,9 @@ fn main() {
             projection,
             cli.crop_margin,
             blend_mode,
+            partition_mode,
+            cli.seam_feather,
+            cli.seam_downsample,
         )
     };
 
@@ -2469,6 +2747,36 @@ mod tests {
         assert!((r20 - 1.0).abs() < 1e-3, "R white point: {r20}");
         assert!((g20 - 1.0).abs() < 1e-3, "G white point: {g20}");
         assert!((b20 - 1.0).abs() < 1e-3, "B white point: {b20}");
+    }
+
+    #[test]
+    fn display_magenta_suppressor_neutralizes_false_color() {
+        let mut img = PanoImage::new(1, 1, ColorSpace::rec2020_d65_linear());
+        img.pixels[0] = 0.35;
+        img.pixels[1] = 0.05;
+        img.pixels[2] = 0.35;
+
+        let changed = suppress_display_magenta_false_color(&mut img);
+        assert_eq!(changed, 1);
+
+        let (r, g, b) = encoded_srgb_from_rec2020(img.pixels[0], img.pixels[1], img.pixels[2]);
+        assert!(
+            (r - g).min(b - g) <= 0.025,
+            "pixel still encodes magenta: ({r:.3}, {g:.3}, {b:.3})"
+        );
+    }
+
+    #[test]
+    fn display_magenta_suppressor_leaves_blue_sky_like_pixel() {
+        let mut img = PanoImage::new(1, 1, ColorSpace::rec2020_d65_linear());
+        img.pixels[0] = 0.08;
+        img.pixels[1] = 0.18;
+        img.pixels[2] = 0.35;
+        let before = img.pixels.clone();
+
+        let changed = suppress_display_magenta_false_color(&mut img);
+        assert_eq!(changed, 0);
+        assert_eq!(img.pixels, before);
     }
 
     // --- PNG roundtrip test -----------------------------------------------
