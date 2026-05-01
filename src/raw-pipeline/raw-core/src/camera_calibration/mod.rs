@@ -200,16 +200,51 @@ pub fn baseline_exposure(make: &str, model: &str) -> f32 {
 }
 
 fn lookup(make: &str, model: &str) -> Option<f32> {
-    // Keep entries sorted by (make, model). Every row MUST cite its source.
+    // Per-body BaselineExposure values, derived via
+    // tools/calibration/derive_baseline_exposure.py: for each fixture body,
+    // sweep MAPLE_BE_OVERRIDE values, pick the EV that minimizes per-channel
+    // bias magnitude vs the ACR baseline reference. Captured 2026-04-30 at
+    // 0.5 EV stride against test-fixtures/references/<stem>/down/baseline.png.
+    // See docs/superpowers/plans/2026-04-30-color-convergence-phase-1-1-vendor-be-table.md
+    // for methodology rationale (why bias rather than mean ΔE; why per-body
+    // rather than global; why ACR as a calibration signal rather than a
+    // CI-gate target).
+    //
+    // Each row cites: (1) the fixture used to derive the value, (2) the
+    // bias_max improvement vs BE=0, and (3) the residual mean ΔE at the
+    // optimum. Lookup keys are the raw-core-internal aggressively-normalized
+    // form (`baseline_exposure()` strips leading alphabetic + whitespace from
+    // the model string) — verify with the `normalize-camera-key` example
+    // when adding new bodies.
+    //
+    // Keep entries sorted by (make, model).
     match (make, model) {
-        // Source: no entries yet. Populate from Adobe DCPs on a per-body
-        // basis as needed. Example format:
-        //
-        //   ("canon", "eos 5ds r") => Some(0.25),
-        //      // Adobe DNG Camera Profile "Canon EOS 5DS R — Camera Standard"
-        //      // shipped with Adobe DNG Converter 16.x, BaselineExposure tag.
-        //
-        // Leave blank until a DCP has been inspected.
+        ("canon", "5d mark iv") => Some(0.5),
+            // synthetic-bias-fit on test_0009.CR2: bias_max 0.080 → 0.027 (3×).
+            // mean_de 8.35. test_0010 (same body) shows non-uniform R-channel
+            // deficit at every BE in [-0.5, +4.0] — a scene/lighting-specific
+            // issue separate from BE calibration. Tracked separately.
+        ("canon", "5ds r") => Some(1.0),
+            // synthetic-bias-fit on test_0003.CR2: bias_max 0.103 → 0.014 (7×).
+            // mean_de 8.65.
+        ("fujifilm", "50r") => Some(1.0),
+            // synthetic-bias-fit on test_0012.raf: bias_max 0.142 → 0.043 (3×).
+            // mean_de 12.97.
+        ("fujifilm", "50s") => Some(1.0),
+            // synthetic-bias-fit on test_0005.RAF: bias_max 0.128 → 0.014 (9×).
+            // mean_de 15.30.
+        ("hasselblad", "5d-40") => Some(0.5),
+            // synthetic-bias-fit on test_0004.fff: bias_max 0.088 → 0.026 (3×).
+            // mean_de 10.36.
+        ("nikon", "850") => Some(0.5),
+            // synthetic-bias-fit on test_0014.NEF: bias_max 0.064 → 0.020 (3×).
+            // mean_de 7.86.
+        ("sony", "-7rm4") => Some(0.5),
+            // synthetic-bias-fit on test_0011.ARW: bias_max 0.037 → 0.013 (3×).
+            // mean_de 7.48.
+        // Panasonic DMC-LX2 (test_0001.RAW): best_ev=0.00 — no entry needed,
+        // the `_ => None` fallthrough produces 0.0 EV via `baseline_exposure`'s
+        // outer match. Listed here for completeness; bias_max 0.034 unchanged.
         _ => None,
     }
 }
@@ -225,11 +260,36 @@ mod tests {
 
     #[test]
     fn case_insensitive() {
-        // Once an entry exists, uppercase and lowercase should match. With
-        // the empty table, both return 0.0 — this test locks in the
-        // normalization shape.
+        // Once an entry exists, uppercase and lowercase should match. The
+        // table now has Canon EOS 5DS R populated, so this test asserts
+        // the case-insensitive lookup returns its EV value.
+        let ev = baseline_exposure("CANON", "EOS 5DS R");
+        assert!((ev - 1.0).abs() < 1e-4, "expected 1.0 EV for Canon 5DS R, got {ev}");
         assert_eq!(baseline_exposure("CANON", "EOS 5DS R"),
                    baseline_exposure("canon", "eos 5ds r"));
+    }
+
+    #[test]
+    fn populated_bodies_return_nonzero() {
+        // Every body the calibration sweep covered should return its
+        // populated EV. test_0001.RAW (Panasonic DMC-LX2) is intentionally
+        // not in the table (best_ev=0.00 → fallthrough to 0.0).
+        let cases = [
+            ("Canon",      "EOS 5DS R",      1.0_f32),
+            ("Canon",      "EOS 5D Mark IV", 0.5),
+            ("Fujifilm",   "GFX 50S",        1.0),
+            ("Fujifilm",   "GFX 50R",        1.0),
+            ("Hasselblad", "H5D-40",         0.5),
+            ("Nikon",      "D850",           0.5),
+            ("Sony",       "ILCE-7RM4",      0.5),
+        ];
+        for (make, model, expected) in cases {
+            let ev = baseline_exposure(make, model);
+            assert!(
+                (ev - expected).abs() < 1e-4,
+                "{make} {model}: expected {expected} EV, got {ev}"
+            );
+        }
     }
 
     #[test]
