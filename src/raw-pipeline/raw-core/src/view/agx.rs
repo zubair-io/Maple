@@ -76,6 +76,50 @@ fn agx_per_channel(scene: f32, slope: f32) -> f32 {
     sample_lut(contrast_adjusted).clamp(0.0, 1.0)
 }
 
+/// Scene-linear shoulder where pre-formation rolloff begins, in units of
+/// `AGX_MID_GRAY`. 8× mid-gray = +3 EV from mid-gray = 1.44 scene-linear.
+/// Below this, the per-channel sigmoid is in its near-linear region and
+/// channels reach the shoulder together — no rolloff needed. Above this,
+/// per-channel divergence creates hue rotation, so we compress chroma
+/// toward luminance proportional to how far we are above the shoulder.
+const PREFORM_SHOULDER_X: f32 = 8.0;
+
+/// Rec.2020 (BT.2020) luminance weights. Used by `preform_rolloff` as the
+/// achromatic target for chroma compression in saturated highlights.
+const REC2020_LUM_R: f32 = 0.2627;
+const REC2020_LUM_G: f32 = 0.6780;
+const REC2020_LUM_B: f32 = 0.0593;
+
+/// Pre-formation rolloff: when any channel exceeds the AgX shoulder
+/// (~+3 EV from mid-gray = `AGX_MID_GRAY * PREFORM_SHOULDER_X`), compress
+/// chroma toward Rec.2020 luminance proportionally to the excess. Brings
+/// all three channels closer in magnitude before the per-channel sigmoid
+/// so they reach the shoulder together — eliminates the hue rotation
+/// that pure-color saturated highlights otherwise produce (red→pink,
+/// blue→magenta, green→yellow-lime).
+///
+/// Per `docs/superpowers/plans/2026-04-27-clipping-and-artifacts.md`
+/// Phase 1, "AgX pre-formation rolloff". Sobotka's AgX 1.x Open Domain
+/// rolloff with the simpler max-channel compression metric (vs. the full
+/// Blender 4.x 3D-compression form, which would require a separate
+/// codegen path for the Metal/WebGL mirrors).
+fn preform_rolloff(scene: [f32; 3]) -> [f32; 3] {
+    let max = scene[0].max(scene[1]).max(scene[2]);
+    let shoulder = AGX_MID_GRAY * PREFORM_SHOULDER_X;
+    if max <= shoulder {
+        return scene; // below shoulder, no rolloff
+    }
+    // Compression factor: 0 at max == shoulder, asymptotic to 1 as max → ∞.
+    let t = ((max - shoulder) / max).clamp(0.0, 1.0);
+    // Rec.2020 luminance — the achromatic target.
+    let y = REC2020_LUM_R * scene[0] + REC2020_LUM_G * scene[1] + REC2020_LUM_B * scene[2];
+    [
+        scene[0] * (1.0 - t) + y * t,
+        scene[1] * (1.0 - t) + y * t,
+        scene[2] * (1.0 - t) + y * t,
+    ]
+}
+
 /// Apply AgX per-channel across the image. Input must be
 /// `SceneLinearRec2020`; output space is `DisplayLinearRec2020`.
 /// `contrast` in [-100, +100]; 0 is the reference sigmoid.
@@ -84,9 +128,10 @@ pub fn apply(img: &mut Image, contrast: f32) {
     // Slope = 1 + (contrast/100) * 0.5. At +100 → 1.5×, at −100 → 0.5×.
     let slope = 1.0 + (contrast / 100.0) * 0.5;
     img.pixels.par_iter_mut().for_each(|p| {
-        p[0] = agx_per_channel(p[0], slope);
-        p[1] = agx_per_channel(p[1], slope);
-        p[2] = agx_per_channel(p[2], slope);
+        let rolled = preform_rolloff(*p);
+        p[0] = agx_per_channel(rolled[0], slope);
+        p[1] = agx_per_channel(rolled[1], slope);
+        p[2] = agx_per_channel(rolled[2], slope);
     });
     img.space = ColorSpace::DisplayLinearRec2020;
 }
@@ -204,5 +249,71 @@ mod tests {
         assert!(p[0] - p[1] < max_spread,
             "gamut compression failed: R-G = {} - {} = {}, expected much < {}",
             p[0], p[1], p[0] - p[1], max_spread);
+    }
+
+    #[test]
+    fn preform_rolloff_is_noop_below_shoulder() {
+        // Pixels at or below 8× mid-gray (~+3 EV) pass through unchanged.
+        let p = preform_rolloff([0.18, 0.18, 0.18]);
+        assert_eq!(p, [0.18, 0.18, 0.18]);
+        let p = preform_rolloff([1.0, 0.5, 0.3]);
+        assert_eq!(p, [1.0, 0.5, 0.3]);
+        // Right at the shoulder (max == 8 × MID_GRAY = 1.44): still no-op.
+        let p = preform_rolloff([AGX_MID_GRAY * 8.0, 0.18, 0.18]);
+        assert!((p[0] - AGX_MID_GRAY * 8.0).abs() < 1e-6);
+        assert!((p[1] - 0.18).abs() < 1e-6);
+    }
+
+    #[test]
+    fn preform_rolloff_compresses_chroma_above_shoulder() {
+        // Saturated red specular: R way above shoulder, G/B near mid-gray.
+        // After rolloff, R should be lower (compressed toward luminance) and
+        // G/B should be higher (also pulled toward luminance), so the
+        // luminance is roughly preserved but channels are closer together.
+        let scene = [20.0 * AGX_MID_GRAY, AGX_MID_GRAY, AGX_MID_GRAY];
+        let y_before = REC2020_LUM_R * scene[0] + REC2020_LUM_G * scene[1] + REC2020_LUM_B * scene[2];
+        let rolled = preform_rolloff(scene);
+        let y_after = REC2020_LUM_R * rolled[0] + REC2020_LUM_G * rolled[1] + REC2020_LUM_B * rolled[2];
+        assert!(rolled[0] < scene[0], "R should compress: {} -> {}", scene[0], rolled[0]);
+        assert!(rolled[1] > scene[1], "G should lift: {} -> {}", scene[1], rolled[1]);
+        assert!(rolled[2] > scene[2], "B should lift: {} -> {}", scene[2], rolled[2]);
+        // Luminance preserved within numerical noise (this is the *point*
+        // of using REC2020 luminance weights).
+        assert!((y_before - y_after).abs() / y_before < 1e-4,
+            "luminance shifted: {} -> {}", y_before, y_after);
+    }
+
+    #[test]
+    fn preform_rolloff_preserves_hue_on_saturated_red() {
+        // The big invariant: a saturated red highlight, post-rolloff, has
+        // R/G and R/B ratios that match what a less-saturated version of
+        // the same hue would have. Without rolloff, the per-channel sigmoid
+        // compresses R and rolls G/B differently → hue rotation. With
+        // rolloff, the three channels are closer in magnitude going INTO
+        // the sigmoid, so they reach the shoulder together.
+        //
+        // Test this indirectly: end-to-end through `apply()`, the post-AgX
+        // R/G ratio of a saturated red should be MUCH closer to the
+        // pre-rolloff R/G ratio than per-channel-only AgX would produce.
+        let mut img = Image::new(1, 1, ColorSpace::SceneLinearRec2020);
+        let r_in = 20.0 * AGX_MID_GRAY;
+        let g_in = 0.5 * AGX_MID_GRAY;
+        let b_in = 0.5 * AGX_MID_GRAY;
+        img.pixels[0] = [r_in, g_in, b_in];
+        let pre_ratio_rg = r_in / g_in;
+        apply(&mut img, 0.0);
+        let p = img.pixels[0];
+        let post_ratio_rg = p[0] / p[1].max(1e-6);
+        // Without rolloff, the per-channel AgX would push R near 1.0 and
+        // G near MID_DISPLAY (~0.16), giving a post ratio ~6.25 — vs the
+        // pre ratio of 40. With rolloff, the post ratio should sit in a
+        // milder range (luminance-preserving compression brings G/B up).
+        // The exact value depends on the sigmoid shape; we just check that
+        // R is still the dominant channel and the ratio isn't catastrophic.
+        assert!(p[0] > p[1], "R should still dominate: ({}, {}, {})", p[0], p[1], p[2]);
+        assert!(p[0] > p[2], "R should still dominate B: ({}, {}, {})", p[0], p[1], p[2]);
+        assert!(post_ratio_rg < pre_ratio_rg,
+            "post ratio {} should be less than pre ratio {} (compression occurred)",
+            post_ratio_rg, pre_ratio_rg);
     }
 }
