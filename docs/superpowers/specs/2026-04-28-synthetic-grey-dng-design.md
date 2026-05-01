@@ -257,3 +257,11 @@ Useful for ad-hoc debugging of pipeline regressions, parity bisection across pla
 - Generator round-trips through Maple's existing DNG decoder (i.e. `decode.rs` reads back the same width/height/CFA/black/white/AsShotNeutral that `SyntheticGreyDng` wrote).
 - `cargo run --example synth-grey -- --value 0.18 --out /tmp/g.dng` produces a DNG that, when fed to `maple-cli single`, renders to a visually neutral grey patch (sanity check; the unit tests are the real gate).
 - The new test gate runs in <2 seconds wall-clock locally.
+
+## Status — completed 2026-04-28
+
+- All four acceptance criteria met. `test_synthetic_grey.sh` runs 6/6 tests in ~0.15s wall-clock.
+- Plan implemented at `docs/superpowers/plans/2026-04-28-synthetic-grey-dng.md`.
+- Generator lives at `src/raw-pipeline/raw-core/src/test_support/synth_dng.rs` behind the `test-support` Cargo feature.
+- Headline result on the user's original question ("does the pipeline preserve a known grey?"): synthetic L=0.18 scene-linear renders to **uniform RGB(134, 134, 134)** end-to-end through Maple — every pixel identical, zero color cast. (134 ≠ 127 because Maple's AgX tone curve lifts mid-grey above where a plain sRGB encode would land it.)
+- Tolerance budgets observed on the reference Hasselblad-shaped synthetic: scene-linear `5e-4` (worst observed `1.07e-4` at L=0.50), display-encoded `±2 LSB`. At L=0 the pipeline is bit-exact (last-bit float noise only).

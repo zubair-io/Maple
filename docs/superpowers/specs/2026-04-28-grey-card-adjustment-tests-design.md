@@ -245,3 +245,14 @@ Sibling of `test_synthetic_grey.sh` and `test_color_pipeline.sh`. Same never-ski
 - **Tone-curve closed-form display predictions** — model AgX in the test as a known function. Fragile; revisit only if AgX stabilises.
 - **WB temp absolute prediction** — model the temp/tint → WB-multiplier function. Bounded but involved; relational coverage is enough until a regression demands it.
 - **iOS UITest matrix** — the existing slider-matrix harness is macOS-only; same constraint applies here.
+
+## Status — completed 2026-04-28 (with two findings)
+
+Plan implemented at `docs/superpowers/plans/2026-04-28-grey-card-adjustment-tests.md`. Of 17 closed-form + relational tests:
+
+- **15 / 17 pass** at the spec's tolerance budgets. Closed-form predictions for `exposure`, `shadows`, `whites`, `blacks`, `saturation`, `vibrance`, and chained `exposure + highlights` agree with Maple within `5e-4`.
+- **2 / 17 fail by design** (`tint_plus_pushes_magenta`, `tint_minus_pushes_green`) — the predict-from-spec tests surfaced that **Maple's tint slider sign is inverted vs ACR**: positive tint produces green, negative produces magenta. The tests intentionally assert the ACR convention so the failure remains an alarm. See spawned investigation chip; do not flip the assertions to silence them.
+- Apple-side `SyntheticGreyUITests` was wired in (`src/apple/MapleUITests/SyntheticGreyUITests.swift` + 6 XMP cases + bootstrap DNG fixture under `Fixtures/synthetic/`) but is **blocked** at runtime: macOS's CGImageSource cannot decode the synthetic DNG because IFD0 holds the CFA raw directly instead of an RGB thumbnail. The Rust-side coverage above remains strong; the Apple harness is dormant until the synthetic writer is restructured to put the raw in a SubIFD.
+- Predictor-pair drift tests pin every public predictor to `1e-6` against the matching production stage. During the session, these drift tests caught two stale predictors after `scene_tone_controls.rs` was refactored to simpler whites/blacks math — the predictors were updated to match the new production code.
+
+Bonus side-finding from the dump_display_means run: at L=0.18, **shadows / whites / contrast all leave mid-gray unchanged** at u8(134, 134, 134). That's spec-correct (each slider pivots around mid-gray by design) and the Apple parity test would have asserted that property had it been runnable.
