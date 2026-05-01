@@ -53,6 +53,21 @@ pub fn stage<T>(_name: &'static str, f: impl FnOnce() -> T) -> T {
     f()
 }
 
+/// Per-stage diagnostic dump. No-op when the `stage-dump` feature is
+/// disabled or the `MAPLE_STAGE_DUMP` env var is unset. Called after each
+/// stage that produces or modifies the in-flight `Image`.
+#[cfg(feature = "stage-dump")]
+#[inline]
+fn dump_after(name: &str, image: &crate::image::Image) {
+    if let Some(dir) = crate::stage_dump::dump_dir() {
+        crate::stage_dump::dump_image(name, image, &dir);
+    }
+}
+
+#[cfg(not(feature = "stage-dump"))]
+#[inline]
+fn dump_after(_name: &str, _image: &crate::image::Image) {}
+
 /// Per spec § 02 filter chain, slice-1 through slice-5 subset:
 /// * Highlight reconstruction (§ 3.3a), SceneToneControls (§ 3.6 steps 1-5),
 ///   Vibrance + Saturation (§ 3.7, Oklab), Clarity + Texture (§ 3.8),
@@ -152,7 +167,9 @@ pub fn develop_scene_linear_from_raw_with_quality(
             }
         });
     }
+    dump_after("01_baseline_exposure", &camera_rgb);
     stage("highlight_recovery", || highlight_recovery::apply(&mut camera_rgb, model.highlight_recovery));
+    dump_after("02_highlight_recovery", &camera_rgb);
     let profile = stage("dcp::profile_for", || dcp::profile_for(raw))?;
     // dcp::apply_with_plt_and_ptc runs HSM (from `profile.hsm`),
     // ProfileToneCurve (from `raw.profile_tone_curve`), and PLT (from
@@ -164,6 +181,7 @@ pub fn develop_scene_linear_from_raw_with_quality(
     let mut scene = stage("dcp::apply", || dcp::apply_with_plt_and_ptc(
         &camera_rgb, &profile, raw.plt.as_ref(), raw.profile_tone_curve.as_ref(),
     ))?;
+    dump_after("03_dcp_apply", &scene);
     // ProfileGainTableMap (DNG 1.6 § 6.8) — spatially-varying RGB gain.
     // Applied AFTER the gamut conversion, in scene-linear Rec.2020. No-op
     // when raw.profile_gain_table_map is None (most fixtures).
@@ -172,6 +190,7 @@ pub fn develop_scene_linear_from_raw_with_quality(
             crate::color::profile_gain_table_map::apply(&mut scene, pgtm)
         });
     }
+    dump_after("04_profile_gain_table_map", &scene);
     // Damped per-image histogram-shape auto-exposure. Operates on the
     // post-DCP/PTC/PGTM scene-linear Rec.2020 image; deterministic; pure
     // math. Layered ON TOP of the empirical `MAPLE_AGX_BASELINE_COMPENSATION_EV
@@ -180,16 +199,27 @@ pub fn develop_scene_linear_from_raw_with_quality(
     // Runs BEFORE scene_tone_controls so the user's exposure slider stacks
     // additively (in EV) on top of the auto-tuned baseline.
     stage("auto_exposure", || auto_exposure::apply(&mut scene, AUTO_EXPOSURE_CLIP_PCT));
+    dump_after("05_auto_exposure", &scene);
     stage("white_balance", || white_balance::apply(&mut scene, model.temperature, model.tint));
+    dump_after("06_white_balance", &scene);
     stage("scene_tone_controls", || scene_tone_controls::apply(&mut scene, model));
+    dump_after("07_scene_tone_controls", &scene);
     stage("vibrance", || vibrance::apply(&mut scene, model.vibrance));
+    dump_after("08_vibrance", &scene);
     stage("saturation", || saturation::apply(&mut scene, model.saturation));
+    dump_after("09_saturation", &scene);
     stage("clarity", || clarity::apply(&mut scene, model.clarity));
+    dump_after("10_clarity", &scene);
     stage("texture", || texture::apply(&mut scene, model.texture));
+    dump_after("11_texture", &scene);
     stage("dehaze", || dehaze::apply(&mut scene, model.dehaze));
+    dump_after("12_dehaze", &scene);
     stage("sharpen", || sharpen::apply(&mut scene, model.sharpen_amount, model.sharpen_radius, model.sharpen_detail, model.sharpen_masking));
+    dump_after("13_sharpen", &scene);
     stage("nr_luminance", || noise_reduction::apply_luminance(&mut scene, model.nr_luminance));
+    dump_after("14_nr_luminance", &scene);
     stage("nr_color", || noise_reduction::apply_color(&mut scene, model.nr_color));
+    dump_after("15_nr_color", &scene);
     Ok(scene)
 }
 
