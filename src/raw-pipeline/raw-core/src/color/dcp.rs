@@ -152,6 +152,31 @@ pub fn apply_with_plt_and_ptc(
     apply_with_post_pro(camera, profile, plt, ptc)
 }
 
+/// Soft-floor: when any channel goes below 0 post-DCP (out-of-gamut camera
+/// color in Rec.2020), pull all three channels up uniformly by the deficit.
+/// Preserves hue (R/G/B ratios) while moving the pixel into the renderable
+/// part of the gamut.
+///
+/// Without this, AgX downstream clamps negatives to its `AGX_MIN_EV` floor
+/// (~0.00018), so the displayed image loses blue/red where the scene had
+/// out-of-gamut variants of those colors. Diagnosed via stage-dump on
+/// Canon EOS 5D Mark III (test_0006 / test_0007): post-DCP B channel
+/// went to -0.021 after the camera's AsShotNeutral × ColorMatrix drove
+/// the blue reading out of Rec.2020, and the AgX clamp lost ~0.295 of
+/// blue brightness in the final output.
+///
+/// Per `docs/superpowers/plans/2026-04-27-clipping-and-artifacts.md`
+/// Phase 4 (negative-channel handling after DCP).
+#[inline]
+fn soft_floor(p: [f32; 3]) -> [f32; 3] {
+    let min = p[0].min(p[1]).min(p[2]);
+    if min >= 0.0 {
+        return p;
+    }
+    let lift = -min;
+    [p[0] + lift, p[1] + lift, p[2] + lift]
+}
+
 fn apply_with_post_pro(
     camera: &Image,
     profile: &DcpProfile,
@@ -210,7 +235,7 @@ fn apply_with_post_pro(
         out.pixels
             .par_iter_mut()
             .zip(pro.pixels.par_iter())
-            .for_each(|(o, p)| { *o = exit.mul_vec(*p); });
+            .for_each(|(o, p)| { *o = soft_floor(exit.mul_vec(*p)); });
         return Ok(out);
     }
 
@@ -221,7 +246,7 @@ fn apply_with_post_pro(
     out.pixels
         .par_iter_mut()
         .zip(camera.pixels.par_iter())
-        .for_each(|(o, p)| { *o = m.mul_vec(*p); });
+        .for_each(|(o, p)| { *o = soft_floor(m.mul_vec(*p)); });
     Ok(out)
 }
 
@@ -1007,5 +1032,38 @@ mod tests {
             img.pixels[i] = *p;
         }
         img
+    }
+
+    #[test]
+    fn soft_floor_passes_nonnegative_unchanged() {
+        // Already in-gamut: function is a no-op.
+        let p = soft_floor([0.5, 0.3, 0.7]);
+        assert_eq!(p, [0.5, 0.3, 0.7]);
+        let p = soft_floor([0.0, 0.0, 0.0]);
+        assert_eq!(p, [0.0, 0.0, 0.0]);
+        let p = soft_floor([1.5, 0.8, 0.2]);
+        assert_eq!(p, [1.5, 0.8, 0.2]);
+    }
+
+    #[test]
+    fn soft_floor_lifts_negative_uniformly_preserving_hue() {
+        // Mild negative B (the test_0006/test_0007 case): all channels
+        // get lifted by |min| = 0.021, hue (channel ratios after lift)
+        // is the same as before lift modulo the additive shift.
+        let p = soft_floor([0.181, 0.192, -0.021]);
+        assert!((p[0] - 0.202).abs() < 1e-5, "R = {}", p[0]);
+        assert!((p[1] - 0.213).abs() < 1e-5, "G = {}", p[1]);
+        assert!((p[2] - 0.0  ).abs() < 1e-5, "B = {}", p[2]);
+        // The smallest channel is at exactly 0 after lifting, by construction.
+        assert!(p[0].min(p[1]).min(p[2]) >= -1e-6);
+    }
+
+    #[test]
+    fn soft_floor_extreme_negative_lifts_correctly() {
+        // Heavily out-of-gamut input: lift by the largest negative.
+        let p = soft_floor([-0.5, 0.5, 0.5]);
+        assert!((p[0] - 0.0).abs() < 1e-6);
+        assert!((p[1] - 1.0).abs() < 1e-6);
+        assert!((p[2] - 1.0).abs() < 1e-6);
     }
 }
