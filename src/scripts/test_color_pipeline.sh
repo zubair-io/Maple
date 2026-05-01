@@ -1,39 +1,43 @@
 #!/bin/bash
-# calibrate_color_pipeline.sh — color-calibration harness against ACR references.
+# test_color_pipeline.sh — canonical color-parity gate for the Rust raw pipeline.
 #
-# Sibling to test_color_pipeline.sh (which diffs vs the DNG's embedded JPEG
-# preview as a sanity gate). This script diffs against the ACR-rendered
-# references in test-fixtures/references/<stem>/{down,full}/<case>.png
-# — the ground truth produced via the Photoshop ACR-batch script. Use
-# this to (1) measure systematic per-channel bias across fixtures /
-# slider cases, (2) tweak DCP / AgX / WB code, (3) re-run, and watch the
-# numbers move.
+# Per CLAUDE.md § "Objective color testing — no eyeballing":
+#   "Every color-pipeline change must pass the perceptual harness.
+#    Screenshot comparisons are not acceptable evidence."
+#
+# Diffs maple-cli output against ACR-rendered references in
+# test-fixtures/references/<stem>/{down,full}/<case>.png. Reads a per-fixture ×
+# per-case budget table from test-fixtures/budgets.json and gates pass/fail
+# accordingly. Budgets are a one-way ratchet — they only go down.
 #
 # Pipeline per case in test-fixtures/references/manifest.json:
 #   1. maple-cli batch <manifest> --out-dir <tmp>      (one shot, all cases)
 #   2. For each ManifestCase whose ManifestOutput[resolution=down].png exists:
 #      - Resize the candidate PNG to the reference's dimensions (Lanczos)
-#      - python3 compare_images.py <cand_resized> <ref> → JSON
-#      - Parse mean/p95/max ΔE + per-channel bias
+#      - Diff (CIEDE2000 + per-channel bias) inline
+#      - Compare against budgets.json for that fixture × case
 #   3. Print column-aligned table sorted by fixture/case
-#   4. Aggregate per-fixture and grand mean
+#   4. Aggregate per-fixture and grand mean; non-zero exit on any budget breach
 #
-# CI-style soft skip: missing test-fixtures/raws/, missing manifest, or
-# manifest with zero matchable cases all exit 0 with a notice. Lets the
-# script grow with the reference set as the user adds more fixtures.
+# CI-style soft skip: missing test-fixtures/raws/, missing manifest, missing
+# budgets.json, or manifest with zero matchable cases all exit 0 with a notice.
+# Lets the script grow with the reference set as the user adds more fixtures.
 #
 # Env overrides:
 #   MAPLE_CLI            override path to a pre-built maple-cli binary
 #   MANIFEST             default test-fixtures/references/manifest.json
+#   BUDGETS              default test-fixtures/budgets.json
 #   PREFERRED_RES        "down" (default) or "full"
-#   FILTER               substring filter on case name (e.g. "wb_" or "test_0000")
-#   KEEP_TMP             non-empty → leave the candidate dir on disk for inspection
+#   FILTER               substring filter on case name
+#   KEEP_TMP             non-empty → leave the candidate dir on disk
+#   ALLOW_MISSING_BUDGET non-empty → cases not in budgets.json pass with a warn
+#                        (default: missing budget = FAIL, force entry add)
 #
 # Usage:
-#   src/scripts/calibrate_color_pipeline.sh
-#   FILTER=test_0000 src/scripts/calibrate_color_pipeline.sh
-#   FILTER=wb_ src/scripts/calibrate_color_pipeline.sh
-#   PREFERRED_RES=full src/scripts/calibrate_color_pipeline.sh
+#   src/scripts/test_color_pipeline.sh
+#   FILTER=test_0000 src/scripts/test_color_pipeline.sh
+#   FILTER=baseline src/scripts/test_color_pipeline.sh
+#   PREFERRED_RES=full src/scripts/test_color_pipeline.sh
 
 set -euo pipefail
 
@@ -48,7 +52,7 @@ PREFERRED_RES="${PREFERRED_RES:-down}"
 FILTER="${FILTER:-}"
 
 # ----- preflight -----------------------------------------------------------
-err() { printf "calibrate_color: %s\n" "$*" >&2; }
+err() { printf "test_color_pipeline: %s\n" "$*" >&2; }
 
 require_cmd() {
   if ! command -v "$1" >/dev/null 2>&1; then
@@ -65,15 +69,15 @@ if [[ ! -f "$COMPARE_PY" ]]; then
 fi
 
 if [[ ! -f "$MANIFEST" ]]; then
-  echo "calibrate_color: manifest not found at $MANIFEST — skipping"
-  echo "calibrate_color: (gitignored references; CI without references is a soft pass)"
+  echo "test_color_pipeline: manifest not found at $MANIFEST — skipping"
+  echo "test_color_pipeline: (gitignored references; CI without references is a soft pass)"
   exit 0
 fi
 
 # Build maple-cli if missing. Honors caller-provided $MAPLE_CLI.
 MAPLE_CLI="${MAPLE_CLI:-$MAPLE_CLI_RELEASE}"
 if [[ ! -x "$MAPLE_CLI" ]]; then
-  echo "calibrate_color: building maple-cli (release) ..."
+  echo "test_color_pipeline: building maple-cli (release) ..."
   ( cd "$REPO_ROOT/src/raw-pipeline" && cargo build --release --bin maple-cli >/dev/null )
   MAPLE_CLI="$MAPLE_CLI_RELEASE"
 fi
@@ -83,22 +87,22 @@ WORKDIR="$(mktemp -d -t maple-calibrate-XXXXXX)"
 if [[ -z "${KEEP_TMP:-}" ]]; then
   trap 'rm -rf "$WORKDIR"' EXIT
 else
-  echo "calibrate_color: KEEP_TMP set — candidates in $WORKDIR"
+  echo "test_color_pipeline: KEEP_TMP set — candidates in $WORKDIR"
 fi
 
 CANDIDATES_DIR="$WORKDIR/candidates"
 mkdir -p "$CANDIDATES_DIR"
 
-echo "calibrate_color: manifest=$MANIFEST"
-echo "calibrate_color: preferred_resolution=$PREFERRED_RES"
-[[ -n "$FILTER" ]] && echo "calibrate_color: filter=$FILTER"
+echo "test_color_pipeline: manifest=$MANIFEST"
+echo "test_color_pipeline: preferred_resolution=$PREFERRED_RES"
+[[ -n "$FILTER" ]] && echo "test_color_pipeline: filter=$FILTER"
 echo ""
 
 # ----- 1. Render all cases via maple-cli batch -----------------------------
 # `maple-cli batch` writes <out_dir>/<name.replace('/', '_')>.png per case.
 # Filter is applied substring-on-case-name (matches the Rust `--cases-filter`
 # arg) so partial-fixture iteration is fast.
-echo "calibrate_color: rendering candidates ..."
+echo "test_color_pipeline: rendering candidates ..."
 batch_args=( batch --manifest "$MANIFEST" --out-dir "$CANDIDATES_DIR" )
 if [[ -n "$FILTER" ]]; then
   batch_args+=( --cases-filter "$FILTER" )
