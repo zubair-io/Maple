@@ -440,16 +440,27 @@ fn lerp_hsm_for_cct(
 /// Falls back to single-illuminant (D65 → D50 → D55 → StdA → any) when only
 /// one matrix is available.
 pub fn profile_for(raw: &RawImage) -> crate::Result<DcpProfile> {
-    // For LinearRaw DNGs, `linearize::linearraw_to_camera_rgb` undoes the
-    // converter's AsShotNeutral pre-bake by multiplying each channel by
-    // AsShotNeutral. The resulting camera-RGB is in the same space the
-    // Bayer path produces (neutral patch reads as AsShotNeutral), so
-    // `scene_white_xyz = inv(CM) · AsShotNeutral` is correct for both.
-    // The `wb_already_baked` flag stays FALSE here; it's reserved for
-    // hypothetical future variants that hand WB-baked input directly to
-    // `dcp::apply` (no pre-bake undo). See ticket #07.
-    let wb_already_baked = false;
-    let neutral_for_white: [f32; 3] = raw.as_shot_neutral;
+    // Phase 1.2 of the color-convergence work re-enabled the DNG-spec WB
+    // pre-gain at `pipeline.rs` (after `linearize` + `demosaic`, before
+    // DCP). After pre-gain, a neutral scene patch reads as (1, 1, 1) going
+    // into DCP, so `scene_white_xyz = inv(CM) · (1, 1, 1)` and the DCP path
+    // must run with `wb_already_baked = true`.
+    //
+    // Exception: 8-bit lossy LinearRaw DNGs (Adobe DNG Converter perceptual
+    // path with `BitsPerSample = 8 8 8` and `white_level <= 255`) skip
+    // pre-gain at pipeline.rs — WB stays baked through the linearize gamma
+    // decode. For those, the legacy `inv(CM) · AsShotNeutral` derivation
+    // is the empirical match (the principled `inv(CM) · (1, 1, 1)`
+    // regressed by ~14 ΔE in earlier testing — see linearize.rs:137-145
+    // for the detailed history).
+    let skip_pre_gain = matches!(raw.cfa, crate::image::CfaPattern::LinearRgb)
+        && raw.white_level <= 255;
+    let wb_already_baked = !skip_pre_gain;
+    let neutral_for_white: [f32; 3] = if wb_already_baked {
+        [1.0, 1.0, 1.0]
+    } else {
+        raw.as_shot_neutral
+    };
 
     // Prefer two-illuminant interpolation when we have CMs at both ends of
     // the typical range (cold illuminant like StdA, warm like D65).
@@ -737,12 +748,14 @@ mod tests {
         };
         let profile = profile_for(&raw).unwrap();
 
-        // Pipeline does NOT pre-gain; neutral pixel enters inv(CM) as
-        // AsShotNeutral. Self-consistent test: inv(CM) * AsShotNeutral
-        // gives XYZ_scene_white, Bradford(that → D50) gives D50 white,
-        // downstream matrices give neutral Rec.2020.
+        // Phase 1.2: pipeline.rs pre-gains camera_rgb by AsShotNeutral
+        // before DCP. After pre-gain, a neutral patch reads (1, 1, 1) and
+        // profile_for returns wb_already_baked=true so DCP uses
+        // `inv(CM) · (1, 1, 1)` for scene_white_xyz. This unit test mirrors
+        // that contract: feed (1, 1, 1) and expect neutral output.
+        assert!(profile.wb_already_baked, "expected pre-gain semantics for Bayer cfa");
         let mut img = Image::new(1, 1, ColorSpace::CameraNativeLinearRgb);
-        img.pixels[0] = as_shot_neutral;
+        img.pixels[0] = [1.0, 1.0, 1.0];
         let out = apply(&img, &profile).unwrap();
         let p = out.pixels[0];
 
@@ -753,16 +766,20 @@ mod tests {
             p[0], p[1], p[2], rg, bg);
     }
 
-    /// Regression test for ticket #07 (LinearRaw WB double-apply fix).
-    /// `linearize::linearraw_to_camera_rgb` undoes the converter's
-    /// AsShotNeutral pre-bake (multiplying each channel by AsShotNeutral) so
-    /// the data delivered to `dcp::apply` is in the same camera-RGB space
-    /// the Bayer path produces. As a result `profile_for` produces the
-    /// SAME `scene_white_xyz` for a LinearRgb raw as for the Bayer
-    /// equivalent — both use `inv(CM) · AsShotNeutral`. The
-    /// `DcpProfile::wb_already_baked` flag stays `false` for the LinearRgb
-    /// path; it's reserved for hypothetical future callers that hand
-    /// already-baked data directly to `dcp::apply`.
+    /// Regression test for ticket #07 (LinearRaw WB double-apply fix),
+    /// updated for Phase 1.2 of color-convergence (WB pre-gain re-enabled).
+    ///
+    /// 16-bit LinearRgb DNGs go through `linearize::linearraw_to_camera_rgb`
+    /// which multiplies by AsShotNeutral to undo the converter's WB pre-bake
+    /// (puts data in same camera-RGB space the Bayer path produces). Then
+    /// pipeline.rs pre-gains BOTH paths uniformly. So both profile paths now
+    /// produce identical `scene_white_xyz` because both run with
+    /// `wb_already_baked=true` and `neutral_for_white=(1,1,1)`.
+    ///
+    /// 8-bit lossy LinearRgb (white_level <= 255) skips pre-gain entirely
+    /// (data is gamma-decoded but WB-baked); for those, `wb_already_baked`
+    /// stays false and `scene_white_xyz = inv(CM) · AsShotNeutral`. That
+    /// path is covered separately.
     #[test]
     fn linearraw_profile_matches_bayer_after_pre_bake_undo() {
         let cm = Matrix3([
@@ -774,10 +791,12 @@ mod tests {
         cms.insert(Illuminant::D65, cm);
         let warm_wb: [f32; 3] = [1.65, 1.0, 2.16]; // Canon-shape AsShotNeutral
 
+        // Use white_level > 255 so the LinearRgb path is the 16-bit variant
+        // (gets pre-gain, wb_already_baked=true) — matches Bayer's contract.
         let raw_linear = RawImage {
             width: 1, height: 1,
             cfa: crate::image::CfaPattern::LinearRgb,
-            black_level: [0; 4], white_level: 1,
+            black_level: [0; 4], white_level: 65535,
             raw_data: vec![0; 3], // 1 px × 3 channels
             as_shot_neutral: warm_wb,
             as_shot_cct: None,
@@ -794,18 +813,18 @@ mod tests {
             profile_gain_table_map: None,
         };
         let prof_linear = profile_for(&raw_linear).unwrap();
-        // Pre-bake undo lives in linearize::linearraw_to_camera_rgb, not in
-        // profile_for. The flag stays false for LinearRgb sources.
-        assert!(!prof_linear.wb_already_baked,
-            "wb_already_baked must remain false; pre-bake undo runs in linearize");
+        // 16-bit LinearRgb path: pipeline.rs pre-gains, so DCP runs with
+        // wb_already_baked=true (same as Bayer).
+        assert!(prof_linear.wb_already_baked,
+            "16-bit LinearRgb must get wb_already_baked=true after Phase 1.2");
 
         // For comparison: a Bayer raw with the same CM + WB must produce
-        // the SAME scene_white_xyz, because both paths now hand camera RGB
-        // with neutrals = AsShotNeutral to dcp::apply.
+        // the SAME scene_white_xyz — both pre-gained, both compute
+        // scene_white from inv(CM) · (1,1,1).
         let mut raw_bayer = raw_linear.clone();
         raw_bayer.cfa = crate::image::CfaPattern::Rggb;
         let prof_bayer = profile_for(&raw_bayer).unwrap();
-        assert!(!prof_bayer.wb_already_baked);
+        assert!(prof_bayer.wb_already_baked);
         for i in 0..3 {
             assert!((prof_linear.scene_white_xyz[i] - prof_bayer.scene_white_xyz[i]).abs() < 1e-5,
                 "LinearRgb and Bayer profiles must produce the SAME scene_white_xyz; \
@@ -813,16 +832,25 @@ mod tests {
                 prof_linear.scene_white_xyz, prof_bayer.scene_white_xyz);
         }
 
-        // Self-consistency check: scene_white_xyz really is inv(CM) · AsShotNeutral / Y_normalized.
+        // Self-consistency: with wb_already_baked=true, scene_white_xyz =
+        // inv(CM) · (1,1,1) / Y_normalized.
         let inv_cm = cm.inverse().unwrap();
-        let xyz = inv_cm.mul_vec(warm_wb);
+        let xyz = inv_cm.mul_vec([1.0, 1.0, 1.0]);
         let s = 1.0 / xyz[1];
         let expected = [xyz[0] * s, 1.0, xyz[2] * s];
         for i in 0..3 {
             assert!((prof_linear.scene_white_xyz[i] - expected[i]).abs() < 1e-4,
-                "scene_white_xyz[{}] = {} (want inv(CM)·AsShotNeutral = {})",
+                "scene_white_xyz[{}] = {} (want inv(CM)·(1,1,1) = {})",
                 i, prof_linear.scene_white_xyz[i], expected[i]);
         }
+
+        // The 8-bit lossy LinearRgb path keeps the legacy contract: no
+        // pre-gain, scene_white from inv(CM) · AsShotNeutral.
+        let mut raw_lossy = raw_linear.clone();
+        raw_lossy.white_level = 255;
+        let prof_lossy = profile_for(&raw_lossy).unwrap();
+        assert!(!prof_lossy.wb_already_baked,
+            "8-bit lossy LinearRgb must keep wb_already_baked=false");
     }
 
     #[test]
