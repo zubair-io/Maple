@@ -256,3 +256,35 @@ Sibling of `test_grey_adjustments.sh` and `test_synthetic_grey.sh`.
 - **iOS-side parity**. Apple test track paused on ImageIO compatibility; revisit after restructuring the synthetic DNG to a thumbnail-IFD0 layout.
 - **Non-DNG vendor formats**. CFA RAW from Canon, Nikon, etc. won't carry DCP tags the same way; that's a separate path.
 - **Real-camera AsShotNeutral with synthetic patches**. The chart is rendered with a generic D65 AsShotNeutral; combining real CM with real WB needs a third pass.
+
+## Status — Phase 1 complete 2026-04-29; Phase 2 partial; one bug found and fixed
+
+Plan implemented at `docs/superpowers/plans/2026-04-29-grey-card-dcp-coverage.md`. Tasks 1-12 + 18 landed; Tasks 13-17 (HSM/LookTable/GainTableMap integration tests) deferred — infrastructure is in place, the marked-cell HSM predictor and LUT tag wiring on `SyntheticColorChart` remain.
+
+**Phase 1 tests — 4 / 4 pass on main:**
+
+- `neutral_preserved_under_real_dcp` — real Hasselblad dual-CM preserves neutrals within `5e-4`.
+- `cct_interpolation_continuous` — sweeping AsShotNeutral across StdA→D65 produces continuous output (no crossover discontinuity).
+- `forward_matrix_replaces_bradford` — FM-on vs FM-off produce distinguishably different scene-linear output.
+- `profile_tone_curve_predicts` — closed-form `predict_tone_curve(L)` matches Maple's `profile_tone_curve::eval` on the development chain across L ∈ {0.05, 0.18, 0.50, 0.82}.
+
+**Bug found and fixed during implementation:** the FM test initially failed with `max |Δ| = 0` because `decode.rs` never read the ForwardMatrix1/2 tags (50964/50965). Real iPhone DNGs ship FM data and Maple was silently using Bradford CA on those bodies. Fix landed at commit `962a150 feat(raw-core): read ForwardMatrix1/2 tags from DNGs`:
+
+- `RawImage` gained `forward_matrices: HashMap<Illuminant, Matrix3>`.
+- `decode.rs` reads FM1/FM2 keyed by `CalibrationIlluminant1/2` codes via a new `exif_illuminant_to_core` mapper.
+- `interpolated_profile` accepts `fm_cold`/`fm_warm` and lerps them by the same reciprocal-CCT `t` parameter as the CMs.
+- `profile_for` plumbs FM through both dual-CM and single-CM fallback paths.
+
+The fix is back-compatible: DNGs without FM tags still get Bradford as before.
+
+**Infrastructure in place but not yet exercised by integration tests:**
+
+- `SyntheticColorChart` (24-patch Macbeth-style multi-patch synthetic, ColorChecker-Rec.2020 targets baked at `colorchecker.rs`).
+- `predict_radial_gain` predictor + 4 unit tests at `1e-6`.
+- `read_patch_mean` patch-readout helper that skips the demosaic-bleed border.
+
+**Remaining for full Phase 2 coverage:**
+
+- `predict_hsm_cell` predictor (RGB → HSV → trilinear LUT lookup → HSV → RGB), mirroring `color/hsm.rs`. The HSV partition logic in production is the gnarly part to mirror exactly.
+- HSM/LookTable/GainTableMap tag emission on `SyntheticColorChart` (parallels the work already done on `SyntheticGreyDng`).
+- Three integration tests: HSM marked-cell, LookTable composes after HSM, ProfileGainTableMap radial.
