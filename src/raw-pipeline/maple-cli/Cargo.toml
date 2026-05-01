@@ -9,6 +9,9 @@ license.workspace = true
 name = "maple-cli"
 path = "src/main.rs"
 
+[features]
+stage-dump = ["raw-core/stage-dump"]
+
 [dependencies]
 raw-core = { path = "../raw-core" }
 clap.workspace = true
