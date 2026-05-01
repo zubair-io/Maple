@@ -282,27 +282,42 @@ pub fn develop_scene_linear_sized_from_raw_with_quality(
             }
         });
     }
+    dump_after("01_baseline_exposure", &camera_rgb);
     stage("sized_highlight_recovery", || highlight_recovery::apply(&mut camera_rgb, model.highlight_recovery));
+    dump_after("02_highlight_recovery", &camera_rgb);
     let profile = stage("sized_dcp_profile_for", || dcp::profile_for(raw))?;
     let mut scene = stage("sized_dcp_apply", || dcp::apply_with_plt_and_ptc(
         &camera_rgb, &profile, raw.plt.as_ref(), raw.profile_tone_curve.as_ref(),
     ))?;
+    dump_after("03_dcp_apply", &scene);
     if let Some(pgtm) = raw.profile_gain_table_map.as_ref() {
         stage("sized_profile_gain_table_map", || {
             crate::color::profile_gain_table_map::apply(&mut scene, pgtm)
         });
     }
+    dump_after("04_profile_gain_table_map", &scene);
     stage("sized_auto_exposure", || auto_exposure::apply(&mut scene, AUTO_EXPOSURE_CLIP_PCT));
+    dump_after("05_auto_exposure", &scene);
     stage("sized_white_balance", || white_balance::apply(&mut scene, model.temperature, model.tint));
+    dump_after("06_white_balance", &scene);
     stage("sized_scene_tone_controls", || scene_tone_controls::apply(&mut scene, model));
+    dump_after("07_scene_tone_controls", &scene);
     stage("sized_vibrance", || vibrance::apply(&mut scene, model.vibrance));
+    dump_after("08_vibrance", &scene);
     stage("sized_saturation", || saturation::apply(&mut scene, model.saturation));
+    dump_after("09_saturation", &scene);
     stage("sized_clarity", || clarity::apply(&mut scene, model.clarity));
+    dump_after("10_clarity", &scene);
     stage("sized_texture", || texture::apply(&mut scene, model.texture));
+    dump_after("11_texture", &scene);
     stage("sized_dehaze", || dehaze::apply(&mut scene, model.dehaze));
+    dump_after("12_dehaze", &scene);
     stage("sized_sharpen", || sharpen::apply(&mut scene, model.sharpen_amount, model.sharpen_radius, model.sharpen_detail, model.sharpen_masking));
+    dump_after("13_sharpen", &scene);
     stage("sized_nr_luminance", || noise_reduction::apply_luminance(&mut scene, model.nr_luminance));
+    dump_after("14_nr_luminance", &scene);
     stage("sized_nr_color", || noise_reduction::apply_color(&mut scene, model.nr_color));
+    dump_after("15_nr_color", &scene);
     Ok(scene)
 }
 
