@@ -125,24 +125,37 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
     // AgX shape itself needs work, retune AGX_MID_DISPLAY in
     // raw-core/src/view/agx_coeffs.rs against canonical Blender 4.x AgX
     // (not against ACR).
-    // MAPLE_BE_OVERRIDE: when set to a parseable f32, takes precedence over
-    // the DNG tag and the per-body lookup. Used by tools/calibration/
-    // derive_baseline_exposure.py to sweep BE values without recompiling.
-    // Production runs with the env var unset and the original priority
-    // order applies.
+    // BaselineExposure resolution:
+    //
+    //   MAPLE_BE_OVERRIDE (env, dev-only) → absolute override
+    //                                       OR
+    //   (DNG BaselineExposure tag) + (DNG BaselineExposureOffset tag)
+    //     + (camera_calibration::baseline_exposure lookup, additive)
+    //
+    // Each tag/lookup contributes 0.0 when absent. The per-body lookup is
+    // ADDITIVE on top of the DNG-supplied value — lets us fine-tune bodies
+    // whose embedded BaselineExposure undershoots ACR's brightness on this
+    // body (e.g. Hasselblad H2D-39, tag=0, needs +0.3 lift). For vendor RAW
+    // formats (CR2/ARW/RAF/NEF/X3F/fff/RAW) the tags are absent and the
+    // lookup is the sole source — same as Phase 1.1. The lookup returns
+    // 0.0 for unknown bodies so adding an entry never breaks anything that
+    // wasn't there.
+    //
+    // MAPLE_BE_OVERRIDE is only used by tools/calibration/derive_baseline_
+    // exposure.py to sweep absolute BE values during calibration; production
+    // never sets it.
     let baseline_exposure = match std::env::var("MAPLE_BE_OVERRIDE")
         .ok()
         .and_then(|s| s.parse::<f32>().ok())
     {
         Some(ev) => ev,
-        None => match (baseline_tag, offset_tag) {
-            (Some(b), Some(o)) => b + o,
-            (Some(b), None)    => b,
-            (None, Some(o))    => o,
-            (None, None)       => crate::camera_calibration::baseline_exposure(
-                &raw.clean_make, &raw.clean_model
-            ),
-        },
+        None => {
+            let from_tags = baseline_tag.unwrap_or(0.0) + offset_tag.unwrap_or(0.0);
+            let from_lookup = crate::camera_calibration::baseline_exposure(
+                &raw.clean_make, &raw.clean_model,
+            );
+            from_tags + from_lookup
+        }
     };
 
     // ── 2. CFA pattern ────────────────────────────────────────────────────

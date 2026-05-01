@@ -237,6 +237,17 @@ fn lookup(make: &str, model: &str) -> Option<f32> {
             // higher with a wider sweep — TODO follow-up.
         ("fujifilm", "50s") => Some(1.0),
             // synthetic-bias-fit on test_0005.RAF: bias_max 0.030. mean_de 14.79.
+        ("hasselblad", "2d-39") => Some(0.5),
+            // synthetic-bias-fit on test_0002.dng. The DNG carries an explicit
+            // BaselineExposure tag of 0.0 EV, so this lookup contributes its
+            // full value on top (decode.rs makes the lookup additive). The
+            // pure bias-min point is +0.7 (bias_max 0.018) but at that EV
+            // some highlights cross the AgX shoulder and inflate p95 / max
+            // ΔE. +0.5 is the overall-best trade-off: bias_max 0.038
+            // (still 2× better than the +0.0 baseline of 0.090), mean_de
+            // 7.27 (slightly better than 7.37 at +0.7), and p95 / max
+            // stay near the post-Phase-2 levels. First user of the
+            // additive-lookup semantics introduced after Phase 2.
         ("nikon", "850") => Some(0.5),
             // synthetic-bias-fit on test_0014.NEF: bias_max 0.008. mean_de 8.10.
         ("panasonic", "-lx2") => Some(-0.5),
@@ -281,6 +292,7 @@ mod tests {
             ("Canon",      "EOS 5D Mark IV", 0.5),
             ("Fujifilm",   "GFX 50S",        1.0),
             ("Fujifilm",   "GFX 50R",        1.5),
+            ("Hasselblad", "H2D-39",         0.5),
             ("Nikon",      "D850",           0.5),
             ("Panasonic",  "DMC-LX2",       -0.5),
         ];
