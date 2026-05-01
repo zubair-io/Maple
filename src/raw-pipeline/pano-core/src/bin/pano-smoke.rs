@@ -132,10 +132,14 @@ struct Cli {
     #[arg(long, default_value = "distance-field", value_name = "MODE")]
     partition: String,
 
-    /// Feather radius (px) at graph-cut seam boundaries to soften
-    /// hard transitions between adjacent images. 0 = no feather
-    /// (sharp seams), 4-8 = invisible-but-narrow blend (default 4).
-    #[arg(long, default_value_t = 4, value_name = "PIXELS")]
+    /// Feather radius (px) at hard-partition seam boundaries to
+    /// soften brightness/colour transitions between adjacent images.
+    /// Set wide enough to make per-pixel step below human just-
+    /// noticeable difference (~3 %): for inter-image gain ratios up
+    /// to 2.5× (which we see when the gain solver dims sky-frames
+    /// vs ground-frames), 32 px is sufficient. Smaller values let
+    /// hard-edge artefacts show through.
+    #[arg(long, default_value_t = 32, value_name = "PIXELS")]
     seam_feather: u32,
 
     /// Downsample factor for graph-cut seam finding. The BK max-flow

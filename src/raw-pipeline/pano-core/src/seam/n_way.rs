@@ -425,32 +425,41 @@ pub fn feather_binary_masks(
         *v /= sum;
     }
 
-    // Per-mask separable convolution.
-    for mask in masks.iter_mut() {
+    // Per-mask separable convolution. Parallelise across masks (each
+    // mask is independent) and within each mask parallelise rows.
+    masks.par_iter_mut().for_each(|mask| {
         let mut tmp = vec![0.0_f32; w * h];
-        // Horizontal pass.
-        for y in 0..h {
-            for x in 0..w {
-                let mut acc = 0.0_f32;
-                for k in -r..=r {
-                    let xx = (x as i32 + k).clamp(0, w as i32 - 1) as usize;
-                    acc += kernel[(k + r) as usize] * mask[y * w + xx];
+        // Horizontal pass — parallel by row (each row is an
+        // independent slice of the buffer).
+        tmp.par_chunks_exact_mut(w)
+            .enumerate()
+            .for_each(|(y, tmp_row)| {
+                for x in 0..w {
+                    let mut acc = 0.0_f32;
+                    for k in -r..=r {
+                        let xx = (x as i32 + k).clamp(0, w as i32 - 1) as usize;
+                        acc += kernel[(k + r) as usize] * mask[y * w + xx];
+                    }
+                    tmp_row[x] = acc;
                 }
-                tmp[y * w + x] = acc;
-            }
-        }
-        // Vertical pass.
-        for y in 0..h {
-            for x in 0..w {
-                let mut acc = 0.0_f32;
-                for k in -r..=r {
-                    let yy = (y as i32 + k).clamp(0, h as i32 - 1) as usize;
-                    acc += kernel[(k + r) as usize] * tmp[yy * w + x];
+            });
+        // Vertical pass — parallel by row of the OUTPUT (mask is
+        // overwritten in place; each output row reads multiple
+        // tmp rows but writes a single mask row, so par-by-row is
+        // safe).
+        mask.par_chunks_exact_mut(w)
+            .enumerate()
+            .for_each(|(y, mask_row)| {
+                for x in 0..w {
+                    let mut acc = 0.0_f32;
+                    for k in -r..=r {
+                        let yy = (y as i32 + k).clamp(0, h as i32 - 1) as usize;
+                        acc += kernel[(k + r) as usize] * tmp[yy * w + x];
+                    }
+                    mask_row[x] = acc;
                 }
-                mask[y * w + x] = acc;
-            }
-        }
-    }
+            });
+    });
 }
 
 #[cfg(test)]
