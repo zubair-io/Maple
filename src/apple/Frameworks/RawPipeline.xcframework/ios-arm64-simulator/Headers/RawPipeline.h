@@ -62,6 +62,39 @@ typedef struct MapleRawHandle {
 } MapleRawHandle;
 
 /**
+ * C-ABI mirror of the slider subset that the per-tick chain consumes.
+ * Kept flat (all f32) so cbindgen / Swift's `@_silgen_name` import
+ * produce a layout-compatible struct on both sides.
+ *
+ * Field order matches the Swift `MapleAdjustmentParams` initialiser at
+ * `PipelineRenderer.swift::makeAdjustmentParams` byte-for-byte —
+ * changing the order here means changing it there.
+ */
+typedef struct MapleAdjustmentParams {
+  float temperature;
+  float tint;
+  float exposure;
+  float contrast;
+  float highlights;
+  float shadows;
+  float whites;
+  float blacks;
+  float vibrance;
+  float saturation;
+  float clarity;
+  float texture;
+  float nr_luminance;
+  float dehaze;
+  float decoded_temperature;
+  float decoded_tint;
+  /**
+   * 1 = skip the AgX view transform (non-RAW path: input is already
+   * display-encoded). 0 = apply AgX (RAW path).
+   */
+  uint32_t skip_agx;
+} MapleAdjustmentParams;
+
+/**
  * Render a RAW+XMP to an sRGB 8-bit RGB buffer. Returns 0 on success, non-zero
  * on error (call `maple_last_error` for a description). `xmp_path` may be null,
  * in which case AdjustmentModel::default() is used.
@@ -288,3 +321,24 @@ void maple_close_raw_handle(struct MapleRawHandle *handle);
  * The returned pointer remains valid until the next FFI call on this thread.
  */
 const char *maple_last_error(void);
+
+/**
+ * Run the cheap-stage scene-linear chain over a caller-provided fp16 RGBA
+ * buffer. Returns 0 on success, non-zero on error (call `maple_last_error`).
+ *
+ * `in_ptr` and `out_ptr` MUST point to buffers of size
+ * `8 * width * height` bytes (= `4 * width * height` fp16 lanes). The
+ * caller owns both buffers; this entry doesn't allocate or free.
+ * `out_ptr` may alias `in_ptr` only if the caller is willing to lose the
+ * input on error — current implementation copies the result at the end
+ * so partial in-place is safe but partial-write semantics are undefined
+ * on error. Recommend distinct buffers.
+ *
+ * `params` must be a valid pointer to a `MapleAdjustmentParams` struct
+ * the caller owns for the duration of this call.
+ */
+int32_t maple_apply_scene_linear_chain(const uint16_t *in_ptr,
+                                       uint32_t width,
+                                       uint32_t height,
+                                       const struct MapleAdjustmentParams *params,
+                                       uint16_t *out_ptr);
