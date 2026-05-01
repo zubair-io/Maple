@@ -125,13 +125,24 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
     // AgX shape itself needs work, retune AGX_MID_DISPLAY in
     // raw-core/src/view/agx_coeffs.rs against canonical Blender 4.x AgX
     // (not against ACR).
-    let baseline_exposure = match (baseline_tag, offset_tag) {
-        (Some(b), Some(o)) => b + o,
-        (Some(b), None)    => b,
-        (None, Some(o))    => o,
-        (None, None)       => crate::camera_calibration::baseline_exposure(
-            &raw.clean_make, &raw.clean_model
-        ),
+    // MAPLE_BE_OVERRIDE: when set to a parseable f32, takes precedence over
+    // the DNG tag and the per-body lookup. Used by tools/calibration/
+    // derive_baseline_exposure.py to sweep BE values without recompiling.
+    // Production runs with the env var unset and the original priority
+    // order applies.
+    let baseline_exposure = match std::env::var("MAPLE_BE_OVERRIDE")
+        .ok()
+        .and_then(|s| s.parse::<f32>().ok())
+    {
+        Some(ev) => ev,
+        None => match (baseline_tag, offset_tag) {
+            (Some(b), Some(o)) => b + o,
+            (Some(b), None)    => b,
+            (None, Some(o))    => o,
+            (None, None)       => crate::camera_calibration::baseline_exposure(
+                &raw.clean_make, &raw.clean_model
+            ),
+        },
     };
 
     // ── 2. CFA pattern ────────────────────────────────────────────────────
