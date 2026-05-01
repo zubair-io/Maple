@@ -222,3 +222,44 @@ Total ~30 working days for Phases 0–5. Phases 0 and 1 are on the critical path
 - `camera_calibration/mod.rs` lookup table populated for every body in the fixture set, each citing its open-data source.
 - Cross-app convergence dashboard publishes nightly; Maple's distance-to-cluster trend is downward.
 - Slider matrix harness reports edit-delta metric in addition to end-to-end ΔE; budgets are one-way ratcheted.
+
+## Status
+
+### Phase 0 — landed 2026-04-30
+
+**Scope:** unified gate + per-stage diagnostic. 12 tasks (one decomposed into 8 + 8b for the sized-pipeline mirror). All landed on `main`.
+
+**Outcome — unified gate (Tasks 1-5):**
+- Old `src/scripts/test_color_pipeline.sh` (embedded-preview-vs-render) moved to `tools/sanity-checks/test_embedded_preview.sh` with explicit "NOT A CI GATE" disclaimer (commit `448950f`).
+- `src/scripts/calibrate_color_pipeline.sh` promoted to canonical `src/scripts/test_color_pipeline.sh` with new header documenting `BUDGETS` + `ALLOW_MISSING_BUDGET` env vars (commit `2d949e8`).
+- `test-fixtures/budgets.json` seeded with 16 baseline-case entries from current ACR-reference deltas, plus `tools/budget_init.py` to regenerate from raw harness output (commit `9677e3e`). `.gitignore` whitelists `test-fixtures/budgets.json` despite the parent dir staying gitignored.
+- `test_color_pipeline.sh` enforces per-case `mean / p95 / max / bias` against `budgets.json`; missing entries fail by default; `ALLOW_MISSING_BUDGET=1` opt-out (commit `b62191f`). All 16 baseline cases PASS at seeded budgets.
+- `CLAUDE.md` "Objective color testing" section rewritten to document the two-layer testing surface (broad end-to-end gate + per-domain `test_grey_*.sh` gates) and the new-case workflow (commit `1da412d`).
+
+**Outcome — per-stage diagnostic (Tasks 6-12):**
+- `stage-dump` Cargo feature + optional `exr = 1.73` dep added to `raw-core` (commit `6841df9`).
+- `src/raw-pipeline/raw-core/src/stage_dump.rs` writes 32-bit RGB OpenEXR via `dump_image(name, image, dir)`. Reads `MAPLE_STAGE_DUMP=<dir>` env var once via `dump_dir()`. Errors logged + swallowed (diagnostic dumping never breaks a render). Unit test passes (commit `2cb2f24`).
+- 15 `dump_after("NN_<stage>", &image)` calls inserted after every post-demosaic stage in `develop_scene_linear_from_raw_with_quality` (commit `91cf482`) and mirrored to the sized variant `develop_scene_linear_sized_from_raw_with_quality` with same numeric prefixes for cross-mode comparability (commit `e02e6dc`).
+- `maple-cli/Cargo.toml` propagates the feature so `--features stage-dump` works at the CLI level (commit `8f9ef14`).
+- `src/scripts/stage_diff.py` reads two trace dirs, computes per-stage CIEDE2000 mean/p95/max/bias (Rec.2020 → Lab via `colour-science`), prints sortable table, optional `--heatmaps <dir>` writes a viridis-style PNG per stage. OpenEXR Python binding fallback used because `imageio.v3` defaults to uint8 via Pillow on this platform (commit `489288f`).
+- `src/scripts/stage_diff_test.py` integration test: synthetic 4×4 EXRs verify identical-input → 0 ΔE and differing-input → > 1 ΔE plus correct worst-stage annotation. PASS (commit `bb4beea`).
+
+**Bugs surfaced (deferred to Phase 1):**
+- Grand-mean ΔE on baseline ACR refs is 13.42 with systematic negative bias (-0.10, -0.07, -0.09) across all channels. Worst fixtures: test_0010 (mean=22.37), test_0013 (mean=25.37). Documented in budgets.json commit message; targeted by Phase 1 calibration foundations.
+- DNG WB pre-gain (`AsShotNeutral`) is intentionally disabled at `pipeline.rs:126-139`. Vendor-RAW `baseline_exposure` lookup table is empty at `camera_calibration/mod.rs:202-214`. Combined: tower of compensations (`MAPLE_AGX_BASELINE_COMPENSATION_EV = 0.65` + `AE_DAMPING = 0.2`) sitting on a missing foundation. Phase 1 will land WB pre-gain + populate vendor-RAW BE table from synthetic-chart-derived calibration (no Adobe DCPs).
+- 2 fixtures fail to render (test_0008 unsupported CFA; test_0016 corrupt X3F). Excluded from the 16-case budget seed; orthogonal to color convergence.
+
+**Headline numbers:**
+- Today's grand-mean ΔE: **13.42** (target after Phase 1: ≤ 8.0).
+- Stage-dump cost: zero in production builds (feature-gated); ~2 MB binary increase under `--features stage-dump`. Per-stage EXR write is ~50-200 ms per stage on a 100 MP fixture, only when `MAPLE_STAGE_DUMP` is set.
+- Stage-diff self-test: 15-stage diff runs in ~3 minutes on a 100 MP trace via colour-science (CPU-bound, Lab conversion is the dominant cost; could be sped up with cached XYZ but not a priority).
+
+**Deferred — known follow-ups:**
+- Phase 1 (calibration foundations) ~7-10 days — landing WB pre-gain bundle, populating vendor-RAW BE table, retuning `MAPLE_AGX_BASELINE_COMPENSATION_EV` + `AE_DAMPING` empirically on top of corrected foundation.
+- Phase 2 (AgX hardening) ~7 days — pre-formation rolloff, negative-channel soft floor, scene-linear extension above 1.0, highlight_recovery default → Blend.
+- Phase 3 (synthetic chart suite) ~5 days — extend synth_chart.rs to HSM/PTC/PLT/PGTM coverage charts.
+- Phase 4 (cross-app dashboard) ~5 days — headless RT + DT in Docker, HTML dashboard, no CI gate.
+- Phase 5 (slider parity ratchet) ~3 days + ongoing — edit-delta metric, per-fixture × per-slider budgets, expand `budgets.json` from 16 baseline cases to ~774 total.
+- Phase 6 (fixture pool expansion) — deferred until 0-5 are green.
+
+Each phase will spec → plan → execute → status separately following the same convention as Phase 0 + the existing grey-card series.
