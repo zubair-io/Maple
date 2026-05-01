@@ -310,3 +310,63 @@ The user observed that Coral produced better baseline colors out of the box — 
 - **test_0006 / test_0007 anomaly — DIAGNOSED (resolves to Phase 2).** Both Canon EOS 5D Mark III DNGs render at mean=20.09 / 22.01 today against budgets seeded as 8.24 / 10.78. Per-stage EXR dumps localized the divergence to **stage `03_dcp_apply`**: the post-DCP scene-linear B channel goes NEGATIVE (~-0.021) because the body's AsShotNeutral × ColorMatrix combination pushes the camera-native B reading out-of-gamut on this scene. AgX then clips negative B to ~0 (the AGX_MIN_EV floor), producing display output with ~0.295 less blue than the ACR reference. The pattern is identical for the LinearRaw path (test_0006, `wb_already_baked=true`) and the Bayer path (test_0007, `wb_already_baked=false`) — same body, same DCP profile, same negative-B exit. **This is Phase 4 of the existing clipping-and-artifacts plan ("negative-channel handling after DCP")**, not a Phase 1.1 issue. Fix: soft-floor at DCP exit that pulls all channels up uniformly when one goes negative, preserving hue. **The seed budgets (8.24 / 10.78) are not reproducible at any commit and don't reflect actual pipeline behavior** — likely a one-off measurement artifact from the seed run (stale `/tmp/budgets-raw.txt`, parser misalignment, or different XMP). Held budgets in budgets.json so the gate continues to fail and signal the unfixed issue; the soft-floor fix in Phase 2 will resolve them.
 - **test_0010.CR2 R-channel deficit.** Same body as test_0009 (EOS 5D Mark IV, gets BE=+0.5 from the table) but at every BE value in [-0.5, +4.0] EV the R channel stays heavily negative while G/B become positive — a non-uniform, scene-specific issue that BE alone cannot fix. Likely a WB-temperature or DCP-profile issue specific to this RAW's lighting.
 - **Phase 1.2 (DNG WB pre-gain bundle re-enable)** is the next major lever. The deferral comment at `pipeline.rs:126` warned of high-ISO chroma noise + per-channel hue shift when WB pre-gain is applied without per-body BE; with BE table now populated, that prerequisite is met. Architecture is non-trivial because the DCP path's `wb_already_baked` flag needs to flip alongside. Subsequent plan TBD.
+
+### Phase 1.5 — landed 2026-05-01
+
+**Scope:** DCP negative-channel soft-floor (Phase 4 of the existing clipping-and-artifacts plan, pulled forward).
+
+**Outcome:**
+- `soft_floor()` added at the DCP-exit in `color/dcp.rs::apply_with_post_pro` (commit `b1ca4b5`). When any channel of a post-DCP scene-linear pixel goes below 0 (out-of-gamut camera color in Rec.2020), all three channels lift uniformly by the deficit so the smallest becomes exactly 0. Hue (R/G/B ratios after the additive shift) is preserved.
+- 3 new unit tests: identity (no-op when in-gamut), the (0.181, 0.192, -0.021) case from the test_0006 stage dump, and an extreme-negative input.
+- Budget ratchet (commit `b33374a`) tightened 4 fixtures' bias / p95 / max budgets.
+
+**Headline numbers:**
+- Gate: 11 PASS → **12 PASS** out of 16 baselines (test_0001 flipped to PASS).
+- test_0006 bias_R: -0.098 → -0.063 (improvement, still failing — the deeper issue is upstream in DCP, not at the negative-clamp).
+- test_0007 bias_R: -0.149 → -0.134 (similar).
+
+### Phase 1.2 — landed 2026-05-01
+
+**Scope:** DNG WB pre-gain bundle re-enable (the spec's centerpiece for Phase 1).
+
+**Outcome:**
+- `white_balance::apply_pre_gain()` added (commit `9588dd0`). Divides camera-RGB by `AsShotNeutral` per DNG spec § 1.4.4.5 step 4. Identity short-circuit when neutral is already (1, 1, 1).
+- Wired into `pipeline.rs` (both unsized and sized variants) after `baseline_exposure`, before `highlight_recovery`. Skipped for 8-bit lossy LinearRaw DNGs (`white_level <= 255`) where WB stays baked through the gamma decode in linearize.
+- `dcp::profile_for` now sets `wb_already_baked=true` for the pre-gained paths, so DCP derives `scene_white_xyz = inv(CM) · (1, 1, 1)` instead of `inv(CM) · AsShotNeutral` (avoiding double-WB).
+- BE table re-derived against the pre-gain pipeline. Phase 1.1 had over-corrected because BE was absorbing the brightness offset that pre-gain now handles correctly:
+  - Canon 5DS R: +1.0 → +0.5
+  - Hasselblad H5D-40: +0.5 → entry removed (best=0.0)
+  - Sony A7R IV: +0.5 → entry removed (best=0.0)
+  - Panasonic DMC-LX2: added at -0.5
+  - Fujifilm GFX 50R: +1.0 → +1.5
+  - Canon 5D Mk IV / Fujifilm GFX 50S / Nikon D850: unchanged
+- 2 DCP tests updated for the new `wb_already_baked=true` contract; 4 camera_calibration tests refreshed for new BE values.
+
+**Headline numbers:**
+- Grand-mean ΔE: 14.10 → **13.80**
+- **Grand bias: (-0.075, -0.032, -0.094) → (-0.066, -0.010, -0.054)** — G-channel bias near zero now (was -0.032), max |bias| 0.094 → 0.066.
+- test_0007 (Canon 5D Mk III Bayer) mean: **22.01 → 11.45 (−10.56!)** — Bayer path is the biggest WB pre-gain beneficiary.
+- test_0002 (Hasselblad) mean: 9.33 → **7.61** (-1.72).
+- test_0015 mean: 17.28 → **14.99** (-2.29).
+
+**Per-fixture regressions held in budgets:** test_0000, test_0003, test_0011 etc. regressed on mean ΔE because their previous closer-to-ACR rendering was incidental — Phase 1.1 BE values were absorbing the missing-WB-pre-gain bias. Now that bias is corrected at the source, those fixtures need finer per-body tuning (HSM, ProfileToneCurve, or per-DNG BE offset on top of the embedded tag) which is Phase 3+ territory.
+
+### Phase 2 — landed 2026-05-01
+
+**Scope:** AgX pre-formation rolloff (Phase 1 of the clipping-and-artifacts plan).
+
+**Outcome:**
+- `preform_rolloff()` added in `view/agx.rs` (commit `65ccc1d`). When any channel exceeds the AgX shoulder (`AGX_MID_GRAY * 8` = +3 EV = 1.44 scene-linear), all three channels blend toward Rec.2020 luminance proportional to the excess. Brings them closer in magnitude before the per-channel sigmoid so they reach the shoulder together — eliminates the per-channel hue rotation that pure-color saturated highlights otherwise produce (red→pink, blue→magenta, green→yellow-lime).
+- Sobotka's AgX 1.x Open Domain rolloff using the simpler max-channel compression metric. The Blender 4.x 3D form would need a separate Metal/WebGL codegen path; this Rust implementation stays parametric so the existing AGX_LUT contract continues to work cross-platform.
+- 3 new unit tests covering identity, luminance-preservation, and end-to-end hue invariant on a saturated-red specular.
+
+**Headline numbers:**
+- Baseline gate: ~unchanged (grand mean 13.802 → 13.801) — most baseline pixels are below +3 EV so the rolloff doesn't fire.
+- The real benefit lands on high-exposure slider cases (`exposure_max`, scenes with specular highlights) which the slider matrix in Phase 5 will validate.
+- 12 AgX unit tests pass; 383 raw-core tests total.
+
+**Combined Phase 1.5 + 1.2 + 2 progress (commits 4f11468 → 65ccc1d):**
+- Gate: 4 of 16 baselines fail → 4 of 16 still fail (different shape; the failures are now diagnostically clearer).
+- Grand bias closer to zero on every channel; max |bias| 0.094 → 0.066.
+- test_0007 dropped 10.56 ΔE; test_0002 dropped 1.72 ΔE; test_0015 dropped 2.29 ΔE.
+- Pipeline now does what the DNG spec says it should: pre-gain → DCP with wb_already_baked → AgX with hue-preserving rolloff → sRGB output.
