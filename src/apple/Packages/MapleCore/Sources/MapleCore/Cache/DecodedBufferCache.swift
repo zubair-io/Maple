@@ -20,7 +20,28 @@ public actor DecodedBufferCache {
     // math changes, demosaic quality toggled, output format changes) — the
     // version is part of the cache key so stale entries are silently
     // ignored and overwritten.
-    private let rustVersion: UInt32 = 2
+    //
+    // v3 (2026-05-01): color-convergence Phase 1.1 + 1.2 + 2 + 1.5 landed
+    // a long sequence of pipeline-output changes that all alter pixel
+    // values:
+    //   - Phase 1.1: per-body BaselineExposure lookup populated for
+    //     7 vendor bodies (commit 90582fe).
+    //   - Phase 1.2: DNG WB pre-gain bundle re-enabled in all 3 develop
+    //     paths (full / sized / tile), with paired wb_already_baked=true
+    //     on the DCP profile (commits 9588dd0 + d1f0958).
+    //   - Phase 1.5: soft-floor at DCP exit on negative channels
+    //     (commit b1ca4b5).
+    //   - Phase 2: AgX pre-formation rolloff for hue-preserving highlights
+    //     (commit 65ccc1d).
+    //   - apply_scene_linear_chain switched from apply_delta to apply
+    //     (commit 2cec8cc) — input contract is now "at D65".
+    //   - camera_calibration::baseline_exposure semantics: lookup is
+    //     additive on top of DNG tag (commit c43d8ca) + Hasselblad H2D-39
+    //     entry added.
+    // Symptom of leaving v2: app shows pre-Phase-1.1 output indefinitely
+    // (the cache hit short-circuits the Rust decode, then the post-AgX
+    // chain runs against stale pre-WB-pregain bytes).
+    private let rustVersion: UInt32 = 3
 
     public init() {}
 
