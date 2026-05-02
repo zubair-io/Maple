@@ -585,24 +585,39 @@ public actor ImageEditPipeline {
         // pipeline's algorithmic decisions verbatim, which closes the
         // drift between Apple and Rust on every cheap stage.
         //
-        // `decodedAtModel` is the model the Rust FFI used during decode
-        // (parsed from the sidecar on disk, or `.default` when no
-        // sidecar exists). The chain applies a WB delta
-        // `wb_gains(live) / wb_gains(decoded)` so opening a saved
-        // sidecar doesn't double-apply WB.
+        // The chain applies a WB delta `wb_gains(live) / wb_gains(decoded)`,
+        // where `decoded` is the WB reference the slider value is relative
+        // to. For ACR-compatible UX:
+        //   - slider at `asShotCCT` (default "As Shot" rendering) =
+        //     identity → no shift, displays the post-WB-pregain D65 image.
+        //   - slider moved warmer/cooler than asShotCCT = delta applies
+        //     the requested shift.
         //
-        // When `decodedAtModel` is nil (no sidecar on disk) we fall back
-        // to the camera's AsShot CCT/tint so apply_delta(live=asShotCCT,
-        // decoded=asShotCCT) is identity for the default "As Shot"
-        // rendering — matching ACR's UI semantic of "slider shows
-        // asShotCCT, no shift applied". Without this the live model
-        // (which `EditSession.initialModel` populates with asShotCCT/
-        // Tint when there's no sidecar) gets shifted against decoded=
-        // 6500, producing the magenta cast user reported on every fresh
-        // open. See EditSession.swift:initialModel for the matching
-        // model-side push.
-        let decodedTemp = decodedAtModel?.temperature ?? asShot?.temperature ?? 6500.0
-        let decodedTint = decodedAtModel?.tint ?? asShot?.tint ?? 0.0
+        // So `decoded` MUST be the camera's AsShot CCT/tint (regardless of
+        // whether a sidecar exists). Falling back through
+        // `decodedAtModel?.temperature` was wrong because parseSidecarModel
+        // returns a model with `temperature=6500` (default) when the XMP
+        // has `WhiteBalance="As Shot"` and no explicit Temperature value
+        // (which is the common case — Maple-Hosted's reference XMPs all
+        // look like that). With decoded=6500 and live=asShotCCT, the delta
+        // applied wb_gains(asShotCCT) on D65 data → uniform magenta cast.
+        //
+        // `decodedAtModel` parameter is kept on the signature but ignored
+        // here; future work can re-thread saved-WB sidecars through a
+        // separate path if needed.
+        let _ = decodedAtModel
+        let decodedTemp = asShot?.temperature ?? 6500.0
+        let decodedTint = asShot?.tint ?? 0.0
+        // Diagnostic: log the asShot value passed in. If asShot is nil
+        // here, the slider chain falls through to (6500, 0) and applies
+        // wb_gains(model.temp, model.tint) on D65 data → magenta cast.
+        // This logs every processSceneLinear call so we can correlate
+        // with decodeAndRender gen / phase in the EditSession trace.
+        if let asShot {
+            logger.notice("processSceneLinear asShot=\(asShot.temperature, format: .fixed(precision: 0))K/\(asShot.tint, format: .fixed(precision: 1)) live=\(model.temperature, format: .fixed(precision: 0))K/\(model.tint, format: .fixed(precision: 1)) → decodedTemp=\(decodedTemp, format: .fixed(precision: 0))")
+        } else {
+            logger.notice("processSceneLinear asShot=NIL live=\(model.temperature, format: .fixed(precision: 0))K/\(model.tint, format: .fixed(precision: 1)) → decodedTemp=\(decodedTemp, format: .fixed(precision: 0)) FALLBACK")
+        }
         let chained = applySceneLinearChainViaFFI(
             scaled, model: model,
             decodedTemperature: decodedTemp, decodedTint: decodedTint,
