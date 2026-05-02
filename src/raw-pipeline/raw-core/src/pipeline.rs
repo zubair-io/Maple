@@ -558,6 +558,15 @@ pub fn apply_scene_linear_chain(
         )));
     }
 
+    // Debug: surface the model's WB / exposure params so we can see what
+    // the Apple shell is passing in. Goes to stderr alongside MAPLE_PROFILE
+    // timings. Comment out once the magenta-cast investigation closes.
+    eprintln!(
+        "[raw-core] apply_scene_linear_chain MODEL: temp={:.0} tint={:.1} exposure={:.2} contrast={:.0} dec_temp={:.0} dec_tint={:.1} skip_agx={}",
+        model.temperature, model.tint, model.exposure, model.contrast,
+        decoded_temp, decoded_tint, skip_agx,
+    );
+
     // Decode fp16 RGBA -> Image (Vec<[f32; 3]>, alpha discarded).
     let mut img = stage("ffi_chain_unpack_fp16", || {
         let mut pixels: Vec<[f32; 3]> = Vec::with_capacity(pixel_count);
