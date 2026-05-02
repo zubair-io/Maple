@@ -176,12 +176,10 @@ fn sample_mipmap(mip: &[PanoImage], u: f32, v: f32, scale: f32) -> Option<[f32; 
 // Camera / projection helpers
 // ---------------------------------------------------------------------------
 
-/// Build K (intrinsic matrix) from focal length and image dimensions.
-/// Principal point is assumed to be the image centre.
-fn camera_k(focal: f32, width: u32, height: u32) -> Matrix3<f32> {
-    let cx = width as f32 * 0.5;
-    let cy = height as f32 * 0.5;
-    Matrix3::new(focal, 0.0, cx, 0.0, focal, cy, 0.0, 0.0, 1.0)
+/// Build K (intrinsic matrix) from camera metadata and image dimensions.
+fn camera_k(cam: &Camera, width: u32, height: u32) -> Matrix3<f32> {
+    let (cx, cy) = cam.principal_point_or_center(width, height);
+    Matrix3::new(cam.focal, 0.0, cx, 0.0, cam.focal, cy, 0.0, 0.0, 1.0)
 }
 
 /// Undistort a normalised image coordinate (x, y) using radial distortion
@@ -207,7 +205,7 @@ impl Warper for CpuWarper {
         let (iw, ih) = (img.width, img.height);
         let (ow, oh) = (iw, ih); // output same size as input (MVP — caller owns canvas layout)
 
-        let k_in = camera_k(cam.focal, iw, ih);
+        let k_in = camera_k(cam, iw, ih);
         let _k_in_inv = k_in
             .try_inverse()
             .ok_or_else(|| PanoError::Warp("singular camera K".into()))?;
@@ -233,7 +231,7 @@ impl Warper for CpuWarper {
                 let ray: [f32; 3] = match target {
                     Projection::Rectilinear => {
                         // Output is flat plane.  (K_out = K_in for same-size)
-                        let k_out = camera_k(cam.focal, ow, oh);
+                        let k_out = camera_k(cam, ow, oh);
                         let k_out_inv = k_out.try_inverse().unwrap_or_else(Matrix3::identity);
                         let uv = nalgebra::Vector3::new(ox as f32, oy as f32, 1.0);
                         let ray_cam = k_out_inv * uv;
@@ -283,7 +281,7 @@ impl Warper for CpuWarper {
                 let (u2, v2) = {
                     let ray2 = match target {
                         Projection::Rectilinear => {
-                            let k_out = camera_k(cam.focal, ow, oh);
+                            let k_out = camera_k(cam, ow, oh);
                             let k_out_inv = k_out.try_inverse().unwrap_or_else(Matrix3::identity);
                             let uv2 = nalgebra::Vector3::new(ox2, oy as f32, 1.0);
                             let r2 = k_out_inv * uv2;
@@ -343,9 +341,10 @@ mod tests {
     use crate::color::ColorSpace;
     use crate::types::{Distortion, PanoImage};
 
-    fn identity_camera(focal: f32, w: u32, h: u32) -> Camera {
+    fn identity_camera(focal: f32, _w: u32, _h: u32) -> Camera {
         Camera {
             focal,
+            principal_point: None,
             rotation: Matrix3::identity(),
             translation: nalgebra::Vector3::zeros(),
             distortion: Distortion { k1: 0.0, k2: 0.0 },

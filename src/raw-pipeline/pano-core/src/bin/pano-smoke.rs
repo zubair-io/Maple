@@ -126,11 +126,28 @@ struct Cli {
     ///   midpoints. O(N · canvas), no max-flow.
     /// - `graphcut` — graph-cut min-cost seams via BK max-flow,
     ///   routes seams through smooth regions. Optimal but slow.
+    /// - `multiband-seam-zone` — hard binary partition everywhere
+    ///   except a `--zone-radius` band around each seam, where the
+    ///   masks are softened and renormalised to partition unity. Pair
+    ///   with multi-band blending (auto-enabled): the blender's
+    ///   Laplacian pyramid degenerates to a copy outside the zone
+    ///   (no whole-canvas averaging), and inside the zone hides
+    ///   brightness/colour transitions across all frequency bands.
+    ///   Best quality for the panorama use case.
     /// - `voronoi` — legacy soft inverse-square + feather weights.
     ///   Averages overlap content → ghosting when BA residual
     ///   produces misalignment.
     #[arg(long, default_value = "distance-field", value_name = "MODE")]
     partition: String,
+
+    /// Seam-zone radius (px) for `--partition multiband-seam-zone`.
+    /// Pixels within this Euclidean distance of any seam path get
+    /// softened/renormalised partition weights; the rest stay
+    /// hard-binary. The Gaussian feather inside the zone uses radius
+    /// `zone_radius/2` so it decays cleanly at the boundary.
+    /// Default 16.
+    #[arg(long, default_value_t = 16, value_name = "PIXELS")]
+    zone_radius: u32,
 
     /// Feather radius (px) at hard-partition seam boundaries to
     /// soften brightness/colour transitions between adjacent images.
@@ -150,6 +167,98 @@ struct Cli {
     /// which is invisible after the seam feather. Default 8.
     #[arg(long, default_value_t = 8, value_name = "FACTOR")]
     seam_downsample: u32,
+
+    /// After warp + gain compensation, run a per-pair SSD search
+    /// to estimate residual canvas-space translation that BA didn't
+    /// fully explain (lens-distortion residual, focal-length bias,
+    /// drone hover parallax), then chain into a per-image cumulative
+    /// offset and bilinear-shift each warped image. Default true.
+    /// Disable with `--refine-pair-offsets false` to A/B against the
+    /// pre-refinement panorama.
+    #[arg(
+        long,
+        default_value_t = true,
+        action = clap::ArgAction::Set,
+        value_name = "BOOL"
+    )]
+    refine_pair_offsets: bool,
+
+    /// After the global pair-offset pass (`--refine-pair-offsets`),
+    /// run a per-tile SSD pass in each adjacent overlap to capture
+    /// residual flow that varies across the canvas — parallax that
+    /// can't be explained by a single per-image translation. Tiles
+    /// share a 16×16 grid, ±3 px search around the already-aligned
+    /// position. Has no effect when `--refine-pair-offsets` is
+    /// false. Default true; `false` recovers the global-only path.
+    #[arg(
+        long,
+        default_value_t = true,
+        action = clap::ArgAction::Set,
+        value_name = "BOOL"
+    )]
+    refine_pair_offsets_local: bool,
+
+    /// Optional coarse-pass radius (canvas pixels) for the global
+    /// pair-offset SSD search. `0` (default) keeps it single-scale
+    /// at ±6 px around the warped position — safest, doesn't chase
+    /// wrong SSD minima on repetitive textures (sky, water). Set
+    /// to e.g. 32 if BA produces large residuals (wide-baseline
+    /// 21+ frame panoramas) AND you've verified the resulting
+    /// per-image offsets look consistent in the log. Aggressive
+    /// search can introduce inconsistent shifts on textureless
+    /// overlaps.
+    #[arg(long, default_value_t = 0, value_name = "PIXELS")]
+    refine_pair_coarse_radius: i32,
+
+    /// Use AKAZE feature matching on the warped (canvas-space)
+    /// images instead of SSD search to compute per-pair offsets.
+    /// Slower (~30 s on a 21-frame 12 MP canvas) but works at
+    /// arbitrary residual magnitude — the right tool when BA
+    /// places adjacent images so far apart that the same physical
+    /// place appears at two canvas positions (visible duplication).
+    /// Each matched feature pair IS a pixel-accurate
+    /// correspondence, no search-radius cap. Default true; the
+    /// SSD path remains as a fallback when feature matching
+    /// returns too few inliers per pair.
+    #[arg(
+        long,
+        default_value_t = true,
+        action = clap::ArgAction::Set,
+        value_name = "BOOL"
+    )]
+    refine_pair_features: bool,
+
+    /// Disable the SSD fallback that fills in pairs where AKAZE
+    /// feature matching didn't return enough inliers. Only takes
+    /// effect when `--refine-pair-features true`. Default **true**
+    /// — empirically the SSD path's small-radius results pull the
+    /// LSQ toward smaller corrections, undoing what features want;
+    /// feature-only with iterative pass 2 produces visibly better
+    /// alignment than the hybrid path on multi-row sphere panos.
+    /// Set `false` to fall back to the hybrid path if your scene
+    /// has so little texture that AKAZE finds zero pairs.
+    #[arg(
+        long,
+        default_value_t = true,
+        action = clap::ArgAction::Set,
+        value_name = "BOOL"
+    )]
+    refine_pair_features_only: bool,
+
+    /// Gain compensation mode:
+    /// - `luma` (default) — single per-image scalar gain matching
+    ///   Brown & Lowe 2007. Best for same-camera panoramas where
+    ///   white balance is constant across frames; preserves the
+    ///   colour cast of the input.
+    /// - `per-channel` — independent per-image R/G/B gains with
+    ///   Tikhonov regularisation. Use only when input frames have
+    ///   genuine WB drift (auto-WB across frames, mixed lighting).
+    ///   On WB-constant inputs the per-channel solve over-fits
+    ///   on whatever scene-content asymmetry happens to live in
+    ///   the overlap region, shifting the panorama's overall hue
+    ///   away from the source.
+    #[arg(long, default_value = "luma", value_name = "MODE")]
+    gain_mode: String,
 
     /// Generate deterministic synthetic fixtures into DIR and exit.
     #[arg(long, value_name = "DIR")]
@@ -903,18 +1012,53 @@ enum PartitionMode {
     /// image is invisible. Optimal but slow at 50MP+ scale even with
     /// downsampling — use when you can spare minutes for the cut.
     GraphCut,
+    /// Hard binary distance-field partition everywhere except a
+    /// configurable band around each seam path. Inside the band,
+    /// masks are softened by Gaussian feather and renormalised to
+    /// partition unity; outside the band exactly one mask is `1.0`.
+    /// When fed to the multi-band blender, this makes the Laplacian
+    /// pyramid degenerate to a copy outside the band (no whole-
+    /// canvas averaging) and a true frequency-domain seam blend
+    /// inside it. The Photoshop / Hugin approach.
+    DistanceFieldSeamZone,
+}
+
+/// Choice of gain compensation solver.
+#[derive(Debug, Clone, Copy)]
+enum GainMode {
+    /// Single per-image scalar gain (Brown & Lowe 2007). Preserves
+    /// white balance; right choice when input frames share WB.
+    /// Default.
+    Luma,
+    /// Independent per-image R/G/B gains with Tikhonov regularisation.
+    /// Compensates real WB drift across frames; can over-fit on
+    /// overlap content asymmetry when WB is constant.
+    PerChannel,
+}
+
+/// Internal: gain solver result, branched by mode.
+enum GainOutput {
+    Luma(Vec<f32>),
+    PerChannel(Vec<[f32; 3]>),
 }
 
 fn stitch(
     inputs: &[PathBuf],
     output: &Path,
-    _max_dim: u32,
+    max_dim: u32,
     projection: Projection,
     crop_margin: u32,
     blend_mode: BlendMode,
     partition_mode: PartitionMode,
     seam_feather: u32,
     seam_downsample: u32,
+    zone_radius: u32,
+    gain_mode: GainMode,
+    refine_pair_offsets: bool,
+    refine_pair_offsets_local: bool,
+    refine_pair_coarse_radius: i32,
+    refine_pair_features: bool,
+    refine_pair_features_only: bool,
 ) -> Result<(), String> {
     if inputs.len() < 2 {
         return Err(format!(
@@ -985,6 +1129,43 @@ fn stitch(
 
         let img = pano_core::decode_bytes(&bytes)
             .map_err(|e| format!("decode failed for {}: {e}", p.display()))?;
+        // Load-time pre-flight: after the first image's dimensions
+        // are known, extrapolate. PanoImage holds RGB f32 = 12
+        // bytes/pixel; loading 21 × 100 MP DNGs is ~25 GB on its
+        // own and will lock up a 16 GB machine before BA / warp
+        // even start. Bail with a friendly message.
+        if pano_images.is_empty() {
+            let first_mp = (img.width as u64 * img.height as u64) / 1_000_000;
+            let load_est_gb =
+                ((n as u64) * (img.width as u64) * (img.height as u64) * 12) as f64
+                    / (1024.0 * 1024.0 * 1024.0);
+            let (cap_gb, src) = resolve_memory_cap();
+            eprintln!(
+                "pano-smoke:   first image {} × {} ({} MP) → estimated decode-stage \
+                 footprint ~{:.1} GB across {} frames (cap {})",
+                img.width,
+                img.height,
+                first_mp,
+                load_est_gb,
+                n,
+                cap_summary(cap_gb, &src),
+            );
+            if let Some(limit) = cap_gb {
+                if load_est_gb > limit {
+                    return Err(format!(
+                        "pano-smoke: estimated decode-stage memory {:.1} GB > {:.1} GB cap ({}).\n\
+                         To proceed: run on fewer frames, or `export \
+                         PANO_MEMORY_CAP_GB={}` (or 0 to disable). The warp + \
+                         blend stages add another ~{:.1} GB on top of decode.",
+                        load_est_gb,
+                        limit,
+                        src,
+                        load_est_gb.ceil() as u64 + 12,
+                        load_est_gb * 0.5,
+                    ));
+                }
+            }
+        }
         pano_images.push(img);
     }
 
@@ -1562,12 +1743,98 @@ fn stitch(
     // --- 5. Canvas + warp + seam + blend ------------------------------------
     eprintln!("pano-smoke: computing canvas");
     let img_refs: Vec<&PanoImage> = pano_images.iter().collect();
-    let canvas = pano_core::warp::compute_canvas(&img_refs, &cameras, projection)
+    let mut canvas = pano_core::warp::compute_canvas(&img_refs, &cameras, projection)
         .map_err(|e| format!("compute_canvas failed: {e}"))?;
     eprintln!(
         "pano-smoke:   canvas {}×{} ({:?})",
         canvas.width, canvas.height, projection
     );
+
+    // --max-dim: if the long edge exceeds this, scale the canvas
+    // proportionally. For cylindrical / spherical projections the
+    // angular extent (theta/lambda/phi ranges) is unchanged — we
+    // just sample that extent more coarsely. For rectilinear we
+    // also scale focal/cx/cy in lock-step so the K matrix matches.
+    if max_dim > 0 {
+        let long = canvas.width.max(canvas.height);
+        if long > max_dim {
+            let scale = (max_dim as f32) / (long as f32);
+            let new_w = ((canvas.width as f32) * scale).round() as u32;
+            let new_h = ((canvas.height as f32) * scale).round() as u32;
+            eprintln!(
+                "pano-smoke:   --max-dim={max_dim}: scaling canvas {}×{} → {}×{} ({:.3}× linear, {:.2}× pixels)",
+                canvas.width, canvas.height, new_w, new_h, scale, scale * scale,
+            );
+            canvas.width = new_w;
+            canvas.height = new_h;
+            if let pano_core::warp::CanvasParams::Rectilinear { focal, cx, cy } =
+                &mut canvas.params
+            {
+                *focal *= scale;
+                *cx *= scale;
+                *cy *= scale;
+            }
+        }
+    }
+
+    // ------------------------------------------------------------
+    // Memory budget pre-flight: warning + optional bail-out.
+    //
+    // The full pipeline (N warped images + per-image partition mask
+    // + multi-band blender pyramid + output accumulator) needs at
+    // peak about:
+    //
+    //   N × (warp 12 + mask 4) + Laplacian-pyramid 16 + output 12
+    //   ≈ N × 16 + 28 bytes per canvas pixel.
+    //
+    // For a 47 MP canvas with N=21 images that's ~17 GB. On a 16 GB
+    // machine this kicks the OS into compressed-swap territory and
+    // makes the whole machine unresponsive long before our code
+    // returns. Catch it here, print the size, and either WARN or
+    // bail depending on PANO_MEMORY_CAP_GB.
+    // ------------------------------------------------------------
+    let canvas_pixels = (canvas.width as u64) * (canvas.height as u64);
+    let warped_b = canvas_pixels * 12;
+    let mask_b = canvas_pixels * 4;
+    let pyramid_b = canvas_pixels * 16;
+    let output_b = canvas_pixels * 12;
+    let est_peak = (n as u64) * (warped_b + mask_b) + pyramid_b + output_b;
+    let est_gb = (est_peak as f64) / (1024.0 * 1024.0 * 1024.0);
+    eprintln!(
+        "pano-smoke:   estimated peak memory {:.1} GB ({} images × {} MP canvas)",
+        est_gb,
+        n,
+        canvas_pixels / 1_000_000,
+    );
+    // The cap auto-derives from the actual machine: 75 % of total
+    // RAM AND 85 % of currently-available memory, whichever is
+    // lower. Once allocator pressure passes those thresholds,
+    // macOS+Linux start aggressive swap/compression and the whole
+    // desktop becomes unresponsive long before our process returns.
+    // Override with `PANO_MEMORY_CAP_GB=N` (or 0 to disable).
+    let (cap_gb, src) = resolve_memory_cap();
+    eprintln!(
+        "pano-smoke:   memory cap: {}",
+        cap_summary(cap_gb, &src),
+    );
+    if let Some(limit) = cap_gb {
+        if est_gb > limit {
+            return Err(format!(
+                "pano-smoke: estimated {:.1} GB peak > {:.1} GB cap ({}).\n\
+                 To proceed safely, choose ONE:\n\
+                 \x20  • lower the canvas with `--max-dim 6000` (recommended for 21-frame runs)\n\
+                 \x20  • run on fewer frames\n\
+                 \x20  • `export PANO_MEMORY_CAP_GB={}` to allow this run\n\
+                 \x20  • `export PANO_MEMORY_CAP_GB=0` to disable the check\n\
+                 Without the cap, a panorama this large can swap-thrash the \
+                 machine to the point of UI lockup.",
+                est_gb,
+                limit,
+                src,
+                est_gb.ceil() as u64 + 4,
+            ));
+        }
+    }
 
     eprintln!("pano-smoke: warping {} images", n);
     let warper = CpuWarper::new();
@@ -1585,6 +1852,11 @@ fn stitch(
             Ok(w)
         })
         .collect::<Result<Vec<_>, String>>()?;
+    // Free the source-resolution decoded images now that warping is
+    // done. On a 21-frame run at ~100 MP each this drops ~25 GB
+    // before the partition + multi-band steps allocate their
+    // own buffers.
+    drop(pano_images);
 
     // --- Auto-trim canvas to validity-union bbox -----------------------
     //
@@ -1608,18 +1880,269 @@ fn stitch(
     // --- Gain compensation -------------------------------------------------
     // Solve per-image gain from overlap brightness before seam finding so
     // brightness banding at seams is minimised.
-    // Collect gains with immutable refs first, then apply with mutable refs.
-    let gain_result = {
-        let warped_refs: Vec<&PanoImage> = warped.iter().collect();
-        pano_core::compensation::gain::solve_per_image_gain(&warped_refs)
+    //
+    // Two solvers available:
+    //   - `luma` (default, Brown & Lowe 2007): one scalar per image.
+    //     Preserves white balance — every channel of every image gets
+    //     scaled by the same factor. Right choice when input frames
+    //     come from the same camera with the same WB (typical for
+    //     drone panoramas, the DJI L2D-20c reference set).
+    //   - `per-channel`: independent per-image R/G/B gains with
+    //     Tikhonov regularisation. Compensates real WB drift across
+    //     frames (auto-WB, mixed lighting), but on WB-constant inputs
+    //     it over-fits on overlap content asymmetry and shifts the
+    //     panorama's hue away from the source. Behind a flag for that
+    //     reason.
+    let gain_result = match gain_mode {
+        GainMode::Luma => {
+            let warped_refs: Vec<&PanoImage> = warped.iter().collect();
+            pano_core::compensation::gain::solve_per_image_gain(&warped_refs)
+                .map(|gs| GainOutput::Luma(gs))
+        }
+        GainMode::PerChannel => {
+            let warped_refs: Vec<&PanoImage> = warped.iter().collect();
+            const GAIN_TIKHONOV_LAMBDA: f64 = 0.01;
+            pano_core::compensation::gain::solve_per_image_gain_rgb(
+                &warped_refs,
+                GAIN_TIKHONOV_LAMBDA,
+            )
+            .map(|gs| GainOutput::PerChannel(gs))
+        }
     };
     match gain_result {
-        Ok(gains) => {
-            eprintln!("pano-smoke: gains = {:?}", gains);
+        Ok(GainOutput::Luma(gains)) => {
+            eprintln!("pano-smoke: gains (luma) = {:?}", gains);
             let _ = pano_core::compensation::gain::apply_gains(&mut warped, &gains);
+        }
+        Ok(GainOutput::PerChannel(gains)) => {
+            eprintln!("pano-smoke: gains_rgb = {:?}", gains);
+            let _ = pano_core::compensation::gain::apply_gains_rgb(&mut warped, &gains);
         }
         Err(e) => {
             eprintln!("pano-smoke: gain compensation skipped ({e})");
+        }
+    }
+
+    // ---------------------------------------------------------------
+    // Per-image canvas-space translation refinement. Even a converged
+    // BA leaves 1–4 px reprojection residuals at canvas edges (lens
+    // distortion, focal bias, hover parallax). SSD-search per
+    // adjacent pair, chained into per-image cumulative offset, then
+    // bilinear-translate each warped image. This is the cheap
+    // first-order correction that buys most of T4's value without
+    // needing per-pixel flow.
+    if refine_pair_offsets {
+        // Find ALL overlapping pairs, not just adjacent-in-file or
+        // a spanning tree. For multi-row spherical panoramas (DJI
+        // 21-frame Sphere mode) each image typically borders 3–4
+        // neighbours in canvas space; refining only one parent per
+        // image (spanning tree) leaves the OTHER overlap regions
+        // unaligned and produces visible doubled features there.
+        // Solve per-image translation as a global LSQ over every
+        // overlapping pair so each image's offset is constrained
+        // by ALL its actual neighbours simultaneously.
+        let pairs = pano_core::warp::find_overlapping_pairs(&warped, 1024);
+        eprintln!(
+            "pano-smoke: pair-offset overlap graph = {} pairs (above 1024 px overlap)",
+            pairs.len(),
+        );
+        let pair_idx_list: Vec<(usize, usize)> = pairs.iter().map(|p| (p.0, p.1)).collect();
+        let mut opts = pano_core::warp::PairOffsetOptions::default();
+        opts.coarse_search_radius_px = refine_pair_coarse_radius;
+        let t = std::time::Instant::now();
+
+        // Hybrid path: AKAZE feature matching on warped canvas
+        // images for as many pairs as it can — those give pixel-
+        // accurate displacement at arbitrary magnitude. SSD fills
+        // in the pairs feature matching couldn't handle (low
+        // overlap / low texture).
+        //
+        // Both feed the global LSQ together, so feature-matched
+        // pairs constrain image positions even in regions where
+        // SSD is unreliable, and SSD pairs fill the rest.
+        let mut weighted: Vec<(pano_core::warp::PairOffset, u64)> = Vec::new();
+        let mut feature_pairs: std::collections::HashSet<(usize, usize)> =
+            std::collections::HashSet::new();
+
+        if refine_pair_features {
+            let feat = pano_core::warp::compute_pair_offsets_from_features(
+                &warped,
+                &pairs,
+                /* inlier_thresh_px */ 4.0,
+                /* min_inliers */ 8,
+            );
+            eprintln!(
+                "pano-smoke:   feature-match path: {}/{} pairs in {:?}",
+                feat.len(),
+                pairs.len(),
+                t.elapsed(),
+            );
+            for (po, w) in &feat {
+                feature_pairs.insert((po.i, po.j));
+            }
+            weighted.extend(feat);
+        }
+
+        let ssd_pairs: Vec<(usize, usize, u64)> = if refine_pair_features_only {
+            Vec::new()
+        } else {
+            pairs
+                .iter()
+                .copied()
+                .filter(|p| !feature_pairs.contains(&(p.0, p.1)))
+                .collect()
+        };
+        if !ssd_pairs.is_empty() {
+            let ssd_idx: Vec<(usize, usize)> =
+                ssd_pairs.iter().map(|p| (p.0, p.1)).collect();
+            let t_ssd = std::time::Instant::now();
+            match pano_core::warp::compute_pair_offsets(&warped, &ssd_idx, opts) {
+                Ok(ssd) => {
+                    eprintln!(
+                        "pano-smoke:   SSD fallback: {} pairs in {:?}",
+                        ssd.len(),
+                        t_ssd.elapsed(),
+                    );
+                    for (po, info) in ssd.iter().zip(ssd_pairs.iter()) {
+                        weighted.push((*po, info.2));
+                    }
+                }
+                Err(e) => eprintln!("pano-smoke:   SSD fallback failed: {e}"),
+            }
+        }
+
+        let weighted_result: Result<Vec<(pano_core::warp::PairOffset, u64)>, String> =
+            if weighted.is_empty() {
+                Err("no pair offsets computed by either path".into())
+            } else {
+                Ok(weighted)
+            };
+
+        match weighted_result {
+            Ok(weighted) => {
+                let per_image = pano_core::warp::solve_per_image_offsets_lsq(
+                    &weighted,
+                    warped.len(),
+                );
+                let max_off = per_image
+                    .iter()
+                    .map(|(dx, dy)| dx.abs().max(dy.abs()))
+                    .fold(0.0_f32, f32::max);
+                eprintln!(
+                    "pano-smoke: pair-offset LSQ solve ({} pairs, max |offset|={:.1} px) took {:?}",
+                    weighted.len(),
+                    max_off,
+                    t.elapsed(),
+                );
+                for (i, (dx, dy)) in per_image.iter().enumerate() {
+                    if dx.abs() > 0.05 || dy.abs() > 0.05 {
+                        eprintln!("pano-smoke:   image {i} offset = ({:.2}, {:.2}) px", dx, dy);
+                    }
+                }
+                let _ = pano_core::warp::apply_per_image_canvas_offset(&mut warped, &per_image);
+
+                // ----------- Iterative refinement pass 2 ------------
+                // Some images may not have had any feature pair fire
+                // in pass 1 (low texture, small overlap), so they
+                // stayed at offset (0, 0) in the LSQ while their
+                // neighbours shifted by tens-to-hundreds of pixels.
+                // Re-run feature matching on the now-shifted images
+                // to catch any pair that's now reachable. Pass 2's
+                // result is an INCREMENTAL offset on top of pass 1's.
+                if refine_pair_features {
+                    let t2 = std::time::Instant::now();
+                    let feat2 = pano_core::warp::compute_pair_offsets_from_features(
+                        &warped,
+                        &pairs,
+                        4.0,
+                        8,
+                    );
+                    let new_pairs: usize = feat2
+                        .iter()
+                        .filter(|(po, _)| !feature_pairs.contains(&(po.i, po.j)))
+                        .count();
+                    eprintln!(
+                        "pano-smoke:   iterative pass 2 feature-match: {}/{} pairs total ({} new) in {:?}",
+                        feat2.len(),
+                        pairs.len(),
+                        new_pairs,
+                        t2.elapsed(),
+                    );
+                    if new_pairs > 0 {
+                        let per_image_2 = pano_core::warp::solve_per_image_offsets_lsq(
+                            &feat2,
+                            warped.len(),
+                        );
+                        let max_off2 = per_image_2
+                            .iter()
+                            .map(|(dx, dy)| dx.abs().max(dy.abs()))
+                            .fold(0.0_f32, f32::max);
+                        eprintln!(
+                            "pano-smoke:   pass 2 max |offset|={:.1} px",
+                            max_off2,
+                        );
+                        for (i, (dx, dy)) in per_image_2.iter().enumerate() {
+                            if dx.abs() > 0.05 || dy.abs() > 0.05 {
+                                eprintln!(
+                                    "pano-smoke:     image {i} pass-2 offset = ({:.2}, {:.2}) px",
+                                    dx, dy,
+                                );
+                            }
+                        }
+                        let _ = pano_core::warp::apply_per_image_canvas_offset(
+                            &mut warped,
+                            &per_image_2,
+                        );
+                    }
+                }
+
+                // Per-tile local refinement on every overlapping
+                // pair (not just a tree) so the road/coast region
+                // that lives in a non-tree overlap also gets a
+                // residual correction.
+                if refine_pair_offsets_local {
+                    let local_opts = pano_core::warp::LocalPairOptions::default();
+                    let t = std::time::Instant::now();
+                    let mut max_local: f32 = 0.0;
+                    let mut tiles_applied = 0usize;
+                    for &(i, j) in &pair_idx_list {
+                        let tiles = match pano_core::warp::compute_pair_offset_tiles(
+                            &warped[i],
+                            &warped[j],
+                            i,
+                            j,
+                            local_opts,
+                        ) {
+                            Ok(t) => t,
+                            Err(e) => {
+                                eprintln!(
+                                    "pano-smoke: local pair-offset skipped pair ({i},{j}): {e}"
+                                );
+                                continue;
+                            }
+                        };
+                        for &(dx, dy) in &tiles.offsets {
+                            max_local = max_local.max(dx.abs().max(dy.abs()));
+                        }
+                        if let Err(e) =
+                            pano_core::warp::apply_local_pair_tiles(&mut warped[j], &tiles)
+                        {
+                            eprintln!(
+                                "pano-smoke: local pair-offset apply failed ({i},{j}): {e}"
+                            );
+                        } else {
+                            tiles_applied += 1;
+                        }
+                    }
+                    eprintln!(
+                        "pano-smoke: local pair-offset refinement ({} pairs applied, grid 16×16, max |tile|={:.1} px) took {:?}",
+                        tiles_applied,
+                        max_local,
+                        t.elapsed(),
+                    );
+                }
+            }
+            Err(e) => eprintln!("pano-smoke: pair-offset refinement skipped ({e})"),
         }
     }
 
@@ -1696,6 +2219,33 @@ fn stitch(
                 let h = warped[0].height;
                 pano_core::seam::feather_binary_masks(&mut masks, w, h, seam_feather);
             }
+            masks
+        }
+        PartitionMode::DistanceFieldSeamZone => {
+            let t = std::time::Instant::now();
+            let labels = pano_core::seam::compute_distance_field_labels(&warped);
+            let n = warped.len();
+            let w = warped[0].width;
+            let h = warped[0].height;
+            let seam_paths = pano_core::seam::extract_seam_paths(&labels, w, h);
+            let n_seam_pixels: usize =
+                seam_paths.values().map(|v| v.len()).sum();
+            let masks = pano_core::seam::build_seam_zone_partition(
+                &labels,
+                &seam_paths,
+                n,
+                w,
+                h,
+                zone_radius,
+            );
+            eprintln!(
+                "pano-smoke: distance-field + seam-zone partition ({} images, zone radius {} px, {} seam pixels across {} pairs) took {:?}",
+                n,
+                zone_radius,
+                n_seam_pixels,
+                seam_paths.len(),
+                t.elapsed(),
+            );
             masks
         }
     };
@@ -2617,8 +3167,8 @@ fn stitch_pair(img_a: PanoImage, img_b: PanoImage, step: usize) -> Result<PanoIm
     eprintln!("pano-smoke:   warped A valid_px={valid_a}  warped B valid_px={valid_b}");
 
     // --- Gain compensation ------------------------------------------------
-    // Apply before seam finding so brightness banding at seams is minimised.
-    // Collect gains with immutable refs first, then apply with mutable refs.
+    // Luma-only Brown-Lowe (preserves white balance — we don't expect
+    // per-channel drift between two frames from the same camera).
     {
         let mut pair = [warped_a, warped_b];
         let gain_result = {
@@ -2627,7 +3177,7 @@ fn stitch_pair(img_a: PanoImage, img_b: PanoImage, step: usize) -> Result<PanoIm
         };
         match gain_result {
             Ok(gains) => {
-                eprintln!("pano-smoke: gains = {:?}", gains);
+                eprintln!("pano-smoke: gains (luma) = {:?}", gains);
                 let _ = pano_core::compensation::gain::apply_gains(&mut pair, &gains);
             }
             Err(e) => {
@@ -2656,6 +3206,104 @@ fn stitch_pair(img_a: PanoImage, img_b: PanoImage, step: usize) -> Result<PanoIm
 }
 
 // ---------------------------------------------------------------------------
+// Memory-cap auto-detection
+// ---------------------------------------------------------------------------
+
+/// Origin of the memory cap returned by `resolve_memory_cap`.
+/// Captured separately so we can quote it in pre-flight error
+/// messages without having to recompute it.
+#[derive(Debug, Clone)]
+enum MemoryCapSource {
+    /// Disabled by `PANO_MEMORY_CAP_GB=0`.
+    Disabled,
+    /// User-supplied via `PANO_MEMORY_CAP_GB=<n>`.
+    EnvOverride(f64),
+    /// Auto-derived from the system's actual RAM via `sysinfo`.
+    /// `total_gb` and `available_gb` are the figures we read.
+    Auto {
+        total_gb: f64,
+        available_gb: f64,
+    },
+    /// `sysinfo` failed somehow (very rare on macOS/Linux). We fall
+    /// back to a conservative hard-coded floor so we still bail
+    /// before locking the machine.
+    Fallback,
+}
+
+impl std::fmt::Display for MemoryCapSource {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            MemoryCapSource::Disabled => write!(f, "disabled via PANO_MEMORY_CAP_GB=0"),
+            MemoryCapSource::EnvOverride(v) => {
+                write!(f, "PANO_MEMORY_CAP_GB={:.1}", v)
+            }
+            MemoryCapSource::Auto {
+                total_gb,
+                available_gb,
+            } => write!(
+                f,
+                "auto: 75% of {:.1} GB total + 85% of {:.1} GB available",
+                total_gb, available_gb
+            ),
+            MemoryCapSource::Fallback => {
+                write!(f, "hard-coded 12 GB fallback (sysinfo unavailable)")
+            }
+        }
+    }
+}
+
+/// Compute the active memory cap in GB.
+///
+/// Returns `(Some(cap_gb), source)` for a normal cap, or
+/// `(None, Disabled)` when explicitly turned off.
+///
+/// Resolution order:
+///   1. `PANO_MEMORY_CAP_GB` env var (parsed as f64). `0` disables;
+///      any positive value overrides auto-detection.
+///   2. Auto: `min(0.75 × total_ram, 0.85 × available_ram)`. The
+///      75 % cap on total prevents thrashing on otherwise-idle
+///      machines; the 85 % cap on available leaves headroom for
+///      Slack/Chrome/etc. that the user is using right now.
+///   3. Fallback to 12 GB if `sysinfo` returns 0 (shouldn't happen
+///      on macOS/Linux but defensive).
+fn resolve_memory_cap() -> (Option<f64>, MemoryCapSource) {
+    if let Ok(s) = std::env::var("PANO_MEMORY_CAP_GB") {
+        if let Ok(v) = s.trim().parse::<f64>() {
+            if v <= 0.0 {
+                return (None, MemoryCapSource::Disabled);
+            }
+            return (Some(v), MemoryCapSource::EnvOverride(v));
+        }
+    }
+    // Auto-detect via sysinfo.
+    let mut sys = sysinfo::System::new();
+    sys.refresh_memory();
+    let total_b = sys.total_memory();      // bytes
+    let avail_b = sys.available_memory();   // bytes
+    if total_b == 0 {
+        return (Some(12.0), MemoryCapSource::Fallback);
+    }
+    let total_gb = (total_b as f64) / (1024.0 * 1024.0 * 1024.0);
+    let available_gb = (avail_b as f64) / (1024.0 * 1024.0 * 1024.0);
+    let cap_gb = (0.75 * total_gb).min(0.85 * available_gb);
+    (
+        Some(cap_gb),
+        MemoryCapSource::Auto {
+            total_gb,
+            available_gb,
+        },
+    )
+}
+
+/// Short one-liner for embedding in pre-flight log lines.
+fn cap_summary(cap_gb: Option<f64>, src: &MemoryCapSource) -> String {
+    match cap_gb {
+        None => format!("disabled ({})", src),
+        Some(v) => format!("{:.1} GB ({})", v, src),
+    }
+}
+
+// ---------------------------------------------------------------------------
 // main
 // ---------------------------------------------------------------------------
 
@@ -2675,14 +3323,31 @@ fn main() {
             "rectilinear" => Projection::Rectilinear,
             _ => Projection::Cylindrical,
         };
-        let blend_mode = match cli.blend_mode.to_ascii_lowercase().as_str() {
-            "multi-band" | "multiband" | "multi_band" => BlendMode::MultiBand,
-            _ => BlendMode::SimpleAlpha,
-        };
         let partition_mode = match cli.partition.to_ascii_lowercase().as_str() {
             "voronoi" => PartitionMode::Voronoi,
             "graphcut" | "graph-cut" | "graph_cut" => PartitionMode::GraphCut,
+            "multiband-seam-zone"
+            | "multi-band-seam-zone"
+            | "seam-zone"
+            | "seamzone" => PartitionMode::DistanceFieldSeamZone,
             _ => PartitionMode::DistanceField,
+        };
+        let gain_mode = match cli.gain_mode.to_ascii_lowercase().as_str() {
+            "per-channel" | "perchannel" | "per_channel" | "rgb" => GainMode::PerChannel,
+            _ => GainMode::Luma,
+        };
+        // The seam-zone partition is *designed* for multi-band: hard-binary
+        // outside the zone makes the Laplacian pyramid degenerate to a copy
+        // (no whole-canvas averaging artefacts) while still smoothing inside
+        // the zone. Auto-promote the blend mode when the user picks it,
+        // overriding the `--blend-mode` flag if it was left at the default.
+        let blend_mode = match (
+            cli.blend_mode.to_ascii_lowercase().as_str(),
+            partition_mode,
+        ) {
+            (_, PartitionMode::DistanceFieldSeamZone) => BlendMode::MultiBand,
+            ("multi-band" | "multiband" | "multi_band", _) => BlendMode::MultiBand,
+            _ => BlendMode::SimpleAlpha,
         };
         stitch(
             &cli.inputs,
@@ -2694,6 +3359,13 @@ fn main() {
             partition_mode,
             cli.seam_feather,
             cli.seam_downsample,
+            cli.zone_radius,
+            gain_mode,
+            cli.refine_pair_offsets,
+            cli.refine_pair_offsets_local,
+            cli.refine_pair_coarse_radius,
+            cli.refine_pair_features,
+            cli.refine_pair_features_only,
         )
     };
 

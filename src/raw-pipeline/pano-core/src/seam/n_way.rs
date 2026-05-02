@@ -42,6 +42,8 @@
 //!   compensation: hard cuts will produce visible brightness seams.
 //!   Run `compensation::gain` first.
 
+use std::collections::{HashMap, HashSet};
+
 use bitvec::vec::BitVec;
 use rayon::prelude::*;
 
@@ -462,6 +464,213 @@ pub fn feather_binary_masks(
     });
 }
 
+/// Extract per-pair seam-path pixel coordinates from a hard label map.
+///
+/// Scans 4-neighbour pixel pairs on the canvas; whenever two adjacent
+/// pixels carry distinct non-negative labels `i` and `j`, both endpoint
+/// positions are recorded in the bucket keyed by `(min(i,j),
+/// max(i,j))`. Negative labels (uncovered canvas) are skipped. Each
+/// canvas pixel appears at most once per pair (HashSet dedupe).
+///
+/// The returned coordinate vectors are sorted lexicographically so the
+/// output is deterministic across runs even though the inner storage is
+/// a HashSet.
+///
+/// Used downstream by:
+///   - T3 seam-weighted TPS warp (per-observation distance to nearest
+///     seam pixel → exp() weighting),
+///   - T4 pose-constrained dense flow (refines a band around each seam
+///     pixel),
+///   - T7 multi-band Laplacian blend on seam zone (only feathers within
+///     `zone_radius` of a seam pixel; partition stays binary elsewhere).
+pub fn extract_seam_paths(
+    labels: &[i32],
+    width: u32,
+    height: u32,
+) -> HashMap<(usize, usize), Vec<(u32, u32)>> {
+    let w = width as usize;
+    let h = height as usize;
+    debug_assert_eq!(labels.len(), w * h);
+
+    let mut sets: HashMap<(usize, usize), HashSet<(u32, u32)>> = HashMap::new();
+
+    let mut record =
+        |la: i32, lb: i32, xa: u32, ya: u32, xb: u32, yb: u32| {
+            if la < 0 || lb < 0 || la == lb {
+                return;
+            }
+            let lo = la.min(lb) as usize;
+            let hi = la.max(lb) as usize;
+            let entry = sets.entry((lo, hi)).or_default();
+            entry.insert((xa, ya));
+            entry.insert((xb, yb));
+        };
+
+    // Right neighbour: covers all horizontal boundary crossings.
+    for y in 0..height {
+        for x in 0..width.saturating_sub(1) {
+            let i_a = (y as usize) * w + (x as usize);
+            let i_b = i_a + 1;
+            record(labels[i_a], labels[i_b], x, y, x + 1, y);
+        }
+    }
+    // Down neighbour: covers all vertical boundary crossings.
+    for y in 0..height.saturating_sub(1) {
+        for x in 0..width {
+            let i_a = (y as usize) * w + (x as usize);
+            let i_b = i_a + w;
+            record(labels[i_a], labels[i_b], x, y, x, y + 1);
+        }
+    }
+
+    sets.into_iter()
+        .map(|(k, set)| {
+            let mut v: Vec<(u32, u32)> = set.into_iter().collect();
+            v.sort();
+            (k, v)
+        })
+        .collect()
+}
+
+/// Build per-image weight masks that are *binary* (`{0, 1}`) far from
+/// any seam path and *feathered* within `zone_radius` of a seam path —
+/// the input expected by `MultiBandBlender::blend_n` to produce a
+/// Photoshop/Hugin-style seam-zone-only multi-band blend.
+///
+/// Outside the zone exactly one mask is `1.0` (the assigned image),
+/// the rest are `0.0` — feeding a hard-binary mask into the blender
+/// makes its Laplacian pyramid degenerate to "copy the assigned
+/// image's pixel," so brightness/colour averaging can't pollute
+/// pixels far from any seam.
+///
+/// Inside the zone (any pixel within `zone_radius` of a seam-path
+/// coordinate from any pair), masks are softened by the existing
+/// Gaussian feather and then renormalised to enforce strict
+/// partition-of-unity (`Σ_i mask_i[px] = 1` at every valid pixel).
+/// The Laplacian pyramid in the zone hides brightness/colour
+/// transitions across all frequency scales, the multi-band blender's
+/// reason-for-being.
+///
+/// `zone_radius == 0` short-circuits to the plain hard-binary
+/// partition (no zone, no softening) — equivalent to
+/// `build_n_way_binary_masks` after labels are computed but bypassing
+/// graph-cut. The Gaussian feather radius is `zone_radius / 2`
+/// (clamped ≥ 1) so the feather decays to ≈ `e⁻²` at the zone
+/// boundary, avoiding a discontinuity at the edge of the zone.
+///
+/// Pixels with `labels[px] < 0` (no image is valid there) get
+/// all-zero masks, just like `build_n_way_binary_masks`.
+pub fn build_seam_zone_partition(
+    labels: &[i32],
+    seam_paths: &HashMap<(usize, usize), Vec<(u32, u32)>>,
+    n: usize,
+    width: u32,
+    height: u32,
+    zone_radius: u32,
+) -> Vec<Vec<f32>> {
+    let w = width as usize;
+    let h = height as usize;
+    let n_pixels = w * h;
+    debug_assert_eq!(labels.len(), n_pixels);
+
+    if n == 0 {
+        return Vec::new();
+    }
+
+    // 1. Build hard binary masks directly into the OUTPUT buffer.
+    //    On big canvases (e.g. 21 images × 47 MP × 4 bytes ≈ 4 GB per
+    //    image-mask set) it's critical not to keep multiple copies
+    //    of this Vec alive simultaneously — the previous version
+    //    held hard, feathered, and combined all at once and OOM'd
+    //    on 21-frame stitches.
+    let mut out: Vec<Vec<f32>> = (0..n)
+        .map(|i| {
+            let mut col = vec![0.0_f32; n_pixels];
+            for (px, m) in col.iter_mut().enumerate() {
+                let lbl = labels[px];
+                if lbl >= 0 && lbl as usize == i {
+                    *m = 1.0;
+                }
+            }
+            col
+        })
+        .collect();
+
+    // Short-circuit: no softening requested → return hard binary.
+    if zone_radius == 0 {
+        return out;
+    }
+
+    // 2. Zone bitmap: in_zone[px] = true iff px lies within
+    //    zone_radius (Euclidean) of any seam-path pixel. Bool-per-
+    //    pixel = 1 byte, so ~50 MB on a 47 MP canvas — negligible.
+    let mut in_zone = vec![false; n_pixels];
+    let r = zone_radius as i32;
+    let r2 = r * r;
+    for points in seam_paths.values() {
+        for &(sx, sy) in points {
+            let xi = sx as i32;
+            let yi = sy as i32;
+            let x_lo = (xi - r).max(0) as usize;
+            let x_hi = ((xi + r) as usize).min(w - 1);
+            let y_lo = (yi - r).max(0) as usize;
+            let y_hi = ((yi + r) as usize).min(h - 1);
+            for y in y_lo..=y_hi {
+                let dy = y as i32 - yi;
+                let dy2 = dy * dy;
+                let row_off = y * w;
+                for x in x_lo..=x_hi {
+                    let dx = x as i32 - xi;
+                    if dx * dx + dy2 <= r2 {
+                        in_zone[row_off + x] = true;
+                    }
+                }
+            }
+        }
+    }
+
+    // 3. Feather `out` IN PLACE. After this, every pixel has a
+    //    blurred Gaussian-weighted mask value — even pixels well
+    //    outside the seam zone.
+    let feather_radius = (zone_radius / 2).max(1);
+    feather_binary_masks(&mut out, width, height, feather_radius);
+
+    // 4. Restore the exact hard-binary values for pixels OUTSIDE
+    //    the zone. Inside the zone, the feathered values stand —
+    //    they'll be renormalised in step 5.
+    for i in 0..n {
+        for px in 0..n_pixels {
+            if !in_zone[px] {
+                out[i][px] = if labels[px] >= 0 && labels[px] as usize == i {
+                    1.0
+                } else {
+                    0.0
+                };
+            }
+        }
+    }
+
+    // 5. Renormalise zone pixels so per-pixel masks sum to 1. The
+    //    feather scatters mass across image boundaries so without
+    //    this Σ_i mask_i[px] drifts below 1 near the zone interior.
+    //    Outside the zone exactly one mask is 1.0 by construction, so
+    //    we skip those pixels.
+    for px in 0..n_pixels {
+        if !in_zone[px] {
+            continue;
+        }
+        let sum: f32 = (0..n).map(|i| out[i][px]).sum();
+        if sum > 1e-9 {
+            let inv = 1.0 / sum;
+            for i in 0..n {
+                out[i][px] *= inv;
+            }
+        }
+    }
+
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -587,6 +796,268 @@ mod tests {
             count_0 + count_1 == total,
             "{count_0} + {count_1} != {total}: every overlap pixel must be assigned"
         );
+    }
+
+    /// `extract_seam_paths` reports both endpoints of every label
+    /// boundary, deduplicated, keyed by `(min(label), max(label))`.
+    /// On a 16×8 canvas with three vertical strips
+    ///   cols 0..6 → label 0, cols 6..10 → label 1, cols 10..16 → label 2
+    /// pair (0,1)'s seam is the column-5↔column-6 boundary and pair
+    /// (1,2)'s is column-9↔column-10. (0,2) shares no boundary.
+    #[test]
+    fn extract_seam_paths_reports_both_endpoints_per_pair() {
+        let w = 16u32;
+        let h = 8u32;
+        let mut labels = vec![0_i32; (w * h) as usize];
+        for y in 0..h {
+            for x in 0..w {
+                let idx = (y * w + x) as usize;
+                labels[idx] = if x < 6 {
+                    0
+                } else if x < 10 {
+                    1
+                } else {
+                    2
+                };
+            }
+        }
+
+        let paths = extract_seam_paths(&labels, w, h);
+        // Pair (0, 2) has no shared boundary on a 3-strip canvas.
+        assert!(!paths.contains_key(&(0usize, 2usize)));
+
+        let p01 = paths.get(&(0usize, 1usize)).expect("pair (0,1) seam present");
+        let p12 = paths.get(&(1usize, 2usize)).expect("pair (1,2) seam present");
+
+        // Each pair's seam contains both columns flanking the boundary,
+        // every row, deduped: 2 cols × 8 rows = 16 unique pixels.
+        assert_eq!(p01.len(), 16, "pair (0,1) length wrong, got {:?}", p01);
+        assert_eq!(p12.len(), 16, "pair (1,2) length wrong, got {:?}", p12);
+
+        // Verify the (0,1) seam is exactly columns {5, 6} × rows 0..8.
+        let mut expected01: Vec<(u32, u32)> = (0..h)
+            .flat_map(|y| [(5u32, y), (6u32, y)])
+            .collect();
+        expected01.sort();
+        assert_eq!(p01, &expected01);
+
+        // Same check for (1,2): columns {9, 10}.
+        let mut expected12: Vec<(u32, u32)> = (0..h)
+            .flat_map(|y| [(9u32, y), (10u32, y)])
+            .collect();
+        expected12.sort();
+        assert_eq!(p12, &expected12);
+    }
+
+    /// Negative ("uncovered") labels never produce seam pixels — the
+    /// boundary between an image's label and the outside-canvas region
+    /// (`-1`) is *not* a seam.
+    #[test]
+    fn extract_seam_paths_skips_negative_labels() {
+        let w = 8u32;
+        let h = 4u32;
+        let mut labels = vec![-1_i32; (w * h) as usize];
+        // Left half labelled 0; right half stays -1.
+        for y in 0..h {
+            for x in 0..4 {
+                labels[(y * w + x) as usize] = 0;
+            }
+        }
+        let paths = extract_seam_paths(&labels, w, h);
+        assert!(
+            paths.is_empty(),
+            "no pair-bucket should be emitted for label/-1 boundaries"
+        );
+    }
+
+    /// Diagonal label split: ensure 4-neighbour scanning catches both
+    /// horizontal and vertical edges of a stair-step boundary.
+    #[test]
+    fn extract_seam_paths_4_neighbour_scan_picks_up_vertical_and_horizontal_edges() {
+        let w = 4u32;
+        let h = 4u32;
+        // Top-left 2×2 = label 0; everything else = label 1.
+        //  0 0 1 1
+        //  0 0 1 1
+        //  1 1 1 1
+        //  1 1 1 1
+        let mut labels = vec![1_i32; (w * h) as usize];
+        for y in 0..2 {
+            for x in 0..2 {
+                labels[(y * w + x) as usize] = 0;
+            }
+        }
+        let paths = extract_seam_paths(&labels, w, h);
+        let p01 = paths.get(&(0usize, 1usize)).expect("pair (0,1) seam");
+        // Right edge of the 2×2 quadrant: cols 1↔2 at rows 0,1 →
+        // pixels (1,0),(2,0),(1,1),(2,1).
+        // Bottom edge: rows 1↔2 at cols 0,1 → (0,1),(0,2),(1,1),(1,2).
+        // Union (deduped) = {(0,1),(0,2),(1,0),(1,1),(1,2),(2,0),(2,1)} = 7.
+        assert_eq!(p01.len(), 7, "got {:?}", p01);
+        for px in [
+            (0u32, 1u32),
+            (0u32, 2u32),
+            (1u32, 0u32),
+            (1u32, 1u32),
+            (1u32, 2u32),
+            (2u32, 0u32),
+            (2u32, 1u32),
+        ] {
+            assert!(p01.contains(&px), "missing seam pixel {:?}", px);
+        }
+    }
+
+    /// `build_seam_zone_partition`: 3 chained images, hard partition,
+    /// seam-zone radius 4. Asserts the three plan-mandated invariants:
+    ///   1. Σ_i mask_i[px] = 1 at every valid pixel.
+    ///   2. Outside the zone, masks are exactly `{0, 1}`.
+    ///   3. Inside the zone (within `zone_radius` of any seam pixel),
+    ///      masks are intermediate (in `(0, 1)`).
+    #[test]
+    fn seam_zone_partition_satisfies_invariants() {
+        let w = 32u32;
+        let h = 16u32;
+        let zone = 4u32;
+        // Three vertical strips:
+        //   cols 0..10  → label 0
+        //   cols 10..22 → label 1
+        //   cols 22..32 → label 2
+        let mut labels = vec![0_i32; (w * h) as usize];
+        for y in 0..h {
+            for x in 0..w {
+                labels[(y * w + x) as usize] = if x < 10 {
+                    0
+                } else if x < 22 {
+                    1
+                } else {
+                    2
+                };
+            }
+        }
+
+        // Seam paths between adjacent strips (both flanking columns,
+        // every row — matches what `extract_seam_paths` would emit).
+        let mut seam_paths: HashMap<(usize, usize), Vec<(u32, u32)>> = HashMap::new();
+        for y in 0..h {
+            seam_paths
+                .entry((0, 1))
+                .or_default()
+                .extend([(9, y), (10, y)]);
+            seam_paths
+                .entry((1, 2))
+                .or_default()
+                .extend([(21, y), (22, y)]);
+        }
+
+        let masks = build_seam_zone_partition(&labels, &seam_paths, 3, w, h, zone);
+        assert_eq!(masks.len(), 3);
+        for m in &masks {
+            assert_eq!(m.len(), (w * h) as usize);
+        }
+
+        // (1) Sum-to-unity at every pixel — labels here are all ≥ 0.
+        for px in 0..(w * h) as usize {
+            let s = masks[0][px] + masks[1][px] + masks[2][px];
+            assert!(
+                (s - 1.0).abs() < 1e-4,
+                "pixel {} sum = {} (expected 1.0)",
+                px,
+                s
+            );
+        }
+
+        // (2) Outside the zone: exactly one mask is 1.0, rest are 0.
+        // Pixel (0, 0): nearest seam is (9, 0), distance 9 > zone=4.
+        let idx00 = 0;
+        assert!((masks[0][idx00] - 1.0).abs() < 1e-6);
+        assert_eq!(masks[1][idx00], 0.0);
+        assert_eq!(masks[2][idx00], 0.0);
+        // Pixel (31, 0): nearest seam (22, 0), distance 9 > zone.
+        let idx_far_right = 31;
+        assert_eq!(masks[0][idx_far_right], 0.0);
+        assert_eq!(masks[1][idx_far_right], 0.0);
+        assert!((masks[2][idx_far_right] - 1.0).abs() < 1e-6);
+        // Pixel (15, 0): in label-1 strip, distance to (10, 0) seam = 5,
+        // distance to (21, 0) seam = 6 — both > zone=4. Outside zone.
+        let idx_mid = 15;
+        assert_eq!(masks[0][idx_mid], 0.0);
+        assert!((masks[1][idx_mid] - 1.0).abs() < 1e-6);
+        assert_eq!(masks[2][idx_mid], 0.0);
+
+        // (3) Inside the zone: at the seam pixel itself, masks are
+        // intermediate. Pixel (10, 0) is on the (0,1) seam.
+        let idx_seam01 = 10;
+        let m0 = masks[0][idx_seam01];
+        let m1 = masks[1][idx_seam01];
+        assert!(
+            (0.0..1.0).contains(&m0) && m0 > 0.0,
+            "m0 at seam (10,0) should be in (0, 1), got {}",
+            m0
+        );
+        assert!(
+            (0.0..1.0).contains(&m1) && m1 > 0.0,
+            "m1 at seam (10,0) should be in (0, 1), got {}",
+            m1
+        );
+        assert_eq!(masks[2][idx_seam01], 0.0); // far from (1,2) seam
+
+        // Pixel (22, 0) is on the (1,2) seam.
+        let idx_seam12 = 22;
+        let m1b = masks[1][idx_seam12];
+        let m2b = masks[2][idx_seam12];
+        assert!(m1b > 0.0 && m1b < 1.0, "m1 at (22,0) = {}", m1b);
+        assert!(m2b > 0.0 && m2b < 1.0, "m2 at (22,0) = {}", m2b);
+        assert_eq!(masks[0][idx_seam12], 0.0);
+    }
+
+    /// `zone_radius = 0` short-circuits to plain hard binary masks —
+    /// equivalent to `build_n_way_binary_masks` after labels are set.
+    #[test]
+    fn seam_zone_partition_zero_radius_is_hard_binary() {
+        let w = 8u32;
+        let h = 4u32;
+        let mut labels = vec![0_i32; (w * h) as usize];
+        for y in 0..h {
+            for x in 4..w {
+                labels[(y * w + x) as usize] = 1;
+            }
+        }
+        let mut seam_paths: HashMap<(usize, usize), Vec<(u32, u32)>> = HashMap::new();
+        for y in 0..h {
+            seam_paths
+                .entry((0, 1))
+                .or_default()
+                .extend([(3, y), (4, y)]);
+        }
+        let masks = build_seam_zone_partition(&labels, &seam_paths, 2, w, h, 0);
+        for px in 0..(w * h) as usize {
+            assert!(masks[0][px] == 0.0 || masks[0][px] == 1.0);
+            assert!(masks[1][px] == 0.0 || masks[1][px] == 1.0);
+            // Partition of unity holds because every pixel has a label.
+            assert_eq!(masks[0][px] + masks[1][px], 1.0);
+        }
+    }
+
+    /// Pixels with `labels[px] = -1` (no image valid here) yield
+    /// all-zero masks — they don't contribute to the blend.
+    #[test]
+    fn seam_zone_partition_uncovered_pixels_get_zero_masks() {
+        let w = 4u32;
+        let h = 2u32;
+        // Two pixels labelled, six unlabelled (all -1).
+        let mut labels = vec![-1_i32; (w * h) as usize];
+        labels[0] = 0;
+        labels[(w * h) as usize - 1] = 1;
+        let seam_paths: HashMap<(usize, usize), Vec<(u32, u32)>> = HashMap::new();
+        let masks = build_seam_zone_partition(&labels, &seam_paths, 2, w, h, 4);
+        // Unlabelled pixels: both masks zero.
+        for px in 1..(w * h) as usize - 1 {
+            assert_eq!(masks[0][px], 0.0, "px {} mask 0", px);
+            assert_eq!(masks[1][px], 0.0, "px {} mask 1", px);
+        }
+        // Labelled pixels: assigned image's mask is 1.0.
+        assert_eq!(masks[0][0], 1.0);
+        assert_eq!(masks[1][(w * h) as usize - 1], 1.0);
     }
 
     /// Feathering a binary mask preserves total mass approximately and

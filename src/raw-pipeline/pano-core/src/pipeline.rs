@@ -76,12 +76,14 @@ fn stitch_two(img_a: &PanoImage, img_b: &PanoImage, _options: &PipelineOptions) 
         vec![
             Camera {
                 focal,
+                principal_point: None,
                 rotation: identity,
                 translation: nalgebra::Vector3::zeros(),
                 distortion: Distortion::default(),
             },
             Camera {
                 focal,
+                principal_point: None,
                 rotation: identity,
                 translation: nalgebra::Vector3::zeros(),
                 distortion: Distortion::default(),

@@ -10,20 +10,35 @@
 //! `warp_image_to_canvas` helper that renders one image into the canvas
 //! at its proper position.
 //!
-//! Currently implemented for `Projection::Cylindrical`; rectilinear and
-//! spherical fall back to the input-sized warp + zero-offset paste
-//! (matches the previous behavior). Extending to those is mechanical
-//! once a multi-image rectilinear scene is in the test corpus.
+//! Implemented for cylindrical and spherical output. Rectilinear still uses
+//! the input-sized warp + zero-offset paste path until a multi-image
+//! rectilinear scene is in the test corpus.
 
-use bitvec::vec::BitVec;
 use nalgebra::{Matrix3, Vector3};
 use rayon::prelude::*;
 
 use crate::error::PanoError;
 use crate::types::{Camera, PanoImage, Projection};
 use crate::warp::cpu::CpuWarper;
-use crate::warp::distortion::forward_distort_xy;
+use crate::warp::distortion::{forward_distort_xy, inverse_distort_xy};
 use crate::Warper;
+
+/// Minimum forward-z component of a world-direction vector for the
+/// planar-at-unit-depth back-projection (`world_pt = world_dir /
+/// world_dir.z`) to be numerically stable.
+///
+/// At extreme phi (canvas near the spherical poles) `world_dir.z =
+/// cos(phi)·cos(lambda)` can be tiny but still > 1e-9; the division
+/// then produces a million-pixel `world_pt` that, after rotation by
+/// the camera's `R^T`, can sample the input image's opposite side
+/// via numerical drift in the projection — the "upside-down content
+/// at canvas edges" artefact.
+///
+/// 0.10 corresponds to phi limits of roughly ±84°, well past any
+/// real panorama's pitch coverage. Pixels above this rejection
+/// threshold are silently invalidated by the warp; the auto-trim
+/// pass downstream removes them from the canvas.
+const MIN_WORLD_DIR_Z: f64 = 0.10;
 
 /// Output frame that one or more warped images composite into.
 #[derive(Debug, Clone)]
@@ -83,29 +98,28 @@ pub fn compute_canvas(
         )));
     }
 
-    // Auto-fallback: when every camera's rotation is essentially identity
-    // (all elements within 1e-3 of the identity matrix), there's no benefit
-    // to the cylindrical-canvas resampling — the Rectilinear pass-through
-    // is bit-exact-ish and faster. Useful for synthetic tests with
-    // pre-aligned crops, and as a safe default when BA returns an identity
-    // because matching failed.
-    let all_identity = cameras.iter().all(|c| {
-        let r = c.rotation;
-        let i = Matrix3::<f32>::identity();
-        let max_diff = (r - i).abs().max();
-        max_diff < 1e-3
-    });
-    if all_identity {
+    // Auto-fallback only for the true rectilinear no-op. Older code fell back
+    // whenever rotations were identity, which accidentally disabled requested
+    // spherical/cylindrical output and ignored non-zero translation/distortion.
+    let all_rectilinear_noop = projection == Projection::Rectilinear
+        && cameras.iter().all(|c| {
+            let r = c.rotation;
+            let i = Matrix3::<f32>::identity();
+            let max_diff = (r - i).abs().max();
+            max_diff < 1e-3 && c.translation.norm() < 1e-6 && c.distortion.is_zero()
+        });
+    if all_rectilinear_noop {
         let w = images.iter().map(|i| i.width).max().unwrap_or(0);
         let h = images.iter().map(|i| i.height).max().unwrap_or(0);
+        let (cx, cy) = cameras[0].principal_point_or_center(w, h);
         return Ok(Canvas {
             width: w,
             height: h,
             projection: Projection::Rectilinear,
             params: CanvasParams::Rectilinear {
                 focal: cameras[0].focal,
-                cx: w as f32 / 2.0,
-                cy: h as f32 / 2.0,
+                cx,
+                cy,
             },
         });
     }
@@ -121,15 +135,12 @@ pub fn compute_canvas(
             let w = images.iter().map(|i| i.width).max().unwrap_or(0);
             let h = images.iter().map(|i| i.height).max().unwrap_or(0);
             let focal = cameras[0].focal;
+            let (cx, cy) = cameras[0].principal_point_or_center(w, h);
             Ok(Canvas {
                 width: w,
                 height: h,
                 projection,
-                params: CanvasParams::Rectilinear {
-                    focal,
-                    cx: w as f32 / 2.0,
-                    cy: h as f32 / 2.0,
-                },
+                params: CanvasParams::Rectilinear { focal, cx, cy },
             })
         }
     }
@@ -155,10 +166,6 @@ fn compute_cylindrical_canvas(
     const GRID: usize = 5;
 
     for (img, cam) in images.iter().zip(cameras.iter()) {
-        let k = camera_k_f64(cam.focal as f64, img.width, img.height);
-        let k_inv = k
-            .try_inverse()
-            .ok_or_else(|| PanoError::Warp("singular camera K".into()))?;
         let r = cam.rotation.cast::<f64>();
         let t = cam.translation.cast::<f64>();
 
@@ -173,8 +180,7 @@ fn compute_cylindrical_canvas(
             for gx in 0..=GRID {
                 let px = (gx as f64) * w / (GRID as f64);
                 let py = (gy as f64) * h / (GRID as f64);
-                let uv = Vector3::new(px, py, 1.0);
-                let ray_cam = k_inv * uv;
+                let ray_cam = ideal_ray_from_sensor_pixel(cam, img.width, img.height, px, py);
                 // World point = R · K^-1 · uv + t (forward direction of
                 // BA's planar-at-unit-depth model: the cam-space ray at
                 // depth z=1, rotated into world frame, offset by camera
@@ -297,10 +303,6 @@ fn compute_spherical_canvas(
     const GRID: usize = 5;
 
     for (img, cam) in images.iter().zip(cameras.iter()) {
-        let k = camera_k_f64(cam.focal as f64, img.width, img.height);
-        let k_inv = k
-            .try_inverse()
-            .ok_or_else(|| PanoError::Warp("singular camera K".into()))?;
         let r = cam.rotation.cast::<f64>();
         let t = cam.translation.cast::<f64>();
 
@@ -315,8 +317,7 @@ fn compute_spherical_canvas(
             for gx in 0..=GRID {
                 let px = (gx as f64) * w / (GRID as f64);
                 let py = (gy as f64) * h / (GRID as f64);
-                let uv = Vector3::new(px, py, 1.0);
-                let ray_cam = k_inv * uv;
+                let ray_cam = ideal_ray_from_sensor_pixel(cam, img.width, img.height, px, py);
                 // World point = R · K^-1 · uv + t (planar-at-unit-depth
                 // forward, matching the warp). For zero translation this
                 // reduces to R · ray.
@@ -407,18 +408,27 @@ fn compute_spherical_canvas(
     })
 }
 
-fn camera_k_f64(focal: f64, width: u32, height: u32) -> nalgebra::Matrix3<f64> {
-    nalgebra::Matrix3::new(
-        focal,
-        0.0,
-        width as f64 / 2.0,
-        0.0,
-        focal,
-        height as f64 / 2.0,
-        0.0,
-        0.0,
-        1.0,
-    )
+fn camera_k_f64(focal: f64, cx: f64, cy: f64) -> nalgebra::Matrix3<f64> {
+    nalgebra::Matrix3::new(focal, 0.0, cx, 0.0, focal, cy, 0.0, 0.0, 1.0)
+}
+
+fn camera_k_for_image(cam: &Camera, width: u32, height: u32) -> nalgebra::Matrix3<f64> {
+    let (cx, cy) = cam.principal_point_or_center(width, height);
+    camera_k_f64(cam.focal as f64, cx as f64, cy as f64)
+}
+
+fn ideal_ray_from_sensor_pixel(
+    cam: &Camera,
+    width: u32,
+    height: u32,
+    px: f64,
+    py: f64,
+) -> Vector3<f64> {
+    let (cx, cy) = cam.principal_point_or_center(width, height);
+    let xn_d = (px - cx as f64) / cam.focal as f64;
+    let yn_d = (py - cy as f64) / cam.focal as f64;
+    let (xn, yn) = inverse_distort_xy(xn_d, yn_d, cam.distortion.k1, cam.distortion.k2);
+    Vector3::new(xn, yn, 1.0)
 }
 
 /// Warp one image into the canvas frame. Output is a canvas-sized
@@ -437,7 +447,14 @@ pub fn warp_image_to_canvas(
             h_min,
             h_max,
         } => warp_cylindrical_canvas(
-            img, cam, canvas.width, canvas.height, *theta_min, *theta_max, *h_min, *h_max,
+            img,
+            cam,
+            canvas.width,
+            canvas.height,
+            *theta_min,
+            *theta_max,
+            *h_min,
+            *h_max,
         ),
         CanvasParams::Spherical {
             lambda_min,
@@ -445,7 +462,14 @@ pub fn warp_image_to_canvas(
             phi_min,
             phi_max,
         } => warp_spherical_canvas(
-            img, cam, canvas.width, canvas.height, *lambda_min, *lambda_max, *phi_min, *phi_max,
+            img,
+            cam,
+            canvas.width,
+            canvas.height,
+            *lambda_min,
+            *lambda_max,
+            *phi_min,
+            *phi_max,
         ),
         CanvasParams::Rectilinear { .. } => {
             // Fallback: render at input size + paste at (0, 0). Same
@@ -498,7 +522,7 @@ fn warp_cylindrical_canvas(
     h_max: f32,
 ) -> Result<PanoImage, PanoError> {
     let (iw, ih) = (img.width, img.height);
-    let k_in = camera_k_f64(cam.focal as f64, iw, ih);
+    let k_in = camera_k_for_image(cam, iw, ih);
     let r_inv = cam.rotation.transpose().cast::<f64>();
     // See `warp_spherical_canvas` for translation semantics.
     let t_cam = cam.translation.cast::<f64>();
@@ -523,8 +547,16 @@ fn warp_cylindrical_canvas(
                 let theta = theta_min + (cx as f32 / cw_f) * theta_span;
                 let h = h_min + (cy as f32 / ch_f) * h_span;
 
-                let world_pt =
-                    Vector3::new(theta.sin() as f64, h as f64, theta.cos() as f64);
+                let cos_theta = theta.cos() as f64;
+                // Same reasoning as the spherical guard: tiny
+                // `cos_theta` makes `world_pt = (tan(theta),
+                // h/cos_theta, 1)` explode and the rotated ray can
+                // sample the input's opposite side. Reject canvas
+                // pixels at angles past ±84° from forward.
+                if cos_theta < MIN_WORLD_DIR_Z {
+                    continue;
+                }
+                let world_pt = Vector3::new(theta.tan() as f64, h as f64 / cos_theta, 1.0);
 
                 let cam_ray = r_inv * (world_pt - t_cam);
                 if cam_ray.z <= 0.0 {
@@ -533,8 +565,7 @@ fn warp_cylindrical_canvas(
 
                 let xn = cam_ray.x / cam_ray.z;
                 let yn = cam_ray.y / cam_ray.z;
-                let (xn_d, yn_d) =
-                    forward_distort_xy(xn, yn, cam.distortion.k1, cam.distortion.k2);
+                let (xn_d, yn_d) = forward_distort_xy(xn, yn, cam.distortion.k1, cam.distortion.k2);
 
                 let p = k_in * Vector3::new(xn_d, yn_d, 1.0);
                 let u = p.x as f32;
@@ -588,7 +619,7 @@ fn warp_spherical_canvas(
     phi_max: f32,
 ) -> Result<PanoImage, PanoError> {
     let (iw, ih) = (img.width, img.height);
-    let k_in = camera_k_f64(cam.focal as f64, iw, ih);
+    let k_in = camera_k_for_image(cam, iw, ih);
     let r_inv = cam.rotation.transpose().cast::<f64>();
     // Per-camera translation in scene-unit-depth coordinates (planar-at-
     // unit-depth model, as used by BA). For scenes with no parallax
@@ -625,16 +656,28 @@ fn warp_spherical_canvas(
                 let lambda = lambda_min + (cx as f32 / cw_f) * lambda_span;
                 let phi = phi_min + (cy as f32 / ch_f) * phi_span;
 
-                // Spherical → 3D world ray (treated as a 3D scene point
-                // at unit distance from world origin — sphere-at-unit-
-                // radius approximation of the planar-at-unit-depth
-                // model BA uses).
+                // Spherical → world direction, then scale onto the z=1
+                // scene plane used by BA's planar-at-unit-depth model.
                 let cos_phi = (phi as f64).cos();
                 let sin_phi = (phi as f64).sin();
                 let cos_lambda = (lambda as f64).cos();
                 let sin_lambda = (lambda as f64).sin();
-                let world_pt =
-                    Vector3::new(cos_phi * sin_lambda, sin_phi, cos_phi * cos_lambda);
+                let world_dir = Vector3::new(cos_phi * sin_lambda, sin_phi, cos_phi * cos_lambda);
+                // Reject canvas pixels whose world-direction has a
+                // tiny forward-z component. The division
+                // `world_dir / world_dir.z` is numerically unstable
+                // there, and the rotated cam_ray can pass the
+                // `cam_ray.z > 0` guard while pointing at an
+                // arbitrary input pixel — the "upside-down edge"
+                // artefact. See MIN_WORLD_DIR_Z above. We require
+                // strictly positive z (negative z is by-construction
+                // back-hemisphere from a forward-facing camera at
+                // world origin and has no place sampling forward
+                // content).
+                if world_dir.z < MIN_WORLD_DIR_Z {
+                    continue;
+                }
+                let world_pt = world_dir / world_dir.z;
 
                 // World → input camera frame: rotate (world_pt − t_cam)
                 // into camera coords. With t_cam = 0 this is the legacy
@@ -650,8 +693,7 @@ fn warp_spherical_canvas(
                 // location.
                 let xn = cam_ray.x / cam_ray.z;
                 let yn = cam_ray.y / cam_ray.z;
-                let (xn_d, yn_d) =
-                    forward_distort_xy(xn, yn, cam.distortion.k1, cam.distortion.k2);
+                let (xn_d, yn_d) = forward_distort_xy(xn, yn, cam.distortion.k1, cam.distortion.k2);
 
                 // Project into input image via K.
                 let p = k_in * Vector3::new(xn_d, yn_d, 1.0);
@@ -713,6 +755,7 @@ mod tests {
     fn identity_camera(focal: f32) -> Camera {
         Camera {
             focal,
+            principal_point: None,
             rotation: Matrix3::identity(),
             translation: Vector3::zeros(),
             distortion: Distortion::default(),
@@ -749,17 +792,13 @@ mod tests {
         );
         let cam_b = Camera {
             focal: 256.0,
+            principal_point: None,
             rotation: r_yaw,
             translation: Vector3::zeros(),
             distortion: Distortion::default(),
         };
         let single = compute_canvas(&[&img], &[cam_a.clone()], Projection::Cylindrical).unwrap();
-        let dual = compute_canvas(
-            &[&img, &img],
-            &[cam_a, cam_b],
-            Projection::Cylindrical,
-        )
-        .unwrap();
+        let dual = compute_canvas(&[&img, &img], &[cam_a, cam_b], Projection::Cylindrical).unwrap();
         // Two rotated cameras should produce a wider canvas than one alone.
         assert!(
             dual.width > single.width,
@@ -782,8 +821,8 @@ mod tests {
         assert_eq!(warped.width, canvas.width);
         assert_eq!(warped.height, canvas.height);
         // Most pixels should be valid (single image fills its own canvas).
-        let valid_frac = warped.validity.count_ones() as f32
-            / (warped.width * warped.height) as f32;
+        let valid_frac =
+            warped.validity.count_ones() as f32 / (warped.width * warped.height) as f32;
         assert!(valid_frac > 0.5, "valid_frac={valid_frac}");
     }
 
@@ -793,15 +832,32 @@ mod tests {
         let cam_a = identity_camera(256.0);
         let angle = 30.0_f32.to_radians();
         let r_yaw = Matrix3::new(
-            angle.cos(), 0.0, angle.sin(),
-            0.0, 1.0, 0.0,
-            -angle.sin(), 0.0, angle.cos(),
+            angle.cos(),
+            0.0,
+            angle.sin(),
+            0.0,
+            1.0,
+            0.0,
+            -angle.sin(),
+            0.0,
+            angle.cos(),
         );
-        let cam_b = Camera { focal: 256.0, rotation: r_yaw, translation: Vector3::zeros(), distortion: Distortion::default() };
+        let cam_b = Camera {
+            focal: 256.0,
+            principal_point: None,
+            rotation: r_yaw,
+            translation: Vector3::zeros(),
+            distortion: Distortion::default(),
+        };
 
         let single = compute_canvas(&[&img], &[cam_a.clone()], Projection::Spherical).unwrap();
         let dual = compute_canvas(&[&img, &img], &[cam_a, cam_b], Projection::Spherical).unwrap();
-        assert!(dual.width > single.width, "dual.w={} single.w={}", dual.width, single.width);
+        assert!(
+            dual.width > single.width,
+            "dual.w={} single.w={}",
+            dual.width,
+            single.width
+        );
     }
 
     #[test]
@@ -810,15 +866,32 @@ mod tests {
         let cam_a = identity_camera(256.0);
         let angle = 30.0_f32.to_radians();
         let r_pitch = Matrix3::new(
-            1.0, 0.0, 0.0,
-            0.0, angle.cos(), -angle.sin(),
-            0.0, angle.sin(), angle.cos(),
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            angle.cos(),
+            -angle.sin(),
+            0.0,
+            angle.sin(),
+            angle.cos(),
         );
-        let cam_b = Camera { focal: 256.0, rotation: r_pitch, translation: Vector3::zeros(), distortion: Distortion::default() };
+        let cam_b = Camera {
+            focal: 256.0,
+            principal_point: None,
+            rotation: r_pitch,
+            translation: Vector3::zeros(),
+            distortion: Distortion::default(),
+        };
 
         let single = compute_canvas(&[&img], &[cam_a.clone()], Projection::Spherical).unwrap();
         let dual = compute_canvas(&[&img, &img], &[cam_a, cam_b], Projection::Spherical).unwrap();
-        assert!(dual.height > single.height, "dual.h={} single.h={}", dual.height, single.height);
+        assert!(
+            dual.height > single.height,
+            "dual.h={} single.h={}",
+            dual.height,
+            single.height
+        );
     }
 
     #[test]
@@ -833,8 +906,87 @@ mod tests {
         let warped = warp_image_to_canvas(&warper, &img, &cam, &canvas).unwrap();
         assert_eq!(warped.width, canvas.width);
         assert_eq!(warped.height, canvas.height);
-        let valid_frac = warped.validity.count_ones() as f32
-            / (warped.width * warped.height) as f32;
+        let valid_frac =
+            warped.validity.count_ones() as f32 / (warped.width * warped.height) as f32;
         assert!(valid_frac > 0.5, "valid_frac={valid_frac}");
+    }
+
+    /// Regression: at extreme phi (canvas near the spherical poles)
+    /// the planar-at-unit-depth back-projection is numerically
+    /// unstable and could sample the *opposite side* of the input
+    /// image, producing visible upside-down strips at canvas
+    /// top/bottom. The `MIN_WORLD_DIR_Z` guard rejects pixels
+    /// where this would happen.
+    ///
+    /// This test builds an artificially-extended canvas (phi from
+    /// −π/2 to +π/2, full poles) and asserts that pixels at the
+    /// extreme top and bottom rows are invalidated by the warp,
+    /// not "valid with wrong content".
+    #[test]
+    fn warp_spherical_canvas_rejects_pixels_past_safe_phi() {
+        // Build a 32×32 canvas where the bottom 16 rows are red and
+        // the top 16 are blue. If the warp inverts content from the
+        // input's top half into the canvas's bottom rows, we'll see
+        // blue where red should be. The MIN_WORLD_DIR_Z guard
+        // prevents that by rejecting all pixels past the safe phi.
+        let mut img = PanoImage::new(32, 32, ColorSpace::rec2020_d65_linear());
+        for y in 0..32 {
+            for x in 0..32 {
+                let i = ((y * 32 + x) * 3) as usize;
+                if y < 16 {
+                    img.pixels[i] = 0.9; // R
+                    img.pixels[i + 1] = 0.1;
+                    img.pixels[i + 2] = 0.1;
+                } else {
+                    img.pixels[i] = 0.1;
+                    img.pixels[i + 1] = 0.1;
+                    img.pixels[i + 2] = 0.9; // B
+                }
+                img.validity.set((y * 32 + x) as usize, true);
+            }
+        }
+        let cam = identity_camera(32.0);
+
+        // Manually build a Spherical canvas that extends to extreme
+        // phi (just below ±π/2 so we exercise the guard but stay
+        // mathematically defined). Width spans only ±π/4 lambda so
+        // we exercise the phi-pole degeneracy specifically.
+        let canvas = Canvas {
+            width: 64,
+            height: 64,
+            projection: Projection::Spherical,
+            params: CanvasParams::Spherical {
+                lambda_min: -std::f32::consts::FRAC_PI_4,
+                lambda_max: std::f32::consts::FRAC_PI_4,
+                phi_min: -1.55, // ≈ -88.8°
+                phi_max: 1.55,  // ≈ +88.8°
+            },
+        };
+        let warper = CpuWarper::new();
+        let warped = warp_image_to_canvas(&warper, &img, &cam, &canvas).unwrap();
+
+        // The top 4 rows of the canvas correspond to phi very close
+        // to π/2 — past the MIN_WORLD_DIR_Z safe band. They MUST be
+        // invalid (rejected by the guard), not "valid blue mapped
+        // somewhere wrong".
+        let w = warped.width as usize;
+        for y in 0..4 {
+            for x in 0..warped.width {
+                let idx = y * w + x as usize;
+                assert!(
+                    !warped.validity[idx],
+                    "canvas pixel ({x}, {y}) at extreme phi should be rejected by the guard"
+                );
+            }
+        }
+        for y in (warped.height as usize - 4)..(warped.height as usize) {
+            for x in 0..warped.width {
+                let idx = y * w + x as usize;
+                assert!(
+                    !warped.validity[idx],
+                    "canvas pixel ({x}, {y}) at extreme phi should be rejected by the guard"
+                );
+            }
+        }
     }
 }

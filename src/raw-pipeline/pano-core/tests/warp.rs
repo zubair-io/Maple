@@ -12,7 +12,9 @@ use pano_core::{Camera, ColorSpace, CpuWarper, Distortion, PanoImage, Projection
 fn identity_camera(focal: f32) -> Camera {
     Camera {
         focal,
+        principal_point: None,
         rotation: Matrix3::identity(),
+        translation: nalgebra::Vector3::zeros(),
         distortion: Distortion::default(),
     }
 }
@@ -102,7 +104,9 @@ fn cpu_warper_pure_translation_homography() {
     let r = Matrix3::new(cos_a, 0.0, sin_a, 0.0, 1.0, 0.0, -sin_a, 0.0, cos_a);
     let cam = Camera {
         focal: w as f32,
+        principal_point: None,
         rotation: r,
+        translation: nalgebra::Vector3::zeros(),
         distortion: Distortion::default(),
     };
 
@@ -219,7 +223,9 @@ fn cpu_warper_out_of_bounds_pixels_are_invalid() {
     let r = Matrix3::new(cos_a, -sin_a, 0.0, sin_a, cos_a, 0.0, 0.0, 0.0, 1.0);
     let cam = Camera {
         focal: w as f32 * 0.5,
+        principal_point: None,
         rotation: r,
+        translation: nalgebra::Vector3::zeros(),
         distortion: Distortion::default(),
     };
 

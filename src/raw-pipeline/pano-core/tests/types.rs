@@ -69,7 +69,9 @@ fn pipeline_options_defaults() {
 fn camera_construct() {
     let cam = Camera {
         focal: 1000.0,
+        principal_point: None,
         rotation: nalgebra::Matrix3::identity(),
+        translation: nalgebra::Vector3::zeros(),
         distortion: Distortion::default(),
     };
     assert!((cam.focal - 1000.0).abs() < 1e-6);
@@ -117,7 +119,9 @@ impl BundleAdjuster for StubBundler {
         Ok((0..n_images)
             .map(|_| Camera {
                 focal: 1.0,
+                principal_point: None,
                 rotation: nalgebra::Matrix3::identity(),
+                translation: nalgebra::Vector3::zeros(),
                 distortion: Distortion::default(),
             })
             .collect())

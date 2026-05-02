@@ -24,13 +24,9 @@ use crate::types::{Camera, Distortion, Features, Matches};
 ///
 /// Despite the name, the parameter set has been extended to include
 /// per-camera translation `(t_x, t_y, t_z)` modelled under the planar-
-/// scene-at-unit-depth assumption. Translation defaults to a strong
-/// soft prior at zero, so with `lambda_translation` high enough the
-/// solver collapses to pure rotation+focal — useful for backwards
-/// compatibility and for scenes where parallax is truly absent. When
-/// `lambda_translation` is finite, the translation params absorb the
-/// planar-parallax residual that pure rotation can't explain (e.g.
-/// drone drift between consecutive panorama frames).
+/// scene-at-unit-depth assumption. Translation is disabled when
+/// `lambda_translation == 0`. Any positive value enables translation and
+/// adds a soft prior toward `CameraPrior::translation` (usually zero).
 #[derive(Debug, Clone)]
 pub struct JointRotationFocalBA {
     /// Maximum LM iterations. Default 100.
@@ -93,8 +89,8 @@ pub struct JointRotationFocalBA {
     ///
     /// At `λ_t = 1e8` the solver allows ~0.1% translation (≈10 px
     /// on a 3500-px focal) only when matches force it; at `λ_t = 1e6`
-    /// it allows ~1%; at `λ_t = 0` translation is fully free (likely
-    /// to over-fit on small-match pairs).
+    /// it allows ~1%. At `λ_t = 0`, translation is explicitly frozen at
+    /// zero and the solver is rotation+focal only.
     ///
     /// Default 0.0 (off — solver remains rotation+focal only and the
     /// extra 3 params per camera are unused).
@@ -124,6 +120,8 @@ impl JointRotationFocalBA {
 pub struct CameraPrior {
     pub rotation: Matrix3<f64>,
     pub focal: f32,
+    /// Optical centre in image pixel coordinates. `None` means image centre.
+    pub principal_point: Option<(f32, f32)>,
     /// Per-camera translation in world units, planar-at-unit-depth scale.
     /// Defaults to zero (the prior says "no translation, pure rotation
     /// stitch"). When `lambda_translation > 0` and matches genuinely
@@ -138,8 +136,14 @@ impl CameraPrior {
         Self {
             rotation,
             focal,
+            principal_point: None,
             translation: Vector3::zeros(),
         }
+    }
+
+    pub fn with_principal_point(mut self, principal_point: Option<(f32, f32)>) -> Self {
+        self.principal_point = principal_point;
+        self
     }
 }
 
@@ -183,13 +187,13 @@ pub fn solve_joint_with_priors(
         return Ok(Vec::new());
     }
     if n_cams == 1 {
-        let focal0 = priors
-            .and_then(|p| p.first())
-            .and_then(|p| p.as_ref())
+        let prior0 = priors.and_then(|p| p.first()).and_then(|p| p.as_ref());
+        let focal0 = prior0
             .map(|p| p.focal as f64)
             .unwrap_or_else(|| image_size.0.max(image_size.1) as f64);
         return Ok(vec![Camera {
             focal: focal0 as f32,
+            principal_point: prior0.and_then(|p| p.principal_point),
             rotation: Matrix3::identity(),
             translation: nalgebra::Vector3::<f32>::zeros(),
             distortion: Distortion::default(),
@@ -197,9 +201,23 @@ pub fn solve_joint_with_priors(
     }
 
     let (img_w, img_h) = image_size;
-    let cx = img_w as f64 / 2.0;
-    let cy = img_h as f64 / 2.0;
+    let center_pp = (img_w as f32 * 0.5, img_h as f32 * 0.5);
     let default_focal = img_w.max(img_h) as f64;
+    let camera_principal_points: Vec<Option<(f32, f32)>> = (0..n_cams)
+        .map(|i| {
+            priors
+                .and_then(|pv| pv.get(i))
+                .and_then(|p| p.as_ref())
+                .and_then(|p| p.principal_point)
+        })
+        .collect();
+    let resolved_principal_points: Vec<(f64, f64)> = camera_principal_points
+        .iter()
+        .map(|pp| {
+            let (cx, cy) = pp.unwrap_or(center_pp);
+            (cx as f64, cy as f64)
+        })
+        .collect();
 
     // -----------------------------------------------------------------------
     // Step 1: Build initial parameter vector.
@@ -231,14 +249,13 @@ pub fn solve_joint_with_priors(
 
     for i in 1..n_cams {
         let slot = (i - 1) * PARAMS_PER_CAM;
-        let (omega, focal, translation) = if let Some(p) =
-            priors.and_then(|pv| pv.get(i)).and_then(|p| p.as_ref())
-        {
-            (rodrigues_log(&p.rotation), p.focal as f64, p.translation)
-        } else {
-            // Default: identity rotation + focal = max(w, h) + zero translation.
-            (Vector3::zeros(), default_focal, Vector3::zeros())
-        };
+        let (omega, focal, translation) =
+            if let Some(p) = priors.and_then(|pv| pv.get(i)).and_then(|p| p.as_ref()) {
+                (rodrigues_log(&p.rotation), p.focal as f64, p.translation)
+            } else {
+                // Default: identity rotation + focal = max(w, h) + zero translation.
+                (Vector3::zeros(), default_focal, Vector3::zeros())
+            };
         params[slot] = omega.x;
         params[slot + 1] = omega.y;
         params[slot + 2] = omega.z;
@@ -290,16 +307,33 @@ pub fn solve_joint_with_priors(
         .collect();
 
     if pair_data.is_empty() {
-        // No usable correspondences — return identity+default cameras.
+        // No usable correspondences — preserve external priors if present.
         return Ok((0..n_cams)
             .map(|i| Camera {
-                focal: if i == 0 {
-                    focal0 as f32
+                focal: priors
+                    .and_then(|pv| pv.get(i))
+                    .and_then(|p| p.as_ref())
+                    .map(|p| p.focal)
+                    .unwrap_or(if i == 0 {
+                        focal0 as f32
+                    } else {
+                        default_focal as f32
+                    }),
+                principal_point: camera_principal_points[i],
+                rotation: priors
+                    .and_then(|pv| pv.get(i))
+                    .and_then(|p| p.as_ref())
+                    .map(|p| p.rotation.cast::<f32>())
+                    .unwrap_or_else(Matrix3::identity),
+                translation: if config.lambda_translation > 0.0 {
+                    priors
+                        .and_then(|pv| pv.get(i))
+                        .and_then(|p| p.as_ref())
+                        .map(|p| p.translation.cast::<f32>())
+                        .unwrap_or_else(nalgebra::Vector3::<f32>::zeros)
                 } else {
-                    default_focal as f32
+                    nalgebra::Vector3::<f32>::zeros()
                 },
-                rotation: Matrix3::identity(),
-                translation: nalgebra::Vector3::<f32>::zeros(),
                 distortion: Distortion::default(),
             })
             .collect());
@@ -341,8 +375,7 @@ pub fn solve_joint_with_priors(
         pair_data,
         n_cams,
         focal0,
-        cx,
-        cy,
+        principal_points: resolved_principal_points.clone(),
         prior_omegas,
         prior_focals,
         prior_translations,
@@ -369,6 +402,7 @@ pub fn solve_joint_with_priors(
     // Camera 0: gauge fix — rotation = I, focal = prior, translation = 0.
     cameras.push(Camera {
         focal: focal0 as f32,
+        principal_point: camera_principal_points[0],
         rotation: Matrix3::identity(),
         translation: nalgebra::Vector3::<f32>::zeros(),
         distortion: Distortion::default(),
@@ -386,8 +420,13 @@ pub fn solve_joint_with_priors(
         let r = rodrigues_exp(omega);
         cameras.push(Camera {
             focal: focal_i as f32,
+            principal_point: camera_principal_points[i],
             rotation: r.cast::<f32>(),
-            translation: translation_i.cast::<f32>(),
+            translation: if config.lambda_translation > 0.0 {
+                translation_i.cast::<f32>()
+            } else {
+                nalgebra::Vector3::<f32>::zeros()
+            },
             distortion: Distortion::default(),
         });
     }
@@ -478,8 +517,7 @@ fn init_rotations_from_homographies(
     // Build MST via Kruskal.
     let kruskal_edges: Vec<(usize, usize, i64)> =
         edges.iter().map(|e| (e.a, e.b, e.weight)).collect();
-    let mst: Vec<(usize, usize, i64)> =
-        kruskal_indices(n_cams, &kruskal_edges).collect();
+    let mst: Vec<(usize, usize, i64)> = kruskal_indices(n_cams, &kruskal_edges).collect();
 
     // Adjacency list.
     let mut adj: Vec<Vec<(usize, Matrix3<f64>)>> = vec![Vec::new(); n_cams];
@@ -487,7 +525,13 @@ fn init_rotations_from_homographies(
         let r = edges
             .iter()
             .find(|e| (e.a == *a && e.b == *b) || (e.a == *b && e.b == *a))
-            .map(|e| if e.a == *a { e.rotation } else { e.rotation.transpose() })
+            .map(|e| {
+                if e.a == *a {
+                    e.rotation
+                } else {
+                    e.rotation.transpose()
+                }
+            })
             .unwrap_or(Matrix3::identity());
         adj[*a].push((*b, r));
         adj[*b].push((*a, r.transpose()));
@@ -522,8 +566,7 @@ struct JointBAProblem {
     #[allow(dead_code)]
     n_cams: usize,
     focal0: f64,
-    cx: f64,
-    cy: f64,
+    principal_points: Vec<(f64, f64)>,
     /// Per-free-camera (i.e. cameras 1..n_cams) rotation prior in axis-angle.
     /// None = no prior (zero contribution to the prior residual block).
     /// Length = n_cams - 1.
@@ -558,7 +601,11 @@ impl JointBAProblem {
         let slot = (idx - 1) * 7;
         let omega = Vector3::new(params[slot], params[slot + 1], params[slot + 2]);
         let focal = params[slot + 3];
-        let translation = Vector3::new(params[slot + 4], params[slot + 5], params[slot + 6]);
+        let translation = if self.lambda_translation > 0.0 {
+            Vector3::new(params[slot + 4], params[slot + 5], params[slot + 6])
+        } else {
+            Vector3::zeros()
+        };
         (rodrigues_exp(omega), focal, translation)
     }
 
@@ -587,20 +634,19 @@ impl JointBAProblem {
     /// so the new model is a strict generalisation of the previous
     /// rotation-only BA.
     fn residuals(&self, params: &[f64]) -> Vec<f64> {
-        let cx = self.cx;
-        let cy = self.cy;
-
         let mut res = Vec::new();
         for (ci, cj, pts_a, pts_b) in &self.pair_data {
             let (r_i, focal_i, t_i) = self.cam_params(*ci, params);
             let (r_j, focal_j, t_j) = self.cam_params(*cj, params);
+            let (cx_i, cy_i) = self.principal_points[*ci];
+            let (cx_j, cy_j) = self.principal_points[*cj];
             let r_j_inv = r_j.transpose();
             let dt = t_i - t_j;
 
             for (pa, pb) in pts_a.iter().zip(pts_b.iter()) {
                 // K_i^-1 · pa  — a normalised ray direction in cam i's frame
-                let xn_i = (pa[0] - cx) / focal_i;
-                let yn_i = (pa[1] - cy) / focal_i;
+                let xn_i = (pa[0] - cx_i) / focal_i;
+                let yn_i = (pa[1] - cy_i) / focal_i;
                 let ray_cam_i = Vector3::new(xn_i, yn_i, 1.0);
 
                 // World-frame ray direction. Translation t_i adds a
@@ -623,8 +669,8 @@ impl JointBAProblem {
                 }
 
                 // Project: K_j · (ray_cam_j / ray_cam_j.z)
-                let u_hat = focal_j * ray_cam_j.x / ray_cam_j.z + cx;
-                let v_hat = focal_j * ray_cam_j.y / ray_cam_j.z + cy;
+                let u_hat = focal_j * ray_cam_j.x / ray_cam_j.z + cx_j;
+                let v_hat = focal_j * ray_cam_j.y / ray_cam_j.z + cy_j;
 
                 res.push(u_hat - pb[0]);
                 res.push(v_hat - pb[1]);
@@ -736,7 +782,11 @@ impl JointBAProblem {
 
         let verbose = std::env::var("PANO_BA_VERBOSE").is_ok();
         if verbose {
-            eprintln!("joint_ba: initial cost={:.2e}, n_params={}", current_cost, params.len());
+            eprintln!(
+                "joint_ba: initial cost={:.2e}, n_params={}",
+                current_cost,
+                params.len()
+            );
         }
 
         for _iter in 0..config.max_iters {
@@ -771,7 +821,10 @@ impl JointBAProblem {
                     mu = (mu / mu_dec).max(1e-12);
                     accepted = true;
                     if verbose {
-                        eprintln!("joint_ba: iter={_iter} cost={:.2e} step={:.2e} mu={:.2e}", current_cost, step_norm, mu);
+                        eprintln!(
+                            "joint_ba: iter={_iter} cost={:.2e} step={:.2e} mu={:.2e}",
+                            current_cost, step_norm, mu
+                        );
                     }
                     if step_norm < config.step_tolerance {
                         if verbose {
@@ -805,7 +858,9 @@ impl JointBAProblem {
             }
 
             if !accepted {
-                if verbose { eprintln!("joint_ba: stuck at iter={_iter} mu={:.2e}", mu); }
+                if verbose {
+                    eprintln!("joint_ba: stuck at iter={_iter} mu={:.2e}", mu);
+                }
                 break;
             }
         }
@@ -904,10 +959,7 @@ mod tests {
         ] {
             let r = rodrigues_exp(axis);
             let back = rodrigues_log(&r);
-            assert!(
-                (back - axis).norm() < 1e-6,
-                "axis={axis:?} back={back:?}"
-            );
+            assert!((back - axis).norm() < 1e-6, "axis={axis:?} back={back:?}");
         }
     }
 
@@ -938,21 +990,69 @@ mod tests {
 
         // Synthesise zero-displacement matches (pa == pb in a 1024×768 image).
         let kps = vec![
-            Keypoint { x: 100.0, y: 100.0, scale: 1.0, angle: 0.0, response: 1.0 },
-            Keypoint { x: 200.0, y: 300.0, scale: 1.0, angle: 0.0, response: 1.0 },
-            Keypoint { x: 800.0, y: 400.0, scale: 1.0, angle: 0.0, response: 1.0 },
-            Keypoint { x: 500.0, y: 600.0, scale: 1.0, angle: 0.0, response: 1.0 },
+            Keypoint {
+                x: 100.0,
+                y: 100.0,
+                scale: 1.0,
+                angle: 0.0,
+                response: 1.0,
+            },
+            Keypoint {
+                x: 200.0,
+                y: 300.0,
+                scale: 1.0,
+                angle: 0.0,
+                response: 1.0,
+            },
+            Keypoint {
+                x: 800.0,
+                y: 400.0,
+                scale: 1.0,
+                angle: 0.0,
+                response: 1.0,
+            },
+            Keypoint {
+                x: 500.0,
+                y: 600.0,
+                scale: 1.0,
+                angle: 0.0,
+                response: 1.0,
+            },
         ];
         let feats = vec![
-            Features { keypoints: kps.clone(), descriptors: vec![], descriptor_dim: 0 },
-            Features { keypoints: kps.clone(), descriptors: vec![], descriptor_dim: 0 },
+            Features {
+                keypoints: kps.clone(),
+                descriptors: vec![],
+                descriptor_dim: 0,
+            },
+            Features {
+                keypoints: kps.clone(),
+                descriptors: vec![],
+                descriptor_dim: 0,
+            },
         ];
         let matches = Matches {
             inliers: vec![
-                Match { a: 0, b: 0, distance: 0.0 },
-                Match { a: 1, b: 1, distance: 0.0 },
-                Match { a: 2, b: 2, distance: 0.0 },
-                Match { a: 3, b: 3, distance: 0.0 },
+                Match {
+                    a: 0,
+                    b: 0,
+                    distance: 0.0,
+                },
+                Match {
+                    a: 1,
+                    b: 1,
+                    distance: 0.0,
+                },
+                Match {
+                    a: 2,
+                    b: 2,
+                    distance: 0.0,
+                },
+                Match {
+                    a: 3,
+                    b: 3,
+                    distance: 0.0,
+                },
             ],
         };
         let pairs = vec![(0_usize, 1_usize, matches)];
@@ -974,14 +1074,9 @@ mod tests {
             lambda_focal: 0.0,
             lambda_translation: 0.0,
         };
-        let cams_high = solve_joint_with_priors(
-            &feats,
-            &pairs,
-            (1024, 768),
-            Some(&priors_vec),
-            &config_high,
-        )
-        .expect("solve must succeed");
+        let cams_high =
+            solve_joint_with_priors(&feats, &pairs, (1024, 768), Some(&priors_vec), &config_high)
+                .expect("solve must succeed");
         let omega_high = rodrigues_log(&cams_high[1].rotation.cast::<f64>());
         let yaw_high_deg = omega_high.y.to_degrees();
         assert!(
@@ -999,14 +1094,9 @@ mod tests {
             lambda_focal: 0.0,
             lambda_translation: 0.0,
         };
-        let cams_zero = solve_joint_with_priors(
-            &feats,
-            &pairs,
-            (1024, 768),
-            Some(&priors_vec),
-            &config_zero,
-        )
-        .expect("solve must succeed");
+        let cams_zero =
+            solve_joint_with_priors(&feats, &pairs, (1024, 768), Some(&priors_vec), &config_zero)
+                .expect("solve must succeed");
         let omega_zero = rodrigues_log(&cams_zero[1].rotation.cast::<f64>());
         let yaw_zero_deg = omega_zero.y.to_degrees();
         assert!(
@@ -1022,9 +1112,9 @@ mod tests {
     ///
     /// Setup: two cameras at IDENTICAL rotation (cam[1] gimbal prior =
     /// identity), but the matches show a +5 px x-shift (i.e. the
-    /// drone moved laterally by some small amount). With λ_t=0 (no
-    /// translation prior) and λ_rot=∞ (rotation locked at identity),
-    /// translation must absorb all the residual to fit the matches.
+    /// drone moved laterally by some small amount). With λ_t positive but
+    /// tiny and λ_rot=∞ (rotation locked at identity), translation must
+    /// absorb all the residual to fit the matches.
     #[test]
     fn translation_absorbs_pure_translation_residual() {
         // Both cameras rotation-locked at identity (gimbal prior says
@@ -1032,27 +1122,78 @@ mod tests {
         // in X — pure translation, not rotation.
         let prior_rotation = Matrix3::identity();
         let kps_a = vec![
-            Keypoint { x: 200.0, y: 200.0, scale: 1.0, angle: 0.0, response: 1.0 },
-            Keypoint { x: 800.0, y: 200.0, scale: 1.0, angle: 0.0, response: 1.0 },
-            Keypoint { x: 200.0, y: 600.0, scale: 1.0, angle: 0.0, response: 1.0 },
-            Keypoint { x: 800.0, y: 600.0, scale: 1.0, angle: 0.0, response: 1.0 },
+            Keypoint {
+                x: 200.0,
+                y: 200.0,
+                scale: 1.0,
+                angle: 0.0,
+                response: 1.0,
+            },
+            Keypoint {
+                x: 800.0,
+                y: 200.0,
+                scale: 1.0,
+                angle: 0.0,
+                response: 1.0,
+            },
+            Keypoint {
+                x: 200.0,
+                y: 600.0,
+                scale: 1.0,
+                angle: 0.0,
+                response: 1.0,
+            },
+            Keypoint {
+                x: 800.0,
+                y: 600.0,
+                scale: 1.0,
+                angle: 0.0,
+                response: 1.0,
+            },
         ];
         // kps_b: same as kps_a shifted by +20 px in X.
         let kps_b: Vec<Keypoint> = kps_a
             .iter()
-            .map(|kp| Keypoint { x: kp.x + 20.0, ..*kp })
+            .map(|kp| Keypoint {
+                x: kp.x + 20.0,
+                ..*kp
+            })
             .collect();
 
         let feats = vec![
-            Features { keypoints: kps_a, descriptors: vec![], descriptor_dim: 0 },
-            Features { keypoints: kps_b, descriptors: vec![], descriptor_dim: 0 },
+            Features {
+                keypoints: kps_a,
+                descriptors: vec![],
+                descriptor_dim: 0,
+            },
+            Features {
+                keypoints: kps_b,
+                descriptors: vec![],
+                descriptor_dim: 0,
+            },
         ];
         let matches = Matches {
             inliers: vec![
-                Match { a: 0, b: 0, distance: 0.0 },
-                Match { a: 1, b: 1, distance: 0.0 },
-                Match { a: 2, b: 2, distance: 0.0 },
-                Match { a: 3, b: 3, distance: 0.0 },
+                Match {
+                    a: 0,
+                    b: 0,
+                    distance: 0.0,
+                },
+                Match {
+                    a: 1,
+                    b: 1,
+                    distance: 0.0,
+                },
+                Match {
+                    a: 2,
+                    b: 2,
+                    distance: 0.0,
+                },
+                Match {
+                    a: 3,
+                    b: 3,
+                    distance: 0.0,
+                },
             ],
         };
         let pairs = vec![(0_usize, 1_usize, matches)];
@@ -1062,22 +1203,16 @@ mod tests {
         ];
 
         // Config: lock rotation + focal hard to the prior; allow
-        // translation to move freely (λ_t = 0).
+        // translation to move freely with a negligible positive prior.
         let config = JointRotationFocalBA {
             max_iters: 200,
             step_tolerance: 1e-9,
             lambda_rotation: 1.0e9,
             lambda_focal: 1.0e9,
-            lambda_translation: 0.0,
+            lambda_translation: 1.0e-12,
         };
-        let cams = solve_joint_with_priors(
-            &feats,
-            &pairs,
-            (1024, 768),
-            Some(&priors_vec),
-            &config,
-        )
-        .expect("solve must succeed");
+        let cams = solve_joint_with_priors(&feats, &pairs, (1024, 768), Some(&priors_vec), &config)
+            .expect("solve must succeed");
 
         // cam[1] should have rotation ≈ prior (identity) and focal ≈ 1000.
         let omega = rodrigues_log(&cams[1].rotation.cast::<f64>());
@@ -1091,12 +1226,11 @@ mod tests {
             "focal should stay locked at prior, got {}",
             cams[1].focal,
         );
-        // Translation isn't returned in Camera but the test passes if
-        // the rotation+focal stayed at prior — meaning BA used some
-        // OTHER knob (translation) to reduce residual instead of
-        // bending rotation/focal. With both rot/focal heavily clamped
-        // and only translation free, this is the only way the
-        // optimizer could have made progress.
+        assert!(
+            cams[1].translation.norm() > 0.001,
+            "translation should absorb the pixel shift, got {:?}",
+            cams[1].translation
+        );
     }
 
     /// With λ_t large and t_prior=0, BA should NOT move translation
@@ -1104,21 +1238,69 @@ mod tests {
     #[test]
     fn high_lambda_translation_keeps_translation_at_zero() {
         let kps = vec![
-            Keypoint { x: 200.0, y: 200.0, scale: 1.0, angle: 0.0, response: 1.0 },
-            Keypoint { x: 800.0, y: 200.0, scale: 1.0, angle: 0.0, response: 1.0 },
-            Keypoint { x: 200.0, y: 600.0, scale: 1.0, angle: 0.0, response: 1.0 },
-            Keypoint { x: 800.0, y: 600.0, scale: 1.0, angle: 0.0, response: 1.0 },
+            Keypoint {
+                x: 200.0,
+                y: 200.0,
+                scale: 1.0,
+                angle: 0.0,
+                response: 1.0,
+            },
+            Keypoint {
+                x: 800.0,
+                y: 200.0,
+                scale: 1.0,
+                angle: 0.0,
+                response: 1.0,
+            },
+            Keypoint {
+                x: 200.0,
+                y: 600.0,
+                scale: 1.0,
+                angle: 0.0,
+                response: 1.0,
+            },
+            Keypoint {
+                x: 800.0,
+                y: 600.0,
+                scale: 1.0,
+                angle: 0.0,
+                response: 1.0,
+            },
         ];
         let feats = vec![
-            Features { keypoints: kps.clone(), descriptors: vec![], descriptor_dim: 0 },
-            Features { keypoints: kps.clone(), descriptors: vec![], descriptor_dim: 0 },
+            Features {
+                keypoints: kps.clone(),
+                descriptors: vec![],
+                descriptor_dim: 0,
+            },
+            Features {
+                keypoints: kps.clone(),
+                descriptors: vec![],
+                descriptor_dim: 0,
+            },
         ];
         let matches = Matches {
             inliers: vec![
-                Match { a: 0, b: 0, distance: 0.0 },
-                Match { a: 1, b: 1, distance: 0.0 },
-                Match { a: 2, b: 2, distance: 0.0 },
-                Match { a: 3, b: 3, distance: 0.0 },
+                Match {
+                    a: 0,
+                    b: 0,
+                    distance: 0.0,
+                },
+                Match {
+                    a: 1,
+                    b: 1,
+                    distance: 0.0,
+                },
+                Match {
+                    a: 2,
+                    b: 2,
+                    distance: 0.0,
+                },
+                Match {
+                    a: 3,
+                    b: 3,
+                    distance: 0.0,
+                },
             ],
         };
         let pairs = vec![(0_usize, 1_usize, matches)];
@@ -1135,14 +1317,8 @@ mod tests {
             lambda_focal: 1.0e9,
             lambda_translation: 1.0e9,
         };
-        let cams = solve_joint_with_priors(
-            &feats,
-            &pairs,
-            (1024, 768),
-            Some(&priors_vec),
-            &config,
-        )
-        .expect("solve must succeed");
+        let cams = solve_joint_with_priors(&feats, &pairs, (1024, 768), Some(&priors_vec), &config)
+            .expect("solve must succeed");
 
         // Trivial: zero-displacement matches + identity prior →
         // perfect fit, all params unchanged. Translation invisible

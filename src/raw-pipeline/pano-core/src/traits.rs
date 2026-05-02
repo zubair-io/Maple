@@ -50,7 +50,9 @@ pub trait FeatureMatcher: Send + Sync {
 ///     ) -> Result<Vec<Camera>, PanoError> {
 ///         Ok((0..n).map(|_| Camera {
 ///             focal: 1.0,
+///             principal_point: None,
 ///             rotation: nalgebra::Matrix3::identity(),
+///             translation: nalgebra::Vector3::zeros(),
 ///             distortion: Distortion::default(),
 ///         }).collect())
 ///     }

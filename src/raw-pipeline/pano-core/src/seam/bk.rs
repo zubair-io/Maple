@@ -8,6 +8,35 @@
 //! seam finding).  In practice 2–5× faster than Edmonds-Karp on vision graphs
 //! because the search trees are reused across augmentation iterations.
 //!
+//! # Known correctness limitation: parent_edge cycles
+//!
+//! On grid graphs with **heterogeneous edge capacities** (some edges
+//! ≫ others), the `adopt()` / `try_find_parent()` pair can produce
+//! parent_edge chains that form cycles. Specifically, when an orphan
+//! is processed, `try_find_parent` walks each candidate's parent
+//! chain via `path_valid` to confirm it still reaches a terminal —
+//! but `path_valid` short-circuits on the current iteration's
+//! timestamp without verifying that the in-progress walk hasn't
+//! re-visited a node, so a cycle that forms later in adoption
+//! cascades isn't detected. Once a cycle exists, `augment()`'s
+//! S/T-tree walks would loop forever.
+//!
+//! Repro: `cargo run --release --example bk_repro het2` — an 8×4
+//! grid with cap_low=1, cap_high=2 in a single 1×1 rect, terminal
+//! cap=100. The 6th augmenting iteration's S-walk cycles at depth
+//! ≥ 133 on a 32-node graph.
+//!
+//! Defensive mitigation in this file: every walk in `augment()` and
+//! `path_valid()` is capped at `n_nodes + small_constant` steps; on
+//! overflow we abort the augmenting path (saturating its crossing
+//! edge to remove it from future grow searches) so the solver
+//! terminates with under-augmented flow rather than hanging.
+//!
+//! TODO: replace with the `maxflow` crate or fix the adoption
+//! invariant. Tracked separately. Until then, callers should expect
+//! BK to produce a valid (acyclic) cut on heterogeneous graphs but
+//! may stop a few units short of the true min-cut.
+//!
 //! # Data-structure conventions
 //!
 //! Edges are stored as sister pairs: edge `2k` is the forward direction,
@@ -107,6 +136,16 @@ pub struct BkGraph {
     orphans: VecDeque<NodeId>,
     timestamp: u32,
     flow: i64,
+    /// Number of outer-loop (grow → augment → adopt) iterations the
+    /// last `solve()` call performed. Useful for diagnosing perf
+    /// pathologies where heterogeneous edge capacities make BK
+    /// iterate orders of magnitude more than the min-cut value would
+    /// suggest. Zero before the first `solve()`.
+    augment_iters: u64,
+    /// Maximum iteration cap for `solve()`. Defaults to `u64::MAX`
+    /// (no cap). Set lower in tests / for instrumentation to bail
+    /// before runaway loops eat the wall clock.
+    iter_limit: u64,
 }
 
 impl BkGraph {
@@ -120,7 +159,24 @@ impl BkGraph {
             orphans: VecDeque::with_capacity(64),
             timestamp: 0,
             flow: 0,
+            augment_iters: 0,
+            iter_limit: u64::MAX,
         }
+    }
+
+    /// Set a cap on the number of `(grow → augment → adopt)` outer-
+    /// loop iterations `solve()` will perform. When the cap is hit,
+    /// `solve()` returns the partial flow with the cut state as it
+    /// stands. Default is `u64::MAX` (no cap) — production callers
+    /// shouldn't touch this.
+    pub fn set_iter_limit(&mut self, limit: u64) {
+        self.iter_limit = limit;
+    }
+
+    /// Number of outer-loop iterations executed by the most recent
+    /// `solve()` call.
+    pub fn augment_iters(&self) -> u64 {
+        self.augment_iters
     }
 
     pub fn add_node(&mut self) -> NodeId {
@@ -215,10 +271,15 @@ impl BkGraph {
     }
 
     pub fn solve(&mut self) -> i64 {
+        self.augment_iters = 0;
         loop {
+            if self.augment_iters >= self.iter_limit {
+                break;
+            }
             self.timestamp += 1;
             match self.grow() {
                 Some((s_edge, t_edge)) => {
+                    self.augment_iters += 1;
                     self.augment(s_edge, t_edge);
                     self.adopt();
                 }
@@ -313,51 +374,72 @@ impl BkGraph {
 
         // ---- Compute bottleneck -------------------------------------------
 
+        // Defensive walk-step cap. In a correctly-maintained BK tree
+        // these walks are O(tree-depth) ≤ O(n_nodes). If they exceed
+        // that, our adopt()/try_find_parent() pair has created a
+        // parent_edge cycle (a known bug in this implementation —
+        // see the module-level "Known correctness limitation" comment).
+        // When it happens we abort the augmenting path rather than
+        // looping forever; flow is left under-augmented but the
+        // overall solver still terminates.
+        let walk_cap = self.nodes.len() as u64 + 32;
         let mut bottleneck = self.edges[s_edge as usize].residual;
+        let mut path_aborted = false;
 
         // S-tree walk v → source.
-        // parent_edge = arc child→parent.  Capacity in flow direction (parent→child) = sister.
         {
             let mut cur = v;
+            let mut steps = 0u64;
             loop {
+                steps += 1;
+                if steps > walk_cap {
+                    path_aborted = true;
+                    break;
+                }
                 let pe = self.nodes[cur as usize].parent_edge;
                 if pe == TERMINAL {
-                    // terminal_cap = remaining source capacity for this node.
                     bottleneck = bottleneck.min(self.nodes[cur as usize].terminal_cap);
                     break;
                 }
                 if pe == ORPHAN || pe == NO_EDGE {
                     break;
                 }
-                // S-tree: pe = cur→parent.  Flow direction parent→cur = pe^1.
                 bottleneck = bottleneck.min(self.edges[pe as usize ^ 1].residual);
-                // Advance to parent: edges[pe].head = parent.
                 cur = self.edges[pe as usize].head;
             }
         }
 
         // T-tree walk u → sink.
-        // parent_edge = arc parent→child.  Capacity in flow direction (= parent→child) = pe.
-        {
+        if !path_aborted {
             let mut cur = u;
+            let mut steps = 0u64;
             loop {
+                steps += 1;
+                if steps > walk_cap {
+                    path_aborted = true;
+                    break;
+                }
                 let pe = self.nodes[cur as usize].parent_edge;
                 if pe == TERMINAL {
-                    // terminal_cap is negative; remaining sink capacity = -tc.
                     bottleneck = bottleneck.min(-self.nodes[cur as usize].terminal_cap);
                     break;
                 }
                 if pe == ORPHAN || pe == NO_EDGE {
                     break;
                 }
-                // T-tree: pe = parent→cur.  Flow direction = parent→cur = pe.
                 bottleneck = bottleneck.min(self.edges[pe as usize].residual);
-                // Advance to parent: parent = edges[pe^1].head (sister of pe goes cur→parent).
-                // Wait: pe = arc parent→cur, so edges[pe].head = cur.
-                // To advance to parent from cur: we need edges[pe^1].head.
-                // pe^1 = arc cur→parent, edges[pe^1].head = parent. ✓
                 cur = self.edges[pe as usize ^ 1].head;
             }
+        }
+
+        if path_aborted {
+            // Disconnect the crossing edge to remove this augmenting
+            // candidate from future grow() searches, otherwise grow
+            // will keep returning the same crossing edge and loop us
+            // forever at the BK-iteration level.
+            self.edges[s_edge as usize].residual = 0;
+            self.edges[t_edge as usize].residual = 0;
+            return;
         }
 
         if bottleneck <= 0 {
@@ -373,7 +455,12 @@ impl BkGraph {
         // S-tree: pe = cur→parent.  Flow direction parent→cur: increase pe.residual, decrease pe^1.
         {
             let mut cur = v;
+            let mut steps = 0u64;
             loop {
+                steps += 1;
+                if steps > walk_cap {
+                    break; // defensive cycle break, see comment above
+                }
                 let pe = self.nodes[cur as usize].parent_edge;
                 if pe == TERMINAL {
                     self.nodes[cur as usize].terminal_cap -= bottleneck;
@@ -402,7 +489,12 @@ impl BkGraph {
         // T-tree: pe = parent→cur.  Flow direction parent→cur: decrease pe, increase pe^1.
         {
             let mut cur = u;
+            let mut steps = 0u64;
             loop {
+                steps += 1;
+                if steps > walk_cap {
+                    break; // defensive cycle break, see comment above
+                }
                 let pe = self.nodes[cur as usize].parent_edge;
                 if pe == TERMINAL {
                     self.nodes[cur as usize].terminal_cap += bottleneck; // was negative
@@ -591,8 +683,17 @@ impl BkGraph {
     fn path_valid(&mut self, node: NodeId, tree: Tree, ts: u32) -> bool {
         let mut cur = node;
         let mut visited: Vec<NodeId> = Vec::new();
+        // Defensive cap: in a correctly-maintained tree, walk depth
+        // ≤ n_nodes. If we exceed that, parent_edges form a cycle
+        // (a known invariant violation in this BK port — see the
+        // module-level comment). Treat as "path invalid" so the
+        // caller skips this candidate parent.
+        let walk_cap = self.nodes.len() + 32;
 
         loop {
+            if visited.len() > walk_cap {
+                return false;
+            }
             if self.nodes[cur as usize].timestamp == ts {
                 for &n in &visited {
                     self.nodes[n as usize].timestamp = ts;
@@ -803,5 +904,330 @@ mod tests {
         let mut g = BkGraph::with_capacity(0, 0);
         g.finalize();
         assert_eq!(g.solve(), 0);
+    }
+
+    // -------------------------------------------------------------------
+    // Heterogeneous-capacity bisection probes
+    //
+    // These reproduce the runtime profile T6 hit when running BK on
+    // graph_cut_maxflow's edge-cost output: a mostly-uniform overlap
+    // grid where a small interior rectangle has edge capacities ~1e6×
+    // larger than the surrounding edges, plus very large (`INF_CAP`)
+    // terminal edges on the source/sink boundary columns. The same
+    // pattern is what `pano-smoke --partition graphcut` builds at
+    // 50MP scale.
+    //
+    // The probes use `set_iter_limit` to avoid hanging the test suite
+    // and assert the iteration count stays bounded by a small
+    // multiple of the min-cut value (which equals h, the canvas
+    // height — one unit edge per row in the clear region).
+    // -------------------------------------------------------------------
+
+    const INF_CAP_PROBE: i64 = i64::MAX / 4;
+
+    /// Build a `cols × rows` overlap grid with:
+    ///   - `cap_low` capacity edges everywhere by default,
+    ///   - `cap_high` capacity edges *inside* `rect` (col, row range),
+    ///   - terminal connections of `cap_terminal` on column 0
+    ///     (→ source) and the last column (→ sink).
+    ///
+    /// The terminal cap parameter is what we want to bisect on:
+    /// `cap_terminal = 100` matches the existing passing
+    /// `grid_5x5_horizontal_cut` test; `cap_terminal = INF_CAP_PROBE`
+    /// (`i64::MAX/4`) matches what `graph_cut_maxflow.rs` actually
+    /// uses in production.
+    fn build_heterogeneous_grid_with_cap(
+        cols: u32,
+        rows: u32,
+        cap_low: i64,
+        cap_high: i64,
+        cap_terminal: i64,
+        rect_x: std::ops::Range<u32>,
+        rect_y: std::ops::Range<u32>,
+    ) -> BkGraph {
+        let n = (cols * rows) as usize;
+        let mut g = BkGraph::with_capacity(n, n * 4);
+        let ids: Vec<NodeId> = (0..n).map(|_| g.add_node()).collect();
+
+        let in_rect = |x: u32, y: u32| {
+            rect_x.contains(&x) && rect_y.contains(&y)
+        };
+
+        for y in 0..rows {
+            for x in 0..cols {
+                let idx = (y * cols + x) as usize;
+                // Right neighbour
+                if x + 1 < cols {
+                    let r_idx = idx + 1;
+                    let cap = if in_rect(x, y) || in_rect(x + 1, y) {
+                        cap_high
+                    } else {
+                        cap_low
+                    };
+                    g.add_edge(ids[idx], ids[r_idx], cap, cap);
+                }
+                // Down neighbour
+                if y + 1 < rows {
+                    let d_idx = idx + cols as usize;
+                    let cap = if in_rect(x, y) || in_rect(x, y + 1) {
+                        cap_high
+                    } else {
+                        cap_low
+                    };
+                    g.add_edge(ids[idx], ids[d_idx], cap, cap);
+                }
+                // Source / sink terminals
+                if x == 0 {
+                    g.add_terminal(ids[idx], cap_terminal, 0);
+                } else if x == cols - 1 {
+                    g.add_terminal(ids[idx], 0, cap_terminal);
+                }
+            }
+        }
+        g
+    }
+
+    /// Convenience wrapper preserving the original signature with
+    /// `cap_terminal = INF_CAP_PROBE` (the production value).
+    fn build_heterogeneous_grid(
+        cols: u32,
+        rows: u32,
+        cap_low: i64,
+        cap_high: i64,
+        rect_x: std::ops::Range<u32>,
+        rect_y: std::ops::Range<u32>,
+    ) -> BkGraph {
+        build_heterogeneous_grid_with_cap(
+            cols,
+            rows,
+            cap_low,
+            cap_high,
+            INF_CAP_PROBE,
+            rect_x,
+            rect_y,
+        )
+    }
+
+    /// 8×4 grid with **moderate** terminal cap (100, like
+    /// `grid_5x5_horizontal_cut`). If this terminates fast, the
+    /// hang is specifically about the INF-cap terminal regime.
+    #[test]
+    fn bk_8x4_moderate_terminal_cap_terminates_fast() {
+        let mut g = build_heterogeneous_grid_with_cap(
+            8, 4, 1, 3_000_000, 100, 3..4, 1..2,
+        );
+        g.set_iter_limit(1_000);
+        g.finalize();
+        let _flow = g.solve();
+        eprintln!(
+            "[bk-perf] 8×4 cap_terminal=100: BK ran {} iterations",
+            g.augment_iters()
+        );
+        assert!(
+            g.augment_iters() < 50,
+            "8×4 (cap=100) ran {} iters",
+            g.augment_iters()
+        );
+    }
+
+    /// **Exact copy** of `grid_3x3_horizontal_cut` but at 4×4. If
+    /// THIS hangs, my notion of how to build a working BK grid is
+    /// wrong even before heterogeneous-capacity comes in.
+    #[test]
+    fn bk_4x4_uniform_grid_pattern_terminates_fast() {
+        let n = 4usize;
+        let mut g = BkGraph::with_capacity(n * n, n * (n - 1) * 2);
+        let mut nodes = vec![[0u32; 4]; 4];
+        for row in 0..n {
+            for col in 0..n {
+                nodes[row][col] = g.add_node();
+            }
+        }
+        for col in 0..n {
+            g.add_terminal(nodes[0][col], 100, 0);
+            g.add_terminal(nodes[n - 1][col], 0, 100);
+        }
+        for row in 0..n {
+            for col in 0..(n - 1) {
+                g.add_edge(nodes[row][col], nodes[row][col + 1], 1, 1);
+            }
+        }
+        for row in 0..(n - 1) {
+            for col in 0..n {
+                g.add_edge(nodes[row][col], nodes[row + 1][col], 1, 1);
+            }
+        }
+        g.set_iter_limit(1_000);
+        g.finalize();
+        let flow = g.solve();
+        eprintln!(
+            "[bk-perf] 4×4 uniform copy-of-3x3-pattern: BK ran {} iters, flow={}",
+            g.augment_iters(),
+            flow,
+        );
+        assert_eq!(flow, n as i64);
+    }
+
+    /// 8×4 grid with **homogeneous** capacities (no high-cap rect)
+    /// and INF terminal cap. If this terminates fast, the hang
+    /// requires both INF terminals **and** heterogeneous internal
+    /// edges; if it hangs, INF terminals alone are sufficient.
+    #[test]
+    fn bk_8x4_homogeneous_inf_terminal_terminates_fast() {
+        let mut g = build_heterogeneous_grid_with_cap(
+            8, 4, 1, 1, INF_CAP_PROBE, 0..0, 0..0,
+        );
+        g.set_iter_limit(1_000);
+        g.finalize();
+        let _flow = g.solve();
+        eprintln!(
+            "[bk-perf] 8×4 homogeneous + INF terminal: BK ran {} iterations",
+            g.augment_iters()
+        );
+        assert!(
+            g.augment_iters() < 50,
+            "8×4 homogeneous (INF terminals) ran {} iters",
+            g.augment_iters()
+        );
+    }
+
+    /// Bisect on the high-cap magnitude. Each probe uses an 8×4 grid
+    /// with terminal cap 100, low edges 1, a 1×1 rectangle of high-
+    /// cap edges. We log the iter count and FINAL flow to see
+    /// at what magnitude BK starts iterating wildly.
+    /// Tight 100-iter cap so the test ALWAYS terminates fast.
+    fn bisect_cap_high(label: &str, cap_high: i64) -> u64 {
+        let mut g = build_heterogeneous_grid_with_cap(
+            8, 4, 1, cap_high, 100, 3..4, 1..2,
+        );
+        g.set_iter_limit(50);
+        g.finalize();
+        let flow = g.solve();
+        eprintln!(
+            "[bk-perf] cap_high={:<13} ({}): {} iters (cap 50), flow={}",
+            cap_high,
+            label,
+            g.augment_iters(),
+            flow,
+        );
+        g.augment_iters()
+    }
+
+    #[test]
+    fn bk_bisect_cap_high_2() {
+        let _ = bisect_cap_high("2", 2);
+    }
+    #[test]
+    fn bk_bisect_cap_high_10() {
+        let _ = bisect_cap_high("10", 10);
+    }
+    #[test]
+    fn bk_bisect_cap_high_100() {
+        let _ = bisect_cap_high("100", 100);
+    }
+    #[test]
+    fn bk_bisect_cap_high_1000() {
+        let _ = bisect_cap_high("1_000", 1_000);
+    }
+    #[test]
+    fn bk_bisect_cap_high_100k() {
+        let _ = bisect_cap_high("100_000", 100_000);
+    }
+
+    /// 8×4 grid with cap=1 everywhere AND moderate terminal cap (100).
+    /// This is identical in topology to my heterogeneous probe but
+    /// stripped of every "tricky" parameter. If THIS hangs, my
+    /// `build_heterogeneous_grid_with_cap` graph construction is
+    /// wrong (e.g. missing nodes, broken adjacency).
+    #[test]
+    fn bk_8x4_homogeneous_moderate_terminal_terminates_fast() {
+        let mut g = build_heterogeneous_grid_with_cap(
+            8, 4, 1, 1, 100, 0..0, 0..0,
+        );
+        g.set_iter_limit(1_000);
+        g.finalize();
+        let _flow = g.solve();
+        eprintln!(
+            "[bk-perf] 8×4 fully homogeneous, cap=1, terminal=100: BK ran {} iters",
+            g.augment_iters()
+        );
+        assert!(
+            g.augment_iters() < 50,
+            "8×4 fully homogeneous ran {} iters",
+            g.augment_iters()
+        );
+    }
+
+    /// 8×4 heterogeneous grid (32 nodes, 1×1 high-cap inner pixel).
+    /// Min cut = h = 4. BK should converge in O(h) iterations.
+    #[test]
+    fn bk_heterogeneous_8x4_terminates_quickly() {
+        let mut g = build_heterogeneous_grid(8, 4, 1, 3_000_000, 3..4, 1..2);
+        g.set_iter_limit(1_000);
+        g.finalize();
+        let _flow = g.solve();
+        assert!(
+            g.augment_iters() < 50,
+            "8×4 BK ran {} iters (expected ≪ 50)",
+            g.augment_iters()
+        );
+    }
+
+    /// 16×8 heterogeneous grid (128 nodes, 4×3 high-cap rectangle).
+    /// Min cut = h = 8. BK should converge in O(h × small const)
+    /// iterations. Capping at 1e4 — if we hit it, BK has a perf bug.
+    #[test]
+    fn bk_heterogeneous_16x8_iters_bounded() {
+        let mut g = build_heterogeneous_grid(16, 8, 1, 3_000_000, 4..8, 2..5);
+        g.set_iter_limit(10_000);
+        g.finalize();
+        let _flow = g.solve();
+        assert!(
+            g.augment_iters() < 1_000,
+            "16×8 BK ran {} iters (cap 1e4 — perf bug if this triggers)",
+            g.augment_iters()
+        );
+    }
+
+    /// 32×16 heterogeneous grid (512 nodes, 8×8 high-cap rectangle).
+    /// This is the size that hung indefinitely without `set_iter_limit`.
+    /// Cap at 1e6 — if we hit it, BK is iterating ~2000× more than the
+    /// O(h × const) ideal (h=16 → ~few hundred at most).
+    #[test]
+    fn bk_heterogeneous_32x16_iters_bounded() {
+        let mut g = build_heterogeneous_grid(32, 16, 1, 3_000_000, 8..16, 4..12);
+        g.set_iter_limit(1_000_000);
+        g.finalize();
+        let _flow = g.solve();
+        // Print so test output captures the actual count for
+        // bisecting how badly BK degrades.
+        eprintln!(
+            "[bk-perf] 32×16 heterogeneous grid: BK ran {} iterations",
+            g.augment_iters()
+        );
+        assert!(
+            g.augment_iters() < 100_000,
+            "32×16 BK ran {} iters (cap 1e6 — major perf bug)",
+            g.augment_iters()
+        );
+    }
+
+    /// 64×32 — twice each direction. If BK iter count scales worse
+    /// than ~quadratic in canvas size, it'll show here.
+    #[test]
+    fn bk_heterogeneous_64x32_iters_bounded() {
+        let mut g = build_heterogeneous_grid(64, 32, 1, 3_000_000, 16..32, 8..24);
+        g.set_iter_limit(2_000_000);
+        g.finalize();
+        let _flow = g.solve();
+        eprintln!(
+            "[bk-perf] 64×32 heterogeneous grid: BK ran {} iterations",
+            g.augment_iters()
+        );
+        assert!(
+            g.augment_iters() < 1_000_000,
+            "64×32 BK ran {} iters",
+            g.augment_iters()
+        );
     }
 }

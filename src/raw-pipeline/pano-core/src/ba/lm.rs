@@ -271,8 +271,7 @@ impl GNProblem {
             // exits the outer loop instead of looping forever.
             let mut accepted = false;
             for _retry in 0..6 {
-                let lhs =
-                    &jtj + nalgebra::DMatrix::identity(params.len(), params.len()) * mu;
+                let lhs = &jtj + nalgebra::DMatrix::identity(params.len(), params.len()) * mu;
                 let Some(delta) = lhs.lu().solve(&jtr) else {
                     mu *= mu_inc;
                     continue;
@@ -286,8 +285,7 @@ impl GNProblem {
                 let trial_cost = sum_of_squares(&self.residuals(&trial));
 
                 if trial_cost < current_cost {
-                    let step_norm: f64 =
-                        delta.iter().map(|v| v * v).sum::<f64>().sqrt();
+                    let step_norm: f64 = delta.iter().map(|v| v * v).sum::<f64>().sqrt();
                     params = trial;
                     current_cost = trial_cost;
                     mu = (mu / mu_dec).max(1e-12);
@@ -332,6 +330,7 @@ impl BundleAdjuster for RotationOnlyBA {
         if n_images == 1 {
             return Ok(vec![Camera {
                 focal: self.focal_len() as f32,
+                principal_point: None,
                 rotation: Matrix3::identity(),
                 translation: nalgebra::Vector3::zeros(),
                 distortion: Distortion::default(),
@@ -500,6 +499,7 @@ impl BundleAdjuster for RotationOnlyBA {
                 let rot32: Matrix3<f32> = r.cast();
                 Camera {
                     focal: focal as f32,
+                    principal_point: None,
                     rotation: rot32,
                     translation: nalgebra::Vector3::zeros(),
                     distortion: Distortion::default(),
@@ -554,6 +554,7 @@ pub fn solve_with_keypoints(
     if n_images == 1 {
         return Ok(vec![Camera {
             focal: focal_d as f32,
+            principal_point: None,
             rotation: Matrix3::identity(),
             translation: nalgebra::Vector3::zeros(),
             distortion: Distortion::default(),
@@ -683,6 +684,7 @@ pub fn solve_with_keypoints(
         .into_iter()
         .map(|r| Camera {
             focal: focal_d as f32,
+            principal_point: None,
             rotation: r.cast(),
             translation: nalgebra::Vector3::zeros(),
             distortion: Distortion::default(),

@@ -131,23 +131,41 @@ pub fn predicted_homography(
     focal_b: f64,
     principal_point: (f64, f64),
 ) -> Matrix3<f64> {
-    let (cx, cy) = principal_point;
-    // K_a
-    let k_a = Matrix3::new(
-        focal_a, 0.0, cx,
-        0.0, focal_a, cy,
-        0.0, 0.0, 1.0,
-    );
+    predicted_homography_with_principal_points(
+        r_a,
+        focal_a,
+        principal_point,
+        r_b,
+        focal_b,
+        principal_point,
+    )
+}
+
+/// Build a predicted homography using per-image principal points.
+///
+/// This is the production path for RAW/DNG inputs: lens profiles can report
+/// an optical centre offset from the geometric image centre, and using one
+/// shared centre for both images biases the gimbal filter near overlap edges.
+pub fn predicted_homography_with_principal_points(
+    r_a: &Matrix3<f64>,
+    focal_a: f64,
+    principal_point_a: (f64, f64),
+    r_b: &Matrix3<f64>,
+    focal_b: f64,
+    principal_point_b: (f64, f64),
+) -> Matrix3<f64> {
+    let (cx_a, cy_a) = principal_point_a;
+    let (cx_b, cy_b) = principal_point_b;
     // K_b
     let k_b = Matrix3::new(
-        focal_b, 0.0, cx,
-        0.0, focal_b, cy,
+        focal_b, 0.0, cx_b,
+        0.0, focal_b, cy_b,
         0.0, 0.0, 1.0,
     );
     // K_a^-1
     let k_a_inv = Matrix3::new(
-        1.0 / focal_a, 0.0, -cx / focal_a,
-        0.0, 1.0 / focal_a, -cy / focal_a,
+        1.0 / focal_a, 0.0, -cx_a / focal_a,
+        0.0, 1.0 / focal_a, -cy_a / focal_a,
         0.0, 0.0, 1.0,
     );
     k_b * r_b.transpose() * r_a * k_a_inv
@@ -257,6 +275,22 @@ mod tests {
         // Should be very close to identity (up to floating-point noise).
         let diff = (h - Matrix3::identity()).abs().max();
         assert!(diff < 1e-9, "expected identity, got diff={diff}");
+    }
+
+    #[test]
+    fn predicted_homography_respects_separate_principal_points() {
+        let r = Matrix3::identity();
+        let h = predicted_homography_with_principal_points(
+            &r,
+            1000.0,
+            (512.0, 384.0),
+            &r,
+            1000.0,
+            (520.0, 380.0),
+        );
+        let (px, py) = project_h(&h, 512.0, 384.0).unwrap();
+        assert!((px - 520.0).abs() < 1e-9);
+        assert!((py - 380.0).abs() < 1e-9);
     }
 
     /// A pure yaw rotation in B (e.g. +20°) maps A's centre pixel to a

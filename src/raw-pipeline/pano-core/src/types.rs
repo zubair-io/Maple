@@ -59,6 +59,12 @@ impl PanoImage {
 pub struct Camera {
     /// Focal length in pixels.
     pub focal: f32,
+    /// Optical centre in input-image pixel coordinates.
+    ///
+    /// `None` means "use the geometric image centre". DNG/RAW ingest can
+    /// populate this from `WarpRectilinear` so every K matrix in matching,
+    /// BA, and warping uses the same intrinsics the lens profile used.
+    pub principal_point: Option<(f32, f32)>,
     /// Rotation matrix in the common world frame.
     pub rotation: Matrix3<f32>,
     /// Per-camera translation in world units (planar-at-unit-depth scale).
@@ -71,6 +77,7 @@ impl Default for Camera {
     fn default() -> Self {
         Self {
             focal: 1.0,
+            principal_point: None,
             rotation: Matrix3::identity(),
             translation: nalgebra::Vector3::zeros(),
             distortion: Distortion::default(),
@@ -78,10 +85,42 @@ impl Default for Camera {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct Distortion {
     pub k1: f32,
     pub k2: f32,
+}
+
+impl Distortion {
+    #[inline]
+    pub fn is_zero(self) -> bool {
+        self.k1.abs() < 1e-12 && self.k2.abs() < 1e-12
+    }
+}
+
+/// Camera intrinsics resolved for a concrete image size.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct CameraIntrinsics {
+    pub focal: f32,
+    pub principal_point: (f32, f32),
+    pub distortion: Distortion,
+}
+
+impl Camera {
+    #[inline]
+    pub fn principal_point_or_center(&self, width: u32, height: u32) -> (f32, f32) {
+        self.principal_point
+            .unwrap_or((width as f32 * 0.5, height as f32 * 0.5))
+    }
+
+    #[inline]
+    pub fn intrinsics_for_size(&self, width: u32, height: u32) -> CameraIntrinsics {
+        CameraIntrinsics {
+            focal: self.focal,
+            principal_point: self.principal_point_or_center(width, height),
+            distortion: self.distortion,
+        }
+    }
 }
 
 /// Output projection geometry.

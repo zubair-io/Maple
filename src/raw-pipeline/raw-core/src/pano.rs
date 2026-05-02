@@ -12,6 +12,8 @@ use crate::color::dcp;
 use crate::demosaic;
 use crate::image::{CfaPattern, ExifOrientation, Image, RawImage};
 use crate::linearize;
+use crate::stages::highlight_recovery;
+use crate::xmp::HighlightRecoveryMode;
 use crate::Result;
 
 /// Bundle returned by [`decode_for_pano`] — the post-DCP scene-linear
@@ -94,10 +96,7 @@ pub fn develop_for_pano(raw: &RawImage) -> Result<Image> {
 /// pixels are multiplied by ~1.3 to compensate for vignetting). Without
 /// it the pano-stitch shows visible vertical bands at seams as each
 /// frame's dark corners abut a neighbour's bright centre.
-pub fn develop_for_pano_with_gain_map(
-    raw: &RawImage,
-    gain_map: Option<&GainMap>,
-) -> Result<Image> {
+pub fn develop_for_pano_with_gain_map(raw: &RawImage, gain_map: Option<&GainMap>) -> Result<Image> {
     let mut camera_rgb = match raw.cfa {
         CfaPattern::LinearRgb => linearize::linearraw_to_camera_rgb(raw)?,
         _ => {
@@ -117,6 +116,12 @@ pub fn develop_for_pano_with_gain_map(
 
     if let Some(gm) = gain_map {
         apply_gain_map(&mut camera_rgb, gm);
+    }
+
+    // LinearRaw can legitimately exceed 1.0 while undoing baked white balance;
+    // treat only mosaic RAW saturation as recoverable sensor clipping here.
+    if raw.cfa != CfaPattern::LinearRgb {
+        highlight_recovery::apply(&mut camera_rgb, HighlightRecoveryMode::Blend);
     }
 
     let profile = dcp::profile_for(raw)?;
@@ -153,9 +158,10 @@ pub fn decode_for_pano(bytes: &[u8], ext: &str) -> Result<PanoIngest> {
         .and_then(extract_gimbal_from_xmp);
 
     let focal_pixels = extract_focal_pixels(bytes, image.width);
-    let distortion = focal_pixels
-        .and_then(|f_px| extract_lens_distortion(bytes, image.width, image.height, f_px));
     let principal_point = extract_principal_point(bytes, image.width, image.height);
+    let distortion = focal_pixels.and_then(|f_px| {
+        extract_lens_distortion(bytes, image.width, image.height, f_px, principal_point)
+    });
 
     Ok(PanoIngest {
         image,
@@ -195,8 +201,7 @@ fn extract_focal_pixels(bytes: &[u8], image_width: u32) -> Option<f32> {
     use rawler::rawsource::RawSource;
     use rawler::tags::ExifTag;
 
-    let source = RawSource::new_from_slice(bytes)
-        .with_path(std::path::Path::new("rawfile.dng"));
+    let source = RawSource::new_from_slice(bytes).with_path(std::path::Path::new("rawfile.dng"));
     let _params = RawDecodeParams::default();
     let decoder = rawler::get_decoder(&source).ok()?;
     let exif_ifd = decoder.ifd(WellKnownIFD::Exif).ok().flatten()?;
@@ -208,15 +213,19 @@ fn extract_focal_pixels(bytes: &[u8], image_width: u32) -> Option<f32> {
         .and_then(|e| e.value.get_f32(0).ok().flatten())
         .filter(|&f| f > 0.5 && f < 1000.0);
 
-    let model = decoder.ifd(WellKnownIFD::Root).ok().flatten().and_then(|ifd| {
-        ifd.get_entry(rawler::tags::TiffCommonTag::Model)
-            .and_then(|e| {
-                let bytes = e.value.get_data();
-                std::str::from_utf8(bytes)
-                    .ok()
-                    .map(|s| s.trim_end_matches('\0').to_string())
-            })
-    });
+    let model = decoder
+        .ifd(WellKnownIFD::Root)
+        .ok()
+        .flatten()
+        .and_then(|ifd| {
+            ifd.get_entry(rawler::tags::TiffCommonTag::Model)
+                .and_then(|e| {
+                    let bytes = e.value.get_data();
+                    std::str::from_utf8(bytes)
+                        .ok()
+                        .map(|s| s.trim_end_matches('\0').to_string())
+                })
+        });
 
     if let (Some(f_mm), Some(model_str)) = (focal_mm, model.as_deref()) {
         if let Some(sensor_w_mm) = sensor_width_for_model(model_str) {
@@ -276,6 +285,7 @@ fn extract_lens_distortion(
     image_w: u32,
     image_h: u32,
     focal_px: f32,
+    principal_point: Option<(f32, f32)>,
 ) -> Option<(f32, f32)> {
     use rawler::decoders::WellKnownIFD;
     use rawler::rawsource::RawSource;
@@ -290,9 +300,21 @@ fn extract_lens_distortion(
 
     let coeffs = parse_warp_rectilinear_green(opcode_bytes)?;
 
-    let cx = image_w as f32 / 2.0;
-    let cy = image_h as f32 / 2.0;
-    let r_max_px = (cx * cx + cy * cy).sqrt();
+    let (cx, cy) = principal_point.unwrap_or((image_w as f32 * 0.5, image_h as f32 * 0.5));
+    let corners = [
+        (0.0_f32, 0.0_f32),
+        (image_w as f32, 0.0_f32),
+        (0.0_f32, image_h as f32),
+        (image_w as f32, image_h as f32),
+    ];
+    let r_max_px = corners
+        .iter()
+        .map(|(x, y)| {
+            let dx = *x - cx;
+            let dy = *y - cy;
+            (dx * dx + dy * dy).sqrt()
+        })
+        .fold(0.0_f32, f32::max);
     let scale = focal_px / r_max_px;
     if scale.abs() < 1e-6 {
         return None;
@@ -539,14 +561,10 @@ impl GainMap {
     /// inputs.
     pub fn sample(&self, u: f64, v: f64) -> (f32, f32, f32) {
         // Convert normalised position into grid-cell coordinates.
-        let gh = ((u - self.origin.1) / self.spacing.1).clamp(
-            0.0,
-            (self.points_h.saturating_sub(1)) as f64,
-        );
-        let gv = ((v - self.origin.0) / self.spacing.0).clamp(
-            0.0,
-            (self.points_v.saturating_sub(1)) as f64,
-        );
+        let gh = ((u - self.origin.1) / self.spacing.1)
+            .clamp(0.0, (self.points_h.saturating_sub(1)) as f64);
+        let gv = ((v - self.origin.0) / self.spacing.0)
+            .clamp(0.0, (self.points_v.saturating_sub(1)) as f64);
 
         let h0 = gh.floor() as u32;
         let v0 = gv.floor() as u32;
@@ -558,8 +576,16 @@ impl GainMap {
         let fetch = |row: u32, col: u32| -> (f32, f32, f32) {
             let base = ((row * self.points_h + col) * self.map_planes) as usize;
             let r = self.samples[base];
-            let g = if self.map_planes >= 2 { self.samples[base + 1] } else { r };
-            let b = if self.map_planes >= 3 { self.samples[base + 2] } else { r };
+            let g = if self.map_planes >= 2 {
+                self.samples[base + 1]
+            } else {
+                r
+            };
+            let b = if self.map_planes >= 3 {
+                self.samples[base + 2]
+            } else {
+                r
+            };
             (r, g, b)
         };
 
@@ -763,9 +789,8 @@ fn extract_xmp_from_bytes(bytes: &[u8]) -> Option<String> {
         use rawler::rawsource::RawSource;
         use rawler::tags::TiffCommonTag;
 
-        let source = RawSource::new_from_slice(bytes).with_path(
-            std::path::Path::new("rawfile.dng"),
-        );
+        let source =
+            RawSource::new_from_slice(bytes).with_path(std::path::Path::new("rawfile.dng"));
         let _params = RawDecodeParams::default();
         if let Some(decoder) = rawler::get_decoder(&source).ok() {
             if let Some(ifd) = decoder.ifd(WellKnownIFD::Root).ok().flatten() {
@@ -967,13 +992,27 @@ mod tests {
         let path = std::path::Path::new(
             "/Users/riabuz/Projects/_Maple/test-fixtures/raws/pano_01/PANO0001.DNG",
         );
-        if !path.exists() { return; }
+        if !path.exists() {
+            return;
+        }
         let bytes = std::fs::read(path).unwrap();
         let ingest = decode_for_pano(&bytes, "dng").unwrap();
         let gimbal = ingest.gimbal.expect("expected gimbal angles in DJI DNG");
-        assert!((gimbal.yaw_deg - 87.9).abs() < 0.5, "yaw={}", gimbal.yaw_deg);
-        assert!((gimbal.pitch_deg + 1.3).abs() < 0.5, "pitch={}", gimbal.pitch_deg);
-        assert!((gimbal.roll_deg - 0.0).abs() < 0.5, "roll={}", gimbal.roll_deg);
+        assert!(
+            (gimbal.yaw_deg - 87.9).abs() < 0.5,
+            "yaw={}",
+            gimbal.yaw_deg
+        );
+        assert!(
+            (gimbal.pitch_deg + 1.3).abs() < 0.5,
+            "pitch={}",
+            gimbal.pitch_deg
+        );
+        assert!(
+            (gimbal.roll_deg - 0.0).abs() < 0.5,
+            "roll={}",
+            gimbal.roll_deg
+        );
     }
 
     #[test]
@@ -1044,7 +1083,7 @@ mod tests {
         buf.extend_from_slice(&1u32.to_be_bytes()); // ID
         buf.extend_from_slice(&0x01040000u32.to_be_bytes()); // DngVersion
         buf.extend_from_slice(&0u32.to_be_bytes()); // flags
-        // Param byte count = 4 (nplanes) + 6×8 (one plane) + 16 (cx, cy) = 68
+                                                    // Param byte count = 4 (nplanes) + 6×8 (one plane) + 16 (cx, cy) = 68
         buf.extend_from_slice(&68u32.to_be_bytes());
         // Params: 1 plane, kr0=1.0, kr1=-0.05, kr2=0.02, kr3=-0.01, kt0=kt1=0,
         // cx=0.5, cy=0.5
@@ -1175,12 +1214,7 @@ mod tests {
         //   (0,1,R)=2.0, (0,1,G)=2.1, (0,1,B)=2.2,
         //   (1,0,R)=3.0, (1,0,G)=3.1, (1,0,B)=3.2,
         //   (1,1,R)=4.0, (1,1,G)=4.1, (1,1,B)=4.2,
-        let samples: [f32; 12] = [
-            1.0, 1.1, 1.2,
-            2.0, 2.1, 2.2,
-            3.0, 3.1, 3.2,
-            4.0, 4.1, 4.2,
-        ];
+        let samples: [f32; 12] = [1.0, 1.1, 1.2, 2.0, 2.1, 2.2, 3.0, 3.1, 3.2, 4.0, 4.1, 4.2];
         for s in samples {
             buf.extend_from_slice(&s.to_be_bytes());
         }
@@ -1247,12 +1281,7 @@ mod tests {
             map_planes: 3,
             origin: (0.0, 0.0),
             spacing: (1.0, 1.0),
-            samples: vec![
-                2.0, 2.0, 2.0,
-                2.0, 2.0, 2.0,
-                2.0, 2.0, 2.0,
-                2.0, 2.0, 2.0,
-            ],
+            samples: vec![2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0],
         };
         super::apply_gain_map(&mut img, &gm);
         for p in &img.pixels {
@@ -1283,11 +1312,7 @@ mod tests {
             origin: (0.0, 0.0),
             spacing: (0.5, 0.5),
             // Centre (1,1) = 1.0 (no gain), all others = 1.5 (50 % brighter at edges).
-            samples: vec![
-                1.5, 1.5, 1.5,
-                1.5, 1.0, 1.5,
-                1.5, 1.5, 1.5,
-            ],
+            samples: vec![1.5, 1.5, 1.5, 1.5, 1.0, 1.5, 1.5, 1.5, 1.5],
         };
         super::apply_gain_map(&mut img, &gm);
         // Centre pixel should be ≈ 1.0 (no gain), corner pixel ≈ 1.5.

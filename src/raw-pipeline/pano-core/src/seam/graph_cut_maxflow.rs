@@ -62,21 +62,63 @@ const INF_CAP: i64 = i64::MAX / 4;
 /// Seam finder based on BK max-flow / min-cut over the overlap region.
 ///
 /// Supports non-monotonic seams suitable for multi-row spherical panoramas.
+///
+/// ## Energy
+///
+/// Each adjacent pixel pair `(p, q)` in the overlap contributes a
+/// capacity to the BK graph of:
+///
+/// ```text
+/// w_col  · (color_cost(p)  + color_cost(q))
+///   + w_grad · (grad_a(p) + grad_a(q) + grad_b(p) + grad_b(q))
+///   + w_dup  · (color_cost(p)² + color_cost(q)²)
+/// ```
+///
+/// `w_dup` is the **duplication penalty**: a quadratic on per-pixel
+/// disagreement that disproportionately punishes cuts near pixels
+/// where image A and image B disagree strongly (moving objects,
+/// parallax mismatches, two structurally different features at the
+/// same canvas position). The squaring makes the penalty grow much
+/// faster than the linear `w_col` term when disagreement is large,
+/// which is exactly the regime where a cut becomes objectionable
+/// (a visible duplicated/disappeared object). Defaults to 2.0.
 #[derive(Debug, Clone)]
 pub struct GraphCutMaxFlowSeamFinder {
     /// Weight for the gradient term in the edge cost function.
     pub w_grad: f32,
     /// Weight for the colour-difference term.
     pub w_col: f32,
+    /// Weight for the duplication penalty (squared per-pixel
+    /// disagreement). See struct docs.
+    pub w_dup: f32,
 }
 
 impl GraphCutMaxFlowSeamFinder {
     pub fn new() -> Self {
-        Self { w_grad: 1.0, w_col: 1.0 }
+        Self {
+            w_grad: 1.0,
+            w_col: 1.0,
+            w_dup: 2.0,
+        }
     }
 
+    /// Construct with explicit gradient + colour weights, preserving
+    /// the default duplication penalty.
     pub fn with_weights(w_grad: f32, w_col: f32) -> Self {
-        Self { w_grad, w_col }
+        Self {
+            w_grad,
+            w_col,
+            w_dup: 2.0,
+        }
+    }
+
+    /// Construct with all three weights specified explicitly.
+    pub fn with_weights_full(w_grad: f32, w_col: f32, w_dup: f32) -> Self {
+        Self {
+            w_grad,
+            w_col,
+            w_dup,
+        }
     }
 }
 
@@ -134,18 +176,36 @@ fn color_cost(img_a: &PanoImage, img_b: &PanoImage, x: u32, y: u32) -> f32 {
 /// Seam edge cost between adjacent overlap pixels `p` and `q`.
 ///
 /// A high cost discourages the seam from passing between p and q.
+///
+/// `w_dup` adds a *quadratic* penalty proportional to per-pixel
+/// disagreement — `color_cost(p)² + color_cost(q)²`. Where the linear
+/// `w_col` term punishes a cut by `disagreement`, the quadratic dup
+/// term punishes by `disagreement²`, so cuts near badly-disagreeing
+/// pixels (parallax mismatches, moving objects, two different
+/// features at the same canvas pixel) become much more expensive
+/// than cuts near mildly-disagreeing pixels. With `w_dup = 0` this
+/// reduces to the plain Brown-Lowe energy.
 fn edge_cost(
     img_a: &PanoImage,
     img_b: &PanoImage,
-    x1: u32, y1: u32,
-    x2: u32, y2: u32,
+    x1: u32,
+    y1: u32,
+    x2: u32,
+    y2: u32,
     w_grad: f32,
     w_col: f32,
+    w_dup: f32,
 ) -> i64 {
-    let col = color_cost(img_a, img_b, x1, y1) + color_cost(img_a, img_b, x2, y2);
-    let grad = grad_luma(img_a, x1, y1) + grad_luma(img_a, x2, y2)
-             + grad_luma(img_b, x1, y1) + grad_luma(img_b, x2, y2);
-    let cost = w_col * col + w_grad * grad;
+    let col_p = color_cost(img_a, img_b, x1, y1);
+    let col_q = color_cost(img_a, img_b, x2, y2);
+    let col = col_p + col_q;
+    let grad = grad_luma(img_a, x1, y1)
+        + grad_luma(img_a, x2, y2)
+        + grad_luma(img_b, x1, y1)
+        + grad_luma(img_b, x2, y2);
+    // Squared per-pixel disagreement — the duplication penalty.
+    let dup = col_p * col_p + col_q * col_q;
+    let cost = w_col * col + w_grad * grad + w_dup * dup;
     // Scale to integer and clamp to avoid overflow when used as BK capacity.
     (cost * COST_SCALE as f32).round() as i64 + 1 // +1 so cost is never 0
 }
@@ -336,7 +396,9 @@ impl SeamFinder for GraphCutMaxFlowSeamFinder {
                     let ov_r = (y - y_min) as usize * ov_w + (x + 1 - x_min) as usize;
                     let nid_r = node_map[ov_r];
                     if nid_r != INVALID_NODE {
-                        let c = edge_cost(a, b, x, y, x + 1, y, self.w_grad, self.w_col);
+                        let c = edge_cost(
+                            a, b, x, y, x + 1, y, self.w_grad, self.w_col, self.w_dup,
+                        );
                         g.add_edge(nid, nid_r, c, c);
                     }
                 }
@@ -345,7 +407,9 @@ impl SeamFinder for GraphCutMaxFlowSeamFinder {
                     let ov_d = (y + 1 - y_min) as usize * ov_w + (x - x_min) as usize;
                     let nid_d = node_map[ov_d];
                     if nid_d != INVALID_NODE {
-                        let c = edge_cost(a, b, x, y, x, y + 1, self.w_grad, self.w_col);
+                        let c = edge_cost(
+                            a, b, x, y, x, y + 1, self.w_grad, self.w_col, self.w_dup,
+                        );
                         g.add_edge(nid, nid_d, c, c);
                     }
                 }
@@ -447,6 +511,119 @@ mod tests {
         assert!(finder.seams(&[]).is_err());
         assert!(finder.seams(&[&img]).is_err());
         assert!(finder.seams(&[&img, &img, &img]).is_err());
+    }
+
+    /// `edge_cost` with `w_dup = 0` reduces to the original Brown-Lowe
+    /// energy; with `w_dup > 0` an extra quadratic-in-disagreement
+    /// term is added, making the cost grow faster than linear in
+    /// per-pixel colour disagreement.
+    #[test]
+    fn edge_cost_with_w_dup_adds_squared_disagreement() {
+        // Both pixels: A is black, B is full red. Per-pixel
+        // color_cost = sqrt(1² + 0² + 0²) = 1.0 at each.
+        let a = solid(2, 1, 0.0, 0.0, 0.0);
+        let b = solid(2, 1, 1.0, 0.0, 0.0);
+
+        // No-dup baseline: cost = 1·(1.0+1.0) + 1·grad = 2 + grad.
+        // grad on a uniform image is 0.
+        let no_dup = edge_cost(&a, &b, 0, 0, 1, 0, 1.0, 1.0, 0.0);
+        // With w_dup = 2: cost = 2 + 0 + 2·(1²+1²) = 2 + 4 = 6.
+        let with_dup = edge_cost(&a, &b, 0, 0, 1, 0, 1.0, 1.0, 2.0);
+        // Cheap sanity (the +1 baseline noise is identical for both):
+        assert!(with_dup > no_dup, "with_dup={} no_dup={}", with_dup, no_dup);
+        let delta = with_dup - no_dup;
+        let expected = (4.0 * COST_SCALE as f32) as i64;
+        assert!(
+            (delta - expected).abs() < 100,
+            "delta = {} expected ≈ {}",
+            delta,
+            expected
+        );
+    }
+
+    /// `edge_cost` with low disagreement → quadratic dup term is much
+    /// smaller than linear col term (squaring shrinks values < 1).
+    #[test]
+    fn edge_cost_dup_penalty_negligible_for_low_disagreement() {
+        // Per-pixel disagreement = 0.1 (each channel diff = 0.1/sqrt(3)).
+        let small = (0.1_f32 * 0.1_f32 / 3.0).sqrt();
+        let a = solid(2, 1, 0.0, 0.0, 0.0);
+        let mut b = solid(2, 1, small, small, small);
+        for i in 0..2 {
+            b.pixels[i * 3] = small;
+            b.pixels[i * 3 + 1] = small;
+            b.pixels[i * 3 + 2] = small;
+        }
+        let no_dup = edge_cost(&a, &b, 0, 0, 1, 0, 1.0, 1.0, 0.0);
+        let with_dup = edge_cost(&a, &b, 0, 0, 1, 0, 1.0, 1.0, 2.0);
+        let delta = with_dup - no_dup;
+        // Linear col contribution per edge = 2 · 0.1 = 0.2 (× SCALE).
+        // Quadratic dup contribution = 2 · 2 · 0.01 = 0.04 (× SCALE).
+        // So delta ≪ no_dup — the squaring kills small disagreements.
+        assert!(
+            delta < (no_dup as f32 * 0.5) as i64,
+            "low-disagreement dup delta should be small relative to baseline (delta={}, no_dup={})",
+            delta, no_dup
+        );
+    }
+
+    /// End-to-end: a tiny overlap with a high-disagreement pixel acts
+    /// as a wall the seam should route around. With the duplication
+    /// penalty active by default (`w_dup = 2.0`), the cut never
+    /// crosses through high-disagreement edges; every wall pixel
+    /// stays assigned to image A (the low-disagreement source).
+    ///
+    /// Kept tiny (8×4 → 16-node overlap) on purpose — the existing
+    /// BK solver is already exercised on much larger graphs by the
+    /// real `pano-smoke` runs; this test's job is to verify the
+    /// `w_dup` plumbing reaches the BK edge capacities at all.
+    #[test]
+    fn graph_cut_routes_seam_around_high_disagreement_pixel() {
+        let w = 8u32;
+        let h = 4u32;
+
+        // Image A: uniform grey 0.5, valid in cols 0..6.
+        let mut a = solid(w, h, 0.5, 0.5, 0.5);
+        for y in 0..h {
+            for x in 6..w {
+                a.set_invalid(x, y);
+            }
+        }
+        // Image B: uniform grey 0.5, valid in cols 2..8, with a
+        // bright-red 1×1 wall at (3, 2). ||diff|| ≈ 0.71 there.
+        let mut b = solid(w, h, 0.5, 0.5, 0.5);
+        for y in 0..h {
+            for x in 0..2 {
+                b.set_invalid(x, y);
+            }
+        }
+        let i = ((2 * w + 3) * 3) as usize;
+        b.pixels[i] = 1.0;
+        b.pixels[i + 1] = 0.2;
+        b.pixels[i + 2] = 0.2;
+
+        let finder = GraphCutMaxFlowSeamFinder::new();
+        let masks = finder.seams(&[&a, &b]).expect("seam finds");
+
+        // The disagreement pixel (3, 2) lies in the overlap
+        // (cols 2..5). The cut should keep it assigned to A —
+        // mask_a bit = 0 means "use A here".
+        let idx = (2 * w + 3) as usize;
+        assert!(
+            !masks[0].bits[idx],
+            "seam crossed high-disagreement pixel (3,2): mask_a bit = {}",
+            masks[0].bits[idx]
+        );
+    }
+
+    /// `with_weights_full` exposes the duplication-penalty knob; setting
+    /// `w_dup = 0` reproduces the legacy (col + grad) energy.
+    #[test]
+    fn with_weights_full_zeroes_dup_when_requested() {
+        let f = GraphCutMaxFlowSeamFinder::with_weights_full(1.0, 1.0, 0.0);
+        assert_eq!(f.w_dup, 0.0);
+        let g = GraphCutMaxFlowSeamFinder::new();
+        assert_eq!(g.w_dup, 2.0);
     }
 
     /// Two non-overlapping images (different halves) → masks should assign

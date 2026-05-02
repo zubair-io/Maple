@@ -33,12 +33,19 @@ png.workspace = true
 clap.workspace = true
 image.workspace = true
 tempfile = "3"
+# Used by `pano-smoke` for the memory pre-flight (auto-detect total
+# vs available RAM so the cap matches the actual machine instead of
+# a hardcoded 12 GB).
+sysinfo = { version = "0.32", default-features = false, features = ["system"] }
 
-[dependencies.ort]
-# v2 is still in release-candidate at the time of writing — pin the rc track.
-version = "2.0.0-rc.12"
-default-features = false
-features = ["load-dynamic"]
+# `ort` (ONNX Runtime FFI) was the original target for ML matching but
+# 2.0.0-rc.{10,12} ship a VitisAI exec-provider call that fails to
+# compile against the current ort-sys. Until upstream fixes that, ML
+# inference goes through `tract` — a pure-Rust ONNX runtime, no FFI
+# build, slower than ORT/CUDA but plenty fast for sparse-keypoint
+# matchers like LightGlue (≤ a few hundred ms on a CPU at preview res).
+[dependencies.tract-onnx]
+version = "0.21"
 optional = true
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
@@ -46,15 +53,16 @@ wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
 
 [features]
-# Spec § 9 defaults to ["ml-aliked", "ml-lightglue", "gpu-wgpu"]. The ml-*
-# features pull `ort` (ONNX Runtime), which lands in P3. Until then
-# they're opt-in so the P1 classical baseline builds without the
-# extra dep tree. Re-promote to default once T3.1 wires `ort`.
+# Spec § 9 defaults to ["ml-aliked", "ml-lightglue", "gpu-wgpu"]. The
+# ml-* features pull `tract-onnx`. They're opt-in so the classical
+# baseline (AKAZE+GMS) builds without the extra dep tree. Re-promote
+# to default once the LightGlue model is bundled and verified on
+# the reference scene set.
 default = ["gpu-wgpu"]
-ml-aliked = ["dep:ort"]
-ml-lightglue = ["dep:ort"]
-ml-superpoint = ["dep:ort"]   # research license — never default
-ml-udis = ["dep:ort"]         # parallax composition — opt-in
-ml-depth = ["dep:ort"]        # depth-aware blend — opt-in
-gpu-wgpu = []                  # wgpu is unconditionally pulled today; flag retained for symmetry
-heif = []                      # libheif-rs gated, native-only; off by default
+ml-aliked = ["dep:tract-onnx"]
+ml-lightglue = ["dep:tract-onnx"]
+ml-superpoint = ["dep:tract-onnx"]   # research license — never default
+ml-udis = ["dep:tract-onnx"]         # parallax composition — opt-in
+ml-depth = ["dep:tract-onnx"]        # depth-aware blend — opt-in
+gpu-wgpu = []                          # wgpu is unconditionally pulled today; flag retained for symmetry
+heif = []                              # libheif-rs gated, native-only; off by default

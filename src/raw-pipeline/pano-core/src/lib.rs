@@ -24,19 +24,19 @@ pub mod warp;
 pub use ba::{
     solve_joint, solve_joint_with_priors, CameraPrior, JointRotationFocalBA, RotationOnlyBA,
 };
-pub use compensation::gain::{apply_gains, solve_per_image_gain};
-pub use pipeline::stitch_images;
 pub use blend::{MultiBandBlender, SimpleAlphaBlender};
 pub use color::{ColorSpace, Primaries, Transfer, WhitePoint};
+pub use compensation::gain::{apply_gains, solve_per_image_gain};
 pub use error::PanoError;
-pub use features::OrbDetector;
 pub use features::AkazeDetector;
+pub use features::OrbDetector;
 pub use ingest::{decode_bytes, decode_input, sniff_format, PanoFormat, PanoInput};
 pub use matching::BruteForceMatcher;
-pub use seam::{GraphCutSeamFinder, GraphCutMaxFlowSeamFinder};
+pub use pipeline::stitch_images;
+pub use seam::{GraphCutMaxFlowSeamFinder, GraphCutSeamFinder};
 pub use traits::{Blender, BundleAdjuster, FeatureDetector, FeatureMatcher, SeamFinder, Warper};
 pub use types::{
-    Camera, Distortion, Features, Keypoint, Match, Matches, PanoImage, ParallaxMode,
-    PipelineOptions, Projection, SeamMask,
+    Camera, CameraIntrinsics, Distortion, Features, Keypoint, Match, Matches, PanoImage,
+    ParallaxMode, PipelineOptions, Projection, SeamMask,
 };
 pub use warp::CpuWarper;
