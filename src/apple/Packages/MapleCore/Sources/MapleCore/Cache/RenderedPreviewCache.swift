@@ -14,7 +14,7 @@ import CoreImage
 import CryptoKit
 import OSLog
 
-private let cacheLog = Logger(subsystem: "app.justmaple.maple", category: "RenderedPreviewCache")
+private let cacheLog = Logger(subsystem: "app.justmaple.aperture", category: "RenderedPreviewCache")
 
 // MARK: - RenderedPreviewCache
 
