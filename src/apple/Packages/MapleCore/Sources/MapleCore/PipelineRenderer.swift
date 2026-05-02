@@ -23,7 +23,7 @@ import Foundation
 import OSLog
 import RawPipeline
 
-private let pipelineLog = Logger(subsystem: "app.justmaple.maple", category: "PipelineRenderer")
+private let pipelineLog = Logger(subsystem: "app.justmaple.aperture", category: "PipelineRenderer")
 
 // MARK: - MapleImageData
 
@@ -798,6 +798,12 @@ extension PipelineRenderer {
         decodedTint: Double = 0.0,
         skipAgX: Bool = false
     ) -> MapleAdjustmentParams {
+        // Diagnostic for the magenta-cast investigation: log every value the
+        // Apple shell hands to the Rust slider chain. If temperature or tint
+        // drift away from defaults (6500 / 0) we know the WB step in the
+        // chain runs non-identity, which is what shifts the post-D65 image
+        // into a colour cast.
+        pipelineLog.notice("makeParams MODEL: temp=\(model.temperature, format: .fixed(precision: 0)) tint=\(model.tint, format: .fixed(precision: 1)) exposure=\(model.exposure, format: .fixed(precision: 2)) contrast=\(model.contrast, format: .fixed(precision: 0)) highlights=\(model.highlights, format: .fixed(precision: 0)) shadows=\(model.shadows, format: .fixed(precision: 0)) whites=\(model.whites, format: .fixed(precision: 0)) blacks=\(model.blacks, format: .fixed(precision: 0)) vib=\(model.vibrance, format: .fixed(precision: 0)) sat=\(model.saturation, format: .fixed(precision: 0)) clarity=\(model.clarity, format: .fixed(precision: 0)) texture=\(model.texture, format: .fixed(precision: 0)) dehaze=\(model.dehaze, format: .fixed(precision: 0)) nr_lum=\(model.nrLuminance, format: .fixed(precision: 0)) | dec_temp=\(decodedTemperature, format: .fixed(precision: 0)) dec_tint=\(decodedTint, format: .fixed(precision: 1)) skip_agx=\(skipAgX)")
         return MapleAdjustmentParams(
             temperature: Float(model.temperature),
             tint: Float(model.tint),

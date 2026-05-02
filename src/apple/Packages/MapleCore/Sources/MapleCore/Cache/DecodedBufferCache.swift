@@ -12,7 +12,7 @@ import CoreImage
 import CryptoKit
 import OSLog
 
-private let cacheLog = Logger(subsystem: "app.justmaple.maple", category: "DecodedBufferCache")
+private let cacheLog = Logger(subsystem: "app.justmaple.aperture", category: "DecodedBufferCache")
 
 public actor DecodedBufferCache {
     public static let shared = DecodedBufferCache()
