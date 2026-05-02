@@ -12,6 +12,9 @@
 import Foundation
 import CoreImage
 import CryptoKit
+import OSLog
+
+private let cacheLog = Logger(subsystem: "app.justmaple.maple", category: "RenderedPreviewCache")
 
 // MARK: - RenderedPreviewCache
 
@@ -23,8 +26,19 @@ public actor RenderedPreviewCache {
     private var memCache: [String: (CIImage, Date)] = [:]  // (image, stored-at)
     private let maxMemEntries = 20
 
-    // Must match agx_coeffs.rs AGX_VERSION (2) — bump here when LUT changes.
-    private let viewTransformVersion: UInt32 = 2
+    // Cache invalidation knob. Originally tied to AGX_VERSION ("bump when LUT
+    // changes"), but in practice this version field IS the cache key for
+    // every post-adjustment render — bump it whenever any pipeline stage
+    // changes pixel output, not just the AgX LUT.
+    //
+    // v3 (2026-05-01): paired with DecodedBufferCache rustVersion=3. Color-
+    // convergence Phase 1.1 + 1.2 + 1.5 + 2 + apply_scene_linear_chain D65
+    // contract + additive BE lookup + tile-pipeline pre-gain — every one of
+    // those changes pixel output. Without bumping this, the app loads the
+    // pre-Phase-1.1 cached render JPEG and short-circuits the entire
+    // pipeline, so users keep seeing the OLD output regardless of how many
+    // times the Rust code is rebuilt.
+    private let viewTransformVersion: UInt32 = 3
 
     // MARK: - Configure
 
@@ -40,13 +54,23 @@ public actor RenderedPreviewCache {
     public func preview(for assetURL: URL, screenWidth: Int) -> CIImage? {
         let key = cacheKey(for: assetURL, screenWidth: screenWidth)
         // Memory
-        if let (img, _) = memCache[key] { return img }
+        if let (img, _) = memCache[key] {
+            cacheLog.notice("RenderedPreviewCache: MEMORY HIT \(assetURL.lastPathComponent, privacy: .public) v\(self.viewTransformVersion) — SKIPPING Rust pipeline")
+            return img
+        }
         // Disk
-        guard let dir = cacheDir else { return nil }
+        guard let dir = cacheDir else {
+            cacheLog.notice("RenderedPreviewCache: no cacheDir configured")
+            return nil
+        }
         let fileURL = dir.appendingPathComponent("\(key).jpg")
         guard fm.fileExists(atPath: fileURL.path),
               let data = try? Data(contentsOf: fileURL),
-              let ci = CIImage(data: data) else { return nil }
+              let ci = CIImage(data: data) else {
+            cacheLog.notice("RenderedPreviewCache: MISS \(assetURL.lastPathComponent, privacy: .public) v\(self.viewTransformVersion) — pipeline will run")
+            return nil
+        }
+        cacheLog.notice("RenderedPreviewCache: DISK HIT \(assetURL.lastPathComponent, privacy: .public) v\(self.viewTransformVersion) (\(data.count) bytes) — SKIPPING Rust pipeline")
         evictIfNeeded()
         memCache[key] = (ci, Date())
         return ci
