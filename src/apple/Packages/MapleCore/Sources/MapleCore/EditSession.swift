@@ -15,9 +15,9 @@ import AppKit
 
 // Subsystem used by the slider → render boundary so Console filtering lets a
 // user confirm that slider ticks are actually reaching the render scheduler.
-// Filter in Console.app with: subsystem:app.justmaple.maple category:EditSession
+// Filter in Console.app with: subsystem:app.justmaple.aperture category:EditSession
 private let editSessionLogger = Logger(
-    subsystem: "app.justmaple.maple",
+    subsystem: "app.justmaple.aperture",
     category: "EditSession"
 )
 
@@ -32,7 +32,7 @@ private let editSessionLogger = Logger(
 // To view: Xcode → Open Developer Tool → Instruments → Points of Interest,
 // or Profile the app and filter by subsystem.
 private let editSessionSignposter = OSSignposter(
-    subsystem: "app.justmaple.maple",
+    subsystem: "app.justmaple.aperture",
     category: "EditSession"
 )
 
@@ -744,13 +744,32 @@ public final class EditSession {
         asShotCCT: Double?,
         asShotTint: Double?
     ) -> AdjustmentModel {
-        var base = loadedModel ?? .default
-        if loadedModel == nil,
-           let cct = asShotCCT, let tint = asShotTint {
-            base.temperature = cct
-            base.tint = tint
-        }
-        return base
+        // Phase 1.2 of color-convergence (raw-core commit 9588dd0): the
+        // Rust pipeline now applies DNG-spec WB pre-gain at decode time and
+        // lands at D65 — `inv(CM)·(1,1,1)` for the neutral patch, then DCP
+        // chromatic adaptation projects scene white → D50 → Rec.2020 D65.
+        //
+        // Under that contract, the LIVE model's temperature/tint are the
+        // user's slider values relative to D65. Default 6500/0 means
+        // "render at D65" = identity in apply_scene_linear_chain's WB
+        // step = the post-WB-pregain image, neutralised for the source
+        // illuminant (which IS what ACR's "As Shot" preset shows).
+        //
+        // Pre-Phase-1.2, this function pushed asShotCCT/asShotTint into the
+        // model so the Apple slider chain's apply_delta(live, decoded=
+        // asShotCCT) was identity at "As Shot". That worked because the
+        // data was at AsShot reference. Post-Phase-1.2 the data is at D65,
+        // so pushing asShotCCT into model.temperature DOUBLE-COMPENSATES
+        // (apply runs wb_gains(asShotCCT) on already-D65 data, shifting
+        // the image into magenta-blue territory). That was the live-app
+        // magenta-cast user reports on every fresh open.
+        //
+        // asShotCCT/asShotTint are still tracked on EditSession (lines
+        // 700-702) for UI display ("shot at NNNNK / TT.T tint") but no
+        // longer override the live model.
+        let _ = asShotCCT
+        let _ = asShotTint
+        return loadedModel ?? .default
     }
 
     /// Force a full-resolution render immediately (useful before export).
