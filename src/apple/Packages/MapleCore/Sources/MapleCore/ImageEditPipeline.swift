@@ -24,7 +24,7 @@ import CoreImage
 import Metal
 import os
 
-private let logger = Logger(subsystem: "app.justmaple.maple", category: "ImageEditPipeline")
+private let logger = Logger(subsystem: "app.justmaple.aperture", category: "ImageEditPipeline")
 
 // MARK: - ImageEditPipeline
 
@@ -589,11 +589,20 @@ public actor ImageEditPipeline {
         // (parsed from the sidecar on disk, or `.default` when no
         // sidecar exists). The chain applies a WB delta
         // `wb_gains(live) / wb_gains(decoded)` so opening a saved
-        // sidecar doesn't double-apply WB. When `decodedAtModel` is nil,
-        // fall back to 6500/0 which matches the Rust default's identity
-        // short-circuit.
-        let decodedTemp = decodedAtModel?.temperature ?? 6500.0
-        let decodedTint = decodedAtModel?.tint ?? 0.0
+        // sidecar doesn't double-apply WB.
+        //
+        // When `decodedAtModel` is nil (no sidecar on disk) we fall back
+        // to the camera's AsShot CCT/tint so apply_delta(live=asShotCCT,
+        // decoded=asShotCCT) is identity for the default "As Shot"
+        // rendering — matching ACR's UI semantic of "slider shows
+        // asShotCCT, no shift applied". Without this the live model
+        // (which `EditSession.initialModel` populates with asShotCCT/
+        // Tint when there's no sidecar) gets shifted against decoded=
+        // 6500, producing the magenta cast user reported on every fresh
+        // open. See EditSession.swift:initialModel for the matching
+        // model-side push.
+        let decodedTemp = decodedAtModel?.temperature ?? asShot?.temperature ?? 6500.0
+        let decodedTint = decodedAtModel?.tint ?? asShot?.tint ?? 0.0
         let chained = applySceneLinearChainViaFFI(
             scaled, model: model,
             decodedTemperature: decodedTemp, decodedTint: decodedTint,
