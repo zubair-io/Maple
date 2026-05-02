@@ -20,7 +20,10 @@
 //     C library's thread-local error slot.
 
 import Foundation
+import OSLog
 import RawPipeline
+
+private let pipelineLog = Logger(subsystem: "app.justmaple.maple", category: "PipelineRenderer")
 
 // MARK: - MapleImageData
 
@@ -324,6 +327,10 @@ public struct PipelineRenderer: Sendable {
             fp16_rgba: nil, len_bytes: 0, channels: 0,
             bytes_per_pixel: 0, width: 0, height: 0
         )
+        let rawPath = String(cString: rawCStr)
+        let lastSlash = rawPath.lastIndex(of: "/").map { rawPath.index(after: $0) } ?? rawPath.startIndex
+        let fileName = String(rawPath[lastSlash...])
+        pipelineLog.notice("→ Rust FFI maple_render_file_scene_linear START: \(fileName, privacy: .public) quality=\(quality.rawValue)")
         let rc = maple_render_file_scene_linear(rawCStr, xmpCStr, quality.rawValue, &buf)
         guard rc == 0 else {
             let msg = maple_last_error().map { String(cString: $0) } ?? "unknown error"
@@ -336,6 +343,28 @@ public struct PipelineRenderer: Sendable {
         let data = mapleStage("decode result copy") {
             Data(bytes: ptr, count: Int(buf.len_bytes))
         }
+        // Sample center pixel of the decoded buffer so we can verify on
+        // the user side which pipeline produced this output without
+        // having to re-render. fp16 RGBA, 8 bytes per pixel.
+        let centerOffset = (Int(buf.height) / 2) * Int(buf.width) * 8
+                         + (Int(buf.width) / 2) * 8
+        var centerR: Float = 0, centerG: Float = 0, centerB: Float = 0
+        if data.count >= centerOffset + 6 {
+            let r16 = data.withUnsafeBytes { (raw: UnsafeRawBufferPointer) -> UInt16 in
+                raw.load(fromByteOffset: centerOffset, as: UInt16.self)
+            }
+            let g16 = data.withUnsafeBytes { (raw: UnsafeRawBufferPointer) -> UInt16 in
+                raw.load(fromByteOffset: centerOffset + 2, as: UInt16.self)
+            }
+            let b16 = data.withUnsafeBytes { (raw: UnsafeRawBufferPointer) -> UInt16 in
+                raw.load(fromByteOffset: centerOffset + 4, as: UInt16.self)
+            }
+            // Cheap fp16 → fp32 (handles the typical bit pattern; not denorm-correct but fine for diagnostic).
+            centerR = Self.fp16ToFloat(r16)
+            centerG = Self.fp16ToFloat(g16)
+            centerB = Self.fp16ToFloat(b16)
+        }
+        pipelineLog.notice("← Rust FFI maple_render_file_scene_linear OK: \(buf.width)x\(buf.height) center scene-linear RGB=(\(centerR, format: .fixed(precision: 4)), \(centerG, format: .fixed(precision: 4)), \(centerB, format: .fixed(precision: 4)))")
         return MapleSceneLinearImageData(
             width: Int(buf.width),
             height: Int(buf.height),
@@ -343,6 +372,19 @@ public struct PipelineRenderer: Sendable {
             bytesPerPixel: Int(buf.bytes_per_pixel),
             pixels: data
         )
+    }
+
+    /// Cheap fp16 → fp32 for diagnostic logging. Doesn't handle denorms /
+    /// inf / NaN correctly but is fine for displaying typical scene-linear
+    /// values in [0, 4] range.
+    private static func fp16ToFloat(_ h: UInt16) -> Float {
+        let sign = UInt32(h >> 15) & 0x1
+        let exp = UInt32(h >> 10) & 0x1f
+        let mant = UInt32(h) & 0x3ff
+        if exp == 0 { return 0.0 } // denorm/zero — close enough for log
+        if exp == 31 { return Float.nan }
+        let fp32Bits = (sign << 31) | ((exp + 112) << 23) | (mant << 13)
+        return Float(bitPattern: fp32Bits)
     }
 
     private static func _renderSceneLinearBytes(

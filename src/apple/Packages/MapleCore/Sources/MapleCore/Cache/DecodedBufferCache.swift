@@ -10,6 +10,9 @@
 import Foundation
 import CoreImage
 import CryptoKit
+import OSLog
+
+private let cacheLog = Logger(subsystem: "app.justmaple.maple", category: "DecodedBufferCache")
 
 public actor DecodedBufferCache {
     public static let shared = DecodedBufferCache()
@@ -53,12 +56,19 @@ public actor DecodedBufferCache {
     }
 
     public func decoded(for assetURL: URL) -> CIImage? {
-        guard let dir = cacheDir else { return nil }
+        guard let dir = cacheDir else {
+            cacheLog.notice("DecodedBufferCache: no cacheDir configured for \(assetURL.lastPathComponent, privacy: .public) — Rust decode will run")
+            return nil
+        }
         let key = cacheKey(for: assetURL)
         let fileURL = dir.appendingPathComponent("\(key).jpg")
         guard fm.fileExists(atPath: fileURL.path),
               let data = try? Data(contentsOf: fileURL),
-              let ci = CIImage(data: data) else { return nil }
+              let ci = CIImage(data: data) else {
+            cacheLog.notice("DecodedBufferCache: MISS \(assetURL.lastPathComponent, privacy: .public) v\(self.rustVersion) — will run Rust decode")
+            return nil
+        }
+        cacheLog.notice("DecodedBufferCache: HIT \(assetURL.lastPathComponent, privacy: .public) v\(self.rustVersion) (\(data.count) bytes) — SKIPPING Rust decode")
         return ci
     }
 
