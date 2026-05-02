@@ -744,32 +744,27 @@ public final class EditSession {
         asShotCCT: Double?,
         asShotTint: Double?
     ) -> AdjustmentModel {
-        // Phase 1.2 of color-convergence (raw-core commit 9588dd0): the
-        // Rust pipeline now applies DNG-spec WB pre-gain at decode time and
-        // lands at D65 — `inv(CM)·(1,1,1)` for the neutral patch, then DCP
-        // chromatic adaptation projects scene white → D50 → Rec.2020 D65.
+        // Push asShotCCT/asShotTint into the model when there's no XMP
+        // sidecar so the slider DISPLAYS the camera's WB (matches ACR's
+        // "As Shot" semantic — slider shows the as-shot CCT). Once the
+        // user has saved edits, the stored temperature wins.
         //
-        // Under that contract, the LIVE model's temperature/tint are the
-        // user's slider values relative to D65. Default 6500/0 means
-        // "render at D65" = identity in apply_scene_linear_chain's WB
-        // step = the post-WB-pregain image, neutralised for the source
-        // illuminant (which IS what ACR's "As Shot" preset shows).
-        //
-        // Pre-Phase-1.2, this function pushed asShotCCT/asShotTint into the
-        // model so the Apple slider chain's apply_delta(live, decoded=
-        // asShotCCT) was identity at "As Shot". That worked because the
-        // data was at AsShot reference. Post-Phase-1.2 the data is at D65,
-        // so pushing asShotCCT into model.temperature DOUBLE-COMPENSATES
-        // (apply runs wb_gains(asShotCCT) on already-D65 data, shifting
-        // the image into magenta-blue territory). That was the live-app
-        // magenta-cast user reports on every fresh open.
-        //
-        // asShotCCT/asShotTint are still tracked on EditSession (lines
-        // 700-702) for UI display ("shot at NNNNK / TT.T tint") but no
-        // longer override the live model.
-        let _ = asShotCCT
-        let _ = asShotTint
-        return loadedModel ?? .default
+        // This pairs with `ImageEditPipeline.processSceneLinear`'s
+        // decodedTemp/decodedTint computation: when there's no sidecar
+        // those fall back to the same asShot CCT/tint, so the chain's
+        // `apply_delta(live=asShotCCT, decoded=asShotCCT)` is identity
+        // — slider shows asShotCCT, no shift applied. This is the
+        // ACR-compatible UX. (Removing the asShotCCT push here without
+        // also fixing decodedTemp produced the "slider shows 6500" UX
+        // regression user noticed; pushing it without fixing decodedTemp
+        // produced the magenta cast.)
+        var base = loadedModel ?? .default
+        if loadedModel == nil,
+           let cct = asShotCCT, let tint = asShotTint {
+            base.temperature = cct
+            base.tint = tint
+        }
+        return base
     }
 
     /// Force a full-resolution render immediately (useful before export).
