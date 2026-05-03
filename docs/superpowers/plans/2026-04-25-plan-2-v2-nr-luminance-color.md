@@ -15,18 +15,18 @@
 1. **No new spikes — both v2 v1 spikes already PASSED.** The test file header at [`SceneLinearPipelineTests.swift:163-205`](../../../src/apple/Packages/MapleCore/Tests/MapleCoreTests/SceneLinearPipelineTests.swift) records:
    - **Spike 1.1 PASS** — `MTLComputePipeline` output composes with downstream `CIColorKernel.apply` via `CIImage(mtlTexture:options:)`. This is the foundation for `applySeparableGaussianBlur(to:radius:)` already shipped in v2 v1; NR reuses it directly.
    - **Spike 1.2 PASS** — `#include` resolves via absolute paths fed to `CIKernel.kernels(withMetalString:)`. This means a shared `oklab.metal` extraction is technically feasible via runtime `Bundle.module/Metal/oklab.metal` URL injection — **but see § "Oklab shared-include decision" below for why we defer the refactor**.
-   Task 1 of THIS plan is therefore a non-spike preflight: re-confirm the Rust algorithm shape and verify the v2 v1 shared blur is reachable (its public surface is `MetalKernels.applySeparableGaussianBlur(to:radius:)` at [`MetalKernels.swift:220`](../../../src/apple/Packages/MapleCore/Sources/MapleCore/MetalKernels.swift); calling it from new wrappers requires nothing more than module-internal access).
+     Task 1 of THIS plan is therefore a non-spike preflight: re-confirm the Rust algorithm shape and verify the v2 v1 shared blur is reachable (its public surface is `MetalKernels.applySeparableGaussianBlur(to:radius:)` at [`MetalKernels.swift:220`](../../../src/apple/Packages/MapleCore/Sources/MapleCore/MetalKernels.swift); calling it from new wrappers requires nothing more than module-internal access).
 
 2. **Oklab shared-include decision: DEFER, do not factor `oklab.metal` in this plan.** The brief's § 7 says "extract `oklab.metal` and `#include` it from each consumer" — and Spike 1.2's PASS makes this technically feasible. **But this plan adds NR luma + NR color on the new path; it does not touch existing production kernels.** Three reasons to defer:
    - The existing `SceneVibrance.metal` (matrices at [`SceneVibrance.metal:16-38`](../../../src/apple/Packages/MapleCore/Sources/MapleCore/Metal/SceneVibrance.metal)) and `SceneSaturation.metal` (matrices duplicated with `_sat` suffix at [`SceneSaturation.metal:17-38`](../../../src/apple/Packages/MapleCore/Sources/MapleCore/Metal/SceneSaturation.metal)) already use the duplication-with-suffix pattern. Per the v2 v1 saturation kernel comment at `SceneSaturation.metal:11-16`: "Metal does not share constants between .metal files inside a single metallib; repeating them here is the right pattern." That pattern is shipped, tested, and parity-verified in production.
    - Refactoring vibrance + saturation + the two new NR kernels into a shared include in one plan adds risk to NR shipping. The four-file shared-include refactor is its own plan, with its own ΔE budget gate.
    - Even at full slider extreme (radius 4 / r_box 1 / 3 box passes ~3 px tail), the Oklab convert/unconvert dominates the per-pixel arithmetic, not the matrix duplication. Performance is identical between "embedded matrices" and "shared include" — the difference is purely code style.
-   **Therefore:** new kernels `SceneNRLuminance.metal` and `SceneNRColor.metal` embed their own copy of the Oklab matrices with `_nrl` and `_nrc` suffixes respectively, matching the established pattern at SceneSaturation.metal:11-16. **A follow-up "DRY oklab matrices" plan** can factor all four production kernels (vibrance, saturation, NR luminance, NR color) into a shared `oklab.metal` once the include-from-Bundle mechanics are exercised under load.
+     **Therefore:** new kernels `SceneNRLuminance.metal` and `SceneNRColor.metal` embed their own copy of the Oklab matrices with `_nrl` and `_nrc` suffixes respectively, matching the established pattern at SceneSaturation.metal:11-16. **A follow-up "DRY oklab matrices" plan** can factor all four production kernels (vibrance, saturation, NR luminance, NR color) into a shared `oklab.metal` once the include-from-Bundle mechanics are exercised under load.
 
 3. **One-pass approach (Rust's `oklab_img` reuse → re-convert at combine time).** Rust at `noise_reduction.rs:28-54` builds an intermediate `oklab_img`, replicates L (or packs a/b), blurs the replicate, and writes back into `oklab_img` before unconverting. The GPU mirror could either (a) plumb the oklab CIImage as a separate input to the combine kernel, or (b) re-convert rec2020 → oklab inline inside the combine kernel and overwrite only the relevant channel before unconverting. Option (b) wastes one extra `rec2020 → oklab` per pixel at combine time but **eliminates the need for a third `.metal` file** (`SceneOklab.metal` for the intermediate). Two reasons to pick (b):
    - Per-pixel `rec2020 → oklab` is bit-identical from the same input — no parity drift versus Option (a)'s plumbed intermediate, modulo identical fp16 quantization on both paths.
    - Plan 2 v2 v1's M2 (clarity + texture) chose the same shape: a single CIColorKernel mix kernel takes (src, blurred, amount) and re-derives anything it needs from the original rec2020 sampler. M3 staying consistent reduces architectural variance between sibling plans.
-   **Tradeoff:** Option (b) costs one extra 3×3 matrix multiply + 3 cube roots per pixel at combine time, which is negligible compared to the 6-pass blur. Net win.
+     **Tradeoff:** Option (b) costs one extra 3×3 matrix multiply + 3 cube roots per pixel at combine time, which is negligible compared to the 6-pass blur. Net win.
 
 4. **Two new Metal sources, one new public Swift wrapper per stage.** Mirrors v2 v1's M2 shape (`SceneClarity` / `SceneTexture` each get one wrapper backed by the shared blur):
    - `SceneNRLuminance.metal` — two `[[stitchable]]` `CIColorKernel` functions: `nrLuminanceExtractL` (rec2020 → oklab → emit (L, L, L, alpha) on the same extent — the input to the shared blur) and `nrLuminanceCombine` (samples original rec2020 + blurred-L CIImage; re-converts rec2020 → oklab, overwrites L with `blurredL.r`, unconverts oklab → rec2020).
@@ -41,6 +41,7 @@
 7. **Wiring is isolated to `processSceneLinear`.** Two new lines insert NR luminance + NR color between texture (`withTexture` at [`ImageEditPipeline.swift:366-369`](../../../src/apple/Packages/MapleCore/Sources/MapleCore/ImageEditPipeline.swift)) and the `applyAgXViewTransform` return at `:374-376`. Insertion order matches Rust at [`pipeline.rs:131-132`](../../../src/raw-pipeline/raw-core/src/pipeline.rs): `nr_luminance` before `nr_color`. No change to `applyFilters` (legacy path stays — Plan 2 v2 v5, separate plan, deletes it).
 
 **Tech Stack:**
+
 - Swift (`MapleCore`) — `MetalKernels` namespace gains four cache fields (`_sceneNRLuminanceExtract`, `_sceneNRLuminanceCombine`, `_sceneNRColorExtract`, `_sceneNRColorCombine`), two new public wrappers (`applySceneNRLuminance(to:nrLuminance:)`, `applySceneNRColor(to:nrColor:)`), and four private kernel-loader helpers (`sceneNRLuminanceExtractKernel()`, `sceneNRLuminanceCombineKernel()`, `sceneNRColorExtractKernel()`, `sceneNRColorCombineKernel()`). All four loaders use the existing `loadKernel(file:function:)` helper at [`MetalKernels.swift:513`](../../../src/apple/Packages/MapleCore/Sources/MapleCore/MetalKernels.swift).
 - Metal Shading Language —
   - `SceneNRLuminance.metal`: two `[[stitchable]]` `extern "C" float4` `CIColorKernel` functions (`nrLuminanceExtractL` taking one sampler; `nrLuminanceCombine` taking two samplers + one `float` amount param that's stored but unused per § 5 above — kept for ABI symmetry with the M2 mix wrappers and to mark "Rust shim" intent in the kernel signature).
@@ -50,6 +51,7 @@
 - Test — `cd src/apple/Packages/MapleCore && swift test` after each Swift edit; `BUDGET=15 src/scripts/test_color_pipeline.sh` after each milestone (M3a = Task 3, M3b = Task 5, M3 = Task 7) for the legacy-path ΔE gate (Plan 2 v2 v2 must not break it).
 
 **Out of scope (explicit):**
+
 - **Plan 2 v2 v3 — Sharpen.** Bespoke `MTLComputePipeline` for 3-iter Richardson-Lucy. Brief § 2 marks effort `M`. Separate plan.
 - **Plan 2 v2 v4 — Dehaze.** Three compute dispatches (15×15 dark-channel min-filter, atmospheric-light top-0.1% reduction, 60-radius guided filter). Brief § 2 marks effort `L`. Separate plan; deferred until v3 proves the architecture per brief § 4.
 - **Plan 2 v2 v5 — Delete legacy `applyFilters` chain at [`ImageEditPipeline.swift:512`](../../../src/apple/Packages/MapleCore/Sources/MapleCore/ImageEditPipeline.swift)** plus the `MAPLE_SKIP_SWIFT_AGX` gate at `:679` and `MAPLE_SKIP_SWIFT_FILTERS` gate at `:520`. Brief § 4 explicitly defers this to "after every kernel is on the new path." Separate plan.
@@ -66,6 +68,7 @@
 ## File Structure
 
 **Swift (read-write):**
+
 - Modify: `src/apple/Packages/MapleCore/Sources/MapleCore/MetalKernels.swift` — add four private static cache fields (`_sceneNRLuminanceExtract: CIColorKernel?`, `_sceneNRLuminanceCombine: CIColorKernel?`, `_sceneNRColorExtract: CIColorKernel?`, `_sceneNRColorCombine: CIColorKernel?`), two new public wrappers (`applySceneNRLuminance(to:nrLuminance:)`, `applySceneNRColor(to:nrColor:)`), and four new private kernel-loader helpers (`sceneNRLuminanceExtractKernel()`, `sceneNRLuminanceCombineKernel()`, `sceneNRColorExtractKernel()`, `sceneNRColorCombineKernel()`). All four loaders mirror the existing `sceneVibranceKernel()` shape at `MetalKernels.swift:401-406`.
 - Add: `src/apple/Packages/MapleCore/Sources/MapleCore/Metal/SceneNRLuminance.metal` — new Metal source. Two `[[stitchable]]` `extern "C" float4` functions:
   - `nrLuminanceExtractL(coreimage::sampler_h src)` — sample input rec2020, convert to Oklab, return `(L, L, L, alpha)`. Used as the input to `applySeparableGaussianBlur`.
@@ -77,6 +80,7 @@
 - Modify: `src/apple/Packages/MapleCore/Tests/MapleCoreTests/SceneLinearPipelineTests.swift` — append (a) one M3a parity mirror test (`testM3aSwiftScalarApplyLuminanceMatchesRust`) — pure-Swift port of `apply_luminance` against a synthetic input compared to a recorded Rust reference, no metallib needed (mirrors the existing `swiftGaussianBlurPlane` parity pattern at `:1750-1830`), (b) one M3b parity mirror test (`testM3bSwiftScalarApplyColorMatchesRust`) — same shape for `apply_color`, (c) two M3 wiring smoke tests (`testM3ProcessSceneLinearAppliesNRLuminance`, `testM3ProcessSceneLinearAppliesNRColor`) that drive `processSceneLinear` end-to-end with non-zero amounts and assert centre-pixel finite-and-bounded using the existing `>=` smoke pattern from Plan 2 v1 (e.g. `testM1ProcessSceneLinearAppliesVibrance` at `:1323`), (d) one identity test per stage (`testM3NRLuminanceShortCircuitsAtZeroAmount`, `testM3NRColorShortCircuitsAtZeroAmount`) — assert the wrapper returns the input CIImage instance unchanged when amount=0 (mirrors `testTask2SeparableGaussianBlurRadiusZeroIsIdentity` at `:1731-1739`).
 
 **Swift (read-only during verification):**
+
 - `src/apple/Packages/MapleCore/Sources/MapleCore/Metal/SceneVibrance.metal` — Oklab matrix reference. Lines 16-50 (`M_rec2020_to_lms`, `M_lms_to_oklab`, `M_oklab_to_lms`, `M_lms_to_rec2020`, helper functions `rec2020_to_oklab`, `oklab_to_rec2020`). Copy verbatim into the new files with `_nrl` / `_nrc` suffix per § 2 in Architecture.
 - `src/apple/Packages/MapleCore/Sources/MapleCore/Metal/SceneSaturation.metal` — same matrices, with `_sat` suffix. Reference for the established suffix-on-duplicate pattern.
 - `src/apple/Packages/MapleCore/Sources/MapleCore/Metal/SeparableGaussianBlur.metal` — already shipped in v2 v1 (commit `b84da17`). Reference for the shared compute kernel. **Not modified** by this plan; consumed via the public `MetalKernels.applySeparableGaussianBlur(to:radius:)` wrapper.
@@ -84,12 +88,14 @@
 - `src/apple/Packages/MapleCore/Tests/MapleCoreTests/DeepZoomTileRenderingTests.swift` — verified read-only in Task 7 Step 7.4 (no source edits).
 
 **Rust (read-only during verification):**
+
 - `src/raw-pipeline/raw-core/src/stages/noise_reduction.rs:20-55` — algorithm reference for `apply_luminance` (radius math at `:24-25`, oklab convert at `:29-33`, L-replicate at `:37-42`, blur at `:44`, L-writeback at `:45-49`, oklab unconvert at `:51-54`).
 - `src/raw-pipeline/raw-core/src/stages/noise_reduction.rs:61-96` — same for `apply_color` (radius math at `:64-65`, AB-pack at `:75-80`, blur at `:82`, AB-writeback at `:83-90`).
 - `src/raw-pipeline/raw-core/src/stages/blur.rs:77-114` — `gaussian_blur_plane` and `gaussian_blur_rgb` algorithm. **Not modified.** The Swift mirror `swiftGaussianBlurPlane` already exists in `SceneLinearPipelineTests.swift:1750` (added by v2 v1 Task 3); reused here to construct the parity reference for both NR stages.
 - `src/raw-pipeline/raw-core/src/color/oklab.rs:50-74` — `rec2020_to_oklab` and `oklab_to_rec2020` reference. **The Rust source routes via Rec.2020 → sRGB → LMS using `M_REC2020_TO_SRGB` + Ottosson's M1 matrix.** The Apple Metal kernels (and `SceneVibrance.metal:16-26` matrices used as reference for `_nrl`/`_nrc` suffix copies) use a single pre-multiplied `M_rec2020_to_lms` matrix whose values equal `M1_SRGB_TO_LMS * M_REC2020_TO_SRGB`. The mathematical equivalence was verified by v1 Plan 2's vibrance + saturation parity tests; **this plan inherits that verified equivalence and does NOT re-derive the matrices**. (If a future ΔE drift surfaces in NR luma or NR color, re-deriving the product matrix from `oklab.rs` is the first investigation step.)
 
 **Build artifacts (touched):**
+
 - None. M3 is pure Swift + Metal source additions. The xcframework is unchanged because no Rust source changes.
 
 ---
@@ -113,6 +119,7 @@ After every task: `cd src/apple/Packages/MapleCore && swift test`. After every m
 ## Task 1: Preflight — confirm Rust algorithm shape + v2 v1 blur reachability
 
 **Files:**
+
 - Read-only: `src/raw-pipeline/raw-core/src/stages/noise_reduction.rs`
 - Read-only: `src/apple/Packages/MapleCore/Sources/MapleCore/MetalKernels.swift`
 
@@ -121,12 +128,14 @@ After every task: `cd src/apple/Packages/MapleCore && swift test`. After every m
 - [ ] **Step 1.1: Confirm the Rust source-of-truth shape for both NR stages.**
 
 Run:
+
 ```bash
 sed -n '20,55p' src/raw-pipeline/raw-core/src/stages/noise_reduction.rs
 sed -n '61,96p' src/raw-pipeline/raw-core/src/stages/noise_reduction.rs
 ```
 
 Expected output for `apply_luminance` (lines 20-55):
+
 - `assert_space(SceneLinearRec2020)` at `:21`.
 - `if amount.abs() < 1e-3 { return; }` short-circuit at `:22`.
 - `radius = ((amount / 100.0) * 2.0).ceil() as usize; let radius = radius.max(1);` at `:24-25`.
@@ -137,6 +146,7 @@ Expected output for `apply_luminance` (lines 20-55):
 - Oklab unconvert via `oklab_to_rec2020` at `:54`.
 
 Expected output for `apply_color` (lines 61-96):
+
 - Same shape; AB-pack `[src[1], src[2], 0.0]` at `:80` (a in R, b in G, 0 in B).
 - AB-writeback `dst[1] = src[0]; dst[2] = src[1];` at `:88-89` (note: indexes 1 and 2 receive blurred src[0] and src[1] — i.e. the blurred R lane becomes new a, blurred G lane becomes new b).
 - `MAX = 4.0` instead of `2.0` at `:64`.
@@ -146,11 +156,13 @@ If either function's structure deviates from the architecture description (radiu
 - [ ] **Step 1.2: Confirm the v2 v1 SeparableGaussianBlur is reachable.**
 
 Run:
+
 ```bash
 grep -n "applySeparableGaussianBlur\|public static func applySceneClarity\|loadKernel(file:" src/apple/Packages/MapleCore/Sources/MapleCore/MetalKernels.swift
 ```
 
 Expected:
+
 - `public static func applySeparableGaussianBlur` at line 220 (or wherever Plan 2 v2 v1 left it).
 - `public static func applySceneClarity` at line 329.
 - `private static func loadKernel(file: String, function: String) -> CIKernel?` at line 513.
@@ -160,6 +172,7 @@ The new NR wrappers will call `applySeparableGaussianBlur` (public, intra-namesp
 - [ ] **Step 1.3: Confirm the v2 v1 spike PASS records still exist in the test file header.**
 
 Run:
+
 ```bash
 grep -n "Spike 1.1.*Result: PASS\|Spike 1.2.*Result: PASS" src/apple/Packages/MapleCore/Tests/MapleCoreTests/SceneLinearPipelineTests.swift
 ```
@@ -169,6 +182,7 @@ Expected: two matches (one for each spike), both with `Result: PASS`. If either 
 - [ ] **Step 1.4: Confirm `model.nrLuminance` and `model.nrColor` field names + ranges.**
 
 Run:
+
 ```bash
 grep -n "nrLuminance\|nrColor" src/apple/Packages/MapleCore/Sources/MapleCore/AdjustmentModel.swift
 ```
@@ -178,6 +192,7 @@ Expected: `public var nrLuminance: Double` (range `0..100`, default `0`) at line
 - [ ] **Step 1.5: Confirm the existing helper kernel `loadKernel` accepts modern macOS `[[stitchable]]` syntax.**
 
 Run:
+
 ```bash
 grep -n "stitchable\|kernels(withMetalString" src/apple/Packages/MapleCore/Sources/MapleCore/Metal/SceneUnsharp.metal src/apple/Packages/MapleCore/Sources/MapleCore/MetalKernels.swift | head -10
 ```
@@ -205,6 +220,7 @@ This task touches no source files. Skip the commit step. Move on to Task 2.
 ## Task 2: M3a — `SceneNRLuminance.metal` + `MetalKernels.applySceneNRLuminance`
 
 **Files:**
+
 - Add: `src/apple/Packages/MapleCore/Sources/MapleCore/Metal/SceneNRLuminance.metal`
 - Modify: `src/apple/Packages/MapleCore/Sources/MapleCore/MetalKernels.swift` (add 2 cache fields, 1 public wrapper, 2 private kernel loaders)
 
@@ -215,6 +231,7 @@ This task touches no source files. Skip the commit step. Move on to Task 2.
 Run: `sed -n '20,55p' src/raw-pipeline/raw-core/src/stages/noise_reduction.rs`
 
 Expected: matches Step 1.1's output. Mentally walk through one pixel:
+
 1. Input rec2020 `(r, g, b)`.
 2. `rec2020_to_oklab` → `(L, a, b)`.
 3. Replicate L → `(L, L, L)`.
@@ -466,6 +483,7 @@ Rust short-circuit at noise_reduction.rs:22."
 ## Task 3: M3a verification — Swift-scalar parity mirror against Rust `apply_luminance`
 
 **Files:**
+
 - Modify: `src/apple/Packages/MapleCore/Tests/MapleCoreTests/SceneLinearPipelineTests.swift` (append the parity mirror test + Oklab matrix helper)
 
 **Why this matters:** Under `swift test` the metallib isn't loaded, so the Metal kernel from Task 2 is a silent no-op (per the existing pattern at `SceneLinearPipelineTests.swift:173-194`). To verify M3a ships with correct algorithm semantics, this task adds a pure-Swift scalar mirror of the Rust `apply_luminance` algorithm and compares against a recorded reference — same shape as v2 v1 Task 3's `swiftGaussianBlurPlane` parity test at `SceneLinearPipelineTests.swift:1750-1830`. The Swift mirror is byte-faithful: same Oklab matrices (verified equivalent to Rust per § "File Structure" Rust read-only section), same integer radius math, same writeback shape.
@@ -713,6 +731,7 @@ Tests:
 ## Task 4: M3b — `SceneNRColor.metal` + `MetalKernels.applySceneNRColor`
 
 **Files:**
+
 - Add: `src/apple/Packages/MapleCore/Sources/MapleCore/Metal/SceneNRColor.metal`
 - Modify: `src/apple/Packages/MapleCore/Sources/MapleCore/MetalKernels.swift` (add 2 cache fields, 1 public wrapper, 2 private kernel loaders)
 
@@ -723,6 +742,7 @@ Tests:
 Run: `sed -n '61,96p' src/raw-pipeline/raw-core/src/stages/noise_reduction.rs`
 
 Expected:
+
 - Same shape as `apply_luminance`.
 - `MAX = 4.0` at `:64`.
 - AB-pack `[src[1], src[2], 0.0]` at `:80` (a goes into R, b goes into G, 0 into B).
@@ -946,6 +966,7 @@ wrapper runs by default on AdjustmentModel.default."
 ## Task 5: M3b verification — Swift-scalar parity mirror against Rust `apply_color`
 
 **Files:**
+
 - Modify: `src/apple/Packages/MapleCore/Tests/MapleCoreTests/SceneLinearPipelineTests.swift` (append the parity mirror test)
 
 **Why this matters:** Same rationale as Task 3 (Metal kernels are no-ops under `swift test`). The Swift mirror for `apply_color` is shape-symmetric to `swiftApplyLuminance` from Task 3 — only the channel routing differs.
@@ -1100,6 +1121,7 @@ Tests:
 ## Task 6: Wire NR luminance + NR color into `processSceneLinear`
 
 **Files:**
+
 - Modify: `src/apple/Packages/MapleCore/Sources/MapleCore/ImageEditPipeline.swift` (`processSceneLinear`, after Plan 2 v2 v1's edits)
 - Modify: `src/apple/Packages/MapleCore/Tests/MapleCoreTests/SceneLinearPipelineTests.swift` (append two wiring smoke tests)
 
@@ -1110,6 +1132,7 @@ Tests:
 Run: `grep -n 'stage("nr_luminance\|stage("nr_color\|stage("texture' src/raw-pipeline/raw-core/src/pipeline.rs`
 
 Expected:
+
 ```
 128:    stage("texture", || texture::apply(&mut scene, model.texture));
 131:    stage("nr_luminance", || noise_reduction::apply_luminance(&mut scene, model.nr_luminance));
@@ -1259,7 +1282,7 @@ Append to `src/apple/Packages/MapleCore/Tests/MapleCoreTests/SceneLinearPipeline
 
 Run: `cd src/apple/Packages/MapleCore && swift test --filter testM3ProcessSceneLinearApplies 2>&1 | tail -10`
 
-Expected: both tests PASS even before wiring (the wrappers are public and the wiring tests don't depend on the wrappers being called from `processSceneLinear` yet — the >=  / <= smoke comparisons are satisfied at identity). The wiring lands in Step 6.4.
+Expected: both tests PASS even before wiring (the wrappers are public and the wiring tests don't depend on the wrappers being called from `processSceneLinear` yet — the >= / <= smoke comparisons are satisfied at identity). The wiring lands in Step 6.4.
 
 - [ ] **Step 6.4: Add the `applySceneNRLuminance` + `applySceneNRColor` calls inside `processSceneLinear`.**
 
@@ -1369,6 +1392,7 @@ the legacy path."
 ## Task 7: M3 milestone gate — manual smoke test + deep-zoom regression check
 
 **Files:**
+
 - Read-only: `src/apple/Packages/MapleCore/Sources/MapleCore/ImageEditPipeline.swift`
 - Read-only: `src/apple/Packages/MapleCore/Tests/MapleCoreTests/DeepZoomTileRenderingTests.swift`
 - Modify (header comment only): `src/apple/Packages/MapleCore/Tests/MapleCoreTests/SceneLinearPipelineTests.swift`
@@ -1394,16 +1418,17 @@ Open `src/raw-pipeline/test-fixtures/raws/dji-mavic3pro-100mp.dng` (or the large
 
 For each slider below, drag from the listed default to the listed extreme and visually confirm the image changes:
 
-| Slider        | Default | Test action       | Expected                                                                  |
-|---------------|---------|-------------------|---------------------------------------------------------------------------|
-| NR luminance  | 0       | Drag to +100      | Fine luminance noise (sky, shadows) softens; mid-frequency detail intact |
-| NR color      | 25      | Drag to +100      | Chroma noise (random color speckles in shadows) softens; luma untouched  |
-| NR color      | 25      | Drag to 0         | Chroma noise should re-emerge in shadows / dark regions                  |
+| Slider       | Default | Test action  | Expected                                                                 |
+| ------------ | ------- | ------------ | ------------------------------------------------------------------------ |
+| NR luminance | 0       | Drag to +100 | Fine luminance noise (sky, shadows) softens; mid-frequency detail intact |
+| NR color     | 25      | Drag to +100 | Chroma noise (random color speckles in shadows) softens; luma untouched  |
+| NR color     | 25      | Drag to 0    | Chroma noise should re-emerge in shadows / dark regions                  |
 
 Capture a screenshot of one mid-drag state per slider — file at `/tmp/plan-2-v2-v2-m3-<slider>.png`. **Do not commit screenshots.**
 
 If any slider fails to move pixels, M3 is not actually working — STOP and inspect:
-- Run `log stream --predicate 'subsystem == "app.justmaple.maple"'` and look for `os_log .error` lines (the loaders log on failure via `MetalKernels.loadKernel`).
+
+- Run `log stream --predicate 'subsystem == "app.justmaple.aperture"'` and look for `os_log .error` lines (the loaders log on failure via `MetalKernels.loadKernel`).
 - Confirm the metallib is present in the .app bundle: `find /Users/$USER/Library/Developer/Xcode/DerivedData/Maple-*/Build/Products/Debug/Maple.app -name 'SceneNR*.metal'`. If `SceneNRLuminance.metal` and `SceneNRColor.metal` are absent, the `.copy("Metal")` resource bundling failed — rebuild from clean (`xcodebuild clean` then `build`).
 - If the `os_log` shows "Cannot find a valid stitchable Metal function in the source" or "cannot initialize a variable of type 'float4' with an rvalue of type 'half4'" (the Spike 1.1 modern-macOS failure modes), the new NR kernels need `[[stitchable]]` retrofitted (per the Step 1.5 note in Task 1). Apply the fix to BOTH `SceneNRLuminance.metal` and `SceneNRColor.metal` AND the existing v2 v1 production kernels (`SceneVibrance`, `SceneSaturation`, `SceneToneControls`, `WhiteBalance`, `SceneUnsharp`) in a separate retrofit plan — do NOT add `[[stitchable]]` only to the new NR kernels (would create a kernel-source style split).
 

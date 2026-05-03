@@ -24,7 +24,7 @@ public enum SourceSelection: Sendable, Equatable, Codable {
 /// Persists the last-used source so the app reopens where the user left off.
 /// This is a static facade over `UserDefaults`; there's no in-memory state.
 public enum SourceSelectionStore {
-    private static let key = "app.justmaple.maple.lastSource"
+    private static let key = "app.justmaple.aperture.lastSource"
 
     public static func load() -> SourceSelection? {
         guard let data = UserDefaults.standard.data(forKey: key) else { return nil }

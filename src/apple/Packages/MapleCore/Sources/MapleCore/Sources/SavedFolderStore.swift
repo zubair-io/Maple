@@ -51,7 +51,7 @@ public struct SavedFolder: Sendable, Hashable, Codable, Identifiable {
 /// no actor isolation is necessary.
 public enum SavedFolderStore {
     public static let capacity = 10
-    private static let key = "app.justmaple.maple.savedFolders"
+    private static let key = "app.justmaple.aperture.savedFolders"
 
     /// Posted on every mutation so views caching a `load()` snapshot can
     /// refresh. Observers (e.g. the LibrarySidebar) should subscribe via

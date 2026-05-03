@@ -16,7 +16,7 @@ import CoreImage
 import ImageIO
 import os
 
-private let logger = Logger(subsystem: "app.justmaple.maple", category: "ThumbnailLoader")
+private let logger = Logger(subsystem: "app.justmaple.aperture", category: "ThumbnailLoader")
 
 // MARK: - ThumbnailLoader
 

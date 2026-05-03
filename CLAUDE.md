@@ -249,6 +249,7 @@ src/scripts/test_grey_dcp.sh              # DCP code-path coverage (ColorMatrix1
 The end-to-end gate runs `maple-cli batch` against every case in `test-fixtures/references/manifest.json`, diffs each candidate vs. the ACR-rendered reference, and gates per-fixture × per-case `mean / p95 / max / bias` against `test-fixtures/budgets.json`. **Budgets are a one-way ratchet — they can only go down.** Lowering a budget happens in the same commit that delivers the improvement.
 
 Adding a new case to the end-to-end gate:
+
 1. Render the ACR reference and place it under `test-fixtures/references/test_NNNN/down/<case>.png`.
 2. Add the case to `test-fixtures/references/manifest.json`.
 3. Run the harness once — it will FAIL with `no-budget-entry` for the new case.
@@ -296,7 +297,7 @@ If a new feature adds allocation inside the render loop, it does not ship. If it
 - **Prefer SPM modules** over a monolithic app target as soon as a feature has more than ~3 files. The pipeline, sidecar layer, and source adapters live in `src/apple/Sources/MapleCore`.
 - **Prefer Angular library projects** in `projects/maple-common` for cross-cutting code (used by both Hosted and Self Hosted deployments of the same Angular shell).
 - **No mocks for the sidecar layer in tests.** Round-trip against real `.xmp` files in a temp directory. XMP is the contract; mocks let bugs through.
-- **Bundle ID:** `app.justmaple.maple` (tests append `.Tests` / `.UITests`).
+- **Bundle ID:** `app.justmaple.aperture` (tests append `.Tests` / `.UITests`).
 
 ## Notes
 

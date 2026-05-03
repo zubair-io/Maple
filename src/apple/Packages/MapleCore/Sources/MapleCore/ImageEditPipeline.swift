@@ -585,38 +585,42 @@ public actor ImageEditPipeline {
         // pipeline's algorithmic decisions verbatim, which closes the
         // drift between Apple and Rust on every cheap stage.
         //
-        // The chain applies a WB delta `wb_gains(live) / wb_gains(decoded)`,
-        // where `decoded` is the WB reference the slider value is relative
-        // to. For ACR-compatible UX:
-        //   - slider at `asShotCCT` (default "As Shot" rendering) =
-        //     identity → no shift, displays the post-WB-pregain D65 image.
-        //   - slider moved warmer/cooler than asShotCCT = delta applies
-        //     the requested shift.
+        // WB contract (paired with `strip_apple_gpu_stages` in raw-ffi):
         //
-        // So `decoded` MUST be the camera's AsShot CCT/tint (regardless of
-        // whether a sidecar exists). Falling back through
-        // `decodedAtModel?.temperature` was wrong because parseSidecarModel
-        // returns a model with `temperature=6500` (default) when the XMP
-        // has `WhiteBalance="As Shot"` and no explicit Temperature value
-        // (which is the common case — Maple-Hosted's reference XMPs all
-        // look like that). With decoded=6500 and live=asShotCCT, the delta
-        // applied wb_gains(asShotCCT) on D65 data → uniform magenta cast.
+        //   1. The FFI scene-linear decode FORCES `temperature=6500,
+        //      tint=0`, so the Rust `white_balance::apply` early-exits.
+        //      The cached buffer is at D65 (post-DCP reference) regardless
+        //      of sidecar contents. This eliminates the
+        //      "first-open at D65, post-sidecar at user-temp"
+        //      inconsistency that surfaced as a magenta cast on every
+        //      slider write.
         //
-        // `decodedAtModel` parameter is kept on the signature but ignored
-        // here; future work can re-thread saved-WB sidecars through a
-        // separate path if needed.
+        //   2. Apple's chain passes `decodedTemp = asShot.temperature`
+        //      (NOT 6500). The chain's `apply_delta(live, decoded)`
+        //      computes `wb_gains(live) / wb_gains(asShot)`, which is
+        //      identity at `live == asShot` — matching ACR's "As Shot"
+        //      UX where the default slider value produces zero WB shift
+        //      (the post-DCP buffer is already at D65, viewed as the
+        //      camera's intended scene rendering). Moving the slider
+        //      applies a relative shift from asShot.
+        //
+        //   Why NOT pass decodedTemp=6500: on test_0002 (Hasselblad
+        //   H5D-40, asShotCCT=4522, asShotTint=-43.7),
+        //   `wb_gains(4522, -43.7) ≈ (1.04, 1.0, 2.13)` — applied to
+        //   the D65 buffer the B channel doubles, producing a uniform
+        //   magenta cast. The relative-to-asShot formula (g_live /
+        //   g_asShot) cancels this 2.13× B amplification at slider
+        //   = asShot.
+        //
+        // `decodedAtModel` is unused; kept on the signature so a future
+        // saved-WB sidecar workflow can re-thread per-asset baselines.
         let _ = decodedAtModel
         let decodedTemp = asShot?.temperature ?? 6500.0
         let decodedTint = asShot?.tint ?? 0.0
-        // Diagnostic: log the asShot value passed in. If asShot is nil
-        // here, the slider chain falls through to (6500, 0) and applies
-        // wb_gains(model.temp, model.tint) on D65 data → magenta cast.
-        // This logs every processSceneLinear call so we can correlate
-        // with decodeAndRender gen / phase in the EditSession trace.
         if let asShot {
             logger.notice("processSceneLinear asShot=\(asShot.temperature, format: .fixed(precision: 0))K/\(asShot.tint, format: .fixed(precision: 1)) live=\(model.temperature, format: .fixed(precision: 0))K/\(model.tint, format: .fixed(precision: 1)) → decodedTemp=\(decodedTemp, format: .fixed(precision: 0))")
         } else {
-            logger.notice("processSceneLinear asShot=NIL live=\(model.temperature, format: .fixed(precision: 0))K/\(model.tint, format: .fixed(precision: 1)) → decodedTemp=\(decodedTemp, format: .fixed(precision: 0)) FALLBACK")
+            logger.notice("processSceneLinear asShot=NIL live=\(model.temperature, format: .fixed(precision: 0))K/\(model.tint, format: .fixed(precision: 1)) → decodedTemp=\(decodedTemp, format: .fixed(precision: 0))")
         }
         let chained = applySceneLinearChainViaFFI(
             scaled, model: model,
