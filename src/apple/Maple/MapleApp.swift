@@ -11,6 +11,11 @@ import UIKit
 
 @main
 struct MapleApp: App {
+    /// One `AuthSession` per Self-Hosted server URL. Lazily created by
+    /// `session(for:)` and shared across views via `.environment(_:)`.
+    /// Plan 2026-04-28-passkey-auth Task B8.
+    @State private var sessions: [URL: AuthSession] = [:]
+
     init() {
         Self.installMemoryPressureObserver()
 
@@ -64,9 +69,23 @@ struct MapleApp: App {
     }
     #endif
 
+    /// Returns the `AuthSession` for `server`, creating + bootstrapping one
+    /// (token restore via Keychain) on first request. Cached per URL so the
+    /// shell, sign-in view, and account/admin views all observe the same
+    /// session state.
+    @MainActor
+    private func session(for server: URL) -> AuthSession {
+        if let s = sessions[server] { return s }
+        let client = AuthClient(server: server)
+        let s = AuthSession(server: server, client: client)
+        sessions[server] = s
+        Task { await s.bootstrapAndRestore() }
+        return s
+    }
+
     var body: some Scene {
         WindowGroup {
-            AppShell()
+            AppShell(sessionFor: { server in session(for: server) })
         }
         #if os(macOS)
         .windowStyle(.titleBar)
