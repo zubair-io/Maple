@@ -4,11 +4,12 @@
 
 > **Companion ticket: `docs/tickets/06-viewport-sized-rust-ffi-preview.md`.** Plan 1 v2 absorbs ticket 06 Milestones 1 & 2 as Tasks 7 & 8 (instrumentation + sized FFI entry point). Milestones 3 (earlier downsample) and 4 (visible crop / tile path) are explicitly deferred — see Out-of-scope.
 
-**Goal:** Cut the *view-transform tail* (AgX + Rec.2020→sRGB + u8 quantize) out of the Rust pipeline. Add a parallel FFI entry point that returns the **fully-developed scene-linear Rec.2020 fp16 image** (i.e. the entire development chain runs in Rust as it does today; only the display-domain encode tail is removed), and route Apple's `EditSession` interactive path through it so AgX runs exactly once on the GPU after Lanczos prescale. Closes Bugs 1 + 2 + 3 simultaneously: (1) double AgX, (2) filter chain on tone-mapped data, (3) Lanczos color shift on display-encoded buffers. Plan 1 v2 also lands viewport-sizing on the new entry point — see ticket 06 § Product Requirements 1 — so the FFI buffer for the editor's first interactive open is ~12 MB (1500×1000 viewport) instead of ~200 MB (half-res fp16 RGBA), which both ships a perf improvement *and* closes Spike 1.3's bandwidth concern.
+**Goal:** Cut the _view-transform tail_ (AgX + Rec.2020→sRGB + u8 quantize) out of the Rust pipeline. Add a parallel FFI entry point that returns the **fully-developed scene-linear Rec.2020 fp16 image** (i.e. the entire development chain runs in Rust as it does today; only the display-domain encode tail is removed), and route Apple's `EditSession` interactive path through it so AgX runs exactly once on the GPU after Lanczos prescale. Closes Bugs 1 + 2 + 3 simultaneously: (1) double AgX, (2) filter chain on tone-mapped data, (3) Lanczos color shift on display-encoded buffers. Plan 1 v2 also lands viewport-sizing on the new entry point — see ticket 06 § Product Requirements 1 — so the FFI buffer for the editor's first interactive open is ~12 MB (1500×1000 viewport) instead of ~200 MB (half-res fp16 RGBA), which both ships a perf improvement _and_ closes Spike 1.3's bandwidth concern.
 
 > **What this plan renders.** Default scene-linear develop runs in full (linearize → demosaic → highlight recovery → DCP → WB → tone → vibrance → saturation → clarity → texture → dehaze → sharpen → NR luminance → NR color, all unchanged). However, **saved sidecar adjustments are NOT applied on the new path** because the Apple call site (`ImageEditPipeline.decode`, [`ImageEditPipeline.swift:114-127`](../../src/apple/Packages/MapleCore/Sources/MapleCore/ImageEditPipeline.swift:114)) currently passes `xmpPath: nil` to `PipelineRenderer.render`, and the new `decodeSceneLinear` mirrors that exactly. Until Plan 2 ports the development chain to scene-linear Metal kernels (so sidecar-driven WB / exposure / contrast / etc. can be re-applied on the GPU), opening an image that has saved edits will show the **default** look on the new path, not the user's saved adjustments. This is a deliberate scope cut, not a bug — sliders go dark on Plan 1 by design — but the user must be told before Plan 1 ships, ideally in-app via a banner or by gating Plan 1 behind a feature flag (the existing `MAPLE_SCENE_LINEAR` env gate suffices for internal builds; Task 9 should NOT flip the default until either Plan 2 lands or a user-visible banner is in place).
 
 **Architecture:**
+
 1. New Rust FFI fn `maple_render_file_scene_linear` (and `maple_render_bytes_scene_linear`) returns the **fully-developed Rec.2020 fp16 RGBA image** — i.e. the entire current development chain runs to completion (linearize → demosaic → highlight recovery → DCP → WB → tone → vibrance → saturation → clarity → texture → dehaze → sharpen → NR luminance → NR color, identical to today's pipeline) and the result is handed off in scene-linear before the view transform. Full-rendered-resolution (half-res for `Preview`, full for `Full`), straight (non-premultiplied) alpha, row-major. Internally the new entry point and the legacy entry point share a single helper `develop_scene_linear_from_raw_with_quality` (added by Task 2) that returns the developed `Image` in `ColorSpace::SceneLinearRec2020`; the legacy `render_from_raw_with_quality` calls the helper then continues with `agx::apply` → `rec2020_to_srgb` → `quantize_u8` → `apply_orientation`, and the new `render_scene_linear_from_raw_with_quality` calls the helper then runs `apply_orientation` (in fp32 RGBA) and packs to fp16. **No development-stage code is duplicated between the two paths.**
 2. Apple side: a new `decodeSceneLinear(asset:quality:)` on `ImageEditPipeline` imports the Rec.2020 fp16 buffer as a `CIImage` tagged `CGColorSpace(name: extendedLinearITUR_2020)`. A new `processSceneLinear(decoded:model:targetSize:)` runs Lanczos prescale **on the scene-linear buffer**, then exactly one display-domain op: the existing `AgXViewTransform.metal` kernel via `MetalKernels.applyAgXViewTransform`. The kernel-availability check is a hard fail (returns the input unmodified would silently display raw scene-linear data on a metallib regression — see Bug-class concern in Task 4); we replace the silent fallback with a guarded path. Final encode happens in `CIContext.createCGImage(...)` with sRGB output color space — see Task 4a for the actual call-site fix this requires.
 3. Old `maple_render_file` / `maple_render_bytes` stay in place but unused on the new interactive path — Plan 2 ports the development chain (WB/exposure/contrast/etc.) as Metal kernels in scene-linear; Plan 3 ports the Web side and deletes the legacy FFI. Thumbnails keep using the legacy display-encoded call. The legacy `applyFilters` Swift CIFilter chain remains in place but is bypassed on the new path — sliders for development adjustments are dark on Plan 1 by design (matching the user's current `MAPLE_SKIP_SWIFT_FILTERS=1` state); see the prominent "What this plan renders" note above.
@@ -17,6 +18,7 @@
 6. **Viewport-sizing on the scene-linear FFI entry point (added in Plan 1 v2 — Tasks 7 & 8).** Per ticket 06 § Product Requirements 1, the editor's first Rust-backed open targets the viewport, not the half-res sensor buffer. A second FFI entry point `maple_render_file_scene_linear_sized` (and the byte-buffer variant) takes a long-edge cap, runs the shared `develop_scene_linear_from_raw_with_quality` helper, downsamples the f32 RGB working buffer to the target size, then orients and packs to fp16 RGBA. For a 1500×1000 viewport the FFI buffer is ~12 MB (vs ~200 MB for half-res fp16 RGBA) — orders of magnitude smaller than even today's ~75 MB sRGB u8 path. This is the bandwidth reduction that closes Spike 1.3's concern and lets Plan 1 v2 ship a net perf improvement alongside the three correctness wins. The unsized entry point from architecture point (1) remains available for thumbnails (which keep the legacy display-encoded path), tests, export-adjacent diagnostics, and as a fallback when the sized path fails (per ticket 06 § Product Requirements 3).
 
 **Tech Stack:**
+
 - Rust (`raw-core`, `raw-ffi`) — `f16` via `bytemuck::cast_slice` over `[u16]` storage; pipeline.rs adds a `render_scene_linear_from_raw_with_quality` entry; the AgX/encode tail moves out of the new entry's call path.
 - Swift (`MapleCore`) — CoreImage with `CGColorSpace.extendedLinearITUR_2020` tagged input, `CIContext` with sRGB output color space, existing `AgXViewTransform.metal` kernel.
 - Build glue — `./src/apple/scripts/build-xcframework.sh` regenerates `RawPipeline.h` after every Rust FFI signature change.
@@ -36,14 +38,15 @@
 8. **`MetalKernels.applyAgXViewTransform` is a SILENT no-op when the kernel fails to load** — both the kernel-loader guard at [`MetalKernels.swift:63`](../../src/apple/Packages/MapleCore/Sources/MapleCore/MetalKernels.swift:63) (`guard let kernel = agxKernel() else { return input }`) and the LUT guard at line 64 (`guard let lut = agxLUTImage() else { return input }`) plus the post-apply fallback at line 70 (`kernel.apply(...) ?? input`) all return the input image when the metallib isn't available. **On the new scene-linear path this is a high-severity correctness hazard**: a metallib regression (or a build-config drift in a test target) would display the raw scene-linear Rec.2020 data **with no view transform applied at all** — the user would see a grossly oversaturated, blown-out image and have no error logged. On the legacy path this same regression was masked because Rust applied `view::agx::apply` in raw-core before the Swift kernel ran a second time, so the worst case was "missing the second AgX" rather than "no AgX at all." Plan 1 must replace the silent fallback with a guarded path that either logs `os_log` at `.error`, asserts in DEBUG builds, or falls back explicitly to the legacy display-encoded path. Spike 2 must verify that the kernel actually runs in the build environment used by this plan (Xcode-driven Maple.xcodeproj builds compile `.metal` files to a metallib through Xcode's Metal toolchain; `swift test` may not, so the parity test for Spike 2 uses pure-Swift scalar math that mirrors the kernel's per-channel ops, identical to the existing pattern at [`MetalKernelParityTests.swift:13-52`](../../src/apple/Packages/MapleCore/Tests/MapleCoreTests/MetalKernelParityTests.swift:13)). Additionally, see Spike 1.2's expanded fail-action and the new runtime-guard step in Task 4 below.
 
 **Out of scope (explicit):**
+
 - Re-implementing the development chain (WB, exposure, contrast, highlights/shadows, vibrance, saturation, clarity, texture, sharpen, NR, dehaze) as Metal kernels in scene-linear. **Plan 2.**
 - Updating the Web/WASM path to consume scene-linear Rec.2020 fp16. **Plan 3.**
 - Deleting the legacy `maple_render_file` and `maple_render_bytes` FFI entries, the `applyFilters` chain, and the Rust `view::agx::apply` / `view::encode::*` modules. **Plan 3.** Note: the legacy paths must stay through Plan 1 because thumbnails, the export path, and the parity harness all consume them; Plan 3 deletes them once the Web port is done.
 - Updating thumbnails — they want display-encoded sRGB and keep the legacy FFI call.
 - Pre-compiling Metal kernels at app launch.
 - Switching CoreImage working color space (still `extendedLinearSRGB`; CoreImage handles the Rec.2020-to-working transform on read of the new tagged CIImage).
-- A scene-linear-aware decoded-buffer cache. **Known follow-up — separate plan after Plan 1 lands.** Today's `DecodedBufferCache` writes JPEG, which destroys extended-range scene-linear data; the new path therefore correctly *cannot* use it. As a consequence, **repeat opens of the same asset will pay the full Rust decode every cold open** on the new path (no fast-path bypass). `RenderedPreviewCache` is unaffected — it caches display-encoded output, which the new path still produces at chain end via `CIContext.createCGImage` with sRGB output, so first-paint via cached preview still works. The replacement cache (lossless WebP, mmap'd fp16 file, or BC6H/RGTC GPU-compressed) is its own follow-up plan after Plan 1 lands. Until that follow-up: repeat opens are slower than today.
-- **Ticket 06 Milestone 3 (earlier downsample in the Rust pipeline).** Optimization, not architecture. Task 8 in this plan downsamples *after* the development chain runs at half-res — that's a 25 MP buffer being downsampled to ~1.5 MP for a typical viewport. Moving the downsample earlier in the pipeline (e.g. half-res → quarter-res before NR/sharpen) shaves further time but risks correctness drift on the existing parity harness. Separate plan after Plan 1 v2 lands. See ticket 06 § Recommended Milestones — Milestone 3.
+- A scene-linear-aware decoded-buffer cache. **Known follow-up — separate plan after Plan 1 lands.** Today's `DecodedBufferCache` writes JPEG, which destroys extended-range scene-linear data; the new path therefore correctly _cannot_ use it. As a consequence, **repeat opens of the same asset will pay the full Rust decode every cold open** on the new path (no fast-path bypass). `RenderedPreviewCache` is unaffected — it caches display-encoded output, which the new path still produces at chain end via `CIContext.createCGImage` with sRGB output, so first-paint via cached preview still works. The replacement cache (lossless WebP, mmap'd fp16 file, or BC6H/RGTC GPU-compressed) is its own follow-up plan after Plan 1 lands. Until that follow-up: repeat opens are slower than today.
+- **Ticket 06 Milestone 3 (earlier downsample in the Rust pipeline).** Optimization, not architecture. Task 8 in this plan downsamples _after_ the development chain runs at half-res — that's a 25 MP buffer being downsampled to ~1.5 MP for a typical viewport. Moving the downsample earlier in the pipeline (e.g. half-res → quarter-res before NR/sharpen) shaves further time but risks correctness drift on the existing parity harness. Separate plan after Plan 1 v2 lands. See ticket 06 § Recommended Milestones — Milestone 3.
 - **Ticket 06 Milestone 4 (visible crop / tile path with overlap for demosaic neighborhoods).** Substantial scope, requires a tile-manager design. Demosaic and neighborhood filters need border context that a naive crop wouldn't supply; promoting the tile path correctly is its own design effort. Separate plan. See ticket 06 § Recommended Milestones — Milestone 4 and § Risks.
 - **Refinement-on-zoom logic** (per ticket 06 § Product Requirements 4). Plan 1 v2 ships fit-to-window with one viewport-sized Rust render — that's the editor's first-paint scenario and the slider-tick budget driver. Refining on zoom (re-rendering at a larger preview when the user zooms past what the current viewport buffer can support) is a follow-up; phase 1 keeps the existing 1:1-zoom-uses-half-res-preview behavior. See ticket 06 § Product Requirements 4.
 
@@ -52,17 +55,20 @@
 ## File Structure
 
 **Rust (read-write):**
+
 - Modify: `src/raw-pipeline/raw-core/src/image.rs` — no changes needed; `Image` already tracks `ColorSpace::SceneLinearRec2020`.
 - Modify: `src/raw-pipeline/raw-core/src/pipeline.rs` — (Task 2a) factor a shared helper `develop_scene_linear_from_raw_with_quality` that runs the entire current development chain (linearize → demosaic → highlight recovery → DCP → WB → tone → vibrance → saturation → clarity → texture → dehaze → sharpen → NR luminance → NR color) and returns the developed `Image` in `ColorSpace::SceneLinearRec2020`. Then (Task 2b) refactor the legacy `render_from_raw_with_quality` to call this helper before continuing with `agx::apply` → `rec2020_to_srgb` → `quantize_u8` → `apply_orientation`, and add `render_scene_linear_from_raw_with_quality` returning `(u32, u32, Vec<u16>)` (packed fp16 RGBA, 4 channels, alpha = 1.0) that calls the same helper, then runs orientation + fp16 pack. **Both paths exercise the shared helper — the development chain body is never duplicated.** Then (Task 8) add `render_scene_linear_sized_from_raw_with_quality(raw, model, quality, max_long_edge)` returning `(u32, u32, Vec<u16>)` — same helper, then a new f32 RGB → f32 RGB downsample helper (area-average for now; Lanczos lands as a follow-up), then orientation + fp16 pack at the target size.
 - Modify: `src/raw-pipeline/raw-core/src/view/mod.rs` — no changes; new f16 packing helper lives inline in `pipeline.rs`.
 - Modify: `src/raw-pipeline/raw-ffi/src/lib.rs` — add `maple_render_file_scene_linear` and `maple_render_bytes_scene_linear` plus a new `MapleSceneLinearBuffer` struct with `bytes_per_pixel = 8` and `f16_rgba` semantics. Add `maple_free_scene_linear_buffer`. Then (Task 8) add `maple_render_file_scene_linear_sized(raw_path, xmp_path, max_long_edge, quality_preview, out)` and `maple_render_bytes_scene_linear_sized(raw_bytes, raw_len, hint_ext, xmp_path, max_long_edge, quality_preview, out)` reusing the same `MapleSceneLinearBuffer` struct (the buffer carries its own `width`/`height`, so no new struct needed).
 
 **Rust (read-only during verification):**
+
 - `src/raw-pipeline/raw-core/src/view/agx.rs` — `view::agx::apply` reference for Spike 2 parity comparison (CPU side).
 - `src/raw-pipeline/raw-core/src/view/encode.rs` — confirms what's being skipped (`rec2020_to_srgb`, `quantize_u8`).
 - `src/raw-pipeline/raw-core/src/stages/noise_reduction.rs` — `nr_color` is the last development stage; the new entry must run through this and stop.
 
 **Swift (read-write):**
+
 - Modify: `src/apple/Packages/MapleCore/Sources/MapleCore/PipelineRenderer.swift` — add a new `MapleSceneLinearImageData` value type and a `renderSceneLinear(rawPath:xmpPath:quality:)` + `renderSceneLinear(rawBytes:hint:xmpPath:quality:)` pair that wrap the new FFI calls (Task 4). Then (Task 8) add `renderPreviewSized(rawPath:xmpPath:quality:maxLongEdge:)` and `renderPreviewSized(rawBytes:hint:xmpPath:quality:maxLongEdge:)` returning `MapleSceneLinearImageData`, wrapping the new sized FFI entries.
 - Modify: `src/apple/Packages/MapleCore/Sources/MapleCore/ImageEditPipeline.swift` — add `decodeSceneLinear(asset:quality:)` and `processSceneLinear(decoded:model:targetSize:asShot:)` (Task 4). Then (Task 8) add `decodePreviewSized(asset:targetSize:)` returning a Rec.2020-fp16 `CIImage` at the requested target size. Keep existing `decode` / `process` / `applyFilters` unchanged.
 - Modify: `src/apple/Packages/MapleCore/Sources/MapleCore/MetalKernels.swift` — replace the silent `?? input` AgX fallback with a guarded path (Task 4 Step 4.0a). On nil-kernel: `os_log` `.error`, throw / return nil so the caller can fall back to the legacy display-encoded path. Plus a one-time DEBUG-build assertion at app launch (`assert(MetalKernels.agxKernel() != nil)`) as a regression net.
@@ -71,6 +77,7 @@
 - Add: `src/apple/Packages/MapleCore/Tests/MapleCoreTests/SceneLinearPipelineTests.swift` — new test file for the spike parity tests (Task 1) and the integration tests (Task 4). Task 8 appends sized-FFI integration tests (aspect-preserving target-size math, no-upscale, orientation correctness, cache-key includes size bucket — per ticket 06 § Acceptance Criteria).
 
 **Swift (read-only during verification):**
+
 - `src/apple/Packages/MapleCore/Sources/MapleCore/Metal/AgXViewTransform.metal` — the kernel used as the only display-domain op on the new path.
 
 ---
@@ -78,6 +85,7 @@
 ## Ordering constraint
 
 **Task 1 (verification spikes) must complete before Tasks 2+.** If any spike fails, **stop and report**. Plan 1 needs revision:
+
 - Spike 1.1 fail (CILanczos numerically wrong on extended-range fp16): Plan 1 needs a custom Metal Lanczos kernel — out of scope here.
 - Spike 1.2 fail (AgX kernel diverges between Rec.2020 and sRGB inputs by more than per-channel LUT quantization): The brief's "kernel is per-channel, primaries don't matter" assumption is wrong; Plan 1 needs a Rec.2020-aware AgX kernel revision. Spike 1.2 is also a Swift scalar mirror — not the live Metal kernel; the runtime-guard step in Task 4 (Step 4.0a) is the load-bearing companion check.
 - Spike 1.3 fail (half-res Preview cold-open median is **more than 10% slower** than the 4.74 s baseline, i.e. > 5.21 s): The architecture has a regression that needs investigation before the wire-rerouting completes.
@@ -97,6 +105,7 @@ The Plan 1 spike agents that ran Task 1 caught two bugs in the plan as originall
 ## Task 1: Verification spikes (BLOCKING)
 
 **Files:**
+
 - Create: `src/apple/Packages/MapleCore/Tests/MapleCoreTests/SceneLinearPipelineTests.swift`
 - Create: `src/raw-pipeline/raw-core/examples/spike-cpu-agx-trace.rs`
 
@@ -465,11 +474,12 @@ EOF
 
 ### Spike 1.3: Half-res Preview FFI bandwidth cost
 
-**Question:** Is the half-res Preview cold-open *unacceptably slower* on the new path's fp16 RGBA (~200 MB) than today's u8 RGB sRGB (~75 MB at half-res, ~300 MB at full)? If the regression exceeds 10%, the architecture has a problem that needs investigation before Task 5 ships.
+**Question:** Is the half-res Preview cold-open _unacceptably slower_ on the new path's fp16 RGBA (~200 MB) than today's u8 RGB sRGB (~75 MB at half-res, ~300 MB at full)? If the regression exceeds 10%, the architecture has a problem that needs investigation before Task 5 ships.
 
 **Reference baseline (current `main`):** the user's observed `[swift] rust FFI decode` median on the 100 MP Hasselblad fixture is **4.74 s** with the recent `nr_color` hoist + rayon parallelism work landed. Cite this as the floor.
 
 **Measurement procedure:**
+
 1. Set `MAPLE_PROFILE=1`. Five (5) cold opens of the reference fixture (`test-fixtures/raws/dji-mavic3pro-100mp.dng`) per path.
 2. Take the median of the 5 cold-open totals per path. (User's `[swift] rust FFI decode` is their cold-open instrumentation; if no Swift-side log line of that label exists in the codebase yet, the closest equivalent is the sum of `[raw-core]` per-stage durations from `pipeline.rs:stage()` plus the FFI marshal cost — see Task 5 Step 5.6.)
 3. **Hard stop threshold:** if the new-path median is more than **10% slower** than baseline (i.e. > 5.21 s), STOP and report — Plan 1 needs revision before Task 5 wires the path into `EditSession`. If the new path is slower by ≤10%, accept the regression and document it.
@@ -483,9 +493,10 @@ EOF
 > **Canonical procedure (read first):** `docs/measurement/2026-04-25-ffi-decode-baseline.md`. That document is the source of truth for the measurement; this step summarizes it for context only.
 >
 > **Procedure summary (4 lines):**
+>
 > 1. Build the macOS app in **Debug** (`cd src/apple && xcodebuild -project Maple.xcodeproj -scheme Maple -destination 'platform=macOS' build`). The user's 4.74 s number is from a Debug build, not Release — keep apples-to-apples.
 > 2. Launch with `MAPLE_PROFILE=1 open -a /Users/$USER/Library/Developer/Xcode/DerivedData/Maple-*/Build/Products/Debug/Maple.app`. Open the 100 MP Hasselblad fixture (`test-fixtures/raws/dji-mavic3pro-100mp.dng`); quit & relaunch between runs to ensure cold start; do this 5 times.
-> 3. After Task 7 lands, the Apple-side log lines `[swift] decode FFI call`, `[swift] decode result copy`, `[swift] decode CIImage build` are emitted alongside the Rust `[raw-core] <stage>` lines (capture via `log stream --predicate 'subsystem == "app.justmaple.maple"'` plus stderr). Until Task 7 lands, the conflated `[swift] rust FFI decode` is the cold-open observation.
+> 3. After Task 7 lands, the Apple-side log lines `[swift] decode FFI call`, `[swift] decode result copy`, `[swift] decode CIImage build` are emitted alongside the Rust `[raw-core] <stage>` lines (capture via `log stream --predicate 'subsystem == "app.justmaple.aperture"'` plus stderr). Until Task 7 lands, the conflated `[swift] rust FFI decode` is the cold-open observation.
 > 4. Take the **median** of the 5 cold-open totals. The Plan 1 reference baseline is **4.74 s** (median, current `main` after `nr_color` hoist + rayon work) and the **hard-stop threshold is ≤ 5.21 s** (4.74 s + 10%). Above the threshold, Spike 1.3 fails and Plan 1 stops before Task 5 wires the new path into `EditSession`.
 
 (If the 100 MP fixture is absent — `test-fixtures/raws/` is gitignored — substitute the largest fixture that does exist via `ls src/raw-pipeline/test-fixtures/raws/*.dng` and use its path. The 100 MP target matters; if no fixture is at least ~50 MP, downgrade Spike 1.3 to a "the new path doesn't allocate inside the render loop" sanity check via `cargo flamegraph` — record this downgrade in the commit message.)
@@ -547,9 +558,10 @@ EOF
 ## Task 2: Refactor Rust pipeline to share the develop body, then add the scene-linear entry point
 
 **Files:**
+
 - Modify: `src/raw-pipeline/raw-core/src/pipeline.rs`
 
-**Why this matters:** The legacy `render_from_raw_with_quality` ends with `agx::apply` → `rec2020_to_srgb` → `quantize_u8` → `apply_orientation`. The new entry needs the same development chain but stops *before* the view transform tail.
+**Why this matters:** The legacy `render_from_raw_with_quality` ends with `agx::apply` → `rec2020_to_srgb` → `quantize_u8` → `apply_orientation`. The new entry needs the same development chain but stops _before_ the view transform tail.
 
 **Mandatory first step — share the body, do not duplicate it.** Naively the new entry would copy most of `render_from_raw_with_quality` (linearize → demosaic → highlight recovery → DCP → WB → tone → vibrance → saturation → clarity → texture → dehaze → sharpen → NR luminance → NR color) and replace the tail. That guarantees drift: an algorithm change to any of those 14 stages would have to land in two places. **This task instead factors a shared helper `develop_scene_linear_from_raw_with_quality` that returns the developed `Image` in `ColorSpace::SceneLinearRec2020`, then both entry points call it.**
 
@@ -561,6 +573,7 @@ The refactor is mandatory and lands first (Step 2.4a). The new entry depends on 
 - [ ] **Step 2.1: Re-read `pipeline.rs` end-to-end to confirm the structure used in this task.**
 
 Read `src/raw-pipeline/raw-core/src/pipeline.rs` lines 1-138. Confirm:
+
 - The `stage("nr_color", …)` call at line 122 is the last development-chain stage before AgX.
 - `stage("agx", …)` is at line 123.
 - `stage("rec2020_to_srgb", …)` is at line 124.
@@ -908,6 +921,7 @@ EOF
 ## Task 3: Add Rust FFI surface for the scene-linear path
 
 **Files:**
+
 - Modify: `src/raw-pipeline/raw-ffi/src/lib.rs`
 
 **Why this matters:** The new Rust pipeline function needs a C-ABI surface mirroring `maple_render_file` / `maple_render_bytes`. The buffer struct gains a `bytes_per_pixel` field so Apple can read the layout without baking 8-bytes-per-pixel into the consumer. A separate free function ensures callers don't accidentally pass the new buffer to the legacy `maple_free_buffer`.
@@ -1206,6 +1220,7 @@ EOF
 ## Task 4: Add Swift `decodeSceneLinear` + `processSceneLinear` paths
 
 **Files:**
+
 - Modify: `src/apple/Packages/MapleCore/Sources/MapleCore/MetalKernels.swift` (Step 4.0a — kernel-availability runtime guard)
 - Modify: `src/apple/Maple/Views/FullImageView.swift` (Step 4.0b — explicit sRGB output color space at the final render boundary)
 - Modify: `src/apple/Packages/MapleCore/Sources/MapleCore/PipelineRenderer.swift`
@@ -1273,7 +1288,7 @@ Then near the top of the file, after the existing `import` lines, add the OSLog 
 ```swift
 import OSLog
 
-private let kernelLog = OSLog(subsystem: "app.justmaple.maple", category: "MetalKernels")
+private let kernelLog = OSLog(subsystem: "app.justmaple.aperture", category: "MetalKernels")
 ```
 
 Add a launch-time DEBUG assertion. In `src/apple/Maple/MapleApp.swift` (or whichever file owns the SwiftUI `App` struct — `grep -l "@main" src/apple/Maple/`), inside the `init()` method (add one if absent), append:
@@ -1675,6 +1690,7 @@ EOF
 ## Task 5: Wire `EditSession` to the new path behind `MAPLE_SCENE_LINEAR=1`
 
 **Files:**
+
 - Modify: `src/apple/Packages/MapleCore/Sources/MapleCore/EditSession.swift`
 - Modify: `src/apple/Packages/MapleCore/Tests/MapleCoreTests/SceneLinearPipelineTests.swift`
 
@@ -1683,6 +1699,7 @@ EOF
 - [ ] **Step 5.1: Read `EditSession.swift` lines 760-953 to confirm the cached decode + render flow.**
 
 Read the file. Confirm:
+
 - `decodeAndRender` is at lines 767-868.
 - The cached-hit branch at line 793 calls `pipeline.process(decoded:model:targetSize:asShot:)`.
 - The cold-decode branch at line 798-825 calls `sharedDecode(asset:pipeline:)` then `pipeline.process(...)`.
@@ -1894,10 +1911,11 @@ Run 5 cold opens of the reference fixture with `MAPLE_PROFILE=1 MAPLE_SCENE_LINE
 Reference baseline (current `main`) per the Spike 1.3 brief: cold-open median ≈ **4.74 s** for the 100 MP Hasselblad fixture. **Hard stop threshold: > 5.21 s** (more than +10% slower).
 
 Run, in two terminals:
+
 - Terminal A: `cd src/apple && xcodebuild -project Maple.xcodeproj -scheme Maple -destination 'platform=macOS' build 2>&1 | tail -5` (expected: `BUILD SUCCEEDED`)
 - Terminal B: `MAPLE_PROFILE=1 MAPLE_SCENE_LINEAR=1 open -a /Users/$USER/Library/Developer/Xcode/DerivedData/Maple-*/Build/Products/Debug/Maple.app` then open the reference DNG. Close & relaunch between runs to ensure cold start. Repeat 5 times. Then repeat 5 more times with `MAPLE_SCENE_LINEAR` unset for the legacy median.
 
-Read the printed `[raw-core]` lines from the process's stderr (`log stream --predicate 'subsystem == "app.justmaple.maple"'`) plus stderr — the `stage()` function in `pipeline.rs` writes to stderr directly when `MAPLE_PROFILE` is set.
+Read the printed `[raw-core]` lines from the process's stderr (`log stream --predicate 'subsystem == "app.justmaple.aperture"'`) plus stderr — the `stage()` function in `pipeline.rs` writes to stderr directly when `MAPLE_PROFILE` is set.
 
 Append the post-change numbers to the comment block at the top of `SceneLinearPipelineTests.swift` (the one created in Step 1.3.2):
 
@@ -1932,7 +1950,7 @@ Append the post-change numbers to the comment block at the top of `SceneLinearPi
 
 - [ ] **Step 5.7: Compare net change against Spike 1.3 criteria.**
 
-If `<NET_REF>` > **+474 ms** (the new path is more than 10% slower than the 4.74 s baseline, i.e. > 5.21 s), STOP. The FFI bandwidth (8 bytes/pixel fp16 RGBA vs 3 bytes/pixel sRGB u8) is dominating beyond what the correctness wins justify; flag and report. Plan 1 needs revision before Task 9 flips the default. (Note: Task 8's sized-FFI path may resolve a borderline +10% miss because the FFI buffer for the editor's first open shrinks from ~200 MB to ~12 MB — but that's an *additional* mitigation, not a substitute for closing the Spike 1.3 gate on the unsized path.)
+If `<NET_REF>` > **+474 ms** (the new path is more than 10% slower than the 4.74 s baseline, i.e. > 5.21 s), STOP. The FFI bandwidth (8 bytes/pixel fp16 RGBA vs 3 bytes/pixel sRGB u8) is dominating beyond what the correctness wins justify; flag and report. Plan 1 needs revision before Task 9 flips the default. (Note: Task 8's sized-FFI path may resolve a borderline +10% miss because the FFI buffer for the editor's first open shrinks from ~200 MB to ~12 MB — but that's an _additional_ mitigation, not a substitute for closing the Spike 1.3 gate on the unsized path.)
 
 If `<NET_REF>` ≤ +474 ms, accept the regression and proceed. Document the actual number in the commit body — perf wins are correctness-driven, not perf-driven; the user explicitly accepted up to a 10% cold-open regression for the three bugs closed, and a smaller number is a bonus.
 
@@ -1961,6 +1979,7 @@ EOF
 ## Task 6: Manual A/B verification — three bugs closed
 
 **Files:**
+
 - Read: `src/apple/Maple.xcodeproj/xcshareddata/xcschemes/Maple.xcscheme` — confirm the env-var entries from `MAPLE_SKIP_*` exist; add `MAPLE_SCENE_LINEAR` alongside.
 - Modify: `src/apple/Maple.xcodeproj/xcshareddata/xcschemes/Maple.xcscheme` — add `MAPLE_SCENE_LINEAR` env entry, disabled by default.
 
@@ -2018,6 +2037,7 @@ Pass criterion: no muted/desaturated shift at heavy downscales. The Lanczos filt
 - [ ] **Step 6.5: Run the full test suite once more before committing the scheme entry.**
 
 Run, in parallel:
+
 - `cd src/apple/Packages/MapleCore && swift test 2>&1 | grep -E "passed|failed" | tail -5` (expected: all passing).
 - `cd src/raw-pipeline && cargo test -p raw-core --lib 2>&1 | tail -5` (expected: all passing).
 - `cd src/raw-pipeline && cargo test -p raw-ffi --lib 2>&1 | tail -5` (expected: all passing).
@@ -2045,6 +2065,7 @@ EOF
 > **Source: ticket 06 § Recommended Milestones — Milestone 1 ("Instrument and Rename"). Cross-reference ticket 06 § Technical Requirements — Rust profile-stage list.**
 
 **Files:**
+
 - Modify: `src/apple/Packages/MapleCore/Sources/MapleCore/EditSession.swift`
 - Modify: `src/raw-pipeline/raw-ffi/src/lib.rs`
 - Modify: `src/raw-pipeline/raw-core/src/decode.rs` (or wherever `decode_bytes` lives — confirm at Step 7.1)
@@ -2082,6 +2103,7 @@ Expected: build succeeds; no callers were relying on the file-private scope.
 - [ ] **Step 7.3: Wrap raw file read and rawler decode in `stage()` scopes inside the Rust FFI.**
 
 In `src/raw-pipeline/raw-ffi/src/lib.rs`, locate the four entry points that read a RAW file or decode bytes:
+
 - `maple_render_file` (legacy; existing, before line 268)
 - `maple_render_bytes` (legacy; existing, before line 268)
 - `maple_render_file_scene_linear` (added by Task 3 Step 3.2)
@@ -2311,6 +2333,7 @@ EOF
 > **Source: ticket 06 § Recommended Milestones — Milestone 2 ("Sized Output Path"). Cross-reference ticket 06 § Product Requirements 1, 2, 3, 5; § Technical Requirements (Rust + Swift); § Performance Requirements; § Acceptance Criteria; § Open Questions.**
 
 **Files:**
+
 - Modify: `src/raw-pipeline/raw-core/src/pipeline.rs`
 - Modify: `src/raw-pipeline/raw-ffi/src/lib.rs`
 - Modify: `src/apple/Packages/MapleCore/Sources/MapleCore/PipelineRenderer.swift`
@@ -2320,7 +2343,7 @@ EOF
 - Modify: `src/apple/Packages/MapleCore/Sources/MapleCore/RenderedPreviewCache.swift` (cache-key augmentation per ticket 06 § Product Requirements 5)
 - Read for reference: `src/raw-pipeline/raw-core/src/api.rs` lines 382-440 (existing `downsample_to_rgba` box filter — for shape only; the new helper operates on f32 RGB working buffers, not display-encoded sRGB u8, so it is a separate function rather than a reuse)
 
-**Why this matters:** Today's editor open on the 100 MP Hasselblad fixture pays for ~25 MP of scene-linear data crossing the FFI even though the visible viewport is ~1.5 MP. With Task 4's scene-linear FFI returning fp16 RGBA the FFI buffer becomes ~200 MB (8 bytes/pixel × 25 MP) — a 2.7× bandwidth jump from today's ~75 MB sRGB u8 path. That bandwidth jump is what Spike 1.3's +10% hard-stop threshold guards against. The sized variant runs the same shared `develop_scene_linear_from_raw_with_quality` helper, then downsamples in the Rust pipeline to the viewport's target size, then packs to fp16 at the *target* size — for a 1500×1000 viewport the FFI buffer is ~12 MB (1500 × 1000 × 8 bytes), an order of magnitude below today's path. Per ticket 06 § Product Requirements 1 the new entry takes a long-edge cap; the returned image preserves source aspect ratio, fits within the cap, and never upscales. This is the Plan 1 v2 contribution that turns the FFI buffer growth from a *cost* into a *win*.
+**Why this matters:** Today's editor open on the 100 MP Hasselblad fixture pays for ~25 MP of scene-linear data crossing the FFI even though the visible viewport is ~1.5 MP. With Task 4's scene-linear FFI returning fp16 RGBA the FFI buffer becomes ~200 MB (8 bytes/pixel × 25 MP) — a 2.7× bandwidth jump from today's ~75 MB sRGB u8 path. That bandwidth jump is what Spike 1.3's +10% hard-stop threshold guards against. The sized variant runs the same shared `develop_scene_linear_from_raw_with_quality` helper, then downsamples in the Rust pipeline to the viewport's target size, then packs to fp16 at the _target_ size — for a 1500×1000 viewport the FFI buffer is ~12 MB (1500 × 1000 × 8 bytes), an order of magnitude below today's path. Per ticket 06 § Product Requirements 1 the new entry takes a long-edge cap; the returned image preserves source aspect ratio, fits within the cap, and never upscales. This is the Plan 1 v2 contribution that turns the FFI buffer growth from a _cost_ into a _win_.
 
 **API shape — explicit decision:** ticket 06's draft proposed `max_width / max_height`; ticket 06 § Open Questions raised `max_long_edge` as an alternative. **Plan 1 v2 commits to `max_long_edge` (a single u32 scalar).** Justification: a single scalar simplifies the WASM/Web parity (Plan 3 will mirror the FFI on the Web side, and a single scalar keeps the JS binding signature shorter); aspect math is local to the Rust renderer (the input aspect ratio is determined by the source RAW, not the caller, so the renderer is the only place that needs to know both dimensions); and fit-to-window is the only Plan 1 v2 use case (refinement-on-zoom is deferred — see Out-of-Scope), so a per-axis cap adds no flexibility today. A future plan can add a per-axis `max_width / max_height` variant if Plan 4+ shows a need. Comment this decision in the Rust function signature so the Open Question is closed in code, not lore.
 
@@ -3063,10 +3086,10 @@ Expected: PASS or skip.
 
 Per ticket 06 § Performance Requirements, with `MAPLE_PROFILE=1` on a release build of the 100 MP Hasselblad fixture, the sized-path acceptance criteria are:
 
-| Scenario | Target | Hard Limit |
-| --- | ---: | ---: |
-| First Rust-backed viewport preview, no cache | < 1000 ms | 2000 ms |
-| FFI output buffer size for fit viewport | <= 32 MB | 64 MB |
+| Scenario                                     |    Target | Hard Limit |
+| -------------------------------------------- | --------: | ---------: |
+| First Rust-backed viewport preview, no cache | < 1000 ms |    2000 ms |
+| FFI output buffer size for fit viewport      |  <= 32 MB |      64 MB |
 
 These gates **supplement** Spike 1.3's correctness baseline (Task 1 / Task 5 Step 5.6) — they're additional acceptance criteria, not a replacement.
 
@@ -3077,8 +3100,8 @@ Run, with `MAPLE_PROFILE=1 MAPLE_SCENE_LINEAR=1` set, 5 cold opens of the 100 MP
 
 Read the labeled `[swift]` and `[raw-core]` lines from the process stderr. Compute:
 
-  - Total cold-open time = sum of `[swift] decode FFI call (cold)` + `[swift] decode result copy` + `[swift] decode CIImage build` + `[swift] filter chain (.fast)`.
-  - FFI buffer size = `width * height * 8` bytes from the `MapleSceneLinearBuffer` returned to Swift (log it from `_renderSceneLinearSized` via a `print("[swift] decode FFI buffer bytes \(buf.len_bytes)")` helper for the duration of this step; revert before commit).
+- Total cold-open time = sum of `[swift] decode FFI call (cold)` + `[swift] decode result copy` + `[swift] decode CIImage build` + `[swift] filter chain (.fast)`.
+- FFI buffer size = `width * height * 8` bytes from the `MapleSceneLinearBuffer` returned to Swift (log it from `_renderSceneLinearSized` via a `print("[swift] decode FFI buffer bytes \(buf.len_bytes)")` helper for the duration of this step; revert before commit).
 
 Append to the comment block at the top of `SceneLinearPipelineTests.swift`:
 
@@ -3110,6 +3133,7 @@ Replace the `<RECORD>` placeholders with the captured medians.
 - [ ] **Step 8.11: Run the full test suites once more and the parity harness.**
 
 Run, in parallel:
+
 - `cd src/raw-pipeline && cargo test -p raw-core --lib 2>&1 | tail -5` — expected: all passing.
 - `cd src/raw-pipeline && cargo test -p raw-ffi --lib 2>&1 | tail -5` — expected: all passing.
 - `cd src/apple/Packages/MapleCore && swift test 2>&1 | grep -E "passed|failed" | tail -5` — expected: all passing.
@@ -3171,6 +3195,7 @@ EOF
 ## Task 9: Flip default to scene-linear path; remove MAPLE_SKIP_PRESCALE
 
 **PRECONDITION — DO NOT EXECUTE THIS TASK UNTIL ONE OF THE FOLLOWING IS TRUE:**
+
 1. Plan 2 has landed (development-chain Metal kernels in scene-linear), restoring the user's saved sidecar adjustments on the new path; OR
 2. A user-visible "default render — saved adjustments not yet applied" banner has been added to the editor (independent change, can land alongside this task); OR
 3. The user has explicitly accepted that flipping the default will cause sidecar-driven adjustments to silently revert to "default look" for affected images, and is OK shipping that.
@@ -3178,11 +3203,12 @@ EOF
 This precondition exists because, as the prominent "What this plan renders" block in the Goal section states, **saved sidecar adjustments are NOT applied on the new path** — `decodeSceneLinear` mirrors `decode`'s `xmpPath: nil` call, and Plan 1 has no scene-linear development-chain kernel to reapply WB/exposure/contrast/etc. Flipping the default before one of conditions 1-3 above is met means users with edits will see "default" colors in place of their saved look, with no UI cue.
 
 **Files:**
+
 - Modify: `src/apple/Packages/MapleCore/Sources/MapleCore/EditSession.swift` — flip the `useSceneLinear` default to `true`, remove the env gate.
 - Modify: `src/apple/Packages/MapleCore/Sources/MapleCore/ImageEditPipeline.swift` — delete the `MAPLE_SKIP_PRESCALE` env-gated branch in `prescaleForDisplay` (it's dead now — the new path runs Lanczos on scene-linear data, where the bug it gated against doesn't exist).
 - Modify: `src/apple/Maple.xcodeproj/xcshareddata/xcschemes/Maple.xcscheme` — remove the `MAPLE_SCENE_LINEAR` and `MAPLE_SKIP_PRESCALE` env entries.
 
-**Why this matters:** Once milestone 4 (manual A/B in Task 6) confirms all three bugs are closed, Task 7 has split the conflated decode label into per-stage timings, Task 8 has shipped the viewport-sized FFI within both the Spike 1.3 +10% gate and ticket 06's <2000 ms / <=64 MB hard limits, *and* one of the three preconditions above is satisfied — the new path becomes default. `MAPLE_SKIP_PRESCALE` was a diagnostic for Bug 3 — Bug 3 is gone, so the gate is dead code. `MAPLE_SKIP_SWIFT_AGX` and `MAPLE_SKIP_SWIFT_FILTERS` stay in place — Plan 2 needs them while it ports the development chain.
+**Why this matters:** Once milestone 4 (manual A/B in Task 6) confirms all three bugs are closed, Task 7 has split the conflated decode label into per-stage timings, Task 8 has shipped the viewport-sized FFI within both the Spike 1.3 +10% gate and ticket 06's <2000 ms / <=64 MB hard limits, _and_ one of the three preconditions above is satisfied — the new path becomes default. `MAPLE_SKIP_PRESCALE` was a diagnostic for Bug 3 — Bug 3 is gone, so the gate is dead code. `MAPLE_SKIP_SWIFT_AGX` and `MAPLE_SKIP_SWIFT_FILTERS` stay in place — Plan 2 needs them while it ports the development chain.
 
 - [ ] **Step 9.1: Flip the default in `EditSession.swift`.**
 
@@ -3227,6 +3253,7 @@ Leave `MAPLE_SKIP_SWIFT_AGX` and `MAPLE_SKIP_SWIFT_FILTERS` — Plan 2 needs the
 - [ ] **Step 9.4: Build & run all tests.**
 
 Run, in parallel:
+
 - `./src/apple/scripts/build-xcframework.sh 2>&1 | tail -5` (expected: `==> Done.`)
 - `cd src/apple/Packages/MapleCore && swift test 2>&1 | grep -E "passed|failed" | tail -5` (expected: all passing).
 - `cd src/raw-pipeline && cargo test -p raw-core --lib 2>&1 | tail -5` (expected: all passing).
@@ -3277,6 +3304,7 @@ EOF
 Run through this once after the plan is in place, before handoff to execution.
 
 **1. Spec coverage:**
+
 - [ ] Task 1 covers all three verification spikes from the brief (CILanczos, AgX primaries, FFI bandwidth) with a concrete 4.74 s baseline and +10% (≤474 ms) hard-stop threshold for Spike 1.3.
 - [ ] Task 1's Spike 1.2 explicitly states its limitation (Swift scalar mirror, not the live Metal kernel) and points at Task 4 Step 4.0a as its companion runtime check.
 - [ ] Task 2 factors a shared `develop_scene_linear_from_raw_with_quality` helper before adding the new entry, so both pipeline entries call the helper and no development-stage code is duplicated.
@@ -3292,13 +3320,15 @@ Run through this once after the plan is in place, before handoff to execution.
 - [ ] Out-of-scope items (Plan 2 development chain, Plan 3 web port + legacy deletion, thumbnails, scene-linear-aware decoded-buffer cache as a separate follow-up plan, ticket 06 Milestones 3 & 4, refinement-on-zoom logic) are explicitly listed.
 
 **2. Placeholder scan:**
+
 - [ ] No "TBD", "TODO", "implement later" anywhere.
-- [ ] Spike 1.3's `<RECORD>`/`<SUM>`/`<NET>`/`<NET_REF>` placeholders are intentional — they are *measurements* that the engineer captures and writes into the file at execution time. The hard-stop threshold (`<NET_REF>` > +474 ms) is concrete; only the captured numbers are placeholders.
+- [ ] Spike 1.3's `<RECORD>`/`<SUM>`/`<NET>`/`<NET_REF>` placeholders are intentional — they are _measurements_ that the engineer captures and writes into the file at execution time. The hard-stop threshold (`<NET_REF>` > +474 ms) is concrete; only the captured numbers are placeholders.
 - [ ] Task 7 Step 7.5 and Task 8 Step 8.10 likewise use `<RECORD>` placeholders for captured medians; the hard-fail thresholds (Task 8: 2000 ms cold-open, 64 MB FFI buffer) are concrete.
 - [ ] No "similar to Task N" without code.
 - [ ] No "add appropriate error handling" — the FFI patterns inherit error-handling shapes from the existing `maple_render_file` (set_last_error + return code); the AgX kernel guard is fully spelled out at Step 4.0a.
 
 **3. Type consistency:**
+
 - [ ] `MapleSceneLinearBuffer` (Rust C struct) matches `MapleSceneLinearBuffer` (Swift import) — same field names: `fp16_rgba`, `len_bytes`, `channels`, `bytes_per_pixel`, `width`, `height`. The sized FFI entries (Task 8) reuse the same struct.
 - [ ] `MapleSceneLinearImageData` (Swift value type) wraps the C buffer: `width`, `height`, `channels`, `bytesPerPixel`, `pixels: Data`. Task 8's `renderPreviewSized` returns the same type.
 - [ ] `renderSceneLinear` and `renderPreviewSized` are the wrapper names on `PipelineRenderer` (matches existing `render` style).
@@ -3309,6 +3339,7 @@ Run through this once after the plan is in place, before handoff to execution.
 - [ ] `downsample_image_area` (Rust pipeline.rs Task 8) operates on f32 RGB — distinct from the existing `api::downsample_to_rgba` which operates on display-encoded sRGB u8.
 
 **4. Ordering and BLOCKING constraints:**
+
 - [ ] Task 1 blocks Tasks 2-9 explicitly (header note plus per-spike "FAIL ACTION: stop").
 - [ ] Step 5.7 (Spike 1.3 net check) blocks Task 9 explicitly. Task 8's <2000 ms / <=64 MB hard limits supplement Spike 1.3 — both must pass before Task 9 flips the default.
 - [ ] xcframework rebuild is in the plan after Rust changes (Task 3 Step 5; Task 8 Step 8.4).

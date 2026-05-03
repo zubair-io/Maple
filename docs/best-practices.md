@@ -502,7 +502,7 @@ Service worker configuration lives at `src/web/projects/editor/ngsw-config.json`
 ### Apple — mirror layers
 
 1. **`NSCache`** for thumbnails in memory. App-scoped, auto-evicts on memory pressure.
-2. **File-based disk cache** at `~/Library/Caches/app.justmaple.maple/` for rendered previews, thumbnails, and remote source bytes. Pruned on a 30-day LRU sweep.
+2. **File-based disk cache** at `~/Library/Caches/app.justmaple.aperture/` for rendered previews, thumbnails, and remote source bytes. Pruned on a 30-day LRU sweep.
 3. **Session state** in `@MainActor` `@Observable` types. Decoded f32 buffer lives in one slot per `EditSession`.
 
 ### Invalidation

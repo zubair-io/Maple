@@ -11,6 +11,7 @@
 **Goal:** Add a shared `SeparableGaussianBlur` Metal compute kernel that mirrors `gaussian_blur_rgb` in `raw-core/src/stages/blur.rs` (3-pass box-blur Wells 1986 approximation) and use it from two new `CIColorKernel`-based unsharp-mask wrappers — `SceneClarity` (radius 40, scene-linear Rec.2020) and `SceneTexture` (radius 3, scene-linear Rec.2020). Both consume `model.clarity` / `model.texture` from `AdjustmentModel` and run inside `processSceneLinear` between saturation and AgX, restoring the clarity + texture sliders on the scene-linear path.
 
 **Architecture:**
+
 1. **Two open questions on the brief, two spike tasks first.** Task 1 is a verification spike that answers both before any production code lands:
    - **Spike 1.1 (load-bearing):** does `CIImage(mtlTexture:)` from a `MTLComputePipeline` output compose cleanly with downstream `CIColorKernel.apply(...)` calls? If yes, the entire M1 + M2 architecture below is correct. If no, M1 swaps to `CIImageProcessorKernel` subclass — Task 1 Step 1.7 documents the fail action and stops the plan for revision.
    - **Spike 1.2 (decoration):** can `#include` from a Metal source compiled via `CIKernel.kernels(withMetalString:)` resolve relative to `Bundle.module/Metal/`? If yes, Task 4 factors Oklab matrices into a shared `oklab.metal`. If no, Task 4 keeps copy-paste. Either path produces the same output pixels; the spike only affects code style.
@@ -21,6 +22,7 @@
 6. **Tile-rendering compatibility is preserved by construction.** The radius constants are unchanged from Rust source — clarity stays at 40 source pixels, texture at 3 source pixels. The deep-zoom plan's 35 px overlap budget already accounts for clarity at radius 40; no overlap math changes here. **Verification step in Task 7** runs the full deep-zoom test (`DeepZoomTileRenderingTests.swift`) after wiring to confirm tile seams haven't regressed.
 
 **Tech Stack:**
+
 - Swift (`MapleCore`) — `MetalKernels` namespace gains a fourth section: `applySeparableGaussianBlur(to:radius:)` returning a `CIImage` (the compute kernel), `applySceneClarity(to:clarity:)` and `applySceneTexture(to:texture:)` (the `CIColorKernel`-based mix wrappers). Pattern matches the existing `applySceneToneControls` / `applySceneVibrance` shape; new `MTLComputePipelineState` field is loaded once and cached as `_separableGaussianBlur: MTLComputePipelineState?` alongside the existing `_sceneToneControls` / `_sceneVibrance` `CIColorKernel?` properties.
 - Metal Shading Language —
   - `SeparableGaussianBlur.metal`: a compute kernel `kernel void separableBoxBlurH(...)` and `kernel void separableBoxBlurV(...)` (two functions; one metallib). `MetalKernels.applySeparableGaussianBlur(to:radius:)` orchestrates the 6-pass dispatch (H, V, H, V, H, V — three full Gaussian passes via the box-blur approximation, mirroring `gaussian_blur_rgb`).
@@ -29,6 +31,7 @@
 - Test — `cd src/apple/Packages/MapleCore && swift test` after each Swift edit; `BUDGET=15 src/scripts/test_color_pipeline.sh` after each milestone (M1, M2) for the legacy-path ΔE gate (Plan 2 v2 must not break it).
 
 **Out of scope (explicit):**
+
 - **M3 — NR luminance + NR color.** Both need Oklab roundtrip + shared blur on a single channel (L for luma, a/b for color). Separate plan; landing Spike 1.2's `#include` answer here gives that plan the resolved style decision.
 - **M4 — Sharpen.** Bespoke `MTLComputePipeline` for 3-iter Richardson-Lucy. Plan 2 v2 brief § 2 marks effort `M`. Separate plan.
 - **M5 — Dehaze.** Three compute dispatches (15×15 dark-channel min-filter, atmospheric-light top-0.1% reduction, 60-radius guided filter). Brief § 2 marks effort `L`. Separate plan; deferred until M1–M4 prove the architecture per brief § 4.
@@ -44,6 +47,7 @@
 ## File Structure
 
 **Swift (read-write):**
+
 - Modify: `src/apple/Packages/MapleCore/Sources/MapleCore/MetalKernels.swift` — add three private static cache fields (`_separableGaussianBlurLib: MTLLibrary?`, `_separableBoxBlurHPipeline`, `_separableBoxBlurVPipeline`, `_sceneUnsharp: CIColorKernel?`), one new public compute-kernel wrapper (`applySeparableGaussianBlur(to:radius:)`), two new public `CIColorKernel` mix wrappers (`applySceneClarity(to:clarity:)` and `applySceneTexture(to:texture:)`), and three new private kernel-loader helpers (`separableGaussianBlurLibrary()`, `sceneUnsharpKernel()`, `metalDevice()`). All five new wrappers mirror the existing `applySceneToneControls` / `applySceneVibrance` / `sceneToneControlsKernel` / `sceneVibranceKernel` shape, except `applySeparableGaussianBlur` returns a `CIImage` built from a `MTLTexture` (verified by Spike 1.1).
 - Add: `src/apple/Packages/MapleCore/Sources/MapleCore/Metal/SeparableGaussianBlur.metal` — new Metal source. Two compute functions: `separableBoxBlurH` and `separableBoxBlurV`. Each does one box pass along its axis with running-sum accumulator (mirrors `box_blur_channel` at `blur.rs:26-69`). The Swift wrapper composes 6 dispatches (H, V, H, V, H, V) for the 3-pass Gaussian approximation per `gaussian_blur_rgb` at `blur.rs:89-114`.
 - Add: `src/apple/Packages/MapleCore/Sources/MapleCore/Metal/SceneUnsharp.metal` — new Metal source. Single `CIColorKernel` mix function `sceneUnsharp(src, blurred, amount)` returning `src + (src - blurred) * amount` per channel. Mirrors the per-pixel mix at `clarity.rs:16-20` and `texture.rs:16-20` byte-for-byte (same algorithm in both Rust files).
@@ -51,17 +55,20 @@
 - Modify: `src/apple/Packages/MapleCore/Tests/MapleCoreTests/SceneLinearPipelineTests.swift` — append (a) the two spike tests from Task 1 (`testSpike11ComputeOutputComposesWithCIColorKernel`, `testSpike12MetalIncludeResolvesFromBundle`), (b) one M1 unit test (`testM1SeparableGaussianBlurMatchesRustReference`) that pure-Swift-mirrors the Rust `gaussian_blur_plane` against a synthetic delta image and compares to a recorded reference (the test exists outside the Metal kernel — it doesn't actually run the kernel under XCTest because metallib is absent under `swift test`, per the existing pattern at `MetalKernelParityTests.swift:13-52`), and (c) two M2 wiring smoke tests (`testM2ProcessSceneLinearAppliesClarity`, `testM2ProcessSceneLinearAppliesTexture`) that drive `processSceneLinear` end-to-end with non-zero clarity/texture and assert centre-pixel R-G separation increases (using the existing `>=` smoke-test pattern from Plan 2 v1's `testM1ProcessSceneLinearAppliesVibrance`).
 
 **Swift (read-only during verification):**
+
 - `src/apple/Packages/MapleCore/Sources/MapleCore/Metal/SceneToneControls.metal` — reference for kernel source style (constants, `extern "C"`, `coreimage::sampler_h`, `smoothstep_f` helpers).
 - `src/apple/Packages/MapleCore/Sources/MapleCore/Metal/SceneVibrance.metal` — reference for the Oklab matrices (used by Spike 1.2 only — the `oklab.metal` extraction itself is deferred to M3).
 - `src/apple/Packages/MapleCore/Sources/MapleCore/Metal/AgXViewTransform.metal` — reference for using a non-`CIColorKernel` shape (compute or sampler-driven) inside `MetalKernels`.
 - `src/apple/Packages/MapleCore/Sources/MapleCore/Cache/TileManager.swift` — reference for the deep-zoom plan's 35 px overlap consumption. Verified read-only in Task 7 Step 7.4 (no source edits).
 
 **Rust (read-only during verification):**
+
 - `src/raw-pipeline/raw-core/src/stages/blur.rs:26-114` — algorithm reference for `SeparableGaussianBlur.metal`. The H/V/H/V/H/V composition, the `r_box = (radius/3).max(1)` integer math, and the running-sum accumulator with edge clamp are all mirrored byte-for-byte.
 - `src/raw-pipeline/raw-core/src/stages/clarity.rs` — algorithm reference for `applySceneClarity`. `CLARITY_RADIUS = 40`, `amount = clarity / 100.0`, per-channel `p[i] += (p[i] - b[i]) * amount`.
 - `src/raw-pipeline/raw-core/src/stages/texture.rs` — algorithm reference for `applySceneTexture`. `TEXTURE_RADIUS = 3`, identical mix to clarity.
 
 **Build artifacts (touched):**
+
 - None. M1 + M2 are pure Swift + Metal source additions. The xcframework is unchanged because no Rust source changes.
 
 ---
@@ -85,6 +92,7 @@ After every task: `cd src/apple/Packages/MapleCore && swift test`. After every m
 ## Task 1: Pre-flight — answer the brief's two open questions (spikes)
 
 **Files:**
+
 - Modify: `src/apple/Packages/MapleCore/Tests/MapleCoreTests/SceneLinearPipelineTests.swift` (append two spike tests + a header comment block recording results)
 
 **Why this matters:** The brief's § 8 lists two open questions. Spike 1.1 is load-bearing: a failure flips the entire M1 architecture from `MTLComputePipeline` + `CIImage(mtlTexture:)` to `CIImageProcessorKernel` subclass, which is a substantively different design and re-opens M2 wiring. Spike 1.2 is decoration: the `#include` answer affects code style across the eventual M3 NR kernels but has no bearing on M1 + M2 (clarity + texture don't consume Oklab matrices). Recording both results before any production code lands gives the agent a known, written-down design state to lean on for the rest of the plan.
@@ -325,6 +333,7 @@ Parity harness on the legacy path stays green."
 ## Task 2: M1 — `SeparableGaussianBlur.metal` + `MetalKernels.applySeparableGaussianBlur`
 
 **Files:**
+
 - Add: `src/apple/Packages/MapleCore/Sources/MapleCore/Metal/SeparableGaussianBlur.metal`
 - Modify: `src/apple/Packages/MapleCore/Sources/MapleCore/MetalKernels.swift` (add 3 cache fields, 1 public wrapper, 1 private library loader, 1 device helper)
 
@@ -335,6 +344,7 @@ Parity harness on the legacy path stays green."
 Run: `grep -n "fn gaussian_blur_rgb\|fn box_blur_channel\|r_box = " src/raw-pipeline/raw-core/src/stages/blur.rs`
 
 Expected:
+
 ```
 26:fn box_blur_channel(buf: &[f32], w: usize, h: usize, r: usize) -> Vec<f32> {
 77:pub fn gaussian_blur_plane(buf: &[f32], w: usize, h: usize, radius: usize) -> Vec<f32> {
@@ -344,6 +354,7 @@ Expected:
 ```
 
 Read `blur.rs` lines 26-114 in full once. Confirm:
+
 - Box pass: running-sum accumulator with edge clamp (`right0 = r.min(w - 1)`, no zero-pad).
 - 3 passes per axis, written as `for _ in 0..3 { plane = box_blur_channel(...); }`.
 - The H sweep writes row-major; the V sweep writes column-major then transposes back. The Metal kernel can skip the transpose because it operates per-pixel with global coords — H and V are both grid-strided dispatches over the full texture, and the only difference is which axis the running sum walks.
@@ -666,6 +677,7 @@ matching the existing wrapper convention)."
 ## Task 3: M1 verification — Swift-scalar parity mirror against Rust `gaussian_blur_plane`
 
 **Files:**
+
 - Modify: `src/apple/Packages/MapleCore/Tests/MapleCoreTests/SceneLinearPipelineTests.swift` (append the parity mirror test)
 
 **Why this matters:** The brief at § 1 says "any deviation re-opens the ΔE harness." Under `swift test`, the metallib isn't loaded, so the Metal kernel is a silent no-op. To verify M1 ships with correct algorithm semantics, this task adds a pure-Swift scalar mirror of the Rust `gaussian_blur_plane` algorithm and compares it against a recorded reference (a 32×32 fp32 delta image: zeros everywhere except a single 1.0 at the centre, blurred at radius=3 and radius=40). The Swift mirror is byte-faithful to `blur.rs` — same `r_box = max(1, radius/3)`, same 3-pass loop, same running-sum window with edge clamp. **A pass here means the algorithm is correctly ported.** The runtime check (live Metal kernel) is in Task 7 Step 7.4 (manual smoke test).
@@ -675,6 +687,7 @@ matching the existing wrapper convention)."
 Run: `sed -n '26,114p' src/raw-pipeline/raw-core/src/stages/blur.rs`
 
 Confirm:
+
 - `box_blur_channel(buf, w, h, r)` → returns row-major output. The H sweep writes row-major; the V sweep writes column-major then transposes. The numerics are equivalent to "for each axis, for each pixel, compute the mean over [pixel - r, pixel + r] inclusive, clamped to [0, dim - 1]."
 - `gaussian_blur_plane` calls `box_blur_channel` 3 times; the radius `r_box` is fixed across passes.
 
@@ -876,6 +889,7 @@ budget tightening, deferred)."
 ## Task 4: M2 — `SceneUnsharp.metal` + `applySceneClarity` / `applySceneTexture` wrappers
 
 **Files:**
+
 - Add: `src/apple/Packages/MapleCore/Sources/MapleCore/Metal/SceneUnsharp.metal`
 - Modify: `src/apple/Packages/MapleCore/Sources/MapleCore/MetalKernels.swift` (add 1 cache field, 2 public wrappers, 1 private kernel loader)
 
@@ -1025,6 +1039,7 @@ Rust short-circuit at clarity.rs:12 and texture.rs:12)."
 ## Task 5: M2 wiring — clarity into `processSceneLinear`
 
 **Files:**
+
 - Modify: `src/apple/Packages/MapleCore/Sources/MapleCore/ImageEditPipeline.swift` (`processSceneLinear`, after Plan 2 v1's edits)
 - Modify: `src/apple/Packages/MapleCore/Tests/MapleCoreTests/SceneLinearPipelineTests.swift` (append clarity wiring smoke test)
 
@@ -1236,6 +1251,7 @@ harness on the legacy path stays green."
 ## Task 6: M2 wiring — texture into `processSceneLinear`
 
 **Files:**
+
 - Modify: `src/apple/Packages/MapleCore/Sources/MapleCore/ImageEditPipeline.swift` (`processSceneLinear`, after Task 5)
 - Modify: `src/apple/Packages/MapleCore/Tests/MapleCoreTests/SceneLinearPipelineTests.swift`
 
@@ -1368,6 +1384,7 @@ Test asserts step-edge contrast does not shrink under texture =
 ## Task 7: M2 milestone gate — manual smoke test + deep-zoom regression check
 
 **Files:**
+
 - Read-only: `src/apple/Packages/MapleCore/Sources/MapleCore/ImageEditPipeline.swift`
 - Read-only: `src/apple/Packages/MapleCore/Tests/MapleCoreTests/DeepZoomTileRenderingTests.swift`
 - Modify (header comment only): `src/apple/Packages/MapleCore/Tests/MapleCoreTests/SceneLinearPipelineTests.swift`
@@ -1393,17 +1410,18 @@ Open `src/raw-pipeline/test-fixtures/raws/dji-mavic3pro-100mp.dng` (or the large
 
 For each slider below, drag from default (0) to the extreme end and visually confirm the image changes:
 
-| Slider  | Range          | Test action          | Expected                                                          |
-|---------|----------------|----------------------|-------------------------------------------------------------------|
-| Clarity | -100 to +100   | Drag right to +100   | Mid-frequency local contrast increases — edges and texture pop    |
-| Clarity | -100 to +100   | Drag left to -100    | Image softens — local contrast smooths out (radius-40 blur dominates) |
-| Texture | -100 to +100   | Drag right to +100   | Fine-frequency detail boost — pores, fabric weave, foliage detail |
-| Texture | -100 to +100   | Drag left to -100    | Fine detail smooths — small textures soften, large structure intact |
+| Slider  | Range        | Test action        | Expected                                                              |
+| ------- | ------------ | ------------------ | --------------------------------------------------------------------- |
+| Clarity | -100 to +100 | Drag right to +100 | Mid-frequency local contrast increases — edges and texture pop        |
+| Clarity | -100 to +100 | Drag left to -100  | Image softens — local contrast smooths out (radius-40 blur dominates) |
+| Texture | -100 to +100 | Drag right to +100 | Fine-frequency detail boost — pores, fabric weave, foliage detail     |
+| Texture | -100 to +100 | Drag left to -100  | Fine detail smooths — small textures soften, large structure intact   |
 
 Capture a screenshot of one mid-drag state per slider — file them at `/tmp/plan-2-v2-m2-<slider>.png`. **Do not commit screenshots.**
 
 If any slider fails to move pixels, M2 is not actually working — STOP and inspect:
-- Run `log stream --predicate 'subsystem == "app.justmaple.maple"'` and look for `os_log .error` lines — `MetalKernels.loadKernel` and `metalDevice` / `separableGaussianBlurLibrary` log on failure (Task 2 added these).
+
+- Run `log stream --predicate 'subsystem == "app.justmaple.aperture"'` and look for `os_log .error` lines — `MetalKernels.loadKernel` and `metalDevice` / `separableGaussianBlurLibrary` log on failure (Task 2 added these).
 - Confirm the metallib is present in the .app bundle: `find /Users/$USER/Library/Developer/Xcode/DerivedData/Maple-*/Build/Products/Debug/Maple.app -name '*.metal' -o -name '*.metallib'`. If `SeparableGaussianBlur.metal` and `SceneUnsharp.metal` are absent, the `.copy("Metal")` resource bundling failed — rebuild from clean (`xcodebuild clean` then `build`).
 
 - [ ] **Step 7.4: Run the Deep Zoom test suite to confirm tile compatibility didn't regress.**

@@ -29,6 +29,100 @@ thread_local! {
     static LAST_ERROR: RefCell<Option<std::ffi::CString>> = const { RefCell::new(None) };
 }
 
+/// Strip stages from an `AdjustmentModel` that the Apple editor's
+/// scene-linear chain re-applies, so the FFI decode does NOT bake them
+/// into the cached buffer.
+///
+/// Architecture: `apply_scene_linear_chain` (Apple's hot path on every
+/// slider tick) applies the FULL model — `scene_tone_controls`,
+/// `vibrance`, `saturation`, `clarity`, `texture`, `dehaze`,
+/// `nr_luminance`, AgX (contrast). If the decode **also** bakes those
+/// fields with the live sidecar values, every chain-handled stage runs
+/// twice and slider values double — exposure +3.68 EV becomes +7.36 EV,
+/// AgX's highlight rolloff produces non-linear chroma distortion, and
+/// the result on real images is a visible magenta cast.
+///
+/// Apple's Metal kernels also re-apply `sharpen` and `nr_color`
+/// **after** the chain, so those two are stripped for the same reason
+/// (and have been since the first iteration of this helper).
+///
+/// Stripped fields (set to `AdjustmentModel::default()` values so the
+/// stages early-exit during decode):
+///   * `temperature`, `tint`        — `white_balance::apply` early-exits
+///     at temp=6500/tint=0 (its identity short-circuit). The post-DCP
+///     buffer is at D65 (= 6500K) by construction; the chain re-applies
+///     the user's full WB shift from this consistent reference.
+///   * `exposure`, `contrast`, `highlights`, `shadows`, `whites`,
+///     `blacks`  — scene_tone_controls + AgX contrast slope
+///   * `vibrance`, `saturation`, `clarity`, `texture`, `dehaze`
+///   * `nr_luminance`              — chain applies it
+///   * `sharpen_amount`, `nr_color` — Apple Metal re-applies post-chain
+///
+/// **Kept** (Apple-irreplaceable, baked at decode only):
+///   * `highlight_recovery`         — pre-DCP, no chain equivalent.
+///   * `sharpen_radius`, `sharpen_detail`, `sharpen_masking` — read by
+///     Apple Metal; not used during decode anyway.
+///
+/// **WB contract** (the previously load-bearing source of magenta-cast
+/// bugs): the strip forces the FFI decode to a fixed reference state
+/// (D65) regardless of what the sidecar contains, eliminating the
+/// "first-open at D65, post-sidecar at user-temp" inconsistency.
+///
+/// Apple's `processSceneLinear` then passes
+/// `decodedTemp = asShot.temperature` so the chain's
+/// `white_balance::apply_delta(live, decoded)` computes
+/// `wb_gains(live) / wb_gains(asShot)` — identity at `live == asShot`
+/// (the ACR "As Shot" default), with shift relative to asShot when the
+/// user moves the slider. **NB**: the chain's math assumes the buffer
+/// is at `decoded_temp` whereas the strip puts it at D65; the
+/// arithmetic is still well-defined and produces a consistent UX,
+/// but the chain output at `live != asShot` is a relative shift on
+/// a D65 buffer rather than an absolute WB transform.
+///
+/// `maple_render_file` (the legacy 8-bit sRGB output used by the parity
+/// test harness) does NOT go through this helper — ACR-comparable
+/// output requires the full chain run during decode.
+/// Tile-path dehaze guard. Dehaze relies on a full-image dark-channel
+/// computation; running it on a crop tile would produce a wrong dark
+/// channel (radius 67 px on the reference scenes). The non-tile FFI
+/// paths catch this via raw-core's stage error (and bubble up as rc=10);
+/// since `strip_apple_gpu_stages` zeros `model.dehaze` before the call,
+/// the tile path needs an explicit pre-strip check or the rejection is
+/// silently bypassed and tiles render with no dehaze (silent
+/// degradation rather than the contracted hard error).
+///
+/// Returns `true` when `model.dehaze` is meaningfully non-zero (matches
+/// `dehaze::apply`'s own early-exit threshold of `1e-3`).
+fn dehaze_active(model: &xmp::AdjustmentModel) -> bool {
+    model.dehaze.abs() > 1e-3
+}
+
+fn strip_apple_gpu_stages(mut model: xmp::AdjustmentModel) -> xmp::AdjustmentModel {
+    let defaults = xmp::AdjustmentModel::default();
+    // White balance — chain applies it from a D65 reference (see above).
+    model.temperature = defaults.temperature;
+    model.tint = defaults.tint;
+    // scene_tone_controls + AgX contrast
+    model.exposure = defaults.exposure;
+    model.contrast = defaults.contrast;
+    model.highlights = defaults.highlights;
+    model.shadows = defaults.shadows;
+    model.whites = defaults.whites;
+    model.blacks = defaults.blacks;
+    // Hue/sat/local-contrast/dehaze
+    model.vibrance = defaults.vibrance;
+    model.saturation = defaults.saturation;
+    model.clarity = defaults.clarity;
+    model.texture = defaults.texture;
+    model.dehaze = defaults.dehaze;
+    // Noise reduction (chain handles luminance; Metal handles color)
+    model.nr_luminance = defaults.nr_luminance;
+    model.nr_color = defaults.nr_color;
+    // Sharpen (Apple Metal handles)
+    model.sharpen_amount = defaults.sharpen_amount;
+    model
+}
+
 fn set_last_error(msg: String) {
     if let Ok(cstr) = std::ffi::CString::new(msg) {
         LAST_ERROR.with(|e| *e.borrow_mut() = Some(cstr));
@@ -364,6 +458,7 @@ pub unsafe extern "C" fn maple_render_file_scene_linear(
         } else {
             raw_core::pipeline::RenderQuality::Full
         };
+        let model = strip_apple_gpu_stages(model);
         let (w, h, fp16) = match raw_core::pipeline::render_scene_linear_from_raw_with_quality(
             &raw_img, &model, quality,
         ) {
@@ -446,6 +541,7 @@ pub unsafe extern "C" fn maple_render_bytes_scene_linear(
         } else {
             raw_core::pipeline::RenderQuality::Full
         };
+        let model = strip_apple_gpu_stages(model);
         let (w, h, fp16) = match raw_core::pipeline::render_scene_linear_from_raw_with_quality(
             &raw_img, &model, quality,
         ) {
@@ -543,6 +639,7 @@ pub unsafe extern "C" fn maple_render_file_scene_linear_sized(
         } else {
             raw_core::pipeline::RenderQuality::Full
         };
+        let model = strip_apple_gpu_stages(model);
         let (w, h, fp16) = match raw_core::pipeline::render_scene_linear_sized_from_raw_with_quality(
             &raw_img, &model, quality, max_long_edge,
         ) {
@@ -630,6 +727,7 @@ pub unsafe extern "C" fn maple_render_bytes_scene_linear_sized(
         } else {
             raw_core::pipeline::RenderQuality::Full
         };
+        let model = strip_apple_gpu_stages(model);
         let (w, h, fp16) = match raw_core::pipeline::render_scene_linear_sized_from_raw_with_quality(
             &raw_img, &model, quality, max_long_edge,
         ) {
@@ -735,6 +833,11 @@ pub unsafe extern "C" fn maple_render_file_scene_linear_tile(
         } else {
             raw_core::pipeline::RenderQuality::Full
         };
+        if dehaze_active(&model) {
+            set_last_error("dehaze unsupported on tile path".into());
+            return 10;
+        }
+        let model = strip_apple_gpu_stages(model);
         let (w, h, fp16) = match raw_core::pipeline::render_scene_linear_tile_from_raw_with_quality(
             &raw_img, &model, src_x, src_y, src_w, src_h, out_w, out_h, quality,
         ) {
@@ -834,6 +937,11 @@ pub unsafe extern "C" fn maple_render_bytes_scene_linear_tile(
         } else {
             raw_core::pipeline::RenderQuality::Full
         };
+        if dehaze_active(&model) {
+            set_last_error("dehaze unsupported on tile path".into());
+            return 10;
+        }
+        let model = strip_apple_gpu_stages(model);
         let (w, h, fp16) = match raw_core::pipeline::render_scene_linear_tile_from_raw_with_quality(
             &raw_img, &model, src_x, src_y, src_w, src_h, out_w, out_h, quality,
         ) {
@@ -1114,8 +1222,13 @@ pub unsafe extern "C" fn maple_render_handle_scene_linear_tile(
         // to the matching `maple_close_raw_handle` call.
         let raw_img: &raw_core::image::RawImage = unsafe { &*(raw_addr as *const raw_core::image::RawImage) };
         let model: &xmp::AdjustmentModel = unsafe { &*(model_addr as *const xmp::AdjustmentModel) };
+        if dehaze_active(model) {
+            set_last_error("dehaze unsupported on tile path".into());
+            return 10;
+        }
+        let model = strip_apple_gpu_stages(model.clone());
         let (w, h, fp16) = match raw_core::pipeline::render_scene_linear_tile_from_raw_with_quality(
-            raw_img, model, src_x, src_y, src_w, src_h, out_w, out_h, quality,
+            raw_img, &model, src_x, src_y, src_w, src_h, out_w, out_h, quality,
         ) {
             Ok(t) => t,
             Err(e) => {

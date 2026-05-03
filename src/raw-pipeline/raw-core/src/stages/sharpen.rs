@@ -1,24 +1,56 @@
-//! Richardson-Lucy capture sharpening per spec § 3.10.
+//! Luminance-only unsharp-mask sharpening on scene-linear Rec.2020.
 //!
-//! 3-iteration deconvolution on scene-linear Rec.2020 with Gaussian PSF.
-//! Slider sharpen_amount [0, 150]: 0 skips, 100 is full RL, >100 adds
-//! unsharp overdrive. sharpen_detail and sharpen_masking control an edge-
-//! aware mix on top. PSF Gaussian sigma = sharpen_radius.
+//! Mirrors the Metal stitchable kernel `SharpenLumaUSM.metal` byte-for-byte
+//! (BT.2020 luma weights, smoothstep shadow guard, scale clamp). Produces
+//! a "full-strength sharpened" (amount=100, masking=0) buffer that the
+//! edge-mix step at the bottom of this stage scales with the amount /
+//! detail / masking sliders.
 //!
-//! Implementation uses the box-blur Gaussian approximation from stages::blur
-//! (O(n) per pixel).
+//! Replaces the per-channel Richardson-Lucy iteration + overdrive that
+//! lived in this file previously. The 3-iteration RL implementation
+//! produced saturated chroma artefacts in shadow regions where one
+//! channel (typically blue, after Bayer + WB gain) had a noise spike
+//! that ratio'd to many-fold larger than the other channels — the
+//! "blue specks / magenta cast in shadows" pattern observed on
+//! test_0002 etc. Luma-only USM scales every RGB channel at a pixel by
+//! the SAME factor, so chroma ratios are preserved by construction.
+//!
+//! Constants must stay in lockstep with `SharpenLumaUSM.metal`:
+//!   * `LUMA_R/G/B`     — BT.2020 luma weights.
+//!   * `SHADOW_EPSILON` — 1e-4 (~13 EV below mid-gray; below this the
+//!                       scale is held at 1.0 so shadow noise can't
+//!                       amplify).
+//!   * `SHADOW_BAND`    — 4.0 (smoothstep transition width above the
+//!                       epsilon).
+//!   * `MAX_SCALE`      — 4.0 (per-pixel amplification cap).
+//!   * `MIN_SCALE`      — 0.0 (floor; prevents channel inversion at
+//!                       extreme edges into deep shadow).
+//!
+//! The amount/detail/masking sliders run on top exactly as the Metal
+//! `sharpenEdgeMix` kernel does (mix = amount * edge_factor).
 
 use crate::{
     image::{ColorSpace, Image},
-    stages::blur::gaussian_blur_rgb,
+    stages::blur::gaussian_blur_plane,
 };
 
-const RL_ITERS: usize = 3;
-const EPSILON: f32 = 1e-5;
+const LUMA_R: f32 = 0.2627;
+const LUMA_G: f32 = 0.6780;
+const LUMA_B: f32 = 0.0593;
+const SHADOW_EPSILON: f32 = 1e-4;
+const SHADOW_BAND: f32 = 4.0;
+const MAX_SCALE: f32 = 4.0;
+const MIN_SCALE: f32 = 0.0;
 
-/// Apply Richardson-Lucy sharpening per spec § 3.10.
+/// Apply luminance-only USM sharpening on a scene-linear Rec.2020 image.
 ///
-/// Short-circuits when sharpen_amount == 0 (stage skipped).
+/// * `amount`  — 0..150 slider (>100 boosts the mix beyond unity).
+/// * `radius`  — Gaussian PSF sigma in pixels (clamped 0.5..3.0).
+/// * `detail`  — 0..100 slider; controls how much sharpening leaks into
+///               flat regions when masking is non-zero.
+/// * `masking` — 0..100 slider; gradient threshold for edge-only mix.
+///
+/// `amount == 0` short-circuits the entire stage.
 pub fn apply(
     img: &mut Image,
     amount: f32,
@@ -33,77 +65,47 @@ pub fn apply(
     let radius_px = radius.clamp(0.5, 3.0).round() as usize;
     let radius_px = radius_px.max(1);
 
-    // --- Richardson-Lucy 3 iterations ---
-    // O = observed; E_n = current estimate; P = Gaussian PSF.
-    // E_{n+1} = E_n * (conv(O / conv(E_n, P), P))
-    //
-    // RL is derived for non-negative photon counts. Scene-linear after DCP
-    // can carry strongly negative values on saturated colored patches
-    // (inv(CM) projecting an out-of-gamut color into negative camera RGB).
-    // Naively dividing observed_negative / reblur_clamped_to_EPSILON
-    // produces a huge negative ratio that propagates into the
-    // multiplicative update and poisons whole rows of pixels — that's the
-    // "red bands across the colorchecker" we hit on test_0004 (Hasselblad
-    // H5D-40 ColorChecker SG, ~0.5% of pixels with scene-linear < 0).
-    //
-    // Guard: skip the RL update on any pixel/channel where either operand
-    // is non-positive — set ratio = 1.0 there so `estimate *= correction`
-    // is a no-op for the negative regions. The Hamilton-Jacobi argument
-    // for RL convergence assumes positivity; this is the standard guard
-    // (RawTherapee, scikit-image and AstroPixelProcessor all do the same).
-    let observed = img.clone();
-    let mut estimate = img.clone();
+    let w_usize = img.width as usize;
+    let h_usize = img.height as usize;
 
-    for _ in 0..RL_ITERS {
-        let reblur = gaussian_blur_rgb(&estimate, radius_px);
-        // ratio = observed / reblur, gated on positivity (see comment above).
-        let mut ratio = Image::new(img.width, img.height, ColorSpace::SceneLinearRec2020);
-        for i in 0..observed.pixels.len() {
-            let o = observed.pixels[i];
-            let rb = reblur.pixels[i];
-            ratio.pixels[i] = [
-                if o[0] > EPSILON && rb[0] > EPSILON { o[0] / rb[0] } else { 1.0 },
-                if o[1] > EPSILON && rb[1] > EPSILON { o[1] / rb[1] } else { 1.0 },
-                if o[2] > EPSILON && rb[2] > EPSILON { o[2] / rb[2] } else { 1.0 },
-            ];
-        }
-        let correction = gaussian_blur_rgb(&ratio, radius_px);
-        for i in 0..estimate.pixels.len() {
-            let e = estimate.pixels[i];
-            let c = correction.pixels[i];
-            estimate.pixels[i] = [e[0] * c[0], e[1] * c[1], e[2] * c[2]];
-        }
+    // --- Luma plane and its blur (single Gaussian pass) ---
+    // Gaussian blur is linear, so blur(luma) == LUMA · blur(rgb).
+    // Computing luma first and blurring one plane is 3× cheaper than
+    // blurring RGB and dot-producting at every output pixel.
+    let luma: Vec<f32> = img.pixels.iter()
+        .map(|p| LUMA_R * p[0] + LUMA_G * p[1] + LUMA_B * p[2])
+        .collect();
+    let luma_blur = gaussian_blur_plane(&luma, w_usize, h_usize, radius_px);
+
+    // --- Per-pixel luma USM with shadow guard (mirrors the Metal kernel) ---
+    let observed_pixels = img.pixels.clone();
+    let mut sharpened_pixels: Vec<[f32; 3]> = vec![[0.0; 3]; img.pixels.len()];
+    for i in 0..img.pixels.len() {
+        let o = observed_pixels[i];
+        let li = luma[i];
+        let lb = luma_blur[i];
+        let lo = li + (li - lb);
+
+        let weight = smoothstep(SHADOW_EPSILON, SHADOW_BAND * SHADOW_EPSILON, li);
+        let safe_luma = li.max(SHADOW_EPSILON);
+        let raw_scale = lo / safe_luma;
+        let bounded = raw_scale.clamp(MIN_SCALE, MAX_SCALE);
+        let scale = 1.0 + weight * (bounded - 1.0);
+        sharpened_pixels[i] = [o[0] * scale, o[1] * scale, o[2] * scale];
     }
 
-    // --- Overdrive (amount > 100) ---
-    let mut sharpened = estimate;
-    if amount > 100.0 {
-        let over_mix = (amount - 100.0) / 100.0;
-        let blurred = gaussian_blur_rgb(&sharpened, radius_px);
-        for i in 0..sharpened.pixels.len() {
-            let s = sharpened.pixels[i];
-            let b = blurred.pixels[i];
-            sharpened.pixels[i] = [
-                s[0] + (s[0] - b[0]) * over_mix,
-                s[1] + (s[1] - b[1]) * over_mix,
-                s[2] + (s[2] - b[2]) * over_mix,
-            ];
-        }
-    }
-
-    // --- Edge mask (detail + masking sliders) ---
+    // --- Edge-aware amount + masking blend ---
+    // amount=100 + masking=0 → full sharpened buffer (mix=1).
+    // amount<100 → linear interpolation toward observed.
+    // masking>0 → flat regions mix at `detail_atten`, edges at 1.0.
     let overall_mix = (amount / 100.0).clamp(0.0, 1.5);
     let detail_atten = (detail / 100.0).clamp(0.0, 1.0);
     let masking_threshold = (masking / 100.0).clamp(0.0, 1.0);
 
-    // Compute a simple edge-gradient map on luminance.
     let w = img.width as i32;
     let h = img.height as i32;
-    let luma: Vec<f32> = observed.pixels.iter()
-        .map(|p| 0.2627 * p[0] + 0.6780 * p[1] + 0.0593 * p[2])
-        .collect();
 
-    // Gradient magnitude via central-difference (fast Sobel approximation).
+    // Central-difference luma gradient — fast Sobel approximation.
     let gradient = |x: i32, y: i32| -> f32 {
         let idx = |xi: i32, yi: i32| -> usize {
             let xc = xi.clamp(0, w - 1) as usize;
@@ -120,15 +122,16 @@ pub fn apply(
             let i = (y * w + x) as usize;
             let edge = if masking_threshold > 1e-3 {
                 let g = gradient(x, y);
-                // Normalize by a rough estimate: gradient around 0.2 on typical edges.
+                // Normalise by a rough estimate: gradient around 0.2 on
+                // typical edges → g_norm ∈ [0, 1].
                 let g_norm = (g / 0.2).clamp(0.0, 1.0);
                 if g_norm >= masking_threshold { 1.0 } else { detail_atten }
             } else {
                 1.0 // masking=0 → mix everywhere equally
             };
             let mix = overall_mix * edge;
-            let o = observed.pixels[i];
-            let s = sharpened.pixels[i];
+            let o = observed_pixels[i];
+            let s = sharpened_pixels[i];
             img.pixels[i] = [
                 o[0] + (s[0] - o[0]) * mix,
                 o[1] + (s[1] - o[1]) * mix,
@@ -136,6 +139,13 @@ pub fn apply(
             ];
         }
     }
+}
+
+/// GLSL-style smoothstep (matches Metal's built-in).
+#[inline]
+fn smoothstep(edge0: f32, edge1: f32, x: f32) -> f32 {
+    let t = ((x - edge0) / (edge1 - edge0)).clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
 }
 
 #[cfg(test)]
@@ -155,14 +165,14 @@ mod tests {
 
     #[test]
     fn flat_region_stays_flat_approximately() {
-        // On a perfectly flat field, RL iteration converges to the input (no
-        // sharpening required). Output should be close to input.
+        // On a perfectly flat field, luma USM has luma_in == luma_blur,
+        // so the unsharp delta is zero and scale = 1.0 (identity).
         let mut img = Image::new(20, 20, ColorSpace::SceneLinearRec2020);
         for p in &mut img.pixels { *p = [0.5, 0.5, 0.5]; }
         apply(&mut img, 100.0, 1.0, 25.0, 0.0);
         for p in &img.pixels {
             for &c in p {
-                assert!((c - 0.5).abs() < 0.01, "{} drifted from 0.5", c);
+                assert!((c - 0.5).abs() < 1e-4, "{} drifted from 0.5", c);
             }
         }
     }
@@ -182,10 +192,8 @@ mod tests {
         }
         let before = img.pixels.clone();
         apply(&mut img, 100.0, 1.0, 25.0, 0.0);
-        // Right after the edge (x=8), sharpened should be >= original.
-        // Just before edge (x=7), sharpened should be <= original.
-        let right_idx = 2 * 16 + 8;
-        let left_idx = 2 * 16 + 7;
+        let right_idx = 2 * 16 + 8; // first pixel after the edge
+        let left_idx = 2 * 16 + 7;  // last pixel before the edge
         assert!(img.pixels[right_idx][0] >= before[right_idx][0] - 0.01,
             "right side: {} vs {}", img.pixels[right_idx][0], before[right_idx][0]);
         assert!(img.pixels[left_idx][0] <= before[left_idx][0] + 0.01,
@@ -194,6 +202,7 @@ mod tests {
 
     #[test]
     fn preserves_scene_headroom() {
+        // Above-display values must remain finite (no NaN/Inf).
         let mut img = Image::new(10, 10, ColorSpace::SceneLinearRec2020);
         for p in &mut img.pixels { *p = [5.0, 3.0, 1.5]; }
         apply(&mut img, 100.0, 1.0, 25.0, 0.0);
@@ -204,24 +213,47 @@ mod tests {
         }
     }
 
-    /// Regression test for the test_0004 (Hasselblad H5D-40 ColorChecker SG)
-    /// "red bands across the colorchecker" bug. Strongly negative scene-linear
-    /// values produced by inv(CM) projecting saturated colored patches were
-    /// dividing by EPSILON-clamped reblur, blowing up to huge ratios that
-    /// poisoned whole rows. The guard in the RL inner loop short-circuits
-    /// the update where either operand is non-positive.
-    ///
-    /// The test seeds a near-flat field with one strongly-negative R pixel
-    /// (-0.5, like the fixture's worst SG patch) and asserts the sharpened
-    /// output stays bounded — pre-fix this exceeded |R| > 100 in nearby pixels.
+    /// Regression for the test_0002 magenta-cast bug: a strongly blue-biased
+    /// pixel inside an otherwise mid-gray field must not have its chroma
+    /// ratio diverge — luma-only USM scales every channel by the SAME factor,
+    /// so the R:G:B ratio of the output equals the R:G:B ratio of the input.
+    /// Pre-fix the per-channel Richardson-Lucy update could pump B up several×
+    /// while leaving R/G untouched, producing a magenta cast.
     #[test]
-    fn negative_pixels_do_not_explode_after_rl() {
+    fn chroma_ratio_is_preserved() {
         let w = 16u32;
         let h = 16u32;
         let mut img = Image::new(w, h, ColorSpace::SceneLinearRec2020);
-        for p in &mut img.pixels {
-            *p = [0.18, 0.18, 0.18]; // mid-gray neutral
-        }
+        // Mid-gray field with one strongly blue pixel (R:G:B = 1:1:4).
+        for p in &mut img.pixels { *p = [0.18, 0.18, 0.18]; }
+        let cx = (w / 2) as usize;
+        let cy = (h / 2) as usize;
+        let center = cy * (w as usize) + cx;
+        img.pixels[center] = [0.10, 0.10, 0.40];
+        apply(&mut img, 100.0, 1.0, 25.0, 0.0);
+
+        let p = img.pixels[center];
+        // Original chroma ratio: B/R = 4.0, G/R = 1.0.
+        let r = p[0].max(1e-6);
+        let bg_ratio = p[2] / r;
+        let gr_ratio = p[1] / r;
+        assert!((bg_ratio - 4.0).abs() < 1e-3,
+            "B/R ratio drifted from 4.0: got {}", bg_ratio);
+        assert!((gr_ratio - 1.0).abs() < 1e-3,
+            "G/R ratio drifted from 1.0: got {}", gr_ratio);
+    }
+
+    /// Regression for test_0004 (Hasselblad H5D-40 ColorChecker SG): strongly
+    /// negative scene-linear values produced by inv(CM) projecting saturated
+    /// patches must not blow up the sharpened output. Luma-only USM with the
+    /// shadow guard clamps `weight=0` for `luma_in < epsilon`, keeping the
+    /// scale at 1.0 in deep shadow.
+    #[test]
+    fn negative_pixels_stay_bounded() {
+        let w = 16u32;
+        let h = 16u32;
+        let mut img = Image::new(w, h, ColorSpace::SceneLinearRec2020);
+        for p in &mut img.pixels { *p = [0.18, 0.18, 0.18]; }
         // One strongly negative R pixel (mimics test_0004 worst case).
         img.pixels[(h / 2 * w + w / 2) as usize] = [-0.5, 0.18, 0.18];
         apply(&mut img, 40.0, 1.0, 25.0, 0.0);
@@ -234,5 +266,14 @@ mod tests {
                     i, c, v);
             }
         }
+    }
+
+    #[test]
+    fn smoothstep_endpoints() {
+        assert_eq!(smoothstep(0.0, 1.0, -0.5), 0.0);
+        assert_eq!(smoothstep(0.0, 1.0, 0.0), 0.0);
+        assert!((smoothstep(0.0, 1.0, 0.5) - 0.5).abs() < 1e-6);
+        assert_eq!(smoothstep(0.0, 1.0, 1.0), 1.0);
+        assert_eq!(smoothstep(0.0, 1.0, 1.5), 1.0);
     }
 }

@@ -23,7 +23,7 @@ public enum BookmarkError: Error, Sendable {
 /// access to user-chosen folders across launches.
 public struct BookmarkStore: @unchecked Sendable {
 
-    private static let defaultsKey = "app.justmaple.maple.bookmarks"
+    private static let defaultsKey = "app.justmaple.aperture.bookmarks"
 
     // UserDefaults is thread-safe but not annotated Sendable
     private let defaults: UserDefaults
