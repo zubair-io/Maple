@@ -18,6 +18,9 @@
  */
 
 import { Elysia } from "elysia";
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { dirname } from "node:path";
+import { randomBytes } from "node:crypto";
 import { healthRoutes } from "./routes/health.ts";
 import { foldersRoutes } from "./routes/folders.ts";
 import { assetsRoutes } from "./routes/assets.ts";
@@ -25,12 +28,36 @@ import { indexerRoutes } from "./routes/indexer.ts";
 import { eventsRoutes } from "./routes/events.ts";
 import { authRoutes } from "./routes/auth.ts";
 import { fsRoutes } from "./routes/fs.ts";
+import { requireAuth } from "./auth/middleware.ts";
 import { staticUiPlugin } from "./routes/static_ui.ts";
 import { getDb, ensureIndexes, closeDb } from "./db/client.ts";
 import { getIndexerService } from "./indexer/service.ts";
 
 const PORT = Number(process.env.PORT ?? 3000);
 const CORS_ORIGIN = process.env.MAPLE_CORS_ORIGIN ?? "*";
+
+// ---------------------------------------------------------------------------
+// JWT secret bootstrap
+// ---------------------------------------------------------------------------
+//
+// Resolves MAPLE_JWT_SECRET in priority order:
+//   1. Explicit env var (caller-managed; e.g. CI, secret store).
+//   2. File on disk at MAPLE_JWT_SECRET_FILE or `./.maple/jwt.secret`.
+//   3. Generate 32 random bytes (base64url), persist with mode 0o600,
+//      and use that. The .maple/ directory is gitignored.
+function ensureJwtSecret(): void {
+  if (process.env.MAPLE_JWT_SECRET) return;
+  const path = process.env.MAPLE_JWT_SECRET_FILE ?? "./.maple/jwt.secret";
+  if (existsSync(path)) {
+    process.env.MAPLE_JWT_SECRET = readFileSync(path, "utf8").trim();
+    return;
+  }
+  mkdirSync(dirname(path), { recursive: true });
+  const secret = randomBytes(32).toString("base64url");
+  writeFileSync(path, secret, { mode: 0o600 });
+  process.env.MAPLE_JWT_SECRET = secret;
+  console.log(`[server] generated JWT secret at ${path}`);
+}
 
 // ---------------------------------------------------------------------------
 // Build the Elysia app
@@ -85,11 +112,13 @@ const app = new Elysia()
 
   // API routes (registered before static UI so they take priority)
   .use(healthRoutes)
+  .use(authRoutes)
+  // Below this line: every route requires a valid bearer.
+  .use(requireAuth)
   .use(foldersRoutes)
   .use(assetsRoutes)
   .use(indexerRoutes)
   .use(eventsRoutes)
-  .use(authRoutes)
   .use(fsRoutes)
 
   // Static UI (catch-all — must be last)
@@ -100,6 +129,7 @@ const app = new Elysia()
 // ---------------------------------------------------------------------------
 
 async function start(): Promise<void> {
+  ensureJwtSecret();
   console.log(`\nMaple Self Hosted v0.1.0`);
   console.log(`Listening on http://localhost:${PORT}`);
   console.log(`MongoDB: ${process.env.MAPLE_MONGO_URI ?? "mongodb://localhost:27017"}`);

@@ -1,0 +1,34 @@
+name: API tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  api-tests:
+    runs-on: ubuntu-latest
+    services:
+      mongo:
+        image: mongo:7
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "echo 'db.runCommand({ping:1})' | mongosh --quiet"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - name: Install API deps
+        working-directory: src/api
+        run: bun install --frozen-lockfile
+      - name: Run API tests
+        working-directory: src/api
+        env:
+          MAPLE_MONGO_URI: mongodb://localhost:27017
+          MAPLE_JWT_SECRET: ci-test-secret-not-for-production-only
+        run: bun test

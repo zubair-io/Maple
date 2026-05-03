@@ -1,0 +1,18 @@
+<form (submit)="submit(); $event.preventDefault()">
+  <h2>{{ claimed() === true ? 'Sign in' : 'Claim this server' }}</h2>
+  <input
+    type="email"
+    [(ngModel)]="email"
+    name="email"
+    placeholder="Email"
+    autocomplete="email"
+    required
+  />
+  <button type="submit" [disabled]="busy() || !email">
+    {{ claimed() === true ? 'Sign in with passkey' : 'Create passkey' }}
+  </button>
+  @if (error(); as e) {
+    <p class="error">{{ e }}</p>
+  }
+  <a routerLink="/join">Have an invite code?</a>
+</form>

@@ -1,0 +1,109 @@
+{
+  "version": 1,
+  "endpoints": [
+    {
+      "id": "bootstrap",
+      "method": "GET",
+      "path": "/api/auth/bootstrap",
+      "request": null,
+      "response_keys": ["claimed"]
+    },
+    {
+      "id": "register_options",
+      "method": "POST",
+      "path": "/api/auth/register/options",
+      "request_keys": ["email"],
+      "request_optional_keys": ["invite_code"],
+      "response_keys": ["challenge", "rp", "user", "pubKeyCredParams"]
+    },
+    {
+      "id": "register_verify",
+      "method": "POST",
+      "path": "/api/auth/register/verify",
+      "request_keys": ["email", "device_label", "credential"],
+      "request_optional_keys": ["invite_code"],
+      "response_keys": ["access_token", "refresh_token", "user"]
+    },
+    {
+      "id": "login_options",
+      "method": "POST",
+      "path": "/api/auth/login/options",
+      "request_keys": ["email"],
+      "response_keys": ["challenge", "allowCredentials"]
+    },
+    {
+      "id": "login_verify",
+      "method": "POST",
+      "path": "/api/auth/login/verify",
+      "request_keys": ["email", "credential"],
+      "response_keys": ["access_token", "refresh_token", "user"]
+    },
+    {
+      "id": "refresh",
+      "method": "POST",
+      "path": "/api/auth/refresh",
+      "request_optional_keys": ["refresh_token"],
+      "response_keys": ["access_token", "refresh_token"]
+    },
+    {
+      "id": "logout",
+      "method": "POST",
+      "path": "/api/auth/logout",
+      "auth": "bearer",
+      "request_optional_keys": ["refresh_token"],
+      "response_status": 204
+    },
+    {
+      "id": "invites_create",
+      "method": "POST",
+      "path": "/api/auth/invites",
+      "auth": "owner",
+      "request_keys": ["email"],
+      "response_keys": ["code", "expires_at"]
+    },
+    {
+      "id": "invites_list",
+      "method": "GET",
+      "path": "/api/auth/invites",
+      "auth": "owner",
+      "response_kind": "array_of",
+      "response_keys": ["code", "email", "expires_at", "consumed_at"]
+    },
+    {
+      "id": "invites_rescind",
+      "method": "DELETE",
+      "path": "/api/auth/invites/:code",
+      "auth": "owner",
+      "response_status": 204
+    },
+    {
+      "id": "me",
+      "method": "GET",
+      "path": "/api/auth/me",
+      "auth": "bearer",
+      "response_keys": ["user", "credentials"]
+    },
+    {
+      "id": "credentials_options",
+      "method": "POST",
+      "path": "/api/auth/credentials/options",
+      "auth": "bearer",
+      "response_keys": ["challenge", "rp", "user", "pubKeyCredParams"]
+    },
+    {
+      "id": "credentials_verify",
+      "method": "POST",
+      "path": "/api/auth/credentials/verify",
+      "auth": "bearer",
+      "request_keys": ["credential", "device_label"],
+      "response_keys": ["credential_id"]
+    },
+    {
+      "id": "credentials_delete",
+      "method": "DELETE",
+      "path": "/api/auth/credentials/:id",
+      "auth": "bearer",
+      "response_status": 204
+    }
+  ]
+}
