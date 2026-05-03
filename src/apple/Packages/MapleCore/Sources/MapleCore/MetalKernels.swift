@@ -33,7 +33,7 @@ import Foundation
 import Metal
 import OSLog
 
-private let kernelLog = OSLog(subsystem: "app.justmaple.maple", category: "MetalKernels")
+private let kernelLog = OSLog(subsystem: "app.justmaple.aperture", category: "MetalKernels")
 
 // MARK: - MetalKernels (namespace)
 

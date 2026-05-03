@@ -5,6 +5,7 @@
 > **Brief:** [`docs/superpowers/specs/2026-04-25-plan-2-v2-heavy-slider-stages-brief.md`](../specs/2026-04-25-plan-2-v2-heavy-slider-stages-brief.md). § 2 "Per-stage kernel inventory" row 5 spec the approach: "bespoke `MTLComputePipeline` for 3-iter RL + `CIColorKernel` edge mask" with effort `M` and halo `~9 px`. § 5 "Color domain" locks the chain order **clarity → texture → dehaze → sharpen → NR luma → NR color → AgX**. Deep Zoom (35 px overlap) absorbs the 9 px stencil — no overlap math change.
 >
 > **Predecessor plans (already shipped):**
+>
 > - [`2026-04-25-plan-2-v2-shared-blur-clarity-texture.md`](2026-04-25-plan-2-v2-shared-blur-clarity-texture.md) — v2 v1: shared `SeparableGaussianBlur` compute kernel (commit `b84da17`), clarity (commit `c441000`), texture (commit `63ae256`).
 > - [`2026-04-25-plan-2-v2-nr-luminance-color.md`](2026-04-25-plan-2-v2-nr-luminance-color.md) — v2 v2: NR luminance (commit `3fdd80a`), NR color (commit `beb8a34`), wired (commit `49c9d22`). Established the **extract → blur → combine** orchestration shape this plan reuses.
 >
@@ -35,7 +36,6 @@
    **(b) Swift orchestration calling existing blur N times + small `CIColorKernel` mix steps for the per-iteration arithmetic.** The Swift wrapper invokes the v2 v1 `applySeparableGaussianBlur` 6 times (3 RL iters × 2 blurs each = 6 blur passes, plus 1 more for overdrive when amount > 100 = up to 7 blur passes total), interleaved with small per-pixel `CIColorKernel`s that compute `ratio = observed / max(reblur, EPSILON)` and `estimate = estimate * correction`. The final overdrive + edge-mix runs as one more `CIColorKernel` consuming the original observed CIImage, the sharpened CIImage, and an edge-gradient CIImage (built from a tiny luminance + central-difference kernel).
 
    **Decision: pick (b).** Three reasons:
-
    - **Reuses the validated shared blur.** The v2 v1 `SeparableGaussianBlur` compute pipeline is parity-tested against Rust at the per-pixel level (commit `b2374df`). Option (a) would re-implement that algorithm inside the mega-kernel, doubling the parity surface and forcing a re-derivation of the box-blur transpose-free vertical sweep on threadgroup-shared memory — a bigger code change with a bigger parity risk than orchestrating the existing primitive.
    - **Easier to test per-iteration.** Each step (`ratio` divide, `estimate` multiply, edge-mix) is its own `CIColorKernel`, individually parity-testable from Swift. Option (a) is one giant kernel — the only test surface is end-to-end pixel parity, no per-step inspection.
    - **Architectural symmetry with v2 v1 / v2 v2.** Both predecessors used the orchestrated shape (clarity / texture: blur + sceneUnsharp; NR luma / color: extract + blur + combine). v3 staying on the same shape keeps the mental model consistent and lets the same `CIImage(mtlTexture:options:)` compute → CI handoff work without modification. Option (a) would introduce a new pattern (a stateful compute kernel that manages its own multi-pass state) just for sharpen, fragmenting the architecture across heavy-slider stages.
@@ -104,6 +104,7 @@
 7. **Sidecar plumbing already done.** `model.sharpen_amount`, `.sharpen_radius`, `.sharpen_detail`, `.sharpen_masking` parse from XMP at [`xmp.rs:104-107`](../../../src/raw-pipeline/raw-core/src/xmp.rs); the Swift `AdjustmentModel` mirrors at [`AdjustmentModel.swift:47-50`](../../../src/apple/Packages/MapleCore/Sources/MapleCore/AdjustmentModel.swift) (`sharpenAmount`, `sharpenRadius`, `sharpenDetail`, `sharpenMasking`). No new FFI plumbing.
 
 **Tech Stack:**
+
 - Swift (`MapleCore`) — `MetalKernels` namespace gains five cache fields (`_rlRatio`, `_rlMultiply`, `_sharpenLuminance`, `_sharpenEdgeMix`, `_sharpenOverdrive`), one new public wrapper (`applySceneSharpen(to:amount:radius:detail:masking:)`), and five private kernel-loader helpers (`rlRatioKernel()`, `rlMultiplyKernel()`, `sharpenLuminanceKernel()`, `sharpenEdgeMixKernel()`, `sharpenOverdriveKernel()`). All five loaders use the existing `loadKernel(file:function:)` helper at [`MetalKernels.swift:664`](../../../src/apple/Packages/MapleCore/Sources/MapleCore/MetalKernels.swift).
 - Metal Shading Language —
   - `RichardsonLucyMixer.metal`: two `extern "C" float4` `CIColorKernel` functions sharing matching `coreimage::sampler_h` argument shape (`rlRatio` takes 2 samplers; `rlMultiply` takes 2 samplers).
@@ -117,6 +118,7 @@
 The plan-writer's task instructions said: "Insert AFTER NR color, BEFORE AgX. Per Rust chain order at `pipeline.rs:120-132`." This sentence is internally inconsistent — Rust at `pipeline.rs:130` puts sharpen **before** NR luminance / NR color, not after NR color. The brief at § 5 also locks "WB → tone → vibrance → saturation → clarity → texture → dehaze → sharpen → NR luma → NR color → AgX." **This plan follows the brief and the Rust source-of-truth (sharpen before NR luma, not after NR color).** The "AFTER NR color" phrasing in the task instructions appears to be a slip; if a future reviewer expected sharpen-after-NR, the plan is wrong by their reading but right by the brief — flag and reconcile before proceeding.
 
 **Out of scope (explicit):**
+
 - **Plan 2 v2 v4 — Dehaze.** Brief § 2 marks effort `L`. Sibling plan (in flight in parallel by another agent). v4 inserts dehaze above sharpen; v3 (this plan) leaves a comment marker at that point in `processSceneLinear` so v4's wiring is a clean diff.
 - **Plan 2 v2 v5 — Delete legacy `applyFilters` chain at [`ImageEditPipeline.swift:512`](../../../src/apple/Packages/MapleCore/Sources/MapleCore/ImageEditPipeline.swift)** plus the `MAPLE_SKIP_SWIFT_AGX` and `MAPLE_SKIP_SWIFT_FILTERS` env gates. Brief § 4 explicitly defers to "after every kernel is on the new path." Separate plan after v3 + v4 land.
 - **Web/WASM port of sharpen.** Plan 3 territory; not touched here.
@@ -132,6 +134,7 @@ The plan-writer's task instructions said: "Insert AFTER NR color, BEFORE AgX. Pe
 ## File Structure
 
 **Swift (read-write):**
+
 - Modify: `src/apple/Packages/MapleCore/Sources/MapleCore/MetalKernels.swift` — add five private static cache fields (`_rlRatio: CIColorKernel?`, `_rlMultiply: CIColorKernel?`, `_sharpenLuminance: CIColorKernel?`, `_sharpenEdgeMix: CIColorKernel?`, `_sharpenOverdrive: CIColorKernel?`), one new public wrapper (`applySceneSharpen(to:amount:radius:detail:masking:)`), and five new private kernel-loader helpers. All five loaders mirror the existing `sceneUnsharpKernel()` shape at [`MetalKernels.swift:501-506`](../../../src/apple/Packages/MapleCore/Sources/MapleCore/MetalKernels.swift).
 - Add: `src/apple/Packages/MapleCore/Sources/MapleCore/Metal/RichardsonLucyMixer.metal` — new Metal source. Two `extern "C" float4` functions:
   - `rlRatio(coreimage::sampler_h observed, coreimage::sampler_h reblur)` — per-pixel `out = observed / max(reblur, 1e-5)`.
@@ -145,18 +148,21 @@ The plan-writer's task instructions said: "Insert AFTER NR color, BEFORE AgX. Pe
 - Modify: `src/apple/Packages/MapleCore/Tests/MapleCoreTests/SceneLinearPipelineTests.swift` — append (a) one M4 parity mirror test (`testM4SwiftScalarApplySharpenMatchesRust`) — pure-Swift port of `sharpen::apply` against a synthetic step-edge image compared to a recorded Rust reference, no metallib needed (mirrors the existing `swiftApplyLuminance` parity pattern at `:2183-2213`), (b) one M4 wiring smoke test (`testM4ProcessSceneLinearAppliesSharpen`) that drives `processSceneLinear` end-to-end with non-zero `sharpenAmount` and asserts centre-pixel finite-and-bounded using the existing `>=` smoke pattern from Plan 2 v2 v2 (e.g. `testM3ProcessSceneLinearAppliesNRLuminance` at `:1137-1160`), (c) one identity test (`testM4SharpenShortCircuitsAtZeroAmount`) — assert the wrapper returns the input CIImage instance unchanged when amount=0 (mirrors `testM3NRLuminanceShortCircuitsAtZeroAmount`), and (d) one masking test (`testM4SharpenMaskingFadesFlatAreas`) verifying `sharpen_masking > 0` reduces sharpening on flat regions while preserving it on edges (mirrors the chroma-reduction test in `testM3bSwiftScalarApplyColorMatchesRust` at `:999-1033`).
 
 **Swift (read-only during verification):**
+
 - `src/apple/Packages/MapleCore/Sources/MapleCore/Metal/SeparableGaussianBlur.metal` — already shipped in v2 v1 (commit `b84da17`). Reference for the shared compute kernel. **Not modified** by this plan; consumed via the public `MetalKernels.applySeparableGaussianBlur(to:radius:)` wrapper at [`MetalKernels.swift:234-327`](../../../src/apple/Packages/MapleCore/Sources/MapleCore/MetalKernels.swift).
 - `src/apple/Packages/MapleCore/Sources/MapleCore/Metal/SceneUnsharp.metal` — pattern reference for "two-sampler `extern "C" float4` `CIColorKernel` that takes (src, blurred, amount)". Used as the source style template for `SharpenOverdrive.metal`.
 - `src/apple/Packages/MapleCore/Sources/MapleCore/Metal/SceneNRLuminance.metal`, `SceneNRColor.metal` — recently shipped (commits `3fdd80a`, `beb8a34`). Pattern for multi-step CIColorKernel orchestration with per-iteration cache fields.
 - `src/apple/Packages/MapleCore/Tests/MapleCoreTests/DeepZoomTileRenderingTests.swift` — verified read-only in Task 7 Step 7.4 (no source edits).
 
 **Rust (read-only during verification):**
+
 - `src/raw-pipeline/raw-core/src/stages/sharpen.rs:22-124` — algorithm reference for `apply` (radius math at `:33-34`, RL iter loop at `:42-61`, overdrive at `:63-77`, edge-mask at `:79-123`).
 - `src/raw-pipeline/raw-core/src/stages/blur.rs:77-114` — `gaussian_blur_plane` and `gaussian_blur_rgb` algorithm. **Not modified.** The Swift mirror `swiftGaussianBlurPlane` already exists in `SceneLinearPipelineTests.swift:1786-1796` (added by v2 v1 Task 3); reused here for the parity mirror.
 - `src/raw-pipeline/raw-core/src/xmp.rs:35-38` — slider field + range definitions (`sharpen_amount`, `sharpen_radius`, `sharpen_detail`, `sharpen_masking` defaults).
 - `src/raw-pipeline/raw-core/src/pipeline.rs:127-132` — chain order. Sharpen at line 130, between texture (128) / dehaze (129) and NR luminance (131) / NR color (132).
 
 **Build artifacts (touched):**
+
 - None. M4 is pure Swift + Metal source additions. The xcframework is unchanged because no Rust source changes.
 
 ---
@@ -180,6 +186,7 @@ After every task: `cd src/apple/Packages/MapleCore && swift test`. After every m
 ## Task 1: Preflight — confirm Rust algorithm shape + v2 v1/v2 v2 wrapper reachability
 
 **Files:**
+
 - Read-only: `src/raw-pipeline/raw-core/src/stages/sharpen.rs`
 - Read-only: `src/apple/Packages/MapleCore/Sources/MapleCore/MetalKernels.swift`
 - Read-only: `src/apple/Packages/MapleCore/Sources/MapleCore/AdjustmentModel.swift`
@@ -189,11 +196,13 @@ After every task: `cd src/apple/Packages/MapleCore && swift test`. After every m
 - [ ] **Step 1.1: Confirm the Rust `sharpen::apply` shape.**
 
 Run:
+
 ```bash
 sed -n '22,124p' src/raw-pipeline/raw-core/src/stages/sharpen.rs
 ```
 
 Expected output (load-bearing details):
+
 - `assert_space(SceneLinearRec2020)` at `:29`.
 - `if amount.abs() < 1e-3 { return; }` short-circuit at `:30`.
 - `radius_px = radius.clamp(0.5, 3.0).round() as usize; let radius_px = radius_px.max(1);` at `:33-34`.
@@ -212,11 +221,13 @@ If any element above is missing or the line numbers have drifted, STOP and recon
 - [ ] **Step 1.2: Confirm the v2 v1 / v2 v2 public wrappers are reachable.**
 
 Run:
+
 ```bash
 grep -n "applySeparableGaussianBlur\|applySceneNRLuminance\|applySceneNRColor\|loadKernel(file:\|public static func applyScene" src/apple/Packages/MapleCore/Sources/MapleCore/MetalKernels.swift
 ```
 
 Expected matches (line numbers may drift slightly with v2 v2 churn):
+
 - `public static func applySeparableGaussianBlur(to:radius:)` near line 234.
 - `public static func applySceneClarity(to:clarity:)` near line 343.
 - `public static func applySceneTexture(to:texture:)` near line 363.
@@ -229,6 +240,7 @@ The new sharpen wrapper will call `applySeparableGaussianBlur` (public) and `loa
 - [ ] **Step 1.3: Confirm the v2 v1 spike PASS records still exist in the test file header.**
 
 Run:
+
 ```bash
 grep -n "Spike 1.1.*Result: PASS\|Spike 1.2.*Result: PASS" src/apple/Packages/MapleCore/Tests/MapleCoreTests/SceneLinearPipelineTests.swift
 ```
@@ -238,11 +250,13 @@ Expected: two matches (one for each spike), both with `Result: PASS`. If either 
 - [ ] **Step 1.4: Confirm the `AdjustmentModel.swift` slider field names + ranges.**
 
 Run:
+
 ```bash
 grep -n "sharpenAmount\|sharpenRadius\|sharpenDetail\|sharpenMasking" src/apple/Packages/MapleCore/Sources/MapleCore/AdjustmentModel.swift
 ```
 
 Expected (per [`AdjustmentModel.swift:47-50`](../../../src/apple/Packages/MapleCore/Sources/MapleCore/AdjustmentModel.swift)):
+
 - `public var sharpenAmount: Double    // 0..150, default 0` at line 47.
 - `public var sharpenRadius: Double    // 0.5..3.0, default 0.5` at line 48.
 - `public var sharpenDetail: Double    // 0..100, default 25` at line 49.
@@ -253,6 +267,7 @@ These match `xmp.rs:35-38` byte-for-byte. The wrapper signature uses `Float(mode
 - [ ] **Step 1.5: Confirm the existing v2 v1 / v2 v2 kernels do not yet use `[[stitchable]]`.**
 
 Run:
+
 ```bash
 grep -n "stitchable" src/apple/Packages/MapleCore/Sources/MapleCore/Metal/*.metal
 ```
@@ -282,6 +297,7 @@ This task touches no source files. Skip the commit step. Move on to Task 2.
 ## Task 2: M4a — `RichardsonLucyMixer.metal` + RL-iter orchestration in `applySceneSharpen` (no overdrive, no edge mask yet)
 
 **Files:**
+
 - Add: `src/apple/Packages/MapleCore/Sources/MapleCore/Metal/RichardsonLucyMixer.metal`
 - Modify: `src/apple/Packages/MapleCore/Sources/MapleCore/MetalKernels.swift` (add 2 cache fields, 1 partial public wrapper, 2 private kernel loaders)
 
@@ -292,6 +308,7 @@ This task touches no source files. Skip the commit step. Move on to Task 2.
 Run: `sed -n '42,61p' src/raw-pipeline/raw-core/src/stages/sharpen.rs`
 
 Expected: matches Step 1.1's per-iteration body. Mentally walk through one pixel at default `sharpen_amount = 100, sharpen_radius = 0.5`:
+
 1. Input rec2020 `(r, g, b)` from `observed`.
 2. Initial `estimate = observed`.
 3. Iteration 0:
@@ -528,6 +545,7 @@ edge-aware mix arrive in Tasks 3 + 4."
 ## Task 3: M4b — `SharpenEdgeMix.metal` (with neighbour-sampling micro-spike) + edge-mask wiring in `applySceneSharpen`
 
 **Files:**
+
 - Add: `src/apple/Packages/MapleCore/Sources/MapleCore/Metal/SharpenEdgeMix.metal`
 - Modify: `src/apple/Packages/MapleCore/Sources/MapleCore/MetalKernels.swift` (add 2 kernel loaders, replace the bare-RL return with edge-mix orchestration)
 - Modify: `src/apple/Packages/MapleCore/Tests/MapleCoreTests/SceneLinearPipelineTests.swift` (record the spike result)
@@ -803,6 +821,7 @@ chain (overdrive still stubbed; Task 4)."
 ## Task 4: Overdrive — `SharpenOverdrive.metal` + wire the `amount > 100` branch in `applySceneSharpen`
 
 **Files:**
+
 - Add: `src/apple/Packages/MapleCore/Sources/MapleCore/Metal/SharpenOverdrive.metal`
 - Modify: `src/apple/Packages/MapleCore/Sources/MapleCore/MetalKernels.swift` (add 1 kernel loader, fill in the overdrive branch in `applySceneSharpen`)
 
@@ -813,6 +832,7 @@ chain (overdrive still stubbed; Task 4)."
 Run: `sed -n '63,77p' src/raw-pipeline/raw-core/src/stages/sharpen.rs`
 
 Expected:
+
 - Guard `if amount > 100.0 { ... }` at `:65`.
 - `over_mix = (amount - 100.0) / 100.0` at `:66`.
 - `blurred = gaussian_blur_rgb(&sharpened, radius_px)` at `:67`.
@@ -921,6 +941,7 @@ gate."
 ## Task 5: M4 verification — Swift-scalar parity mirror against Rust `apply`
 
 **Files:**
+
 - Modify: `src/apple/Packages/MapleCore/Tests/MapleCoreTests/SceneLinearPipelineTests.swift` (append parity mirror tests + Swift scalar helpers)
 
 **Why this matters:** Under `swift test` the metallib isn't loaded, so the Metal kernels from Tasks 2–4 are silent no-ops (per the v2 v1 / v2 v2 pattern). To verify M4 ships with correct algorithm semantics, this task adds a pure-Swift scalar mirror of the Rust `sharpen::apply` algorithm and compares against recorded reference outputs — same shape as v2 v2's `swiftApplyLuminance` parity test at `SceneLinearPipelineTests.swift:2183-2270`. The Swift mirror reuses `swiftGaussianBlurPlane` (v2 v1 Task 3) and is byte-faithful to the Rust implementation.
@@ -1248,6 +1269,7 @@ Tests:
 ## Task 6: Wire `applySceneSharpen` into `processSceneLinear`
 
 **Files:**
+
 - Modify: `src/apple/Packages/MapleCore/Sources/MapleCore/ImageEditPipeline.swift` (`processSceneLinear`, between texture and NR luminance)
 - Modify: `src/apple/Packages/MapleCore/Tests/MapleCoreTests/SceneLinearPipelineTests.swift` (append wiring smoke test)
 
@@ -1258,6 +1280,7 @@ Tests:
 Run: `grep -n 'stage("texture\|stage("dehaze\|stage("sharpen\|stage("nr_luminance\|stage("nr_color' src/raw-pipeline/raw-core/src/pipeline.rs`
 
 Expected:
+
 ```
 128:    stage("texture", || texture::apply(&mut scene, model.texture));
 129:    stage("dehaze", || dehaze::apply(&mut scene, model.dehaze));
@@ -1442,6 +1465,7 @@ applyFilters still untouched."
 ## Task 7: M4 milestone gate — manual smoke test + deep-zoom regression check
 
 **Files:**
+
 - Read-only: `src/apple/Packages/MapleCore/Sources/MapleCore/ImageEditPipeline.swift`
 - Read-only: `src/apple/Packages/MapleCore/Tests/MapleCoreTests/DeepZoomTileRenderingTests.swift`
 - Modify (header comment only): `src/apple/Packages/MapleCore/Tests/MapleCoreTests/SceneLinearPipelineTests.swift`
@@ -1467,20 +1491,21 @@ Open `src/raw-pipeline/test-fixtures/raws/dji-mavic3pro-100mp.dng` (or the large
 
 For each slider transition below, drag and visually confirm the image changes:
 
-| Slider          | Default | Test action          | Expected                                                                                    |
-|-----------------|---------|----------------------|---------------------------------------------------------------------------------------------|
-| sharpenAmount   | 0       | Drag to +100         | Mid-frequency detail (textures, foliage edges) becomes crisper; flat regions stay smooth   |
-| sharpenAmount   | 100     | Drag to +150         | Edge contrast increases further (overdrive on top of RL); slight halos start to appear      |
-| sharpenRadius   | 0.5     | Drag to 3.0          | Sharpening strength on coarser features increases; fine grain becomes less affected         |
-| sharpenDetail   | 25      | Drag to 100          | More mid-frequency detail emerges; noise can become slightly more visible                    |
-| sharpenMasking  | 0       | Drag to 50           | Sharpening fades on flat regions (sky, clean shadows); edges retain full sharpening         |
-| sharpenMasking  | 50      | Drag to 0            | Sharpening returns to flat regions                                                          |
-| sharpenAmount   | 100     | Drag to 0            | All sharpening removed (image returns to bare texture state)                                |
+| Slider         | Default | Test action  | Expected                                                                                 |
+| -------------- | ------- | ------------ | ---------------------------------------------------------------------------------------- |
+| sharpenAmount  | 0       | Drag to +100 | Mid-frequency detail (textures, foliage edges) becomes crisper; flat regions stay smooth |
+| sharpenAmount  | 100     | Drag to +150 | Edge contrast increases further (overdrive on top of RL); slight halos start to appear   |
+| sharpenRadius  | 0.5     | Drag to 3.0  | Sharpening strength on coarser features increases; fine grain becomes less affected      |
+| sharpenDetail  | 25      | Drag to 100  | More mid-frequency detail emerges; noise can become slightly more visible                |
+| sharpenMasking | 0       | Drag to 50   | Sharpening fades on flat regions (sky, clean shadows); edges retain full sharpening      |
+| sharpenMasking | 50      | Drag to 0    | Sharpening returns to flat regions                                                       |
+| sharpenAmount  | 100     | Drag to 0    | All sharpening removed (image returns to bare texture state)                             |
 
 Capture a screenshot of one mid-drag state per slider — file at `/tmp/plan-2-v2-v3-m4-<slider>.png`. **Do not commit screenshots.**
 
 If any slider fails to move pixels, M4 is not actually working — STOP and inspect:
-- Run `log stream --predicate 'subsystem == "app.justmaple.maple"'` and look for `os_log .error` lines from `MetalKernels.loadKernel`.
+
+- Run `log stream --predicate 'subsystem == "app.justmaple.aperture"'` and look for `os_log .error` lines from `MetalKernels.loadKernel`.
 - Confirm the metallib is present in the .app bundle: `find /Users/$USER/Library/Developer/Xcode/DerivedData/Maple-*/Build/Products/Debug/Maple.app -name 'RichardsonLucyMixer.metal' -o -name 'SharpenEdgeMix.metal' -o -name 'SharpenOverdrive.metal'`. If any of the three is absent, the `.copy("Metal")` resource bundling failed — rebuild from clean (`xcodebuild clean` then `build`).
 - If the `os_log` shows "Cannot find a valid stitchable Metal function in the source" or "cannot initialize a variable of type 'float4' with an rvalue of type 'half4'" (the v2 v1 Spike 1.1 modern-macOS failure modes), the new sharpen kernels need `[[stitchable]]` retrofitted (per the Step 1.5 note in Task 1). Apply the fix to BOTH the new sharpen kernels AND the existing v2 v1 / v2 v2 production kernels in a separate retrofit plan — do NOT add `[[stitchable]]` only to the new sharpen kernels (would create a kernel-source style split).
 

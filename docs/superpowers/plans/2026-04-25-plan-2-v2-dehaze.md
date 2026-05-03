@@ -5,6 +5,7 @@
 > **Brief:** [`docs/superpowers/specs/2026-04-25-plan-2-v2-heavy-slider-stages-brief.md`](../specs/2026-04-25-plan-2-v2-heavy-slider-stages-brief.md). The brief's § 2 Per-stage kernel inventory row 6 spec the approach: "3 compute dispatches: dark-channel min-filter, atmospheric-light reduction, guided-filter" at effort `L`. The brief § 4 sequencing locks **M5 = dehaze** as the deferred milestone after M4 (sharpen). § 3 Tile-rendering composition explicitly bans widening the 35 px overlap budget — dehaze stays whole-image-only at deep zoom (this plan inherits that fallback semantics).
 >
 > **Predecessor plans (must land first):**
+>
 > - [`docs/superpowers/plans/2026-04-25-plan-2-v2-shared-blur-clarity-texture.md`](2026-04-25-plan-2-v2-shared-blur-clarity-texture.md) — v2 v1, shipped (commits `b84da17` SeparableGaussianBlur, `c441000` clarity, `63ae256` texture, `7d1210c` M2 milestone gate).
 > - [`docs/superpowers/plans/2026-04-25-plan-2-v2-nr-luminance-color.md`](2026-04-25-plan-2-v2-nr-luminance-color.md) — v2 v2, shipped. Established the extract-blur-combine pattern + the `swiftRec2020ToOklab` / `swiftOklabToRec2020` / `swiftGaussianBlurPlane` test mirrors that this plan reuses for parity testing.
 > - **Plan 2 v2 v3 (sharpen)** — separate plan, written in parallel. Not a hard prerequisite for code (different files, no source conflicts), but the chain order in `processSceneLinear` after this plan lands depends on whether v3 lands first: the Rust order is `... → texture → dehaze → sharpen → nr_luminance → nr_color → AgX` ([`pipeline.rs:127-132`](../../../src/raw-pipeline/raw-core/src/pipeline.rs)), so dehaze sits between `texture` and `sharpen`. Task 8 of this plan handles both possible insertion points.
@@ -44,9 +45,9 @@ The algorithm is multi-stage: **dark channel** (15×15 minimum filter on RGB) �
 3. **Atmospheric-light reduction strategy: deterministic-by-fixture, not bit-exact-vs-Rust.** Rust at `dehaze.rs:29-41` does a deterministic full sort by dark-channel value descending, then takes the first `top_n = max(1, n/1000)` indices and averages the original RGB at those positions. A GPU full sort is unnecessary; the equivalent answer comes from:
    - **Pass 1:** `dehazeAtmoPartial` — each threadgroup processes a 16×16 region and emits its single brightest dark-channel value + co-located RGB (per-threadgroup top-1 selection via a threadgroup-shared parallel max-reduction). Output: a `(num_tgs_x * num_tgs_y)`-element `float4` buffer.
    - **Pass 2:** `dehazeAtmoFinal` — single-threaded over the partial-result buffer; sort its small (~`(W*H)/256`) entries descending by dark-channel value and take the brightest `max(1, n/1000)` after rescaling top-N to the **per-image** count. This per-image count is `image_pixels / 1000`, but with `1 / 256` thread-groups granularity the available top-N is at most `tg_count = ceil(W/16) * ceil(H/16)` — for a 6K×4K image, `tg_count = 384 × 256 = 98304`, and `n/1000 = 24000`, so taking 24K from a 98K-entry partial-buffer is sound.
-   
+
    **Tradeoff:** The per-threadgroup top-1 selection picks the single brightest pixel per threadgroup, then the final pass averages over the brightest `n/1000` of those single picks. Rust averages the brightest `n/1000` over **every pixel in the image**. These differ on images where one threadgroup contains multiple top-0.1% pixels — the GPU misses the runner-ups inside that threadgroup. **For the dehaze use case (atmospheric light is a sky/clouds region with ~uniform luminance over thousands of pixels), this is empirically equivalent within 0.001 luminance units** — confirmed by Plan 2 v2 v4 spike if needed; otherwise inferred from atmospheric-light papers' standard treatment of "brightest 0.1%" as a robust estimator. The parity test in Task 7 records the maximum observed `|A_gpu - A_rust|` and gates at `< 1e-3` per channel.
-   
+
    **Alternative considered: per-threadgroup top-K (K=16) with parallel merge.** Strictly more correct but adds substantial kernel complexity and an extra dispatch. Deferred to a follow-up if Task 7 shows the top-1 strategy drifts more than `1e-3`.
 
 4. **No FFI changes.** `model.dehaze` is already wired to `processSceneLinear` via the `AdjustmentModel.dehaze` field at [`AdjustmentModel.swift:44`](../../../src/apple/Packages/MapleCore/Sources/MapleCore/AdjustmentModel.swift). The new wrapper consumes it directly. The xcframework is unchanged — no Rust source edits.
@@ -56,6 +57,7 @@ The algorithm is multi-stage: **dark channel** (15×15 minimum filter on RGB) �
 6. **Wiring is isolated to `processSceneLinear`.** Insertion point: between `withTexture` (the post-texture stage from v2 v1) and `withNRLuminance` (the post-NR-luma stage from v2 v2) **if Plan 2 v2 v3 (sharpen) has NOT landed yet** — that puts the chain at WB → tone → vibrance → saturation → clarity → texture → **dehaze** → NR luma → NR color → AgX, **divergent from Rust**. Or between `withTexture` and the post-sharpen stage **if Plan 2 v2 v3 HAS landed** — that puts the chain at WB → tone → vibrance → saturation → clarity → texture → **dehaze → sharpen** → NR luma → NR color → AgX, matching Rust at `pipeline.rs:127-132`. Task 8 of this plan handles both cases by detecting the v3 landing via `grep` against the file.
 
 **Tech Stack:**
+
 - Swift (`MapleCore`) — `MetalKernels` namespace gains:
   - 5 cache fields for `MTLComputePipelineState` (one per compute kernel: `_dehazeDarkChannelPipeline`, `_dehazeAtmoPartialPipeline`, `_dehazeAtmoFinalPipeline`, `_dehazeTransmissionPipeline`, `_dehazeGuidePipeline`, `_dehazeBuildIpPipeline`, `_dehazeBuildIIPipeline`, `_dehazeCombineABPipeline`). That's 8 actually — see § File Structure for the full list.
   - 1 cache field for `_dehazeReconstruct: CIColorKernel?`.
@@ -74,6 +76,7 @@ The algorithm is multi-stage: **dark channel** (15×15 minimum filter on RGB) �
   - `cargo test -p raw-core --lib --test render_scene_linear_tile_rejects_active_dehaze` and `swift test --filter DeepZoomTileRenderingTests` after Task 9 to confirm the deep-zoom fallback still works.
 
 **Out of scope (explicit):**
+
 - **Plan 2 v2 v3 — Sharpen.** Different plan, parallel agent. Different files, no source conflicts.
 - **Plan 2 v2 v5 — Delete legacy `applyFilters` chain at [`ImageEditPipeline.swift:555`](../../../src/apple/Packages/MapleCore/Sources/MapleCore/ImageEditPipeline.swift)** plus the `MAPLE_SKIP_SWIFT_AGX` and `MAPLE_SKIP_SWIFT_FILTERS` env gates. Brief § 4 explicitly defers this to "after every kernel is on the new path." Separate plan.
 - **Plan 2 v2 v6 — Single-channel `applySeparableGaussianBlurSingleChannel(:)` overload.** The existing wrapper uses `RGBA16Float` ping-pong; the dehaze chain feeds it single-channel inputs. Wasteful but correct. A follow-up plan can add a `.r16Float`-native overload to halve the per-call texture footprint. Not blocking.
@@ -89,13 +92,14 @@ The algorithm is multi-stage: **dark channel** (15×15 minimum filter on RGB) �
 ## File Structure
 
 **Swift (read-write):**
+
 - Modify: `src/apple/Packages/MapleCore/Sources/MapleCore/MetalKernels.swift` — add the following:
   - 8 private static `MTLComputePipelineState?` cache fields: `_dehazeDarkChannelPipeline`, `_dehazeAtmoPartialPipeline`, `_dehazeAtmoFinalPipeline`, `_dehazeTransmissionPipeline`, `_dehazeGuidePipeline`, `_dehazeBuildIpPipeline`, `_dehazeBuildIIPipeline`, `_dehazeCombineABPipeline`.
   - 3 private static `MTLLibrary?` cache fields: `_dehazeDarkAtmoTransLib` (holds dark-channel + atmospheric + transmission kernels — they share matrices and the Metal compiler is fastest on a single library covering the related kernels), `_dehazeGuidedFilterLib` (build-Ip + build-II + combineAB), `_dehazeGuideLib` (just the luma-weight kernel).
   - 1 private static `CIColorKernel?` cache field: `_dehazeReconstruct`.
   - 1 new public wrapper `applySceneDehaze(to:dehaze:)` (signature mirrors `applySceneNRColor`).
   - Private library / pipeline loaders for each of the 8 compute pipelines and the 1 CIColorKernel.
-  - Helper `singleChannelTexture(device:width:height:)` returning a `.r16Float` `MTLTexture` for dark-channel / transmission / guide / mean_* scratches.
+  - Helper `singleChannelTexture(device:width:height:)` returning a `.r16Float` `MTLTexture` for dark-channel / transmission / guide / mean\_\* scratches.
   - Helper `rgFloat16Texture(device:width:height:)` returning a `.rg16Float` `MTLTexture` for the packed `(a, b)` output of `dehazeCombineAB`.
 - Add: `src/apple/Packages/MapleCore/Sources/MapleCore/Metal/DehazeDarkChannel.metal` — pure-Metal compute. Single kernel `dehazeDarkChannel(srcRGBA, dstSingle, gid)` reading the 15×15 RGB neighborhood (radius 7, clamp-to-edge boundaries identical to Rust at `dehaze.rs:14-15`) and writing the minimum-of-min-channels to `dstSingle`.
 - Add: `src/apple/Packages/MapleCore/Sources/MapleCore/Metal/DehazeAtmosphericLight.metal` — pure-Metal compute. Two kernels `dehazeAtmoPartial` (per-threadgroup top-1 selection via threadgroup-shared `max` reduction over (`darkChannel`, `srcRGBA`)) and `dehazeAtmoFinal` (single-threaded reduction over the partial buffer; full sort is acceptable here since the partial-buffer is small — `~98K` entries on 6K×4K). Output is a 3-element fp32 buffer holding `(A_r, A_g, A_b)`.
@@ -115,11 +119,13 @@ The algorithm is multi-stage: **dark channel** (15×15 minimum filter on RGB) �
   - Plus 5 helper functions: `swiftDarkChannel`, `swiftAtmosphericLight`, `swiftTransmission`, `swiftGuidedFilter`, `swiftApplyDehaze` — pure-Swift mirrors of the Rust functions at `dehaze.rs:5-179`.
 
 **Swift (read-only during verification):**
+
 - `src/apple/Packages/MapleCore/Sources/MapleCore/Metal/SeparableGaussianBlur.metal` — already shipped in v2 v1 (commit `b84da17`). The dehaze chain consumes it via `MetalKernels.applySeparableGaussianBlur(to:radius:)`.
 - `src/apple/Packages/MapleCore/Sources/MapleCore/Metal/SceneNRColor.metal` — pattern reference for "extract → blur → combine" CIColorKernel composition. Used as the source style template for `DehazeReconstruct.metal`.
 - `src/apple/Packages/MapleCore/Tests/MapleCoreTests/DeepZoomTileRenderingTests.swift` — verified read-only in Task 9 (no source edits). Confirms the tile FFI still rejects `dehaze != 0` with `MAPLE_TILE_UNSUPPORTED_DEHAZE = 10`.
 
 **Rust (read-only — NO edits):**
+
 - `src/raw-pipeline/raw-core/src/stages/dehaze.rs:1-179` — algorithm reference for all five passes:
   - `dark_channel` at `:5-25` (radius 7, clamp-to-edge, min over 3 channels then 15×15 neighborhood).
   - `atmospheric_light` at `:29-41` (full deterministic sort, top `n/1000` indices, mean of original RGB at those positions).
@@ -139,6 +145,7 @@ The Rust dehaze module ships its **own** `box_blur` at `dehaze.rs:72-105` — a 
 The guided filter at `dehaze.rs:109-135` calls `box_blur` six times at radius 60, all on single-channel buffers. **The Apple port needs a Metal kernel for this same single-pass running-sum + truncated-window normalization, not a reuse of `SeparableGaussianBlur`.** Reusing the 3-pass approximation would produce visibly different `t_refined` values, breaking parity.
 
 **Decision:** add a **new** Metal kernel `DehazeBoxBlur.metal` with two functions `dehazeBoxBlurH` (horizontal pass with running-sum + truncated-window) and `dehazeBoxBlurV` (vertical). Wrap in `MetalKernels.applyDehazeBoxBlurSingleChannel(to:radius:)` — different from `applySeparableGaussianBlur` because:
+
 - single-pass (not 3-pass)
 - single-channel scratch (not RGBA)
 - truncated-window normalization (`acc / count`) matches Rust's `dehaze.rs:81-99` byte-for-byte
@@ -146,6 +153,7 @@ The guided filter at `dehaze.rs:109-135` calls `box_blur` six times at radius 60
 This adds a sixth `.metal` file; updated File Structure includes `DehazeBoxBlur.metal` with two kernel functions.
 
 **Build artifacts (touched):**
+
 - None. M5 is pure Swift + Metal source additions. The xcframework is unchanged because no Rust source changes.
 
 ---
@@ -154,15 +162,15 @@ This adds a sixth `.metal` file; updated File Structure includes `DehazeBoxBlur.
 
 Six new Metal sources (one more than initially planned in the brief — see § "Box-blur semantics" above):
 
-| File | Functions | Type | Purpose |
-|---|---|---|---|
-| `DehazeDarkChannel.metal` | `dehazeDarkChannel` | compute | 15×15 min-of-min-channels |
-| `DehazeAtmosphericLight.metal` | `dehazeAtmoPartial`, `dehazeAtmoFinal` | compute | per-tg top-1 + final mean |
-| `DehazeTransmission.metal` | `dehazeTransmission` | compute | `1 - 0.95 * min(rgb/A)` over 15×15 |
-| `DehazeGuide.metal` | `dehazeBuildGuide` | compute | Rec.2020 luma weights |
-| `DehazeBoxBlur.metal` | `dehazeBoxBlurH`, `dehazeBoxBlurV` | compute | single-pass running-sum, truncated-window |
-| `DehazeGuidedFilter.metal` | `dehazeBuildIp`, `dehazeBuildII`, `dehazeCombineAB` | compute | covariance, variance, `(a, b)` |
-| `DehazeReconstruct.metal` | `dehazeReconstruct` | CIColorKernel | final per-pixel `J = (I - A) / max(t, t_floor) + A` |
+| File                           | Functions                                           | Type          | Purpose                                             |
+| ------------------------------ | --------------------------------------------------- | ------------- | --------------------------------------------------- |
+| `DehazeDarkChannel.metal`      | `dehazeDarkChannel`                                 | compute       | 15×15 min-of-min-channels                           |
+| `DehazeAtmosphericLight.metal` | `dehazeAtmoPartial`, `dehazeAtmoFinal`              | compute       | per-tg top-1 + final mean                           |
+| `DehazeTransmission.metal`     | `dehazeTransmission`                                | compute       | `1 - 0.95 * min(rgb/A)` over 15×15                  |
+| `DehazeGuide.metal`            | `dehazeBuildGuide`                                  | compute       | Rec.2020 luma weights                               |
+| `DehazeBoxBlur.metal`          | `dehazeBoxBlurH`, `dehazeBoxBlurV`                  | compute       | single-pass running-sum, truncated-window           |
+| `DehazeGuidedFilter.metal`     | `dehazeBuildIp`, `dehazeBuildII`, `dehazeCombineAB` | compute       | covariance, variance, `(a, b)`                      |
+| `DehazeReconstruct.metal`      | `dehazeReconstruct`                                 | CIColorKernel | final per-pixel `J = (I - A) / max(t, t_floor) + A` |
 
 Total: **6 new `.metal` files**, **9 compute kernel functions**, **1 CIColorKernel function**.
 
@@ -189,6 +197,7 @@ After every task: `cd src/apple/Packages/MapleCore && swift test`. After every m
 ## Task 1: Preflight — algorithm research and box-blur semantics confirmation
 
 **Files:**
+
 - Read-only: `src/raw-pipeline/raw-core/src/stages/dehaze.rs`
 - Read-only: `src/raw-pipeline/raw-core/src/stages/blur.rs`
 - Read-only: `src/apple/Packages/MapleCore/Sources/MapleCore/MetalKernels.swift`
@@ -200,6 +209,7 @@ After every task: `cd src/apple/Packages/MapleCore && swift test`. After every m
 Run: `sed -n '5,25p' src/raw-pipeline/raw-core/src/stages/dehaze.rs`
 
 Expected:
+
 - `DARK_RADIUS: i32 = 7` at line 3 (constant for the 15×15 neighborhood — `2*7 + 1 = 15`).
 - `dark_channel(img: &Image) -> Vec<f32>` at line 5.
 - Double-`for` loop over `(y, x)` at lines 9-10.
@@ -217,6 +227,7 @@ The Metal kernel mirror reads 225 (15×15) source pixels per output, computes th
 Run: `sed -n '29,41p' src/raw-pipeline/raw-core/src/stages/dehaze.rs`
 
 Expected:
+
 - `top_n = (n / 1000).max(1)` at line 31 — top 0.1% of pixels.
 - `idx: Vec<usize> = (0..n).collect()` at line 32 — indices for sorting.
 - `idx.sort_unstable_by(|&a, &b| dc[b].partial_cmp(&dc[a]).unwrap_or(std::cmp::Ordering::Equal))` at line 33 — descending sort by dark-channel value.
@@ -230,6 +241,7 @@ Key observation: the algorithm picks the brightest **dark-channel** positions an
 Run: `sed -n '43,68p' src/raw-pipeline/raw-core/src/stages/dehaze.rs`
 
 Expected:
+
 - `OMEGA: f32 = 0.95` at line 46.
 - `scaled_min = (p[0] / a[0].max(1e-6)).min(p[1] / a[1].max(1e-6)).min(p[2] / a[2].max(1e-6))` at lines 58-60 — division-by-A first, then min across channels.
 - `1.0 - OMEGA * m` at line 64 — final per-pixel transmission.
@@ -241,6 +253,7 @@ The Metal kernel mirrors this exactly: 15×15 neighborhood, per-neighbor `min(r/
 Run: `sed -n '72,105p' src/raw-pipeline/raw-core/src/stages/dehaze.rs`
 
 Expected:
+
 - `out_row[0] = acc / count as f32` at line 81 — initial-window average where `count = right0 + 1` (line 80, `right0 = r.min(w-1)`).
 - Sliding-window updates at lines 82-86 — `count` increases when `x + r < w` and decreases when `x > r`.
 - This is a **single-pass** box-blur, not a 3-pass approximation.
@@ -250,6 +263,7 @@ Now compare with `blur.rs:77-87`:
 Run: `sed -n '77,87p' src/raw-pipeline/raw-core/src/stages/blur.rs`
 
 Expected:
+
 - `r_box = (radius / 3).max(1)` at line 81.
 - `for _ in 0..3 { plane = box_blur_channel(...) }` at lines 83-85 — 3 successive box passes.
 
@@ -260,6 +274,7 @@ The two are different: dehaze's `box_blur` is single-pass running-sum-with-trunc
 Run: `sed -n '109,135p' src/raw-pipeline/raw-core/src/stages/dehaze.rs`
 
 Expected:
+
 - `mean_i = box_blur(guide, w, h, r)` at line 113 — calls dehaze's local `box_blur`, not gaussian_blur.
 - `mean_p = box_blur(p, w, h, r)` at line 114.
 - `ip = guide.zip(p).map(|a*b|)` at line 116, then `mean_ip = box_blur(ip, w, h, r)` at line 117.
@@ -278,6 +293,7 @@ Six box-blurs total at radius 60; `eps = 1e-3`. Mental model: `mean_*` are local
 Run: `sed -n '144,179p' src/raw-pipeline/raw-core/src/stages/dehaze.rs`
 
 Expected:
+
 - `t_refined = guided_filter(&guide, &t_raw, w, h, 60, 1e-3)` at line 159.
 - `t0 = 0.1f32` at line 162 (transmission floor).
 - `scale = (dehaze / 100.0).clamp(-1.0, 1.0)` at line 163.
@@ -295,6 +311,7 @@ Wait — at `scale = 0` we should get identity. The logic at line 169 with `scal
 Run: `grep -n 'public var dehaze\|self.dehaze' src/apple/Packages/MapleCore/Sources/MapleCore/AdjustmentModel.swift`
 
 Expected:
+
 - `public var dehaze: Double` at line 44 (range `-100..100`, default `0`).
 - Initializer parameter `dehaze: Double = 0` at line 72.
 - `self.dehaze = dehaze` at line 93.
@@ -306,6 +323,7 @@ The wrapper signature is `applySceneDehaze(to: CIImage, dehaze: Float) -> CIImag
 Run: `grep -n 'public static func applySeparableGaussianBlur\|public static func applySceneNRColor\|public static func applySceneNRLuminance' src/apple/Packages/MapleCore/Sources/MapleCore/MetalKernels.swift`
 
 Expected:
+
 - `public static func applySeparableGaussianBlur` at line 234.
 - `public static func applySceneNRLuminance` at line 396.
 - `public static func applySceneNRColor` at line 453.
@@ -317,6 +335,7 @@ These three are reachable from the new dehaze wrapper. NR luminance / NR color a
 Run: `grep -n 'MAPLE_TILE_UNSUPPORTED_DEHAZE\|model.dehaze != 0\|dehaze.*tile' src/raw-pipeline/raw-ffi/src/lib.rs src/raw-pipeline/raw-core/src/pipeline.rs`
 
 Expected: at least 5-6 matches across the two files. Specifically:
+
 - `pipeline.rs:543` — `if model.dehaze.abs() > 1e-3` — early return.
 - `pipeline.rs:545` — error message containing `"dehaze"`.
 - `raw-ffi/src/lib.rs:745, 844, 1124` — `if msg.contains("dehaze") { return 10; }` (`MAPLE_TILE_UNSUPPORTED_DEHAZE`).
@@ -356,6 +375,7 @@ This task touches no source files. Skip the commit step. Move on to Task 2.
 ## Task 2: M5a-1 — `DehazeDarkChannel.metal` + dark-channel pipeline loader
 
 **Files:**
+
 - Add: `src/apple/Packages/MapleCore/Sources/MapleCore/Metal/DehazeDarkChannel.metal`
 - Modify: `src/apple/Packages/MapleCore/Sources/MapleCore/MetalKernels.swift` — add 1 cache field + 1 library loader + 1 pipeline loader. **No public wrapper yet — those land in Tasks 3 / 5 / 7 once the full chain is wired.** This task adds the kernel source + a private accessor that Tasks 3 + 5 + 7 will call.
 
@@ -366,6 +386,7 @@ This task touches no source files. Skip the commit step. Move on to Task 2.
 Run: `sed -n '5,25p' src/raw-pipeline/raw-core/src/stages/dehaze.rs`
 
 Expected: matches Step 1.1's output. Mentally walk through one output pixel `(x, y)`:
+
 1. Initialize `m = INFINITY`.
 2. For each `(dy, dx)` in `[-7, 7] × [-7, 7]` (15×15 = 225 neighbors):
    - Compute `(ux, uy) = (clamp(x+dx, 0, w-1), clamp(y+dy, 0, h-1))`.
@@ -547,6 +568,7 @@ chain is built. The dark-channel pipeline is private until then."
 ## Task 3: M5a-2 — `DehazeAtmosphericLight.metal` + reduction pipeline loaders
 
 **Files:**
+
 - Add: `src/apple/Packages/MapleCore/Sources/MapleCore/Metal/DehazeAtmosphericLight.metal`
 - Modify: `src/apple/Packages/MapleCore/Sources/MapleCore/MetalKernels.swift` — add 2 pipeline loaders (`dehazeAtmoPartialPipeline`, `dehazeAtmoFinalPipeline`).
 
@@ -782,6 +804,7 @@ lands in Task 7."
 ## Task 4: M5a verification — pure-Swift parity mirror for dark-channel + atmospheric-light
 
 **Files:**
+
 - Modify: `src/apple/Packages/MapleCore/Tests/MapleCoreTests/SceneLinearPipelineTests.swift` — append the parity helpers + tests.
 
 **Why this matters:** Same rationale as v2 v2 Task 3 — `swift test` cannot load metallibs. To verify the algorithm port, this task adds pure-Swift mirrors of `dark_channel` and `atmospheric_light` and runs them against synthetic inputs with recorded expected outputs.
@@ -944,6 +967,7 @@ Tests (mirror the Rust unit tests at dehaze.rs:186-218):
 ## Task 5: M5b-1 — `DehazeTransmission.metal`, `DehazeGuide.metal`, `DehazeBoxBlur.metal`, `DehazeGuidedFilter.metal` + pipelines
 
 **Files:**
+
 - Add: `src/apple/Packages/MapleCore/Sources/MapleCore/Metal/DehazeTransmission.metal`
 - Add: `src/apple/Packages/MapleCore/Sources/MapleCore/Metal/DehazeGuide.metal`
 - Add: `src/apple/Packages/MapleCore/Sources/MapleCore/Metal/DehazeBoxBlur.metal`
@@ -957,6 +981,7 @@ Tests (mirror the Rust unit tests at dehaze.rs:186-218):
 Run: `sed -n '43,135p' src/raw-pipeline/raw-core/src/stages/dehaze.rs`
 
 Expected: matches Steps 1.3, 1.4, 1.5's output. Confirm:
+
 - `transmission`: `OMEGA = 0.95`, 15×15 kernel, `min(p[c]/A[c])` per neighbor, `1 - 0.95 * kernel_min`.
 - `guide` (built inline in `apply` at `:156-158`): `0.2627*r + 0.6780*g + 0.0593*b`.
 - `box_blur` (single-pass running-sum, truncated-window): `out[x] = acc / count`.
@@ -1434,6 +1459,7 @@ lands in Task 7."
 ## Task 6: M5b verification — pure-Swift parity mirror for transmission + box-blur + guided-filter
 
 **Files:**
+
 - Modify: `src/apple/Packages/MapleCore/Tests/MapleCoreTests/SceneLinearPipelineTests.swift` — append the parity helpers + tests.
 
 **Why this matters:** The guided-filter is the most algorithmically intricate part of dehaze. A Swift mirror that exercises the exact same single-pass box-blur + 6-call orchestration locks in the algorithm port; combined with the M5a tests (Task 4), we cover dark-channel, atmospheric-light, transmission, guide, box-blur, and guided-filter.
@@ -1653,6 +1679,7 @@ Tests (mirror the Rust unit tests at dehaze.rs:220-258):
 ## Task 7: M5c — `DehazeReconstruct.metal` + `applySceneDehaze` orchestration + parity gate
 
 **Files:**
+
 - Add: `src/apple/Packages/MapleCore/Sources/MapleCore/Metal/DehazeReconstruct.metal`
 - Modify: `src/apple/Packages/MapleCore/Sources/MapleCore/MetalKernels.swift` — add the `_dehazeReconstruct` cache, the loader, the `applySceneDehaze` public wrapper, and the `singleChannelTexture` / `rgFloat16Texture` helpers.
 - Modify: `src/apple/Packages/MapleCore/Tests/MapleCoreTests/SceneLinearPipelineTests.swift` — add the full `swiftApplyDehaze` mirror + parity test + identity test.
@@ -2222,6 +2249,7 @@ Tests (mirror the Rust unit tests at dehaze.rs:261-284):
 ## Task 8: Wire `applySceneDehaze` into `processSceneLinear`
 
 **Files:**
+
 - Modify: `src/apple/Packages/MapleCore/Sources/MapleCore/ImageEditPipeline.swift` — extend `processSceneLinear`. Insertion point depends on whether Plan 2 v2 v3 (sharpen) has landed.
 - Modify: `src/apple/Packages/MapleCore/Tests/MapleCoreTests/SceneLinearPipelineTests.swift` — add 1 wiring smoke test.
 
@@ -2386,6 +2414,7 @@ still untouched. Plan 2 v2 v5 (separate plan) deletes the legacy path."
 ## Task 9: M5 milestone gate — manual smoke + deep-zoom regression check
 
 **Files:**
+
 - Read-only: `src/apple/Packages/MapleCore/Sources/MapleCore/ImageEditPipeline.swift`
 - Read-only: `src/apple/Packages/MapleCore/Tests/MapleCoreTests/DeepZoomTileRenderingTests.swift`
 - Read-only: `src/raw-pipeline/raw-core/src/pipeline.rs` and `src/raw-pipeline/raw-ffi/src/lib.rs` (to confirm dehaze fallback unchanged)
@@ -2408,17 +2437,18 @@ Open `src/raw-pipeline/test-fixtures/raws/dji-mavic3pro-100mp.dng` (or the large
 
 - [ ] **Step 9.3: Drag the dehaze slider, confirm it moves pixels.**
 
-| Slider  | Default | Test action       | Expected                                                             |
-|---------|---------|-------------------|----------------------------------------------------------------------|
-| Dehaze  | 0       | Drag to +50       | Hazy / atmospheric regions (sky, distant landscape) gain contrast    |
-| Dehaze  | 0       | Drag to +100      | Stronger same effect; clouds become more defined                     |
-| Dehaze  | 0       | Drag to -50       | Image gains haze / loses contrast in bright regions                  |
-| Dehaze  | 0       | Drag back to 0    | Returns exactly to original (short-circuit identity)                 |
+| Slider | Default | Test action    | Expected                                                          |
+| ------ | ------- | -------------- | ----------------------------------------------------------------- |
+| Dehaze | 0       | Drag to +50    | Hazy / atmospheric regions (sky, distant landscape) gain contrast |
+| Dehaze | 0       | Drag to +100   | Stronger same effect; clouds become more defined                  |
+| Dehaze | 0       | Drag to -50    | Image gains haze / loses contrast in bright regions               |
+| Dehaze | 0       | Drag back to 0 | Returns exactly to original (short-circuit identity)              |
 
 Capture a screenshot of one mid-drag state — file at `/tmp/plan-2-v2-v4-m5-dehaze-50.png`. **Do not commit screenshots.**
 
 If the slider fails to move pixels:
-- Run `log stream --predicate 'subsystem == "app.justmaple.maple"'` and look for `os_log .error` lines from `MetalKernels.dehaze*` loaders.
+
+- Run `log stream --predicate 'subsystem == "app.justmaple.aperture"'` and look for `os_log .error` lines from `MetalKernels.dehaze*` loaders.
 - Confirm metallib presence: `find /Users/$USER/Library/Developer/Xcode/DerivedData/Maple-*/Build/Products/Debug/Maple.app -name 'Dehaze*.metal'`. Expect 6 files.
 - If the `os_log` shows compile errors, inspect the kernel source for typos.
 
@@ -2426,26 +2456,27 @@ If the slider fails to move pixels:
 
 This is the critical regression check. With `dehaze != 0`, the deep-zoom UI must clamp `maxPixelScale` to fit-zoom.
 
-  - **Substep 9.4.1: Run the Rust tile-FFI tests.**
+- **Substep 9.4.1: Run the Rust tile-FFI tests.**
 
-  Run: `cd src/raw-pipeline && cargo test -p raw-core render_scene_linear_tile_rejects_active_dehaze 2>&1 | tail -5`
+Run: `cd src/raw-pipeline && cargo test -p raw-core render_scene_linear_tile_rejects_active_dehaze 2>&1 | tail -5`
 
-  Expected: 1 PASS. Confirms the FFI still errors with the dehaze message when `model.dehaze != 0`.
+Expected: 1 PASS. Confirms the FFI still errors with the dehaze message when `model.dehaze != 0`.
 
-  - **Substep 9.4.2: Run the Apple deep-zoom test suite.**
+- **Substep 9.4.2: Run the Apple deep-zoom test suite.**
 
-  Run: `cd src/apple/Packages/MapleCore && swift test --filter DeepZoomTileRenderingTests 2>&1 | tail -20`
+Run: `cd src/apple/Packages/MapleCore && swift test --filter DeepZoomTileRenderingTests 2>&1 | tail -20`
 
-  Expected: green. The test suite includes the dehaze-fallback path (when the Rust FFI returns rc=10, the Apple side clamps zoom).
+Expected: green. The test suite includes the dehaze-fallback path (when the Rust FFI returns rc=10, the Apple side clamps zoom).
 
-  - **Substep 9.4.3: Manual zoom test.** In the running app:
-    1. Set dehaze to 0; zoom past 1:1 (Cmd-= or pinch gesture). Confirm tile rendering kicks in (visible 1:1 sharpness, maybe a brief loading state per-tile).
-    2. Drag dehaze to +50. Confirm zoom is clamped to fit (no longer able to zoom past 1:1; the toolbar's Cmd-= becomes a no-op or reverts to fit).
-    3. Drag dehaze back to 0. Confirm zoom past 1:1 is restored.
+- **Substep 9.4.3: Manual zoom test.** In the running app:
+  1. Set dehaze to 0; zoom past 1:1 (Cmd-= or pinch gesture). Confirm tile rendering kicks in (visible 1:1 sharpness, maybe a brief loading state per-tile).
+  2. Drag dehaze to +50. Confirm zoom is clamped to fit (no longer able to zoom past 1:1; the toolbar's Cmd-= becomes a no-op or reverts to fit).
+  3. Drag dehaze back to 0. Confirm zoom past 1:1 is restored.
 
-  If step 2 fails (zoom is NOT clamped when dehaze is non-zero), the `MAPLE_TILE_UNSUPPORTED_DEHAZE` flag is no longer reaching the UI — STOP and inspect:
-  - `grep -n 'MAPLE_TILE_UNSUPPORTED_DEHAZE\|TileManager.*dehaze\|maxPixelScale' src/apple/Packages/MapleCore/Sources/MapleCore/Cache/TileManager.swift src/apple/Maple/Views/FullImageView.swift`
-  - Verify the deep-zoom plan's Architecture point 3 invariant is intact.
+If step 2 fails (zoom is NOT clamped when dehaze is non-zero), the `MAPLE_TILE_UNSUPPORTED_DEHAZE` flag is no longer reaching the UI — STOP and inspect:
+
+- `grep -n 'MAPLE_TILE_UNSUPPORTED_DEHAZE\|TileManager.*dehaze\|maxPixelScale' src/apple/Packages/MapleCore/Sources/MapleCore/Cache/TileManager.swift src/apple/Maple/Views/FullImageView.swift`
+- Verify the deep-zoom plan's Architecture point 3 invariant is intact.
 
 - [ ] **Step 9.5: Run the parity harness one more time.**
 

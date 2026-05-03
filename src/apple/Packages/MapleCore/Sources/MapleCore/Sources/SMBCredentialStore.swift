@@ -18,7 +18,7 @@ public actor SMBCredentialStore {
     public static let shared = SMBCredentialStore()
 
     /// Service string used for all SMB credential queries.
-    public static let service = "app.justmaple.maple.smb"
+    public static let service = "app.justmaple.aperture.smb"
 
     /// Shape persisted alongside the password so the UI can list saved shares
     /// without the user having to retype host/share on every open.
@@ -36,7 +36,7 @@ public actor SMBCredentialStore {
 
     /// UserDefaults key for the list of saved shares (host+share+username
     /// only — passwords live in Keychain).
-    private static let savedSharesKey = "app.justmaple.maple.smb.savedShares"
+    private static let savedSharesKey = "app.justmaple.aperture.smb.savedShares"
 
     public init() {}
 

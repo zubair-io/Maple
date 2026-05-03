@@ -4,11 +4,12 @@
 
 > **Companion plan:** [`docs/superpowers/plans/2026-04-24-ffi-split-plan-1.md`](2026-04-24-ffi-split-plan-1.md). Plan 1 routed Apple's interactive renders through a new Rust FFI that returns scene-linear Rec.2020 fp16, then Lanczos-prescales and runs AgX exactly once on the GPU. Plan 1 deliberately left every development-chain slider dark on the new path because no scene-linear development kernels existed Apple-side. Plan 1 Task 9 (default flip) is **blocked** until either a banner ships or this plan lands; Plan 2 v1 (this document) is the "Plan 2 lands" branch of that precondition.
 
-> **Plan 1 Task 9 sidecar precondition.** Plan 1 § "What this plan renders" states: *"saved sidecar adjustments are NOT applied on the new path because the Apple call site (`ImageEditPipeline.decodeSceneLinear`) currently passes `xmpPath: nil`."* Plan 2 v1 does NOT change that for sliders other than `highlightRecovery` — sliders on the dev chain (WB, exposure, tone, vibrance, saturation) are re-applied **Apple-side via Metal kernels** reading the live `AdjustmentModel`, not Rust-side via the sidecar. The one Rust-side stage that Apple cannot replicate cheaply is `highlight_recovery::apply` (it runs in camera-RGB before DCP, before Apple sees the buffer). M3 (Tasks 7-8) threads `xmpPath` through `decodeSceneLinear` so that one stage's parameter (`model.highlight_recovery`) reaches Rust. With Plan 2 v1 landed, **all sliders move pixels on the scene-linear path**: dev-chain sliders via Metal kernels, `highlight_recovery` via the live FFI XMP, AgX via the existing Metal kernel, contrast as the AgX slope. This satisfies Plan 1 Task 9's "saved sidecar adjustments work" precondition.
+> **Plan 1 Task 9 sidecar precondition.** Plan 1 § "What this plan renders" states: _"saved sidecar adjustments are NOT applied on the new path because the Apple call site (`ImageEditPipeline.decodeSceneLinear`) currently passes `xmpPath: nil`."_ Plan 2 v1 does NOT change that for sliders other than `highlightRecovery` — sliders on the dev chain (WB, exposure, tone, vibrance, saturation) are re-applied **Apple-side via Metal kernels** reading the live `AdjustmentModel`, not Rust-side via the sidecar. The one Rust-side stage that Apple cannot replicate cheaply is `highlight_recovery::apply` (it runs in camera-RGB before DCP, before Apple sees the buffer). M3 (Tasks 7-8) threads `xmpPath` through `decodeSceneLinear` so that one stage's parameter (`model.highlight_recovery`) reaches Rust. With Plan 2 v1 landed, **all sliders move pixels on the scene-linear path**: dev-chain sliders via Metal kernels, `highlight_recovery` via the live FFI XMP, AgX via the existing Metal kernel, contrast as the AgX slope. This satisfies Plan 1 Task 9's "saved sidecar adjustments work" precondition.
 
 **Goal:** Restore slider functionality on the scene-linear path by porting the Apple development chain (white balance, exposure, highlights, shadows, whites, blacks, vibrance, saturation) as Metal `CIColorKernel`s operating on the scene-linear Rec.2020 fp16 buffer Plan 1 introduced. Wire the kernels into `ImageEditPipeline.processSceneLinear` and thread `xmpPath` through `decodeSceneLinear` so `highlight_recovery` (which runs Rust-side, before DCP) responds to the live sidecar model.
 
 **Architecture:**
+
 1. **Filter chain order on the scene-linear path** (replaces Plan 1's "Lanczos + AgX" stub):
    `decoded fp16 Rec.2020 CIImage → Lanczos prescale (existing) → WhiteBalance.metal → SceneToneControls.metal → SceneVibrance.metal → SceneSaturation.metal → AgXViewTransform.metal → CIContext.createCGImage(colorSpace: sRGB)`.
 2. **Two existing kernels are wired in unchanged.** `MetalKernels.applySceneToneControls` and `MetalKernels.applySceneVibrance` already exist (`src/apple/Packages/MapleCore/Sources/MapleCore/Metal/SceneToneControls.metal` and `SceneVibrance.metal`) and the `_sceneToneControls` / `_sceneVibrance` `CIColorKernel` static properties already load via `CIColorKernel(functionName:fromMetalLibraryData:)`. M1 (Task 2-4) wires them into `processSceneLinear` and verifies them through the parity harness.
@@ -17,6 +18,7 @@
 5. **Legacy path untouched.** The existing `applyFilters` chain in `ImageEditPipeline.swift:377-538` and the legacy Swift CIFilter ops remain in place. Plan 2 v2 (M4-M6: clarity, texture, dehaze, sharpen, NR) and the eventual Plan 3 will delete them.
 
 **Out of scope (explicit):**
+
 - Clarity, texture, dehaze, sharpen, NR (luminance + color). **Plan 2 v2 / M4-M6.**
 - Web/WASM port of these kernels. **Plan 3.**
 - Deleting the legacy `applyFilters` chain or the Rust `view::agx::apply` / `view::encode::*` modules. **Plan 1 Task 9 + Plan 3.**
@@ -26,6 +28,7 @@
 - Asset sidecar versioning / bumping the rendered-preview cache key for the new dev-chain version. The existing `adjustment_version` field in the cache key (per `CLAUDE.md` § "Performance") already covers this.
 
 **Tech Stack:**
+
 - Swift (`MapleCore`) — CoreImage `CIColorKernel` / `CIKernel` loaded via the existing `MetalKernels` namespace pattern (matches commit `8cdf585` which fixed the `.metal` source loader to use `CIColorKernel(functionName:fromMetalLibraryData:)` — the loader is already correct, no further fixes needed).
 - Metal Shading Language — kernel sources mirror the per-pixel math in the Rust reference. Two new kernels: `WhiteBalance.metal` and `SceneSaturation.metal`. Both `extern "C" float4 kernelName(coreimage::sampler_h src, ...)` matching the existing pattern.
 - Build glue — `./src/apple/scripts/build-xcframework.sh` is rerun in M3 (Task 7-8) as a precaution; M1 (Task 2-4) and M2 (Task 5-6) touch only Swift + Metal so no Rust rebuild is needed.
@@ -36,6 +39,7 @@
 ## File Structure
 
 **Swift (read-write):**
+
 - Modify: `src/apple/Packages/MapleCore/Sources/MapleCore/ImageEditPipeline.swift` — extend `processSceneLinear` (currently lines 211-224) to invoke the dev-chain kernels before AgX. Tasks 2-6 grow the filter chain inside this single function. Task 7 extends `decodeSceneLinear` (lines 145-185) to accept `xmpPath: URL?` and forward it to `PipelineRenderer.renderSceneLinear`. Drop the legacy whites/blacks `CIToneCurve` workaround in `applyFilters` (lines 437-467) — `scene_tone_controls.rs:74-85` already handles whites/blacks scene-linear, so the workaround was for the legacy-only path; on the new path it's dead, on the old path it stays as a CIFilter fallback per Plan 1 v1's "legacy path stays" rule. **Read CLAUDE.md** § "Build & test — Apple": the Xcode app build target embeds the metallib; `swift test` does NOT — both must be exercised before declaring victory, but only `swift test` is automatable.
 - Modify: `src/apple/Packages/MapleCore/Sources/MapleCore/MetalKernels.swift` — add two new kernel-loader static properties (`_whiteBalance`, `_sceneSaturation`), two new wrapper functions (`applyWhiteBalance(to:temperature:tint:asShotTemperature:asShotTint:)` and `applySceneSaturation(to:saturation:)`), and two new private kernel-loader helpers (`whiteBalanceKernel()`, `sceneSaturationKernel()`). All four mirror the existing `applySceneToneControls` / `applySceneVibrance` / `sceneToneControlsKernel` / `sceneVibranceKernel` shape verbatim.
 - Add: `src/apple/Packages/MapleCore/Sources/MapleCore/Metal/WhiteBalance.metal` — new kernel source. CCT→xy via Hernández-Andrés polynomial, xy→XYZ→Rec.2020 via the same M_XYZ_D65_TO_REC2020 used in `white_balance.rs`, normalized so green=1, then per-pixel multiply.
@@ -44,12 +48,14 @@
 - Modify: `src/apple/Packages/MapleCore/Tests/MapleCoreTests/SceneLinearPipelineTests.swift` (created in Plan 1) — append integration tests for each new kernel (white balance roundtrip at neutral, scene tone controls identity at zero, saturation identity at zero, and the chained "all at default" identity that asserts a default-model `processSceneLinear` produces the same CGImage as just AgX-on-decoded). All tests use the pure-Swift scalar math fallback per the existing `MetalKernelParityTests.swift:13-52` pattern — `swift test` does not load metallibs.
 
 **Swift (read-only during verification):**
+
 - `src/apple/Packages/MapleCore/Sources/MapleCore/Metal/SceneToneControls.metal` — reference for kernel source style (constants, `extern "C"`, sampler_h, smoothstep_f).
 - `src/apple/Packages/MapleCore/Sources/MapleCore/Metal/SceneVibrance.metal` — reference for the Oklab matrices and the `rec2020_to_oklab` / `oklab_to_rec2020` helpers; SceneSaturation reuses both.
 - `src/apple/Packages/MapleCore/Sources/MapleCore/Metal/AgXViewTransform.metal` — final stage of the chain; not modified here.
 - `src/apple/Packages/MapleCore/Sources/MapleCore/PipelineRenderer.swift:159-200` — `renderSceneLinear` signature; the FFI plumbing for `xmpPath` is already in place and Plan 2 v1 just stops passing `nil` from the Apple call site.
 
 **Rust (read-only during verification):**
+
 - `src/raw-pipeline/raw-core/src/stages/white_balance.rs` — algorithm reference for `WhiteBalance.metal`.
 - `src/raw-pipeline/raw-core/src/stages/saturation.rs` — algorithm reference for `SceneSaturation.metal`.
 - `src/raw-pipeline/raw-core/src/stages/scene_tone_controls.rs:43-44` — confirm the whites scalar gain (`w_gain = 1.0 + whites / 200.0`) and blacks additive shift (`b_add = blacks / 400.0`) match what M1's wiring expects — the existing `SceneToneControls.metal` already encodes both at lines 64 and 70 of that file. Step 2.1 cross-checks.
@@ -57,6 +63,7 @@
 - `src/raw-pipeline/raw-core/src/pipeline.rs:120` — confirms `highlight_recovery::apply(&mut camera_rgb, model.highlight_recovery)` runs Rust-side in `develop_scene_linear_from_raw_with_quality`, before DCP, before Apple sees the buffer. M3's `xmpPath` plumbing is what makes that line respond to slider state.
 
 **Build artifacts (touched):**
+
 - The xcframework is rebuilt in Task 8 Step 8.4 as a precaution; M1 + M2 (Tasks 2-6) do not require a Rust rebuild because no Rust source changes. The xcframework rebuild also re-bundles the Metal sources into `default.metallib` if the build system is configured to do so — confirm at Step 8.4.
 
 ---
@@ -76,9 +83,11 @@ After every task: `cd src/apple/Packages/MapleCore && swift test`. After every m
 ## Task 1: Pre-flight verification
 
 **Files:**
+
 - Read-only: `src/apple/Packages/MapleCore/Sources/MapleCore/ImageEditPipeline.swift`, `MetalKernels.swift`, `Metal/SceneToneControls.metal`, `Metal/SceneVibrance.metal`.
 
 **Why this matters:** Three things must be true before M1 wires the existing kernels into `processSceneLinear`:
+
 1. The kernel loader path (`Bundle.module.url(forResource: "default", withExtension: "metallib")` at `MetalKernels.swift:151`) is the canonical loader after commit `8cdf585`. Confirm it is what's in the file — if a regression has reverted to `CIKernel.kernels(withMetalString:)` or anything else, M1 must not proceed.
 2. `MetalKernels.applySceneToneControls` and `MetalKernels.applySceneVibrance` are already public and have the right signatures (matching `AdjustmentModel` field types — `Float`, not `Double`; the existing wrappers narrow at the call site).
 3. `processSceneLinear` is reachable from `EditSession.sharedDecode` only when `MAPLE_SCENE_LINEAR=1` is set (i.e. `useSceneLinear == true`). Plan 2 v1 inherits this gate; Plan 1 Task 9 flips the default.
@@ -88,6 +97,7 @@ After every task: `cd src/apple/Packages/MapleCore && swift test`. After every m
 Run: `grep -n "CIColorKernel(functionName\|CIKernel(functionName\|kernels(withMetalString" src/apple/Packages/MapleCore/Sources/MapleCore/MetalKernels.swift`
 
 Expected:
+
 ```
 120:        _sceneToneControls = try? CIColorKernel(functionName: "sceneToneControls",
 128:        _sceneVibrance = try? CIColorKernel(functionName: "sceneVibrance",
@@ -175,6 +185,7 @@ EOF
 ## Task 2: M1 Step 1 — Wire `applySceneToneControls` into `processSceneLinear`
 
 **Files:**
+
 - Modify: `src/apple/Packages/MapleCore/Sources/MapleCore/ImageEditPipeline.swift` (lines 211-224 — `processSceneLinear`)
 - Modify: `src/apple/Packages/MapleCore/Tests/MapleCoreTests/SceneLinearPipelineTests.swift` — append M1 unit tests
 
@@ -278,6 +289,7 @@ Append to `src/apple/Packages/MapleCore/Tests/MapleCoreTests/SceneLinearPipeline
 Run: `cd src/apple/Packages/MapleCore && swift test --filter testM1ProcessSceneLinearAppliesExposure 2>&1 | tail -10`
 
 Expected:
+
 - Either the test PASSES because `processSceneLinear` already happens to produce identical output for default vs `exposure=1` (which would be the bug — no wiring) — interpret a PASS here as a "no change in output" signal indicating the kernel is not yet in the chain.
 - Or the test fails on the metallib being unavailable.
 
@@ -389,6 +401,7 @@ EOF
 ## Task 3: M1 Step 2 — Wire `applySceneVibrance` into `processSceneLinear`
 
 **Files:**
+
 - Modify: `src/apple/Packages/MapleCore/Sources/MapleCore/ImageEditPipeline.swift` (`processSceneLinear`, after Task 2's edits)
 - Modify: `src/apple/Packages/MapleCore/Tests/MapleCoreTests/SceneLinearPipelineTests.swift`
 
@@ -585,6 +598,7 @@ EOF
 ## Task 4: M1 milestone gate — manual smoke test + parity harness
 
 **Files:**
+
 - Read-only: `src/apple/Packages/MapleCore/Sources/MapleCore/ImageEditPipeline.swift`
 - Build artifacts: the macOS Maple.app launched from `xcodebuild` output
 
@@ -608,17 +622,18 @@ Open `src/raw-pipeline/test-fixtures/raws/dji-mavic3pro-100mp.dng` (or the large
 
 For each slider below, drag it from default to the extreme end and visually confirm the image changes. Capture a screenshot of one mid-drag state per slider — file them at `/tmp/plan-2-m1-<slider>.png`. **Do not commit screenshots.**
 
-| Slider | Range | Test action | Expected |
-|---|---|---|---|
-| Exposure | -4 to +4 EV | Drag right to +2 | Image brightens visibly |
-| Highlights | -100 to +100 | Drag left to -100 | Bright areas darken |
-| Shadows | -100 to +100 | Drag right to +100 | Dark areas lift |
-| Whites | -100 to +100 | Drag right to +50 | Near-white regions get brighter |
-| Blacks | -100 to +100 | Drag left to -50 | Near-black regions deepen |
-| Vibrance | -100 to +100 | Drag right to +100 | Low-saturation colors gain saturation more than already-saturated ones |
+| Slider     | Range        | Test action        | Expected                                                               |
+| ---------- | ------------ | ------------------ | ---------------------------------------------------------------------- |
+| Exposure   | -4 to +4 EV  | Drag right to +2   | Image brightens visibly                                                |
+| Highlights | -100 to +100 | Drag left to -100  | Bright areas darken                                                    |
+| Shadows    | -100 to +100 | Drag right to +100 | Dark areas lift                                                        |
+| Whites     | -100 to +100 | Drag right to +50  | Near-white regions get brighter                                        |
+| Blacks     | -100 to +100 | Drag left to -50   | Near-black regions deepen                                              |
+| Vibrance   | -100 to +100 | Drag right to +100 | Low-saturation colors gain saturation more than already-saturated ones |
 
 If any slider fails to move pixels, M1 is not actually working — STOP and inspect:
-- Run `log stream --predicate 'subsystem == "app.justmaple.maple"'` and look for `os_log .error` lines — `applyAgXViewTransform`'s guard at `MetalKernels.swift:77-85` reports kernel-load failures.
+
+- Run `log stream --predicate 'subsystem == "app.justmaple.aperture"'` and look for `os_log .error` lines — `applyAgXViewTransform`'s guard at `MetalKernels.swift:77-85` reports kernel-load failures.
 - Confirm the metallib is present in the .app bundle: `find /Users/$USER/Library/Developer/Xcode/DerivedData/Maple-*/Build/Products/Debug/Maple.app -name '*.metallib'`. If absent, `MetalKernels.metalSource()` will return nil, the wrappers will silently no-op, and the sliders won't move pixels. Fixing the metallib bundling is out-of-scope for Plan 2 v1 — flag and report.
 
 - [ ] **Step 4.4: Run the parity harness (legacy path regression check).**
@@ -672,12 +687,14 @@ EOF
 ## Task 5: M2 Step 1 — Add `WhiteBalance.metal` and the `applyWhiteBalance` wrapper
 
 **Files:**
+
 - Add: `src/apple/Packages/MapleCore/Sources/MapleCore/Metal/WhiteBalance.metal`
 - Modify: `src/apple/Packages/MapleCore/Sources/MapleCore/MetalKernels.swift` (add the loader + wrapper)
 - Modify: `src/apple/Packages/MapleCore/Sources/MapleCore/ImageEditPipeline.swift` (insert the WB stage at the start of the chain)
 - Modify: `src/apple/Packages/MapleCore/Tests/MapleCoreTests/SceneLinearPipelineTests.swift`
 
 **Why this matters:** White balance is the first stage of the dev chain (Rust order: `pipeline.rs:123 stage("white_balance", ...)`). Putting it before tone controls means exposure compounds correctly with the WB-adjusted color. The kernel's algorithm is taken verbatim from `white_balance.rs:30-50`:
+
 1. `cct_to_xy(temperature)` via the Hernández-Andrés (1999) polynomial.
 2. `tint` shifts y by `tint * 0.001`.
 3. `xy_to_xyz` with Y=1.
@@ -687,6 +704,7 @@ EOF
 7. `as_shot` parameters apply the same flow but in reverse — `target / asShot` is the ratio that takes the image from "shot at as-shot WB" to "displayed at user-target WB". The Rust source short-circuits at `(temperature, tint) == (6500, 0)` → identity; the kernel does the same on the **net delta** (target vs as-shot) so a default slider with non-D65 as-shot WB still produces an identity transform.
 
 **Important:** `model.temperature/tint` semantics here mirror Plan 1's `CITemperatureAndTint` neutral/targetNeutral split (`ImageEditPipeline.swift:382-399`):
+
 - `asShot.temperature/tint` is the WB the image was shot at (from `EditSession.asShotCCT/Tint`, populated at `EditSession.swift:405-407`).
 - `model.temperature/tint` is the WB the user wants.
 - Net gain = (target ratio) / (as-shot ratio).
@@ -702,6 +720,7 @@ Expected: a line `stage("dcp::apply", || dcp::apply(&camera_rgb, &profile))?;` f
 **Note:** In `develop_scene_linear_from_raw_with_quality` (Rust), `white_balance::apply` runs at line 123 and **already mutates the buffer with the user's WB**. So when `decodeSceneLinear` returns the FFI buffer to Apple in Plan 2 v1, the buffer **already has the user's WB applied Rust-side** when `xmpPath` is non-nil (M3 Task 7-8). This is the correct behaviour — we want WB applied scene-linear, ideally Rust-side.
 
 **This raises a subtle issue:** If M3 (Tasks 7-8) wires `xmpPath` and Rust applies `white_balance::apply` based on `model.temperature/tint`, then **applying WhiteBalance.metal on the Apple side too will double-apply WB**. Avoiding this requires one of:
+
 1. **Apple-side WB only:** Apple kernel applies WB; Rust path gets the default model (`AdjustmentModel::default()`, temperature=6500, tint=0 → identity short-circuit at `white_balance.rs:54`). M3 then must NOT pass `xmpPath` for WB-related fields, or must pass an XMP that has WB cleared. **Awkward — XMPs are atomic.**
 2. **Rust-side WB only:** Apple skips WB entirely. M3 wires `xmpPath` and Rust handles WB. **Simpler. The downside:** every WB slider tick costs a full Rust FFI re-decode (~5s on 100 MP). Slider responsiveness on WB drops to "phase-2 only", losing the 16ms slider-tick invariant.
 3. **Hybrid:** Apple-side WB applied as a **delta** from what Rust applied. Rust side applies WB based on the model that was on disk at decode time (cached in the decoded CIImage). Apple kernel applies the slider's live delta (`live_temperature - decoded_temperature`, `live_tint - decoded_tint`). **Closes the slider-tick invariant.**
@@ -1029,6 +1048,7 @@ EOF
 ## Task 6: M2 Step 2 — Add `SceneSaturation.metal` and the `applySceneSaturation` wrapper
 
 **Files:**
+
 - Add: `src/apple/Packages/MapleCore/Sources/MapleCore/Metal/SceneSaturation.metal`
 - Modify: `src/apple/Packages/MapleCore/Sources/MapleCore/MetalKernels.swift`
 - Modify: `src/apple/Packages/MapleCore/Sources/MapleCore/ImageEditPipeline.swift`
@@ -1206,11 +1226,13 @@ Append to `SceneLinearPipelineTests.swift`:
 - [ ] **Step 6.5: Run the test, the full suite, the parity harness, and the M2 manual smoke test.**
 
 Run, in parallel:
+
 - `cd src/apple/Packages/MapleCore && swift test --filter testM2ProcessSceneLinearAppliesSaturation 2>&1 | tail -10`
 - `cd src/apple/Packages/MapleCore && swift test 2>&1 | tail -10`
 - `BUDGET=15 src/scripts/test_color_pipeline.sh 2>&1 | tail -8`
 
 Expected:
+
 - Saturation test PASS.
 - Full suite green; test count = pre-Plan-2 baseline + 4.
 - Parity harness PASS.
@@ -1278,6 +1300,7 @@ EOF
 ## Task 7: M3 Step 1 — Thread `xmpPath` through `decodeSceneLinear`
 
 **Files:**
+
 - Modify: `src/apple/Packages/MapleCore/Sources/MapleCore/ImageEditPipeline.swift` (`decodeSceneLinear`, lines 145-185)
 - Modify: `src/apple/Packages/MapleCore/Sources/MapleCore/EditSession.swift` (`sharedDecode`, around line 944)
 - Modify: `src/apple/Packages/MapleCore/Tests/MapleCoreTests/SceneLinearPipelineTests.swift`
@@ -1294,6 +1317,7 @@ Concretely: `EditSession.decodedAtModel` (a new field) is set at decode completi
 - For tone, vibrance, saturation, the delta semantics are linear-additive (e.g. `live_exposure - decoded_exposure`) for stages that compose linearly, OR the kernels are temporarily configured to short-circuit when `model == decodedAtModel` and rely entirely on the Rust path until the user moves a slider.
 
 **Plan 2 v1 chooses the short-circuit approach for tone / vibrance / saturation, and the live-vs-decoded ratio approach for WB.** Specifically:
+
 - WhiteBalance.metal: live vs decoded as in Task 5 (already designed for this).
 - SceneToneControls.metal, SceneVibrance.metal, SceneSaturation.metal: each kernel reads the parameter as the **delta** between live and decoded. M3 Task 7 Step 7.5 introduces a thin Apple-side adapter that computes `live - decoded` for tone-control fields and passes that as the kernel parameter.
 
@@ -1303,6 +1327,7 @@ For highlights/shadows/whites/blacks: each is a small per-channel multiplicative
 For vibrance/saturation: the math is multiplicative (`scale = 1 + value/100`), not additive. `scale_live / scale_decoded` is the correct ratio. The Apple kernels currently take the slider value and compute `scale = 1 + slider/100`; M3 must change them to take `scale_factor` (= `(1 + live/100) / (1 + decoded/100)`) and apply that factor directly. **OR — the simpler Plan 2 v1 design — leave the kernels as-is and pass `liveValue - decodedValue * (1.0)` as the kernel input only when `decodedValue ≈ 0`. Plan 2 v1 documents this limitation and accepts the sub-stop drift it implies on saved sidecars.**
 
 **Final Plan 2 v1 design choice:** Plan 2 v1 takes the simpler approach: the `decodedAtModel` is captured but **only WB uses it as a delta** — tone/vibrance/saturation kernels still take the live value directly, and Plan 2 v1 acknowledges that opening a saved-sidecar image will produce **double-applied tone/vibrance/saturation until the user moves a slider**, which forces a re-decode at the new model and resyncs. This is acceptable for Plan 2 v1 because:
+
 1. The vast majority of slider drift is in WB (60-80% of edits per spec § 01).
 2. The double-apply is mathematically bounded: tone is `f(f(x))` which on small adjustments is roughly `2x` the linear effect; on larger adjustments it composes nonlinearly but still finite. No clipping or NaN risk.
 3. Plan 2 v2 fixes this via a more principled "decoded model" delta on every kernel.
@@ -1425,7 +1450,7 @@ Replace with:
 
 - [ ] **Step 7.4: Capture the decode-time model for M3's WB delta math.**
 
-In `src/apple/Packages/MapleCore/Sources/MapleCore/EditSession.swift`, locate the `EditSession` class declaration (line 150). Find the existing observed properties block (around line 184-200).  Add a new property:
+In `src/apple/Packages/MapleCore/Sources/MapleCore/EditSession.swift`, locate the `EditSession` class declaration (line 150). Find the existing observed properties block (around line 184-200). Add a new property:
 
 ```swift
     /// Plan 2 M3 — model snapshot at the moment `sharedDecode`'s Rust
@@ -1650,6 +1675,7 @@ EOF
 ## Task 8: M3 milestone gate — xcframework rebuild + parity harness + sidecar smoke test
 
 **Files:**
+
 - Build artifacts only.
 
 **Why this matters:** M3 doesn't change Rust source, but the brief calls for an xcframework rebuild "as a precaution" because the build script also re-bundles headers into `Sources/MapleCore/include/RawPipeline.h`. Running it confirms the FFI surface is consistent and the Apple build still links cleanly.
@@ -1691,6 +1717,7 @@ Run: `BUDGET=15 src/scripts/test_color_pipeline.sh 2>&1 | tail -8`
 Expected: PASS.
 
 **FAIL ACTION:** If the harness regressed below the BUDGET=15 threshold, Plan 2's changes have somehow leaked into the legacy path's pixel output. STOP and bisect:
+
 - Each commit in this plan should be individually testable: `git stash; git checkout HEAD~1; BUDGET=15 src/scripts/test_color_pipeline.sh; git checkout HEAD; git stash pop`. Find the commit that introduced the regression.
 - Plan 2 v1 should NOT touch `applyFilters` — if it does, that's the bug.
 
@@ -1699,6 +1726,7 @@ Expected: PASS.
 Build & launch the app per Task 4 Step 4.1-4.2.
 
 Open the reference fixture. Open or create a sidecar file (`<rawname>.xmp`) and add a `papp:HighlightRecoveryMode="Blend"` attribute. Reload the asset (close/reopen). Confirm:
+
 - The image's blown-out highlights are noticeably less saturated/clamped vs the no-sidecar render.
 - Setting `papp:HighlightRecoveryMode="Off"` (or removing the attribute) restores the original blown-out look.
 
@@ -1753,6 +1781,7 @@ EOF
 Run through this once after the plan is in place, before handoff to execution.
 
 **1. Spec coverage:**
+
 - [ ] Task 1 captures the four pre-flight invariants (loader correctness, chain-entry-point currency, whites/blacks parity Rust vs Metal, Oklab matrices availability) and records the pre-Plan-2 test baseline.
 - [ ] Tasks 2-4 (M1) wire `applySceneToneControls` and `applySceneVibrance` into `processSceneLinear`. Each step has a TDD-style failing test before implementation. Task 4 is the milestone gate — manual smoke + parity harness.
 - [ ] Tasks 5-6 (M2) add `WhiteBalance.metal` and `SceneSaturation.metal` with the loaders/wrappers in `MetalKernels.swift`. Each new kernel has a unit test plus a mention in the M2 manual smoke procedure.
@@ -1765,12 +1794,14 @@ Run through this once after the plan is in place, before handoff to execution.
 - [ ] Cross-link to Plan 1 v2 (`docs/superpowers/plans/2026-04-24-ffi-split-plan-1.md`) is in the header. Cross-link to Plan 1 Task 9's sidecar precondition is in the header's "Plan 1 Task 9 sidecar precondition" callout.
 
 **2. Placeholder scan:**
+
 - [ ] No "TBD", "TODO", "implement later", "fill in details".
 - [ ] The `<RECORD>` placeholders in Step 1.6 (test count + parity status) are intentional measurements that the engineer captures at execution time. Same pattern as Plan 1 Spike 1.3.
 - [ ] No "similar to Task N" without code — the new kernel sources are spelled out fully in Tasks 5 and 6.
 - [ ] The `M_XYZ_D65_TO_REC2020` matrix in Task 5 Step 5.2 is flagged as "verify before merging" with the exact `grep` command to confirm against the Rust source. This is a real verification step, not a placeholder.
 
 **3. Type consistency:**
+
 - [ ] `MetalKernels.applyWhiteBalance` has `liveTemperature: Float`, `liveTint: Float`, `decodedTemperature: Float`, `decodedTint: Float` — same `Float` widening pattern as the existing `applySceneToneControls` (which takes `Float` for every parameter despite `AdjustmentModel` storing `Double`).
 - [ ] `MetalKernels.applySceneSaturation` has `saturation: Float` — matches the `Float`-narrowing convention.
 - [ ] `processSceneLinear`'s new `decodedAtModel: AdjustmentModel?` parameter is consistent with the existing `asShot: AsShotWB?` optional-with-nil-default pattern.
@@ -1780,6 +1811,7 @@ Run through this once after the plan is in place, before handoff to execution.
 - [ ] The Oklab matrix names in `SceneSaturation.metal` use the `_sat` suffix to avoid potential symbol collisions with `SceneVibrance.metal` inside the metallib.
 
 **4. Ordering and BLOCKING constraints:**
+
 - [ ] Task 1 is pre-flight; if it fails, Plan 2 stops.
 - [ ] Tasks 2-3 (M1 wiring) are sequential — Task 3 builds on Task 2's `processSceneLinear` chain.
 - [ ] Task 4 is M1 milestone gate — must pass before Task 5 starts.

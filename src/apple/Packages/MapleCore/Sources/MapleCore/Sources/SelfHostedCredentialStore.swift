@@ -5,7 +5,7 @@
 // `kSecClassGenericPassword`; the list of known server URLs is serialised to
 // UserDefaults so the UI can enumerate them without a Keychain query per row.
 //
-// Service string: "app.justmaple.maple.self-hosted"
+// Service string: "app.justmaple.aperture.self-hosted"
 // Account string: the URL's host (lower-cased; ports are ignored — one token
 // per host is the contract).
 //
@@ -23,10 +23,10 @@ public actor SelfHostedCredentialStore {
     public static let shared = SelfHostedCredentialStore()
 
     /// Service string used for all self-hosted credential queries.
-    public static let service = "app.justmaple.maple.self-hosted"
+    public static let service = "app.justmaple.aperture.self-hosted"
 
     /// UserDefaults key for the list of saved server URLs.
-    private static let savedServersKey = "app.justmaple.maple.self-hosted.savedServers"
+    private static let savedServersKey = "app.justmaple.aperture.self-hosted.savedServers"
 
     public init() {}
 

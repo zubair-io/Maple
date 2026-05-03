@@ -218,7 +218,7 @@ If a new feature adds allocation inside the render loop, it does not ship. If it
 - **Prefer SPM modules** over a monolithic app target as soon as a feature has more than ~3 files. The pipeline, sidecar layer, and source adapters live in `src/apple/Sources/MapleCore`.
 - **Prefer Angular library projects** in `projects/maple-common` for cross-cutting code (used by both Hosted and Self Hosted deployments of the same Angular shell).
 - **No mocks for the sidecar layer in tests.** Round-trip against real `.xmp` files in a temp directory. XMP is the contract; mocks let bugs through.
-- **Bundle ID:** `app.justmaple.maple` (tests append `.Tests` / `.UITests`).
+- **Bundle ID:** `app.justmaple.aperture` (tests append `.Tests` / `.UITests`).
 
 ## Notes
 

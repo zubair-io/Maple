@@ -2,11 +2,12 @@
 
 > Companion to the Rust color-pipeline harness at
 > [`src/scripts/test_color_pipeline.sh`](../../../src/scripts/test_color_pipeline.sh)
-> + [`src/scripts/compare_images.py`](../../../src/scripts/compare_images.py).
-> That harness gates `maple-cli` PNG output against embedded DNG previews via
-> CIEDE2000. This brief designs an end-to-end shell-driven equivalent that
-> screenshots the live SwiftUI canvas after `EditSession`'s refine pass, and
-> gates it against committed goldens with the same metric.
+>
+> - [`src/scripts/compare_images.py`](../../../src/scripts/compare_images.py).
+>   That harness gates `maple-cli` PNG output against embedded DNG previews via
+>   CIEDE2000. This brief designs an end-to-end shell-driven equivalent that
+>   screenshots the live SwiftUI canvas after `EditSession`'s refine pass, and
+>   gates it against committed goldens with the same metric.
 
 ## 1. Target setup
 
@@ -14,7 +15,7 @@ No UITests target exists today —
 [`pbxproj:175-178`](../../../src/apple/Maple.xcodeproj/project.pbxproj)
 declares only `Maple` and a `MapleTests` unit-test stub. Add a third
 target: `com.apple.product-type.bundle.ui-testing` with
-`PRODUCT_BUNDLE_IDENTIFIER = app.justmaple.maple.UITests`,
+`PRODUCT_BUNDLE_IDENTIFIER = app.justmaple.aperture.UITests`,
 `TEST_TARGET_NAME = Maple`, dependency on `Maple` (mirroring
 [`pbxproj:258-262`](../../../src/apple/Maple.xcodeproj/project.pbxproj)).
 Sources at `src/apple/MapleUITests/`:
@@ -105,14 +106,15 @@ deleting the golden + re-running. Same workflow as
 ## 7. Tolerance budget
 
 Slider-tick goes through Lanczos at the canvas blit + display compositor
-+ AgX view transform — exact-pixel match isn't realistic. Mirror the
-existing harness's mean/p95/max gating at
-[`test_color_pipeline.sh:48-51`](../../../src/scripts/test_color_pipeline.sh):
-mean ΔE ≤ 5, p95 ≤ 10, max ≤ 30 (looser than the Bayer 15 mean is
-unnecessary because the canvas-only crop excludes chrome — but tighter
-than 15 because the input pair is the same scene at the same render,
-not pipeline-vs-Adobe). Calibrate by running 3× against a fresh golden;
-the budget's noise floor is the 95th-percentile run-to-run drift.
+
+- AgX view transform — exact-pixel match isn't realistic. Mirror the
+  existing harness's mean/p95/max gating at
+  [`test_color_pipeline.sh:48-51`](../../../src/scripts/test_color_pipeline.sh):
+  mean ΔE ≤ 5, p95 ≤ 10, max ≤ 30 (looser than the Bayer 15 mean is
+  unnecessary because the canvas-only crop excludes chrome — but tighter
+  than 15 because the input pair is the same scene at the same render,
+  not pipeline-vs-Adobe). Calibrate by running 3× against a fresh golden;
+  the budget's noise floor is the 95th-percentile run-to-run drift.
 
 ## 8. Slider matrix
 
