@@ -1,0 +1,42 @@
+<section class="account">
+  <h2>Account</h2>
+  @if (auth.user(); as u) {
+    <dl class="user">
+      <dt>Email</dt>
+      <dd>{{ u.email }}</dd>
+      <dt>Role</dt>
+      <dd>{{ u.role }}</dd>
+    </dl>
+  }
+
+  <h3>Passkeys</h3>
+  <ul class="credentials">
+    @for (c of credentials(); track c.id) {
+      <li>
+        <span class="label">{{ c.device_label }}</span>
+        <span class="meta">added {{ c.created_at }}</span>
+        <button
+          type="button"
+          class="delete"
+          [disabled]="busy()"
+          (click)="deleteDevice(c.id)"
+        >
+          Delete
+        </button>
+      </li>
+    } @empty {
+      <li class="empty">No passkeys registered.</li>
+    }
+  </ul>
+
+  <div class="actions">
+    <button type="button" [disabled]="busy()" (click)="addDevice()">
+      Add device
+    </button>
+    <button type="button" class="signout" (click)="signOut()">Sign out</button>
+  </div>
+
+  @if (error(); as e) {
+    <p class="error">{{ e }}</p>
+  }
+</section>

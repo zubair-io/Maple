@@ -12,6 +12,10 @@ import type {
   AssetDoc,
   IndexerTaskDoc,
   UserDoc,
+  CredentialDoc,
+  InviteDoc,
+  RefreshTokenDoc,
+  ChallengeDoc,
 } from "./schema.ts";
 
 const MONGO_URI = process.env.MAPLE_MONGO_URI ?? "mongodb://localhost:27017";
@@ -84,6 +88,18 @@ export async function indexerQueueCollection(): Promise<Collection<IndexerTaskDo
 export async function usersCollection(): Promise<Collection<UserDoc>> {
   return (await getDb()).collection<UserDoc>("users");
 }
+export async function credentialsCollection(): Promise<Collection<CredentialDoc>> {
+  return (await getDb()).collection<CredentialDoc>("credentials");
+}
+export async function invitesCollection(): Promise<Collection<InviteDoc>> {
+  return (await getDb()).collection<InviteDoc>("invites");
+}
+export async function refreshTokensCollection(): Promise<Collection<RefreshTokenDoc>> {
+  return (await getDb()).collection<RefreshTokenDoc>("refresh_tokens");
+}
+export async function challengesCollection(): Promise<Collection<ChallengeDoc>> {
+  return (await getDb()).collection<ChallengeDoc>("challenges");
+}
 
 /**
  * Ensure all required indexes exist. Safe to call multiple times (idempotent).
@@ -105,8 +121,28 @@ export async function ensureIndexes(): Promise<void> {
   // indexer_queue: status for fast pending-task lookups
   await db.collection("indexer_queue").createIndex({ status: 1 });
 
-  // users: unique email
-  await db.collection("users").createIndex({ email: 1 }, { unique: true });
+  const users = await usersCollection();
+  try { await users.dropIndex("email_1"); }
+  catch (err) {
+    if (!(err instanceof Error) || !/IndexNotFound|index not found/i.test(err.message)) throw err;
+  }
+  await users.createIndex({ email: 1 }, { unique: true, collation: { locale: "en", strength: 2 } });
+
+  const creds = await credentialsCollection();
+  await creds.createIndex({ credential_id: 1 }, { unique: true });
+  await creds.createIndex({ user_id: 1 });
+
+  const invites = await invitesCollection();
+  await invites.createIndex({ code: 1 }, { unique: true });
+  await invites.createIndex({ expires_at: 1 }, { expireAfterSeconds: 0 });
+
+  const refresh = await refreshTokensCollection();
+  await refresh.createIndex({ token_hash: 1 }, { unique: true });
+  await refresh.createIndex({ expires_at: 1 }, { expireAfterSeconds: 0 });
+  await refresh.createIndex({ user_id: 1 });
+
+  const challenges = await challengesCollection();
+  await challenges.createIndex({ expires_at: 1 }, { expireAfterSeconds: 0 });
 
   console.log("[db] indexes ensured");
 }
