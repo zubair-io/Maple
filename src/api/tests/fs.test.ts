@@ -85,10 +85,21 @@ describe("xmpSidecarPath", () => {
 });
 
 describe("resolveThumbPath", () => {
-  it("places thumb under .maple/thumbs/ with correct naming", async () => {
+  it("places thumb under .maple/thumbs/<sha256_prefix16(basename)>.jpg", async () => {
+    const { resolveThumbPath, sha256Prefix16 } = await import("../src/fs/xmp.ts");
+    const result = resolveThumbPath("/photos/mydir/IMG_001.dng");
+    const expectedKey = sha256Prefix16("IMG_001.dng");
+    expect(result).toBe(`/photos/mydir/.maple/thumbs/${expectedKey}.jpg`);
+    // 16 hex chars
+    expect(expectedKey).toMatch(/^[0-9a-f]{16}$/);
+  });
+
+  it("returns the same path regardless of folder location (filename-only key)", async () => {
     const { resolveThumbPath } = await import("../src/fs/xmp.ts");
-    const result = resolveThumbPath("/photos/mydir/IMG_001.dng", "512x512");
-    expect(result).toBe("/photos/mydir/.maple/thumbs/IMG_001_512x512.jpg");
+    const a = resolveThumbPath("/originals/2024/IMG_001.cr3");
+    const b = resolveThumbPath("/backup/copies/IMG_001.cr3");
+    // Different directories, but same key segment — `.maple/` travels with photos.
+    expect(a.split("/.maple/thumbs/")[1]).toBe(b.split("/.maple/thumbs/")[1]);
   });
 });
 

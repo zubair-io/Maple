@@ -22,6 +22,7 @@ export class SignInComponent implements OnInit {
 
   email = '';
   claimed = signal<boolean | null>(null);
+  devLoginEnabled = signal(false);
   busy = signal(false);
   error = signal<string | null>(null);
 
@@ -29,6 +30,7 @@ export class SignInComponent implements OnInit {
     try {
       const r = await this.auth.bootstrap();
       this.claimed.set(r.claimed);
+      this.devLoginEnabled.set(r.dev_login_enabled);
     } catch (e: unknown) {
       this.error.set(e instanceof Error ? e.message : String(e));
     }
@@ -43,6 +45,19 @@ export class SignInComponent implements OnInit {
       } else {
         await this.auth.signIn(this.email);
       }
+      await this.router.navigateByUrl('/');
+    } catch (e: unknown) {
+      this.error.set(e instanceof Error ? e.message : String(e));
+    } finally {
+      this.busy.set(false);
+    }
+  }
+
+  async devSignIn(): Promise<void> {
+    this.busy.set(true);
+    this.error.set(null);
+    try {
+      await this.auth.devSignIn();
       await this.router.navigateByUrl('/');
     } catch (e: unknown) {
       this.error.set(e instanceof Error ? e.message : String(e));

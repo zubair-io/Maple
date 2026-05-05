@@ -26,4 +26,33 @@ export interface SidebarEntry {
   smart?: boolean; // for smart albums
   open?: boolean; // default open state for folder nodes
   children?: SidebarEntry[];
+  /**
+   * Absolute filesystem path on disk (Self-Hosted FS-walk tree only). Set on
+   * registered-library roots and on every lazy-loaded subfolder so the
+   * folder-tree can call FilesystemBrowseService.listDir(node.absPath) on
+   * expand/select.
+   */
+  absPath?: string;
+  /**
+   * Children-load lifecycle (Self-Hosted FS-walk tree only):
+   *   undefined → not yet fetched
+   *   'loading' → /api/fs/dir is in flight
+   *   'loaded'  → `children` reflects the directory contents
+   *   'error'   → fetch failed; show retry affordance
+   */
+  childrenStatus?: "loading" | "loaded" | "error";
+  /** Last error message when childrenStatus === 'error'. */
+  childrenError?: string;
+}
+
+// Folder rendered as a navigable tile inside the asset grid (Self-Hosted
+// FS-walk only). Sits alongside Asset records in the grid layout — clicking
+// one drills into the folder via the same `openSelfHostedSubfolder` path
+// the sidebar uses, so navigation logic stays in one place.
+export interface GridFolderItem {
+  id: string;
+  name: string;
+  absPath: string;
+  parentSourceId: string;
+  aspectRatio: number;
 }

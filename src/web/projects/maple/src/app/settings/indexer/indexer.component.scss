@@ -1,0 +1,75 @@
+// Indexer page — most styles migrated to Tailwind utilities. This file keeps
+// only rules Tailwind can't express cleanly: progress-bar easing, custom-
+// breakpoint media queries (720px isn't a Tailwind default), the lifecycle
+// button's color-mix hover, and the RTL-truncated dirname.
+
+:host {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: var(--color-bg);
+  color: var(--color-text-main);
+  overflow-y: auto;
+}
+
+// Progress-bar fill — must keep the eased width transition.
+.bar-fill {
+  transition: width 200ms var(--ease-default);
+}
+
+// "Start indexer" + "Reindex EXIF" buttons — both use the primary background
+// with a color-mix lighten on hover. Tailwind can't express color-mix cleanly,
+// so keep these hover rules in CSS. (.lifecycle-btn marks the start button;
+// .run-btn-primary marks the EXIF backfill button.)
+.lifecycle-btn:hover:not(:disabled),
+.run-btn-primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-primary) 88%, white);
+}
+
+// Top-line summary grid — 6 columns wide, 3 columns at narrow widths.
+.summary-grid {
+  grid-template-columns: repeat(6, 1fr);
+
+  @media (max-width: 720px) {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+// Backfill 4-up stat grid — 4 columns wide, 2 columns at narrow widths.
+.backfill-grid {
+  grid-template-columns: repeat(4, 1fr);
+
+  @media (max-width: 720px) {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+// In-flight drawer row — sits inside the same <tbody> as the stage rows,
+// needs its own background and the colspan cell needs its own border vs the
+// header utility classes.
+.inflight-row {
+  background: var(--color-bg) !important;
+  td {
+    border-bottom: 1px solid var(--color-border) !important;
+  }
+}
+
+// Subtle row tint when a stage has in-flight work — Angular's [class.X]
+// binding can't parse Tailwind's bracketed `bg-white/[0.02]` literal, so
+// keep this conditional rule in CSS.
+tr.has-inflight {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+// Process-label "warn" colour — non-token amber. Tailwind would express this
+// as `text-[#c89400]` but Angular's [class.X] binding can't parse the bracket
+// in the class name, so keep the rule in CSS.
+.process-label.warn {
+  color: #c89400;
+}
+
+// Truncate from the LEFT so the filename stays visible.
+.dirname-rtl {
+  direction: rtl;
+  text-align: left;
+}

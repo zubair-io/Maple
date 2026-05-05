@@ -8,7 +8,7 @@
 //
 // The canonical M2.1 validation is the standalone dev page at
 // /dev/webgl-test (registered behind isDevMode() in
-// src/web/projects/maple-hosted/src/app/app.routes.ts). Open that
+// src/web/projects/maple-syrup/src/app/app.routes.ts). Open that
 // page in Chrome / Safari / Firefox 88+ on a host with fp16-capable
 // hardware and visually inspect the side-by-side WebGL2 vs Apple
 // reference rendering. The page surfaces mean / P95 / max ΔE₀₀

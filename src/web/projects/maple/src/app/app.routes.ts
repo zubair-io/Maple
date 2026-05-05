@@ -19,7 +19,10 @@ export const routes: Routes = [
     loadComponent: () =>
       import('./sign-in/join.component').then((m) => m.JoinComponent),
   },
-  { path: '', canActivate: [authGuard], redirectTo: 'browse', pathMatch: 'full' },
+  // `/` redirects to `/browse`; the browse route's authGuard handles the
+  // unauthenticated case. canActivate here is invalid — Angular runs
+  // redirects BEFORE guards, so the guard would never fire (NG04014).
+  { path: '', redirectTo: 'browse', pathMatch: 'full' },
   { path: 'browse', canActivate: [authGuard], component: BrowseShellComponent },
   { path: 'edit/:id', canActivate: [authGuard], component: EditorShellComponent },
   {
@@ -33,6 +36,18 @@ export const routes: Routes = [
     canActivate: [authGuard, ownerGuard],
     loadComponent: () =>
       import('./settings/users/users.component').then((m) => m.UsersComponent),
+  },
+  {
+    path: 'settings/indexer',
+    canActivate: [authGuard, ownerGuard],
+    loadComponent: () =>
+      import('./settings/indexer/indexer.component').then((m) => m.IndexerComponent),
+  },
+  {
+    path: 'search',
+    canActivate: [authGuard],
+    loadComponent: () =>
+      import('./search/search.component').then((m) => m.SearchComponent),
   },
   { path: '**', redirectTo: 'browse' },
 ];

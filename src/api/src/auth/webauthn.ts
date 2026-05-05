@@ -11,7 +11,18 @@ import type { ChallengePurpose, CredentialDoc } from "../db/schema.ts";
 
 const RP_NAME = "Maple";
 function rpID(): string { return process.env.MAPLE_RP_ID ?? "localhost"; }
-function origin(): string { return process.env.MAPLE_ORIGIN ?? "http://localhost:3000"; }
+
+// Allowed WebAuthn origins. SimpleWebAuthn accepts an array — useful in dev,
+// where the bun API runs on :3000 and the Angular dev server runs on :4201
+// (or :4200 for hosted). MAPLE_ORIGIN can be a single origin or a
+// comma-separated list. The default covers both common dev ports so the
+// passkey ceremony works whether the user hits the bun-served bundle or
+// ng-serve directly.
+function origin(): string[] {
+  const raw = process.env.MAPLE_ORIGIN;
+  if (raw) return raw.split(",").map((s) => s.trim()).filter(Boolean);
+  return ["http://localhost:3000", "http://localhost:4200", "http://localhost:4201"];
+}
 
 const CHALLENGE_TTL_MS = 5 * 60 * 1000;
 

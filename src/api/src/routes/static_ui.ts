@@ -9,7 +9,7 @@
  *   MAPLE_DEV_ORIGIN (default: http://localhost:4201).
  *
  * The UI dist path is resolved relative to this server's root:
- *   <api>/../../web/dist/maple-self-hosted/browser/
+ *   <api>/../../web/dist/maple/browser/
  * Can be overridden via MAPLE_UI_DIST env var.
  */
 
@@ -26,7 +26,7 @@ function resolveUiDist(): string {
     return process.env.MAPLE_UI_DIST;
   }
   // Relative to this file's location: src/routes/ → .. → src/ → .. → api/
-  // Then up one more to the monorepo src/: ../web/dist/maple-self-hosted/browser/
+  // Then up one more to the monorepo src/: ../web/dist/maple/browser/
   return path.resolve(
     import.meta.dir, // src/routes/
     "..",            // src/
@@ -34,7 +34,7 @@ function resolveUiDist(): string {
     "..",            // src/      (monorepo src/)
     "web",
     "dist",
-    "maple-self-hosted",
+    "maple",
     "browser"
   );
 }
@@ -129,7 +129,7 @@ export const staticUiPlugin = new Elysia()
       });
       if (!proxyResp) {
         set.status = 502;
-        return { error: "Angular dev server not reachable", tip: `Start it with: cd src/web && ng serve maple-self-hosted --port 4201` };
+        return { error: "Angular dev server not reachable", tip: `Start it with: cd src/web && ng serve maple --port 4201` };
       }
       // T10: proxied responses from `ng serve` don't carry COOP/COEP. Clone
       // with the isolation headers added so dev-mode threading works too.
@@ -154,7 +154,7 @@ export const staticUiPlugin = new Elysia()
       set.status = 503;
       return {
         error: "UI bundle not built",
-        tip: "Run: cd src/web && ng build maple-self-hosted --configuration=production",
+        tip: "Run: cd src/web && ng build maple --configuration=production",
         dist_path: UI_DIST,
       };
     }

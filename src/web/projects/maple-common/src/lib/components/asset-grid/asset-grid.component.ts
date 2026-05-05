@@ -1,7 +1,9 @@
 // Asset grid — justified rows of thumbnail cells.
-// P5: thumbnails loaded from .maple/thumbs/ cache when available;
-//     decoded + cached on first view; sha256Prefix16 used as cache key.
-// P7: Router.navigate replaces window.location.href hack.
+//
+// Thumbnail acquisition is delegated to `LibraryStateService.ensureThumbnailUrl`
+// (single source of truth for FS-walk / Mongo-asset / .maple-cache /
+// decode-fallback paths). The shared `<maple-asset-thumb>` component
+// fires that loader on mount, so this file only owns layout + selection.
 
 import {
   AfterViewInit,
@@ -12,102 +14,98 @@ import {
   OnDestroy,
   ViewChild,
   computed,
-  effect,
   inject,
   signal,
 } from '@angular/core';
 import { Router } from '@angular/router';
+import { ScrollingModule } from '@angular/cdk/scrolling';
 import { LibraryStateService } from '../../state/library-state.service';
-import { BunApiBackendService } from '../../api/bun-api-backend.service';
-import { MapleCacheService } from '../../maple-cache/maple-cache.service';
-import { RawPipelineService } from '../../raw-pipeline/raw-pipeline.service';
-import { firstValueFrom } from 'rxjs';
-import { imageDataToBitmap, resizeBitmapToCanvas } from '../../raw-pipeline/image-utils';
-import { sha256Prefix16 } from '../../maple-cache/sha';
 import { MapleIconComponent } from '../../icons/maple-icon.component';
 import { Asset, AssetId } from '../../models/asset';
+import { GridFolderItem } from '../../models/folder';
+import { AssetThumbComponent } from '../asset-thumb/asset-thumb.component';
+import { FolderTileComponent } from '../folder-tile/folder-tile.component';
+
+export type GridItem =
+  | { kind: 'folder'; folder: GridFolderItem }
+  | { kind: 'image'; asset: Asset };
 
 interface GridRow {
-  assets: Asset[];
+  items: GridItem[];
   height: number;
-}
-
-/** Convert a canvas to a JPEG Blob. */
-async function canvasToBlob(
-  canvas: OffscreenCanvas | HTMLCanvasElement,
-  quality = 0.82,
-): Promise<Blob> {
-  if (canvas instanceof OffscreenCanvas) {
-    return canvas.convertToBlob({ type: 'image/jpeg', quality });
-  }
-  return new Promise<Blob>((resolve, reject) => {
-    (canvas as HTMLCanvasElement).toBlob(
-      (b) => (b ? resolve(b) : reject(new Error('toBlob failed'))),
-      'image/jpeg',
-      quality,
-    );
-  });
 }
 
 @Component({
   selector: 'app-asset-grid',
   standalone: true,
-  imports: [MapleIconComponent],
+  imports: [MapleIconComponent, ScrollingModule, AssetThumbComponent, FolderTileComponent],
   templateUrl: './asset-grid.component.html',
   styleUrl: './asset-grid.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class AssetGridComponent implements AfterViewInit, OnDestroy {
-  @ViewChild('gridContainer') gridContainerRef!: ElementRef<HTMLElement>;
+  @ViewChild('gridContainer', { read: ElementRef }) gridContainerRef!: ElementRef<HTMLElement>;
+
+  /** Stable track-by for virtual scroll: keys off the first item's id so row
+   * identity survives across re-packs of the same head item. Folder rows and
+   * image rows share the same key space (folder ids are 'fs:<path>', asset
+   * ids are UUIDs or 'fs:<path>' — disjoint by construction in practice). */
+  trackRow = (_: number, row: GridRow): string => {
+    const head = row.items[0];
+    if (!head) return `r${_}`;
+    return head.kind === 'image' ? head.asset.id : head.folder.id;
+  };
+
+  itemKey = (item: GridItem): string =>
+    item.kind === 'image' ? item.asset.id : item.folder.id;
+
+  itemAspectRatio = (item: GridItem): number =>
+    item.kind === 'image' ? item.asset.aspectRatio : item.folder.aspectRatio;
 
   readonly state = inject(LibraryStateService);
-  readonly pipeline = inject(RawPipelineService);
-  readonly mapCache = inject(MapleCacheService);
-  private readonly api = inject(BunApiBackendService);
   private readonly router = inject(Router);
-  private readonly injector = inject(Injector);
 
   readonly STAR_INDICES = [1, 2, 3, 4, 5];
 
   private containerWidth = signal<number>(800);
   private ro?: ResizeObserver;
-  private cleanupThumbEffect?: () => void;
-
-  // Per-cell thumbnail state (keyed by AssetId).
-  readonly thumbUrls = signal<Map<AssetId, string>>(new Map());
-  readonly thumbLoading = signal<Set<AssetId>>(new Set());
-
-  // Track which assets we've already tried (avoid infinite retries on error).
-  private attempted = new Set<AssetId>();
 
   readonly gridRows = computed((): GridRow[] => {
+    const folders = this.state.foldersInSelectedFolder();
     const assets = this.state.assetsInSelectedFolder();
     const targetH = this.state.thumbSize();
     const containerW = this.containerWidth();
     const GAP = 3;
 
+    // Folders sort first (Finder-style), then images.
+    const items: GridItem[] = [
+      ...folders.map<GridItem>((f) => ({ kind: 'folder', folder: f })),
+      ...assets.map<GridItem>((a) => ({ kind: 'image', asset: a })),
+    ];
+
     const rows: GridRow[] = [];
-    let row: Asset[] = [];
+    let row: GridItem[] = [];
     let rowAr = 0;
 
-    for (const asset of assets) {
-      row.push(asset);
-      rowAr += asset.aspectRatio;
+    for (const item of items) {
+      const ar = this.itemAspectRatio(item);
+      row.push(item);
+      rowAr += ar;
       const rowWidth = rowAr * targetH + (row.length - 1) * GAP;
       if (rowWidth >= containerW * 0.92) {
         const availW = containerW - (row.length - 1) * GAP - 6;
         const h = Math.min(targetH * 1.4, availW / rowAr);
-        rows.push({ assets: [...row], height: h });
+        rows.push({ items: [...row], height: h });
         row = [];
         rowAr = 0;
       }
     }
 
     if (row.length) {
-      const totalAr = row.reduce((s, a) => s + a.aspectRatio, 0);
+      const totalAr = row.reduce((s, it) => s + this.itemAspectRatio(it), 0);
       const availW = containerW - (row.length - 1) * GAP - 6;
       const h = Math.min(targetH, availW / totalAr);
-      rows.push({ assets: row, height: Math.max(h, 40) });
+      rows.push({ items: row, height: Math.max(h, 40) });
     }
 
     return rows;
@@ -127,125 +125,18 @@ export class AssetGridComponent implements AfterViewInit, OnDestroy {
     });
     this.ro.observe(this.gridContainerRef.nativeElement);
     this.containerWidth.set(this.gridContainerRef.nativeElement.clientWidth || 800);
-
-    // Watch asset list for new items and kick off thumbnail loads.
-    const e = effect(
-      () => {
-        const assets = this.state.assetsInSelectedFolder();
-        for (const asset of assets) {
-          if (
-            !this.thumbUrls().has(asset.id) &&
-            !this.thumbLoading().has(asset.id) &&
-            !this.attempted.has(asset.id)
-          ) {
-            this.attempted.add(asset.id);
-            void this.loadThumbnail(asset);
-          }
-        }
-      },
-      { injector: this.injector },
-    );
-    this.cleanupThumbEffect = () => e.destroy();
   }
 
   ngOnDestroy(): void {
     this.ro?.disconnect();
-    this.cleanupThumbEffect?.();
-    this.thumbUrls().forEach((url) => URL.revokeObjectURL(url));
   }
 
-  // ── Thumbnail loading — cache-first ────────────────────────────────────────
-
-  private async loadThumbnail(asset: Asset): Promise<void> {
-    this.thumbLoading.update((s) => {
-      const n = new Set(s);
-      n.add(asset.id);
-      return n;
-    });
-
-    try {
-      // Self-Hosted: thumbs come from the API, not the local cache/decode path.
-      if (this.state.backend === 'self-hosted') {
-        const apiId = this.state.apiIdFor(asset.id);
-        if (!apiId) return;
-        // firstValueFrom: imperative-boundary escape hatch — loadThumbnail()
-        // returns a Promise so the effect()-driven scheduler can dedupe.
-        const blob = await firstValueFrom(this.api.getThumb(apiId));
-        const url = URL.createObjectURL(blob);
-        this.thumbUrls.update((m) => {
-          const n = new Map(m);
-          n.set(asset.id, url);
-          return n;
-        });
-        this.state.cacheThumbnailUrl(asset.id, url);
-        return;
-      }
-
-      const folder = this.state.currentFolder();
-
-      // 1. Try .maple/ disk cache first (instant on warm cache).
-      if (folder) {
-        const sha = await sha256Prefix16(asset.filename);
-        const cached = await this.mapCache.readThumb(folder, sha);
-        if (cached) {
-          const url = URL.createObjectURL(cached);
-          this.thumbUrls.update((m) => {
-            const n = new Map(m);
-            n.set(asset.id, url);
-            return n;
-          });
-          this.state.cacheThumbnailUrl(asset.id, url);
-          return;
-        }
-      }
-
-      // 2. Need to decode from bytes. Try lazy read first.
-      let bytes: Uint8Array | undefined;
-      try {
-        bytes = await this.state.bytesForAsset(asset.id);
-      } catch {
-        // No handle and no legacy bytes — skip (mock assets, etc.).
-        return;
-      }
-
-      const ext = asset.filename.split('.').pop()?.toLowerCase() ?? '';
-      const decoded = await this.pipeline.decode(bytes, ext);
-
-      // Update aspect ratio from decoded dimensions.
-      this.state.updateAssetDimensions(asset.id, decoded.width, decoded.height);
-
-      // Resize to thumbnail (512px long edge).
-      const bitmap = await imageDataToBitmap(decoded);
-      const canvas = await resizeBitmapToCanvas(bitmap, 512);
-      bitmap.close();
-
-      const blob = await canvasToBlob(canvas);
-      const url = URL.createObjectURL(blob);
-
-      this.thumbUrls.update((m) => {
-        const n = new Map(m);
-        n.set(asset.id, url);
-        return n;
-      });
-      this.state.cacheThumbnailUrl(asset.id, url);
-
-      // 3. Write thumb to .maple/ cache (non-blocking, write permission required).
-      if (folder?.write) {
-        const sha = await sha256Prefix16(asset.filename);
-        void this.mapCache
-          .writeThumb(folder, sha, blob)
-          .then(() => this.state.updateIndexThumb(asset.id, sha));
-      }
-    } catch (err) {
-      console.error(`Thumbnail decode failed for ${asset.filename}:`, err);
-    } finally {
-      this.thumbLoading.update((s) => {
-        const n = new Set(s);
-        n.delete(asset.id);
-        return n;
-      });
-    }
-  }
+  // (Thumbnail loading moved to LibraryStateService.ensureThumbnailUrl —
+  // both the asset-grid and the editor filmstrip go through the same
+  // shared `<maple-asset-thumb>` component which fires the loader on mount.
+  // The state service handles all four paths: FS-walk → /api/fs/thumb,
+  // Mongo asset id → /api/assets/:id/thumb, .maple/ disk cache, and the
+  // WASM-decode fallback with write-through.)
 
   // ── Event handlers ────────────────────────────────────────────────────────
 
@@ -257,6 +148,13 @@ export class AssetGridComponent implements AfterViewInit, OnDestroy {
     this.state.selectAsset(asset.id);
     // P7: Router.navigate replaces window.location.href hack.
     void this.router.navigate(['/edit', asset.id]);
+  }
+
+  onFolderTileClick(folder: GridFolderItem): void {
+    // Single click drills into the folder — same path the sidebar uses, so
+    // selection state, sidebar expansion, and grid contents stay in sync.
+    this.state.openSelfHostedSubfolder(folder.absPath, folder.id);
+    this.state.setFolderOpen(folder.id, true);
   }
 
   onThumbSizeChange(e: Event): void {

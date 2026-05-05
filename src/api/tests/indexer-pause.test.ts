@@ -96,22 +96,24 @@ describe("Pipeline pause/resume", () => {
   });
 });
 
-describe("POST /api/indexer/pause + /resume", () => {
-  it("pauses and resumes the singleton indexer service", async () => {
+describe("POST /api/indexer/pause + /resume — proxy contract", () => {
+  it("returns 503 when the supervisor has no child running", async () => {
+    // The pipeline now lives in a separate child process. With no child,
+    // the parent's proxy must surface a 503 — exercised here so the
+    // contract doesn't regress. Spawn-tests that exercise the running
+    // path live in `indexer-supervisor.test.ts`.
     const { indexerRoutes } = await import("../src/routes/indexer.ts");
+    const { _resetForTests } = await import("../src/indexer/control.ts");
+    _resetForTests();
 
     const pauseRes = await indexerRoutes.handle(
       new Request("http://localhost/api/indexer/pause", { method: "POST" }),
     );
-    expect(pauseRes.status).toBe(200);
-    const pauseJson = await pauseRes.json();
-    expect(pauseJson.status.paused).toBe(true);
+    expect(pauseRes.status).toBe(503);
 
     const resumeRes = await indexerRoutes.handle(
       new Request("http://localhost/api/indexer/resume", { method: "POST" }),
     );
-    expect(resumeRes.status).toBe(200);
-    const resumeJson = await resumeRes.json();
-    expect(resumeJson.status.paused).toBe(false);
+    expect(resumeRes.status).toBe(503);
   });
 });

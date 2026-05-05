@@ -1,4 +1,4 @@
-# T10 — cross-origin isolation headers for maple-hosted.
+# T10 — cross-origin isolation headers for maple-syrup.
 #
 # These two headers opt the page into a cross-origin-isolated context, which
 # is required for SharedArrayBuffer and therefore for the WASM rayon thread

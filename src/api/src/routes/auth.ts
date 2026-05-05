@@ -46,9 +46,71 @@ async function isClaimed(): Promise<boolean> {
   return (await u.countDocuments({}, { limit: 1 })) > 0;
 }
 
+function devAuthEnabled(): boolean {
+  return process.env.MAPLE_DEV_AUTH === "1";
+}
+
 export const authRoutes = new Elysia({ prefix: "/api/auth" })
   // ----- bootstrap -----
-  .get("/bootstrap", async () => ({ claimed: await isClaimed() }))
+  .get("/bootstrap", async () => ({
+    claimed: await isClaimed(),
+    dev_login_enabled: devAuthEnabled(),
+  }))
+
+  // ----- dev-login (gated on MAPLE_DEV_AUTH=1) -----
+  // Bypasses the WebAuthn ceremony for local development. When the env flag
+  // is unset, the route returns 404 so it's invisible in production builds.
+  // When set, mints the same access + refresh token pair as /login/verify
+  // for an upserted dev user (default email "dev@maple.local", owner role).
+  .post(
+    "/dev-login",
+    async ({ body, set, cookie }) => {
+      if (!devAuthEnabled()) {
+        set.status = 404;
+        return { error: "not found" };
+      }
+      const email = (body.email ?? "dev@maple.local").toLowerCase();
+      const u = await usersCollection();
+      let user = await u.findOne({ email });
+      if (!user) {
+        const ins = await u.insertOne({
+          email,
+          role: "owner",
+          created_at: new Date().toISOString(),
+          last_seen_at: new Date().toISOString(),
+        });
+        user = await u.findOne({ _id: ins.insertedId });
+        if (!user) {
+          set.status = 500;
+          return { error: "failed to create dev user" };
+        }
+      } else {
+        await u.updateOne(
+          { _id: user._id },
+          { $set: { last_seen_at: new Date().toISOString() } },
+        );
+      }
+      const access_token = signAccessToken(
+        { sub: user._id.toHexString(), email: user.email, role: user.role },
+        jwtSecret(),
+      );
+      const refresh = await issueRefreshToken(user._id, "dev-login");
+      cookie.maple_refresh.set({
+        value: refresh.raw,
+        httpOnly: true,
+        secure: true,
+        sameSite: "lax",
+        path: "/",
+        maxAge: REFRESH_TTL_SECONDS,
+      });
+      return {
+        access_token,
+        refresh_token: refresh.raw,
+        user: { id: user._id.toHexString(), email: user.email, role: user.role },
+      };
+    },
+    { body: t.Object({ email: t.Optional(t.String({ format: "email" })) }) },
+  )
 
   // ----- register/options -----
   .post(

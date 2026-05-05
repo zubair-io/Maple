@@ -2,7 +2,7 @@
 // These mirror the spec's slice-10a schema. Do NOT add fields not defined here;
 // extra fields break cross-product interop.
 
-export type MapleGenerator = 'maple-hosted' | 'maple-self-hosted' | 'maple-native';
+export type MapleGenerator = 'maple-syrup' | 'maple' | 'maple-native';
 
 export interface MapleIndex {
   version: '1.0';

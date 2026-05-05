@@ -47,26 +47,31 @@ export async function resizeBitmapToCanvas(
   return canvas;
 }
 
-/**
- * Convert a canvas to a blob URL. Works for both OffscreenCanvas and
- * HTMLCanvasElement.
- */
+/** Encode a canvas as a JPEG Blob. Works for both OffscreenCanvas and
+ * HTMLCanvasElement. Used by callers that need to both render the image
+ * (via blob URL) AND write it to the `.maple/thumbs/` cache (raw bytes). */
+export async function canvasToBlob(
+  canvas: OffscreenCanvas | HTMLCanvasElement,
+  quality = 0.85,
+): Promise<Blob> {
+  if (canvas instanceof OffscreenCanvas) {
+    return canvas.convertToBlob({ type: 'image/jpeg', quality });
+  }
+  return new Promise<Blob>((resolve, reject) => {
+    (canvas as HTMLCanvasElement).toBlob(
+      (b) => (b ? resolve(b) : reject(new Error('toBlob failed'))),
+      'image/jpeg',
+      quality,
+    );
+  });
+}
+
+/** Convenience: encode + wrap the blob in an object URL. Use this when you
+ * don't need the blob bytes for anything else. */
 export async function canvasToBlobUrl(
   canvas: OffscreenCanvas | HTMLCanvasElement,
 ): Promise<string> {
-  let blob: Blob;
-  if (canvas instanceof OffscreenCanvas) {
-    blob = await canvas.convertToBlob({ type: 'image/jpeg', quality: 0.85 });
-  } else {
-    blob = await new Promise<Blob>((resolve, reject) => {
-      (canvas as HTMLCanvasElement).toBlob(
-        (b) => (b ? resolve(b) : reject(new Error('toBlob failed'))),
-        'image/jpeg',
-        0.85,
-      );
-    });
-  }
-  return URL.createObjectURL(blob);
+  return URL.createObjectURL(await canvasToBlob(canvas));
 }
 
 /** Compute a 256-bin luma histogram from raw RGB pixel data. */

@@ -35,7 +35,7 @@ import { NoiseSectionComponent } from '../develop/noise-section.component';
         background: transparent;
       }
       :host::-webkit-scrollbar-thumb {
-        background: var(--maple-border);
+        background: var(--color-border);
         border-radius: 3px;
       }
 

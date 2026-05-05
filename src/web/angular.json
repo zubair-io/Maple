@@ -7,38 +7,38 @@
   },
   "newProjectRoot": "projects",
   "projects": {
-    "maple-hosted": {
+    "maple-syrup": {
       "projectType": "application",
       "schematics": {
         "@schematics/angular:component": {
           "style": "scss"
         }
       },
-      "root": "projects/maple-hosted",
-      "sourceRoot": "projects/maple-hosted/src",
+      "root": "projects/maple-syrup",
+      "sourceRoot": "projects/maple-syrup/src",
       "prefix": "app",
       "architect": {
         "build": {
           "builder": "@angular/build:application",
           "options": {
-            "outputPath": "dist/maple-hosted",
-            "browser": "projects/maple-hosted/src/main.ts",
-            "tsConfig": "projects/maple-hosted/tsconfig.app.json",
+            "outputPath": "dist/maple-syrup",
+            "browser": "projects/maple-syrup/src/main.ts",
+            "tsConfig": "projects/maple-syrup/tsconfig.app.json",
             "webWorkerTsConfig": "tsconfig.worker.json",
             "inlineStyleLanguage": "scss",
             "assets": [
               {
                 "glob": "**/*",
-                "input": "projects/maple-hosted/public"
+                "input": "projects/maple-syrup/public"
               },
               {
                 "glob": "**/*",
-                "input": "projects/maple-hosted/src/assets",
+                "input": "projects/maple-syrup/src/assets",
                 "output": "assets"
               },
               {
                 "glob": "manifest.webmanifest",
-                "input": "projects/maple-hosted/src",
+                "input": "projects/maple-syrup/src",
                 "output": "/"
               },
               {
@@ -62,7 +62,7 @@
                 "output": "/dev-fixtures"
               }
             ],
-            "styles": ["projects/maple-hosted/src/styles.scss"],
+            "styles": ["projects/maple-syrup/src/styles.scss"],
             "serviceWorker": "ngsw-config.json"
           },
           "configurations": {
@@ -100,10 +100,10 @@
           },
           "configurations": {
             "production": {
-              "buildTarget": "maple-hosted:build:production"
+              "buildTarget": "maple-syrup:build:production"
             },
             "development": {
-              "buildTarget": "maple-hosted:build:development"
+              "buildTarget": "maple-syrup:build:development"
             }
           },
           "defaultConfiguration": "development"
@@ -113,38 +113,38 @@
         }
       }
     },
-    "maple-self-hosted": {
+    "maple": {
       "projectType": "application",
       "schematics": {
         "@schematics/angular:component": {
           "style": "scss"
         }
       },
-      "root": "projects/maple-self-hosted",
-      "sourceRoot": "projects/maple-self-hosted/src",
+      "root": "projects/maple",
+      "sourceRoot": "projects/maple/src",
       "prefix": "app",
       "architect": {
         "build": {
           "builder": "@angular/build:application",
           "options": {
-            "outputPath": "dist/maple-self-hosted",
-            "browser": "projects/maple-self-hosted/src/main.ts",
-            "tsConfig": "projects/maple-self-hosted/tsconfig.app.json",
+            "outputPath": "dist/maple",
+            "browser": "projects/maple/src/main.ts",
+            "tsConfig": "projects/maple/tsconfig.app.json",
             "webWorkerTsConfig": "tsconfig.worker.json",
             "inlineStyleLanguage": "scss",
             "assets": [
               {
                 "glob": "**/*",
-                "input": "projects/maple-self-hosted/public"
+                "input": "projects/maple/public"
               },
               {
                 "glob": "**/*",
-                "input": "projects/maple-self-hosted/src/assets",
+                "input": "projects/maple/src/assets",
                 "output": "assets"
               },
               {
                 "glob": "manifest.webmanifest",
-                "input": "projects/maple-self-hosted/src",
+                "input": "projects/maple/src",
                 "output": "/"
               },
               {
@@ -158,7 +158,7 @@
                 "output": "/pkg"
               }
             ],
-            "styles": ["projects/maple-self-hosted/src/styles.scss"]
+            "styles": ["projects/maple/src/styles.scss"]
           },
           "configurations": {
             "production": {
@@ -188,7 +188,7 @@
           "builder": "@angular/build:dev-server",
           "options": {
             "port": 4201,
-            "proxyConfig": "projects/maple-self-hosted/proxy.conf.json",
+            "proxyConfig": "projects/maple/proxy.conf.json",
             "headers": {
               "Cross-Origin-Opener-Policy": "same-origin",
               "Cross-Origin-Embedder-Policy": "require-corp"
@@ -196,10 +196,10 @@
           },
           "configurations": {
             "production": {
-              "buildTarget": "maple-self-hosted:build:production"
+              "buildTarget": "maple:build:production"
             },
             "development": {
-              "buildTarget": "maple-self-hosted:build:development"
+              "buildTarget": "maple:build:development"
             }
           },
           "defaultConfiguration": "development"

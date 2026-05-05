@@ -27,6 +27,7 @@ import { sha1 } from "@noble/hashes/legacy.js";
 import * as images from "./images.repo.ts";
 import { recordDeadLetter } from "./indexer.repo.ts";
 import { cachePathFor } from "../fs/xmp.ts";
+import type { AssetExif } from "../db/schema.ts";
 
 export type JobKind = "index" | "remove" | "rename";
 
@@ -59,6 +60,13 @@ export interface PipelineJob {
   faces?: AiFace[];
   /** Text tags produced by the `ai` stage. Empty today. */
   aiTags?: string[];
+  /**
+   * EXIF subdocument extracted at the exif stage (camera/lens/exposure/GPS).
+   * The exif stage's default handler populates this from `exifr`. The mongo
+   * stage's default upsert passes it through to the asset doc. Stays
+   * `undefined` if exif has not run yet; becomes `null` on parse failure.
+   */
+  exif?: AssetExif | null;
   /** Present only for rename jobs. */
   fromPath?: string;
 }
@@ -121,7 +129,25 @@ async function defaultUpsert(job: PipelineJob): Promise<void> {
     sha1Head: job.sha1Head,
     faces: job.faces ?? [],
     aiTags: job.aiTags ?? [],
+    // exif may be undefined (handler unwired in tests) or null (parse failure).
+    // Pass the exact value through so the upsert can decide whether to write it.
+    exif: job.exif,
   });
+}
+
+/**
+ * Default exif handler used by the IndexerService at runtime: parses EXIF and
+ * sets `job.exif`, plus `job.capturedAt` so the maple:id can upgrade to the
+ * primary form. Tests typically supply their own readExif handler and skip
+ * this entirely.
+ */
+async function defaultReadExif(job: PipelineJob): Promise<void> {
+  const { readExif } = await import("./exif.ts");
+  const exif = await readExif(job.absPath);
+  job.exif = exif;
+  if (exif?.captured_at) {
+    job.capturedAt = exif.captured_at;
+  }
 }
 
 function toHex(bytes: Uint8Array): string {
@@ -156,6 +182,13 @@ export interface PipelineStatus {
   stages: Record<Stage, StageCounters>;
   pools: Record<Stage, number>;
   paused: boolean;
+  /** Currently-processing file paths per stage (snapshot). Capped per stage
+   * to keep status payloads small even when the indexer is under heavy load. */
+  inFlightPaths: Record<Stage, string[]>;
+  /** Cumulative count of jobs that have completed (success or fail) per
+   * stage since the server started. Resets on process restart — not
+   * persisted to Mongo. */
+  processed: Record<Stage, number>;
 }
 
 export class Pipeline {
@@ -168,6 +201,20 @@ export class Pipeline {
     ai: { inFlight: 0, errors: 0, deadLetter: 0 },
     mongo: { inFlight: 0, errors: 0, deadLetter: 0 },
   };
+
+  /** Currently-processing absolute paths per stage. Sets so `delete` is O(1)
+   * when a worker finishes; the status snapshot iterates and slices to a cap. */
+  private readonly inFlight: Record<Stage, Set<string>> = {
+    discover: new Set(), hash: new Set(), exif: new Set(),
+    thumb: new Set(), ai: new Set(), mongo: new Set(),
+  };
+  /** Cumulative completed count per stage (success + fail). Process-local. */
+  private readonly processedCounts: Record<Stage, number> = {
+    discover: 0, hash: 0, exif: 0, thumb: 0, ai: 0, mongo: 0,
+  };
+  /** Cap on the in-flight path list returned by `status()` per stage. The
+   * pool size never exceeds this in practice, so the cap is just a guard. */
+  private static readonly INFLIGHT_PATHS_CAP = 64;
 
   private pools: Record<Stage, number>;
   private workers: Map<Stage, Promise<void>[]> = new Map();
@@ -194,6 +241,15 @@ export class Pipeline {
       ai: { depth: this.channels.ai.depth, capacity: this.channels.ai.capacity },
       mongo: { depth: this.channels.mongo.depth, capacity: this.channels.mongo.capacity },
     };
+    const cap = Pipeline.INFLIGHT_PATHS_CAP;
+    const snap = (s: Stage): string[] => {
+      const arr: string[] = [];
+      for (const p of this.inFlight[s]) {
+        if (arr.length >= cap) break;
+        arr.push(p);
+      }
+      return arr;
+    };
     return {
       channels,
       stages: {
@@ -206,6 +262,15 @@ export class Pipeline {
       },
       pools: { ...this.pools },
       paused: this.paused,
+      inFlightPaths: {
+        discover: snap("discover"),
+        hash: snap("hash"),
+        exif: snap("exif"),
+        thumb: snap("thumb"),
+        ai: snap("ai"),
+        mongo: snap("mongo"),
+      },
+      processed: { ...this.processedCounts },
     };
   }
 
@@ -274,6 +339,7 @@ export class Pipeline {
         await this.gate;
         const job = result.value;
         this.counters[stage].inFlight++;
+        this.inFlight[stage].add(job.absPath);
         try {
           await withRetry(stage, job, handler, (err) => {
             this.counters[stage].errors++;
@@ -288,7 +354,14 @@ export class Pipeline {
           });
         } finally {
           this.counters[stage].inFlight--;
+          this.inFlight[stage].delete(job.absPath);
+          this.processedCounts[stage]++;
         }
+        // Yield to the event loop between jobs so HTTP handlers and other
+        // queued microtasks get a tick. Critical for the `thumb` stage where
+        // the FFI symbol call is synchronous from JS — without a yield, a
+        // busy stage can starve `/api/*` requests entirely.
+        await new Promise<void>((resolve) => setImmediate(resolve));
       }
     };
     // Attach the handler once per stage. We replay `spawnOne` for live pool grow.
@@ -315,6 +388,7 @@ export class Pipeline {
         await this.gate;
         const job = result.value;
         this.counters[stage].inFlight++;
+        this.inFlight[stage].add(job.absPath);
         try {
           await withRetry(stage, job, handler, (err) => {
             this.counters[stage].errors++;
@@ -329,7 +403,14 @@ export class Pipeline {
           });
         } finally {
           this.counters[stage].inFlight--;
+          this.inFlight[stage].delete(job.absPath);
+          this.processedCounts[stage]++;
         }
+        // Yield to the event loop between jobs so HTTP handlers and other
+        // queued microtasks get a tick. Critical for the `thumb` stage where
+        // the FFI symbol call is synchronous from JS — without a yield, a
+        // busy stage can starve `/api/*` requests entirely.
+        await new Promise<void>((resolve) => setImmediate(resolve));
       }
     };
     arr.push(run());
@@ -383,8 +464,10 @@ export class Pipeline {
       await this.channels.thumb.push(job);
       return;
     }
-    const h = this.handlers.readExif;
-    if (h) await h(job);
+    // Tests can override readExif. At runtime, the IndexerService leaves it
+    // unset and we fall through to the default exifr-backed parser.
+    const h = this.handlers.readExif ?? defaultReadExif;
+    await h(job);
 
     // Finalise maple:id now that the exif fields are on the job.
     //   capturedAt present -> primary (tag 0x01, BLAKE3 of sha1Head||ts||serial||shutter)
@@ -424,7 +507,7 @@ export class Pipeline {
     job.faces = job.faces ?? [];
     job.aiTags = job.aiTags ?? [];
     // TODO(T7-logger): replace console.debug with pino once a logger is wired.
-    console.debug(
+    if (process.env.MAPLE_INDEXER_VERBOSE === "1") console.debug(
       JSON.stringify({
         stage: "ai",
         id: job.mapleId ?? null,

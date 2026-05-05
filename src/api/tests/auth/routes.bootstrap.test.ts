@@ -29,7 +29,7 @@ describe("auth/bootstrap", () => {
   it("returns claimed=false on empty DB", async () => {
     const r = await app.handle(new Request("http://localhost/api/auth/bootstrap"));
     expect(r.status).toBe(200);
-    expect(await r.json()).toEqual({ claimed: false });
+    expect(await r.json()).toEqual({ claimed: false, dev_login_enabled: false });
   });
 
   it("returns claimed=true once a user exists", async () => {
@@ -40,7 +40,7 @@ describe("auth/bootstrap", () => {
       last_seen_at: null,
     });
     const r = await app.handle(new Request("http://localhost/api/auth/bootstrap"));
-    expect(await r.json()).toEqual({ claimed: true });
+    expect(await r.json()).toEqual({ claimed: true, dev_login_enabled: false });
   });
 });
 

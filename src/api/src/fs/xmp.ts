@@ -7,8 +7,20 @@
 
 import * as path from "node:path";
 import * as fs from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { safeWriteAllowed } from "./root.ts";
 import type { OpResult } from "./root.ts";
+
+/**
+ * First 16 hex chars of sha256(text) — the cache-key stem used for
+ * `.maple/thumbs/<key>.jpg`. Matches the web (Hosted) maple-cache
+ * convention at `src/web/.../maple-cache/sha.ts` so thumbs written by
+ * the API are readable by the browser-FS-Access cache (and vice versa
+ * once Apple migrates to a filename-keyed hash too).
+ */
+export function sha256Prefix16(text: string): string {
+  return createHash("sha256").update(text, "utf8").digest("hex").slice(0, 16);
+}
 
 /** Resolve the expected XMP sidecar path for a given raw/image file. */
 export function xmpSidecarPath(rawAbsPath: string): string {
@@ -82,13 +94,24 @@ export async function ensureMapleDir(folderAbsPath: string): Promise<string> {
 /**
  * Resolve the thumbnail cache path for a given RAW file.
  *
- * Convention:
- *   <folder>/.maple/thumbs/<filename_no_ext>_<size>.jpg
+ * Convention (aligned with the desktop apps + web Hosted variant):
+ *   <folder>/.maple/thumbs/<sha256_prefix16(basename)>.jpg
+ *
+ * - Single thumb per RAW file (one file → one cache entry, no per-size
+ *   variants). Re-rendering at a different render-target size overwrites
+ *   the same on-disk file. Stale-check is mtime-based (raw mtime ≥ thumb
+ *   mtime). Matches `MapleCacheService` on web and `ThumbnailDiskCache`
+ *   on Apple.
+ * - Hash input is the basename (filename with extension) so `.maple/`
+ *   travels with the photos: copy the folder elsewhere and the same
+ *   thumb hash still resolves. Hashing the absolute path would make
+ *   the cache non-portable.
  */
-export function resolveThumbPath(rawAbsPath: string, size: string = "512x512"): string {
+export function resolveThumbPath(rawAbsPath: string): string {
   const folder = path.dirname(rawAbsPath);
-  const base = path.basename(rawAbsPath, path.extname(rawAbsPath));
-  return path.join(folder, ".maple", "thumbs", `${base}_${size}.jpg`);
+  const basename = path.basename(rawAbsPath);
+  const key = sha256Prefix16(basename);
+  return path.join(folder, ".maple", "thumbs", `${key}.jpg`);
 }
 
 /** Cache kind: derived thumbnail, or full-size rendered preview. */
@@ -97,10 +120,12 @@ export type CacheKind = "thumbs" | "previews";
 /**
  * Resolve the on-disk cache path for an asset's derived artefact.
  *
- *   <folder>/.maple/<kind>/<basename_no_ext>_<size>.jpg
+ * Thumbs use the unified per-file convention from `resolveThumbPath`.
+ * Previews stay size-keyed because a single asset can have many rendered
+ * outputs (different export sizes / edit versions); each needs its own file.
  *
- * Previews default to the full-image render size ("full"); thumbs default to
- * the 512x512 grid tile. Pass an explicit `size` to override.
+ *   thumbs:   <folder>/.maple/thumbs/<sha256_prefix16(basename)>.jpg
+ *   previews: <folder>/.maple/previews/<basename_no_ext>_<size>.jpg
  *
  * Used by the GC sweep to unlink orphaned files after a soft-deleted asset's
  * retention window elapses, and after a rename to clear stale artefacts at
@@ -111,10 +136,13 @@ export function cachePathFor(
   kind: CacheKind,
   size?: string
 ): string {
+  if (kind === "thumbs") {
+    return resolveThumbPath(assetAbsPath);
+  }
   const folder = path.dirname(assetAbsPath);
   const base = path.basename(assetAbsPath, path.extname(assetAbsPath));
-  const s = size ?? (kind === "thumbs" ? "512x512" : "full");
-  return path.join(folder, ".maple", kind, `${base}_${s}.jpg`);
+  const s = size ?? "full";
+  return path.join(folder, ".maple", "previews", `${base}_${s}.jpg`);
 }
 
 /**
@@ -123,10 +151,9 @@ export function cachePathFor(
  */
 export async function writeThumb(
   rawAbsPath: string,
-  size: string,
   jpegBytes: Buffer | Uint8Array
 ): Promise<OpResult> {
-  const thumbPath = resolveThumbPath(rawAbsPath, size);
+  const thumbPath = resolveThumbPath(rawAbsPath);
   const thumbDir = path.dirname(thumbPath);
 
   const allowed = await safeWriteAllowed(thumbPath);

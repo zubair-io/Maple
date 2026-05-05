@@ -1,0 +1,40 @@
+// Search page styling — uses Maple dark theme tokens (tokens.scss).
+// Most styles migrated to Tailwind utilities in the template; this file keeps
+// only rules Tailwind can't express cleanly.
+
+// Search-input placeholder colour — Tailwind can do `placeholder:text-…`
+// but the original also dropped opacity to 0.7, which is awkward as a utility.
+.search-input-el::placeholder {
+  color: var(--color-text-muted);
+  opacity: 0.7;
+}
+
+// Active color-label swatch — scales up slightly. Angular's [class.X] binding
+// can't parse Tailwind's bracketed `scale-[1.08]` literal, so keep the active
+// transform here.
+.swatch-btn.active {
+  transform: scale(1.08);
+}
+
+// Skeleton shimmer for thumbnails — gradient + keyframe animation.
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--color-surface) 0%,
+    var(--color-surface-alt) 50%,
+    var(--color-surface) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.4s linear infinite;
+}
+
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+// Load-more button hover only when not disabled (Tailwind's hover applies even
+// to disabled buttons unless we wrap in a not-disabled selector — keep it in CSS).
+.load-more-btn:hover:not(:disabled) {
+  background: var(--color-surface-hover);
+}

@@ -1,0 +1,336 @@
+<div class="mx-auto max-w-[1100px] px-8 pt-6 pb-12">
+  <header class="mb-6 flex items-center gap-4">
+    <a class="text-[12px] text-text-muted no-underline hover:text-text-main hover:underline" routerLink="/browse">&larr; Back to Browse</a>
+    <h2 class="m-0 flex-1 text-[22px] font-semibold tracking-[-0.01em]">Indexer</h2>
+
+    <!-- Lifecycle buttons (process-level) -->
+    @if (isStopped()) {
+      <button
+        class="lifecycle-btn cursor-pointer rounded-md border border-transparent bg-primary px-3.5 py-1.5 text-[12px] font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+        type="button"
+        [disabled]="isTransitional()"
+        (click)="startIndexer()"
+      >
+        Start indexer
+      </button>
+    } @else if (isRunning()) {
+      <button
+        class="cursor-pointer rounded-md border border-error-text bg-surface px-3.5 py-1.5 text-[12px] font-semibold text-error-text hover:bg-error-bg"
+        type="button"
+        (click)="stopIndexer()"
+      >
+        Stop indexer
+      </button>
+    } @else {
+      <button
+        class="cursor-pointer rounded-md border border-border bg-surface px-3.5 py-1.5 text-[12px] font-semibold text-text-main disabled:cursor-not-allowed disabled:opacity-60"
+        type="button"
+        disabled
+      >
+        {{ processLabel() }}
+      </button>
+    }
+
+    <!-- Pause/Resume (pipeline-level — only meaningful while running) -->
+    @if (isRunning() && status(); as s) {
+      <button
+        class="cursor-pointer rounded-md border px-3.5 py-1.5 text-[12px] font-semibold"
+        type="button"
+        [class.border-border]="!s.paused"
+        [class.bg-surface]="!s.paused"
+        [class.text-text-main]="!s.paused"
+        [class.hover:bg-surface-hover]="!s.paused"
+        [class.border-primary]="s.paused"
+        [class.bg-primary-dim]="s.paused"
+        [class.text-primary]="s.paused"
+        (click)="togglePause()"
+      >
+        {{ s.paused ? '▶ Resume' : '⏸ Pause' }}
+      </button>
+    }
+  </header>
+
+  @if (error(); as e) {
+    <div class="mb-4 rounded-md bg-error-bg px-3.5 py-2.5 text-[13px] text-error-text">{{ e }}</div>
+  }
+
+  <!-- ── Process state card (always visible) ───────────────────────────── -->
+  <section class="mb-4 rounded-lg border border-border bg-surface px-3.5 py-3">
+    <div class="flex flex-wrap items-center justify-between gap-4">
+      <div class="flex items-baseline gap-3">
+        <span class="text-[10px] uppercase tracking-[0.05em] text-text-muted">Process</span>
+        <span
+          class="process-label font-mono text-base font-semibold tabular-nums"
+          [class.text-success-text]="processStateClass() === 'ok'"
+          [class.warn]="processStateClass() === 'warn'"
+          [class.text-error-text]="processStateClass() === 'err'"
+          [class.text-text-muted]="processStateClass() === 'muted'"
+        >
+          {{ processLabel() }}
+        </span>
+      </div>
+      @if (processState(); as ps) {
+        <div class="flex flex-wrap gap-3">
+          @if (ps.pid !== null) {
+            <span class="font-mono text-[11px] text-text-muted">pid {{ ps.pid }}</span>
+          }
+          @if (ps.lastStartedAt) {
+            <span class="font-mono text-[11px] text-text-muted">started {{ ps.lastStartedAt }}</span>
+          }
+          @if (ps.restartCount > 0) {
+            <span class="font-mono text-[11px] text-error-text">restarts {{ ps.restartCount }}</span>
+          }
+          @if (ps.lastError) {
+            <span class="font-mono text-[11px] text-error-text" [title]="ps.lastError">last error: {{ ps.lastError }}</span>
+          }
+        </div>
+      }
+    </div>
+  </section>
+
+  @if (isStopped()) {
+    <!-- Empty-state banner: child is not running -->
+    <section class="mb-6 rounded-lg border border-dashed border-border bg-surface px-6 py-8 text-center">
+      <h3 class="mb-2 mt-0 text-base font-semibold">Indexer is not running</h3>
+      <p class="mb-4 mt-0 text-[13px] text-text-muted">
+        The standalone indexer process is currently
+        <strong>{{ processLabel().toLowerCase() }}</strong>. Start it to resume
+        watching registered folders and processing new assets.
+      </p>
+      <button
+        class="lifecycle-btn cursor-pointer rounded-md border border-transparent bg-primary px-3.5 py-1.5 text-[12px] font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+        type="button"
+        [disabled]="isTransitional()"
+        (click)="startIndexer()"
+      >
+        Start indexer
+      </button>
+    </section>
+  } @else if (status(); as s) {
+    <!-- Top-line summary -->
+    <section class="summary-grid mb-6 grid gap-2">
+      <div class="flex flex-col gap-1 rounded-lg border border-border bg-surface px-3.5 py-3">
+        <span class="text-[10px] uppercase tracking-[0.05em] text-text-muted">Status</span>
+        <span
+          class="font-mono text-[20px] font-semibold tabular-nums text-text-main"
+          [class.text-error-text]="s.paused"
+          [class.text-success-text]="!s.paused && s.started"
+        >
+          {{ s.started ? (s.paused ? 'Paused' : 'Running') : 'Stopped' }}
+        </span>
+      </div>
+      <div class="flex flex-col gap-1 rounded-lg border border-border bg-surface px-3.5 py-3">
+        <span class="text-[10px] uppercase tracking-[0.05em] text-text-muted">Folders</span>
+        <span class="font-mono text-[20px] font-semibold tabular-nums text-text-main">{{ s.folders ?? 0 }}</span>
+      </div>
+      <div class="flex flex-col gap-1 rounded-lg border border-border bg-surface px-3.5 py-3">
+        <span class="text-[10px] uppercase tracking-[0.05em] text-text-muted">Queued</span>
+        <span class="font-mono text-[20px] font-semibold tabular-nums text-text-main">{{ totalQueued() }}</span>
+      </div>
+      <div class="flex flex-col gap-1 rounded-lg border border-border bg-surface px-3.5 py-3">
+        <span class="text-[10px] uppercase tracking-[0.05em] text-text-muted">In flight</span>
+        <span class="font-mono text-[20px] font-semibold tabular-nums text-text-main">{{ totalInFlight() }}</span>
+      </div>
+      <div class="flex flex-col gap-1 rounded-lg border border-border bg-surface px-3.5 py-3">
+        <span class="text-[10px] uppercase tracking-[0.05em] text-text-muted">Processed</span>
+        <span class="font-mono text-[20px] font-semibold tabular-nums text-text-main">{{ totalProcessed() | number }}</span>
+      </div>
+      <div class="flex flex-col gap-1 rounded-lg border border-border bg-surface px-3.5 py-3">
+        <span class="text-[10px] uppercase tracking-[0.05em] text-text-muted">Errors</span>
+        <span
+          class="font-mono text-[20px] font-semibold tabular-nums text-text-main"
+          [class.text-error-text]="totalErrors() > 0"
+        >{{ totalErrors() }}</span>
+      </div>
+    </section>
+
+    <!-- Per-stage detail -->
+    <section class="stages mb-7">
+      <table class="w-full overflow-hidden rounded-lg border border-border bg-surface" style="border-collapse: collapse;">
+        <thead>
+          <tr>
+            <th class="border-b border-border bg-surface-alt px-3.5 py-2.5 text-left align-middle text-[10px] font-semibold uppercase tracking-[0.05em] text-text-muted">Stage</th>
+            <th class="border-b border-border bg-surface-alt px-3.5 py-2.5 text-left align-middle text-[10px] font-semibold uppercase tracking-[0.05em] text-text-muted">Workers</th>
+            <th class="border-b border-border bg-surface-alt px-3.5 py-2.5 text-left align-middle text-[10px] font-semibold uppercase tracking-[0.05em] text-text-muted">In flight</th>
+            <th class="border-b border-border bg-surface-alt px-3.5 py-2.5 text-left align-middle text-[10px] font-semibold uppercase tracking-[0.05em] text-text-muted">Queue</th>
+            <th class="border-b border-border bg-surface-alt px-3.5 py-2.5 text-left align-middle text-[10px] font-semibold uppercase tracking-[0.05em] text-text-muted">Processed</th>
+            <th class="border-b border-border bg-surface-alt px-3.5 py-2.5 text-left align-middle text-[10px] font-semibold uppercase tracking-[0.05em] text-text-muted">Errors</th>
+            <th class="border-b border-border bg-surface-alt px-3.5 py-2.5 text-left align-middle text-[10px] font-semibold uppercase tracking-[0.05em] text-text-muted"></th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (st of stages; track st) {
+            <tr
+              class="border-b border-border last:border-b-0"
+              [class.has-inflight]="s.stages[st].inFlight > 0"
+            >
+              <td class="px-3.5 py-2.5 align-middle text-[12px] font-semibold capitalize">{{ st }}</td>
+              <td class="flex items-center gap-2 px-3.5 py-2.5 align-middle text-[12px]">
+                <input
+                  class="max-w-[140px] flex-1 cursor-pointer accent-primary"
+                  type="range"
+                  min="1"
+                  max="32"
+                  [value]="s.pools[st]"
+                  (change)="setPool(st, +$any($event.target).value)"
+                />
+                <span class="min-w-[18px] text-right font-mono tabular-nums text-text-muted">{{ s.pools[st] }}</span>
+              </td>
+              <td class="px-3.5 py-2.5 align-middle text-[12px]">{{ s.stages[st].inFlight }}</td>
+              <td class="flex items-center gap-2 px-3.5 py-2.5 align-middle text-[12px]">
+                <div class="h-1.5 max-w-[120px] flex-1 overflow-hidden rounded-[3px] bg-bg">
+                  <div class="bar-fill h-full bg-primary" [style.width.%]="channelPct(st)"></div>
+                </div>
+                <span class="font-mono text-[11px] tabular-nums text-text-muted">
+                  {{ s.channels[st].depth }} / {{ s.channels[st].capacity }}
+                </span>
+              </td>
+              <td class="px-3.5 py-2.5 align-middle text-[12px]">{{ (s.processed?.[st] ?? 0) | number }}</td>
+              <td
+                class="px-3.5 py-2.5 align-middle text-[12px]"
+                [class.text-error-text]="s.stages[st].errors > 0"
+              >{{ s.stages[st].errors }}</td>
+              <td class="px-3.5 py-2.5 text-right align-middle text-[12px]">
+                @if (inFlightPaths(st).length > 0) {
+                  <button
+                    type="button"
+                    class="cursor-pointer rounded border border-border bg-transparent px-2 py-0.5 font-mono text-[11px] text-text-muted hover:border-text-muted hover:text-text-main"
+                    (click)="toggleInFlight(st)"
+                    [attr.aria-expanded]="isInFlightExpanded(st)"
+                  >
+                    {{ isInFlightExpanded(st) ? '▾' : '▸' }} {{ inFlightPaths(st).length }}
+                  </button>
+                }
+              </td>
+            </tr>
+            @if (isInFlightExpanded(st) && inFlightPaths(st).length > 0) {
+              <tr class="inflight-row">
+                <td colspan="7" class="p-0">
+                  <div class="px-4 py-3">
+                    <div class="mb-2 text-[11px] uppercase tracking-[0.05em] text-text-muted">Currently processing in {{ st }}:</div>
+                    <ul class="m-0 flex max-h-[320px] list-none flex-col gap-1 overflow-y-auto p-0">
+                      @for (p of inFlightPaths(st); track p) {
+                        <li class="flex items-baseline gap-3 py-1 font-mono text-[11px]" [title]="p">
+                          <span class="flex-shrink-0 font-semibold text-text-main">{{ basename(p) }}</span>
+                          <span class="dirname-rtl overflow-hidden text-ellipsis whitespace-nowrap text-text-muted">{{ p }}</span>
+                        </li>
+                      }
+                    </ul>
+                  </div>
+                </td>
+              </tr>
+            }
+          }
+        </tbody>
+      </table>
+    </section>
+
+    <!-- EXIF backfill -->
+    <section class="mb-7 rounded-lg border border-border bg-surface p-4">
+      <div class="mb-2 flex items-center justify-between gap-3">
+        <h3 class="m-0 text-[14px] font-semibold">EXIF backfill</h3>
+        <button
+          type="button"
+          class="run-btn-primary cursor-pointer rounded-md border border-transparent bg-primary px-3.5 py-1.5 text-[12px] font-semibold text-text-main disabled:cursor-not-allowed disabled:bg-primary-dim disabled:text-text-muted"
+          [disabled]="s.exifBackfill?.running"
+          (click)="runBackfill()"
+        >
+          {{ s.exifBackfill?.running ? 'Running…' : 'Reindex EXIF' }}
+        </button>
+      </div>
+      @if (s.exifBackfill; as b) {
+        <p class="mb-3 mt-0 text-[12px] leading-[1.5] text-text-muted">
+          Re-reads EXIF metadata for assets that were indexed before EXIF support
+          was wired (or any rows still missing the <code class="rounded-[3px] bg-bg px-1 py-px font-mono text-[11px]">exif</code> field).
+          Cap per run is <code class="rounded-[3px] bg-bg px-1 py-px font-mono text-[11px]">MAPLE_EXIF_BACKFILL_LIMIT</code> (default 1000).
+        </p>
+        <div class="backfill-grid mb-2 grid gap-2">
+          <div class="flex flex-col gap-1 rounded-md border border-border bg-bg px-2.5 py-2">
+            <span class="text-[10px] uppercase tracking-[0.05em] text-text-muted">State</span>
+            <span
+              class="font-mono text-base font-semibold tabular-nums text-text-main"
+              [class.text-success-text]="b.running"
+            >
+              {{ b.running ? 'Running' : 'Idle' }}
+            </span>
+          </div>
+          <div class="flex flex-col gap-1 rounded-md border border-border bg-bg px-2.5 py-2">
+            <span class="text-[10px] uppercase tracking-[0.05em] text-text-muted">Scanned</span>
+            <span class="font-mono text-base font-semibold tabular-nums text-text-main">{{ b.scanned | number }}</span>
+          </div>
+          <div class="flex flex-col gap-1 rounded-md border border-border bg-bg px-2.5 py-2">
+            <span class="text-[10px] uppercase tracking-[0.05em] text-text-muted">Upgraded</span>
+            <span class="font-mono text-base font-semibold tabular-nums text-text-main">{{ b.upgraded | number }}</span>
+          </div>
+          <div class="flex flex-col gap-1 rounded-md border border-border bg-bg px-2.5 py-2">
+            <span class="text-[10px] uppercase tracking-[0.05em] text-text-muted">Pending (est.)</span>
+            <span class="font-mono text-base font-semibold tabular-nums text-text-main">
+              {{ b.pending < 0 ? '—' : (b.pending | number) }}
+            </span>
+          </div>
+        </div>
+        @if (b.running || b.scanned > 0) {
+          <div class="mt-2 flex items-center gap-2">
+            <div class="h-1.5 flex-1 overflow-hidden rounded-[3px] bg-bg">
+              <div class="bar-fill h-full bg-primary" [style.width.%]="backfillPct()"></div>
+            </div>
+            <span class="min-w-9 text-right font-mono text-[11px] tabular-nums text-text-muted">{{ backfillPct() }}%</span>
+          </div>
+        }
+        @if (b.lastFinishedAt) {
+          <div class="mt-2 text-[11px] text-text-muted">
+            Last finished {{ b.lastFinishedAt }}
+            @if (b.lastError) {
+              <span class="text-error-text">— error: {{ b.lastError }}</span>
+            }
+          </div>
+        }
+      }
+    </section>
+  } @else {
+    <div class="p-8 text-center text-text-muted">Loading…</div>
+  }
+
+  <!-- Dead-letter (always visible — persists in Mongo even when child is stopped) -->
+  <section class="mb-7">
+    <div class="mb-2 flex items-center justify-between gap-3">
+      <h3 class="m-0 text-[14px] font-semibold">Dead-letter ({{ deadLetter().length }})</h3>
+      <button
+        type="button"
+        class="cursor-pointer rounded border border-border bg-surface px-2.5 py-1 text-[11px] text-text-main hover:bg-surface-hover"
+        (click)="refreshDeadLetter()"
+      >
+        Refresh
+      </button>
+    </div>
+    @if (deadLetter().length === 0) {
+      <p class="m-0 rounded-lg border border-dashed border-border bg-surface p-6 text-center text-[12px] text-text-muted">No failed jobs.</p>
+    } @else {
+      <table class="w-full overflow-hidden rounded-lg border border-border bg-surface" style="border-collapse: collapse;">
+        <thead>
+          <tr>
+            <th class="border-b border-border bg-surface-alt px-3.5 py-2.5 text-left align-middle text-[10px] font-semibold uppercase tracking-[0.05em] text-text-muted">Stage</th>
+            <th class="border-b border-border bg-surface-alt px-3.5 py-2.5 text-left align-middle text-[10px] font-semibold uppercase tracking-[0.05em] text-text-muted">File</th>
+            <th class="border-b border-border bg-surface-alt px-3.5 py-2.5 text-left align-middle text-[10px] font-semibold uppercase tracking-[0.05em] text-text-muted">Error</th>
+            <th class="border-b border-border bg-surface-alt px-3.5 py-2.5 text-left align-middle text-[10px] font-semibold uppercase tracking-[0.05em] text-text-muted">Failed at</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (it of deadLetter(); track it.id ?? it.jobId ?? $index) {
+            <tr class="border-b border-border last:border-b-0">
+              <td class="px-3.5 py-2.5 align-middle text-[12px] font-semibold capitalize">{{ it.stage }}</td>
+              <td class="px-3.5 py-2.5 align-middle font-mono text-[11px]" [title]="it.absPath">
+                {{ it.absPath ? basename(it.absPath) : it.jobId ?? '—' }}
+              </td>
+              <td
+                class="max-w-[360px] overflow-hidden text-ellipsis whitespace-nowrap px-3.5 py-2.5 align-middle text-[12px] text-error-text"
+                [title]="it.error"
+              >{{ it.error }}</td>
+              <td class="px-3.5 py-2.5 align-middle font-mono text-[11px] text-text-muted">{{ it.failedAt }}</td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    }
+  </section>
+</div>

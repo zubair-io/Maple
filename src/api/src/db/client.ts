@@ -3,7 +3,7 @@
  *
  * Config via env:
  *   MAPLE_MONGO_URI  — connection string (default: mongodb://localhost:27017)
- *   MAPLE_MONGO_DB   — database name (default: maple_self_hosted)
+ *   MAPLE_MONGO_DB   — database name (default: maple)
  */
 
 import { MongoClient, type Db, type Collection, ServerApiVersion } from "mongodb";
@@ -19,7 +19,7 @@ import type {
 } from "./schema.ts";
 
 const MONGO_URI = process.env.MAPLE_MONGO_URI ?? "mongodb://localhost:27017";
-const MONGO_DB = process.env.MAPLE_MONGO_DB ?? "maple_self_hosted";
+const MONGO_DB = process.env.MAPLE_MONGO_DB ?? "maple";
 
 // Singleton client; created once on first call to getDb().
 let _client: MongoClient | null = null;
@@ -117,6 +117,33 @@ export async function ensureIndexes(): Promise<void> {
     .createIndex({ folder_id: 1, filename: 1 }, { unique: true });
   await db.collection("assets").createIndex({ mtime: 1 }, { sparse: true });
   await db.collection("assets").createIndex({ folder_id: 1 });
+
+  // Search indexes — added with EXIF support. Captured-at sorts the default
+  // result list (newest first); camera + lens cover the FE's facet dropdowns;
+  // the text index over filename + abs_path lets the search route fall back
+  // to $regex (no $text) without a sequential scan when there are
+  // alphanumeric ranges/wildcards involved. Sparse where the field is
+  // optional so old rows without EXIF don't bloat the index.
+  await db.collection("assets").createIndex({ "exif.captured_at": -1 }, { sparse: true });
+  await db
+    .collection("assets")
+    .createIndex({ "exif.camera_make": 1, "exif.camera_model": 1 }, { sparse: true });
+  await db.collection("assets").createIndex({ "exif.lens": 1 }, { sparse: true });
+  // Fast prefix index on filename for lowercase-anchored regex queries
+  // ($regex: "^...") — the planner can use this when the pattern is a
+  // simple prefix. The case-insensitive substring query in the search route
+  // collation-folds and falls back to a collection scan; the text index
+  // below provides the indexed alternative.
+  await db.collection("assets").createIndex({ filename: 1 });
+  // Text index covers filename + abs_path. The search route prefers
+  // $regex for substring queries (more permissive matching) but the text
+  // index unblocks future ranked search and is cheap to maintain.
+  await db
+    .collection("assets")
+    .createIndex(
+      { filename: "text", abs_path: "text" },
+      { name: "filename_abs_path_text", default_language: "none" }
+    );
 
   // indexer_queue: status for fast pending-task lookups
   await db.collection("indexer_queue").createIndex({ status: 1 });

@@ -30,8 +30,9 @@ import {
 } from "./checkpoint.ts";
 import { ensureIndexerIndexes } from "./indexer.repo.ts";
 import * as images from "./images.repo.ts";
-import { foldersCollection } from "../db/client.ts";
+import { assetsCollection, foldersCollection } from "../db/client.ts";
 import { cachePathFor } from "../fs/xmp.ts";
+import { backfillAssetExif } from "./exif.ts";
 
 export const SUPPORTED_EXTS = new Set([
   ".dng", ".cr2", ".cr3", ".nef", ".arw", ".raf", ".orf", ".rw2",
@@ -42,6 +43,9 @@ export const SUPPORTED_EXTS = new Set([
 /** Thirty-day GC retention for soft-deleted assets. */
 const GC_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 const GC_INTERVAL_MS = 60 * 60 * 1000; // once an hour
+
+/** One-shot EXIF backfill cap (rows per startup). Override with MAPLE_EXIF_BACKFILL_LIMIT. */
+const EXIF_BACKFILL_LIMIT_DEFAULT = 1000;
 
 export type IndexerEvent =
   | {
@@ -95,6 +99,24 @@ export class IndexerService {
       );
     }
 
+    // One-shot backfill: upgrade existing rows that pre-date EXIF support.
+    // OPT-IN at startup via `MAPLE_EXIF_BACKFILL_ON_START=1`. The default is
+    // OFF because on a real-world library (thousands of un-EXIF'd assets)
+    // the inline `exifr.parse(absPath)` loop pegs the event loop hard
+    // enough at boot that incoming HTTP requests time out — even on
+    // /api/health, before the user can sign in. The same logic is exposed
+    // as a manual "Reindex EXIF" button on /settings/indexer (POST
+    // /api/indexer/exif-backfill) so the user can run it on demand
+    // without blocking sign-in.
+    if (process.env.MAPLE_EXIF_BACKFILL_ON_START === "1") {
+      this.runExifBackfill().catch((e) =>
+        console.warn(
+          "[indexer] EXIF backfill error:",
+          e instanceof Error ? e.message : e
+        )
+      );
+    }
+
     this.pipeline.start();
 
     // Kick off watchers + resume per folder.
@@ -133,11 +155,16 @@ export class IndexerService {
     await this.pipeline.stop();
   }
 
-  status(): PipelineStatus & { started: boolean; folders: number } {
+  status(): PipelineStatus & {
+    started: boolean;
+    folders: number;
+    exifBackfill: ReturnType<IndexerService["exifBackfillStatus"]>;
+  } {
     return {
       ...this.pipeline.status(),
       started: this.started,
       folders: this.watchers.size,
+      exifBackfill: this.exifBackfillStatus(),
     };
   }
 
@@ -332,6 +359,127 @@ export class IndexerService {
    */
   async runGcSweep(): Promise<void> {
     return this.runGc();
+  }
+
+  /**
+   * One-shot EXIF backfill. Finds rows with no `exif` field (i.e. indexed
+   * before EXIF support landed) and re-runs the parser inline. Bounded at
+   * `MAPLE_EXIF_BACKFILL_LIMIT` (default 1000) per startup so a million-row
+   * library does not block boot.
+   *
+   * Returns the number of rows successfully upgraded.
+   */
+  /** Live progress so the indexer settings page can render a meter while
+   * a backfill run is in flight. Snapshot is included in `status()`. */
+  private backfillProgress: {
+    running: boolean;
+    scanned: number;
+    upgraded: number;
+    /** Estimated remaining (`assets where exif missing`) at the start of the
+     * run; not refreshed continuously. -1 if not yet measured. */
+    pending: number;
+    /** ISO timestamp of last completion, or null if never run. */
+    lastFinishedAt: string | null;
+    /** Why the most recent run stopped, if any. */
+    lastError: string | null;
+  } = {
+    running: false,
+    scanned: 0,
+    upgraded: 0,
+    pending: -1,
+    lastFinishedAt: null,
+    lastError: null,
+  };
+
+  /** Snapshot for the status route — copy so callers can't mutate ours. */
+  exifBackfillStatus(): typeof this.backfillProgress {
+    return { ...this.backfillProgress };
+  }
+
+  async runExifBackfill(limitOverride?: number): Promise<number> {
+    if (this.backfillProgress.running) {
+      // Don't double-run; return whatever the previous run upgraded.
+      return this.backfillProgress.upgraded;
+    }
+    const limit = Math.max(
+      0,
+      limitOverride ??
+        Number(process.env.MAPLE_EXIF_BACKFILL_LIMIT ?? EXIF_BACKFILL_LIMIT_DEFAULT)
+    );
+    if (limit === 0) return 0;
+
+    let coll;
+    try {
+      coll = await assetsCollection();
+    } catch {
+      return 0;
+    }
+
+    this.backfillProgress = {
+      running: true,
+      scanned: 0,
+      upgraded: 0,
+      pending: -1,
+      lastFinishedAt: null,
+      lastError: null,
+    };
+    // Best-effort initial pending count so the UI can render a sensible
+    // meter. Bounded to avoid pegging mongo on huge collections.
+    try {
+      this.backfillProgress.pending = await coll.countDocuments(
+        { exif: { $exists: false } },
+        { limit: 1_000_000 }
+      );
+    } catch {
+      this.backfillProgress.pending = -1;
+    }
+
+    const cursor = coll
+      .find(
+        { exif: { $exists: false } },
+        { projection: { abs_path: 1 } }
+      )
+      .limit(limit);
+
+    try {
+      for await (const doc of cursor) {
+        this.backfillProgress.scanned++;
+        try {
+          const ok = await backfillAssetExif(doc.abs_path);
+          if (ok) this.backfillProgress.upgraded++;
+        } catch (e) {
+          console.warn(
+            "[indexer] backfill failed for",
+            doc.abs_path,
+            e instanceof Error ? e.message : e
+          );
+        }
+        if (
+          this.backfillProgress.upgraded > 0 &&
+          this.backfillProgress.upgraded % 100 === 0
+        ) {
+          console.log(
+            `[indexer] EXIF backfill progress: ${this.backfillProgress.upgraded}/${this.backfillProgress.scanned} upgraded (limit ${limit})`
+          );
+        }
+        // Yield to the event loop between rows so an in-flight HTTP request
+        // gets a tick. exifr.parse already awaits I/O, but the rapid burst
+        // of awaits without a setImmediate keeps node's macrotask queue at
+        // the bottom — health checks and bootstrap can timeout otherwise.
+        await new Promise<void>((resolve) => setImmediate(resolve));
+      }
+      if (this.backfillProgress.scanned > 0) {
+        console.log(
+          `[indexer] EXIF backfill done: ${this.backfillProgress.upgraded}/${this.backfillProgress.scanned} rows upgraded`
+        );
+      }
+    } catch (e) {
+      this.backfillProgress.lastError = e instanceof Error ? e.message : String(e);
+    } finally {
+      this.backfillProgress.running = false;
+      this.backfillProgress.lastFinishedAt = new Date().toISOString();
+    }
+    return this.backfillProgress.upgraded;
   }
 
   /**

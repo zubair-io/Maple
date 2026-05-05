@@ -29,6 +29,7 @@ const COLOR_LABELS: { name: ColorLabel; hex: string }[] = [
         min-height: 0;
         overflow-y: auto;
       }
+      /* Webkit scrollbar tweaks — not Tailwind-expressible. */
       :host::-webkit-scrollbar {
         width: 6px;
       }
@@ -36,231 +37,16 @@ const COLOR_LABELS: { name: ColorLabel; hex: string }[] = [
         background: transparent;
       }
       :host::-webkit-scrollbar-thumb {
-        background: var(--maple-border);
+        background: var(--color-border);
         border-radius: 3px;
       }
 
-      .empty {
-        flex: 1;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        padding: 20px;
-        color: var(--maple-text-muted);
-        font-family: var(--maple-font);
-        font-size: 11px;
-        text-align: center;
-      }
-
-      .kv {
-        display: flex;
-        justify-content: space-between;
-        gap: 8px;
-        padding: 3px 14px;
-      }
-      .kv-key {
-        font-family: var(--maple-font);
-        font-size: 11px;
-        color: var(--maple-text-muted);
-        flex-shrink: 0;
-      }
-      .kv-val {
-        font-family: var(--maple-font-mono);
-        font-size: 11px;
-        color: var(--maple-text-main);
-        text-align: right;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        max-width: 65%;
-      }
-
-      .xmp-pill {
-        display: inline-flex;
-        align-items: center;
-        gap: 4px;
-        padding: 3px 7px;
-        border-radius: 3px;
-        background: var(--maple-success-bg);
-        color: var(--maple-success-text);
-        font-family: var(--maple-font);
-        font-size: 10px;
-        font-weight: 500;
-      }
-
-      .flags-row {
-        padding: 2px 14px 8px;
-        display: flex;
-        gap: 3px;
-      }
-      .flag-pill {
-        width: 22px;
-        height: 22px;
-        border-radius: 50%;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-family: var(--maple-font);
-        font-size: 10px;
-        font-weight: 600;
-        border: 0.5px solid var(--maple-border);
-        cursor: pointer;
-        color: var(--maple-text-muted);
-        background: transparent;
-      }
-      .flag-pill.active-pick {
-        background: var(--maple-success-bg);
-        color: var(--maple-success-text);
-        border-color: var(--maple-success-text);
-      }
-      .flag-pill.active-reject {
-        background: var(--maple-error-bg);
-        color: var(--maple-error-text);
-        border-color: var(--maple-error-text);
-      }
-      .flag-pill.active-none {
-        background: var(--maple-surface-alt);
-        color: var(--maple-text-main);
-      }
-
-      .stars-row {
-        padding: 0 14px 8px;
-        display: flex;
-        gap: 2px;
-      }
-      .star-btn {
-        cursor: pointer;
-        padding: 2px;
-      }
-
-      .color-section {
-        padding: 0 14px 4px;
-      }
-      .color-label-title {
-        font-family: var(--maple-font);
-        font-size: 10px;
-        color: var(--maple-text-muted);
-        margin-bottom: 6px;
-        letter-spacing: 0.3px;
-        text-transform: uppercase;
-      }
-      .color-dots {
-        display: flex;
-        gap: 6px;
-      }
-      .color-dot {
-        width: 16px;
-        height: 16px;
-        border-radius: 50%;
-        cursor: pointer;
-      }
+      /* Color-label dot active state. Tailwind's outline utilities don't
+         compose cleanly with the per-dot inline background, so keep this
+         small rule. */
       .color-dot.active {
-        outline: 1.5px solid var(--maple-text-main);
+        outline: 1.5px solid var(--color-text-main);
         outline-offset: 2px;
-      }
-
-      .map-placeholder {
-        height: 86px;
-        border-radius: 4px;
-        border: 0.5px solid var(--maple-border);
-        position: relative;
-        cursor: pointer;
-        overflow: hidden;
-      }
-      .map-grid {
-        position: absolute;
-        inset: 0;
-        opacity: 0.35;
-      }
-      .map-dot {
-        position: absolute;
-        left: 42%;
-        top: 62%;
-        width: 8px;
-        height: 8px;
-        border-radius: 50%;
-        background: var(--maple-primary);
-        transform: translate(-50%, -50%);
-        box-shadow: 0 0 0 3px rgba(196, 73, 58, 0.25);
-      }
-      .map-label {
-        position: absolute;
-        left: 8px;
-        bottom: 6px;
-        font-family: var(--maple-font-mono);
-        font-size: 9px;
-        color: var(--maple-text-muted);
-      }
-
-      .keywords-wrap {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 4px;
-      }
-      .keyword-chip {
-        padding: 2px 6px;
-        border-radius: 3px;
-        background: var(--maple-surface-alt);
-        border: 0.5px solid var(--maple-border);
-        font-family: var(--maple-font);
-        font-size: 10px;
-        color: var(--maple-text-main);
-        display: flex;
-        align-items: center;
-        gap: 3px;
-      }
-      .keyword-add {
-        padding: 2px 6px;
-        border-radius: 3px;
-        border: 0.5px dashed var(--maple-border);
-        font-family: var(--maple-font);
-        font-size: 10px;
-        color: var(--maple-text-muted);
-        cursor: pointer;
-      }
-
-      .history-item {
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        padding: 5px 0;
-      }
-      .history-item-label {
-        flex: 1;
-        font-family: var(--maple-font);
-        font-size: 11px;
-        color: var(--maple-text-main);
-      }
-      .history-item-time {
-        font-family: var(--maple-font-mono);
-        font-size: 9px;
-        color: var(--maple-text-muted);
-      }
-
-      .editable-section {
-        padding: 3px 14px;
-      }
-      .editable-label {
-        font-family: var(--maple-font);
-        font-size: 10px;
-        color: var(--maple-text-muted);
-        margin-bottom: 2px;
-      }
-      .editable-input {
-        width: 100%;
-        height: 24px;
-        background: var(--maple-input-bg);
-        border: 0.5px solid var(--maple-border);
-        border-radius: 3px;
-        padding: 0 6px;
-        font-family: var(--maple-font);
-        font-size: 11px;
-        color: var(--maple-text-main);
-        outline: none;
-        box-sizing: border-box;
-      }
-      .editable-input:focus {
-        border-color: var(--maple-primary);
       }
     `,
   ],
@@ -268,34 +54,34 @@ const COLOR_LABELS: { name: ColorLabel; hex: string }[] = [
     @let asset = state.focusedAsset();
 
     @if (!asset) {
-      <div class="empty">Select an asset to inspect</div>
+      <div class="flex flex-1 items-center justify-center p-5 text-center text-[11px] text-text-muted">Select an asset to inspect</div>
     } @else {
       <!-- File -->
       <maple-collapsible label="File" storageKey="info-file">
-        <div class="kv">
-          <span class="kv-key">Name</span>
-          <span class="kv-val">{{ asset.filename }}</span>
+        <div class="flex justify-between gap-2 px-4 py-[5px]">
+          <span class="flex-shrink-0 text-[11px] text-text-muted">Name</span>
+          <span class="max-w-[65%] overflow-hidden text-ellipsis whitespace-nowrap text-right font-mono text-[11px] text-text-main">{{ asset.filename }}</span>
         </div>
-        <div class="kv">
-          <span class="kv-key">Format</span>
-          <span class="kv-val">Canon RAW · {{ ext(asset.filename) }}</span>
+        <div class="flex justify-between gap-2 px-4 py-[5px]">
+          <span class="flex-shrink-0 text-[11px] text-text-muted">Format</span>
+          <span class="max-w-[65%] overflow-hidden text-ellipsis whitespace-nowrap text-right font-mono text-[11px] text-text-main">Canon RAW · {{ ext(asset.filename) }}</span>
         </div>
-        <div class="kv">
-          <span class="kv-key">Dimensions</span>
-          <span class="kv-val">{{ asset.width }} × {{ asset.height }}</span>
+        <div class="flex justify-between gap-2 px-4 py-[5px]">
+          <span class="flex-shrink-0 text-[11px] text-text-muted">Dimensions</span>
+          <span class="max-w-[65%] overflow-hidden text-ellipsis whitespace-nowrap text-right font-mono text-[11px] text-text-main">{{ asset.width && asset.height ? (asset.width + " × " + asset.height) : "—" }}</span>
         </div>
-        <div class="kv">
-          <span class="kv-key">Size</span>
-          <span class="kv-val">42.8 MB</span>
+        <div class="flex justify-between gap-2 px-4 py-[5px]">
+          <span class="flex-shrink-0 text-[11px] text-text-muted">Size</span>
+          <span class="max-w-[65%] overflow-hidden text-ellipsis whitespace-nowrap text-right font-mono text-[11px] text-text-main">{{ formatSize(asset.size) }}</span>
         </div>
         @if (asset.edited) {
-          <div style="padding:6px 14px 2px">
-            <div class="xmp-pill">
+          <div class="px-3.5 pt-1.5 pb-0.5">
+            <div class="inline-flex items-center gap-1 rounded-[3px] bg-success-bg px-[7px] py-[3px] text-[10px] font-medium text-success-text">
               <maple-icon
                 name="check"
                 [size]="10"
                 [strokeWidth]="2.5"
-                color="var(--maple-success-text)"
+                color="var(--color-success-text)"
               />
               <span>{{ xmpName(asset.filename) }}</span>
             </div>
@@ -305,51 +91,59 @@ const COLOR_LABELS: { name: ColorLabel; hex: string }[] = [
 
       <!-- Camera -->
       <maple-collapsible label="Camera" storageKey="info-camera">
-        <div class="kv">
-          <span class="kv-key">Body</span> <span class="kv-val">{{ asset.camera }}</span>
+        <div class="flex justify-between gap-2 px-4 py-[5px]">
+          <span class="flex-shrink-0 text-[11px] text-text-muted">Body</span>
+          <span class="max-w-[65%] overflow-hidden text-ellipsis whitespace-nowrap text-right font-mono text-[11px] text-text-main">{{ asset.camera || "—" }}</span>
         </div>
-        <div class="kv">
-          <span class="kv-key">Lens</span> <span class="kv-val">{{ asset.lens }}</span>
+        <div class="flex justify-between gap-2 px-4 py-[5px]">
+          <span class="flex-shrink-0 text-[11px] text-text-muted">Lens</span>
+          <span class="max-w-[65%] overflow-hidden text-ellipsis whitespace-nowrap text-right font-mono text-[11px] text-text-main">{{ asset.lens || "—" }}</span>
         </div>
-        <div class="kv">
-          <span class="kv-key">Focal</span> <span class="kv-val">{{ asset.focalLength }}</span>
+        <div class="flex justify-between gap-2 px-4 py-[5px]">
+          <span class="flex-shrink-0 text-[11px] text-text-muted">Focal</span>
+          <span class="max-w-[65%] overflow-hidden text-ellipsis whitespace-nowrap text-right font-mono text-[11px] text-text-main">{{ asset.focalLength || "—" }}</span>
         </div>
-        <div class="kv">
-          <span class="kv-key">Aperture</span><span class="kv-val">{{ asset.aperture }}</span>
+        <div class="flex justify-between gap-2 px-4 py-[5px]">
+          <span class="flex-shrink-0 text-[11px] text-text-muted">Aperture</span>
+          <span class="max-w-[65%] overflow-hidden text-ellipsis whitespace-nowrap text-right font-mono text-[11px] text-text-main">{{ asset.aperture || "—" }}</span>
         </div>
-        <div class="kv">
-          <span class="kv-key">Shutter</span> <span class="kv-val">{{ asset.shutter }}</span>
+        <div class="flex justify-between gap-2 px-4 py-[5px]">
+          <span class="flex-shrink-0 text-[11px] text-text-muted">Shutter</span>
+          <span class="max-w-[65%] overflow-hidden text-ellipsis whitespace-nowrap text-right font-mono text-[11px] text-text-main">{{ asset.shutter || "—" }}</span>
         </div>
-        <div class="kv">
-          <span class="kv-key">ISO</span> <span class="kv-val">{{ asset.iso }}</span>
-        </div>
-        <div class="kv">
-          <span class="kv-key">Flash</span> <span class="kv-val">Not fired</span>
+        <div class="flex justify-between gap-2 px-4 py-[5px]">
+          <span class="flex-shrink-0 text-[11px] text-text-muted">ISO</span>
+          <span class="max-w-[65%] overflow-hidden text-ellipsis whitespace-nowrap text-right font-mono text-[11px] text-text-main">{{ asset.iso || "—" }}</span>
         </div>
       </maple-collapsible>
 
       <!-- Rating & flags -->
       <maple-collapsible label="Rating & flags" storageKey="info-rating">
-        <div class="flags-row">
+        <div class="flex gap-[3px] px-3.5 pt-0.5 pb-2">
           <div
-            class="flag-pill"
-            [class.active-pick]="asset.flag === 'pick'"
+            class="flex h-7 w-7 cursor-pointer items-center justify-center rounded-full border border-border bg-transparent text-[11px] font-semibold text-text-muted"
+            [class.bg-success-bg]="asset.flag === 'pick'"
+            [class.text-success-text]="asset.flag === 'pick'"
+            [class.border-success-text]="asset.flag === 'pick'"
             title="Pick"
             (click)="toggleFlag(asset, 'pick')"
           >
             P
           </div>
           <div
-            class="flag-pill"
-            [class.active-none]="asset.flag === 'unflagged'"
+            class="flex h-7 w-7 cursor-pointer items-center justify-center rounded-full border border-border bg-transparent text-[11px] font-semibold text-text-muted"
+            [class.bg-surface-alt]="asset.flag === 'unflagged'"
+            [class.text-text-main]="asset.flag === 'unflagged'"
             title="Unflagged"
             (click)="toggleFlag(asset, 'unflagged')"
           >
             —
           </div>
           <div
-            class="flag-pill"
-            [class.active-reject]="asset.flag === 'reject'"
+            class="flex h-7 w-7 cursor-pointer items-center justify-center rounded-full border border-border bg-transparent text-[11px] font-semibold text-text-muted"
+            [class.bg-error-bg]="asset.flag === 'reject'"
+            [class.text-error-text]="asset.flag === 'reject'"
+            [class.border-error-text]="asset.flag === 'reject'"
             title="Reject"
             (click)="toggleFlag(asset, 'reject')"
           >
@@ -357,24 +151,24 @@ const COLOR_LABELS: { name: ColorLabel; hex: string }[] = [
           </div>
         </div>
 
-        <div class="stars-row">
+        <div class="flex gap-0.5 px-3.5 pb-2">
           @for (i of STAR_INDICES; track i) {
-            <div class="star-btn" (click)="toggleStar(asset, i)">
+            <div class="cursor-pointer p-0.5" (click)="toggleStar(asset, i)">
               <maple-icon
                 [name]="i <= asset.rating ? 'star-filled' : 'star'"
-                [size]="15"
-                [color]="i <= asset.rating ? 'var(--maple-star)' : 'var(--maple-border)'"
+                [size]="16"
+                [color]="i <= asset.rating ? 'var(--color-star)' : 'var(--color-border)'"
               />
             </div>
           }
         </div>
 
-        <div class="color-section">
-          <div class="color-label-title">Color label</div>
-          <div class="color-dots">
+        <div class="px-3.5 pb-1">
+          <div class="mb-1.5 text-[10px] uppercase tracking-[0.3px] text-text-muted">Color label</div>
+          <div class="flex gap-1.5">
             @for (cl of COLOR_LABELS; track cl.name) {
               <div
-                class="color-dot"
+                class="color-dot h-5 w-5 cursor-pointer rounded-full"
                 [class.active]="asset.colorLabel === cl.name"
                 [style.background]="cl.hex"
                 [title]="cl.name"
@@ -388,80 +182,77 @@ const COLOR_LABELS: { name: ColorLabel; hex: string }[] = [
       <!-- Location -->
       <maple-collapsible label="Location" storageKey="info-location">
         @if (asset.gps) {
-          <div class="kv">
-            <span class="kv-key">Coords</span>
-            <span class="kv-val"
-              >{{ asset.gps.lat.toFixed(4) }}, {{ asset.gps.lon.toFixed(4) }}</span
-            >
+          <div class="flex justify-between gap-2 px-4 py-[5px]">
+            <span class="flex-shrink-0 text-[11px] text-text-muted">Coords</span>
+            <span class="max-w-[65%] overflow-hidden text-ellipsis whitespace-nowrap text-right font-mono text-[11px] text-text-main">{{ asset.gps.lat.toFixed(4) }}, {{ asset.gps.lon.toFixed(4) }}</span>
           </div>
         }
         @if (asset.city) {
-          <div class="kv">
-            <span class="kv-key">City</span>
-            <span class="kv-val">{{ asset.city }}, {{ asset.region }}</span>
+          <div class="flex justify-between gap-2 px-4 py-[5px]">
+            <span class="flex-shrink-0 text-[11px] text-text-muted">City</span>
+            <span class="max-w-[65%] overflow-hidden text-ellipsis whitespace-nowrap text-right font-mono text-[11px] text-text-main">{{ asset.city }}, {{ asset.region }}</span>
           </div>
-          <div class="kv">
-            <span class="kv-key">Country</span>
-            <span class="kv-val">{{ asset.country }}</span>
+          <div class="flex justify-between gap-2 px-4 py-[5px]">
+            <span class="flex-shrink-0 text-[11px] text-text-muted">Country</span>
+            <span class="max-w-[65%] overflow-hidden text-ellipsis whitespace-nowrap text-right font-mono text-[11px] text-text-main">{{ asset.country }}</span>
           </div>
         }
-        <div style="padding:6px 14px 2px">
+        <div class="px-3.5 pt-1.5 pb-0.5">
           <div
-            class="map-placeholder"
+            class="relative h-[86px] cursor-pointer overflow-hidden rounded border-[0.5px] border-border"
             style="background: radial-gradient(circle at 42% 62%, rgba(196,73,58,0.8) 0, rgba(196,73,58,0) 6px), linear-gradient(135deg, #22302a 0%, #1a201d 100%)"
           >
             <div
-              class="map-grid"
+              class="absolute inset-0 opacity-[0.35]"
               style="background-image: linear-gradient(90deg, rgba(168,162,158,0.2) 1px, transparent 1px), linear-gradient(0deg, rgba(168,162,158,0.15) 1px, transparent 1px); background-size: 16px 16px;"
             ></div>
-            <div class="map-dot"></div>
-            <div class="map-label">Open in Maps ›</div>
+            <div class="absolute left-[42%] top-[62%] h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary shadow-[0_0_0_3px_rgba(196,73,58,0.25)]"></div>
+            <div class="absolute bottom-1.5 left-2 font-mono text-[9px] text-text-muted">Open in Maps ›</div>
           </div>
         </div>
       </maple-collapsible>
 
       <!-- Dates -->
       <maple-collapsible label="Dates" storageKey="info-dates" [defaultOpen]="false">
-        <div class="kv">
-          <span class="kv-key">Captured</span><span class="kv-val">{{ asset.capturedAt }}</span>
+        <div class="flex justify-between gap-2 px-4 py-[5px]">
+          <span class="flex-shrink-0 text-[11px] text-text-muted">Captured</span>
+          <span class="max-w-[65%] overflow-hidden text-ellipsis whitespace-nowrap text-right font-mono text-[11px] text-text-main">{{ formatDate(asset.capturedAt) }}</span>
         </div>
-        <div class="kv">
-          <span class="kv-key">Modified</span><span class="kv-val">2026-04-18 21:04</span>
-        </div>
-        <div class="kv">
-          <span class="kv-key">Created</span> <span class="kv-val">{{ asset.capturedAt }}</span>
+        <div class="flex justify-between gap-2 px-4 py-[5px]">
+          <span class="flex-shrink-0 text-[11px] text-text-muted">Modified</span>
+          <span class="max-w-[65%] overflow-hidden text-ellipsis whitespace-nowrap text-right font-mono text-[11px] text-text-main">{{ formatDate(asset.mtime) }}</span>
         </div>
       </maple-collapsible>
 
       <!-- IPTC -->
       <maple-collapsible label="IPTC" storageKey="info-iptc" [defaultOpen]="false">
-        <div class="editable-section">
-          <div class="editable-label">Title</div>
-          <input class="editable-input" [value]="asset.title ?? ''" placeholder="—" />
+        <div class="px-4 py-[5px]">
+          <div class="mb-0.5 text-[10px] text-text-muted">Title</div>
+          <input class="box-border h-6 w-full rounded-[3px] border-[0.5px] border-border bg-input-bg px-1.5 text-[11px] text-text-main outline-none focus:border-primary" [value]="asset.title ?? ''" placeholder="—" />
         </div>
-        <div class="editable-section">
-          <div class="editable-label">Caption</div>
-          <input class="editable-input" value="" placeholder="—" />
+        <div class="px-4 py-[5px]">
+          <div class="mb-0.5 text-[10px] text-text-muted">Caption</div>
+          <input class="box-border h-6 w-full rounded-[3px] border-[0.5px] border-border bg-input-bg px-1.5 text-[11px] text-text-main outline-none focus:border-primary" value="" placeholder="—" />
         </div>
-        <div class="editable-section">
-          <div class="editable-label">Copyright</div>
-          <input class="editable-input" value="© 2026 Z. Lawrence" placeholder="—" />
+        <div class="px-4 py-[5px]">
+          <div class="mb-0.5 text-[10px] text-text-muted">Copyright</div>
+          <input class="box-border h-6 w-full rounded-[3px] border-[0.5px] border-border bg-input-bg px-1.5 text-[11px] text-text-main outline-none focus:border-primary" value="© 2026 Z. Lawrence" placeholder="—" />
         </div>
-        <div class="editable-section">
-          <div class="editable-label">Creator</div>
-          <input class="editable-input" value="Z. Lawrence" placeholder="—" />
+        <div class="px-4 py-[5px]">
+          <div class="mb-0.5 text-[10px] text-text-muted">Creator</div>
+          <input class="box-border h-6 w-full rounded-[3px] border-[0.5px] border-border bg-input-bg px-1.5 text-[11px] text-text-main outline-none focus:border-primary" value="Z. Lawrence" placeholder="—" />
         </div>
         @if ((asset.keywords?.length ?? 0) > 0) {
-          <div style="padding:6px 14px 2px">
-            <div class="color-label-title">Keywords</div>
-            <div class="keywords-wrap">
+          <div class="px-3.5 pt-1.5 pb-0.5">
+            <div class="mb-1.5 text-[10px] uppercase tracking-[0.3px] text-text-muted">Keywords</div>
+            <div class="flex flex-wrap gap-1">
               @for (kw of asset.keywords!; track kw) {
-                <div class="keyword-chip">
+                <div class="flex items-center gap-[3px] rounded-[3px] border-[0.5px] border-border bg-surface-alt px-1.5 py-0.5 text-[10px] text-text-main">
                   {{ kw }}
-                  <maple-icon name="x" [size]="8" color="var(--maple-text-muted)" />
+                  <maple-icon name="x" [size]="8" color="var(--color-text-muted)" />
                 </div>
               }
-              <div class="keyword-add">+ add</div>
+              <div class="cursor-pointer rounded-[3px] border-[0.5px] border-dashed border-border px-1.5 py-0.5 text-[10px] text-text-muted">+ add</div>
             </div>
           </div>
         }
@@ -469,28 +260,29 @@ const COLOR_LABELS: { name: ColorLabel; hex: string }[] = [
 
       <!-- Sidecar -->
       <maple-collapsible label="Sidecar" storageKey="info-sidecar" [defaultOpen]="false">
-        <div class="kv">
-          <span class="kv-key">File</span> <span class="kv-val">{{ xmpName(asset.filename) }}</span>
+        <div class="flex justify-between gap-2 px-4 py-[5px]">
+          <span class="flex-shrink-0 text-[11px] text-text-muted">File</span>
+          <span class="max-w-[65%] overflow-hidden text-ellipsis whitespace-nowrap text-right font-mono text-[11px] text-text-main">{{ xmpName(asset.filename) }}</span>
         </div>
-        <div class="kv">
-          <span class="kv-key">Edits</span>
-          <span class="kv-val">{{ asset.edited ? '7 adjustments' : 'none' }}</span>
+        <div class="flex justify-between gap-2 px-4 py-[5px]">
+          <span class="flex-shrink-0 text-[11px] text-text-muted">Edits</span>
+          <span class="max-w-[65%] overflow-hidden text-ellipsis whitespace-nowrap text-right font-mono text-[11px] text-text-main">{{ asset.edited ? '7 adjustments' : 'none' }}</span>
         </div>
       </maple-collapsible>
 
       <!-- Edit history -->
       <maple-collapsible label="Edit history" storageKey="info-history" [defaultOpen]="false">
-        <div style="padding:0 14px 4px">
+        <div class="px-3.5 pb-1">
           @for (h of HISTORY; track h.label; let i = $index) {
             <div
-              class="history-item"
+              class="flex items-center gap-1.5 py-[5px]"
               [style.border-bottom]="
-                i < HISTORY.length - 1 ? '0.5px solid var(--maple-border)' : 'none'
+                i < HISTORY.length - 1 ? '0.5px solid var(--color-border)' : 'none'
               "
             >
-              <maple-icon name="history" [size]="11" color="var(--maple-text-muted)" />
-              <span class="history-item-label">{{ h.label }}</span>
-              <span class="history-item-time">{{ h.time }}</span>
+              <maple-icon name="history" [size]="11" color="var(--color-text-muted)" />
+              <span class="flex-1 text-[11px] text-text-main">{{ h.label }}</span>
+              <span class="font-mono text-[9px] text-text-muted">{{ h.time }}</span>
             </div>
           }
         </div>
@@ -516,6 +308,26 @@ export class InfoTabComponent {
 
   xmpName(filename: string): string {
     return filename.replace(/\.[^.]+$/, '.xmp');
+  }
+
+  formatSize(bytes: number | undefined): string {
+    if (bytes == null) return '—';
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+    return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
+  }
+
+  formatDate(iso: string | undefined): string {
+    if (!iso) return '—';
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return iso;
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    const hh = String(d.getHours()).padStart(2, '0');
+    const mi = String(d.getMinutes()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd} ${hh}:${mi}`;
   }
 
   toggleFlag(asset: Asset, flag: Flag): void {
