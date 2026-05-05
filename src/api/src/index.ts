@@ -138,6 +138,11 @@ const app = new Elysia()
   // sub-tree internally, so the whole authRoutes plugin can sit outside the gate.
   .use(healthRoutes)
   .use(authRoutes)
+  // /api/events self-authenticates via a `?token=` query parameter on the
+  // WS handshake (browsers can't send Authorization headers on
+  // `new WebSocket()`). Mounting it here keeps it outside the bearer-only
+  // sub-app's `requireAuth` derive.
+  .use(eventsRoutes)
 
   // Authenticated API routes — wrapped in a sub-app so the `requireAuth`
   // scoped-derive only applies to these. Without the sub-app the derive
@@ -150,7 +155,6 @@ const app = new Elysia()
       .use(foldersRoutes)
       .use(assetsRoutes)
       .use(indexerRoutes)
-      .use(eventsRoutes)
       .use(fsRoutes)
       .use(fsThumbsRoutes)
       .use(searchRoutes),
