@@ -1,16 +1,16 @@
 # Maple Self Hosted — systemd unit file
 #
-# Copy to: /etc/systemd/system/maple-self-hosted.service
+# Copy to: /etc/systemd/system/maple.service
 #
 # After installing:
 #   sudo systemctl daemon-reload
-#   sudo systemctl enable --now maple-self-hosted
-#   sudo systemctl status maple-self-hosted
-#   journalctl -fu maple-self-hosted
+#   sudo systemctl enable --now maple
+#   sudo systemctl status maple
+#   journalctl -fu maple
 
 [Unit]
 Description=Maple Self Hosted Server
-Documentation=https://github.com/your-org/maple
+Documentation=https://github.com/zubair.io/maple
 After=network-online.target
 Wants=network-online.target
 
@@ -20,13 +20,13 @@ User=maple
 Group=maple
 
 # --- Edit these paths ---
-WorkingDirectory=/opt/maple-self-hosted
+WorkingDirectory=/opt/maple
 ExecStart=/usr/local/bin/bun src/index.ts
 
 # Environment
 Environment=PORT=3000
 Environment=MAPLE_MONGO_URI=mongodb://localhost:27017
-Environment=MAPLE_MONGO_DB=maple_self_hosted
+Environment=MAPLE_MONGO_DB=maple
 # Uncomment and set your photo library roots:
 # Environment=MAPLE_ROOTS=/srv/photos
 # Environment=MAPLE_INDEXER_WORKERS=4

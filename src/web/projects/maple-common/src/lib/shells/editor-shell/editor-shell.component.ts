@@ -13,6 +13,7 @@ import {
 } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
 import { LibraryStateService } from '../../state/library-state.service';
+import type { AssetId } from '../../models/asset';
 import { MapleIconComponent } from '../../icons/maple-icon.component';
 import { FilmstripComponent } from '../../components/filmstrip/filmstrip.component';
 import { ImageCanvasComponent } from '../../components/image-canvas/image-canvas.component';
@@ -31,171 +32,83 @@ import { getPersistedFile } from '../../folder-access/file-cache';
   ],
   styles: [
     `
+      // Tailwind utilities cover the layout, typography, and hover states.
+      // What's left here:
+      //   - :host viewport sizing — Angular host selector.
+      //   - .chrome-btn.is-active background — bound via [class.is-active] on
+      //     the element, can't be expressed as a containment-style variant.
+      //   - .export-btn.has-selection / .no-selection — same reason.
+      //   - .panel-right.is-hidden border removal.
       :host {
         display: flex;
         width: 100vw;
         height: 100vh;
-        background: var(--maple-bg);
+        background: var(--color-bg);
         box-sizing: border-box;
       }
 
-      /* App fills the viewport */
-      .window {
-        width: 100%;
-        height: 100%;
-        background: var(--maple-bg);
-        overflow: hidden;
-        display: flex;
-        flex-direction: column;
-        font-family: var(--maple-font);
-      }
-
-      /* Toolbar */
-      .titlebar {
-        height: 40px;
-        display: flex;
-        align-items: center;
-        background: var(--maple-surface);
-        border-bottom: 0.5px solid var(--maple-border);
-        padding: 0 12px;
-        flex-shrink: 0;
-        gap: 10px;
-      }
-
-      .toolbar-spacer {
-        flex: 1;
-      }
-
-      /* Back button */
-      .back-btn {
-        display: flex;
-        align-items: center;
-        gap: 4px;
-        height: 24px;
-        padding: 0 8px;
-        border-radius: 5px;
-        background: var(--maple-surface-alt);
-        border: 0.5px solid var(--maple-border);
-        font-family: var(--maple-font);
-        font-size: 11px;
-        color: var(--maple-text-muted);
-        cursor: pointer;
-        transition: background 100ms;
-      }
-      .back-btn:hover {
-        background: var(--maple-surface-hover);
-        color: var(--maple-text-main);
-      }
-
-      /* Chrome buttons */
-      .chrome-btn {
-        width: 28px;
-        height: 24px;
-        border-radius: 5px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        cursor: pointer;
-        transition: background 120ms;
-        border: 0.5px solid transparent;
-      }
-      .chrome-btn:hover {
-        background: var(--maple-surface-hover);
-        border-color: var(--maple-border);
-      }
-      .chrome-btn.active {
+      .chrome-btn.is-active {
         background: rgba(255, 255, 255, 0.04);
-        border-color: var(--maple-border);
+        border-color: var(--color-border);
       }
 
-      /* Export button */
-      .export-btn {
-        display: flex;
-        align-items: center;
-        gap: 4px;
-        padding: 4px 10px;
-        border-radius: 5px;
-        font-size: 11px;
-        cursor: pointer;
-      }
       .export-btn.has-selection {
-        background: var(--maple-primary-dim);
-        color: var(--maple-primary);
-        border: 0.5px solid var(--maple-primary);
+        background: var(--color-primary-dim);
+        color: var(--color-primary);
+        border: 0.5px solid var(--color-primary);
       }
       .export-btn.no-selection {
-        background: var(--maple-input-bg);
-        color: var(--maple-text-muted);
-        border: 0.5px solid var(--maple-border);
+        background: var(--color-input-bg);
+        color: var(--color-text-muted);
+        border: 0.5px solid var(--color-border);
         opacity: 0.5;
         cursor: default;
       }
 
-      /* Body */
-      .body {
-        flex: 1;
-        display: flex;
-        min-height: 0;
-        min-width: 0;
-        background: var(--maple-bg);
-      }
-
-      /* Panels */
-      .panel-left {
-        flex-shrink: 0;
-        overflow: hidden;
-        transition: width 180ms ease-out;
-      }
-      .panel-center {
-        flex: 1;
-        display: flex;
-        flex-direction: column;
-        min-width: 0;
-        position: relative;
-        transition: opacity 180ms ease-out;
-      }
-      .panel-right {
-        flex-shrink: 0;
-        overflow: hidden;
-        transition: width 180ms ease-out;
-        border-left: 0.5px solid var(--maple-border);
-      }
-      .panel-right.hidden {
+      .panel-right.is-hidden {
         border-left: none;
       }
     `,
   ],
   template: `
-    <div class="window">
+    <div class="w-full h-full bg-bg overflow-hidden flex flex-col font-sans">
       <!-- Toolbar -->
-      <div class="titlebar">
+      <div
+        class="flex items-center h-10 bg-surface border-b-[0.5px] border-border px-3 flex-shrink-0 gap-2.5"
+      >
         <!-- Back to Browse -->
-        <div class="back-btn" (click)="goBack()" title="Back to Browse (Esc)">
-          <maple-icon name="back" [size]="11" color="var(--maple-text-muted)" />
+        <div
+          class="flex items-center gap-1 h-6 px-2 rounded-[5px] bg-surface-alt border-[0.5px] border-border font-sans text-[11px] text-text-muted cursor-pointer transition-colors duration-100 hover:bg-surface-hover hover:text-text-main"
+          (click)="goBack()"
+          title="Back to Browse (Esc)"
+        >
+          <maple-icon name="back" [size]="11" color="var(--color-text-muted)" />
           <span>Library</span>
         </div>
 
         <!-- Filmstrip toggle — hidden when there's only one photo to navigate. -->
         @if (hasMultiplePhotos()) {
           <div
-            class="chrome-btn"
-            [class.active]="state.sidebarVisible()"
+            class="chrome-btn w-7 h-6 rounded-[5px] flex items-center justify-center cursor-pointer transition-colors duration-[120ms] border-[0.5px] border-transparent hover:bg-surface-hover hover:border-border"
+            [class.is-active]="state.sidebarVisible()"
             [title]="filmstripToggleTitle()"
             (click)="state.toggleSidebar()"
           >
             <maple-icon
               name="sidebar"
               [size]="13"
-              [color]="state.sidebarVisible() ? 'var(--maple-text-main)' : 'var(--maple-text-muted)'"
+              [color]="
+                state.sidebarVisible() ? 'var(--color-text-main)' : 'var(--color-text-muted)'
+              "
             />
           </div>
         }
 
-        <div class="toolbar-spacer"></div>
+        <div class="flex-1"></div>
 
         <!-- Export -->
         <div
-          class="export-btn"
+          class="export-btn flex items-center gap-1 px-2.5 py-1 rounded-[5px] text-[11px] cursor-pointer"
           [class.has-selection]="state.focusedAssetId() !== null"
           [class.no-selection]="state.focusedAssetId() === null"
         >
@@ -205,8 +118,8 @@ import { getPersistedFile } from '../../folder-access/file-cache';
 
         <!-- Inspector toggle -->
         <div
-          class="chrome-btn"
-          [class.active]="state.inspectorVisible()"
+          class="chrome-btn w-7 h-6 rounded-[5px] flex items-center justify-center cursor-pointer transition-colors duration-[120ms] border-[0.5px] border-transparent hover:bg-surface-hover hover:border-border"
+          [class.is-active]="state.inspectorVisible()"
           [title]="(state.inspectorVisible() ? 'Hide' : 'Show') + ' inspector  ⌥⌘D'"
           (click)="state.toggleInspector()"
         >
@@ -214,30 +127,33 @@ import { getPersistedFile } from '../../folder-access/file-cache';
             name="inspector"
             [size]="13"
             [color]="
-              state.inspectorVisible() ? 'var(--maple-text-main)' : 'var(--maple-text-muted)'
+              state.inspectorVisible() ? 'var(--color-text-main)' : 'var(--color-text-muted)'
             "
           />
         </div>
       </div>
 
       <!-- Body -->
-      <div class="body">
+      <div class="flex-1 flex min-h-0 min-w-0 bg-bg">
         <!-- Left: filmstrip (only when multiple photos are in the folder) -->
         @if (hasMultiplePhotos()) {
-          <div class="panel-left" [style.width]="state.sidebarVisible() ? '110px' : '0px'">
+          <div
+            class="flex-shrink-0 overflow-hidden transition-[width] duration-[180ms] ease-out"
+            [style.width]="state.sidebarVisible() ? '110px' : '0px'"
+          >
             <editor-filmstrip />
           </div>
         }
 
         <!-- Center: image canvas (crossfade on asset change) -->
-        <div class="panel-center">
+        <div class="flex-1 flex flex-col min-w-0 relative transition-opacity duration-[180ms] ease-out">
           <editor-image-canvas />
         </div>
 
         <!-- Right: detail panel -->
         <div
-          class="panel-right"
-          [class.hidden]="!state.inspectorVisible()"
+          class="panel-right flex-shrink-0 overflow-hidden transition-[width] duration-[180ms] ease-out border-l-[0.5px] border-border"
+          [class.is-hidden]="!state.inspectorVisible()"
           [style.width]="state.inspectorVisible() ? '280px' : '0px'"
         >
           <editor-detail-panel />
@@ -278,6 +194,26 @@ export class EditorShellComponent implements OnInit {
     if (target) {
       this.state.selectAsset(target.id);
       return;
+    }
+
+    // Self-Hosted FS-walk cold-load: deep-link to /edit/fs:<absPath>
+    // (browser refresh, shared link, etc.) without first navigating via
+    // Browse. Synthesize a placeholder asset so the editor mounts and
+    // starts fetching bytes from /api/fs/raw immediately, then fire the
+    // parent-dir listing in the background to populate the filmstrip with
+    // siblings. The third arg keeps OUR asset selected after the listing
+    // arrives instead of the listing's first entry.
+    if (this.state.backend === 'self-hosted' && id.startsWith('fs:')) {
+      const synth = this.state.hydrateSelfHostedFsAsset(id as AssetId);
+      if (synth?.absPath) {
+        this.state.selectAsset(synth.id);
+        const lastSlash = synth.absPath.lastIndexOf('/');
+        if (lastSlash > 0) {
+          const parentDir = synth.absPath.slice(0, lastSlash);
+          this.state.openSelfHostedSubfolder(parentDir, synth.folderId, synth.id);
+        }
+        return;
+      }
     }
 
     if (assets.length > 0) {

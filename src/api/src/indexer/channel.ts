@@ -141,8 +141,17 @@ export function poolSizes(): Record<Stage, number> {
   return {
     discover: 4,
     hash: Math.max(1, Math.floor(cpus / 2)),
-    exif: Math.max(1, cpus),
-    thumb: Math.max(1, cpus - 2),
+    // exif uses exifr which awaits async file I/O — safe to scale with cores.
+    exif: Math.max(1, Math.floor(cpus / 2)),
+    // thumb calls into raw-ffi via bun:ffi. Those symbol calls are SYNCHRONOUS
+    // from JS — they block the main thread for the duration of the Rust work
+    // (~50–200 ms per RAW). Running multiple workers in parallel doesn't add
+    // real throughput (they serialize on the single JS thread) but it DOES
+    // starve HTTP handlers of event-loop time, eventually causing /api/*
+    // request timeouts under sustained indexer load. Cap at 1 by default
+    // for the safest "indexer + responsive UI" balance. Live-tunable via
+    // PUT /api/indexer/config when you know the API is idle.
+    thumb: 1,
     ai: Math.min(2, Math.max(1, Math.floor(cpus / 4))),
     mongo: 8,
   };

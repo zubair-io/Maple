@@ -1273,7 +1273,9 @@ dependencies = [
 name = "raw-ffi"
 version = "0.1.0"
 dependencies = [
+ "image",
  "raw-core",
+ "rawler",
  "thiserror",
 ]
 

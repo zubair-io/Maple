@@ -80,7 +80,7 @@ export class MapleCacheService {
     return {
       version: '1.0',
       generated: new Date().toISOString(),
-      generator: 'maple-hosted',
+      generator: 'maple-syrup',
       assets: [],
     };
   }

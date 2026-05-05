@@ -9,6 +9,8 @@
 import { readdir, realpath, stat } from "node:fs/promises";
 import * as path from "node:path";
 import type { OpResult } from "./root.ts";
+import { assetsCollection } from "../db/client.ts";
+import type { AssetExif } from "../db/schema.ts";
 
 export interface DirEntry {
   name: string;
@@ -23,7 +25,7 @@ export interface DirListing {
 }
 
 /** Linux/macOS directory names hidden at the filesystem root unless showAll=1. */
-const SYSTEM_DIRS = new Set<string>([
+export const SYSTEM_DIRS = new Set<string>([
   "proc", "sys", "dev", "run", "boot",
   "bin", "sbin", "lib", "lib32", "lib64",
   "usr", "etc", "var", "tmp",
@@ -33,7 +35,7 @@ const SYSTEM_DIRS = new Set<string>([
   "node_modules",
 ]);
 
-async function browseRoots(): Promise<string[]> {
+export async function browseRoots(): Promise<string[]> {
   const env = process.env.MAPLE_ROOTS;
   if (!env || env.trim() === "") return ["/"];
   const raw = env.split(":").map((p) => p.replace(/\/$/, "")).filter(Boolean);
@@ -51,7 +53,7 @@ async function browseRoots(): Promise<string[]> {
   return resolved;
 }
 
-function isUnderRoot(absPath: string, root: string): boolean {
+export function isUnderRoot(absPath: string, root: string): boolean {
   const r = root.replace(/\/$/, "") || "/";
   if (r === "/") return true;
   return absPath === r || absPath.startsWith(r + "/");
@@ -153,6 +155,164 @@ export async function listDir(
       path: real,
       parent: isRoot ? null : path.dirname(real),
       entries: out,
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// listDirContents — used by GET /api/fs/dir to drive the tree-view that
+// shows folders + RAW images at each level.
+// ---------------------------------------------------------------------------
+
+/** RAW file extensions we expose to the browse tree (lowercase, no dot). */
+export const RAW_EXTENSIONS = new Set<string>([
+  "cr2", "cr3", "nef", "arw", "dng", "raf", "orf", "rw2", "pef", "srw",
+]);
+
+export interface DirChild {
+  name: string;
+  path: string;       // absolute, symlink-resolved
+  mtime: string;      // ISO-8601
+}
+
+export interface ImageChild extends DirChild {
+  size: number;       // bytes
+  ext: string;        // lowercase, no dot
+  /**
+   * Indexed EXIF for this RAW (camera/lens/exposure/captured_at/gps), looked
+   * up by `abs_path` against the `assets` collection. `null` when the indexer
+   * processed this file but found no usable EXIF; `undefined` when the file
+   * hasn't been indexed yet (or the indexer hasn't run for this folder).
+   */
+  exif?: AssetExif | null;
+}
+
+export interface DirContents {
+  path: string;
+  parent: string | null;
+  dirs: DirChild[];
+  images: ImageChild[];
+}
+
+/**
+ * List a single directory level: subdirectories + RAW image files.
+ *
+ * - Hides dotfiles/dotdirs (including the `.maple/` cache dir).
+ * - Filters images to RAW_EXTENSIONS (case-insensitive).
+ * - Enforces the same MAPLE_ROOTS jail as `listDir`, including a per-child
+ *   realpath re-check so a symlink swap can't escape the jail.
+ * - Does NOT recurse.
+ */
+export async function listDirContents(
+  reqPath: string,
+): Promise<OpResult<DirContents>> {
+  if (!path.isAbsolute(reqPath)) {
+    return { ok: false, error: "Path must be absolute." };
+  }
+
+  let real: string;
+  try {
+    real = await realpath(reqPath);
+  } catch (err) {
+    return {
+      ok: false,
+      error: `Cannot access "${reqPath}": ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+
+  const roots = await browseRoots();
+  if (!roots.some((r) => isUnderRoot(real, r))) {
+    return {
+      ok: false,
+      error: `Path "${real}" is outside MAPLE_ROOTS [${roots.join(", ")}]`,
+    };
+  }
+
+  let names: string[];
+  try {
+    names = await readdir(real);
+  } catch (err) {
+    return {
+      ok: false,
+      error: `Cannot list "${real}": ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+
+  const visible = names.filter((n) => !n.startsWith(".")).sort((a, b) =>
+    a.localeCompare(b),
+  );
+
+  const dirs: DirChild[] = [];
+  const images: ImageChild[] = [];
+
+  for (const name of visible) {
+    const childCandidate = real === "/" ? "/" + name : `${real}/${name}`;
+
+    // Re-resolve realpath and re-check the jail (symlink-swap defence).
+    let childReal: string;
+    try {
+      childReal = await realpath(childCandidate);
+    } catch {
+      continue; // broken symlink / permission denied
+    }
+    if (!roots.some((r) => isUnderRoot(childReal, r))) continue;
+
+    let st: Awaited<ReturnType<typeof stat>>;
+    try {
+      st = await stat(childReal);
+    } catch {
+      continue;
+    }
+
+    if (st.isDirectory()) {
+      dirs.push({ name, path: childReal, mtime: st.mtime.toISOString() });
+    } else if (st.isFile()) {
+      const dot = name.lastIndexOf(".");
+      if (dot < 0) continue;
+      const ext = name.slice(dot + 1).toLowerCase();
+      if (!RAW_EXTENSIONS.has(ext)) continue;
+      images.push({
+        name,
+        path: childReal,
+        size: st.size,
+        mtime: st.mtime.toISOString(),
+        ext,
+      });
+    }
+  }
+
+  // Bulk-attach indexed EXIF for the images in this listing. Single round-
+  // trip with `$in` rather than per-image lookups. If the indexer hasn't
+  // touched this folder yet, the find returns nothing and `exif` stays
+  // undefined on each entry — the client renders "—" gracefully.
+  if (images.length > 0) {
+    try {
+      const coll = await assetsCollection();
+      const cursor = coll.find(
+        { abs_path: { $in: images.map((i) => i.path) } },
+        { projection: { abs_path: 1, exif: 1 } },
+      );
+      const byPath = new Map<string, AssetExif | null | undefined>();
+      for await (const doc of cursor) {
+        byPath.set(doc.abs_path, doc.exif);
+      }
+      for (const img of images) {
+        if (byPath.has(img.path)) img.exif = byPath.get(img.path);
+      }
+    } catch (err) {
+      // EXIF enrichment is best-effort — a DB hiccup shouldn't break browse.
+      console.error(`[fs/browse] exif lookup failed for "${real}":`, err);
+    }
+  }
+
+  const isRoot = real === "/";
+  return {
+    ok: true,
+    data: {
+      path: real,
+      parent: isRoot ? null : path.dirname(real),
+      dirs,
+      images,
     },
   };
 }

@@ -39,8 +39,8 @@ bun src/index.ts
 ```
 
 The server listens on `http://localhost:3000`. The Angular UI is served from `/`. The
-static-UI handler resolves the bundle at `src/web/dist/maple-self-hosted/browser/` — build with
-`cd src/web && npm run build:self-hosted` (or `ng build maple-self-hosted --configuration=production`).
+static-UI handler resolves the bundle at `src/web/dist/maple/browser/` — build with
+`cd src/web && npm run build:maple` (or `ng build maple --configuration=production`).
 
 ### 4. Pick a library folder in the UI
 
@@ -58,11 +58,11 @@ in the background.
 |---|---|---|
 | `PORT` | `3000` | HTTP listen port |
 | `MAPLE_MONGO_URI` | `mongodb://localhost:27017` | MongoDB connection string |
-| `MAPLE_MONGO_DB` | `maple_self_hosted` | MongoDB database name |
+| `MAPLE_MONGO_DB` | `maple` | MongoDB database name |
 | `MAPLE_ROOTS` | `/` | Colon-separated FS roots the server may browse and read. Defaults to `/` (Docker mount is the jail). |
 | `MAPLE_INDEXER_WORKERS` | `2` | Concurrent indexer worker threads |
 | `MAPLE_DEV` | (none) | Set to `1` to proxy UI to Angular dev server |
-| `MAPLE_DEV_ORIGIN` | `http://localhost:4201` | Angular dev server origin when `MAPLE_DEV=1` (the `maple-self-hosted` app serves on 4201) |
+| `MAPLE_DEV_ORIGIN` | `http://localhost:4201` | Angular dev server origin when `MAPLE_DEV=1` (the `maple` app serves on 4201) |
 | `MAPLE_UI_DIST` | (auto-resolved) | Override the Angular bundle dist path |
 
 ## API reference
@@ -106,7 +106,7 @@ If you'd rather start the pieces individually:
 
 ```bash
 # Terminal 1: start Angular dev server for the Self-Hosted app
-cd src/web && npx ng serve maple-self-hosted --port 4201
+cd src/web && npx ng serve maple --port 4201
 
 # Terminal 2: start Bun backend in dev mode (proxies to ng serve on 4201)
 cd src/api && MAPLE_DEV=1 bun src/index.ts
@@ -135,21 +135,21 @@ environment:
 
 ## Self-hosting on Linux (systemd)
 
-1. Build the project and copy files to `/opt/maple-self-hosted/`.
+1. Build the project and copy files to `/opt/maple/`.
 2. Build the native library on Linux:
    ```bash
    cargo build --release -p raw-ffi
-   cp target/release/libraw_ffi.so /opt/maple-self-hosted/native/
+   cp target/release/libraw_ffi.so /opt/maple/native/
    ```
 3. Copy the systemd unit:
    ```bash
-   sudo cp maple-self-hosted.service /etc/systemd/system/
+   sudo cp maple.service /etc/systemd/system/
    sudo systemctl daemon-reload
-   sudo systemctl enable --now maple-self-hosted
+   sudo systemctl enable --now maple
    ```
-4. Edit `/etc/systemd/system/maple-self-hosted.service` to set `MAPLE_ROOTS` and photo paths.
+4. Edit `/etc/systemd/system/maple.service` to set `MAPLE_ROOTS` and photo paths.
 
-See `maple-self-hosted.service` for the full unit file.
+See `maple.service` for the full unit file.
 
 ## Architecture
 

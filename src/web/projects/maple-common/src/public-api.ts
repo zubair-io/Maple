@@ -28,11 +28,12 @@ export { Pipeline, WebglFp16Unsupported } from './lib/webgl/pipeline';
 export * from './lib/api/library-backend.token';
 export * from './lib/api/api-base-url.token';
 export * from './lib/api/bun-api-backend.service';
+export * from './lib/api/filesystem-browse.service';
+export * from './lib/api/search.service';
 export * from './lib/components/loading-banner/loading-banner.component';
 export * from './lib/components/error-banner/error-banner.component';
 export * from './lib/components/library-picker/library-picker.component';
 export * from './lib/components/library-picker-modal/library-picker-modal.component';
-export * from './lib/components/indexer-admin/indexer-admin.component';
 
 // P5: File System Access API + .maple/ cache protocol
 export * from './lib/folder-access/folder-access.types';
@@ -54,6 +55,7 @@ export * from './lib/shells/browse-shell/browse-shell.component';
 export * from './lib/shells/editor-shell/editor-shell.component';
 export * from './lib/components/folder-tree/folder-tree.component';
 export * from './lib/components/asset-grid/asset-grid.component';
+export * from './lib/components/asset-thumb/asset-thumb.component';
 export * from './lib/components/browse-detail-panel/browse-detail-panel.component';
 export * from './lib/components/drop-zone/drop-zone.component';
 export * from './lib/components/image-canvas/image-canvas.service';
@@ -77,3 +79,5 @@ export * from './lib/components/scopes/vectorscope.component';
 export * from './lib/auth/auth.service';
 export * from './lib/auth/auth.guard';
 export * from './lib/auth/auth.interceptor';
+
+export * from './lib/services/indexer-events.service';

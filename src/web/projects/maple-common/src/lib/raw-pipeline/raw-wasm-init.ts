@@ -13,7 +13,7 @@
 // Required build-side support for threading to actually work at runtime:
 //   1. The hosting page must set COOP: same-origin + COEP: require-corp so
 //      SharedArrayBuffer is permitted. Dev server: add the headers via
-//      `maple-self-hosted`'s proxy or a static-middleware shim. Production:
+//      `maple`'s proxy or a static-middleware shim. Production:
 //      the Bun API (`src/api`) already serves the Angular bundle — extend
 //      it to emit the two headers for HTML and JS responses.
 //   2. The bundler must emit

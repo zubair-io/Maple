@@ -23,15 +23,9 @@ import type { DecodedImage } from '../../raw-pipeline/raw-pipeline.types';
     #canvas
     width="80"
     height="80"
-    style="display:block;width:80px;height:80px"
+    class="block w-20 h-20"
   ></canvas>`,
-  styles: [
-    `
-      :host {
-        display: block;
-      }
-    `,
-  ],
+  host: { class: 'block' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class VectorscopeComponent implements AfterViewInit, OnDestroy {

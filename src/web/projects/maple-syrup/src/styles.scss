@@ -1,7 +1,11 @@
-// Global styles for the Maple unified SPA.
-// Imports the design token SCSS which sets :root CSS custom properties.
+// Global styles for the Maple unified SPA (Hosted).
+//
+// Pulls in Tailwind v4 (utility classes + the `@theme` block from
+// `tokens.scss` which auto-emits :root custom properties), then layers on
+// app-level resets / scrollbar / input styling.
 
-@use '../../maple-common/src/lib/tokens' as tokens;
+@use 'tailwindcss';
+@use '../../maple-common/src/lib/tokens';
 
 // ── Reset ────────────────────────────────────────────────────────────────────
 *,
@@ -20,9 +24,9 @@ body {
 }
 
 body {
-  background: var(--maple-bg);
-  color: var(--maple-text-main);
-  font-family: var(--maple-font);
+  background: var(--color-bg);
+  color: var(--color-text-main);
+  font-family: var(--font-sans);
   font-size: 13px;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -37,11 +41,11 @@ body {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: var(--maple-border);
+  background: var(--color-border);
   border-radius: 4px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--maple-surface-hover);
+  background: var(--color-surface-hover);
 }
 
 // ── Input reset ───────────────────────────────────────────────────────────────
@@ -57,6 +61,6 @@ button {
 
 // ── Range input theming ───────────────────────────────────────────────────────
 input[type='range'] {
-  accent-color: var(--maple-primary);
+  accent-color: var(--color-primary);
   cursor: pointer;
 }

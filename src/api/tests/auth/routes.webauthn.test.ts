@@ -65,7 +65,7 @@ describe("WebAuthn end-to-end", () => {
       new Request("http://localhost/api/auth/bootstrap")
     );
     expect(bootstrap.status).toBe(200);
-    expect(await bootstrap.json()).toEqual({ claimed: false });
+    expect(await bootstrap.json()).toEqual({ claimed: false, dev_login_enabled: false });
 
     // 2a. Registration options.
     const regOptsRes = await postJson("/api/auth/register/options", { email });

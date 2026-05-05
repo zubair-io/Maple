@@ -25,17 +25,26 @@ export class AuthService {
     return this.user() !== null;
   }
 
-  async bootstrap(): Promise<{ claimed: boolean }> {
+  async bootstrap(): Promise<{ claimed: boolean; dev_login_enabled: boolean }> {
     return firstValueFrom(
-      this.http.get<{ claimed: boolean }>("/api/auth/bootstrap"),
+      this.http.get<{ claimed: boolean; dev_login_enabled: boolean }>(
+        "/api/auth/bootstrap",
+      ),
     );
   }
 
+  async devSignIn(email = "dev@maple.local"): Promise<void> {
+    const r = await firstValueFrom(
+      this.http.post<any>("/api/auth/dev-login", { email }),
+    );
+    this.acceptTokens(r);
+  }
+
   async claim(email: string, deviceLabel: string): Promise<void> {
-    const opts = await firstValueFrom(
+    const optionsJSON = await firstValueFrom(
       this.http.post<any>("/api/auth/register/options", { email }),
     );
-    const credential = await startRegistration(opts);
+    const credential = await startRegistration({ optionsJSON });
     const r = await firstValueFrom(
       this.http.post<any>("/api/auth/register/verify", {
         email,
@@ -53,13 +62,13 @@ export class AuthService {
     deviceLabel: string,
   ): Promise<void> {
     // Server URL is implicit (same-origin). For a remote server, an optional baseUrl param could be added.
-    const opts = await firstValueFrom(
+    const optionsJSON = await firstValueFrom(
       this.http.post<any>("/api/auth/register/options", {
         email,
         invite_code: code,
       }),
     );
-    const credential = await startRegistration(opts);
+    const credential = await startRegistration({ optionsJSON });
     const r = await firstValueFrom(
       this.http.post<any>("/api/auth/register/verify", {
         email,
@@ -72,10 +81,10 @@ export class AuthService {
   }
 
   async signIn(email: string): Promise<void> {
-    const opts = await firstValueFrom(
+    const optionsJSON = await firstValueFrom(
       this.http.post<any>("/api/auth/login/options", { email }),
     );
-    const credential = await startAuthentication(opts);
+    const credential = await startAuthentication({ optionsJSON });
     const r = await firstValueFrom(
       this.http.post<any>("/api/auth/login/verify", { email, credential }),
     );
@@ -112,10 +121,10 @@ export class AuthService {
   }
 
   async addCredential(deviceLabel: string): Promise<void> {
-    const opts = await firstValueFrom(
+    const optionsJSON = await firstValueFrom(
       this.http.post<any>("/api/auth/credentials/options", {}),
     );
-    const credential = await startRegistration(opts);
+    const credential = await startRegistration({ optionsJSON });
     await firstValueFrom(
       this.http.post<any>("/api/auth/credentials/verify", {
         device_label: deviceLabel,

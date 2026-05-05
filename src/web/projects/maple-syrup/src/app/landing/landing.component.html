@@ -1,6 +1,6 @@
-<section class="landing">
-  <header class="landing__header">
-    <div class="landing__logo" aria-hidden="true">
+<section class="mx-auto flex max-w-[720px] flex-col gap-12 px-8 pt-24 pb-16">
+  <header class="flex flex-col items-center gap-3 text-center">
+    <div class="flex items-center justify-center text-primary" aria-hidden="true">
       <!-- Maple mark -->
       <svg viewBox="0 0 32 32" width="48" height="48">
         <path
@@ -9,25 +9,36 @@
         />
       </svg>
     </div>
-    <h1 class="landing__title">Maple</h1>
-    <p class="landing__tagline">A photo editor for working photographers.</p>
+    <h1 class="text-[32px] font-semibold tracking-[-0.01em] text-text-main">Maple</h1>
+    <p class="text-[15px] text-text-muted opacity-[0.78]">A photo editor for working photographers.</p>
   </header>
 
-  <div class="landing__ctas">
-    <button type="button" class="landing__cta" (click)="openPhoto()">
-      <span class="landing__cta-title">Open a photo</span>
-      <span class="landing__cta-sub">Edit a single RAW or image file</span>
+  <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+    <button
+      type="button"
+      class="flex cursor-pointer flex-col items-start gap-1.5 rounded-xl border border-border bg-surface px-5 py-6 text-left text-inherit transition-[background,border-color,transform] duration-100 ease-default hover:border-primary hover:bg-surface-hover active:translate-y-px focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+      (click)="openPhoto()"
+    >
+      <span class="text-base font-semibold">Open a photo</span>
+      <span class="text-[13px] opacity-70">Edit a single RAW or image file</span>
     </button>
 
     @if (hasFsAccess) {
-      <button type="button" class="landing__cta" (click)="openFolder()">
-        <span class="landing__cta-title">Open a folder</span>
-        <span class="landing__cta-sub">Browse a library of RAW files</span>
+      <button
+        type="button"
+        class="flex cursor-pointer flex-col items-start gap-1.5 rounded-xl border border-border bg-surface px-5 py-6 text-left text-inherit transition-[background,border-color,transform] duration-100 ease-default hover:border-primary hover:bg-surface-hover active:translate-y-px focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+        (click)="openFolder()"
+      >
+        <span class="text-base font-semibold">Open a folder</span>
+        <span class="text-[13px] opacity-70">Browse a library of RAW files</span>
       </button>
     } @else {
-      <div class="landing__banner" role="note">
-        <strong>Folder browsing needs Chrome or Edge.</strong>
-        <span>
+      <div
+        class="col-span-full flex flex-col gap-1.5 rounded-[10px] border border-dashed border-border bg-white/[0.02] px-[18px] py-4 text-[13px] leading-[1.45]"
+        role="note"
+      >
+        <strong class="font-semibold">Folder browsing needs Chrome or Edge.</strong>
+        <span class="opacity-[0.78]">
           This browser doesn't support the File System Access API. You can still edit a single photo
           above. For a full library workflow, use Chrome, Edge, or a Chromium-based browser — or
           self-host Maple against your own server.
@@ -39,7 +50,7 @@
   <input
     #fileInput
     type="file"
-    class="landing__file-input"
+    class="hidden"
     accept="image/*,.cr3,.nef,.arw,.dng,.cr2,.raf,.orf,.rw2,.pef,.srw,.3fr,.fff,.dcr,.mos,.iiq,.mrw,.raw"
     (change)="onFilePicked($event)"
   />

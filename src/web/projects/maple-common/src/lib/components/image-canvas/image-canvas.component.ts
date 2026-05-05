@@ -94,13 +94,34 @@ export class ImageCanvasComponent implements AfterViewInit, OnDestroy {
         this.currentAssetId = a.id;
 
         const bytes = this.state.bytesFor(a.id);
-        if (!bytes) {
-          // Mock asset — clear real bitmap, fall back to gradient.
-          this.imageBitmap.set(null);
-          this.canvasSvc.currentPixels.set(null);
+        if (bytes) {
+          void this.loadReal(a.id, a.filename, bytes);
           return;
         }
-        void this.loadReal(a.id, a.filename, bytes);
+
+        // Self-Hosted FS-walk path (and any other async source): the bytes
+        // aren't in the in-memory cache yet. Kick off the async read; once
+        // it resolves we re-enter loadReal. Guard with a stale-id check so
+        // a fast asset switch doesn't decode the wrong file.
+        if (a.absPath) {
+          const requestedId = a.id;
+          this.imageBitmap.set(null);
+          this.canvasSvc.currentPixels.set(null);
+          this.state
+            .bytesForAsset(requestedId)
+            .then((fetched) => {
+              if (this.currentAssetId !== requestedId) return; // user moved on
+              void this.loadReal(requestedId, a.filename, fetched);
+            })
+            .catch((err) => {
+              console.error('[image-canvas] bytesForAsset failed:', err);
+            });
+          return;
+        }
+
+        // Mock asset (no source) — clear real bitmap, fall back to gradient.
+        this.imageBitmap.set(null);
+        this.canvasSvc.currentPixels.set(null);
       },
       { injector: this.injector },
     );

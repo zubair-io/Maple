@@ -8,7 +8,7 @@ import { ChangeDetectionStrategy, Component, input, output } from '@angular/core
   selector: 'app-error-banner',
   standalone: true,
   templateUrl: './error-banner.component.html',
-  styleUrl: './error-banner.component.scss',
+  host: { class: 'block' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ErrorBannerComponent {

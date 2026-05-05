@@ -8,7 +8,7 @@ import type { IndexerStatus } from '../api/bun-api-backend.service';
  * The server emits `{ type: "status", status: IndexerStatus, ts: number }`
  * frames on connect and every ~250 ms (alongside per-stage progress frames).
  * This service filters those frames and exposes them as an Observable so the
- * IndexerAdminComponent can stay live without polling.
+ * /settings/indexer page can stay live without polling.
  */
 @Injectable({ providedIn: 'root' })
 export class IndexerEventsService {

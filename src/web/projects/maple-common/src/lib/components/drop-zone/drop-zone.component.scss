@@ -2,103 +2,33 @@
   display: contents;
 }
 
-.drop-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 9999;
-  background: rgba(0, 0, 0, 0.65);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  pointer-events: none;
-}
-
-.drop-box {
-  border: 2px dashed var(--maple-primary);
-  border-radius: 12px;
-  padding: 40px 60px;
-  text-align: center;
-  font-family: var(--maple-font);
-  font-size: 15px;
-  color: var(--maple-primary);
-  letter-spacing: 0.02em;
-}
-
-.import-bar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  height: 32px;
-  padding: 0 10px;
-  background: var(--maple-surface);
-  border-bottom: 0.5px solid var(--maple-border);
-  flex-shrink: 0;
-}
-
-.import-btn {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  height: 22px;
-  padding: 0 10px;
-  border-radius: 4px;
-  background: var(--maple-surface-alt);
-  border: 0.5px solid var(--maple-border);
-  color: var(--maple-text-main);
-  font-family: var(--maple-font);
-  font-size: 11px;
-  cursor: pointer;
-  transition: background 120ms;
-}
-.import-btn:hover {
-  background: var(--maple-surface-hover);
-}
-
-.import-btn.primary {
-  background: var(--maple-primary-dim);
-  border-color: var(--maple-primary);
-  color: var(--maple-primary);
-}
+// Primary import button hover — color-mix can't be expressed cleanly as a
+// utility, and brightness() shifts the dim background instead of building up.
 .import-btn.primary:hover {
-  background: color-mix(in srgb, var(--maple-primary) 20%, transparent);
+  background: color-mix(in srgb, var(--color-primary) 20%, transparent);
 }
 
-.import-status {
-  font-family: var(--maple-font);
-  font-size: 11px;
-  color: var(--maple-text-muted);
-}
-
-/* Read-only banner */
+// Read-only banner uses a derived warning color (no token for it). Colour-mix
+// against `--color-warning` (with a fallback hex) drives both the banner
+// background, border, and the inline grant button — all derived hues, none
+// of them expressible in Tailwind utilities without inventing tokens.
 .readonly-banner {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  height: 28px;
-  padding: 0 10px;
-  background: color-mix(in srgb, var(--maple-warning, #d97706) 12%, var(--maple-surface));
-  border-bottom: 0.5px solid color-mix(in srgb, var(--maple-warning, #d97706) 40%, transparent);
-  flex-shrink: 0;
-  font-family: var(--maple-font);
-  font-size: 11px;
-  color: var(--maple-warning, #d97706);
-}
-.readonly-banner .grant-btn {
-  height: 18px;
-  padding: 0 8px;
-  border-radius: 3px;
-  background: color-mix(in srgb, var(--maple-warning, #d97706) 20%, transparent);
-  border: 0.5px solid var(--maple-warning, #d97706);
-  color: var(--maple-warning, #d97706);
-  font-family: var(--maple-font);
-  font-size: 10px;
-  cursor: pointer;
-}
-.readonly-banner .grant-btn:hover {
-  background: color-mix(in srgb, var(--maple-warning, #d97706) 30%, transparent);
+  background: color-mix(in srgb, var(--color-warning, #d97706) 12%, var(--color-surface));
+  border-color: color-mix(in srgb, var(--color-warning, #d97706) 40%, transparent);
+  color: var(--color-warning, #d97706);
+
+  .grant-btn {
+    background: color-mix(in srgb, var(--color-warning, #d97706) 20%, transparent);
+    border-color: var(--color-warning, #d97706);
+    color: var(--color-warning, #d97706);
+
+    &:hover {
+      background: color-mix(in srgb, var(--color-warning, #d97706) 30%, transparent);
+    }
+  }
 }
 
-/* Hidden file inputs */
+// Hidden file inputs
 input[type='file'] {
   display: none;
 }

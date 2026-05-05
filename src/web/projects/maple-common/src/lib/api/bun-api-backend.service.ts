@@ -14,8 +14,14 @@ import { API_BASE_URL } from './api-base-url.token';
 export interface ApiFolder {
   id: string;
   path: string;
-  name: string;
-  assetCount: number;
+  /** Display label — defaults to the basename of `path` on the server side. */
+  label: string;
+  /** Last full-scan timestamp (ISO 8601), or null if the library has never been scanned. */
+  last_scan: string | null;
+  /** Cached count of files indexed under this library. */
+  file_count: number;
+  /** When the library was registered (ISO 8601). */
+  created_at: string;
 }
 
 export interface ApiAsset {
@@ -66,6 +72,32 @@ export interface IndexerStatus {
   pools: Record<IndexerStage, number>;
   channels: Record<IndexerStage, IndexerChannelInfo>;
   stages: Record<IndexerStage, IndexerStageCounters>;
+  /** Files currently being processed per stage (capped). Empty when idle. */
+  inFlightPaths?: Record<IndexerStage, string[]>;
+  /** Cumulative count of jobs completed (success+fail) per stage since the
+   * server started. Resets on process restart — not persisted. */
+  processed?: Record<IndexerStage, number>;
+  /** Number of folders currently being watched. */
+  folders?: number;
+  /** Whether the indexer service has started. */
+  started?: boolean;
+  /** EXIF backfill (one-shot upgrade for pre-EXIF rows). */
+  exifBackfill?: IndexerExifBackfillStatus;
+}
+
+export interface IndexerExifBackfillStatus {
+  /** True while a backfill run is in flight. */
+  running: boolean;
+  /** Rows processed so far in the current/last run. */
+  scanned: number;
+  /** Rows successfully upgraded so far in the current/last run. */
+  upgraded: number;
+  /** Estimated rows still missing exif at the start of the run. -1 = unknown. */
+  pending: number;
+  /** ISO timestamp the most recent run finished, or null if never run. */
+  lastFinishedAt: string | null;
+  /** Error from the most recent run, or null if it succeeded. */
+  lastError: string | null;
 }
 
 export interface IndexerDeadLetterItem {
@@ -82,6 +114,25 @@ export interface IndexerDeadLetterPage {
   items: IndexerDeadLetterItem[];
   total: number;
   warning?: string;
+}
+
+/**
+ * Supervisor view of the standalone indexer child process. Mirrors
+ * `IndexerProcessState` from `src/api/src/indexer/control.ts`.
+ */
+export interface IndexerProcessState {
+  status: 'stopped' | 'starting' | 'running' | 'crashed' | 'restarting';
+  pid: number | null;
+  lastStartedAt: string | null;
+  lastExitCode: number | null;
+  lastError: string | null;
+  restartCount: number;
+}
+
+export interface IndexerLifecycleResponse {
+  ok: boolean;
+  state: IndexerProcessState;
+  error?: string;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -155,8 +206,35 @@ export class BunApiBackendService {
     return this.http.post<{ ok: boolean; status: IndexerStatus }>(`${this.base}/indexer/resume`, {});
   }
 
+  /** Trigger an EXIF backfill run. Server returns immediately; progress
+   * is exposed via subsequent `getIndexerStatus().exifBackfill`. */
+  runExifBackfill(limit?: number): Observable<{ ok: boolean; status: IndexerStatus }> {
+    const params = limit !== undefined ? new HttpParams().set('limit', String(limit)) : undefined;
+    return this.http.post<{ ok: boolean; status: IndexerStatus }>(
+      `${this.base}/indexer/exif-backfill`,
+      {},
+      { params },
+    );
+  }
+
   listDeadLetter(limit = 200): Observable<IndexerDeadLetterPage> {
     const params = new HttpParams().set('limit', String(limit));
     return this.http.get<IndexerDeadLetterPage>(`${this.base}/indexer/dead-letter`, { params });
+  }
+
+  /** Read the supervisor's view of the indexer child process. */
+  getIndexerProcess(): Observable<IndexerProcessState> {
+    return this.http.get<IndexerProcessState>(`${this.base}/indexer/process`);
+  }
+
+  /** Spawn (or re-spawn) the standalone indexer child and wait for it to
+   * report ready. Returns the supervisor state on completion. */
+  startIndexer(): Observable<IndexerLifecycleResponse> {
+    return this.http.post<IndexerLifecycleResponse>(`${this.base}/indexer/start`, {});
+  }
+
+  /** SIGTERM the indexer child (forced kill on grace timeout). */
+  stopIndexer(): Observable<IndexerLifecycleResponse> {
+    return this.http.post<IndexerLifecycleResponse>(`${this.base}/indexer/stop`, {});
   }
 }

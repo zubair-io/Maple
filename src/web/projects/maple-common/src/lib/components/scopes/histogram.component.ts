@@ -42,15 +42,9 @@ function hashModel(m: AdjustmentModel): number {
     #canvas
     width="200"
     height="80"
-    style="display:block;width:100%;height:80px"
+    class="block w-full h-20"
   ></canvas>`,
-  styles: [
-    `
-      :host {
-        display: block;
-      }
-    `,
-  ],
+  host: { class: 'block' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class HistogramComponent implements AfterViewInit, OnDestroy {

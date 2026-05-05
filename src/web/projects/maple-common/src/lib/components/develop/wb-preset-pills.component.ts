@@ -46,22 +46,22 @@ export interface WbPresetSelection {
       .pill {
         padding: 2px 6px;
         border-radius: 3px;
-        background: var(--maple-surface-alt);
-        border: 0.5px solid var(--maple-border);
-        font-family: var(--maple-font);
+        background: var(--color-surface-alt);
+        border: 0.5px solid var(--color-border);
+        font-family: var(--font-sans);
         font-size: 10px;
-        color: var(--maple-text-main);
+        color: var(--color-text-main);
         cursor: pointer;
         transition: background 100ms;
         white-space: nowrap;
       }
       .pill:hover {
-        background: var(--maple-surface-hover);
+        background: var(--color-surface-hover);
       }
       .pill.active {
-        background: var(--maple-primary-dim);
-        color: var(--maple-primary);
-        border-color: var(--maple-primary);
+        background: var(--color-primary-dim);
+        color: var(--color-primary);
+        border-color: var(--color-primary);
       }
     `,
   ],

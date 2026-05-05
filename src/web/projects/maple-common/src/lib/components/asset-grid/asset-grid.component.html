@@ -1,118 +1,123 @@
 <!-- Toolbar -->
-<div class="toolbar">
+<div class="flex items-center gap-3 h-11 px-4 bg-bg border-b-[0.5px] border-border flex-shrink-0">
   <!-- Breadcrumb -->
-  <div class="breadcrumb">
+  <div class="flex items-center gap-1.5 text-[11px]">
     @if (state.currentFolder(); as f) {
-      <span class="crumb-dim">Local files</span>
-      <span class="crumb-sep">›</span>
-      <span class="crumb-active">{{ f.name }}</span>
+      <span class="text-text-muted">Local files</span>
+      <span class="text-text-muted">›</span>
+      <span class="text-text-main font-medium">{{ f.name }}</span>
     } @else if (state.selectedSourceLabel()) {
-      <span class="crumb-dim">Library</span>
-      <span class="crumb-sep">›</span>
-      <span class="crumb-active">{{ state.selectedSourceLabel() }}</span>
+      <span class="text-text-muted">Library</span>
+      <span class="text-text-muted">›</span>
+      <span class="text-text-main font-medium">{{ state.selectedSourceLabel() }}</span>
     }
   </div>
 
-  <div class="spacer"></div>
+  <div class="flex-1"></div>
 
   <!-- Thumb size slider -->
-  <div class="size-row">
-    <maple-icon name="grid-sm" [size]="11" color="var(--maple-text-muted)" />
+  <div class="flex items-center gap-2 text-[11px] text-text-muted">
+    <maple-icon name="grid-sm" [size]="11" color="var(--color-text-muted)" />
     <input
       type="range"
       min="60"
       max="220"
+      class="w-24 cursor-pointer accent-primary"
       [value]="state.thumbSize()"
       (input)="onThumbSizeChange($event)"
     />
-    <maple-icon name="grid-lg" [size]="13" color="var(--maple-text-muted)" />
+    <maple-icon name="grid-lg" [size]="13" color="var(--color-text-muted)" />
   </div>
 
-  <div class="divider"></div>
+  <div class="w-px h-5 bg-border"></div>
 
   <!-- Sort pill -->
-  <div class="pill-btn" [class.active]="state.sort() === 'date'" (click)="toggleSort()">
-    <maple-icon name="sort" [size]="11" />
+  <button
+    type="button"
+    class="pill-btn flex items-center gap-1.5 h-8 px-3.5 rounded-md text-[11px] font-medium cursor-pointer transition-colors duration-[120ms] bg-surface text-text-main border-[0.5px] border-border hover:bg-surface-hover"
+    [class.is-active]="state.sort() === 'date'"
+    (click)="toggleSort()"
+  >
+    <maple-icon name="sort" [size]="12" />
     <span>{{ state.sort() === 'date' ? 'Date' : 'Name' }}</span>
-  </div>
+  </button>
 
   <!-- Filter pill -->
-  <div class="pill-btn" [class.active]="state.filter() !== 'all'" (click)="cycleFilter()">
-    <maple-icon name="filter" [size]="11" />
+  <button
+    type="button"
+    class="pill-btn flex items-center gap-1.5 h-8 px-3.5 rounded-md text-[11px] font-medium cursor-pointer transition-colors duration-[120ms] bg-surface text-text-main border-[0.5px] border-border hover:bg-surface-hover"
+    [class.is-active]="state.filter() !== 'all'"
+    (click)="cycleFilter()"
+  >
+    <maple-icon name="filter" [size]="12" />
     <span>{{ filterLabel() }}</span>
-  </div>
+  </button>
 
-  <div class="divider"></div>
+  <div class="w-px h-5 bg-border"></div>
 
-  <span class="count-label">
+  <span class="font-mono text-[10px] text-text-muted tabular-nums whitespace-nowrap">
     @if (state.selectedCount() > 0) {
       {{ state.selectedCount() }} selected
     } @else {
-      {{ state.assetsInSelectedFolder().length }} photos
+      @let folderCount = state.foldersInSelectedFolder().length;
+      @let photoCount = state.assetsInSelectedFolder().length;
+      @if (folderCount > 0 && photoCount > 0) {
+        {{ folderCount }} folders · {{ photoCount }} photos
+      } @else if (folderCount > 0) {
+        {{ folderCount }} folders
+      } @else {
+        {{ photoCount }} photos
+      }
     }
   </span>
 </div>
 
-<!-- Justified grid -->
-<div class="grid-scroll" #gridContainer>
-  @for (row of gridRows(); track $index) {
-    <div class="grid-row">
-      @for (asset of row.assets; track asset.id) {
-        @let isSelected = state.selectedAssetIds().has(asset.id);
-        @let thumbUrl = thumbUrls().get(asset.id);
-        @let isLoading = thumbLoading().has(asset.id);
+<!-- Justified grid (cdk virtual scroll — only visible rows are rendered) -->
+<div class="flex-1 relative flex min-h-0">
+  <cdk-virtual-scroll-viewport
+    class="grid-scroll flex-1 bg-bg"
+    #gridContainer
+    [itemSize]="state.thumbSize() * 1.2"
+    minBufferPx="600"
+    maxBufferPx="900"
+  >
+    <div
+      *cdkVirtualFor="let row of gridRows(); trackBy: trackRow"
+      class="flex gap-[3px] mb-[3px]"
+    >
+      @for (item of row.items; track itemKey(item)) {
         <div
-          class="thumb"
-          [class.selected]="isSelected"
-          [style.width.px]="asset.aspectRatio * row.height"
+          class="flex-shrink-0"
+          [style.width.px]="itemAspectRatio(item) * row.height"
           [style.height.px]="row.height"
-          [style.background-image]="thumbUrl ? '' : 'url(' + asset.thumbnailGradient + ')'"
-          (click)="onThumbClick(asset, $event)"
-          (dblclick)="onThumbDblClick(asset)"
         >
-          @if (thumbUrl) {
-            <img class="thumb-img" [src]="thumbUrl" alt="" />
+          @if (item.kind === 'image') {
+            @let isSelected = state.selectedAssetIds().has(item.asset.id);
+            <maple-asset-thumb
+              [asset]="item.asset"
+              variant="grid"
+              [selected]="isSelected"
+              (thumbClick)="onThumbClick(item.asset, $event)"
+              (thumbDblClick)="onThumbDblClick(item.asset)"
+            />
+          } @else {
+            <maple-folder-tile
+              [folder]="item.folder"
+              (folderClick)="onFolderTileClick(item.folder)"
+            />
           }
-
-          @if (isLoading && !thumbUrl) {
-            <div class="thumb-loading">...</div>
-          }
-
-          @if (asset.edited) {
-            <div class="xmp-badge">
-              <maple-icon
-                name="check"
-                [size]="9"
-                [strokeWidth]="2"
-                color="var(--maple-success-text)"
-              />
-            </div>
-          }
-
-          <div class="bottom-badges">
-            <div style="display: flex; gap: 3px">
-              @if (asset.flag === 'pick') {
-                <div class="flag-badge flag-pick">PICK</div>
-              }
-              @if (asset.flag === 'reject') {
-                <div class="flag-badge flag-reject">REJECT</div>
-              }
-            </div>
-
-            @if (asset.rating > 0) {
-              <div class="stars-badge">
-                @for (i of STAR_INDICES; track i) {
-                  <maple-icon
-                    [name]="i <= asset.rating ? 'star-filled' : 'star'"
-                    [size]="8"
-                    [color]="i <= asset.rating ? 'var(--maple-star)' : 'rgba(255,255,255,0.35)'"
-                  />
-                }
-              </div>
-            }
-          </div>
         </div>
       }
     </div>
+  </cdk-virtual-scroll-viewport>
+
+  @if (
+    state.assetsInSelectedFolder().length === 0 &&
+    state.foldersInSelectedFolder().length === 0 &&
+    !state.backendLoading() &&
+    !state.backendError() &&
+    state.selectedSourceId()
+  ) {
+    <div class="absolute inset-0 flex items-center justify-center pointer-events-none font-sans text-xs text-text-muted">Folder is empty</div>
   }
 </div>

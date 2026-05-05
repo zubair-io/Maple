@@ -11,7 +11,7 @@ const VERSION = "0.1.0";
 
 export const healthRoutes = new Elysia().get("/api/health", () => ({
   ok: true,
-  product: "maple-self-hosted",
+  product: "maple",
   version: VERSION,
   db_connected: isDbConnected(),
   timestamp: new Date().toISOString(),

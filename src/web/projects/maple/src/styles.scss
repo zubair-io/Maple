@@ -1,15 +1,25 @@
 // Global styles for Maple Self Hosted.
-// Imports the design token SCSS which sets :root CSS custom properties.
+//
+// Pulls in Tailwind v4 (utility classes + the `@theme` block from
+// `tokens.scss` which auto-emits :root custom properties), then layers on
+// app-level resets / scrollbar / input styling.
 
-@use '../../maple-common/src/lib/tokens' as tokens;
+@use 'tailwindcss';
+@use '../../maple-common/src/lib/tokens';
 
 // ── Reset ────────────────────────────────────────────────────────────────────
-*,
-*::before,
-*::after {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
+// Wrap the universal margin/padding reset in `@layer base` so Tailwind v4
+// utilities (which live in `@layer utilities`) can win the cascade. An
+// unlayered `* { padding: 0 }` rule beats every layered utility regardless of
+// source order, which silently zeroes out `px-*` / `py-*` / `m*` utilities.
+@layer base {
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
 }
 
 html,
@@ -20,9 +30,9 @@ body {
 }
 
 body {
-  background: var(--maple-bg);
-  color: var(--maple-text-main);
-  font-family: var(--maple-font);
+  background: var(--color-bg);
+  color: var(--color-text-main);
+  font-family: var(--font-sans);
   font-size: 13px;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -37,11 +47,11 @@ body {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: var(--maple-border);
+  background: var(--color-border);
   border-radius: 4px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--maple-surface-hover);
+  background: var(--color-surface-hover);
 }
 
 // ── Input reset ───────────────────────────────────────────────────────────────
@@ -57,6 +67,6 @@ button {
 
 // ── Range input theming ───────────────────────────────────────────────────────
 input[type='range'] {
-  accent-color: var(--maple-primary);
+  accent-color: var(--color-primary);
   cursor: pointer;
 }
