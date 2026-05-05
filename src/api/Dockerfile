@@ -67,7 +67,11 @@ COPY src/web/ .
 COPY --from=wasm-builder /wasm-pkg/ \
      projects/maple-common/src/lib/raw-pipeline/pkg/
 
-RUN bun run build:maple
+# Invoke ng directly to skip the `prebuild:maple` npm-lifecycle hook, which
+# tries to rebuild raw-wasm — already produced by the wasm-builder stage and
+# copied in above. The path it expects (../raw-pipeline/raw-wasm/build.sh)
+# also doesn't exist inside this stage, so the hook would always fail here.
+RUN bun x ng build maple --configuration=production
 
 # ---------------------------------------------------------------------------
 # Stage 2: build the native libraw_ffi.so for the runtime image's arch.
