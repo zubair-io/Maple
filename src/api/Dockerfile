@@ -1,7 +1,11 @@
 # Maple Self Hosted — Dockerfile
 #
-# Build context must be the monorepo root so we can include both the Bun
-# server and the pre-built Angular UI bundle.
+# Self-contained build: every artifact (the WASM image-pipeline blob, the
+# Angular SPA bundle, the native libraw_ffi.so, and the Bun runtime) is
+# produced inside Docker. The only thing you need on the host is Docker.
+#
+# Build context must be the monorepo root so the build can see src/api,
+# src/web, and src/raw-pipeline.
 #
 # Build:
 #   docker build -f src/api/Dockerfile -t maple .
@@ -14,72 +18,104 @@
 #     maple
 
 # ---------------------------------------------------------------------------
-# Stage 1: build the Angular UI (skip if dist/ is already committed)
+# Stage 0: build the raw-wasm image-pipeline blob from source.
+#
+# raw-wasm needs nightly Rust + rust-src + the wasm32 target so wasm-pack
+# can rebuild std with atomics + bulk-memory + mutable-globals (required for
+# the wasm-bindgen-rayon thread pool). The toolchain pin lives in
+# src/raw-pipeline/raw-wasm/rust-toolchain.toml; rustup honours it
+# automatically.
 # ---------------------------------------------------------------------------
-FROM node:22-slim AS ui-builder
+FROM rust:1.83-slim AS wasm-builder
 
 WORKDIR /build
 
-# Copy Angular workspace files
-COPY src/web/package.json src/web/package-lock.json* ./
-RUN npm ci --legacy-peer-deps
+# wasm-pack needs curl + ca-certs to fetch its release bundle; install once.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        curl ca-certificates pkg-config libssl-dev \
+    && rm -rf /var/lib/apt/lists/* \
+    && curl -fsSL https://rustwasm.github.io/wasm-pack/installer/init.sh | sh
+
+COPY src/raw-pipeline/ raw-pipeline/
+
+# Run the canonical build script. The fast-path stamp won't trigger on a
+# fresh image; first build does the full compile, subsequent layer-cache
+# rebuilds skip on identical Rust sources.
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/build/raw-pipeline/target \
+    bash raw-pipeline/raw-wasm/build.sh \
+ && cp -R raw-pipeline/raw-wasm/pkg /wasm-pkg
+
+# ---------------------------------------------------------------------------
+# Stage 1: build the Angular UI bundle.
+#
+# Uses bun (not npm) — the workspace is a bun-locked workspace; the stale
+# package-lock.json is a leftover. bun runs @angular/cli without issue.
+# ---------------------------------------------------------------------------
+FROM oven/bun:1.3-slim AS ui-builder
+
+WORKDIR /build
+
+# Install workspace deps with the lockfile so the build is reproducible.
+COPY src/web/package.json src/web/bun.lock* ./
+RUN bun install --frozen-lockfile
 
 COPY src/web/ .
 
-# Build the Maple app (uses pre-built WASM from raw-wasm)
-COPY src/web/projects/maple-common/src/lib/raw-pipeline/pkg/ \
+# Drop the WASM blob produced in stage 0 into the location the Angular
+# build expects (and that the sync-raw-wasm.sh script normally writes to).
+COPY --from=wasm-builder /wasm-pkg/ \
      projects/maple-common/src/lib/raw-pipeline/pkg/
 
-RUN npx ng build maple --configuration=production
+RUN bun run build:maple
 
 # ---------------------------------------------------------------------------
-# Stage 2: build the native libraw_ffi.so for Linux x86_64
+# Stage 2: build the native libraw_ffi.so for the runtime image's arch.
+# Stable Rust; entirely independent of the wasm-builder stage.
 # ---------------------------------------------------------------------------
-FROM rust:1.82-slim AS rust-builder
+FROM rust:1.83-slim AS rust-builder
 
 WORKDIR /build
 
-# Install build tools
 RUN apt-get update && apt-get install -y --no-install-recommends \
     pkg-config libssl-dev && rm -rf /var/lib/apt/lists/*
 
 COPY src/raw-pipeline/ raw-pipeline/
-COPY src/Cargo.toml src/Cargo.lock* ./
 
-# Build only the raw-ffi crate as a shared library
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/build/raw-pipeline/target \
-    cd raw-pipeline && \
-    cargo build --release -p raw-ffi && \
-    # Copy the .so to a known location outside the cache
-    cp target/release/libraw_ffi.so /libraw_ffi.so
+    cd raw-pipeline \
+ && cargo build --release -p raw-ffi \
+ && cp target/release/libraw_ffi.so /libraw_ffi.so
 
 # ---------------------------------------------------------------------------
-# Stage 3: runtime image
+# Stage 3: runtime image — Bun server + UI bundle + native FFI.
 # ---------------------------------------------------------------------------
 FROM oven/bun:1.3-slim AS runtime
 
 WORKDIR /app
 
-# Copy Bun server source
+# curl is needed for HEALTHCHECK; install before dropping privileges.
+RUN apt-get update && apt-get install -y --no-install-recommends curl \
+ && rm -rf /var/lib/apt/lists/*
+
+# Bun server deps.
 COPY src/api/package.json src/api/bun.lock* ./
-RUN bun install --production
+RUN bun install --production --frozen-lockfile
 
 COPY src/api/src/ src/
 COPY src/api/tsconfig.json ./
 
-# Copy Angular UI bundle from stage 1
-# (or use the committed dist/ if the ui-builder stage is skipped)
+# Angular bundle from stage 1.
 COPY --from=ui-builder /build/dist/maple/browser/ /app/ui/
 
-# Copy native shared library from stage 2
+# Native shared library from stage 2.
 RUN mkdir -p native
 COPY --from=rust-builder /libraw_ffi.so native/
 
 ENV PORT=3000
 ENV MAPLE_MONGO_URI=mongodb://localhost:27017
 ENV MAPLE_MONGO_DB=maple
-# Point the server at the bundled UI
 ENV MAPLE_UI_DIST=/app/ui
 
 EXPOSE 3000
