@@ -191,6 +191,31 @@ int32_t maple_render_thumbnail_jpeg(const char *raw_path,
 void maple_free_byte_buffer(struct MapleByteBuffer *buffer);
 
 /**
+ * File-output variant of `maple_render_thumbnail_jpeg`. Rust writes the
+ * resulting JPEG directly to `out_path` (atomic via .tmp + rename), so no
+ * Rust-allocated memory crosses the FFI boundary as a buffer.
+ *
+ * Why this exists: Bun 1.3.x's `bun:ffi` `toBuffer(ptr, 0, len)` returns a
+ * Node Buffer backed by external memory. When the Buffer becomes unreachable
+ * JSC's GC sweep tries to free the underlying ArrayBuffer using its own
+ * allocator, but the memory was allocated by Rust's `Box::into_raw` (and
+ * already freed by `maple_free_byte_buffer`). The double-free segfaults the
+ * process during a future GC cycle, sometimes minutes after the FFI call —
+ * a use-after-free that's hard to repro in tests but reliably happens under
+ * real browse load.
+ *
+ * File-output sidesteps the issue: Rust owns its allocations end-to-end and
+ * JS just reads the resulting file. The cost is one extra fs read, which is
+ * negligible (the route writes-through to the same cache file anyway).
+ *
+ * Returns 0 on success; non-zero on error (call `maple_last_error`).
+ */
+int32_t maple_render_thumbnail_jpeg_to_file(const char *raw_path,
+                                            const char *out_path,
+                                            uint32_t max_px,
+                                            uint8_t quality);
+
+/**
  * Render a RAW+XMP to a scene-linear Rec.2020 fp16 RGBA buffer. Returns
  * 0 on success, non-zero on error (call `maple_last_error`). The output
  * pre-AgX, pre-Rec.2020->sRGB — the caller is expected to apply a view

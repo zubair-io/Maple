@@ -31,6 +31,12 @@ Environment=MAPLE_MONGO_DB=maple
 # Environment=MAPLE_ROOTS=/srv/photos
 # Environment=MAPLE_INDEXER_WORKERS=4
 
+# WebAuthn / passkey auth — REQUIRED in production. The browser refuses
+# passkey ceremonies whose rpId/origin don't match the page hostname.
+# Environment=MAPLE_RP_ID=maple.your-domain.com
+# Environment=MAPLE_ORIGIN=https://maple.your-domain.com
+# Environment=MAPLE_CORS_ORIGIN=https://maple.your-domain.com
+
 # Restart policy
 Restart=on-failure
 RestartSec=5s

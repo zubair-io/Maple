@@ -17,8 +17,15 @@
  * after a fetch failure until reachable again.
  */
 
-import { Elysia } from "elysia";
+import { Elysia, t } from "elysia";
 import { state as controlState, targetUrl } from "../indexer/control.ts";
+import { verifyAccessToken } from "../auth/tokens.ts";
+
+function jwtSecret(): string {
+  const s = process.env.MAPLE_JWT_SECRET;
+  if (!s || s.length < 16) throw new Error("MAPLE_JWT_SECRET unset or too short");
+  return s;
+}
 
 /**
  * Full pipeline-status snapshot frame as it appears on the WS. Kept as a
@@ -61,6 +68,25 @@ async function fetchStatus(): Promise<ChildStatus | null> {
 }
 
 export const eventsRoutes = new Elysia({ prefix: "/api" }).ws("/events", {
+  // Browser `new WebSocket()` can't send Authorization headers, so the
+  // standard pattern is a query-string token. Elysia runs `beforeHandle`
+  // during the HTTP-side handshake — rejecting here means the upgrade
+  // never completes and the browser sees a 401, not a closed socket.
+  query: t.Object({ token: t.Optional(t.String()) }),
+  beforeHandle({ query, set }) {
+    const token = query.token;
+    if (!token) {
+      set.status = 401;
+      return { error: "missing token" };
+    }
+    try {
+      verifyAccessToken(token, jwtSecret());
+    } catch {
+      set.status = 401;
+      return { error: "invalid token" };
+    }
+  },
+
   open(ws) {
     let timer: ReturnType<typeof setTimeout> | null = null;
     let closed = false;

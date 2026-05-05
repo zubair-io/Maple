@@ -38,7 +38,13 @@ export const SYSTEM_DIRS = new Set<string>([
 export async function browseRoots(): Promise<string[]> {
   const env = process.env.MAPLE_ROOTS;
   if (!env || env.trim() === "") return ["/"];
-  const raw = env.split(":").map((p) => p.replace(/\/$/, "")).filter(Boolean);
+  // Strip trailing slash unless the entry IS just "/" — `"/".replace(/\/$/, "")`
+  // collapses to "" and then filter(Boolean) drops it, leaving an empty roots
+  // list for `MAPLE_ROOTS=/`. Preserve "/" explicitly.
+  const raw = env
+    .split(":")
+    .map((p) => (p === "/" ? "/" : p.replace(/\/$/, "")))
+    .filter(Boolean);
   // Resolve symlinks in each root so the jail check works on macOS where
   // /var → /private/var (and the realpath of reqPath will be /private/var/…).
   const resolved = await Promise.all(
