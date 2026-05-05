@@ -64,6 +64,12 @@ in the background.
 | `MAPLE_DEV` | (none) | Set to `1` to proxy UI to Angular dev server |
 | `MAPLE_DEV_ORIGIN` | `http://localhost:4201` | Angular dev server origin when `MAPLE_DEV=1` (the `maple` app serves on 4201) |
 | `MAPLE_UI_DIST` | (auto-resolved) | Override the Angular bundle dist path |
+| `MAPLE_RP_ID` | `localhost` | **WebAuthn Relying Party ID — set to your bare hostname in production** (`maple.example.com`, no scheme/port). The browser rejects passkey ceremonies whose `rpId` doesn't match the page hostname. |
+| `MAPLE_ORIGIN` | `http://localhost:3000,http://localhost:4200,http://localhost:4201` | **Set to your full public origin in production** (`https://maple.example.com`). Comma-separated for multiple. Used to verify WebAuthn assertions came from the expected origin. |
+| `MAPLE_CORS_ORIGIN` | `*` | CORS `Access-Control-Allow-Origin`. Tighten to your domain in production. |
+| `MAPLE_JWT_SECRET` | (auto-generated to `./.maple/jwt.secret`) | HS256 signing key for access tokens. Override to provide your own. |
+| `MAPLE_JWT_SECRET_FILE` | `./.maple/jwt.secret` | Path the auto-generator reads/writes. Override to point at a Docker secret etc. |
+| `MAPLE_DEV_AUTH` | (none) | Set to `1` to expose `/api/auth/dev-login` (passkey bypass). **NEVER set in production.** |
 
 ## API reference
 

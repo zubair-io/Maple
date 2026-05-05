@@ -1,6 +1,7 @@
-import { Injectable, signal } from '@angular/core';
+import { Injectable, inject, signal } from '@angular/core';
 import { Observable, ReplaySubject } from 'rxjs';
 import type { IndexerStatus } from '../api/bun-api-backend.service';
+import { AuthService } from '../auth/auth.service';
 
 /**
  * IndexerEventsService — live WebSocket subscription to /api/events.
@@ -12,6 +13,7 @@ import type { IndexerStatus } from '../api/bun-api-backend.service';
  */
 @Injectable({ providedIn: 'root' })
 export class IndexerEventsService {
+  private auth = inject(AuthService);
   private socket: WebSocket | null = null;
   private subject = new ReplaySubject<IndexerStatus | null>(1);
   readonly status$: Observable<IndexerStatus | null> = this.subject.asObservable();
@@ -49,6 +51,12 @@ export class IndexerEventsService {
 
   private endpoint(): string {
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    return `${proto}//${location.host}/api/events`;
+    // Browsers can't set Authorization headers on `new WebSocket()`, so the
+    // access token rides as a query parameter. The server validates it in
+    // the WS upgrade's `beforeHandle`. If the token is missing (signed-out
+    // state), the open() will fail with 401 — same outcome as before.
+    const token = this.auth.bearer ?? '';
+    const q = token ? `?token=${encodeURIComponent(token)}` : '';
+    return `${proto}//${location.host}/api/events${q}`;
   }
 }
