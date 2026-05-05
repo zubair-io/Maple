@@ -7,7 +7,6 @@ import { LibraryPickerComponent } from '../library-picker/library-picker.compone
   standalone: true,
   imports: [LibraryPickerComponent],
   templateUrl: './library-picker-modal.component.html',
-  styleUrl: './library-picker-modal.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class LibraryPickerModalComponent {

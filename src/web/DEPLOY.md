@@ -157,8 +157,8 @@ renders, just slower on large RAWs.
 ### Cloudflare Pages / Netlify
 
 Both hosts honour the `_headers` file that ships in
-`projects/maple-hosted/public/_headers`. After `ng build maple-hosted` the
-file lands in `dist/maple-hosted/browser/_headers` and is picked up
+`projects/maple-syrup/public/_headers`. After `ng build maple-syrup` the
+file lands in `dist/maple-syrup/browser/_headers` and is picked up
 automatically — no extra config needed.
 
 ### Apache / nginx
@@ -179,7 +179,7 @@ add_header Cross-Origin-Opener-Policy "same-origin" always;
 add_header Cross-Origin-Embedder-Policy "require-corp" always;
 ```
 
-### Bun API (`maple-self-hosted`)
+### Bun API (`maple`)
 
 The Bun server already emits both headers from `src/api/src/index.ts`
 (`onBeforeHandle`) and from the static-UI handler in
@@ -188,7 +188,7 @@ The Bun server already emits both headers from `src/api/src/index.ts`
 ### Angular dev server
 
 `src/web/angular.json` sets the headers on `architect.serve.options.headers`
-for both apps, so `npm run start:hosted` and `npm run start:self-hosted`
+for both apps, so `npm run start:syrup` and `npm run start:maple`
 already serve cross-origin-isolated responses — threading works locally.
 
 ---
@@ -203,6 +203,6 @@ python3 -m http.server 4200 --directory dist/maple/browser
 ```
 
 Note: `python3 -m http.server` serves `.wasm` as `application/wasm` out of the box on Python 3.4+.
-For threaded testing locally, prefer `npm run start:hosted` (Angular dev server
+For threaded testing locally, prefer `npm run start:syrup` (Angular dev server
 with COOP/COEP already configured) — `http.server` does not set those headers
 so threading stays in the single-threaded fallback path.

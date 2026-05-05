@@ -114,11 +114,19 @@ public actor ThumbnailDiskCache {
 
     // MARK: - Cache key
 
-    /// MD5 of the asset path — matches Maple Hosted `LibraryIndex` hashing.
-    /// Exposed as a static helper so callers (e.g. `ThumbnailLoader`'s in-
-    /// flight coalescing map) can hash without bouncing through the actor.
+    /// Cache key derived from the **filename only** so `.maple/thumbs/`
+    /// travels with the photos: copy the folder elsewhere and the same
+    /// hash still resolves. Aligned with the API (`src/api/.../fs/xmp.ts`
+    /// `sha256Prefix16`) and the web Hosted variant
+    /// (`src/web/.../maple-cache/sha.ts`) so thumbnails are interchangeable
+    /// across all three layers.
+    ///
+    /// (Pre-2026-05 versions hashed `url.path`, which made the cache
+    /// non-portable — copying a folder invalidated every entry. Existing
+    /// caches will be regenerated on first access; orphaned files at the
+    /// old key remain harmless until manually swept.)
     public static func cacheKey(for url: URL) -> String {
-        return stableHash(url.path)
+        return stableHash(url.lastPathComponent)
     }
 
     nonisolated func cacheKey(for url: URL) -> String {
@@ -127,9 +135,15 @@ public actor ThumbnailDiskCache {
 
     // MARK: - Stable hash (SHA256 prefix for cache key stability)
 
+    /// First 16 hex chars of sha256(string) — i.e. 8 leading bytes formatted
+    /// as hex. Matches the web (Hosted) `sha256Prefix16` and the API
+    /// `sha256Prefix16` so a cache file written by any of the three is
+    /// readable by the others. Pre-2026-05 took `prefix(16)` of the BYTES
+    /// (= 32 hex chars) which produced a longer key; existing on-disk
+    /// thumbs at the old length are orphans and will be regenerated.
     private static func stableHash(_ string: String) -> String {
         let digest = SHA256.hash(data: Data(string.utf8))
-        return digest.prefix(16).map { String(format: "%02x", $0) }.joined()
+        return digest.prefix(8).map { String(format: "%02x", $0) }.joined()
     }
 
     private func md5(_ string: String) -> String {

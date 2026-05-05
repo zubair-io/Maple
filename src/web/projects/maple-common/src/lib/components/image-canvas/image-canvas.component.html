@@ -1,13 +1,31 @@
 <!-- Toolbar -->
-<div class="toolbar">
-  <span class="zoom-label">{{ zoomLabel() }}</span>
-  <div class="tool-btn" (click)="canvasSvc.zoomOut()" title="Zoom out">−</div>
-  <div class="tool-btn" (click)="canvasSvc.resetView()" title="Fit">⊡</div>
-  <div class="tool-btn" (click)="canvasSvc.zoomIn()" title="Zoom in">+</div>
-  <div class="toolbar-spacer"></div>
+<div class="flex items-center gap-2 px-3 h-[34px] bg-surface border-b-[0.5px] border-border flex-shrink-0">
+  <span class="font-mono text-[10px] text-text-muted">{{ zoomLabel() }}</span>
   <div
-    class="tool-btn"
-    [class.active]="canvasSvc.showBeforeAfter()"
+    class="tool-btn flex h-6 w-6 cursor-pointer items-center justify-center rounded font-sans text-[11px] text-text-muted bg-surface-alt border-[0.5px] border-border transition-colors duration-100 hover:bg-surface-hover hover:text-text-main"
+    (click)="canvasSvc.zoomOut()"
+    title="Zoom out"
+  >
+    −
+  </div>
+  <div
+    class="tool-btn flex h-6 w-6 cursor-pointer items-center justify-center rounded font-sans text-[11px] text-text-muted bg-surface-alt border-[0.5px] border-border transition-colors duration-100 hover:bg-surface-hover hover:text-text-main"
+    (click)="canvasSvc.resetView()"
+    title="Fit"
+  >
+    ⊡
+  </div>
+  <div
+    class="tool-btn flex h-6 w-6 cursor-pointer items-center justify-center rounded font-sans text-[11px] text-text-muted bg-surface-alt border-[0.5px] border-border transition-colors duration-100 hover:bg-surface-hover hover:text-text-main"
+    (click)="canvasSvc.zoomIn()"
+    title="Zoom in"
+  >
+    +
+  </div>
+  <div class="flex-1"></div>
+  <div
+    class="tool-btn flex h-6 w-6 cursor-pointer items-center justify-center rounded font-sans text-[11px] text-text-muted bg-surface-alt border-[0.5px] border-border transition-colors duration-100 hover:bg-surface-hover hover:text-text-main"
+    [class.is-active]="canvasSvc.showBeforeAfter()"
     (click)="canvasSvc.toggleBeforeAfter()"
     title="Before/After (b)"
   >
@@ -17,7 +35,7 @@
 
 <!-- Canvas area -->
 <div
-  class="canvas-wrap"
+  class="canvas-wrap relative flex-1 min-h-0 overflow-hidden cursor-grab select-none active:cursor-grabbing"
   #wrap
   (wheel)="onWheel($event)"
   (mousedown)="onMouseDown($event)"
@@ -25,28 +43,28 @@
   (mouseup)="onMouseUp()"
   (mouseleave)="onMouseUp()"
 >
-  <canvas #canvas></canvas>
+  <canvas #canvas class="block absolute top-1/2 left-1/2"></canvas>
 
   <!-- Before/after divider -->
   @if (canvasSvc.showBeforeAfter()) {
     <div
-      class="ba-divider"
+      class="absolute top-0 bottom-0 w-0.5 bg-white/80 -translate-x-1/2 cursor-ew-resize z-10"
       [style.left.%]="(canvasSvc.beforeAfterSplitX() ?? 0.5) * 100"
       (mousedown)="onDividerDrag($event)"
     >
-      <div class="ba-handle">&#x21D4;</div>
+      <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-5 h-10 bg-white/90 rounded-[10px] flex items-center justify-center text-[10px] text-[#333] pointer-events-none">&#x21D4;</div>
     </div>
   }
 
   <!-- Filename overlay -->
   @if (state.focusedAsset()) {
-    <div class="filename-overlay">{{ state.focusedAsset()?.filename }}</div>
+    <div class="absolute left-3 bottom-2.5 font-mono text-[10px] text-white/35 pointer-events-none z-[5]">{{ state.focusedAsset()?.filename }}</div>
   }
 
   <!-- Decoding progress overlay -->
   @if (loading()) {
-    <div class="loading-overlay">
-      <div class="loading-pill">Decoding RAW...</div>
+    <div class="absolute inset-0 flex items-center justify-center z-[6] pointer-events-none">
+      <div class="bg-black/60 border-[0.5px] border-white/15 rounded-[20px] px-3.5 py-1.5 font-sans text-[11px] text-white/70 backdrop-blur-[6px]">Decoding RAW...</div>
     </div>
   }
 </div>

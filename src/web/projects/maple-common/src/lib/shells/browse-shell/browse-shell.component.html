@@ -1,71 +1,95 @@
-<div class="window">
+<div class="w-full h-full bg-bg overflow-hidden flex flex-col font-sans">
   <!-- Toolbar -->
-  <div class="titlebar">
+  <div class="flex items-center h-11 bg-surface border-b-[0.5px] border-border px-3 flex-shrink-0 gap-2">
     <!-- Sidebar toggle -->
-    <div
-      class="chrome-btn"
-      [class.active]="state.sidebarVisible()"
+    <button
+      type="button"
+      class="chrome-btn flex h-8 w-8 items-center justify-center rounded-md border-[0.5px] border-transparent bg-transparent cursor-pointer transition-colors duration-[120ms] hover:bg-surface-hover hover:border-border"
+      [class.is-active]="state.sidebarVisible()"
       [title]="(state.sidebarVisible() ? 'Hide' : 'Show') + ' sidebar  ⌥⌘S'"
       (click)="state.toggleSidebar()"
     >
       <maple-icon
         name="sidebar"
-        [size]="13"
-        [color]="state.sidebarVisible() ? 'var(--maple-text-main)' : 'var(--maple-text-muted)'"
+        [size]="14"
+        [color]="state.sidebarVisible() ? 'var(--color-text-main)' : 'var(--color-text-muted)'"
       />
-    </div>
+    </button>
 
-    <!-- Search chrome btn -->
-    <div class="chrome-btn">
-      <maple-icon name="search" [size]="12" color="var(--maple-text-muted)" />
-    </div>
+    <!-- Search input (Self-Hosted only — Hosted has no server-side index) -->
+    @if (state.backend === 'self-hosted') {
+      <div class="flex items-center gap-2 h-8 px-3 rounded-md bg-input-bg border-[0.5px] border-border min-w-[220px] max-w-[340px] flex-[0_1_300px] focus-within:border-text-muted">
+        <maple-icon name="search" [size]="14" color="var(--color-text-muted)" />
+        <input
+          type="text"
+          placeholder="Filter filenames…"
+          aria-label="Filter filenames in current folder"
+          class="flex-1 min-w-0 border-0 outline-0 bg-transparent text-text-main text-[12px] py-0 placeholder:text-text-muted placeholder:opacity-70"
+          [value]="state.searchQuery()"
+          (input)="onSearchInput($event)"
+          (keydown.enter)="onSearchEnter()"
+        />
+      </div>
+    } @else {
+      <div class="chrome-btn flex h-8 w-8 items-center justify-center rounded-md border-[0.5px] border-transparent cursor-pointer transition-colors duration-[120ms] hover:bg-surface-hover hover:border-border">
+        <maple-icon name="search" [size]="14" color="var(--color-text-muted)" />
+      </div>
+    }
 
-    <!-- Indexer status button -->
-    <div
-      class="chrome-btn"
-      title="Indexer status"
-      (click)="state.openIndexerAdmin()"
-      aria-label="Open indexer admin"
-    >
-      <maple-icon name="scope" [size]="13" color="var(--maple-text-muted)" />
-    </div>
+    <!-- Indexer status button (Self-Hosted only — Hosted has no server-side indexer) -->
+    @if (state.backend === 'self-hosted') {
+      <a
+        class="chrome-btn flex h-8 w-8 items-center justify-center rounded-md border-[0.5px] border-transparent cursor-pointer transition-colors duration-[120ms] hover:bg-surface-hover hover:border-border"
+        title="Indexer settings"
+        routerLink="/settings/indexer"
+        aria-label="Open indexer settings"
+      >
+        <maple-icon name="scope" [size]="14" color="var(--color-text-muted)" />
+      </a>
+    }
 
-    <div class="toolbar-spacer"></div>
+    <div class="flex-1"></div>
 
     <!-- Export -->
-    <div
-      class="export-btn"
+    <button
+      type="button"
+      class="export-btn flex items-center gap-1.5 h-8 px-3.5 rounded-md text-[11px] font-medium cursor-pointer transition-colors duration-[120ms] border-[0.5px]"
       [class.has-selection]="state.selectedCount() > 0"
       [class.no-selection]="state.selectedCount() === 0"
+      [disabled]="state.selectedCount() === 0"
     >
       <maple-icon name="export" [size]="11" />
       <span>Export{{ state.selectedCount() > 1 ? ' (' + state.selectedCount() + ')' : '' }}</span>
-    </div>
+    </button>
 
     <!-- Inspector toggle -->
-    <div
-      class="chrome-btn"
-      [class.active]="state.inspectorVisible()"
+    <button
+      type="button"
+      class="chrome-btn flex h-8 w-8 items-center justify-center rounded-md border-[0.5px] border-transparent bg-transparent cursor-pointer transition-colors duration-[120ms] hover:bg-surface-hover hover:border-border"
+      [class.is-active]="state.inspectorVisible()"
       [title]="(state.inspectorVisible() ? 'Hide' : 'Show') + ' inspector  ⌥⌘D'"
       (click)="state.toggleInspector()"
     >
       <maple-icon
         name="inspector"
-        [size]="13"
-        [color]="state.inspectorVisible() ? 'var(--maple-text-main)' : 'var(--maple-text-muted)'"
+        [size]="14"
+        [color]="state.inspectorVisible() ? 'var(--color-text-main)' : 'var(--color-text-muted)'"
       />
-    </div>
+    </button>
   </div>
 
   <!-- Body -->
-  <div class="body">
+  <div class="flex-1 flex min-h-0 min-w-0 bg-bg">
     <!-- Left: folder tree -->
-    <div class="panel-left" [style.width]="state.sidebarVisible() ? '220px' : '0px'">
+    <div
+      class="flex-shrink-0 overflow-hidden relative transition-[width] duration-[220ms] ease-default"
+      [style.width]="state.sidebarVisible() ? '220px' : '0px'"
+    >
       <app-folder-tree />
     </div>
 
     <!-- Center: asset grid + drop-zone import bar -->
-    <div class="panel-center">
+    <div class="flex-1 flex flex-col min-w-0">
       @if (state.backend === 'self-hosted') {
         @if (state.backendLoading()) {
           <app-loading-banner label="Loading folders…" />
@@ -84,8 +108,8 @@
 
     <!-- Right: detail panel -->
     <div
-      class="panel-right"
-      [class.hidden]="!state.inspectorVisible()"
+      class="panel-right flex-shrink-0 overflow-hidden transition-[width] duration-[220ms] ease-default border-l-[0.5px] border-border"
+      [class.is-hidden]="!state.inspectorVisible()"
       [style.width]="state.inspectorVisible() ? '280px' : '0px'"
     >
       <app-detail-panel />
@@ -94,14 +118,3 @@
 </div>
 
 <app-library-picker-modal />
-
-@if (state.adminVisible()) {
-  <div class="admin-backdrop" (click)="state.closeIndexerAdmin()">
-    <div class="admin-dialog" (click)="$event.stopPropagation()">
-      <app-indexer-admin />
-      <div class="admin-footer">
-        <button class="admin-close" type="button" (click)="state.closeIndexerAdmin()">Close</button>
-      </div>
-    </div>
-  </div>
-}

@@ -1,130 +1,37 @@
+// Tailwind utilities cover layout. What stays here:
+// 1. `:host` viewport sizing — Angular host selector.
+// 2. `.chrome-btn.is-active` overlay swap — bound via [class.is-active] on the
+//    element so containment-style Tailwind variants don't fire.
+// 3. `.export-btn.has-selection` / `.no-selection` colour swaps — likewise.
+// 4. `.panel-right.is-hidden` removes the left border when the inspector is
+//    collapsed (otherwise the 0.5px line stays visible against the bg).
+
 :host {
   display: flex;
   width: 100vw;
   height: 100vh;
-  background: var(--maple-bg);
+  background: var(--color-bg);
   box-sizing: border-box;
 }
 
-/* App fills the viewport */
-.window {
-  width: 100%;
-  height: 100%;
-  background: var(--maple-bg);
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  font-family: var(--maple-font);
-}
-
-/* Titlebar */
-.titlebar {
-  height: 40px;
-  display: flex;
-  align-items: center;
-  background: var(--maple-surface);
-  border-bottom: 0.5px solid var(--maple-border);
-  padding: 0 12px;
-  flex-shrink: 0;
-  gap: 10px;
-}
-
-/* Flex spacer in the toolbar */
-.toolbar-spacer {
-  flex: 1;
-}
-
-/* Chrome buttons (sidebar / inspector toggles) */
-.chrome-btn {
-  width: 28px;
-  height: 24px;
-  border-radius: 5px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  transition: background 120ms;
-  border: 0.5px solid transparent;
-}
-.chrome-btn:hover {
-  background: var(--maple-surface-hover);
-  border-color: var(--maple-border);
-}
-.chrome-btn.active {
+.chrome-btn.is-active {
   background: rgba(255, 255, 255, 0.04);
-  border-color: var(--maple-border);
+  border-color: var(--color-border);
 }
 
-/* Export button */
-.export-btn {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 4px 10px;
-  border-radius: 5px;
-  font-family: var(--maple-font);
-  font-size: 11px;
-  cursor: pointer;
-}
 .export-btn.has-selection {
-  background: var(--maple-primary-dim);
-  color: var(--maple-primary);
-  border: 0.5px solid var(--maple-primary);
+  background: var(--color-primary-dim);
+  color: var(--color-primary);
+  border: 0.5px solid var(--color-primary);
 }
 .export-btn.no-selection {
-  background: var(--maple-input-bg);
-  color: var(--maple-text-muted);
-  border: 0.5px solid var(--maple-border);
+  background: var(--color-input-bg);
+  color: var(--color-text-muted);
+  border: 0.5px solid var(--color-border);
   opacity: 0.5;
   cursor: default;
 }
 
-/* Body — 3-column flex */
-.body {
-  flex: 1;
-  display: flex;
-  min-height: 0;
-  min-width: 0;
-  background: var(--maple-bg);
-}
-
-/* Left panel (sidebar) */
-.panel-left {
-  flex-shrink: 0;
-  overflow: hidden;
-  transition: width 220ms var(--maple-ease);
-  position: relative;
-}
-
-/* Center panel */
-.panel-center {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
-
-/* Right panel (inspector) */
-.panel-right {
-  flex-shrink: 0;
-  overflow: hidden;
-  transition: width 220ms var(--maple-ease);
-  border-left: 0.5px solid var(--maple-border);
-}
-.panel-right.hidden {
+.panel-right.is-hidden {
   border-left: none;
 }
-
-/* Indexer admin modal */
-.admin-backdrop {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.55);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-}
-.admin-dialog { display: flex; flex-direction: column; gap: 12px; }
-.admin-footer { display: flex; justify-content: flex-end; }
-.admin-close { padding: 6px 14px; font-size: 13px; }

@@ -73,9 +73,11 @@ class ApiStub {
     of({
       id: 'f1',
       path: '/photos',
-      name: 'photos',
-      assetCount: 0,
-    } satisfies ApiFolder),
+      label: 'photos',
+      last_scan: null,
+      file_count: 0,
+      created_at: '2026-01-01T00:00:00Z',
+    } as ApiFolder),
   );
 }
 
@@ -111,8 +113,10 @@ describe('LibraryStateService — Self-Hosted passthrough round-trip (T4-followu
     svc.openSelfHostedFolder({
       id: 'remote-folder-1',
       path: '/srv/photos/folder-1',
-      name: 'folder-1',
-      assetCount: 1,
+      label: 'folder-1',
+      last_scan: null,
+      file_count: 1,
+      created_at: '2026-01-01T00:00:00Z',
     });
 
     const asset = svc.assets()[0];
@@ -143,7 +147,7 @@ describe('LibraryStateService — Self-Hosted passthrough round-trip (T4-followu
     });
 
     it('addLibraryFolder closes the picker on success', () => {
-      const folder: ApiFolder = { id: 'f1', path: '/photos', name: 'photos', assetCount: 0 };
+      const folder: ApiFolder = { id: 'f1', path: '/photos', label: 'photos', last_scan: null, file_count: 0, created_at: '2026-01-01T00:00:00Z' };
       api.registerFolder = vi.fn(() => of(folder));
       api.listFolders = vi.fn(() => of([folder]));
 
@@ -157,7 +161,7 @@ describe('LibraryStateService — Self-Hosted passthrough round-trip (T4-followu
 
   describe('addLibraryFolder (self-hosted)', () => {
     it('POSTs the path and refreshes the tree on success', () => {
-      const folder: ApiFolder = { id: 'f1', path: '/photos', name: 'photos', assetCount: 0 };
+      const folder: ApiFolder = { id: 'f1', path: '/photos', label: 'photos', last_scan: null, file_count: 0, created_at: '2026-01-01T00:00:00Z' };
       api.registerFolder = vi.fn(() => of(folder));
       api.listFolders = vi.fn(() => of([folder]));
 

@@ -33,6 +33,35 @@ export type FolderWithId = WithId<FolderDoc>;
 // Asset
 // ---------------------------------------------------------------------------
 
+/**
+ * Camera/lens/exposure metadata extracted from EXIF (or RAW container) by the
+ * indexer's exif stage. The whole subdocument is optional: a JPEG without EXIF
+ * or a RAW format that exifr couldn't parse leaves `exif: null`.
+ *
+ * Fields are nullable individually so a partial parse (e.g. EXIF without GPS)
+ * still persists what it found.
+ */
+export interface AssetExif {
+  /** ISO 8601 — DateTimeOriginal (or CreateDate fallback). */
+  captured_at: string | null;
+  /** Camera body manufacturer, e.g. "Hasselblad". */
+  camera_make: string | null;
+  /** Camera body model, e.g. "L3D-100c". */
+  camera_model: string | null;
+  /** Lens model string, e.g. "Hasselblad 24mm f/1.5". */
+  lens: string | null;
+  /** ISO speed. */
+  iso: number | null;
+  /** F-stop, e.g. 2.8. */
+  aperture: number | null;
+  /** Human-friendly shutter, e.g. "1/250" or "0.5". */
+  shutter: string | null;
+  /** Focal length in millimetres. */
+  focal_length: number | null;
+  /** Decimal-degree GPS pair (parsed by exifr). */
+  gps: { lat: number; lng: number } | null;
+}
+
 export interface AssetDoc {
   folder_id: ObjectId;
   /** Filename only (no directory). */
@@ -51,6 +80,11 @@ export interface AssetDoc {
   color_label: string;
   /** SHA-256 hash of the thumbnail bytes, or null if not yet generated. */
   thumb_hash: string | null;
+  /**
+   * Camera/lens/exposure metadata. Optional because backfill on existing rows
+   * may not have run yet, and JPEGs without EXIF leave this null.
+   */
+  exif?: AssetExif | null;
   /** When this record was created (ISO string). */
   indexed_at: string;
 }

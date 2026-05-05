@@ -95,8 +95,9 @@ export const assetsRoutes = new Elysia({ prefix: "/api/assets" })
         return { error: "Asset not found" };
       }
 
-      const size = query.size ?? "512x512";
-      const thumbPath = resolveThumbPath(doc.abs_path, size);
+      // Single per-file thumb (size param is render-target advisory only;
+      // the cache key no longer includes size — see fs/xmp.ts).
+      const thumbPath = resolveThumbPath(doc.abs_path);
       const result = await safeReadFile(thumbPath);
       if (!result.ok) {
         set.status = 404;

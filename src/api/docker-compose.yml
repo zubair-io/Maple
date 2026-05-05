@@ -20,7 +20,7 @@ services:
     ports:
       - "27017:27017"
     environment:
-      MONGO_INITDB_DATABASE: maple_self_hosted
+      MONGO_INITDB_DATABASE: maple
     volumes:
       - mongo_data:/data/db
     healthcheck:
@@ -43,7 +43,7 @@ services:
     environment:
       PORT: "3000"
       MAPLE_MONGO_URI: "mongodb://mongo:27017"
-      MAPLE_MONGO_DB: "maple_self_hosted"
+      MAPLE_MONGO_DB: "maple"
       # Mount your photo library here (also set MAPLE_ROOTS):
       # MAPLE_ROOTS: /photos
     volumes:

@@ -1,52 +1,49 @@
 /**
- * Test that the /api/events WebSocket emits a { type: "status" } frame
- * both on connect and after a progress event fires.
+ * Test that the StatusFrame shape exposed by /api/events round-trips
+ * through JSON serialization without losing fields.
  *
- * We test the buildStatusFrame helper directly (unit test, no real WS
- * connection needed) and separately verify the on-connect snapshot by
- * inspecting the StatusFrame shape produced by the service's status() method.
+ * The pipeline now lives in a separate child process (see
+ * `src/indexer/standalone.ts`), so the parent doesn't construct the
+ * status payload — it just forwards the child's JSON. This test is now a
+ * pure shape contract: any object that satisfies the StatusFrame type
+ * must JSON round-trip cleanly.
  */
 
 import { describe, it, expect } from "bun:test";
 import type { StatusFrame } from "../src/routes/events.ts";
-import { getIndexerService } from "../src/indexer/service.ts";
 
 describe("events route — status frame shape", () => {
-  it("IndexerService.status() returns a shape compatible with StatusFrame.status", () => {
-    const svc = getIndexerService();
-    const s = svc.status();
-
-    // Verify all required IndexerStatus fields are present.
-    expect(typeof s.paused).toBe("boolean");
-    expect(s.pools).toBeDefined();
-    expect(s.channels).toBeDefined();
-    expect(s.stages).toBeDefined();
-
-    const stages = ["discover", "hash", "exif", "thumb", "ai", "mongo"] as const;
-    for (const st of stages) {
-      expect(typeof s.pools[st]).toBe("number");
-      expect(typeof s.channels[st].depth).toBe("number");
-      expect(typeof s.channels[st].capacity).toBe("number");
-      expect(typeof s.stages[st].inFlight).toBe("number");
-      expect(typeof s.stages[st].errors).toBe("number");
-      expect(typeof s.stages[st].deadLetter).toBe("number");
-    }
-  });
-
-  it("buildStatusFrame() produces a valid StatusFrame JSON string", () => {
-    const svc = getIndexerService();
+  it("StatusFrame round-trips through JSON.stringify/parse", () => {
     const frame: StatusFrame = {
       type: "status",
-      status: svc.status(),
+      status: {
+        paused: false,
+        pools: { discover: 1, hash: 2, exif: 1, thumb: 2, ai: 1, mongo: 2 },
+        channels: {
+          discover: { depth: 0, capacity: 64 },
+          hash: { depth: 1, capacity: 64 },
+          exif: { depth: 2, capacity: 64 },
+          thumb: { depth: 0, capacity: 64 },
+          ai: { depth: 0, capacity: 64 },
+          mongo: { depth: 0, capacity: 64 },
+        },
+        stages: {
+          discover: { inFlight: 0, errors: 0, deadLetter: 0 },
+          hash: { inFlight: 1, errors: 0, deadLetter: 0 },
+          exif: { inFlight: 0, errors: 0, deadLetter: 0 },
+          thumb: { inFlight: 0, errors: 0, deadLetter: 0 },
+          ai: { inFlight: 0, errors: 0, deadLetter: 0 },
+          mongo: { inFlight: 0, errors: 0, deadLetter: 0 },
+        },
+      },
       ts: Date.now(),
     };
 
-    const json = JSON.stringify(frame);
-    const parsed = JSON.parse(json) as StatusFrame;
+    const parsed = JSON.parse(JSON.stringify(frame)) as StatusFrame;
 
     expect(parsed.type).toBe("status");
     expect(typeof parsed.ts).toBe("number");
     expect(parsed.status).toBeDefined();
-    expect(typeof parsed.status.paused).toBe("boolean");
+    expect(parsed.status.paused).toBe(false);
   });
 });

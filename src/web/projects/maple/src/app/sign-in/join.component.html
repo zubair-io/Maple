@@ -1,5 +1,8 @@
-<form (submit)="submit(); $event.preventDefault()">
-  <h2>Join this server</h2>
+<form
+  (submit)="submit(); $event.preventDefault()"
+  class="flex flex-col gap-4 w-full max-w-[360px] p-8 bg-surface border border-border rounded-xl shadow-[0_8px_32px_rgba(0,0,0,0.4)]"
+>
+  <h2 class="mb-3 text-[20px] font-semibold tracking-[-0.01em]">Join this server</h2>
   <input
     type="email"
     [(ngModel)]="email"
@@ -7,6 +10,7 @@
     placeholder="Email"
     autocomplete="email"
     required
+    class="block w-full px-3.5 py-3 text-sm text-text-main bg-input-bg border border-border rounded-md outline-none transition-colors duration-[120ms] ease-default placeholder:text-text-muted focus:border-primary"
   />
   <input
     type="text"
@@ -19,12 +23,23 @@
     autocomplete="one-time-code"
     spellcheck="false"
     required
+    class="block w-full px-3.5 py-3 text-sm text-text-main bg-input-bg border border-border rounded-md outline-none transition-colors duration-[120ms] ease-default font-mono tracking-[0.1em] uppercase placeholder:text-text-muted focus:border-primary"
   />
-  <button type="submit" [disabled]="busy() || !email || code.length !== 8">
+  <button
+    type="submit"
+    [disabled]="busy() || !email || code.length !== 8"
+    class="submit-btn inline-block w-full px-4 py-3 mt-1 text-sm font-semibold text-white bg-primary border border-transparent rounded-md transition-[background,opacity] duration-[120ms] ease-default disabled:cursor-not-allowed"
+  >
     Create passkey
   </button>
   @if (error(); as e) {
-    <p class="error">{{ e }}</p>
+    <p class="m-0 px-3 py-2 text-[13px] text-error-text bg-error-bg rounded-md">
+      {{ e }}
+    </p>
   }
-  <a routerLink="/sign-in">Already have an account?</a>
+  <a
+    routerLink="/sign-in"
+    class="self-center mt-2 text-[13px] text-text-muted no-underline hover:text-text-main hover:underline"
+    >Already have an account?</a
+  >
 </form>

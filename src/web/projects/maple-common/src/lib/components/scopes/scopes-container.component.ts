@@ -16,60 +16,27 @@ import { defaultAdjustmentModel, AdjustmentModel } from '../../models/adjustment
   styles: [
     `
       :host {
-        display: block;
-        background: var(--maple-bg);
-        border-bottom: 0.5px solid var(--maple-border);
-        padding: 8px;
-      }
-
-      .scopes-row {
-        display: flex;
-        gap: 4px;
-        align-items: flex-end;
-      }
-
-      .scope-block {
-        flex: 1;
-        min-width: 0;
-        border-radius: 3px;
-        overflow: hidden;
-        background: rgba(0, 0, 0, 0.3);
-      }
-
-      .scope-label {
-        font-family: var(--maple-font);
-        font-size: 9px;
-        color: var(--maple-text-muted);
-        text-transform: uppercase;
-        letter-spacing: 0.08em;
-        padding: 3px 4px 1px;
-      }
-
-      .vectorscope-block {
-        flex: 0 0 80px;
-        width: 80px;
-        border-radius: 3px;
-        overflow: hidden;
-        background: rgba(0, 0, 0, 0.3);
+        border-bottom: 0.5px solid var(--color-border);
       }
     `,
   ],
+  host: { class: 'block bg-bg p-2' },
   template: `
-    <div class="scopes-row">
-      <div class="scope-block">
-        <div class="scope-label">Histogram</div>
+    <div class="flex items-end gap-1">
+      <div class="flex-1 min-w-0 rounded-[3px] overflow-hidden bg-black/30">
+        <div class="text-[9px] uppercase tracking-[0.08em] text-text-muted px-1 pt-[3px] pb-px">Histogram</div>
         <editor-histogram [adjustment]="adj()" />
       </div>
-      <div class="scope-block">
-        <div class="scope-label">Waveform</div>
+      <div class="flex-1 min-w-0 rounded-[3px] overflow-hidden bg-black/30">
+        <div class="text-[9px] uppercase tracking-[0.08em] text-text-muted px-1 pt-[3px] pb-px">Waveform</div>
         <editor-waveform [adjustment]="adj()" />
       </div>
-      <div class="scope-block">
-        <div class="scope-label">Parade</div>
+      <div class="flex-1 min-w-0 rounded-[3px] overflow-hidden bg-black/30">
+        <div class="text-[9px] uppercase tracking-[0.08em] text-text-muted px-1 pt-[3px] pb-px">Parade</div>
         <editor-parade [adjustment]="adj()" />
       </div>
-      <div class="vectorscope-block">
-        <div class="scope-label">Vector</div>
+      <div class="basis-20 grow-0 shrink-0 w-20 rounded-[3px] overflow-hidden bg-black/30">
+        <div class="text-[9px] uppercase tracking-[0.08em] text-text-muted px-1 pt-[3px] pb-px">Vector</div>
         <editor-vectorscope [adjustment]="adj()" />
       </div>
     </div>

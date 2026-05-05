@@ -11,72 +11,36 @@ import { MapleIconComponent } from '../icons/maple-icon.component';
   styles: [
     `
       :host {
-        display: block;
-        border-bottom: 0.5px solid var(--maple-border);
-      }
-
-      .header {
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        padding: 9px 14px 9px 10px;
-        cursor: pointer;
-        user-select: none;
-      }
-      .header:hover {
-        background: var(--maple-bg-hover);
-      }
-
-      .chevron {
-        width: 12px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        transition: transform 140ms ease;
-        color: var(--maple-text-muted);
-      }
-      .chevron.open {
-        transform: rotate(90deg);
-      }
-
-      .section-label {
-        flex: 1;
-        font-family: var(--maple-font);
-        font-size: 10px;
-        font-weight: 600;
-        color: var(--maple-text-muted);
-        letter-spacing: 0.08em;
-        text-transform: uppercase;
-      }
-
-      .body {
-      }
-      .body.pad {
-        padding: 2px 0 10px;
+        border-bottom: 0.5px solid var(--color-border);
       }
     `,
   ],
+  host: { class: 'block' },
   template: `
-    <div class="header" (click)="toggle()">
-      <div class="chevron" [class.open]="open()">
+    <div
+      class="flex items-center gap-1.5 pl-2.5 pr-3.5 py-[9px] cursor-pointer select-none hover:bg-bg-hover"
+      (click)="toggle()"
+    >
+      <div
+        class="w-3 flex items-center justify-center text-text-muted transition-transform duration-150 ease-default"
+        [class.rotate-90]="open()"
+      >
         <maple-icon
           name="chevron-right"
           [size]="10"
-          color="var(--maple-text-muted)"
+          color="var(--color-text-muted)"
           [strokeWidth]="2"
         />
       </div>
-      <span class="section-label">{{ label() }}</span>
+      <span class="flex-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-muted">{{ label() }}</span>
       @if (rightLabel()) {
-        <span
-          style="font-family:var(--maple-font-mono);font-size:10px;color:var(--maple-text-muted)"
-        >
+        <span class="font-mono text-[10px] text-text-muted">
           {{ rightLabel() }}
         </span>
       }
     </div>
     @if (open()) {
-      <div class="body" [class.pad]="padInner()">
+      <div [class.pt-0.5]="padInner()" [class.pb-2.5]="padInner()">
         <ng-content />
       </div>
     }

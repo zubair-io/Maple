@@ -4,14 +4,14 @@
 # server and the pre-built Angular UI bundle.
 #
 # Build:
-#   docker build -f src/api/Dockerfile -t maple-self-hosted .
+#   docker build -f src/api/Dockerfile -t maple .
 #
 # Run (MongoDB must be accessible at MAPLE_MONGO_URI):
 #   docker run -p 3000:3000 \
 #     -e MAPLE_MONGO_URI=mongodb://host.docker.internal:27017 \
 #     -v /path/to/photos:/photos \
 #     -e MAPLE_ROOTS=/photos \
-#     maple-self-hosted
+#     maple
 
 # ---------------------------------------------------------------------------
 # Stage 1: build the Angular UI (skip if dist/ is already committed)
@@ -78,7 +78,7 @@ COPY --from=rust-builder /libraw_ffi.so native/
 
 ENV PORT=3000
 ENV MAPLE_MONGO_URI=mongodb://localhost:27017
-ENV MAPLE_MONGO_DB=maple_self_hosted
+ENV MAPLE_MONGO_DB=maple
 # Point the server at the bundled UI
 ENV MAPLE_UI_DIST=/app/ui
 

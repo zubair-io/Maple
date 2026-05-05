@@ -22,6 +22,11 @@ export interface Asset {
   // Justified-grid layout hint.
   aspectRatio: number; // width/height (e.g. 1.5 for 3:2 landscape)
 
+  // Absolute filesystem path (Self-Hosted "browse by walking the filesystem"
+  // path only — undefined for Hosted/imported assets). Used as the cache key
+  // for /api/fs/thumb fetches and to identify the file on disk for byte loads.
+  absPath?: string;
+
   // Metadata (for Info tab).
   width?: number;
   height?: number;
@@ -33,6 +38,10 @@ export interface Asset {
   iso?: number;
   capturedAt?: string; // ISO string / readable date
   edited?: boolean;
+  /** File size in bytes (from server stat or FS Access API). */
+  size?: number;
+  /** Last-modified time (ISO 8601 string). */
+  mtime?: string;
 
   // IPTC
   title?: string;

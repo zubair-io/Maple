@@ -7,63 +7,16 @@ import { FormsModule } from '@angular/forms';
   selector: 'editor-slider',
   standalone: true,
   imports: [FormsModule],
-  styles: [
-    `
-      :host {
-        display: block;
-      }
-
-      .slider-row {
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        padding: 3px 14px;
-        min-height: 26px;
-      }
-
-      label {
-        flex: 0 0 80px;
-        font-family: var(--maple-font);
-        font-size: 11px;
-        color: var(--maple-text-muted);
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-      }
-
-      input[type='number'] {
-        width: 42px;
-        height: 20px;
-        background: var(--maple-input-bg);
-        border: 0.5px solid var(--maple-border);
-        border-radius: 3px;
-        padding: 0 4px;
-        font-family: var(--maple-font-mono);
-        font-size: 10px;
-        color: var(--maple-text-main);
-        text-align: right;
-        outline: none;
-        box-sizing: border-box;
-        flex-shrink: 0;
-      }
-      input[type='number']:focus {
-        border-color: var(--maple-primary);
-      }
-
-      input[type='range'] {
-        flex: 1;
-        min-width: 0;
-        accent-color: var(--maple-primary);
-        cursor: pointer;
-        height: 16px;
-      }
-    `,
-  ],
+  host: { class: 'block' },
   template: `
-    <div class="slider-row">
-      <label [title]="label()">{{ label() }}</label>
+    <div class="flex items-center gap-1.5 px-3.5 py-[3px] min-h-[26px]">
+      <label
+        class="grow-0 shrink-0 basis-20 text-[11px] text-text-muted whitespace-nowrap overflow-hidden text-ellipsis"
+        [title]="label()"
+      >{{ label() }}</label>
       <input
         type="range"
+        class="flex-1 min-w-0 accent-primary cursor-pointer h-4"
         [ngModel]="value()"
         (ngModelChange)="onChange($event)"
         [min]="min()"
@@ -72,6 +25,7 @@ import { FormsModule } from '@angular/forms';
       />
       <input
         type="number"
+        class="w-[42px] h-5 bg-input-bg border-[0.5px] border-border rounded-[3px] px-1 font-mono text-[10px] text-text-main text-right outline-none box-border shrink-0 focus:border-primary"
         [ngModel]="value()"
         (ngModelChange)="onChange($event)"
         [min]="min()"

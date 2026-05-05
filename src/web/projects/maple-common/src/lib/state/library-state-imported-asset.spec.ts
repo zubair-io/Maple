@@ -71,7 +71,7 @@ describe('LibraryStateService.addImportedAsset', () => {
 
 describe('isSupportedRaw', () => {
   it('accepts every extension listed in the landing-page accept attribute', () => {
-    // Keep this list in sync with projects/maple-hosted/src/app/landing/landing.component.html
+    // Keep this list in sync with projects/maple-syrup/src/app/landing/landing.component.html
     // and with SUPPORTED_RAW_EXTENSIONS in library-state.service.ts.
     const accepted = ['cr3', 'nef', 'arw', 'dng', 'cr2', 'raf', 'orf', 'rw2', 'pef', 'srw', '3fr', 'fff', 'dcr', 'mos', 'iiq', 'mrw', 'raw'];
     for (const ext of accepted) {

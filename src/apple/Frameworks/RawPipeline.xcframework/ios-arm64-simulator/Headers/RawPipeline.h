@@ -17,6 +17,24 @@ typedef struct MapleImageBuffer {
 } MapleImageBuffer;
 
 /**
+ * Opaque heap-allocated byte buffer — used for FFI returns that hand the
+ * caller a length-tagged blob (e.g. an encoded JPEG). Free via
+ * `maple_free_byte_buffer`.
+ *
+ * Layout (16 bytes on 64-bit):
+ *   bytes:    *mut u8  (8B)
+ *   len:      usize    (8B)
+ *
+ * Free reconstructs a `Box<[u8]>` from `bytes` + `len` (matches the
+ * existing `MapleImageBuffer` free dance), so the underlying allocation
+ * must be a `Box<[u8]>`-shaped slice (i.e. `len == capacity`).
+ */
+typedef struct MapleByteBuffer {
+  uint8_t *bytes;
+  uintptr_t len;
+} MapleByteBuffer;
+
+/**
  * Scene-linear FFI buffer — Rec.2020 fp16 RGBA, straight alpha, row-major.
  *
  * `bytes_per_pixel` is always 8 (4 channels × 2 bytes per fp16 lane). It
@@ -137,6 +155,40 @@ int32_t maple_render_bytes(const uint8_t *raw_bytes,
  * Free a buffer populated by `maple_render_file` or `maple_render_bytes`.
  */
 void maple_free_buffer(struct MapleImageBuffer *buffer);
+
+/**
+ * Extract an embedded JPEG preview / thumbnail from `raw_path`, downsample
+ * to `max_px` on the long edge if necessary, then JPEG-encode the result.
+ *
+ * Avoids the full decode → pipeline → downsample chain entirely:
+ * every modern RAW container (DNG, CR3, ARW, NEF, RAF, ORF, RW2, …) embeds
+ * a multi-MP JPEG preview that's exactly what we want for a grid tile.
+ * Reading that takes a few MB and milliseconds; running the pipeline takes
+ * gigabytes and seconds, and on Bun 1.3.12 the `with_large_stack` worker-
+ * thread cleanup races against `bun:ffi` and segfaults on subsequent calls
+ * after async I/O. This path stays on the calling thread end-to-end and
+ * uses bounded memory (preview JPEG → decoded RGB → resized RGB → re-encoded
+ * JPEG; ~tens of MB peak on a 100MP DNG).
+ *
+ * Strategy: try `preview_image` first (largest embedded), fall back to
+ * `thumbnail_image` (smaller embedded). If neither exists, return an error
+ * — the caller may decide to fall through to a full pipeline render.
+ *
+ * Returns 0 on success; sets `out` to a `MapleByteBuffer` the caller must
+ * free via `maple_free_byte_buffer`. Non-zero on error.
+ *
+ * `quality` is JPEG quality in [1, 100]. Spec-pinned default is 82; pass 0
+ * to use the default.
+ */
+int32_t maple_render_thumbnail_jpeg(const char *raw_path,
+                                    uint32_t max_px,
+                                    uint8_t quality,
+                                    struct MapleByteBuffer *out);
+
+/**
+ * Free a buffer populated by `maple_render_thumbnail_jpeg`.
+ */
+void maple_free_byte_buffer(struct MapleByteBuffer *buffer);
 
 /**
  * Render a RAW+XMP to a scene-linear Rec.2020 fp16 RGBA buffer. Returns

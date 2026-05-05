@@ -2,8 +2,8 @@
 // Ported from _design-reference/app.jsx (WindowChrome + App layout).
 // P7: window.location.href navigation replaced by Router.
 
-import { ChangeDetectionStrategy, Component, HostListener, inject, signal } from '@angular/core';
-import { Router } from '@angular/router';
+import { ChangeDetectionStrategy, Component, HostListener, OnInit, inject, signal } from '@angular/core';
+import { Router, RouterLink } from '@angular/router';
 import { LibraryStateService } from '../../state/library-state.service';
 import { FolderTreeComponent } from '../../components/folder-tree/folder-tree.component';
 import { AssetGridComponent } from '../../components/asset-grid/asset-grid.component';
@@ -14,12 +14,12 @@ import { ErrorBannerComponent } from '../../components/error-banner/error-banner
 import { MapleIconComponent } from '../../icons/maple-icon.component';
 import { LibraryPickerComponent } from '../../components/library-picker/library-picker.component';
 import { LibraryPickerModalComponent } from '../../components/library-picker-modal/library-picker-modal.component';
-import { IndexerAdminComponent } from '../../components/indexer-admin/indexer-admin.component';
 
 @Component({
   selector: 'browse-shell',
   standalone: true,
   imports: [
+    RouterLink,
     FolderTreeComponent,
     AssetGridComponent,
     BrowseDetailPanelComponent,
@@ -29,18 +29,40 @@ import { IndexerAdminComponent } from '../../components/indexer-admin/indexer-ad
     MapleIconComponent,
     LibraryPickerComponent,
     LibraryPickerModalComponent,
-    IndexerAdminComponent,
   ],
   templateUrl: './browse-shell.component.html',
   styleUrl: './browse-shell.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class BrowseShellComponent {
+export class BrowseShellComponent implements OnInit {
   state = inject(LibraryStateService);
   private router = inject(Router);
 
+  ngOnInit(): void {
+    // Self-Hosted: kick off folder enumeration once the browse page mounts.
+    // Lives here (not on the root App component) so it runs AFTER the
+    // authGuard passes — otherwise the unauthenticated request races the
+    // sign-in redirect and returns 401.
+    this.state.loadFolderTree();
+  }
+
   onRetryLoad(): void {
     this.state.loadFolderTree();
+  }
+
+  // ── Toolbar search input ──────────────────────────────────────────────────
+  onSearchInput(e: Event): void {
+    const v = (e.target as HTMLInputElement).value;
+    this.state.searchQuery.set(v);
+  }
+
+  /** Enter on the search input — push the query to the structured /search
+   * page so the user can filter across the whole index, not just this folder. */
+  onSearchEnter(): void {
+    const q = this.state.searchQuery().trim();
+    void this.router.navigate(['/search'], {
+      queryParams: q.length > 0 ? { q } : {},
+    });
   }
 
   // ── Page unload — flush pending XMP writes ───────────────────────────────

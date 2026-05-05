@@ -1,19 +1,19 @@
-<div class="page">
+<div class="font-mono p-4 text-[#eee] bg-[#111] min-h-screen">
   <h1>Plan 3 M2.1 — WebGL2 dev-chain test page</h1>
   @if (errorBanner()) {
-    <div class="error-banner">{{ errorBanner() }}</div>
+    <div class="bg-[#401818] text-[#fbb] p-2 border border-[#c44] mb-4 rounded">{{ errorBanner() }}</div>
   }
-  <div class="panes">
-    <div class="pane">
+  <div class="flex gap-4">
+    <div class="flex-1">
       <h2>WebGL2 candidate</h2>
-      <canvas #canvas width="16" height="16" class="image"></canvas>
+      <canvas #canvas width="16" height="16" class="image block w-64 h-64 border border-[#555] bg-[#222]"></canvas>
     </div>
-    <div class="pane">
+    <div class="flex-1">
       <h2>Apple reference</h2>
-      <img [src]="referenceUrl" alt="Apple-rendered reference" class="image" />
+      <img [src]="referenceUrl" alt="Apple-rendered reference" class="image block w-64 h-64 border border-[#555] bg-[#222]" />
     </div>
   </div>
-  <div class="metrics">
+  <div class="mt-4 [&>div]:leading-[1.6]">
     <div>status: <strong>{{ status() }}</strong></div>
     <div>mean ΔE₀₀: {{ meanDeltaE() === null ? 'n/a' : (meanDeltaE() ?? 0).toFixed(3) }}</div>
     <div>P95 ΔE₀₀:  {{ p95DeltaE()  === null ? 'n/a' : (p95DeltaE()  ?? 0).toFixed(3) }}</div>

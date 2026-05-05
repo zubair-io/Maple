@@ -1,11 +1,25 @@
-<div class="error-banner" role="alert">
-  <span class="msg">{{ message() }}</span>
+<div
+  class="flex items-center gap-3 px-3 py-2 text-xs text-text-main bg-[rgba(220,80,80,0.12)] border-b border-[rgba(220,80,80,0.35)]"
+  role="alert"
+>
+  <span class="flex-1 whitespace-nowrap overflow-hidden text-ellipsis">{{ message() }}</span>
   @if (hintHref() && hintLabel()) {
-    <a class="hint" [href]="hintHref()" target="_blank" rel="noopener noreferrer">
+    <a
+      class="text-[#7aa6ff] no-underline hover:underline"
+      [href]="hintHref()"
+      target="_blank"
+      rel="noopener noreferrer"
+    >
       {{ hintLabel() }}
     </a>
   }
   @if (showRetry()) {
-    <button type="button" class="retry" (click)="onRetry()">{{ retryLabel() }}</button>
+    <button
+      type="button"
+      class="appearance-none border border-border bg-transparent text-text-main text-[11px] px-2.5 py-[3px] rounded cursor-pointer hover:bg-white/[0.06]"
+      (click)="onRetry()"
+    >
+      {{ retryLabel() }}
+    </button>
   }
 </div>

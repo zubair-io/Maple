@@ -23,15 +23,9 @@ import type { DecodedImage } from '../../raw-pipeline/raw-pipeline.types';
     #canvas
     width="200"
     height="80"
-    style="display:block;width:100%;height:80px"
+    class="block w-full h-20"
   ></canvas>`,
-  styles: [
-    `
-      :host {
-        display: block;
-      }
-    `,
-  ],
+  host: { class: 'block' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class WaveformComponent implements AfterViewInit, OnDestroy {

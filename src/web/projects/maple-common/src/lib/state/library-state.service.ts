@@ -7,7 +7,7 @@ import { Injectable, computed, effect, inject, signal } from '@angular/core';
 import { HttpErrorResponse } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 import { Asset, AssetId, Flag, ColorLabel } from '../models/asset';
-import { SidebarEntry } from '../models/folder';
+import { SidebarEntry, GridFolderItem } from '../models/folder';
 import {
   AdjustmentModel,
   defaultAdjustmentModel,
@@ -15,8 +15,16 @@ import {
 } from '../models/adjustment-model';
 import { LIBRARY_BACKEND } from '../api/library-backend.token';
 import { BunApiBackendService, ApiAsset, ApiFolder } from '../api/bun-api-backend.service';
+import {
+  FilesystemBrowseService,
+  FsDirListing,
+  FsImageEntry,
+  FsImageExif,
+} from '../api/filesystem-browse.service';
 import { FolderAccessService } from '../folder-access/folder-access.service';
 import { MapleCacheService } from '../maple-cache/maple-cache.service';
+import { RawPipelineService } from '../raw-pipeline/raw-pipeline.service';
+import { imageDataToBitmap, resizeBitmapToCanvas, canvasToBlob } from '../raw-pipeline/image-utils';
 import { XmpParserService } from '../xmp/xmp-parser.service';
 import { XmpStoreService } from '../xmp/xmp-store.service';
 import { XmpSerializerService } from '../xmp/xmp-serializer.service';
@@ -49,6 +57,30 @@ export const SUPPORTED_RAW_EXTENSIONS = new Set([
 export function isSupportedRaw(filename: string): boolean {
   const ext = filename.split('.').pop()?.toLowerCase() ?? '';
   return SUPPORTED_RAW_EXTENSIONS.has(ext);
+}
+
+/**
+ * Format the indexer's EXIF subdocument into the human-readable strings the
+ * Asset model + Info-tab template expect (`f/2.8`, `50mm`, `Hasselblad
+ * L3D-100c`, etc). Returns a partial Asset slice — fields stay undefined
+ * when EXIF is missing or the corresponding sub-field is null.
+ */
+export function exifToAssetMetadata(exif: FsImageExif | null | undefined): Partial<Asset> {
+  if (!exif) return {};
+  const camera = [exif.camera_make, exif.camera_model]
+    .filter((s): s is string => !!s && s.length > 0)
+    .join(' ')
+    .trim();
+  return {
+    camera: camera.length > 0 ? camera : undefined,
+    lens: exif.lens ?? undefined,
+    focalLength: exif.focal_length != null ? `${exif.focal_length}mm` : undefined,
+    aperture: exif.aperture != null ? `f/${exif.aperture}` : undefined,
+    shutter: exif.shutter ?? undefined,
+    iso: exif.iso ?? undefined,
+    capturedAt: exif.captured_at ?? undefined,
+    gps: exif.gps ? { lat: exif.gps.lat, lon: exif.gps.lng } : undefined,
+  };
 }
 
 // ── LRU cache ─────────────────────────────────────────────────────────────────
@@ -112,10 +144,12 @@ class LruCache {
 export class LibraryStateService {
   private fs = inject(FolderAccessService);
   private cache = inject(MapleCacheService);
+  private pipeline = inject(RawPipelineService);
   private xmpParser = inject(XmpParserService);
   private xmpStore = inject(XmpStoreService);
   private xmpSerializer = inject(XmpSerializerService);
   private api = inject(BunApiBackendService);
+  private fsBrowse = inject(FilesystemBrowseService);
 
   /** Which backend is in use. Consumers read this to branch data-source paths. */
   readonly backend = inject(LIBRARY_BACKEND);
@@ -156,8 +190,16 @@ export class LibraryStateService {
    */
   private _apiAssetIds = new Map<AssetId, string>();
 
+  /**
+   * Map from AssetId to the absolute filesystem path (Self-Hosted FS-walk
+   * path). Lets callers translate a grid-side id back to the on-disk path
+   * for thumb loads, byte reads, etc.
+   */
+  private _assetAbsPaths = new Map<AssetId, string>();
+
   // ── Library data ───────────────────────────────────────────────────────────
   readonly assets = signal<Asset[]>([]);
+  readonly gridFolders = signal<GridFolderItem[]>([]);
   readonly sidebarTree = signal<SidebarEntry[]>([]);
 
   // ── Current folder handle ─────────────────────────────────────────────────
@@ -208,6 +250,12 @@ export class LibraryStateService {
   readonly filter = signal<'all' | 'picks' | '4stars'>(
     this._loadOrDefault('cm.filter', 'all') as 'all' | 'picks' | '4stars',
   );
+
+  // ── In-grid search query (filename substring filter) ──────────────────────
+  // Driven by the toolbar search input in `BrowseShell`. Empty string = no
+  // filter; the asset grid binds to `assetsInSelectedFolder()` which already
+  // applies this when set. Structured search lives on the `/search` route.
+  readonly searchQuery = signal<string>('');
 
   // ── Panel visibility (persisted) ──────────────────────────────────────────
   readonly sidebarVisible = signal<boolean>(this._loadOrDefault('cm.leftHidden', false) === false);
@@ -300,7 +348,16 @@ export class LibraryStateService {
     const legacy = this._legacyBytes.get(id);
     if (legacy) return legacy;
 
-    // Self-Hosted: fetch bytes from the Bun API.
+    // Self-Hosted FS-walk path: asset id is `fs:<absPath>` and the bytes
+    // come from `/api/fs/raw?path=<abs>`. Checked BEFORE the Mongo-asset
+    // path because FS-walk assets aren't in `_apiAssetIds`.
+    const fsAbsPath = this._assetAbsPaths.get(id);
+    if (fsAbsPath) {
+      const buf = await this.fsBrowse.getRawBytes(fsAbsPath);
+      return new Uint8Array(buf);
+    }
+
+    // Self-Hosted: fetch bytes from the Bun API by Mongo asset id.
     if (this.backend === 'self-hosted') {
       const apiId = this._apiAssetIds.get(id);
       if (!apiId) throw new Error(`bytesForAsset: no api id for asset ${id}`);
@@ -455,11 +512,11 @@ export class LibraryStateService {
         this._applyFolderTree(folders);
         if (folders.length === 0) {
           this.backendEmpty.set(true);
-          this.backendLoading.set(false);
-          return;
         }
-        // Auto-open the first folder — the user picks a different one from the tree.
-        this.openSelfHostedFolder(folders[0]);
+        this.backendLoading.set(false);
+        // Don't auto-open the first folder — that fires /api/folders/{id}/assets
+        // before the user has expressed intent and before the indexer may have
+        // scanned anything. The user picks a folder from the tree.
       },
       error: (err: HttpErrorResponse) => {
         this.backendLoading.set(false);
@@ -496,59 +553,315 @@ export class LibraryStateService {
   }
 
   /**
-   * Self-Hosted: fetch the assets for `folder`, populate the grid, and select
-   * the first asset. Called from `loadFolderTree` (auto-open) and from the
-   * folder-tree sidebar when the user picks another folder.
+   * Self-Hosted: open a registered library by walking its filesystem.
+   *
+   * Replaces the old DB-asset path (`/api/folders/{id}/assets`) with one that
+   * calls `/api/fs/dir?path=<abs>` against the library's root absolute path.
+   * Sub-dirs land in the sidebar tree as lazy-expandable children; RAW images
+   * land in the grid as Asset records keyed on their on-disk path.
    */
   openSelfHostedFolder(folder: ApiFolder): void {
     if (this.backend !== 'self-hosted') return;
 
-    const folderId = `f-${folder.id}`;
+    const sourceId = `fs:${folder.path}`;
+    this.openSelfHostedSubfolder(folder.path, sourceId);
+  }
+
+  /**
+   * Self-Hosted: open an arbitrary directory inside a registered library by
+   * walking the filesystem. `absPath` is the resolved on-disk path. Used by
+   * the folder-tree sidebar when the user clicks into a sub-folder of a
+   * library that's already been listed via `openSelfHostedFolder`.
+   *
+   * `sourceId` is the SidebarEntry id of the node this directory's contents
+   * should attach to. When it's a registered-library root we use
+   * `fs:<absPath>` (matching `_ensureFsFolder`); for a sub-folder we use the
+   * id assigned by `_attachFsChildren`.
+   */
+  openSelfHostedSubfolder(
+    absPath: string,
+    sourceId?: string,
+    selectAssetId?: AssetId,
+  ): void {
+    if (this.backend !== 'self-hosted') return;
+
+    const id = sourceId ?? this._sourceIdForFsPath(absPath) ?? `fs:${absPath}`;
+    // Set the selection synchronously so the file-list breadcrumb + grid
+    // empty-state reflect the click immediately, before the HTTP response.
+    this.selectedSourceId.set(id);
     this.backendLoading.set(true);
     this.backendError.set(null);
+    this.backendEmpty.set(false);
 
-    this.api.listAssets(folder.id).subscribe({
-      next: (page) => {
-        this._applyApiAssets(folderId, page.assets);
-        this.selectedSourceId.set(folderId);
-        const first = page.assets[0];
-        if (first) {
-          const local = this._localIdForApiAsset(first.id);
-          if (local) this.selectAsset(local);
+    this.fsBrowse.listDir(absPath).subscribe({
+      next: (listing) => {
+        this._applyFsListing(id, absPath, listing);
+        // If a caller passed `selectAssetId` (e.g. EditorShell cold-loading
+        // a deep-linked asset), honour it. Otherwise select the first image
+        // so the detail panel has something to render.
+        if (selectAssetId) {
+          const target = this.assets().find((a) => a.id === selectAssetId);
+          if (target) this.selectAsset(target.id);
+        } else {
+          const firstAsset = this.assets().find((a) => a.folderId === id);
+          if (firstAsset) this.selectAsset(firstAsset.id);
         }
         this.backendLoading.set(false);
+        if (listing.dirs.length === 0 && listing.images.length === 0) {
+          // Empty folder — clear any leftover error banner; the grid will
+          // show its own "Folder is empty" state.
+          this.backendEmpty.set(false);
+        }
       },
       error: (err: HttpErrorResponse) => {
         this.backendLoading.set(false);
+        const detail = err?.error?.error ?? err?.message ?? 'Unknown error';
         this.backendError.set(
           err.status >= 500
             ? `Server error (${err.status}) loading folder.`
-            : `Failed to load folder: ${err.message}`,
+            : `Failed to load folder: ${detail}`,
         );
       },
     });
   }
 
+  /** Look up the SidebarEntry id whose absPath equals `absPath`. */
+  private _sourceIdForFsPath(absPath: string): string | null {
+    const walk = (entries: SidebarEntry[]): string | null => {
+      for (const e of entries) {
+        if (e.absPath === absPath) return e.id;
+        if (e.children) {
+          const hit = walk(e.children);
+          if (hit) return hit;
+        }
+      }
+      return null;
+    };
+    return walk(this.sidebarTree());
+  }
+
+  /**
+   * Apply a `/api/fs/dir` listing to state:
+   *  - Drop the current `_assetAbsPaths` entries for the source.
+   *  - Build new `Asset` records from `listing.images` and key them on path.
+   *  - Replace the source's assets in the grid.
+   *  - Build new `GridFolderItem` records from `listing.dirs` and replace the
+   *    source's folder tiles in the grid.
+   *  - Push `listing.dirs` into the sidebar tree as children of the matching
+   *    node so the lazy-expand chevron has something to reveal.
+   */
+  private _applyFsListing(sourceId: string, absPath: string, listing: FsDirListing): void {
+    // Forget previous assets for this source (path-based ids may collide
+    // across re-opens after a rename — purge by folderId).
+    const stale = this.assets()
+      .filter((a) => a.folderId === sourceId)
+      .map((a) => a.id);
+    for (const id of stale) this._assetAbsPaths.delete(id);
+
+    const newAssets: Asset[] = listing.images.map((img: FsImageEntry) => {
+      const id: AssetId = `fs:${img.path}`;
+      this._assetAbsPaths.set(id, img.path);
+      const meta = exifToAssetMetadata(img.exif);
+      return {
+        id,
+        filename: img.name,
+        folderId: sourceId,
+        rating: 0,
+        flag: 'unflagged',
+        colorLabel: null,
+        thumbnailGradient: '',
+        aspectRatio: 3 / 2,
+        absPath: img.path,
+        size: img.size,
+        mtime: img.mtime,
+        ...meta,
+      };
+    });
+
+    this.assets.update((list) => {
+      const others = list.filter((a) => a.folderId !== sourceId);
+      return [...others, ...newAssets];
+    });
+
+    const newFolders: GridFolderItem[] = listing.dirs.map((d) => ({
+      id: `fs:${d.path}`,
+      name: d.name,
+      absPath: d.path,
+      parentSourceId: sourceId,
+      aspectRatio: 3 / 2,
+    }));
+
+    this.gridFolders.update((list) => {
+      const others = list.filter((f) => f.parentSourceId !== sourceId);
+      return [...others, ...newFolders];
+    });
+
+    this._attachFsChildren(sourceId, absPath, listing.dirs);
+  }
+
+  /**
+   * Replace the children of the sidebar node identified by `sourceId` (a
+   * registered library root or a previously-loaded subfolder) with folder
+   * entries derived from `dirs`. Marks the node as `loaded` so the chevron
+   * doesn't trigger another fetch.
+   */
+  private _attachFsChildren(
+    sourceId: string,
+    _absPath: string,
+    dirs: { name: string; path: string; mtime: string }[],
+  ): void {
+    this.sidebarTree.update((tree) => this._patchTree(tree, sourceId, (n) => ({
+      ...n,
+      childrenStatus: 'loaded' as const,
+      childrenError: undefined,
+      children: dirs.map((d) => ({
+        kind: 'folder' as const,
+        id: `fs:${d.path}`,
+        label: d.name,
+        count: null,
+        absPath: d.path,
+        // childrenStatus left undefined — fetched on first chevron expand.
+      })),
+    })));
+  }
+
+  /**
+   * Walk the sidebar tree, applying `patcher` to the entry whose id matches
+   * `targetId`. Returns a new tree (immutable update so the signal fires).
+   */
+  private _patchTree(
+    tree: SidebarEntry[],
+    targetId: string,
+    patcher: (entry: SidebarEntry) => SidebarEntry,
+  ): SidebarEntry[] {
+    return tree.map((entry) => {
+      if (entry.id === targetId) return patcher(entry);
+      if (entry.children) {
+        const patched = this._patchTree(entry.children, targetId, patcher);
+        if (patched !== entry.children) {
+          return { ...entry, children: patched };
+        }
+      }
+      return entry;
+    });
+  }
+
+  /**
+   * Lazy-expand: load the children of a sub-folder node by absolute path.
+   * Used by the folder-tree chevron click. No-ops if the node is already
+   * loaded or in flight; flips status to `error` on failure with retry.
+   */
+  expandFsFolder(node: SidebarEntry): void {
+    if (!node.absPath) return;
+    if (node.childrenStatus === 'loading' || node.childrenStatus === 'loaded') return;
+
+    // Mark in-flight so the chevron shows a spinner instead of refetching.
+    this.sidebarTree.update((tree) =>
+      this._patchTree(tree, node.id, (n) => ({ ...n, childrenStatus: 'loading' })),
+    );
+
+    this.fsBrowse.listDir(node.absPath).subscribe({
+      next: (listing) => this._attachFsChildren(node.id, node.absPath!, listing.dirs),
+      error: (err: HttpErrorResponse) => {
+        const detail = err?.error?.error ?? err?.message ?? 'Unknown error';
+        this.sidebarTree.update((tree) =>
+          this._patchTree(tree, node.id, (n) => ({
+            ...n,
+            childrenStatus: 'error' as const,
+            childrenError: detail,
+          })),
+        );
+      },
+    });
+  }
+
+  /** Returns the on-disk path for a Self-Hosted FS-walk asset, if any. */
+  absPathFor(assetId: AssetId): string | undefined {
+    return this._assetAbsPaths.get(assetId);
+  }
+
+  /**
+   * Cold-load hydration for `/edit/fs:<absPath>` deep-links on Self-Hosted.
+   *
+   * Synthesizes a single placeholder Asset entry from the id so the editor
+   * can mount immediately and start fetching bytes via `/api/fs/raw`
+   * (resolved through `_assetAbsPaths`). The caller should follow up with
+   * `openSelfHostedSubfolder(parentDir, sourceId, id)` to populate the
+   * filmstrip with siblings and switch the source selection — the
+   * `selectAssetId` parameter on that method preserves our deep-linked
+   * choice instead of auto-selecting the first asset in the listing.
+   *
+   * Returns the synthesized asset, or null if `id` doesn't parse or the
+   * backend isn't self-hosted (cold-load on Hosted falls back to
+   * `getPersistedFile` via the FS Access API cache).
+   */
+  hydrateSelfHostedFsAsset(id: AssetId): Asset | null {
+    if (this.backend !== 'self-hosted') return null;
+    if (!id.startsWith('fs:')) return null;
+    const absPath = id.slice(3);
+    if (!absPath) return null;
+    const lastSlash = absPath.lastIndexOf('/');
+    if (lastSlash < 0) return null;
+    const filename = absPath.slice(lastSlash + 1) || absPath;
+    const parentDir = absPath.slice(0, lastSlash) || '/';
+    const folderId = `fs:${parentDir}`;
+
+    this._assetAbsPaths.set(id, absPath);
+
+    const asset: Asset = {
+      id,
+      filename,
+      folderId,
+      rating: 0,
+      flag: 'unflagged',
+      colorLabel: null,
+      thumbnailGradient: '',
+      aspectRatio: 3 / 2,
+      absPath,
+    };
+
+    this.assets.update((list) => {
+      if (list.some((a) => a.id === id)) return list;
+      return [...list, asset];
+    });
+
+    return asset;
+  }
+
   // ── Self-Hosted helpers ────────────────────────────────────────────────────
 
   private _applyFolderTree(folders: ApiFolder[]): void {
-    // Seed sidebar tree sections if empty.
-    this.sidebarTree.update((tree) =>
-      tree.length === 0
-        ? [
-            {
-              kind: 'section' as const,
-              id: 'folders',
-              label: 'Folders',
-              count: null,
-              children: [],
-            },
-          ]
-        : tree,
-    );
+    // Each registered library is a top-level entry in the sidebar tree —
+    // no wrapping `Folders` section. The page header ("Library" + ＋) is
+    // rendered by the folder-tree component and serves as the only label
+    // above the libraries themselves. The chevron on each library drives
+    // `expandFsFolder()` to reveal subfolders; row click opens the grid.
     for (const f of folders) {
-      this._ensureFolder(`f-${f.id}`, f.name);
+      const label = f.label || f.path.split('/').filter(Boolean).pop() || f.path;
+      this._ensureFsFolder(`fs:${f.path}`, label, f.path);
     }
+  }
+
+  private _ensureFsFolder(id: string, label: string, absPath: string): void {
+    this.sidebarTree.update((tree) => {
+      // Prune any stale "folders" section from older sessions / cache. New
+      // top-level entries replace it; the section becomes inert otherwise.
+      const pruned = tree.filter(
+        (node) => !(node.kind === 'section' && node.id === 'folders'),
+      );
+      if (pruned.some((c) => c.id === id)) return pruned;
+      return [
+        ...pruned,
+        {
+          kind: 'folder' as const,
+          id,
+          label,
+          count: null,
+          absPath,
+          // Children fetched lazily on chevron expand.
+        },
+      ];
+    });
   }
 
   private _applyApiAssets(folderId: string, apiAssets: ApiAsset[]): void {
@@ -700,6 +1013,94 @@ export class LibraryStateService {
     return this.thumbnailUrls().get(id);
   }
 
+  /** In-flight thumbnail loads (id → Promise) so concurrent callers from
+   * the grid + filmstrip share a single network request per asset. */
+  private _thumbLoadingIds = new Set<AssetId>();
+
+  /** Idempotently load the blob-URL thumbnail for one asset. Both
+   * `<asset-grid>` and `<editor-filmstrip>` call this on every visible row;
+   * it short-circuits when the URL is already cached or in flight, so
+   * callers can fire it on every change-detection pass without paying for
+   * extra network round-trips.
+   *
+   * Single source of truth for all thumbnail acquisition paths:
+   *   - **Self-Hosted FS-walk** (`asset.absPath`) → `/api/fs/thumb` via
+   *     `FilesystemBrowseService.getThumbBlobUrl`. Server-rendered, fast.
+   *   - **Self-Hosted Mongo asset** (`_apiAssetIds` map populated for legacy
+   *     callers that came in via `/api/folders/{id}/assets`) → `api.getThumb`.
+   *   - **Hosted with FS Access folder** → read `.maple/thumbs/<sha>.jpg`
+   *     from disk. Falls back to client-side WASM decode + write-through.
+   *
+   * Errors are swallowed and logged — the gradient placeholder stays
+   * visible. The entry stays out of `thumbnailUrls`, so a future trigger
+   * can retry. */
+  ensureThumbnailUrl(asset: Asset): void {
+    if (!asset) return;
+    if (this.thumbnailUrls().has(asset.id)) return;
+    if (this._thumbLoadingIds.has(asset.id)) return;
+    this._thumbLoadingIds.add(asset.id);
+    void this._loadThumbInternal(asset).finally(() =>
+      this._thumbLoadingIds.delete(asset.id),
+    );
+  }
+
+  private async _loadThumbInternal(asset: Asset): Promise<void> {
+    try {
+      // 1. Self-Hosted FS-walk: server renders + caches the JPEG.
+      if (this.backend === 'self-hosted' && asset.absPath) {
+        const url = await this.fsBrowse.getThumbBlobUrl(asset.absPath, 512);
+        this.cacheThumbnailUrl(asset.id, url);
+        return;
+      }
+
+      // 2. Self-Hosted Mongo asset (older grid mounts that resolved an apiId).
+      if (this.backend === 'self-hosted') {
+        const apiId = this._apiAssetIds.get(asset.id);
+        if (!apiId) return;
+        const blob = await firstValueFrom(this.api.getThumb(apiId));
+        this.cacheThumbnailUrl(asset.id, URL.createObjectURL(blob));
+        return;
+      }
+
+      // 3. Hosted: try the .maple/thumbs/ on-disk cache first.
+      const folder = this.currentFolder();
+      if (folder) {
+        const sha = await sha256Prefix16(asset.filename);
+        const cached = await this.cache.readThumb(folder, sha);
+        if (cached) {
+          this.cacheThumbnailUrl(asset.id, URL.createObjectURL(cached));
+          return;
+        }
+      }
+
+      // 4. Hosted decode fallback: pull bytes, run them through the WASM
+      //    pipeline, encode to JPEG, store, and write through to the
+      //    .maple/ cache so future sessions hit branch 3 instead.
+      let bytes: Uint8Array;
+      try {
+        bytes = await this.bytesForAsset(asset.id);
+      } catch {
+        return; // mock asset / no source — gradient stays.
+      }
+      const ext = asset.filename.split('.').pop()?.toLowerCase() ?? '';
+      const decoded = await this.pipeline.decode(bytes, ext);
+      this.updateAssetDimensions(asset.id, decoded.width, decoded.height);
+      const bitmap = await imageDataToBitmap(decoded);
+      const canvas = await resizeBitmapToCanvas(bitmap, 512);
+      bitmap.close();
+      const blob = await canvasToBlob(canvas);
+      this.cacheThumbnailUrl(asset.id, URL.createObjectURL(blob));
+      if (folder?.write) {
+        const sha = await sha256Prefix16(asset.filename);
+        void this.cache
+          .writeThumb(folder, sha, blob)
+          .then(() => this.updateIndexThumb(asset.id, sha));
+      }
+    } catch (err) {
+      console.warn('[state] thumb load failed for', asset.filename, err);
+    }
+  }
+
   // ── Adjustment models ──────────────────────────────────────────────────────
 
   adjustmentFor(id: AssetId) {
@@ -735,11 +1136,33 @@ export class LibraryStateService {
     if (f === 'picks') list = list.filter((a) => a.flag === 'pick');
     if (f === '4stars') list = list.filter((a) => a.rating >= 4);
 
+    // Filename substring filter from the toolbar search input.
+    // Pragmatic scope: filename only — structured search lives on /search.
+    const q = this.searchQuery().trim().toLowerCase();
+    if (q.length > 0) {
+      list = list.filter((a) => a.filename.toLowerCase().includes(q));
+    }
+
     if (this.sort() === 'name') {
       list = [...list].sort((a, b) => a.filename.localeCompare(b.filename));
     }
 
     return list;
+  });
+
+  readonly foldersInSelectedFolder = computed(() => {
+    const sid = this.selectedSourceId();
+    let list = this.gridFolders().filter((f) => f.parentSourceId === sid);
+
+    // Folder navigation ignores rating/flag filters (those are image-only
+    // concepts) but honours the toolbar search filter on folder name so the
+    // search input filters both kinds consistently.
+    const q = this.searchQuery().trim().toLowerCase();
+    if (q.length > 0) {
+      list = list.filter((f) => f.name.toLowerCase().includes(q));
+    }
+
+    return [...list].sort((a, b) => a.name.localeCompare(b.name));
   });
 
   readonly focusedAsset = computed(() => {
