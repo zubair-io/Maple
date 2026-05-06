@@ -167,6 +167,16 @@ export class TimelineViewComponent implements AfterViewInit, OnDestroy {
   // ── Resize observer ──────────────────────────────────────────────────────
   private ro?: ResizeObserver;
 
+  // ── Per-month fetch concurrency cap ─────────────────────────────────────
+  // Without a cap, every month inside the IntersectionObserver's rootMargin
+  // starts paginating the moment it scrolls into view. A library with 7
+  // visible months and one of them at 3000+ photos means dozens of /search
+  // requests racing each other and the API server gets hammered. Limit to
+  // 3 in flight; queue the rest in the order they were requested.
+  private static readonly MAX_CONCURRENT_MONTH_FETCHES = 3;
+  private _inflightMonthFetches = 0;
+  private _monthFetchQueue: Array<{ year: number; month: number }> = [];
+
   // ── Derived: year-grouped buckets ────────────────────────────────────────
   readonly years = computed<RenderedYear[]>(() => {
     const b = this.buckets();
@@ -187,7 +197,11 @@ export class TimelineViewComponent implements AfterViewInit, OnDestroy {
       count: y.count,
       months: y.months.map<RenderedMonth>((bucket) => {
         const data = monthData.get(monthKey(bucket.year, bucket.month)) ?? null;
-        const groups = data && data.loaded ? buildGroups(data) : [];
+        // Show partial groups as soon as the first page lands — don't wait
+        // for `data.loaded` to flip on the final page. Months with thousands
+        // of photos paginate over many round-trips; hiding everything until
+        // the last page completes is what made the UI look frozen.
+        const groups = data && data.groups.size > 0 ? buildGroups(data) : [];
         return { bucket, data, groups };
       }),
     }));
@@ -260,7 +274,7 @@ export class TimelineViewComponent implements AfterViewInit, OnDestroy {
             const data = this._monthData().get(key);
             if (!data || data.loaded || data.loading) continue;
             this._patchMonth(key, (d) => ({ ...d, loading: true }));
-            void this._fetchMonth(year, month);
+            this._enqueueMonthFetch(year, month);
           }
         },
         {
@@ -399,7 +413,23 @@ export class TimelineViewComponent implements AfterViewInit, OnDestroy {
   retryMonth(year: number, month: number): void {
     const key = monthKey(year, month);
     this._patchMonth(key, (d) => ({ ...d, loaded: false, loading: true, error: null }));
-    void this._fetchMonth(year, month);
+    this._enqueueMonthFetch(year, month);
+  }
+
+  /** Submit a month for fetching, respecting MAX_CONCURRENT_MONTH_FETCHES.
+   * If the cap is hit the request waits in FIFO order; the next slot frees
+   * when an in-flight `_fetchMonth` resolves. */
+  private _enqueueMonthFetch(year: number, month: number): void {
+    if (this._inflightMonthFetches >= TimelineViewComponent.MAX_CONCURRENT_MONTH_FETCHES) {
+      this._monthFetchQueue.push({ year, month });
+      return;
+    }
+    this._inflightMonthFetches += 1;
+    void this._fetchMonth(year, month).finally(() => {
+      this._inflightMonthFetches -= 1;
+      const next = this._monthFetchQueue.shift();
+      if (next) this._enqueueMonthFetch(next.year, next.month);
+    });
   }
 
   private _bucketByFolder(results: SearchResult[], prefix: string): Map<string, PhotoVm[]> {

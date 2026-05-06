@@ -73,7 +73,7 @@
                       Retry
                     </button>
                   </div>
-                } @else if (!m.data || !m.data.loaded) {
+                } @else if (m.groups.length === 0) {
                   <div
                     class="flex h-[140px] items-center justify-center text-[11px] text-text-muted"
                   >
@@ -138,6 +138,13 @@
                           }
                         </div>
                       }
+                    </div>
+                  }
+                  @if (m.data?.loading) {
+                    <div
+                      class="flex h-6 items-center px-5 text-[10px] uppercase tracking-[0.05em] text-text-muted"
+                    >
+                      Loading more…
                     </div>
                   }
                 }
