@@ -111,6 +111,13 @@ export async function verifyAuthentication(args: {
     expectedChallenge: args.expectedChallenge,
     expectedOrigin: origin(),
     expectedRPID: rpID(),
+    // Match the "preferred" client-side policy in `buildAuthenticationOptions`
+    // — accept assertions whether UV happened or not. SimpleWebAuthn defaults
+    // this to `true`, which over-restricts and rejects passkeys created on
+    // platforms that don't gate the signature with UV (USB security keys
+    // without PIN, synced passkeys on devices without biometric/PIN setup).
+    // The hardened policy is "required" on both sides; we choose "preferred".
+    requireUserVerification: false,
     credential: {
       id: args.credential.credential_id,
       // MongoDB returns BSON Binary (not Buffer) on read; reach into the
