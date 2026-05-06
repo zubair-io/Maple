@@ -68,3 +68,4 @@ playwright-report/
 # Python bytecode cache (ACR reference scripts, codegen helpers)
 __pycache__/
 *.pyc
+.env
