@@ -273,7 +273,12 @@ export class LibraryStateService {
   // mode — the toolbar toggle is hidden — but we still keep the persisted
   // value so flipping to Self-Hosted respects the previous choice.
   readonly viewMode = signal<'folder' | 'timeline'>(
-    this._loadOrDefault('cm.viewMode', 'folder') as 'folder' | 'timeline',
+    // Guard against corrupted/manipulated storage — anything other than the
+    // two valid modes falls back to 'folder'.
+    (() => {
+      const v = this._loadOrDefault<unknown>('cm.viewMode', 'folder');
+      return v === 'timeline' ? 'timeline' : 'folder';
+    })(),
   );
 
   setViewMode(mode: 'folder' | 'timeline'): void {
@@ -595,11 +600,7 @@ export class LibraryStateService {
    * `fs:<absPath>` (matching `_ensureFsFolder`); for a sub-folder we use the
    * id assigned by `_attachFsChildren`.
    */
-  openSelfHostedSubfolder(
-    absPath: string,
-    sourceId?: string,
-    selectAssetId?: AssetId,
-  ): void {
+  openSelfHostedSubfolder(absPath: string, sourceId?: string, selectAssetId?: AssetId): void {
     if (this.backend !== 'self-hosted') return;
 
     const id = sourceId ?? this._sourceIdForFsPath(absPath) ?? `fs:${absPath}`;
@@ -727,19 +728,21 @@ export class LibraryStateService {
     _absPath: string,
     dirs: { name: string; path: string; mtime: string }[],
   ): void {
-    this.sidebarTree.update((tree) => this._patchTree(tree, sourceId, (n) => ({
-      ...n,
-      childrenStatus: 'loaded' as const,
-      childrenError: undefined,
-      children: dirs.map((d) => ({
-        kind: 'folder' as const,
-        id: `fs:${d.path}`,
-        label: d.name,
-        count: null,
-        absPath: d.path,
-        // childrenStatus left undefined — fetched on first chevron expand.
+    this.sidebarTree.update((tree) =>
+      this._patchTree(tree, sourceId, (n) => ({
+        ...n,
+        childrenStatus: 'loaded' as const,
+        childrenError: undefined,
+        children: dirs.map((d) => ({
+          kind: 'folder' as const,
+          id: `fs:${d.path}`,
+          label: d.name,
+          count: null,
+          absPath: d.path,
+          // childrenStatus left undefined — fetched on first chevron expand.
+        })),
       })),
-    })));
+    );
   }
 
   /**
@@ -812,7 +815,7 @@ export class LibraryStateService {
    * backend isn't self-hosted (cold-load on Hosted falls back to
    * `getPersistedFile` via the FS Access API cache).
    */
-  hydrateSelfHostedFsAsset(id: AssetId): Asset | null {
+  hydrateSelfHostedFsAsset(id: AssetId, patch?: Partial<Asset>): Asset | null {
     if (this.backend !== 'self-hosted') return null;
     if (!id.startsWith('fs:')) return null;
     const absPath = id.slice(3);
@@ -825,7 +828,19 @@ export class LibraryStateService {
 
     this._assetAbsPaths.set(id, absPath);
 
-    const asset: Asset = {
+    // Strip identity-bearing fields from `patch` so a caller can't spoof
+    // them via the merge below.
+    const {
+      id: _ignoreId,
+      absPath: _ignoreAbsPath,
+      folderId: _ignoreFolderId,
+      ...safePatch
+    } = patch ?? {};
+    void _ignoreId;
+    void _ignoreAbsPath;
+    void _ignoreFolderId;
+
+    const baseAsset: Asset = {
       id,
       filename,
       folderId,
@@ -835,14 +850,22 @@ export class LibraryStateService {
       thumbnailGradient: '',
       aspectRatio: 3 / 2,
       absPath,
+      ...safePatch,
     };
 
     this.assets.update((list) => {
-      if (list.some((a) => a.id === id)) return list;
-      return [...list, asset];
+      const idx = list.findIndex((a) => a.id === id);
+      if (idx === -1) return [...list, baseAsset];
+      // Already present (e.g. listed via _applyFsListing) — merge in any
+      // richer metadata from the patch without clobbering existing fields.
+      const existing = list[idx]!;
+      const merged: Asset = { ...existing, ...safePatch };
+      const next = list.slice();
+      next[idx] = merged;
+      return next;
     });
 
-    return asset;
+    return baseAsset;
   }
 
   // ── Self-Hosted helpers ────────────────────────────────────────────────────
@@ -863,9 +886,7 @@ export class LibraryStateService {
     this.sidebarTree.update((tree) => {
       // Prune any stale "folders" section from older sessions / cache. New
       // top-level entries replace it; the section becomes inert otherwise.
-      const pruned = tree.filter(
-        (node) => !(node.kind === 'section' && node.id === 'folders'),
-      );
+      const pruned = tree.filter((node) => !(node.kind === 'section' && node.id === 'folders'));
       if (pruned.some((c) => c.id === id)) return pruned;
       return [
         ...pruned,
@@ -1056,9 +1077,7 @@ export class LibraryStateService {
     if (this.thumbnailUrls().has(asset.id)) return;
     if (this._thumbLoadingIds.has(asset.id)) return;
     this._thumbLoadingIds.add(asset.id);
-    void this._loadThumbInternal(asset).finally(() =>
-      this._thumbLoadingIds.delete(asset.id),
-    );
+    void this._loadThumbInternal(asset).finally(() => this._thumbLoadingIds.delete(asset.id));
   }
 
   private async _loadThumbInternal(asset: Asset): Promise<void> {
