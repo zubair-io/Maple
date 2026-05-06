@@ -21,9 +21,7 @@
 
 import * as path from "node:path";
 import * as fs from "node:fs/promises";
-import { assetsCollection } from "../db/client.ts";
 import { resolveThumbPath, ensureMapleDir } from "../fs/xmp.ts";
-import { createHash } from "node:crypto";
 import { ffiPool } from "../ffi/ffi-pool.ts";
 
 const RAW_EXTS = new Set([
@@ -33,10 +31,22 @@ const RAW_EXTS = new Set([
 
 const THUMB_LONG_EDGE_PX = 512;
 
-export async function generateThumb(assetId: string, absPath: string): Promise<void> {
+export async function generateThumb(absPath: string): Promise<void> {
   const ext = path.extname(absPath).toLowerCase();
   const thumbPath = resolveThumbPath(absPath);
   await ensureMapleDir(path.dirname(absPath));
+
+  // Apple, Web, and the lazy fs-thumbs route all write to the same path —
+  // don't clobber a thumb that already covers the source's mtime.
+  try {
+    const [thumbStat, srcStat] = await Promise.all([
+      fs.stat(thumbPath),
+      fs.stat(absPath),
+    ]);
+    if (thumbStat.size > 0 && thumbStat.mtimeMs >= srcStat.mtimeMs) return;
+  } catch {
+    // Thumb missing (or source vanished — that will fail downstream anyway).
+  }
 
   const ok = RAW_EXTS.has(ext)
     ? await renderRawThumbToFile(absPath, thumbPath)
@@ -44,26 +54,7 @@ export async function generateThumb(assetId: string, absPath: string): Promise<v
 
   if (!ok) {
     console.warn(`[thumbnailer] skipped ${path.basename(absPath)}: could not generate thumb`);
-    return;
   }
-
-  // Hash the bytes off-disk so the asset row records the canonical hash
-  // even after a follow-up re-render overwrites the file.
-  let hash = "";
-  try {
-    const written = await fs.readFile(thumbPath);
-    hash = createHash("sha256").update(written).digest("hex");
-  } catch {
-    // The file is gone (race with GC or unmount). Skip the hash update;
-    // a future rerender will reattempt.
-    return;
-  }
-
-  const coll = await assetsCollection();
-  await coll.updateOne(
-    { abs_path: absPath },
-    { $set: { thumb_hash: hash } }
-  );
 }
 
 /** RAW thumb via the off-thread FFI worker pool. Returns true on success.

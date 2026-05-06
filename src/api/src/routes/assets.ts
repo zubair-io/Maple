@@ -42,7 +42,6 @@ export const assetsRoutes = new Elysia({ prefix: "/api/assets" })
       rating: doc.rating,
       flag: doc.flag,
       color_label: doc.color_label,
-      thumb_hash: doc.thumb_hash,
       indexed_at: doc.indexed_at,
     };
   })

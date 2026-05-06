@@ -125,7 +125,6 @@ export const foldersRoutes = new Elysia({ prefix: "/api/folders" })
           rating: d.rating,
           flag: d.flag,
           color_label: d.color_label,
-          thumb_hash: d.thumb_hash,
           indexed_at: d.indexed_at,
         })),
       };
