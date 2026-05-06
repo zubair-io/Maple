@@ -57,7 +57,12 @@ public actor ThumbnailDiskCache {
     /// Return JPEG bytes for the given asset URL, or nil if not cached.
     /// Preferred entry-point for UI cells that render via `Image(data:)`.
     public func thumbnailData(for assetURL: URL) -> Data? {
-        return thumbnailData(forKey: cacheKey(for: assetURL))
+        // Pass the BASENAME to `forKey:` (not a pre-hashed key). The
+        // `forKey:` variant hashes its argument internally — passing
+        // `cacheKey(for:)` here double-hashed and wrote to a path that
+        // diverged from the API/Web (`<folder>/.maple/thumbs/<sha256(basename).prefix16>.jpg`),
+        // defeating cross-app cache sharing.
+        return thumbnailData(forKey: assetURL.lastPathComponent)
     }
 
     /// Return JPEG bytes for an opaque stable key (e.g. an `AssetRef.id` or a
@@ -98,7 +103,8 @@ public actor ThumbnailDiskCache {
     /// Store pre-encoded JPEG bytes. Used by `ThumbnailLoader` which encodes
     /// off-actor (avoids blocking the cache actor on JPEG round-trips).
     public func storeThumbnailData(_ data: Data, for assetURL: URL) {
-        storeThumbnailData(data, forKey: cacheKey(for: assetURL))
+        // See `thumbnailData(for:)` — pass the basename, not a pre-hashed key.
+        storeThumbnailData(data, forKey: assetURL.lastPathComponent)
     }
 
     /// Store pre-encoded JPEG bytes under an opaque stable key. Sibling of the

@@ -263,9 +263,21 @@ function onExit(code: number): void {
   process.stderr.write(
     `[indexer] supervisor: child crashed (attempt ${_consecutiveCrashes}/${MAX_CONSECUTIVE_CRASHES}) — restarting in ${delay}ms\n`,
   );
-  _restartTimer = setTimeout(() => {
+  _restartTimer = setTimeout(async () => {
     _restartTimer = null;
     spawnChild();
+    // Drive the state machine to "running" once the child responds. Without
+    // this, status sticks at "restarting" forever and the proxy refuses
+    // every /api/indexer/* request (including PUT /config), so the UI
+    // shows "Restarting…" and worker-count changes return 503.
+    try {
+      await waitReady();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      process.stderr.write(
+        `[indexer] supervisor: waitReady after auto-restart failed: ${msg}\n`,
+      );
+    }
   }, delay);
 }
 

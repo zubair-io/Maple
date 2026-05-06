@@ -128,19 +128,12 @@ describe("supervisor — spawn against real standalone.ts", () => {
     expect(state().status).toBe("crashed");
     expect(state().lastExitCode).not.toBeNull();
 
-    // Wait for auto-respawn — backoff is 1000 ms then waitReady polls.
+    // Wait for auto-respawn — backoff is 1000 ms, then the supervisor's
+    // built-in waitReady() flips status to `running` once the new child
+    // responds on /status.
     const respawnWait = Date.now();
     while (state().status !== "running" && Date.now() - respawnWait < 30_000) {
       await new Promise((r) => setTimeout(r, 200));
-      // Poll the child manually because the supervisor doesn't run
-      // waitReady automatically — re-arm it once we see `starting`.
-      if (state().status === "starting" || state().status === "restarting") {
-        try {
-          await waitReady(2_000);
-        } catch {
-          /* try again */
-        }
-      }
     }
 
     expect(state().status).toBe("running");
