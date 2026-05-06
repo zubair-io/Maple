@@ -3,8 +3,10 @@ version: "3.9"
 # Maple Self Hosted — Docker Compose
 #
 # Usage:
-#   docker compose up -d             # start MongoDB (uses host-built Bun server)
-#   docker compose --profile app up  # also start the Maple server in Docker
+#   docker compose up -d                          # start MongoDB (uses host-built Bun server)
+#   docker compose --profile app up -d            # also start the Maple server in Docker
+#   docker compose --profile app --profile proxy up -d
+#                                                 # …and expose it via a Cloudflare Tunnel
 #
 # For development, start MongoDB only and run the Bun server natively:
 #   docker compose up -d mongo
@@ -53,6 +55,32 @@ services:
     depends_on:
       mongo:
         condition: service_healthy
+
+  # ---------------------------------------------------------------------------
+  # Cloudflare Tunnel (optional — exposes Maple via a Cloudflare-proxied domain
+  # without opening any ports on your firewall).
+  #
+  # 1. In the Cloudflare Zero Trust dashboard, go to
+  #    Networks → Tunnels → Create a tunnel → Cloudflared.
+  # 2. Copy the token the dashboard issues and put it in a `.env` file next to
+  #    this docker-compose.yml:
+  #
+  #        CLOUDFLARE_TUNNEL_TOKEN=eyJh...
+  #
+  # 3. In the dashboard, add a Public Hostname for the tunnel pointing to
+  #    `http://maple:3000` (the service name on the compose network).
+  # 4. Bring it up:  docker compose --profile app --profile proxy up -d
+  # ---------------------------------------------------------------------------
+  cloudflared:
+    profiles: ["proxy"]
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN}
+    depends_on:
+      maple:
+        condition: service_started
 
 volumes:
   mongo_data:
