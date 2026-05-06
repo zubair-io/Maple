@@ -21,7 +21,7 @@
 
 import * as path from "node:path";
 import * as fs from "node:fs/promises";
-import { resolveThumbPath, ensureMapleDir } from "../fs/xmp.ts";
+import { resolveThumbPath } from "../fs/xmp.ts";
 import { ffiPool } from "../ffi/ffi-pool.ts";
 
 const RAW_EXTS = new Set([
@@ -34,11 +34,27 @@ const THUMB_LONG_EDGE_PX = 512;
 let _thumbsRendered = 0;
 let _thumbsCached = 0;
 let _thumbsFailed = 0;
+let _thumbsCalled = 0;
 
 export async function generateThumb(absPath: string): Promise<void> {
+  _thumbsCalled++;
+  if (_thumbsCalled <= 5 || _thumbsCalled % 50 === 0) {
+    console.log(`[thumbnailer] call #${_thumbsCalled} absPath=${absPath}`);
+  }
+
   const ext = path.extname(absPath).toLowerCase();
   const thumbPath = resolveThumbPath(absPath);
-  await ensureMapleDir(path.dirname(absPath));
+  const thumbDir = path.dirname(thumbPath);
+
+  try {
+    await fs.mkdir(thumbDir, { recursive: true });
+  } catch (e) {
+    _thumbsFailed++;
+    console.warn(
+      `[thumbnailer] mkdir failed dir=${thumbDir} err=${e instanceof Error ? e.message : e}`
+    );
+    return;
+  }
 
   // Apple, Web, and the lazy fs-thumbs route all write to the same path —
   // don't clobber a thumb that already covers the source's mtime.
@@ -56,7 +72,12 @@ export async function generateThumb(absPath: string): Promise<void> {
     // Thumb missing (or source vanished — that will fail downstream anyway).
   }
 
-  const ok = RAW_EXTS.has(ext)
+  const isRaw = RAW_EXTS.has(ext);
+  if (_thumbsCalled <= 5) {
+    console.log(`[thumbnailer] call #${_thumbsCalled} dispatch path=${isRaw ? "raw-ffi" : "copy"} thumbPath=${thumbPath}`);
+  }
+
+  const ok = isRaw
     ? await renderRawThumbToFile(absPath, thumbPath)
     : await copyImageAsThumb(absPath, thumbPath);
 
@@ -65,7 +86,7 @@ export async function generateThumb(absPath: string): Promise<void> {
     console.log(`[thumbnailer] rendered ${thumbPath}`);
   } else {
     _thumbsFailed++;
-    console.warn(`[thumbnailer] failed ${absPath}`);
+    console.warn(`[thumbnailer] failed src=${absPath} thumb=${thumbPath} isRaw=${isRaw}`);
   }
   logCounters();
 }
@@ -74,7 +95,7 @@ function logCounters(): void {
   const total = _thumbsRendered + _thumbsCached + _thumbsFailed;
   if (total > 0 && total % 50 === 0) {
     console.log(
-      `[thumbnailer] totals — rendered=${_thumbsRendered} cached=${_thumbsCached} failed=${_thumbsFailed}`
+      `[thumbnailer] totals — called=${_thumbsCalled} rendered=${_thumbsRendered} cached=${_thumbsCached} failed=${_thumbsFailed}`
     );
   }
 }
