@@ -32,6 +32,18 @@ import { XmpCulling } from '../xmp/xmp.types';
 import { MapleFolderHandle, FolderEntry } from '../folder-access/folder-access.types';
 import { MapleIndex, IndexedAsset } from '../maple-cache/maple-cache.types';
 import { sha256Prefix16 } from '../maple-cache/sha';
+import { mergePreservingRefs, shallowEqualByKeys } from './merge-by-id';
+
+const ASSET_RENDER_KEYS: readonly (keyof Asset)[] = [
+  'id', 'folderId', 'filename', 'absPath',
+  'rating', 'flag', 'colorLabel', 'edited',
+  'aspectRatio', 'thumbnailGradient',
+  'size', 'mtime',
+  'width', 'height',
+];
+
+const assetsEqualForRender = (a: Asset, b: Asset): boolean =>
+  shallowEqualByKeys(a, b, ASSET_RENDER_KEYS);
 
 /** Supported RAW extensions for file intake. */
 export const SUPPORTED_RAW_EXTENSIONS = new Set([
@@ -472,7 +484,9 @@ export class LibraryStateService {
     this.assets.update((list) => {
       // Remove previous assets for the same folder; keep other folders.
       const others = list.filter((a) => a.folderId !== folderId);
-      return [...others, ...newAssets];
+      const previous = list.filter((a) => a.folderId === folderId);
+      const merged = mergePreservingRefs(previous, newAssets, assetsEqualForRender);
+      return [...others, ...merged];
     });
 
     // Merge loaded adjustments into the signal (only overwrite for this folder).
@@ -680,7 +694,9 @@ export class LibraryStateService {
 
     this.assets.update((list) => {
       const others = list.filter((a) => a.folderId !== sourceId);
-      return [...others, ...newAssets];
+      const previous = list.filter((a) => a.folderId === sourceId);
+      const merged = mergePreservingRefs(previous, newAssets, assetsEqualForRender);
+      return [...others, ...merged];
     });
 
     const newFolders: GridFolderItem[] = listing.dirs.map((d) => ({
@@ -894,7 +910,9 @@ export class LibraryStateService {
 
     this.assets.update((list) => {
       const others = list.filter((x) => x.folderId !== folderId);
-      return [...others, ...newAssets];
+      const previous = list.filter((x) => x.folderId === folderId);
+      const merged = mergePreservingRefs(previous, newAssets, assetsEqualForRender);
+      return [...others, ...merged];
     });
   }
 
