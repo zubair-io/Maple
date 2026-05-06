@@ -61,6 +61,21 @@ function asNumber(value: string | undefined): number | undefined {
   return Number.isFinite(n) ? n : undefined;
 }
 
+/** Bare-date detector: matches `YYYY-MM-DD` with no time component. */
+const BARE_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** Widen a `from` date to the start of the day if no time component is set,
+ * so the lexicographic compare against ISO datetimes is correct. */
+function widenFromDate(s: string): string {
+  return BARE_DATE.test(s) ? `${s}T00:00:00.000Z` : s;
+}
+
+/** Widen a `to` date to the end of the day if no time component is set,
+ * so `$lte` includes photos captured on that day. */
+function widenToDate(s: string): string {
+  return BARE_DATE.test(s) ? `${s}T23:59:59.999Z` : s;
+}
+
 interface SearchQuery {
   q?: string;
   libraryId?: string;
@@ -78,6 +93,8 @@ interface SearchQuery {
   flag?: string;
   color?: string;
   ext?: string;
+  pathPrefix?: string;
+  hasCapturedAt?: string;
   page?: string;
   limit?: string;
   sort?: string;
@@ -164,11 +181,24 @@ export function buildFilter(q: SearchQuery): Filter<AssetDoc> | { error: string 
 
   // Date range — captured_at is an ISO 8601 string; lexicographic compares
   // are safe for ISO 8601 with constant-width fields.
-  if (q.from || q.to) {
-    const range: Record<string, string> = {};
-    if (q.from) range.$gte = q.from;
-    if (q.to) range.$lte = q.to;
-    (filter as Record<string, unknown>)["exif.captured_at"] = range;
+  // We may augment the same field below with `hasCapturedAt`'s `$ne: null`,
+  // so build the predicate object once and merge to avoid double-write.
+  // Bare-date inputs (`YYYY-MM-DD` with no `T`) are widened to the full day
+  // before lexicographic comparison — otherwise `$lte: "2025-07-31"` skips
+  // every photo captured on July 31 (their stored value is `"2025-07-31T..."`
+  // which compares greater than the bare date).
+  const capturedAtPredicate: Record<string, string | null> = {};
+  if (q.from) capturedAtPredicate.$gte = widenFromDate(q.from);
+  if (q.to) capturedAtPredicate.$lte = widenToDate(q.to);
+
+  // hasCapturedAt='true' requires an EXIF capture date to be present. We
+  // merge into the same predicate object as the from/to range so we don't
+  // accidentally clobber the date constraints when both are set.
+  if (q.hasCapturedAt === "true") {
+    capturedAtPredicate.$ne = null;
+  }
+  if (Object.keys(capturedAtPredicate).length > 0) {
+    (filter as Record<string, unknown>)["exif.captured_at"] = capturedAtPredicate;
   }
 
   // Rating threshold (>= n).
@@ -190,6 +220,20 @@ export function buildFilter(q: SearchQuery): Filter<AssetDoc> | { error: string 
       return { error: `Invalid color: ${q.color}` };
     }
     (filter as Record<string, unknown>).color_label = q.color;
+  }
+
+  // Path prefix — anchored regex on abs_path, used by Timeline view to
+  // scope results to a subtree. We add it as a top-level field; Mongo ANDs
+  // top-level fields, which composes correctly with the existing q-driven
+  // `$or` (which also touches abs_path) — the $or only needs ONE branch to
+  // match, while pathPrefix forces all matches to also start with the prefix.
+  if (q.pathPrefix && q.pathPrefix.length > 0) {
+    if (q.pathPrefix.length > 1024) {
+      return { error: "pathPrefix too long" };
+    }
+    (filter as Record<string, unknown>).abs_path = {
+      $regex: "^" + escapeRegex(q.pathPrefix),
+    };
   }
 
   // Extensions: comma-separated, alphanumeric only.
@@ -312,6 +356,8 @@ const SearchQueryT = t.Object({
   flag: t.Optional(t.String()),
   color: t.Optional(t.String()),
   ext: t.Optional(t.String()),
+  pathPrefix: t.Optional(t.String()),
+  hasCapturedAt: t.Optional(t.String()),
   page: t.Optional(t.String()),
   limit: t.Optional(t.String()),
   sort: t.Optional(t.String()),
@@ -463,6 +509,97 @@ export const searchRoutes = new Elysia({ prefix: "/api/search" })
           : null;
 
       return { total, cameras, lenses, extensions, iso_range, capture_range };
+    },
+    { query: SearchQueryT }
+  )
+
+  .get(
+    "/buckets",
+    async ({ query, set }) => {
+      const filterOrError = buildFilter(query as SearchQuery);
+      if ("error" in filterOrError) {
+        set.status = 400;
+        return { error: filterOrError.error };
+      }
+      const filter = filterOrError;
+      const coll = await assetsCollection();
+      const finalFilter = applyLiveFilter(filter);
+
+      // Single $facet aggregation: one branch counts timed (year/month-binned)
+      // rows, the other counts everything that ISN'T timed. We define
+      // "untimed" as `captured_at: null` OR the field missing — Mongo's
+      // `$ne: null` excludes both, putting them in neither bucket otherwise.
+      // Without the explicit `$exists: false` branch in `untimed`, rows with
+      // no `exif` subdoc at all would silently disappear from the totals.
+      const [result] = await coll
+        .aggregate([
+          { $match: finalFilter },
+          {
+            $facet: {
+              timed: [
+                { $match: { "exif.captured_at": { $ne: null } } },
+                {
+                  $project: {
+                    year: {
+                      $year: {
+                        $dateFromString: {
+                          dateString: "$exif.captured_at",
+                          onError: null,
+                          onNull: null,
+                        },
+                      },
+                    },
+                    month: {
+                      $month: {
+                        $dateFromString: {
+                          dateString: "$exif.captured_at",
+                          onError: null,
+                          onNull: null,
+                        },
+                      },
+                    },
+                  },
+                },
+                { $match: { year: { $ne: null }, month: { $ne: null } } },
+                {
+                  $group: {
+                    _id: { year: "$year", month: "$month" },
+                    count: { $sum: 1 },
+                  },
+                },
+                { $sort: { "_id.year": -1, "_id.month": -1 } },
+              ],
+              untimed: [
+                {
+                  $match: {
+                    $or: [
+                      { "exif.captured_at": null },
+                      { "exif.captured_at": { $exists: false } },
+                    ],
+                  },
+                },
+                { $count: "count" },
+              ],
+            },
+          },
+        ])
+        .toArray();
+
+      const timed = (result?.timed ?? []) as Array<{
+        _id: { year: number; month: number };
+        count: number;
+      }>;
+      const untimedArr = (result?.untimed ?? []) as Array<{ count: number }>;
+
+      const buckets = timed.map((t) => ({
+        year: t._id.year,
+        month: t._id.month,
+        count: t.count,
+      }));
+      const total = buckets.reduce((acc, b) => acc + b.count, 0);
+      const untimed_count = untimedArr[0]?.count ?? 0;
+
+      return { total, buckets, untimed_count };
     },
     { query: SearchQueryT }
   );

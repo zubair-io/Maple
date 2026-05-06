@@ -2,7 +2,7 @@
 // Ported from _design-reference/app.jsx (WindowChrome + App layout).
 // P7: window.location.href navigation replaced by Router.
 
-import { ChangeDetectionStrategy, Component, HostListener, OnInit, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, HostListener, OnInit, inject } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
 import { LibraryStateService } from '../../state/library-state.service';
 import { FolderTreeComponent } from '../../components/folder-tree/folder-tree.component';
@@ -14,6 +14,7 @@ import { ErrorBannerComponent } from '../../components/error-banner/error-banner
 import { MapleIconComponent } from '../../icons/maple-icon.component';
 import { LibraryPickerComponent } from '../../components/library-picker/library-picker.component';
 import { LibraryPickerModalComponent } from '../../components/library-picker-modal/library-picker-modal.component';
+import { TimelineViewComponent } from '../../components/timeline-view/timeline-view.component';
 
 @Component({
   selector: 'browse-shell',
@@ -29,6 +30,7 @@ import { LibraryPickerModalComponent } from '../../components/library-picker-mod
     MapleIconComponent,
     LibraryPickerComponent,
     LibraryPickerModalComponent,
+    TimelineViewComponent,
   ],
   templateUrl: './browse-shell.component.html',
   styleUrl: './browse-shell.component.scss',

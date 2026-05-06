@@ -129,6 +129,9 @@ export async function ensureIndexes(): Promise<void> {
     .collection("assets")
     .createIndex({ "exif.camera_make": 1, "exif.camera_model": 1 }, { sparse: true });
   await db.collection("assets").createIndex({ "exif.lens": 1 }, { sparse: true });
+  // Anchored-prefix regex on abs_path is used by /api/search?pathPrefix=...
+  // (Timeline view). Without this index, every prefix query is a coll scan.
+  await db.collection("assets").createIndex({ abs_path: 1 });
   // Fast prefix index on filename for lowercase-anchored regex queries
   // ($regex: "^...") — the planner can use this when the pattern is a
   // simple prefix. The case-insensitive substring query in the search route
