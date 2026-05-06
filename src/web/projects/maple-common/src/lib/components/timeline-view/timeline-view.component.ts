@@ -165,6 +165,7 @@ export class TimelineViewComponent implements AfterViewInit, OnDestroy {
 
   // ── IntersectionObserver for lazy-loaded months ──────────────────────────
   private monthObserver?: IntersectionObserver;
+  private observerRoot?: HTMLElement;
   private observedSections = new WeakSet<HTMLElement>();
   /** Elements that registered before the observer existed. Drained when
    * the scroll container becomes available. */
@@ -248,13 +249,26 @@ export class TimelineViewComponent implements AfterViewInit, OnDestroy {
       this.containerWidth.set(ref.nativeElement.clientWidth || 800);
     });
 
-    // Reactive IntersectionObserver setup — `scrollContainerRef` lives in
-    // the @else branch and only exists after buckets resolve. The signal
-    // fires at that point; we create the observer and drain any pending
-    // sections that registered before the observer existed.
+    // Reactive IntersectionObserver setup. `scrollContainerRef` may
+    // toggle in and out of the DOM as `hasPathPrefix` flips (user
+    // de-selects then re-selects a folder), so this effect tracks the
+    // current root element and rebuilds the observer whenever the
+    // element changes — otherwise the observer ends up rooted at a
+    // detached node and never fires intersections.
     effect(() => {
       const ref = this.scrollContainerRef();
-      if (!ref || this.monthObserver) return;
+      const el = ref?.nativeElement;
+      if (!el) {
+        this.monthObserver?.disconnect();
+        this.monthObserver = undefined;
+        this.observerRoot = undefined;
+        this.observedSections = new WeakSet();
+        return;
+      }
+      if (this.monthObserver && this.observerRoot === el) return;
+      this.monthObserver?.disconnect();
+      this.observedSections = new WeakSet();
+      this.observerRoot = el;
       this.monthObserver = new IntersectionObserver(
         (entries) => {
           for (const entry of entries) {
@@ -271,14 +285,15 @@ export class TimelineViewComponent implements AfterViewInit, OnDestroy {
           }
         },
         {
-          root: ref.nativeElement,
+          root: el,
           rootMargin: '600px 0px',
           threshold: 0,
         },
       );
       // Drain anything that registered before the observer was ready.
-      for (const el of this.pendingObserve) {
-        this.monthObserver.observe(el);
+      for (const node of this.pendingObserve) {
+        this.observedSections.add(node);
+        this.monthObserver.observe(node);
       }
       this.pendingObserve.clear();
     });
