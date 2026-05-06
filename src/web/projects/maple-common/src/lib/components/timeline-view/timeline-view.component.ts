@@ -91,6 +91,7 @@ interface MonthData {
   bucket: TimelineBucket;
   loaded: boolean;
   loading: boolean;
+  error: string | null;
   /** Map<folderName, photos[]> — preserves the in-month folder grouping. */
   groups: Map<string, PhotoVm[]>;
 }
@@ -296,6 +297,7 @@ export class TimelineViewComponent implements AfterViewInit, OnDestroy {
           bucket: b,
           loaded: false,
           loading: false,
+          error: null,
           groups: new Map(),
         });
       }
@@ -361,6 +363,7 @@ export class TimelineViewComponent implements AfterViewInit, OnDestroy {
           ...d,
           loaded: isFinal,
           loading: !isFinal,
+          error: null,
           groups: cloneOfMerged,
         }));
         for (const photos of pageGroups.values()) {
@@ -369,10 +372,26 @@ export class TimelineViewComponent implements AfterViewInit, OnDestroy {
         if (r.results.length === 0) break;
         page += 1;
       }
-    } catch {
+    } catch (err) {
       if (gen !== this.monthGens.get(key)) return;
-      this._patchMonth(key, (d) => ({ ...d, loading: false }));
+      // Mark the month as a loading-failed terminal state so the template
+      // can surface the error instead of staying on "Loading…" forever.
+      const message = err instanceof Error ? err.message : String(err);
+      this._patchMonth(key, (d) => ({
+        ...d,
+        loaded: true,
+        loading: false,
+        error: message || 'Failed to load this month',
+      }));
     }
+  }
+
+  /** Re-fetches a specific month after an error. Bumps the generation
+   * counter so any in-flight retry from a stale click is dropped. */
+  retryMonth(year: number, month: number): void {
+    const key = monthKey(year, month);
+    this._patchMonth(key, (d) => ({ ...d, loaded: false, loading: true, error: null }));
+    void this._fetchMonth(year, month);
   }
 
   private _bucketByFolder(results: SearchResult[], prefix: string): Map<string, PhotoVm[]> {

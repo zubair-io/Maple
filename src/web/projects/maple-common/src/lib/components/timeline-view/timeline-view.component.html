@@ -57,7 +57,23 @@
                   }}</span>
                 </div>
 
-                @if (!m.data || !m.data.loaded) {
+                @if (m.data?.error; as err) {
+                  <div
+                    class="flex h-[140px] flex-col items-center justify-center gap-2 px-4 text-center text-[11px] text-error-text"
+                  >
+                    <span
+                      >Couldn't load {{ monthLabel(m.bucket.month) }} {{ m.bucket.year }}:
+                      {{ err }}</span
+                    >
+                    <button
+                      type="button"
+                      class="cursor-pointer rounded border-[0.5px] border-border bg-surface-hover px-2 py-1 text-text-main hover:border-text-muted"
+                      (click)="retryMonth(m.bucket.year, m.bucket.month)"
+                    >
+                      Retry
+                    </button>
+                  </div>
+                } @else if (!m.data || !m.data.loaded) {
                   <div
                     class="flex h-[140px] items-center justify-center text-[11px] text-text-muted"
                   >
