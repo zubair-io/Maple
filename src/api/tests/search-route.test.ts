@@ -33,7 +33,6 @@ interface Seed {
   rating: number;
   flag: -1 | 0 | 1;
   color_label: string;
-  thumb_hash: string | null;
   indexed_at: string;
   folder_id: ObjectId;
   exif?: {
@@ -95,7 +94,6 @@ beforeAll(async () => {
       rating: 5,
       flag: 1,
       color_label: "red",
-      thumb_hash: null,
       indexed_at: new Date().toISOString(),
       exif: {
         captured_at: "2024-06-01T12:00:00.000Z",
@@ -118,7 +116,6 @@ beforeAll(async () => {
       rating: 3,
       flag: 0,
       color_label: "",
-      thumb_hash: null,
       indexed_at: new Date().toISOString(),
       exif: {
         captured_at: "2023-12-25T18:30:00.000Z",
@@ -141,7 +138,6 @@ beforeAll(async () => {
       rating: 4,
       flag: 1,
       color_label: "green",
-      thumb_hash: null,
       indexed_at: new Date().toISOString(),
       exif: {
         captured_at: "2024-01-15T09:15:00.000Z",
@@ -164,7 +160,6 @@ beforeAll(async () => {
       rating: 0,
       flag: 0,
       color_label: "",
-      thumb_hash: null,
       indexed_at: new Date().toISOString(),
       exif: null,
     },
@@ -178,7 +173,6 @@ beforeAll(async () => {
       rating: 0,
       flag: 0,
       color_label: "",
-      thumb_hash: null,
       indexed_at: new Date().toISOString(),
       exif: null,
       deleted_at: new Date().toISOString(),

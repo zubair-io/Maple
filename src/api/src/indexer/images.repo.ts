@@ -124,7 +124,6 @@ export async function upsertByMapleId(input: UpsertInput): Promise<UpdateResult>
         rating: 0,
         flag: 0,
         color_label: "",
-        thumb_hash: null,
       },
     },
     { upsert: true }
