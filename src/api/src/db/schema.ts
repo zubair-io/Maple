@@ -78,8 +78,6 @@ export interface AssetDoc {
   flag: -1 | 0 | 1;
   /** Color label string (red|yellow|green|blue|purple|""). */
   color_label: string;
-  /** SHA-256 hash of the thumbnail bytes, or null if not yet generated. */
-  thumb_hash: string | null;
   /**
    * Camera/lens/exposure metadata. Optional because backfill on existing rows
    * may not have run yet, and JPEGs without EXIF leave this null.

@@ -33,6 +33,7 @@ import * as images from "./images.repo.ts";
 import { assetsCollection, foldersCollection } from "../db/client.ts";
 import { cachePathFor } from "../fs/xmp.ts";
 import { backfillAssetExif } from "./exif.ts";
+import { generateThumb } from "./thumbnailer.ts";
 
 export const SUPPORTED_EXTS = new Set([
   ".dng", ".cr2", ".cr3", ".nef", ".arw", ".raf", ".orf", ".rw2",
@@ -548,7 +549,11 @@ export class IndexerService {
 let _instance: IndexerService | null = null;
 
 export function getIndexerService(): IndexerService {
-  if (!_instance) _instance = new IndexerService();
+  if (!_instance) {
+    _instance = new IndexerService({
+      generateThumb: (job) => generateThumb(job.absPath),
+    });
+  }
   return _instance;
 }
 
