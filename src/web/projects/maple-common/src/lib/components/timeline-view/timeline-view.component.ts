@@ -25,13 +25,13 @@ import {
   ElementRef,
   OnDestroy,
   OnInit,
-  ViewChild,
   computed,
   effect,
   inject,
   input,
   signal,
   untracked,
+  viewChild,
 } from '@angular/core';
 import { Router } from '@angular/router';
 import { firstValueFrom } from 'rxjs';
@@ -123,10 +123,13 @@ interface RenderedYear {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class TimelineViewComponent implements AfterViewInit, OnDestroy {
-  @ViewChild('scrollContainer', { read: ElementRef })
-  scrollContainerRef?: ElementRef<HTMLElement>;
-  @ViewChild('container', { read: ElementRef })
-  containerRef?: ElementRef<HTMLElement>;
+  // Signal-based view queries — reactive, so an effect() can fire the
+  // moment the @if/@else branch puts these elements in the DOM. The old
+  // decorator-based `@ViewChild` fields had a timing race against
+  // child-directive ngOnInit hooks inside @else blocks; signal queries
+  // are guaranteed-correct by design.
+  readonly scrollContainerRef = viewChild<ElementRef<HTMLElement>>('scrollContainer');
+  readonly containerRef = viewChild<ElementRef<HTMLElement>>('container');
 
   private readonly router = inject(Router);
   private readonly search = inject(SearchService);
@@ -163,6 +166,9 @@ export class TimelineViewComponent implements AfterViewInit, OnDestroy {
   // ── IntersectionObserver for lazy-loaded months ──────────────────────────
   private monthObserver?: IntersectionObserver;
   private observedSections = new WeakSet<HTMLElement>();
+  /** Elements that registered before the observer existed. Drained when
+   * the scroll container becomes available. */
+  private pendingObserve = new Set<HTMLElement>();
 
   // ── Resize observer ──────────────────────────────────────────────────────
   private ro?: ResizeObserver;
@@ -228,40 +234,27 @@ export class TimelineViewComponent implements AfterViewInit, OnDestroy {
       void params;
       this._scheduleBucketsRefresh();
     });
-  }
 
-  ngAfterViewInit(): void {
-    // The ResizeObserver target is `containerRef`, which is the OUTER wrapper
-    // and renders unconditionally — safe to set up at view-init time.
-    if (this.containerRef) {
+    // Reactive ResizeObserver setup — fires whenever `containerRef`
+    // resolves (it's wrapped in nothing conditional, but the signal is
+    // populated only after the first render).
+    effect(() => {
+      const ref = this.containerRef();
+      if (!ref || this.ro) return;
       this.ro = new ResizeObserver((entries) => {
         for (const e of entries) this.containerWidth.set(e.contentRect.width);
       });
-      this.ro.observe(this.containerRef.nativeElement);
-      this.containerWidth.set(this.containerRef.nativeElement.clientWidth || 800);
-    }
-    // The IntersectionObserver target (`scrollContainerRef`) lives inside
-    // the @else branch of the empty-state conditional — it doesn't exist
-    // until buckets resolve. Lazy-create on first month registration.
-  }
+      this.ro.observe(ref.nativeElement);
+      this.containerWidth.set(ref.nativeElement.clientWidth || 800);
+    });
 
-  ngOnDestroy(): void {
-    this.ro?.disconnect();
-    this.monthObserver?.disconnect();
-    if (this.bucketsDebounce !== null) clearTimeout(this.bucketsDebounce);
-  }
-
-  /**
-   * Called from `[attr.data-month]` rendered nodes via a callback ref. Hooks
-   * each month section into the IntersectionObserver so we know when to
-   * fetch its photos. Creates the observer on the first call — by the time
-   * the directive's ngOnInit fires, `scrollContainerRef` is populated.
-   */
-  registerMonthSection = (el: HTMLElement | null): void => {
-    if (!el) return;
-    if (!this.monthObserver) {
-      const root = this.scrollContainerRef?.nativeElement;
-      if (!root) return;
+    // Reactive IntersectionObserver setup — `scrollContainerRef` lives in
+    // the @else branch and only exists after buckets resolve. The signal
+    // fires at that point; we create the observer and drain any pending
+    // sections that registered before the observer existed.
+    effect(() => {
+      const ref = this.scrollContainerRef();
+      if (!ref || this.monthObserver) return;
       this.monthObserver = new IntersectionObserver(
         (entries) => {
           for (const entry of entries) {
@@ -271,22 +264,50 @@ export class TimelineViewComponent implements AfterViewInit, OnDestroy {
             const month = Number(target.dataset['month']);
             if (!Number.isFinite(year) || !Number.isFinite(month)) continue;
             const key = monthKey(year, month);
-            const data = this._monthData().get(key);
+            const data = untracked(() => this._monthData().get(key));
             if (!data || data.loaded || data.loading) continue;
             this._patchMonth(key, (d) => ({ ...d, loading: true }));
             this._enqueueMonthFetch(year, month);
           }
         },
         {
-          root,
+          root: ref.nativeElement,
           rootMargin: '600px 0px',
           threshold: 0,
         },
       );
-    }
+      // Drain anything that registered before the observer was ready.
+      for (const el of this.pendingObserve) {
+        this.monthObserver.observe(el);
+      }
+      this.pendingObserve.clear();
+    });
+  }
+
+  // Kept on the class so the imports list (and lifecycle declaration) stay
+  // honest even though everything moved into reactive effects.
+  ngAfterViewInit(): void {}
+
+  ngOnDestroy(): void {
+    this.ro?.disconnect();
+    this.monthObserver?.disconnect();
+    if (this.bucketsDebounce !== null) clearTimeout(this.bucketsDebounce);
+  }
+
+  /**
+   * Called from `[attr.data-month]` rendered nodes via a callback ref.
+   * If the observer is already up, observe immediately; otherwise queue
+   * for the effect that creates the observer to drain later. Idempotent.
+   */
+  registerMonthSection = (el: HTMLElement | null): void => {
+    if (!el) return;
     if (this.observedSections.has(el)) return;
     this.observedSections.add(el);
-    this.monthObserver.observe(el);
+    if (this.monthObserver) {
+      this.monthObserver.observe(el);
+    } else {
+      this.pendingObserve.add(el);
+    }
   };
 
   // ── Buckets request ──────────────────────────────────────────────────────
@@ -548,7 +569,7 @@ export class TimelineViewComponent implements AfterViewInit, OnDestroy {
 
   // ── Scrubber jump ────────────────────────────────────────────────────────
   onScrubberJump(target: { year: number; month: number }): void {
-    const root = this.scrollContainerRef?.nativeElement;
+    const root = this.scrollContainerRef()?.nativeElement;
     if (!root) return;
     const el = root.querySelector(
       `[data-year="${target.year}"][data-month="${target.month}"]`,
