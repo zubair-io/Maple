@@ -48,7 +48,9 @@
                 [attr.data-month]="m.bucket.month"
                 [appTimelineRegisterMonth]="registerMonthSection"
               >
-                <div class="flex h-8 items-center px-4 text-[13px] font-medium text-text-main">
+                <div
+                  class="sticky top-11 z-[9] flex h-8 items-center border-b-[0.5px] border-border bg-bg px-4 text-[13px] font-medium text-text-main"
+                >
                   {{ monthLabel(m.bucket.month) }}
                   <span class="ml-2 text-[11px] font-normal text-text-muted">{{
                     m.bucket.count
