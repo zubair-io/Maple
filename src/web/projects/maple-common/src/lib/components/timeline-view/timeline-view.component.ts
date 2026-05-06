@@ -217,6 +217,8 @@ export class TimelineViewComponent implements AfterViewInit, OnDestroy {
   }
 
   ngAfterViewInit(): void {
+    // The ResizeObserver target is `containerRef`, which is the OUTER wrapper
+    // and renders unconditionally — safe to set up at view-init time.
     if (this.containerRef) {
       this.ro = new ResizeObserver((entries) => {
         for (const e of entries) this.containerWidth.set(e.contentRect.width);
@@ -224,29 +226,9 @@ export class TimelineViewComponent implements AfterViewInit, OnDestroy {
       this.ro.observe(this.containerRef.nativeElement);
       this.containerWidth.set(this.containerRef.nativeElement.clientWidth || 800);
     }
-    if (this.scrollContainerRef) {
-      this.monthObserver = new IntersectionObserver(
-        (entries) => {
-          for (const entry of entries) {
-            if (!entry.isIntersecting) continue;
-            const el = entry.target as HTMLElement;
-            const year = Number(el.dataset['year']);
-            const month = Number(el.dataset['month']);
-            if (!Number.isFinite(year) || !Number.isFinite(month)) continue;
-            const key = monthKey(year, month);
-            const data = this._monthData().get(key);
-            if (!data || data.loaded || data.loading) continue;
-            this._patchMonth(key, (d) => ({ ...d, loading: true }));
-            void this._fetchMonth(year, month);
-          }
-        },
-        {
-          root: this.scrollContainerRef.nativeElement,
-          rootMargin: '600px 0px',
-          threshold: 0,
-        },
-      );
-    }
+    // The IntersectionObserver target (`scrollContainerRef`) lives inside
+    // the @else branch of the empty-state conditional — it doesn't exist
+    // until buckets resolve. Lazy-create on first month registration.
   }
 
   ngOnDestroy(): void {
@@ -258,10 +240,36 @@ export class TimelineViewComponent implements AfterViewInit, OnDestroy {
   /**
    * Called from `[attr.data-month]` rendered nodes via a callback ref. Hooks
    * each month section into the IntersectionObserver so we know when to
-   * fetch its photos.
+   * fetch its photos. Creates the observer on the first call — by the time
+   * the directive's ngOnInit fires, `scrollContainerRef` is populated.
    */
   registerMonthSection = (el: HTMLElement | null): void => {
-    if (!el || !this.monthObserver) return;
+    if (!el) return;
+    if (!this.monthObserver) {
+      const root = this.scrollContainerRef?.nativeElement;
+      if (!root) return;
+      this.monthObserver = new IntersectionObserver(
+        (entries) => {
+          for (const entry of entries) {
+            if (!entry.isIntersecting) continue;
+            const target = entry.target as HTMLElement;
+            const year = Number(target.dataset['year']);
+            const month = Number(target.dataset['month']);
+            if (!Number.isFinite(year) || !Number.isFinite(month)) continue;
+            const key = monthKey(year, month);
+            const data = this._monthData().get(key);
+            if (!data || data.loaded || data.loading) continue;
+            this._patchMonth(key, (d) => ({ ...d, loading: true }));
+            void this._fetchMonth(year, month);
+          }
+        },
+        {
+          root,
+          rootMargin: '600px 0px',
+          threshold: 0,
+        },
+      );
+    }
     if (this.observedSections.has(el)) return;
     this.observedSections.add(el);
     this.monthObserver.observe(el);
