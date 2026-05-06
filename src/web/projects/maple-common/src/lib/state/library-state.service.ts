@@ -268,6 +268,23 @@ export class LibraryStateService {
     this._loadOrDefault('cm.tab', 'info') as 'info' | 'develop',
   );
 
+  // ── Browse-shell view mode (Folder vs Timeline) ──────────────────────────
+  // Persisted across reloads. Hosted backends always operate in Folder
+  // mode — the toolbar toggle is hidden — but we still keep the persisted
+  // value so flipping to Self-Hosted respects the previous choice.
+  readonly viewMode = signal<'folder' | 'timeline'>(
+    this._loadOrDefault('cm.viewMode', 'folder') as 'folder' | 'timeline',
+  );
+
+  setViewMode(mode: 'folder' | 'timeline'): void {
+    this.viewMode.set(mode);
+    try {
+      localStorage.setItem('cm.viewMode', JSON.stringify(mode));
+    } catch {
+      /* noop */
+    }
+  }
+
   // ── Thumbnail URL cache (blob URLs — revoked when assets are removed) ──────
   readonly thumbnailUrls = signal<Map<AssetId, string>>(new Map());
 
