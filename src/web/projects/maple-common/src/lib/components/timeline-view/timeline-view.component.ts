@@ -153,6 +153,11 @@ export class TimelineViewComponent implements AfterViewInit, OnDestroy {
   // ── Thumb cache ──────────────────────────────────────────────────────────
   private thumbCache = new Map<string, string>();
 
+  // ── Folder-group collapse (session-local; not persisted) ────────────────
+  // Keyed by `${year}-${month}-${folderName}`. A missing entry means
+  // expanded — the default is "show photos" so the user sees content first.
+  private readonly _collapsed = signal<Set<string>>(new Set());
+
   // ── IntersectionObserver for lazy-loaded months ──────────────────────────
   private monthObserver?: IntersectionObserver;
   private observedSections = new WeakSet<HTMLElement>();
@@ -302,6 +307,10 @@ export class TimelineViewComponent implements AfterViewInit, OnDestroy {
   }
 
   // ── Per-month fetch ──────────────────────────────────────────────────────
+  // Pages through every photo in the month so a 1000-photo month renders
+  // completely (not just the first 200). Each page merges into the existing
+  // groups, the panel paints between pages, and the generation guard short-
+  // circuits the loop when the user scrolls away or filters change.
   private async _fetchMonth(year: number, month: number): Promise<void> {
     const key = monthKey(year, month);
     const params = untracked(() => this.timeline.params());
@@ -315,26 +324,47 @@ export class TimelineViewComponent implements AfterViewInit, OnDestroy {
 
     const fromDate = `${pad4(year)}-${pad2(month)}-01`;
     const toDate = `${pad4(year)}-${pad2(month)}-${pad2(daysInMonth(year, month))}`;
-    const req: SearchParams = {
+    const baseReq: Omit<SearchParams, 'page'> = {
       ...params,
       from: fromDate,
       to: toDate,
       sort: 'captured_desc',
-      page: 0,
       limit: PAGE_SIZE,
     };
+
+    const merged = new Map<string, PhotoVm[]>();
+    let page = 0;
+    let loaded = 0;
+    let total = Infinity;
+
     try {
-      const r = await firstValueFrom(this.search.search(req));
-      if (gen !== this.monthGens.get(key)) return;
-      const groups = this._bucketByFolder(r.results, prefix);
-      this._patchMonth(key, (d) => ({
-        ...d,
-        loaded: true,
-        loading: false,
-        groups,
-      }));
-      for (const photos of groups.values()) {
-        for (const p of photos) void this._loadThumb(p);
+      while (loaded < total) {
+        const r = await firstValueFrom(this.search.search({ ...baseReq, page }));
+        if (gen !== this.monthGens.get(key)) return;
+        total = r.total;
+        const pageGroups = this._bucketByFolder(r.results, prefix);
+        for (const [name, photos] of pageGroups) {
+          const arr = merged.get(name);
+          if (arr) arr.push(...photos);
+          else merged.set(name, photos);
+        }
+        loaded += r.results.length;
+        // Surface the partial result so the user sees photos appearing as
+        // pages roll in. `loaded`-tagged so the template can show progress
+        // for monsters with thousands of photos.
+        const cloneOfMerged = new Map(merged);
+        const isFinal = loaded >= total || r.results.length === 0;
+        this._patchMonth(key, (d) => ({
+          ...d,
+          loaded: isFinal,
+          loading: !isFinal,
+          groups: cloneOfMerged,
+        }));
+        for (const photos of pageGroups.values()) {
+          for (const p of photos) void this._loadThumb(p);
+        }
+        if (r.results.length === 0) break;
+        page += 1;
       }
     } catch {
       if (gen !== this.monthGens.get(key)) return;
@@ -399,6 +429,25 @@ export class TimelineViewComponent implements AfterViewInit, OnDestroy {
     } catch {
       // Silent — gradient placeholder stays.
     }
+  }
+
+  // ── Folder-group collapse helpers ────────────────────────────────────────
+  groupKey(year: number, month: number, folderName: string): string {
+    return `${year}-${month}-${folderName}`;
+  }
+
+  isCollapsed(year: number, month: number, folderName: string): boolean {
+    return this._collapsed().has(this.groupKey(year, month, folderName));
+  }
+
+  toggleGroup(year: number, month: number, folderName: string): void {
+    const key = this.groupKey(year, month, folderName);
+    this._collapsed.update((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
   }
 
   // ── Click handlers ───────────────────────────────────────────────────────
