@@ -31,28 +31,20 @@ const RAW_EXTS = new Set([
 
 const THUMB_LONG_EDGE_PX = 512;
 
-let _thumbsRendered = 0;
-let _thumbsCached = 0;
-let _thumbsFailed = 0;
-let _thumbsCalled = 0;
+let _rendered = 0;
+let _cached = 0;
+let _failed = 0;
 
 export async function generateThumb(absPath: string): Promise<void> {
-  _thumbsCalled++;
-  if (_thumbsCalled <= 5 || _thumbsCalled % 50 === 0) {
-    console.log(`[thumbnailer] call #${_thumbsCalled} absPath=${absPath}`);
-  }
-
   const ext = path.extname(absPath).toLowerCase();
   const thumbPath = resolveThumbPath(absPath);
-  const thumbDir = path.dirname(thumbPath);
 
   try {
-    await fs.mkdir(thumbDir, { recursive: true });
+    await fs.mkdir(path.dirname(thumbPath), { recursive: true });
   } catch (e) {
-    _thumbsFailed++;
-    console.warn(
-      `[thumbnailer] mkdir failed dir=${thumbDir} err=${e instanceof Error ? e.message : e}`
-    );
+    _failed++;
+    console.warn(`[thumbnailer] mkdir failed for ${thumbPath}: ${e instanceof Error ? e.message : e}`);
+    logTotals();
     return;
   }
 
@@ -64,39 +56,31 @@ export async function generateThumb(absPath: string): Promise<void> {
       fs.stat(absPath),
     ]);
     if (thumbStat.size > 0 && thumbStat.mtimeMs >= srcStat.mtimeMs) {
-      _thumbsCached++;
-      logCounters();
+      _cached++;
+      logTotals();
       return;
     }
   } catch {
     // Thumb missing (or source vanished — that will fail downstream anyway).
   }
 
-  const isRaw = RAW_EXTS.has(ext);
-  if (_thumbsCalled <= 5) {
-    console.log(`[thumbnailer] call #${_thumbsCalled} dispatch path=${isRaw ? "raw-ffi" : "copy"} thumbPath=${thumbPath}`);
-  }
-
-  const ok = isRaw
+  const ok = RAW_EXTS.has(ext)
     ? await renderRawThumbToFile(absPath, thumbPath)
     : await copyImageAsThumb(absPath, thumbPath);
 
   if (ok) {
-    _thumbsRendered++;
-    console.log(`[thumbnailer] rendered ${thumbPath}`);
+    _rendered++;
   } else {
-    _thumbsFailed++;
-    console.warn(`[thumbnailer] failed src=${absPath} thumb=${thumbPath} isRaw=${isRaw}`);
+    _failed++;
+    console.warn(`[thumbnailer] failed ${absPath}`);
   }
-  logCounters();
+  logTotals();
 }
 
-function logCounters(): void {
-  const total = _thumbsRendered + _thumbsCached + _thumbsFailed;
-  if (total > 0 && total % 50 === 0) {
-    console.log(
-      `[thumbnailer] totals — called=${_thumbsCalled} rendered=${_thumbsRendered} cached=${_thumbsCached} failed=${_thumbsFailed}`
-    );
+function logTotals(): void {
+  const total = _rendered + _cached + _failed;
+  if (total > 0 && total % 500 === 0) {
+    console.log(`[thumbnailer] ${_rendered} rendered, ${_cached} cached, ${_failed} failed`);
   }
 }
 

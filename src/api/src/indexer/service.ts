@@ -29,6 +29,7 @@ import {
   ensureCheckpointIndexes,
 } from "./checkpoint.ts";
 import { ensureIndexerIndexes } from "./indexer.repo.ts";
+import { loadWorkerConfig, saveWorkerConfig } from "./indexer-config.repo.ts";
 import * as images from "./images.repo.ts";
 import { assetsCollection, foldersCollection } from "../db/client.ts";
 import { cachePathFor } from "../fs/xmp.ts";
@@ -120,6 +121,22 @@ export class IndexerService {
 
     this.pipeline.start();
 
+    // Re-apply persisted worker pool sizes from a previous tuning session.
+    try {
+      const saved = await loadWorkerConfig();
+      if (saved) {
+        for (const [stage, count] of Object.entries(saved)) {
+          if (count !== undefined) this.pipeline.setPool(stage as Stage, count);
+        }
+        console.log(`[indexer] restored worker config: ${JSON.stringify(saved)}`);
+      }
+    } catch (e) {
+      console.warn(
+        "[indexer] failed to load worker config:",
+        e instanceof Error ? e.message : e
+      );
+    }
+
     // Kick off watchers + resume per folder.
     try {
       const folders = await foldersCollection();
@@ -177,13 +194,25 @@ export class IndexerService {
     this.pipeline.resume();
   }
 
-  setConfig(patch: WorkerConfigPatch): void {
+  async setConfig(patch: WorkerConfigPatch): Promise<void> {
     const stages: Array<keyof WorkerConfigPatch> = [
       "discover", "hash", "exif", "thumb", "ai", "mongo",
     ];
+    const applied: WorkerConfigPatch = {};
     for (const s of stages) {
       const v = patch[s];
-      if (v !== undefined) this.pipeline.setPool(s as Stage, v);
+      if (v !== undefined) {
+        this.pipeline.setPool(s as Stage, v);
+        applied[s] = v;
+      }
+    }
+    try {
+      await saveWorkerConfig(applied);
+    } catch (e) {
+      console.warn(
+        "[indexer] failed to persist worker config:",
+        e instanceof Error ? e.message : e
+      );
     }
   }
 
@@ -206,20 +235,15 @@ export class IndexerService {
       }
 
       let needsWalk = true;
-      let folderMtimeMs: number | null = null;
       if (cp) {
         try {
           const stat = await fs.stat(folderPath);
-          folderMtimeMs = stat.mtimeMs;
           needsWalk = stat.mtimeMs > cp.lastWalkedAt;
         } catch {
           needsWalk = true;
         }
       }
-      console.log(
-        `[indexer] watch ${folderPath}: walk=${needsWalk}` +
-          (cp ? ` (folder.mtime=${folderMtimeMs}, lastWalkedAt=${cp.lastWalkedAt})` : " (no checkpoint)")
-      );
+      console.log(`[indexer] watch ${folderPath}: walk=${needsWalk}`);
       if (needsWalk) {
         const enqueued = await this.walkOnce(folderId, folderPath);
         console.log(`[indexer] walk ${folderPath}: enqueued ${enqueued} files`);
