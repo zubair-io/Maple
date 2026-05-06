@@ -1,0 +1,13 @@
+// Filter-row chrome — active-state overlays applied via [class.is-active]
+// rather than Tailwind variants because the parent toggles them imperatively.
+
+.filter-pill.is-active {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: var(--color-border);
+  color: var(--color-text-main);
+}
+
+.color-swatch.is-active {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 1.5px var(--color-primary);
+}

@@ -1,6 +1,8 @@
 <div class="w-full h-full bg-bg overflow-hidden flex flex-col font-sans">
   <!-- Toolbar -->
-  <div class="flex items-center h-11 bg-surface border-b-[0.5px] border-border px-3 flex-shrink-0 gap-2">
+  <div
+    class="flex items-center h-11 bg-surface border-b-[0.5px] border-border px-3 flex-shrink-0 gap-2"
+  >
     <!-- Sidebar toggle -->
     <button
       type="button"
@@ -16,9 +18,56 @@
       />
     </button>
 
+    <!-- View-mode segmented control (Self-Hosted only — Timeline depends on
+         the Mongo-side EXIF index that Hosted doesn't have). -->
+    @if (state.backend === 'self-hosted') {
+      <div
+        class="flex items-center h-8 rounded-md border-[0.5px] border-border bg-input-bg overflow-hidden"
+        role="group"
+        aria-label="View mode"
+      >
+        <button
+          type="button"
+          class="view-mode-btn flex h-full items-center gap-1.5 px-2.5 text-[11px] text-text-muted transition-colors duration-[120ms] hover:text-text-main"
+          [class.is-active]="state.viewMode() === 'folder'"
+          [attr.aria-pressed]="state.viewMode() === 'folder'"
+          title="Folder view"
+          (click)="state.setViewMode('folder')"
+        >
+          <maple-icon
+            name="grid-sm"
+            [size]="12"
+            [color]="
+              state.viewMode() === 'folder' ? 'var(--color-text-main)' : 'var(--color-text-muted)'
+            "
+          />
+          <span>Folder</span>
+        </button>
+        <button
+          type="button"
+          class="view-mode-btn flex h-full items-center gap-1.5 px-2.5 text-[11px] text-text-muted transition-colors duration-[120ms] hover:text-text-main"
+          [class.is-active]="state.viewMode() === 'timeline'"
+          [attr.aria-pressed]="state.viewMode() === 'timeline'"
+          title="Timeline view"
+          (click)="state.setViewMode('timeline')"
+        >
+          <maple-icon
+            name="history"
+            [size]="12"
+            [color]="
+              state.viewMode() === 'timeline' ? 'var(--color-text-main)' : 'var(--color-text-muted)'
+            "
+          />
+          <span>Timeline</span>
+        </button>
+      </div>
+    }
+
     <!-- Search input (Self-Hosted only — Hosted has no server-side index) -->
     @if (state.backend === 'self-hosted') {
-      <div class="flex items-center gap-2 h-8 px-3 rounded-md bg-input-bg border-[0.5px] border-border min-w-[220px] max-w-[340px] flex-[0_1_300px] focus-within:border-text-muted">
+      <div
+        class="flex items-center gap-2 h-8 px-3 rounded-md bg-input-bg border-[0.5px] border-border min-w-[220px] max-w-[340px] flex-[0_1_300px] focus-within:border-text-muted"
+      >
         <maple-icon name="search" [size]="14" color="var(--color-text-muted)" />
         <input
           type="text"
@@ -31,7 +80,9 @@
         />
       </div>
     } @else {
-      <div class="chrome-btn flex h-8 w-8 items-center justify-center rounded-md border-[0.5px] border-transparent cursor-pointer transition-colors duration-[120ms] hover:bg-surface-hover hover:border-border">
+      <div
+        class="chrome-btn flex h-8 w-8 items-center justify-center rounded-md border-[0.5px] border-transparent cursor-pointer transition-colors duration-[120ms] hover:bg-surface-hover hover:border-border"
+      >
         <maple-icon name="search" [size]="14" color="var(--color-text-muted)" />
       </div>
     }
@@ -88,7 +139,7 @@
       <app-folder-tree />
     </div>
 
-    <!-- Center: asset grid + drop-zone import bar -->
+    <!-- Center: asset grid (Folder mode) or timeline (Timeline mode) -->
     <div class="flex-1 flex flex-col min-w-0">
       @if (state.backend === 'self-hosted') {
         @if (state.backendLoading()) {
@@ -103,7 +154,11 @@
       } @else {
         <app-drop-zone />
       }
-      <app-asset-grid />
+      @if (state.backend === 'self-hosted' && state.viewMode() === 'timeline') {
+        <app-timeline-view />
+      } @else {
+        <app-asset-grid />
+      }
     </div>
 
     <!-- Right: detail panel -->
