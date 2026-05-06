@@ -39,6 +39,10 @@ export interface SearchParams {
   /** Max 200, default 100. */
   limit?: number;
   sort?: SearchSort;
+  /** Anchored prefix on `abs_path` (server escapes + applies as ^prefix). */
+  pathPrefix?: string;
+  /** When true, only matches assets with a non-null `exif.captured_at`. */
+  hasCapturedAt?: boolean;
 }
 
 /** Single hit returned by /api/search. */
@@ -80,6 +84,20 @@ export interface SearchFacets {
   capture_range: { from: string; to: string } | null;
 }
 
+/** One year/month aggregation row from /api/search/buckets. */
+export interface TimelineBucket {
+  year: number;
+  month: number;
+  count: number;
+}
+
+/** Response shape from /api/search/buckets. */
+export interface TimelineBuckets {
+  total: number;
+  buckets: TimelineBucket[];
+  untimed_count: number;
+}
+
 /** Build HttpParams from a SearchParams object, skipping undefined / empty
  * values so the server sees exactly the params the user set. */
 function paramsFrom(p: SearchParams): HttpParams {
@@ -108,6 +126,8 @@ function paramsFrom(p: SearchParams): HttpParams {
   set('page', p.page);
   set('limit', p.limit);
   set('sort', p.sort);
+  set('pathPrefix', p.pathPrefix);
+  if (p.hasCapturedAt !== undefined) set('hasCapturedAt', p.hasCapturedAt ? 'true' : 'false');
   return h;
 }
 
@@ -125,10 +145,18 @@ export class SearchService {
 
   /** GET /api/search/facets — counts/ranges scoped to the same filter set
    * (page/limit/sort are ignored server-side). */
-  facets(
-    params: Omit<SearchParams, 'page' | 'limit' | 'sort'>,
-  ): Observable<SearchFacets> {
+  facets(params: Omit<SearchParams, 'page' | 'limit' | 'sort'>): Observable<SearchFacets> {
     return this.http.get<SearchFacets>(`${this.base}/search/facets`, {
+      params: paramsFrom(params),
+    });
+  }
+
+  /** GET /api/search/buckets — year/month aggregation over the same filter
+   * set (page/limit/sort are ignored server-side). Used by the Timeline
+   * view to pre-size the virtual scroller and render the right-rail
+   * scrubber without fetching every photo first. */
+  buckets(params: Omit<SearchParams, 'page' | 'limit' | 'sort'>): Observable<TimelineBuckets> {
+    return this.http.get<TimelineBuckets>(`${this.base}/search/buckets`, {
       params: paramsFrom(params),
     });
   }
