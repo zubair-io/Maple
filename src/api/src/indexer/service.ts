@@ -206,16 +206,23 @@ export class IndexerService {
       }
 
       let needsWalk = true;
+      let folderMtimeMs: number | null = null;
       if (cp) {
         try {
           const stat = await fs.stat(folderPath);
+          folderMtimeMs = stat.mtimeMs;
           needsWalk = stat.mtimeMs > cp.lastWalkedAt;
         } catch {
           needsWalk = true;
         }
       }
+      console.log(
+        `[indexer] watch ${folderPath}: walk=${needsWalk}` +
+          (cp ? ` (folder.mtime=${folderMtimeMs}, lastWalkedAt=${cp.lastWalkedAt})` : " (no checkpoint)")
+      );
       if (needsWalk) {
-        await this.walkOnce(folderId, folderPath);
+        const enqueued = await this.walkOnce(folderId, folderPath);
+        console.log(`[indexer] walk ${folderPath}: enqueued ${enqueued} files`);
         await writeCheckpoint({
           folderId,
           path: folderPath,
@@ -553,6 +560,7 @@ export function getIndexerService(): IndexerService {
     _instance = new IndexerService({
       generateThumb: (job) => generateThumb(job.absPath),
     });
+    console.log("[indexer] singleton constructed — handlers wired: generateThumb");
   }
   return _instance;
 }
