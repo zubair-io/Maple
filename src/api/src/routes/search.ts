@@ -61,6 +61,21 @@ function asNumber(value: string | undefined): number | undefined {
   return Number.isFinite(n) ? n : undefined;
 }
 
+/** Bare-date detector: matches `YYYY-MM-DD` with no time component. */
+const BARE_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** Widen a `from` date to the start of the day if no time component is set,
+ * so the lexicographic compare against ISO datetimes is correct. */
+function widenFromDate(s: string): string {
+  return BARE_DATE.test(s) ? `${s}T00:00:00.000Z` : s;
+}
+
+/** Widen a `to` date to the end of the day if no time component is set,
+ * so `$lte` includes photos captured on that day. */
+function widenToDate(s: string): string {
+  return BARE_DATE.test(s) ? `${s}T23:59:59.999Z` : s;
+}
+
 interface SearchQuery {
   q?: string;
   libraryId?: string;
@@ -168,9 +183,13 @@ export function buildFilter(q: SearchQuery): Filter<AssetDoc> | { error: string 
   // are safe for ISO 8601 with constant-width fields.
   // We may augment the same field below with `hasCapturedAt`'s `$ne: null`,
   // so build the predicate object once and merge to avoid double-write.
+  // Bare-date inputs (`YYYY-MM-DD` with no `T`) are widened to the full day
+  // before lexicographic comparison — otherwise `$lte: "2025-07-31"` skips
+  // every photo captured on July 31 (their stored value is `"2025-07-31T..."`
+  // which compares greater than the bare date).
   const capturedAtPredicate: Record<string, string | null> = {};
-  if (q.from) capturedAtPredicate.$gte = q.from;
-  if (q.to) capturedAtPredicate.$lte = q.to;
+  if (q.from) capturedAtPredicate.$gte = widenFromDate(q.from);
+  if (q.to) capturedAtPredicate.$lte = widenToDate(q.to);
 
   // hasCapturedAt='true' requires an EXIF capture date to be present. We
   // merge into the same predicate object as the from/to range so we don't
@@ -571,14 +590,6 @@ export const searchRoutes = new Elysia({ prefix: "/api/search" })
         count: number;
       }>;
       const untimedArr = (result?.untimed ?? []) as Array<{ count: number }>;
-
-      // Sanity cap: 50 years × 12 months = 600 buckets. Anything more means
-      // a bug (corrupt dates landing in distinct buckets), not a real photo
-      // library.
-      if (timed.length > 600) {
-        set.status = 400;
-        return { error: "too many buckets" };
-      }
 
       const buckets = timed.map((t) => ({
         year: t._id.year,

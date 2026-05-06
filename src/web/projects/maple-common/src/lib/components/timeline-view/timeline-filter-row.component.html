@@ -2,14 +2,14 @@
   class="flex h-8 flex-shrink-0 items-center gap-3 border-b-[0.5px] border-border bg-surface px-3"
 >
   <!-- Rating pills -->
-  <div class="flex items-center gap-1" role="radiogroup" aria-label="Minimum rating">
+  <div class="flex items-center gap-1" role="group" aria-label="Minimum rating">
     @for (i of STAR_INDICES; track i) {
       <button
         type="button"
         class="filter-pill flex h-6 w-6 items-center justify-center rounded border-[0.5px] border-transparent bg-transparent transition-colors duration-[120ms] hover:bg-surface-hover hover:border-border"
         [class.is-active]="state.minRating() >= i"
         [attr.aria-label]="i + ' stars or more'"
-        [attr.aria-checked]="state.minRating() === i"
+        [attr.aria-pressed]="state.minRating() === i"
         (click)="onRatingClick(i)"
       >
         <maple-icon
@@ -24,13 +24,13 @@
   <div class="h-5 w-px bg-border"></div>
 
   <!-- Flag pills -->
-  <div class="flex items-center gap-1" role="radiogroup" aria-label="Flag filter">
+  <div class="flex items-center gap-1" role="group" aria-label="Flag filter">
     @for (f of FLAG_OPTIONS; track f.value) {
       <button
         type="button"
         class="filter-pill h-6 cursor-pointer rounded border-[0.5px] border-transparent bg-transparent px-2 text-[11px] text-text-muted transition-colors duration-[120ms] hover:bg-surface-hover hover:border-border hover:text-text-main"
         [class.is-active]="state.flag() === f.value"
-        [attr.aria-checked]="state.flag() === f.value"
+        [attr.aria-pressed]="state.flag() === f.value"
         (click)="onFlagClick(f.value)"
       >
         {{ f.label }}
@@ -41,7 +41,7 @@
   <div class="h-5 w-px bg-border"></div>
 
   <!-- Color swatches -->
-  <div class="flex items-center gap-1" role="radiogroup" aria-label="Color label filter">
+  <div class="flex items-center gap-1" role="group" aria-label="Color label filter">
     @for (c of COLOR_OPTIONS; track c.value) {
       <button
         type="button"
@@ -49,7 +49,7 @@
         [class.is-active]="state.color() === c.value"
         [style.background]="c.swatch === 'transparent' ? 'var(--color-input-bg)' : c.swatch"
         [attr.aria-label]="c.label"
-        [attr.aria-checked]="state.color() === c.value"
+        [attr.aria-pressed]="state.color() === c.value"
         (click)="onColorClick(c.value)"
       >
         @if (c.value === '') {
@@ -68,7 +68,7 @@
       class="h-6 min-w-0 rounded border-[0.5px] border-border bg-input-bg px-1.5 text-[11px] text-text-main outline-0"
       aria-label="Captured from"
       [value]="state.from()"
-      (change)="onFromInput($event)"
+      (input)="onFromInput($event)"
     />
     <span class="text-[11px] text-text-muted">to</span>
     <input
@@ -76,7 +76,7 @@
       class="h-6 min-w-0 rounded border-[0.5px] border-border bg-input-bg px-1.5 text-[11px] text-text-main outline-0"
       aria-label="Captured to"
       [value]="state.to()"
-      (change)="onToInput($event)"
+      (input)="onToInput($event)"
     />
   </div>
 
