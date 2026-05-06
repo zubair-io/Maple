@@ -46,17 +46,36 @@ describe('TimelineViewComponent', () => {
   let timeline: TimelineStateService;
   let searchStub: SearchStub;
 
+  // Recording stubs so tests can verify the observer was actually
+  // constructed with a non-null root and that month sections were
+  // observe()'d. The lazy-wiring bug fixed in 7ca69b9 / f015bb8 was
+  // invisible to no-op stubs.
+  let ioCalls: Array<{ root: Element | null; callbacks: IntersectionObserverCallback }> = [];
+  let ioObservedTargets: HTMLElement[] = [];
+
   beforeEach(() => {
-    // jsdom lacks both observers — stub them with no-op shapes that
-    // satisfy the constructor + observe/disconnect surface the component
-    // calls.
-    const observerStub = class {
+    ioCalls = [];
+    ioObservedTargets = [];
+    const ioStub = class {
+      constructor(callback: IntersectionObserverCallback, options?: IntersectionObserverInit) {
+        ioCalls.push({
+          root: (options?.root as Element | null) ?? null,
+          callbacks: callback,
+        });
+      }
+      observe(t: Element): void {
+        ioObservedTargets.push(t as HTMLElement);
+      }
+      unobserve(): void {}
+      disconnect(): void {}
+    };
+    const roStub = class {
       observe(): void {}
       unobserve(): void {}
       disconnect(): void {}
     };
-    (globalThis as { ResizeObserver?: unknown }).ResizeObserver = observerStub;
-    (globalThis as { IntersectionObserver?: unknown }).IntersectionObserver = observerStub;
+    (globalThis as { ResizeObserver?: unknown }).ResizeObserver = roStub;
+    (globalThis as { IntersectionObserver?: unknown }).IntersectionObserver = ioStub;
 
     searchStub = new SearchStub();
     TestBed.configureTestingModule({
@@ -123,6 +142,39 @@ describe('TimelineViewComponent', () => {
     await new Promise((r) => setTimeout(r, 300));
     fixture.detectChanges();
     expect(fixture.nativeElement.textContent).toContain('7 untimed photos hidden');
+  });
+
+  it('wires IntersectionObserver against the live #scrollContainer (not a stale ref)', async () => {
+    library.selectedSourceId.set('fs:/Lib');
+    const fixture = TestBed.createComponent(TimelineViewComponent);
+    fixture.detectChanges();
+
+    // Wait for the debounced buckets refresh + the per-month directive
+    // ngOnInit to fire after the @for loop renders.
+    await new Promise((r) => setTimeout(r, 300));
+    fixture.detectChanges();
+    await new Promise((r) => setTimeout(r, 0));
+    fixture.detectChanges();
+
+    // The IntersectionObserver must exist and its root must be the
+    // #scrollContainer that's currently in the DOM — not a stale node
+    // that was unmounted by an intermediate "Loading timeline…" branch.
+    expect(ioCalls.length).toBeGreaterThanOrEqual(1);
+    const liveRoot = fixture.nativeElement.querySelector('.timeline-scroll') as HTMLElement;
+    expect(liveRoot).not.toBeNull();
+    const lastObserver = ioCalls[ioCalls.length - 1]!;
+    expect(lastObserver.root).toBe(liveRoot);
+
+    // Every month section from the bucket fixture (3 months) must have
+    // been observe()'d.
+    expect(ioObservedTargets.length).toBe(3);
+    for (const el of ioObservedTargets) {
+      expect(el.dataset['year']).toBeTruthy();
+      expect(el.dataset['month']).toBeTruthy();
+      // The observed element must be a descendant of the live root —
+      // catches the "observer wired to detached DOM" bug.
+      expect(liveRoot.contains(el)).toBe(true);
+    }
   });
 
   it('refetches buckets when a filter signal changes (debounced)', async () => {
