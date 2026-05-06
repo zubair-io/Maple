@@ -647,6 +647,32 @@ describe("/api/search timeline filters + buckets", () => {
         indexed_at: new Date().toISOString(),
         // exif intentionally omitted
       },
+      // Date-boundary regression (S1): last-day-of-month capture. Used to
+      // confirm that `to=2025-07-31` includes this row even though its
+      // stored captured_at is `2025-07-31T23:30:00.000Z` (lexicographically
+      // greater than the bare date).
+      {
+        folder_id: folderC,
+        abs_path: "/boundary/last-day.dng",
+        filename: `${TL_MARK}_eom.tlraw`,
+        size: 1024,
+        mtime: 400,
+        rating: 0,
+        flag: 0,
+        color_label: "",
+        indexed_at: new Date().toISOString(),
+        exif: {
+          captured_at: "2025-07-31T23:30:00.000Z",
+          camera_make: "BoundaryCam",
+          camera_model: "B-1",
+          lens: null,
+          iso: 200,
+          aperture: 4.0,
+          shutter: "1/500",
+          focal_length: 85,
+          gps: null,
+        },
+      },
       // Soft-deleted under /A/ — must NOT appear in pathPrefix or buckets.
       {
         folder_id: folderC,
@@ -944,6 +970,167 @@ describe("/api/search timeline filters + buckets", () => {
       )
     );
     expect(r.status).toBe(400);
+  });
+
+  it("date-boundary: bare to=YYYY-MM-DD includes last-day captures (S1)", async () => {
+    if (!mongoReachable) return;
+    const { searchRoutes } = await import("../src/routes/search.ts");
+    const { requireAuth } = await import("../src/auth/middleware.ts");
+    const app = new Elysia().use(requireAuth).use(searchRoutes);
+    // Boundary fixture: 2025-07-31T23:30:00Z. With bare-date $lte: "2025-07-31"
+    // and lex compare against the stored ISO datetime, this row would be
+    // excluded. The widenToDate helper must extend `to` to T23:59:59.999Z.
+    const r = await app.handle(
+      new Request(
+        `http://localhost/api/search?from=2025-07-01&to=2025-07-31&libraryId=${folderC.toHexString()}&q=${encodeURIComponent(TL_MARK)}`,
+        { headers: fmtAuth() }
+      )
+    );
+    expect(r.status).toBe(200);
+    const body = (await r.json()) as { total: number; results: Array<{ abs_path: string }> };
+    expect(body.total).toBe(1);
+    expect(body.results[0]!.abs_path).toBe("/boundary/last-day.dng");
+  });
+
+  it("date-boundary: bare from=YYYY-MM-DD includes 00:00 captures (S1)", async () => {
+    if (!mongoReachable) return;
+    const { searchRoutes } = await import("../src/routes/search.ts");
+    const { requireAuth } = await import("../src/auth/middleware.ts");
+    const app = new Elysia().use(requireAuth).use(searchRoutes);
+    // The 2026/04/01T12:00 bucket fixture should appear when from=2026-04-01.
+    const r = await app.handle(
+      new Request(
+        `http://localhost/api/search?from=2026-04-01&to=2026-04-01&libraryId=${folderC.toHexString()}&q=${encodeURIComponent(TL_MARK)}`,
+        { headers: fmtAuth() }
+      )
+    );
+    expect(r.status).toBe(200);
+    const body = (await r.json()) as { total: number };
+    expect(body.total).toBe(1);
+  });
+
+  it("date-boundary: full ISO datetimes pass through unchanged", async () => {
+    if (!mongoReachable) return;
+    const { searchRoutes } = await import("../src/routes/search.ts");
+    const { requireAuth } = await import("../src/auth/middleware.ts");
+    const app = new Elysia().use(requireAuth).use(searchRoutes);
+    // Caller already passes a full datetime — must NOT be widened.
+    const r = await app.handle(
+      new Request(
+        `http://localhost/api/search?from=${encodeURIComponent("2025-07-01T00:00:00.000Z")}&to=${encodeURIComponent("2025-07-31T22:00:00.000Z")}&libraryId=${folderC.toHexString()}&q=${encodeURIComponent(TL_MARK)}`,
+        { headers: fmtAuth() }
+      )
+    );
+    expect(r.status).toBe(200);
+    const body = (await r.json()) as { total: number };
+    // Boundary fixture's captured_at is 23:30 — explicit to=22:00 must exclude it.
+    expect(body.total).toBe(0);
+  });
+
+  it("hasCapturedAt=true with from-only constraint (no to)", async () => {
+    if (!mongoReachable) return;
+    const { searchRoutes } = await import("../src/routes/search.ts");
+    const { requireAuth } = await import("../src/auth/middleware.ts");
+    const app = new Elysia().use(requireAuth).use(searchRoutes);
+    const r = await app.handle(
+      new Request(
+        `http://localhost/api/search?from=2026-01-01&hasCapturedAt=true&libraryId=${folderC.toHexString()}&q=${encodeURIComponent(TL_MARK)}`,
+        { headers: fmtAuth() }
+      )
+    );
+    expect(r.status).toBe(200);
+    const body = (await r.json()) as { total: number };
+    // Bucket fixtures: 2026/05=2 + 2026/04=1 = 3 rows in 2026.
+    expect(body.total).toBe(3);
+  });
+
+  it("hasCapturedAt=true with to-only constraint (no from)", async () => {
+    if (!mongoReachable) return;
+    const { searchRoutes } = await import("../src/routes/search.ts");
+    const { requireAuth } = await import("../src/auth/middleware.ts");
+    const app = new Elysia().use(requireAuth).use(searchRoutes);
+    const r = await app.handle(
+      new Request(
+        `http://localhost/api/search?to=2024-12-31&hasCapturedAt=true&libraryId=${folderC.toHexString()}&q=${encodeURIComponent(TL_MARK)}`,
+        { headers: fmtAuth() }
+      )
+    );
+    expect(r.status).toBe(200);
+    const body = (await r.json()) as { total: number };
+    // No fixtures earlier than 2025; all marker rows are 2025+.
+    expect(body.total).toBe(0);
+  });
+
+  it("/buckets without pathPrefix matches everything in scope", async () => {
+    if (!mongoReachable) return;
+    const { searchRoutes } = await import("../src/routes/search.ts");
+    const { requireAuth } = await import("../src/auth/middleware.ts");
+    const app = new Elysia().use(requireAuth).use(searchRoutes);
+    const r = await app.handle(
+      new Request(
+        `http://localhost/api/search/buckets?libraryId=${folderC.toHexString()}&q=${encodeURIComponent(TL_MARK)}`,
+        { headers: fmtAuth() }
+      )
+    );
+    expect(r.status).toBe(200);
+    const body = (await r.json()) as {
+      total: number;
+      buckets: Array<{ year: number; month: number; count: number }>;
+      untimed_count: number;
+    };
+    // Every TL-marked timed row goes into a bucket; untimed counts both null
+    // and missing-exif rows.
+    expect(body.untimed_count).toBe(2);
+    expect(body.total).toBeGreaterThan(0);
+    // Buckets are sorted year DESC then month DESC.
+    for (let i = 1; i < body.buckets.length; i += 1) {
+      const prev = body.buckets[i - 1]!;
+      const cur = body.buckets[i]!;
+      const prevKey = prev.year * 100 + prev.month;
+      const curKey = cur.year * 100 + cur.month;
+      expect(prevKey).toBeGreaterThan(curKey);
+    }
+  });
+
+  it("/buckets composes with q free-text", async () => {
+    if (!mongoReachable) return;
+    const { searchRoutes } = await import("../src/routes/search.ts");
+    const { requireAuth } = await import("../src/auth/middleware.ts");
+    const app = new Elysia().use(requireAuth).use(searchRoutes);
+    const r = await app.handle(
+      new Request(
+        `http://localhost/api/search/buckets?q=${encodeURIComponent("_eom")}&libraryId=${folderC.toHexString()}`,
+        { headers: fmtAuth() }
+      )
+    );
+    expect(r.status).toBe(200);
+    const body = (await r.json()) as {
+      total: number;
+      buckets: Array<{ year: number; month: number; count: number }>;
+    };
+    // Only the boundary fixture matches the substring "_eom" — exactly 1
+    // photo in 2025/07.
+    expect(body.total).toBe(1);
+    expect(body.buckets).toHaveLength(1);
+    expect(body.buckets[0]!.year).toBe(2025);
+    expect(body.buckets[0]!.month).toBe(7);
+  });
+
+  it("/buckets large libraries return all buckets (no 600 cap)", async () => {
+    if (!mongoReachable) return;
+    // Sanity: confirm the previous "too many buckets" cap is gone. With the
+    // current fixture set (≪ 600 buckets), this just asserts the endpoint
+    // returns 200 — the absence of a 400 here is what the test pins.
+    const { searchRoutes } = await import("../src/routes/search.ts");
+    const { requireAuth } = await import("../src/auth/middleware.ts");
+    const app = new Elysia().use(requireAuth).use(searchRoutes);
+    const r = await app.handle(
+      new Request(
+        `http://localhost/api/search/buckets?libraryId=${folderC.toHexString()}`,
+        { headers: fmtAuth() }
+      )
+    );
+    expect(r.status).toBe(200);
   });
 
   it("ensureIndexes creates abs_path_1 index (idempotent)", async () => {

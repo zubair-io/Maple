@@ -43,6 +43,7 @@ import {
   TimelineBuckets,
 } from '../../api/search.service';
 import { FilesystemBrowseService } from '../../api/filesystem-browse.service';
+import { Asset } from '../../models/asset';
 import { LibraryStateService } from '../../state/library-state.service';
 import { TimelineStateService } from '../../state/timeline-state.service';
 import { TimelineFilterRowComponent } from './timeline-filter-row.component';
@@ -276,8 +277,10 @@ export class TimelineViewComponent implements AfterViewInit, OnDestroy {
   private async _runBucketsRefresh(): Promise<void> {
     const params = this.timeline.params();
     if (!params) {
-      this.buckets.set(null);
-      this._monthData.set(new Map());
+      // No scope selected. Don't nuke `buckets` here — the `hasPathPrefix()`
+      // empty-state branch in the template handles the no-scope view, and
+      // keeping the previous buckets around means a brief null transition
+      // between two valid scopes doesn't flash the loading state.
       return;
     }
     const gen = ++this.bucketsGen;
@@ -452,12 +455,38 @@ export class TimelineViewComponent implements AfterViewInit, OnDestroy {
 
   // ── Click handlers ───────────────────────────────────────────────────────
   onPhotoClick(p: PhotoVm, e: MouseEvent): void {
+    this._hydrate(p);
     this.state.selectAsset(p.id, e.metaKey || e.ctrlKey, e.shiftKey);
   }
 
   onPhotoDblClick(p: PhotoVm): void {
+    this._hydrate(p);
     this.state.selectAsset(p.id);
     void this.router.navigate(['/edit', p.id]);
+  }
+
+  /** Project a Timeline search hit into the `assets` signal so the detail
+   * panel has metadata to render. Without this, photos from sub-folders
+   * that haven't been listed via /api/fs/dir would `selectAsset` to a
+   * non-existent record. */
+  private _hydrate(p: PhotoVm): void {
+    const camera = p.camera
+      ? [p.camera.make, p.camera.model].filter((s): s is string => !!s).join(' ')
+      : undefined;
+    this.state.hydrateSelfHostedFsAsset(p.id, {
+      filename: p.filename,
+      rating: p.rating,
+      flag: p.flag === 1 ? 'pick' : p.flag === -1 ? 'reject' : 'unflagged',
+      colorLabel: (p.color_label || null) as Asset['colorLabel'],
+      camera: camera && camera.length > 0 ? camera : undefined,
+      lens: p.lens ?? undefined,
+      focalLength: p.focal_length != null ? `${p.focal_length}mm` : undefined,
+      aperture: p.aperture != null ? `f/${p.aperture}` : undefined,
+      shutter: p.shutter ?? undefined,
+      iso: p.iso ?? undefined,
+      capturedAt: p.captured_at ?? undefined,
+      size: p.size,
+    });
   }
 
   // ── Scrubber jump ────────────────────────────────────────────────────────
@@ -495,7 +524,9 @@ function pad2(n: number): string {
 }
 
 function daysInMonth(year: number, month: number): number {
-  return new Date(year, month, 0).getDate();
+  // Use UTC: EXIF capture-at is stored as UTC, and constructing in local time
+  // can drift by a day at month boundaries when the user is east of UTC.
+  return new Date(Date.UTC(year, month, 0)).getUTCDate();
 }
 
 function maxTime(photos: PhotoVm[]): number {

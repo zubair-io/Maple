@@ -23,14 +23,14 @@
     @if (state.backend === 'self-hosted') {
       <div
         class="flex items-center h-8 rounded-md border-[0.5px] border-border bg-input-bg overflow-hidden"
-        role="radiogroup"
+        role="group"
         aria-label="View mode"
       >
         <button
           type="button"
           class="view-mode-btn flex h-full items-center gap-1.5 px-2.5 text-[11px] text-text-muted transition-colors duration-[120ms] hover:text-text-main"
           [class.is-active]="state.viewMode() === 'folder'"
-          [attr.aria-checked]="state.viewMode() === 'folder'"
+          [attr.aria-pressed]="state.viewMode() === 'folder'"
           title="Folder view"
           (click)="state.setViewMode('folder')"
         >
@@ -47,7 +47,7 @@
           type="button"
           class="view-mode-btn flex h-full items-center gap-1.5 px-2.5 text-[11px] text-text-muted transition-colors duration-[120ms] hover:text-text-main"
           [class.is-active]="state.viewMode() === 'timeline'"
-          [attr.aria-checked]="state.viewMode() === 'timeline'"
+          [attr.aria-pressed]="state.viewMode() === 'timeline'"
           title="Timeline view"
           (click)="state.setViewMode('timeline')"
         >
