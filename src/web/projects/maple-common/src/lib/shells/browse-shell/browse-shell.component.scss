@@ -19,6 +19,11 @@
   border-color: var(--color-border);
 }
 
+.view-mode-btn.is-active {
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--color-text-main);
+}
+
 .export-btn.has-selection {
   background: var(--color-primary-dim);
   color: var(--color-primary);
