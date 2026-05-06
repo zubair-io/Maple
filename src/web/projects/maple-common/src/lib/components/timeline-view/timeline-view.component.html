@@ -1,0 +1,116 @@
+<div class="flex h-full w-full flex-col bg-bg" #container>
+  <app-timeline-filter-row />
+
+  @if (!hasPathPrefix()) {
+    <div class="flex flex-1 items-center justify-center text-[12px] text-text-muted">
+      Pick a library or folder to see a timeline.
+    </div>
+  } @else if (bucketsLoading() && !buckets()) {
+    <div class="flex flex-1 items-center justify-center text-[12px] text-text-muted">
+      Loading timeline…
+    </div>
+  } @else if (bucketsError(); as err) {
+    <div
+      class="flex flex-1 items-center justify-center px-3 text-center text-[12px] text-error-text"
+    >
+      {{ err }}
+    </div>
+  } @else if (isEmpty()) {
+    <div class="flex flex-1 items-center justify-center text-[12px] text-text-muted">
+      No photos in this scope match your filters.
+    </div>
+  } @else {
+    @if (untimedHint(); as hint) {
+      <div
+        class="flex h-7 flex-shrink-0 items-center justify-center border-b-[0.5px] border-border bg-surface px-3 text-[11px] text-text-muted"
+      >
+        {{ hint }}
+      </div>
+    }
+
+    <div class="flex min-h-0 flex-1">
+      <div class="timeline-scroll flex-1 overflow-y-auto" #scrollContainer>
+        @for (y of years(); track trackYear($index, y)) {
+          <div class="year-group">
+            <div
+              class="sticky top-0 z-10 flex h-11 items-end border-b-[0.5px] border-border bg-bg px-3 pb-1 text-[20px] font-semibold text-text-main"
+            >
+              {{ y.year }}
+              <span class="ml-2 text-[11px] font-normal text-text-muted">
+                {{ y.count }} photo{{ y.count === 1 ? '' : 's' }}
+              </span>
+            </div>
+
+            @for (m of y.months; track trackMonth($index, m)) {
+              <div
+                class="month-section"
+                [attr.data-year]="m.bucket.year"
+                [attr.data-month]="m.bucket.month"
+                [appTimelineRegisterMonth]="registerMonthSection"
+              >
+                <div class="flex h-8 items-center px-4 text-[13px] font-medium text-text-main">
+                  {{ monthLabel(m.bucket.month) }}
+                  <span class="ml-2 text-[11px] font-normal text-text-muted">{{
+                    m.bucket.count
+                  }}</span>
+                </div>
+
+                @if (!m.data || !m.data.loaded) {
+                  <div
+                    class="flex h-[140px] items-center justify-center text-[11px] text-text-muted"
+                  >
+                    Loading {{ monthLabel(m.bucket.month) }} {{ m.bucket.year }}…
+                  </div>
+                } @else {
+                  @for (g of m.groups; track trackGroup($index, g)) {
+                    <div class="folder-group">
+                      <div
+                        class="flex h-6 items-center px-5 text-[11px] uppercase tracking-[0.05em] text-text-muted"
+                      >
+                        {{ folderGroupLabel(g.folderName) }}
+                        <span class="ml-2 normal-case tracking-normal"
+                          >({{ g.photos.length }})</span
+                        >
+                      </div>
+                      <div class="flex flex-wrap gap-1 px-4 pb-2">
+                        @for (p of g.photos; track trackPhoto($index, p)) {
+                          <button
+                            type="button"
+                            class="timeline-photo relative h-[140px] w-[140px] flex-shrink-0 cursor-pointer overflow-hidden rounded-sm border-[0.5px] border-border bg-surface-hover transition-[border-color] duration-[120ms] hover:border-primary"
+                            [class.is-selected]="state.focusedAssetId() === p.id"
+                            [attr.aria-label]="p.filename"
+                            (click)="onPhotoClick(p, $event)"
+                            (dblclick)="onPhotoDblClick(p)"
+                          >
+                            @if (p.thumbUrl) {
+                              <img
+                                class="block h-full w-full object-cover"
+                                [src]="p.thumbUrl"
+                                alt=""
+                                loading="lazy"
+                                decoding="async"
+                              />
+                            }
+                            @if (p.rating > 0) {
+                              <div
+                                class="absolute bottom-1 right-1 rounded bg-black/45 px-1 py-0.5 text-[10px] text-white backdrop-blur-[4px]"
+                              >
+                                {{ p.rating }}★
+                              </div>
+                            }
+                          </button>
+                        }
+                      </div>
+                    </div>
+                  }
+                }
+              </div>
+            }
+          </div>
+        }
+      </div>
+
+      <app-timeline-scrubber [buckets]="scrubberBuckets()" (jumpTo)="onScrubberJump($event)" />
+    </div>
+  }
+</div>

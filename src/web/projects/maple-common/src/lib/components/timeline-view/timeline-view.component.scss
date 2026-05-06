@@ -1,0 +1,23 @@
+// Component-level styles for the timeline view. Layout is Tailwind; this
+// file only owns the small set of rules where a utility class can't reach.
+
+:host {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.timeline-viewport {
+  height: 100%;
+  width: 100%;
+}
+
+.timeline-row {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.timeline-photo.is-selected {
+  border-color: var(--color-primary);
+  box-shadow: inset 0 0 0 1.5px var(--color-primary);
+}
