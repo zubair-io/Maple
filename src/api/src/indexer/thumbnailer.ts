@@ -31,6 +31,10 @@ const RAW_EXTS = new Set([
 
 const THUMB_LONG_EDGE_PX = 512;
 
+let _thumbsRendered = 0;
+let _thumbsCached = 0;
+let _thumbsFailed = 0;
+
 export async function generateThumb(absPath: string): Promise<void> {
   const ext = path.extname(absPath).toLowerCase();
   const thumbPath = resolveThumbPath(absPath);
@@ -43,7 +47,11 @@ export async function generateThumb(absPath: string): Promise<void> {
       fs.stat(thumbPath),
       fs.stat(absPath),
     ]);
-    if (thumbStat.size > 0 && thumbStat.mtimeMs >= srcStat.mtimeMs) return;
+    if (thumbStat.size > 0 && thumbStat.mtimeMs >= srcStat.mtimeMs) {
+      _thumbsCached++;
+      logCounters();
+      return;
+    }
   } catch {
     // Thumb missing (or source vanished — that will fail downstream anyway).
   }
@@ -52,8 +60,22 @@ export async function generateThumb(absPath: string): Promise<void> {
     ? await renderRawThumbToFile(absPath, thumbPath)
     : await copyImageAsThumb(absPath, thumbPath);
 
-  if (!ok) {
-    console.warn(`[thumbnailer] skipped ${path.basename(absPath)}: could not generate thumb`);
+  if (ok) {
+    _thumbsRendered++;
+    console.log(`[thumbnailer] rendered ${thumbPath}`);
+  } else {
+    _thumbsFailed++;
+    console.warn(`[thumbnailer] failed ${absPath}`);
+  }
+  logCounters();
+}
+
+function logCounters(): void {
+  const total = _thumbsRendered + _thumbsCached + _thumbsFailed;
+  if (total > 0 && total % 50 === 0) {
+    console.log(
+      `[thumbnailer] totals — rendered=${_thumbsRendered} cached=${_thumbsCached} failed=${_thumbsFailed}`
+    );
   }
 }
 
