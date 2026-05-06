@@ -65,9 +65,9 @@ const app = new Elysia()
 
   .put(
     "/config",
-    ({ body }) => {
+    async ({ body }) => {
       const svc = getIndexerService();
-      svc.setConfig(body.workers);
+      await svc.setConfig(body.workers);
       return { ok: true, status: svc.status() };
     },
     { body: ConfigBody },
