@@ -64,6 +64,9 @@ public final class CloudTimelineViewModel {
   public func loadBuckets() async {
     let g = bumpGeneration()
     let host = server.host ?? ""
+    // Clear any stale error from a previous load so an offline-then-
+    // online retry doesn't leave the banner up.
+    loadError = nil
     if let cached = await bucketsCache.read(host: host, libraryID: libraryID) {
       guard g == generation else { return }
       buckets = cached.buckets
@@ -82,12 +85,32 @@ public final class CloudTimelineViewModel {
   }
 
   /// Stale-while-revalidate per (year, month) bucket. Idempotent — returns
-  /// immediately if already in-flight.
+  /// immediately if already in-flight. Cleanup (semaphore release +
+  /// inFlight removal) runs in `defer` so cancellation at any await
+  /// point doesn't strand the bucket key permanently in `inFlight`
+  /// (which would make that month section unrecoverable).
   public func loadPage(year: Int, month: Int) async {
     let key = BucketKey(year: year, month: month)
     let g = generation
     let host = server.host ?? ""
+
+    // Guard + insert MUST be synchronous (no `await` between them) so
+    // two near-simultaneous onAppears can't both pass the guard before
+    // either inserts. Previously the cache `await` between them allowed
+    // 2x bandwidth on a fast scroll-then-reverse.
     guard !inFlight.contains(key) else { return }
+    inFlight.insert(key)
+
+    var acquired = false
+    let sem = self.semaphore
+    defer {
+      // Fire-and-forget release — defer can't await. The detached Task
+      // will not be cancelled by our caller's cancellation.
+      if acquired {
+        Task.detached { await sem.release() }
+      }
+      inFlight.remove(key)
+    }
 
     if let cached = await pagesCache.read(host: host, libraryID: libraryID,
                                           year: year, month: month, page: 1) {
@@ -95,8 +118,9 @@ public final class CloudTimelineViewModel {
       pagesByBucket[key] = cached.results
     }
 
-    inFlight.insert(key)
     await semaphore.acquire()
+    acquired = true
+
     do {
       let fresh = try await searchClient.page(libraryID: libraryID,
                                               year: year, month: month)
@@ -108,8 +132,6 @@ public final class CloudTimelineViewModel {
     } catch {
       if g == generation { loadError = error }
     }
-    await semaphore.release()
-    inFlight.remove(key)
   }
 
   // MARK: - Helpers
