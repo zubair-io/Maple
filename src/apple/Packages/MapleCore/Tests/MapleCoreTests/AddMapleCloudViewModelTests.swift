@@ -204,6 +204,50 @@ final class AddMapleCloudViewModelTests: XCTestCase {
     await vm.joinWithInvite()
     if case .error = vm.state { } else { XCTFail("expected error") }
   }
+
+  // MARK: Side-effect callback
+
+  func test_signedIn_invokesOnSignedInCallbackOnce() async {
+    let host = CloudHost.parse("myserver.com")!
+    let flow = StubCloudAuthFlow(server: host.url)
+    let user = AuthUser(id: "u9", email: "callback@example.com", role: "owner")
+    flow.bootstrapResult = .success(false)
+    flow.registerResult = .success(AuthVerifyResponse(
+      access_token: "AT", refresh_token: "RT", user: user))
+
+    let recorder = SignedInRecorder()
+    let vm = AddMapleCloudViewModel(
+      makeFlow: { _ in flow },
+      onSignedIn: { url, tokens, user in
+        recorder.record(url: url, tokens: tokens, user: user)
+      })
+
+    vm.domainInput = "myserver.com"
+    await vm.continueFromIdle()
+    vm.emailInput = "callback@example.com"
+    await vm.claimOwner()
+
+    XCTAssertEqual(recorder.calls.count, 1)
+    XCTAssertEqual(recorder.calls.first?.url, host.url)
+    XCTAssertEqual(recorder.calls.first?.tokens, AuthTokens(access: "AT", refresh: "RT"))
+    XCTAssertEqual(recorder.calls.first?.user, user)
+  }
+}
+
+/// Helper that records onSignedIn invocations. We use a class instead of a
+/// captured local var so the closure can mutate without Swift 6 actor-isolation
+/// gymnastics.
+@MainActor
+final class SignedInRecorder {
+  struct Call: Equatable {
+    let url: URL
+    let tokens: AuthTokens
+    let user: AuthUser
+  }
+  var calls: [Call] = []
+  func record(url: URL, tokens: AuthTokens, user: AuthUser) {
+    calls.append(Call(url: url, tokens: tokens, user: user))
+  }
 }
 
 // MARK: - Test doubles

@@ -43,8 +43,26 @@ public final class AddMapleCloudViewModel {
   /// platform-appropriate name; tests can override.
   public var deviceLabel: () -> String = AddMapleCloudViewModel.defaultDeviceLabel
 
-  public init(makeFlow: @escaping (URL) -> any CloudAuthFlow = { AuthClient(server: $0) }) {
+  /// Side-effect callback — invoked exactly once when state transitions
+  /// to `.signedIn`. The sheet uses it to persist tokens, register the
+  /// server with the existing credential store, and dismiss itself.
+  /// Tests can pass a closure that records calls.
+  public typealias OnSignedIn = @MainActor (URL, AuthTokens, AuthUser) -> Void
+
+  private let onSignedIn: OnSignedIn
+
+  public init(makeFlow: @escaping (URL) -> any CloudAuthFlow = { AuthClient(server: $0) },
+              onSignedIn: @escaping OnSignedIn = { _, _, _ in }) {
     self.makeFlow = makeFlow
+    self.onSignedIn = onSignedIn
+  }
+
+  /// Centralized signedIn transition — fires the callback exactly once.
+  private func transitionToSignedIn(_ host: CloudHost,
+                                    response resp: AuthVerifyResponse) {
+    let tokens = AuthTokens(access: resp.access_token, refresh: resp.refresh_token)
+    state = .signedIn(host, tokens: tokens, user: resp.user)
+    onSignedIn(host.url, tokens, resp.user)
   }
 
   // MARK: - Transitions
@@ -83,10 +101,7 @@ public final class AddMapleCloudViewModel {
                                          inviteCode: nil,
                                          deviceLabel: deviceLabel(),
                                          presentationAnchor: presentationAnchor())
-      state = .signedIn(host,
-                        tokens: AuthTokens(access: resp.access_token,
-                                           refresh: resp.refresh_token),
-                        user: resp.user)
+      transitionToSignedIn(host, response: resp)
     } catch {
       state = .error(message: error.localizedDescription,
                      recoverableTo: .needsOwnerClaim(host))
@@ -115,10 +130,7 @@ public final class AddMapleCloudViewModel {
     do {
       let resp = try await flow.login(email: email,
                                       presentationAnchor: presentationAnchor())
-      state = .signedIn(host,
-                        tokens: AuthTokens(access: resp.access_token,
-                                           refresh: resp.refresh_token),
-                        user: resp.user)
+      transitionToSignedIn(host, response: resp)
     } catch {
       state = .error(message: error.localizedDescription,
                      recoverableTo: .enteringSignInEmail(host))
@@ -156,10 +168,7 @@ public final class AddMapleCloudViewModel {
                                          inviteCode: code,
                                          deviceLabel: deviceLabel(),
                                          presentationAnchor: presentationAnchor())
-      state = .signedIn(host,
-                        tokens: AuthTokens(access: resp.access_token,
-                                           refresh: resp.refresh_token),
-                        user: resp.user)
+      transitionToSignedIn(host, response: resp)
     } catch {
       state = .error(message: error.localizedDescription,
                      recoverableTo: .enteringInviteDetails(host))
