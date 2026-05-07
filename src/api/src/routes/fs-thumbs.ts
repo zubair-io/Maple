@@ -15,44 +15,16 @@
 // resolved and rejected if they fall outside any allowed root.
 
 import { Elysia, t } from "elysia";
-import {
-  stat,
-  readFile,
-  writeFile,
-  rename,
-  realpath,
-  mkdir,
-} from "node:fs/promises";
+import { stat, readFile, realpath, mkdir } from "node:fs/promises";
 import * as path from "node:path";
-import sharp from "sharp";
-// `heic-convert` is a pure-JS HEIC decoder. We use it because sharp's
-// prebuilt libvips on Linux ships without libheif (libheif → x265 GPL,
-// sharp's MIT prebuilts exclude it). The decoder gives us a JPEG buffer
-// that we then pipe through sharp for the resize + EXIF rotation.
-import heicConvert from "heic-convert";
 import { browseRoots, isUnderRoot, RAW_EXTENSIONS } from "../fs/browse.ts";
 import { resolveThumbPath } from "../fs/xmp.ts";
 import { ffiPool } from "../ffi/ffi-pool.ts";
+import { renderImageThumbToFile, SHARP_EXTENSIONS } from "../thumbs/render.ts";
 
 const DEFAULT_SIZE_PX = 512;
 const MIN_SIZE_PX = 16;
 const MAX_SIZE_PX = 4096;
-
-/** Non-RAW image extensions that sharp can decode + resize directly.
- * Indexer also surfaces these (see indexer/service.ts), so they show up
- * in the timeline; without this branch their thumb requests 415. */
-const SHARP_EXTENSIONS = new Set<string>([
-  "jpg",
-  "jpeg",
-  "png",
-  "webp",
-  "gif",
-  "tif",
-  "tiff",
-  "heic",
-  "heif",
-  "avif",
-]);
 
 export const fsThumbsRoutes = new Elysia({ prefix: "/api/fs" }).get(
   "/thumb",
@@ -183,36 +155,8 @@ export const fsThumbsRoutes = new Elysia({ prefix: "/api/fs" }).get(
     }
 
     if (isSharp) {
-      // Bitmap formats: sharp handles decode + resize + JPEG encode in
-      // one pipeline. `rotate()` honours EXIF orientation so portrait
-      // photos don't end up sideways. Atomic .tmp + rename so a crash
-      // mid-write never leaves a half-written cache file.
-      // HEIC/HEIF: sharp's prebuilt libvips doesn't include libheif on
-      // Linux, so we decode via heic-convert (pure JS) into an
-      // intermediate JPEG buffer first, then sharp resizes that.
-      const tmp = `${thumbPath}.${process.pid}.tmp`;
       try {
-        let pipeline: sharp.Sharp;
-        if (ext === "heic" || ext === "heif") {
-          const inputBuffer = await readFile(real);
-          // heic-convert returns a JPEG buffer; quality 0.9 keeps detail
-          // for the subsequent downscale.
-          const jpegBuffer = (await heicConvert({
-            buffer: inputBuffer,
-            format: "JPEG",
-            quality: 0.9,
-          })) as Buffer;
-          pipeline = sharp(jpegBuffer, { failOn: "none" });
-        } else {
-          pipeline = sharp(real, { failOn: "none" });
-        }
-        const buf = await pipeline
-          .rotate()
-          .resize(sizePx, sizePx, { fit: "inside", withoutEnlargement: true })
-          .jpeg({ quality: 82, mozjpeg: true })
-          .toBuffer();
-        await writeFile(tmp, buf);
-        await rename(tmp, thumbPath);
+        await renderImageThumbToFile(real, thumbPath, sizePx, ext);
       } catch (err) {
         set.status = 500;
         return {
