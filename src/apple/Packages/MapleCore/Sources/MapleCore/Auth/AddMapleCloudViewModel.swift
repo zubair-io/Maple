@@ -93,6 +93,38 @@ public final class AddMapleCloudViewModel {
     }
   }
 
+  /// needsAuth → enteringSignInEmail.
+  public func chooseSignIn() {
+    if case .needsAuth(let host) = state {
+      emailInput = ""
+      state = .enteringSignInEmail(host)
+    }
+  }
+
+  /// enteringSignInEmail → signingIn → (signedIn | error).
+  public func signIn() async {
+    guard case .enteringSignInEmail(let host) = state else { return }
+    let email = emailInput.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !email.isEmpty else {
+      state = .error(message: "Enter an email address",
+                     recoverableTo: .enteringSignInEmail(host))
+      return
+    }
+    state = .signingIn(host, email: email)
+    let flow = makeFlow(host.url)
+    do {
+      let resp = try await flow.login(email: email,
+                                      presentationAnchor: presentationAnchor())
+      state = .signedIn(host,
+                        tokens: AuthTokens(access: resp.access_token,
+                                           refresh: resp.refresh_token),
+                        user: resp.user)
+    } catch {
+      state = .error(message: error.localizedDescription,
+                     recoverableTo: .enteringSignInEmail(host))
+    }
+  }
+
   /// Resets the error state back to its `recoverableTo` target.
   public func retryFromError() {
     if case .error(_, let target) = state { state = target }

@@ -107,6 +107,56 @@ final class AddMapleCloudViewModelTests: XCTestCase {
 
     if case .error = vm.state { } else { XCTFail("expected error") }
   }
+
+  // MARK: Sign in
+
+  func test_chooseSignIn_routesToEnteringSignInEmail() async {
+    let host = CloudHost.parse("myserver.com")!
+    let vm = AddMapleCloudViewModel(makeFlow: { _ in StubCloudAuthFlow(server: host.url) })
+    vm.state = .needsAuth(host)
+    vm.chooseSignIn()
+    XCTAssertEqual(vm.state, .enteringSignInEmail(host))
+  }
+
+  func test_signIn_success_routesToSignedIn() async {
+    let host = CloudHost.parse("myserver.com")!
+    let flow = StubCloudAuthFlow(server: host.url)
+    let user = AuthUser(id: "u2", email: "alice@example.com", role: "member")
+    flow.loginResult = .success(AuthVerifyResponse(
+      access_token: "A", refresh_token: "R", user: user))
+    let vm = AddMapleCloudViewModel(makeFlow: { _ in flow })
+
+    vm.state = .enteringSignInEmail(host)
+    vm.emailInput = "alice@example.com"
+    await vm.signIn()
+
+    XCTAssertEqual(vm.state, .signedIn(host,
+      tokens: AuthTokens(access: "A", refresh: "R"), user: user))
+  }
+
+  func test_signIn_failure_routesToErrorRecoveringToEmailEntry() async {
+    let host = CloudHost.parse("myserver.com")!
+    let flow = StubCloudAuthFlow(server: host.url)
+    flow.loginResult = .failure(StubError.network("no credential"))
+    let vm = AddMapleCloudViewModel(makeFlow: { _ in flow })
+
+    vm.state = .enteringSignInEmail(host)
+    vm.emailInput = "alice@example.com"
+    await vm.signIn()
+
+    if case .error(_, let recover) = vm.state {
+      XCTAssertEqual(recover, .enteringSignInEmail(host))
+    } else { XCTFail("expected error") }
+  }
+
+  func test_signIn_emptyEmail_routesToError() async {
+    let host = CloudHost.parse("myserver.com")!
+    let vm = AddMapleCloudViewModel(makeFlow: { _ in StubCloudAuthFlow(server: host.url) })
+    vm.state = .enteringSignInEmail(host)
+    vm.emailInput = ""
+    await vm.signIn()
+    if case .error = vm.state { } else { XCTFail("expected error") }
+  }
 }
 
 // MARK: - Test doubles
