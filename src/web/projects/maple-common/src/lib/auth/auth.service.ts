@@ -15,6 +15,26 @@ export class AuthService {
   readonly user = signal<AuthUser | null>(null);
   private accessToken: string | null = null;
 
+  /// Custom URL scheme to redirect to after auth success when the page
+  /// was loaded inside an `ASWebAuthenticationSession` from the Apple
+  /// app. Read once at service construction; preserved across in-app
+  /// navigations (the session captures the redirect by scheme, not by
+  /// the path the user navigates through).
+  ///
+  /// `null` in a normal browser tab.
+  private readonly _nativeCallbackScheme: string | null = (() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const cb = params.get("native_callback");
+      // Restrict to a-z digits and `-` to avoid javascript:// or other
+      // shenanigans being smuggled in.
+      if (cb && /^[a-z][a-z0-9-]*$/i.test(cb)) return cb;
+    } catch {
+      /* SSR / non-browser contexts */
+    }
+    return null;
+  })();
+
   get bearer(): string | null {
     return this.accessToken;
   }
@@ -168,6 +188,35 @@ export class AuthService {
   private acceptTokens(r: any): void {
     this.accessToken = r.access_token;
     this.user.set(r.user);
-    // Refresh token is set by the server as an httpOnly cookie; not visible to JS.
+    // Refresh token is set by the server as an httpOnly cookie; not
+    // visible to JS in a normal browser context. The same `/login/verify`
+    // and `/register/verify` responses ALSO include `refresh_token` in
+    // the JSON body so the native shell can capture it via the bridge.
+    this.postNativeAuthSuccess(r);
+  }
+
+  /// Returns true when the page is running inside an
+  /// `ASWebAuthenticationSession` started by the Maple Apple shell.
+  /// Detected via the `?native_callback=<scheme>` query parameter the
+  /// Apple side adds to the initial URL.
+  get isNativeShell(): boolean {
+    return this._nativeCallbackScheme !== null;
+  }
+
+  /// Redirects to the native callback URL after a successful auth
+  /// ceremony. The host `ASWebAuthenticationSession` captures the
+  /// redirect by matching the scheme — the URL never reaches Safari's
+  /// regular history or any other app. Tokens are short-lived JWTs;
+  /// the URL is local-process-only.
+  private postNativeAuthSuccess(r: any): void {
+    const scheme = this._nativeCallbackScheme;
+    if (!scheme) return;
+    const params = new URLSearchParams();
+    params.set("access_token", r.access_token);
+    params.set("refresh_token", r.refresh_token);
+    params.set("user_id", r.user.id);
+    params.set("user_email", r.user.email);
+    params.set("user_role", r.user.role);
+    window.location.href = `${scheme}://auth-success?${params.toString()}`;
   }
 }
