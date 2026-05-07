@@ -52,7 +52,7 @@ public enum RenderPhase: Sendable, Equatable {
 ///
 /// For filesystem-shaped sources (`FilesystemSource`, `SMBSource`, Files.app)
 /// `primaryURL` is set and the Rust pipeline reads from disk. For sources
-/// that only hand out bytes (`PhotoKitSource`, `SelfHostedSource`)
+/// that only hand out bytes (`PhotoKitSource`, `CloudSource`)
 /// `primaryURL` is `nil` and `bytesProvider` must be set to a closure that
 /// fetches the full RAW bytes on demand; the pipeline then calls
 /// `PipelineRenderer.render(rawBytes:hint:)`.
