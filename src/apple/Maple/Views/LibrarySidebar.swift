@@ -327,6 +327,15 @@ struct LibrarySidebar: View {
                     }
                 }
             }
+            // Drop folder caches for servers that have been removed from
+            // the registry — otherwise re-adding the same URL shows a
+            // stale list. Triggered by registry.servers mutations via
+            // Observation.
+            .onChange(of: registry.servers) { _, current in
+                let currentSet = Set(current)
+                cloudFoldersByServer = cloudFoldersByServer.filter { currentSet.contains($0.key) }
+                cloudServersExpanded = cloudServersExpanded.filter { currentSet.contains($0.key) }
+            }
             // Always visible — fresh users with no servers need this most.
             // Previously gated on `!registry.servers.isEmpty`, which hid
             // the entry point exactly when it was the only path forward.
