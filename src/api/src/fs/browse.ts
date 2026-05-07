@@ -9,8 +9,9 @@
 import { readdir, realpath, stat } from "node:fs/promises";
 import * as path from "node:path";
 import type { OpResult } from "./root.ts";
-import { assetsCollection } from "../db/client.ts";
+import { assetsCollection, foldersCollection } from "../db/client.ts";
 import type { AssetExif } from "../db/schema.ts";
+import { targetUrl } from "../indexer/control.ts";
 
 export interface DirEntry {
   name: string;
@@ -291,6 +292,7 @@ export async function listDirContents(
   // trip with `$in` rather than per-image lookups. If the indexer hasn't
   // touched this folder yet, the find returns nothing and `exif` stays
   // undefined on each entry — the client renders "—" gracefully.
+  const indexedPaths = new Set<string>();
   if (images.length > 0) {
     try {
       const coll = await assetsCollection();
@@ -301,6 +303,7 @@ export async function listDirContents(
       const byPath = new Map<string, AssetExif | null | undefined>();
       for await (const doc of cursor) {
         byPath.set(doc.abs_path, doc.exif);
+        indexedPaths.add(doc.abs_path);
       }
       for (const img of images) {
         if (byPath.has(img.path)) img.exif = byPath.get(img.path);
@@ -308,6 +311,25 @@ export async function listDirContents(
     } catch (err) {
       // EXIF enrichment is best-effort — a DB hiccup shouldn't break browse.
       console.error(`[fs/browse] exif lookup failed for "${real}":`, err);
+    }
+  }
+
+  // Fire-and-forget: index any RAW images in this listing that don't have
+  // an asset doc yet. Skips the thumb stage — `/api/fs/thumb` already
+  // renders thumbs lazily, so re-doing the work in the indexer would
+  // waste the FFI worker pool. Best-effort: a missing folder ancestor
+  // or a down indexer child both quietly no-op.
+  if (images.length > 0) {
+    const unindexed = images
+      .filter((i) => !indexedPaths.has(i.path))
+      .map((i) => i.path);
+    if (unindexed.length > 0) {
+      void enqueueBrowseIndex(real, unindexed).catch((err) =>
+        console.warn(
+          `[fs/browse] enqueue browse index for "${real}" failed:`,
+          err instanceof Error ? err.message : err,
+        ),
+      );
     }
   }
 
@@ -321,4 +343,57 @@ export async function listDirContents(
       images,
     },
   };
+}
+
+/**
+ * Find the deepest registered folder whose `path` is an ancestor of
+ * `absPath` (inclusive). Returns the folder's hex `_id`, or `null` if
+ * `absPath` is not under any registered folder. The set of folders is
+ * small (one per library root the user has registered) so a full scan
+ * here is fine.
+ */
+async function findOwningFolderId(absPath: string): Promise<string | null> {
+  const coll = await foldersCollection();
+  const folders = await coll.find({}).toArray();
+  let bestId: string | null = null;
+  let bestLen = -1;
+  for (const f of folders) {
+    if (absPath === f.path || absPath.startsWith(f.path + "/")) {
+      if (f.path.length > bestLen) {
+        bestLen = f.path.length;
+        bestId = f._id.toHexString();
+      }
+    }
+  }
+  return bestId;
+}
+
+/**
+ * Push a batch of un-indexed paths into the standalone indexer's discover
+ * channel via `POST /enqueue`. Resolves the owning folder by ancestry; if
+ * no registered folder contains the browse path, the call no-ops (we have
+ * no `folder_id` to attach). Localhost-only fetch — same trust boundary
+ * as the indexer proxy.
+ */
+async function enqueueBrowseIndex(
+  dirPath: string,
+  paths: string[],
+): Promise<void> {
+  const folderId = await findOwningFolderId(dirPath);
+  if (!folderId) return;
+  try {
+    await fetch(targetUrl("/enqueue"), {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ folderId, paths, skipThumb: true }),
+      signal: AbortSignal.timeout(5_000),
+    });
+  } catch (err) {
+    // Indexer down or unreachable — the watcher will pick this up later
+    // when the folder is registered or scanned again. No retry here.
+    console.warn(
+      `[fs/browse] indexer enqueue failed for "${dirPath}":`,
+      err instanceof Error ? err.message : err,
+    );
+  }
 }
