@@ -45,7 +45,14 @@ export class SignInComponent implements OnInit {
       } else {
         await this.auth.signIn(this.email);
       }
-      await this.router.navigateByUrl('/');
+      // In the Apple shell's WKWebView the native host has already
+      // received the tokens via the `maple` message handler and is
+      // about to dismiss the sheet. Skip the SPA navigation so we
+      // don't waste a round-trip loading the library only to be
+      // closed.
+      if (!this.auth.isNativeShell) {
+        await this.router.navigateByUrl('/');
+      }
     } catch (e: unknown) {
       this.error.set(e instanceof Error ? e.message : String(e));
     } finally {
@@ -58,7 +65,9 @@ export class SignInComponent implements OnInit {
     this.error.set(null);
     try {
       await this.auth.devSignIn();
-      await this.router.navigateByUrl('/');
+      if (!this.auth.isNativeShell) {
+        await this.router.navigateByUrl('/');
+      }
     } catch (e: unknown) {
       this.error.set(e instanceof Error ? e.message : String(e));
     } finally {
