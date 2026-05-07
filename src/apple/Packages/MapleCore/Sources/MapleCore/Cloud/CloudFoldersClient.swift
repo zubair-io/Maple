@@ -18,7 +18,13 @@ public actor CloudFoldersClient {
     let req = URLRequest(url: url)
     let (data, resp) = try await httpClient.data(for: req)
     try Self.checkOK(resp, data: data)
-    return try JSONDecoder().decode([CloudFolder].self, from: data)
+    do {
+      return try JSONDecoder().decode([CloudFolder].self, from: data)
+    } catch {
+      let preview = String(data: data.prefix(2048), encoding: .utf8) ?? "<non-utf8 \(data.count)B>"
+      cloudHTTPLogger.error("decode [CloudFolder] failed: \(error.localizedDescription, privacy: .public) — body preview: \(preview, privacy: .public)")
+      throw error
+    }
   }
 
   private static func checkOK(_ resp: URLResponse, data: Data) throws {

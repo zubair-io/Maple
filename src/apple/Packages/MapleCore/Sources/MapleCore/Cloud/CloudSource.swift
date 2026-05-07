@@ -43,7 +43,14 @@ extension CloudSource: ImageSource {
       let req = URLRequest(url: pageURL)
       let (data, resp) = try await httpClient.data(for: req)
       try Self.checkOK(resp, data: data)
-      let parsed = try JSONDecoder().decode(CloudAssetsPage.self, from: data)
+      let parsed: CloudAssetsPage
+      do {
+        parsed = try JSONDecoder().decode(CloudAssetsPage.self, from: data)
+      } catch {
+        let preview = String(data: data.prefix(2048), encoding: .utf8) ?? "<non-utf8 \(data.count)B>"
+        cloudHTTPLogger.error("decode CloudAssetsPage failed (page \(page, privacy: .public), folder \(self.folderID, privacy: .public)): \(error.localizedDescription, privacy: .public) — body preview: \(preview, privacy: .public)")
+        throw error
+      }
       refs.append(contentsOf: parsed.assets.map { dto in
         ImageRef(id: dto.id, displayName: dto.filename, url: nil)
       })
