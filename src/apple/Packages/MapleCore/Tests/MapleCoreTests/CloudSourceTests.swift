@@ -4,55 +4,82 @@ import XCTest
 
 final class CloudSourceTests: XCTestCase {
 
-  // MARK: images()
+  private let libPath = "/srv/photos/Library"
 
-  func test_images_returnsOnlyFirstPage() async throws {
-    // Folders larger than the page limit are deliberately truncated —
-    // see the comment on CloudSource.images. Auto-walking every page
-    // floods the server with one request per 500 assets and blocks
-    // first paint for many seconds on big folders.
+  // MARK: images() — calls /api/fs/dir, no auto-pagination
+
+  func test_images_returnsImagesAtPathLevel() async throws {
     let server = URL(string: "https://example.test")!
     var requestCount = 0
+    var lastURL: URL?
     let session = URLSession.stubbedSequence { req in
       requestCount += 1
-      let json = Self.pageJSON(page: 1, total: 1500, count: 500)
+      lastURL = req.url
+      let json = Self.fsDirListingJSON(path: self.libPath, imageCount: 3)
       let resp = HTTPURLResponse(url: req.url!, statusCode: 200,
                                  httpVersion: "HTTP/1.1",
                                  headerFields: ["Content-Type": "application/json"])!
       return (Data(json.utf8), resp)
     }
     let source = CloudSource(server: server, folderID: "f1",
+      libraryPath: libPath,
       httpClient: AuthenticatedHTTPClient.unauthenticated(server: server, urlSession: session))
 
     let refs = try await source.images()
 
-    XCTAssertEqual(refs.count, 500)
+    XCTAssertEqual(refs.count, 3)
     XCTAssertEqual(requestCount, 1, "must NOT auto-paginate")
+    XCTAssertTrue(lastURL?.absoluteString.contains("/api/fs/dir") == true,
+                  "must use /api/fs/dir, got: \(lastURL?.absoluteString ?? "nil")")
+    XCTAssertTrue(lastURL?.absoluteString.contains("path=") == true)
+    XCTAssertEqual(refs.first?.id.hasPrefix("fs:") == true, true,
+                   "ImageRef.id should be prefixed `fs:` for cloud sources")
   }
 
-  func test_images_smallFolder_returnsAll() async throws {
+  func test_navigate_changesNextListingPath() async throws {
     let server = URL(string: "https://example.test")!
-    let json = Self.pageJSON(page: 1, total: 5, count: 5)
-    let session = URLSession.stubbed(response: json)
+    var lastURL: URL?
+    let session = URLSession.stubbedSequence { req in
+      lastURL = req.url
+      let json = Self.fsDirListingJSON(path: "/srv/photos/Library/sub", imageCount: 1)
+      let resp = HTTPURLResponse(url: req.url!, statusCode: 200,
+                                 httpVersion: "HTTP/1.1",
+                                 headerFields: ["Content-Type": "application/json"])!
+      return (Data(json.utf8), resp)
+    }
     let source = CloudSource(server: server, folderID: "f1",
+      libraryPath: libPath,
       httpClient: AuthenticatedHTTPClient.unauthenticated(server: server, urlSession: session))
 
-    let refs = try await source.images()
-    XCTAssertEqual(refs.count, 5)
+    await source.navigate(to: "/srv/photos/Library/sub")
+    _ = try await source.images()
+
+    XCTAssertTrue(lastURL?.absoluteString.contains("path=/srv/photos/Library/sub") == true
+               || lastURL?.absoluteString.contains("path=%2Fsrv%2Fphotos%2FLibrary%2Fsub") == true,
+                  "expected path query to reflect navigate(), got: \(lastURL?.absoluteString ?? "nil")")
   }
 
-  // MARK: thumb / preview / rawBytes
+  // MARK: thumb — uses /api/fs/thumb?path=…
 
   func test_thumb_returnsBytesOn200() async throws {
     let server = URL(string: "https://x")!
-    let session = URLSession.stubbed(response: "JPEGBYTES",
-                                     contentType: "image/jpeg",
-                                     status: 200)
+    var lastURL: URL?
+    let session = URLSession.stubbedSequence { req in
+      lastURL = req.url
+      let resp = HTTPURLResponse(url: req.url!, statusCode: 200,
+                                 httpVersion: "HTTP/1.1",
+                                 headerFields: ["Content-Type": "image/jpeg"])!
+      return (Data("JPEGBYTES".utf8), resp)
+    }
     let source = CloudSource(server: server, folderID: "f1",
+      libraryPath: libPath,
       httpClient: AuthenticatedHTTPClient.unauthenticated(server: server, urlSession: session))
 
-    let data = try await source.thumb(for: ImageRef(id: "a1", displayName: "x.dng"))
+    let data = try await source.thumb(for: ImageRef(id: "fs:/srv/photos/Library/a.dng",
+                                                    displayName: "a.dng"))
     XCTAssertEqual(data, Data("JPEGBYTES".utf8))
+    XCTAssertTrue(lastURL?.absoluteString.contains("/api/fs/thumb") == true,
+                  "must use /api/fs/thumb, got: \(lastURL?.absoluteString ?? "nil")")
   }
 
   func test_thumb_returnsNilOn404() async throws {
@@ -61,58 +88,64 @@ final class CloudSourceTests: XCTestCase {
                                      contentType: "text/plain",
                                      status: 404)
     let source = CloudSource(server: server, folderID: "f1",
+      libraryPath: libPath,
       httpClient: AuthenticatedHTTPClient.unauthenticated(server: server, urlSession: session))
 
-    let data = try await source.thumb(for: ImageRef(id: "a1", displayName: "x.dng"))
+    let data = try await source.thumb(for: ImageRef(id: "fs:/srv/photos/Library/a.dng",
+                                                    displayName: "a.dng"))
     XCTAssertNil(data)
   }
 
+  // MARK: rawBytes — uses /api/fs/raw?path=…
+
   func test_rawBytes_returnsBytesOn200() async throws {
     let server = URL(string: "https://x")!
-    let session = URLSession.stubbed(response: "RAWBYTES",
-                                     contentType: "application/octet-stream",
-                                     status: 200)
-    let source = CloudSource(server: server, folderID: "f1",
-      httpClient: AuthenticatedHTTPClient.unauthenticated(server: server, urlSession: session))
-
-    let data = try await source.rawBytes(for: ImageRef(id: "a1", displayName: "x.dng"))
-    XCTAssertEqual(data, Data("RAWBYTES".utf8))
-  }
-
-  // MARK: writeXMP
-
-  func test_writeXMP_PUTsXmlAtAssetPath() async throws {
-    let server = URL(string: "https://x")!
+    var lastURL: URL?
     let session = URLSession.stubbedSequence { req in
-      let resp = HTTPURLResponse(url: req.url!, statusCode: 204,
+      lastURL = req.url
+      let resp = HTTPURLResponse(url: req.url!, statusCode: 200,
                                  httpVersion: "HTTP/1.1",
-                                 headerFields: nil)!
-      return (Data(), resp)
+                                 headerFields: ["Content-Type": "application/octet-stream"])!
+      return (Data("RAWBYTES".utf8), resp)
     }
     let source = CloudSource(server: server, folderID: "f1",
+      libraryPath: libPath,
+      httpClient: AuthenticatedHTTPClient.unauthenticated(server: server, urlSession: session))
+
+    let data = try await source.rawBytes(for: ImageRef(id: "fs:/srv/photos/Library/a.dng",
+                                                       displayName: "a.dng"))
+    XCTAssertEqual(data, Data("RAWBYTES".utf8))
+    XCTAssertTrue(lastURL?.absoluteString.contains("/api/fs/raw") == true)
+  }
+
+  // MARK: writeXMP — explicit unsupported
+
+  func test_writeXMP_throws() async throws {
+    let server = URL(string: "https://x")!
+    let session = URLSession.stubbed(response: "")
+    let source = CloudSource(server: server, folderID: "f1",
+      libraryPath: libPath,
       httpClient: AuthenticatedHTTPClient.unauthenticated(server: server, urlSession: session))
 
     let sidecar = Sidecar(model: .default, culling: CullingState())
-    try await source.writeXMP(sidecar, for: ImageRef(id: "a1", displayName: "x.dng"))
-
-    let body = URLProtocolStub.capturedBodies["https://x/api/assets/a1/xmp"]
-    XCTAssertNotNil(body)
-    let xml = String(data: body ?? Data(), encoding: .utf8) ?? ""
-    XCTAssertTrue(xml.contains("xmpmeta"), "expected xmpmeta XML, got: \(xml.prefix(200))")
+    do {
+      try await source.writeXMP(sidecar, for: ImageRef(id: "fs:/x.dng", displayName: "x.dng"))
+      XCTFail("CloudSource.writeXMP should throw — XMP writes go through CloudSidecarStore")
+    } catch {
+      // expected — uses CloudSidecarStore for editing instead
+    }
   }
 
   // MARK: helpers
 
-  private static func pageJSON(page: Int, total: Int, count: Int) -> String {
-    let assets = (0..<count).map { i in
+  private static func fsDirListingJSON(path: String, imageCount: Int) -> String {
+    let images = (0..<imageCount).map { i in
       """
-      {"id":"a\(page)-\(i)","filename":"f\(i).dng","size":1024,
-       "mtime":1735689600000,"rating":null,"flag":null,
-       "color_label":null,"indexed_at":null}
+      {"name":"a\(i).dng","path":"\(path)/a\(i).dng","mtime":"2026-01-01T00:00:00Z","size":1024,"ext":"dng","exif":null}
       """
     }.joined(separator: ",")
     return """
-    {"folder_id":"f1","page":\(page),"limit":200,"total":\(total),"assets":[\(assets)]}
+    {"path":"\(path)","parent":null,"dirs":[],"images":[\(images)]}
     """
   }
 }

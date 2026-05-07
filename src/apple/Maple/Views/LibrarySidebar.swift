@@ -41,7 +41,7 @@ struct LibrarySidebar: View {
     /// Open the AddMapleCloudSheet (no prefilled domain).
     let onAddCloudServer: () -> Void
     /// User clicked a library row inside a cloud server section.
-    let onPickCloudLibrary: (URL, String) -> Void
+    let onPickCloudLibrary: (URL, String, String) -> Void
     /// Right-click → Sign out on a cloud server header.
     let onSignOutCloudServer: (URL) -> Void
     /// Right-click → Remove server on a cloud server header.
@@ -313,8 +313,12 @@ struct LibrarySidebar: View {
                     onSetViewMode: { mode in
                         registry.setViewMode(mode, for: url)
                         // Re-route the current selection through the new mode.
+                        // Look up the folder's path from the cached listing
+                        // so the new view mode browses the right tree root.
                         if case .cloudLibrary(let s, let f) = selection, s == url {
-                            onPickCloudLibrary(s, f)
+                            let path = (cloudFoldersByServer[url] ?? [])
+                                .first(where: { $0.id == f })?.path ?? ""
+                            onPickCloudLibrary(s, f, path)
                         }
                     },
                     onPickLibrary: onPickCloudLibrary,

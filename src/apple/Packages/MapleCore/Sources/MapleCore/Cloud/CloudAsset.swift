@@ -1,27 +1,53 @@
 // CloudAsset.swift
 //
-// DTOs for `GET /api/folders/:id/assets`.
+// DTOs for the cloud filesystem-walk endpoints. Mirrors the server's
+// FsDirListing shape from `src/api/src/fs/browse.ts` so listing a
+// folder gives subfolders + image files at one level (NOT recursive).
+//
+// Why not /api/folders/:id/assets? That endpoint returns the indexed
+// Mongo flat list — useful for indexer state but not for user-facing
+// browsing because (a) it doesn't expose subfolder structure, and (b)
+// indexed assets lag the filesystem when the library has just been
+// added or files have been moved. The web app made the same switch
+// in its "Phase B browse" — registered libraries from /api/folders
+// are sidebar roots; the contents come from /api/fs/dir.
 
 import Foundation
 
-public struct CloudAsset: Decodable, Equatable, Sendable {
-  public let id: String
-  public let filename: String
-  public let size: Int64
-  /// Last-modified epoch ms from `stat`. Wire format is a JSON number,
-  /// not a string — see `AssetDoc.mtime` in `src/api/src/db/schema.ts`.
-  public let mtime: Int64
-  public let rating: Int?
-  /// Pick flag: 1 = pick, 0 = none, -1 = reject. Wire format is a number.
-  public let flag: Int?
-  public let color_label: String?
-  public let indexed_at: String?
+/// One subdirectory entry from `/api/fs/dir`.
+public struct FsDirEntry: Decodable, Equatable, Sendable {
+  public let name: String
+  public let path: String
+  public let mtime: String
 }
 
-public struct CloudAssetsPage: Decodable, Sendable {
-  public let folder_id: String
-  public let page: Int
-  public let limit: Int
-  public let total: Int
-  public let assets: [CloudAsset]
+/// EXIF subset returned by `/api/fs/dir` per image. Optional throughout —
+/// `nil` means the indexer hasn't run yet for this file.
+public struct FsImageExif: Decodable, Equatable, Sendable {
+  public let captured_at: String?
+  public let camera_make: String?
+  public let camera_model: String?
+  public let lens: String?
+  public let iso: Int?
+  public let aperture: Double?
+  public let shutter: String?
+  public let focal_length: Double?
+}
+
+/// One image entry from `/api/fs/dir`.
+public struct FsImageEntry: Decodable, Equatable, Sendable {
+  public let name: String
+  public let path: String
+  public let mtime: String
+  public let size: Int64
+  public let ext: String
+  public let exif: FsImageExif?
+}
+
+/// Full response shape of `/api/fs/dir?path=<abs>`.
+public struct FsDirListing: Decodable, Sendable {
+  public let path: String
+  public let parent: String?
+  public let dirs: [FsDirEntry]
+  public let images: [FsImageEntry]
 }

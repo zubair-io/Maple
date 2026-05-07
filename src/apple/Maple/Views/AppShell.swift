@@ -188,8 +188,8 @@ struct AppShell: View {
                 onAddCloudServer: {
                     addCloudSheetTarget = .fresh
                 },
-                onPickCloudLibrary: { serverID, folderID in
-                    loadCloudLibrary(serverID: serverID, folderID: folderID)
+                onPickCloudLibrary: { serverID, folderID, libraryPath in
+                    loadCloudLibrary(serverID: serverID, folderID: folderID, libraryPath: libraryPath)
                 },
                 onSignOutCloudServer: { url in
                     Task { @MainActor in
@@ -712,9 +712,9 @@ struct AppShell: View {
     }
 
     @MainActor
-    private func loadCloudLibrary(serverID: URL, folderID: String) {
+    private func loadCloudLibrary(serverID: URL, folderID: String, libraryPath: String) {
         librarySelection = .cloudLibrary(serverID: serverID, folderID: folderID)
-        SourceSelectionStore.save(.cloudLibrary(serverID: serverID, folderID: folderID))
+        SourceSelectionStore.save(.cloudLibrary(serverID: serverID, folderID: folderID, libraryPath: libraryPath))
         currentRootBookmark = nil
 
         Task { @MainActor in
@@ -745,7 +745,10 @@ struct AppShell: View {
             switch viewMode {
             case .folder:
                 let httpClient = makeAuthenticatedHTTPClient(server: serverID)
-                let source = CloudSource(server: serverID, folderID: folderID, httpClient: httpClient)
+                let source = CloudSource(server: serverID,
+                                         folderID: folderID,
+                                         libraryPath: libraryPath,
+                                         httpClient: httpClient)
                 await browseVM.loadSource(source)
                 libraryTitle = serverID.host ?? serverID.absoluteString
                 mode = .browse
@@ -808,8 +811,8 @@ struct AppShell: View {
             break
         case .smb(let share):
             connectSavedSMB(share)
-        case .cloudLibrary(let serverID, let folderID):
-            loadCloudLibrary(serverID: serverID, folderID: folderID)
+        case .cloudLibrary(let serverID, let folderID, let libraryPath):
+            loadCloudLibrary(serverID: serverID, folderID: folderID, libraryPath: libraryPath)
         }
     }
 

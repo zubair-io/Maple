@@ -1,25 +1,46 @@
 // CloudSource.swift
 //
-// `ImageSource` that talks to a Maple Cloud server scoped to one library
-// (folder). Uses the canonical `/api/assets/*` and
-// `/api/folders/:id/assets` paths. Replaces the broken SelfHostedSource.
+// `ImageSource` that talks to a Maple Cloud server, scoped to one
+// registered library (folder). Lists files via `/api/fs/dir` —
+// matching the web app's "Phase B browse" pattern — so the user
+// sees subdirectory structure and the listing keeps up with the
+// filesystem instead of waiting for the indexer.
+//
+// `ImageRef.id` is `fs:<absPath>` (same convention as the web's
+// editor identifiers). Thumbnails and raw bytes are fetched by
+// absolute path via `/api/fs/thumb` and `/api/fs/raw`.
+//
+// Limitations (carried over from web):
+//   • Editing XMP requires a Mongo asset id — not available from
+//     the FS-walk endpoints — so cloud XMP writes go through the
+//     CloudSidecarStore path and only succeed once the indexer
+//     has caught up.
 
 import Foundation
 
 public actor CloudSource {
   public let server: URL
   public let folderID: String
+  public let libraryPath: String
+  /// Absolute path being browsed at the moment. Defaults to the
+  /// library root; bumped by `navigate(to:)` for subfolder drill-down.
+  public private(set) var currentPath: String
   private let httpClient: AuthenticatedHTTPClient
-  private let session: URLSession
 
   public init(server: URL,
               folderID: String,
-              httpClient: AuthenticatedHTTPClient,
-              session: URLSession = .shared) {
+              libraryPath: String,
+              httpClient: AuthenticatedHTTPClient) {
     self.server = server
     self.folderID = folderID
+    self.libraryPath = libraryPath
+    self.currentPath = libraryPath
     self.httpClient = httpClient
-    self.session = session
+  }
+
+  /// Drill into a subfolder. The next `images()` call lists its contents.
+  public func navigate(to absPath: String) {
+    currentPath = absPath
   }
 
   // MARK: - URL helpers
@@ -29,64 +50,76 @@ public actor CloudSource {
     if !query.isEmpty { c.queryItems = query }
     return c.url!
   }
+
+  /// Strip the `fs:` prefix to recover the absolute path. Returns the
+  /// input unchanged if no prefix is present (defensive).
+  static func absPath(from refID: String) -> String {
+    refID.hasPrefix("fs:") ? String(refID.dropFirst(3)) : refID
+  }
 }
 
 extension CloudSource: ImageSource {
+  /// Returns the IMMEDIATE image children of `currentPath`. Subfolders
+  /// are not included in the returned list — they're surfaced via the
+  /// listing's `dirs` separately. Single round-trip; no auto-pagination.
   public func images() async throws -> [ImageRef] {
-    // ImageSource is "all images at once" by design — there's no
-    // streaming hook into BrowseViewModel today. To avoid a 40-request
-    // flood on opening a folder with thousands of assets, fetch ONLY
-    // the first page (server caps at limit=500). Folders larger than
-    // that show a truncated grid until proper lazy pagination lands.
-    //
-    // Use Timeline mode (Phase 3) for chronological browsing of large
-    // libraries — that path already paginates per visible month.
-    let limit = 500
-    let pageURL = url("/api/folders/\(folderID)/assets",
-                      query: [URLQueryItem(name: "page", value: "1"),
-                              URLQueryItem(name: "limit", value: "\(limit)")])
-    let req = URLRequest(url: pageURL)
+    let listing = try await listDir(absPath: currentPath)
+    return listing.images.map { img in
+      ImageRef(id: "fs:\(img.path)", displayName: img.name, url: nil)
+    }
+  }
+
+  /// Full directory listing — used by callers that also want subfolders
+  /// (sidebar drill-down, breadcrumb navigation).
+  public func listDir(absPath: String) async throws -> FsDirListing {
+    let dirURL = url("/api/fs/dir",
+                     query: [URLQueryItem(name: "path", value: absPath)])
+    let req = URLRequest(url: dirURL)
     let (data, resp) = try await httpClient.data(for: req)
     try Self.checkOK(resp, data: data)
-    let parsed: CloudAssetsPage
     do {
-      parsed = try JSONDecoder().decode(CloudAssetsPage.self, from: data)
+      return try JSONDecoder().decode(FsDirListing.self, from: data)
     } catch {
       let preview = String(data: data.prefix(2048), encoding: .utf8) ?? "<non-utf8 \(data.count)B>"
-      cloudHTTPLogger.error("decode CloudAssetsPage failed (folder \(self.folderID, privacy: .public)): \(error.localizedDescription, privacy: .public) — body preview: \(preview, privacy: .public)")
+      cloudHTTPLogger.error("decode FsDirListing failed (path \(absPath, privacy: .public)): \(error.localizedDescription, privacy: .public) — body preview: \(preview, privacy: .public)")
       throw error
-    }
-    if parsed.total > parsed.assets.count {
-      cloudHTTPLogger.info("CloudSource folder \(self.folderID, privacy: .public): showing first \(parsed.assets.count, privacy: .public) of \(parsed.total, privacy: .public) assets — pagination beyond page 1 is not yet wired")
-    }
-    return parsed.assets.map { dto in
-      ImageRef(id: dto.id, displayName: dto.filename, url: nil)
     }
   }
 
   public func thumb(for ref: ImageRef) async throws -> Data? {
-    try await getOrNilOn404(url("/api/assets/\(ref.id)/thumb"))
+    let abs = Self.absPath(from: ref.id)
+    let thumbURL = url("/api/fs/thumb",
+                      query: [URLQueryItem(name: "path", value: abs),
+                              URLQueryItem(name: "size", value: "512")])
+    return try await getOrNilOn404(thumbURL)
   }
 
   public func preview(for ref: ImageRef) async throws -> Data? {
-    try await getOrNilOn404(url("/api/assets/\(ref.id)/preview"))
+    // /api/fs/* doesn't expose a separate preview-resolution endpoint.
+    // Callers fall back to thumb when preview is nil.
+    nil
   }
 
   public func rawBytes(for ref: ImageRef) async throws -> Data {
-    let req = URLRequest(url: url("/api/assets/\(ref.id)/raw"))
+    let abs = Self.absPath(from: ref.id)
+    let rawURL = url("/api/fs/raw",
+                     query: [URLQueryItem(name: "path", value: abs)])
+    let req = URLRequest(url: rawURL)
     let (data, resp) = try await httpClient.data(for: req)
     try Self.checkOK(resp, data: data)
     return data
   }
 
   public func writeXMP(_ sidecar: Sidecar, for ref: ImageRef) async throws {
-    let xml = XMPSerializer.serialize(model: sidecar.model, culling: sidecar.culling)
-    var req = URLRequest(url: url("/api/assets/\(ref.id)/xmp"))
-    req.httpMethod = "PUT"
-    req.setValue("application/xml", forHTTPHeaderField: "Content-Type")
-    req.httpBody = Data(xml.utf8)
-    let (data, resp) = try await httpClient.data(for: req)
-    try Self.checkOK(resp, data: data)
+    // The XMP write endpoint requires a Mongo asset id, which the FS-walk
+    // listing doesn't expose. Editing flows through CloudSidecarStore's
+    // own /api/assets/<id>/xmp path once the indexer has assigned an id.
+    // Calls here would 400 with "Invalid asset id" — surface a clear
+    // error rather than firing a doomed request.
+    throw NSError(domain: "CloudSource", code: -1, userInfo: [
+      NSLocalizedDescriptionKey: "Use CloudSidecarStore for cloud XMP writes (requires asset id)."
+    ])
+    _ = sidecar
   }
 
   public func search(_ query: SearchQuery) async throws -> [ImageRef]? { nil }

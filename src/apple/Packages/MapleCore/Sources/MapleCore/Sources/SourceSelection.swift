@@ -16,8 +16,11 @@ public enum SourceSelection: Sendable, Equatable, Codable {
     case photoKit
     case photoKitFilter(PhotoKitFilter)
     case smb(SMBCredentialStore.SavedShare)
-    /// Maple Cloud library — server URL + folder ObjectId from /api/folders.
-    case cloudLibrary(serverID: URL, folderID: String)
+    /// Maple Cloud library — server URL + folder ObjectId from /api/folders +
+    /// the library's absolute filesystem path on the server (used by
+    /// CloudSource to call `/api/fs/dir?path=…`). Persisted so cold-start
+    /// can restore without round-tripping `/api/folders` first.
+    case cloudLibrary(serverID: URL, folderID: String, libraryPath: String)
 }
 
 // MARK: - SourceSelectionStore

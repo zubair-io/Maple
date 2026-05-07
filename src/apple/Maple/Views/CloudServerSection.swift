@@ -16,7 +16,9 @@ struct CloudServerSection: View {
   @Binding var isExpanded: Bool
   @Binding var selection: LibrarySelection
   let onSetViewMode: (CloudViewMode) -> Void
-  let onPickLibrary: (URL, String) -> Void
+  /// (server, folderID, libraryPath) — libraryPath is the absolute
+  /// directory the FS-walk endpoint should browse.
+  let onPickLibrary: (URL, String, String) -> Void
   let onSignOut: () -> Void
   let onRemoveServer: () -> Void
 
@@ -25,7 +27,7 @@ struct CloudServerSection: View {
       ForEach(folders) { folder in
         Button {
           selection = .cloudLibrary(serverID: serverURL, folderID: folder.id)
-          onPickLibrary(serverURL, folder.id)
+          onPickLibrary(serverURL, folder.id, folder.path)
         } label: {
           HStack(spacing: 8) {
             Image(systemName: "folder.fill")
