@@ -15,6 +15,26 @@ export class AuthService {
   readonly user = signal<AuthUser | null>(null);
   private accessToken: string | null = null;
 
+  /// Custom URL scheme to redirect to after auth success when the page
+  /// was loaded inside an `ASWebAuthenticationSession` from the Apple
+  /// app. Read once at service construction; preserved across in-app
+  /// navigations (the session captures the redirect by scheme, not by
+  /// the path the user navigates through).
+  ///
+  /// `null` in a normal browser tab.
+  private readonly _nativeCallbackScheme: string | null = (() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const cb = params.get("native_callback");
+      // Restrict to a-z digits and `-` to avoid javascript:// or other
+      // shenanigans being smuggled in.
+      if (cb && /^[a-z][a-z0-9-]*$/i.test(cb)) return cb;
+    } catch {
+      /* SSR / non-browser contexts */
+    }
+    return null;
+  })();
+
   get bearer(): string | null {
     return this.accessToken;
   }
@@ -175,31 +195,28 @@ export class AuthService {
     this.postNativeAuthSuccess(r);
   }
 
-  /// Returns true when the page is running inside the Maple Apple shell's
-  /// WKWebView. The native side injects a `WKScriptMessageHandler` named
-  /// `maple` via `WKUserContentController.add(_:name:)` before loading
-  /// the URL — a normal browser tab leaves
-  /// `window.webkit.messageHandlers.maple` undefined.
+  /// Returns true when the page is running inside an
+  /// `ASWebAuthenticationSession` started by the Maple Apple shell.
+  /// Detected via the `?native_callback=<scheme>` query parameter the
+  /// Apple side adds to the initial URL.
   get isNativeShell(): boolean {
-    const w = window as unknown as {
-      webkit?: { messageHandlers?: { maple?: unknown } };
-    };
-    return typeof w.webkit?.messageHandlers?.maple !== "undefined";
+    return this._nativeCallbackScheme !== null;
   }
 
-  /// Hands tokens to the native shell after a successful auth ceremony.
-  /// No-op outside the shell. The native side reads these and persists
-  /// them via `TokenStore` + per-server `AuthSession`.
+  /// Redirects to the native callback URL after a successful auth
+  /// ceremony. The host `ASWebAuthenticationSession` captures the
+  /// redirect by matching the scheme — the URL never reaches Safari's
+  /// regular history or any other app. Tokens are short-lived JWTs;
+  /// the URL is local-process-only.
   private postNativeAuthSuccess(r: any): void {
-    if (!this.isNativeShell) return;
-    const w = window as unknown as {
-      webkit: { messageHandlers: { maple: { postMessage: (m: unknown) => void } } };
-    };
-    w.webkit.messageHandlers.maple.postMessage({
-      type: "auth_success",
-      access_token: r.access_token,
-      refresh_token: r.refresh_token,
-      user: r.user,
-    });
+    const scheme = this._nativeCallbackScheme;
+    if (!scheme) return;
+    const params = new URLSearchParams();
+    params.set("access_token", r.access_token);
+    params.set("refresh_token", r.refresh_token);
+    params.set("user_id", r.user.id);
+    params.set("user_email", r.user.email);
+    params.set("user_role", r.user.role);
+    window.location.href = `${scheme}://auth-success?${params.toString()}`;
   }
 }

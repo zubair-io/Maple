@@ -1,14 +1,14 @@
 // AddMapleCloudViewModel.swift
 //
-// State machine for the AddMapleCloud sheet. Webview-based sign-in (no
-// native ASAuthorizationController) — the user types a domain and the
-// sheet hosts a WKWebView pointed at that domain's auth page. The web
-// app's existing sign-in / claim / invite UI handles every branch; the
-// native side just captures the resulting tokens via a JS bridge.
+// State machine for the AddMapleCloud sign-in flow. ASWebAuthenticationSession
+// is used to host the auth ceremony in a Safari-controlled context — the
+// view model's job is to hand the session a target URL and translate the
+// callback URL's query parameters into a `signedIn` transition.
 //
-// This intentionally has no `register`/`login`/`bootstrap` calls. The
-// webview contains all the auth logic; we only know "in flight" vs
-// "succeeded with tokens" vs "errored".
+// The actual ASWebAuthenticationSession lives in ASWebAuthSessionDriver
+// (in the Maple app target, since AuthenticationServices' presentation
+// APIs depend on AppKit/UIKit). The view model receives results via the
+// `bridgeReceived…` methods from that driver.
 
 import Foundation
 import Observation
@@ -22,18 +22,16 @@ public final class AddMapleCloudViewModel {
   /// Bound to the domain text field on the idle panel.
   public var domainInput: String = ""
 
-  /// Side-effect callback — invoked exactly once when the webview's
-  /// JS bridge posts an `auth_success` message. The sheet uses it to
-  /// persist tokens and dismiss.
+  /// Side-effect callback — invoked exactly once when the auth driver
+  /// reports success. The sheet uses it to persist tokens and dismiss.
   public typealias OnSignedIn = @MainActor (URL, AuthTokens, AuthUser) -> Void
 
   private let onSignedIn: OnSignedIn
 
   /// One-shot cancel flag. Set by `cancel()` from the sheet's
-  /// `onDismiss` and `.onDisappear`. When set, even a late
-  /// `bridgeReceivedAuthSuccess` call doesn't fire `onSignedIn`.
-  /// The view model is single-use (recreated per sheet presentation),
-  /// so a one-shot flag is correct.
+  /// `.onDisappear`. When set, even a late `bridgeReceivedAuthSuccess`
+  /// call doesn't fire `onSignedIn`. The view model is single-use
+  /// (recreated per sheet presentation), so a one-shot flag is correct.
   private var cancelled: Bool = false
 
   public init(onSignedIn: @escaping OnSignedIn = { _, _, _ in }) {
@@ -42,32 +40,41 @@ public final class AddMapleCloudViewModel {
 
   // MARK: - Transitions
 
-  /// Idle → loadingWebview. Called when the user taps Continue on the
-  /// domain-entry panel.
-  public func continueFromIdle() {
+  /// Idle → authenticating. Called when the user taps Continue.
+  /// Returns the parsed `CloudHost` so the caller (the sheet view)
+  /// can hand it to its ASWebAuthSessionDriver.
+  @discardableResult
+  public func continueFromIdle() -> CloudHost? {
     guard let host = CloudHost.parse(domainInput) else {
       state = .error(message: "Enter a domain like myserver.com",
                      recoverableTo: .idle)
-      return
+      return nil
     }
-    state = .loadingWebview(host)
+    state = .authenticating(host)
+    return host
   }
 
-  /// Webview reported a non-auth load failure (DNS, TLS, 5xx).
-  public func webviewFailed(message: String) {
-    guard case .loadingWebview(let host) = state else { return }
-    state = .error(message: message, recoverableTo: .idle)
-    _ = host
+  /// Driver reported a non-cancellation failure (DNS, TLS, malformed
+  /// callback URL).
+  public func driverFailed(message: String) {
+    if case .authenticating = state {
+      state = .error(message: message, recoverableTo: .idle)
+    }
   }
 
-  /// Webview's JS bridge posted an `auth_success` message. Validate
-  /// the payload, persist tokens via the callback, transition to
-  /// `.signedIn`. Suppressed if `cancel()` already fired.
-  public func bridgeReceivedAuthSuccess(accessToken: String,
-                                        refreshToken: String,
-                                        user: AuthUser) {
-    guard case .loadingWebview(let host) = state else { return }
-    let tokens = AuthTokens(access: accessToken, refresh: refreshToken)
+  /// Driver reported the user explicitly cancelled the auth UI. No
+  /// error panel — return to idle so the user can adjust the domain
+  /// or close the sheet.
+  public func driverCancelled() {
+    if case .authenticating = state {
+      state = .idle
+    }
+  }
+
+  /// Driver successfully parsed the callback URL. Transition to
+  /// `.signedIn` and (unless cancelled) fire the persistence callback.
+  public func driverReceivedAuthSuccess(tokens: AuthTokens, user: AuthUser) {
+    guard case .authenticating(let host) = state else { return }
     state = .signedIn(host, tokens: tokens, user: user)
     if cancelled { return }
     onSignedIn(host.url, tokens, user)
@@ -78,9 +85,9 @@ public final class AddMapleCloudViewModel {
     if case .error(_, let target) = state { state = target }
   }
 
-  /// Mark this flow as cancelled. Idempotent. A late `auth_success`
-  /// from the webview after the user dismissed the sheet does NOT
-  /// trigger token persistence.
+  /// Mark this flow as cancelled. Idempotent. A late
+  /// `driverReceivedAuthSuccess` after the user dismissed the sheet
+  /// does NOT trigger token persistence.
   public func cancel() {
     cancelled = true
   }

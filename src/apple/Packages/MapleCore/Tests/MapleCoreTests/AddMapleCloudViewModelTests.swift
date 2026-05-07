@@ -7,17 +7,19 @@ final class AddMapleCloudViewModelTests: XCTestCase {
 
   // MARK: continueFromIdle
 
-  func test_continueFromIdle_validDomain_routesToLoadingWebview() {
+  func test_continueFromIdle_validDomain_routesToAuthenticating() {
     let vm = AddMapleCloudViewModel()
     vm.domainInput = "myserver.com"
-    vm.continueFromIdle()
-    XCTAssertEqual(vm.state, .loadingWebview(CloudHost.parse("myserver.com")!))
+    let host = vm.continueFromIdle()
+    XCTAssertEqual(host, CloudHost.parse("myserver.com"))
+    XCTAssertEqual(vm.state, .authenticating(CloudHost.parse("myserver.com")!))
   }
 
   func test_continueFromIdle_emptyDomain_routesToError() {
     let vm = AddMapleCloudViewModel()
     vm.domainInput = ""
-    vm.continueFromIdle()
+    let host = vm.continueFromIdle()
+    XCTAssertNil(host)
     if case .error(_, let recover) = vm.state {
       XCTAssertEqual(recover, .idle)
     } else {
@@ -28,17 +30,18 @@ final class AddMapleCloudViewModelTests: XCTestCase {
   func test_continueFromIdle_pathInDomain_routesToError() {
     let vm = AddMapleCloudViewModel()
     vm.domainInput = "myserver.com/api/auth"
-    vm.continueFromIdle()
+    let host = vm.continueFromIdle()
+    XCTAssertNil(host)
     if case .error = vm.state {} else { XCTFail("expected error") }
   }
 
-  // MARK: webviewFailed
+  // MARK: driver callbacks
 
-  func test_webviewFailed_fromLoading_routesToError() {
+  func test_driverFailed_fromAuthenticating_routesToError() {
     let vm = AddMapleCloudViewModel()
     vm.domainInput = "myserver.com"
-    vm.continueFromIdle()
-    vm.webviewFailed(message: "DNS lookup failed")
+    _ = vm.continueFromIdle()
+    vm.driverFailed(message: "DNS lookup failed")
     if case .error(let msg, let recover) = vm.state {
       XCTAssertEqual(msg, "DNS lookup failed")
       XCTAssertEqual(recover, .idle)
@@ -47,36 +50,41 @@ final class AddMapleCloudViewModelTests: XCTestCase {
     }
   }
 
-  func test_webviewFailed_fromIdle_isNoop() {
+  func test_driverFailed_fromIdle_isNoop() {
     let vm = AddMapleCloudViewModel()
-    vm.webviewFailed(message: "unexpected")
+    vm.driverFailed(message: "unexpected")
     XCTAssertEqual(vm.state, .idle)
   }
 
-  // MARK: bridgeReceivedAuthSuccess
-
-  func test_bridgeReceivedAuthSuccess_fromLoading_routesToSignedIn() {
+  func test_driverCancelled_fromAuthenticating_returnsToIdle() {
+    // Explicit user cancellation does NOT show an error panel —
+    // the user just wanted to back out.
     let vm = AddMapleCloudViewModel()
     vm.domainInput = "myserver.com"
-    vm.continueFromIdle()
+    _ = vm.continueFromIdle()
+    vm.driverCancelled()
+    XCTAssertEqual(vm.state, .idle)
+  }
+
+  func test_driverReceivedAuthSuccess_fromAuthenticating_routesToSignedIn() {
+    let vm = AddMapleCloudViewModel()
+    vm.domainInput = "myserver.com"
+    _ = vm.continueFromIdle()
     let user = AuthUser(id: "u1", email: "alice@example.com", role: "owner")
-    vm.bridgeReceivedAuthSuccess(accessToken: "AT",
-                                 refreshToken: "RT",
+    vm.driverReceivedAuthSuccess(tokens: AuthTokens(access: "AT", refresh: "RT"),
                                  user: user)
     let host = CloudHost.parse("myserver.com")!
     XCTAssertEqual(vm.state, .signedIn(host,
-      tokens: AuthTokens(access: "AT", refresh: "RT"),
-      user: user))
+      tokens: AuthTokens(access: "AT", refresh: "RT"), user: user))
   }
 
-  func test_bridgeReceivedAuthSuccess_fromIdle_isNoop() {
+  func test_driverReceivedAuthSuccess_fromIdle_isNoop() {
     let vm = AddMapleCloudViewModel()
     let user = AuthUser(id: "u1", email: "alice@example.com", role: "owner")
-    vm.bridgeReceivedAuthSuccess(accessToken: "AT",
-                                 refreshToken: "RT",
+    vm.driverReceivedAuthSuccess(tokens: AuthTokens(access: "AT", refresh: "RT"),
                                  user: user)
-    // Bridge messages outside the loading window are ignored — defensive
-    // against duplicate or out-of-order webview events.
+    // Ignored — state machine doesn't trust callbacks outside the
+    // authenticating window.
     XCTAssertEqual(vm.state, .idle)
   }
 
@@ -88,32 +96,28 @@ final class AddMapleCloudViewModelTests: XCTestCase {
       recorder.record(url: url, tokens: tokens, user: user)
     })
     vm.domainInput = "myserver.com"
-    vm.continueFromIdle()
+    _ = vm.continueFromIdle()
     let user = AuthUser(id: "u9", email: "callback@example.com", role: "owner")
-    vm.bridgeReceivedAuthSuccess(accessToken: "AT",
-                                 refreshToken: "RT",
+    vm.driverReceivedAuthSuccess(tokens: AuthTokens(access: "AT", refresh: "RT"),
                                  user: user)
     XCTAssertEqual(recorder.calls.count, 1)
-    XCTAssertEqual(recorder.calls.first?.url,
-                   CloudHost.parse("myserver.com")!.url)
-    XCTAssertEqual(recorder.calls.first?.tokens,
-                   AuthTokens(access: "AT", refresh: "RT"))
+    XCTAssertEqual(recorder.calls.first?.url, CloudHost.parse("myserver.com")!.url)
+    XCTAssertEqual(recorder.calls.first?.tokens, AuthTokens(access: "AT", refresh: "RT"))
     XCTAssertEqual(recorder.calls.first?.user, user)
   }
 
-  // MARK: cancel
+  // MARK: cancel race
 
-  func test_cancelBeforeBridge_suppressesCallback() {
+  func test_cancelBeforeDriver_suppressesCallback() {
     let recorder = SignedInRecorder()
     let vm = AddMapleCloudViewModel(onSignedIn: { url, tokens, user in
       recorder.record(url: url, tokens: tokens, user: user)
     })
     vm.domainInput = "myserver.com"
-    vm.continueFromIdle()
+    _ = vm.continueFromIdle()
     vm.cancel()  // user dismissed sheet
     let user = AuthUser(id: "u9", email: "racer@example.com", role: "owner")
-    vm.bridgeReceivedAuthSuccess(accessToken: "AT",
-                                 refreshToken: "RT",
+    vm.driverReceivedAuthSuccess(tokens: AuthTokens(access: "AT", refresh: "RT"),
                                  user: user)
     XCTAssertEqual(recorder.calls.count, 0)
   }
@@ -131,14 +135,13 @@ final class AddMapleCloudViewModelTests: XCTestCase {
   func test_retryFromError_returnsToRecoverableTarget() {
     let vm = AddMapleCloudViewModel()
     vm.domainInput = "myserver.com"
-    vm.continueFromIdle()
-    vm.webviewFailed(message: "TLS")
+    _ = vm.continueFromIdle()
+    vm.driverFailed(message: "TLS")
     vm.retryFromError()
     XCTAssertEqual(vm.state, .idle)
   }
 }
 
-/// Helper that records onSignedIn invocations.
 @MainActor
 final class SignedInRecorder {
   struct Call: Equatable {

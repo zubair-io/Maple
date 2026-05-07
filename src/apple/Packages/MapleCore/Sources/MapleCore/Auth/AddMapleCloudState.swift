@@ -1,9 +1,11 @@
 // AddMapleCloudState.swift
 //
-// State enum for the AddMapleCloud webview-based sign-in flow.
-// The web app's existing auth UI handles claim / sign-in / invite
-// branching inside the WKWebView; the native side only tracks
-// "haven't started", "loading", "succeeded", "errored".
+// State enum for the AddMapleCloud sign-in flow. The flow uses
+// ASWebAuthenticationSession (a Safari-controlled context outside the
+// host app's entitlement scope) so passkeys work for any customer's
+// domain. The native sheet only owns the domain-entry panel and a
+// progress / error / success view; the auth ceremony happens in the
+// system-presented Safari context.
 
 import Foundation
 
@@ -11,22 +13,20 @@ public indirect enum AddMapleCloudState: Equatable, Sendable {
   /// Initial — user is typing the domain.
   case idle
 
-  /// Webview is loading the server's sign-in URL. The web app's
-  /// AuthService posts an `auth_success` message via WKWebkit's
-  /// `maple` script handler when the user completes any auth flow.
-  case loadingWebview(CloudHost)
+  /// ASWebAuthenticationSession is in flight.
+  case authenticating(CloudHost)
 
   /// Terminal success state. The view dismisses on entry.
   case signedIn(CloudHost, tokens: AuthTokens, user: AuthUser)
 
-  /// Inline error for the panel that triggered the failure. Tap
-  /// "Try again" to land back at `recoverableTo`.
+  /// Inline error (non-cancellation failures only — explicit user
+  /// cancellation routes back to .idle without an error panel).
   case error(message: String, recoverableTo: AddMapleCloudState)
 
   public static func == (lhs: AddMapleCloudState, rhs: AddMapleCloudState) -> Bool {
     switch (lhs, rhs) {
     case (.idle, .idle): return true
-    case (.loadingWebview(let a), .loadingWebview(let b)): return a == b
+    case (.authenticating(let a), .authenticating(let b)): return a == b
     case (.signedIn(let a, let ta, let ua), .signedIn(let b, let tb, let ub)):
       return a == b && ta == tb && ua == ub
     case (.error(let ma, let ra), .error(let mb, let rb)):
