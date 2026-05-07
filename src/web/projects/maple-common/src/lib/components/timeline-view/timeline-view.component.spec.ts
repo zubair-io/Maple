@@ -156,19 +156,22 @@ describe('TimelineViewComponent', () => {
     await new Promise((r) => setTimeout(r, 0));
     fixture.detectChanges();
 
-    // The IntersectionObserver must exist and its root must be the
-    // #scrollContainer that's currently in the DOM — not a stale node
-    // that was unmounted by an intermediate "Loading timeline…" branch.
-    expect(ioCalls.length).toBeGreaterThanOrEqual(1);
+    // Two IntersectionObservers are created (fetch + visibility), and BOTH
+    // must be rooted at the live #scrollContainer — not a stale node that
+    // was unmounted by an intermediate "Loading timeline…" branch.
+    expect(ioCalls.length).toBeGreaterThanOrEqual(2);
     const liveRoot = fixture.nativeElement.querySelector('.timeline-scroll') as HTMLElement;
     expect(liveRoot).not.toBeNull();
-    const lastObserver = ioCalls[ioCalls.length - 1]!;
-    expect(lastObserver.root).toBe(liveRoot);
+    for (const call of ioCalls) {
+      expect(call.root).toBe(liveRoot);
+    }
 
     // Every month section from the bucket fixture (3 months) must have
-    // been observe()'d.
-    expect(ioObservedTargets.length).toBe(3);
-    for (const el of ioObservedTargets) {
+    // been observe()'d on both observers, so we expect 6 observe calls
+    // total over 3 unique target elements.
+    const uniqueTargets = new Set(ioObservedTargets);
+    expect(uniqueTargets.size).toBe(3);
+    for (const el of uniqueTargets) {
       expect(el.dataset['year']).toBeTruthy();
       expect(el.dataset['month']).toBeTruthy();
       // The observed element must be a descendant of the live root —
