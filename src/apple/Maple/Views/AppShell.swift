@@ -717,32 +717,45 @@ struct AppShell: View {
         SourceSelectionStore.save(.cloudLibrary(serverID: serverID, folderID: folderID))
         currentRootBookmark = nil
 
-        // If the user signed out of this server, clicking a library should
-        // re-open the sign-in sheet rather than fire off doomed authenticated
-        // requests. The AuthSession owns the signed-in state — if it has no
-        // user, the tokens are gone.
-        let session = sessionFor(serverID)
-        guard session.isSignedIn else {
-            addCloudSheetTarget = .prefilled(serverID.host ?? serverID.absoluteString)
-            return
-        }
+        Task { @MainActor in
+            let session = sessionFor(serverID)
+            // On cold start, sessionFor() returns a freshly-constructed
+            // session whose Keychain restore is still in flight. Awaiting
+            // bootstrapAndRestore() before checking isSignedIn lets that
+            // restore finish — otherwise we'd always fall through to the
+            // sign-in sheet on first launch even though tokens exist.
+            //
+            // For sessions that are already signed in (warm cache, sidebar
+            // click during the session), isSignedIn short-circuits and the
+            // await is skipped.
+            //
+            // For sessions where signOut() was called or refresh failed,
+            // bootstrapAndRestore() returns without setting user, isSignedIn
+            // stays false, and we route to the prefilled sign-in sheet —
+            // same as the previous synchronous behavior.
+            if !session.isSignedIn {
+                await session.bootstrapAndRestore()
+            }
+            guard session.isSignedIn else {
+                addCloudSheetTarget = .prefilled(serverID.host ?? serverID.absoluteString)
+                return
+            }
 
-        let viewMode = CloudServerRegistry.shared.viewMode(for: serverID)
-        switch viewMode {
-        case .folder:
-            Task { @MainActor in
+            let viewMode = CloudServerRegistry.shared.viewMode(for: serverID)
+            switch viewMode {
+            case .folder:
                 let httpClient = makeAuthenticatedHTTPClient(server: serverID)
                 let source = CloudSource(server: serverID, folderID: folderID, httpClient: httpClient)
                 await browseVM.loadSource(source)
                 libraryTitle = serverID.host ?? serverID.absoluteString
                 mode = .browse
+            case .timeline:
+                // Phase 3 fills this in. For now, drop the grid and surface a
+                // placeholder so the user knows the toggle worked.
+                browseVM.clear()
+                libraryTitle = "Timeline — coming in Phase 3"
+                mode = .browse
             }
-        case .timeline:
-            // Phase 3 fills this in. For now, drop the grid and surface a
-            // placeholder so the user knows the toggle worked.
-            browseVM.clear()
-            libraryTitle = "Timeline — coming in Phase 3"
-            mode = .browse
         }
     }
 
