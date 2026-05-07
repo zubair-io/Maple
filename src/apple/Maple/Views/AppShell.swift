@@ -92,6 +92,12 @@ struct AppShell: View {
     /// remember to switch is a bad UX.
     @State private var iPhoneTab: IPhoneTab = .browse
 
+    /// Set when the user selects a cloud library in Timeline view mode;
+    /// when non-nil the center column renders CloudTimelineView instead
+    /// of BrowseGrid. Cleared on every other selection so we don't ghost-
+    /// render across mode changes.
+    @State private var cloudTimelineVM: CloudTimelineViewModel?
+
     // The root bookmark for the currently-open folder tree — used to claim
     // security scope when the user clicks a sub-folder cell inside the grid.
     @State private var currentRootBookmark: Data?
@@ -159,12 +165,16 @@ struct AppShell: View {
             )
         }
         .onChange(of: librarySelection) { _, newValue in
-            // Cloud-current-path is only meaningful while a cloud library
-            // is selected. Drop it on any non-cloud selection so the
-            // sidebar tree's auto-expand and selection-highlight don't
-            // ghost across mode changes.
+            // Cloud-current-path + Timeline VM are both only meaningful
+            // while a cloud library is selected. Drop both on any
+            // non-cloud selection so the sidebar tree's auto-expand /
+            // highlight + the center column's Timeline don't ghost
+            // across mode changes.
             if case .cloudLibrary = newValue { /* keep */ }
-            else { cloudCurrentPath = nil }
+            else {
+                cloudCurrentPath = nil
+                cloudTimelineVM = nil
+            }
         }
         .task {
             #if DEBUG
@@ -250,15 +260,24 @@ struct AppShell: View {
             Group {
                 switch mode {
                 case .browse:
-                    BrowseGrid(
-                        vm: browseVM,
-                        sessions: $sessions,
-                        displayMode: $browseDisplayMode,
-                        onGrantPhotosAccess: { grantPhotosAccessAndLoad() },
-                        onNavigateFolder: { url in navigateFolder(url) },
-                        onOpenEditor: { asset in openEditor(for: asset) },
-                        onPrimeSession: { asset in ensureSession(for: asset) }
-                    )
+                    if let vm = cloudTimelineVM {
+                        CloudTimelineView(
+                            vm: vm,
+                            thumbClient: makeCloudThumbClient(server: vm.server),
+                            thumbCache: CloudThumbCache(),
+                            onSelectAsset: { asset in openCloudAsset(asset, server: vm.server) }
+                        )
+                    } else {
+                        BrowseGrid(
+                            vm: browseVM,
+                            sessions: $sessions,
+                            displayMode: $browseDisplayMode,
+                            onGrantPhotosAccess: { grantPhotosAccessAndLoad() },
+                            onNavigateFolder: { url in navigateFolder(url) },
+                            onOpenEditor: { asset in openEditor(for: asset) },
+                            onPrimeSession: { asset in ensureSession(for: asset) }
+                        )
+                    }
                 case .fullImage:
                     if let session = selectedSession {
                         FullImageView(session: session)
@@ -895,6 +914,7 @@ struct AppShell: View {
             let viewMode = CloudServerRegistry.shared.viewMode(for: serverID)
             switch viewMode {
             case .folder:
+                cloudTimelineVM = nil
                 let httpClient = makeAuthenticatedHTTPClient(server: serverID)
                 let source = CloudSource(server: serverID,
                                          folderID: folderID,
@@ -929,13 +949,56 @@ struct AppShell: View {
                 libraryTitle = serverID.host ?? serverID.absoluteString
                 mode = .browse
             case .timeline:
-                // Phase 3 fills this in. For now, drop the grid and surface a
-                // placeholder so the user knows the toggle worked.
                 browseVM.clear()
-                libraryTitle = "Timeline — coming in Phase 3"
+                let httpClient = makeAuthenticatedHTTPClient(server: serverID)
+                let searchClient = CloudSearchClient(server: serverID, httpClient: httpClient)
+                cloudTimelineVM = CloudTimelineViewModel(
+                    server: serverID,
+                    libraryID: folderID,
+                    searchClient: searchClient)
+                libraryTitle = (serverID.host ?? serverID.absoluteString) + " — Timeline"
                 mode = .browse
             }
         }
+    }
+
+    @MainActor
+    private func makeCloudThumbClient(server: URL) -> CloudThumbClient {
+        CloudThumbClient(server: server,
+                         httpClient: makeAuthenticatedHTTPClient(server: server))
+    }
+
+    /// Open the FullImage editor for a cloud asset selected from
+    /// CloudTimelineView. Builds a bytes-providing AssetRef so the Rust
+    /// pipeline can decode without a local file, and injects a
+    /// CloudSidecarStore so XMP edits persist back to the server.
+    @MainActor
+    private func openCloudAsset(_ asset: SearchAsset, server: URL) {
+        let httpClient = makeAuthenticatedHTTPClient(server: server)
+        // libraryPath is unused for this single-asset path; pass the
+        // asset's parent dir so a hypothetical navigate() lands somewhere
+        // sensible.
+        let parentPath = (asset.abs_path as NSString).deletingLastPathComponent
+        let source = CloudSource(server: server,
+                                 folderID: asset.folder_id,
+                                 libraryPath: parentPath,
+                                 httpClient: httpClient)
+        let imageRef = ImageRef(id: asset.id, displayName: asset.filename, url: nil)
+        let assetRef = AssetRef(
+            displayName: asset.filename,
+            hintExtension: (asset.filename as NSString).pathExtension.lowercased(),
+            stableID: asset.id,
+            bytesProvider: { [source, imageRef] in try await source.rawBytes(for: imageRef) }
+        )
+        if sessions[assetRef.id] == nil {
+            let remoteStore = CloudSidecarStore(server: server, assetID: asset.id, httpClient: httpClient)
+            let session = EditSession(asset: assetRef, remoteSidecarStore: remoteStore)
+            sessions[assetRef.id] = session
+            Task { await session.loadSidecar() }
+        }
+        browseVM.assets = [assetRef]
+        browseVM.selectedID = assetRef.id
+        mode = .fullImage
     }
 
     // MARK: - Restore
