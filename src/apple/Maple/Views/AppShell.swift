@@ -57,15 +57,11 @@ struct AppShell: View {
 
     // Sheet state.
     @State private var showSMBSheet = false
-    @State private var showSelfHostedSheet = false
-    /// Self-Hosted "Join with invite" sheet — presented from the
-    /// `SelfHostedPickerSheet`'s "Have an invite?" button.
-    /// Plan 2026-04-28-passkey-auth Task B8.
-    @State private var showJoinWithInviteSheet = false
-    /// Sign-in sheet for the currently-selected Self-Hosted server, gated on
-    /// `AuthSession.isSignedIn`. Presented automatically when the user picks
-    /// a Self-Hosted row whose tokens haven't been restored.
-    @State private var showSignInSheet = false
+    /// Single AddMapleCloudSheet entry point. `addCloudPrefill` is empty
+    /// when the user clicked "+" in the sidebar/Settings, or the host of
+    /// the saved server they tapped without restored tokens.
+    @State private var showAddCloudSheet = false
+    @State private var addCloudPrefill: String = ""
 
     // Dynamic toolbar title — reflects the last-loaded source/filter.
     @State private var libraryTitle: String = "All"
@@ -95,16 +91,6 @@ struct AppShell: View {
 
     private var selectedSession: EditSession? {
         browseVM.selectedID.flatMap { sessions[$0] }
-    }
-
-    /// Throwaway `AuthSession` used as the environment value for the
-    /// `JoinWithInviteView` sheet. The view doesn't read it (it builds its
-    /// own per-URL session internally) but `@Environment(AuthSession.self)`
-    /// requires *some* value to resolve. Using `about:blank` so it never
-    /// collides with a real server URL.
-    private var placeholderJoinSession: AuthSession {
-        let url = URL(string: "about:blank")!
-        return AuthSession(server: url, client: AuthClient(server: url))
     }
 
     var body: some View {
@@ -139,42 +125,25 @@ struct AppShell: View {
                 connectSMB(credentials: creds)
             }, onCancel: { showSMBSheet = false })
         }
-        .sheet(isPresented: $showSelfHostedSheet) {
-            SelfHostedPickerSheet(
-                onConnect: { url, token in
-                    showSelfHostedSheet = false
-                    connectSelfHosted(baseURL: url, token: token)
-                },
-                onJoinWithInvite: {
-                    showSelfHostedSheet = false
-                    showJoinWithInviteSheet = true
-                },
-                onCancel: { showSelfHostedSheet = false }
+        .sheet(isPresented: $showAddCloudSheet) {
+            AddMapleCloudSheet(
+                prefilledDomain: addCloudPrefill,
+                onDismiss: { showAddCloudSheet = false },
+                onSignedIn: { url, tokens, _ in
+                    Task { @MainActor in
+                        try? TokenStore.save(tokens, server: url)
+                        try? await SelfHostedCredentialStore.shared
+                            .setToken(tokens.access, forServerURL: url)
+                        // Refresh the per-server AuthSession cache so the
+                        // sidebar sees the user as signed in immediately.
+                        let session = sessionFor(url)
+                        await session.bootstrapAndRestore()
+                        showAddCloudSheet = false
+                        // Auto-load the newly-paired server.
+                        connectSavedSelfHosted(url)
+                    }
+                }
             )
-        }
-        .sheet(isPresented: $showJoinWithInviteSheet) {
-            // Plan 2026-04-28-passkey-auth Task B8: Self-Hosted onboarding via
-            // invite. The view internally builds an AuthClient + AuthSession
-            // per the URL the user types in — once verification succeeds the
-            // server appears in the sidebar's Self Hosted section on next
-            // refresh (saved by SelfHostedCredentialStore.knownServers()).
-            // The view internally constructs its own AuthClient/AuthSession
-            // from the URL the user types in. The environment session is a
-            // placeholder so `@Environment(AuthSession.self)` resolves.
-            JoinWithInviteView()
-                .environment(placeholderJoinSession)
-                .frame(minWidth: 420, minHeight: 320)
-        }
-        .sheet(isPresented: $showSignInSheet) {
-            // Sign-in sheet for the currently-selected Self-Hosted server.
-            // The sheet binds to a per-server AuthSession resolved through
-            // MapleApp's cache so the result is observable across the app.
-            if case .selfHostedServer(let url) = librarySelection {
-                let session = sessionFor(url)
-                SignInView(server: url, client: AuthClient(server: url))
-                    .environment(session)
-                    .frame(minWidth: 420, minHeight: 320)
-            }
         }
         .task {
             #if DEBUG
@@ -218,7 +187,10 @@ struct AppShell: View {
                 onRequestPhotosAccess: { requestPhotosAccess() },
                 onAddSMB: { showSMBSheet = true },
                 onPickSMB: { share in connectSavedSMB(share) },
-                onAddSelfHosted: { showSelfHostedSheet = true },
+                onAddSelfHosted: {
+                    addCloudPrefill = ""
+                    showAddCloudSheet = true
+                },
                 onPickSelfHosted: { url in connectSavedSelfHosted(url) }
             )
             .navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 280)
@@ -745,8 +717,10 @@ struct AppShell: View {
                 connectSelfHosted(baseURL: url, token: token)
                 return
             }
-            // No credentials — open the sign-in sheet for this server.
-            showSignInSheet = true
+            // No credentials — open the AddMapleCloud sheet pre-filled with
+            // this server's host so the user goes straight to sign-in.
+            addCloudPrefill = url.host ?? url.absoluteString
+            showAddCloudSheet = true
         }
     }
 
