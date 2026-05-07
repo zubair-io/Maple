@@ -360,7 +360,7 @@ public final class EditSession {
     /// File-backed sidecar store. `nil` for sourceless assets (PhotoKit, self-
     /// hosted API) where sidecar persistence goes through the source's
     /// `writeXMP` API instead.
-    @ObservationIgnored private let sidecarStore: XMPSidecarStore?
+    @ObservationIgnored private let sidecarStore: (any SidecarStoreProtocol)?
     @ObservationIgnored private var renderTask: Task<Void, Never>?
     @ObservationIgnored private var refineTask: Task<Void, Never>?
     /// Bumped on every render schedule so that stale tasks exit before writing UI state.
@@ -558,17 +558,22 @@ public final class EditSession {
 
     public init(asset: AssetRef,
                 model: AdjustmentModel = .default,
-                culling: CullingState = CullingState()) {
+                culling: CullingState = CullingState(),
+                remoteSidecarStore: (any SidecarStoreProtocol)? = nil) {
         self.asset = asset
         self.model = model
         self.originalModel = model
         self.culling = culling
         self.pipeline = ImageEditPipeline()
         if let url = asset.primaryURL {
+            // Local-file asset — write to the .xmp sidecar next to the RAW.
             self.sidecarStore = XMPSidecarStore(rawURL: url)
+        } else if let remote = remoteSidecarStore {
+            // Cloud-backed (or PhotoKit) asset — caller injects a remote
+            // store that round-trips through the API.
+            self.sidecarStore = remote
         } else {
-            // Sourceless asset — XMP writes go through the source's REST /
-            // PhotoKit-companion writer, not a local .xmp sidecar.
+            // Sourceless and no remote store wired — edits are session-local.
             self.sidecarStore = nil
         }
     }
