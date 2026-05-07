@@ -71,6 +71,13 @@ COPY --from=wasm-builder /wasm-pkg/ \
 # tries to rebuild raw-wasm — already produced by the wasm-builder stage and
 # copied in above. The path it expects (../raw-pipeline/raw-wasm/build.sh)
 # also doesn't exist inside this stage, so the hook would always fail here.
+#
+# `--max-old-space-size=4096` raises Node's V8 heap to 4 GB during the
+# Angular build. Without this, hosts with limited RAM (≤ 2 GB free) get
+# OOM-killed by the kernel during esbuild minification — the symptom is
+# `Killed` with no stack trace. Bun itself doesn't honour NODE_OPTIONS,
+# but ng-cli spawns Node for esbuild, which does.
+ENV NODE_OPTIONS="--max-old-space-size=4096"
 RUN bun x ng build maple --configuration=production
 
 # ---------------------------------------------------------------------------
