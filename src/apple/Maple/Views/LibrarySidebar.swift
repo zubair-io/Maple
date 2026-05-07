@@ -45,6 +45,11 @@ struct LibrarySidebar: View {
     /// Lazy-fetch a directory listing for the cloud sidebar tree
     /// drill-down. Returns nil on auth/network failure.
     let onListCloudDir: (URL, String) async -> FsDirListing?
+    /// Absolute server-side path the user is currently browsing inside
+    /// a cloud library, or nil when no cloud library is selected. Used
+    /// by CloudFolderTreeRow to (a) auto-expand its ancestor chain on
+    /// cold start and (b) highlight the matching tree row.
+    let cloudCurrentPath: String?
     /// Right-click → Sign out on a cloud server header.
     let onSignOutCloudServer: (URL) -> Void
     /// Right-click → Remove server on a cloud server header.
@@ -326,6 +331,7 @@ struct LibrarySidebar: View {
                     },
                     onPickPath: onPickCloudLibrary,
                     onListDir: onListCloudDir,
+                    cloudCurrentPath: pathFor(server: url),
                     onSignOut: { onSignOutCloudServer(url) },
                     onRemoveServer: { onRemoveCloudServer(url) }
                 )
@@ -383,6 +389,17 @@ struct LibrarySidebar: View {
         if photosStatus == .authorized || photosStatus == .limited {
             albums = PhotoKitLibrary.userAlbums()
         }
+    }
+
+    /// Returns the cloud-current-path only if it belongs to the given
+    /// server — so two connected servers' trees don't both highlight
+    /// based on a path that's only meaningful to one of them. We
+    /// determine ownership by checking the LibrarySelection's server.
+    private func pathFor(server url: URL) -> String? {
+        if case .cloudLibrary(let s, _) = selection, s == url {
+            return cloudCurrentPath
+        }
+        return nil
     }
 
     private func refreshFolders() {

@@ -23,6 +23,10 @@ struct CloudServerSection: View {
   /// Lazy-fetch a directory listing on the server. Returns nil on
   /// auth/network failure; the row falls back to a "couldn't load" hint.
   let onListDir: (URL, String) async -> FsDirListing?
+  /// Absolute path the user is currently browsing on this server, or
+  /// nil if a different server (or no cloud library) is selected.
+  /// Drives auto-expand-on-cold-start and tree-row highlighting.
+  let cloudCurrentPath: String?
   let onSignOut: () -> Void
   let onRemoveServer: () -> Void
 
@@ -42,6 +46,7 @@ struct CloudServerSection: View {
           depth: 0,
           onListDir: onListDir,
           onPickPath: onPickPath,
+          cloudCurrentPath: cloudCurrentPath,
           selection: $selection,
           listingCache: $listingCache,
           expanded: $expanded

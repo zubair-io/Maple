@@ -55,6 +55,15 @@ struct AppShell: View {
     // Sidebar selection (single active row across the whole tree).
     @State private var librarySelection: LibrarySelection = .none
 
+    /// Absolute path inside the currently-open cloud library. Equal to
+    /// the library's root path immediately after picking, then bumped
+    /// by `navigateFolder` when the user drills into a subfolder. The
+    /// sidebar reads this to (a) auto-expand the ancestor chain on
+    /// cold start and (b) highlight the matching tree row. Persisted
+    /// via `SourceSelection.cloudLibrary` so cold-start restores the
+    /// deep path the user left off at.
+    @State private var cloudCurrentPath: String? = nil
+
     // Sheet state.
     @State private var showSMBSheet = false
     /// Single AddMapleCloudSheet entry point. `nil` means hidden;
@@ -143,6 +152,14 @@ struct AppShell: View {
                 }
             )
         }
+        .onChange(of: librarySelection) { _, newValue in
+            // Cloud-current-path is only meaningful while a cloud library
+            // is selected. Drop it on any non-cloud selection so the
+            // sidebar tree's auto-expand and selection-highlight don't
+            // ghost across mode changes.
+            if case .cloudLibrary = newValue { /* keep */ }
+            else { cloudCurrentPath = nil }
+        }
         .task {
             #if DEBUG
             // UITest harness fast path: if the launch env stashed a
@@ -194,6 +211,7 @@ struct AppShell: View {
                 onListCloudDir: { url, absPath in
                     await listCloudDirFor(server: url, absPath: absPath)
                 },
+                cloudCurrentPath: cloudCurrentPath,
                 onSignOutCloudServer: { url in
                     Task { @MainActor in
                         // Sign out keeps the server in the sidebar but
@@ -462,8 +480,15 @@ struct AppShell: View {
         // server-side absolute path. We don't update LibrarySelection
         // because the drilled-in path is browser state, not a sidebar
         // selection — the user is still on the same library row.
-        if case .cloudLibrary = librarySelection,
+        if case .cloudLibrary(let serverID, let folderID) = librarySelection,
            let source = browseVM.currentSource as? CloudSource {
+            cloudCurrentPath = url.path
+            // Persist the drilled-in path so cold start restores at the
+            // current depth (and the sidebar auto-expands the ancestor
+            // chain to match).
+            SourceSelectionStore.save(.cloudLibrary(serverID: serverID,
+                                                    folderID: folderID,
+                                                    libraryPath: url.path))
             Task { @MainActor in
                 await browseVM.loadCloudDir(source, absPath: url.path)
                 libraryTitle = url.lastPathComponent
@@ -739,6 +764,7 @@ struct AppShell: View {
     @MainActor
     private func loadCloudLibrary(serverID: URL, folderID: String, libraryPath: String) {
         librarySelection = .cloudLibrary(serverID: serverID, folderID: folderID)
+        cloudCurrentPath = libraryPath
         SourceSelectionStore.save(.cloudLibrary(serverID: serverID, folderID: folderID, libraryPath: libraryPath))
         currentRootBookmark = nil
 
