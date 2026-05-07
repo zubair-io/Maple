@@ -205,6 +205,45 @@ final class AddMapleCloudViewModelTests: XCTestCase {
     if case .error = vm.state { } else { XCTFail("expected error") }
   }
 
+  // MARK: Cancel-during-passkey race
+
+  func test_cancelBeforeTransition_suppressesCallback() async {
+    let host = CloudHost.parse("myserver.com")!
+    let flow = StubCloudAuthFlow(server: host.url)
+    let user = AuthUser(id: "u9", email: "racer@example.com", role: "owner")
+    flow.bootstrapResult = .success(false)
+    flow.registerResult = .success(AuthVerifyResponse(
+      access_token: "AT", refresh_token: "RT", user: user))
+
+    let recorder = SignedInRecorder()
+    let vm = AddMapleCloudViewModel(
+      makeFlow: { _ in flow },
+      onSignedIn: { url, tokens, user in
+        recorder.record(url: url, tokens: tokens, user: user)
+      })
+
+    vm.domainInput = "myserver.com"
+    await vm.continueFromIdle()
+    vm.emailInput = "racer@example.com"
+    vm.cancel()                  // user dismissed the sheet
+    await vm.claimOwner()        // ceremony "completes" anyway
+
+    // Internal state still flips to .signedIn (the ceremony returned
+    // success), but the side-effect callback is suppressed — no token
+    // persistence, no sidebar registration.
+    XCTAssertEqual(recorder.calls.count, 0)
+  }
+
+  func test_cancel_isIdempotent() async {
+    let host = CloudHost.parse("myserver.com")!
+    let vm = AddMapleCloudViewModel(makeFlow: { _ in StubCloudAuthFlow(server: host.url) })
+    vm.cancel()
+    vm.cancel()
+    vm.cancel()
+    // Second-and-later calls should not crash or change behavior.
+    XCTAssertEqual(vm.state, .idle)
+  }
+
   // MARK: Side-effect callback
 
   func test_signedIn_invokesOnSignedInCallbackOnce() async {

@@ -24,6 +24,15 @@ struct AddMapleCloudSheet: View {
     _vm = State(wrappedValue: viewModel)
   }
 
+  /// Centralized dismiss path. Cancels the in-flight passkey ceremony so
+  /// that a Touch ID prompt completing AFTER the user clicked Cancel does
+  /// NOT silently register the server. Then forwards to the host's
+  /// `onDismiss` to close the sheet binding.
+  private func dismiss() {
+    vm.cancel()
+    onDismiss()
+  }
+
   var body: some View {
     VStack(spacing: 16) {
       panel
@@ -32,6 +41,13 @@ struct AddMapleCloudSheet: View {
     .frame(minWidth: 420, minHeight: 240)
     .onAppear {
       vm.presentationAnchor = anchorProvider
+    }
+    .onDisappear {
+      // Catches swipe-down (iOS) / Esc / programmatic dismissal that
+      // bypasses our Cancel buttons. cancel() is idempotent — if the
+      // sheet disappeared because of a successful sign-in, the
+      // callback already fired before this runs.
+      vm.cancel()
     }
     .onChange(of: vm.state) { _, newValue in
       if case .signedIn = newValue { onDismiss() }
@@ -71,7 +87,7 @@ struct AddMapleCloudSheet: View {
         .onSubmit { Task { await vm.continueFromIdle() } }
       HStack {
         Spacer()
-        Button("Cancel", action: onDismiss).keyboardShortcut(.cancelAction)
+        Button("Cancel", action: dismiss).keyboardShortcut(.cancelAction)
         Button("Continue") { Task { await vm.continueFromIdle() } }
           .keyboardShortcut(.defaultAction)
           .buttonStyle(.borderedProminent)
@@ -101,7 +117,7 @@ struct AddMapleCloudSheet: View {
         #endif
       HStack {
         Spacer()
-        Button("Cancel", action: onDismiss).keyboardShortcut(.cancelAction)
+        Button("Cancel", action: dismiss).keyboardShortcut(.cancelAction)
         Button { Task { await vm.claimOwner() } } label: {
           Label("Create owner account", systemImage: "key.fill")
         }
@@ -124,7 +140,7 @@ struct AddMapleCloudSheet: View {
           Label("Join with invite", systemImage: "envelope.fill")
         }
         Spacer()
-        Button("Cancel", action: onDismiss).keyboardShortcut(.cancelAction)
+        Button("Cancel", action: dismiss).keyboardShortcut(.cancelAction)
       }
     }
   }
@@ -140,7 +156,7 @@ struct AddMapleCloudSheet: View {
         #endif
       HStack {
         Spacer()
-        Button("Cancel", action: onDismiss).keyboardShortcut(.cancelAction)
+        Button("Cancel", action: dismiss).keyboardShortcut(.cancelAction)
         Button { Task { await vm.signIn() } } label: {
           Label("Sign in with passkey", systemImage: "key.fill")
         }
@@ -165,7 +181,7 @@ struct AddMapleCloudSheet: View {
         .textCase(.uppercase)
       HStack {
         Spacer()
-        Button("Cancel", action: onDismiss).keyboardShortcut(.cancelAction)
+        Button("Cancel", action: dismiss).keyboardShortcut(.cancelAction)
         Button { Task { await vm.joinWithInvite() } } label: {
           Label("Join with passkey", systemImage: "key.fill")
         }
@@ -183,7 +199,7 @@ struct AddMapleCloudSheet: View {
         .foregroundStyle(.red).font(.callout)
       HStack {
         Spacer()
-        Button("Cancel", action: onDismiss).keyboardShortcut(.cancelAction)
+        Button("Cancel", action: dismiss).keyboardShortcut(.cancelAction)
         Button("Try again") { vm.retryFromError() }
           .keyboardShortcut(.defaultAction)
           .buttonStyle(.borderedProminent)

@@ -34,8 +34,10 @@ public final class AddMapleCloudViewModel {
 
   /// Current ASPresentationAnchor provider — set by the sheet on appear.
   /// Tests can leave it nil because they stub the network calls; production
-  /// SwiftUI sets it from the key window.
-  public var presentationAnchor: () -> ASPresentationAnchor = {
+  /// SwiftUI sets it from the key window. Annotated `@MainActor` because the
+  /// production resolver touches `NSApplication.shared.keyWindow` /
+  /// `UIWindowScene.keyWindow`, both main-actor-only.
+  public var presentationAnchor: @MainActor () -> ASPresentationAnchor = {
     ASPresentationAnchor()
   }
 
@@ -51,17 +53,36 @@ public final class AddMapleCloudViewModel {
 
   private let onSignedIn: OnSignedIn
 
+  /// One-shot cancel flag. Set by `cancel()` (called from the sheet's
+  /// `onDismiss`). When set, `transitionToSignedIn` does NOT fire the
+  /// callback — even if the underlying passkey ceremony completed
+  /// successfully. This prevents a server from silently being registered
+  /// in the background after the user clicked Cancel and the sheet
+  /// disappeared. The view model is single-use (recreated per sheet
+  /// presentation), so a one-shot flag is correct.
+  private var cancelled: Bool = false
+
   public init(makeFlow: @escaping (URL) -> any CloudAuthFlow = { AuthClient(server: $0) },
               onSignedIn: @escaping OnSignedIn = { _, _, _ in }) {
     self.makeFlow = makeFlow
     self.onSignedIn = onSignedIn
   }
 
-  /// Centralized signedIn transition — fires the callback exactly once.
+  /// Mark this flow as cancelled. Idempotent. Subsequent successful
+  /// transitions skip the `onSignedIn` callback. Call from the sheet's
+  /// `onDismiss` so a Touch ID prompt that completes after the user has
+  /// dismissed the sheet does not register a server.
+  public func cancel() {
+    cancelled = true
+  }
+
+  /// Centralized signedIn transition — fires the callback exactly once,
+  /// and only if the flow has not been cancelled.
   private func transitionToSignedIn(_ host: CloudHost,
                                     response resp: AuthVerifyResponse) {
     let tokens = AuthTokens(access: resp.access_token, refresh: resp.refresh_token)
     state = .signedIn(host, tokens: tokens, user: resp.user)
+    if cancelled { return }
     onSignedIn(host.url, tokens, resp.user)
   }
 
