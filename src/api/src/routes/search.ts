@@ -48,7 +48,12 @@ function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-function clampInt(value: string | undefined, lo: number, hi: number, def: number): number {
+function clampInt(
+  value: string | undefined,
+  lo: number,
+  hi: number,
+  def: number,
+): number {
   if (value === undefined) return def;
   const n = Number(value);
   if (!Number.isFinite(n)) return def;
@@ -106,7 +111,9 @@ interface SearchQuery {
  * Returns `null` when the query asks for something impossible (bad libraryId,
  * malformed extensions) — the caller should turn this into a 400.
  */
-export function buildFilter(q: SearchQuery): Filter<AssetDoc> | { error: string } {
+export function buildFilter(
+  q: SearchQuery,
+): Filter<AssetDoc> | { error: string } {
   const filter: Filter<AssetDoc> = {};
 
   // Free-text q: case-insensitive substring on filename + abs_path.
@@ -137,7 +144,10 @@ export function buildFilter(q: SearchQuery): Filter<AssetDoc> | { error: string 
       // Combine prior $or (q) with this one via $and so both sets remain restrictive.
       const existing = (filter as { $or?: unknown[] }).$or!;
       delete (filter as { $or?: unknown[] }).$or;
-      (filter as { $and?: unknown[] }).$and = [{ $or: existing }, { $or: camOr }];
+      (filter as { $and?: unknown[] }).$and = [
+        { $or: existing },
+        { $or: camOr },
+      ];
     } else {
       (filter as { $or?: unknown[] }).$or = camOr;
     }
@@ -198,7 +208,8 @@ export function buildFilter(q: SearchQuery): Filter<AssetDoc> | { error: string 
     capturedAtPredicate.$ne = null;
   }
   if (Object.keys(capturedAtPredicate).length > 0) {
-    (filter as Record<string, unknown>)["exif.captured_at"] = capturedAtPredicate;
+    (filter as Record<string, unknown>)["exif.captured_at"] =
+      capturedAtPredicate;
   }
 
   // Rating threshold (>= n).
@@ -312,9 +323,10 @@ interface SearchResult {
 
 function projectAsset(d: AssetDoc & { _id: ObjectId }): SearchResult {
   const exif = d.exif ?? null;
-  const camera = exif && (exif.camera_make !== null || exif.camera_model !== null)
-    ? { make: exif.camera_make, model: exif.camera_model }
-    : null;
+  const camera =
+    exif && (exif.camera_make !== null || exif.camera_model !== null)
+      ? { make: exif.camera_make, model: exif.camera_model }
+      : null;
   return {
     // The editor's id format is `fs:<absPath>` (matches Hosted's
     // browser-FS-Access keys); keeping the same shape here lets the FE
@@ -398,10 +410,12 @@ export const searchRoutes = new Elysia({ prefix: "/api/search" })
         coll.countDocuments(finalFilter),
       ]);
 
-      const results = docs.map((d) => projectAsset(d as AssetDoc & { _id: ObjectId }));
+      const results = docs.map((d) =>
+        projectAsset(d as AssetDoc & { _id: ObjectId }),
+      );
       return { total, page, limit, results };
     },
-    { query: SearchQueryT }
+    { query: SearchQueryT },
   )
 
   .get(
@@ -416,74 +430,78 @@ export const searchRoutes = new Elysia({ prefix: "/api/search" })
       const coll = await assetsCollection();
       const finalFilter = applyLiveFilter(filter);
 
-      const [total, cameraAgg, lensAgg, extAgg, isoAgg, capAgg] = await Promise.all([
-        coll.countDocuments(finalFilter),
-        coll
-          .aggregate([
-            { $match: finalFilter },
-            {
-              $group: {
-                _id: { make: "$exif.camera_make", model: "$exif.camera_model" },
-                count: { $sum: 1 },
+      const [total, cameraAgg, lensAgg, extAgg, isoAgg, capAgg] =
+        await Promise.all([
+          coll.countDocuments(finalFilter),
+          coll
+            .aggregate([
+              { $match: finalFilter },
+              {
+                $group: {
+                  _id: {
+                    make: "$exif.camera_make",
+                    model: "$exif.camera_model",
+                  },
+                  count: { $sum: 1 },
+                },
               },
-            },
-            { $sort: { count: -1 } },
-            { $limit: 50 },
-          ])
-          .toArray(),
-        coll
-          .aggregate([
-            { $match: finalFilter },
-            { $group: { _id: "$exif.lens", count: { $sum: 1 } } },
-            { $sort: { count: -1 } },
-            { $limit: 50 },
-          ])
-          .toArray(),
-        // Extensions: derive in Mongo via $split + $arrayElemAt — simpler
-        // than $regexFindAll and works on every supported server version.
-        coll
-          .aggregate([
-            { $match: finalFilter },
-            {
-              $project: {
-                ext: {
-                  $toLower: {
-                    $arrayElemAt: [{ $split: ["$filename", "."] }, -1],
+              { $sort: { count: -1 } },
+              { $limit: 50 },
+            ])
+            .toArray(),
+          coll
+            .aggregate([
+              { $match: finalFilter },
+              { $group: { _id: "$exif.lens", count: { $sum: 1 } } },
+              { $sort: { count: -1 } },
+              { $limit: 50 },
+            ])
+            .toArray(),
+          // Extensions: derive in Mongo via $split + $arrayElemAt — simpler
+          // than $regexFindAll and works on every supported server version.
+          coll
+            .aggregate([
+              { $match: finalFilter },
+              {
+                $project: {
+                  ext: {
+                    $toLower: {
+                      $arrayElemAt: [{ $split: ["$filename", "."] }, -1],
+                    },
                   },
                 },
               },
-            },
-            { $match: { ext: { $nin: [null, ""] } } },
-            { $group: { _id: "$ext", count: { $sum: 1 } } },
-            { $sort: { count: -1 } },
-            { $limit: 50 },
-          ])
-          .toArray(),
-        coll
-          .aggregate([
-            { $match: finalFilter },
-            {
-              $group: {
-                _id: null,
-                min: { $min: "$exif.iso" },
-                max: { $max: "$exif.iso" },
+              { $match: { ext: { $nin: [null, ""] } } },
+              { $group: { _id: "$ext", count: { $sum: 1 } } },
+              { $sort: { count: -1 } },
+              { $limit: 50 },
+            ])
+            .toArray(),
+          coll
+            .aggregate([
+              { $match: finalFilter },
+              {
+                $group: {
+                  _id: null,
+                  min: { $min: "$exif.iso" },
+                  max: { $max: "$exif.iso" },
+                },
               },
-            },
-          ])
-          .toArray(),
-        coll
-          .aggregate([
-            { $match: finalFilter },
-            {
-              $group: {
-                _id: null,
-                from: { $min: "$exif.captured_at" },
-                to: { $max: "$exif.captured_at" },
+            ])
+            .toArray(),
+          coll
+            .aggregate([
+              { $match: finalFilter },
+              {
+                $group: {
+                  _id: null,
+                  from: { $min: "$exif.captured_at" },
+                  to: { $max: "$exif.captured_at" },
+                },
               },
-            },
-          ])
-          .toArray(),
-      ]);
+            ])
+            .toArray(),
+        ]);
 
       const cameras = cameraAgg.map((r) => ({
         make: r._id.make ?? null,
@@ -499,18 +517,22 @@ export const searchRoutes = new Elysia({ prefix: "/api/search" })
         .map((r) => ({ value: r._id as string, count: r.count as number }));
       const isoRow = isoAgg[0];
       const iso_range =
-        isoRow && typeof isoRow.min === "number" && typeof isoRow.max === "number"
+        isoRow &&
+        typeof isoRow.min === "number" &&
+        typeof isoRow.max === "number"
           ? { min: isoRow.min as number, max: isoRow.max as number }
           : null;
       const capRow = capAgg[0];
       const capture_range =
-        capRow && typeof capRow.from === "string" && typeof capRow.to === "string"
+        capRow &&
+        typeof capRow.from === "string" &&
+        typeof capRow.to === "string"
           ? { from: capRow.from as string, to: capRow.to as string }
           : null;
 
       return { total, cameras, lenses, extensions, iso_range, capture_range };
     },
-    { query: SearchQueryT }
+    { query: SearchQueryT },
   )
 
   .get(
@@ -521,75 +543,59 @@ export const searchRoutes = new Elysia({ prefix: "/api/search" })
         set.status = 400;
         return { error: filterOrError.error };
       }
+
+      // Cache lookup. Buckets only change when assets are written —
+      // a 30s TTL keeps repeat loads from the same client cheap and is
+      // tight enough that newly-indexed photos surface within a minute.
+      const cacheKey = makeBucketsCacheKey(query as SearchQuery);
+      const cached = bucketsCache.get(cacheKey);
+      const nowMs = Date.now();
+      if (cached && cached.expiresMs > nowMs) {
+        return cached.result;
+      }
+
       const filter = filterOrError;
       const coll = await assetsCollection();
       const finalFilter = applyLiveFilter(filter);
 
-      // Single $facet aggregation: one branch counts timed (year/month-binned)
-      // rows, the other counts everything that ISN'T timed. We define
-      // "untimed" as `captured_at: null` OR the field missing — Mongo's
-      // `$ne: null` excludes both, putting them in neither bucket otherwise.
-      // Without the explicit `$exists: false` branch in `untimed`, rows with
-      // no `exif` subdoc at all would silently disappear from the totals.
-      const [result] = await coll
-        .aggregate([
-          { $match: finalFilter },
-          {
-            $facet: {
-              timed: [
-                { $match: { "exif.captured_at": { $ne: null } } },
-                {
-                  $project: {
-                    year: {
-                      $year: {
-                        $dateFromString: {
-                          dateString: "$exif.captured_at",
-                          onError: null,
-                          onNull: null,
-                        },
-                      },
-                    },
-                    month: {
-                      $month: {
-                        $dateFromString: {
-                          dateString: "$exif.captured_at",
-                          onError: null,
-                          onNull: null,
-                        },
-                      },
-                    },
-                  },
-                },
-                { $match: { year: { $ne: null }, month: { $ne: null } } },
-                {
-                  $group: {
-                    _id: { year: "$year", month: "$month" },
-                    count: { $sum: 1 },
-                  },
-                },
-                { $sort: { "_id.year": -1, "_id.month": -1 } },
-              ],
-              untimed: [
-                {
-                  $match: {
-                    $or: [
-                      { "exif.captured_at": null },
-                      { "exif.captured_at": { $exists: false } },
-                    ],
-                  },
-                },
-                { $count: "count" },
-              ],
-            },
-          },
-        ])
-        .toArray();
+      // Two parallel aggregations instead of one $facet pipeline: each
+      // branch can use its own optimal index, and Mongo schedules them
+      // independently. The timed branch uses pre-computed numeric
+      // exif.captured_year/month (set by the indexer + backfilled at
+      // startup) so $group is index-only — no $dateFromString per doc.
+      const timedFilter = {
+        ...finalFilter,
+        "exif.captured_year": { $ne: null },
+      } as typeof finalFilter;
+      const untimedFilter = {
+        ...finalFilter,
+        $or: [
+          { "exif.captured_at": null },
+          { "exif.captured_at": { $exists: false } },
+        ],
+      } as typeof finalFilter;
 
-      const timed = (result?.timed ?? []) as Array<{
-        _id: { year: number; month: number };
-        count: number;
-      }>;
-      const untimedArr = (result?.untimed ?? []) as Array<{ count: number }>;
+      const [timed, untimed_count] = await Promise.all([
+        coll
+          .aggregate<{
+            _id: { year: number; month: number };
+            count: number;
+          }>([
+            { $match: timedFilter },
+            {
+              $group: {
+                _id: {
+                  year: "$exif.captured_year",
+                  month: "$exif.captured_month",
+                },
+                count: { $sum: 1 },
+              },
+            },
+            { $sort: { "_id.year": -1, "_id.month": -1 } },
+          ])
+          .toArray(),
+        coll.countDocuments(untimedFilter),
+      ]);
 
       const buckets = timed.map((t) => ({
         year: t._id.year,
@@ -597,9 +603,69 @@ export const searchRoutes = new Elysia({ prefix: "/api/search" })
         count: t.count,
       }));
       const total = buckets.reduce((acc, b) => acc + b.count, 0);
-      const untimed_count = untimedArr[0]?.count ?? 0;
 
-      return { total, buckets, untimed_count };
+      const result = { total, buckets, untimed_count };
+      // Bound the cache so a parameterised attack can't grow it
+      // unboundedly. 500 unique filter sets is generous for a single
+      // server; eviction is FIFO via insertion order.
+      if (bucketsCache.size >= 500) {
+        const oldest = bucketsCache.keys().next().value;
+        if (oldest !== undefined) bucketsCache.delete(oldest);
+      }
+      bucketsCache.set(cacheKey, {
+        result,
+        expiresMs: nowMs + BUCKETS_CACHE_TTL_MS,
+      });
+      return result;
     },
-    { query: SearchQueryT }
+    { query: SearchQueryT },
   );
+
+// ── Buckets response cache ────────────────────────────────────────────
+// Module-scoped because the cache lives for the process lifetime. Keys
+// are the full filter set; values are the aggregation result + an
+// absolute expiry. 30 s is short enough that newly-indexed assets show
+// up "soon" without explicit invalidation, long enough that a user
+// flicking between scopes hits warm cache.
+const BUCKETS_CACHE_TTL_MS = 30_000;
+interface CachedBuckets {
+  result: {
+    total: number;
+    buckets: Array<{ year: number; month: number; count: number }>;
+    untimed_count: number;
+  };
+  expiresMs: number;
+}
+const bucketsCache = new Map<string, CachedBuckets>();
+
+/** Stable JSON serialisation of a SearchQuery. Field order is fixed so
+ * that two requests with the same params produce the same key
+ * regardless of how the URL was constructed. */
+function makeBucketsCacheKey(q: SearchQuery): string {
+  return JSON.stringify({
+    pathPrefix: q.pathPrefix ?? null,
+    libraryId: q.libraryId ?? null,
+    q: q.q ?? null,
+    camera: q.camera ?? null,
+    lens: q.lens ?? null,
+    isoMin: q.isoMin ?? null,
+    isoMax: q.isoMax ?? null,
+    apertureMin: q.apertureMin ?? null,
+    apertureMax: q.apertureMax ?? null,
+    focalMin: q.focalMin ?? null,
+    focalMax: q.focalMax ?? null,
+    from: q.from ?? null,
+    to: q.to ?? null,
+    rating: q.rating ?? null,
+    flag: q.flag ?? null,
+    color: q.color ?? null,
+    ext: q.ext ?? null,
+    hasCapturedAt: q.hasCapturedAt ?? null,
+  });
+}
+
+/** Test-only: blow the cache so back-to-back tests don't see each
+ * other's results. Safe in production too — just slower for 30 s. */
+export function _resetBucketsCacheForTests(): void {
+  bucketsCache.clear();
+}
