@@ -106,6 +106,13 @@ interface RenderedMonth {
   bucket: TimelineBucket;
   data: MonthData | null;
   groups: Array<{ folderName: string; photos: PhotoVm[] }>;
+  /** True when this month's section is intersecting the visibility-observer
+   * margin — only then do we render the photo <button>s. Off-screen months
+   * collapse to a placeholder div. */
+  isVisible: boolean;
+  /** Estimated height in px for the placeholder div when isVisible is false.
+   * Based on bucket count and estimated photos-per-row from container width. */
+  placeholderHeight: number;
 }
 
 interface RenderedYear {
@@ -165,9 +172,10 @@ export class TimelineViewComponent implements AfterViewInit, OnDestroy {
 
   // ── IntersectionObserver for lazy-loaded months ──────────────────────────
   private monthObserver?: IntersectionObserver;
+  private visibilityObserver?: IntersectionObserver;
   private observerRoot?: HTMLElement;
   private observedSections = new WeakSet<HTMLElement>();
-  /** Elements that registered before the observer existed. Drained when
+  /** Elements that registered before the observers existed. Drained when
    * the scroll container becomes available. */
   private pendingObserve = new Set<HTMLElement>();
 
@@ -179,10 +187,27 @@ export class TimelineViewComponent implements AfterViewInit, OnDestroy {
   // starts paginating the moment it scrolls into view. A library with 7
   // visible months and one of them at 3000+ photos means dozens of /search
   // requests racing each other and the API server gets hammered. Limit to
-  // 3 in flight; queue the rest in the order they were requested.
-  private static readonly MAX_CONCURRENT_MONTH_FETCHES = 3;
+  // 2 in flight; queue the rest in the order they were requested.
+  private static readonly MAX_CONCURRENT_MONTH_FETCHES = 2;
   private _inflightMonthFetches = 0;
   private _monthFetchQueue: Array<{ year: number; month: number }> = [];
+
+  // ── Viewport-based DOM virtualisation ───────────────────────────────────
+  // Rendering 5000+ photo <img> tags up front pegs the browser. Track the
+  // set of months whose section is currently intersecting the viewport
+  // (with a small margin so adjacent ones come in early), and ONLY render
+  // photo <button>s for those months. Off-screen months render a single
+  // placeholder div with an estimated height to preserve scroll position.
+  private readonly _visibleMonths = signal<Set<string>>(new Set());
+
+  /** rootMargin used by the visibility observer. Tighter than the fetch
+   * observer below — we want photo DOM to drop the moment a month leaves
+   * the viewport-plus-half-screen, but we want fetch to start a bit
+   * earlier so the photos are ready by the time the user scrolls there. */
+  private static readonly VISIBLE_ROOT_MARGIN = '300px 0px';
+  /** rootMargin used by the fetch observer. Smaller than before (was
+   * 600px) so we don't fetch months that are well off-screen. */
+  private static readonly FETCH_ROOT_MARGIN = '200px 0px';
 
   // ── Derived: year-grouped buckets ────────────────────────────────────────
   readonly years = computed<RenderedYear[]>(() => {
@@ -199,6 +224,8 @@ export class TimelineViewComponent implements AfterViewInit, OnDestroy {
         grouped.push({ year: bucket.year, count: bucket.count, months: [bucket] });
       }
     }
+    const visible = this._visibleMonths();
+    const cw = this.containerWidth();
     return grouped.map<RenderedYear>((y) => ({
       year: y.year,
       count: y.count,
@@ -209,7 +236,14 @@ export class TimelineViewComponent implements AfterViewInit, OnDestroy {
         // of photos paginate over many round-trips; hiding everything until
         // the last page completes is what made the UI look frozen.
         const groups = data && data.groups.size > 0 ? buildGroups(data) : [];
-        return { bucket, data, groups };
+        const isVisible = visible.has(monthKey(bucket.year, bucket.month));
+        return {
+          bucket,
+          data,
+          groups,
+          isVisible,
+          placeholderHeight: estimateMonthHeight(bucket.count, cw),
+        };
       }),
     }));
   });
@@ -260,15 +294,21 @@ export class TimelineViewComponent implements AfterViewInit, OnDestroy {
       const el = ref?.nativeElement;
       if (!el) {
         this.monthObserver?.disconnect();
+        this.visibilityObserver?.disconnect();
         this.monthObserver = undefined;
+        this.visibilityObserver = undefined;
         this.observerRoot = undefined;
         this.observedSections = new WeakSet();
+        this._visibleMonths.set(new Set());
         return;
       }
       if (this.monthObserver && this.observerRoot === el) return;
       this.monthObserver?.disconnect();
+      this.visibilityObserver?.disconnect();
       this.observedSections = new WeakSet();
       this.observerRoot = el;
+      // Fetch observer: when a month enters the FETCH_ROOT_MARGIN window,
+      // start its /api/search request (subject to the concurrency cap).
       this.monthObserver = new IntersectionObserver(
         (entries) => {
           for (const entry of entries) {
@@ -286,14 +326,62 @@ export class TimelineViewComponent implements AfterViewInit, OnDestroy {
         },
         {
           root: el,
-          rootMargin: '600px 0px',
+          rootMargin: TimelineViewComponent.FETCH_ROOT_MARGIN,
           threshold: 0,
         },
       );
-      // Drain anything that registered before the observer was ready.
+      // Visibility observer: tracks which months are CURRENTLY in (or near)
+      // the viewport so the template can virtualise photo DOM. Uses both
+      // intersection directions — a month leaving the viewport triggers
+      // the photo grid to drop back to a placeholder div.
+      this.visibilityObserver = new IntersectionObserver(
+        (entries) => {
+          const newlyVisibleKeys: string[] = [];
+          this._visibleMonths.update((prev) => {
+            let next: Set<string> | null = null;
+            for (const entry of entries) {
+              const target = entry.target as HTMLElement;
+              const year = Number(target.dataset['year']);
+              const month = Number(target.dataset['month']);
+              if (!Number.isFinite(year) || !Number.isFinite(month)) continue;
+              const key = monthKey(year, month);
+              const has = prev.has(key);
+              if (entry.isIntersecting && !has) {
+                if (!next) next = new Set(prev);
+                next.add(key);
+                newlyVisibleKeys.push(key);
+              } else if (!entry.isIntersecting && has) {
+                if (!next) next = new Set(prev);
+                next.delete(key);
+              }
+            }
+            return next ?? prev;
+          });
+          // For months that just became visible AND already have data,
+          // kick off thumb loads now (the per-month fetch path skipped
+          // them earlier because they weren't visible at fetch time).
+          if (newlyVisibleKeys.length > 0) {
+            const data = untracked(() => this._monthData());
+            for (const key of newlyVisibleKeys) {
+              const m = data.get(key);
+              if (!m || m.groups.size === 0) continue;
+              for (const photos of m.groups.values()) {
+                for (const p of photos) void this._loadThumb(p);
+              }
+            }
+          }
+        },
+        {
+          root: el,
+          rootMargin: TimelineViewComponent.VISIBLE_ROOT_MARGIN,
+          threshold: 0,
+        },
+      );
+      // Drain anything that registered before the observers were ready.
       for (const node of this.pendingObserve) {
         this.observedSections.add(node);
         this.monthObserver.observe(node);
+        this.visibilityObserver.observe(node);
       }
       this.pendingObserve.clear();
     });
@@ -306,6 +394,7 @@ export class TimelineViewComponent implements AfterViewInit, OnDestroy {
   ngOnDestroy(): void {
     this.ro?.disconnect();
     this.monthObserver?.disconnect();
+    this.visibilityObserver?.disconnect();
     if (this.bucketsDebounce !== null) clearTimeout(this.bucketsDebounce);
   }
 
@@ -318,8 +407,9 @@ export class TimelineViewComponent implements AfterViewInit, OnDestroy {
     if (!el) return;
     if (this.observedSections.has(el)) return;
     this.observedSections.add(el);
-    if (this.monthObserver) {
+    if (this.monthObserver && this.visibilityObserver) {
       this.monthObserver.observe(el);
+      this.visibilityObserver.observe(el);
     } else {
       this.pendingObserve.add(el);
     }
@@ -424,8 +514,15 @@ export class TimelineViewComponent implements AfterViewInit, OnDestroy {
           error: null,
           groups: cloneOfMerged,
         }));
-        for (const photos of pageGroups.values()) {
-          for (const p of photos) void this._loadThumb(p);
+        // Only pre-load thumbs if this month is currently visible. Off-
+        // screen months get their thumbs loaded later when the visibility
+        // observer flips them visible — otherwise a fully-fetched but
+        // off-screen month with 80 photos would fire 80 thumb requests
+        // for nothing (see _ensureThumbsForVisibleMonths).
+        if (untracked(() => this._visibleMonths().has(key))) {
+          for (const photos of pageGroups.values()) {
+            for (const p of photos) void this._loadThumb(p);
+          }
         }
         if (r.results.length === 0) break;
         page += 1;
@@ -639,4 +736,20 @@ function buildGroups(data: MonthData): Array<{ folderName: string; photos: Photo
     folderName,
     photos: data.groups.get(folderName)!,
   }));
+}
+
+/** Estimate the rendered height of a month's photo grid for the placeholder
+ * shown when the section is off-screen. Photos are 140 px tall in a flex-wrap
+ * container with a 4 px gap; assume one folder-group header per ~60 photos to
+ * approximate the typical vertical contribution. Worst case the estimate is
+ * off and the scrollbar drifts a bit on first paint — that's preferable to
+ * mounting thousands of <img> tags. */
+function estimateMonthHeight(count: number, containerWidth: number): number {
+  if (count <= 0) return 36;
+  const cellSize = 144; // 140 px photo + 4 px gap
+  const usable = Math.max(160, containerWidth - 32); // -px for padding + scrubber
+  const perRow = Math.max(1, Math.floor(usable / cellSize));
+  const rows = Math.ceil(count / perRow);
+  const groupHeaders = Math.max(1, Math.ceil(count / 60)) * 24;
+  return rows * cellSize + groupHeaders + 32;
 }
