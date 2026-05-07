@@ -15,8 +15,16 @@
 // resolved and rejected if they fall outside any allowed root.
 
 import { Elysia, t } from "elysia";
-import { stat, readFile, realpath, mkdir } from "node:fs/promises";
+import {
+  stat,
+  readFile,
+  writeFile,
+  rename,
+  realpath,
+  mkdir,
+} from "node:fs/promises";
 import * as path from "node:path";
+import sharp from "sharp";
 import { browseRoots, isUnderRoot, RAW_EXTENSIONS } from "../fs/browse.ts";
 import { resolveThumbPath } from "../fs/xmp.ts";
 import { ffiPool } from "../ffi/ffi-pool.ts";
@@ -25,115 +33,172 @@ const DEFAULT_SIZE_PX = 512;
 const MIN_SIZE_PX = 16;
 const MAX_SIZE_PX = 4096;
 
-export const fsThumbsRoutes = new Elysia({ prefix: "/api/fs" })
-  .get(
-    "/thumb",
-    async ({ query, set }) => {
-      const reqPath = query.path;
-      const sizeStr = query.size ?? String(DEFAULT_SIZE_PX);
-      const sizePx = Number.parseInt(sizeStr, 10);
+/** Non-RAW image extensions that sharp can decode + resize directly.
+ * Indexer also surfaces these (see indexer/service.ts), so they show up
+ * in the timeline; without this branch their thumb requests 415. */
+const SHARP_EXTENSIONS = new Set<string>([
+  "jpg",
+  "jpeg",
+  "png",
+  "webp",
+  "gif",
+  "tif",
+  "tiff",
+  "heic",
+  "heif",
+  "avif",
+]);
 
-      if (!Number.isFinite(sizePx) || sizePx < MIN_SIZE_PX || sizePx > MAX_SIZE_PX) {
-        set.status = 400;
-        return { error: `size must be an integer in [${MIN_SIZE_PX}, ${MAX_SIZE_PX}]` };
-      }
+export const fsThumbsRoutes = new Elysia({ prefix: "/api/fs" }).get(
+  "/thumb",
+  async ({ query, set }) => {
+    const reqPath = query.path;
+    const sizeStr = query.size ?? String(DEFAULT_SIZE_PX);
+    const sizePx = Number.parseInt(sizeStr, 10);
 
-      if (!path.isAbsolute(reqPath)) {
-        set.status = 400;
-        return { error: "path must be absolute" };
-      }
+    if (
+      !Number.isFinite(sizePx) ||
+      sizePx < MIN_SIZE_PX ||
+      sizePx > MAX_SIZE_PX
+    ) {
+      set.status = 400;
+      return {
+        error: `size must be an integer in [${MIN_SIZE_PX}, ${MAX_SIZE_PX}]`,
+      };
+    }
 
-      // Resolve symlinks so the jail check matches the parent realpath form
-      // (mirrors `listDirContents` behaviour on macOS where /var → /private/var).
-      let real: string;
+    if (!path.isAbsolute(reqPath)) {
+      set.status = 400;
+      return { error: "path must be absolute" };
+    }
+
+    // Resolve symlinks so the jail check matches the parent realpath form
+    // (mirrors `listDirContents` behaviour on macOS where /var → /private/var).
+    let real: string;
+    try {
+      real = await realpath(reqPath);
+    } catch (err) {
+      set.status = 404;
+      return {
+        error: `Cannot access "${reqPath}": ${err instanceof Error ? err.message : String(err)}`,
+      };
+    }
+
+    const roots = await browseRoots();
+    if (!roots.some((r) => isUnderRoot(real, r))) {
+      set.status = 403;
+      return {
+        error: `Path "${real}" is outside MAPLE_ROOTS [${roots.join(", ")}]`,
+      };
+    }
+
+    // Extension gate — RAW formats go through the FFI pipeline; common
+    // bitmap formats (JPG/HEIC/PNG/WEBP/TIFF/AVIF) go through sharp.
+    // Anything else 415s so the FFI never blocks on a 50 GB Word doc.
+    const dot = real.lastIndexOf(".");
+    const ext = dot >= 0 ? real.slice(dot + 1).toLowerCase() : "";
+    const isRaw = RAW_EXTENSIONS.has(ext);
+    const isSharp = SHARP_EXTENSIONS.has(ext);
+    if (!isRaw && !isSharp) {
+      set.status = 415;
+      return { error: `Unsupported file extension: "${ext}"` };
+    }
+
+    // Stat the RAW. Used both for staleness check and for the ETag.
+    let rawStat: Awaited<ReturnType<typeof stat>>;
+    try {
+      rawStat = await stat(real);
+    } catch (err) {
+      set.status = 404;
+      return {
+        error: `Cannot stat "${real}": ${err instanceof Error ? err.message : String(err)}`,
+      };
+    }
+    if (!rawStat.isFile()) {
+      set.status = 400;
+      return { error: `"${real}" is not a regular file` };
+    }
+
+    // One thumb per RAW (matches Apple ThumbnailDiskCache + web
+    // MapleCacheService). The `size` query param controls the RENDER
+    // target — re-rendering at a different size overwrites the same
+    // cache entry. Stale-check is mtime-based, so a size change that
+    // happens after the cache file was written will look fresh until
+    // the RAW itself is touched. For browse-grid use, 512px is the
+    // pinned target so this is effectively cosmetic.
+    const thumbPath = resolveThumbPath(real);
+
+    const rawMtimeMs = rawStat.mtimeMs;
+    const etag = `"${Math.floor(rawMtimeMs)}"`;
+
+    // If-None-Match handling — return 304 when the client already has the
+    // freshest thumb. (Optional but cheap.)
+    // Note: Elysia query/header access uses Web standard request shape,
+    // but we don't have direct access here without `request` — keep this
+    // simple and just always serve bytes. Frontend cache will use the
+    // Cache-Control: max-age path.
+
+    let thumbStat: Awaited<ReturnType<typeof stat>> | null = null;
+    try {
+      thumbStat = await stat(thumbPath);
+    } catch {
+      thumbStat = null;
+    }
+
+    const fresh = thumbStat !== null && thumbStat.mtimeMs >= rawMtimeMs;
+
+    if (fresh) {
       try {
-        real = await realpath(reqPath);
+        const bytes = await readFile(thumbPath);
+        set.headers["Content-Type"] = "image/jpeg";
+        set.headers["Cache-Control"] = "private, max-age=3600";
+        set.headers["ETag"] = etag;
+        set.headers["X-Thumb-Cache"] = "hit";
+        return bytes;
       } catch (err) {
-        set.status = 404;
-        return {
-          error: `Cannot access "${reqPath}": ${err instanceof Error ? err.message : String(err)}`,
-        };
+        // Fall through to regen if read fails (e.g. file disappeared
+        // between stat and readFile).
+        console.warn(
+          `[fs-thumbs] read of cached thumb at "${thumbPath}" failed; regenerating:`,
+          err instanceof Error ? err.message : err,
+        );
       }
+    }
 
-      const roots = await browseRoots();
-      if (!roots.some((r) => isUnderRoot(real, r))) {
-        set.status = 403;
-        return {
-          error: `Path "${real}" is outside MAPLE_ROOTS [${roots.join(", ")}]`,
-        };
-      }
+    // Ensure the cache dir exists before handing the path to either
+    // renderer. Both write atomically (.tmp + rename) so the parent dir
+    // must already be writable.
+    try {
+      await mkdir(path.dirname(thumbPath), { recursive: true });
+    } catch (err) {
+      set.status = 500;
+      return {
+        error: `Cannot create thumb cache dir: ${err instanceof Error ? err.message : String(err)}`,
+      };
+    }
 
-      // Extension gate — refuse anything we don't recognise as a RAW so the
-      // FFI never blocks on a 50 GB Word doc. Use the same lowercase set the
-      // browse endpoint exposes.
-      const dot = real.lastIndexOf(".");
-      const ext = dot >= 0 ? real.slice(dot + 1).toLowerCase() : "";
-      if (!RAW_EXTENSIONS.has(ext)) {
-        set.status = 415;
-        return { error: `Unsupported file extension: "${ext}"` };
-      }
-
-      // Stat the RAW. Used both for staleness check and for the ETag.
-      let rawStat: Awaited<ReturnType<typeof stat>>;
+    if (isSharp) {
+      // Bitmap formats: sharp handles decode + resize + JPEG encode in
+      // one pipeline. `rotate()` honours EXIF orientation so portrait
+      // photos don't end up sideways. Atomic .tmp + rename so a crash
+      // mid-write never leaves a half-written cache file.
+      const tmp = `${thumbPath}.${process.pid}.tmp`;
       try {
-        rawStat = await stat(real);
+        const buf = await sharp(real, { failOn: "none" })
+          .rotate()
+          .resize(sizePx, sizePx, { fit: "inside", withoutEnlargement: true })
+          .jpeg({ quality: 82, mozjpeg: true })
+          .toBuffer();
+        await writeFile(tmp, buf);
+        await rename(tmp, thumbPath);
       } catch (err) {
-        set.status = 404;
+        set.status = 500;
         return {
-          error: `Cannot stat "${real}": ${err instanceof Error ? err.message : String(err)}`,
+          error: `sharp render failed for ${ext}: ${err instanceof Error ? err.message : String(err)}`,
         };
       }
-      if (!rawStat.isFile()) {
-        set.status = 400;
-        return { error: `"${real}" is not a regular file` };
-      }
-
-      // One thumb per RAW (matches Apple ThumbnailDiskCache + web
-      // MapleCacheService). The `size` query param controls the RENDER
-      // target — re-rendering at a different size overwrites the same
-      // cache entry. Stale-check is mtime-based, so a size change that
-      // happens after the cache file was written will look fresh until
-      // the RAW itself is touched. For browse-grid use, 512px is the
-      // pinned target so this is effectively cosmetic.
-      const thumbPath = resolveThumbPath(real);
-
-      const rawMtimeMs = rawStat.mtimeMs;
-      const etag = `"${Math.floor(rawMtimeMs)}"`;
-
-      // If-None-Match handling — return 304 when the client already has the
-      // freshest thumb. (Optional but cheap.)
-      // Note: Elysia query/header access uses Web standard request shape,
-      // but we don't have direct access here without `request` — keep this
-      // simple and just always serve bytes. Frontend cache will use the
-      // Cache-Control: max-age path.
-
-      let thumbStat: Awaited<ReturnType<typeof stat>> | null = null;
-      try {
-        thumbStat = await stat(thumbPath);
-      } catch {
-        thumbStat = null;
-      }
-
-      const fresh = thumbStat !== null && thumbStat.mtimeMs >= rawMtimeMs;
-
-      if (fresh) {
-        try {
-          const bytes = await readFile(thumbPath);
-          set.headers["Content-Type"] = "image/jpeg";
-          set.headers["Cache-Control"] = "private, max-age=3600";
-          set.headers["ETag"] = etag;
-          set.headers["X-Thumb-Cache"] = "hit";
-          return bytes;
-        } catch (err) {
-          // Fall through to regen if read fails (e.g. file disappeared
-          // between stat and readFile).
-          console.warn(
-            `[fs-thumbs] read of cached thumb at "${thumbPath}" failed; regenerating:`,
-            err instanceof Error ? err.message : err
-          );
-        }
-      }
-
+    } else {
+      // RAW formats: native libraw via the FFI worker pool.
       const pool = ffiPool();
       if (!pool.available()) {
         set.status = 503;
@@ -142,24 +207,6 @@ export const fsThumbsRoutes = new Elysia({ prefix: "/api/fs" })
             "Thumbnail FFI not built — run scripts/build-raw-ffi.sh to build native/libraw_ffi.* first",
         };
       }
-
-      // Ensure the cache dir exists before handing the path to Rust. Rust
-      // does the atomic .tmp + rename, so the parent dir must already be
-      // writable; mkdir is cheap and idempotent.
-      try {
-        await mkdir(path.dirname(thumbPath), { recursive: true });
-      } catch (err) {
-        set.status = 500;
-        return {
-          error: `Cannot create thumb cache dir: ${err instanceof Error ? err.message : String(err)}`,
-        };
-      }
-
-      // Off-main-thread FFI via worker pool — the synchronous bun:ffi
-      // symbol call runs on a dedicated worker thread, so the main HTTP
-      // thread stays free to accept new requests while a burst of
-      // thumbnail work is in flight (the indexer + live grid reads can
-      // both queue here without one starving the other).
       let ok = false;
       try {
         ok = await pool.renderThumbnailJpegToFile(real, thumbPath, sizePx, 82);
@@ -173,35 +220,39 @@ export const fsThumbsRoutes = new Elysia({ prefix: "/api/fs" })
         set.status = 500;
         return { error: "Thumbnail render failed (see server log)" };
       }
-
-      // Read the freshly written file back to serve. Cheap (thumbs <100 KB).
-      let bytes: Buffer;
-      try {
-        bytes = await readFile(thumbPath);
-      } catch (err) {
-        set.status = 500;
-        return {
-          error: `Read of just-written thumb failed: ${err instanceof Error ? err.message : String(err)}`,
-        };
-      }
-
-      // Bun's `Response` body type narrowing — pass the raw bytes via the
-      // shared ArrayBuffer slice, which it accepts cleanly.
-      const ab = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
-      return new Response(ab, {
-        status: 200,
-        headers: {
-          "Content-Type": "image/jpeg",
-          "Cache-Control": "private, max-age=3600",
-          ETag: etag,
-          "X-Thumb-Cache": "miss",
-        },
-      });
-    },
-    {
-      query: t.Object({
-        path: t.String({ minLength: 1 }),
-        size: t.Optional(t.String()),
-      }),
     }
-  );
+
+    // Read the freshly written file back to serve. Cheap (thumbs <100 KB).
+    let bytes: Buffer;
+    try {
+      bytes = await readFile(thumbPath);
+    } catch (err) {
+      set.status = 500;
+      return {
+        error: `Read of just-written thumb failed: ${err instanceof Error ? err.message : String(err)}`,
+      };
+    }
+
+    // Bun's `Response` body type narrowing — pass the raw bytes via the
+    // shared ArrayBuffer slice, which it accepts cleanly.
+    const ab = bytes.buffer.slice(
+      bytes.byteOffset,
+      bytes.byteOffset + bytes.byteLength,
+    ) as ArrayBuffer;
+    return new Response(ab, {
+      status: 200,
+      headers: {
+        "Content-Type": "image/jpeg",
+        "Cache-Control": "private, max-age=3600",
+        ETag: etag,
+        "X-Thumb-Cache": "miss",
+      },
+    });
+  },
+  {
+    query: t.Object({
+      path: t.String({ minLength: 1 }),
+      size: t.Optional(t.String()),
+    }),
+  },
+);
