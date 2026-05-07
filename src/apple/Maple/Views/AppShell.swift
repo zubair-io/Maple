@@ -191,6 +191,9 @@ struct AppShell: View {
                 onPickCloudLibrary: { serverID, folderID, libraryPath in
                     loadCloudLibrary(serverID: serverID, folderID: folderID, libraryPath: libraryPath)
                 },
+                onListCloudDir: { url, absPath in
+                    await listCloudDirFor(server: url, absPath: absPath)
+                },
                 onSignOutCloudServer: { url in
                     Task { @MainActor in
                         // Sign out keeps the server in the sidebar but
@@ -723,6 +726,14 @@ struct AppShell: View {
         let client = CloudFoldersClient(server: url, httpClient: httpClient)
         do { return try await client.listFolders() }
         catch { return [] }
+    }
+
+    @MainActor
+    private func listCloudDirFor(server: URL, absPath: String) async -> FsDirListing? {
+        let httpClient = makeAuthenticatedHTTPClient(server: server)
+        let client = CloudFoldersClient(server: server, httpClient: httpClient)
+        do { return try await client.listDir(absPath: absPath) }
+        catch { return nil }
     }
 
     @MainActor

@@ -42,6 +42,9 @@ struct LibrarySidebar: View {
     let onAddCloudServer: () -> Void
     /// User clicked a library row inside a cloud server section.
     let onPickCloudLibrary: (URL, String, String) -> Void
+    /// Lazy-fetch a directory listing for the cloud sidebar tree
+    /// drill-down. Returns nil on auth/network failure.
+    let onListCloudDir: (URL, String) async -> FsDirListing?
     /// Right-click → Sign out on a cloud server header.
     let onSignOutCloudServer: (URL) -> Void
     /// Right-click → Remove server on a cloud server header.
@@ -321,7 +324,8 @@ struct LibrarySidebar: View {
                             onPickCloudLibrary(s, f, path)
                         }
                     },
-                    onPickLibrary: onPickCloudLibrary,
+                    onPickPath: onPickCloudLibrary,
+                    onListDir: onListCloudDir,
                     onSignOut: { onSignOutCloudServer(url) },
                     onRemoveServer: { onRemoveCloudServer(url) }
                 )

@@ -1,10 +1,11 @@
 // CloudServerSection.swift
 //
 // One sidebar section per connected cloud server: collapsible header with
-// a Timeline | Folder segmented control on the right, and a list of
-// libraries (folders) underneath. Clicking a library row sets the
-// LibrarySelection to .cloudLibrary(serverID, folderID) and fires the
-// onPickLibrary callback.
+// a Timeline | Folder segmented control on the right, and a tree of
+// libraries (registered folders) with lazy subfolder drill-down beneath.
+//
+// Each library is rendered as a CloudFolderTreeRow at depth 0; its
+// children are populated on first expand via /api/fs/dir.
 
 import SwiftUI
 import MapleCore
@@ -16,41 +17,34 @@ struct CloudServerSection: View {
   @Binding var isExpanded: Bool
   @Binding var selection: LibrarySelection
   let onSetViewMode: (CloudViewMode) -> Void
-  /// (server, folderID, libraryPath) — libraryPath is the absolute
-  /// directory the FS-walk endpoint should browse.
-  let onPickLibrary: (URL, String, String) -> Void
+  /// (server, folderID, absPath) — invoked when the user taps a library
+  /// row OR a subfolder row. absPath is what the grid should browse.
+  let onPickPath: (URL, String, String) -> Void
+  /// Lazy-fetch a directory listing on the server. Returns nil on
+  /// auth/network failure; the row falls back to a "couldn't load" hint.
+  let onListDir: (URL, String) async -> FsDirListing?
   let onSignOut: () -> Void
   let onRemoveServer: () -> Void
+
+  /// Per-server tree state — kept here (not on individual rows) so the
+  /// disclosure state and fetched listings survive sibling re-renders.
+  @State private var listingCache: [String: FsDirListing] = [:]
+  @State private var expanded: Set<String> = []
 
   var body: some View {
     DisclosureGroup(isExpanded: $isExpanded) {
       ForEach(folders) { folder in
-        Button {
-          selection = .cloudLibrary(serverID: serverURL, folderID: folder.id)
-          onPickLibrary(serverURL, folder.id, folder.path)
-        } label: {
-          HStack(spacing: 8) {
-            Image(systemName: "folder.fill")
-              .foregroundStyle(.secondary)
-            Text(folder.displayName)
-              .lineLimit(1)
-            Spacer()
-            if folder.file_count > 0 {
-              Text("\(folder.file_count)")
-                .foregroundStyle(.tertiary)
-                .font(.caption.monospacedDigit())
-            }
-          }
-          .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
-        .background(
-          isSelected(folder)
-          ? Color.accentColor.opacity(0.18)
-          : .clear,
-          in: RoundedRectangle(cornerRadius: 6)
+        CloudFolderTreeRow(
+          serverURL: serverURL,
+          libraryFolderID: folder.id,
+          absPath: folder.path,
+          displayName: folder.displayName,
+          depth: 0,
+          onListDir: onListDir,
+          onPickPath: onPickPath,
+          selection: $selection,
+          listingCache: $listingCache,
+          expanded: $expanded
         )
       }
     } label: {
@@ -75,12 +69,5 @@ struct CloudServerSection: View {
         Button("Remove server", role: .destructive, action: onRemoveServer)
       }
     }
-  }
-
-  private func isSelected(_ folder: CloudFolder) -> Bool {
-    if case .cloudLibrary(let s, let f) = selection {
-      return s == serverURL && f == folder.id
-    }
-    return false
   }
 }
