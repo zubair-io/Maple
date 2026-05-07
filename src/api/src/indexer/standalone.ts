@@ -110,6 +110,46 @@ const app = new Elysia()
       return { ok: true, status: svc.status() };
     },
     { query: t.Object({ limit: t.Optional(t.String()) }) },
+  )
+
+  // Enqueue a batch of paths for indexing. Used by the parent's browse
+  // route (`/api/fs/dir`) to opportunistically index files the user has
+  // navigated to. `skipThumb=true` is the typical flag here — the lazy
+  // `/api/fs/thumb` route already renders thumbs on demand, so we skip
+  // the FFI worker pool and let the rest of the pipeline (hash → exif →
+  // ai → mongo) write the asset doc.
+  .post(
+    "/enqueue",
+    async ({ body }) => {
+      const svc = getIndexerService();
+      const skipThumb = body.skipThumb === true;
+      let enqueued = 0;
+      for (const absPath of body.paths) {
+        try {
+          await svc.pipeline.channels.discover.push({
+            kind: "index",
+            folderId: body.folderId,
+            absPath,
+            skipThumb,
+          });
+          enqueued++;
+        } catch (e) {
+          console.warn(
+            "[indexer] enqueue push failed for",
+            absPath,
+            e instanceof Error ? e.message : e,
+          );
+        }
+      }
+      return { ok: true, enqueued };
+    },
+    {
+      body: t.Object({
+        folderId: t.String({ minLength: 24, maxLength: 24 }),
+        paths: t.Array(t.String({ minLength: 1 })),
+        skipThumb: t.Optional(t.Boolean()),
+      }),
+    },
   );
 
 // ---------------------------------------------------------------------------
