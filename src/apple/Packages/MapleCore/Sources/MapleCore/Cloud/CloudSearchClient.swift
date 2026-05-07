@@ -1,0 +1,81 @@
+// CloudSearchClient.swift
+//
+// Typed wrappers for `/api/search/buckets` (year/month aggregation) and
+// `/api/search` (paginated assets per month). The Apple Timeline view
+// drives both endpoints — buckets once on library open, search per month
+// as cells scroll into view.
+
+import Foundation
+
+public actor CloudSearchClient {
+  public nonisolated let server: URL
+  private let httpClient: AuthenticatedHTTPClient
+
+  public init(server: URL, httpClient: AuthenticatedHTTPClient) {
+    self.server = server
+    self.httpClient = httpClient
+  }
+
+  /// `GET /api/search/buckets?libraryId=<id>` — single call, returns all
+  /// year/month aggregations for a library plus the count of un-timed assets.
+  public func buckets(libraryID: String) async throws -> TimelineBuckets {
+    let url = makeURL(path: "/api/search/buckets",
+                      query: [URLQueryItem(name: "libraryId", value: libraryID)])
+    let (data, resp) = try await httpClient.data(for: URLRequest(url: url))
+    try Self.checkOK(resp, data: data)
+    return try JSONDecoder().decode(TimelineBuckets.self, from: data)
+  }
+
+  /// `GET /api/search?libraryId=<id>&from=YYYY-MM-01&to=YYYY-MM-LAST&page=N&limit=N&sort=...`
+  /// One page of assets in the given year/month bucket. Defaults match the
+  /// web Timeline (200 / page, captured_desc).
+  public func page(libraryID: String,
+                   year: Int,
+                   month: Int,
+                   page: Int = 1,
+                   limit: Int = 200,
+                   sort: String = "captured_desc") async throws -> SearchResponse {
+    let from = String(format: "%04d-%02d-01", year, month)
+    let to = Self.lastDay(year: year, month: month)
+    let items: [URLQueryItem] = [
+      URLQueryItem(name: "libraryId", value: libraryID),
+      URLQueryItem(name: "from", value: from),
+      URLQueryItem(name: "to", value: to),
+      URLQueryItem(name: "page", value: "\(page)"),
+      URLQueryItem(name: "limit", value: "\(limit)"),
+      URLQueryItem(name: "sort", value: sort),
+    ]
+    let url = makeURL(path: "/api/search", query: items)
+    let (data, resp) = try await httpClient.data(for: URLRequest(url: url))
+    try Self.checkOK(resp, data: data)
+    return try JSONDecoder().decode(SearchResponse.self, from: data)
+  }
+
+  // MARK: - Helpers
+
+  private func makeURL(path: String, query: [URLQueryItem]) -> URL {
+    var c = URLComponents(url: server.appending(path: path), resolvingAgainstBaseURL: false)!
+    c.queryItems = query
+    return c.url!
+  }
+
+  private static func lastDay(year: Int, month: Int) -> String {
+    var c = DateComponents(); c.year = year; c.month = month
+    let cal = Calendar(identifier: .gregorian)
+    guard let d = cal.date(from: c),
+          let range = cal.range(of: .day, in: .month, for: d) else {
+      return String(format: "%04d-%02d-28", year, month)
+    }
+    let last = range.upperBound - 1
+    return String(format: "%04d-%02d-%02d", year, month, last)
+  }
+
+  private static func checkOK(_ resp: URLResponse, data: Data) throws {
+    guard let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+      let body = String(data: data, encoding: .utf8) ?? ""
+      throw NSError(domain: "CloudSearchClient",
+                    code: (resp as? HTTPURLResponse)?.statusCode ?? -1,
+                    userInfo: [NSLocalizedDescriptionKey: body])
+    }
+  }
+}
