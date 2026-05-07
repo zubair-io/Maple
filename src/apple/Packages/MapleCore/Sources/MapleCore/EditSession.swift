@@ -708,17 +708,17 @@ public final class EditSession {
             }
         }
 
-        // (2) XMP sidecar — absent for fresh images.
+        // (2) XMP sidecar — absent for fresh images. The store reports
+        // its own presence (file existence for local; 404 vs 200 for
+        // cloud) so we don't second-guess via FileManager. The previous
+        // FileManager-based gate was always false for cloud assets,
+        // silently discarding persisted edits.
         var loadedModel: AdjustmentModel? = nil
         var loadedCulling: CullingState? = nil
-        let sidecarExists = asset.sidecarURL
-            .map { FileManager.default.fileExists(atPath: $0.path) } ?? false
         if let store = sidecarStore,
-           let (m, c) = try? await store.load() {
-            if sidecarExists {
-                loadedModel = m
-                loadedCulling = c
-            }
+           let (m, c) = try? await store.loadIfPresent() {
+            loadedModel = m
+            loadedCulling = c
         }
 
         // (3/4) Build the initial model. As-shot seeding only applies when

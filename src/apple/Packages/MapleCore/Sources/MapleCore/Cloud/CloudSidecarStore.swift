@@ -25,13 +25,15 @@ public actor CloudSidecarStore: SidecarStoreProtocol {
   }
 
   public func load() async throws -> (AdjustmentModel, CullingState) {
+    try await loadIfPresent() ?? (.default, CullingState())
+  }
+
+  public func loadIfPresent() async throws -> (AdjustmentModel, CullingState)? {
     if let cached { return cached }
     let req = URLRequest(url: server.appending(path: "/api/assets/\(assetID)/xmp"))
     let (data, resp) = try await httpClient.data(for: req)
     if let http = resp as? HTTPURLResponse, http.statusCode == 404 {
-      let empty: (AdjustmentModel, CullingState) = (.default, CullingState())
-      cached = empty
-      return empty
+      return nil
     }
     try Self.checkOK(resp, data: data)
     let result = try XMPParser.parse(data: data)
