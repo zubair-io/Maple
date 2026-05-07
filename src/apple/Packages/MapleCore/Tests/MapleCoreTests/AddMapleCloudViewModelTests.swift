@@ -61,6 +61,52 @@ final class AddMapleCloudViewModelTests: XCTestCase {
       XCTFail("expected .error, got \(vm.state)")
     }
   }
+
+  // MARK: Owner claim
+
+  func test_claimOwner_success_routesToSignedIn() async {
+    let host = CloudHost.parse("myserver.com")!
+    let flow = StubCloudAuthFlow(server: host.url)
+    let user = AuthUser(id: "u1", email: "owner@example.com", role: "owner")
+    flow.registerResult = .success(AuthVerifyResponse(
+      access_token: "ACCESS", refresh_token: "REFRESH", user: user))
+    let vm = AddMapleCloudViewModel(makeFlow: { _ in flow })
+
+    vm.state = .needsOwnerClaim(host)
+    vm.emailInput = "owner@example.com"
+    await vm.claimOwner()
+
+    XCTAssertEqual(vm.state, .signedIn(host,
+      tokens: AuthTokens(access: "ACCESS", refresh: "REFRESH"),
+      user: user))
+  }
+
+  func test_claimOwner_failure_routesToErrorRecoveringToOwnerClaim() async {
+    let host = CloudHost.parse("myserver.com")!
+    let flow = StubCloudAuthFlow(server: host.url)
+    flow.registerResult = .failure(StubError.network("user cancelled"))
+    let vm = AddMapleCloudViewModel(makeFlow: { _ in flow })
+
+    vm.state = .needsOwnerClaim(host)
+    vm.emailInput = "owner@example.com"
+    await vm.claimOwner()
+
+    if case .error(_, let recover) = vm.state {
+      XCTAssertEqual(recover, .needsOwnerClaim(host))
+    } else { XCTFail("expected error") }
+  }
+
+  func test_claimOwner_emptyEmail_routesToError() async {
+    let host = CloudHost.parse("myserver.com")!
+    let flow = StubCloudAuthFlow(server: host.url)
+    let vm = AddMapleCloudViewModel(makeFlow: { _ in flow })
+
+    vm.state = .needsOwnerClaim(host)
+    vm.emailInput = "  "
+    await vm.claimOwner()
+
+    if case .error = vm.state { } else { XCTFail("expected error") }
+  }
 }
 
 // MARK: - Test doubles

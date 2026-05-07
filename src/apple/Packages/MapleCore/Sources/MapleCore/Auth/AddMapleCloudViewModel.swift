@@ -67,6 +67,32 @@ public final class AddMapleCloudViewModel {
     }
   }
 
+  /// needsOwnerClaim → registeringOwner → (signedIn | error).
+  public func claimOwner() async {
+    guard case .needsOwnerClaim(let host) = state else { return }
+    let email = emailInput.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !email.isEmpty else {
+      state = .error(message: "Enter an email address",
+                     recoverableTo: .needsOwnerClaim(host))
+      return
+    }
+    state = .registeringOwner(host, email: email)
+    let flow = makeFlow(host.url)
+    do {
+      let resp = try await flow.register(email: email,
+                                         inviteCode: nil,
+                                         deviceLabel: deviceLabel(),
+                                         presentationAnchor: presentationAnchor())
+      state = .signedIn(host,
+                        tokens: AuthTokens(access: resp.access_token,
+                                           refresh: resp.refresh_token),
+                        user: resp.user)
+    } catch {
+      state = .error(message: error.localizedDescription,
+                     recoverableTo: .needsOwnerClaim(host))
+    }
+  }
+
   /// Resets the error state back to its `recoverableTo` target.
   public func retryFromError() {
     if case .error(_, let target) = state { state = target }
