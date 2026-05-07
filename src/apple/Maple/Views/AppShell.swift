@@ -98,6 +98,18 @@ struct AppShell: View {
     /// render across mode changes.
     @State private var cloudTimelineVM: CloudTimelineViewModel?
 
+    /// Thumb client + cache for the active cloud timeline. Constructed
+    /// once in `loadCloudLibrary` alongside `cloudTimelineVM` and reused
+    /// for the whole lifetime of that VM. Previously these were rebuilt
+    /// per render inside the SwiftUI body, which constructed a fresh
+    /// `AuthenticatedHTTPClient` actor each time and defeated its
+    /// 401-refresh coalescer — under load N parallel cells would each
+    /// fire `/api/auth/refresh`, all but one would fail (refresh tokens
+    /// are single-use server-side), and the user would get force-signed
+    /// out.
+    @State private var cloudTimelineThumbClient: CloudThumbClient?
+    @State private var cloudTimelineThumbCache: CloudThumbCache?
+
     // The root bookmark for the currently-open folder tree — used to claim
     // security scope when the user clicks a sub-folder cell inside the grid.
     @State private var currentRootBookmark: Data?
@@ -174,6 +186,8 @@ struct AppShell: View {
             else {
                 cloudCurrentPath = nil
                 cloudTimelineVM = nil
+                cloudTimelineThumbClient = nil
+                cloudTimelineThumbCache = nil
             }
         }
         .task {
@@ -260,11 +274,13 @@ struct AppShell: View {
             Group {
                 switch mode {
                 case .browse:
-                    if let vm = cloudTimelineVM {
+                    if let vm = cloudTimelineVM,
+                       let thumbClient = cloudTimelineThumbClient,
+                       let thumbCache = cloudTimelineThumbCache {
                         CloudTimelineView(
                             vm: vm,
-                            thumbClient: makeCloudThumbClient(server: vm.server),
-                            thumbCache: CloudThumbCache(),
+                            thumbClient: thumbClient,
+                            thumbCache: thumbCache,
                             onSelectAsset: { asset in openCloudAsset(asset, server: vm.server) }
                         )
                     } else {
@@ -950,22 +966,23 @@ struct AppShell: View {
                 mode = .browse
             case .timeline:
                 browseVM.clear()
+                // Single AuthenticatedHTTPClient shared by the search +
+                // thumb clients for the lifetime of this Timeline VM.
+                // Defeats the 401-refresh-storm bug if many cells hit
+                // expired tokens at once — only one /api/auth/refresh
+                // call goes out, all callers wait on the same continuation.
                 let httpClient = makeAuthenticatedHTTPClient(server: serverID)
                 let searchClient = CloudSearchClient(server: serverID, httpClient: httpClient)
                 cloudTimelineVM = CloudTimelineViewModel(
                     server: serverID,
                     libraryID: folderID,
                     searchClient: searchClient)
+                cloudTimelineThumbClient = CloudThumbClient(server: serverID, httpClient: httpClient)
+                cloudTimelineThumbCache = CloudThumbCache()
                 libraryTitle = (serverID.host ?? serverID.absoluteString) + " — Timeline"
                 mode = .browse
             }
         }
-    }
-
-    @MainActor
-    private func makeCloudThumbClient(server: URL) -> CloudThumbClient {
-        CloudThumbClient(server: server,
-                         httpClient: makeAuthenticatedHTTPClient(server: server))
     }
 
     /// Open the FullImage editor for a cloud asset selected from
@@ -996,8 +1013,7 @@ struct AppShell: View {
             sessions[assetRef.id] = session
             Task { await session.loadSidecar() }
         }
-        browseVM.assets = [assetRef]
-        browseVM.selectedID = assetRef.id
+        browseVM.loadSingleCloudAsset(assetRef)
         mode = .fullImage
     }
 
