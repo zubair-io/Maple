@@ -210,6 +210,21 @@ public final class BrowseViewModel {
         }
     }
 
+    /// Empty the grid and forget the current source. Used when the shell
+    /// switches into a mode that doesn't have a source attached yet (e.g.
+    /// Maple Cloud Timeline mode in Phase 2 — placeholder until Phase 3
+    /// wires up the native timeline view).
+    public func clear() {
+        loadGeneration &+= 1
+        assets = []
+        subfolders = []
+        selectedID = nil
+        currentSource = nil
+        loadError = nil
+        isLoading = false
+        photosAuthNeeded = false
+    }
+
     /// Put the grid into the "Photos Library selected but access not granted"
     /// state — no source, no assets, but `photosAuthNeeded` flips on so the
     /// empty state can surface a "Grant Access" CTA. Called by AppShell when

@@ -133,15 +133,12 @@ struct AppShell: View {
                 onSignedIn: { url, tokens, _ in
                     Task { @MainActor in
                         try? TokenStore.save(tokens, server: url)
-                        try? await SelfHostedCredentialStore.shared
-                            .setToken(tokens.access, forServerURL: url)
+                        CloudServerRegistry.shared.register(url)
                         // Refresh the per-server AuthSession cache so the
                         // sidebar sees the user as signed in immediately.
                         let session = sessionFor(url)
                         await session.bootstrapAndRestore()
                         addCloudSheetTarget = nil
-                        // Auto-load the newly-paired server.
-                        connectSavedSelfHosted(url)
                     }
                 }
             )
@@ -188,10 +185,29 @@ struct AppShell: View {
                 onRequestPhotosAccess: { requestPhotosAccess() },
                 onAddSMB: { showSMBSheet = true },
                 onPickSMB: { share in connectSavedSMB(share) },
-                onAddSelfHosted: {
+                onAddCloudServer: {
                     addCloudSheetTarget = .fresh
                 },
-                onPickSelfHosted: { url in connectSavedSelfHosted(url) }
+                onPickCloudLibrary: { serverID, folderID in
+                    loadCloudLibrary(serverID: serverID, folderID: folderID)
+                },
+                onSignOutCloudServer: { url in
+                    Task { @MainActor in
+                        let session = sessionFor(url)
+                        await session.signOut()
+                        CloudServerRegistry.shared.remove(url)
+                    }
+                },
+                onRemoveCloudServer: { url in
+                    Task { @MainActor in
+                        let session = sessionFor(url)
+                        await session.signOut()
+                        CloudServerRegistry.shared.remove(url)
+                    }
+                },
+                onLoadCloudFolders: { url in
+                    await loadCloudFoldersFor(url)
+                }
             )
             .navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 280)
         } content: {
@@ -669,57 +685,48 @@ struct AppShell: View {
         }
     }
 
-    // MARK: - Self Hosted
+    // MARK: - Maple Cloud
 
     @MainActor
-    private func connectSelfHosted(baseURL: URL, token: String?) {
-        Task { @MainActor in
-            if let token {
-                try? await SelfHostedCredentialStore.shared.setToken(token, forServerURL: baseURL)
-            }
-
-            let source = SelfHostedSource(baseURL: baseURL, token: token)
-            await browseVM.loadSource(source)
-            SourceSelectionStore.save(.selfHosted(baseURL: baseURL))
-            librarySelection = .selfHostedServer(baseURL)
-            libraryTitle = baseURL.host ?? baseURL.absoluteString
-            mode = .browse
-            currentRootBookmark = nil
-        }
+    private func makeAuthenticatedHTTPClient(server: URL) -> AuthenticatedHTTPClient {
+        AuthenticatedHTTPClient(
+            server: server,
+            urlSession: .shared,
+            tokensProvider: { try? TokenStore.load(server: server) },
+            onTokensRefreshed: { try? TokenStore.save($0, server: server) },
+            onSignOut: { TokenStore.clear(server: server) }
+        )
     }
 
     @MainActor
-    private func connectSavedSelfHosted(_ url: URL) {
-        Task { @MainActor in
-            // Plan 2026-04-28-passkey-auth Task B8: prefer the passkey-backed
-            // AuthSession when its tokens have been restored from Keychain;
-            // fall back to the legacy bearer-token store; otherwise present
-            // SignInView so the user can claim/sign in.
-            let session = sessionFor(url)
-            librarySelection = .selfHostedServer(url)
-            if session.isSignedIn {
-                connectSelfHosted(baseURL: url, token: nil)
-                return
+    private func loadCloudFoldersFor(_ url: URL) async -> [CloudFolder] {
+        let httpClient = makeAuthenticatedHTTPClient(server: url)
+        let client = CloudFoldersClient(server: url, httpClient: httpClient)
+        do { return try await client.listFolders() }
+        catch { return [] }
+    }
+
+    @MainActor
+    private func loadCloudLibrary(serverID: URL, folderID: String) {
+        librarySelection = .cloudLibrary(serverID: serverID, folderID: folderID)
+        SourceSelectionStore.save(.cloudLibrary(serverID: serverID, folderID: folderID))
+        currentRootBookmark = nil
+        let viewMode = CloudServerRegistry.shared.viewMode(for: serverID)
+        switch viewMode {
+        case .folder:
+            Task { @MainActor in
+                let httpClient = makeAuthenticatedHTTPClient(server: serverID)
+                let source = CloudSource(server: serverID, folderID: folderID, httpClient: httpClient)
+                await browseVM.loadSource(source)
+                libraryTitle = serverID.host ?? serverID.absoluteString
+                mode = .browse
             }
-            // Give bootstrapAndRestore a moment to land if it hasn't already
-            // completed — this is fired in the session(for:) helper but it's
-            // async. If the user just clicked the row from a cold cache, the
-            // refresh hasn't returned yet.
-            await session.bootstrapAndRestore()
-            if session.isSignedIn {
-                connectSelfHosted(baseURL: url, token: nil)
-                return
-            }
-            // Legacy bearer-token bridge — keep the pre-passkey path alive
-            // until B9 replaces every Self-Hosted request with the
-            // AuthenticatedHTTPClient.
-            if let token = await SelfHostedCredentialStore.shared.tokenForServerURL(url) {
-                connectSelfHosted(baseURL: url, token: token)
-                return
-            }
-            // No credentials — open the AddMapleCloud sheet pre-filled with
-            // this server's host so the user goes straight to sign-in.
-            addCloudSheetTarget = .prefilled(url.host ?? url.absoluteString)
+        case .timeline:
+            // Phase 3 fills this in. For now, drop the grid and surface a
+            // placeholder so the user knows the toggle worked.
+            browseVM.clear()
+            libraryTitle = "Timeline — coming in Phase 3"
+            mode = .browse
         }
     }
 
@@ -772,8 +779,8 @@ struct AppShell: View {
             break
         case .smb(let share):
             connectSavedSMB(share)
-        case .selfHosted(let baseURL):
-            connectSavedSelfHosted(baseURL)
+        case .cloudLibrary(let serverID, let folderID):
+            loadCloudLibrary(serverID: serverID, folderID: folderID)
         }
     }
 
@@ -788,7 +795,21 @@ struct AppShell: View {
     /// closes the matching gap on the session model.
     private func ensureSession(for asset: AssetRef) {
         guard sessions[asset.id] == nil else { return }
-        let session = EditSession(asset: asset)
+        let remoteStore: (any SidecarStoreProtocol)? = {
+            // Cloud-backed asset: route XMP through CloudSidecarStore so
+            // edits round-trip via PUT /api/assets/<id>/xmp. Local files
+            // (folder/SMB) keep using XMPSidecarStore via EditSession's
+            // primaryURL branch. Cloud refs carry the upstream asset id
+            // in stableID (set by BrowseViewModel.loadSource).
+            guard case .cloudLibrary(let serverID, _) = librarySelection,
+                  let assetID = asset.stableID
+            else { return nil }
+            return CloudSidecarStore(
+                server: serverID,
+                assetID: assetID,
+                httpClient: makeAuthenticatedHTTPClient(server: serverID))
+        }()
+        let session = EditSession(asset: asset, remoteSidecarStore: remoteStore)
         sessions[asset.id] = session
         Task { await session.loadSidecar() }
     }

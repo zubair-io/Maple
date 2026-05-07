@@ -16,7 +16,8 @@ public enum SourceSelection: Sendable, Equatable, Codable {
     case photoKit
     case photoKitFilter(PhotoKitFilter)
     case smb(SMBCredentialStore.SavedShare)
-    case selfHosted(baseURL: URL)
+    /// Maple Cloud library — server URL + folder ObjectId from /api/folders.
+    case cloudLibrary(serverID: URL, folderID: String)
 }
 
 // MARK: - SourceSelectionStore

@@ -38,8 +38,17 @@ struct LibrarySidebar: View {
     let onRequestPhotosAccess: () -> Void
     let onAddSMB: () -> Void
     let onPickSMB: (SMBCredentialStore.SavedShare) -> Void
-    let onAddSelfHosted: () -> Void
-    let onPickSelfHosted: (URL) -> Void
+    /// Open the AddMapleCloudSheet (no prefilled domain).
+    let onAddCloudServer: () -> Void
+    /// User clicked a library row inside a cloud server section.
+    let onPickCloudLibrary: (URL, String) -> Void
+    /// Right-click → Sign out on a cloud server header.
+    let onSignOutCloudServer: (URL) -> Void
+    /// Right-click → Remove server on a cloud server header.
+    let onRemoveCloudServer: (URL) -> Void
+    /// Lazily load the folders for a server (called from CloudServerSection's
+    /// .task on first appearance).
+    let onLoadCloudFolders: (URL) async -> [CloudFolder]
 
     // Section-open state (mockup: chevron open/closed).
     @State private var showFolders = true
@@ -56,7 +65,11 @@ struct LibrarySidebar: View {
     // which the shell can invoke through `NotificationCenter` if needed.
     @State private var savedFolders: [SavedFolder] = []
     @State private var savedShares: [SMBCredentialStore.SavedShare] = []
-    @State private var savedServers: [URL] = []
+    @State private var cloudServersExpanded: [URL: Bool] = [:]
+    @State private var cloudFoldersByServer: [URL: [CloudFolder]] = [:]
+
+    /// Observable singleton; sidebar re-renders when the registry mutates.
+    @State private var registry = CloudServerRegistry.shared
 
     /// Token returned by `PhotoKitChangeObserver.subscribe` — held for the
     /// view's lifetime so we can unsubscribe in `.task`'s cancellation.
@@ -65,6 +78,8 @@ struct LibrarySidebar: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
+                cloudServersSection
+                if !registry.servers.isEmpty { separator }
                 foldersSection
                 separator
                 photosSection
@@ -274,34 +289,61 @@ struct LibrarySidebar: View {
                         }
                     }
                 }
-                // Self-hosted group — hidden entirely until at least one
-                // server has been paired. New-server pairing lives in
-                // Settings (macOS) / iOS Settings sheet. Once a server is
-                // saved, this section appears with it listed.
-                if !savedServers.isEmpty {
-                    DisclosureRow(
-                        icon: "cloud",
-                        label: "Self Hosted",
-                        hasChildren: true,
-                        onAdd: nil
-                    ) {
-                        ForEach(savedServers, id: \.self) { url in
-                            NavItem(
-                                icon: "server.rack",
-                                label: url.host ?? url.absoluteString,
-                                isSelected: selection == .selfHostedServer(url),
-                                indent: 32
-                            ) {
-                                selection = .selfHostedServer(url)
-                                onPickSelfHosted(url)
-                            }
-                        }
-                    }
-                }
             }
         } header: {
             SectionHeaderRow(title: "Connections", isOpen: $showConnections)
         }
+    }
+
+    // MARK: - Cloud servers
+
+    @ViewBuilder
+    private var cloudServersSection: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            ForEach(registry.servers, id: \.self) { url in
+                CloudServerSection(
+                    serverURL: url,
+                    folders: cloudFoldersByServer[url] ?? [],
+                    viewMode: registry.viewMode(for: url),
+                    isExpanded: Binding(
+                        get: { cloudServersExpanded[url] ?? true },
+                        set: { cloudServersExpanded[url] = $0 }
+                    ),
+                    selection: $selection,
+                    onSetViewMode: { mode in
+                        registry.setViewMode(mode, for: url)
+                        // Re-route the current selection through the new mode.
+                        if case .cloudLibrary(let s, let f) = selection, s == url {
+                            onPickCloudLibrary(s, f)
+                        }
+                    },
+                    onPickLibrary: onPickCloudLibrary,
+                    onSignOut: { onSignOutCloudServer(url) },
+                    onRemoveServer: { onRemoveCloudServer(url) }
+                )
+                .task {
+                    if cloudFoldersByServer[url] == nil {
+                        cloudFoldersByServer[url] = await onLoadCloudFolders(url)
+                    }
+                }
+            }
+            if !registry.servers.isEmpty {
+                Button {
+                    onAddCloudServer()
+                } label: {
+                    HStack {
+                        Image(systemName: "plus.circle")
+                        Text("Add Maple Cloud server")
+                            .font(.callout)
+                    }
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 2)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 4)
     }
 
     private var separator: some View {
@@ -318,7 +360,6 @@ struct LibrarySidebar: View {
         photosStatus = PhotoKitLibrary.authorizationStatus()
         refreshFolders()
         savedShares = await SMBCredentialStore.shared.savedShares()
-        savedServers = await SelfHostedCredentialStore.shared.knownServers()
         if photosStatus == .authorized || photosStatus == .limited {
             albums = PhotoKitLibrary.userAlbums()
         }
