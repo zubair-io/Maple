@@ -6,14 +6,16 @@ final class CloudSourceTests: XCTestCase {
 
   // MARK: images()
 
-  func test_images_paginatesUntilUnderLimit() async throws {
+  func test_images_returnsOnlyFirstPage() async throws {
+    // Folders larger than the page limit are deliberately truncated —
+    // see the comment on CloudSource.images. Auto-walking every page
+    // floods the server with one request per 500 assets and blocks
+    // first paint for many seconds on big folders.
     let server = URL(string: "https://example.test")!
-    var pageCounter = 0
+    var requestCount = 0
     let session = URLSession.stubbedSequence { req in
-      defer { pageCounter += 1 }
-      let json: String = pageCounter == 0
-        ? Self.pageJSON(page: 1, total: 250, count: 200)
-        : Self.pageJSON(page: 2, total: 250, count: 50)
+      requestCount += 1
+      let json = Self.pageJSON(page: 1, total: 1500, count: 500)
       let resp = HTTPURLResponse(url: req.url!, statusCode: 200,
                                  httpVersion: "HTTP/1.1",
                                  headerFields: ["Content-Type": "application/json"])!
@@ -24,10 +26,11 @@ final class CloudSourceTests: XCTestCase {
 
     let refs = try await source.images()
 
-    XCTAssertEqual(refs.count, 250)
+    XCTAssertEqual(refs.count, 500)
+    XCTAssertEqual(requestCount, 1, "must NOT auto-paginate")
   }
 
-  func test_images_singlePageUnderLimit_doesNotRefetch() async throws {
+  func test_images_smallFolder_returnsAll() async throws {
     let server = URL(string: "https://example.test")!
     let json = Self.pageJSON(page: 1, total: 5, count: 5)
     let session = URLSession.stubbed(response: json)

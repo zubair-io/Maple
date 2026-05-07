@@ -33,31 +33,35 @@ public actor CloudSource {
 
 extension CloudSource: ImageSource {
   public func images() async throws -> [ImageRef] {
-    var refs: [ImageRef] = []
-    var page = 1
-    let limit = 200
-    while true {
-      let pageURL = url("/api/folders/\(folderID)/assets",
-                        query: [URLQueryItem(name: "page", value: "\(page)"),
-                                URLQueryItem(name: "limit", value: "\(limit)")])
-      let req = URLRequest(url: pageURL)
-      let (data, resp) = try await httpClient.data(for: req)
-      try Self.checkOK(resp, data: data)
-      let parsed: CloudAssetsPage
-      do {
-        parsed = try JSONDecoder().decode(CloudAssetsPage.self, from: data)
-      } catch {
-        let preview = String(data: data.prefix(2048), encoding: .utf8) ?? "<non-utf8 \(data.count)B>"
-        cloudHTTPLogger.error("decode CloudAssetsPage failed (page \(page, privacy: .public), folder \(self.folderID, privacy: .public)): \(error.localizedDescription, privacy: .public) — body preview: \(preview, privacy: .public)")
-        throw error
-      }
-      refs.append(contentsOf: parsed.assets.map { dto in
-        ImageRef(id: dto.id, displayName: dto.filename, url: nil)
-      })
-      if parsed.assets.count < limit { break }
-      page += 1
+    // ImageSource is "all images at once" by design — there's no
+    // streaming hook into BrowseViewModel today. To avoid a 40-request
+    // flood on opening a folder with thousands of assets, fetch ONLY
+    // the first page (server caps at limit=500). Folders larger than
+    // that show a truncated grid until proper lazy pagination lands.
+    //
+    // Use Timeline mode (Phase 3) for chronological browsing of large
+    // libraries — that path already paginates per visible month.
+    let limit = 500
+    let pageURL = url("/api/folders/\(folderID)/assets",
+                      query: [URLQueryItem(name: "page", value: "1"),
+                              URLQueryItem(name: "limit", value: "\(limit)")])
+    let req = URLRequest(url: pageURL)
+    let (data, resp) = try await httpClient.data(for: req)
+    try Self.checkOK(resp, data: data)
+    let parsed: CloudAssetsPage
+    do {
+      parsed = try JSONDecoder().decode(CloudAssetsPage.self, from: data)
+    } catch {
+      let preview = String(data: data.prefix(2048), encoding: .utf8) ?? "<non-utf8 \(data.count)B>"
+      cloudHTTPLogger.error("decode CloudAssetsPage failed (folder \(self.folderID, privacy: .public)): \(error.localizedDescription, privacy: .public) — body preview: \(preview, privacy: .public)")
+      throw error
     }
-    return refs
+    if parsed.total > parsed.assets.count {
+      cloudHTTPLogger.info("CloudSource folder \(self.folderID, privacy: .public): showing first \(parsed.assets.count, privacy: .public) of \(parsed.total, privacy: .public) assets — pagination beyond page 1 is not yet wired")
+    }
+    return parsed.assets.map { dto in
+      ImageRef(id: dto.id, displayName: dto.filename, url: nil)
+    }
   }
 
   public func thumb(for ref: ImageRef) async throws -> Data? {
