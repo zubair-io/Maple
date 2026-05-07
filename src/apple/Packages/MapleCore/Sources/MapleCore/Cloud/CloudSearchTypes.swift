@@ -37,7 +37,8 @@ public struct SearchAsset: Codable, Equatable, Sendable {
   public let abs_path: String
   public let filename: String
   public let size: Int64?
-  public let mtime: String?
+  /// Last-modified epoch ms — JSON number on the wire (not a string).
+  public let mtime: Int64?
   public let captured_at: String?
   public let camera: SearchAssetCamera?
   public let lens: String?
@@ -46,7 +47,8 @@ public struct SearchAsset: Codable, Equatable, Sendable {
   public let shutter: String?
   public let focal_length: Double?
   public let rating: Int?
-  public let flag: String?
+  /// Pick flag: 1 = pick, 0 = none, -1 = reject. Number on the wire.
+  public let flag: Int?
   public let color_label: String?
 }
 

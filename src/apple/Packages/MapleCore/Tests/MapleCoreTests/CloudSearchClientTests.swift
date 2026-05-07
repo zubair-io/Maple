@@ -28,7 +28,7 @@ final class CloudSearchClientTests: XCTestCase {
     let json = """
     {"total":42,"page":1,"limit":200,"results":[
       {"id":"a1","folder_id":"lib-1","abs_path":"/photos/a1.dng","filename":"a1.dng",
-       "size":1024,"mtime":"2024-07-01T00:00:00Z","captured_at":"2024-07-15T12:00:00Z",
+       "size":1024,"mtime":1719792000000,"captured_at":"2024-07-15T12:00:00Z",
        "camera":{"make":"Canon","model":"R5"},"lens":null,"iso":100,"aperture":5.6,
        "shutter":"1/200","focal_length":50.0,"rating":4,"flag":null,"color_label":null}
     ]}
