@@ -83,6 +83,10 @@
                     >
                       Loading {{ monthLabel(m.bucket.month) }} {{ m.bucket.year }}…
                     </div>
+                  } @else if (!m.isVisible) {
+                    <!-- Off-screen placeholder — preserves scroll height
+                         without mounting any <img>/<button>s. -->
+                    <div [style.height.px]="m.placeholderHeight" aria-hidden="true"></div>
                   } @else {
                     @for (g of m.groups; track trackGroup($index, g)) {
                       <div class="folder-group">
