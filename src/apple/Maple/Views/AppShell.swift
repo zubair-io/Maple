@@ -193,13 +193,18 @@ struct AppShell: View {
                 },
                 onSignOutCloudServer: { url in
                     Task { @MainActor in
+                        // Sign out keeps the server in the sidebar but
+                        // invalidates its tokens. The user can sign back
+                        // in by clicking the row (which falls through to
+                        // the prefilled AddMapleCloudSheet via the no-
+                        // credentials path in loadCloudLibrary).
                         let session = sessionFor(url)
                         await session.signOut()
-                        CloudServerRegistry.shared.remove(url)
                     }
                 },
                 onRemoveCloudServer: { url in
                     Task { @MainActor in
+                        // Remove drops tokens AND the registry entry.
                         let session = sessionFor(url)
                         await session.signOut()
                         CloudServerRegistry.shared.remove(url)
@@ -711,6 +716,17 @@ struct AppShell: View {
         librarySelection = .cloudLibrary(serverID: serverID, folderID: folderID)
         SourceSelectionStore.save(.cloudLibrary(serverID: serverID, folderID: folderID))
         currentRootBookmark = nil
+
+        // If the user signed out of this server, clicking a library should
+        // re-open the sign-in sheet rather than fire off doomed authenticated
+        // requests. The AuthSession owns the signed-in state — if it has no
+        // user, the tokens are gone.
+        let session = sessionFor(serverID)
+        guard session.isSignedIn else {
+            addCloudSheetTarget = .prefilled(serverID.host ?? serverID.absoluteString)
+            return
+        }
+
         let viewMode = CloudServerRegistry.shared.viewMode(for: serverID)
         switch viewMode {
         case .folder:

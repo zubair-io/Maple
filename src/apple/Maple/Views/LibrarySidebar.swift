@@ -327,21 +327,24 @@ struct LibrarySidebar: View {
                     }
                 }
             }
-            if !registry.servers.isEmpty {
-                Button {
-                    onAddCloudServer()
-                } label: {
-                    HStack {
-                        Image(systemName: "plus.circle")
-                        Text("Add Maple Cloud server")
-                            .font(.callout)
-                    }
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 2)
+            // Always visible — fresh users with no servers need this most.
+            // Previously gated on `!registry.servers.isEmpty`, which hid
+            // the entry point exactly when it was the only path forward.
+            Button {
+                onAddCloudServer()
+            } label: {
+                HStack {
+                    Image(systemName: "plus.circle")
+                    Text(registry.servers.isEmpty
+                         ? "Add Maple Cloud server"
+                         : "Add another server")
+                        .font(.callout)
                 }
-                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 2)
             }
+            .buttonStyle(.plain)
         }
         .padding(.horizontal, 4)
     }
