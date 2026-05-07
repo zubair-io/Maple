@@ -157,6 +157,53 @@ final class AddMapleCloudViewModelTests: XCTestCase {
     await vm.signIn()
     if case .error = vm.state { } else { XCTFail("expected error") }
   }
+
+  // MARK: Invite join
+
+  func test_chooseJoinWithInvite_routesToEnteringInviteDetails() {
+    let host = CloudHost.parse("myserver.com")!
+    let vm = AddMapleCloudViewModel(makeFlow: { _ in StubCloudAuthFlow(server: host.url) })
+    vm.state = .needsAuth(host)
+    vm.chooseJoinWithInvite()
+    XCTAssertEqual(vm.state, .enteringInviteDetails(host))
+  }
+
+  func test_invite_success_routesToSignedIn() async {
+    let host = CloudHost.parse("myserver.com")!
+    let flow = StubCloudAuthFlow(server: host.url)
+    let user = AuthUser(id: "u3", email: "bob@example.com", role: "member")
+    flow.registerResult = .success(AuthVerifyResponse(
+      access_token: "A", refresh_token: "R", user: user))
+    let vm = AddMapleCloudViewModel(makeFlow: { _ in flow })
+
+    vm.state = .enteringInviteDetails(host)
+    vm.emailInput = "bob@example.com"
+    vm.inviteInput = "AB12CD34"
+    await vm.joinWithInvite()
+
+    XCTAssertEqual(vm.state, .signedIn(host,
+      tokens: AuthTokens(access: "A", refresh: "R"), user: user))
+  }
+
+  func test_invite_emptyEmail_routesToError() async {
+    let host = CloudHost.parse("myserver.com")!
+    let vm = AddMapleCloudViewModel(makeFlow: { _ in StubCloudAuthFlow(server: host.url) })
+    vm.state = .enteringInviteDetails(host)
+    vm.emailInput = ""
+    vm.inviteInput = "AB12CD34"
+    await vm.joinWithInvite()
+    if case .error = vm.state { } else { XCTFail("expected error") }
+  }
+
+  func test_invite_wrongCodeLength_routesToError() async {
+    let host = CloudHost.parse("myserver.com")!
+    let vm = AddMapleCloudViewModel(makeFlow: { _ in StubCloudAuthFlow(server: host.url) })
+    vm.state = .enteringInviteDetails(host)
+    vm.emailInput = "bob@example.com"
+    vm.inviteInput = "SHORT"
+    await vm.joinWithInvite()
+    if case .error = vm.state { } else { XCTFail("expected error") }
+  }
 }
 
 // MARK: - Test doubles

@@ -125,6 +125,47 @@ public final class AddMapleCloudViewModel {
     }
   }
 
+  /// needsAuth → enteringInviteDetails.
+  public func chooseJoinWithInvite() {
+    if case .needsAuth(let host) = state {
+      emailInput = ""
+      inviteInput = ""
+      state = .enteringInviteDetails(host)
+    }
+  }
+
+  /// enteringInviteDetails → registeringInvitee → (signedIn | error).
+  public func joinWithInvite() async {
+    guard case .enteringInviteDetails(let host) = state else { return }
+    let email = emailInput.trimmingCharacters(in: .whitespacesAndNewlines)
+    let code = inviteInput.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+    guard !email.isEmpty else {
+      state = .error(message: "Enter an email address",
+                     recoverableTo: .enteringInviteDetails(host))
+      return
+    }
+    guard code.count == 8 else {
+      state = .error(message: "Invite code is 8 characters",
+                     recoverableTo: .enteringInviteDetails(host))
+      return
+    }
+    state = .registeringInvitee(host, email: email, code: code)
+    let flow = makeFlow(host.url)
+    do {
+      let resp = try await flow.register(email: email,
+                                         inviteCode: code,
+                                         deviceLabel: deviceLabel(),
+                                         presentationAnchor: presentationAnchor())
+      state = .signedIn(host,
+                        tokens: AuthTokens(access: resp.access_token,
+                                           refresh: resp.refresh_token),
+                        user: resp.user)
+    } catch {
+      state = .error(message: error.localizedDescription,
+                     recoverableTo: .enteringInviteDetails(host))
+    }
+  }
+
   /// Resets the error state back to its `recoverableTo` target.
   public func retryFromError() {
     if case .error(_, let target) = state { state = target }
