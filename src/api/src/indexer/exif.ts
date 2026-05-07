@@ -70,7 +70,8 @@ function asIsoDate(v: unknown): string | null {
   }
   if (typeof v === "string") {
     // Try EXIF format "YYYY:MM:DD HH:MM:SS" first, then ISO.
-    const exifMatch = /^(\d{4}):(\d{2}):(\d{2})[ T](\d{2}):(\d{2}):(\d{2})/.exec(v);
+    const exifMatch =
+      /^(\d{4}):(\d{2}):(\d{2})[ T](\d{2}):(\d{2}):(\d{2})/.exec(v);
     if (exifMatch) {
       const [, y, mo, d, h, mi, s] = exifMatch;
       const iso = `${y}-${mo}-${d}T${h}:${mi}:${s}`;
@@ -92,18 +93,35 @@ function formatShutter(seconds: number): string {
   if (!Number.isFinite(seconds) || seconds <= 0) return String(seconds);
   if (seconds >= 1) {
     // Trim trailing zeros: 2.0 -> "2", 0.5 -> "0.5".
-    return Number.isInteger(seconds) ? String(seconds) : String(Number(seconds.toFixed(2)));
+    return Number.isInteger(seconds)
+      ? String(seconds)
+      : String(Number(seconds.toFixed(2)));
   }
   return `1/${Math.max(1, Math.round(1 / seconds))}`;
 }
 
 /** Build an `AssetExif` from a loose exifr parse result. */
 export function normalizeExif(raw: LooseRecord): AssetExif {
-  const captured_at = asIsoDate(raw["DateTimeOriginal"]) ?? asIsoDate(raw["CreateDate"]);
+  const captured_at =
+    asIsoDate(raw["DateTimeOriginal"]) ?? asIsoDate(raw["CreateDate"]);
+  // Pre-compute year + month (UTC) at index time so the buckets endpoint
+  // can $group without parsing captured_at per-document. The timeline view
+  // already operates in UTC; doing the same here keeps results consistent.
+  let captured_year: number | null = null;
+  let captured_month: number | null = null;
+  if (captured_at) {
+    const d = new Date(captured_at);
+    if (!Number.isNaN(d.getTime())) {
+      captured_year = d.getUTCFullYear();
+      captured_month = d.getUTCMonth() + 1;
+    }
+  }
   const camera_make = asString(raw["Make"]);
   const camera_model = asString(raw["Model"]);
   const lens =
-    asString(raw["LensModel"]) ?? asString(raw["Lens"]) ?? asString(raw["LensInfo"]);
+    asString(raw["LensModel"]) ??
+    asString(raw["Lens"]) ??
+    asString(raw["LensInfo"]);
   const iso = asNumber(raw["ISO"]) ?? asNumber(raw["ISOSpeedRatings"]);
   const aperture = asNumber(raw["FNumber"]) ?? asNumber(raw["ApertureValue"]);
   const exposureTime = asNumber(raw["ExposureTime"]);
@@ -120,6 +138,8 @@ export function normalizeExif(raw: LooseRecord): AssetExif {
 
   return {
     captured_at,
+    captured_year,
+    captured_month,
     camera_make,
     camera_model,
     lens,
@@ -149,7 +169,7 @@ export async function readExif(absPath: string): Promise<AssetExif | null> {
     console.warn(
       "[indexer:exif] exifr failed for",
       absPath,
-      err instanceof Error ? err.message : err
+      err instanceof Error ? err.message : err,
     );
     return null;
   }
@@ -176,7 +196,9 @@ export async function backfillAssetExif(absPath: string): Promise<boolean> {
       if (!result.ok) return null;
       const xml = result.data!;
       const ratingMatch = xml.match(/xmp:Rating\s*=\s*["'](\d+)["']/);
-      const rating = ratingMatch ? Math.min(5, Math.max(0, Number(ratingMatch[1]))) : 0;
+      const rating = ratingMatch
+        ? Math.min(5, Math.max(0, Number(ratingMatch[1])))
+        : 0;
       const flagMatch = xml.match(/maple:Flag\s*=\s*["'](-?\d+)["']/);
       const rawFlag = flagMatch ? Number(flagMatch[1]) : 0;
       const flag = (rawFlag === 1 ? 1 : rawFlag === -1 ? -1 : 0) as -1 | 0 | 1;
