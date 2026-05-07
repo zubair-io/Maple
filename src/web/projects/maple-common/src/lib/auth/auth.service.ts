@@ -168,6 +168,38 @@ export class AuthService {
   private acceptTokens(r: any): void {
     this.accessToken = r.access_token;
     this.user.set(r.user);
-    // Refresh token is set by the server as an httpOnly cookie; not visible to JS.
+    // Refresh token is set by the server as an httpOnly cookie; not
+    // visible to JS in a normal browser context. The same `/login/verify`
+    // and `/register/verify` responses ALSO include `refresh_token` in
+    // the JSON body so the native shell can capture it via the bridge.
+    this.postNativeAuthSuccess(r);
+  }
+
+  /// Returns true when the page is running inside the Maple Apple shell's
+  /// WKWebView. The native side injects a `WKScriptMessageHandler` named
+  /// `maple` via `WKUserContentController.add(_:name:)` before loading
+  /// the URL — a normal browser tab leaves
+  /// `window.webkit.messageHandlers.maple` undefined.
+  get isNativeShell(): boolean {
+    const w = window as unknown as {
+      webkit?: { messageHandlers?: { maple?: unknown } };
+    };
+    return typeof w.webkit?.messageHandlers?.maple !== "undefined";
+  }
+
+  /// Hands tokens to the native shell after a successful auth ceremony.
+  /// No-op outside the shell. The native side reads these and persists
+  /// them via `TokenStore` + per-server `AuthSession`.
+  private postNativeAuthSuccess(r: any): void {
+    if (!this.isNativeShell) return;
+    const w = window as unknown as {
+      webkit: { messageHandlers: { maple: { postMessage: (m: unknown) => void } } };
+    };
+    w.webkit.messageHandlers.maple.postMessage({
+      type: "auth_success",
+      access_token: r.access_token,
+      refresh_token: r.refresh_token,
+      user: r.user,
+    });
   }
 }

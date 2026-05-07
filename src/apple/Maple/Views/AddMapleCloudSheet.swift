@@ -1,11 +1,15 @@
 // AddMapleCloudSheet.swift
 //
-// Single sheet that drives the entire AddMapleCloud flow. Renders one panel
-// per AddMapleCloudViewModel state. The view contains zero business logic —
-// every action calls a method on the view model.
+// Single sheet that drives the AddMapleCloud flow. Two panels:
+//   .idle              → domain entry text field
+//   .loadingWebview    → embedded WKWebView pointed at <domain>
+//   .signedIn          → dismisses on entry
+//   .error             → inline message + Try again
+//
+// The webview is the auth UI — the native side has no sign-in form.
+// See WebViewSignInPanel.swift for the WKWebView + JS-bridge plumbing.
 
 import SwiftUI
-import AuthenticationServices
 import MapleCore
 
 struct AddMapleCloudSheet: View {
@@ -24,31 +28,20 @@ struct AddMapleCloudSheet: View {
     _vm = State(wrappedValue: viewModel)
   }
 
-  /// Centralized dismiss path. Cancels the in-flight passkey ceremony so
-  /// that a Touch ID prompt completing AFTER the user clicked Cancel does
-  /// NOT silently register the server. Then forwards to the host's
-  /// `onDismiss` to close the sheet binding.
+  /// Centralized dismiss path. Cancels any pending webview message
+  /// delivery so a stray `auth_success` post arriving after the user
+  /// closed the sheet does NOT silently register the server.
   private func dismiss() {
     vm.cancel()
     onDismiss()
   }
 
   var body: some View {
-    VStack(spacing: 16) {
+    VStack(spacing: 0) {
       panel
     }
-    .padding(28)
-    .frame(minWidth: 420, minHeight: 240)
-    .onAppear {
-      vm.presentationAnchor = anchorProvider
-    }
-    .onDisappear {
-      // Catches swipe-down (iOS) / Esc / programmatic dismissal that
-      // bypasses our Cancel buttons. cancel() is idempotent — if the
-      // sheet disappeared because of a successful sign-in, the
-      // callback already fired before this runs.
-      vm.cancel()
-    }
+    .frame(minWidth: 480, minHeight: 320)
+    .onDisappear { vm.cancel() }
     .onChange(of: vm.state) { _, newValue in
       if case .signedIn = newValue { onDismiss() }
     }
@@ -59,17 +52,10 @@ struct AddMapleCloudSheet: View {
   @ViewBuilder
   private var panel: some View {
     switch vm.state {
-    case .idle:                            idlePanel
-    case .checkingBootstrap(let host):     spinnerPanel("Connecting to \(host.displayHost)…")
-    case .needsOwnerClaim(let host):       ownerClaimPanel(host: host)
-    case .registeringOwner(let host, _):   spinnerPanel("Creating owner account at \(host.displayHost)…")
-    case .needsAuth(let host):             needsAuthPanel(host: host)
-    case .enteringSignInEmail(let host):   signInEmailPanel(host: host)
-    case .signingIn(let host, _):          spinnerPanel("Signing in to \(host.displayHost)…")
-    case .enteringInviteDetails(let host): inviteDetailsPanel(host: host)
-    case .registeringInvitee(let host, _, _): spinnerPanel("Joining \(host.displayHost)…")
-    case .signedIn:                        spinnerPanel("Signed in.")
-    case .error(let msg, _):               errorPanel(message: msg)
+    case .idle:                        idlePanel
+    case .loadingWebview(let host):    webviewPanel(host: host)
+    case .signedIn(let host, _, _):    spinnerPanel("Signed in to \(host.displayHost).")
+    case .error(let msg, _):           errorPanel(message: msg)
     }
   }
 
@@ -78,21 +64,52 @@ struct AddMapleCloudSheet: View {
   private var idlePanel: some View {
     VStack(alignment: .leading, spacing: 12) {
       Text("Add a Maple Cloud server").font(.title3).bold()
+      Text("Type the server's domain. Sign-in happens in a secure window inside the app.")
+        .foregroundStyle(.secondary).font(.callout)
       TextField("myserver.com", text: $vm.domainInput)
         .textFieldStyle(.roundedBorder)
         #if !os(macOS)
         .textInputAutocapitalization(.never)
         .keyboardType(.URL)
         #endif
-        .onSubmit { Task { await vm.continueFromIdle() } }
+        .onSubmit { vm.continueFromIdle() }
       HStack {
         Spacer()
         Button("Cancel", action: dismiss).keyboardShortcut(.cancelAction)
-        Button("Continue") { Task { await vm.continueFromIdle() } }
+        Button("Continue") { vm.continueFromIdle() }
           .keyboardShortcut(.defaultAction)
           .buttonStyle(.borderedProminent)
           .disabled(vm.domainInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
       }
+    }
+    .padding(28)
+  }
+
+  private func webviewPanel(host: CloudHost) -> some View {
+    VStack(spacing: 0) {
+      // Slim header so the user always knows which domain is loaded
+      // and can back out without hunting for the close button.
+      HStack {
+        Text(host.displayHost)
+          .font(.callout.weight(.medium))
+          .foregroundStyle(.secondary)
+        Spacer()
+        Button("Cancel", action: dismiss).keyboardShortcut(.cancelAction)
+      }
+      .padding(.horizontal, 16)
+      .padding(.vertical, 10)
+      Divider()
+      WebViewSignInPanel(
+        host: host,
+        onAuthSuccess: { access, refresh, user in
+          vm.bridgeReceivedAuthSuccess(accessToken: access,
+                                       refreshToken: refresh,
+                                       user: user)
+        },
+        onLoadFailure: { message in
+          vm.webviewFailed(message: message)
+        }
+      )
     }
   }
 
@@ -101,96 +118,8 @@ struct AddMapleCloudSheet: View {
       ProgressView()
       Text(message).foregroundStyle(.secondary)
     }
-    .frame(maxWidth: .infinity, alignment: .center)
-  }
-
-  private func ownerClaimPanel(host: CloudHost) -> some View {
-    VStack(alignment: .leading, spacing: 12) {
-      Text("Set up \(host.displayHost)").font(.title3).bold()
-      Text("This server has no account yet. Enter your email — you'll be the owner.")
-        .foregroundStyle(.secondary).font(.callout)
-      TextField("you@example.com", text: $vm.emailInput)
-        .textFieldStyle(.roundedBorder)
-        #if !os(macOS)
-        .textInputAutocapitalization(.never)
-        .keyboardType(.emailAddress)
-        #endif
-      HStack {
-        Spacer()
-        Button("Cancel", action: dismiss).keyboardShortcut(.cancelAction)
-        Button { Task { await vm.claimOwner() } } label: {
-          Label("Create owner account", systemImage: "key.fill")
-        }
-        .keyboardShortcut(.defaultAction)
-        .buttonStyle(.borderedProminent)
-        .disabled(vm.emailInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-      }
-    }
-  }
-
-  private func needsAuthPanel(host: CloudHost) -> some View {
-    VStack(alignment: .leading, spacing: 12) {
-      Text("Sign in to \(host.displayHost)").font(.title3).bold()
-      Text("How would you like to continue?").foregroundStyle(.secondary).font(.callout)
-      HStack {
-        Button { vm.chooseSignIn() } label: {
-          Label("Sign in", systemImage: "person.fill")
-        }
-        Button { vm.chooseJoinWithInvite() } label: {
-          Label("Join with invite", systemImage: "envelope.fill")
-        }
-        Spacer()
-        Button("Cancel", action: dismiss).keyboardShortcut(.cancelAction)
-      }
-    }
-  }
-
-  private func signInEmailPanel(host: CloudHost) -> some View {
-    VStack(alignment: .leading, spacing: 12) {
-      Text("Sign in to \(host.displayHost)").font(.title3).bold()
-      TextField("you@example.com", text: $vm.emailInput)
-        .textFieldStyle(.roundedBorder)
-        #if !os(macOS)
-        .textInputAutocapitalization(.never)
-        .keyboardType(.emailAddress)
-        #endif
-      HStack {
-        Spacer()
-        Button("Cancel", action: dismiss).keyboardShortcut(.cancelAction)
-        Button { Task { await vm.signIn() } } label: {
-          Label("Sign in with passkey", systemImage: "key.fill")
-        }
-        .keyboardShortcut(.defaultAction)
-        .buttonStyle(.borderedProminent)
-        .disabled(vm.emailInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-      }
-    }
-  }
-
-  private func inviteDetailsPanel(host: CloudHost) -> some View {
-    VStack(alignment: .leading, spacing: 12) {
-      Text("Join \(host.displayHost)").font(.title3).bold()
-      TextField("Email", text: $vm.emailInput)
-        .textFieldStyle(.roundedBorder)
-        #if !os(macOS)
-        .textInputAutocapitalization(.never)
-        .keyboardType(.emailAddress)
-        #endif
-      TextField("Invite code", text: $vm.inviteInput)
-        .textFieldStyle(.roundedBorder)
-        .textCase(.uppercase)
-      HStack {
-        Spacer()
-        Button("Cancel", action: dismiss).keyboardShortcut(.cancelAction)
-        Button { Task { await vm.joinWithInvite() } } label: {
-          Label("Join with passkey", systemImage: "key.fill")
-        }
-        .keyboardShortcut(.defaultAction)
-        .buttonStyle(.borderedProminent)
-        .disabled(vm.emailInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                  || vm.inviteInput.trimmingCharacters(in: .whitespacesAndNewlines).count != 8)
-      }
-    }
+    .frame(maxWidth: .infinity, maxHeight: .infinity)
+    .padding(28)
   }
 
   private func errorPanel(message: String) -> some View {
@@ -205,18 +134,6 @@ struct AddMapleCloudSheet: View {
           .buttonStyle(.borderedProminent)
       }
     }
-  }
-
-  // MARK: - Anchor
-
-  @MainActor
-  private func anchorProvider() -> ASPresentationAnchor {
-    #if os(macOS)
-    return NSApplication.shared.keyWindow ?? ASPresentationAnchor()
-    #else
-    return UIApplication.shared.connectedScenes
-      .compactMap { ($0 as? UIWindowScene)?.keyWindow }
-      .first ?? ASPresentationAnchor()
-    #endif
+    .padding(28)
   }
 }

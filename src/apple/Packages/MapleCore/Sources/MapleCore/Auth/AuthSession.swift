@@ -2,11 +2,17 @@
 import Foundation
 import Observation
 
-public struct AuthUser: Codable, Equatable {
+public struct AuthUser: Codable, Equatable, Sendable {
   public let id: String
   public let email: String
   public let role: String
   public var isOwner: Bool { role == "owner" }
+
+  public init(id: String, email: String, role: String) {
+    self.id = id
+    self.email = email
+    self.role = role
+  }
 }
 
 @MainActor @Observable
