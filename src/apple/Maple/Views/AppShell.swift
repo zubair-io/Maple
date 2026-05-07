@@ -992,14 +992,17 @@ struct AppShell: View {
     @MainActor
     private func openCloudAsset(_ asset: SearchAsset, server: URL) {
         let httpClient = makeAuthenticatedHTTPClient(server: server)
-        // libraryPath is unused for this single-asset path; pass the
-        // asset's parent dir so a hypothetical navigate() lands somewhere
+        // libraryPath is unused for this code path — we never call
+        // source.images() on a single-asset open. Pass the asset's
+        // parent dir so a hypothetical navigate() lands somewhere
         // sensible.
         let parentPath = (asset.abs_path as NSString).deletingLastPathComponent
         let source = CloudSource(server: server,
                                  folderID: asset.folder_id,
                                  libraryPath: parentPath,
                                  httpClient: httpClient)
+        // The cloud asset's editor id matches the web's `fs:<absPath>`
+        // shape so CloudSource.thumb / rawBytes pull paths from id.
         let imageRef = ImageRef(id: asset.id, displayName: asset.filename, url: nil)
         let assetRef = AssetRef(
             displayName: asset.filename,

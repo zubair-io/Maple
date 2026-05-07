@@ -23,7 +23,13 @@ public actor CloudSearchClient {
                       query: [URLQueryItem(name: "libraryId", value: libraryID)])
     let (data, resp) = try await httpClient.data(for: URLRequest(url: url))
     try Self.checkOK(resp, data: data)
-    return try JSONDecoder().decode(TimelineBuckets.self, from: data)
+    do {
+      return try JSONDecoder().decode(TimelineBuckets.self, from: data)
+    } catch {
+      let preview = String(data: data.prefix(2048), encoding: .utf8) ?? "<non-utf8 \(data.count)B>"
+      cloudHTTPLogger.error("decode TimelineBuckets failed (library \(libraryID, privacy: .public)): \(error.localizedDescription, privacy: .public) — body preview: \(preview, privacy: .public)")
+      throw error
+    }
   }
 
   /// `GET /api/search?libraryId=<id>&from=YYYY-MM-01&to=YYYY-MM-LAST&page=N&limit=N&sort=...`
@@ -48,7 +54,13 @@ public actor CloudSearchClient {
     let url = makeURL(path: "/api/search", query: items)
     let (data, resp) = try await httpClient.data(for: URLRequest(url: url))
     try Self.checkOK(resp, data: data)
-    return try JSONDecoder().decode(SearchResponse.self, from: data)
+    do {
+      return try JSONDecoder().decode(SearchResponse.self, from: data)
+    } catch {
+      let preview = String(data: data.prefix(2048), encoding: .utf8) ?? "<non-utf8 \(data.count)B>"
+      cloudHTTPLogger.error("decode SearchResponse failed (library \(libraryID, privacy: .public), \(year, privacy: .public)-\(month, privacy: .public)): \(error.localizedDescription, privacy: .public) — body preview: \(preview, privacy: .public)")
+      throw error
+    }
   }
 
   // MARK: - Helpers
