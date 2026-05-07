@@ -69,6 +69,14 @@ export interface PipelineJob {
   exif?: AssetExif | null;
   /** Present only for rename jobs. */
   fromPath?: string;
+  /**
+   * Skip the thumb stage's `generateThumb` handler call. Used by the
+   * browse-triggered enqueue path: `/api/fs/thumb` already renders thumbs
+   * lazily on demand, so re-doing the work in the indexer would just waste
+   * the FFI worker pool. The thumb stage still runs (the job moves on to
+   * `ai`) — only the side-effect is skipped.
+   */
+  skipThumb?: boolean;
 }
 
 /** Face detection output from the ai stage. Shape is frozen so future ONNX wiring is additive only. */
@@ -494,7 +502,7 @@ export class Pipeline {
       return;
     }
     const h = this.handlers.generateThumb;
-    if (h) await h(job);
+    if (h && !job.skipThumb) await h(job);
     await this.channels.ai.push(job);
   }
 

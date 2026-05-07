@@ -173,4 +173,50 @@ describe("Pipeline end-to-end", () => {
     await pipe.stop();
     await fs.rm(dir, { recursive: true, force: true });
   });
+
+  it("skipThumb=true short-circuits the thumb handler but still upserts", async () => {
+    const { Pipeline, createChannels } = await import("../src/indexer/pipeline.ts");
+
+    const fakeBytes = new Uint8Array(128);
+    for (let i = 0; i < fakeBytes.length; i++) fakeBytes[i] = i;
+
+    const channels = createChannels();
+    const thumbCalls: string[] = [];
+    const upsertCalls: string[] = [];
+    const pipe = new Pipeline(channels, {
+      discover: 1, hash: 1, exif: 1, thumb: 1, ai: 1, mongo: 1,
+    }, {
+      readHead: async () => fakeBytes,
+      generateThumb: async (job) => { thumbCalls.push(job.absPath); },
+      upsertMongo: async (job) => { upsertCalls.push(job.absPath); },
+    });
+
+    const os = await import("node:os");
+    const fs = await import("node:fs/promises");
+    const path = await import("node:path");
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "maple-pipeline-skipthumb-"));
+    const p = path.join(dir, "skip.dng");
+    await fs.writeFile(p, Buffer.from(fakeBytes));
+
+    pipe.start();
+    await pipe.channels.discover.push({
+      kind: "index",
+      folderId: "ffffffffffffffffffffffff",
+      absPath: p,
+      skipThumb: true,
+    });
+
+    const deadline = Date.now() + 5000;
+    while (upsertCalls.length < 1 && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 20));
+    }
+
+    expect(upsertCalls.length).toBe(1);
+    expect(upsertCalls[0]).toBe(p);
+    // The thumb handler must NOT have run for this job.
+    expect(thumbCalls).toEqual([]);
+
+    await pipe.stop();
+    await fs.rm(dir, { recursive: true, force: true });
+  });
 });
