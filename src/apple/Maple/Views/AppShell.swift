@@ -57,11 +57,12 @@ struct AppShell: View {
 
     // Sheet state.
     @State private var showSMBSheet = false
-    /// Single AddMapleCloudSheet entry point. `addCloudPrefill` is empty
-    /// when the user clicked "+" in the sidebar/Settings, or the host of
-    /// the saved server they tapped without restored tokens.
-    @State private var showAddCloudSheet = false
-    @State private var addCloudPrefill: String = ""
+    /// Single AddMapleCloudSheet entry point. `nil` means hidden;
+    /// `.fresh` means the user clicked "+"; `.prefilled(host)` means
+    /// they tapped a saved server without restored tokens. Modeling
+    /// presentation + payload as one optional eliminates the "what
+    /// was the prefill last time?" hazard from a separate `@State`.
+    @State private var addCloudSheetTarget: AddCloudSheetTarget?
 
     // Dynamic toolbar title — reflects the last-loaded source/filter.
     @State private var libraryTitle: String = "All"
@@ -125,10 +126,10 @@ struct AppShell: View {
                 connectSMB(credentials: creds)
             }, onCancel: { showSMBSheet = false })
         }
-        .sheet(isPresented: $showAddCloudSheet) {
+        .sheet(item: $addCloudSheetTarget) { target in
             AddMapleCloudSheet(
-                prefilledDomain: addCloudPrefill,
-                onDismiss: { showAddCloudSheet = false },
+                prefilledDomain: target.prefill,
+                onDismiss: { addCloudSheetTarget = nil },
                 onSignedIn: { url, tokens, _ in
                     Task { @MainActor in
                         try? TokenStore.save(tokens, server: url)
@@ -138,7 +139,7 @@ struct AppShell: View {
                         // sidebar sees the user as signed in immediately.
                         let session = sessionFor(url)
                         await session.bootstrapAndRestore()
-                        showAddCloudSheet = false
+                        addCloudSheetTarget = nil
                         // Auto-load the newly-paired server.
                         connectSavedSelfHosted(url)
                     }
@@ -188,8 +189,7 @@ struct AppShell: View {
                 onAddSMB: { showSMBSheet = true },
                 onPickSMB: { share in connectSavedSMB(share) },
                 onAddSelfHosted: {
-                    addCloudPrefill = ""
-                    showAddCloudSheet = true
+                    addCloudSheetTarget = .fresh
                 },
                 onPickSelfHosted: { url in connectSavedSelfHosted(url) }
             )
@@ -719,8 +719,7 @@ struct AppShell: View {
             }
             // No credentials — open the AddMapleCloud sheet pre-filled with
             // this server's host so the user goes straight to sign-in.
-            addCloudPrefill = url.host ?? url.absoluteString
-            showAddCloudSheet = true
+            addCloudSheetTarget = .prefilled(url.host ?? url.absoluteString)
         }
     }
 
@@ -855,6 +854,30 @@ struct SMBPickerSheet: View {
         }
         .padding(20)
         .frame(minWidth: 380)
+    }
+}
+
+// MARK: - AddMapleCloud sheet target
+
+/// Backing value for `.sheet(item:)` so dismissal automatically resets to
+/// `nil`. Two cases mirror the two entry points: a fresh "+" tap and a
+/// click on a saved server whose tokens were cleared.
+enum AddCloudSheetTarget: Identifiable, Equatable {
+    case fresh
+    case prefilled(String)
+
+    var id: String {
+        switch self {
+        case .fresh: return ""
+        case .prefilled(let host): return host
+        }
+    }
+
+    var prefill: String {
+        switch self {
+        case .fresh: return ""
+        case .prefilled(let host): return host
+        }
     }
 }
 
