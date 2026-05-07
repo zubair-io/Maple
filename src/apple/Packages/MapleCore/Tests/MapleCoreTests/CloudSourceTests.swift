@@ -104,7 +104,7 @@ final class CloudSourceTests: XCTestCase {
     let assets = (0..<count).map { i in
       """
       {"id":"a\(page)-\(i)","filename":"f\(i).dng","size":1024,
-       "mtime":"2026-01-01T00:00:00Z","rating":null,"flag":null,
+       "mtime":1735689600000,"rating":null,"flag":null,
        "color_label":null,"indexed_at":null}
       """
     }.joined(separator: ",")

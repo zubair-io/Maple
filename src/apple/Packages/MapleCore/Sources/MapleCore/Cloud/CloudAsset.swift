@@ -8,9 +8,12 @@ public struct CloudAsset: Decodable, Equatable, Sendable {
   public let id: String
   public let filename: String
   public let size: Int64
-  public let mtime: String
+  /// Last-modified epoch ms from `stat`. Wire format is a JSON number,
+  /// not a string — see `AssetDoc.mtime` in `src/api/src/db/schema.ts`.
+  public let mtime: Int64
   public let rating: Int?
-  public let flag: String?
+  /// Pick flag: 1 = pick, 0 = none, -1 = reject. Wire format is a number.
+  public let flag: Int?
   public let color_label: String?
   public let indexed_at: String?
 }
