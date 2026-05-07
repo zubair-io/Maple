@@ -39,7 +39,12 @@ export class JoinComponent {
     this.error.set(null);
     try {
       await this.auth.join(window.location.origin, this.email, this.code, 'Web');
-      await this.router.navigateByUrl('/');
+      // Skip SPA nav when running inside the Apple shell — the native
+      // side has the tokens via `maple` postMessage and is closing the
+      // sheet.
+      if (!this.auth.isNativeShell) {
+        await this.router.navigateByUrl('/');
+      }
     } catch (e: unknown) {
       this.error.set(e instanceof Error ? e.message : String(e));
     } finally {
