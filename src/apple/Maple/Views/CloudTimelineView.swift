@@ -4,6 +4,12 @@
 // LazyVStack of month sections; each section's onAppear triggers
 // CloudTimelineViewModel.loadPage. Asset cells fetch + cache thumbnails
 // asynchronously via CloudThumbCache + CloudThumbClient.
+//
+// Cell rendering (square thumb + rounded corners + fill/fit content
+// mode) is shared with BrowseGrid via the `ThumbnailImage` view. The
+// only Timeline-specific bits are: month-section headers, rating
+// overlay, and the cloud-thumb load path. Caption is suppressed
+// because the timeline is dense and filename labels would crowd it.
 
 import SwiftUI
 import MapleCore
@@ -17,6 +23,10 @@ struct CloudTimelineView: View {
   @State var vm: CloudTimelineViewModel
   let thumbClient: CloudThumbClient
   let thumbCache: CloudThumbCache
+  /// Shared with BrowseGrid via the toolbar's fill/fit toggle. Drives
+  /// `ThumbnailImage.displayMode` for every cell — same toggle, same
+  /// behavior across both grids.
+  let displayMode: GridDisplayMode
   let onSelectAsset: (SearchAsset) -> Void
 
   var body: some View {
@@ -36,6 +46,7 @@ struct CloudTimelineView: View {
             thumbClient: thumbClient,
             thumbCache: thumbCache,
             host: vm.server.host ?? "",
+            displayMode: displayMode,
             onSelectAsset: onSelectAsset
           )
           .onAppear {
@@ -66,6 +77,7 @@ struct CloudTimelineMonthSection: View {
   let thumbClient: CloudThumbClient
   let thumbCache: CloudThumbCache
   let host: String
+  let displayMode: GridDisplayMode
   let onSelectAsset: (SearchAsset) -> Void
 
   private static let columnCount = 4
@@ -89,6 +101,7 @@ struct CloudTimelineMonthSection: View {
             thumbClient: thumbClient,
             thumbCache: thumbCache,
             host: host,
+            displayMode: displayMode,
             onSelect: { onSelectAsset(asset) }
           )
         }
@@ -96,9 +109,8 @@ struct CloudTimelineMonthSection: View {
         // placeholders as the bucket count so the layout doesn't jump.
         if assets.isEmpty {
           ForEach(0..<min(count, 16), id: \.self) { _ in
-            Color.gray.opacity(0.10)
-              .aspectRatio(1, contentMode: .fill)
-              .clipShape(RoundedRectangle(cornerRadius: 4))
+            ThumbnailImage(jpegData: nil, displayMode: displayMode)
+              .opacity(0.5)
           }
         }
       }
@@ -123,65 +135,69 @@ struct CloudTimelineCell: View {
   let thumbClient: CloudThumbClient
   let thumbCache: CloudThumbCache
   let host: String
+  let displayMode: GridDisplayMode
   let onSelect: () -> Void
 
-  @State private var thumb: PlatformImage?
+  /// Raw JPEG bytes once the cloud thumb has loaded. Drives
+  /// `ThumbnailImage` directly — same data shape BrowseGrid uses.
+  @State private var thumbData: Data?
+  @State private var loadTask: Task<Void, Never>?
 
   var body: some View {
     Button(action: onSelect) {
-      Group {
-        if let thumb {
-          Image(platformImage: thumb)
-            .resizable()
-            .aspectRatio(contentMode: .fill)
-        } else {
-          Color.gray.opacity(0.15)
-        }
-      }
-      .aspectRatio(1, contentMode: .fill)
-      .clipShape(RoundedRectangle(cornerRadius: 4))
-      .overlay(alignment: .topLeading) {
-        if let rating = asset.rating, rating > 0 {
-          HStack(spacing: 1) {
-            ForEach(0..<rating, id: \.self) { _ in
-              Image(systemName: "star.fill").font(.caption2)
+      ThumbnailImage(jpegData: thumbData, displayMode: displayMode)
+        .overlay(alignment: .topLeading) {
+          if let rating = asset.rating, rating > 0 {
+            HStack(spacing: 1) {
+              ForEach(0..<rating, id: \.self) { _ in
+                Image(systemName: "star.fill").font(.caption2)
+              }
             }
+            .foregroundStyle(.yellow)
+            .padding(4)
           }
-          .foregroundStyle(.yellow)
-          .padding(4)
         }
-      }
     }
     .buttonStyle(.plain)
-    .task { await loadThumb() }
+    .onAppear { startLoad() }
+    .onDisappear {
+      loadTask?.cancel()
+      loadTask = nil
+    }
   }
 
-  private func loadThumb() async {
-    if let cached = await thumbCache.get(host: host, absPath: asset.abs_path) {
-      thumb = PlatformImage(data: cached)
-      return
+  private func startLoad() {
+    guard thumbData == nil, loadTask == nil else { return }
+    let captured = (asset, thumbCache, thumbClient, host)
+    loadTask = Task { @MainActor in
+      let bytes = await Self.fetchThumbBytes(
+        host: captured.3,
+        absPath: captured.0.abs_path,
+        cache: captured.1,
+        client: captured.2
+      )
+      guard !Task.isCancelled else { return }
+      withAnimation(.easeInOut(duration: 0.18)) {
+        thumbData = bytes
+      }
+    }
+  }
+
+  private static func fetchThumbBytes(
+    host: String,
+    absPath: String,
+    cache: CloudThumbCache,
+    client: CloudThumbClient
+  ) async -> Data? {
+    if let cached = await cache.get(host: host, absPath: absPath) {
+      return cached
     }
     do {
-      let bytes = try await thumbClient.thumb(absPath: asset.abs_path)
-      await thumbCache.put(host: host, absPath: asset.abs_path, bytes)
-      thumb = PlatformImage(data: bytes)
+      let bytes = try await client.thumb(absPath: absPath)
+      await cache.put(host: host, absPath: absPath, bytes)
+      return bytes
     } catch {
-      // Leave the placeholder up — the cell stays clickable; failed loads
-      // surface naturally next time the cell appears.
+      return nil
     }
   }
 }
-
-// MARK: - Cross-platform image bridge
-
-#if canImport(AppKit)
-typealias PlatformImage = NSImage
-extension Image {
-  init(platformImage: NSImage) { self.init(nsImage: platformImage) }
-}
-#elseif canImport(UIKit)
-typealias PlatformImage = UIImage
-extension Image {
-  init(platformImage: UIImage) { self.init(uiImage: platformImage) }
-}
-#endif

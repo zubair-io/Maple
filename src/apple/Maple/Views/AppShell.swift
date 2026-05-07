@@ -281,6 +281,7 @@ struct AppShell: View {
                             vm: vm,
                             thumbClient: thumbClient,
                             thumbCache: thumbCache,
+                            displayMode: browseDisplayMode,
                             onSelectAsset: { asset in openCloudAsset(asset, server: vm.server) }
                         )
                     } else {
