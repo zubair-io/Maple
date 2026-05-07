@@ -86,6 +86,12 @@ struct AppShell: View {
     // toolbar button below).
     @State private var browseDisplayMode: GridDisplayMode = .fill
 
+    /// Currently-selected tab on iPhone (TabView). Lifted to a binding
+    /// so picking a row in the Library tab can flip the user back to
+    /// Browse — picking a source on a hidden tab and then having to
+    /// remember to switch is a bad UX.
+    @State private var iPhoneTab: IPhoneTab = .browse
+
     // The root bookmark for the currently-open folder tree — used to claim
     // security scope when the user clicks a sub-folder cell inside the grid.
     @State private var currentRootBookmark: Data?
@@ -288,7 +294,69 @@ struct AppShell: View {
     // MARK: - iPhone (TabView)
 
     private var adaptiveShell: some View {
-        TabView {
+        TabView(selection: $iPhoneTab) {
+            // 1. Library — sources tree (cloud servers, local folders,
+            // PhotoKit, SMB). Same content as the macOS sidebar; tapping
+            // any row routes back to the Browse tab automatically.
+            NavigationStack {
+                LibrarySidebar(
+                    selection: $librarySelection,
+                    onAddFolder: {
+                        showFilePicker = true
+                        iPhoneTab = .browse
+                    },
+                    onPickFolder: { folder in
+                        openSavedFolder(folder)
+                        iPhoneTab = .browse
+                    },
+                    onRemoveFolder: { folder in SavedFolderStore.remove(path: folder.path) },
+                    onPickAncestor: { url, bookmark in
+                        openSubFolder(url: url, rootBookmark: bookmark)
+                        iPhoneTab = .browse
+                    },
+                    onPickPhotosFilter: { filter in
+                        loadPhotos(filter: filter)
+                        iPhoneTab = .browse
+                    },
+                    onRequestPhotosAccess: { requestPhotosAccess() },
+                    onAddSMB: { showSMBSheet = true },
+                    onPickSMB: { share in
+                        connectSavedSMB(share)
+                        iPhoneTab = .browse
+                    },
+                    onAddCloudServer: {
+                        addCloudSheetTarget = .fresh
+                    },
+                    onPickCloudLibrary: { serverID, folderID, libraryPath in
+                        loadCloudLibrary(serverID: serverID, folderID: folderID, libraryPath: libraryPath)
+                        iPhoneTab = .browse
+                    },
+                    onListCloudDir: { url, absPath in
+                        await listCloudDirFor(server: url, absPath: absPath)
+                    },
+                    cloudCurrentPath: cloudCurrentPath,
+                    onSignOutCloudServer: { url in
+                        Task { @MainActor in
+                            let session = sessionFor(url)
+                            await session.signOut()
+                        }
+                    },
+                    onRemoveCloudServer: { url in
+                        Task { @MainActor in
+                            let session = sessionFor(url)
+                            await session.signOut()
+                            CloudServerRegistry.shared.remove(url)
+                        }
+                    },
+                    onLoadCloudFolders: { url in
+                        await loadCloudFoldersFor(url)
+                    }
+                )
+                .navigationTitle("Library")
+            }
+            .tag(IPhoneTab.library)
+            .tabItem { Label("Library", systemImage: "books.vertical") }
+
             NavigationStack {
                 BrowseGrid(
                     vm: browseVM,
@@ -301,6 +369,7 @@ struct AppShell: View {
                 .navigationTitle("Library — \(libraryTitle)")
                 .toolbar { browseToolbar }
             }
+            .tag(IPhoneTab.browse)
             .tabItem { Label("Browse", systemImage: "photo.on.rectangle") }
 
             NavigationStack {
@@ -314,16 +383,20 @@ struct AppShell: View {
                     }
                 }
             }
+            .tag(IPhoneTab.edit)
             .tabItem { Label("Edit", systemImage: "slider.horizontal.3") }
 
             NavigationStack {
                 DetailPanel(session: selectedSession)
                     .navigationTitle("Info")
             }
+            .tag(IPhoneTab.info)
             .tabItem { Label("Info", systemImage: "info.circle") }
         }
         .accentColor(MapleTokens.primary)
     }
+
+    enum IPhoneTab: Hashable { case library, browse, edit, info }
 
     // MARK: - Toolbar
 
@@ -761,6 +834,33 @@ struct AppShell: View {
         catch { return nil }
     }
 
+    /// Cold-start fallback when there's no saved selection. Picks the
+    /// first sensible source so the user lands on something instead of
+    /// staring at "Pick a folder in the sidebar." Priority:
+    /// 1. First registered cloud server's first library
+    /// 2. Most-recent local folder from SavedFolderStore
+    /// PhotoKit is intentionally NOT auto-picked — it's permission-
+    /// gated and ambushy.
+    @MainActor
+    private func autoPickInitialSource() async {
+        for serverURL in CloudServerRegistry.shared.servers {
+            let session = sessionFor(serverURL)
+            if !session.isSignedIn { await session.bootstrapAndRestore() }
+            guard session.isSignedIn else { continue }
+            let libs = await loadCloudFoldersFor(serverURL)
+            if let first = libs.first {
+                loadCloudLibrary(serverID: serverURL,
+                                 folderID: first.id,
+                                 libraryPath: first.path)
+                return
+            }
+        }
+        if let first = SavedFolderStore.load().first {
+            openSavedFolder(first)
+            return
+        }
+    }
+
     @MainActor
     private func loadCloudLibrary(serverID: URL, folderID: String, libraryPath: String) {
         librarySelection = .cloudLibrary(serverID: serverID, folderID: folderID)
@@ -800,7 +900,32 @@ struct AppShell: View {
                                          folderID: folderID,
                                          libraryPath: libraryPath,
                                          httpClient: httpClient)
-                await browseVM.loadSource(source)
+                // Use the dir-listing loader so the grid shows BOTH
+                // subfolders and images at this level.
+                await browseVM.loadCloudDir(source, absPath: libraryPath)
+
+                // Path-not-on-server fallback. If the persisted path
+                // was renamed or deleted server-side, /api/fs/dir 4xx's
+                // and BrowseViewModel.loadError gets set. Look up the
+                // library's registered root via /api/folders and retry
+                // there, then update the persisted selection so cold
+                // start no longer points at the missing path.
+                if browseVM.loadError != nil {
+                    let foldersClient = CloudFoldersClient(server: serverID,
+                                                           httpClient: httpClient)
+                    if let libs = try? await foldersClient.listFolders(),
+                       let registered = libs.first(where: { $0.id == folderID }),
+                       registered.path != libraryPath {
+                        // The original 4xx is already logged by CloudSource's
+                        // decode-error path; no need for an extra line here.
+                        cloudCurrentPath = registered.path
+                        SourceSelectionStore.save(.cloudLibrary(serverID: serverID,
+                                                                folderID: folderID,
+                                                                libraryPath: registered.path))
+                        await browseVM.loadCloudDir(source, absPath: registered.path)
+                    }
+                }
+
                 libraryTitle = serverID.host ?? serverID.absoluteString
                 mode = .browse
             case .timeline:
@@ -817,7 +942,13 @@ struct AppShell: View {
 
     @MainActor
     private func restoreLastSource() async {
-        guard let selection = SourceSelectionStore.load() else { return }
+        guard let selection = SourceSelectionStore.load() else {
+            // Nothing saved → auto-pick the first sensible source so the
+            // user lands on something instead of an empty grid that says
+            // "Pick a folder in the sidebar." Priority: cloud > local > none.
+            await autoPickInitialSource()
+            return
+        }
         switch selection {
         case .filesystem(let bookmark):
             // Route through the same non-recursive folder-walk that
