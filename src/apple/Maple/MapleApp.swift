@@ -223,12 +223,17 @@ private struct SelfHostedSettingsTab: View {
         .padding(24)
         .task { await refresh() }
         .sheet(isPresented: $showAddSheet) {
-            SelfHostedPickerSheet(
-                onConnect: { _, _ in
-                    showAddSheet = false
-                    Task { await refresh() }
-                },
-                onCancel: { showAddSheet = false }
+            AddMapleCloudSheet(
+                onDismiss: { showAddSheet = false },
+                onSignedIn: { url, tokens, _ in
+                    Task { @MainActor in
+                        try? TokenStore.save(tokens, server: url)
+                        try? await SelfHostedCredentialStore.shared
+                            .setToken(tokens.access, forServerURL: url)
+                        showAddSheet = false
+                        await refresh()
+                    }
+                }
             )
         }
     }
