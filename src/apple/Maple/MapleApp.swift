@@ -164,7 +164,7 @@ private struct GeneralSettingsTab: View {
 
 /// Self-Hosted server management. Lists paired servers (from Keychain +
 /// `knownServers()`) and lets the user add new ones via
-/// `SelfHostedPickerSheet` or remove existing ones.
+/// `AddMapleCloudSheet` or remove existing ones.
 private struct SelfHostedSettingsTab: View {
     @State private var servers: [URL] = []
     @State private var showAddSheet = false

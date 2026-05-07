@@ -3,7 +3,7 @@
 // Plan 2026-04-28-passkey-auth Task B10.
 //
 // A minimal QR-payload entry point. Parses the input through
-// `parseInviteQR` first and, if that matches, pre-fills `JoinWithInviteView`
+// `parseInviteQR` first and, if that matches, pre-fills `AddMapleCloudSheet`
 // via the `onInvite` callback. Anything else is forwarded to `onScan` so
 // future QR consumers (legacy pairing URLs, etc.) can plug in alongside.
 //
@@ -18,7 +18,7 @@ import SwiftUI
 
 struct QRScannerView: View {
   /// Fired when the pasted/scanned payload parses as a `maple://join?…`
-  /// invite. Callers typically present `JoinWithInviteView` pre-filled with
+  /// invite. Callers typically present `AddMapleCloudSheet` pre-filled with
   /// `invite.server` / `invite.email` / `invite.code`.
   var onInvite: (InviteQR) -> Void = { _ in }
 
