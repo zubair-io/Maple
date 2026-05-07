@@ -44,6 +44,14 @@ export type FolderWithId = WithId<FolderDoc>;
 export interface AssetExif {
   /** ISO 8601 — DateTimeOriginal (or CreateDate fallback). */
   captured_at: string | null;
+  /** UTC year extracted from captured_at at index time. Stored as a
+   * number so the timeline buckets endpoint can $group without parsing
+   * the ISO string per-document. Null when captured_at is missing or
+   * unparseable. */
+  captured_year: number | null;
+  /** UTC month (1..12) extracted from captured_at at index time.
+   * Pairs with captured_year. */
+  captured_month: number | null;
   /** Camera body manufacturer, e.g. "Hasselblad". */
   camera_make: string | null;
   /** Camera body model, e.g. "L3D-100c". */
@@ -116,7 +124,7 @@ export type IndexerTaskWithId = WithId<IndexerTaskDoc>;
 export type UserRole = "owner" | "member";
 
 export interface UserDoc {
-  email: string;             // unique, lowercased
+  email: string; // unique, lowercased
   role: UserRole;
   created_at: string;
   last_seen_at: string | null;
@@ -129,8 +137,8 @@ export type UserWithId = WithId<UserDoc>;
 
 export interface CredentialDoc {
   user_id: ObjectId;
-  credential_id: string;     // base64url, unique
-  public_key: Buffer;        // COSE key
+  credential_id: string; // base64url, unique
+  public_key: Buffer; // COSE key
   counter: number;
   transports: string[];
   device_label: string;
@@ -144,10 +152,10 @@ export type CredentialWithId = WithId<CredentialDoc>;
 // ---------------------------------------------------------------------------
 
 export interface InviteDoc {
-  code: string;              // 8-char base32, unique
-  email: string;             // lowercased
+  code: string; // 8-char base32, unique
+  email: string; // lowercased
   invited_by: ObjectId;
-  expires_at: Date;          // TTL — MUST be a Date (TTL monitor ignores ISO strings)
+  expires_at: Date; // TTL — MUST be a Date (TTL monitor ignores ISO strings)
   consumed_at: string | null;
 }
 export type InviteWithId = WithId<InviteDoc>;
@@ -158,9 +166,9 @@ export type InviteWithId = WithId<InviteDoc>;
 
 export interface RefreshTokenDoc {
   user_id: ObjectId;
-  token_hash: string;        // sha256(raw)
+  token_hash: string; // sha256(raw)
   issued_at: string;
-  expires_at: Date;          // TTL — MUST be a Date (TTL monitor ignores ISO strings)
+  expires_at: Date; // TTL — MUST be a Date (TTL monitor ignores ISO strings)
   revoked_at: string | null;
   replaced_by: ObjectId | null;
   device_label: string;
@@ -174,11 +182,11 @@ export type RefreshTokenWithId = WithId<RefreshTokenDoc>;
 export type ChallengePurpose = "register" | "authenticate" | "add_credential";
 
 export interface ChallengeDoc {
-  challenge: string;         // base64url
+  challenge: string; // base64url
   purpose: ChallengePurpose;
   user_id: ObjectId | null;
   email: string | null;
   invite_code: string | null;
-  expires_at: Date;          // TTL — MUST be a Date (TTL monitor ignores ISO strings)
+  expires_at: Date; // TTL — MUST be a Date (TTL monitor ignores ISO strings)
 }
 export type ChallengeWithId = WithId<ChallengeDoc>;

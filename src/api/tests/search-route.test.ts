@@ -5,7 +5,14 @@
  * Skip-passes if MongoDB is unreachable.
  */
 
-import { describe, it, expect, beforeAll, afterAll } from "bun:test";
+import {
+  describe,
+  it,
+  expect,
+  beforeAll,
+  beforeEach,
+  afterAll,
+} from "bun:test";
 import { Elysia } from "elysia";
 import { MongoClient, ObjectId } from "mongodb";
 import { signAccessToken } from "../src/auth/tokens.ts";
@@ -14,10 +21,16 @@ import { signAccessToken } from "../src/auth/tokens.ts";
 process.env.MAPLE_JWT_SECRET = "x".repeat(32);
 
 const SECRET = process.env.MAPLE_JWT_SECRET!;
-const BEARER = "Bearer " + signAccessToken(
-  { sub: "00000000000000000000000a", email: "tester@maple.local", role: "owner" },
-  SECRET
-);
+const BEARER =
+  "Bearer " +
+  signAccessToken(
+    {
+      sub: "00000000000000000000000a",
+      email: "tester@maple.local",
+      role: "owner",
+    },
+    SECRET,
+  );
 
 // Each test run uses a unique DB so concurrent dev work / CI shards don't collide.
 const TEST_DB = `maple_test_search_${process.pid}`;
@@ -68,7 +81,9 @@ async function tryConnect(): Promise<MongoClient | null> {
     await c.db("admin").command({ ping: 1 });
     return c;
   } catch {
-    try { await c.close(); } catch {}
+    try {
+      await c.close();
+    } catch {}
     return null;
   }
 }
@@ -77,7 +92,10 @@ beforeAll(async () => {
   mongo = await tryConnect();
   mongoReachable = mongo !== null;
   if (!mongoReachable) {
-    console.log("[search-route.test] skipping: MongoDB unreachable at", MONGO_URI);
+    console.log(
+      "[search-route.test] skipping: MongoDB unreachable at",
+      MONGO_URI,
+    );
     return;
   }
   const db = mongo!.db(TEST_DB);
@@ -179,12 +197,64 @@ beforeAll(async () => {
     },
   ];
   await db.collection("assets").insertMany(seeds);
+
+  // Backfill exif.captured_year/month so the buckets endpoint's
+  // index-only path has data to find. Mirrors the migration in
+  // ensureIndexes(); run inline here because the test bypasses the
+  // normal startup flow.
+  await db.collection("assets").updateMany(
+    {
+      "exif.captured_at": { $ne: null, $exists: true },
+      "exif.captured_year": { $exists: false },
+    },
+    [
+      {
+        $set: {
+          "exif.captured_year": {
+            $year: {
+              $dateFromString: {
+                dateString: "$exif.captured_at",
+                onError: null,
+                onNull: null,
+              },
+            },
+          },
+          "exif.captured_month": {
+            $month: {
+              $dateFromString: {
+                dateString: "$exif.captured_at",
+                onError: null,
+                onNull: null,
+              },
+            },
+          },
+        },
+      },
+    ],
+  );
+});
+
+beforeEach(async () => {
+  // Bucket responses are cached for 30 s — wipe between tests so each
+  // assertion sees fresh aggregation results. Dynamic import: a
+  // top-level static import would cause search.ts (and transitively
+  // db/client.ts) to load BEFORE the file-level
+  // `process.env.MAPLE_MONGO_DB = TEST_DB` line ran, so the DB client
+  // would cache the default DB and the tests would talk to the wrong
+  // database.
+  const { _resetBucketsCacheForTests } =
+    await import("../src/routes/search.ts");
+  _resetBucketsCacheForTests();
 });
 
 afterAll(async () => {
   if (mongo && mongoReachable) {
-    try { await mongo.db(TEST_DB).dropDatabase(); } catch {}
-    try { await mongo.close(); } catch {}
+    try {
+      await mongo.db(TEST_DB).dropDatabase();
+    } catch {}
+    try {
+      await mongo.close();
+    } catch {}
   }
 });
 
@@ -205,7 +275,7 @@ describe("/api/search", () => {
     const app = new Elysia().use(requireAuth).use(searchRoutes);
 
     const r = await app.handle(
-      new Request("http://localhost/api/search", { headers: fmtAuth() })
+      new Request("http://localhost/api/search", { headers: fmtAuth() }),
     );
     expect(r.status).toBe(200);
     const body = (await r.json()) as { total: number; results: unknown[] };
@@ -220,10 +290,15 @@ describe("/api/search", () => {
     const app = new Elysia().use(requireAuth).use(searchRoutes);
 
     const r = await app.handle(
-      new Request("http://localhost/api/search?q=sunset", { headers: fmtAuth() })
+      new Request("http://localhost/api/search?q=sunset", {
+        headers: fmtAuth(),
+      }),
     );
     expect(r.status).toBe(200);
-    const body = (await r.json()) as { total: number; results: Array<{ filename: string; id: string }> };
+    const body = (await r.json()) as {
+      total: number;
+      results: Array<{ filename: string; id: string }>;
+    };
     expect(body.total).toBe(1);
     expect(body.results[0]!.filename).toBe("sunset.cr3");
     expect(body.results[0]!.id).toBe("fs:/lib-a/sunset.cr3");
@@ -236,10 +311,15 @@ describe("/api/search", () => {
     const app = new Elysia().use(requireAuth).use(searchRoutes);
 
     const r = await app.handle(
-      new Request("http://localhost/api/search?camera=Hasselblad", { headers: fmtAuth() })
+      new Request("http://localhost/api/search?camera=Hasselblad", {
+        headers: fmtAuth(),
+      }),
     );
     expect(r.status).toBe(200);
-    const body = (await r.json()) as { total: number; results: Array<{ filename: string }> };
+    const body = (await r.json()) as {
+      total: number;
+      results: Array<{ filename: string }>;
+    };
     expect(body.total).toBe(1);
     expect(body.results[0]!.filename).toBe("dji-mavic3pro-100mp.dng");
   });
@@ -251,13 +331,15 @@ describe("/api/search", () => {
     const app = new Elysia().use(requireAuth).use(searchRoutes);
 
     const r = await app.handle(
-      new Request(
-        "http://localhost/api/search?from=2024-01-01&to=2024-12-31",
-        { headers: fmtAuth() }
-      )
+      new Request("http://localhost/api/search?from=2024-01-01&to=2024-12-31", {
+        headers: fmtAuth(),
+      }),
     );
     expect(r.status).toBe(200);
-    const body = (await r.json()) as { total: number; results: Array<{ filename: string }> };
+    const body = (await r.json()) as {
+      total: number;
+      results: Array<{ filename: string }>;
+    };
     // Hasselblad (2024-06-01) + Sony (2024-01-15) = 2
     expect(body.total).toBe(2);
   });
@@ -269,7 +351,9 @@ describe("/api/search", () => {
     const app = new Elysia().use(requireAuth).use(searchRoutes);
 
     const r = await app.handle(
-      new Request("http://localhost/api/search?rating=4", { headers: fmtAuth() })
+      new Request("http://localhost/api/search?rating=4", {
+        headers: fmtAuth(),
+      }),
     );
     expect(r.status).toBe(200);
     const body = (await r.json()) as { total: number };
@@ -286,11 +370,14 @@ describe("/api/search", () => {
     const r = await app.handle(
       new Request(
         `http://localhost/api/search?libraryId=${folderA.toHexString()}`,
-        { headers: fmtAuth() }
-      )
+        { headers: fmtAuth() },
+      ),
     );
     expect(r.status).toBe(200);
-    const body = (await r.json()) as { total: number; results: Array<{ folder_id: string }> };
+    const body = (await r.json()) as {
+      total: number;
+      results: Array<{ folder_id: string }>;
+    };
     expect(body.total).toBe(2);
     for (const row of body.results) {
       expect(row.folder_id).toBe(folderA.toHexString());
@@ -304,10 +391,15 @@ describe("/api/search", () => {
     const app = new Elysia().use(requireAuth).use(searchRoutes);
 
     const r = await app.handle(
-      new Request("http://localhost/api/search?ext=dng,cr3", { headers: fmtAuth() })
+      new Request("http://localhost/api/search?ext=dng,cr3", {
+        headers: fmtAuth(),
+      }),
     );
     expect(r.status).toBe(200);
-    const body = (await r.json()) as { total: number; results: Array<{ filename: string }> };
+    const body = (await r.json()) as {
+      total: number;
+      results: Array<{ filename: string }>;
+    };
     expect(body.total).toBe(2);
     const names = body.results.map((r) => r.filename).sort();
     expect(names).toEqual(["dji-mavic3pro-100mp.dng", "sunset.cr3"]);
@@ -320,7 +412,9 @@ describe("/api/search", () => {
     const app = new Elysia().use(requireAuth).use(searchRoutes);
 
     const r = await app.handle(
-      new Request("http://localhost/api/search?ext=dng;cr3", { headers: fmtAuth() })
+      new Request("http://localhost/api/search?ext=dng;cr3", {
+        headers: fmtAuth(),
+      }),
     );
     expect(r.status).toBe(400);
   });
@@ -332,10 +426,9 @@ describe("/api/search", () => {
     const app = new Elysia().use(requireAuth).use(searchRoutes);
 
     const r = await app.handle(
-      new Request(
-        "http://localhost/api/search?q=notarealfilename_xyzpdq",
-        { headers: fmtAuth() }
-      )
+      new Request("http://localhost/api/search?q=notarealfilename_xyzpdq", {
+        headers: fmtAuth(),
+      }),
     );
     expect(r.status).toBe(200);
     const body = (await r.json()) as { total: number; results: unknown[] };
@@ -350,15 +443,25 @@ describe("/api/search", () => {
     const app = new Elysia().use(requireAuth).use(searchRoutes);
 
     const r1 = await app.handle(
-      new Request("http://localhost/api/search?limit=2&page=0", { headers: fmtAuth() })
+      new Request("http://localhost/api/search?limit=2&page=0", {
+        headers: fmtAuth(),
+      }),
     );
     const r2 = await app.handle(
-      new Request("http://localhost/api/search?limit=2&page=1", { headers: fmtAuth() })
+      new Request("http://localhost/api/search?limit=2&page=1", {
+        headers: fmtAuth(),
+      }),
     );
     expect(r1.status).toBe(200);
     expect(r2.status).toBe(200);
-    const b1 = (await r1.json()) as { total: number; results: Array<{ _id: string }> };
-    const b2 = (await r2.json()) as { total: number; results: Array<{ _id: string }> };
+    const b1 = (await r1.json()) as {
+      total: number;
+      results: Array<{ _id: string }>;
+    };
+    const b2 = (await r2.json()) as {
+      total: number;
+      results: Array<{ _id: string }>;
+    };
     expect(b1.total).toBe(4);
     expect(b1.results.length).toBe(2);
     expect(b2.results.length).toBe(2);
@@ -375,10 +478,9 @@ describe("/api/search", () => {
     const app = new Elysia().use(requireAuth).use(searchRoutes);
 
     const r = await app.handle(
-      new Request(
-        "http://localhost/api/search?q=deleted",
-        { headers: fmtAuth() }
-      )
+      new Request("http://localhost/api/search?q=deleted", {
+        headers: fmtAuth(),
+      }),
     );
     expect(r.status).toBe(200);
     const body = (await r.json()) as { total: number };
@@ -394,12 +496,16 @@ describe("/api/search/facets", () => {
     const app = new Elysia().use(requireAuth).use(searchRoutes);
 
     const r = await app.handle(
-      new Request("http://localhost/api/search/facets", { headers: fmtAuth() })
+      new Request("http://localhost/api/search/facets", { headers: fmtAuth() }),
     );
     expect(r.status).toBe(200);
     const body = (await r.json()) as {
       total: number;
-      cameras: Array<{ make: string | null; model: string | null; count: number }>;
+      cameras: Array<{
+        make: string | null;
+        model: string | null;
+        count: number;
+      }>;
       lenses: Array<{ value: string | null; count: number }>;
       extensions: Array<{ value: string; count: number }>;
       iso_range: { min: number; max: number } | null;
@@ -437,8 +543,8 @@ describe("/api/search/facets", () => {
     const r = await app.handle(
       new Request(
         `http://localhost/api/search/facets?libraryId=${folderA.toHexString()}`,
-        { headers: fmtAuth() }
-      )
+        { headers: fmtAuth() },
+      ),
     );
     expect(r.status).toBe(200);
     const body = (await r.json()) as { total: number; cameras: unknown[] };
@@ -587,28 +693,32 @@ describe("/api/search timeline filters + buckets", () => {
         { date: "2026-04-01T12:00:00.000Z", n: 1 },
         { date: "2025-12-01T12:00:00.000Z", n: 3 },
       ].flatMap((b, gi) =>
-        Array.from({ length: b.n }, (_, i) => ({
-          folder_id: folderC,
-          abs_path: `/buckets/${gi}-${i}.dng`,
-          filename: `${TL_MARK}_b${gi}_${i}.tlraw`,
-          size: 1024,
-          mtime: 100 + gi * 10 + i,
-          rating: 0,
-          flag: 0 as -1 | 0 | 1,
-          color_label: "",
-          indexed_at: new Date().toISOString(),
-          exif: {
-            captured_at: b.date,
-            camera_make: "BucketCam",
-            camera_model: "BC-1",
-            lens: null,
-            iso: 200,
-            aperture: 4.0,
-            shutter: "1/500",
-            focal_length: 85,
-            gps: null,
-          },
-        } as Seed))
+        Array.from(
+          { length: b.n },
+          (_, i) =>
+            ({
+              folder_id: folderC,
+              abs_path: `/buckets/${gi}-${i}.dng`,
+              filename: `${TL_MARK}_b${gi}_${i}.tlraw`,
+              size: 1024,
+              mtime: 100 + gi * 10 + i,
+              rating: 0,
+              flag: 0 as -1 | 0 | 1,
+              color_label: "",
+              indexed_at: new Date().toISOString(),
+              exif: {
+                captured_at: b.date,
+                camera_make: "BucketCam",
+                camera_model: "BC-1",
+                lens: null,
+                iso: 200,
+                aperture: 4.0,
+                shutter: "1/500",
+                focal_length: 85,
+                gps: null,
+              },
+            }) as Seed,
+        ),
       ),
       // Untimed rows — explicit null AND missing-field — to test the
       // (b)-branch missing-exif handling in /buckets.
@@ -699,6 +809,37 @@ describe("/api/search timeline filters + buckets", () => {
       },
     ];
     await db.collection("assets").insertMany(seeds);
+    // Backfill captured_year/month for this describe's seeds too.
+    await db.collection("assets").updateMany(
+      {
+        "exif.captured_at": { $ne: null, $exists: true },
+        "exif.captured_year": { $exists: false },
+      },
+      [
+        {
+          $set: {
+            "exif.captured_year": {
+              $year: {
+                $dateFromString: {
+                  dateString: "$exif.captured_at",
+                  onError: null,
+                  onNull: null,
+                },
+              },
+            },
+            "exif.captured_month": {
+              $month: {
+                $dateFromString: {
+                  dateString: "$exif.captured_at",
+                  onError: null,
+                  onNull: null,
+                },
+              },
+            },
+          },
+        },
+      ],
+    );
   });
 
   afterAll(async () => {
@@ -716,8 +857,8 @@ describe("/api/search timeline filters + buckets", () => {
     const r = await app.handle(
       new Request(
         `http://localhost/api/search?pathPrefix=/A/&libraryId=${folderC.toHexString()}`,
-        { headers: fmtAuth() }
-      )
+        { headers: fmtAuth() },
+      ),
     );
     expect(r.status).toBe(200);
     const body = (await r.json()) as {
@@ -747,8 +888,8 @@ describe("/api/search timeline filters + buckets", () => {
         // /A (1)/ contains regex specials; without escapeRegex the regex
         // would be illegal or match unintended paths.
         `http://localhost/api/search?pathPrefix=${encodeURIComponent("/A (1)/")}&libraryId=${folderC.toHexString()}`,
-        { headers: fmtAuth() }
-      )
+        { headers: fmtAuth() },
+      ),
     );
     expect(r.status).toBe(200);
     const body = (await r.json()) as {
@@ -771,11 +912,14 @@ describe("/api/search timeline filters + buckets", () => {
     const r = await app.handle(
       new Request(
         `http://localhost/api/search?q=${encodeURIComponent(TL_MARK)}&pathPrefix=/A/&libraryId=${folderC.toHexString()}`,
-        { headers: fmtAuth() }
-      )
+        { headers: fmtAuth() },
+      ),
     );
     expect(r.status).toBe(200);
-    const body = (await r.json()) as { total: number; results: Array<{ abs_path: string }> };
+    const body = (await r.json()) as {
+      total: number;
+      results: Array<{ abs_path: string }>;
+    };
     expect(body.total).toBe(3);
     for (const row of body.results) {
       expect(row.abs_path.startsWith("/A/")).toBe(true);
@@ -794,11 +938,14 @@ describe("/api/search timeline filters + buckets", () => {
     const r = await app.handle(
       new Request(
         `http://localhost/api/search?camera=CanonTL&pathPrefix=/A/&libraryId=${folderC.toHexString()}`,
-        { headers: fmtAuth() }
-      )
+        { headers: fmtAuth() },
+      ),
     );
     expect(r.status).toBe(200);
-    const body = (await r.json()) as { total: number; results: Array<{ abs_path: string }> };
+    const body = (await r.json()) as {
+      total: number;
+      results: Array<{ abs_path: string }>;
+    };
     expect(body.total).toBe(1);
     expect(body.results[0]!.abs_path).toBe("/A/canon.dng");
 
@@ -807,8 +954,8 @@ describe("/api/search timeline filters + buckets", () => {
     const r2 = await app.handle(
       new Request(
         `http://localhost/api/search?q=${encodeURIComponent(TL_MARK)}&camera=CanonTL&pathPrefix=/A/&libraryId=${folderC.toHexString()}`,
-        { headers: fmtAuth() }
-      )
+        { headers: fmtAuth() },
+      ),
     );
     expect(r2.status).toBe(200);
     const body2 = (await r2.json()) as { total: number };
@@ -826,8 +973,8 @@ describe("/api/search timeline filters + buckets", () => {
         // pathPrefix=/buckets/ scopes to the buckets fixture so we know the
         // exact composition: 2+1+3 timed + 2 untimed (one null, one missing).
         `http://localhost/api/search?pathPrefix=/buckets/&hasCapturedAt=true&libraryId=${folderC.toHexString()}&limit=200`,
-        { headers: fmtAuth() }
-      )
+        { headers: fmtAuth() },
+      ),
     );
     expect(r.status).toBe(200);
     const body = (await r.json()) as {
@@ -850,8 +997,8 @@ describe("/api/search timeline filters + buckets", () => {
     const r = await app.handle(
       new Request(
         `http://localhost/api/search?pathPrefix=/buckets/&hasCapturedAt=true&from=2026-01-01&to=2026-12-31&libraryId=${folderC.toHexString()}&limit=200`,
-        { headers: fmtAuth() }
-      )
+        { headers: fmtAuth() },
+      ),
     );
     expect(r.status).toBe(200);
     const body = (await r.json()) as { total: number };
@@ -867,8 +1014,8 @@ describe("/api/search timeline filters + buckets", () => {
     const r = await app.handle(
       new Request(
         `http://localhost/api/search/buckets?pathPrefix=/buckets/&libraryId=${folderC.toHexString()}`,
-        { headers: fmtAuth() }
-      )
+        { headers: fmtAuth() },
+      ),
     );
     expect(r.status).toBe(200);
     const body = (await r.json()) as {
@@ -894,8 +1041,8 @@ describe("/api/search timeline filters + buckets", () => {
     const r = await app.handle(
       new Request(
         `http://localhost/api/search/buckets?pathPrefix=/buckets/&libraryId=${folderC.toHexString()}`,
-        { headers: fmtAuth() }
-      )
+        { headers: fmtAuth() },
+      ),
     );
     expect(r.status).toBe(200);
     const body = (await r.json()) as { untimed_count: number };
@@ -916,8 +1063,8 @@ describe("/api/search timeline filters + buckets", () => {
     const r = await app.handle(
       new Request(
         `http://localhost/api/search/buckets?pathPrefix=/A/&libraryId=${folderC.toHexString()}`,
-        { headers: fmtAuth() }
-      )
+        { headers: fmtAuth() },
+      ),
     );
     expect(r.status).toBe(200);
     const body = (await r.json()) as {
@@ -942,8 +1089,8 @@ describe("/api/search timeline filters + buckets", () => {
     const r = await app.handle(
       new Request(
         `http://localhost/api/search/buckets?pathPrefix=/does-not-exist/&libraryId=${folderC.toHexString()}`,
-        { headers: fmtAuth() }
-      )
+        { headers: fmtAuth() },
+      ),
     );
     expect(r.status).toBe(200);
     const body = (await r.json()) as {
@@ -966,8 +1113,8 @@ describe("/api/search timeline filters + buckets", () => {
     const r = await app.handle(
       new Request(
         `http://localhost/api/search?pathPrefix=${encodeURIComponent(longPrefix)}`,
-        { headers: fmtAuth() }
-      )
+        { headers: fmtAuth() },
+      ),
     );
     expect(r.status).toBe(400);
   });
@@ -983,11 +1130,14 @@ describe("/api/search timeline filters + buckets", () => {
     const r = await app.handle(
       new Request(
         `http://localhost/api/search?from=2025-07-01&to=2025-07-31&libraryId=${folderC.toHexString()}&q=${encodeURIComponent(TL_MARK)}`,
-        { headers: fmtAuth() }
-      )
+        { headers: fmtAuth() },
+      ),
     );
     expect(r.status).toBe(200);
-    const body = (await r.json()) as { total: number; results: Array<{ abs_path: string }> };
+    const body = (await r.json()) as {
+      total: number;
+      results: Array<{ abs_path: string }>;
+    };
     expect(body.total).toBe(1);
     expect(body.results[0]!.abs_path).toBe("/boundary/last-day.dng");
   });
@@ -1001,8 +1151,8 @@ describe("/api/search timeline filters + buckets", () => {
     const r = await app.handle(
       new Request(
         `http://localhost/api/search?from=2026-04-01&to=2026-04-01&libraryId=${folderC.toHexString()}&q=${encodeURIComponent(TL_MARK)}`,
-        { headers: fmtAuth() }
-      )
+        { headers: fmtAuth() },
+      ),
     );
     expect(r.status).toBe(200);
     const body = (await r.json()) as { total: number };
@@ -1018,8 +1168,8 @@ describe("/api/search timeline filters + buckets", () => {
     const r = await app.handle(
       new Request(
         `http://localhost/api/search?from=${encodeURIComponent("2025-07-01T00:00:00.000Z")}&to=${encodeURIComponent("2025-07-31T22:00:00.000Z")}&libraryId=${folderC.toHexString()}&q=${encodeURIComponent(TL_MARK)}`,
-        { headers: fmtAuth() }
-      )
+        { headers: fmtAuth() },
+      ),
     );
     expect(r.status).toBe(200);
     const body = (await r.json()) as { total: number };
@@ -1035,8 +1185,8 @@ describe("/api/search timeline filters + buckets", () => {
     const r = await app.handle(
       new Request(
         `http://localhost/api/search?from=2026-01-01&hasCapturedAt=true&libraryId=${folderC.toHexString()}&q=${encodeURIComponent(TL_MARK)}`,
-        { headers: fmtAuth() }
-      )
+        { headers: fmtAuth() },
+      ),
     );
     expect(r.status).toBe(200);
     const body = (await r.json()) as { total: number };
@@ -1052,8 +1202,8 @@ describe("/api/search timeline filters + buckets", () => {
     const r = await app.handle(
       new Request(
         `http://localhost/api/search?to=2024-12-31&hasCapturedAt=true&libraryId=${folderC.toHexString()}&q=${encodeURIComponent(TL_MARK)}`,
-        { headers: fmtAuth() }
-      )
+        { headers: fmtAuth() },
+      ),
     );
     expect(r.status).toBe(200);
     const body = (await r.json()) as { total: number };
@@ -1069,8 +1219,8 @@ describe("/api/search timeline filters + buckets", () => {
     const r = await app.handle(
       new Request(
         `http://localhost/api/search/buckets?libraryId=${folderC.toHexString()}&q=${encodeURIComponent(TL_MARK)}`,
-        { headers: fmtAuth() }
-      )
+        { headers: fmtAuth() },
+      ),
     );
     expect(r.status).toBe(200);
     const body = (await r.json()) as {
@@ -1100,8 +1250,8 @@ describe("/api/search timeline filters + buckets", () => {
     const r = await app.handle(
       new Request(
         `http://localhost/api/search/buckets?q=${encodeURIComponent("_eom")}&libraryId=${folderC.toHexString()}`,
-        { headers: fmtAuth() }
-      )
+        { headers: fmtAuth() },
+      ),
     );
     expect(r.status).toBe(200);
     const body = (await r.json()) as {
@@ -1127,8 +1277,8 @@ describe("/api/search timeline filters + buckets", () => {
     const r = await app.handle(
       new Request(
         `http://localhost/api/search/buckets?libraryId=${folderC.toHexString()}`,
-        { headers: fmtAuth() }
-      )
+        { headers: fmtAuth() },
+      ),
     );
     expect(r.status).toBe(200);
   });
@@ -1142,8 +1292,17 @@ describe("/api/search timeline filters + buckets", () => {
     // code path doesn't need to handle because real deploys always have
     // these collections populated by the time ensureIndexes runs.
     const db = mongo!.db(TEST_DB);
-    for (const name of ["users", "credentials", "invites", "refresh_tokens", "challenges", "folders"]) {
-      try { await db.createCollection(name); } catch {}
+    for (const name of [
+      "users",
+      "credentials",
+      "invites",
+      "refresh_tokens",
+      "challenges",
+      "folders",
+    ]) {
+      try {
+        await db.createCollection(name);
+      } catch {}
     }
     // Idempotent: call twice, second call must not throw.
     await ensureIndexes();

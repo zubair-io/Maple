@@ -485,7 +485,6 @@ export class TimelineViewComponent implements AfterViewInit, OnDestroy {
       limit: PAGE_SIZE,
     };
 
-    const merged = new Map<string, PhotoVm[]>();
     let page = 0;
     let loaded = 0;
     let total = Infinity;
@@ -496,29 +495,35 @@ export class TimelineViewComponent implements AfterViewInit, OnDestroy {
         if (gen !== this.monthGens.get(key)) return;
         total = r.total;
         const pageGroups = this._bucketByFolder(r.results, prefix);
-        for (const [name, photos] of pageGroups) {
-          const arr = merged.get(name);
-          if (arr) arr.push(...photos);
-          else merged.set(name, photos);
-        }
         loaded += r.results.length;
-        // Surface the partial result so the user sees photos appearing as
-        // pages roll in. `loaded`-tagged so the template can show progress
-        // for monsters with thousands of photos.
-        const cloneOfMerged = new Map(merged);
         const isFinal = loaded >= total || r.results.length === 0;
-        this._patchMonth(key, (d) => ({
-          ...d,
-          loaded: isFinal,
-          loading: !isFinal,
-          error: null,
-          groups: cloneOfMerged,
-        }));
+        // Merge the new page's groups into whatever the month already
+        // has in `_monthData`, NOT into a local var. Earlier versions
+        // kept a `merged` local that got snapshot-patched in here on
+        // every page — but that snapshot was taken before `_loadThumb`
+        // had a chance to update PhotoVm.thumbUrl on previous pages, so
+        // each subsequent patch wiped the thumbnails of every prior
+        // page. Rebuilding from `_monthData.groups` preserves any
+        // in-flight thumb updates.
+        this._patchMonth(key, (d) => {
+          const next = new Map(d.groups);
+          for (const [name, photos] of pageGroups) {
+            const existing = next.get(name);
+            next.set(name, existing ? [...existing, ...photos] : photos);
+          }
+          return {
+            ...d,
+            loaded: isFinal,
+            loading: !isFinal,
+            error: null,
+            groups: next,
+          };
+        });
         // Only pre-load thumbs if this month is currently visible. Off-
         // screen months get their thumbs loaded later when the visibility
         // observer flips them visible — otherwise a fully-fetched but
         // off-screen month with 80 photos would fire 80 thumb requests
-        // for nothing (see _ensureThumbsForVisibleMonths).
+        // for nothing (see _visibleMonths effect).
         if (untracked(() => this._visibleMonths().has(key))) {
           for (const photos of pageGroups.values()) {
             for (const p of photos) void this._loadThumb(p);
