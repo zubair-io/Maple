@@ -454,6 +454,20 @@ struct AppShell: View {
     /// scope.
     @MainActor
     private func navigateFolder(_ url: URL) {
+        // Cloud-library context: drill into the subfolder via /api/fs/dir
+        // instead of the filesystem-bookmark path. URL.path carries the
+        // server-side absolute path. We don't update LibrarySelection
+        // because the drilled-in path is browser state, not a sidebar
+        // selection — the user is still on the same library row.
+        if case .cloudLibrary = librarySelection,
+           let source = browseVM.currentSource as? CloudSource {
+            Task { @MainActor in
+                await browseVM.loadCloudDir(source, absPath: url.path)
+                libraryTitle = url.lastPathComponent
+            }
+            return
+        }
+
         guard let bookmark = currentRootBookmark else {
             // Fall back to a plain loadFolder — works for folders inside the
             // user's security-scope, fails silently for sandboxed reads.

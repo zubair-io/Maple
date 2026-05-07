@@ -274,4 +274,56 @@ public final class BrowseViewModel {
         loadError = nil
         photosAuthNeeded = false
     }
+
+    /// Cloud equivalent of `loadFolder(url:)` — calls `CloudSource.listDir`
+    /// for one directory level on the server and populates BOTH `assets`
+    /// (image children) and `subfolders` (synthetic file URLs whose
+    /// `.path` is the absolute server path). The grid renders folders
+    /// first, then images, just like the local Filesystem flow.
+    ///
+    /// Subfolder navigation: callers receive a synthetic URL via the
+    /// grid's `onNavigateFolder` callback and call this method again
+    /// with `absPath: url.path` to drill in. The CloudSource itself
+    /// is mutable on `currentPath` and updated via `navigate(to:)` so
+    /// subsequent images() calls list the right level.
+    public func loadCloudDir(_ source: CloudSource, absPath: String) async {
+        loadGeneration &+= 1
+        let gen = loadGeneration
+        isLoading = true
+        defer { if gen == loadGeneration { isLoading = false } }
+
+        do {
+            await source.navigate(to: absPath)
+            let listing = try await source.listDir(absPath: absPath)
+            guard gen == loadGeneration else { return }
+
+            let dirURLs = listing.dirs.map { URL(fileURLWithPath: $0.path) }
+            let imageRefs = listing.images.map { img -> AssetRef in
+                let id = "fs:\(img.path)"
+                let displayName = img.name
+                let ext = (img.name as NSString).pathExtension.lowercased()
+                let capturedSource = source
+                let capturedRef = ImageRef(id: id, displayName: displayName, url: nil)
+                return AssetRef(
+                    displayName: displayName,
+                    hintExtension: ext.isEmpty ? nil : ext,
+                    stableID: id,
+                    bytesProvider: { [capturedSource, capturedRef] in
+                        try await capturedSource.rawBytes(for: capturedRef)
+                    }
+                )
+            }
+            guard gen == loadGeneration else { return }
+
+            assets = imageRefs
+            subfolders = dirURLs
+            selectedID = nil
+            currentSource = source
+            loadError = nil
+            photosAuthNeeded = false
+        } catch {
+            guard gen == loadGeneration else { return }
+            loadError = error
+        }
+    }
 }
