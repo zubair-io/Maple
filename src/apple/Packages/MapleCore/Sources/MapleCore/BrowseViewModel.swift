@@ -275,17 +275,27 @@ public final class BrowseViewModel {
         photosAuthNeeded = false
     }
 
+    /// Cloud analog of `loadSingleAsset(url:)`. Used when the timeline
+    /// hands AppShell a single SearchAsset to open in the editor — the
+    /// AssetRef has already been built with a remote bytes-provider, no
+    /// local URL. Mirrors the same invariants (one-cell list, no
+    /// subfolders, generation-bumped) so a back-to-Browse flip doesn't
+    /// ghost-render the prior selection.
+    public func loadSingleCloudAsset(_ ref: AssetRef) {
+        loadGeneration &+= 1
+        assets = [ref]
+        subfolders = []
+        selectedID = ref.id
+        currentSource = nil
+        loadError = nil
+        photosAuthNeeded = false
+    }
+
     /// Cloud equivalent of `loadFolder(url:)` — calls `CloudSource.listDir`
     /// for one directory level on the server and populates BOTH `assets`
     /// (image children) and `subfolders` (synthetic file URLs whose
     /// `.path` is the absolute server path). The grid renders folders
     /// first, then images, just like the local Filesystem flow.
-    ///
-    /// Subfolder navigation: callers receive a synthetic URL via the
-    /// grid's `onNavigateFolder` callback and call this method again
-    /// with `absPath: url.path` to drill in. The CloudSource itself
-    /// is mutable on `currentPath` and updated via `navigate(to:)` so
-    /// subsequent images() calls list the right level.
     public func loadCloudDir(_ source: CloudSource, absPath: String) async {
         loadGeneration &+= 1
         let gen = loadGeneration

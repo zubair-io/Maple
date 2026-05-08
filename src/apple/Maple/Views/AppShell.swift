@@ -86,11 +86,53 @@ struct AppShell: View {
     // toolbar button below).
     @State private var browseDisplayMode: GridDisplayMode = .fill
 
-    /// Currently-selected tab on iPhone (TabView). Lifted to a binding
-    /// so picking a row in the Library tab can flip the user back to
-    /// Browse — picking a source on a hidden tab and then having to
-    /// remember to switch is a bad UX.
-    @State private var iPhoneTab: IPhoneTab = .browse
+    #if os(iOS)
+    /// Whether the Info detail-panel sheet is up on iPhone. The macOS /
+    /// iPad shell shows DetailPanel as a permanent right-hand column;
+    /// iPhone surfaces the same panel via a trailing-toolbar button
+    /// → modal sheet so the main content can stay full-width.
+    @State private var iPhoneInfoSheet: Bool = false
+
+    /// iPhone drawer state — Notion-Mail-style left-side overlay menu.
+    /// `isDrawerOpen` is the snapped state (open / closed); `dragOffset`
+    /// is the in-flight finger translation that lets the drawer track
+    /// the user's finger during a swipe. We snap on gesture-end based
+    /// on translation distance OR velocity (whichever fires first), so
+    /// fast flicks open/close even with small visible travel.
+    @State private var isDrawerOpen: Bool = false
+    @State private var dragOffset: CGFloat = 0
+
+    /// Honor the user's reduce-motion preference — swap the spring
+    /// slide for an instant snap when the system is set to that mode.
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    /// Drawer geometry. 280pt is wide enough to fit the longest folder
+    /// names in the LibrarySidebar tree without truncation, narrow
+    /// enough that ~70pt of the underlying browse grid still peeks
+    /// through on a 6.1" iPhone.
+    private static let drawerWidth: CGFloat = 280
+    /// Left-edge horizontal slab where the open-drawer drag gesture
+    /// activates. 20pt matches Apple's NavigationStack swipe-back zone.
+    private static let edgeActivationZone: CGFloat = 20
+    #endif
+
+    /// Set when the user selects a cloud library in Timeline view mode;
+    /// when non-nil the center column renders CloudTimelineView instead
+    /// of BrowseGrid. Cleared on every other selection so we don't ghost-
+    /// render across mode changes.
+    @State private var cloudTimelineVM: CloudTimelineViewModel?
+
+    /// Thumb client + cache for the active cloud timeline. Constructed
+    /// once in `loadCloudLibrary` alongside `cloudTimelineVM` and reused
+    /// for the whole lifetime of that VM. Previously these were rebuilt
+    /// per render inside the SwiftUI body, which constructed a fresh
+    /// `AuthenticatedHTTPClient` actor each time and defeated its
+    /// 401-refresh coalescer — under load N parallel cells would each
+    /// fire `/api/auth/refresh`, all but one would fail (refresh tokens
+    /// are single-use server-side), and the user would get force-signed
+    /// out.
+    @State private var cloudTimelineThumbClient: CloudThumbClient?
+    @State private var cloudTimelineThumbCache: CloudThumbCache?
 
     // The root bookmark for the currently-open folder tree — used to claim
     // security scope when the user clicks a sub-folder cell inside the grid.
@@ -159,12 +201,18 @@ struct AppShell: View {
             )
         }
         .onChange(of: librarySelection) { _, newValue in
-            // Cloud-current-path is only meaningful while a cloud library
-            // is selected. Drop it on any non-cloud selection so the
-            // sidebar tree's auto-expand and selection-highlight don't
-            // ghost across mode changes.
+            // Cloud-current-path + Timeline VM are both only meaningful
+            // while a cloud library is selected. Drop both on any
+            // non-cloud selection so the sidebar tree's auto-expand /
+            // highlight + the center column's Timeline don't ghost
+            // across mode changes.
             if case .cloudLibrary = newValue { /* keep */ }
-            else { cloudCurrentPath = nil }
+            else {
+                cloudCurrentPath = nil
+                cloudTimelineVM = nil
+                cloudTimelineThumbClient = nil
+                cloudTimelineThumbCache = nil
+            }
         }
         .task {
             #if DEBUG
@@ -250,15 +298,27 @@ struct AppShell: View {
             Group {
                 switch mode {
                 case .browse:
-                    BrowseGrid(
-                        vm: browseVM,
-                        sessions: $sessions,
-                        displayMode: $browseDisplayMode,
-                        onGrantPhotosAccess: { grantPhotosAccessAndLoad() },
-                        onNavigateFolder: { url in navigateFolder(url) },
-                        onOpenEditor: { asset in openEditor(for: asset) },
-                        onPrimeSession: { asset in ensureSession(for: asset) }
-                    )
+                    if let vm = cloudTimelineVM,
+                       let thumbClient = cloudTimelineThumbClient,
+                       let thumbCache = cloudTimelineThumbCache {
+                        CloudTimelineView(
+                            vm: vm,
+                            thumbClient: thumbClient,
+                            thumbCache: thumbCache,
+                            displayMode: browseDisplayMode,
+                            onSelectAsset: { asset in openCloudAsset(asset, server: vm.server) }
+                        )
+                    } else {
+                        BrowseGrid(
+                            vm: browseVM,
+                            sessions: $sessions,
+                            displayMode: $browseDisplayMode,
+                            onGrantPhotosAccess: { grantPhotosAccessAndLoad() },
+                            onNavigateFolder: { url in navigateFolder(url) },
+                            onOpenEditor: { asset in openEditor(for: asset) },
+                            onPrimeSession: { asset in ensureSession(for: asset) }
+                        )
+                    }
                 case .fullImage:
                     if let session = selectedSession {
                         FullImageView(session: session)
@@ -291,112 +351,301 @@ struct AppShell: View {
         .navigationSplitViewStyle(.balanced)
     }
 
-    // MARK: - iPhone (TabView)
+    // MARK: - iPhone (compact ZStack drawer)
 
+    #if os(iOS)
+    /// iPhone shell. Browse is the base layer; the LibrarySidebar slides
+    /// in from the left as an overlay drawer (Notion-Mail-style),
+    /// summoned via the leading hamburger button OR a left-edge swipe.
+    /// Dismiss via tap-outside (dim overlay), drag-back, or selecting a
+    /// row. Info detail still uses .sheet with detents — same as before.
+    /// Edit is a mode swap (FullImageView replaces BrowseGrid in the
+    /// base layer); the drawer is unreachable from the viewer (open
+    /// question 5 in the design doc) so gestures stay unambiguous.
     private var adaptiveShell: some View {
-        TabView(selection: $iPhoneTab) {
-            // 1. Library — sources tree (cloud servers, local folders,
-            // PhotoKit, SMB). Same content as the macOS sidebar; tapping
-            // any row routes back to the Browse tab automatically.
-            NavigationStack {
-                LibrarySidebar(
-                    selection: $librarySelection,
-                    onAddFolder: {
-                        showFilePicker = true
-                        iPhoneTab = .browse
-                    },
-                    onPickFolder: { folder in
-                        openSavedFolder(folder)
-                        iPhoneTab = .browse
-                    },
-                    onRemoveFolder: { folder in SavedFolderStore.remove(path: folder.path) },
-                    onPickAncestor: { url, bookmark in
-                        openSubFolder(url: url, rootBookmark: bookmark)
-                        iPhoneTab = .browse
-                    },
-                    onPickPhotosFilter: { filter in
-                        loadPhotos(filter: filter)
-                        iPhoneTab = .browse
-                    },
-                    onRequestPhotosAccess: { requestPhotosAccess() },
-                    onAddSMB: { showSMBSheet = true },
-                    onPickSMB: { share in
-                        connectSavedSMB(share)
-                        iPhoneTab = .browse
-                    },
-                    onAddCloudServer: {
-                        addCloudSheetTarget = .fresh
-                    },
-                    onPickCloudLibrary: { serverID, folderID, libraryPath in
-                        loadCloudLibrary(serverID: serverID, folderID: folderID, libraryPath: libraryPath)
-                        iPhoneTab = .browse
-                    },
-                    onListCloudDir: { url, absPath in
-                        await listCloudDirFor(server: url, absPath: absPath)
-                    },
-                    cloudCurrentPath: cloudCurrentPath,
-                    onSignOutCloudServer: { url in
-                        Task { @MainActor in
-                            let session = sessionFor(url)
-                            await session.signOut()
-                        }
-                    },
-                    onRemoveCloudServer: { url in
-                        Task { @MainActor in
-                            let session = sessionFor(url)
-                            await session.signOut()
-                            CloudServerRegistry.shared.remove(url)
-                        }
-                    },
-                    onLoadCloudFolders: { url in
-                        await loadCloudFoldersFor(url)
-                    }
-                )
-                .navigationTitle("Library")
-            }
-            .tag(IPhoneTab.library)
-            .tabItem { Label("Library", systemImage: "books.vertical") }
-
-            NavigationStack {
-                BrowseGrid(
-                    vm: browseVM,
-                    sessions: $sessions,
-                    displayMode: $browseDisplayMode,
-                    onGrantPhotosAccess: { grantPhotosAccessAndLoad() },
-                    onNavigateFolder: { url in navigateFolder(url) },
-                    onOpenEditor: { asset in openEditor(for: asset) }
-                )
-                .navigationTitle("Library — \(libraryTitle)")
-                .toolbar { browseToolbar }
-            }
-            .tag(IPhoneTab.browse)
-            .tabItem { Label("Browse", systemImage: "photo.on.rectangle") }
-
-            NavigationStack {
-                Group {
-                    if let session = selectedSession {
-                        FullImageView(session: session)
-                            .navigationTitle(session.asset.displayName)
-                    } else {
-                        fullImagePlaceholder
-                            .navigationTitle("Edit")
-                    }
+        GeometryReader { _ in
+            ZStack(alignment: .leading) {
+                // Base — the actual content of the app. Wrapped in a
+                // NavigationStack so navigationTitle + toolbar work.
+                NavigationStack {
+                    iPhoneMain
                 }
-            }
-            .tag(IPhoneTab.edit)
-            .tabItem { Label("Edit", systemImage: "slider.horizontal.3") }
+                .accentColor(MapleTokens.primary)
+                // Block taps to the base when the drawer is open so a
+                // mis-aimed tap behind the drawer doesn't trigger
+                // background actions.
+                .disabled(isDrawerOpen)
 
-            NavigationStack {
-                DetailPanel(session: selectedSession)
-                    .navigationTitle("Info")
+                // Dim overlay — fades in proportional to drawer
+                // position. Tap to close. Hidden when drawer is closed
+                // so it doesn't intercept taps on the base layer.
+                if drawerProgress > 0.001 {
+                    Color.black
+                        .opacity(0.45 * drawerProgress)
+                        .ignoresSafeArea()
+                        .onTapGesture { closeDrawer() }
+                        .accessibilityHidden(true)
+                }
+
+                // The drawer itself. LibrarySidebar paints its own
+                // bg (MapleTokens.sidebar), so no extra background
+                // needed here.
+                iPhoneSidebar
+                    .frame(width: AppShell.drawerWidth)
+                    .frame(maxHeight: .infinity)
+                    .offset(x: drawerXOffset)
+                    .gesture(drawerCloseDragGesture)
             }
-            .tag(IPhoneTab.info)
-            .tabItem { Label("Info", systemImage: "info.circle") }
+            // Edge-swipe to open. Only fires from the leftmost 20pt
+            // and only when the drawer is closed AND we're in browse
+            // mode — keeps gestures unambiguous w.r.t. the viewer's
+            // own swipe handling.
+            //
+            // `.simultaneousGesture` (NOT `.gesture`) so the recognizer
+            // doesn't pre-empt normal horizontal scrolls in child
+            // views (the grid, the FullImage filmstrip) when the drag
+            // starts outside the edge zone. The gesture's onChanged /
+            // onEnded already short-circuit when the start location is
+            // past `edgeActivationZone`, so attaching simultaneously
+            // means rejected drags fall through to whichever child
+            // gesture wants them.
+            .simultaneousGesture(edgeOpenDragGesture)
         }
-        .accentColor(MapleTokens.primary)
+        .ignoresSafeArea(.keyboard)
+        .sheet(isPresented: $iPhoneInfoSheet) {
+            NavigationStack {
+                DetailPanel(session: selectedSession, isFullImage: mode == .fullImage)
+                    .navigationTitle("Info")
+                    .toolbar {
+                        ToolbarItem(placement: .topBarTrailing) {
+                            Button("Done") { iPhoneInfoSheet = false }
+                        }
+                    }
+            }
+            .presentationDetents([.medium, .large])
+        }
     }
 
-    enum IPhoneTab: Hashable { case library, browse, edit, info }
+    // MARK: drawer math
+
+    /// X-translation applied to the drawer view. 0 = fully visible
+    /// against the left edge; -drawerWidth = fully off-screen. The
+    /// in-flight `dragOffset` is added on top of the snapped state,
+    /// clamped so the user can't drag past either end.
+    private var drawerXOffset: CGFloat {
+        if isDrawerOpen {
+            // Open — only allow leftward drag (negative). Right-drag
+            // is a no-op since the drawer is already fully visible.
+            return min(0, dragOffset)
+        } else {
+            // Closed — only allow rightward drag (positive), capped at
+            // drawerWidth so the open animation doesn't overshoot.
+            return -AppShell.drawerWidth + max(0, min(AppShell.drawerWidth, dragOffset))
+        }
+    }
+
+    /// 0 when the drawer is fully off-screen, 1 when fully visible.
+    /// Drives the dim-overlay opacity so the dim fades in/out smoothly
+    /// alongside the slide.
+    private var drawerProgress: CGFloat {
+        let visible = AppShell.drawerWidth + drawerXOffset
+        return max(0, min(1, visible / AppShell.drawerWidth))
+    }
+
+    // MARK: drawer gestures
+
+    /// Drag gesture on the drawer itself — used to drag the open
+    /// drawer back closed. Snaps closed if translation crosses 1/3
+    /// width OR velocity goes leftward fast (>300pt/s).
+    private var drawerCloseDragGesture: some Gesture {
+        DragGesture()
+            .onChanged { value in
+                guard isDrawerOpen else { return }
+                dragOffset = value.translation.width
+            }
+            .onEnded { value in
+                guard isDrawerOpen else {
+                    snapDragOffset()
+                    return
+                }
+                let translation = value.translation.width
+                let velocity = value.predictedEndTranslation.width
+                if translation < -AppShell.drawerWidth / 3 || velocity < -200 {
+                    closeDrawer()
+                } else {
+                    snapDragOffset()
+                }
+            }
+    }
+
+    /// Drag gesture on the root ZStack — opens the drawer when the
+    /// user starts dragging from the left edge. Confined to the leftmost
+    /// `edgeActivationZone` AND to browse mode so we don't conflict
+    /// with the viewer's own gestures or the grid's horizontal scroll.
+    private var edgeOpenDragGesture: some Gesture {
+        DragGesture(minimumDistance: 8)
+            .onChanged { value in
+                guard !isDrawerOpen,
+                      mode == .browse,
+                      value.startLocation.x < AppShell.edgeActivationZone else { return }
+                dragOffset = max(0, value.translation.width)
+            }
+            .onEnded { value in
+                guard !isDrawerOpen,
+                      mode == .browse,
+                      value.startLocation.x < AppShell.edgeActivationZone else {
+                    snapDragOffset()
+                    return
+                }
+                let translation = value.translation.width
+                let velocity = value.predictedEndTranslation.width
+                if translation > AppShell.drawerWidth / 3 || velocity > 200 {
+                    openDrawer()
+                } else {
+                    snapDragOffset()
+                }
+            }
+    }
+
+    // MARK: drawer actions
+
+    private func openDrawer() {
+        runAnimated {
+            isDrawerOpen = true
+            dragOffset = 0
+        }
+    }
+
+    private func closeDrawer() {
+        runAnimated {
+            isDrawerOpen = false
+            dragOffset = 0
+        }
+    }
+
+    /// Used after a drag-end that didn't cross the snap threshold —
+    /// returns the drawer to its pre-drag snapped state.
+    private func snapDragOffset() {
+        runAnimated { dragOffset = 0 }
+    }
+
+    /// Runs the closure inside a spring animation, OR instantly if the
+    /// user has reduce-motion enabled. The spring matches the timing
+    /// the design doc calls out (response 0.3 / damping 0.85).
+    private func runAnimated(_ work: () -> Void) {
+        if reduceMotion {
+            work()
+        } else {
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.85), work)
+        }
+    }
+
+    @ViewBuilder
+    private var iPhoneSidebar: some View {
+        // Drawer-stay-open by design: the user wants to drill down a
+        // cloud folder tree and toggle expand/collapse without the
+        // drawer collapsing on every selection. Selection still updates
+        // the underlying browse grid; the user closes the drawer
+        // manually via tap-on-dim or drag-back when ready to look at it.
+        LibrarySidebar(
+            selection: $librarySelection,
+            onAddFolder: { showFilePicker = true },
+            onPickFolder: { folder in openSavedFolder(folder) },
+            onRemoveFolder: { folder in SavedFolderStore.remove(path: folder.path) },
+            onPickAncestor: { url, bookmark in
+                openSubFolder(url: url, rootBookmark: bookmark)
+            },
+            onPickPhotosFilter: { filter in loadPhotos(filter: filter) },
+            onRequestPhotosAccess: { requestPhotosAccess() },
+            onAddSMB: { showSMBSheet = true },
+            onPickSMB: { share in connectSavedSMB(share) },
+            onAddCloudServer: { addCloudSheetTarget = .fresh },
+            onPickCloudLibrary: { serverID, folderID, libraryPath in
+                loadCloudLibrary(serverID: serverID, folderID: folderID, libraryPath: libraryPath)
+            },
+            onListCloudDir: { url, absPath in
+                await listCloudDirFor(server: url, absPath: absPath)
+            },
+            cloudCurrentPath: cloudCurrentPath,
+            onSignOutCloudServer: { url in
+                Task { @MainActor in
+                    let session = sessionFor(url)
+                    await session.signOut()
+                }
+            },
+            onRemoveCloudServer: { url in
+                Task { @MainActor in
+                    let session = sessionFor(url)
+                    await session.signOut()
+                    CloudServerRegistry.shared.remove(url)
+                }
+            },
+            onLoadCloudFolders: { url in
+                await loadCloudFoldersFor(url)
+            }
+        )
+    }
+
+    @ViewBuilder
+    private var iPhoneMain: some View {
+        Group {
+            switch mode {
+            case .browse:
+                if let vm = cloudTimelineVM,
+                   let thumbClient = cloudTimelineThumbClient,
+                   let thumbCache = cloudTimelineThumbCache {
+                    CloudTimelineView(
+                        vm: vm,
+                        thumbClient: thumbClient,
+                        thumbCache: thumbCache,
+                        displayMode: browseDisplayMode,
+                        onSelectAsset: { asset in openCloudAsset(asset, server: vm.server) }
+                    )
+                } else {
+                    BrowseGrid(
+                        vm: browseVM,
+                        sessions: $sessions,
+                        displayMode: $browseDisplayMode,
+                        onGrantPhotosAccess: { grantPhotosAccessAndLoad() },
+                        onNavigateFolder: { url in navigateFolder(url) },
+                        onOpenEditor: { asset in openEditor(for: asset) },
+                        onPrimeSession: { asset in ensureSession(for: asset) }
+                    )
+                }
+            case .fullImage:
+                if let session = selectedSession {
+                    FullImageView(session: session)
+                } else {
+                    Color.clear.onAppear { mode = .browse }
+                }
+            }
+        }
+        .navigationTitle(mode == .fullImage
+                         ? (selectedSession?.asset.displayName ?? "Image")
+                         : libraryTitle)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            // Hamburger only meaningful in browse mode (per open
+            // question 5: drawer unreachable from viewer).
+            if mode == .browse {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button { openDrawer() } label: {
+                        Image(systemName: "line.3.horizontal")
+                            .font(.system(size: 17, weight: .semibold))
+                    }
+                    .accessibilityLabel("Library")
+                }
+            }
+            browseToolbar
+            ToolbarItem(placement: .topBarTrailing) {
+                Button { iPhoneInfoSheet = true } label: {
+                    Image(systemName: "info.circle")
+                }
+                .accessibilityLabel("Info")
+            }
+        }
+    }
+    #endif
 
     // MARK: - Toolbar
 
@@ -820,6 +1069,19 @@ struct AppShell: View {
 
     @MainActor
     private func loadCloudFoldersFor(_ url: URL) async -> [CloudFolder] {
+        // The sidebar's CloudServerSection .task fires at app launch in
+        // parallel with restoreLastSource → bootstrapAndRestore. Without
+        // the same await dance autoPickInitialSource / loadCloudLibrary
+        // do, the /api/folders request races out before tokens are
+        // restored — server replies 401 "missing bearer", the
+        // AuthenticatedHTTPClient's refresh path also finds no tokens
+        // (race), and we silently return []. Awaiting bootstrap here
+        // ensures the keychain restore is complete before tokensProvider
+        // is consulted.
+        let session = sessionFor(url)
+        if !session.isSignedIn { await session.bootstrapAndRestore() }
+        guard session.isSignedIn else { return [] }
+
         let httpClient = makeAuthenticatedHTTPClient(server: url)
         let client = CloudFoldersClient(server: url, httpClient: httpClient)
         do { return try await client.listFolders() }
@@ -828,6 +1090,14 @@ struct AppShell: View {
 
     @MainActor
     private func listCloudDirFor(server: URL, absPath: String) async -> FsDirListing? {
+        // Same cold-start race as loadCloudFoldersFor — wait for
+        // bootstrap before calling /api/fs/dir so the request actually
+        // carries a bearer token. Sidebar tree-row expansion can fire
+        // this before AuthSession.user is hydrated from Keychain.
+        let session = sessionFor(server)
+        if !session.isSignedIn { await session.bootstrapAndRestore() }
+        guard session.isSignedIn else { return nil }
+
         let httpClient = makeAuthenticatedHTTPClient(server: server)
         let client = CloudFoldersClient(server: server, httpClient: httpClient)
         do { return try await client.listDir(absPath: absPath) }
@@ -895,6 +1165,7 @@ struct AppShell: View {
             let viewMode = CloudServerRegistry.shared.viewMode(for: serverID)
             switch viewMode {
             case .folder:
+                cloudTimelineVM = nil
                 let httpClient = makeAuthenticatedHTTPClient(server: serverID)
                 let source = CloudSource(server: serverID,
                                          folderID: folderID,
@@ -929,13 +1200,67 @@ struct AppShell: View {
                 libraryTitle = serverID.host ?? serverID.absoluteString
                 mode = .browse
             case .timeline:
-                // Phase 3 fills this in. For now, drop the grid and surface a
-                // placeholder so the user knows the toggle worked.
                 browseVM.clear()
-                libraryTitle = "Timeline — coming in Phase 3"
+                // Single AuthenticatedHTTPClient shared by the search +
+                // thumb clients for the lifetime of this Timeline VM.
+                // Defeats the 401-refresh-storm bug if many cells hit
+                // expired tokens at once — only one /api/auth/refresh
+                // call goes out, all callers wait on the same continuation.
+                let httpClient = makeAuthenticatedHTTPClient(server: serverID)
+                let searchClient = CloudSearchClient(server: serverID, httpClient: httpClient)
+                // pathPrefix = libraryPath scopes the Timeline to whatever
+                // the user has selected in the sidebar tree — library root
+                // when they pick the library row, a subfolder when they
+                // pick deeper. Matches the web Timeline's filter behavior:
+                // both /api/search/buckets and /api/search receive the
+                // same pathPrefix so the bucket counts and asset listings
+                // describe the same scope.
+                cloudTimelineVM = CloudTimelineViewModel(
+                    server: serverID,
+                    libraryID: folderID,
+                    pathPrefix: libraryPath,
+                    searchClient: searchClient)
+                cloudTimelineThumbClient = CloudThumbClient(server: serverID, httpClient: httpClient)
+                cloudTimelineThumbCache = CloudThumbCache()
+                libraryTitle = (serverID.host ?? serverID.absoluteString) + " — Timeline"
                 mode = .browse
             }
         }
+    }
+
+    /// Open the FullImage editor for a cloud asset selected from
+    /// CloudTimelineView. Builds a bytes-providing AssetRef so the Rust
+    /// pipeline can decode without a local file, and injects a
+    /// CloudSidecarStore so XMP edits persist back to the server.
+    @MainActor
+    private func openCloudAsset(_ asset: SearchAsset, server: URL) {
+        let httpClient = makeAuthenticatedHTTPClient(server: server)
+        // libraryPath is unused for this code path — we never call
+        // source.images() on a single-asset open. Pass the asset's
+        // parent dir so a hypothetical navigate() lands somewhere
+        // sensible.
+        let parentPath = (asset.abs_path as NSString).deletingLastPathComponent
+        let source = CloudSource(server: server,
+                                 folderID: asset.folder_id,
+                                 libraryPath: parentPath,
+                                 httpClient: httpClient)
+        // The cloud asset's editor id matches the web's `fs:<absPath>`
+        // shape so CloudSource.thumb / rawBytes pull paths from id.
+        let imageRef = ImageRef(id: asset.id, displayName: asset.filename, url: nil)
+        let assetRef = AssetRef(
+            displayName: asset.filename,
+            hintExtension: (asset.filename as NSString).pathExtension.lowercased(),
+            stableID: asset.id,
+            bytesProvider: { [source, imageRef] in try await source.rawBytes(for: imageRef) }
+        )
+        if sessions[assetRef.id] == nil {
+            let remoteStore = CloudSidecarStore(server: server, assetID: asset.id, httpClient: httpClient)
+            let session = EditSession(asset: assetRef, remoteSidecarStore: remoteStore)
+            sessions[assetRef.id] = session
+            Task { await session.loadSidecar() }
+        }
+        browseVM.loadSingleCloudAsset(assetRef)
+        mode = .fullImage
     }
 
     // MARK: - Restore

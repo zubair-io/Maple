@@ -1,87 +1,98 @@
 {
-  "images": [
+  "images" : [
     {
-      "filename": "just-maple.png",
-      "idiom": "universal",
-      "platform": "ios",
-      "size": "1024x1024"
+      "filename" : "maple.png",
+      "idiom" : "universal",
+      "platform" : "ios",
+      "size" : "1024x1024"
     },
     {
-      "appearances": [
+      "appearances" : [
         {
-          "appearance": "luminosity",
-          "value": "dark"
+          "appearance" : "luminosity",
+          "value" : "dark"
         }
       ],
-      "idiom": "universal",
-      "platform": "ios",
-      "size": "1024x1024"
+      "filename" : "maple.png",
+      "idiom" : "universal",
+      "platform" : "ios",
+      "size" : "1024x1024"
     },
     {
-      "appearances": [
+      "appearances" : [
         {
-          "appearance": "luminosity",
-          "value": "tinted"
+          "appearance" : "luminosity",
+          "value" : "tinted"
         }
       ],
-      "idiom": "universal",
-      "platform": "ios",
-      "size": "1024x1024"
+      "filename" : "maple.png",
+      "idiom" : "universal",
+      "platform" : "ios",
+      "size" : "1024x1024"
     },
     {
-      "idiom": "mac",
-      "scale": "1x",
-      "size": "16x16"
+      "filename" : "maple16.png",
+      "idiom" : "mac",
+      "scale" : "1x",
+      "size" : "16x16"
     },
     {
-      "idiom": "mac",
-      "scale": "2x",
-      "size": "16x16"
+      "filename" : "maple32.png",
+      "idiom" : "mac",
+      "scale" : "2x",
+      "size" : "16x16"
     },
     {
-      "idiom": "mac",
-      "scale": "1x",
-      "size": "32x32"
+      "filename" : "maple32.png",
+      "idiom" : "mac",
+      "scale" : "1x",
+      "size" : "32x32"
     },
     {
-      "idiom": "mac",
-      "scale": "2x",
-      "size": "32x32"
+      "filename" : "maple64.png",
+      "idiom" : "mac",
+      "scale" : "2x",
+      "size" : "32x32"
     },
     {
-      "idiom": "mac",
-      "scale": "1x",
-      "size": "128x128"
+      "filename" : "maple128.png",
+      "idiom" : "mac",
+      "scale" : "1x",
+      "size" : "128x128"
     },
     {
-      "idiom": "mac",
-      "scale": "2x",
-      "size": "128x128"
+      "filename" : "maple256.png",
+      "idiom" : "mac",
+      "scale" : "2x",
+      "size" : "128x128"
     },
     {
-      "idiom": "mac",
-      "scale": "1x",
-      "size": "256x256"
+      "filename" : "maple256.png",
+      "idiom" : "mac",
+      "scale" : "1x",
+      "size" : "256x256"
     },
     {
-      "idiom": "mac",
-      "scale": "2x",
-      "size": "256x256"
+      "filename" : "maple512.png",
+      "idiom" : "mac",
+      "scale" : "2x",
+      "size" : "256x256"
     },
     {
-      "idiom": "mac",
-      "scale": "1x",
-      "size": "512x512"
+      "filename" : "maple512.png",
+      "idiom" : "mac",
+      "scale" : "1x",
+      "size" : "512x512"
     },
     {
-      "filename": "maple 1.png",
-      "idiom": "mac",
-      "scale": "2x",
-      "size": "512x512"
+      "filename" : "maple.png",
+      "idiom" : "mac",
+      "scale" : "2x",
+      "size" : "512x512"
     }
   ],
-  "info": {
-    "author": "xcode",
-    "version": 1
+  "info" : {
+    "author" : "xcode",
+    "version" : 1
   }
 }

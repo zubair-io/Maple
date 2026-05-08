@@ -111,20 +111,21 @@ struct InfoTab: View {
     @State private var exif: [ImageMetadataReader.ExifEntry] = []
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            // Name + as-shot WB sit above the EXIF dump because they're the
-            // two values the user reaches for most often during cull.
-            SectionHeader("File")
-            InfoRow("Name", session?.asset.primaryURL?.lastPathComponent
-                         ?? session?.asset.displayName
-                         ?? "—")
+        VStack(alignment: .leading, spacing: MapleTokens.Spacing.sectionGap) {
+            VStack(alignment: .leading, spacing: 6) {
+                SectionHeader("File")
+                InfoRow("Name", session?.asset.primaryURL?.lastPathComponent
+                             ?? session?.asset.displayName
+                             ?? "—")
+            }
 
             if let cct = session?.asShotCCT {
-                Divider().overlay(MapleTokens.border).padding(.vertical, 4)
-                SectionHeader("As Shot")
-                InfoRow("Temp", String(format: "%.0f K", cct))
-                if let t = session?.asShotTint {
-                    InfoRow("Tint", String(format: "%.0f", t))
+                VStack(alignment: .leading, spacing: 6) {
+                    SectionHeader("As Shot")
+                    InfoRow("Temp", String(format: "%.0f K", cct))
+                    if let t = session?.asShotTint {
+                        InfoRow("Tint", String(format: "%.0f", t))
+                    }
                 }
             }
 
@@ -132,33 +133,39 @@ struct InfoTab: View {
             // the reader produced them (Image → Camera → Exposure → GPS →
             // File) — see `ImageMetadataReader.exifEntries` for ordering.
             ForEach(exifSections, id: \.self) { section in
-                Divider().overlay(MapleTokens.border).padding(.vertical, 4)
-                SectionHeader(section)
-                ForEach(exif.filter { $0.section == section }) { entry in
-                    InfoRow(entry.label, entry.value)
+                VStack(alignment: .leading, spacing: 6) {
+                    SectionHeader(section)
+                    ForEach(exif.filter { $0.section == section }) { entry in
+                        InfoRow(entry.label, entry.value)
+                    }
                 }
             }
 
-            Divider().overlay(MapleTokens.border).padding(.vertical, 4)
-
-            SectionHeader("Culling")
-            VStack(alignment: .leading, spacing: 8) {
-                HStack {
-                    Text("Stars").foregroundStyle(MapleTokens.textMuted).font(.system(size: 11))
-                    Spacer()
-                    StarView(count: session?.culling.stars ?? 0)
-                        .opacity(session == nil ? 0.5 : 1)
+            VStack(alignment: .leading, spacing: 6) {
+                SectionHeader("Culling")
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Text("Stars")
+                            .font(MapleTokens.Typography.meta)
+                            .foregroundStyle(MapleTokens.textMuted)
+                        Spacer()
+                        StarView(count: session?.culling.stars ?? 0, size: 14)
+                            .opacity(session == nil ? 0.5 : 1)
+                    }
+                    HStack {
+                        Text("Flag")
+                            .font(MapleTokens.Typography.meta)
+                            .foregroundStyle(MapleTokens.textMuted)
+                        Spacer()
+                        FlagBadge(flag: session?.culling.flag ?? .none)
+                            .opacity(session == nil ? 0.5 : 1)
+                    }
                 }
-                HStack {
-                    Text("Flag").foregroundStyle(MapleTokens.textMuted).font(.system(size: 11))
-                    Spacer()
-                    FlagBadge(flag: session?.culling.flag ?? .none)
-                        .opacity(session == nil ? 0.5 : 1)
-                }
+                .padding(.horizontal, MapleTokens.Spacing.panelInset)
+                .padding(.vertical, 4)
             }
-            .padding(.horizontal, 12)
         }
-        .padding(.vertical, 12)
+        .padding(.vertical, MapleTokens.Spacing.panelInset)
         // Reload EXIF whenever the session's asset changes — `task(id:)`
         // cancels the prior task on switch so we don't paint stale rows.
         .task(id: session?.asset.id) {
@@ -223,19 +230,20 @@ struct InfoRow: View {
     }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 8) {
+        HStack(alignment: .top, spacing: 12) {
             Text(label)
-                .font(.system(size: 11))
+                .font(MapleTokens.Typography.meta)
                 .foregroundStyle(MapleTokens.textMuted)
-                .frame(width: 80, alignment: .trailing)
+                .frame(width: 96, alignment: .trailing)
             Text(value)
-                .font(.system(size: 11))
+                .font(MapleTokens.Typography.row)
                 .foregroundStyle(MapleTokens.textMain)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .lineLimit(3)
                 .textSelection(.enabled)
         }
-        .padding(.horizontal, 12)
+        .padding(.horizontal, MapleTokens.Spacing.panelInset)
+        .padding(.vertical, 4)
     }
 }
 
@@ -245,10 +253,11 @@ struct SectionHeader: View {
 
     var body: some View {
         Text(title.uppercased())
-            .font(.system(size: 9, weight: .semibold))
+            .font(MapleTokens.Typography.sectionHeader)
             .foregroundStyle(MapleTokens.textMuted)
-            .tracking(1.2)
-            .padding(.horizontal, 12)
+            .tracking(1.4)
+            .padding(.horizontal, MapleTokens.Spacing.panelInset)
+            .padding(.bottom, 4)
     }
 }
 

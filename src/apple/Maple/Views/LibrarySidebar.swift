@@ -176,16 +176,16 @@ struct LibrarySidebar: View {
     private var emptyFolders: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text("No local folders")
-                .font(.system(size: 11))
+                .font(MapleTokens.Typography.meta)
                 .foregroundStyle(MapleTokens.textMuted)
             Button("Add one", action: onAddFolder)
                 .buttonStyle(.plain)
-                .font(.system(size: 11))
+                .font(MapleTokens.Typography.meta)
                 .foregroundStyle(MapleTokens.primary)
                 .underline()
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
+        .padding(.horizontal, MapleTokens.Spacing.rowHorizontal)
+        .padding(.vertical, MapleTokens.Spacing.rowVertical)
     }
 
     @ViewBuilder
@@ -248,17 +248,17 @@ struct LibrarySidebar: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 4)
         Text("ALBUMS")
-            .font(.system(size: 9, weight: .semibold))
+            .font(MapleTokens.Typography.sectionHeader)
             .foregroundStyle(MapleTokens.textMuted)
-            .tracking(0.6)
+            .tracking(1.4)
             .padding(.horizontal, 24)
-            .padding(.vertical, 2)
+            .padding(.vertical, 4)
         if albums.isEmpty {
             Text("No albums")
-                .font(.system(size: 11))
+                .font(MapleTokens.Typography.meta)
                 .foregroundStyle(MapleTokens.textMuted)
                 .padding(.horizontal, 24)
-                .padding(.vertical, 4)
+                .padding(.vertical, MapleTokens.Spacing.rowVertical)
         } else {
             ForEach(albums) { album in
                 NavItem(
@@ -313,6 +313,9 @@ struct LibrarySidebar: View {
                     serverURL: url,
                     folders: cloudFoldersByServer[url] ?? [],
                     viewMode: registry.viewMode(for: url),
+                    displayName: registry.displayName(for: url)
+                                 ?? url.host
+                                 ?? url.absoluteString,
                     isExpanded: Binding(
                         get: { cloudServersExpanded[url] ?? true },
                         set: { cloudServersExpanded[url] = $0 }
@@ -333,7 +336,10 @@ struct LibrarySidebar: View {
                     onListDir: onListCloudDir,
                     cloudCurrentPath: pathFor(server: url),
                     onSignOut: { onSignOutCloudServer(url) },
-                    onRemoveServer: { onRemoveCloudServer(url) }
+                    onRemoveServer: { onRemoveCloudServer(url) },
+                    onRename: { newName in
+                        registry.setDisplayName(newName, for: url)
+                    }
                 )
                 .task {
                     if cloudFoldersByServer[url] == nil {
@@ -350,24 +356,26 @@ struct LibrarySidebar: View {
                 cloudFoldersByServer = cloudFoldersByServer.filter { currentSet.contains($0.key) }
                 cloudServersExpanded = cloudServersExpanded.filter { currentSet.contains($0.key) }
             }
-            // Always visible — fresh users with no servers need this most.
-            // Previously gated on `!registry.servers.isEmpty`, which hid
-            // the entry point exactly when it was the only path forward.
-            Button {
-                onAddCloudServer()
-            } label: {
-                HStack {
-                    Image(systemName: "plus.circle")
-                    Text(registry.servers.isEmpty
-                         ? "Add Maple Cloud server"
-                         : "Add another server")
-                        .font(.callout)
+            // Empty-state entry point only — once a server is connected
+            // the user manages servers (add another, sign out, rename,
+            // remove) from Settings, NOT this inline button. Keeps the
+            // sidebar lean and gives Settings the single source of truth
+            // for server management.
+            if registry.servers.isEmpty {
+                Button {
+                    onAddCloudServer()
+                } label: {
+                    HStack {
+                        Image(systemName: "plus.circle")
+                        Text("Add Maple Cloud server")
+                            .font(.callout)
+                    }
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 2)
                 }
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 2)
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
         }
         .padding(.horizontal, 4)
     }
@@ -430,19 +438,20 @@ private struct SectionHeaderRow<Trailing: View>: View {
 
     var body: some View {
         Button(action: { withAnimation(.easeInOut(duration: 0.15)) { isOpen.toggle() } }) {
-            HStack(spacing: 4) {
+            HStack(spacing: 6) {
                 Image(systemName: "chevron.down")
-                    .font(.system(size: 9, weight: .semibold))
+                    .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(MapleTokens.textMuted)
                     .rotationEffect(.degrees(isOpen ? 0 : -90))
-                Text(title)
-                    .font(.system(size: 11, weight: .medium))
+                Text(title.uppercased())
+                    .font(MapleTokens.Typography.sectionHeader)
+                    .tracking(1.4)
                     .foregroundStyle(MapleTokens.textMuted)
                 Spacer()
                 trailing()
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
+            .padding(.horizontal, MapleTokens.Spacing.rowHorizontal)
+            .padding(.vertical, 6)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -456,9 +465,9 @@ private struct AddButton: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: "plus")
-                .font(.system(size: 11, weight: .semibold))
+                .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(MapleTokens.textMuted)
-                .frame(width: 20, height: 20)
+                .frame(width: 28, height: 28)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -471,26 +480,26 @@ private struct NavItem: View {
     let icon: String
     let label: String
     let isSelected: Bool
-    var indent: CGFloat = 24
+    var indent: CGFloat = 28
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 6) {
+            HStack(spacing: MapleTokens.Spacing.iconLabelGap) {
                 Image(systemName: icon)
-                    .font(.system(size: 10))
+                    .font(.system(size: 16))
                     .foregroundStyle(isSelected ? MapleTokens.primary : MapleTokens.textMuted)
-                    .frame(width: 14)
+                    .frame(width: 22)
                 Text(label)
-                    .font(.system(size: 11))
+                    .font(MapleTokens.Typography.row)
                     .foregroundStyle(isSelected ? MapleTokens.primary : MapleTokens.textMain)
                     .lineLimit(1)
                     .truncationMode(.middle)
                 Spacer()
             }
             .padding(.leading, indent)
-            .padding(.trailing, 10)
-            .padding(.vertical, 4)
+            .padding(.trailing, MapleTokens.Spacing.rowHorizontal)
+            .padding(.vertical, MapleTokens.Spacing.rowVertical)
             .background(isSelected ? MapleTokens.bgActive : Color.clear)
             .contentShape(Rectangle())
         }
@@ -542,11 +551,13 @@ private struct FolderTreeRow: View {
         guard selectedComponents.count > rootComponents.count else { return false }
         return Array(selectedComponents.prefix(rootComponents.count)) == rootComponents
     }
-    private var indent: CGFloat { 10 + CGFloat(depth) * 14 }
+    private var indent: CGFloat {
+        MapleTokens.Spacing.rowHorizontal + CGFloat(depth) * MapleTokens.Spacing.treeIndent
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 4) {
+            HStack(spacing: 6) {
                 Button(action: {
                     withAnimation(.easeInOut(duration: 0.12)) {
                         expanded.toggle()
@@ -554,22 +565,23 @@ private struct FolderTreeRow: View {
                     }
                 }) {
                     Image(systemName: "chevron.right")
-                        .font(.system(size: 8, weight: .semibold))
+                        .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(MapleTokens.textMuted)
-                        .opacity(didEnumerate && children.isEmpty ? 0.15 : 0.5)
+                        .opacity(didEnumerate && children.isEmpty ? 0.15 : 0.6)
                         .rotationEffect(.degrees(expanded ? 90 : 0))
-                        .frame(width: 10, height: 10)
+                        .frame(width: 14, height: 14)
                 }
                 .buttonStyle(.plain)
                 .disabled(didEnumerate && children.isEmpty)
 
                 Button(action: { onPick(url) }) {
-                    HStack(spacing: 6) {
+                    HStack(spacing: MapleTokens.Spacing.iconLabelGap) {
                         Image(systemName: "folder")
-                            .font(.system(size: 10))
+                            .font(.system(size: 16))
                             .foregroundStyle(isSelected ? MapleTokens.primary : MapleTokens.textMuted)
+                            .frame(width: 22, alignment: .center)
                         Text(displayName)
-                            .font(.system(size: 11))
+                            .font(depth == 0 ? MapleTokens.Typography.row : MapleTokens.Typography.rowDense)
                             .foregroundStyle(isSelected ? MapleTokens.primary : MapleTokens.textMain)
                             .lineLimit(1)
                             .truncationMode(.middle)
@@ -580,8 +592,8 @@ private struct FolderTreeRow: View {
                 .buttonStyle(.plain)
             }
             .padding(.leading, indent)
-            .padding(.trailing, 10)
-            .padding(.vertical, 4)
+            .padding(.trailing, MapleTokens.Spacing.rowHorizontal)
+            .padding(.vertical, MapleTokens.Spacing.rowVertical)
             .background(isSelected ? MapleTokens.bgActive : Color.clear)
             .contextMenu {
                 if let onRemove {

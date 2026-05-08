@@ -1,14 +1,17 @@
 // CloudFolderTreeRow.swift
 //
 // Recursive sidebar row for cloud library / subfolder navigation.
-// Mirrors the local FolderTreeRow shape: tap-to-select, expand-to-
-// drill-down, lazy children loaded on first expand and cached for the
-// view's lifetime.
+// Mirrors the local FolderTreeRow shape one-for-one — left-side chevron
+// Button toggles expansion, separate label Button fires onPickPath,
+// MapleTokens.bgActive selection background, identical indent + padding
+// tokens — so the sidebar reads as a single tree regardless of whether
+// a row is local or cloud.
 //
 // Each row represents one directory on the server (a registered library
 // at depth 0, or a subfolder at depth >= 1). Children are populated by
-// calling `onListDir(server, absPath)` — the sidebar provides a closure
-// that goes through CloudFoldersClient.listDir.
+// calling `onListDir(server, absPath)` on first expand and cached for
+// the view's lifetime. Auto-expand walks the chain to `cloudCurrentPath`
+// on first appear so the user lands on the row they last selected.
 
 import SwiftUI
 import MapleCore
@@ -54,15 +57,7 @@ struct CloudFolderTreeRow: View {
   /// would trigger unwanted re-expansion.
   @State private var didAutoExpand: Bool = false
 
-  private var isExpandedBinding: Binding<Bool> {
-    Binding(
-      get: { expanded.contains(absPath) },
-      set: { newValue in
-        if newValue { expanded.insert(absPath) }
-        else { expanded.remove(absPath) }
-      }
-    )
-  }
+  private var isExpanded: Bool { expanded.contains(absPath) }
 
   /// True when the grid is showing this exact row's path.
   private var isSelected: Bool {
@@ -89,86 +84,115 @@ struct CloudFolderTreeRow: View {
     return true
   }
 
+  private var indent: CGFloat {
+    MapleTokens.Spacing.rowHorizontal + CGFloat(depth) * MapleTokens.Spacing.treeIndent
+  }
+
   var body: some View {
-    Group {
-      if hasChildren {
-        DisclosureGroup(isExpanded: isExpandedBinding) {
-          if isLoading {
-            HStack {
-              ProgressView().scaleEffect(0.6)
-              Text("Loading…").font(.caption).foregroundStyle(.tertiary)
-            }
-            .padding(.leading, CGFloat(depth + 1) * 14)
-            .padding(.vertical, 2)
-          } else if loadFailed {
-            Text("Couldn't load")
-              .font(.caption)
-              .foregroundStyle(.red)
-              .padding(.leading, CGFloat(depth + 1) * 14)
-              .padding(.vertical, 2)
-          } else {
-            ForEach(dirs, id: \.path) { dir in
-              CloudFolderTreeRow(
-                serverURL: serverURL,
-                libraryFolderID: libraryFolderID,
-                absPath: dir.path,
-                displayName: dir.name,
-                depth: depth + 1,
-                onListDir: onListDir,
-                onPickPath: onPickPath,
-                cloudCurrentPath: cloudCurrentPath,
-                selection: $selection,
-                listingCache: $listingCache,
-                expanded: $expanded
-              )
-            }
+    VStack(alignment: .leading, spacing: 0) {
+      HStack(spacing: 6) {
+        // Left-side chevron Button — toggles expansion only. Mirror of
+        // the local FolderTreeRow's chevron exactly: same SF symbol,
+        // same point size, same rotation, same opacity rule for empty
+        // leaves.
+        Button(action: {
+          withAnimation(.easeInOut(duration: 0.12)) {
+            toggleExpanded()
           }
+        }) {
+          Image(systemName: "chevron.right")
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(MapleTokens.textMuted)
+            .opacity(hasChildren ? 0.6 : 0.15)
+            .rotationEffect(.degrees(isExpanded ? 90 : 0))
+            .frame(width: 14, height: 14)
+        }
+        .buttonStyle(.plain)
+        .disabled(!hasChildren)
+
+        // Folder icon + label Button — the navigate target. Tinted
+        // primary when selected, same as the local tree.
+        Button(action: { onPickPath(serverURL, libraryFolderID, absPath) }) {
+          HStack(spacing: MapleTokens.Spacing.iconLabelGap) {
+            Image(systemName: "folder")
+              .font(.system(size: 16))
+              .foregroundStyle(isSelected ? MapleTokens.primary : MapleTokens.textMuted)
+              .frame(width: 22, alignment: .center)
+            Text(displayName)
+              .font(depth == 0 ? MapleTokens.Typography.row : MapleTokens.Typography.rowDense)
+              .foregroundStyle(isSelected ? MapleTokens.primary : MapleTokens.textMain)
+              .lineLimit(1)
+              .truncationMode(.middle)
+            Spacer()
+          }
+          .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+      }
+      .padding(.leading, indent)
+      .padding(.trailing, MapleTokens.Spacing.rowHorizontal)
+      .padding(.vertical, MapleTokens.Spacing.rowVertical)
+      .background(isSelected ? MapleTokens.bgActive : Color.clear)
+      .contextMenu {
+        Button {
+          refresh()
         } label: {
-          rowLabel
+          Label("Refresh", systemImage: "arrow.clockwise")
         }
-        .onAppear { autoExpandIfOnChain() }
-        .onChange(of: cloudCurrentPath) { _, _ in
-          // Clear the one-shot flag when the user navigates the grid
-          // to a different path so we re-evaluate auto-expand against
-          // the new chain on the next render.
-          didAutoExpand = false
-          autoExpandIfOnChain()
+      }
+      .onAppear { autoExpandIfOnChain() }
+      .onChange(of: cloudCurrentPath) { _, _ in
+        // Clear the one-shot flag when the user navigates the grid to
+        // a different path so we re-evaluate auto-expand against the
+        // new chain on the next render.
+        didAutoExpand = false
+        autoExpandIfOnChain()
+      }
+
+      // Children — same depth-recursive pattern as the local tree.
+      if isExpanded {
+        if isLoading {
+          HStack {
+            ProgressView().scaleEffect(0.6)
+            Text("Loading…")
+              .font(MapleTokens.Typography.meta)
+              .foregroundStyle(MapleTokens.textMuted)
+          }
+          .padding(.leading, indent + MapleTokens.Spacing.treeIndent)
+          .padding(.vertical, 4)
+        } else if loadFailed {
+          Text("Couldn't load")
+            .font(MapleTokens.Typography.meta)
+            .foregroundStyle(.red)
+            .padding(.leading, indent + MapleTokens.Spacing.treeIndent)
+            .padding(.vertical, 4)
+        } else {
+          ForEach(dirs, id: \.path) { dir in
+            CloudFolderTreeRow(
+              serverURL: serverURL,
+              libraryFolderID: libraryFolderID,
+              absPath: dir.path,
+              displayName: dir.name,
+              depth: depth + 1,
+              onListDir: onListDir,
+              onPickPath: onPickPath,
+              cloudCurrentPath: cloudCurrentPath,
+              selection: $selection,
+              listingCache: $listingCache,
+              expanded: $expanded
+            )
+          }
         }
-        .onChange(of: isExpandedBinding.wrappedValue) { _, expanded in
-          if expanded { loadIfNeeded() }
-        }
-      } else {
-        rowLabel
       }
     }
   }
 
-  private var rowLabel: some View {
-    Button {
-      onPickPath(serverURL, libraryFolderID, absPath)
-    } label: {
-      HStack(spacing: 6) {
-        Image(systemName: depth == 0 ? "folder.fill" : "folder")
-          .foregroundStyle(.secondary)
-        Text(displayName)
-          .lineLimit(1)
-        Spacer()
-      }
-      .contentShape(Rectangle())
-    }
-    .buttonStyle(.plain)
-    .padding(.leading, CGFloat(depth) * 12)
-    .padding(.vertical, 2)
-    .background(
-      isSelected ? Color.accentColor.opacity(0.18) : .clear,
-      in: RoundedRectangle(cornerRadius: 6)
-    )
-    .contextMenu {
-      Button {
-        refresh()
-      } label: {
-        Label("Refresh", systemImage: "arrow.clockwise")
-      }
+  private func toggleExpanded() {
+    if isExpanded {
+      expanded.remove(absPath)
+    } else {
+      expanded.insert(absPath)
+      loadIfNeeded()
     }
   }
 
@@ -176,7 +200,12 @@ struct CloudFolderTreeRow: View {
     guard listingCache[absPath] == nil, !isLoading else { return }
     isLoading = true
     loadFailed = false
-    Task {
+    // @MainActor on the Task so the post-await writes to @State
+    // (`isLoading`, `loadFailed`) and @Binding (`listingCache`) all
+    // land on the main actor — SwiftUI views are MainActor-isolated
+    // and an unannotated Task ran the continuation off-main, which
+    // is a data-race risk under Swift 6 strict concurrency.
+    Task { @MainActor in
       let listing = await onListDir(serverURL, absPath)
       isLoading = false
       if let listing {
@@ -209,10 +238,7 @@ struct CloudFolderTreeRow: View {
     listingCache = listingCache.filter { key, _ in
       key != absPath && !key.hasPrefix(prefix)
     }
-    // Force a re-fetch on the next render. If currently expanded the
-    // body's onChange will fire loadIfNeeded; if collapsed, the next
-    // user expand triggers it.
-    if expanded.contains(absPath) {
+    if isExpanded {
       loadIfNeeded()
     }
   }
