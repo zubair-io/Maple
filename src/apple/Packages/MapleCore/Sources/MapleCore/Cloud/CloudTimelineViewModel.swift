@@ -71,7 +71,11 @@ public final class CloudTimelineViewModel {
   /// appearance and refreshable.
   public func loadBuckets() async {
     let g = bumpGeneration()
-    let host = server.host ?? ""
+    // hostKey includes the port when present so two servers sharing a
+    // hostname but on different ports (e.g. localhost:3000 vs :3001)
+    // don't collide in the on-disk caches. Plain `server.host` drops
+    // the port entirely.
+    let host = server.cacheHostKey
     // Clear any stale error from a previous load so an offline-then-
     // online retry doesn't leave the banner up.
     loadError = nil
@@ -100,7 +104,7 @@ public final class CloudTimelineViewModel {
   public func loadPage(year: Int, month: Int) async {
     let key = BucketKey(year: year, month: month)
     let g = generation
-    let host = server.host ?? ""
+    let host = server.cacheHostKey
 
     // Guard + insert MUST be synchronous (no `await` between them) so
     // two near-simultaneous onAppears can't both pass the guard before
@@ -166,8 +170,14 @@ public actor AsyncSemaphore {
   private var current: Int
   private var waiters: [CheckedContinuation<Void, Never>] = []
 
+  /// Clamps `value` to at least 1. Without this, a misconfigured caller
+  /// could pass 0 (or negative) and `acquire()` would suspend forever
+  /// because `current < value` is never true — Timeline page loads
+  /// would deadlock with no error path. 1 is the smallest meaningful
+  /// concurrency cap; anything lower is a programming mistake we
+  /// recover from rather than propagate.
   public init(value: Int) {
-    self.value = value
+    self.value = max(1, value)
     self.current = 0
   }
 

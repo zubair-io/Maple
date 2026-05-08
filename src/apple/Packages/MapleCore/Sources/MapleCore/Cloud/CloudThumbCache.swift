@@ -11,6 +11,19 @@ public actor CloudThumbCache {
   public let baseDir: URL
   public let maxBytes: Int64
 
+  /// Approximate running total of bytes written to the cache. Updated
+  /// by `put()` — eviction skips the directory walk entirely until
+  /// this counter crosses `maxBytes`. Seeded lazily on the first put
+  /// after process start (via `seedTotalIfNeeded`) so a warm cache on
+  /// disk doesn't underestimate.
+  private var approxTotal: Int64 = 0
+  private var seededTotal: Bool = false
+
+  /// In-flight eviction task. While non-nil, additional `put()` calls
+  /// just enqueue behind the existing eviction rather than spawning N
+  /// concurrent directory walks during a fast scroll.
+  private var evictionTask: Task<Void, Never>?
+
   public init(baseDir: URL? = nil, maxBytes: Int64 = 2 * 1024 * 1024 * 1024) {
     if let baseDir { self.baseDir = baseDir }
     else {
@@ -37,9 +50,22 @@ public actor CloudThumbCache {
       at: url.deletingLastPathComponent(),
       withIntermediateDirectories: true)
     try? jpeg.write(to: url, options: .atomic)
-    Task { await self.evictIfNeeded() }
+    seedTotalIfNeeded()
+    approxTotal += Int64(jpeg.count)
+    // Only schedule eviction when the running total has crossed the
+    // cap AND no eviction is already in flight. A scrolling Timeline
+    // can fire hundreds of put()s in quick succession; previously each
+    // one queued a fresh full-directory walk, hammering disk IO.
+    if approxTotal > maxBytes, evictionTask == nil {
+      evictionTask = Task { [weak self] in
+        await self?.runEviction()
+      }
+    }
   }
 
+  /// Public for tests — runs the directory walk + LRU pass once,
+  /// regardless of the running-total counter. Production code should
+  /// rely on the auto-coalesced path triggered from `put()`.
   public func evictIfNeeded() {
     let fm = FileManager.default
     guard let enumerator = fm.enumerator(
@@ -69,6 +95,40 @@ public actor CloudThumbCache {
       total -= entries[i].size
       i += 1
     }
+    // After a successful walk we know the exact on-disk total — update
+    // the running counter so the next `put()` doesn't kick off another
+    // walk based on a stale running total.
+    approxTotal = total
+    seededTotal = true
+  }
+
+  /// Seed `approxTotal` from disk on the first put after process start
+  /// — without this, a warm cache from a previous launch would
+  /// underestimate until the first eviction. Cheap (one directory walk
+  /// for sizes only, no sort).
+  private func seedTotalIfNeeded() {
+    guard !seededTotal else { return }
+    seededTotal = true
+    let fm = FileManager.default
+    guard let enumerator = fm.enumerator(
+      at: baseDir,
+      includingPropertiesForKeys: [.fileSizeKey],
+      options: [.skipsHiddenFiles])
+    else { return }
+    var total: Int64 = 0
+    for case let url as URL in enumerator {
+      let v = try? url.resourceValues(forKeys: [.fileSizeKey])
+      total += Int64(v?.fileSize ?? 0)
+    }
+    approxTotal = total
+  }
+
+  /// Body of the coalesced eviction Task — runs the walk, then clears
+  /// `evictionTask` so a subsequent over-cap put can schedule the next
+  /// pass.
+  private func runEviction() {
+    evictIfNeeded()
+    evictionTask = nil
   }
 
   private func path(host: String, absPath: String) -> URL {

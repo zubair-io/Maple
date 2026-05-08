@@ -400,7 +400,16 @@ struct AppShell: View {
             // and only when the drawer is closed AND we're in browse
             // mode — keeps gestures unambiguous w.r.t. the viewer's
             // own swipe handling.
-            .gesture(edgeOpenDragGesture)
+            //
+            // `.simultaneousGesture` (NOT `.gesture`) so the recognizer
+            // doesn't pre-empt normal horizontal scrolls in child
+            // views (the grid, the FullImage filmstrip) when the drag
+            // starts outside the edge zone. The gesture's onChanged /
+            // onEnded already short-circuit when the start location is
+            // past `edgeActivationZone`, so attaching simultaneously
+            // means rejected drags fall through to whichever child
+            // gesture wants them.
+            .simultaneousGesture(edgeOpenDragGesture)
         }
         .ignoresSafeArea(.keyboard)
         .sheet(isPresented: $iPhoneInfoSheet) {

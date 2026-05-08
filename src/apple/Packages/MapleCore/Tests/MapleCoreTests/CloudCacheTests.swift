@@ -1,4 +1,5 @@
 // CloudCacheTests.swift — round-trip + eviction tests for the three caches.
+import CryptoKit
 import XCTest
 @testable import MapleCore
 
@@ -57,18 +58,23 @@ final class CloudCacheTests: XCTestCase {
   func test_thumbCache_evictsOldestPastCap() async throws {
     let dir = makeTempDir("thumbs-evict")
     let cache = CloudThumbCache(baseDir: dir, maxBytes: 600)
-    // Three 256-byte entries. With cap=600 and a 256-byte file, the
-    // third put should trigger eviction of the oldest.
+    // Three 256-byte entries. With cap=600 the directory holds 768B
+    // after the third put — eviction must drop the oldest until the
+    // total is back under 600.
     let a = Data(repeating: 0x01, count: 256)
     let b = Data(repeating: 0x02, count: 256)
     let c = Data(repeating: 0x03, count: 256)
     await cache.put(host: "x", absPath: "/a", a)
-    try await Task.sleep(for: .milliseconds(50))
     await cache.put(host: "x", absPath: "/b", b)
-    try await Task.sleep(for: .milliseconds(50))
     await cache.put(host: "x", absPath: "/c", c)
-    // Give the eviction Task a moment to settle.
-    try await Task.sleep(for: .milliseconds(200))
+    // Set explicit mtimes so LRU ordering is deterministic — the
+    // previous version slept 50ms between puts hoping the file system
+    // would assign distinct timestamps, which on slow CI / coarse
+    // mtime resolution made the assertion flaky.
+    let now = Date()
+    setMtime(at: dir, host: "x", absPath: "/a", mtime: now.addingTimeInterval(-30))
+    setMtime(at: dir, host: "x", absPath: "/b", mtime: now.addingTimeInterval(-20))
+    setMtime(at: dir, host: "x", absPath: "/c", mtime: now.addingTimeInterval(-10))
     await cache.evictIfNeeded()
 
     let aBytes = await cache.get(host: "x", absPath: "/a")
@@ -86,5 +92,20 @@ final class CloudCacheTests: XCTestCase {
     try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
     addTeardownBlock { try? FileManager.default.removeItem(at: url) }
     return url
+  }
+
+  /// Resolves the same SHA256-of-path layout that `CloudThumbCache`
+  /// uses internally so the test can stamp deterministic mtimes on the
+  /// files it just wrote — without depending on the OS scheduler to
+  /// space puts apart.
+  private func setMtime(at base: URL, host: String, absPath: String, mtime: Date) {
+    let digest = SHA256.hash(data: Data(absPath.utf8))
+      .map { String(format: "%02x", $0) }.joined()
+    let url = base
+      .appendingPathComponent(host, isDirectory: true)
+      .appendingPathComponent(String(digest.prefix(2)), isDirectory: true)
+      .appendingPathComponent("\(digest).jpg")
+    try? FileManager.default.setAttributes([.modificationDate: mtime],
+                                            ofItemAtPath: url.path)
   }
 }

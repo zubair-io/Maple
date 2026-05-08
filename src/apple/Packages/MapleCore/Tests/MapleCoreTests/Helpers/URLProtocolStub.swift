@@ -14,6 +14,16 @@ final class URLProtocolStub: URLProtocol, @unchecked Sendable {
   /// on URL string. Reset to empty in setUp.
   nonisolated(unsafe) static var capturedBodies: [String: Data] = [:]
 
+  /// Optional sleep applied between request start and response delivery.
+  /// Lets tests verify behavior under bounded concurrency / generation
+  /// races without waiting on real network.
+  nonisolated(unsafe) static var delay: Duration = .zero
+
+  /// Hooks fired around each loaded response. Used by concurrency-cap
+  /// tests to count overlapping in-flight requests.
+  nonisolated(unsafe) static var onRequestStart: (@Sendable () async -> Void)?
+  nonisolated(unsafe) static var onRequestEnd: (@Sendable () async -> Void)?
+
   override class func canInit(with request: URLRequest) -> Bool { true }
   override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
 
@@ -27,9 +37,27 @@ final class URLProtocolStub: URLProtocol, @unchecked Sendable {
       client?.urlProtocol(self, didFailWithError: err); return
     }
     let (data, response) = provider(request)
-    client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-    client?.urlProtocol(self, didLoad: data)
-    client?.urlProtocolDidFinishLoading(self)
+    let delay = Self.delay
+    let onStart = Self.onRequestStart
+    let onEnd = Self.onRequestEnd
+    let client = self.client
+    let me = self
+    if delay == .zero, onStart == nil, onEnd == nil {
+      // Fast path — common case where no overlap counting / latency
+      // simulation is needed.
+      client?.urlProtocol(me, didReceive: response, cacheStoragePolicy: .notAllowed)
+      client?.urlProtocol(me, didLoad: data)
+      client?.urlProtocolDidFinishLoading(me)
+      return
+    }
+    Task.detached {
+      await onStart?()
+      if delay != .zero { try? await Task.sleep(for: delay) }
+      client?.urlProtocol(me, didReceive: response, cacheStoragePolicy: .notAllowed)
+      client?.urlProtocol(me, didLoad: data)
+      client?.urlProtocolDidFinishLoading(me)
+      await onEnd?()
+    }
   }
 
   override func stopLoading() {}
@@ -54,13 +82,21 @@ final class URLProtocolStub: URLProtocol, @unchecked Sendable {
 
 extension URLSession {
   /// Returns a session whose only protocol is the stub, configured to
-  /// return the same response for every request.
+  /// return the same response for every request. Optional `delay` and
+  /// per-request lifecycle hooks let concurrency / generation-race
+  /// tests observe in-flight overlap without real network.
   static func stubbed(response: String,
                       contentType: String = "application/json",
-                      status: Int = 200) -> URLSession {
+                      status: Int = 200,
+                      delay: Duration = .zero,
+                      onRequestStart: (@Sendable () async -> Void)? = nil,
+                      onRequestEnd: (@Sendable () async -> Void)? = nil) -> URLSession {
     let cfg = URLSessionConfiguration.ephemeral
     cfg.protocolClasses = [URLProtocolStub.self]
     URLProtocolStub.capturedBodies = [:]
+    URLProtocolStub.delay = delay
+    URLProtocolStub.onRequestStart = onRequestStart
+    URLProtocolStub.onRequestEnd = onRequestEnd
     URLProtocolStub.responseProvider = { req in
       let resp = HTTPURLResponse(url: req.url!, statusCode: status,
                                  httpVersion: "HTTP/1.1",

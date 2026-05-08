@@ -55,7 +55,9 @@ struct CloudTimelineView: View {
             hasLoaded: vm.pagesByBucket[bucketKey] != nil,
             thumbClient: thumbClient,
             thumbCache: thumbCache,
-            host: vm.server.host ?? "",
+            // Same port-aware key the buckets/pages caches use, so all
+            // three on-disk caches namespace per-server identically.
+            host: vm.server.cacheHostKey,
             displayMode: displayMode,
             onSelectAsset: onSelectAsset
           )
@@ -152,14 +154,22 @@ struct CloudTimelineMonthSection: View {
   }
 
   private var monthLabel: String {
+    var c = DateComponents(); c.year = year; c.month = month; c.day = 1
+    if let d = Self.calendar.date(from: c) { return Self.monthFormatter.string(from: d) }
+    return "\(year)-\(String(format: "%02d", month))"
+  }
+
+  /// Process-wide cached formatter + calendar — `monthLabel` is hit
+  /// once per visible MonthSection per body recompute, which during a
+  /// Timeline scroll fires often. Allocating a fresh DateFormatter per
+  /// hit was showing up as measurable overhead during fast scrolls.
+  private static let monthFormatter: DateFormatter = {
     let f = DateFormatter()
     f.locale = Locale(identifier: "en_US_POSIX")
     f.dateFormat = "MMMM yyyy"
-    var c = DateComponents(); c.year = year; c.month = month; c.day = 1
-    let cal = Calendar(identifier: .gregorian)
-    if let d = cal.date(from: c) { return f.string(from: d) }
-    return "\(year)-\(String(format: "%02d", month))"
-  }
+    return f
+  }()
+  private static let calendar = Calendar(identifier: .gregorian)
 }
 
 // MARK: - Cell

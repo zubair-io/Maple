@@ -200,7 +200,12 @@ struct CloudFolderTreeRow: View {
     guard listingCache[absPath] == nil, !isLoading else { return }
     isLoading = true
     loadFailed = false
-    Task {
+    // @MainActor on the Task so the post-await writes to @State
+    // (`isLoading`, `loadFailed`) and @Binding (`listingCache`) all
+    // land on the main actor — SwiftUI views are MainActor-isolated
+    // and an unannotated Task ran the continuation off-main, which
+    // is a data-race risk under Swift 6 strict concurrency.
+    Task { @MainActor in
       let listing = await onListDir(serverURL, absPath)
       isLoading = false
       if let listing {
