@@ -37,8 +37,13 @@ public struct SearchAsset: Codable, Equatable, Sendable {
   public let abs_path: String
   public let filename: String
   public let size: Int64?
-  /// Last-modified epoch ms — JSON number on the wire (not a string).
-  public let mtime: Int64?
+  /// Last-modified epoch ms. Wire format is a JSON number — usually an
+  /// integer, but the server sometimes sends a fractional value (e.g.
+  /// `1776035930475.9543` for a few panorama assets where MongoDB
+  /// returned a Decimal128 / Double instead of a NumberLong). Decoding
+  /// as Double tolerates both shapes; integer milliseconds round-trip
+  /// without loss. Truncate to Int64 if the caller needs that.
+  public let mtime: Double?
   public let captured_at: String?
   public let camera: SearchAssetCamera?
   public let lens: String?
