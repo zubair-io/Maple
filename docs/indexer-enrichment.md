@@ -1,0 +1,452 @@
+# Indexer enrichment
+
+Status: design · last updated 2026-05-08
+
+This doc designs the **enrichment subsystem** that runs after the indexer's fast pipeline finishes. It covers the two-tier architecture, the per-asset state model, the geocode worker (self-hosted Nominatim against Geofabrik extracts), the search design (Albany NY / NY / Park / Musum), and the rollout plan.
+
+Companion doc: `docs/workers-architecture.md` (the existing fast pipeline this builds on top of).
+
+## TL;DR
+
+The current indexer is one linear pipeline that writes the asset row only at the end. It works for hash/exif/thumb but breaks for geocoding, face detection, and image descriptions: those stages are slow, depend on external services, and have wildly different latency profiles. Forcing them through the same chain means a 2-second thumb gates an LLM call that would have been 5 seconds and the user can't see their photo until everything finishes.
+
+The fix is **two-tier**:
+
+1. **Fast tier (existing pipeline, slightly shortened).** `discover → hash → exif → thumb → mongo-skeleton`. Writes a skeleton asset row as soon as the cheap stuff is known. The browse UI sees the photo within a second.
+2. **Slow tier (new enrichment workers).** Independent workers (`geocode`, `face`, `describe`) that each pull from Mongo, run their work, and patch the asset row. Each worker has its own pool, retry policy, and dead-letter handling. New worker types are additive — write a worker, deploy it, no pipeline changes.
+
+Per-stage state lives on the asset document (`enrichment.geocode.doneAt`, `enrichment.face.doneAt`, etc.), so backfills are queries (`find({ "enrichment.geocode.doneAt": null })`) and restarts pick up where they left off.
+
+For geocoding, **Maple is purely a Nominatim client**. The user already runs Nominatim as a separate service (on Proxmox in this case); Maple talks to it over HTTP via a single configurable URL. We keep a quantized lat/lon cache to dedupe the 90% case (clustered photos at one location), and store both the structured address and a denormalized `searchBlob` field. A Mongo text index on the blob covers the "Albany NY" / "NY" / "Park" cases. Typo tolerance ("Musum" → Museum) needs a Meilisearch sidecar, which is deferred to v2.
+
+## 1. Two-tier architecture
+
+### 1.1 Fast tier — what changes
+
+The existing pipeline keeps `discover → hash → exif → thumb`. The mongo stage changes from "write everything" to "write a skeleton."
+
+The skeleton has every field the browse UI needs to show the photo:
+
+```ts
+{
+  _id: ObjectId,
+  mapleId: string,
+  folderId: ObjectId,
+  absPath: string,
+  filename: string,
+  size: number,
+  mtime: number,
+  sha1Head: string,
+  exif: AssetExif | null,        // EXIF block from existing parser
+  thumb: { ready: true, path: string },
+
+  // Enrichment state — workers update these
+  enrichment: {
+    geocode:  { doneAt: null, lockedBy: null, leaseExpiresAt: null,
+                attempts: 0, lastError: null, version: null },
+    face:     { doneAt: null, lockedBy: null, leaseExpiresAt: null,
+                attempts: 0, lastError: null, version: null },
+    describe: { doneAt: null, lockedBy: null, leaseExpiresAt: null,
+                attempts: 0, lastError: null, version: null }
+  },
+
+  // Enrichment outputs (added later by workers)
+  place: null,        // see §4.4
+  faces: [],
+  description: null
+}
+```
+
+The fast pipeline's `runMongo` is the only stage that changes — instead of stuffing `faces`, `aiTags`, etc. into the upsert, it inserts the skeleton with empty enrichment state. The browse grid populates within ~200 ms of `exif` finishing instead of waiting through every external API call.
+
+### 1.2 Slow tier — worker shape
+
+Each enrichment worker is a small, independently deployable process that loops:
+
+```ts
+while (!shutdown) {
+  const job = await claim();           // findOneAndUpdate, see §3.1
+  if (!job) { await sleep(POLL_MS); continue; }
+  try {
+    const result = await process(job);
+    await complete(job, result);       // sets doneAt, writes outputs
+  } catch (err) {
+    await fail(job, err);              // increments attempts, may dead-letter
+  }
+}
+```
+
+The same shape works for `geocode`, `face`, and `describe`. Only `process()` differs.
+
+Workers are independent. A geocode worker can run on a tiny VM next to Nominatim. A face worker can run on a GPU box. A describe worker can run on a host with an LLM API key. None of them know about each other — they coordinate exclusively through the asset document.
+
+## 2. Per-stage state on the asset
+
+The `enrichment.<stage>` sub-document is the contract between the fast pipeline and a worker:
+
+| Field | Purpose |
+|-------|---------|
+| `doneAt` | ISO timestamp when the stage completed. `null` = pending. |
+| `lockedBy` | Worker id holding the claim. `null` = available. |
+| `leaseExpiresAt` | When the lock auto-releases. Crashed workers don't block forever. |
+| `attempts` | Retry count. Crossed `MAX_ATTEMPTS` → dead-letter. |
+| `lastError` | Last error message, for triage. |
+| `version` | Handler version that produced the output. Bumping it triggers re-runs (see §7.3). |
+
+This is the only state that needs to exist in Mongo for the architecture to work. The previous "linear pipeline + dead_letter collection" scheme moves *into* the asset document. The dead_letter collection stays for fast-tier failures (a hash that can't be computed is still a fast-tier dead letter), but slow-tier failures live on the asset.
+
+## 3. Worker mechanics
+
+### 3.1 Claim query (the `findOneAndUpdate` pattern)
+
+The geocode worker's claim query:
+
+```js
+db.assets.findOneAndUpdate(
+  {
+    "exif.gps.lat":            { $ne: null },
+    "exif.gps.lon":            { $ne: null },
+    "enrichment.geocode.doneAt": null,
+    $or: [
+      { "enrichment.geocode.lockedBy": null },
+      { "enrichment.geocode.leaseExpiresAt": { $lt: now } }   // expired lease
+    ]
+  },
+  {
+    $set: {
+      "enrichment.geocode.lockedBy": workerId,
+      "enrichment.geocode.leaseExpiresAt": now + LEASE_MS
+    }
+  },
+  { sort: { "exif.captured_at": -1 } }   // newest first; tunable
+)
+```
+
+This is atomic — Mongo guarantees only one worker wins a given claim. Lease expiry handles crashed workers. The compound index for the geocode worker is `{ "exif.gps.lat": 1, "enrichment.geocode.doneAt": 1, "enrichment.geocode.lockedBy": 1 }`; each worker type gets its own index tuned to its claim shape.
+
+### 3.2 Polling vs change streams
+
+Start with **polling at 1 Hz with batched claims** (claim up to N at a time, process them, repeat). Simple, no driver-level surprises, easy to reason about. Latency budget: ~1 second from `mongo-skeleton` write to first claim — fine for enrichment work that takes seconds anyway.
+
+Evolve to **change streams** when you have a measurable reason. Mongo's change streams give near-realtime "watch a query" semantics without polling overhead. The trade-off is operational complexity (resume tokens, change-stream cursor lifetime, etc.) and version coupling to the Mongo cluster. Defer until polling actually hurts.
+
+### 3.3 Lease and retry
+
+`LEASE_MS = 5 minutes` for geocode (network call, should be fast). `LEASE_MS = 30 minutes` for face (GPU model, can be slow). `LEASE_MS = 10 minutes` for describe (LLM call). Workers renew the lease if their work runs long.
+
+Retry on failure: increment `attempts`, set `leaseExpiresAt: now` so the lease releases immediately, leave `lockedBy: null`. Next claim picks it up after a backoff (the backoff happens because the worker's loop sleeps).
+
+`MAX_ATTEMPTS = 5`. After that, set `enrichment.<stage>.deadLetterAt = now`, leave `doneAt: null`. The claim query won't pick it up again because the worker can be configured to skip dead-letter rows.
+
+A separate "reset" admin operation can clear `deadLetterAt` and reset `attempts` to retry — useful when you fix a bug and want to re-process.
+
+### 3.4 Idempotency
+
+Every worker handler must be safe to re-run on the same asset. If `process()` partially writes outputs and then crashes, the next claim re-runs `process()` and the outputs get overwritten. This is fine for geocode (the result is deterministic given lat/lon), face (the result is deterministic given the thumbnail), and describe (the LLM may give a different caption, but the field gets overwritten cleanly).
+
+What's *not* safe is writing partial outputs across multiple Mongo updates. Each worker's `complete()` must be a single `updateOne` that sets the output and `doneAt` in one operation.
+
+## 4. Geocode worker (the detailed spec)
+
+### 4.1 Nominatim — external service
+
+Maple does not run Nominatim. The operator runs it separately (in this deployment: a VM on Proxmox, loaded from a Geofabrik extract sized to the user's photo coverage). Maple consumes it as an HTTP client.
+
+What Maple needs from the operator's instance:
+
+- A reachable URL on the local network (e.g. `http://nominatim.lan:8080`).
+- A reverse-geocode endpoint at `/reverse` supporting `addressdetails=1`, `extratags=1`, `namedetails=1`.
+- A health endpoint at `/status` (Nominatim's default).
+- A rate limit generous enough for backlog processing — 10–20 req/s is plenty; we self-throttle below that.
+
+Configuration on Maple's side is a single environment variable: `MAPLE_NOMINATIM_URL`. No credentials by default (private network); add a header-based auth shim if the operator fronts Nominatim with a reverse proxy.
+
+Decoupling Maple from Nominatim ops has real benefits:
+
+- Nominatim re-imports (monthly OSM updates) don't touch Maple at all.
+- Maple can swap providers (different self-hosted instance, public Nominatim with reduced rate, even a paid geocoder) by changing one URL.
+- Different installs can point at different Nominatim instances with different extract scopes — Maple doesn't care.
+- Nominatim crashes / reboots are isolated; the geocode worker dead-letters cleanly and resumes when service returns (see §4.5).
+
+Failure-domain implications are in §4.5 — the worker treats Nominatim as a remote dependency with timeouts, retries, and a startup health check.
+
+### 4.2 The geocode worker
+
+The worker config:
+
+```ts
+const GEOCODE_CONFIG = {
+  nominatimUrl: process.env.MAPLE_NOMINATIM_URL,  // required; fail-fast at boot if missing
+  requestTimeoutMs: 5_000,                        // remote service; tighter than localhost
+  rateLimitPerSec: 10,                            // respectful even on a private instance
+  cacheQuantizationDecimals: 4,                   // ~11m precision, see §4.3
+  handlerVersion: 1,
+};
+```
+
+On boot, the worker hits `${nominatimUrl}/status` once. If that fails, the process exits with a clear error rather than silently dead-lettering every claim. This is critical when Maple and Nominatim live on different hosts — a typo in the URL or a Proxmox VM that hasn't booted yet shouldn't look like a thousand geocode failures.
+
+`process(job)`:
+
+1. Read `job.exif.gps.lat`, `job.exif.gps.lon`. If either is null → `complete(job, { place: null, reason: "no-gps" })`. Done; no API call.
+2. Quantize lat/lon to `cacheQuantizationDecimals` precision and check the `geocode_cache` collection. If hit → use cached result.
+3. Otherwise, GET `${nominatimUrl}/reverse?lat=${lat}&lon=${lon}&format=jsonv2&addressdetails=1&extratags=1&namedetails=1&zoom=18`.
+4. Parse the response into the `Place` schema (see §4.4).
+5. Write to `geocode_cache` keyed by quantized coords.
+6. `complete(job, { place })` updates the asset.
+
+Rate-limiting: a token bucket per worker process. With one worker and `rateLimitPerSec: 10`, we'll hit ~36k geocodes/hour, which clears a 100k-photo library in under three hours assuming 70% cache-hit rate.
+
+### 4.3 The coordinate cache
+
+For a single trip, photos cluster geographically — 100 shots inside a museum all return the same address. The cache turns 100 API calls into 1.
+
+Quantization: round lat/lon to `N` decimals before keying.
+
+| Decimals | Precision | Notes |
+|----------|-----------|-------|
+| 3 | ~111 m | Coarse — groups a city block. Risk: misses neighboring POIs. |
+| **4** | **~11 m** | **Default. Same building usually shares a key.** |
+| 5 | ~1.1 m | Almost no dedup; basically no cache. |
+
+The cache document:
+
+```ts
+{
+  _id: "lat:42.6526,lon:-73.7562",       // quantized coords
+  place: { ... },                         // parsed Place (see §4.4)
+  fetchedAt: ISODate,
+  geocoderVersion: 1
+}
+```
+
+TTL: indefinite. OSM addresses don't change often. Cache invalidation = bump `geocoderVersion`, cache entries with stale version are ignored.
+
+### 4.4 The `Place` schema
+
+This is what gets stored on `asset.place`:
+
+```ts
+interface Place {
+  // Provenance
+  source: "nominatim";          // future: "google", "azure", etc.
+  geocoderVersion: number;      // see §7.3
+  geocodedAt: ISODate;
+
+  // Raw lat/lon (so we can re-geocode later if needed)
+  lat: number;
+  lon: number;
+
+  // Nominatim's canonical name
+  // e.g. "New York State Museum, 222, Madison Avenue, Albany, ..."
+  displayName: string;
+
+  // Structured components
+  address: {
+    houseNumber?: string;
+    road?: string;
+    neighbourhood?: string;
+    suburb?: string;
+    city?: string;             // "Albany"
+    town?: string;
+    village?: string;
+    county?: string;           // "Albany County"
+    state?: string;            // "New York"
+    stateCode?: string;        // "NY" (parsed from ISO3166-2-lvl4)
+    postcode?: string;
+    country?: string;          // "United States"
+    countryCode?: string;      // "us"
+  };
+
+  // POIs at this location (extracted from amenity/tourism/leisure/historic/natural)
+  pois: Array<{
+    name: string;              // "New York State Museum"
+    category: string;          // "tourism"
+    type: string;              // "museum"
+  }>;
+
+  // Coarse rollups for browsing/grouping
+  rollups: {
+    locality: string | null;   // city ?? town ?? village
+    region: string | null;     // state
+    countryCode: string | null;
+  };
+
+  // Denormalized text for full-text search (see §5)
+  searchBlob: string;
+}
+```
+
+### 4.5 Failure modes
+
+- **No GPS.** Job completes with `place: null`. Not a failure. The asset just has no place data; the search index won't find it geographically.
+- **Nominatim down or unreachable.** Network error or 5xx from the remote service. Worker retries with backoff via the lease + retry mechanism. After `MAX_ATTEMPTS` → dead-letter. Operator can bulk-reset (§7.2) once Nominatim is back. Because Nominatim runs in a different failure domain (different host, different reboot schedule), it's worth adding a circuit breaker — pause the worker for N minutes after K consecutive 5xx/timeout failures so an outage doesn't burn through every pending asset's retry budget. The startup health check (§4.2) catches the configuration-error case where the URL is just wrong.
+- **Nominatim slow.** Cold-cache reverse queries on a freshly-imported instance can take seconds. The 5s `requestTimeoutMs` is forgiving but not unlimited; tune up if your instance regularly exceeds it.
+- **Coordinates over open ocean / Antarctica / etc.** Nominatim returns 200 with `error: "Unable to geocode"`. Worker treats as "geocoded but unresolvable" — `place: { lat, lon, source: "nominatim", displayName: null, address: {} }`. The asset gets a place stub so we don't keep retrying, but the search blob is empty.
+- **Malformed lat/lon in EXIF.** Validate at claim time; mark as `place: null` with reason.
+
+## 5. Search design
+
+### 5.1 What we want
+
+| Query | Should match |
+|-------|--------------|
+| `Albany NY` | Photos in Albany, NY |
+| `NY` | All photos in New York state |
+| `Park` | Photos at Central Park, Battery Park, parks of any kind |
+| `Musum` | (typo) Photos at museums |
+
+The first three are **exact / prefix matching on words**. The fourth needs **fuzzy / typo tolerance**. We solve the first three in v1 with Mongo text indexes and a denormalized search blob; we defer the fourth to a Meilisearch sidecar.
+
+### 5.2 The denormalized `searchBlob`
+
+When the geocode worker writes `asset.place`, it also computes `place.searchBlob`: a single space-separated string containing every word a search should match. Example for the museum case:
+
+```
+New York State Museum 222 Madison Avenue Albany Albany County
+New York NY United States US 12230 museum tourism
+```
+
+Construction rules:
+
+- All non-empty `address.*` values, lowercased and joined.
+- The `stateCode` (`NY`), so a search for "NY" matches.
+- POI names *and* their `type` (`museum`, `park`), so a search for "Park" matches "Central Park" *and* generic park photos, and a search for "Museum" matches museum photos by category.
+- Both full and abbreviated country names if available (`United States` and `US`).
+
+This blob lives on the asset (denormalized from `place.address` and `place.pois`) so the text index can sit on the asset collection directly. It's a few hundred bytes per asset — cheap.
+
+### 5.3 Mongo text index
+
+```js
+db.assets.createIndex({ "place.searchBlob": "text" }, { default_language: "english" })
+```
+
+Then:
+
+```js
+db.assets.find({ $text: { $search: "Albany NY" } })
+// Matches assets whose searchBlob contains BOTH "Albany" AND "NY" — exactly what we want.
+
+db.assets.find({ $text: { $search: "NY" } })
+// Matches every asset with "NY" in the blob.
+
+db.assets.find({ $text: { $search: "Park" } })
+// Matches "Central Park", "Battery Park", and any asset tagged with park POIs.
+```
+
+For ranking, use Mongo's text score (`$meta: "textScore"`) and combine with capture date as a secondary sort.
+
+### 5.4 Faceted browse (orthogonal to search)
+
+For "browse by location" (the hierarchical UI: country → state → city), separate compound indexes serve:
+
+```js
+db.assets.createIndex({ "place.rollups.countryCode": 1, "place.rollups.region": 1, "place.rollups.locality": 1 })
+```
+
+Aggregation pipelines (`$group` on `rollups.region`, count) populate the browse tree. This is independent of the text search and can ship simultaneously.
+
+### 5.5 Deferred: typo tolerance via Meilisearch
+
+For "Musum" to match "museum", we need typo-tolerant search. Mongo text indexes can't do this. Options:
+
+1. **Meilisearch sidecar** (~20MB single binary, very fast, typo-tolerant by default). The geocode worker pushes `{ assetId, searchBlob }` to Meilisearch on completion. The search route queries Meilisearch first to get asset ids, then fetches the assets from Mongo. **Recommended for v2.**
+2. **Atlas Search** — has fuzzy operators but locks Maple Self Hosted into Atlas. Reject.
+3. **Postgres trigram (`pg_trgm`)** — they're already running Postgres for Nominatim. Could double-up. Couples search to the geocoding service though, and is slower than Meilisearch.
+
+V1 ships without typo tolerance. The first time a user types "Musum" and gets nothing, it's a small UX hit — acceptable for the launch.
+
+## 6. Face and describe workers (sketch)
+
+Same worker shape as geocode (§3). What changes:
+
+**Face worker.**
+- Claim query: `{ "thumb.ready": true, "enrichment.face.doneAt": null, ... }`.
+- `process()`: open the thumbnail file, run RetinaFace + MobileFaceNet via ONNX (the `AiFace` shape in `pipeline.ts` is already the target), write `asset.faces = [...]`.
+- Pool size: 1-2 (CPU-bound, expensive). 1 if you also want to run on a GPU box.
+- Lease: 30 min.
+
+**Describe worker.**
+- Claim query: `{ "thumb.ready": true, "enrichment.describe.doneAt": null, ... }`.
+- `process()`: open the thumbnail, send to your LLM provider, store the caption as `asset.description`.
+- Pool size: 4-8 (network-bound, but rate-limited by API key).
+- Lease: 10 min.
+- Budget concern: every describe call costs money. Add a per-day cap that pauses the worker when crossed.
+
+Both workers slot in without touching the geocode worker, the fast pipeline, or each other.
+
+## 7. Operations
+
+### 7.1 Status surface
+
+The existing indexer status route gets per-worker fields:
+
+```json
+{
+  "fastPipeline": { /* existing pipeline status */ },
+  "enrichment": {
+    "geocode":  { workerId, claimsInFlight, completedSinceBoot, deadLetterCount,
+                  oldestPendingAge, lastError },
+    "face":     { ... },
+    "describe": { ... }
+  }
+}
+```
+
+Backfill counts: `db.assets.countDocuments({ "enrichment.geocode.doneAt": null, "exif.gps.lat": { $ne: null } })` — how many photos are still waiting to be geocoded.
+
+### 7.2 Dead-letter inspection
+
+A `GET /api/admin/dead-letter?stage=geocode&limit=50` route returns the last 50 dead-lettered geocode jobs with their `lastError`. Operator can `POST /api/admin/dead-letter/reset?stage=geocode&assetId=...` (or `/reset-all?stage=geocode`) to clear the dead-letter and re-claim.
+
+This is the prerequisite mentioned in `workers-architecture.md` §11 — must ship before external-dependency stages do.
+
+### 7.3 Versioned re-runs
+
+Each handler has a `version: number`. When you fix a parser bug or upgrade the AI model, bump the version and run:
+
+```js
+db.assets.updateMany(
+  { "enrichment.geocode.version": { $lt: 2 } },
+  { $set: { "enrichment.geocode.doneAt": null, "enrichment.geocode.attempts": 0 } }
+)
+```
+
+The worker picks up the affected assets on its next claim. No batch infrastructure needed.
+
+## 8. Implementation plan
+
+Phased so each phase is shippable and the user gets value before the next phase lands.
+
+**Phase 1 — skeleton upsert.** Modify `runMongo` in the existing pipeline to write the skeleton schema. Add `enrichment` subdocument with all stages set to pending. Browse UI starts showing photos faster. No new workers yet. ~1 day.
+
+**Phase 2 — geocode worker.** Wire the worker to the existing Nominatim instance via `MAPLE_NOMINATIM_URL`. Build the worker loop, startup health check, coordinate cache, `Place` schema, and the rate-limit / circuit-breaker controls. Deploy. Backfill existing assets. ~3-4 days (Nominatim already runs on Proxmox; Maple is just a client).
+
+**Phase 3 — search.** Add `place.searchBlob` denormalization, the text index, the search route. Faceted browse indexes. ~2 days.
+
+**Phase 4 — dead-letter inspection + admin routes.** ~1 day. Should land before phase 5.
+
+**Phase 5 — face worker.** Pulls in ONNX + RetinaFace/MobileFaceNet. Independent of everything above. ~3-5 days for first cut.
+
+**Phase 6 — describe worker.** LLM provider integration. Rate limit + cost cap. ~2-3 days.
+
+**Phase 7 — Meilisearch for typo tolerance.** Sidecar, sync from geocode worker, search route fans out. ~2-3 days.
+
+Total: ~3-4 weeks of focused work, deliverable in ~7 useful checkpoints.
+
+## 9. Open questions
+
+- **Polling rate.** Default 1 Hz feels right; revisit if first-paint enrichment lag is noticeable.
+- **In-process vs out-of-process workers.** Phase 2 can be in-process (same Bun runtime as the API). Phase 5 (face) probably wants its own process for GPU access. The architecture supports both — no decision needed up front.
+- **Fallback to public Nominatim if the private instance is unreachable?** Tempting (resilience) but the public Nominatim service has a 1 req/s rate-limit ToS — we'd violate it instantly while processing a backlog. Recommend NO fallback; dead-letter cleanly and surface the outage to the operator instead.
+- **Should the worker live on the same host as Maple's API or near Nominatim?** Either works. Same-host is operationally simpler and the per-call latency is fine (LAN to Proxmox is ~1 ms). Co-locating with Nominatim only helps if you also move the asset-doc reads/writes there, which we don't want.
+- **Meilisearch index size.** ~1KB per asset is generous; 100k assets = 100MB. Fine.
+- **What gets deleted when an asset is removed?** The `place` data is on the asset doc, so it goes with the soft-delete. The cache row in `geocode_cache` survives — that's correct (other assets may reuse it). The Meilisearch entry needs explicit deletion — the soft-delete path in `runMongo` should also enqueue a Meilisearch tombstone.
+
+## 10. References
+
+- Existing fast pipeline: `docs/workers-architecture.md`, `src/api/src/indexer/pipeline.ts`.
+- Nominatim docs: https://nominatim.org/release-docs/latest/
+- Geofabrik downloads: https://download.geofabrik.de/
+- Meilisearch (deferred to phase 7): https://www.meilisearch.com/

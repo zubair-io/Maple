@@ -1,16 +1,16 @@
 // ImageSource.swift — unified source protocol per spec § 09.
 //
 // Four concrete implementations (FilesystemSource, SMBSource, PhotoKitSource,
-// SelfHostedSource) share this surface so the Browse and EditSession layers
+// CloudSource) share this surface so the Browse and EditSession layers
 // can treat any photo origin uniformly. A fifth type, ComposedSource, pairs a
-// metadata source (typically SelfHostedSource) with a bytes source (SMB on the
+// metadata source (typically CloudSource) with a bytes source (SMB on the
 // LAN) — see ComposedSource.swift.
 //
 // Notes:
 //   - Every concrete source is an `actor` so the protocol inherits `Actor`.
 //     Method calls are implicitly `async` from the outside.
 //   - `search(_:)` returns `nil` for sources that can't search (filesystem-
-//     level ones). Only SelfHostedSource ever returns `.some`.
+//     level ones). Server-backed sources may return `.some`.
 //   - `Sidecar` is a thin bundling of `(AdjustmentModel, CullingState)` — the
 //     same pair XMPSidecarStore already reads and writes — so we don't
 //     introduce a parallel schema.
@@ -111,7 +111,7 @@ public protocol ImageSource: Actor {
     func rawBytes(for ref: ImageRef) async throws -> Data
 
     /// Persist a sidecar. Atomic on file sources (temp + rename); an API
-    /// PUT on SelfHostedSource. Throws if the source is read-only.
+    /// PUT on CloudSource. Throws if the source is read-only.
     func writeXMP(_ sidecar: Sidecar, for ref: ImageRef) async throws
 
     /// Structured/full-text search. Returns `nil` when the source cannot

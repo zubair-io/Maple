@@ -69,3 +69,7 @@ playwright-report/
 __pycache__/
 *.pyc
 .env
+
+# Build-stamp markers from build-xcframework.sh — regenerated on every build.
+src/apple/Frameworks/.xcframework-stamp.*
+

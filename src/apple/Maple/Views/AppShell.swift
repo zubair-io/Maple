@@ -55,6 +55,15 @@ struct AppShell: View {
     // Sidebar selection (single active row across the whole tree).
     @State private var librarySelection: LibrarySelection = .none
 
+    /// Absolute path inside the currently-open cloud library. Equal to
+    /// the library's root path immediately after picking, then bumped
+    /// by `navigateFolder` when the user drills into a subfolder. The
+    /// sidebar reads this to (a) auto-expand the ancestor chain on
+    /// cold start and (b) highlight the matching tree row. Persisted
+    /// via `SourceSelection.cloudLibrary` so cold-start restores the
+    /// deep path the user left off at.
+    @State private var cloudCurrentPath: String? = nil
+
     // Sheet state.
     @State private var showSMBSheet = false
     /// Single AddMapleCloudSheet entry point. `nil` means hidden;
@@ -76,6 +85,54 @@ struct AppShell: View {
     // Session-scoped only; no UserDefaults persistence by design (see the
     // toolbar button below).
     @State private var browseDisplayMode: GridDisplayMode = .fill
+
+    #if os(iOS)
+    /// Whether the Info detail-panel sheet is up on iPhone. The macOS /
+    /// iPad shell shows DetailPanel as a permanent right-hand column;
+    /// iPhone surfaces the same panel via a trailing-toolbar button
+    /// → modal sheet so the main content can stay full-width.
+    @State private var iPhoneInfoSheet: Bool = false
+
+    /// iPhone drawer state — Notion-Mail-style left-side overlay menu.
+    /// `isDrawerOpen` is the snapped state (open / closed); `dragOffset`
+    /// is the in-flight finger translation that lets the drawer track
+    /// the user's finger during a swipe. We snap on gesture-end based
+    /// on translation distance OR velocity (whichever fires first), so
+    /// fast flicks open/close even with small visible travel.
+    @State private var isDrawerOpen: Bool = false
+    @State private var dragOffset: CGFloat = 0
+
+    /// Honor the user's reduce-motion preference — swap the spring
+    /// slide for an instant snap when the system is set to that mode.
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    /// Drawer geometry. 280pt is wide enough to fit the longest folder
+    /// names in the LibrarySidebar tree without truncation, narrow
+    /// enough that ~70pt of the underlying browse grid still peeks
+    /// through on a 6.1" iPhone.
+    private static let drawerWidth: CGFloat = 280
+    /// Left-edge horizontal slab where the open-drawer drag gesture
+    /// activates. 20pt matches Apple's NavigationStack swipe-back zone.
+    private static let edgeActivationZone: CGFloat = 20
+    #endif
+
+    /// Set when the user selects a cloud library in Timeline view mode;
+    /// when non-nil the center column renders CloudTimelineView instead
+    /// of BrowseGrid. Cleared on every other selection so we don't ghost-
+    /// render across mode changes.
+    @State private var cloudTimelineVM: CloudTimelineViewModel?
+
+    /// Thumb client + cache for the active cloud timeline. Constructed
+    /// once in `loadCloudLibrary` alongside `cloudTimelineVM` and reused
+    /// for the whole lifetime of that VM. Previously these were rebuilt
+    /// per render inside the SwiftUI body, which constructed a fresh
+    /// `AuthenticatedHTTPClient` actor each time and defeated its
+    /// 401-refresh coalescer — under load N parallel cells would each
+    /// fire `/api/auth/refresh`, all but one would fail (refresh tokens
+    /// are single-use server-side), and the user would get force-signed
+    /// out.
+    @State private var cloudTimelineThumbClient: CloudThumbClient?
+    @State private var cloudTimelineThumbCache: CloudThumbCache?
 
     // The root bookmark for the currently-open folder tree — used to claim
     // security scope when the user clicks a sub-folder cell inside the grid.
@@ -133,18 +190,29 @@ struct AppShell: View {
                 onSignedIn: { url, tokens, _ in
                     Task { @MainActor in
                         try? TokenStore.save(tokens, server: url)
-                        try? await SelfHostedCredentialStore.shared
-                            .setToken(tokens.access, forServerURL: url)
+                        CloudServerRegistry.shared.register(url)
                         // Refresh the per-server AuthSession cache so the
                         // sidebar sees the user as signed in immediately.
                         let session = sessionFor(url)
                         await session.bootstrapAndRestore()
                         addCloudSheetTarget = nil
-                        // Auto-load the newly-paired server.
-                        connectSavedSelfHosted(url)
                     }
                 }
             )
+        }
+        .onChange(of: librarySelection) { _, newValue in
+            // Cloud-current-path + Timeline VM are both only meaningful
+            // while a cloud library is selected. Drop both on any
+            // non-cloud selection so the sidebar tree's auto-expand /
+            // highlight + the center column's Timeline don't ghost
+            // across mode changes.
+            if case .cloudLibrary = newValue { /* keep */ }
+            else {
+                cloudCurrentPath = nil
+                cloudTimelineVM = nil
+                cloudTimelineThumbClient = nil
+                cloudTimelineThumbCache = nil
+            }
         }
         .task {
             #if DEBUG
@@ -188,10 +256,38 @@ struct AppShell: View {
                 onRequestPhotosAccess: { requestPhotosAccess() },
                 onAddSMB: { showSMBSheet = true },
                 onPickSMB: { share in connectSavedSMB(share) },
-                onAddSelfHosted: {
+                onAddCloudServer: {
                     addCloudSheetTarget = .fresh
                 },
-                onPickSelfHosted: { url in connectSavedSelfHosted(url) }
+                onPickCloudLibrary: { serverID, folderID, libraryPath in
+                    loadCloudLibrary(serverID: serverID, folderID: folderID, libraryPath: libraryPath)
+                },
+                onListCloudDir: { url, absPath in
+                    await listCloudDirFor(server: url, absPath: absPath)
+                },
+                cloudCurrentPath: cloudCurrentPath,
+                onSignOutCloudServer: { url in
+                    Task { @MainActor in
+                        // Sign out keeps the server in the sidebar but
+                        // invalidates its tokens. The user can sign back
+                        // in by clicking the row (which falls through to
+                        // the prefilled AddMapleCloudSheet via the no-
+                        // credentials path in loadCloudLibrary).
+                        let session = sessionFor(url)
+                        await session.signOut()
+                    }
+                },
+                onRemoveCloudServer: { url in
+                    Task { @MainActor in
+                        // Remove drops tokens AND the registry entry.
+                        let session = sessionFor(url)
+                        await session.signOut()
+                        CloudServerRegistry.shared.remove(url)
+                    }
+                },
+                onLoadCloudFolders: { url in
+                    await loadCloudFoldersFor(url)
+                }
             )
             .navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 280)
         } content: {
@@ -202,15 +298,27 @@ struct AppShell: View {
             Group {
                 switch mode {
                 case .browse:
-                    BrowseGrid(
-                        vm: browseVM,
-                        sessions: $sessions,
-                        displayMode: $browseDisplayMode,
-                        onGrantPhotosAccess: { grantPhotosAccessAndLoad() },
-                        onNavigateFolder: { url in navigateFolder(url) },
-                        onOpenEditor: { asset in openEditor(for: asset) },
-                        onPrimeSession: { asset in ensureSession(for: asset) }
-                    )
+                    if let vm = cloudTimelineVM,
+                       let thumbClient = cloudTimelineThumbClient,
+                       let thumbCache = cloudTimelineThumbCache {
+                        CloudTimelineView(
+                            vm: vm,
+                            thumbClient: thumbClient,
+                            thumbCache: thumbCache,
+                            displayMode: browseDisplayMode,
+                            onSelectAsset: { asset in openCloudAsset(asset, server: vm.server) }
+                        )
+                    } else {
+                        BrowseGrid(
+                            vm: browseVM,
+                            sessions: $sessions,
+                            displayMode: $browseDisplayMode,
+                            onGrantPhotosAccess: { grantPhotosAccessAndLoad() },
+                            onNavigateFolder: { url in navigateFolder(url) },
+                            onOpenEditor: { asset in openEditor(for: asset) },
+                            onPrimeSession: { asset in ensureSession(for: asset) }
+                        )
+                    }
                 case .fullImage:
                     if let session = selectedSession {
                         FullImageView(session: session)
@@ -243,45 +351,301 @@ struct AppShell: View {
         .navigationSplitViewStyle(.balanced)
     }
 
-    // MARK: - iPhone (TabView)
+    // MARK: - iPhone (compact ZStack drawer)
 
+    #if os(iOS)
+    /// iPhone shell. Browse is the base layer; the LibrarySidebar slides
+    /// in from the left as an overlay drawer (Notion-Mail-style),
+    /// summoned via the leading hamburger button OR a left-edge swipe.
+    /// Dismiss via tap-outside (dim overlay), drag-back, or selecting a
+    /// row. Info detail still uses .sheet with detents — same as before.
+    /// Edit is a mode swap (FullImageView replaces BrowseGrid in the
+    /// base layer); the drawer is unreachable from the viewer (open
+    /// question 5 in the design doc) so gestures stay unambiguous.
     private var adaptiveShell: some View {
-        TabView {
-            NavigationStack {
-                BrowseGrid(
-                    vm: browseVM,
-                    sessions: $sessions,
-                    displayMode: $browseDisplayMode,
-                    onGrantPhotosAccess: { grantPhotosAccessAndLoad() },
-                    onNavigateFolder: { url in navigateFolder(url) },
-                    onOpenEditor: { asset in openEditor(for: asset) }
-                )
-                .navigationTitle("Library — \(libraryTitle)")
-                .toolbar { browseToolbar }
-            }
-            .tabItem { Label("Browse", systemImage: "photo.on.rectangle") }
+        GeometryReader { _ in
+            ZStack(alignment: .leading) {
+                // Base — the actual content of the app. Wrapped in a
+                // NavigationStack so navigationTitle + toolbar work.
+                NavigationStack {
+                    iPhoneMain
+                }
+                .accentColor(MapleTokens.primary)
+                // Block taps to the base when the drawer is open so a
+                // mis-aimed tap behind the drawer doesn't trigger
+                // background actions.
+                .disabled(isDrawerOpen)
 
+                // Dim overlay — fades in proportional to drawer
+                // position. Tap to close. Hidden when drawer is closed
+                // so it doesn't intercept taps on the base layer.
+                if drawerProgress > 0.001 {
+                    Color.black
+                        .opacity(0.45 * drawerProgress)
+                        .ignoresSafeArea()
+                        .onTapGesture { closeDrawer() }
+                        .accessibilityHidden(true)
+                }
+
+                // The drawer itself. LibrarySidebar paints its own
+                // bg (MapleTokens.sidebar), so no extra background
+                // needed here.
+                iPhoneSidebar
+                    .frame(width: AppShell.drawerWidth)
+                    .frame(maxHeight: .infinity)
+                    .offset(x: drawerXOffset)
+                    .gesture(drawerCloseDragGesture)
+            }
+            // Edge-swipe to open. Only fires from the leftmost 20pt
+            // and only when the drawer is closed AND we're in browse
+            // mode — keeps gestures unambiguous w.r.t. the viewer's
+            // own swipe handling.
+            //
+            // `.simultaneousGesture` (NOT `.gesture`) so the recognizer
+            // doesn't pre-empt normal horizontal scrolls in child
+            // views (the grid, the FullImage filmstrip) when the drag
+            // starts outside the edge zone. The gesture's onChanged /
+            // onEnded already short-circuit when the start location is
+            // past `edgeActivationZone`, so attaching simultaneously
+            // means rejected drags fall through to whichever child
+            // gesture wants them.
+            .simultaneousGesture(edgeOpenDragGesture)
+        }
+        .ignoresSafeArea(.keyboard)
+        .sheet(isPresented: $iPhoneInfoSheet) {
             NavigationStack {
-                Group {
-                    if let session = selectedSession {
-                        FullImageView(session: session)
-                            .navigationTitle(session.asset.displayName)
-                    } else {
-                        fullImagePlaceholder
-                            .navigationTitle("Edit")
+                DetailPanel(session: selectedSession, isFullImage: mode == .fullImage)
+                    .navigationTitle("Info")
+                    .toolbar {
+                        ToolbarItem(placement: .topBarTrailing) {
+                            Button("Done") { iPhoneInfoSheet = false }
+                        }
                     }
+            }
+            .presentationDetents([.medium, .large])
+        }
+    }
+
+    // MARK: drawer math
+
+    /// X-translation applied to the drawer view. 0 = fully visible
+    /// against the left edge; -drawerWidth = fully off-screen. The
+    /// in-flight `dragOffset` is added on top of the snapped state,
+    /// clamped so the user can't drag past either end.
+    private var drawerXOffset: CGFloat {
+        if isDrawerOpen {
+            // Open — only allow leftward drag (negative). Right-drag
+            // is a no-op since the drawer is already fully visible.
+            return min(0, dragOffset)
+        } else {
+            // Closed — only allow rightward drag (positive), capped at
+            // drawerWidth so the open animation doesn't overshoot.
+            return -AppShell.drawerWidth + max(0, min(AppShell.drawerWidth, dragOffset))
+        }
+    }
+
+    /// 0 when the drawer is fully off-screen, 1 when fully visible.
+    /// Drives the dim-overlay opacity so the dim fades in/out smoothly
+    /// alongside the slide.
+    private var drawerProgress: CGFloat {
+        let visible = AppShell.drawerWidth + drawerXOffset
+        return max(0, min(1, visible / AppShell.drawerWidth))
+    }
+
+    // MARK: drawer gestures
+
+    /// Drag gesture on the drawer itself — used to drag the open
+    /// drawer back closed. Snaps closed if translation crosses 1/3
+    /// width OR velocity goes leftward fast (>300pt/s).
+    private var drawerCloseDragGesture: some Gesture {
+        DragGesture()
+            .onChanged { value in
+                guard isDrawerOpen else { return }
+                dragOffset = value.translation.width
+            }
+            .onEnded { value in
+                guard isDrawerOpen else {
+                    snapDragOffset()
+                    return
+                }
+                let translation = value.translation.width
+                let velocity = value.predictedEndTranslation.width
+                if translation < -AppShell.drawerWidth / 3 || velocity < -200 {
+                    closeDrawer()
+                } else {
+                    snapDragOffset()
                 }
             }
-            .tabItem { Label("Edit", systemImage: "slider.horizontal.3") }
-
-            NavigationStack {
-                DetailPanel(session: selectedSession)
-                    .navigationTitle("Info")
-            }
-            .tabItem { Label("Info", systemImage: "info.circle") }
-        }
-        .accentColor(MapleTokens.primary)
     }
+
+    /// Drag gesture on the root ZStack — opens the drawer when the
+    /// user starts dragging from the left edge. Confined to the leftmost
+    /// `edgeActivationZone` AND to browse mode so we don't conflict
+    /// with the viewer's own gestures or the grid's horizontal scroll.
+    private var edgeOpenDragGesture: some Gesture {
+        DragGesture(minimumDistance: 8)
+            .onChanged { value in
+                guard !isDrawerOpen,
+                      mode == .browse,
+                      value.startLocation.x < AppShell.edgeActivationZone else { return }
+                dragOffset = max(0, value.translation.width)
+            }
+            .onEnded { value in
+                guard !isDrawerOpen,
+                      mode == .browse,
+                      value.startLocation.x < AppShell.edgeActivationZone else {
+                    snapDragOffset()
+                    return
+                }
+                let translation = value.translation.width
+                let velocity = value.predictedEndTranslation.width
+                if translation > AppShell.drawerWidth / 3 || velocity > 200 {
+                    openDrawer()
+                } else {
+                    snapDragOffset()
+                }
+            }
+    }
+
+    // MARK: drawer actions
+
+    private func openDrawer() {
+        runAnimated {
+            isDrawerOpen = true
+            dragOffset = 0
+        }
+    }
+
+    private func closeDrawer() {
+        runAnimated {
+            isDrawerOpen = false
+            dragOffset = 0
+        }
+    }
+
+    /// Used after a drag-end that didn't cross the snap threshold —
+    /// returns the drawer to its pre-drag snapped state.
+    private func snapDragOffset() {
+        runAnimated { dragOffset = 0 }
+    }
+
+    /// Runs the closure inside a spring animation, OR instantly if the
+    /// user has reduce-motion enabled. The spring matches the timing
+    /// the design doc calls out (response 0.3 / damping 0.85).
+    private func runAnimated(_ work: () -> Void) {
+        if reduceMotion {
+            work()
+        } else {
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.85), work)
+        }
+    }
+
+    @ViewBuilder
+    private var iPhoneSidebar: some View {
+        // Drawer-stay-open by design: the user wants to drill down a
+        // cloud folder tree and toggle expand/collapse without the
+        // drawer collapsing on every selection. Selection still updates
+        // the underlying browse grid; the user closes the drawer
+        // manually via tap-on-dim or drag-back when ready to look at it.
+        LibrarySidebar(
+            selection: $librarySelection,
+            onAddFolder: { showFilePicker = true },
+            onPickFolder: { folder in openSavedFolder(folder) },
+            onRemoveFolder: { folder in SavedFolderStore.remove(path: folder.path) },
+            onPickAncestor: { url, bookmark in
+                openSubFolder(url: url, rootBookmark: bookmark)
+            },
+            onPickPhotosFilter: { filter in loadPhotos(filter: filter) },
+            onRequestPhotosAccess: { requestPhotosAccess() },
+            onAddSMB: { showSMBSheet = true },
+            onPickSMB: { share in connectSavedSMB(share) },
+            onAddCloudServer: { addCloudSheetTarget = .fresh },
+            onPickCloudLibrary: { serverID, folderID, libraryPath in
+                loadCloudLibrary(serverID: serverID, folderID: folderID, libraryPath: libraryPath)
+            },
+            onListCloudDir: { url, absPath in
+                await listCloudDirFor(server: url, absPath: absPath)
+            },
+            cloudCurrentPath: cloudCurrentPath,
+            onSignOutCloudServer: { url in
+                Task { @MainActor in
+                    let session = sessionFor(url)
+                    await session.signOut()
+                }
+            },
+            onRemoveCloudServer: { url in
+                Task { @MainActor in
+                    let session = sessionFor(url)
+                    await session.signOut()
+                    CloudServerRegistry.shared.remove(url)
+                }
+            },
+            onLoadCloudFolders: { url in
+                await loadCloudFoldersFor(url)
+            }
+        )
+    }
+
+    @ViewBuilder
+    private var iPhoneMain: some View {
+        Group {
+            switch mode {
+            case .browse:
+                if let vm = cloudTimelineVM,
+                   let thumbClient = cloudTimelineThumbClient,
+                   let thumbCache = cloudTimelineThumbCache {
+                    CloudTimelineView(
+                        vm: vm,
+                        thumbClient: thumbClient,
+                        thumbCache: thumbCache,
+                        displayMode: browseDisplayMode,
+                        onSelectAsset: { asset in openCloudAsset(asset, server: vm.server) }
+                    )
+                } else {
+                    BrowseGrid(
+                        vm: browseVM,
+                        sessions: $sessions,
+                        displayMode: $browseDisplayMode,
+                        onGrantPhotosAccess: { grantPhotosAccessAndLoad() },
+                        onNavigateFolder: { url in navigateFolder(url) },
+                        onOpenEditor: { asset in openEditor(for: asset) },
+                        onPrimeSession: { asset in ensureSession(for: asset) }
+                    )
+                }
+            case .fullImage:
+                if let session = selectedSession {
+                    FullImageView(session: session)
+                } else {
+                    Color.clear.onAppear { mode = .browse }
+                }
+            }
+        }
+        .navigationTitle(mode == .fullImage
+                         ? (selectedSession?.asset.displayName ?? "Image")
+                         : libraryTitle)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            // Hamburger only meaningful in browse mode (per open
+            // question 5: drawer unreachable from viewer).
+            if mode == .browse {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button { openDrawer() } label: {
+                        Image(systemName: "line.3.horizontal")
+                            .font(.system(size: 17, weight: .semibold))
+                    }
+                    .accessibilityLabel("Library")
+                }
+            }
+            browseToolbar
+            ToolbarItem(placement: .topBarTrailing) {
+                Button { iPhoneInfoSheet = true } label: {
+                    Image(systemName: "info.circle")
+                }
+                .accessibilityLabel("Info")
+            }
+        }
+    }
+    #endif
 
     // MARK: - Toolbar
 
@@ -433,6 +797,27 @@ struct AppShell: View {
     /// scope.
     @MainActor
     private func navigateFolder(_ url: URL) {
+        // Cloud-library context: drill into the subfolder via /api/fs/dir
+        // instead of the filesystem-bookmark path. URL.path carries the
+        // server-side absolute path. We don't update LibrarySelection
+        // because the drilled-in path is browser state, not a sidebar
+        // selection — the user is still on the same library row.
+        if case .cloudLibrary(let serverID, let folderID) = librarySelection,
+           let source = browseVM.currentSource as? CloudSource {
+            cloudCurrentPath = url.path
+            // Persist the drilled-in path so cold start restores at the
+            // current depth (and the sidebar auto-expands the ancestor
+            // chain to match).
+            SourceSelectionStore.save(.cloudLibrary(serverID: serverID,
+                                                    folderID: folderID,
+                                                    libraryPath: url.path))
+            Task { @MainActor in
+                await browseVM.loadCloudDir(source, absPath: url.path)
+                libraryTitle = url.lastPathComponent
+            }
+            return
+        }
+
         guard let bookmark = currentRootBookmark else {
             // Fall back to a plain loadFolder — works for folders inside the
             // user's security-scope, fails silently for sandboxed reads.
@@ -669,65 +1054,226 @@ struct AppShell: View {
         }
     }
 
-    // MARK: - Self Hosted
+    // MARK: - Maple Cloud
 
     @MainActor
-    private func connectSelfHosted(baseURL: URL, token: String?) {
-        Task { @MainActor in
-            if let token {
-                try? await SelfHostedCredentialStore.shared.setToken(token, forServerURL: baseURL)
-            }
+    private func makeAuthenticatedHTTPClient(server: URL) -> AuthenticatedHTTPClient {
+        AuthenticatedHTTPClient(
+            server: server,
+            urlSession: .shared,
+            tokensProvider: { try? TokenStore.load(server: server) },
+            onTokensRefreshed: { try? TokenStore.save($0, server: server) },
+            onSignOut: { TokenStore.clear(server: server) }
+        )
+    }
 
-            let source = SelfHostedSource(baseURL: baseURL, token: token)
-            await browseVM.loadSource(source)
-            SourceSelectionStore.save(.selfHosted(baseURL: baseURL))
-            librarySelection = .selfHostedServer(baseURL)
-            libraryTitle = baseURL.host ?? baseURL.absoluteString
-            mode = .browse
-            currentRootBookmark = nil
+    @MainActor
+    private func loadCloudFoldersFor(_ url: URL) async -> [CloudFolder] {
+        // The sidebar's CloudServerSection .task fires at app launch in
+        // parallel with restoreLastSource → bootstrapAndRestore. Without
+        // the same await dance autoPickInitialSource / loadCloudLibrary
+        // do, the /api/folders request races out before tokens are
+        // restored — server replies 401 "missing bearer", the
+        // AuthenticatedHTTPClient's refresh path also finds no tokens
+        // (race), and we silently return []. Awaiting bootstrap here
+        // ensures the keychain restore is complete before tokensProvider
+        // is consulted.
+        let session = sessionFor(url)
+        if !session.isSignedIn { await session.bootstrapAndRestore() }
+        guard session.isSignedIn else { return [] }
+
+        let httpClient = makeAuthenticatedHTTPClient(server: url)
+        let client = CloudFoldersClient(server: url, httpClient: httpClient)
+        do { return try await client.listFolders() }
+        catch { return [] }
+    }
+
+    @MainActor
+    private func listCloudDirFor(server: URL, absPath: String) async -> FsDirListing? {
+        // Same cold-start race as loadCloudFoldersFor — wait for
+        // bootstrap before calling /api/fs/dir so the request actually
+        // carries a bearer token. Sidebar tree-row expansion can fire
+        // this before AuthSession.user is hydrated from Keychain.
+        let session = sessionFor(server)
+        if !session.isSignedIn { await session.bootstrapAndRestore() }
+        guard session.isSignedIn else { return nil }
+
+        let httpClient = makeAuthenticatedHTTPClient(server: server)
+        let client = CloudFoldersClient(server: server, httpClient: httpClient)
+        do { return try await client.listDir(absPath: absPath) }
+        catch { return nil }
+    }
+
+    /// Cold-start fallback when there's no saved selection. Picks the
+    /// first sensible source so the user lands on something instead of
+    /// staring at "Pick a folder in the sidebar." Priority:
+    /// 1. First registered cloud server's first library
+    /// 2. Most-recent local folder from SavedFolderStore
+    /// PhotoKit is intentionally NOT auto-picked — it's permission-
+    /// gated and ambushy.
+    @MainActor
+    private func autoPickInitialSource() async {
+        for serverURL in CloudServerRegistry.shared.servers {
+            let session = sessionFor(serverURL)
+            if !session.isSignedIn { await session.bootstrapAndRestore() }
+            guard session.isSignedIn else { continue }
+            let libs = await loadCloudFoldersFor(serverURL)
+            if let first = libs.first {
+                loadCloudLibrary(serverID: serverURL,
+                                 folderID: first.id,
+                                 libraryPath: first.path)
+                return
+            }
+        }
+        if let first = SavedFolderStore.load().first {
+            openSavedFolder(first)
+            return
         }
     }
 
     @MainActor
-    private func connectSavedSelfHosted(_ url: URL) {
+    private func loadCloudLibrary(serverID: URL, folderID: String, libraryPath: String) {
+        librarySelection = .cloudLibrary(serverID: serverID, folderID: folderID)
+        cloudCurrentPath = libraryPath
+        SourceSelectionStore.save(.cloudLibrary(serverID: serverID, folderID: folderID, libraryPath: libraryPath))
+        currentRootBookmark = nil
+
         Task { @MainActor in
-            // Plan 2026-04-28-passkey-auth Task B8: prefer the passkey-backed
-            // AuthSession when its tokens have been restored from Keychain;
-            // fall back to the legacy bearer-token store; otherwise present
-            // SignInView so the user can claim/sign in.
-            let session = sessionFor(url)
-            librarySelection = .selfHostedServer(url)
-            if session.isSignedIn {
-                connectSelfHosted(baseURL: url, token: nil)
+            let session = sessionFor(serverID)
+            // On cold start, sessionFor() returns a freshly-constructed
+            // session whose Keychain restore is still in flight. Awaiting
+            // bootstrapAndRestore() before checking isSignedIn lets that
+            // restore finish — otherwise we'd always fall through to the
+            // sign-in sheet on first launch even though tokens exist.
+            //
+            // For sessions that are already signed in (warm cache, sidebar
+            // click during the session), isSignedIn short-circuits and the
+            // await is skipped.
+            //
+            // For sessions where signOut() was called or refresh failed,
+            // bootstrapAndRestore() returns without setting user, isSignedIn
+            // stays false, and we route to the prefilled sign-in sheet —
+            // same as the previous synchronous behavior.
+            if !session.isSignedIn {
+                await session.bootstrapAndRestore()
+            }
+            guard session.isSignedIn else {
+                addCloudSheetTarget = .prefilled(serverID.host ?? serverID.absoluteString)
                 return
             }
-            // Give bootstrapAndRestore a moment to land if it hasn't already
-            // completed — this is fired in the session(for:) helper but it's
-            // async. If the user just clicked the row from a cold cache, the
-            // refresh hasn't returned yet.
-            await session.bootstrapAndRestore()
-            if session.isSignedIn {
-                connectSelfHosted(baseURL: url, token: nil)
-                return
+
+            let viewMode = CloudServerRegistry.shared.viewMode(for: serverID)
+            switch viewMode {
+            case .folder:
+                cloudTimelineVM = nil
+                let httpClient = makeAuthenticatedHTTPClient(server: serverID)
+                let source = CloudSource(server: serverID,
+                                         folderID: folderID,
+                                         libraryPath: libraryPath,
+                                         httpClient: httpClient)
+                // Use the dir-listing loader so the grid shows BOTH
+                // subfolders and images at this level.
+                await browseVM.loadCloudDir(source, absPath: libraryPath)
+
+                // Path-not-on-server fallback. If the persisted path
+                // was renamed or deleted server-side, /api/fs/dir 4xx's
+                // and BrowseViewModel.loadError gets set. Look up the
+                // library's registered root via /api/folders and retry
+                // there, then update the persisted selection so cold
+                // start no longer points at the missing path.
+                if browseVM.loadError != nil {
+                    let foldersClient = CloudFoldersClient(server: serverID,
+                                                           httpClient: httpClient)
+                    if let libs = try? await foldersClient.listFolders(),
+                       let registered = libs.first(where: { $0.id == folderID }),
+                       registered.path != libraryPath {
+                        // The original 4xx is already logged by CloudSource's
+                        // decode-error path; no need for an extra line here.
+                        cloudCurrentPath = registered.path
+                        SourceSelectionStore.save(.cloudLibrary(serverID: serverID,
+                                                                folderID: folderID,
+                                                                libraryPath: registered.path))
+                        await browseVM.loadCloudDir(source, absPath: registered.path)
+                    }
+                }
+
+                libraryTitle = serverID.host ?? serverID.absoluteString
+                mode = .browse
+            case .timeline:
+                browseVM.clear()
+                // Single AuthenticatedHTTPClient shared by the search +
+                // thumb clients for the lifetime of this Timeline VM.
+                // Defeats the 401-refresh-storm bug if many cells hit
+                // expired tokens at once — only one /api/auth/refresh
+                // call goes out, all callers wait on the same continuation.
+                let httpClient = makeAuthenticatedHTTPClient(server: serverID)
+                let searchClient = CloudSearchClient(server: serverID, httpClient: httpClient)
+                // pathPrefix = libraryPath scopes the Timeline to whatever
+                // the user has selected in the sidebar tree — library root
+                // when they pick the library row, a subfolder when they
+                // pick deeper. Matches the web Timeline's filter behavior:
+                // both /api/search/buckets and /api/search receive the
+                // same pathPrefix so the bucket counts and asset listings
+                // describe the same scope.
+                cloudTimelineVM = CloudTimelineViewModel(
+                    server: serverID,
+                    libraryID: folderID,
+                    pathPrefix: libraryPath,
+                    searchClient: searchClient)
+                cloudTimelineThumbClient = CloudThumbClient(server: serverID, httpClient: httpClient)
+                cloudTimelineThumbCache = CloudThumbCache()
+                libraryTitle = (serverID.host ?? serverID.absoluteString) + " — Timeline"
+                mode = .browse
             }
-            // Legacy bearer-token bridge — keep the pre-passkey path alive
-            // until B9 replaces every Self-Hosted request with the
-            // AuthenticatedHTTPClient.
-            if let token = await SelfHostedCredentialStore.shared.tokenForServerURL(url) {
-                connectSelfHosted(baseURL: url, token: token)
-                return
-            }
-            // No credentials — open the AddMapleCloud sheet pre-filled with
-            // this server's host so the user goes straight to sign-in.
-            addCloudSheetTarget = .prefilled(url.host ?? url.absoluteString)
         }
+    }
+
+    /// Open the FullImage editor for a cloud asset selected from
+    /// CloudTimelineView. Builds a bytes-providing AssetRef so the Rust
+    /// pipeline can decode without a local file, and injects a
+    /// CloudSidecarStore so XMP edits persist back to the server.
+    @MainActor
+    private func openCloudAsset(_ asset: SearchAsset, server: URL) {
+        let httpClient = makeAuthenticatedHTTPClient(server: server)
+        // libraryPath is unused for this code path — we never call
+        // source.images() on a single-asset open. Pass the asset's
+        // parent dir so a hypothetical navigate() lands somewhere
+        // sensible.
+        let parentPath = (asset.abs_path as NSString).deletingLastPathComponent
+        let source = CloudSource(server: server,
+                                 folderID: asset.folder_id,
+                                 libraryPath: parentPath,
+                                 httpClient: httpClient)
+        // The cloud asset's editor id matches the web's `fs:<absPath>`
+        // shape so CloudSource.thumb / rawBytes pull paths from id.
+        let imageRef = ImageRef(id: asset.id, displayName: asset.filename, url: nil)
+        let assetRef = AssetRef(
+            displayName: asset.filename,
+            hintExtension: (asset.filename as NSString).pathExtension.lowercased(),
+            stableID: asset.id,
+            bytesProvider: { [source, imageRef] in try await source.rawBytes(for: imageRef) }
+        )
+        if sessions[assetRef.id] == nil {
+            let remoteStore = CloudSidecarStore(server: server, assetID: asset.id, httpClient: httpClient)
+            let session = EditSession(asset: assetRef, remoteSidecarStore: remoteStore)
+            sessions[assetRef.id] = session
+            Task { await session.loadSidecar() }
+        }
+        browseVM.loadSingleCloudAsset(assetRef)
+        mode = .fullImage
     }
 
     // MARK: - Restore
 
     @MainActor
     private func restoreLastSource() async {
-        guard let selection = SourceSelectionStore.load() else { return }
+        guard let selection = SourceSelectionStore.load() else {
+            // Nothing saved → auto-pick the first sensible source so the
+            // user lands on something instead of an empty grid that says
+            // "Pick a folder in the sidebar." Priority: cloud > local > none.
+            await autoPickInitialSource()
+            return
+        }
         switch selection {
         case .filesystem(let bookmark):
             // Route through the same non-recursive folder-walk that
@@ -772,8 +1318,8 @@ struct AppShell: View {
             break
         case .smb(let share):
             connectSavedSMB(share)
-        case .selfHosted(let baseURL):
-            connectSavedSelfHosted(baseURL)
+        case .cloudLibrary(let serverID, let folderID, let libraryPath):
+            loadCloudLibrary(serverID: serverID, folderID: folderID, libraryPath: libraryPath)
         }
     }
 
@@ -788,7 +1334,21 @@ struct AppShell: View {
     /// closes the matching gap on the session model.
     private func ensureSession(for asset: AssetRef) {
         guard sessions[asset.id] == nil else { return }
-        let session = EditSession(asset: asset)
+        let remoteStore: (any SidecarStoreProtocol)? = {
+            // Cloud-backed asset: route XMP through CloudSidecarStore so
+            // edits round-trip via PUT /api/assets/<id>/xmp. Local files
+            // (folder/SMB) keep using XMPSidecarStore via EditSession's
+            // primaryURL branch. Cloud refs carry the upstream asset id
+            // in stableID (set by BrowseViewModel.loadSource).
+            guard case .cloudLibrary(let serverID, _) = librarySelection,
+                  let assetID = asset.stableID
+            else { return nil }
+            return CloudSidecarStore(
+                server: serverID,
+                assetID: assetID,
+                httpClient: makeAuthenticatedHTTPClient(server: serverID))
+        }()
+        let session = EditSession(asset: asset, remoteSidecarStore: remoteStore)
         sessions[asset.id] = session
         Task { await session.loadSidecar() }
     }

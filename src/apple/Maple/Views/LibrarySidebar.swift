@@ -38,8 +38,25 @@ struct LibrarySidebar: View {
     let onRequestPhotosAccess: () -> Void
     let onAddSMB: () -> Void
     let onPickSMB: (SMBCredentialStore.SavedShare) -> Void
-    let onAddSelfHosted: () -> Void
-    let onPickSelfHosted: (URL) -> Void
+    /// Open the AddMapleCloudSheet (no prefilled domain).
+    let onAddCloudServer: () -> Void
+    /// User clicked a library row inside a cloud server section.
+    let onPickCloudLibrary: (URL, String, String) -> Void
+    /// Lazy-fetch a directory listing for the cloud sidebar tree
+    /// drill-down. Returns nil on auth/network failure.
+    let onListCloudDir: (URL, String) async -> FsDirListing?
+    /// Absolute server-side path the user is currently browsing inside
+    /// a cloud library, or nil when no cloud library is selected. Used
+    /// by CloudFolderTreeRow to (a) auto-expand its ancestor chain on
+    /// cold start and (b) highlight the matching tree row.
+    let cloudCurrentPath: String?
+    /// Right-click → Sign out on a cloud server header.
+    let onSignOutCloudServer: (URL) -> Void
+    /// Right-click → Remove server on a cloud server header.
+    let onRemoveCloudServer: (URL) -> Void
+    /// Lazily load the folders for a server (called from CloudServerSection's
+    /// .task on first appearance).
+    let onLoadCloudFolders: (URL) async -> [CloudFolder]
 
     // Section-open state (mockup: chevron open/closed).
     @State private var showFolders = true
@@ -56,7 +73,11 @@ struct LibrarySidebar: View {
     // which the shell can invoke through `NotificationCenter` if needed.
     @State private var savedFolders: [SavedFolder] = []
     @State private var savedShares: [SMBCredentialStore.SavedShare] = []
-    @State private var savedServers: [URL] = []
+    @State private var cloudServersExpanded: [URL: Bool] = [:]
+    @State private var cloudFoldersByServer: [URL: [CloudFolder]] = [:]
+
+    /// Observable singleton; sidebar re-renders when the registry mutates.
+    @State private var registry = CloudServerRegistry.shared
 
     /// Token returned by `PhotoKitChangeObserver.subscribe` — held for the
     /// view's lifetime so we can unsubscribe in `.task`'s cancellation.
@@ -65,6 +86,8 @@ struct LibrarySidebar: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
+                cloudServersSection
+                if !registry.servers.isEmpty { separator }
                 foldersSection
                 separator
                 photosSection
@@ -153,16 +176,16 @@ struct LibrarySidebar: View {
     private var emptyFolders: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text("No local folders")
-                .font(.system(size: 11))
+                .font(MapleTokens.Typography.meta)
                 .foregroundStyle(MapleTokens.textMuted)
             Button("Add one", action: onAddFolder)
                 .buttonStyle(.plain)
-                .font(.system(size: 11))
+                .font(MapleTokens.Typography.meta)
                 .foregroundStyle(MapleTokens.primary)
                 .underline()
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
+        .padding(.horizontal, MapleTokens.Spacing.rowHorizontal)
+        .padding(.vertical, MapleTokens.Spacing.rowVertical)
     }
 
     @ViewBuilder
@@ -225,17 +248,17 @@ struct LibrarySidebar: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 4)
         Text("ALBUMS")
-            .font(.system(size: 9, weight: .semibold))
+            .font(MapleTokens.Typography.sectionHeader)
             .foregroundStyle(MapleTokens.textMuted)
-            .tracking(0.6)
+            .tracking(1.4)
             .padding(.horizontal, 24)
-            .padding(.vertical, 2)
+            .padding(.vertical, 4)
         if albums.isEmpty {
             Text("No albums")
-                .font(.system(size: 11))
+                .font(MapleTokens.Typography.meta)
                 .foregroundStyle(MapleTokens.textMuted)
                 .padding(.horizontal, 24)
-                .padding(.vertical, 4)
+                .padding(.vertical, MapleTokens.Spacing.rowVertical)
         } else {
             ForEach(albums) { album in
                 NavItem(
@@ -274,34 +297,87 @@ struct LibrarySidebar: View {
                         }
                     }
                 }
-                // Self-hosted group — hidden entirely until at least one
-                // server has been paired. New-server pairing lives in
-                // Settings (macOS) / iOS Settings sheet. Once a server is
-                // saved, this section appears with it listed.
-                if !savedServers.isEmpty {
-                    DisclosureRow(
-                        icon: "cloud",
-                        label: "Self Hosted",
-                        hasChildren: true,
-                        onAdd: nil
-                    ) {
-                        ForEach(savedServers, id: \.self) { url in
-                            NavItem(
-                                icon: "server.rack",
-                                label: url.host ?? url.absoluteString,
-                                isSelected: selection == .selfHostedServer(url),
-                                indent: 32
-                            ) {
-                                selection = .selfHostedServer(url)
-                                onPickSelfHosted(url)
-                            }
-                        }
-                    }
-                }
             }
         } header: {
             SectionHeaderRow(title: "Connections", isOpen: $showConnections)
         }
+    }
+
+    // MARK: - Cloud servers
+
+    @ViewBuilder
+    private var cloudServersSection: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            ForEach(registry.servers, id: \.self) { url in
+                CloudServerSection(
+                    serverURL: url,
+                    folders: cloudFoldersByServer[url] ?? [],
+                    viewMode: registry.viewMode(for: url),
+                    displayName: registry.displayName(for: url)
+                                 ?? url.host
+                                 ?? url.absoluteString,
+                    isExpanded: Binding(
+                        get: { cloudServersExpanded[url] ?? true },
+                        set: { cloudServersExpanded[url] = $0 }
+                    ),
+                    selection: $selection,
+                    onSetViewMode: { mode in
+                        registry.setViewMode(mode, for: url)
+                        // Re-route the current selection through the new mode.
+                        // Look up the folder's path from the cached listing
+                        // so the new view mode browses the right tree root.
+                        if case .cloudLibrary(let s, let f) = selection, s == url {
+                            let path = (cloudFoldersByServer[url] ?? [])
+                                .first(where: { $0.id == f })?.path ?? ""
+                            onPickCloudLibrary(s, f, path)
+                        }
+                    },
+                    onPickPath: onPickCloudLibrary,
+                    onListDir: onListCloudDir,
+                    cloudCurrentPath: pathFor(server: url),
+                    onSignOut: { onSignOutCloudServer(url) },
+                    onRemoveServer: { onRemoveCloudServer(url) },
+                    onRename: { newName in
+                        registry.setDisplayName(newName, for: url)
+                    }
+                )
+                .task {
+                    if cloudFoldersByServer[url] == nil {
+                        cloudFoldersByServer[url] = await onLoadCloudFolders(url)
+                    }
+                }
+            }
+            // Drop folder caches for servers that have been removed from
+            // the registry — otherwise re-adding the same URL shows a
+            // stale list. Triggered by registry.servers mutations via
+            // Observation.
+            .onChange(of: registry.servers) { _, current in
+                let currentSet = Set(current)
+                cloudFoldersByServer = cloudFoldersByServer.filter { currentSet.contains($0.key) }
+                cloudServersExpanded = cloudServersExpanded.filter { currentSet.contains($0.key) }
+            }
+            // Empty-state entry point only — once a server is connected
+            // the user manages servers (add another, sign out, rename,
+            // remove) from Settings, NOT this inline button. Keeps the
+            // sidebar lean and gives Settings the single source of truth
+            // for server management.
+            if registry.servers.isEmpty {
+                Button {
+                    onAddCloudServer()
+                } label: {
+                    HStack {
+                        Image(systemName: "plus.circle")
+                        Text("Add Maple Cloud server")
+                            .font(.callout)
+                    }
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 2)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 4)
     }
 
     private var separator: some View {
@@ -318,10 +394,20 @@ struct LibrarySidebar: View {
         photosStatus = PhotoKitLibrary.authorizationStatus()
         refreshFolders()
         savedShares = await SMBCredentialStore.shared.savedShares()
-        savedServers = await SelfHostedCredentialStore.shared.knownServers()
         if photosStatus == .authorized || photosStatus == .limited {
             albums = PhotoKitLibrary.userAlbums()
         }
+    }
+
+    /// Returns the cloud-current-path only if it belongs to the given
+    /// server — so two connected servers' trees don't both highlight
+    /// based on a path that's only meaningful to one of them. We
+    /// determine ownership by checking the LibrarySelection's server.
+    private func pathFor(server url: URL) -> String? {
+        if case .cloudLibrary(let s, _) = selection, s == url {
+            return cloudCurrentPath
+        }
+        return nil
     }
 
     private func refreshFolders() {
@@ -352,19 +438,20 @@ private struct SectionHeaderRow<Trailing: View>: View {
 
     var body: some View {
         Button(action: { withAnimation(.easeInOut(duration: 0.15)) { isOpen.toggle() } }) {
-            HStack(spacing: 4) {
+            HStack(spacing: 6) {
                 Image(systemName: "chevron.down")
-                    .font(.system(size: 9, weight: .semibold))
+                    .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(MapleTokens.textMuted)
                     .rotationEffect(.degrees(isOpen ? 0 : -90))
-                Text(title)
-                    .font(.system(size: 11, weight: .medium))
+                Text(title.uppercased())
+                    .font(MapleTokens.Typography.sectionHeader)
+                    .tracking(1.4)
                     .foregroundStyle(MapleTokens.textMuted)
                 Spacer()
                 trailing()
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
+            .padding(.horizontal, MapleTokens.Spacing.rowHorizontal)
+            .padding(.vertical, 6)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -378,9 +465,9 @@ private struct AddButton: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: "plus")
-                .font(.system(size: 11, weight: .semibold))
+                .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(MapleTokens.textMuted)
-                .frame(width: 20, height: 20)
+                .frame(width: 28, height: 28)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -393,26 +480,26 @@ private struct NavItem: View {
     let icon: String
     let label: String
     let isSelected: Bool
-    var indent: CGFloat = 24
+    var indent: CGFloat = 28
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 6) {
+            HStack(spacing: MapleTokens.Spacing.iconLabelGap) {
                 Image(systemName: icon)
-                    .font(.system(size: 10))
+                    .font(.system(size: 16))
                     .foregroundStyle(isSelected ? MapleTokens.primary : MapleTokens.textMuted)
-                    .frame(width: 14)
+                    .frame(width: 22)
                 Text(label)
-                    .font(.system(size: 11))
+                    .font(MapleTokens.Typography.row)
                     .foregroundStyle(isSelected ? MapleTokens.primary : MapleTokens.textMain)
                     .lineLimit(1)
                     .truncationMode(.middle)
                 Spacer()
             }
             .padding(.leading, indent)
-            .padding(.trailing, 10)
-            .padding(.vertical, 4)
+            .padding(.trailing, MapleTokens.Spacing.rowHorizontal)
+            .padding(.vertical, MapleTokens.Spacing.rowVertical)
             .background(isSelected ? MapleTokens.bgActive : Color.clear)
             .contentShape(Rectangle())
         }
@@ -464,11 +551,13 @@ private struct FolderTreeRow: View {
         guard selectedComponents.count > rootComponents.count else { return false }
         return Array(selectedComponents.prefix(rootComponents.count)) == rootComponents
     }
-    private var indent: CGFloat { 10 + CGFloat(depth) * 14 }
+    private var indent: CGFloat {
+        MapleTokens.Spacing.rowHorizontal + CGFloat(depth) * MapleTokens.Spacing.treeIndent
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 4) {
+            HStack(spacing: 6) {
                 Button(action: {
                     withAnimation(.easeInOut(duration: 0.12)) {
                         expanded.toggle()
@@ -476,22 +565,23 @@ private struct FolderTreeRow: View {
                     }
                 }) {
                     Image(systemName: "chevron.right")
-                        .font(.system(size: 8, weight: .semibold))
+                        .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(MapleTokens.textMuted)
-                        .opacity(didEnumerate && children.isEmpty ? 0.15 : 0.5)
+                        .opacity(didEnumerate && children.isEmpty ? 0.15 : 0.6)
                         .rotationEffect(.degrees(expanded ? 90 : 0))
-                        .frame(width: 10, height: 10)
+                        .frame(width: 14, height: 14)
                 }
                 .buttonStyle(.plain)
                 .disabled(didEnumerate && children.isEmpty)
 
                 Button(action: { onPick(url) }) {
-                    HStack(spacing: 6) {
+                    HStack(spacing: MapleTokens.Spacing.iconLabelGap) {
                         Image(systemName: "folder")
-                            .font(.system(size: 10))
+                            .font(.system(size: 16))
                             .foregroundStyle(isSelected ? MapleTokens.primary : MapleTokens.textMuted)
+                            .frame(width: 22, alignment: .center)
                         Text(displayName)
-                            .font(.system(size: 11))
+                            .font(depth == 0 ? MapleTokens.Typography.row : MapleTokens.Typography.rowDense)
                             .foregroundStyle(isSelected ? MapleTokens.primary : MapleTokens.textMain)
                             .lineLimit(1)
                             .truncationMode(.middle)
@@ -502,8 +592,8 @@ private struct FolderTreeRow: View {
                 .buttonStyle(.plain)
             }
             .padding(.leading, indent)
-            .padding(.trailing, 10)
-            .padding(.vertical, 4)
+            .padding(.trailing, MapleTokens.Spacing.rowHorizontal)
+            .padding(.vertical, MapleTokens.Spacing.rowVertical)
             .background(isSelected ? MapleTokens.bgActive : Color.clear)
             .contextMenu {
                 if let onRemove {
