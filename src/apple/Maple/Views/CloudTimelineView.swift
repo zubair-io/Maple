@@ -141,7 +141,6 @@ struct CloudTimelineCell: View {
   /// Raw JPEG bytes once the cloud thumb has loaded. Drives
   /// `ThumbnailImage` directly — same data shape BrowseGrid uses.
   @State private var thumbData: Data?
-  @State private var loadTask: Task<Void, Never>?
 
   var body: some View {
     Button(action: onSelect) {
@@ -159,22 +158,21 @@ struct CloudTimelineCell: View {
         }
     }
     .buttonStyle(.plain)
-    .onAppear { startLoad() }
-    .onDisappear {
-      loadTask?.cancel()
-      loadTask = nil
-    }
-  }
-
-  private func startLoad() {
-    guard thumbData == nil, loadTask == nil else { return }
-    let captured = (asset, thumbCache, thumbClient, host)
-    loadTask = Task { @MainActor in
+    // `.task(id:)` instead of `.onAppear` because LazyVGrid doesn't
+    // reliably fire `.onAppear` for cells created NEW when the parent's
+    // body re-evaluates (e.g. skeleton placeholders → real cells when
+    // a page finishes loading) — they're already in the lazy grid's
+    // visible window so the appear callback never gets queued. `.task`
+    // runs on first attachment regardless of layout state, restarts
+    // when `asset.id` changes, and auto-cancels on disappear.
+    .task(id: asset.id) {
+      // Fresh cell — clear stale bytes from a recycled @State (paranoia).
+      if thumbData != nil { return }
       let bytes = await Self.fetchThumbBytes(
-        host: captured.3,
-        absPath: captured.0.abs_path,
-        cache: captured.1,
-        client: captured.2
+        host: host,
+        absPath: asset.abs_path,
+        cache: thumbCache,
+        client: thumbClient
       )
       guard !Task.isCancelled else { return }
       withAnimation(.easeInOut(duration: 0.18)) {
