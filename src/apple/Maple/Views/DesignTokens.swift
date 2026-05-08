@@ -37,6 +37,55 @@ public struct MapleTokens {
     static let errorBg       = Color.red.opacity(0.15)
     static let errorText     = Color(hex: "#f87171")
     static let star          = Color(hex: "#EF9F27")
+
+    // MARK: - Typography
+    //
+    // Use these everywhere instead of `.font(.system(size: …))` calls so
+    // hierarchy stays consistent. Mirrors the web's tailwind type scale —
+    // section headers up-cased + tracking, body sized for one-handed
+    // reading on iPhone, callouts subordinate.
+    enum Typography {
+        /// Big screen title (rare; used for Settings-style stacks).
+        static let title = Font.system(size: 28, weight: .bold)
+        /// Section heading inside a panel (e.g. "FILE", "CULLING").
+        /// Up-case at the call site; the type is sized for the all-caps
+        /// presentation already.
+        static let sectionHeader = Font.system(size: 11, weight: .semibold).leading(.tight)
+        /// Server / library group header in the sidebar.
+        static let groupHeader = Font.system(size: 17, weight: .semibold)
+        /// Default row label — sidebar entries, info-row labels, list items.
+        /// 16pt is iOS standard list size; readable, not cramped.
+        static let row = Font.system(size: 16, weight: .regular)
+        /// Compact row variant for nested tree depths and dense panels.
+        static let rowDense = Font.system(size: 15, weight: .regular)
+        /// Secondary metadata next to a row label (counts, dates, hints).
+        static let meta = Font.system(size: 13, weight: .regular)
+        /// Caption — thumbnail filename, dim secondary captions.
+        static let caption = Font.system(size: 12, weight: .regular)
+        /// Empty-state primary text ("No assets yet").
+        static let emptyPrimary = Font.system(size: 17, weight: .semibold)
+        /// Empty-state secondary explainer text.
+        static let emptySecondary = Font.system(size: 14, weight: .regular)
+    }
+
+    // MARK: - Spacing
+    //
+    // 4-pt grid. Use the named tokens at call sites — `.padding(MapleTokens.Spacing.row)`
+    // — so visual rhythm stays consistent and a future tweak lands in one place.
+    enum Spacing {
+        /// Vertical padding inside one list/tree row.
+        static let rowVertical: CGFloat   = 8
+        /// Horizontal padding for one list/tree row.
+        static let rowHorizontal: CGFloat = 12
+        /// Indent applied per depth level in the tree sidebar.
+        static let treeIndent: CGFloat    = 16
+        /// Gap between an icon and its label inside a row.
+        static let iconLabelGap: CGFloat  = 10
+        /// Vertical gap between sibling sections in a panel.
+        static let sectionGap: CGFloat    = 16
+        /// Horizontal padding for section content (panel inset).
+        static let panelInset: CGFloat    = 16
+    }
 }
 
 // MARK: - Color hex extension

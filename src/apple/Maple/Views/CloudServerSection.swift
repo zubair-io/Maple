@@ -55,7 +55,8 @@ struct CloudServerSection: View {
     } label: {
       HStack {
         Text(serverURL.host ?? serverURL.absoluteString)
-          .font(.headline)
+          .font(MapleTokens.Typography.groupHeader)
+          .foregroundStyle(MapleTokens.textMain)
           .lineLimit(1)
         Spacer()
         Picker("", selection: Binding(
@@ -67,8 +68,9 @@ struct CloudServerSection: View {
         }
         .pickerStyle(.segmented)
         .labelsHidden()
-        .frame(width: 80)
+        .frame(width: 88)
       }
+      .padding(.vertical, 4)
       .contextMenu {
         Button("Sign out", action: onSignOut)
         Button("Remove server", role: .destructive, action: onRemoveServer)

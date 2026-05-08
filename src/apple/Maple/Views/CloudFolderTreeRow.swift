@@ -147,18 +147,23 @@ struct CloudFolderTreeRow: View {
     Button {
       onPickPath(serverURL, libraryFolderID, absPath)
     } label: {
-      HStack(spacing: 6) {
+      HStack(spacing: MapleTokens.Spacing.iconLabelGap) {
         Image(systemName: depth == 0 ? "folder.fill" : "folder")
-          .foregroundStyle(.secondary)
+          .font(.system(size: 16))
+          .foregroundStyle(MapleTokens.textMuted)
+          .frame(width: 22, alignment: .center)
         Text(displayName)
+          .font(depth == 0 ? MapleTokens.Typography.row : MapleTokens.Typography.rowDense)
+          .foregroundStyle(MapleTokens.textMain)
           .lineLimit(1)
         Spacer()
       }
       .contentShape(Rectangle())
     }
     .buttonStyle(.plain)
-    .padding(.leading, CGFloat(depth) * 12)
-    .padding(.vertical, 2)
+    .padding(.leading, CGFloat(depth) * MapleTokens.Spacing.treeIndent)
+    .padding(.vertical, MapleTokens.Spacing.rowVertical)
+    .padding(.horizontal, MapleTokens.Spacing.rowHorizontal)
     .background(
       isSelected ? Color.accentColor.opacity(0.18) : .clear,
       in: RoundedRectangle(cornerRadius: 6)

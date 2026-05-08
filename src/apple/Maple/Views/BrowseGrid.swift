@@ -209,7 +209,7 @@ private struct FolderCell: View {
                 }
 
             Text(url.lastPathComponent)
-                .font(.system(size: 10))
+                .font(MapleTokens.Typography.caption)
                 .foregroundStyle(MapleTokens.textMain)
                 .lineLimit(1)
                 .truncationMode(.middle)
@@ -233,7 +233,7 @@ private struct BrowseEmptyState: View {
                 .foregroundStyle(MapleTokens.textMuted)
 
             Text(primaryTitle)
-                .font(.system(size: 14, weight: .medium))
+                .font(MapleTokens.Typography.emptyPrimary)
                 .foregroundStyle(MapleTokens.textMain)
 
             secondary
@@ -268,7 +268,7 @@ private struct BrowseEmptyState: View {
                 ProgressView()
                     .scaleEffect(0.8)
                 Text("Loading…")
-                    .font(.system(size: 11))
+                    .font(MapleTokens.Typography.emptySecondary)
                     .foregroundStyle(MapleTokens.textMuted)
             }
         } else if let err = vm.loadError {
@@ -286,12 +286,12 @@ private struct BrowseEmptyState: View {
             }
         } else if vm.currentSource != nil {
             Text("This folder has no supported RAW files.")
-                .font(.system(size: 11))
+                .font(MapleTokens.Typography.emptySecondary)
                 .foregroundStyle(MapleTokens.textMuted)
                 .multilineTextAlignment(.center)
         } else {
             Text("Pick a folder or Photos Library filter in the sidebar.")
-                .font(.system(size: 11))
+                .font(MapleTokens.Typography.emptySecondary)
                 .foregroundStyle(MapleTokens.textMuted)
                 .multilineTextAlignment(.center)
         }
@@ -392,7 +392,7 @@ struct ThumbnailCell: View {
             }
 
             Text(asset.displayName)
-                .font(.system(size: 10))
+                .font(MapleTokens.Typography.caption)
                 .foregroundStyle(MapleTokens.textMuted)
                 .lineLimit(1)
                 .truncationMode(.middle)
