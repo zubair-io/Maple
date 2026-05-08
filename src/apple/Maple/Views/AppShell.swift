@@ -86,11 +86,11 @@ struct AppShell: View {
     // toolbar button below).
     @State private var browseDisplayMode: GridDisplayMode = .fill
 
-    /// Currently-selected tab on iPhone (TabView). Lifted to a binding
-    /// so picking a row in the Library tab can flip the user back to
-    /// Browse — picking a source on a hidden tab and then having to
-    /// remember to switch is a bad UX.
-    @State private var iPhoneTab: IPhoneTab = .browse
+    /// Whether the Info detail-panel sheet is up on iPhone. The macOS /
+    /// iPad shell shows DetailPanel as a permanent right-hand column;
+    /// iPhone surfaces the same panel via a trailing-toolbar button
+    /// → modal sheet so the main content can stay full-width.
+    @State private var iPhoneInfoSheet: Bool = false
 
     /// Set when the user selects a cloud library in Timeline view mode;
     /// when non-nil the center column renders CloudTimelineView instead
@@ -327,112 +327,152 @@ struct AppShell: View {
         .navigationSplitViewStyle(.balanced)
     }
 
-    // MARK: - iPhone (TabView)
+    // MARK: - iPhone (NavigationSplitView)
+
+    /// iPhone shell. Browse is the one main screen; Library is a
+    /// leading drawer reached via the standard NavigationSplitView
+    /// chevron; Info is a trailing toolbar button that opens
+    /// DetailPanel as a modal sheet. Edit is a mode change (the
+    /// double-tap-thumbnail / Edit button flips the main view to
+    /// FullImageView), not a tab.
+    @State private var iPhoneColumnVisibility: NavigationSplitViewVisibility = .doubleColumn
 
     private var adaptiveShell: some View {
-        TabView(selection: $iPhoneTab) {
-            // 1. Library — sources tree (cloud servers, local folders,
-            // PhotoKit, SMB). Same content as the macOS sidebar; tapping
-            // any row routes back to the Browse tab automatically.
-            NavigationStack {
-                LibrarySidebar(
-                    selection: $librarySelection,
-                    onAddFolder: {
-                        showFilePicker = true
-                        iPhoneTab = .browse
-                    },
-                    onPickFolder: { folder in
-                        openSavedFolder(folder)
-                        iPhoneTab = .browse
-                    },
-                    onRemoveFolder: { folder in SavedFolderStore.remove(path: folder.path) },
-                    onPickAncestor: { url, bookmark in
-                        openSubFolder(url: url, rootBookmark: bookmark)
-                        iPhoneTab = .browse
-                    },
-                    onPickPhotosFilter: { filter in
-                        loadPhotos(filter: filter)
-                        iPhoneTab = .browse
-                    },
-                    onRequestPhotosAccess: { requestPhotosAccess() },
-                    onAddSMB: { showSMBSheet = true },
-                    onPickSMB: { share in
-                        connectSavedSMB(share)
-                        iPhoneTab = .browse
-                    },
-                    onAddCloudServer: {
-                        addCloudSheetTarget = .fresh
-                    },
-                    onPickCloudLibrary: { serverID, folderID, libraryPath in
-                        loadCloudLibrary(serverID: serverID, folderID: folderID, libraryPath: libraryPath)
-                        iPhoneTab = .browse
-                    },
-                    onListCloudDir: { url, absPath in
-                        await listCloudDirFor(server: url, absPath: absPath)
-                    },
-                    cloudCurrentPath: cloudCurrentPath,
-                    onSignOutCloudServer: { url in
-                        Task { @MainActor in
-                            let session = sessionFor(url)
-                            await session.signOut()
-                        }
-                    },
-                    onRemoveCloudServer: { url in
-                        Task { @MainActor in
-                            let session = sessionFor(url)
-                            await session.signOut()
-                            CloudServerRegistry.shared.remove(url)
-                        }
-                    },
-                    onLoadCloudFolders: { url in
-                        await loadCloudFoldersFor(url)
-                    }
-                )
+        NavigationSplitView(columnVisibility: $iPhoneColumnVisibility) {
+            iPhoneSidebar
                 .navigationTitle("Library")
-            }
-            .tag(IPhoneTab.library)
-            .tabItem { Label("Library", systemImage: "books.vertical") }
-
-            NavigationStack {
-                BrowseGrid(
-                    vm: browseVM,
-                    sessions: $sessions,
-                    displayMode: $browseDisplayMode,
-                    onGrantPhotosAccess: { grantPhotosAccessAndLoad() },
-                    onNavigateFolder: { url in navigateFolder(url) },
-                    onOpenEditor: { asset in openEditor(for: asset) }
-                )
-                .navigationTitle("Library — \(libraryTitle)")
-                .toolbar { browseToolbar }
-            }
-            .tag(IPhoneTab.browse)
-            .tabItem { Label("Browse", systemImage: "photo.on.rectangle") }
-
-            NavigationStack {
-                Group {
-                    if let session = selectedSession {
-                        FullImageView(session: session)
-                            .navigationTitle(session.asset.displayName)
-                    } else {
-                        fullImagePlaceholder
-                            .navigationTitle("Edit")
-                    }
-                }
-            }
-            .tag(IPhoneTab.edit)
-            .tabItem { Label("Edit", systemImage: "slider.horizontal.3") }
-
-            NavigationStack {
-                DetailPanel(session: selectedSession)
-                    .navigationTitle("Info")
-            }
-            .tag(IPhoneTab.info)
-            .tabItem { Label("Info", systemImage: "info.circle") }
+        } detail: {
+            iPhoneMain
         }
+        .navigationSplitViewStyle(.balanced)
         .accentColor(MapleTokens.primary)
+        .sheet(isPresented: $iPhoneInfoSheet) {
+            NavigationStack {
+                DetailPanel(session: selectedSession, isFullImage: mode == .fullImage)
+                    .navigationTitle("Info")
+                    #if os(iOS)
+                    .toolbar {
+                        ToolbarItem(placement: .topBarTrailing) {
+                            Button("Done") { iPhoneInfoSheet = false }
+                        }
+                    }
+                    #endif
+            }
+            .presentationDetents([.medium, .large])
+        }
     }
 
-    enum IPhoneTab: Hashable { case library, browse, edit, info }
+    @ViewBuilder
+    private var iPhoneSidebar: some View {
+        LibrarySidebar(
+            selection: $librarySelection,
+            onAddFolder: {
+                showFilePicker = true
+                iPhoneColumnVisibility = .detailOnly
+            },
+            onPickFolder: { folder in
+                openSavedFolder(folder)
+                iPhoneColumnVisibility = .detailOnly
+            },
+            onRemoveFolder: { folder in SavedFolderStore.remove(path: folder.path) },
+            onPickAncestor: { url, bookmark in
+                openSubFolder(url: url, rootBookmark: bookmark)
+                iPhoneColumnVisibility = .detailOnly
+            },
+            onPickPhotosFilter: { filter in
+                loadPhotos(filter: filter)
+                iPhoneColumnVisibility = .detailOnly
+            },
+            onRequestPhotosAccess: { requestPhotosAccess() },
+            onAddSMB: { showSMBSheet = true },
+            onPickSMB: { share in
+                connectSavedSMB(share)
+                iPhoneColumnVisibility = .detailOnly
+            },
+            onAddCloudServer: { addCloudSheetTarget = .fresh },
+            onPickCloudLibrary: { serverID, folderID, libraryPath in
+                loadCloudLibrary(serverID: serverID, folderID: folderID, libraryPath: libraryPath)
+                iPhoneColumnVisibility = .detailOnly
+            },
+            onListCloudDir: { url, absPath in
+                await listCloudDirFor(server: url, absPath: absPath)
+            },
+            cloudCurrentPath: cloudCurrentPath,
+            onSignOutCloudServer: { url in
+                Task { @MainActor in
+                    let session = sessionFor(url)
+                    await session.signOut()
+                }
+            },
+            onRemoveCloudServer: { url in
+                Task { @MainActor in
+                    let session = sessionFor(url)
+                    await session.signOut()
+                    CloudServerRegistry.shared.remove(url)
+                }
+            },
+            onLoadCloudFolders: { url in
+                await loadCloudFoldersFor(url)
+            }
+        )
+    }
+
+    @ViewBuilder
+    private var iPhoneMain: some View {
+        Group {
+            switch mode {
+            case .browse:
+                if let vm = cloudTimelineVM,
+                   let thumbClient = cloudTimelineThumbClient,
+                   let thumbCache = cloudTimelineThumbCache {
+                    CloudTimelineView(
+                        vm: vm,
+                        thumbClient: thumbClient,
+                        thumbCache: thumbCache,
+                        displayMode: browseDisplayMode,
+                        onSelectAsset: { asset in openCloudAsset(asset, server: vm.server) }
+                    )
+                } else {
+                    BrowseGrid(
+                        vm: browseVM,
+                        sessions: $sessions,
+                        displayMode: $browseDisplayMode,
+                        onGrantPhotosAccess: { grantPhotosAccessAndLoad() },
+                        onNavigateFolder: { url in navigateFolder(url) },
+                        onOpenEditor: { asset in openEditor(for: asset) },
+                        onPrimeSession: { asset in ensureSession(for: asset) }
+                    )
+                }
+            case .fullImage:
+                if let session = selectedSession {
+                    FullImageView(session: session)
+                } else {
+                    Color.clear.onAppear { mode = .browse }
+                }
+            }
+        }
+        .navigationTitle(mode == .fullImage
+                         ? (selectedSession?.asset.displayName ?? "Image")
+                         : "Library — \(libraryTitle)")
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
+        .toolbar {
+            // Reuse the shared browse toolbar (search / fill-fit / etc.)
+            // and add an iPhone-only Info button on the trailing edge.
+            browseToolbar
+            #if os(iOS)
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    iPhoneInfoSheet = true
+                } label: {
+                    Image(systemName: "info.circle")
+                }
+                .accessibilityLabel("Info")
+            }
+            #endif
+        }
+    }
 
     // MARK: - Toolbar
 
