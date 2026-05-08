@@ -16,11 +16,18 @@ public actor CloudSearchClient {
     self.httpClient = httpClient
   }
 
-  /// `GET /api/search/buckets?libraryId=<id>` — single call, returns all
-  /// year/month aggregations for a library plus the count of un-timed assets.
-  public func buckets(libraryID: String) async throws -> TimelineBuckets {
-    let url = makeURL(path: "/api/search/buckets",
-                      query: [URLQueryItem(name: "libraryId", value: libraryID)])
+  /// `GET /api/search/buckets?libraryId=<id>[&pathPrefix=<p>]` — returns
+  /// year/month aggregations for the given library, optionally narrowed
+  /// to records whose `abs_path` starts with `pathPrefix`. Sending the
+  /// same pathPrefix to `page()` keeps buckets and page result sets in
+  /// agreement.
+  public func buckets(libraryID: String,
+                      pathPrefix: String? = nil) async throws -> TimelineBuckets {
+    var items: [URLQueryItem] = [URLQueryItem(name: "libraryId", value: libraryID)]
+    if let p = Self.normalizePathPrefix(pathPrefix) {
+      items.append(URLQueryItem(name: "pathPrefix", value: p))
+    }
+    let url = makeURL(path: "/api/search/buckets", query: items)
     let (data, resp) = try await httpClient.data(for: URLRequest(url: url))
     try Self.checkOK(resp, data: data)
     do {
@@ -32,7 +39,7 @@ public actor CloudSearchClient {
     }
   }
 
-  /// `GET /api/search?libraryId=<id>&from=YYYY-MM-01&to=YYYY-MM-LAST&page=N&limit=N&sort=...`
+  /// `GET /api/search?libraryId=<id>&from=YYYY-MM-01&to=YYYY-MM-LAST&page=N&limit=N&sort=...[&pathPrefix=<p>]`
   /// One page of assets in the given year/month bucket. Defaults match the
   /// web Timeline (200 / page, captured_desc).
   ///
@@ -41,12 +48,18 @@ public actor CloudSearchClient {
   /// first `limit` results, which silently returns empty for any bucket
   /// whose count is ≤ `limit` (e.g. a month with 15 photos returns
   /// `total: 15, results: []` for page 1).
+  ///
+  /// `pathPrefix`, if non-nil, scopes results to assets whose `abs_path`
+  /// starts with that prefix. The server applies it as an anchored
+  /// prefix on `abs_path` — sending it on `page()` AND `buckets()` for
+  /// the same scope keeps counts and listings in agreement.
   public func page(libraryID: String,
                    year: Int,
                    month: Int,
                    page: Int = 0,
                    limit: Int = 200,
-                   sort: String = "captured_desc") async throws -> SearchResponse {
+                   sort: String = "captured_desc",
+                   pathPrefix: String? = nil) async throws -> SearchResponse {
     let from = String(format: "%04d-%02d-01", year, month)
     let to = Self.lastDay(year: year, month: month)
     // hasCapturedAt=true keeps the result set aligned with what
@@ -54,7 +67,7 @@ public actor CloudSearchClient {
     // captured_at (it groups by year/month from that field), so without
     // this flag the search count and the bucket count can disagree —
     // the web Timeline always sends it for the same reason.
-    let items: [URLQueryItem] = [
+    var items: [URLQueryItem] = [
       URLQueryItem(name: "libraryId", value: libraryID),
       URLQueryItem(name: "from", value: from),
       URLQueryItem(name: "to", value: to),
@@ -63,6 +76,9 @@ public actor CloudSearchClient {
       URLQueryItem(name: "sort", value: sort),
       URLQueryItem(name: "hasCapturedAt", value: "true"),
     ]
+    if let p = Self.normalizePathPrefix(pathPrefix) {
+      items.append(URLQueryItem(name: "pathPrefix", value: p))
+    }
     let url = makeURL(path: "/api/search", query: items)
     let (data, resp) = try await httpClient.data(for: URLRequest(url: url))
     try Self.checkOK(resp, data: data)
@@ -76,6 +92,17 @@ public actor CloudSearchClient {
   }
 
   // MARK: - Helpers
+
+  /// Trim whitespace, drop empty, and append a trailing slash so the
+  /// server's anchored-prefix match doesn't span partial directory
+  /// names (e.g. `/srv/photos/Library` would otherwise also match
+  /// `/srv/photos/Library2024`). Returns nil when the input is nil or
+  /// empty after trim — callers omit the query param in that case.
+  private static func normalizePathPrefix(_ raw: String?) -> String? {
+    guard let raw = raw?.trimmingCharacters(in: .whitespacesAndNewlines),
+          !raw.isEmpty else { return nil }
+    return raw.hasSuffix("/") ? raw : raw + "/"
+  }
 
   private func makeURL(path: String, query: [URLQueryItem]) -> URL {
     var c = URLComponents(url: server.appending(path: path), resolvingAgainstBaseURL: false)!

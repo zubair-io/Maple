@@ -32,6 +32,12 @@ public final class CloudTimelineViewModel {
 
   public let server: URL
   public let libraryID: String
+  /// Optional anchored prefix on `abs_path`. When set, both
+  /// `/api/search/buckets` and `/api/search` are scoped to assets whose
+  /// path starts with this string — drives the "filter Timeline by
+  /// folder" UX. Same value is included in the cache key so two
+  /// scopes don't pollute each other's on-disk cache.
+  public let pathPrefix: String?
   private let searchClient: CloudSearchClient
   private let bucketsCache: CloudBucketsCache
   private let pagesCache: CloudPagesCache
@@ -44,12 +50,14 @@ public final class CloudTimelineViewModel {
 
   public init(server: URL,
               libraryID: String,
+              pathPrefix: String? = nil,
               searchClient: CloudSearchClient,
               bucketsCache: CloudBucketsCache = CloudBucketsCache(),
               pagesCache: CloudPagesCache = CloudPagesCache(),
               maxConcurrentPageFetches: Int = 2) {
     self.server = server
     self.libraryID = libraryID
+    self.pathPrefix = pathPrefix
     self.searchClient = searchClient
     self.bucketsCache = bucketsCache
     self.pagesCache = pagesCache
@@ -67,17 +75,17 @@ public final class CloudTimelineViewModel {
     // Clear any stale error from a previous load so an offline-then-
     // online retry doesn't leave the banner up.
     loadError = nil
-    if let cached = await bucketsCache.read(host: host, libraryID: libraryID) {
+    if let cached = await bucketsCache.read(host: host, libraryID: libraryID, pathPrefix: pathPrefix) {
       guard g == generation else { return }
       buckets = cached.buckets
     }
     isLoadingBuckets = true
     defer { if g == generation { isLoadingBuckets = false } }
     do {
-      let fresh = try await searchClient.buckets(libraryID: libraryID)
+      let fresh = try await searchClient.buckets(libraryID: libraryID, pathPrefix: pathPrefix)
       guard g == generation else { return }
       buckets = fresh.buckets
-      await bucketsCache.write(host: host, libraryID: libraryID, fresh)
+      await bucketsCache.write(host: host, libraryID: libraryID, pathPrefix: pathPrefix, fresh)
     } catch {
       guard g == generation else { return }
       loadError = error
@@ -115,6 +123,7 @@ public final class CloudTimelineViewModel {
     // Server pagination is zero-indexed — page 0 is the first page. Same
     // index used as the cache key so a hit/miss compares like-for-like.
     if let cached = await pagesCache.read(host: host, libraryID: libraryID,
+                                          pathPrefix: pathPrefix,
                                           year: year, month: month, page: 0) {
       guard g == generation else { return }
       pagesByBucket[key] = cached.results
@@ -126,10 +135,12 @@ public final class CloudTimelineViewModel {
     do {
       let fresh = try await searchClient.page(libraryID: libraryID,
                                               year: year, month: month,
-                                              page: 0)
+                                              page: 0,
+                                              pathPrefix: pathPrefix)
       if g == generation {
         pagesByBucket[key] = fresh.results
         await pagesCache.write(host: host, libraryID: libraryID,
+                               pathPrefix: pathPrefix,
                                year: year, month: month, page: 0, fresh)
       }
     } catch {

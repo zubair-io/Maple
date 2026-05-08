@@ -1199,9 +1199,17 @@ struct AppShell: View {
                 // call goes out, all callers wait on the same continuation.
                 let httpClient = makeAuthenticatedHTTPClient(server: serverID)
                 let searchClient = CloudSearchClient(server: serverID, httpClient: httpClient)
+                // pathPrefix = libraryPath scopes the Timeline to whatever
+                // the user has selected in the sidebar tree — library root
+                // when they pick the library row, a subfolder when they
+                // pick deeper. Matches the web Timeline's filter behavior:
+                // both /api/search/buckets and /api/search receive the
+                // same pathPrefix so the bucket counts and asset listings
+                // describe the same scope.
                 cloudTimelineVM = CloudTimelineViewModel(
                     server: serverID,
                     libraryID: folderID,
+                    pathPrefix: libraryPath,
                     searchClient: searchClient)
                 cloudTimelineThumbClient = CloudThumbClient(server: serverID, httpClient: httpClient)
                 cloudTimelineThumbCache = CloudThumbCache()
