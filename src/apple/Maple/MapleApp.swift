@@ -162,23 +162,23 @@ private struct GeneralSettingsTab: View {
     }
 }
 
-/// Self-Hosted server management. Lists paired servers (from Keychain +
-/// `knownServers()`) and lets the user add new ones via
-/// `AddMapleCloudSheet` or remove existing ones.
+/// Maple Cloud server management. Lists registered servers (CloudServerRegistry)
+/// and lets the user add new ones via `AddMapleCloudSheet` or remove existing
+/// ones.
 private struct SelfHostedSettingsTab: View {
-    @State private var servers: [URL] = []
+    @State private var registry = CloudServerRegistry.shared
     @State private var showAddSheet = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Paired Servers")
+            Text("Maple Cloud Servers")
                 .font(.headline)
 
-            if servers.isEmpty {
+            if registry.servers.isEmpty {
                 VStack(spacing: 6) {
                     Text("No paired servers.")
                         .foregroundStyle(.secondary)
-                    Text("Click \"Add Server…\" to pair a Maple Self Hosted instance.")
+                    Text("Click \"Add Server…\" to pair a Maple Cloud instance.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -186,7 +186,7 @@ private struct SelfHostedSettingsTab: View {
                 .padding(.vertical, 24)
             } else {
                 List {
-                    ForEach(servers, id: \.self) { url in
+                    ForEach(registry.servers, id: \.self) { url in
                         HStack {
                             Image(systemName: "server.rack")
                                 .foregroundStyle(.secondary)
@@ -198,7 +198,7 @@ private struct SelfHostedSettingsTab: View {
                             }
                             Spacer()
                             Button(role: .destructive) {
-                                Task { await removeServer(url) }
+                                registry.remove(url)
                             } label: {
                                 Image(systemName: "trash")
                             }
@@ -221,32 +221,18 @@ private struct SelfHostedSettingsTab: View {
             }
         }
         .padding(24)
-        .task { await refresh() }
         .sheet(isPresented: $showAddSheet) {
             AddMapleCloudSheet(
                 onDismiss: { showAddSheet = false },
                 onSignedIn: { url, tokens, _ in
                     Task { @MainActor in
                         try? TokenStore.save(tokens, server: url)
-                        try? await SelfHostedCredentialStore.shared
-                            .setToken(tokens.access, forServerURL: url)
+                        registry.register(url)
                         showAddSheet = false
-                        await refresh()
                     }
                 }
             )
         }
-    }
-
-    @MainActor
-    private func refresh() async {
-        servers = await SelfHostedCredentialStore.shared.knownServers()
-    }
-
-    @MainActor
-    private func removeServer(_ url: URL) async {
-        try? await SelfHostedCredentialStore.shared.removeToken(forServerURL: url)
-        await refresh()
     }
 }
 #endif

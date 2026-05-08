@@ -91,7 +91,9 @@ final class SourceSelectionTests: XCTestCase {
             .filesystem(bookmark: Data([1,2,3])),
             .photoKit,
             .smb(SMBCredentialStore.SavedShare(host: "h", share: "s", username: "u")),
-            .selfHosted(baseURL: URL(string: "https://maple.example")!),
+            .cloudLibrary(serverID: URL(string: "https://maple.example")!,
+                          folderID: "folder-abc",
+                          libraryPath: "/srv/photos/Library"),
         ]
         for selection in cases {
             let data = try JSONEncoder().encode(selection)
@@ -107,8 +109,10 @@ final class SourceSelectionTests: XCTestCase {
         SourceSelectionStore.clear()
         XCTAssertNil(SourceSelectionStore.load())
 
-        let sel: SourceSelection = .selfHosted(
-            baseURL: URL(string: "https://unit-test.example")!
+        let sel: SourceSelection = .cloudLibrary(
+            serverID: URL(string: "https://unit-test.example")!,
+            folderID: "folder-xyz",
+            libraryPath: "/srv/photos/Library"
         )
         SourceSelectionStore.save(sel)
         let loaded = SourceSelectionStore.load()

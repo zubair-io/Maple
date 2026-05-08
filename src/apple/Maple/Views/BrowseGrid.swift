@@ -112,21 +112,14 @@ struct BrowseGrid: View {
                     LazyVGrid(columns: columns, spacing: 4) {
                         // Sub-folders first — Finder-style — then images.
                         ForEach(vm.subfolders, id: \.self) { url in
-                            FolderCell(url: url)
-                                // Single click is a no-op (would select if
-                                // we had a folder-selection model). Order
-                                // matches image cells: count: 1 first, then
-                                // count: 2 — SwiftUI prefers the longer
-                                // sequence when both are attached.
-                                .onTapGesture {
-                                    // Reserved for future selection.
-                                }
-                                // Double click navigates into the folder —
-                                // matches Finder behavior + image-cell
-                                // double-click-to-open semantics (Bug 7).
-                                .onTapGesture(count: 2) {
-                                    onNavigateFolder?(url)
-                                }
+                            // Single tap navigates into the folder. The
+                            // FolderCell button style provides press
+                            // feedback (scale + tinted background) so the
+                            // user gets immediate confirmation the tap
+                            // registered before the grid reloads.
+                            FolderCell(url: url) {
+                                onNavigateFolder?(url)
+                            }
                         }
                         ForEach(vm.assets) { asset in
                             ThumbnailCell(asset: asset,
@@ -192,30 +185,50 @@ struct BrowseGrid: View {
 
 // MARK: - FolderCell
 
-/// Grid cell rendering a sub-folder. Single click navigates into it via the
-/// `onNavigateFolder` callback on `BrowseGrid`.
+/// Grid cell rendering a sub-folder. Single tap navigates into it; the
+/// cell is wrapped in a Button with a custom ButtonStyle so the user
+/// gets press feedback (scale + tinted overlay) before the grid reloads.
 private struct FolderCell: View {
     let url: URL
+    let onNavigate: () -> Void
 
     var body: some View {
-        VStack(spacing: 4) {
-            RoundedRectangle(cornerRadius: 4)
-                .fill(MapleTokens.surfaceAlt)
-                .aspectRatio(3/2, contentMode: .fit)
-                .overlay {
-                    Image(systemName: "folder.fill")
-                        .font(.system(size: 36))
-                        .foregroundStyle(MapleTokens.primary.opacity(0.85))
-                }
-
-            Text(url.lastPathComponent)
-                .font(.system(size: 10))
-                .foregroundStyle(MapleTokens.textMain)
-                .lineLimit(1)
-                .truncationMode(.middle)
+        Button(action: onNavigate) {
+            VStack(spacing: 4) {
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(MapleTokens.surfaceAlt)
+                    .aspectRatio(3/2, contentMode: .fit)
+                    .overlay {
+                        Image(systemName: "folder.fill")
+                            .font(.system(size: 36))
+                            .foregroundStyle(MapleTokens.primary.opacity(0.85))
+                    }
+                Text(url.lastPathComponent)
+                    .font(MapleTokens.Typography.caption)
+                    .foregroundStyle(MapleTokens.textMain)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            .contentShape(Rectangle())
         }
+        .buttonStyle(FolderCellButtonStyle())
         .accessibilityLabel("Folder \(url.lastPathComponent)")
-        .accessibilityAddTraits(.isButton)
+    }
+}
+
+/// Press feedback for FolderCell. Scales down slightly and overlays a
+/// subtle white tint while the user's finger is down, easing back when
+/// released — same idea as iOS list-row highlights, scoped to the cell.
+private struct FolderCellButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.97 : 1.0)
+            .background(
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(configuration.isPressed ? MapleTokens.bgActive : .clear)
+                    .padding(-4)
+            )
+            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
     }
 }
 
@@ -233,7 +246,7 @@ private struct BrowseEmptyState: View {
                 .foregroundStyle(MapleTokens.textMuted)
 
             Text(primaryTitle)
-                .font(.system(size: 14, weight: .medium))
+                .font(MapleTokens.Typography.emptyPrimary)
                 .foregroundStyle(MapleTokens.textMain)
 
             secondary
@@ -268,7 +281,7 @@ private struct BrowseEmptyState: View {
                 ProgressView()
                     .scaleEffect(0.8)
                 Text("Loading…")
-                    .font(.system(size: 11))
+                    .font(MapleTokens.Typography.emptySecondary)
                     .foregroundStyle(MapleTokens.textMuted)
             }
         } else if let err = vm.loadError {
@@ -286,12 +299,12 @@ private struct BrowseEmptyState: View {
             }
         } else if vm.currentSource != nil {
             Text("This folder has no supported RAW files.")
-                .font(.system(size: 11))
+                .font(MapleTokens.Typography.emptySecondary)
                 .foregroundStyle(MapleTokens.textMuted)
                 .multilineTextAlignment(.center)
         } else {
             Text("Pick a folder or Photos Library filter in the sidebar.")
-                .font(.system(size: 11))
+                .font(MapleTokens.Typography.emptySecondary)
                 .foregroundStyle(MapleTokens.textMuted)
                 .multilineTextAlignment(.center)
         }
@@ -392,7 +405,7 @@ struct ThumbnailCell: View {
             }
 
             Text(asset.displayName)
-                .font(.system(size: 10))
+                .font(MapleTokens.Typography.caption)
                 .foregroundStyle(MapleTokens.textMuted)
                 .lineLimit(1)
                 .truncationMode(.middle)
@@ -412,41 +425,7 @@ struct ThumbnailCell: View {
 
     @ViewBuilder
     private var thumbnailImage: some View {
-        // Pattern: `Rectangle().overlay { Image }` not `ZStack { Rect, Image }`.
-        //
-        // Why: with a plain ZStack, the ZStack's bounds expand to fit its
-        // largest child. An `Image().resizable().aspectRatio(.fill)` reports a
-        // preferred size *larger* than the proposed size (that's how fill
-        // mode works — short edge fills, long edge overflows). So the ZStack
-        // grows to that overflowing size and an inner `.clipped()` ends up
-        // clipping at the wrong (too-big) frame. By making the placeholder
-        // Rectangle the size-defining child and putting the Image in
-        // `.overlay`, the layout is anchored to the Rectangle's bounds.
-        // `.aspectRatio(1, .fit)` forces the Rectangle into a square at the
-        // cell's offered width, and `.clipShape(RoundedRectangle)` clips the
-        // overflowing overlay to that square, with rounded corners.
-        Rectangle()
-            .fill(MapleTokens.surfaceAlt)
-            .overlay {
-                if let data = thumbData, let cgImg = Self.cgImage(from: data) {
-                    #if os(macOS)
-                    Image(nsImage: NSImage(cgImage: cgImg, size: .zero))
-                        .resizable()
-                        .aspectRatio(contentMode: displayMode.contentMode)
-                        .transition(.opacity)
-                    #else
-                    Image(uiImage: UIImage(cgImage: cgImg))
-                        .resizable()
-                        .aspectRatio(contentMode: displayMode.contentMode)
-                        .transition(.opacity)
-                    #endif
-                } else {
-                    Image(systemName: "photo")
-                        .foregroundStyle(MapleTokens.textMuted)
-                }
-            }
-            .aspectRatio(1, contentMode: .fit)
-            .clipShape(RoundedRectangle(cornerRadius: 4))
+        ThumbnailImage(jpegData: thumbData, displayMode: displayMode)
     }
 
     // MARK: - Loading
@@ -475,12 +454,8 @@ struct ThumbnailCell: View {
 
     /// Build a CGImage from JPEG bytes. Re-reads on every body evaluation —
     /// the caller (`thumbnailImage`) is inside a View, so this is cheap in
-    /// practice (CoreGraphics caches decoded frames), but if profiling shows
-    /// pressure we should hoist the decode into the loader.
-    private static func cgImage(from data: Data) -> CGImage? {
-        guard let src = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
-        return CGImageSourceCreateImageAtIndex(src, 0, nil)
-    }
+    // CG decode hoisted into ThumbnailImage.cgImage so the cloud Timeline
+    // can share the helper without dragging it in via a private extension.
 }
 
 // MARK: - Keyboard shortcuts via ViewModifier
@@ -529,5 +504,63 @@ private struct BrowseKeyboardShortcuts: ViewModifier {
 private extension View {
     func keyboardShortcuts(vm: BrowseViewModel, sessions: [AssetRef.ID: EditSession]) -> some View {
         modifier(BrowseKeyboardShortcuts(vm: vm, sessions: sessions))
+    }
+}
+
+// MARK: - ThumbnailImage
+
+/// Shared square thumbnail cell. Renders JPEG bytes (or a placeholder
+/// when nil) inside a 1:1 rounded rectangle, with the caller's chosen
+/// fill/fit content mode. Used by the local Browse grid AND the cloud
+/// Timeline grid so both honor the toolbar's fill/fit toggle and pick
+/// up future polish (transitions, hover effects, etc.) for free.
+///
+/// Layout pattern: `Rectangle().overlay { Image }` not `ZStack { ... }`.
+/// With a plain ZStack the bounds expand to fit the largest child, and
+/// an `Image().resizable().aspectRatio(.fill)` reports a preferred size
+/// LARGER than the proposed size (short edge fills, long edge overflows).
+/// The ZStack would grow to that overflowing size and an inner `.clipped()`
+/// would clip at the wrong frame. Anchoring to the Rectangle and putting
+/// the Image in `.overlay` keeps layout anchored to the Rectangle's bounds;
+/// the outer `.aspectRatio(1, .fit)` then forces it square at the cell's
+/// offered width, and `.clipShape` cleans up the overflow with rounded
+/// corners.
+struct ThumbnailImage: View {
+    let jpegData: Data?
+    let displayMode: GridDisplayMode
+
+    var body: some View {
+        Rectangle()
+            .fill(MapleTokens.surfaceAlt)
+            .overlay {
+                if let data = jpegData, let cgImg = Self.cgImage(from: data) {
+                    #if os(macOS)
+                    Image(nsImage: NSImage(cgImage: cgImg, size: .zero))
+                        .resizable()
+                        .aspectRatio(contentMode: displayMode.contentMode)
+                        .transition(.opacity)
+                    #else
+                    Image(uiImage: UIImage(cgImage: cgImg))
+                        .resizable()
+                        .aspectRatio(contentMode: displayMode.contentMode)
+                        .transition(.opacity)
+                    #endif
+                } else {
+                    Image(systemName: "photo")
+                        .foregroundStyle(MapleTokens.textMuted)
+                }
+            }
+            .aspectRatio(1, contentMode: .fit)
+            .clipShape(RoundedRectangle(cornerRadius: 4))
+    }
+
+    /// Decode JPEG bytes to a CGImage. Same helper ThumbnailCell used —
+    /// hoisted here so both call sites share it.
+    static func cgImage(from data: Data) -> CGImage? {
+        guard let src = CGImageSourceCreateWithData(data as CFData, nil),
+              let img = CGImageSourceCreateImageAtIndex(src, 0, nil) else {
+            return nil
+        }
+        return img
     }
 }

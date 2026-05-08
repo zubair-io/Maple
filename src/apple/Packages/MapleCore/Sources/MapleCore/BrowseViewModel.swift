@@ -210,6 +210,21 @@ public final class BrowseViewModel {
         }
     }
 
+    /// Empty the grid and forget the current source. Used when the shell
+    /// switches into a mode that doesn't have a source attached yet (e.g.
+    /// Maple Cloud Timeline mode in Phase 2 — placeholder until Phase 3
+    /// wires up the native timeline view).
+    public func clear() {
+        loadGeneration &+= 1
+        assets = []
+        subfolders = []
+        selectedID = nil
+        currentSource = nil
+        loadError = nil
+        isLoading = false
+        photosAuthNeeded = false
+    }
+
     /// Put the grid into the "Photos Library selected but access not granted"
     /// state — no source, no assets, but `photosAuthNeeded` flips on so the
     /// empty state can surface a "Grant Access" CTA. Called by AppShell when
@@ -258,5 +273,67 @@ public final class BrowseViewModel {
         currentSource = nil
         loadError = nil
         photosAuthNeeded = false
+    }
+
+    /// Cloud analog of `loadSingleAsset(url:)`. Used when the timeline
+    /// hands AppShell a single SearchAsset to open in the editor — the
+    /// AssetRef has already been built with a remote bytes-provider, no
+    /// local URL. Mirrors the same invariants (one-cell list, no
+    /// subfolders, generation-bumped) so a back-to-Browse flip doesn't
+    /// ghost-render the prior selection.
+    public func loadSingleCloudAsset(_ ref: AssetRef) {
+        loadGeneration &+= 1
+        assets = [ref]
+        subfolders = []
+        selectedID = ref.id
+        currentSource = nil
+        loadError = nil
+        photosAuthNeeded = false
+    }
+
+    /// Cloud equivalent of `loadFolder(url:)` — calls `CloudSource.listDir`
+    /// for one directory level on the server and populates BOTH `assets`
+    /// (image children) and `subfolders` (synthetic file URLs whose
+    /// `.path` is the absolute server path). The grid renders folders
+    /// first, then images, just like the local Filesystem flow.
+    public func loadCloudDir(_ source: CloudSource, absPath: String) async {
+        loadGeneration &+= 1
+        let gen = loadGeneration
+        isLoading = true
+        defer { if gen == loadGeneration { isLoading = false } }
+
+        do {
+            await source.navigate(to: absPath)
+            let listing = try await source.listDir(absPath: absPath)
+            guard gen == loadGeneration else { return }
+
+            let dirURLs = listing.dirs.map { URL(fileURLWithPath: $0.path) }
+            let imageRefs = listing.images.map { img -> AssetRef in
+                let id = "fs:\(img.path)"
+                let displayName = img.name
+                let ext = (img.name as NSString).pathExtension.lowercased()
+                let capturedSource = source
+                let capturedRef = ImageRef(id: id, displayName: displayName, url: nil)
+                return AssetRef(
+                    displayName: displayName,
+                    hintExtension: ext.isEmpty ? nil : ext,
+                    stableID: id,
+                    bytesProvider: { [capturedSource, capturedRef] in
+                        try await capturedSource.rawBytes(for: capturedRef)
+                    }
+                )
+            }
+            guard gen == loadGeneration else { return }
+
+            assets = imageRefs
+            subfolders = dirURLs
+            selectedID = nil
+            currentSource = source
+            loadError = nil
+            photosAuthNeeded = false
+        } catch {
+            guard gen == loadGeneration else { return }
+            loadError = error
+        }
     }
 }
