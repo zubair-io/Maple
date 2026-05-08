@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "bun:test";
+import { describe, it, expect, beforeEach, afterAll } from "bun:test";
 import { Elysia } from "elysia";
 import { authRoutes } from "../../src/routes/auth.ts";
 import {
@@ -10,6 +10,19 @@ import {
 } from "../../src/db/client.ts";
 
 process.env.MAPLE_JWT_SECRET = "x".repeat(32);
+
+// Scope MAPLE_DEV_AUTH for this file so the assertions on
+// `dev_login_enabled: false` aren't sensitive to the host's .env or
+// shell state. A dev's local .env may set MAPLE_DEV_AUTH=1 to enable
+// the passkey-bypass during dev — without this scope, that leaks into
+// the test process and flips dev_login_enabled to true. Mirrors the
+// pattern in routes.dev-login.test.ts.
+const PRIOR_DEV_AUTH = process.env.MAPLE_DEV_AUTH;
+delete process.env.MAPLE_DEV_AUTH;
+afterAll(() => {
+  if (PRIOR_DEV_AUTH === undefined) delete process.env.MAPLE_DEV_AUTH;
+  else process.env.MAPLE_DEV_AUTH = PRIOR_DEV_AUTH;
+});
 
 const app = new Elysia().use(authRoutes);
 
