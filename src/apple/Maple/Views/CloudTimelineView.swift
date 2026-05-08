@@ -39,13 +39,20 @@ struct CloudTimelineView: View {
           ProgressView().padding(40)
         }
         ForEach(vm.buckets, id: \.bucketKey) { bucket in
+          let bucketKey = CloudTimelineViewModel.BucketKey(year: bucket.year, month: bucket.month)
           CloudTimelineMonthSection(
             year: bucket.year,
             month: bucket.month,
             count: bucket.count,
-            assets: vm.pagesByBucket[
-              CloudTimelineViewModel.BucketKey(year: bucket.year, month: bucket.month)
-            ] ?? [],
+            assets: vm.pagesByBucket[bucketKey] ?? [],
+            // hasLoaded == true once loadPage has resolved at least once
+            // for this bucket (whether with N results or 0). Distinguishes
+            // "still fetching" from "fetched + server returned empty"
+            // — needed because `assets.isEmpty` alone can't tell those
+            // apart, and the server has a bug where `buckets` reports a
+            // count > 0 but `/search` returns []. Without this, those
+            // months would spin forever.
+            hasLoaded: vm.pagesByBucket[bucketKey] != nil,
             thumbClient: thumbClient,
             thumbCache: thumbCache,
             host: vm.server.host ?? "",
@@ -59,7 +66,7 @@ struct CloudTimelineView: View {
           .task(id: bucket.bucketKey) {
             timelineLog.debug("section task fire \(bucket.bucketKey, privacy: .public) count=\(bucket.count, privacy: .public)")
             await vm.loadPage(year: bucket.year, month: bucket.month)
-            timelineLog.debug("section task done \(bucket.bucketKey, privacy: .public) assetsLoaded=\(vm.pagesByBucket[CloudTimelineViewModel.BucketKey(year: bucket.year, month: bucket.month)]?.count ?? -1, privacy: .public)")
+            timelineLog.debug("section task done \(bucket.bucketKey, privacy: .public) assetsLoaded=\(vm.pagesByBucket[bucketKey]?.count ?? -1, privacy: .public)")
           }
         }
       }
@@ -83,6 +90,11 @@ struct CloudTimelineMonthSection: View {
   let month: Int
   let count: Int
   let assets: [SearchAsset]
+  /// True once loadPage has resolved at least once for this bucket. The
+  /// spinner shows ONLY when (loading && results not yet in) — once the
+  /// server has answered, the spinner goes away even if the answer was
+  /// `results: []`.
+  let hasLoaded: Bool
   let thumbClient: CloudThumbClient
   let thumbCache: CloudThumbCache
   let host: String
@@ -98,13 +110,22 @@ struct CloudTimelineMonthSection: View {
         Text("\(count)")
           .font(.callout.monospacedDigit())
           .foregroundStyle(.secondary)
-        if assets.isEmpty {
-          // Inline progress while the page is fetching. Replaces the
-          // previous 16-skeleton-placeholder grid which appeared to
-          // confuse LazyVGrid's identity tracking and prevented real
+        if !hasLoaded {
+          // Inline spinner while the first page-fetch is in flight.
+          // Replaces the previous 16-skeleton-placeholder grid which
+          // confused LazyVGrid's identity tracking and prevented real
           // cells' .task from firing once the page resolved.
           ProgressView()
             .scaleEffect(0.7)
+            .padding(.leading, 4)
+        } else if assets.isEmpty {
+          // Server returned 0 results for a bucket whose count > 0
+          // (known server-side data inconsistency between
+          // /api/search/buckets and /api/search). Surface it instead of
+          // spinning forever.
+          Text("no results")
+            .font(.caption)
+            .foregroundStyle(.tertiary)
             .padding(.leading, 4)
         }
         Spacer()
