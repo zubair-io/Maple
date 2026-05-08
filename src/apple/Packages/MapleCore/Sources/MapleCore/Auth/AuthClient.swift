@@ -1,5 +1,4 @@
 // AuthClient.swift
-import AuthenticationServices
 import Foundation
 
 public struct AuthVerifyResponse: Decodable {
@@ -82,55 +81,14 @@ public actor AuthClient {
   }
 }
 
-// MARK: - WebAuthn ceremonies
-
-extension AuthClient {
-  /// Performs the registration ceremony:
-  ///   POST /api/auth/register/options → drive ASAuthorization → POST /api/auth/register/verify
-  public func register(email: String,
-                       inviteCode: String?,
-                       deviceLabel: String,
-                       presentationAnchor: ASPresentationAnchor) async throws -> AuthVerifyResponse {
-    var optsBody: [String: Any] = ["email": email]
-    if let inviteCode { optsBody["invite_code"] = inviteCode }
-    let opts = try await postJSONRaw("/api/auth/register/options", body: optsBody, auth: nil)
-
-    let attestation = try await PasskeyCeremony.create(options: opts, anchor: presentationAnchor)
-
-    var verifyBody: [String: Any] = [
-      "email": email,
-      "device_label": deviceLabel,
-      "credential": attestation,
-    ]
-    if let inviteCode { verifyBody["invite_code"] = inviteCode }
-    return try await postJSON("/api/auth/register/verify", body: verifyBody, auth: nil)
-  }
-
-  /// Performs the assertion (login) ceremony:
-  ///   POST /api/auth/login/options → drive ASAuthorization → POST /api/auth/login/verify
-  public func login(email: String,
-                    presentationAnchor: ASPresentationAnchor) async throws -> AuthVerifyResponse {
-    let opts = try await postJSONRaw("/api/auth/login/options", body: ["email": email], auth: nil)
-    let assertion = try await PasskeyCeremony.assert(options: opts, anchor: presentationAnchor)
-    return try await postJSON("/api/auth/login/verify",
-                              body: ["email": email, "credential": assertion],
-                              auth: nil)
-  }
-
-  /// Like `postJSON`, but returns the decoded JSON object as `[String: Any]` so the
-  /// PublicKeyCredentialCreationOptions / RequestOptions can be passed straight to
-  /// `PasskeyCeremony` without pre-defining DTOs for every server-side option field.
-  func postJSONRaw(_ path: String, body: [String: Any], auth: String?) async throws -> [String: Any] {
-    var req = URLRequest(url: server.appending(path: path))
-    req.httpMethod = "POST"
-    req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-    if let auth { req.setValue("Bearer \(auth)", forHTTPHeaderField: "Authorization") }
-    req.httpBody = try JSONSerialization.data(withJSONObject: body)
-    let (data, resp) = try await urlSession.data(for: req)
-    try checkStatus(resp, data: data)
-    return (try JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:]
-  }
-}
+// Note: native WebAuthn ceremony helpers (register / login /
+// PasskeyCeremony) were removed when the AddMapleCloud flow switched to
+// a webview. Native ASAuthorizationController requires the app to list
+// every domain it can authenticate against in its Associated Domains
+// entitlement at build time — fundamentally incompatible with a multi-
+// tenant / self-hosted product where each customer brings their own
+// domain. Sign-in now happens inside a WKWebView that captures tokens
+// via a JS bridge (see WebViewSignInPanel.swift).
 
 // MARK: - Invites + credentials management
 
