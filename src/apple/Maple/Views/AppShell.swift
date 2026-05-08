@@ -57,15 +57,12 @@ struct AppShell: View {
 
     // Sheet state.
     @State private var showSMBSheet = false
-    @State private var showSelfHostedSheet = false
-    /// Self-Hosted "Join with invite" sheet — presented from the
-    /// `SelfHostedPickerSheet`'s "Have an invite?" button.
-    /// Plan 2026-04-28-passkey-auth Task B8.
-    @State private var showJoinWithInviteSheet = false
-    /// Sign-in sheet for the currently-selected Self-Hosted server, gated on
-    /// `AuthSession.isSignedIn`. Presented automatically when the user picks
-    /// a Self-Hosted row whose tokens haven't been restored.
-    @State private var showSignInSheet = false
+    /// Single AddMapleCloudSheet entry point. `nil` means hidden;
+    /// `.fresh` means the user clicked "+"; `.prefilled(host)` means
+    /// they tapped a saved server without restored tokens. Modeling
+    /// presentation + payload as one optional eliminates the "what
+    /// was the prefill last time?" hazard from a separate `@State`.
+    @State private var addCloudSheetTarget: AddCloudSheetTarget?
 
     // Dynamic toolbar title — reflects the last-loaded source/filter.
     @State private var libraryTitle: String = "All"
@@ -95,16 +92,6 @@ struct AppShell: View {
 
     private var selectedSession: EditSession? {
         browseVM.selectedID.flatMap { sessions[$0] }
-    }
-
-    /// Throwaway `AuthSession` used as the environment value for the
-    /// `JoinWithInviteView` sheet. The view doesn't read it (it builds its
-    /// own per-URL session internally) but `@Environment(AuthSession.self)`
-    /// requires *some* value to resolve. Using `about:blank` so it never
-    /// collides with a real server URL.
-    private var placeholderJoinSession: AuthSession {
-        let url = URL(string: "about:blank")!
-        return AuthSession(server: url, client: AuthClient(server: url))
     }
 
     var body: some View {
@@ -139,42 +126,25 @@ struct AppShell: View {
                 connectSMB(credentials: creds)
             }, onCancel: { showSMBSheet = false })
         }
-        .sheet(isPresented: $showSelfHostedSheet) {
-            SelfHostedPickerSheet(
-                onConnect: { url, token in
-                    showSelfHostedSheet = false
-                    connectSelfHosted(baseURL: url, token: token)
-                },
-                onJoinWithInvite: {
-                    showSelfHostedSheet = false
-                    showJoinWithInviteSheet = true
-                },
-                onCancel: { showSelfHostedSheet = false }
+        .sheet(item: $addCloudSheetTarget) { target in
+            AddMapleCloudSheet(
+                prefilledDomain: target.prefill,
+                onDismiss: { addCloudSheetTarget = nil },
+                onSignedIn: { url, tokens, _ in
+                    Task { @MainActor in
+                        try? TokenStore.save(tokens, server: url)
+                        try? await SelfHostedCredentialStore.shared
+                            .setToken(tokens.access, forServerURL: url)
+                        // Refresh the per-server AuthSession cache so the
+                        // sidebar sees the user as signed in immediately.
+                        let session = sessionFor(url)
+                        await session.bootstrapAndRestore()
+                        addCloudSheetTarget = nil
+                        // Auto-load the newly-paired server.
+                        connectSavedSelfHosted(url)
+                    }
+                }
             )
-        }
-        .sheet(isPresented: $showJoinWithInviteSheet) {
-            // Plan 2026-04-28-passkey-auth Task B8: Self-Hosted onboarding via
-            // invite. The view internally builds an AuthClient + AuthSession
-            // per the URL the user types in — once verification succeeds the
-            // server appears in the sidebar's Self Hosted section on next
-            // refresh (saved by SelfHostedCredentialStore.knownServers()).
-            // The view internally constructs its own AuthClient/AuthSession
-            // from the URL the user types in. The environment session is a
-            // placeholder so `@Environment(AuthSession.self)` resolves.
-            JoinWithInviteView()
-                .environment(placeholderJoinSession)
-                .frame(minWidth: 420, minHeight: 320)
-        }
-        .sheet(isPresented: $showSignInSheet) {
-            // Sign-in sheet for the currently-selected Self-Hosted server.
-            // The sheet binds to a per-server AuthSession resolved through
-            // MapleApp's cache so the result is observable across the app.
-            if case .selfHostedServer(let url) = librarySelection {
-                let session = sessionFor(url)
-                SignInView(server: url, client: AuthClient(server: url))
-                    .environment(session)
-                    .frame(minWidth: 420, minHeight: 320)
-            }
         }
         .task {
             #if DEBUG
@@ -218,7 +188,9 @@ struct AppShell: View {
                 onRequestPhotosAccess: { requestPhotosAccess() },
                 onAddSMB: { showSMBSheet = true },
                 onPickSMB: { share in connectSavedSMB(share) },
-                onAddSelfHosted: { showSelfHostedSheet = true },
+                onAddSelfHosted: {
+                    addCloudSheetTarget = .fresh
+                },
                 onPickSelfHosted: { url in connectSavedSelfHosted(url) }
             )
             .navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 280)
@@ -745,8 +717,9 @@ struct AppShell: View {
                 connectSelfHosted(baseURL: url, token: token)
                 return
             }
-            // No credentials — open the sign-in sheet for this server.
-            showSignInSheet = true
+            // No credentials — open the AddMapleCloud sheet pre-filled with
+            // this server's host so the user goes straight to sign-in.
+            addCloudSheetTarget = .prefilled(url.host ?? url.absoluteString)
         }
     }
 
@@ -884,6 +857,30 @@ struct SMBPickerSheet: View {
     }
 }
 
+// MARK: - AddMapleCloud sheet target
+
+/// Backing value for `.sheet(item:)` so dismissal automatically resets to
+/// `nil`. Two cases mirror the two entry points: a fresh "+" tap and a
+/// click on a saved server whose tokens were cleared.
+enum AddCloudSheetTarget: Identifiable, Equatable {
+    case fresh
+    case prefilled(String)
+
+    var id: String {
+        switch self {
+        case .fresh: return ""
+        case .prefilled(let host): return host
+        }
+    }
+
+    var prefill: String {
+        switch self {
+        case .fresh: return ""
+        case .prefilled(let host): return host
+        }
+    }
+}
+
 // MARK: - Detail panel width
 
 /// Platform-scoped column width for the detail pane.
@@ -906,43 +903,3 @@ private struct DetailPanelWidth: ViewModifier {
     }
 }
 
-// MARK: - Self-Hosted sheet
-
-struct SelfHostedPickerSheet: View {
-    let onConnect: (URL, String?) -> Void
-    /// Plan 2026-04-28-passkey-auth Task B8: optional callback that
-    /// flips the sheet stack to `JoinWithInviteView`. Default to a no-op
-    /// so existing call sites (e.g. SettingsView) keep compiling.
-    var onJoinWithInvite: () -> Void = {}
-    let onCancel: () -> Void
-
-    @State private var serverURL = ""
-    @State private var token = ""
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Connect to Self-Hosted Server")
-                .font(.title3).bold()
-            Form {
-                TextField("Server URL (e.g. https://maple.local)", text: $serverURL)
-                SecureField("Bearer token (optional)", text: $token)
-            }
-            HStack {
-                Button("Have an invite code?", action: onJoinWithInvite)
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.secondary)
-                Spacer()
-                Button("Cancel", action: onCancel)
-                    .keyboardShortcut(.cancelAction)
-                Button("Connect") {
-                    guard let url = URL(string: serverURL) else { return }
-                    onConnect(url, token.isEmpty ? nil : token)
-                }
-                .keyboardShortcut(.defaultAction)
-                .disabled(URL(string: serverURL) == nil)
-            }
-        }
-        .padding(20)
-        .frame(minWidth: 420)
-    }
-}

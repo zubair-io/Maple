@@ -13,7 +13,7 @@
 //
 // `parseInviteQR` is the load-bearing piece: any code path that reads a
 // scanned/pasted string from the user is expected to feed it through this
-// helper before deciding whether to present `JoinWithInviteView` pre-filled.
+// helper before deciding whether to present `AddMapleCloudSheet` pre-filled.
 //
 // `buildInvitePayload` is its inverse and is used by `ManageUsersView` to
 // emit a QR alongside a freshly-minted invite code.
