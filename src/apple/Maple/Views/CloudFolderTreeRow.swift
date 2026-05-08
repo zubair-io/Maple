@@ -126,6 +126,10 @@ struct CloudFolderTreeRow: View {
         } label: {
           rowLabel
         }
+        // Push the system disclosure chevron in from the drawer edge —
+        // SwiftUI's default trailing inset gets squeezed flush against
+        // the 280pt drawer width otherwise.
+        .padding(.trailing, MapleTokens.Spacing.rowHorizontal)
         .onAppear { autoExpandIfOnChain() }
         .onChange(of: cloudCurrentPath) { _, _ in
           // Clear the one-shot flag when the user navigates the grid

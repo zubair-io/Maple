@@ -533,35 +533,26 @@ struct AppShell: View {
 
     @ViewBuilder
     private var iPhoneSidebar: some View {
+        // Drawer-stay-open by design: the user wants to drill down a
+        // cloud folder tree and toggle expand/collapse without the
+        // drawer collapsing on every selection. Selection still updates
+        // the underlying browse grid; the user closes the drawer
+        // manually via tap-on-dim or drag-back when ready to look at it.
         LibrarySidebar(
             selection: $librarySelection,
-            onAddFolder: {
-                showFilePicker = true
-                closeDrawer()
-            },
-            onPickFolder: { folder in
-                openSavedFolder(folder)
-                closeDrawer()
-            },
+            onAddFolder: { showFilePicker = true },
+            onPickFolder: { folder in openSavedFolder(folder) },
             onRemoveFolder: { folder in SavedFolderStore.remove(path: folder.path) },
             onPickAncestor: { url, bookmark in
                 openSubFolder(url: url, rootBookmark: bookmark)
-                closeDrawer()
             },
-            onPickPhotosFilter: { filter in
-                loadPhotos(filter: filter)
-                closeDrawer()
-            },
+            onPickPhotosFilter: { filter in loadPhotos(filter: filter) },
             onRequestPhotosAccess: { requestPhotosAccess() },
             onAddSMB: { showSMBSheet = true },
-            onPickSMB: { share in
-                connectSavedSMB(share)
-                closeDrawer()
-            },
+            onPickSMB: { share in connectSavedSMB(share) },
             onAddCloudServer: { addCloudSheetTarget = .fresh },
             onPickCloudLibrary: { serverID, folderID, libraryPath in
                 loadCloudLibrary(serverID: serverID, folderID: folderID, libraryPath: libraryPath)
-                closeDrawer()
             },
             onListCloudDir: { url, absPath in
                 await listCloudDirFor(server: url, absPath: absPath)
