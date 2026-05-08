@@ -23,9 +23,6 @@ import type {
   ChallengeDoc,
 } from "./schema.ts";
 
-const MONGO_URI = process.env.MAPLE_MONGO_URI ?? "mongodb://localhost:27017";
-const MONGO_DB = process.env.MAPLE_MONGO_DB ?? "maple";
-
 // Singleton client; created once on first call to getDb().
 let _client: MongoClient | null = null;
 let _db: Db | null = null;
@@ -34,13 +31,20 @@ let _connectPromise: Promise<Db> | null = null;
 /**
  * Returns a connected Db instance. Connects lazily on first call.
  * Throws a descriptive error if MongoDB is unreachable.
+ *
+ * MAPLE_MONGO_URI / MAPLE_MONGO_DB are read at connect time, not module load,
+ * so tests that override them (e.g. search-route.test.ts) work even when
+ * another test in the same bun process has already imported this module.
  */
 export async function getDb(): Promise<Db> {
   if (_db) return _db;
   if (_connectPromise) return _connectPromise;
 
+  const uri = process.env.MAPLE_MONGO_URI ?? "mongodb://localhost:27017";
+  const dbName = process.env.MAPLE_MONGO_DB ?? "maple";
+
   _connectPromise = (async () => {
-    const client = new MongoClient(MONGO_URI, {
+    const client = new MongoClient(uri, {
       serverApi: {
         version: ServerApiVersion.v1,
         strict: false,
@@ -54,15 +58,15 @@ export async function getDb(): Promise<Db> {
       await client.connect();
       // Ping to verify the connection is live.
       await client.db("admin").command({ ping: 1 });
-      console.log("[db] connected to MongoDB at", MONGO_URI);
+      console.log("[db] connected to MongoDB at", uri);
       _client = client;
-      _db = client.db(MONGO_DB);
+      _db = client.db(dbName);
       return _db;
     } catch (err) {
       _connectPromise = null; // allow retry
       const msg = err instanceof Error ? err.message : String(err);
       throw new Error(
-        `[db] Cannot connect to MongoDB (${MONGO_URI}): ${msg}\n` +
+        `[db] Cannot connect to MongoDB (${uri}): ${msg}\n` +
           `Tip: run "docker compose up -d mongo" from src/api/`,
       );
     }
