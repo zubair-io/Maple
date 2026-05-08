@@ -112,8 +112,10 @@ public final class CloudTimelineViewModel {
       inFlight.remove(key)
     }
 
+    // Server pagination is zero-indexed — page 0 is the first page. Same
+    // index used as the cache key so a hit/miss compares like-for-like.
     if let cached = await pagesCache.read(host: host, libraryID: libraryID,
-                                          year: year, month: month, page: 1) {
+                                          year: year, month: month, page: 0) {
       guard g == generation else { return }
       pagesByBucket[key] = cached.results
     }
@@ -123,11 +125,12 @@ public final class CloudTimelineViewModel {
 
     do {
       let fresh = try await searchClient.page(libraryID: libraryID,
-                                              year: year, month: month)
+                                              year: year, month: month,
+                                              page: 0)
       if g == generation {
         pagesByBucket[key] = fresh.results
         await pagesCache.write(host: host, libraryID: libraryID,
-                               year: year, month: month, page: 1, fresh)
+                               year: year, month: month, page: 0, fresh)
       }
     } catch {
       if g == generation { loadError = error }
