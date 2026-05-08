@@ -34,6 +34,7 @@ const BEARER =
 
 // Each test run uses a unique DB so concurrent dev work / CI shards don't collide.
 const TEST_DB = `maple_test_search_${process.pid}`;
+const PRIOR_MONGO_DB = process.env.MAPLE_MONGO_DB;
 process.env.MAPLE_MONGO_DB = TEST_DB;
 
 const MONGO_URI = process.env.MAPLE_MONGO_URI ?? "mongodb://localhost:27017";
@@ -232,6 +233,12 @@ beforeAll(async () => {
       },
     ],
   );
+
+  // Reset the singleton DB connection — earlier tests in the suite may have
+  // already cached `_db` pointing at a different database. Without this, the
+  // route under test would query the wrong DB.
+  const { closeDb } = await import("../src/db/client.ts");
+  await closeDb();
 });
 
 beforeEach(async () => {
@@ -256,6 +263,15 @@ afterAll(async () => {
       await mongo.close();
     } catch {}
   }
+  // Reset the singleton so downstream tests in the same bun process get a
+  // fresh connection that re-reads MAPLE_MONGO_DB at connect time.
+  try {
+    const { closeDb } = await import("../src/db/client.ts");
+    await closeDb();
+  } catch {}
+  // Restore env so we don't leak the test DB name to other suites.
+  if (PRIOR_MONGO_DB === undefined) delete process.env.MAPLE_MONGO_DB;
+  else process.env.MAPLE_MONGO_DB = PRIOR_MONGO_DB;
 });
 
 describe("/api/search", () => {

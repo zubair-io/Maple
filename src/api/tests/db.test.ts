@@ -28,6 +28,7 @@ describe("db client", () => {
   it("reports a clean error when MongoDB is unavailable", async () => {
     // Override the URI to something that will definitely fail quickly.
     const origUri = process.env.MAPLE_MONGO_URI;
+    const origDb = process.env.MAPLE_MONGO_DB;
     process.env.MAPLE_MONGO_URI = "mongodb://localhost:19999";
     process.env.MAPLE_MONGO_DB = "test_unavailable";
 
@@ -50,9 +51,12 @@ describe("db client", () => {
       try { await c.close(); } catch {}
     }
 
-    // Restore env
+    // Restore env — leaving MAPLE_MONGO_DB="test_unavailable" set would leak
+    // into downstream tests now that db/client.ts reads it at connect time.
     if (origUri === undefined) delete process.env.MAPLE_MONGO_URI;
     else process.env.MAPLE_MONGO_URI = origUri;
+    if (origDb === undefined) delete process.env.MAPLE_MONGO_DB;
+    else process.env.MAPLE_MONGO_DB = origDb;
 
     expect(err).not.toBeNull();
     expect(err!.message.length).toBeGreaterThan(0);
