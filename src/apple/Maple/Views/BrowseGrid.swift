@@ -112,21 +112,14 @@ struct BrowseGrid: View {
                     LazyVGrid(columns: columns, spacing: 4) {
                         // Sub-folders first — Finder-style — then images.
                         ForEach(vm.subfolders, id: \.self) { url in
-                            FolderCell(url: url)
-                                // Single click is a no-op (would select if
-                                // we had a folder-selection model). Order
-                                // matches image cells: count: 1 first, then
-                                // count: 2 — SwiftUI prefers the longer
-                                // sequence when both are attached.
-                                .onTapGesture {
-                                    // Reserved for future selection.
-                                }
-                                // Double click navigates into the folder —
-                                // matches Finder behavior + image-cell
-                                // double-click-to-open semantics (Bug 7).
-                                .onTapGesture(count: 2) {
-                                    onNavigateFolder?(url)
-                                }
+                            // Single tap navigates into the folder. The
+                            // FolderCell button style provides press
+                            // feedback (scale + tinted background) so the
+                            // user gets immediate confirmation the tap
+                            // registered before the grid reloads.
+                            FolderCell(url: url) {
+                                onNavigateFolder?(url)
+                            }
                         }
                         ForEach(vm.assets) { asset in
                             ThumbnailCell(asset: asset,
@@ -192,30 +185,50 @@ struct BrowseGrid: View {
 
 // MARK: - FolderCell
 
-/// Grid cell rendering a sub-folder. Single click navigates into it via the
-/// `onNavigateFolder` callback on `BrowseGrid`.
+/// Grid cell rendering a sub-folder. Single tap navigates into it; the
+/// cell is wrapped in a Button with a custom ButtonStyle so the user
+/// gets press feedback (scale + tinted overlay) before the grid reloads.
 private struct FolderCell: View {
     let url: URL
+    let onNavigate: () -> Void
 
     var body: some View {
-        VStack(spacing: 4) {
-            RoundedRectangle(cornerRadius: 4)
-                .fill(MapleTokens.surfaceAlt)
-                .aspectRatio(3/2, contentMode: .fit)
-                .overlay {
-                    Image(systemName: "folder.fill")
-                        .font(.system(size: 36))
-                        .foregroundStyle(MapleTokens.primary.opacity(0.85))
-                }
-
-            Text(url.lastPathComponent)
-                .font(MapleTokens.Typography.caption)
-                .foregroundStyle(MapleTokens.textMain)
-                .lineLimit(1)
-                .truncationMode(.middle)
+        Button(action: onNavigate) {
+            VStack(spacing: 4) {
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(MapleTokens.surfaceAlt)
+                    .aspectRatio(3/2, contentMode: .fit)
+                    .overlay {
+                        Image(systemName: "folder.fill")
+                            .font(.system(size: 36))
+                            .foregroundStyle(MapleTokens.primary.opacity(0.85))
+                    }
+                Text(url.lastPathComponent)
+                    .font(MapleTokens.Typography.caption)
+                    .foregroundStyle(MapleTokens.textMain)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            .contentShape(Rectangle())
         }
+        .buttonStyle(FolderCellButtonStyle())
         .accessibilityLabel("Folder \(url.lastPathComponent)")
-        .accessibilityAddTraits(.isButton)
+    }
+}
+
+/// Press feedback for FolderCell. Scales down slightly and overlays a
+/// subtle white tint while the user's finger is down, easing back when
+/// released — same idea as iOS list-row highlights, scoped to the cell.
+private struct FolderCellButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.97 : 1.0)
+            .background(
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(configuration.isPressed ? MapleTokens.bgActive : .clear)
+                    .padding(-4)
+            )
+            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
     }
 }
 

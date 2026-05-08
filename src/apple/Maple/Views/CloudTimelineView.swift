@@ -13,11 +13,14 @@
 
 import SwiftUI
 import MapleCore
+import OSLog
 #if canImport(AppKit)
 import AppKit
 #elseif canImport(UIKit)
 import UIKit
 #endif
+
+private let timelineLog = Logger(subsystem: "app.justmaple.aperture", category: "CloudTimeline")
 
 struct CloudTimelineView: View {
   @State var vm: CloudTimelineViewModel
@@ -49,8 +52,14 @@ struct CloudTimelineView: View {
             displayMode: displayMode,
             onSelectAsset: onSelectAsset
           )
-          .onAppear {
-            Task { await vm.loadPage(year: bucket.year, month: bucket.month) }
+          // .task(id:) instead of .onAppear so the page-load fires
+          // reliably for newly-rendered sections (LazyVStack is fussy
+          // with onAppear in the same way LazyVGrid is — see the cell
+          // comment below).
+          .task(id: bucket.bucketKey) {
+            timelineLog.debug("section task fire \(bucket.bucketKey, privacy: .public) count=\(bucket.count, privacy: .public)")
+            await vm.loadPage(year: bucket.year, month: bucket.month)
+            timelineLog.debug("section task done \(bucket.bucketKey, privacy: .public) assetsLoaded=\(vm.pagesByBucket[CloudTimelineViewModel.BucketKey(year: bucket.year, month: bucket.month)]?.count ?? -1, privacy: .public)")
           }
         }
       }
@@ -89,28 +98,32 @@ struct CloudTimelineMonthSection: View {
         Text("\(count)")
           .font(.callout.monospacedDigit())
           .foregroundStyle(.secondary)
-      }
-      LazyVGrid(
-        columns: Array(repeating: GridItem(.flexible(), spacing: 6),
-                       count: Self.columnCount),
-        spacing: 6
-      ) {
-        ForEach(assets, id: \.id) { asset in
-          CloudTimelineCell(
-            asset: asset,
-            thumbClient: thumbClient,
-            thumbCache: thumbCache,
-            host: host,
-            displayMode: displayMode,
-            onSelect: { onSelectAsset(asset) }
-          )
-        }
-        // Skeleton cells while the page is still loading. We show as many
-        // placeholders as the bucket count so the layout doesn't jump.
         if assets.isEmpty {
-          ForEach(0..<min(count, 16), id: \.self) { _ in
-            ThumbnailImage(jpegData: nil, displayMode: displayMode)
-              .opacity(0.5)
+          // Inline progress while the page is fetching. Replaces the
+          // previous 16-skeleton-placeholder grid which appeared to
+          // confuse LazyVGrid's identity tracking and prevented real
+          // cells' .task from firing once the page resolved.
+          ProgressView()
+            .scaleEffect(0.7)
+            .padding(.leading, 4)
+        }
+        Spacer()
+      }
+      if !assets.isEmpty {
+        LazyVGrid(
+          columns: Array(repeating: GridItem(.flexible(), spacing: 6),
+                         count: Self.columnCount),
+          spacing: 6
+        ) {
+          ForEach(assets, id: \.id) { asset in
+            CloudTimelineCell(
+              asset: asset,
+              thumbClient: thumbClient,
+              thumbCache: thumbCache,
+              host: host,
+              displayMode: displayMode,
+              onSelect: { onSelectAsset(asset) }
+            )
           }
         }
       }
@@ -166,15 +179,18 @@ struct CloudTimelineCell: View {
     // runs on first attachment regardless of layout state, restarts
     // when `asset.id` changes, and auto-cancels on disappear.
     .task(id: asset.id) {
-      // Fresh cell — clear stale bytes from a recycled @State (paranoia).
-      if thumbData != nil { return }
+      timelineLog.debug("cell task fire id=\(asset.id, privacy: .public) abs=\(asset.abs_path, privacy: .public)")
       let bytes = await Self.fetchThumbBytes(
         host: host,
         absPath: asset.abs_path,
         cache: thumbCache,
         client: thumbClient
       )
-      guard !Task.isCancelled else { return }
+      guard !Task.isCancelled else {
+        timelineLog.debug("cell task cancelled id=\(asset.id, privacy: .public)")
+        return
+      }
+      timelineLog.debug("cell task got bytes id=\(asset.id, privacy: .public) size=\(bytes?.count ?? -1, privacy: .public)")
       withAnimation(.easeInOut(duration: 0.18)) {
         thumbData = bytes
       }
