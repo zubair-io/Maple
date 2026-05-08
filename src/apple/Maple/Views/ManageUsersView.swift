@@ -3,7 +3,7 @@
 // Plan 2026-04-28-passkey-auth Task B10 extends this view to emit a QR
 // alongside a freshly-minted invite code so the recipient can scan it from
 // `QRScannerView` (or any other QR reader) and land in
-// `JoinWithInviteView` pre-filled.
+// `AddMapleCloudSheet` pre-filled.
 
 import SwiftUI
 import MapleCore
