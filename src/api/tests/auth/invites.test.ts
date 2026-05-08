@@ -5,7 +5,7 @@ import { invitesCollection } from "../../src/db/client.ts";
 
 const owner = new ObjectId();
 
-beforeEach(async () => { (await invitesCollection()).deleteMany({}); });
+beforeEach(async () => { await (await invitesCollection()).deleteMany({}); });
 
 describe("invites", () => {
   it("creates an 8-char base32 code", async () => {
