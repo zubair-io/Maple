@@ -48,6 +48,21 @@ public actor XMPSidecarStore {
         return result
     }
 
+    /// Like `load()`, but returns `nil` when the sidecar file does not
+    /// exist on disk. Lets callers (specifically `EditSession`) tell
+    /// "fresh image, seed from as-shot WB" apart from "user has saved
+    /// edits, honor them" without poking at FileManager themselves.
+    public func loadIfPresent() async throws -> (AdjustmentModel, CullingState)? {
+        if let cached { return cached }
+        guard FileManager.default.fileExists(atPath: sidecarURL.path) else {
+            return nil
+        }
+        let data = try Data(contentsOf: sidecarURL)
+        let result = try XMPParser.parse(data: data)
+        cached = result
+        return result
+    }
+
     /// Schedule a debounced write. Resets the 750ms timer on each call.
     public func update(model: AdjustmentModel, culling: CullingState) {
         pendingModel = model
