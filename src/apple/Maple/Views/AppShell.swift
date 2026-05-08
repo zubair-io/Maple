@@ -86,11 +86,13 @@ struct AppShell: View {
     // toolbar button below).
     @State private var browseDisplayMode: GridDisplayMode = .fill
 
+    #if os(iOS)
     /// Whether the Info detail-panel sheet is up on iPhone. The macOS /
     /// iPad shell shows DetailPanel as a permanent right-hand column;
     /// iPhone surfaces the same panel via a trailing-toolbar button
     /// → modal sheet so the main content can stay full-width.
     @State private var iPhoneInfoSheet: Bool = false
+    #endif
 
     /// Set when the user selects a cloud library in Timeline view mode;
     /// when non-nil the center column renders CloudTimelineView instead
@@ -329,6 +331,7 @@ struct AppShell: View {
 
     // MARK: - iPhone (NavigationSplitView)
 
+    #if os(iOS)
     /// iPhone shell. Browse is the one main screen; Library is a
     /// leading drawer reached via the standard NavigationSplitView
     /// chevron; Info is a trailing toolbar button that opens
@@ -350,13 +353,11 @@ struct AppShell: View {
             NavigationStack {
                 DetailPanel(session: selectedSession, isFullImage: mode == .fullImage)
                     .navigationTitle("Info")
-                    #if os(iOS)
                     .toolbar {
                         ToolbarItem(placement: .topBarTrailing) {
                             Button("Done") { iPhoneInfoSheet = false }
                         }
                     }
-                    #endif
             }
             .presentationDetents([.medium, .large])
         }
@@ -454,14 +455,11 @@ struct AppShell: View {
         .navigationTitle(mode == .fullImage
                          ? (selectedSession?.asset.displayName ?? "Image")
                          : "Library — \(libraryTitle)")
-        #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
-        #endif
         .toolbar {
             // Reuse the shared browse toolbar (search / fill-fit / etc.)
             // and add an iPhone-only Info button on the trailing edge.
             browseToolbar
-            #if os(iOS)
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
                     iPhoneInfoSheet = true
@@ -470,9 +468,9 @@ struct AppShell: View {
                 }
                 .accessibilityLabel("Info")
             }
-            #endif
         }
     }
+    #endif
 
     // MARK: - Toolbar
 
