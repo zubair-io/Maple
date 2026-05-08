@@ -1060,6 +1060,19 @@ struct AppShell: View {
 
     @MainActor
     private func loadCloudFoldersFor(_ url: URL) async -> [CloudFolder] {
+        // The sidebar's CloudServerSection .task fires at app launch in
+        // parallel with restoreLastSource → bootstrapAndRestore. Without
+        // the same await dance autoPickInitialSource / loadCloudLibrary
+        // do, the /api/folders request races out before tokens are
+        // restored — server replies 401 "missing bearer", the
+        // AuthenticatedHTTPClient's refresh path also finds no tokens
+        // (race), and we silently return []. Awaiting bootstrap here
+        // ensures the keychain restore is complete before tokensProvider
+        // is consulted.
+        let session = sessionFor(url)
+        if !session.isSignedIn { await session.bootstrapAndRestore() }
+        guard session.isSignedIn else { return [] }
+
         let httpClient = makeAuthenticatedHTTPClient(server: url)
         let client = CloudFoldersClient(server: url, httpClient: httpClient)
         do { return try await client.listFolders() }
@@ -1068,6 +1081,14 @@ struct AppShell: View {
 
     @MainActor
     private func listCloudDirFor(server: URL, absPath: String) async -> FsDirListing? {
+        // Same cold-start race as loadCloudFoldersFor — wait for
+        // bootstrap before calling /api/fs/dir so the request actually
+        // carries a bearer token. Sidebar tree-row expansion can fire
+        // this before AuthSession.user is hydrated from Keychain.
+        let session = sessionFor(server)
+        if !session.isSignedIn { await session.bootstrapAndRestore() }
+        guard session.isSignedIn else { return nil }
+
         let httpClient = makeAuthenticatedHTTPClient(server: server)
         let client = CloudFoldersClient(server: server, httpClient: httpClient)
         do { return try await client.listDir(absPath: absPath) }
