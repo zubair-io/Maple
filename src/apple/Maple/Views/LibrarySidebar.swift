@@ -313,6 +313,9 @@ struct LibrarySidebar: View {
                     serverURL: url,
                     folders: cloudFoldersByServer[url] ?? [],
                     viewMode: registry.viewMode(for: url),
+                    displayName: registry.displayName(for: url)
+                                 ?? url.host
+                                 ?? url.absoluteString,
                     isExpanded: Binding(
                         get: { cloudServersExpanded[url] ?? true },
                         set: { cloudServersExpanded[url] = $0 }
@@ -333,7 +336,10 @@ struct LibrarySidebar: View {
                     onListDir: onListCloudDir,
                     cloudCurrentPath: pathFor(server: url),
                     onSignOut: { onSignOutCloudServer(url) },
-                    onRemoveServer: { onRemoveCloudServer(url) }
+                    onRemoveServer: { onRemoveCloudServer(url) },
+                    onRename: { newName in
+                        registry.setDisplayName(newName, for: url)
+                    }
                 )
                 .task {
                     if cloudFoldersByServer[url] == nil {
@@ -350,24 +356,26 @@ struct LibrarySidebar: View {
                 cloudFoldersByServer = cloudFoldersByServer.filter { currentSet.contains($0.key) }
                 cloudServersExpanded = cloudServersExpanded.filter { currentSet.contains($0.key) }
             }
-            // Always visible — fresh users with no servers need this most.
-            // Previously gated on `!registry.servers.isEmpty`, which hid
-            // the entry point exactly when it was the only path forward.
-            Button {
-                onAddCloudServer()
-            } label: {
-                HStack {
-                    Image(systemName: "plus.circle")
-                    Text(registry.servers.isEmpty
-                         ? "Add Maple Cloud server"
-                         : "Add another server")
-                        .font(.callout)
+            // Empty-state entry point only — once a server is connected
+            // the user manages servers (add another, sign out, rename,
+            // remove) from Settings, NOT this inline button. Keeps the
+            // sidebar lean and gives Settings the single source of truth
+            // for server management.
+            if registry.servers.isEmpty {
+                Button {
+                    onAddCloudServer()
+                } label: {
+                    HStack {
+                        Image(systemName: "plus.circle")
+                        Text("Add Maple Cloud server")
+                            .font(.callout)
+                    }
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 2)
                 }
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 2)
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
         }
         .padding(.horizontal, 4)
     }

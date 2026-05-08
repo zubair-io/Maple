@@ -28,6 +28,12 @@ public final class CloudServerRegistry {
   /// remain readable.
   public private(set) var viewModes: [String: CloudViewMode]
 
+  /// Per-host user-supplied display name. Sidebar reads via
+  /// `displayName(for:)`, which falls back to the URL host when a
+  /// host has no override. Settings UI / rename context menu writes
+  /// via `setDisplayName(_:for:)`.
+  public private(set) var displayNames: [String: String]
+
   private static let listKey = "cloud.connectedServers"
   private let defaults: UserDefaults
 
@@ -36,12 +42,18 @@ public final class CloudServerRegistry {
     let loaded = Self.loadList(from: defaults)
     self.servers = loaded
     var modes: [String: CloudViewMode] = [:]
+    var names: [String: String] = [:]
     for url in loaded {
       if let host = url.host {
         modes[host] = CloudViewMode.load(host: host, defaults: defaults)
+        if let name = defaults.string(forKey: Self.nameKey(host: host)),
+           !name.isEmpty {
+          names[host] = name
+        }
       }
     }
     self.viewModes = modes
+    self.displayNames = names
   }
 
   public func register(_ url: URL) {
@@ -59,7 +71,9 @@ public final class CloudServerRegistry {
     TokenStore.clear(server: url)
     if let host = url.host {
       defaults.removeObject(forKey: "cloud.\(host).viewMode")
+      defaults.removeObject(forKey: Self.nameKey(host: host))
       viewModes[host] = nil
+      displayNames[host] = nil
     }
   }
 
@@ -77,6 +91,33 @@ public final class CloudServerRegistry {
     // own internal state.
     viewModes[host] = mode
     mode.save(host: host, defaults: defaults)
+  }
+
+  /// User-supplied display name, or nil when no override exists.
+  /// Callers should fall back to `url.host` for an unset name so the
+  /// UI never shows an empty header.
+  public func displayName(for url: URL) -> String? {
+    guard let host = url.host else { return nil }
+    return displayNames[host]
+  }
+
+  /// Set or clear the display name for a server. Pass nil (or an empty
+  /// string after trimming) to remove the override and revert to the
+  /// URL host fallback.
+  public func setDisplayName(_ name: String?, for url: URL) {
+    guard let host = url.host else { return }
+    let trimmed = name?.trimmingCharacters(in: .whitespacesAndNewlines)
+    if let value = trimmed, !value.isEmpty {
+      displayNames[host] = value
+      defaults.set(value, forKey: Self.nameKey(host: host))
+    } else {
+      displayNames[host] = nil
+      defaults.removeObject(forKey: Self.nameKey(host: host))
+    }
+  }
+
+  private static func nameKey(host: String) -> String {
+    "cloud.\(host).displayName"
   }
 
   // MARK: - Persistence
