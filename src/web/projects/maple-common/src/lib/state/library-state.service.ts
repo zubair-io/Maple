@@ -173,6 +173,15 @@ export class LibraryStateService {
   readonly backendError = signal<string | null>(null);
   /** True when the API returned zero folders (index not configured yet). */
   readonly backendEmpty = signal<boolean>(false);
+  /** Latest server-side registered libraries. Populated by `loadFolders()` /
+   * `addLibraryFolder()` so consumers can map `fs:<absPath>` selections back
+   * to a folder id (e.g. for the rescan button on the asset grid). */
+  readonly registeredFolders = signal<ApiFolder[]>([]);
+  /** Transient state for the "Rescan" button on the toolbar. `idle` is the
+   * resting state; flips to `running` while the POST is in flight, then to
+   * `done` for a brief success indicator before returning to `idle`. */
+  readonly rescanStatus = signal<'idle' | 'running' | 'done' | 'error'>('idle');
+  readonly rescanError = signal<string | null>(null);
 
   /** True while the library-picker modal is open. */
   readonly pickerVisible = signal(false);
@@ -545,6 +554,7 @@ export class LibraryStateService {
 
     this.api.listFolders().subscribe({
       next: (folders) => {
+        this.registeredFolders.set(folders);
         this._applyFolderTree(folders);
         if (folders.length === 0) {
           this.backendEmpty.set(true);
@@ -584,6 +594,70 @@ export class LibraryStateService {
         this.backendLoading.set(false);
         const detail = err?.error?.error ?? err?.message ?? 'Unknown error';
         this.backendError.set(`Failed to register folder: ${detail}`);
+      },
+    });
+  }
+
+  /**
+   * Resolve the registered library that owns the current Self-Hosted
+   * selection. Walks `registeredFolders` for the longest path-prefix
+   * match against the current absPath. Used by the rescan button on
+   * the asset grid; returns `null` when nothing is selected, the user
+   * is on Hosted (no server-side folders), or the path doesn't fall
+   * under any registered library.
+   */
+  currentRegisteredFolder(): ApiFolder | null {
+    if (this.backend !== 'self-hosted') return null;
+    const id = this.selectedSourceId();
+    if (!id.startsWith('fs:')) return null;
+    const absPath = id.slice('fs:'.length);
+    if (!absPath) return null;
+    const folders = this.registeredFolders();
+    let best: ApiFolder | null = null;
+    for (const f of folders) {
+      if (absPath === f.path || absPath.startsWith(f.path + '/')) {
+        if (!best || f.path.length > best.path.length) best = f;
+      }
+    }
+    return best;
+  }
+
+  /**
+   * Force a re-walk of the registered library that owns the current
+   * selection. The server pushes every supported file under the library
+   * root back into the indexer's discover channel; the upsert is
+   * idempotent so unchanged files no-op and new files get indexed.
+   *
+   * No-op (sets `rescanStatus = 'error'` with a message) when no
+   * registered folder can be resolved from the current selection.
+   */
+  rescanCurrentFolder(): void {
+    if (this.rescanStatus() === 'running') return;
+    const folder = this.currentRegisteredFolder();
+    if (!folder) {
+      this.rescanError.set('Pick a library folder first.');
+      this.rescanStatus.set('error');
+      return;
+    }
+    this.rescanError.set(null);
+    this.rescanStatus.set('running');
+    this.api.rescanFolder(folder.id).subscribe({
+      next: (res) => {
+        if (res.ok) {
+          this.rescanStatus.set('done');
+          // Brief success indicator, then return to idle.
+          setTimeout(() => {
+            if (this.rescanStatus() === 'done') this.rescanStatus.set('idle');
+          }, 2_500);
+        } else {
+          this.rescanError.set(res.error ?? 'Rescan failed');
+          this.rescanStatus.set('error');
+        }
+      },
+      error: (err: HttpErrorResponse) => {
+        const detail = err?.error?.error ?? err?.message ?? 'Unknown error';
+        this.rescanError.set(`Rescan failed: ${detail}`);
+        this.rescanStatus.set('error');
       },
     });
   }

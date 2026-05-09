@@ -408,6 +408,19 @@ export class BunApiBackendService {
     );
   }
 
+  /** Force a re-scan of one library folder. Server walks the folder
+   * tree and pushes every supported file back into the discover channel.
+   * The fast-tier upsert is idempotent — unchanged files no-op, new
+   * files get indexed. Returns immediately; the walk runs in the
+   * background. Useful when polling intervals are slow and the operator
+   * just dropped a memory card. */
+  rescanFolder(folderId: string): Observable<{ ok: boolean; folderId: string; path: string; error?: string }> {
+    return this.http.post<{ ok: boolean; folderId: string; path: string; error?: string }>(
+      `${this.base}/indexer/rescan/${encodeURIComponent(folderId)}`,
+      {},
+    );
+  }
+
   listDeadLetter(limit = 200): Observable<IndexerDeadLetterPage> {
     const params = new HttpParams().set('limit', String(limit));
     return this.http.get<IndexerDeadLetterPage>(`${this.base}/indexer/dead-letter`, { params });
