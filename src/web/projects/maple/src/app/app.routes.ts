@@ -58,6 +58,12 @@ export const routes: Routes = [
       ),
   },
   {
+    path: 'settings/workers',
+    canActivate: [authGuard, ownerGuard],
+    loadComponent: () =>
+      import('./settings/workers/workers.component').then((m) => m.WorkersComponent),
+  },
+  {
     path: 'search',
     canActivate: [authGuard],
     loadComponent: () =>
