@@ -215,7 +215,10 @@ describe("Meilisearch client — happy path with mocked fetch", () => {
     expect(calls[1]!.method).toBe("PATCH");
     expect(calls[1]!.url).toContain(`/indexes/${ASSETS_INDEX}/settings`);
     expect(calls[1]!.body).toEqual({
-      searchableAttributes: ["searchBlob"],
+      // Phase 8 — per-attribute weighting across the three sources
+      // (place metadata, LLM caption, OCR'd text). Order is the
+      // weighting order Meilisearch applies.
+      searchableAttributes: ["searchBlob", "description", "ocrText"],
       filterableAttributes: ["folderId", "deletedAt"],
       sortableAttributes: ["capturedAt"],
     });

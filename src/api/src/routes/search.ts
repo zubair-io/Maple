@@ -87,9 +87,10 @@ function widenToDate(s: string): string {
 
 interface SearchQuery {
   q?: string;
-  /** Phase 3: free-text place search against the `place.search_blob` text
-   * index. Distinct from `q` (filename substring) so a caller can mix the
-   * two — `q=DJI&placeQuery=Albany NY` finds DJI files captured in Albany. */
+  /** Phase 3+: free-text search against the unified `asset.search_blob`
+   * text index (place + description + ocr_text). Distinct from `q`
+   * (filename substring) so a caller can mix the two —
+   * `q=DJI&placeQuery=Albany NY` finds DJI files captured in Albany. */
   placeQuery?: string;
   libraryId?: string;
   camera?: string;
@@ -133,12 +134,14 @@ export function buildFilter(
     ];
   }
 
-  // Phase 3: free-text PLACE search via the `place.search_blob` text index.
-  // Mongo allows only one `$text` predicate per query and it must be at
-  // top-level — that composes correctly with the other structured filters
-  // (Mongo ANDs top-level fields) and with `applyLiveFilter`'s wrapper
-  // (`{ $and: [filter, liveClause] }` keeps `$text` at top-level of its
-  // sub-filter, which is the legal position).
+  // Phase 3+: free-text search via the unified `asset.search_blob` text
+  // index. The blob covers place metadata, LLM caption (description),
+  // and OCR'd text (ocr_text). Mongo allows only one `$text` predicate
+  // per query and it must be at top-level — that composes correctly
+  // with the other structured filters (Mongo ANDs top-level fields)
+  // and with `applyLiveFilter`'s wrapper (`{ $and: [filter, liveClause] }`
+  // keeps `$text` at top-level of its sub-filter, which is the legal
+  // position).
   if (q.placeQuery && q.placeQuery.trim().length > 0) {
     (filter as Record<string, unknown>).$text = {
       $search: q.placeQuery.trim(),
@@ -296,18 +299,22 @@ export function buildFilter(
  * deleted_at predicate.
  *
  * When `$text` is present, the filter must also be friendly to the
- * partial text index (`partialFilterExpression: { deleted_at: null,
- * place: { $type: "object" } }`). Mongo's planner only uses a partial
- * index when the query implies the predicate — `{ $or: [{deleted_at:null}, ...] }`
- * does NOT imply `deleted_at: null`. So when `$text` is in play, we use
- * an exact-equality clause on `deleted_at: null`. The Phase 1 indexer
+ * partial text index. The `search_blob_text` index uses
+ * `partialFilterExpression: { deleted_at: null,
+ *  search_blob: { $type: "string", $gt: "" } }`. Mongo's planner only
+ * uses a partial index when the query implies the predicate, so when
+ * `$text` is in play we ask for the same shape: `deleted_at: null` and
+ * `search_blob: { $type: "string", $gt: "" }`. The Phase 1 indexer
  * writes `deleted_at: null` on every skeleton row, so this is safe in
  * practice — we only filter out rows that were soft-deleted.
  */
 function applyLiveFilter(filter: Filter<AssetDoc>): Filter<AssetDoc> {
   const usesText = "$text" in (filter as Record<string, unknown>);
   const liveClause: Record<string, unknown> = usesText
-    ? { deleted_at: null, place: { $type: "object" } }
+    ? {
+        deleted_at: null,
+        search_blob: { $type: "string", $gt: "" },
+      }
     : { $or: [{ deleted_at: null }, { deleted_at: { $exists: false } }] };
   const keys = Object.keys(filter);
   if (keys.length === 0) {

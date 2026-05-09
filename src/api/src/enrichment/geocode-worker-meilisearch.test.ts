@@ -131,6 +131,7 @@ async function seedAsset(
   db: Db,
   mapleId: string,
   gps: { lat: number; lng: number },
+  extras: { description?: string | null; ocr_text?: string | null } = {},
 ): Promise<ObjectId> {
   const doc: Partial<AssetDoc> & { maple_id: string } = {
     folder_id: FOLDER_ID,
@@ -143,6 +144,8 @@ async function seedAsset(
     flag: 0,
     color_label: "",
     indexed_at: new Date().toISOString(),
+    description: extras.description ?? null,
+    ocr_text: extras.ocr_text ?? null,
     exif: {
       captured_at: "2024-06-01T12:00:00.000Z",
       captured_year: 2024,
@@ -176,6 +179,15 @@ async function seedAsset(
         dead_letter_at: null,
       },
       describe: {
+        done_at: null,
+        locked_by: null,
+        lease_expires_at: null,
+        attempts: 0,
+        last_error: null,
+        version: null,
+        dead_letter_at: null,
+      },
+      ocr: {
         done_at: null,
         locked_by: null,
         lease_expires_at: null,
@@ -335,5 +347,35 @@ describe("GeocodeWorker — Meilisearch sync", () => {
     expect(result.kind).toBe("completed");
     // Without a maple_id we skip the Meilisearch upsert entirely.
     expect(meili.upserts.length).toBe(0);
+  });
+
+  it("Meilisearch upsert includes description + ocrText when populated", async () => {
+    if (!mongoReachable) return;
+    await seedAsset(
+      db!,
+      "maple-with-extras",
+      { lat: 42.65, lng: -73.75 },
+      { description: "A photograph of the museum", ocr_text: "ENTRANCE 9-5" },
+    );
+    const meili = makeCapturingMeili();
+    const worker = new GeocodeWorker({
+      client: fakeNominatim(NOMINATIM_OK),
+      cache: new CoordinateCache({ geocoderVersion: GEOCODE_HANDLER_VERSION }),
+      breaker: new CircuitBreaker(),
+      meilisearch: meili.client,
+      pollMs: 1,
+      leaseMs: 60_000,
+    });
+    const result = await worker.tick();
+    expect(result.kind).toBe("completed");
+
+    expect(meili.upserts.length).toBe(1);
+    const u = meili.upserts[0]!;
+    expect(u.description).toBe("A photograph of the museum");
+    expect(u.ocrText).toBe("ENTRANCE 9-5");
+    // Unified blob covers all three sources.
+    expect(u.searchBlob).toContain("albany");
+    expect(u.searchBlob).toContain("photograph");
+    expect(u.searchBlob).toContain("entrance");
   });
 });

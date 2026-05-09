@@ -33,16 +33,26 @@ export const ASSETS_INDEX = "assets";
 /** Latest stable v1 features we rely on; bumped when we change the schema. */
 const REQUIRED_SETTINGS_VERSION = 1;
 
-/** Document shape we push to Meilisearch. Mirror of the search-blob inputs
- * the Mongo `$text` index already feeds on, plus the bare fields we need
- * for filtering. */
+/** Document shape we push to Meilisearch. Mirror of the unified
+ * `asset.search_blob` field plus the per-attribute sources so
+ * Meilisearch can apply per-field weighting (POI/place metadata typically
+ * outranks description prose, which outranks OCR'd UI chrome). */
 export interface MeilisearchAssetDoc {
   /** Unique document id. We use the asset's stable `maple_id` so re-upserts
    * are idempotent even after rename/move (the absPath changes; mapleId
    * doesn't). */
   id: string;
-  /** Pre-tokenised location text written by the geocode worker (Phase 2). */
+  /** Unified text bag — concatenation of `place.search_blob`,
+   * `description`, and `ocr_text`. Equivalent to what the Mongo `$text`
+   * index covers. */
   searchBlob: string;
+  /** LLM-generated caption from the describe worker (Phase 6). Stored
+   * separately so per-attribute weighting can favour caption matches.
+   * `null`/omitted before the worker has run. */
+  description?: string | null;
+  /** OCR'd text from the OCR worker (Phase 8). Same per-attribute
+   * weighting story as `description`. */
+  ocrText?: string | null;
   /** Folder hex string. Filterable so the route can scope to one library. */
   folderId: string;
   /** ISO timestamp; sortable so the future "search-as-you-type" path can
@@ -260,7 +270,11 @@ export function createMeilisearchClient(
         "PATCH",
         `/indexes/${ASSETS_INDEX}/settings`,
         {
-          searchableAttributes: ["searchBlob"],
+          // Order is the per-attribute weighting Meilisearch applies:
+          // searchBlob (unified, includes everything) ranks first, then
+          // description (LLM caption — higher signal than chrome), then
+          // ocrText (often UI/menu strings).
+          searchableAttributes: ["searchBlob", "description", "ocrText"],
           filterableAttributes: ["folderId", "deletedAt"],
           sortableAttributes: ["capturedAt"],
         },

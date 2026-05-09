@@ -59,6 +59,18 @@ import {
   startGeocodeWorker,
   stopGeocodeWorker,
 } from "./enrichment/bootstrap.ts";
+import {
+  startOcrWorker,
+  stopOcrWorker,
+} from "./enrichment/ocr-bootstrap.ts";
+import {
+  startFaceWorker,
+  stopFaceWorker,
+} from "./enrichment/face-bootstrap.ts";
+import {
+  startDescribeWorker,
+  stopDescribeWorker,
+} from "./enrichment/describe-bootstrap.ts";
 import { meilisearchClient } from "./enrichment/meilisearch-client.ts";
 import { startJobRunner, stopJobRunner } from "./job-runner/runner.ts";
 
@@ -260,6 +272,30 @@ async function start(): Promise<void> {
         );
       }),
     )
+    .then(() =>
+      // Phase 5: face worker. Default off. When enabled, model load can
+      // fail silently (file missing + no download URL) — the worker stays
+      // dormant in that case so the API stays up. Operator recovers via
+      // /settings/enrichment.
+      startFaceWorker().catch((err) => {
+        log.error(
+          { err: err instanceof Error ? err.message : err },
+          "face worker failed to start; fix via /settings/enrichment",
+        );
+      }),
+    )
+    .then(() =>
+      // Phase 6: describe worker (vision-LLM caption generator). Local
+      // Ollama by default — no API key needed. Health check at boot;
+      // failures are logged and the operator can fix via
+      // /settings/enrichment without a restart.
+      startDescribeWorker().catch((err) => {
+        log.error(
+          { err: err instanceof Error ? err.message : err },
+          "describe worker failed to start; fix via /settings/enrichment",
+        );
+      }),
+    )
     .then(async () => {
       // Phase 7: Meilisearch sidecar. `health()` returns false when the
       // URL is unset OR when the service is unreachable. We warn-and-
@@ -294,6 +330,17 @@ async function start(): Promise<void> {
       // heavy lifting; one in-flight job per process is enough for v1.
       startJobRunner();
     })
+    .then(() =>
+      // Phase 8: OCR worker. Off by default — operator opts in via
+      // `MAPLE_OCR_WORKER_ENABLED=true` or the settings UI. Lazy
+      // tesseract bring-up means this is cheap at boot when disabled.
+      startOcrWorker().catch((err) => {
+        log.error(
+          { err: err instanceof Error ? err.message : err },
+          "OCR worker failed to start; toggle via /settings/enrichment",
+        );
+      }),
+    )
     .catch((err) => {
       log.warn(
         { err: err instanceof Error ? err.message : err },
@@ -326,6 +373,30 @@ async function shutdown(signal: string): Promise<void> {
     log.warn(
       { err: e instanceof Error ? e.message : e },
       "error stopping geocode worker",
+    );
+  }
+  try {
+    await stopFaceWorker();
+  } catch (e) {
+    log.warn(
+      { err: e instanceof Error ? e.message : e },
+      "error stopping face worker",
+    );
+  }
+  try {
+    await stopDescribeWorker();
+  } catch (e) {
+    log.warn(
+      { err: e instanceof Error ? e.message : e },
+      "error stopping describe worker",
+    );
+  }
+  try {
+    await stopOcrWorker();
+  } catch (e) {
+    log.warn(
+      { err: e instanceof Error ? e.message : e },
+      "error stopping OCR worker",
     );
   }
   try {

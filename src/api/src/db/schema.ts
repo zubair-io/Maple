@@ -107,6 +107,22 @@ export interface AssetDoc {
   faces?: AssetFaceDoc[];
   /** LLM-generated caption (Phase 6 describe worker output). `null` until run. */
   description?: string | null;
+  /** Recognised text extracted from the thumbnail by the OCR worker.
+   * `null` until the worker has run; empty string when nothing was found. */
+  ocr_text?: string | null;
+  /** Provenance of the OCR run. Bumping the engine version triggers a
+   * rerun the same way `enrichment.geocode.version` does. */
+  ocr_meta?: {
+    engine: "tesseract";
+    engine_version: string;
+    generated_at: string;
+  } | null;
+  /** Synthesised text-index target. Concatenation of `place.search_blob`,
+   * `description`, and `ocr_text` — recomputed atomically inside each
+   * worker's `complete()` so the value stays consistent without a
+   * separate write. The Mongo `$text` index lives on this field
+   * (Mongo allows only ONE text index per collection). */
+  search_blob?: string;
 }
 
 export type AssetWithId = WithId<AssetDoc>;
@@ -168,6 +184,9 @@ export interface Enrichment {
   geocode: EnrichmentStageState;
   face: EnrichmentStageState;
   describe: EnrichmentStageState;
+  /** OCR worker bookkeeping (Phase 8). Pending on every fresh skeleton
+   * row; flipped to done by `OcrWorker.complete()`. */
+  ocr: EnrichmentStageState;
 }
 
 // ---------------------------------------------------------------------------
@@ -271,6 +290,7 @@ export function pendingEnrichment(): Enrichment {
     geocode: pendingStageState(),
     face: pendingStageState(),
     describe: pendingStageState(),
+    ocr: pendingStageState(),
   };
 }
 
@@ -287,6 +307,7 @@ export function normaliseEnrichment(
     geocode: { ...pendingStageState(), ...(raw?.geocode ?? {}) },
     face: { ...pendingStageState(), ...(raw?.face ?? {}) },
     describe: { ...pendingStageState(), ...(raw?.describe ?? {}) },
+    ocr: { ...pendingStageState(), ...(raw?.ocr ?? {}) },
   };
 }
 
