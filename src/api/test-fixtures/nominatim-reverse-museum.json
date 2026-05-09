@@ -1,0 +1,39 @@
+{
+  "place_id": 268890164,
+  "licence": "Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright",
+  "osm_type": "way",
+  "osm_id": 49612345,
+  "lat": "42.6526",
+  "lon": "-73.7562",
+  "category": "tourism",
+  "type": "museum",
+  "place_rank": 30,
+  "importance": 0.50012345678,
+  "addresstype": "tourism",
+  "name": "New York State Museum",
+  "display_name": "New York State Museum, 222, Madison Avenue, Mansion District, Downtown, Albany, Albany County, New York, 12230, United States",
+  "address": {
+    "tourism": "New York State Museum",
+    "house_number": "222",
+    "road": "Madison Avenue",
+    "neighbourhood": "Mansion District",
+    "suburb": "Downtown",
+    "city": "Albany",
+    "county": "Albany County",
+    "state": "New York",
+    "ISO3166-2-lvl4": "US-NY",
+    "postcode": "12230",
+    "country": "United States",
+    "country_code": "us"
+  },
+  "extratags": {
+    "wikidata": "Q1191028",
+    "wikipedia": "en:New York State Museum",
+    "operator": "New York State Education Department"
+  },
+  "namedetails": {
+    "name": "New York State Museum",
+    "name:en": "New York State Museum"
+  },
+  "boundingbox": ["42.6519", "42.6533", "-73.7572", "-73.7551"]
+}

@@ -11,6 +11,9 @@ import { ObjectId } from "mongodb";
 import { foldersCollection, assetsCollection } from "../db/client.ts";
 import { validateRoot } from "../fs/root.ts";
 import { registerFolderWatch } from "../indexer/service.ts";
+import { child as childLogger } from "../log.ts";
+
+const log = childLogger("folders");
 
 export const foldersRoutes = new Elysia({ prefix: "/api/folders" })
   // List all folders
@@ -61,10 +64,10 @@ export const foldersRoutes = new Elysia({ prefix: "/api/folders" })
 
       // Kick off a watcher + initial walk in the background.
       registerFolderWatch(id, path).catch((err) =>
-        console.warn(
-          "[folders] registerFolderWatch failed:",
-          err instanceof Error ? err.message : err
-        )
+        log.warn(
+          { err: err instanceof Error ? err.message : err },
+          "registerFolderWatch failed",
+        ),
       );
 
       set.status = 201;

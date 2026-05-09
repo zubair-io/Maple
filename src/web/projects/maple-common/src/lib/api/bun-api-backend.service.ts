@@ -237,4 +237,48 @@ export class BunApiBackendService {
   stopIndexer(): Observable<IndexerLifecycleResponse> {
     return this.http.post<IndexerLifecycleResponse>(`${this.base}/indexer/stop`, {});
   }
+
+  // -------------------------------------------------------------------------
+  // Slow-tier enrichment (Phase 2+ workers — geocode, face, describe).
+  // The `source` field on the GET response says whether each value came from
+  // the DB row (operator saved it via the UI), an env var (deployment-time
+  // fallback), or a built-in default.
+  // -------------------------------------------------------------------------
+
+  getEnrichmentConfig(): Observable<EnrichmentConfigResponse> {
+    return this.http.get<EnrichmentConfigResponse>(`${this.base}/enrichment/config`);
+  }
+
+  /** Save and immediately re-apply. Server runs a Nominatim health-check
+   * before persisting when `geocode_worker_enabled` is true and a URL is
+   * supplied — a 502 means the URL is wrong and nothing was saved. */
+  saveEnrichmentConfig(
+    body: { nominatim_url: string | null; geocode_worker_enabled: boolean },
+  ): Observable<EnrichmentConfigResponse> {
+    return this.http.put<EnrichmentConfigResponse>(`${this.base}/enrichment/config`, body);
+  }
+
+  /** Health-check an arbitrary Nominatim URL without saving. Used for the
+   * "Test connection" button in the settings UI. */
+  testNominatim(url: string): Observable<EnrichmentTestResponse> {
+    return this.http.post<EnrichmentTestResponse>(`${this.base}/enrichment/test`, {
+      nominatim_url: url,
+    });
+  }
+}
+
+export interface EnrichmentConfigResponse {
+  nominatim_url: string | null;
+  geocode_worker_enabled: boolean;
+  source: {
+    nominatim_url: 'db' | 'env' | 'unset';
+    geocode_worker_enabled: 'db' | 'env' | 'default';
+  };
+}
+
+export interface EnrichmentTestResponse {
+  ok: boolean;
+  url?: string;
+  error?: string;
+  status?: number | null;
 }

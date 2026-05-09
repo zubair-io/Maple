@@ -13,6 +13,7 @@ import { ObjectId } from "mongodb";
 import { assetsCollection } from "../db/client.ts";
 import { readXmp, writeXmpAtomic, resolveThumbPath } from "../fs/xmp.ts";
 import { safeReadFile } from "../fs/root.ts";
+import { normaliseEnrichment } from "../db/schema.ts";
 
 export const assetsRoutes = new Elysia({ prefix: "/api/assets" })
   // Single asset metadata
@@ -43,6 +44,12 @@ export const assetsRoutes = new Elysia({ prefix: "/api/assets" })
       flag: doc.flag,
       color_label: doc.color_label,
       indexed_at: doc.indexed_at,
+      // Phase 1 enrichment outputs — null/empty for rows that pre-date the
+      // skeleton schema or whose workers have not yet run.
+      place: doc.place ?? null,
+      faces: doc.faces ?? [],
+      description: doc.description ?? null,
+      enrichment: normaliseEnrichment(doc.enrichment),
     };
   })
 

@@ -16,7 +16,10 @@
 
 import { assetsCollection } from "../db/client.ts";
 import type { AssetExif } from "../db/schema.ts";
+import { child as childLogger } from "../log.ts";
 import exifr from "exifr";
+
+const log = childLogger("indexer:exif");
 
 /**
  * exifr's parse result is a loose record. We pluck the fields we want and
@@ -166,10 +169,9 @@ export async function readExif(absPath: string): Promise<AssetExif | null> {
     if (!raw) return null;
     return normalizeExif(raw);
   } catch (err) {
-    console.warn(
-      "[indexer:exif] exifr failed for",
-      absPath,
-      err instanceof Error ? err.message : err,
+    log.warn(
+      { absPath, err: err instanceof Error ? err.message : err },
+      "exifr failed",
     );
     return null;
   }

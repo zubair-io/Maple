@@ -28,7 +28,7 @@ import { Elysia, t } from "elysia";
 import { ObjectId } from "mongodb";
 import type { Filter, Sort } from "mongodb";
 import { assetsCollection } from "../db/client.ts";
-import type { AssetDoc } from "../db/schema.ts";
+import type { AssetDoc, Place } from "../db/schema.ts";
 
 const COLOR_LABELS = new Set(["", "red", "yellow", "green", "blue", "purple"]);
 const FLAG_BY_NAME: Record<string, -1 | 0 | 1> = {
@@ -319,6 +319,11 @@ interface SearchResult {
   rating: number;
   flag: -1 | 0 | 1;
   color_label: string;
+  /** Reverse-geocoded place; `null` for assets without GPS or before the
+   * Phase 2 geocode worker has run. */
+  place: Place | null;
+  /** LLM-generated caption; `null` before the Phase 6 describe worker has run. */
+  description: string | null;
 }
 
 function projectAsset(d: AssetDoc & { _id: ObjectId }): SearchResult {
@@ -348,6 +353,12 @@ function projectAsset(d: AssetDoc & { _id: ObjectId }): SearchResult {
     rating: d.rating,
     flag: d.flag,
     color_label: d.color_label,
+    // Enrichment outputs — null on old rows or before the worker has run.
+    // `faces` and the `enrichment` worker-state subdocument are deliberately
+    // not on the list payload (face embeddings can be large; worker state is
+    // internal). Use `/api/assets/:id` for the full record.
+    place: d.place ?? null,
+    description: d.description ?? null,
   };
 }
 

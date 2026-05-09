@@ -21,6 +21,9 @@ import { browseRoots, isUnderRoot, RAW_EXTENSIONS } from "../fs/browse.ts";
 import { resolveThumbPath } from "../fs/xmp.ts";
 import { ffiPool } from "../ffi/ffi-pool.ts";
 import { renderImageThumbToFile, SHARP_EXTENSIONS } from "../thumbs/render.ts";
+import { child as childLogger } from "../log.ts";
+
+const log = childLogger("fs-thumbs");
 
 const DEFAULT_SIZE_PX = 512;
 const MIN_SIZE_PX = 16;
@@ -135,9 +138,9 @@ export const fsThumbsRoutes = new Elysia({ prefix: "/api/fs" }).get(
       } catch (err) {
         // Fall through to regen if read fails (e.g. file disappeared
         // between stat and readFile).
-        console.warn(
-          `[fs-thumbs] read of cached thumb at "${thumbPath}" failed; regenerating:`,
-          err instanceof Error ? err.message : err,
+        log.warn(
+          { thumbPath, err: err instanceof Error ? err.message : err },
+          "read of cached thumb failed; regenerating",
         );
       }
     }
