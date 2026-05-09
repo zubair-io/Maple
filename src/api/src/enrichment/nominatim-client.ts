@@ -27,7 +27,11 @@ export interface NominatimClientConfig {
   /** Per-call request timeout in milliseconds. Default 5_000. */
   requestTimeoutMs?: number;
   /** Sustained request rate — token bucket refills at this rate per second.
-   * Default 10. Burst capacity is `Math.max(1, rateLimitPerSec)`. */
+   * Default 10. Burst capacity is `Math.max(1, rateLimitPerSec)`. The
+   * runtime value is supplied by `bootstrap.ts` from the resolved
+   * `EnrichmentConfig.nominatim_rate_limit_per_sec` (DB → env → default
+   * 10), so operators can tune it from `/settings/enrichment` without a
+   * redeploy. */
   rateLimitPerSec?: number;
   /** Time source. Override in tests. */
   now?: () => number;

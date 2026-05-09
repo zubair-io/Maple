@@ -53,6 +53,9 @@ export class EnrichmentComponent implements OnInit {
   /** Editable form state — `null` URL is rendered as an empty string. */
   readonly url = signal<string>('');
   readonly enabled = signal<boolean>(true);
+  /** String input — number parsing happens at save() time. Empty = clear
+   * back to env-or-default. */
+  readonly rateLimit = signal<string>('');
 
   readonly loadError = signal<string | null>(null);
   readonly saveError = signal<string | null>(null);
@@ -70,6 +73,7 @@ export class EnrichmentComponent implements OnInit {
         this.serverConfig.set(cfg);
         this.url.set(cfg.nominatim_url ?? '');
         this.enabled.set(cfg.geocode_worker_enabled);
+        this.rateLimit.set(String(cfg.nominatim_rate_limit_per_sec));
       },
       error: (err) => {
         this.loadError.set(this.errorMessage(err));
@@ -108,12 +112,33 @@ export class EnrichmentComponent implements OnInit {
   }
 
   /** Save then re-apply on the server. The server runs its own health-check
-   * before persisting, so a typo is rejected with a 502 (we surface it). */
+   * before persisting, so a typo is rejected with a 502 (we surface it).
+   *
+   * Rate-limit handling: an empty input clears the saved value (server
+   * falls back to env / default). A non-empty input must parse as a
+   * positive number; otherwise we surface a client-side error and skip
+   * the request. */
   save(): void {
     const trimmed = this.url().trim();
+    const rateInput = this.rateLimit().trim();
+    let rate: number | null | undefined;
+    if (rateInput.length === 0) {
+      rate = null;
+    } else {
+      const parsed = Number(rateInput);
+      if (!Number.isFinite(parsed) || parsed <= 0) {
+        this.saveError.set(
+          `Rate must be a positive number (got "${rateInput}")`,
+        );
+        this.saveStatus.set('error');
+        return;
+      }
+      rate = parsed;
+    }
     const body = {
       nominatim_url: trimmed.length > 0 ? trimmed : null,
       geocode_worker_enabled: this.enabled(),
+      nominatim_rate_limit_per_sec: rate,
     };
     this.saveError.set(null);
     this.saveStatus.set('saving');
@@ -122,6 +147,7 @@ export class EnrichmentComponent implements OnInit {
         this.serverConfig.set(cfg);
         this.url.set(cfg.nominatim_url ?? '');
         this.enabled.set(cfg.geocode_worker_enabled);
+        this.rateLimit.set(String(cfg.nominatim_rate_limit_per_sec));
         this.saveStatus.set('success');
         // Clear the success indicator after a moment so the page stays clean.
         setTimeout(() => {

@@ -317,9 +317,17 @@ export class BunApiBackendService {
 
   /** Save and immediately re-apply. Server runs a Nominatim health-check
    * before persisting when `geocode_worker_enabled` is true and a URL is
-   * supplied — a 502 means the URL is wrong and nothing was saved. */
+   * supplied — a 502 means the URL is wrong and nothing was saved.
+   *
+   * `nominatim_rate_limit_per_sec` is optional: omit it to leave the
+   * existing value alone, send a number to set, or send `null` to clear
+   * back to the env-or-default fallback. */
   saveEnrichmentConfig(
-    body: { nominatim_url: string | null; geocode_worker_enabled: boolean },
+    body: {
+      nominatim_url: string | null;
+      geocode_worker_enabled: boolean;
+      nominatim_rate_limit_per_sec?: number | null;
+    },
   ): Observable<EnrichmentConfigResponse> {
     return this.http.put<EnrichmentConfigResponse>(`${this.base}/enrichment/config`, body);
   }
@@ -336,9 +344,14 @@ export class BunApiBackendService {
 export interface EnrichmentConfigResponse {
   nominatim_url: string | null;
   geocode_worker_enabled: boolean;
+  /** Sustained Nominatim throttle (token-bucket refill rate). Always a
+   * number on the wire — the server resolves DB/env/default before
+   * responding. */
+  nominatim_rate_limit_per_sec: number;
   source: {
     nominatim_url: 'db' | 'env' | 'unset';
     geocode_worker_enabled: 'db' | 'env' | 'default';
+    nominatim_rate_limit_per_sec: 'db' | 'env' | 'default';
   };
 }
 

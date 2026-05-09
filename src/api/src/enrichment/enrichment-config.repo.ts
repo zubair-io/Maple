@@ -3,8 +3,9 @@
  * a single document in `app_settings` keyed by `_id: "enrichment"`.
  *
  * The values here override the env vars (`MAPLE_NOMINATIM_URL`,
- * `MAPLE_GEOCODE_WORKER_ENABLED`) at boot — env vars stay as a fallback so
- * existing deployments don't break when no row has been written yet.
+ * `MAPLE_GEOCODE_WORKER_ENABLED`, `MAPLE_NOMINATIM_RATE_LIMIT_PER_SEC`) at
+ * boot — env vars stay as a fallback so existing deployments don't break
+ * when no row has been written yet.
  */
 
 import { getDb } from "../db/client.ts";
@@ -12,9 +13,25 @@ import { getDb } from "../db/client.ts";
 const COLL = "app_settings";
 const DOC_ID = "enrichment";
 
+/** Default sustained Nominatim rate when no DB row and no env var is set.
+ * Matches `nominatim-client.ts:DEFAULT_RATE_LIMIT` so behaviour is identical
+ * before and after the operator-configurable surface lands. */
+export const DEFAULT_NOMINATIM_RATE_LIMIT_PER_SEC = 10;
+
+/** Reject obviously broken values up-front. The lower bound is non-zero so
+ * a misclick can't pause the worker silently; the upper bound is generous
+ * enough to drive a high-end Nominatim deployment but tight enough to flag
+ * an accidental three-digit input. */
+export const MIN_NOMINATIM_RATE_LIMIT_PER_SEC = 0.1;
+export const MAX_NOMINATIM_RATE_LIMIT_PER_SEC = 100;
+
 export interface EnrichmentConfig {
   nominatim_url: string | null;
   geocode_worker_enabled: boolean;
+  /** Sustained Nominatim throttle (token-bucket refill rate). Per-process.
+   * `null` when the operator hasn't saved an explicit value yet — the
+   * resolver then falls back to env / default. */
+  nominatim_rate_limit_per_sec?: number | null;
   updated_at?: number;
 }
 
@@ -52,6 +69,10 @@ export async function saveEnrichmentConfig(
   if (patch.geocode_worker_enabled !== undefined) {
     set["config.geocode_worker_enabled"] = patch.geocode_worker_enabled;
   }
+  if (patch.nominatim_rate_limit_per_sec !== undefined) {
+    set["config.nominatim_rate_limit_per_sec"] =
+      patch.nominatim_rate_limit_per_sec;
+  }
   await db
     .collection(COLL)
     .updateOne({ _id: DOC_ID }, { $set: set }, { upsert: true });
@@ -65,11 +86,13 @@ export async function saveEnrichmentConfig(
 export interface ResolvedEnrichmentConfig {
   nominatim_url: string | null;
   geocode_worker_enabled: boolean;
+  nominatim_rate_limit_per_sec: number;
   /** Where each field came from. The UI renders this so the operator knows
    * whether they're seeing a saved value or an env-var fallback. */
   source: {
     nominatim_url: "db" | "env" | "unset";
     geocode_worker_enabled: "db" | "env" | "default";
+    nominatim_rate_limit_per_sec: "db" | "env" | "default";
   };
 }
 
@@ -98,9 +121,33 @@ export function resolveEnrichmentConfig(
     enabledSource = "env";
   }
 
+  let rateLimit = DEFAULT_NOMINATIM_RATE_LIMIT_PER_SEC;
+  let rateSource: ResolvedEnrichmentConfig["source"]["nominatim_rate_limit_per_sec"] =
+    "default";
+  if (
+    db &&
+    typeof db.nominatim_rate_limit_per_sec === "number" &&
+    Number.isFinite(db.nominatim_rate_limit_per_sec) &&
+    db.nominatim_rate_limit_per_sec > 0
+  ) {
+    rateLimit = db.nominatim_rate_limit_per_sec;
+    rateSource = "db";
+  } else if (env.MAPLE_NOMINATIM_RATE_LIMIT_PER_SEC) {
+    const parsed = Number(env.MAPLE_NOMINATIM_RATE_LIMIT_PER_SEC);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      rateLimit = parsed;
+      rateSource = "env";
+    }
+  }
+
   return {
     nominatim_url: url,
     geocode_worker_enabled: enabled,
-    source: { nominatim_url: urlSource, geocode_worker_enabled: enabledSource },
+    nominatim_rate_limit_per_sec: rateLimit,
+    source: {
+      nominatim_url: urlSource,
+      geocode_worker_enabled: enabledSource,
+      nominatim_rate_limit_per_sec: rateSource,
+    },
   };
 }
