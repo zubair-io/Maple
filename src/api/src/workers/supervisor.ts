@@ -451,3 +451,96 @@ export class Supervisor {
     }
   }
 }
+
+// ---------------------------------------------------------------------------
+// Module-level singleton + convenience helpers (used by index.ts and tests)
+// ---------------------------------------------------------------------------
+
+export interface StartSupervisorOptions extends SupervisorOptions {
+  /** Stage names to launch immediately. */
+  stages: string[];
+  /** Optional discover configuration — if provided, startDiscover is called
+   *  in-process and the handle is bundled into the returned stop(). */
+  discover?: {
+    folderId: string;
+    roots: string[];
+  };
+}
+
+export interface SupervisorHandle {
+  stop: () => Promise<void>;
+}
+
+let _singleton: Supervisor | null = null;
+
+/**
+ * Start the supervisor with the given stage list.
+ * Idempotent — if already running, stops the old instance first.
+ */
+export async function startSupervisor(opts: StartSupervisorOptions): Promise<SupervisorHandle> {
+  if (_singleton) {
+    await _singleton.stopAll();
+    _singleton = null;
+  }
+
+  const { stages, discover, ...supervisorOpts } = opts;
+  const sup = new Supervisor(stages, supervisorOpts);
+  _singleton = sup;
+
+  let discoverHandle: { stop: () => Promise<void> } | null = null;
+  if (discover) {
+    const { startDiscover } = await import("./discover/index.ts");
+    discoverHandle = await startDiscover({
+      folderId: discover.folderId,
+      roots: discover.roots,
+    });
+  }
+
+  return {
+    stop: async () => {
+      if (discoverHandle) await discoverHandle.stop();
+      await sup.stopAll();
+      if (_singleton === sup) _singleton = null;
+    },
+  };
+}
+
+/** Stop the running supervisor singleton (no-op if not running). */
+export async function stopSupervisor(): Promise<void> {
+  if (_singleton) {
+    await _singleton.stopAll();
+    _singleton = null;
+  }
+}
+
+/** Snapshot of current supervisor stage statuses. */
+export function supervisorState(): Record<string, StageProcessState> {
+  if (!_singleton) return {};
+  return _singleton.statuses();
+}
+
+/** Pause a stage by name. */
+export async function pauseSupervisor(name?: string): Promise<void> {
+  if (!_singleton) return;
+  if (name) {
+    await _singleton.pause(name);
+  } else {
+    // Pause all stages
+    for (const stageName of Object.keys(_singleton.statuses())) {
+      await _singleton.pause(stageName);
+    }
+  }
+}
+
+/** Resume a stage by name. */
+export async function resumeSupervisor(name?: string): Promise<void> {
+  if (!_singleton) return;
+  if (name) {
+    await _singleton.resume(name);
+  } else {
+    // Resume all stages
+    for (const stageName of Object.keys(_singleton.statuses())) {
+      await _singleton.resume(stageName);
+    }
+  }
+}
