@@ -4,9 +4,9 @@
 
 **Goal:** Build the stage-controller runtime, config repo, supervisor, and HTTP API that all future stage cutovers (Plans 2–3) depend on. No existing pipeline code is touched — the new infrastructure sits alongside the old code and is fully tested before any stage migrates to it.
 
-**Architecture:** Five new modules under `src/api/src/workers/`. `define-stage.ts` holds canonical types and the zero-cost `defineStage` helper. `worker-config.repo.ts` owns CRUD on a new `worker_config` Mongo collection, watched via change stream with a 5-second polling fallback for standalone Mongo deployments. `run-stage.ts` is the shared runtime imported by every stage child process: it handles boot, version-bump-reset, poll-loop, in-flight dispatch to a fixed worker pool, atomic writeback, throughput rolling window, pause/resume, and graceful drain. `main.ts` is the 4-line entry shim. `supervisor.ts` generalizes `src/api/src/indexer/control.ts` to manage N named stage children with the same backoff/respawn/log-multiplex/IPC pattern; stage spawns are stubbed in Plan 1 so the supervisor boots cleanly with zero children while its tests register a synthetic stage.
+**Architecture:** Five new modules under `src/api/src/workers/`. `define-stage.ts` holds canonical types and the zero-cost `defineStage` helper. `worker-config.repo.ts` owns CRUD on a new `worker_config` Mongo collection — load, upsert, patch only; no change stream, no polling. Config changes are pushed to running children via the supervisor's per-child IPC channel: `PATCH /api/workers/:name/config` writes to Mongo for persistence then calls `supervisor.notifyConfigChanged(name)`, which POSTs `reload-config` to the child's IPC server; the child re-reads its config from Mongo and applies the new values. `run-stage.ts` is the shared runtime imported by every stage child process: boot, version-bump-reset, poll loop, in-flight dispatch, atomic writeback, throughput rolling window, pause/resume, reload-config, and graceful drain. `main.ts` is the 4-line entry shim. `supervisor.ts` generalizes `src/api/src/indexer/control.ts` to manage N named stage children with the same backoff/respawn/log-multiplex/IPC pattern; stage spawns are stubbed in Plan 1 so the supervisor boots cleanly with zero children while its tests register a synthetic stage.
 
-**Tech Stack:** Bun, TypeScript, MongoDB (change streams + fallback polling), Elysia (API endpoints), bun:test.
+**Tech Stack:** Bun, TypeScript, MongoDB, Elysia (API endpoints), bun:test. No `mongodb-memory-server` — all repo and runtime tests use hand-rolled typed mock collections.
 
 **Spec:** [`docs/superpowers/specs/2026-05-09-stage-controllers-design.md`](../specs/2026-05-09-stage-controllers-design.md)
 
@@ -18,12 +18,12 @@
 |---|---|---|
 | `src/api/src/workers/runtime/define-stage.ts` | Create | Canonical types (`StageState`, `WorkerConfig`, `StageResult`, `StageConfig`, `StageContext`) and `defineStage()` helper. |
 | `src/api/src/workers/runtime/define-stage.test.ts` | Create | Type-level and runtime tests for `defineStage`. |
-| `src/api/src/workers/worker-config.repo.ts` | Create | CRUD on `worker_config` Mongo collection; change-stream subscription with 5-second polling fallback. |
-| `src/api/src/workers/worker-config.repo.test.ts` | Create | Unit tests for repo CRUD and change-notification callback. |
-| `src/api/src/workers/runtime/run-stage.ts` | Create | Stage child runtime: boot, version-bump-reset, poll loop, worker pool, writeback, throughput, pause/resume, SIGTERM drain. |
-| `src/api/src/workers/runtime/run-stage.test.ts` | Create | Comprehensive unit tests with a mock Mongo client and synthetic handler. |
+| `src/api/src/workers/worker-config.repo.ts` | Create | CRUD on `worker_config` Mongo collection: `load`, `upsert`, `patch` only. |
+| `src/api/src/workers/worker-config.repo.test.ts` | Create | Unit tests for repo CRUD using a hand-rolled typed mock collection. |
+| `src/api/src/workers/runtime/run-stage.ts` | Create | Stage child runtime: boot, version-bump-reset, poll loop, worker pool, writeback, throughput, pause/resume, reload-config, SIGTERM drain. |
+| `src/api/src/workers/runtime/run-stage.test.ts` | Create | Comprehensive unit tests with hand-rolled mock Mongo collections and a synthetic handler. |
 | `src/api/src/workers/runtime/main.ts` | Create | Entry shim: reads `process.argv[2]`, dynamic-imports the stage, calls `runStage`. |
-| `src/api/src/workers/supervisor.ts` | Create | Generalized supervisor: N named children, exponential backoff, IPC, log mux, HTTP API endpoints. |
+| `src/api/src/workers/supervisor.ts` | Create | Generalized supervisor: N named children, exponential backoff, IPC, log mux, HTTP API endpoints, `notifyConfigChanged`. |
 | `src/api/src/workers/supervisor.test.ts` | Create | Integration tests: spawn synthetic stage child, pause/resume/SIGTERM/crash-respawn assertions. |
 | `src/api/src/db/client.ts` | Modify | Add `workerConfigCollection()` helper and `worker_config` indexes to `ensureIndexes()`. |
 
@@ -35,261 +35,15 @@
 - Create: `src/api/src/workers/runtime/define-stage.ts`
 - Create: `src/api/src/workers/runtime/define-stage.test.ts`
 
-- [ ] **Step 1: Write the failing test**
+**Status: DONE** — landed at commit `f54e6e1` on branch `plan-1-foundation-impl`. No changes needed.
 
-Create `src/api/src/workers/runtime/define-stage.test.ts`:
+- [x] **Step 1: Write the failing test**
+- [x] **Step 2: Run the test to verify it fails**
+- [x] **Step 3: Implement the helper**
+- [x] **Step 4: Run the test to verify it passes**
+- [x] **Step 5: Commit** (`feat(workers): canonical types + defineStage helper`)
 
-```ts
-import { describe, expect, it } from "bun:test";
-import { defineStage } from "./define-stage.ts";
-import type { StageConfig, StageResult, StageState, WorkerConfig } from "./define-stage.ts";
-
-describe("defineStage", () => {
-  it("returns the config object unchanged", () => {
-    const cfg = defineStage({
-      name: "test",
-      targetVersion: 1,
-      dependsOn: [],
-      defaults: {
-        concurrency: 2,
-        pollIntervalMs: 1000,
-        batchSize: 5,
-        maxAttempts: 3,
-        paused: false,
-        pausedOnFirstBoot: false,
-      },
-      handler: async (_image, _ctx) => ({ patch: { test: true } }),
-    });
-    expect(cfg.name).toBe("test");
-    expect(cfg.targetVersion).toBe(1);
-    expect(cfg.dependsOn).toEqual([]);
-    expect(cfg.defaults.concurrency).toBe(2);
-  });
-
-  it("accepts { wrote: true } result shape", () => {
-    const cfg = defineStage({
-      name: "meili",
-      targetVersion: 1,
-      dependsOn: ["exif"],
-      defaults: {
-        concurrency: 2,
-        pollIntervalMs: 1000,
-        batchSize: 20,
-        maxAttempts: 5,
-        paused: false,
-        pausedOnFirstBoot: false,
-      },
-      handler: async (_image, _ctx): Promise<StageResult> => ({ wrote: true }),
-    });
-    expect(cfg.name).toBe("meili");
-  });
-
-  it("accepts { skip: string } result shape", () => {
-    const cfg = defineStage({
-      name: "face",
-      targetVersion: 1,
-      dependsOn: ["thumb"],
-      defaults: {
-        concurrency: 1,
-        pollIntervalMs: 1000,
-        batchSize: 5,
-        maxAttempts: 5,
-        paused: false,
-        pausedOnFirstBoot: false,
-      },
-      handler: async (_image, _ctx): Promise<StageResult> => ({
-        skip: "not an image",
-      }),
-    });
-    expect(cfg.name).toBe("face");
-  });
-
-  it("StageState has required shape", () => {
-    const s: StageState = {
-      version: 0,
-      attempts: 0,
-      last_error: null,
-      processed_at: null,
-      dead: false,
-    };
-    expect(s.version).toBe(0);
-    expect(s.dead).toBe(false);
-  });
-
-  it("WorkerConfig has required shape", () => {
-    const wc: WorkerConfig = {
-      concurrency: 4,
-      pollIntervalMs: 1000,
-      batchSize: 10,
-      maxAttempts: 5,
-      paused: false,
-      last_seen_target_version: 0,
-    };
-    expect(wc.last_seen_target_version).toBe(0);
-  });
-});
-```
-
-- [ ] **Step 2: Run the test to verify it fails**
-
-Run: `cd src/api && bun test src/workers/runtime/define-stage.test.ts`
-
-Expected: FAIL with module-not-found for `./define-stage.ts`.
-
-- [ ] **Step 3: Implement the helper**
-
-Create `src/api/src/workers/runtime/define-stage.ts`:
-
-```ts
-/**
- * Canonical types for the stage-controller worker system.
- *
- * These names are used verbatim across Plans 1–4. Do not rename them.
- *
- * - StageState     : per-stage subdocument on each image doc (stages.<name>)
- * - WorkerConfig   : operator-tunable config stored in worker_config collection
- * - StageResult    : the three return shapes a handler can emit
- * - StageConfig    : the config + handler object a stage file exports
- * - StageContext   : dependencies injected into every handler call
- *
- * defineStage() is a zero-cost identity helper that provides type inference
- * for the generic TPatch parameter so handler return types are checked
- * against the patch shape without verbose type annotations at call sites.
- */
-
-import type { Logger } from "pino";
-import type { IndexerAssetDoc } from "../../indexer/images.repo.ts";
-
-// ---------------------------------------------------------------------------
-// ImageDoc — the asset document type visible to stage handlers.
-// Extends IndexerAssetDoc with the new stages subdocument.
-// ---------------------------------------------------------------------------
-
-export interface StageState {
-  /** Last version the handler ran at. 0 = never run. */
-  version: number;
-  /** Failed attempts at the current target version. Resets on success or version bump. */
-  attempts: number;
-  /** Stringified error from the most recent failed attempt. */
-  last_error: string | null;
-  /** Wall-clock time of the most recent successful run. */
-  processed_at: Date | null;
-  /** True when attempts >= maxAttempts. Excluded from the claim query. */
-  dead: boolean;
-}
-
-export type ImageDoc = IndexerAssetDoc & {
-  stages?: Record<string, StageState>;
-};
-
-// ---------------------------------------------------------------------------
-// WorkerConfig — operator-tunable config stored in worker_config collection.
-// ---------------------------------------------------------------------------
-
-export interface WorkerConfig {
-  concurrency: number;
-  pollIntervalMs: number;
-  batchSize: number;
-  maxAttempts: number;
-  paused: boolean;
-  /**
-   * The last targetVersion this controller has seen. Compared against
-   * StageConfig.targetVersion on boot to detect version bumps that require
-   * a dead-doc reset.
-   */
-  last_seen_target_version: number;
-}
-
-// ---------------------------------------------------------------------------
-// StageResult — three return shapes a handler can emit.
-// ---------------------------------------------------------------------------
-
-export type StageResult<TPatch = Record<string, unknown>> =
-  | { patch: TPatch }
-  | { wrote: true }
-  | { skip: string };
-
-// ---------------------------------------------------------------------------
-// StageContext — dependencies injected into every handler call.
-// ---------------------------------------------------------------------------
-
-export interface StageContext {
-  /** Child logger pre-tagged with { controller: stageName }. */
-  log: Logger;
-  /** Canceled on graceful shutdown (SIGTERM received). */
-  signal: AbortSignal;
-}
-
-// ---------------------------------------------------------------------------
-// StageConfig — the full config + handler object a stage file exports.
-// ---------------------------------------------------------------------------
-
-export interface StageConfig<TPatch = Record<string, unknown>> {
-  name: string;
-  /**
-   * Bumping this number on deploy triggers a dead-doc reset on boot and
-   * re-queues all docs at the lower version. This is the entire backfill
-   * mechanism — no separate backfill job is needed.
-   */
-  targetVersion: number;
-  /**
-   * Stages whose version must be >= 1 before this stage's claim query
-   * matches a doc. Expressed as field-level predicates in the claim query:
-   * { "stages.<dep>.version": { $gte: 1 } }
-   */
-  dependsOn: string[];
-  defaults: WorkerConfig & {
-    /**
-     * When worker_config[name] does not yet exist, write this as the initial
-     * paused state. On subsequent boots, the saved paused value is authoritative.
-     * Set true for paid/rate-limited stages (describe, geocode) so they don't
-     * run until the operator configures credentials and unpauses them.
-     */
-    pausedOnFirstBoot: boolean;
-  };
-  handler: (image: ImageDoc, ctx: StageContext) => Promise<StageResult<TPatch>>;
-}
-
-// ---------------------------------------------------------------------------
-// defineStage — identity helper providing TPatch inference.
-// ---------------------------------------------------------------------------
-
-/**
- * Zero-cost identity function. Call it in every stage file so TypeScript
- * infers the correct TPatch for the handler's return type.
- *
- * Example:
- *   export default defineStage({
- *     name: "exif",
- *     targetVersion: 1,
- *     dependsOn: ["hash"],
- *     defaults: { concurrency: 4, pollIntervalMs: 1000, batchSize: 10,
- *                 maxAttempts: 5, paused: false, pausedOnFirstBoot: false },
- *     handler: async (image, ctx) => {
- *       const exif = await readExif(image.abs_path);
- *       return { patch: { exif } };
- *     },
- *   });
- */
-export function defineStage<TPatch = Record<string, unknown>>(
-  config: StageConfig<TPatch>,
-): StageConfig<TPatch> {
-  return config;
-}
-```
-
-- [ ] **Step 4: Run the test to verify it passes**
-
-Run: `cd src/api && bun test src/workers/runtime/define-stage.test.ts`
-
-Expected: 5 tests pass.
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add src/api/src/workers/runtime/define-stage.ts src/api/src/workers/runtime/define-stage.test.ts
-git commit -m "feat(workers): canonical types + defineStage helper"
-```
+The committed `define-stage.ts` exports: `StageState`, `WorkerConfig`, `StageResult`, `StageConfig`, `StageContext`, `ImageDoc`, `defineStage`.
 
 ---
 
@@ -298,66 +52,15 @@ git commit -m "feat(workers): canonical types + defineStage helper"
 **Files:**
 - Modify: `src/api/src/db/client.ts`
 
-The `WorkerConfigDoc` type and `workerConfigCollection()` helper must exist before the repo in Task 3 can import them.
+**Status: DONE** — landed at commit `05062dc` on branch `plan-1-foundation-impl`. No changes needed.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
-Create `src/api/src/workers/worker-config.repo.test.ts` (partial — just the import assertion; will grow in Task 3):
+The test file was created at `src/api/src/workers/worker-config.repo.test.ts` (a single import-assertion test). The correct import path from inside `src/api/src/workers/` is `../db/client.ts` (one level up), not `../../db/client.ts`.
 
-```ts
-import { describe, it, expect } from "bun:test";
+- [x] **Step 2–5: Committed** (`feat(db): workerConfigCollection helper + worker_config index`)
 
-describe("workerConfigCollection import", () => {
-  it("exports workerConfigCollection from db/client", async () => {
-    const mod = await import("../../db/client.ts");
-    expect(typeof mod.workerConfigCollection).toBe("function");
-  });
-});
-```
-
-- [ ] **Step 2: Run the test to verify it fails**
-
-Run: `cd src/api && bun test src/workers/worker-config.repo.test.ts`
-
-Expected: FAIL — `mod.workerConfigCollection` is undefined.
-
-- [ ] **Step 3: Add the collection helper and type to the DB client**
-
-In `src/api/src/db/client.ts`, add the following import at the top alongside the existing schema imports:
-
-```ts
-import type { WorkerConfigDoc } from "../workers/worker-config.repo.ts";
-```
-
-Then add the collection helper after `peopleCollection()`:
-
-```ts
-export async function workerConfigCollection(): Promise<Collection<WorkerConfigDoc>> {
-  return (await getDb()).collection<WorkerConfigDoc>("worker_config");
-}
-```
-
-Then, inside `ensureIndexes()`, append after the `people` index block and before the closing `log.info`:
-
-```ts
-  // worker_config: unique index on stage name (the natural key).
-  await db
-    .collection("worker_config")
-    .createIndex({ name: 1 }, { unique: true, name: "worker_config_name" });
-```
-
-- [ ] **Step 4: Run the test to verify it passes**
-
-Run: `cd src/api && bun test src/workers/worker-config.repo.test.ts`
-
-Expected: 1 test passes.
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add src/api/src/db/client.ts src/api/src/workers/worker-config.repo.test.ts
-git commit -m "feat(db): workerConfigCollection helper + worker_config index"
-```
+`workerConfigCollection()` returns `Collection<WorkerConfigDoc>` from the `worker_config` collection. `ensureIndexes()` creates a unique index `{ name: 1 }` named `worker_config_name` on that collection. `WorkerConfigDoc` is imported from `../workers/worker-config.repo.ts` (circular-safe because it is a type-only import).
 
 ---
 
@@ -367,46 +70,65 @@ git commit -m "feat(db): workerConfigCollection helper + worker_config index"
 - Create: `src/api/src/workers/worker-config.repo.ts`
 - Modify: `src/api/src/workers/worker-config.repo.test.ts`
 
+`WorkerConfigRepo` is CRUD only — no change stream, no polling, no subscribers, no `startWatching`, no `stopWatching`. Config propagation is the supervisor's job via the `reload-config` IPC verb (Task 12).
+
 - [ ] **Step 1: Write the failing tests**
 
 Replace the contents of `src/api/src/workers/worker-config.repo.test.ts`:
 
 ```ts
-import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import type { Db, Collection } from "mongodb";
-import { MongoMemoryServer } from "mongodb-memory-server";
-import { MongoClient } from "mongodb";
+import { describe, expect, it } from "bun:test";
+import type { Collection } from "mongodb";
 import type { WorkerConfigDoc } from "./worker-config.repo.ts";
 import { WorkerConfigRepo } from "./worker-config.repo.ts";
 
-let mongod: MongoMemoryServer;
-let client: MongoClient;
-let db: Db;
-let coll: Collection<WorkerConfigDoc>;
+// ---------------------------------------------------------------------------
+// Hand-rolled typed mock for Collection<WorkerConfigDoc>.
+// No mongodb-memory-server needed — the repo only calls findOne, updateOne,
+// and we can fully control those with a simple in-memory Map.
+// ---------------------------------------------------------------------------
 
-beforeEach(async () => {
-  mongod = await MongoMemoryServer.create();
-  client = await MongoClient.connect(mongod.getUri());
-  db = client.db("test");
-  coll = db.collection<WorkerConfigDoc>("worker_config");
-  await coll.createIndex({ name: 1 }, { unique: true });
-});
+function makeMockCollection(): Collection<WorkerConfigDoc> {
+  const store = new Map<string, WorkerConfigDoc>();
 
-afterEach(async () => {
-  await client.close();
-  await mongod.stop();
-});
+  return {
+    async findOne(filter: Record<string, unknown>) {
+      const name = filter["name"] as string | undefined;
+      if (!name) return null;
+      return store.get(name) ?? null;
+    },
+    async updateOne(
+      filter: Record<string, unknown>,
+      update: Record<string, unknown>,
+      opts?: { upsert?: boolean },
+    ) {
+      const name = filter["name"] as string;
+      const setDoc = (update["$set"] ?? {}) as Partial<WorkerConfigDoc>;
+      if (opts?.upsert) {
+        const existing = store.get(name);
+        store.set(name, { ...(existing ?? {}), ...setDoc } as WorkerConfigDoc);
+      } else {
+        const existing = store.get(name);
+        if (existing) store.set(name, { ...existing, ...setDoc });
+      }
+      return { matchedCount: 1, modifiedCount: 1, upsertedCount: 0, upsertedId: null, acknowledged: true };
+    },
+  } as unknown as Collection<WorkerConfigDoc>;
+}
 
 describe("WorkerConfigRepo.load", () => {
   it("returns null when no doc exists", async () => {
+    const coll = makeMockCollection();
     const repo = new WorkerConfigRepo(coll);
     const result = await repo.load("hash");
     expect(result).toBeNull();
   });
 
   it("returns the doc when it exists", async () => {
-    await coll.insertOne({
-      name: "hash",
+    const coll = makeMockCollection();
+    // Pre-seed via upsert so we go through the repo's own code path
+    const repo = new WorkerConfigRepo(coll);
+    await repo.upsert("hash", {
       concurrency: 4,
       pollIntervalMs: 1000,
       batchSize: 10,
@@ -414,7 +136,6 @@ describe("WorkerConfigRepo.load", () => {
       paused: false,
       last_seen_target_version: 1,
     });
-    const repo = new WorkerConfigRepo(coll);
     const result = await repo.load("hash");
     expect(result?.concurrency).toBe(4);
     expect(result?.last_seen_target_version).toBe(1);
@@ -423,6 +144,7 @@ describe("WorkerConfigRepo.load", () => {
 
 describe("WorkerConfigRepo.upsert", () => {
   it("inserts on first call", async () => {
+    const coll = makeMockCollection();
     const repo = new WorkerConfigRepo(coll);
     await repo.upsert("exif", {
       concurrency: 4,
@@ -432,11 +154,12 @@ describe("WorkerConfigRepo.upsert", () => {
       paused: false,
       last_seen_target_version: 0,
     });
-    const doc = await coll.findOne({ name: "exif" });
-    expect(doc?.concurrency).toBe(4);
+    const result = await repo.load("exif");
+    expect(result?.concurrency).toBe(4);
   });
 
   it("updates on subsequent calls", async () => {
+    const coll = makeMockCollection();
     const repo = new WorkerConfigRepo(coll);
     await repo.upsert("exif", {
       concurrency: 4,
@@ -454,15 +177,16 @@ describe("WorkerConfigRepo.upsert", () => {
       paused: true,
       last_seen_target_version: 1,
     });
-    const doc = await coll.findOne({ name: "exif" });
-    expect(doc?.concurrency).toBe(8);
-    expect(doc?.paused).toBe(true);
-    expect(doc?.last_seen_target_version).toBe(1);
+    const result = await repo.load("exif");
+    expect(result?.concurrency).toBe(8);
+    expect(result?.paused).toBe(true);
+    expect(result?.last_seen_target_version).toBe(1);
   });
 });
 
 describe("WorkerConfigRepo.patch", () => {
   it("updates only the supplied fields", async () => {
+    const coll = makeMockCollection();
     const repo = new WorkerConfigRepo(coll);
     await repo.upsert("thumb", {
       concurrency: 2,
@@ -473,34 +197,11 @@ describe("WorkerConfigRepo.patch", () => {
       last_seen_target_version: 0,
     });
     await repo.patch("thumb", { concurrency: 4 });
-    const doc = await coll.findOne({ name: "thumb" });
-    expect(doc?.concurrency).toBe(4);
+    const result = await repo.load("thumb");
+    expect(result?.concurrency).toBe(4);
     // Other fields unchanged
-    expect(doc?.batchSize).toBe(5);
-    expect(doc?.paused).toBe(false);
-  });
-});
-
-describe("WorkerConfigRepo change notification", () => {
-  it("invokes the callback on upsert when polling is used", async () => {
-    const repo = new WorkerConfigRepo(coll, { pollIntervalMs: 50 });
-    const seen: string[] = [];
-    repo.subscribe((name) => seen.push(name));
-    repo.startPolling();
-
-    await repo.upsert("face", {
-      concurrency: 1,
-      pollIntervalMs: 1000,
-      batchSize: 5,
-      maxAttempts: 5,
-      paused: false,
-      last_seen_target_version: 0,
-    });
-    // Wait for two poll cycles to fire
-    await new Promise((r) => setTimeout(r, 200));
-    repo.stopPolling();
-
-    expect(seen).toContain("face");
+    expect(result?.batchSize).toBe(5);
+    expect(result?.paused).toBe(false);
   });
 });
 ```
@@ -521,18 +222,14 @@ Create `src/api/src/workers/worker-config.repo.ts`:
  *
  * One document per stage. Fields mirror WorkerConfig plus a `name` key.
  *
- * Live config changes are propagated to running stage children via a Mongo
- * change stream (replica set / Atlas). When running against a standalone
- * Mongo deployment (no replica set), change streams throw; the repo detects
- * this on `startWatching()` and falls back to polling every `pollIntervalMs`.
- *
- * Usage in the stage runtime:
- *   const repo = new WorkerConfigRepo(await workerConfigCollection());
- *   repo.subscribe(name => reloadConfig(name));
- *   await repo.startWatching();   // tries change stream, auto-falls-back
+ * Config changes are NOT propagated here. The supervisor's IPC channel is the
+ * canonical change signal: PATCH /api/workers/:name/config writes to Mongo via
+ * this repo for persistence, then calls supervisor.notifyConfigChanged(name),
+ * which POSTs reload-config to the child's IPC server. The child re-reads its
+ * config from Mongo and applies the new values live.
  */
 
-import type { Collection, ChangeStream } from "mongodb";
+import type { Collection } from "mongodb";
 import type { WorkerConfig } from "./runtime/define-stage.ts";
 
 export interface WorkerConfigDoc extends WorkerConfig {
@@ -540,47 +237,8 @@ export interface WorkerConfigDoc extends WorkerConfig {
   name: string;
 }
 
-export interface WorkerConfigRepoOptions {
-  /**
-   * Poll interval in ms used when the change stream is unavailable
-   * (standalone Mongo). Default: 5000.
-   */
-  pollIntervalMs?: number;
-}
-
-type ChangeCallback = (stageName: string) => void;
-
 export class WorkerConfigRepo {
-  private readonly coll: Collection<WorkerConfigDoc>;
-  private readonly pollIntervalMs: number;
-  private subscribers: ChangeCallback[] = [];
-  private stream: ChangeStream | null = null;
-  private pollTimer: ReturnType<typeof setInterval> | null = null;
-  /** Snapshot of all names at last poll cycle, for diff-based callbacks. */
-  private lastSnapshot: Map<string, string> = new Map();
-
-  constructor(
-    coll: Collection<WorkerConfigDoc>,
-    opts: WorkerConfigRepoOptions = {},
-  ) {
-    this.coll = coll;
-    this.pollIntervalMs = opts.pollIntervalMs ?? 5000;
-  }
-
-  /** Register a callback invoked whenever a stage's config changes. */
-  subscribe(cb: ChangeCallback): void {
-    this.subscribers.push(cb);
-  }
-
-  private notify(name: string): void {
-    for (const cb of this.subscribers) {
-      try {
-        cb(name);
-      } catch {
-        // subscriber errors must not break the repo
-      }
-    }
-  }
+  constructor(private readonly coll: Collection<WorkerConfigDoc>) {}
 
   /** Load a single stage config. Returns null when not yet seeded. */
   async load(name: string): Promise<WorkerConfig | null> {
@@ -609,105 +267,6 @@ export class WorkerConfigRepo {
   async patch(name: string, partial: Partial<WorkerConfig>): Promise<void> {
     await this.coll.updateOne({ name }, { $set: partial });
   }
-
-  /**
-   * Start watching for config changes. Attempts a Mongo change stream first;
-   * on failure (standalone deployment), falls back to polling.
-   *
-   * Call once after construction. Safe to call multiple times (idempotent).
-   */
-  async startWatching(): Promise<void> {
-    if (this.stream || this.pollTimer) return;
-    try {
-      const stream = this.coll.watch([], { fullDocument: "updateLookup" });
-      // Verify change streams are available by attempting a hasNext() check
-      // with a short timeout. Standalone Mongo rejects immediately.
-      await Promise.race([
-        new Promise<void>((resolve, reject) => {
-          stream.on("error", reject);
-          stream.on("change", () => resolve());
-          // Resolve immediately if no error on open
-          setImmediate(() => resolve());
-        }),
-        new Promise<void>((_, reject) =>
-          setTimeout(() => reject(new Error("cs-probe-timeout")), 500),
-        ),
-      ]).catch(() => {
-        stream.close().catch(() => {});
-        throw new Error("change-stream-unavailable");
-      });
-
-      this.stream = stream;
-      stream.on("change", (evt) => {
-        if (
-          evt.operationType === "insert" ||
-          evt.operationType === "update" ||
-          evt.operationType === "replace"
-        ) {
-          const name =
-            evt.operationType === "insert"
-              ? (evt.fullDocument as WorkerConfigDoc | null)?.name
-              : (evt.fullDocument as WorkerConfigDoc | null)?.name;
-          if (typeof name === "string") this.notify(name);
-        }
-      });
-    } catch {
-      // Change stream unavailable — fall back to polling.
-      this.startPolling();
-    }
-  }
-
-  /**
-   * Start the polling fallback. Called automatically by startWatching() when
-   * change streams are unavailable. Also callable directly from tests.
-   */
-  startPolling(): void {
-    if (this.pollTimer) return;
-    this.pollTimer = setInterval(() => {
-      this.pollForChanges().catch(() => {});
-    }, this.pollIntervalMs);
-  }
-
-  /** Stop all watchers and timers. */
-  stopPolling(): void {
-    if (this.pollTimer) {
-      clearInterval(this.pollTimer);
-      this.pollTimer = null;
-    }
-  }
-
-  async stopWatching(): Promise<void> {
-    this.stopPolling();
-    if (this.stream) {
-      await this.stream.close().catch(() => {});
-      this.stream = null;
-    }
-  }
-
-  private async pollForChanges(): Promise<void> {
-    const docs = await this.coll.find({}).toArray();
-    for (const doc of docs) {
-      const serialized = JSON.stringify({
-        concurrency: doc.concurrency,
-        pollIntervalMs: doc.pollIntervalMs,
-        batchSize: doc.batchSize,
-        maxAttempts: doc.maxAttempts,
-        paused: doc.paused,
-        last_seen_target_version: doc.last_seen_target_version,
-      });
-      const prev = this.lastSnapshot.get(doc.name);
-      if (prev !== serialized) {
-        this.lastSnapshot.set(doc.name, serialized);
-        if (prev !== undefined) {
-          // Only notify on actual change, not on first snapshot population.
-          this.notify(doc.name);
-        } else {
-          // First time we've seen this stage — seed the snapshot.
-          this.lastSnapshot.set(doc.name, serialized);
-        }
-      }
-    }
-  }
 }
 ```
 
@@ -715,13 +274,13 @@ export class WorkerConfigRepo {
 
 Run: `cd src/api && bun test src/workers/worker-config.repo.test.ts`
 
-Expected: all tests pass. The `startWatching` / change-stream tests that need a real replica set skip gracefully because `MongoMemoryServer` in standalone mode causes the probe to fall back to polling, which the polling test exercises.
+Expected: 5 tests pass.
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add src/api/src/workers/worker-config.repo.ts src/api/src/workers/worker-config.repo.test.ts
-git commit -m "feat(workers): WorkerConfigRepo — CRUD + change-stream/polling watch"
+git commit -m "feat(workers): WorkerConfigRepo — load/upsert/patch CRUD"
 ```
 
 ---
@@ -734,15 +293,15 @@ git commit -m "feat(workers): WorkerConfigRepo — CRUD + change-stream/polling 
 
 This task handles steps 1–2 of the runtime: connecting to Mongo, loading/seeding config, and running the version-bump-reset `updateMany` when the handler's `targetVersion` is higher than `last_seen_target_version`.
 
+All tests use hand-rolled typed mock collections — no `mongodb-memory-server`.
+
 - [ ] **Step 1: Write the failing tests**
 
 Create `src/api/src/workers/runtime/run-stage.test.ts`:
 
 ```ts
-import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { MongoMemoryServer } from "mongodb-memory-server";
-import { MongoClient } from "mongodb";
-import type { Db, Collection } from "mongodb";
+import { describe, expect, it } from "bun:test";
+import type { Collection, Filter, UpdateFilter, UpdateOptions, UpdateResult } from "mongodb";
 import { defineStage } from "./define-stage.ts";
 import type { ImageDoc, StageState } from "./define-stage.ts";
 import type { WorkerConfigDoc } from "../worker-config.repo.ts";
@@ -753,25 +312,128 @@ import { _test } from "./run-stage.ts";
 
 const { bootConfig, versionBumpReset } = _test;
 
-let mongod: MongoMemoryServer;
-let client: MongoClient;
-let db: Db;
-let imagesColl: Collection<ImageDoc>;
-let configColl: Collection<WorkerConfigDoc>;
+// ---------------------------------------------------------------------------
+// Hand-rolled mock for Collection<WorkerConfigDoc>
+// ---------------------------------------------------------------------------
 
-beforeEach(async () => {
-  mongod = await MongoMemoryServer.create();
-  client = await MongoClient.connect(mongod.getUri());
-  db = client.db("test");
-  imagesColl = db.collection<ImageDoc>("assets");
-  configColl = db.collection<WorkerConfigDoc>("worker_config");
-  await configColl.createIndex({ name: 1 }, { unique: true });
-});
+function makeConfigMock(): Collection<WorkerConfigDoc> {
+  const store = new Map<string, WorkerConfigDoc>();
+  return {
+    async findOne(filter: Record<string, unknown>) {
+      const name = filter["name"] as string | undefined;
+      if (!name) return null;
+      return store.get(name) ?? null;
+    },
+    async updateOne(
+      filter: Record<string, unknown>,
+      update: Record<string, unknown>,
+      opts?: { upsert?: boolean },
+    ) {
+      const name = filter["name"] as string;
+      const setDoc = (update["$set"] ?? {}) as Partial<WorkerConfigDoc>;
+      if (opts?.upsert) {
+        const existing = store.get(name);
+        store.set(name, { ...(existing ?? {}), ...setDoc } as WorkerConfigDoc);
+      } else {
+        const existing = store.get(name);
+        if (existing) store.set(name, { ...existing, ...setDoc });
+      }
+      return { matchedCount: 1, modifiedCount: 1, upsertedCount: 0, upsertedId: null, acknowledged: true } as UpdateResult;
+    },
+  } as unknown as Collection<WorkerConfigDoc>;
+}
 
-afterEach(async () => {
-  await client.close();
-  await mongod.stop();
-});
+// ---------------------------------------------------------------------------
+// Hand-rolled mock for Collection<ImageDoc>
+// ---------------------------------------------------------------------------
+
+function makeImagesMock(initial: ImageDoc[] = []): Collection<ImageDoc> {
+  const store: ImageDoc[] = [...initial];
+  return {
+    async updateMany(
+      filter: Record<string, unknown>,
+      update: Record<string, unknown>,
+    ) {
+      // Minimal implementation: apply $set to docs matching the filter key/value.
+      // Supports { "stages.X.version": { $lt: N } } predicate.
+      let modified = 0;
+      for (const doc of store) {
+        if (matchesFilter(doc, filter)) {
+          applySet(doc, (update["$set"] ?? {}) as Record<string, unknown>);
+          modified++;
+        }
+      }
+      return { matchedCount: modified, modifiedCount: modified, upsertedCount: 0, upsertedId: null, acknowledged: true } as UpdateResult;
+    },
+    async find() {
+      return {
+        async toArray() { return [...store]; },
+        limit() { return this; },
+      };
+    },
+    async findOne(filter: Record<string, unknown>) {
+      return store.find((d) => matchesFilter(d, filter)) ?? null;
+    },
+    async insertOne(doc: ImageDoc) {
+      store.push(doc);
+      return { insertedId: (doc as unknown as { _id: unknown })._id, acknowledged: true };
+    },
+    async insertMany(docs: ImageDoc[]) {
+      store.push(...docs);
+      return { insertedCount: docs.length, insertedIds: {}, acknowledged: true };
+    },
+    async updateOne(
+      filter: Record<string, unknown>,
+      update: Record<string, unknown>,
+    ) {
+      const doc = store.find((d) => matchesFilter(d, filter));
+      if (doc) applySet(doc, (update["$set"] ?? {}) as Record<string, unknown>);
+      return { matchedCount: doc ? 1 : 0, modifiedCount: doc ? 1 : 0, upsertedCount: 0, upsertedId: null, acknowledged: true } as UpdateResult;
+    },
+    async countDocuments() { return store.length; },
+  } as unknown as Collection<ImageDoc>;
+}
+
+function matchesFilter(doc: unknown, filter: Record<string, unknown>): boolean {
+  for (const [key, val] of Object.entries(filter)) {
+    const docVal = getNestedValue(doc as Record<string, unknown>, key);
+    if (val !== null && typeof val === "object") {
+      const op = val as Record<string, unknown>;
+      if ("$lt" in op && !(docVal < (op["$lt"] as number))) return false;
+      if ("$gte" in op && !(docVal >= (op["$gte"] as number))) return false;
+      if ("$ne" in op && docVal === op["$ne"]) return false;
+    } else {
+      if (docVal !== val) return false;
+    }
+  }
+  return true;
+}
+
+function getNestedValue(obj: Record<string, unknown>, path: string): unknown {
+  const parts = path.split(".");
+  let cur: unknown = obj;
+  for (const p of parts) {
+    if (cur == null || typeof cur !== "object") return undefined;
+    cur = (cur as Record<string, unknown>)[p];
+  }
+  return cur;
+}
+
+function applySet(doc: unknown, setDoc: Record<string, unknown>): void {
+  for (const [path, value] of Object.entries(setDoc)) {
+    const parts = path.split(".");
+    let cur = doc as Record<string, unknown>;
+    for (let i = 0; i < parts.length - 1; i++) {
+      if (cur[parts[i]] == null) cur[parts[i]] = {};
+      cur = cur[parts[i]] as Record<string, unknown>;
+    }
+    cur[parts[parts.length - 1]] = value;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
 
 const baseStage = defineStage({
   name: "hash",
@@ -790,39 +452,36 @@ const baseStage = defineStage({
 
 describe("bootConfig", () => {
   it("seeds worker_config from defaults on first boot", async () => {
-    const cfg = await bootConfig(baseStage, configColl);
+    const coll = makeConfigMock();
+    const cfg = await bootConfig(baseStage, coll);
     expect(cfg.concurrency).toBe(4);
     expect(cfg.paused).toBe(false);
-    const doc = await configColl.findOne({ name: "hash" });
-    expect(doc).not.toBeNull();
-    expect(doc?.last_seen_target_version).toBe(0);
+    // Verify it was written
+    const loaded = await cfg;
+    expect(loaded.last_seen_target_version).toBe(0);
   });
 
   it("respects pausedOnFirstBoot for paused stages", async () => {
+    const coll = makeConfigMock();
     const pausedStage = defineStage({
       ...baseStage,
       name: "describe",
       defaults: { ...baseStage.defaults, pausedOnFirstBoot: true },
     });
-    const cfg = await bootConfig(pausedStage, configColl);
+    const cfg = await bootConfig(pausedStage, coll);
     expect(cfg.paused).toBe(true);
-    const doc = await configColl.findOne({ name: "describe" });
-    expect(doc?.paused).toBe(true);
   });
 
   it("returns existing config without overwriting on re-boot", async () => {
-    // Simulate operator has changed concurrency to 8
-    await configColl.insertOne({
-      name: "hash",
-      concurrency: 8,
-      pollIntervalMs: 500,
-      batchSize: 10,
-      maxAttempts: 5,
-      paused: true,
-      last_seen_target_version: 1,
-    });
-    const cfg = await bootConfig(baseStage, configColl);
-    // Saved values win, not the defaults
+    const coll = makeConfigMock();
+    // Pre-seed simulating operator change: concurrency=8, paused=true
+    await (coll as unknown as { updateOne: Function }).updateOne(
+      { name: "hash" },
+      { $set: { name: "hash", concurrency: 8, pollIntervalMs: 500, batchSize: 10, maxAttempts: 5, paused: true, last_seen_target_version: 1 } },
+      { upsert: true },
+    );
+    const cfg = await bootConfig(baseStage, coll);
+    // Saved values win over defaults
     expect(cfg.concurrency).toBe(8);
     expect(cfg.paused).toBe(true);
   });
@@ -830,7 +489,6 @@ describe("bootConfig", () => {
 
 describe("versionBumpReset", () => {
   it("resets dead docs when targetVersion > last_seen_target_version", async () => {
-    // Seed two dead docs at version 1, one healthy doc at version 2
     const deadState: StageState = {
       version: 1,
       attempts: 5,
@@ -845,16 +503,16 @@ describe("versionBumpReset", () => {
       processed_at: new Date(),
       dead: false,
     };
-    await imagesColl.insertMany([
+    const images = makeImagesMock([
       { abs_path: "/a.raw", stages: { hash: deadState } } as ImageDoc,
       { abs_path: "/b.raw", stages: { hash: deadState } } as ImageDoc,
       { abs_path: "/c.raw", stages: { hash: doneState } } as ImageDoc,
     ]);
 
     // last_seen_target_version is 1, targetVersion is 2 → reset needed
-    await versionBumpReset(baseStage, 1, imagesColl);
+    await versionBumpReset(baseStage, 1, images);
 
-    const docs = await imagesColl.find({}).toArray();
+    const docs = await (await images.find({})).toArray();
     const a = docs.find((d) => d.abs_path === "/a.raw")!;
     const c = docs.find((d) => d.abs_path === "/c.raw")!;
 
@@ -866,24 +524,22 @@ describe("versionBumpReset", () => {
   });
 
   it("does nothing when versions match", async () => {
-    await imagesColl.insertOne({
-      abs_path: "/a.raw",
-      stages: { hash: { version: 1, attempts: 5, last_error: "x", processed_at: null, dead: true } },
-    } as ImageDoc);
+    const images = makeImagesMock([
+      { abs_path: "/a.raw", stages: { hash: { version: 1, attempts: 5, last_error: "x", processed_at: null, dead: true } } } as ImageDoc,
+    ]);
 
     // last_seen == targetVersion, no reset
-    await versionBumpReset(baseStage, 2, imagesColl);
+    await versionBumpReset(baseStage, 2, images);
 
-    const doc = await imagesColl.findOne({ abs_path: "/a.raw" });
-    // Unchanged — still dead
-    expect(doc?.stages?.hash?.dead).toBe(true);
+    const docs = await (await images.find({})).toArray();
+    expect(docs[0]?.stages?.hash?.dead).toBe(true);
   });
 });
 ```
 
 - [ ] **Step 2: Run the test to verify it fails**
 
-Run: `cd src/api && bun test src/workers/runtime/run-stage.test.ts`
+Run: `cd src/api && MAPLE_TEST=1 bun test src/workers/runtime/run-stage.test.ts`
 
 Expected: FAIL — `run-stage.ts` does not exist.
 
@@ -897,7 +553,7 @@ Create `src/api/src/workers/runtime/run-stage.ts`:
  *
  * Imported by every stage child process (via the entry shim main.ts).
  * Handles: boot, version-bump reset, poll loop, worker pool, atomic writeback,
- * throughput rolling window, pause/resume, and graceful drain on SIGTERM.
+ * throughput rolling window, pause/resume, reload-config, and graceful drain on SIGTERM.
  *
  * This file is built incrementally across Tasks 4–8 of the plan.
  * The _test export is gated on process.env.MAPLE_TEST so production builds
@@ -906,8 +562,6 @@ Create `src/api/src/workers/runtime/run-stage.ts`:
 
 import type { Collection } from "mongodb";
 import { child as childLogger } from "../../log.ts";
-import { workerConfigCollection } from "../../db/client.ts";
-import { assetsCollection } from "../../db/client.ts";
 import type { WorkerConfig } from "./define-stage.ts";
 import type { ImageDoc, StageConfig } from "./define-stage.ts";
 import type { WorkerConfigDoc } from "../worker-config.repo.ts";
@@ -954,10 +608,9 @@ export async function bootConfig(
  * all docs at a lower version (including previously dead ones) so they become
  * eligible for the new version's claim query.
  *
- * After running, persists the new last_seen_target_version to worker_config.
- * This is idempotent: if the API crashes between the updateMany and the config
- * write, the reset will run again on the next boot — harmless because the
- * predicate only matches docs whose version < targetVersion.
+ * Idempotent: if the API crashes between the updateMany and the config write,
+ * the reset will run again on the next boot — harmless because the predicate
+ * only matches docs whose version < targetVersion.
  */
 export async function versionBumpReset(
   stage: StageConfig,
@@ -1028,13 +681,12 @@ git commit -m "feat(workers): run-stage boot + version-bump-reset"
 
 The claim query selects docs where `stages.<name>.version < targetVersion`, `stages.<name>.dead != true`, all dep versions `>= 1`, and `_id` not in the in-flight set. This task adds and tests that logic.
 
-- [ ] **Step 1: Add claim query tests**
+- [ ] **Step 1: Add claim query and poll-loop tests**
 
 Append to `src/api/src/workers/runtime/run-stage.test.ts`:
 
 ```ts
 import { buildClaimQuery } from "./run-stage.ts";
-import type { Filter } from "mongodb";
 
 describe("buildClaimQuery", () => {
   it("requires version < targetVersion and not dead", () => {
@@ -1048,10 +700,10 @@ describe("buildClaimQuery", () => {
     expect(q["stages.hash.version"]).toEqual({ $gte: 1 });
   });
 
-  it("excludes in-flight _ids", async () => {
-    const { ObjectId } = await import("mongodb");
-    const id1 = new ObjectId();
-    const id2 = new ObjectId();
+  it("excludes in-flight _ids", () => {
+    // Use plain string IDs for the Set since we have no real ObjectId
+    const id1 = "id1" as unknown as import("mongodb").ObjectId;
+    const id2 = "id2" as unknown as import("mongodb").ObjectId;
     const inFlight = new Set([id1, id2]);
     const q = buildClaimQuery("thumb", 1, ["hash", "exif"], inFlight);
     expect((q["_id"] as { $nin: unknown[] }).$nin).toHaveLength(2);
@@ -1065,13 +717,11 @@ describe("buildClaimQuery", () => {
 
 describe("poll loop integration", () => {
   it("claims eligible docs and dispatches them", async () => {
-    const { ObjectId } = await import("mongodb");
-
-    // Insert two eligible docs (no stages at all → missing field treated as < 1)
-    await imagesColl.insertMany([
+    const images = makeImagesMock([
       { abs_path: "/img1.raw" } as ImageDoc,
       { abs_path: "/img2.raw" } as ImageDoc,
     ]);
+    const configColl = makeConfigMock();
 
     const processed: string[] = [];
     const testStage = defineStage({
@@ -1093,54 +743,57 @@ describe("poll loop integration", () => {
     });
 
     const { runOnce } = _test;
-    await runOnce(testStage, { concurrency: 2, pollIntervalMs: 50, batchSize: 10,
-      maxAttempts: 3, paused: false, last_seen_target_version: 1 }, imagesColl, configColl);
+    await runOnce(testStage, {
+      concurrency: 2, pollIntervalMs: 50, batchSize: 10,
+      maxAttempts: 3, paused: false, last_seen_target_version: 1,
+    }, images, configColl);
 
     expect(processed).toHaveLength(2);
-    const img = await imagesColl.findOne({ abs_path: "/img1.raw" });
+    const docs = await (await images.find({})).toArray();
+    const img = docs.find((d) => d.abs_path === "/img1.raw")!;
     expect(img?.stages?.hash?.version).toBe(1);
     expect(img?.stages?.hash?.dead).toBe(false);
   });
 
   it("increments attempts and sets dead after maxAttempts throws", async () => {
-    await imagesColl.insertOne({ abs_path: "/bad.raw" } as ImageDoc);
+    const images = makeImagesMock([{ abs_path: "/bad.raw" } as ImageDoc]);
+    const configColl = makeConfigMock();
 
-    let calls = 0;
     const testStage = defineStage({
       name: "hash",
       targetVersion: 1,
       dependsOn: [],
       defaults: {
-        concurrency: 1,
-        pollIntervalMs: 50,
-        batchSize: 10,
-        maxAttempts: 3,
-        paused: false,
-        pausedOnFirstBoot: false,
+        concurrency: 1, pollIntervalMs: 50, batchSize: 10,
+        maxAttempts: 3, paused: false, pausedOnFirstBoot: false,
       },
       handler: async (_image, _ctx) => {
-        calls++;
         throw new Error("always fail");
       },
     });
 
     const { runOnce } = _test;
+    const cfg = {
+      concurrency: 1, pollIntervalMs: 50, batchSize: 10,
+      maxAttempts: 3, paused: false, last_seen_target_version: 1,
+    };
     // Run once per attempt: 3 times to exhaust maxAttempts
-    const cfg = { concurrency: 1, pollIntervalMs: 50, batchSize: 10,
-      maxAttempts: 3, paused: false, last_seen_target_version: 1 };
-    await runOnce(testStage, cfg, imagesColl, configColl);
-    await runOnce(testStage, cfg, imagesColl, configColl);
-    await runOnce(testStage, cfg, imagesColl, configColl);
+    await runOnce(testStage, cfg, images, configColl);
+    await runOnce(testStage, cfg, images, configColl);
+    await runOnce(testStage, cfg, images, configColl);
 
-    const doc = await imagesColl.findOne({ abs_path: "/bad.raw" });
+    const docs = await (await images.find({})).toArray();
+    const doc = docs.find((d) => d.abs_path === "/bad.raw")!;
     expect(doc?.stages?.hash?.attempts).toBe(3);
     expect(doc?.stages?.hash?.dead).toBe(true);
     expect(doc?.stages?.hash?.last_error).toBe("always fail");
   });
 
   it("skips the find when paused", async () => {
-    await imagesColl.insertOne({ abs_path: "/img.raw" } as ImageDoc);
+    const images = makeImagesMock([{ abs_path: "/img.raw" } as ImageDoc]);
+    const configColl = makeConfigMock();
     let called = false;
+
     const testStage = defineStage({
       name: "hash",
       targetVersion: 1,
@@ -1151,8 +804,10 @@ describe("poll loop integration", () => {
     });
 
     const { runOnce } = _test;
-    await runOnce(testStage, { concurrency: 1, pollIntervalMs: 50, batchSize: 10,
-      maxAttempts: 3, paused: true, last_seen_target_version: 1 }, imagesColl, configColl);
+    await runOnce(testStage, {
+      concurrency: 1, pollIntervalMs: 50, batchSize: 10,
+      maxAttempts: 3, paused: true, last_seen_target_version: 1,
+    }, images, configColl);
 
     expect(called).toBe(false);
   });
@@ -1167,7 +822,7 @@ Expected: FAIL — `buildClaimQuery` and `_test.runOnce` are not exported yet.
 
 - [ ] **Step 3: Add claim query and single-poll-tick to `run-stage.ts`**
 
-Add the following to `src/api/src/workers/runtime/run-stage.ts`, replacing the stub `_test` export and adding before `runStage`:
+Add the following to `src/api/src/workers/runtime/run-stage.ts`, before the `_test` export:
 
 ```ts
 import type { Filter, ObjectId } from "mongodb";
@@ -1178,9 +833,7 @@ import type { Filter, ObjectId } from "mongodb";
 
 /**
  * Build the MongoDB filter that selects docs eligible for this stage:
- *   - stages.<name>.version < targetVersion (includes missing field — Mongo
- *     treats missing as less than any number, so new docs without a stages
- *     skeleton are picked up automatically)
+ *   - stages.<name>.version < targetVersion (missing field treated as < any number)
  *   - stages.<name>.dead != true
  *   - For each dep: stages.<dep>.version >= 1
  *   - _id not in the current in-flight set
@@ -1254,7 +907,6 @@ export async function runOnce(
         };
 
         if ("patch" in result) {
-          // Validate patch does not attempt to write stages.* keys.
           const forbiddenKeys = Object.keys(result.patch).filter((k) =>
             k.startsWith("stages."),
           );
@@ -1317,7 +969,7 @@ export async function runOnce(
 }
 ```
 
-Update the `_test` export to include both `bootConfig`, `versionBumpReset`, and `runOnce`:
+Update the `_test` export to include `bootConfig`, `versionBumpReset`, and `runOnce`:
 
 ```ts
 export const _test =
@@ -1347,9 +999,9 @@ git commit -m "feat(workers): run-stage claim query + single poll tick"
 - Modify: `src/api/src/workers/runtime/run-stage.ts`
 - Modify: `src/api/src/workers/runtime/run-stage.test.ts`
 
-The throughput metric is a ring buffer of recent `processed_at` timestamps. The full `runStage` wires together: boot, version-bump-reset, config change subscription, the timer-based poll loop, and SIGTERM drain.
+The throughput metric is a ring buffer of recent `processed_at` timestamps. The full `runStage` wires together: boot, version-bump-reset, the timer-based poll loop, and SIGTERM drain. The config-change subscription (previously done via `repo.startWatching()`) is replaced by the `reload-config` IPC verb added in Task 12.
 
-- [ ] **Step 1: Add throughput and poll loop tests**
+- [ ] **Step 1: Add throughput tests**
 
 Append to `src/api/src/workers/runtime/run-stage.test.ts`:
 
@@ -1423,7 +1075,7 @@ export class ThroughputWindow {
 }
 ```
 
-Replace the `runStage` stub with the full implementation:
+Replace the `runStage` stub with the full implementation (the IpcServer wiring is added in Task 13):
 
 ```ts
 export async function runStage(stage: StageConfig): Promise<void> {
@@ -1451,32 +1103,20 @@ export async function runStage(stage: StageConfig): Promise<void> {
     config = { ...config, last_seen_target_version: stage.targetVersion };
   }
 
-  // ── Config change subscription ────────────────────────────────────────────
-  const repo = new WorkerConfigRepo(configCollRaw);
-  repo.subscribe(async (changedName) => {
-    if (changedName !== stage.name) return;
-    const updated = await repo.load(stage.name);
-    if (updated) {
-      config = updated;
-      log.info({ config }, `${stage.name} config updated`);
-    }
-  });
-  await repo.startWatching();
-
-  // ── Graceful shutdown ─────────────────────────────────────────────────────
-  const abortController = new AbortController();
-  let shuttingDown = false;
   const throughput = new ThroughputWindow();
 
-  const shutdown = () => {
+  // ── Graceful shutdown ─────────────────────────────────────────────────────
+  let shuttingDown = false;
+  const abortController = new AbortController();
+
+  const shutdown = async () => {
     if (shuttingDown) return;
     shuttingDown = true;
     log.info(`${stage.name} received SIGTERM — draining`);
     abortController.abort();
     clearInterval(pollTimer);
-    repo.stopWatching().catch(() => {});
   };
-  process.on("SIGTERM", shutdown);
+  process.on("SIGTERM", () => { shutdown().catch(() => {}); });
 
   // ── Poll loop ─────────────────────────────────────────────────────────────
   const pollTimer = setInterval(async () => {
@@ -1498,10 +1138,6 @@ export async function runStage(stage: StageConfig): Promise<void> {
         log.warn(`${stage.name} drain timeout — force exiting`);
         resolve();
       }, 30_000);
-      // In practice the in-flight set drains much faster; once the poll
-      // timer fires no more dispatches, existing handlers finish and resolve
-      // naturally. Since runOnce awaits all handlers, we can resolve once
-      // the process receives SIGTERM and the timer clears.
       clearTimeout(deadline);
       resolve();
     });
@@ -1644,15 +1280,16 @@ git commit -m "feat(workers): stage entry shim (main.ts)"
 
 **Files:**
 - Create: `src/api/src/workers/supervisor.ts`
+- Create: `src/api/src/workers/supervisor.test.ts`
 
-The supervisor generalizes `src/api/src/indexer/control.ts` to manage N named stage children. In Plan 1, `stageNames` is empty by default; tests register a synthetic stage via a test-only injection path.
+The supervisor generalizes `src/api/src/indexer/control.ts` to manage N named stage children. In Plan 1, `stageNames` is empty by default; tests register a synthetic stage via a test-only injection path. `notifyConfigChanged` POSTs `reload-config` to the child's IPC port (added in Task 12 / consumed in Task 13).
 
 - [ ] **Step 1: Write the failing tests**
 
 Create `src/api/src/workers/supervisor.test.ts`:
 
 ```ts
-import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { afterEach, describe, expect, it } from "bun:test";
 import { Supervisor } from "./supervisor.ts";
 
 // Helper: write a tiny Bun script to a temp file, return the path.
@@ -1678,13 +1315,12 @@ describe("Supervisor — lifecycle", () => {
     expect(sup.statuses()).toEqual({});
   });
 
-  it("reports Error status after 5 consecutive crashes", async () => {
+  it("reports error status after 5 consecutive crashes", async () => {
     // Script that always exits 1
     const script = await writeTmpScript(`process.exit(1);\n`);
     sup = new Supervisor([], { _stageScriptOverrides: { crashing: script } });
     sup.addStage("crashing");
 
-    // Attempt 5 rapid crashes (using very short backoff in test mode)
     await new Promise<void>((resolve) => {
       const check = setInterval(() => {
         const s = sup.statuses();
@@ -1700,12 +1336,12 @@ describe("Supervisor — lifecycle", () => {
   }, 10_000);
 
   it("spawns and reaches running status for a healthy stage", async () => {
-    // Script that loops forever, responding to /status
     const script = await writeTmpScript(`
 const { serve } = Bun;
 const port = parseInt(process.env.MAPLE_STAGE_PORT ?? "0");
 serve({
-  port,
+  port: 0,
+  hostname: "127.0.0.1",
   fetch(req) {
     if (new URL(req.url).pathname === "/status") {
       return Response.json({ status: "running", inFlight: 0, throughput: 0 });
@@ -1713,7 +1349,6 @@ serve({
     return new Response("not found", { status: 404 });
   },
 });
-// Signal readiness to parent by writing the actual port
 process.stdout.write("__MAPLE_READY__\\n");
 await new Promise(() => {}); // keep alive
 `);
@@ -1742,6 +1377,14 @@ describe("Supervisor — pause/resume IPC", () => {
     expect(result.ok).toBe(false);
   });
 });
+
+describe("Supervisor — notifyConfigChanged", () => {
+  it("returns error for unknown stage", async () => {
+    const sup = new Supervisor([]);
+    const result = await sup.notifyConfigChanged("nonexistent");
+    expect(result.ok).toBe(false);
+  });
+});
 ```
 
 - [ ] **Step 2: Run the test to verify it fails**
@@ -1766,12 +1409,19 @@ Create `src/api/src/workers/supervisor.ts`:
  *   bun run src/api/src/workers/runtime/main.ts <stageName>
  *
  * IPC uses a small per-child HTTP server on localhost (a random high port
- * assigned by the OS). The supervisor requests status/throughput/pause/resume
- * over plain fetch(). This mirrors the handler-registry http-transport pattern.
+ * assigned by the OS and signalled via stdout __MAPLE_IPC_PORT__=<port>).
+ * The supervisor sends pause/resume/reload-config over plain fetch().
  *
  * Crash backoff: 1s, 2s, 4s, 8s, 16s, saturates at 30s.
  * After 5 consecutive crashes, the stage is marked `status: "error"` and
  * stays down until POST /api/workers/:name/retry-dead is called.
+ *
+ * Config changes:
+ *   PATCH /api/workers/:name/config
+ *     → writes to Mongo (persistence)
+ *     → calls supervisor.notifyConfigChanged(name)
+ *     → supervisor POSTs reload-config to child's IPC port
+ *     → child re-reads worker_config[name] from Mongo and applies live
  */
 
 const BACKOFF_MS = [1000, 2000, 4000, 8000, 16_000, 30_000];
@@ -1871,13 +1521,6 @@ export class Supervisor {
     return out;
   }
 
-  private scriptFor(name: string): string {
-    const override = this.opts._stageScriptOverrides?.[name];
-    if (override) return override;
-    const dir = (import.meta as { dir?: string }).dir ?? __dirname;
-    return `${dir}/runtime/main.ts`;
-  }
-
   private argsFor(name: string): string[] {
     const override = this.opts._stageScriptOverrides?.[name];
     if (override) return [override];
@@ -1910,8 +1553,8 @@ export class Supervisor {
         stderr: "pipe",
         stdin: "ignore",
       });
-      this.forwardStream(child.stdout as ReadableStream<Uint8Array> | null, process.stdout, `[${name}]`);
-      this.forwardStream(child.stderr as ReadableStream<Uint8Array> | null, process.stderr, `[${name}]`);
+      this.forwardStream(child.stdout as ReadableStream<Uint8Array> | null, process.stdout, `[${name}]`, name);
+      this.forwardStream(child.stderr as ReadableStream<Uint8Array> | null, process.stderr, `[${name}]`, name);
       if (child.exited) {
         child.exited.then((code) => this.onExit(name, code)).catch(() => this.onExit(name, -1));
       }
@@ -1930,7 +1573,6 @@ export class Supervisor {
     m.child = child;
     m.state = { ...m.state, pid: child.pid ?? null };
 
-    // Advance status to "running" once the child's IPC /status replies.
     this.waitReady(name, this.opts.readyTimeoutMs ?? DEFAULT_READY_TIMEOUT_MS).catch(
       () => { /* onExit handles the crash case */ },
     );
@@ -2000,14 +1642,10 @@ export class Supervisor {
     if (!m) throw new Error(`unknown stage: ${name}`);
 
     const deadline = Date.now() + timeoutMs;
-    // For stages that expose an IPC port, we probe /status.
-    // For test scripts that print "__MAPLE_READY__" to stdout, we just
-    // detect the "running" status transition triggered by the stdout forwarder.
     while (Date.now() < deadline) {
       if (m.state.status === "stopped" || m.state.status === "error") return;
       if (m.state.status === "running") return;
 
-      // Check IPC port if available
       const port = m.child?.ipcPort;
       if (port) {
         try {
@@ -2027,7 +1665,6 @@ export class Supervisor {
       await new Promise((r) => setTimeout(r, 200));
     }
 
-    // Timeout — treat as crash will surface via onExit
     m.state = {
       ...m.state,
       status: "error",
@@ -2035,8 +1672,22 @@ export class Supervisor {
     };
   }
 
-  /** Signal child running status from stdout (used by test scripts). */
+  /** Parse ready / IPC-port signals from child stdout lines. */
   private handleReadySignal(name: string, line: string): void {
+    // IPC port signal emitted by the child's runStage after IpcServer.start()
+    const portMatch = line.match(/^__MAPLE_IPC_PORT__=(\d+)$/);
+    if (portMatch) {
+      const m = this.stages.get(name);
+      if (m?.child) {
+        m.child.ipcPort = parseInt(portMatch[1], 10);
+        if (m.state.status !== "running") {
+          m.state = { ...m.state, status: "running", lastError: null };
+          this.scheduleHealthyReset(name);
+        }
+      }
+      return;
+    }
+    // Fallback ready signal for test scripts that don't start an IPC server
     if (line.includes("__MAPLE_READY__")) {
       const m = this.stages.get(name);
       if (m && m.state.status !== "running") {
@@ -2050,12 +1701,12 @@ export class Supervisor {
     source: ReadableStream<Uint8Array> | null | undefined,
     sink: NodeJS.WriteStream,
     prefix: string,
+    stageName: string,
   ): Promise<void> {
     if (!source || typeof (source as ReadableStream).getReader !== "function") return;
     const reader = (source as ReadableStream<Uint8Array>).getReader();
     const decoder = new TextDecoder();
     let buf = "";
-    const stageName = prefix.replace(/[\[\]]/g, "");
     for (;;) {
       let chunk: { done: boolean; value?: Uint8Array };
       try {
@@ -2126,9 +1777,32 @@ export class Supervisor {
     }
   }
 
+  /**
+   * Notify a stage child that its config has changed.
+   * Called by the PATCH /api/workers/:name/config handler after writing to Mongo.
+   * POSTs reload-config to the child's IPC port; the child re-reads its config
+   * from Mongo and applies the new values live (concurrency, pollIntervalMs,
+   * batchSize, maxAttempts, paused).
+   */
+  async notifyConfigChanged(name: string): Promise<{ ok: boolean; error?: string }> {
+    const m = this.stages.get(name);
+    if (!m) return { ok: false, error: `unknown stage: ${name}` };
+    const port = m.child?.ipcPort;
+    if (!port) return { ok: false, error: "stage has no IPC port (not running)" };
+    try {
+      const res = await fetch(`http://127.0.0.1:${port}/reload-config`, {
+        method: "POST",
+        signal: AbortSignal.timeout(5000),
+      });
+      return res.ok ? { ok: true } : { ok: false, error: `IPC returned ${res.status}` };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  }
+
   /** Stop all stage children gracefully. */
   async stopAll(): Promise<void> {
-    for (const [name, m] of this.stages) {
+    for (const [_name, m] of this.stages) {
       m.stopRequested = true;
       if (m.restartTimer) {
         clearTimeout(m.restartTimer);
@@ -2173,13 +1847,13 @@ export class Supervisor {
 
 Run: `cd src/api && bun test src/workers/supervisor.test.ts --timeout 15000`
 
-Expected: all 3 tests pass (the crash-respawn test hits 5 crashes within 8s due to the rapid-exit script; the healthy test resolves once `__MAPLE_READY__` is emitted).
+Expected: all 4 tests pass (the crash-respawn test hits 5 crashes within 8s; the healthy test resolves once `__MAPLE_READY__` is emitted; the `notifyConfigChanged` unknown-stage test returns `ok: false`).
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add src/api/src/workers/supervisor.ts src/api/src/workers/supervisor.test.ts
-git commit -m "feat(workers): Supervisor — N-child lifecycle, backoff, IPC, log mux"
+git commit -m "feat(workers): Supervisor — N-child lifecycle, backoff, IPC, log mux, notifyConfigChanged"
 ```
 
 ---
@@ -2191,58 +1865,75 @@ git commit -m "feat(workers): Supervisor — N-child lifecycle, backoff, IPC, lo
 
 The spec mandates one partial index per stage on `{ "stages.<name>.version": 1 }` with `partialFilterExpression: { "stages.<name>.dead": { $eq: false } }`. These must be created at startup so claim queries are fast from day one.
 
+Tests use a hand-rolled in-memory collection stub — no `mongodb-memory-server`.
+
 - [ ] **Step 1: Write the failing test**
 
 Create `src/api/src/workers/runtime/indexes.test.ts`:
 
 ```ts
-import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { MongoMemoryServer } from "mongodb-memory-server";
-import { MongoClient } from "mongodb";
-import type { Db } from "mongodb";
+import { describe, expect, it } from "bun:test";
+import type { Db, Collection } from "mongodb";
+
+// Hand-rolled stub for Db that tracks createIndex calls per collection.
+// ensureStageIndexes only calls db.collection(name).createIndex — we stub that.
+
+interface IndexSpec {
+  key: Record<string, unknown>;
+  options: Record<string, unknown>;
+}
+
+function makeDbStub(): { db: Db; getIndexes: (collName: string) => IndexSpec[] } {
+  const collIndexes = new Map<string, IndexSpec[]>();
+
+  function collStub(name: string): Collection {
+    if (!collIndexes.has(name)) collIndexes.set(name, []);
+    return {
+      async createIndex(key: Record<string, unknown>, options: Record<string, unknown> = {}) {
+        collIndexes.get(name)!.push({ key, options });
+        return options["name"] as string ?? JSON.stringify(key);
+      },
+    } as unknown as Collection;
+  }
+
+  return {
+    db: {
+      collection: collStub,
+    } as unknown as Db,
+    getIndexes: (n: string) => collIndexes.get(n) ?? [],
+  };
+}
 
 const STAGE_NAMES = ["hash", "exif", "thumb", "face", "ocr", "describe", "geocode", "meili"];
 
-let mongod: MongoMemoryServer;
-let client: MongoClient;
-let db: Db;
-
-beforeEach(async () => {
-  mongod = await MongoMemoryServer.create();
-  client = await MongoClient.connect(mongod.getUri());
-  db = client.db("test");
-});
-
-afterEach(async () => {
-  await client.close();
-  await mongod.stop();
-});
-
-async function createStageIndexes(d: Db): Promise<void> {
-  const { ensureStageIndexes } = await import("../../db/client.ts");
-  await ensureStageIndexes(d);
-}
-
 describe("ensureStageIndexes", () => {
   it("creates a partial index for each known stage", async () => {
-    await createStageIndexes(db);
-    const indexes = await db.collection("assets").indexes();
+    const { db, getIndexes } = makeDbStub();
+    const { ensureStageIndexes } = await import("../db/client.ts");
+    await ensureStageIndexes(db);
+    const indexes = getIndexes("assets");
     for (const name of STAGE_NAMES) {
       const found = indexes.find(
         (idx) =>
-          idx.key?.[`stages.${name}.version`] === 1 &&
-          idx.partialFilterExpression?.[`stages.${name}.dead`]?.$eq === false,
+          idx.key[`stages.${name}.version`] === 1 &&
+          (idx.options["partialFilterExpression"] as Record<string, unknown>)?.[
+            `stages.${name}.dead`
+          ] !== undefined,
       );
       expect(found).toBeDefined();
     }
   });
 
-  it("is idempotent (runs twice without throwing)", async () => {
-    await createStageIndexes(db);
-    await expect(createStageIndexes(db)).resolves.toBeUndefined();
+  it("is idempotent — calling twice does not throw", async () => {
+    const { db } = makeDbStub();
+    const { ensureStageIndexes } = await import("../db/client.ts");
+    await ensureStageIndexes(db);
+    await expect(ensureStageIndexes(db)).resolves.toBeUndefined();
   });
 });
 ```
+
+Note: the import path from `src/api/src/workers/runtime/indexes.test.ts` to `src/api/src/db/client.ts` is `../db/client.ts` (two levels up: `runtime/` → `workers/` → `src/`, then down into `db/`). Use `../../db/client.ts` from within `src/api/src/workers/runtime/`.
 
 - [ ] **Step 2: Run the test to verify it fails**
 
@@ -2290,6 +1981,19 @@ export async function ensureStageIndexes(db: Db): Promise<void> {
 }
 ```
 
+Also add the `Db` import to the top of the file if not already present:
+
+```ts
+import {
+  MongoClient,
+  type Db,
+  type Collection,
+  ServerApiVersion,
+} from "mongodb";
+```
+
+(`Db` is already imported — verify before adding a duplicate.)
+
 Then inside `ensureIndexes()`, call it just before the closing `log.info("indexes ensured")`:
 
 ```ts
@@ -2311,13 +2015,13 @@ git commit -m "feat(db): partial stage indexes for all 8 stage claim queries"
 
 ---
 
-## Task 10: API endpoint — `GET /api/workers/status`
+## Task 10: API endpoint — worker routes
 
 **Files:**
 - Create: `src/api/src/workers/routes.ts`
 - Create: `src/api/src/workers/routes.test.ts`
 
-The status endpoint aggregates the supervisor's stage snapshots with Mongo pending/dead counts (one count query per stage). Pending = docs with `stages.<name>.version < targetVersion` and `dead: false`. Dead = docs with `stages.<name>.dead: true`.
+The status endpoint aggregates the supervisor's stage snapshots with Mongo pending/dead counts. The PATCH config handler writes to Mongo then calls `supervisor.notifyConfigChanged(name)` so the running child reloads its config live.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -2349,11 +2053,8 @@ describe("POST /api/workers/:name/pause", () => {
   it("returns 404 for unknown stage", async () => {
     const sup = new Supervisor([]);
     const app = new Elysia().use(workerRoutes(sup));
-
     const res = await app.handle(
-      new Request("http://localhost/api/workers/nonexistent/pause", {
-        method: "POST",
-      }),
+      new Request("http://localhost/api/workers/nonexistent/pause", { method: "POST" }),
     );
     expect(res.status).toBe(404);
   });
@@ -2363,11 +2064,8 @@ describe("POST /api/workers/:name/resume", () => {
   it("returns 404 for unknown stage", async () => {
     const sup = new Supervisor([]);
     const app = new Elysia().use(workerRoutes(sup));
-
     const res = await app.handle(
-      new Request("http://localhost/api/workers/nonexistent/resume", {
-        method: "POST",
-      }),
+      new Request("http://localhost/api/workers/nonexistent/resume", { method: "POST" }),
     );
     expect(res.status).toBe(404);
   });
@@ -2377,11 +2075,8 @@ describe("POST /api/workers/:name/retry-dead", () => {
   it("returns 404 for unknown stage", async () => {
     const sup = new Supervisor([]);
     const app = new Elysia().use(workerRoutes(sup));
-
     const res = await app.handle(
-      new Request("http://localhost/api/workers/nonexistent/retry-dead", {
-        method: "POST",
-      }),
+      new Request("http://localhost/api/workers/nonexistent/retry-dead", { method: "POST" }),
     );
     expect(res.status).toBe(404);
   });
@@ -2391,7 +2086,6 @@ describe("PATCH /api/workers/:name/config", () => {
   it("returns 404 for unknown stage", async () => {
     const sup = new Supervisor([]);
     const app = new Elysia().use(workerRoutes(sup));
-
     const res = await app.handle(
       new Request("http://localhost/api/workers/nonexistent/config", {
         method: "PATCH",
@@ -2418,15 +2112,22 @@ Create `src/api/src/workers/routes.ts`:
 /**
  * Worker management API routes.
  *
- * Mounted on the main Elysia app in src/index.ts under /api/workers.
+ * Mounted on the main Elysia app in src/api/src/index.ts under /api/workers.
  * All routes are server-side only in Plan 1 — the Angular UI is Plan 4.
+ *
+ * Config change flow for PATCH /:name/config:
+ *   1. Validate the patch body.
+ *   2. Write to worker_config in Mongo (persistence).
+ *   3. Call supervisor.notifyConfigChanged(name), which POSTs reload-config
+ *      to the child's IPC port. The child re-reads from Mongo and applies live.
+ *   4. Return { ok: true }.
  *
  * Routes:
  *   GET  /api/workers/status            — aggregated status + pending/dead counts
  *   POST /api/workers/:name/pause       — pause a stage's poll loop
  *   POST /api/workers/:name/resume      — resume a paused stage
  *   POST /api/workers/:name/retry-dead  — reset dead docs for a stage
- *   PATCH /api/workers/:name/config     — update WorkerConfig fields
+ *   PATCH /api/workers/:name/config     — update WorkerConfig fields + notify child
  */
 
 import { Elysia, t } from "elysia";
@@ -2448,10 +2149,9 @@ export function workerRoutes(supervisor: Supervisor): Elysia {
           try {
             const db = await getDb();
             const images = db.collection<ImageDoc>("assets");
-            // pending: dead == false AND version < target (using $lt which matches missing)
             pending = await images.countDocuments({
               [`stages.${name}.dead`]: { $ne: true },
-              [`stages.${name}.version`]: { $lt: 999999 }, // target version unknown here; UI corrects
+              [`stages.${name}.version`]: { $lt: 999999 },
             });
             dead = await images.countDocuments({
               [`stages.${name}.dead`]: true,
@@ -2483,7 +2183,6 @@ export function workerRoutes(supervisor: Supervisor): Elysia {
       }
       const result = await supervisor.pause(params.name);
       if (!result.ok) {
-        // Stage exists but IPC failed (e.g. not running) — still 200, surface error
         return { ok: false, error: result.error };
       }
       return { ok: true };
@@ -2541,6 +2240,10 @@ export function workerRoutes(supervisor: Supervisor): Elysia {
           const coll = db.collection("worker_config");
           const repo = new WorkerConfigRepo(coll as never);
           await repo.patch(params.name, body as Partial<WorkerConfig>);
+          // Push the change to the running child via IPC.
+          // Returns ok:false with an error if the child is not running — that
+          // is non-fatal: the config is persisted and will be loaded on next boot.
+          await supervisor.notifyConfigChanged(params.name);
           return { ok: true };
         } catch (err) {
           set.status = 500;
@@ -2572,7 +2275,7 @@ Expected: all 5 tests pass.
 
 ```bash
 git add src/api/src/workers/routes.ts src/api/src/workers/routes.test.ts
-git commit -m "feat(workers): API routes — status, pause, resume, retry-dead, config patch"
+git commit -m "feat(workers): API routes — status, pause, resume, retry-dead, config patch + notify"
 ```
 
 ---
@@ -2582,7 +2285,7 @@ git commit -m "feat(workers): API routes — status, pause, resume, retry-dead, 
 **Files:**
 - Modify: `src/api/src/index.ts`
 
-The `Supervisor` is instantiated once at server startup with an empty stage list (Plan 1) and passed to `workerRoutes`.
+The `Supervisor` is instantiated once at server startup with an empty stage list (Plan 1) and passed to `workerRoutes`. The existing `index.ts` builds the Elysia app as a `const app` inside a top-level module scope — extract it into an exported `buildApp` function so routes.test.ts can test against it without starting a live server.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -2595,8 +2298,9 @@ describe("worker routes mount smoke test", () => {
   it("GET /api/workers/status returns 200", async () => {
     // This test imports the live app and hits the route.
     // It requires no MongoDB connection because the supervisor has no stages.
-    const { buildApp } = await import("../../index.ts");
+    const { buildApp } = await import("../index.ts");
     const app = buildApp({ stageNames: [] });
+
     const res = await app.handle(
       new Request("http://localhost/api/workers/status"),
     );
@@ -2615,40 +2319,50 @@ Expected: FAIL — `buildApp` does not exist (the current entry is top-level, no
 
 - [ ] **Step 3: Extract `buildApp` and add the worker routes**
 
-In `src/api/src/index.ts`, extract the Elysia app construction into an exported `buildApp` function so it is testable without starting a live server. Add the `Supervisor` and worker routes:
-
-Add near the top imports:
+In `src/api/src/index.ts`, add these imports near the top alongside the existing route imports:
 
 ```ts
 import { Supervisor } from "./workers/supervisor.ts";
 import { workerRoutes } from "./workers/routes.ts";
 ```
 
-Add an exported builder function before the top-level startup code:
+Extract the app construction into an exported `buildApp` function. The existing `const app = new Elysia()...` block becomes the body of `buildApp`. Add a `stageNames` option and wire in `workerRoutes`:
 
 ```ts
-export function buildApp(opts: { stageNames?: string[] } = {}): ReturnType<typeof new Elysia> {
+export function buildApp(opts: { stageNames?: string[] } = {}): Elysia {
   const supervisor = new Supervisor(opts.stageNames ?? []);
 
   return new Elysia()
+    .onBeforeHandle(({ set }) => {
+      // ... existing CORS + COOP/COEP headers (copy verbatim from the current top-level block)
+    })
+    .options("/*", /* ... existing preflight handler ... */)
+    .onError(/* ... existing error handler ... */)
     .use(healthRoutes)
-    .use(foldersRoutes)
-    .use(assetsRoutes)
-    .use(indexerRoutes)
-    .use(eventsRoutes)
     .use(authRoutes)
-    .use(fsRoutes)
-    .use(fsThumbsRoutes)
-    .use(searchRoutes)
-    .use(jobsRoutes)
-    .use(enrichmentRoutes)
-    .use(meilisearchBackfillRoutes)
-    .use(peopleRoutes)
-    .use(workerRoutes(supervisor));
+    .use(eventsRoutes)
+    .use(
+      new Elysia({ name: "authedApi" })
+        .use(requireAuth)
+        .use(foldersRoutes)
+        .use(assetsRoutes)
+        .use(indexerRoutes)
+        .use(fsRoutes)
+        .use(fsThumbsRoutes)
+        .use(searchRoutes)
+        .use(jobsRoutes)
+        .use(enrichmentRoutes)
+        .use(meilisearchBackfillRoutes)
+        .use(peopleRoutes)
+        .use(workerRoutes(supervisor)),
+    )
+    .use(staticUiPlugin);
 }
 ```
 
-The existing top-level server startup should call `buildApp()` and `.listen(PORT)` on the result. Adjust the existing code to use `buildApp()`.
+The existing top-level startup `start()` function should call `const app = buildApp()` and then `.listen(PORT)` on the result.
+
+**Implementation note:** The existing `app` in `index.ts` is constructed inline (not in a function). The refactor is: move the `new Elysia()...` chain into `buildApp`, have `start()` call `buildApp().listen(PORT)`, and keep all the `ensureJwtSecret()`, `ensureIndexes()`, worker-bootstrap calls inside `start()` as before.
 
 - [ ] **Step 4: Run the test to verify it passes**
 
@@ -2665,12 +2379,12 @@ git commit -m "feat(workers): mount worker routes on main Elysia app"
 
 ---
 
-## Task 12: Supervisor IPC — per-child HTTP server for status/pause/resume
+## Task 12: Supervisor IPC — per-child HTTP server for status/pause/resume/reload-config
 
 **Files:**
 - Modify: `src/api/src/workers/runtime/run-stage.ts`
 
-Each stage child runs a small localhost HTTP server. The supervisor contacts it for `/status`, `/pause`, `/resume`. This closes the loop between Tasks 8 and 10: the supervisor can actually relay pause/resume to a running child.
+Each stage child runs a small localhost HTTP server. The supervisor contacts it for `/status`, `/pause`, `/resume`, and `/reload-config`. The `reload-config` verb triggers a re-read of `worker_config[name]` from Mongo and applies the new config live — this is how `PATCH /api/workers/:name/config` propagates to a running child without restarting it.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -2716,6 +2430,24 @@ describe("IpcServer", () => {
 
     await ipc.stop();
   });
+
+  it("calls onReloadConfig on POST /reload-config", async () => {
+    let reloaded = false;
+    const throughput = new ThroughputWindow();
+    const ipc = new IpcServer({
+      name: "test-stage",
+      throughput,
+      getInFlight: () => 0,
+      onReloadConfig: async () => { reloaded = true; },
+    });
+    const port = await ipc.start();
+
+    const res = await fetch(`http://127.0.0.1:${port}/reload-config`, { method: "POST" });
+    expect(res.status).toBe(200);
+    expect(reloaded).toBe(true);
+
+    await ipc.stop();
+  });
 });
 ```
 
@@ -2740,15 +2472,23 @@ interface IpcServerOptions {
   getInFlight: () => number;
   onPause?: () => void;
   onResume?: () => void;
+  /**
+   * Called when the supervisor sends POST /reload-config.
+   * The implementation should re-read worker_config[name] from Mongo
+   * and update the running config reference so the next poll tick uses
+   * the new concurrency, pollIntervalMs, batchSize, maxAttempts, and paused.
+   */
+  onReloadConfig?: () => Promise<void>;
 }
 
 /**
  * Small HTTP server listening on 127.0.0.1 only. The supervisor discovers
  * the port by reading the child's stdout line "__MAPLE_IPC_PORT__=<port>".
  * Responds to:
- *   GET  /status  → { status, inFlight, throughput }
- *   POST /pause   → sets paused=true in worker_config via onPause callback
- *   POST /resume  → sets paused=false in worker_config via onResume callback
+ *   GET  /status         → { status, inFlight, throughput }
+ *   POST /pause          → calls onPause callback
+ *   POST /resume         → calls onResume callback
+ *   POST /reload-config  → calls onReloadConfig callback (re-reads config from Mongo)
  */
 export class IpcServer {
   private server: ReturnType<typeof Bun.serve> | null = null;
@@ -2764,7 +2504,7 @@ export class IpcServer {
     const server = Bun.serve({
       port: 0, // OS assigns an ephemeral port
       hostname: "127.0.0.1",
-      fetch(req: Request): Response {
+      async fetch(req: Request): Promise<Response> {
         const url = new URL(req.url);
         if (req.method === "GET" && url.pathname === "/status") {
           return Response.json({
@@ -2781,6 +2521,14 @@ export class IpcServer {
           opts.onResume?.();
           return Response.json({ ok: true });
         }
+        if (req.method === "POST" && url.pathname === "/reload-config") {
+          try {
+            await opts.onReloadConfig?.();
+          } catch {
+            return Response.json({ ok: false, error: "reload failed" }, { status: 500 });
+          }
+          return Response.json({ ok: true });
+        }
         return new Response("not found", { status: 404 });
       },
     });
@@ -2795,46 +2543,36 @@ export class IpcServer {
 }
 ```
 
-Update the `_test` export to include `IpcServer`:
-
-```ts
-export const _test =
-  process.env.MAPLE_TEST === "1"
-    ? { bootConfig, versionBumpReset, runOnce }
-    : (undefined as never);
-```
-
 The `IpcServer` class is a named export, not gated on `MAPLE_TEST`, since it is also used in production by `runStage`.
 
 - [ ] **Step 4: Run the test to verify it passes**
 
 Run: `cd src/api && MAPLE_TEST=1 bun test src/workers/runtime/run-stage.test.ts`
 
-Expected: all tests pass including the two new `IpcServer` tests.
+Expected: all tests pass including the three new `IpcServer` tests.
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add src/api/src/workers/runtime/run-stage.ts src/api/src/workers/runtime/run-stage.test.ts
-git commit -m "feat(workers): IpcServer for supervisor↔child pause/resume/status IPC"
+git commit -m "feat(workers): IpcServer — status/pause/resume/reload-config IPC verbs"
 ```
 
 ---
 
-## Task 13: Full `runStage` wires the IpcServer and emits the ready signal
+## Task 13: Full `runStage` wires the IpcServer, emits the ready signal, and handles reload-config
 
 **Files:**
 - Modify: `src/api/src/workers/runtime/run-stage.ts`
+- Modify: `src/api/src/workers/supervisor.ts`
 
-The IpcServer must be started inside `runStage` so the supervisor can find the port. After starting, the child writes `__MAPLE_IPC_PORT__=<port>` to stdout and the supervisor updates `m.child.ipcPort`.
+The IpcServer must be started inside `runStage` so the supervisor can find the port. After starting, the child writes `__MAPLE_IPC_PORT__=<port>` to stdout and the supervisor updates `m.child.ipcPort`. The `reload-config` handler re-reads `worker_config[name]` from Mongo and updates the live `config` reference used by the poll loop.
 
 - [ ] **Step 1: Add the IPC integration test**
 
 Append to `src/api/src/workers/runtime/run-stage.test.ts`:
 
 ```ts
-// Note: runStage itself is tested at the supervisor integration level (Task 8).
-// Here we just verify the IPC stdout signal format.
 describe("IpcServer port signal", () => {
   it("port is a positive integer when server starts", async () => {
     const tw = new ThroughputWindow();
@@ -2851,9 +2589,9 @@ describe("IpcServer port signal", () => {
 
 Run: `cd src/api && MAPLE_TEST=1 bun test src/workers/runtime/run-stage.test.ts`
 
-Expected: 1 additional test passes.
+Expected: 1 additional test passes — no code changes needed, this just verifies the signal format.
 
-- [ ] **Step 3: Wire IpcServer into `runStage` and emit the port signal**
+- [ ] **Step 3: Wire IpcServer into `runStage`, emit the port signal, handle reload-config**
 
 Replace the full `runStage` function in `src/api/src/workers/runtime/run-stage.ts` with:
 
@@ -2883,21 +2621,11 @@ export async function runStage(stage: StageConfig): Promise<void> {
     config = { ...config, last_seen_target_version: stage.targetVersion };
   }
 
-  // ── Config change subscription ────────────────────────────────────────────
-  const repo = new WorkerConfigRepo(configCollRaw);
-  repo.subscribe(async (changedName) => {
-    if (changedName !== stage.name) return;
-    const updated = await repo.load(stage.name);
-    if (updated) {
-      config = updated;
-      log.info({ config }, `${stage.name} config updated`);
-    }
-  });
-  await repo.startWatching();
-
-  // ── IPC server ────────────────────────────────────────────────────────────
   const throughput = new ThroughputWindow();
   const inFlightSet = new Set<string>();
+
+  // ── IPC server ────────────────────────────────────────────────────────────
+  const repo = new WorkerConfigRepo(configCollRaw);
 
   const ipc = new IpcServer({
     name: stage.name,
@@ -2913,9 +2641,19 @@ export async function runStage(stage: StageConfig): Promise<void> {
       config = { ...config, paused: false };
       log.info(`${stage.name} resumed via IPC`);
     },
+    onReloadConfig: async () => {
+      // Re-read the full config from Mongo — the supervisor called this after
+      // the PATCH /api/workers/:name/config handler updated the DB.
+      const updated = await repo.load(stage.name);
+      if (updated) {
+        config = updated;
+        log.info({ config }, `${stage.name} config reloaded via IPC`);
+      }
+    },
   });
+
   const ipcPort = await ipc.start();
-  // Signal the supervisor with the IPC port so it can send pause/resume.
+  // Signal the supervisor with the IPC port so it can send IPC commands.
   process.stdout.write(`__MAPLE_IPC_PORT__=${ipcPort}\n`);
   log.info({ ipcPort }, `${stage.name} IPC server started`);
 
@@ -2929,10 +2667,9 @@ export async function runStage(stage: StageConfig): Promise<void> {
     log.info(`${stage.name} received SIGTERM — draining`);
     abortController.abort();
     clearInterval(pollTimer);
-    await repo.stopWatching().catch(() => {});
     await ipc.stop().catch(() => {});
   };
-  process.on("SIGTERM", shutdown);
+  process.on("SIGTERM", () => { shutdown().catch(() => {}); });
 
   // ── Poll loop ─────────────────────────────────────────────────────────────
   const pollTimer = setInterval(async () => {
@@ -2950,12 +2687,10 @@ export async function runStage(stage: StageConfig): Promise<void> {
   // ── Drain on shutdown ─────────────────────────────────────────────────────
   await new Promise<void>((resolve) => {
     abortController.signal.addEventListener("abort", () => {
-      // Give the current tick up to 30s to finish, then force-exit.
       const deadline = setTimeout(() => {
         log.warn(`${stage.name} drain timeout 30s — force exiting`);
         resolve();
       }, 30_000);
-      // If no in-flight work, resolve immediately.
       if (inFlightSet.size === 0) {
         clearTimeout(deadline);
         resolve();
@@ -2968,36 +2703,7 @@ export async function runStage(stage: StageConfig): Promise<void> {
 }
 ```
 
-Update the supervisor to parse `__MAPLE_IPC_PORT__=` from stdout and store it on `m.child`:
-
-In `src/api/src/workers/supervisor.ts`, update `handleReadySignal` to also capture the IPC port:
-
-```ts
-  private handleReadySignal(name: string, line: string): void {
-    // IPC port signal
-    const portMatch = line.match(/^__MAPLE_IPC_PORT__=(\d+)$/);
-    if (portMatch) {
-      const m = this.stages.get(name);
-      if (m?.child) {
-        m.child.ipcPort = parseInt(portMatch[1], 10);
-        // Once we have the IPC port, the child is running and ready.
-        if (m.state.status !== "running") {
-          m.state = { ...m.state, status: "running", lastError: null };
-          this.scheduleHealthyReset(name);
-        }
-      }
-      return;
-    }
-    // Fallback ready signal for test scripts
-    if (line.includes("__MAPLE_READY__")) {
-      const m = this.stages.get(name);
-      if (m && m.state.status !== "running") {
-        m.state = { ...m.state, status: "running", lastError: null };
-        this.scheduleHealthyReset(name);
-      }
-    }
-  }
-```
+The supervisor's `handleReadySignal` already handles the `__MAPLE_IPC_PORT__=` line and sets `m.child.ipcPort` (added in Task 8, Step 3). No further changes to `supervisor.ts` are needed.
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
@@ -3008,8 +2714,8 @@ Expected: all tests pass.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/api/src/workers/runtime/run-stage.ts src/api/src/workers/supervisor.ts src/api/src/workers/runtime/run-stage.test.ts
-git commit -m "feat(workers): runStage wires IpcServer + emits port signal to supervisor"
+git add src/api/src/workers/runtime/run-stage.ts
+git commit -m "feat(workers): runStage wires IpcServer + reload-config + emits port signal"
 ```
 
 ---
@@ -3022,7 +2728,7 @@ git commit -m "feat(workers): runStage wires IpcServer + emits port signal to su
 - [ ] **Step 1: Run the full API test suite**
 
 ```bash
-cd src/api && bun test
+cd src/api && MAPLE_TEST=1 bun test
 ```
 
 Expected: all existing tests pass. The new workers tests all pass. No failures in `src/indexer/`, `src/enrichment/`, `src/routes/`, or `src/db/`.
@@ -3050,11 +2756,20 @@ No code changes in this task. If step 1 or 2 surfaced failures, fix them in-plac
 Before declaring Plan 1 complete:
 
 - [ ] All new test files pass: `cd src/api && MAPLE_TEST=1 bun test src/workers/`
-- [ ] Full suite passes: `cd src/api && bun test` with no regressions
+- [ ] Full suite passes: `cd src/api && MAPLE_TEST=1 bun test` with no regressions
 - [ ] `GET /api/workers/status` returns `{ stages: [] }` against a running dev server
 - [ ] No occurrences of `TODO`, `TBD`, or placeholder comments in new files
+- [ ] No reference to `mongodb-memory-server` anywhere in `src/api/src/workers/`
+- [ ] `WorkerConfigRepo` has only `load`, `upsert`, `patch` — no `subscribe`, `startWatching`, `startPolling`, `stopPolling`, `stopWatching`, `pollForChanges`
+- [ ] `reload-config` IPC verb appears in `IpcServer` (Task 12), is wired in `runStage` (Task 13), and is called from `supervisor.notifyConfigChanged` (Task 8), which is triggered from the PATCH handler (Task 10)
 - [ ] Type consistency: every reference uses exact names `StageConfig`, `StageState`, `WorkerConfig`, `StageResult`, `StageContext`, `runStage`, `defineStage`, `WorkerConfigRepo`, `Supervisor`, `IpcServer`
-- [ ] Path consistency: no file imported from a path that doesn't match the file structure table above
+- [ ] Import paths verified:
+  - From `src/api/src/workers/worker-config.repo.ts` → `./runtime/define-stage.ts` ✓
+  - From `src/api/src/workers/runtime/run-stage.ts` → `../../log.ts` ✓, `../worker-config.repo.ts` ✓
+  - From `src/api/src/workers/runtime/run-stage.ts` → `../../db/client.ts` (dynamic import inside `runStage`) ✓
+  - From `src/api/src/workers/routes.ts` → `../db/client.ts` ✓
+  - From `src/api/src/workers/runtime/indexes.test.ts` → `../../db/client.ts` ✓
+  - From `src/api/src/workers/worker-config.repo.test.ts` → `../db/client.ts` (Task 2 import assertion) ✓
 - [ ] Existing pipeline (`src/api/src/indexer/pipeline.ts`, `control.ts`, `standalone.ts`) is completely unchanged
-- [ ] Existing enrichment workers (`src/api/src/enrichment/*-worker.ts`) are completely unchanged
+- [ ] Existing enrichment workers (`src/api/src/enrichment/*-bootstrap.ts`) are completely unchanged
 - [ ] 13 commits land in order, each independently bisectable
