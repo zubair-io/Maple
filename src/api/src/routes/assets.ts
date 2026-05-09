@@ -1,11 +1,20 @@
 /**
  * /api/assets routes.
  *
- * GET /api/assets/:id         — single asset metadata
- * GET /api/assets/:id/raw     — binary RAW bytes (streaming)
- * GET /api/assets/:id/thumb   — thumbnail from .maple/ cache
- * GET /api/assets/:id/xmp     — read XMP sidecar
- * PUT /api/assets/:id/xmp     — write XMP sidecar (atomic)
+ * GET /api/assets/:id                       — single asset metadata
+ * GET /api/assets/:id/raw                   — binary RAW bytes (streaming)
+ * GET /api/assets/:id/thumb                 — thumbnail from .maple/ cache
+ * GET /api/assets/:id/xmp                   — read XMP sidecar
+ * PUT /api/assets/:id/xmp                   — write XMP sidecar (atomic)
+ * PUT /api/assets/:id/place                 — manual override of reverse-geocoded place
+ * PUT /api/assets/:id/description           — manual override of LLM caption
+ * PUT /api/assets/:id/ocr                   — manual override of OCR text
+ * POST /api/assets/:id/enrichment/requeue   — bump per-stage version + clear done_at
+ *
+ * The three PUT-override routes write directly to the corresponding asset
+ * field and recompute `asset.search_blob` atomically using the same
+ * aggregation-pipeline `$set` form the workers use, so the unified text
+ * index stays coherent without a read-modify-write race.
  */
 
 import { Elysia, t } from "elysia";
@@ -13,7 +22,18 @@ import { ObjectId } from "mongodb";
 import { assetsCollection } from "../db/client.ts";
 import { readXmp, writeXmpAtomic, resolveThumbPath } from "../fs/xmp.ts";
 import { safeReadFile } from "../fs/root.ts";
-import { normaliseEnrichment } from "../db/schema.ts";
+import { normaliseEnrichment, type Place } from "../db/schema.ts";
+import { searchBlobUpdateExpression } from "../enrichment/search-blob.ts";
+
+/** Whitelisted enrichment stage names for the requeue route. Anything else
+ * is rejected with 400 so a client can't poke a Mongo path that doesn't
+ * belong to the enrichment subdoc. */
+const ENRICHMENT_STAGES = ["geocode", "face", "describe", "ocr"] as const;
+type EnrichmentStageName = (typeof ENRICHMENT_STAGES)[number];
+
+function isEnrichmentStage(s: string): s is EnrichmentStageName {
+  return (ENRICHMENT_STAGES as readonly string[]).includes(s);
+}
 
 export const assetsRoutes = new Elysia({ prefix: "/api/assets" })
   // Single asset metadata
@@ -33,6 +53,12 @@ export const assetsRoutes = new Elysia({ prefix: "/api/assets" })
       return { error: "Asset not found" };
     }
 
+    // `description_meta` and `ocr_meta` aren't typed in the canonical
+    // `AssetDoc` (they were added by the describe / OCR workers after the
+    // schema froze), so we cast through `Record<string, unknown>` for the
+    // read-side projection. The shape is stable — see describe-worker.ts
+    // (writes `description_meta`) and ocr-worker.ts (writes `ocr_meta`).
+    const rawDoc = doc as unknown as Record<string, unknown>;
     return {
       id: doc._id.toHexString(),
       folder_id: doc.folder_id.toHexString(),
@@ -49,6 +75,9 @@ export const assetsRoutes = new Elysia({ prefix: "/api/assets" })
       place: doc.place ?? null,
       faces: doc.faces ?? [],
       description: doc.description ?? null,
+      description_meta: rawDoc.description_meta ?? null,
+      ocr_text: doc.ocr_text ?? null,
+      ocr_meta: doc.ocr_meta ?? null,
       enrichment: normaliseEnrichment(doc.enrichment),
     };
   })
@@ -187,6 +216,206 @@ export const assetsRoutes = new Elysia({ prefix: "/api/assets" })
     {
       type: "text",
       body: t.String(),
+    }
+  )
+
+  // ── Manual override routes ───────────────────────────────────────────
+  // The three PUT routes below let the user correct an enrichment output
+  // without re-running the worker. They write the field directly and
+  // recompute `search_blob` atomically using the same aggregation
+  // expression each worker's `complete()` uses, so the unified text
+  // index stays in sync without a read-modify-write race.
+  //
+  // Sending `null` clears the override (the next worker run would then
+  // repopulate from its source). Sending a value pins it in place; the
+  // operator must POST `/enrichment/requeue` to re-run the worker.
+
+  // Manual place override
+  .put(
+    "/:id/place",
+    async ({ params, body, set }) => {
+      let id: ObjectId;
+      try {
+        id = new ObjectId(params.id);
+      } catch {
+        set.status = 400;
+        return { error: "Invalid asset id" };
+      }
+
+      const coll = await assetsCollection();
+      const doc = await coll.findOne({ _id: id });
+      if (!doc) {
+        set.status = 404;
+        return { error: "Asset not found" };
+      }
+
+      const place = (body as { place: Place | null } | null)?.place ?? null;
+      const placeBlob = place?.search_blob ?? null;
+
+      await coll.updateOne({ _id: id }, [
+        {
+          $set: {
+            place,
+            search_blob: searchBlobUpdateExpression({
+              placeSearchBlob: placeBlob,
+            }),
+          },
+        },
+      ]);
+
+      set.status = 204;
+      return;
+    },
+    {
+      body: t.Object({
+        place: t.Union([
+          t.Null(),
+          t.Object({}, { additionalProperties: true }),
+        ]),
+      }),
+    }
+  )
+
+  // Manual description override
+  .put(
+    "/:id/description",
+    async ({ params, body, set }) => {
+      let id: ObjectId;
+      try {
+        id = new ObjectId(params.id);
+      } catch {
+        set.status = 400;
+        return { error: "Invalid asset id" };
+      }
+
+      const coll = await assetsCollection();
+      const doc = await coll.findOne({ _id: id });
+      if (!doc) {
+        set.status = 404;
+        return { error: "Asset not found" };
+      }
+
+      const text = (body as { text: string | null } | null)?.text ?? null;
+
+      await coll.updateOne({ _id: id }, [
+        {
+          $set: {
+            description: text,
+            search_blob: searchBlobUpdateExpression({ description: text }),
+          },
+        },
+      ]);
+
+      set.status = 204;
+      return;
+    },
+    {
+      body: t.Object({
+        text: t.Union([t.Null(), t.String()]),
+      }),
+    }
+  )
+
+  // Manual OCR override
+  .put(
+    "/:id/ocr",
+    async ({ params, body, set }) => {
+      let id: ObjectId;
+      try {
+        id = new ObjectId(params.id);
+      } catch {
+        set.status = 400;
+        return { error: "Invalid asset id" };
+      }
+
+      const coll = await assetsCollection();
+      const doc = await coll.findOne({ _id: id });
+      if (!doc) {
+        set.status = 404;
+        return { error: "Asset not found" };
+      }
+
+      const text = (body as { text: string | null } | null)?.text ?? null;
+
+      await coll.updateOne({ _id: id }, [
+        {
+          $set: {
+            ocr_text: text,
+            search_blob: searchBlobUpdateExpression({ ocrText: text }),
+          },
+        },
+      ]);
+
+      set.status = 204;
+      return;
+    },
+    {
+      body: t.Object({
+        text: t.Union([t.Null(), t.String()]),
+      }),
+    }
+  )
+
+  // Per-stage requeue — clears `done_at` and bumps `version` so the worker
+  // claim filter picks the row up on its next tick. Also clears the
+  // dead-letter timestamp so a previously-exhausted row gets a fresh
+  // retry budget.
+  .post(
+    "/:id/enrichment/requeue",
+    async ({ params, body, set }) => {
+      let id: ObjectId;
+      try {
+        id = new ObjectId(params.id);
+      } catch {
+        set.status = 400;
+        return { error: "Invalid asset id" };
+      }
+
+      const stage = (body as { stage: string } | null)?.stage ?? "";
+      if (!isEnrichmentStage(stage)) {
+        set.status = 400;
+        return {
+          error: `Invalid stage. Expected one of: ${ENRICHMENT_STAGES.join(", ")}`,
+        };
+      }
+
+      const coll = await assetsCollection();
+      const doc = await coll.findOne({ _id: id });
+      if (!doc) {
+        set.status = 404;
+        return { error: "Asset not found" };
+      }
+
+      const currentVersion =
+        normaliseEnrichment(doc.enrichment)[stage].version ?? 0;
+      const nextVersion = currentVersion + 1;
+
+      const result = await coll.updateOne(
+        { _id: id },
+        {
+          $set: {
+            [`enrichment.${stage}.done_at`]: null,
+            [`enrichment.${stage}.version`]: nextVersion,
+            [`enrichment.${stage}.attempts`]: 0,
+            [`enrichment.${stage}.last_error`]: null,
+            [`enrichment.${stage}.dead_letter_at`]: null,
+            [`enrichment.${stage}.locked_by`]: null,
+            [`enrichment.${stage}.lease_expires_at`]: null,
+          },
+        }
+      );
+
+      if (result.matchedCount === 0) {
+        set.status = 404;
+        return { error: "Asset not found" };
+      }
+
+      return { stage, version: nextVersion };
+    },
+    {
+      body: t.Object({
+        stage: t.String(),
+      }),
     }
   );
 

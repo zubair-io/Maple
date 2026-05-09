@@ -57,5 +57,19 @@ export const routes: Routes = [
     loadComponent: () =>
       import('./search/search.component').then((m) => m.SearchComponent),
   },
+  // People — face-cluster identities. Same gating as `/settings/users`.
+  // The `:id` variant deep-links into the detail panel.
+  {
+    path: 'people',
+    canActivate: [authGuard, ownerGuard],
+    loadComponent: () =>
+      import('./people/people.component').then((m) => m.PeopleComponent),
+  },
+  {
+    path: 'people/:id',
+    canActivate: [authGuard, ownerGuard],
+    loadComponent: () =>
+      import('./people/people.component').then((m) => m.PeopleComponent),
+  },
   { path: '**', redirectTo: 'browse' },
 ];

@@ -8,7 +8,7 @@
 
 import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
-import { Observable } from 'rxjs';
+import { Observable, map } from 'rxjs';
 import { API_BASE_URL } from './api-base-url.token';
 
 export interface ApiFolder {
@@ -40,6 +40,116 @@ export interface ApiAssetPage {
   total: number;
   page: number;
   limit: number;
+}
+
+// ─── Enrichment / detail-pane shapes ────────────────────────────────────────
+// Mirror the Mongo schema (`src/api/src/db/schema.ts`). Snake_case fields
+// because the API ships the documents as-is for fidelity.
+
+export interface ApiPlaceAddress {
+  house_number?: string;
+  road?: string;
+  neighbourhood?: string;
+  suburb?: string;
+  city?: string;
+  town?: string;
+  village?: string;
+  county?: string;
+  state?: string;
+  state_code?: string;
+  postcode?: string;
+  country?: string;
+  country_code?: string;
+}
+
+export interface ApiPlacePoi {
+  name: string;
+  category: string;
+  type: string;
+}
+
+export interface ApiPlaceRollups {
+  locality: string | null;
+  region: string | null;
+  country_code: string | null;
+}
+
+export interface ApiPlace {
+  source: string;
+  geocoder_version: number;
+  geocoded_at: string;
+  lat: number;
+  lon: number;
+  display_name: string | null;
+  address: ApiPlaceAddress;
+  pois: ApiPlacePoi[];
+  rollups: ApiPlaceRollups;
+  search_blob: string;
+}
+
+export interface ApiAssetFace {
+  bbox: { x: number; y: number; w: number; h: number };
+  person_id: string | null;
+  confidence: number;
+}
+
+export interface ApiEnrichmentStageState {
+  done_at: string | null;
+  locked_by: string | null;
+  lease_expires_at: string | null;
+  attempts: number;
+  last_error: string | null;
+  version: number | null;
+  dead_letter_at: string | null;
+}
+
+export type ApiEnrichmentStage = 'geocode' | 'face' | 'describe' | 'ocr';
+
+export interface ApiEnrichment {
+  geocode: ApiEnrichmentStageState;
+  face: ApiEnrichmentStageState;
+  describe: ApiEnrichmentStageState;
+  ocr: ApiEnrichmentStageState;
+}
+
+export interface ApiOcrMeta {
+  engine: string;
+  engine_version: string;
+  generated_at: string;
+}
+
+export interface ApiDescriptionMeta {
+  provider?: string;
+  model?: string;
+  cost_usd?: number;
+  generated_at?: string;
+  prompt_version?: number;
+  [key: string]: unknown;
+}
+
+export interface ApiAssetDetail {
+  id: string;
+  folder_id: string;
+  filename: string;
+  abs_path: string;
+  size: number;
+  mtime: number;
+  rating: number;
+  flag: -1 | 0 | 1;
+  color_label: string;
+  indexed_at: string;
+  place: ApiPlace | null;
+  faces: ApiAssetFace[];
+  description: string | null;
+  description_meta: ApiDescriptionMeta | null;
+  ocr_text: string | null;
+  ocr_meta: ApiOcrMeta | null;
+  enrichment: ApiEnrichment;
+}
+
+export interface ApiRequeueResponse {
+  stage: ApiEnrichmentStage;
+  version: number;
 }
 
 export interface ApiDirEntry {
@@ -197,6 +307,53 @@ export class BunApiBackendService {
 
   getAsset(assetId: string): Observable<ApiAsset> {
     return this.http.get<ApiAsset>(`${this.base}/assets/${assetId}`);
+  }
+
+  /** Detail-pane payload — same `/api/assets/:id` route, but typed to surface
+   * the enrichment outputs (place, faces, description, ocr) the info-pane
+   * needs. Snake_case fields pass through untouched. */
+  getAssetDetails(assetId: string): Observable<ApiAssetDetail> {
+    return this.http.get<ApiAssetDetail>(`${this.base}/assets/${assetId}`);
+  }
+
+  /** Manually override the reverse-geocoded place. `null` clears the
+   * override; the next worker run will repopulate. Server recomputes
+   * `search_blob` atomically using the same expression the geocode worker
+   * uses. */
+  setAssetPlaceOverride(
+    assetId: string,
+    place: ApiPlace | null,
+  ): Observable<void> {
+    return this.http.put<void>(`${this.base}/assets/${assetId}/place`, { place });
+  }
+
+  /** Manually override the LLM caption. Pass `null` to clear. */
+  setAssetDescriptionOverride(
+    assetId: string,
+    text: string | null,
+  ): Observable<void> {
+    return this.http.put<void>(`${this.base}/assets/${assetId}/description`, { text });
+  }
+
+  /** Manually override the OCR text. Pass `null` to clear. */
+  setAssetOcrOverride(
+    assetId: string,
+    text: string | null,
+  ): Observable<void> {
+    return this.http.put<void>(`${this.base}/assets/${assetId}/ocr`, { text });
+  }
+
+  /** Reset a per-stage enrichment state so the worker re-runs on its next
+   * tick: `done_at` cleared, `version` bumped by 1, attempt counter +
+   * dead-letter timestamp wiped, lock released. */
+  requeueEnrichmentStage(
+    assetId: string,
+    stage: ApiEnrichmentStage,
+  ): Observable<ApiRequeueResponse> {
+    return this.http.post<ApiRequeueResponse>(
+      `${this.base}/assets/${assetId}/enrichment/requeue`,
+      { stage },
+    );
   }
 
   getRawBytes(assetId: string): Observable<ArrayBuffer> {
@@ -367,6 +524,94 @@ export class BunApiBackendService {
       body,
     );
   }
+
+  // -------------------------------------------------------------------------
+  // People — face-cluster identities. The `/people` UI consumes these.
+  // -------------------------------------------------------------------------
+
+  listPeople(): Observable<ApiPerson[]> {
+    return this.http.get<ApiPersonRaw[]>(`${this.base}/people`).pipe(
+      // Normalise snake_case → camelCase for the UI layer. Done here so
+      // every component that consumes the service gets the same shape.
+      map((rows) =>
+        rows.map((r) => ({
+          id: r.id,
+          name: r.name,
+          faceCount: r.face_count,
+          coverFaceId: r.cover_face_id ?? null,
+          createdAt: r.created_at,
+          updatedAt: r.updated_at,
+        })),
+      ),
+    );
+  }
+
+  getPerson(id: string): Observable<ApiPersonDetail> {
+    return this.http.get<ApiPersonDetailRaw>(`${this.base}/people/${id}`).pipe(
+      map((r) => ({
+        id: r.id,
+        name: r.name,
+        coverFaceId: r.cover_face_id ?? null,
+        createdAt: r.created_at,
+        updatedAt: r.updated_at,
+        faces: r.faces.map((f) => ({
+          assetId: f.asset_id,
+          faceIndex: f.face_index,
+          absPath: f.abs_path,
+          bbox: f.bbox,
+          confidence: f.confidence,
+        })),
+      })),
+    );
+  }
+
+  createPerson(body: { name: string }): Observable<ApiPersonSummary> {
+    return this.http
+      .post<ApiPersonSummaryRaw>(`${this.base}/people`, body)
+      .pipe(map((r) => ({ id: r.id, name: r.name })));
+  }
+
+  /** Returns the survivor + the orphan id when a merge happened. */
+  renamePerson(id: string, name: string): Observable<ApiRenameResult> {
+    return this.http
+      .put<ApiRenameResultRaw>(`${this.base}/people/${id}`, { name })
+      .pipe(
+        map((r) => ({
+          id: r.id,
+          name: r.name,
+          mergedFrom: r.merged_from ?? null,
+        })),
+      );
+  }
+
+  assignFaceToPerson(
+    assetId: string,
+    faceIndex: number,
+    personId: string | null,
+  ): Observable<{ ok: true }> {
+    return this.http.post<{ ok: true }>(`${this.base}/people/assign`, {
+      asset_id: assetId,
+      face_index: faceIndex,
+      person_id: personId,
+    });
+  }
+
+  /** Synchronous online clustering. Returns counts. */
+  runClustering(): Observable<ApiClusterResult> {
+    return this.http
+      .post<ApiClusterResultRaw>(`${this.base}/people/cluster`, {})
+      .pipe(
+        map((r) => ({
+          assigned: r.assigned,
+          newPeople: r.new_people,
+          scanned: r.scanned,
+        })),
+      );
+  }
+
+  deletePerson(id: string): Observable<void> {
+    return this.http.delete<void>(`${this.base}/people/${id}`);
+  }
 }
 
 export type DescribeProviderName = 'ollama' | 'anthropic' | 'openai' | 'gemini';
@@ -420,4 +665,96 @@ export interface EnrichmentTestDescribeResponse {
   info?: { provider: DescribeProviderName; model: string | null };
   error?: string;
   status?: number | null;
+}
+
+// ── People (face clusters) ─────────────────────────────────────────────────
+
+/** Camel-cased version of the server's GET /api/people row. */
+export interface ApiPerson {
+  id: string;
+  name: string;
+  faceCount: number;
+  coverFaceId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** GET /api/people/:id response (camel-cased). */
+export interface ApiPersonDetail {
+  id: string;
+  name: string;
+  coverFaceId: string | null;
+  createdAt: string;
+  updatedAt: string;
+  faces: ApiPersonFace[];
+}
+
+export interface ApiPersonFace {
+  assetId: string;
+  faceIndex: number;
+  absPath: string;
+  bbox: { x: number; y: number; w: number; h: number };
+  confidence: number;
+}
+
+/** Trimmed shape returned by POST /api/people. */
+export interface ApiPersonSummary {
+  id: string;
+  name: string;
+}
+
+export interface ApiRenameResult {
+  id: string;
+  name: string;
+  /** Set when the rename triggered a merge — points at the orphan id. */
+  mergedFrom: string | null;
+}
+
+export interface ApiClusterResult {
+  assigned: number;
+  newPeople: number;
+  scanned: number;
+}
+
+// Server-side (snake_case) shapes consumed by the rxjs map() above. Kept
+// internal to the service so consumers don't see snake_case at all.
+interface ApiPersonRaw {
+  id: string;
+  name: string;
+  face_count: number;
+  cover_face_id?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+interface ApiPersonDetailRaw {
+  id: string;
+  name: string;
+  cover_face_id?: string | null;
+  created_at: string;
+  updated_at: string;
+  faces: Array<{
+    asset_id: string;
+    face_index: number;
+    abs_path: string;
+    bbox: { x: number; y: number; w: number; h: number };
+    confidence: number;
+  }>;
+}
+
+interface ApiPersonSummaryRaw {
+  id: string;
+  name: string;
+}
+
+interface ApiRenameResultRaw {
+  id: string;
+  name: string;
+  merged_from?: string | null;
+}
+
+interface ApiClusterResultRaw {
+  assigned: number;
+  new_people: number;
+  scanned: number;
 }

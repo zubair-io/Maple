@@ -1,12 +1,36 @@
 // Info tab — file metadata, camera, rating/flags, location, dates, IPTC, history.
 // Shared between Browse and Editor apps via maple-common.
 // Ported from _design-reference/lib/detail.jsx InfoTab / KV / EditableRow.
+//
+// Self-Hosted extension: when the focused asset has a known API id (Self
+// Hosted backend), this component fetches the per-asset enrichment payload
+// (place, description, OCR text, faces) from the Bun API and surfaces four
+// editable sections at the bottom of the pane. Each section supports a
+// manual override (PUT) and a re-X button (POST requeue). After a requeue,
+// the component polls the asset every 2s for 30s to pick up the new value.
 
-import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  effect,
+  inject,
+  signal,
+  Injector,
+  OnDestroy,
+  runInInjectionContext,
+} from '@angular/core';
 import { LibraryStateService } from '../state/library-state.service';
 import { MapleIconComponent } from '../icons/maple-icon.component';
 import { MapleCollapsibleComponent } from '../collapsible/maple-collapsible.component';
 import { Asset, ColorLabel, Flag } from '../models/asset';
+import { LIBRARY_BACKEND } from '../api/library-backend.token';
+import {
+  BunApiBackendService,
+  ApiAssetDetail,
+  ApiEnrichmentStage,
+} from '../api/bun-api-backend.service';
+import { Subscription } from 'rxjs';
 
 const COLOR_LABELS: { name: ColorLabel; hex: string }[] = [
   { name: 'red', hex: '#e74c3c' },
@@ -15,6 +39,11 @@ const COLOR_LABELS: { name: ColorLabel; hex: string }[] = [
   { name: 'green', hex: '#4ade80' },
   { name: 'blue', hex: '#6aa0d4' },
 ];
+
+/** How long the post-requeue refresh poll runs before giving up. */
+const REFRESH_TIMEOUT_MS = 30_000;
+/** Poll interval inside the refresh window. */
+const REFRESH_POLL_MS = 2_000;
 
 @Component({
   selector: 'maple-info-tab',
@@ -47,6 +76,14 @@ const COLOR_LABELS: { name: ColorLabel; hex: string }[] = [
       .color-dot.active {
         outline: 1.5px solid var(--color-text-main);
         outline-offset: 2px;
+      }
+
+      /* OCR text panel — monospace + scrollable. Tailwind line-height
+         classes don't quite hit the design spec, so a tiny custom rule. */
+      .ocr-pre {
+        max-height: 8em;
+        overflow-y: auto;
+        line-height: 1.4;
       }
     `,
   ],
@@ -270,6 +307,178 @@ const COLOR_LABELS: { name: ColorLabel; hex: string }[] = [
         </div>
       </maple-collapsible>
 
+      <!-- ── Enrichment sections (Self Hosted only) ──────────────────── -->
+      @if (selfHosted && detail()) {
+        @let d = detail()!;
+
+        <!-- Place -->
+        @if (showPlaceSection(d)) {
+          <maple-collapsible label="Place" storageKey="info-place">
+            <div class="px-4 py-[5px]">
+              @if (placeEditing()) {
+                <div class="mb-0.5 text-[10px] text-text-muted">Display name</div>
+                <input
+                  class="box-border h-6 w-full rounded-[3px] border-[0.5px] border-border bg-input-bg px-1.5 text-[11px] text-text-main outline-none focus:border-primary"
+                  [value]="placeDraft()"
+                  (input)="placeDraft.set($any($event.target).value)"
+                  placeholder="Display name"
+                />
+                <div class="mt-1.5 flex justify-end gap-1.5">
+                  <button class="text-[10px] text-text-muted hover:text-text-main" type="button" (click)="cancelPlaceEdit()">Cancel</button>
+                  <button class="text-[10px] font-medium text-primary hover:underline" type="button" (click)="savePlaceEdit(d)">Save</button>
+                </div>
+              } @else {
+                @if (d.place) {
+                  <div class="text-[11px] font-medium text-text-main">
+                    {{ formatRollups(d.place.rollups) }}
+                  </div>
+                  <div class="mt-0.5 text-[10px] text-text-muted overflow-hidden text-ellipsis">
+                    {{ d.place.display_name ?? '(no display name)' }}
+                  </div>
+                } @else {
+                  <div class="text-[11px] text-text-muted">No place set</div>
+                }
+                <div class="mt-1.5 flex items-center justify-between">
+                  <div class="flex items-center gap-1.5">
+                    @if (d.enrichment.geocode.done_at === null && !d.enrichment.geocode.dead_letter_at) {
+                      <span class="rounded-[3px] bg-surface-alt px-1.5 py-0.5 text-[9px] uppercase tracking-[0.3px] text-text-muted">Pending</span>
+                    }
+                    @if (d.enrichment.geocode.dead_letter_at) {
+                      <span class="rounded-[3px] bg-error-bg px-1.5 py-0.5 text-[9px] uppercase tracking-[0.3px] text-error-text">Failed</span>
+                    }
+                  </div>
+                  <div class="flex gap-2">
+                    <button class="text-[10px] text-text-muted hover:text-text-main" type="button" (click)="startPlaceEdit(d)">Edit</button>
+                    <button class="text-[10px] text-text-muted hover:text-text-main" type="button" (click)="requeue(d, 'geocode')">↻ Re-geocode</button>
+                  </div>
+                </div>
+              }
+            </div>
+          </maple-collapsible>
+        }
+
+        <!-- Description -->
+        <maple-collapsible label="Description" storageKey="info-description">
+          <div class="px-4 py-[5px]">
+            @if (descriptionEditing()) {
+              <textarea
+                rows="3"
+                class="box-border w-full rounded-[3px] border-[0.5px] border-border bg-input-bg px-1.5 py-1 text-[11px] text-text-main outline-none focus:border-primary resize-y"
+                [value]="descriptionDraft()"
+                (input)="descriptionDraft.set($any($event.target).value)"
+                placeholder="Caption…"
+              ></textarea>
+              <div class="mt-1.5 flex justify-end gap-1.5">
+                <button class="text-[10px] text-text-muted hover:text-text-main" type="button" (click)="cancelDescriptionEdit()">Cancel</button>
+                <button class="text-[10px] font-medium text-primary hover:underline" type="button" (click)="saveDescriptionEdit(d)">Save</button>
+              </div>
+            } @else {
+              <div class="text-[11px] leading-relaxed text-text-main whitespace-pre-wrap break-words">
+                @if (d.description) {
+                  {{ d.description }}
+                } @else {
+                  <span class="text-text-muted">No description yet</span>
+                }
+              </div>
+              <div class="mt-1.5 flex items-center justify-between">
+                <div class="flex items-center gap-1.5">
+                  @if (d.enrichment.describe.done_at === null && !d.enrichment.describe.dead_letter_at) {
+                    <span class="rounded-[3px] bg-surface-alt px-1.5 py-0.5 text-[9px] uppercase tracking-[0.3px] text-text-muted">Pending</span>
+                  }
+                  @if (d.enrichment.describe.dead_letter_at) {
+                    <span class="rounded-[3px] bg-error-bg px-1.5 py-0.5 text-[9px] uppercase tracking-[0.3px] text-error-text">Failed</span>
+                  }
+                </div>
+                <div class="flex gap-2">
+                  <button class="text-[10px] text-text-muted hover:text-text-main" type="button" (click)="startDescriptionEdit(d)">Edit</button>
+                  <button class="text-[10px] text-text-muted hover:text-text-main" type="button" (click)="requeue(d, 'describe')">↻ Re-describe</button>
+                </div>
+              </div>
+            }
+          </div>
+        </maple-collapsible>
+
+        <!-- OCR text -->
+        <maple-collapsible label="OCR text" storageKey="info-ocr">
+          <div class="px-4 py-[5px]">
+            @if (ocrEditing()) {
+              <textarea
+                rows="4"
+                class="ocr-pre box-border w-full rounded-[3px] border-[0.5px] border-border bg-input-bg px-1.5 py-1 font-mono text-[10px] text-text-main outline-none focus:border-primary resize-y"
+                [value]="ocrDraft()"
+                (input)="ocrDraft.set($any($event.target).value)"
+                placeholder="OCR text…"
+              ></textarea>
+              <div class="mt-1.5 flex justify-end gap-1.5">
+                <button class="text-[10px] text-text-muted hover:text-text-main" type="button" (click)="cancelOcrEdit()">Cancel</button>
+                <button class="text-[10px] font-medium text-primary hover:underline" type="button" (click)="saveOcrEdit(d)">Save</button>
+              </div>
+            } @else {
+              @if (d.ocr_text && d.ocr_text.length > 0) {
+                <pre class="ocr-pre m-0 whitespace-pre-wrap break-words font-mono text-[10px] text-text-main">{{ d.ocr_text }}</pre>
+              } @else {
+                <div class="text-[11px] text-text-muted">No text detected</div>
+              }
+              <div class="mt-1.5 flex items-center justify-between">
+                <div class="flex items-center gap-1.5">
+                  @if (d.enrichment.ocr.done_at === null && !d.enrichment.ocr.dead_letter_at) {
+                    <span class="rounded-[3px] bg-surface-alt px-1.5 py-0.5 text-[9px] uppercase tracking-[0.3px] text-text-muted">Pending</span>
+                  }
+                  @if (d.enrichment.ocr.dead_letter_at) {
+                    <span class="rounded-[3px] bg-error-bg px-1.5 py-0.5 text-[9px] uppercase tracking-[0.3px] text-error-text">Failed</span>
+                  }
+                </div>
+                <div class="flex gap-2">
+                  <button class="text-[10px] text-text-muted hover:text-text-main" type="button" (click)="startOcrEdit(d)">Edit</button>
+                  <button class="text-[10px] text-text-muted hover:text-text-main" type="button" (click)="requeue(d, 'ocr')">↻ Re-OCR</button>
+                </div>
+              </div>
+            }
+          </div>
+        </maple-collapsible>
+
+        <!-- Faces -->
+        <maple-collapsible label="Faces" storageKey="info-faces">
+          <div class="px-4 py-[5px]">
+            <div class="mb-1.5 text-[11px] text-text-main">
+              {{ d.faces.length }} {{ d.faces.length === 1 ? 'face' : 'faces' }} detected
+            </div>
+            @if (d.faces.length > 0) {
+              <div class="flex flex-wrap gap-1">
+                @for (face of taggedFaces(d); track face.person_id) {
+                  <a
+                    [href]="'/people/' + face.person_id"
+                    class="flex items-center gap-[3px] rounded-[3px] border-[0.5px] border-border bg-surface-alt px-1.5 py-0.5 text-[10px] text-text-main hover:border-primary hover:text-primary"
+                  >
+                    <maple-icon name="tag" [size]="9" color="currentColor" />
+                    {{ face.person_id }}
+                  </a>
+                }
+                @if (untaggedFaceCount(d) > 0) {
+                  <a
+                    [href]="'/people?asset=' + d.id"
+                    class="rounded-[3px] border-[0.5px] border-dashed border-border px-1.5 py-0.5 text-[10px] text-text-muted hover:border-primary hover:text-primary"
+                  >
+                    + {{ untaggedFaceCount(d) }} unnamed
+                  </a>
+                }
+              </div>
+            }
+            <div class="mt-1.5 flex items-center justify-between">
+              <div class="flex items-center gap-1.5">
+                @if (d.enrichment.face.done_at === null && !d.enrichment.face.dead_letter_at) {
+                  <span class="rounded-[3px] bg-surface-alt px-1.5 py-0.5 text-[9px] uppercase tracking-[0.3px] text-text-muted">Pending</span>
+                }
+                @if (d.enrichment.face.dead_letter_at) {
+                  <span class="rounded-[3px] bg-error-bg px-1.5 py-0.5 text-[9px] uppercase tracking-[0.3px] text-error-text">Failed</span>
+                }
+              </div>
+              <button class="text-[10px] text-text-muted hover:text-text-main" type="button" (click)="requeue(d, 'face')">↻ Re-detect</button>
+            </div>
+          </div>
+        </maple-collapsible>
+      }
+
       <!-- Edit history -->
       <maple-collapsible label="Edit history" storageKey="info-history" [defaultOpen]="false">
         <div class="px-3.5 pb-1">
@@ -291,8 +500,11 @@ const COLOR_LABELS: { name: ColorLabel; hex: string }[] = [
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class InfoTabComponent {
+export class InfoTabComponent implements OnDestroy {
   state = inject(LibraryStateService);
+  private readonly api = inject(BunApiBackendService);
+  private readonly backend = inject(LIBRARY_BACKEND);
+  private readonly injector = inject(Injector);
 
   readonly STAR_INDICES = [1, 2, 3, 4, 5];
   readonly COLOR_LABELS = COLOR_LABELS;
@@ -301,6 +513,292 @@ export class InfoTabComponent {
     { label: 'Basic tone', time: '3d ago' },
     { label: 'Warm grade', time: '2h ago' },
   ];
+
+  // ── Self-Hosted enrichment state ──────────────────────────────────────
+  readonly selfHosted = this.backend === 'self-hosted';
+
+  /** The last-fetched detail for the currently-focused asset. Cleared
+   * whenever the focused asset changes. */
+  readonly detail = signal<ApiAssetDetail | null>(null);
+
+  // Per-section edit state. Local UI signals; not persisted.
+  readonly placeEditing = signal(false);
+  readonly placeDraft = signal('');
+  readonly descriptionEditing = signal(false);
+  readonly descriptionDraft = signal('');
+  readonly ocrEditing = signal(false);
+  readonly ocrDraft = signal('');
+
+  /** API id of the asset currently fetched. Recomputed from the focused
+   * asset's local id via `state.apiIdFor`. */
+  private readonly apiAssetId = computed(() => {
+    const asset = this.state.focusedAsset();
+    if (!asset) return null;
+    return this.state.apiIdFor(asset.id) ?? null;
+  });
+
+  /** Active subscription for the in-flight detail fetch. We hold the ref
+   * so a focus change cancels the prior fetch. */
+  private detailSub: Subscription | null = null;
+  /** Polling timer + deadline for the post-requeue refresh window. */
+  private refreshTimer: ReturnType<typeof setInterval> | null = null;
+  private refreshDeadline = 0;
+  /** Snapshot taken at requeue time; the poll stops when something
+   * changes (`done_at` flips, version bumps, dead_letter clears, etc). */
+  private refreshBaseline: ApiAssetDetail | null = null;
+
+  constructor() {
+    // Refetch detail on focus change. Self-Hosted only — Hosted has no
+    // server-side enrichment payload.
+    if (this.selfHosted) {
+      effect(() => {
+        const apiId = this.apiAssetId();
+        // Reset edit state on focus change so a stale draft doesn't leak.
+        this.cancelAllEdits();
+        this.detail.set(null);
+        this.stopRefreshLoop();
+        if (apiId) this.fetchDetail(apiId);
+      });
+    }
+  }
+
+  ngOnDestroy(): void {
+    this.detailSub?.unsubscribe();
+    this.stopRefreshLoop();
+  }
+
+  // ── Detail fetch / refresh loop ───────────────────────────────────────
+
+  private fetchDetail(apiId: string): void {
+    this.detailSub?.unsubscribe();
+    this.detailSub = this.api.getAssetDetails(apiId).subscribe({
+      next: (d) => this.detail.set(d),
+      error: () => {
+        // Swallow — the section just stays empty. The `selfHosted &&
+        // detail()` template guard keeps the UI clean.
+      },
+    });
+  }
+
+  /** After a requeue, poll the asset every 2 s for up to 30 s, stopping
+   * as soon as the worker has clearly run (any per-stage state field
+   * meaningfully different from the snapshot at requeue time). */
+  private startRefreshLoop(): void {
+    if (!this.selfHosted) return;
+    const apiId = this.apiAssetId();
+    if (!apiId) return;
+    this.stopRefreshLoop();
+    this.refreshBaseline = this.detail();
+    this.refreshDeadline = Date.now() + REFRESH_TIMEOUT_MS;
+    this.refreshTimer = setInterval(() => {
+      if (Date.now() > this.refreshDeadline) {
+        this.stopRefreshLoop();
+        return;
+      }
+      const id = this.apiAssetId();
+      if (!id) {
+        this.stopRefreshLoop();
+        return;
+      }
+      this.api.getAssetDetails(id).subscribe({
+        next: (d) => {
+          this.detail.set(d);
+          if (this.detailChanged(this.refreshBaseline, d)) {
+            this.stopRefreshLoop();
+          }
+        },
+      });
+    }, REFRESH_POLL_MS);
+  }
+
+  private stopRefreshLoop(): void {
+    if (this.refreshTimer !== null) {
+      clearInterval(this.refreshTimer);
+      this.refreshTimer = null;
+    }
+    this.refreshBaseline = null;
+    this.refreshDeadline = 0;
+  }
+
+  /** True when something in the enrichment subdoc moved between the two
+   * snapshots — a worker run flipped `done_at`, bumped `version`, cleared
+   * an error, etc. */
+  private detailChanged(
+    a: ApiAssetDetail | null,
+    b: ApiAssetDetail | null,
+  ): boolean {
+    if (!a || !b) return true;
+    const stages: ApiEnrichmentStage[] = [
+      'geocode',
+      'face',
+      'describe',
+      'ocr',
+    ];
+    for (const s of stages) {
+      const sa = a.enrichment[s];
+      const sb = b.enrichment[s];
+      if (sa.done_at !== sb.done_at) return true;
+      if (sa.version !== sb.version) return true;
+      if (sa.dead_letter_at !== sb.dead_letter_at) return true;
+    }
+    return false;
+  }
+
+  // ── Helpers ───────────────────────────────────────────────────────────
+
+  showPlaceSection(d: ApiAssetDetail): boolean {
+    // Hide once geocoded as no-place (worker ran, found nothing). The
+    // worker writes `place: null` AND sets `done_at` non-null in that
+    // case; pending rows have `done_at: null`.
+    if (d.place === null && d.enrichment.geocode.done_at !== null) {
+      return false;
+    }
+    return true;
+  }
+
+  formatRollups(rollups: { locality: string | null; region: string | null }): string {
+    const parts = [rollups.locality, rollups.region].filter(
+      (v): v is string => !!v,
+    );
+    if (parts.length === 0) return '(no rollup)';
+    return parts.join(', ');
+  }
+
+  taggedFaces(d: ApiAssetDetail): { person_id: string }[] {
+    return d.faces
+      .filter((f) => f.person_id !== null)
+      .map((f) => ({ person_id: f.person_id! }));
+  }
+
+  untaggedFaceCount(d: ApiAssetDetail): number {
+    return d.faces.filter((f) => f.person_id === null).length;
+  }
+
+  // ── Edit-mode toggles ─────────────────────────────────────────────────
+
+  startPlaceEdit(d: ApiAssetDetail): void {
+    this.placeDraft.set(d.place?.display_name ?? '');
+    this.placeEditing.set(true);
+  }
+  cancelPlaceEdit(): void {
+    this.placeEditing.set(false);
+    this.placeDraft.set('');
+  }
+  savePlaceEdit(d: ApiAssetDetail): void {
+    const text = this.placeDraft().trim();
+    // The override route accepts a full Place document (the worker's
+    // output shape). For a manual single-line correction we synthesise
+    // a minimal Place keyed off the existing one; if the row had no
+    // place at all, we send a stub with display_name + everything else
+    // empty so it at least surfaces in the UI.
+    const next = text
+      ? {
+          source: 'manual',
+          geocoder_version: 0,
+          geocoded_at: new Date().toISOString(),
+          lat: d.place?.lat ?? 0,
+          lon: d.place?.lon ?? 0,
+          display_name: text,
+          address: d.place?.address ?? {},
+          pois: d.place?.pois ?? [],
+          rollups: d.place?.rollups ?? {
+            locality: null,
+            region: null,
+            country_code: null,
+          },
+          search_blob: text.toLowerCase(),
+        }
+      : null;
+    this.api.setAssetPlaceOverride(d.id, next).subscribe({
+      next: () => {
+        this.placeEditing.set(false);
+        this.refetchAfterMutation();
+      },
+    });
+  }
+
+  startDescriptionEdit(d: ApiAssetDetail): void {
+    this.descriptionDraft.set(d.description ?? '');
+    this.descriptionEditing.set(true);
+  }
+  cancelDescriptionEdit(): void {
+    this.descriptionEditing.set(false);
+    this.descriptionDraft.set('');
+  }
+  saveDescriptionEdit(d: ApiAssetDetail): void {
+    const text = this.descriptionDraft();
+    this.api
+      .setAssetDescriptionOverride(d.id, text.length > 0 ? text : null)
+      .subscribe({
+        next: () => {
+          this.descriptionEditing.set(false);
+          this.refetchAfterMutation();
+        },
+      });
+  }
+
+  startOcrEdit(d: ApiAssetDetail): void {
+    this.ocrDraft.set(d.ocr_text ?? '');
+    this.ocrEditing.set(true);
+  }
+  cancelOcrEdit(): void {
+    this.ocrEditing.set(false);
+    this.ocrDraft.set('');
+  }
+  saveOcrEdit(d: ApiAssetDetail): void {
+    const text = this.ocrDraft();
+    this.api
+      .setAssetOcrOverride(d.id, text.length > 0 ? text : null)
+      .subscribe({
+        next: () => {
+          this.ocrEditing.set(false);
+          this.refetchAfterMutation();
+        },
+      });
+  }
+
+  private cancelAllEdits(): void {
+    this.cancelPlaceEdit();
+    this.cancelDescriptionEdit();
+    this.cancelOcrEdit();
+  }
+
+  /** Refetch the detail once after a manual override (no polling — the
+   * field went directly to Mongo, so the next read is enough). */
+  private refetchAfterMutation(): void {
+    const apiId = this.apiAssetId();
+    if (!apiId) return;
+    runInInjectionContext(this.injector, () => this.fetchDetail(apiId));
+  }
+
+  // ── Requeue ───────────────────────────────────────────────────────────
+
+  requeue(d: ApiAssetDetail, stage: ApiEnrichmentStage): void {
+    this.api.requeueEnrichmentStage(d.id, stage).subscribe({
+      next: () => {
+        // Clear the per-stage `done_at` locally so the Pending badge
+        // appears immediately, then start polling for the worker's
+        // result.
+        const current = this.detail();
+        if (current) {
+          this.detail.set({
+            ...current,
+            enrichment: {
+              ...current.enrichment,
+              [stage]: {
+                ...current.enrichment[stage],
+                done_at: null,
+                dead_letter_at: null,
+              },
+            },
+          });
+        }
+        this.startRefreshLoop();
+      },
+    });
+  }
+
+  // ── Existing helpers ──────────────────────────────────────────────────
 
   ext(filename: string): string {
     return filename.split('.').pop() ?? '';
