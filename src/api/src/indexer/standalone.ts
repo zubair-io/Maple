@@ -21,7 +21,8 @@
  */
 
 import { Elysia, t } from "elysia";
-import { getDb, ensureIndexes, closeDb } from "../db/client.ts";
+import { ObjectId } from "mongodb";
+import { getDb, ensureIndexes, closeDb, foldersCollection } from "../db/client.ts";
 import { getIndexerService } from "./service.ts";
 import {
   filterDeadLetter,
@@ -221,6 +222,53 @@ const app = new Elysia()
         skipThumb: t.Optional(t.Boolean()),
       }),
     },
+  )
+
+  // Re-scan one folder. Resolves the folder by id, walks its tree, and
+  // pushes every supported file back into the discover channel. The
+  // upsert is idempotent (Phase 1 skeleton + $setOnInsert) so unchanged
+  // files no-op and new files get enqueued. Useful after a slow polling
+  // interval or when the operator knows new content has landed and
+  // doesn't want to wait for the next poll cycle.
+  .post(
+    "/rescan/:folderId",
+    async ({ params, set }) => {
+      const folderIdStr = params.folderId;
+      if (!ObjectId.isValid(folderIdStr)) {
+        set.status = 400;
+        return { ok: false, error: "Invalid folderId" };
+      }
+      const id = new ObjectId(folderIdStr);
+      const folders = await foldersCollection();
+      const folder = await folders.findOne({ _id: id });
+      if (!folder) {
+        set.status = 404;
+        return { ok: false, error: "Folder not found" };
+      }
+      const svc = getIndexerService();
+      // Run the walk in the background — the discover channel can absorb
+      // pushes faster than the rest of the pipeline drains, but a 5TB
+      // library can take minutes to traverse and we don't want the HTTP
+      // call to block. Return immediately with the folder path so the
+      // UI can echo what's being scanned.
+      void svc
+        .walkOnce(folderIdStr, folder.path)
+        .then((count) => {
+          log.info({ folderId: folderIdStr, path: folder.path, enqueued: count }, "rescan complete");
+        })
+        .catch((err) => {
+          log.warn(
+            {
+              folderId: folderIdStr,
+              path: folder.path,
+              err: err instanceof Error ? err.message : err,
+            },
+            "rescan failed",
+          );
+        });
+      return { ok: true, folderId: folderIdStr, path: folder.path };
+    },
+    { params: t.Object({ folderId: t.String({ minLength: 24, maxLength: 24 }) }) },
   );
 
 // ---------------------------------------------------------------------------

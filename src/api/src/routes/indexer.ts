@@ -137,6 +137,9 @@ export const indexerRoutes = new Elysia({ prefix: "/api/indexer" })
   )
   .post("/exif-backfill", ({ request }) => proxy(request, "/exif-backfill"))
   .post("/enqueue", ({ request }) => proxy(request, "/enqueue"))
+  .post("/rescan/:folderId", ({ request, params }) =>
+    proxy(request, `/rescan/${encodeURIComponent(params.folderId)}`),
+  )
 
   // ── Lifecycle endpoints (local — supervisor) ─────────────────────────────
   .post("/start", async () => {
