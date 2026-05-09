@@ -117,11 +117,18 @@ describe("loadFaceModels — test loader injection", () => {
 });
 
 describe("loadFaceModels — disk + env fail-fast path", () => {
-  it("fails fast with an actionable error when neither file nor URL is present", async () => {
+  it("fails fast with an actionable error when neither file nor URL is present (auto-download disabled)", async () => {
     const tmp = mkdtempSync(join(tmpdir(), "maple-face-models-"));
     process.env.MAPLE_MODEL_DIR = tmp;
     delete process.env.MAPLE_FACE_RETINAFACE_URL;
     delete process.env.MAPLE_FACE_MOBILEFACENET_URL;
+    // Suppress the buffalo_s zero-config download — without this opt-out
+    // the loader would fetch the InsightFace bundle from the public
+    // GitHub Release and the test would either hang on network or
+    // succeed (defeating the "fail-fast" assertion). The operator
+    // disables the same way at runtime when they want explicit URL
+    // control.
+    process.env.MAPLE_FACE_NO_AUTO_DOWNLOAD = "true";
     setFaceModelLoaderForTests(null);
     let err: unknown = null;
     try {
@@ -130,6 +137,7 @@ describe("loadFaceModels — disk + env fail-fast path", () => {
       err = e;
     } finally {
       rmSync(tmp, { recursive: true, force: true });
+      delete process.env.MAPLE_FACE_NO_AUTO_DOWNLOAD;
     }
     expect(err).not.toBeNull();
     const msg = err instanceof Error ? err.message : String(err);
