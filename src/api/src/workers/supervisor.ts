@@ -462,7 +462,9 @@ export interface StartSupervisorOptions extends SupervisorOptions {
   /** Optional discover configuration — if provided, startDiscover is called
    *  in-process and the handle is bundled into the returned stop(). */
   discover?: {
-    folderId: string;
+    /** Optional folder ObjectId hex. Omit when watching all registered folder
+     *  roots without a specific folder association (e.g. startup auto-discover). */
+    folderId?: string;
     roots: string[];
   };
 }
@@ -488,10 +490,10 @@ export async function startSupervisor(opts: StartSupervisorOptions): Promise<Sup
   _singleton = sup;
 
   let discoverHandle: { stop: () => Promise<void> } | null = null;
-  if (discover) {
+  if (discover && discover.roots.length > 0) {
     const { startDiscover } = await import("./discover/index.ts");
     discoverHandle = await startDiscover({
-      folderId: discover.folderId,
+      folderId: discover.folderId ?? "",
       roots: discover.roots,
     });
   }

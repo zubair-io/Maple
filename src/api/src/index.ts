@@ -49,15 +49,14 @@ import { meilisearchBackfillRoutes } from "./routes/admin-backfill-meilisearch.t
 import { peopleRoutes } from "./routes/people.ts";
 import { requireAuth } from "./auth/middleware.ts";
 import { staticUiPlugin } from "./routes/static_ui.ts";
-import { getDb, ensureIndexes, closeDb } from "./db/client.ts";
-import { Supervisor } from "./workers/supervisor.ts";
-import { workerRoutes } from "./workers/routes.ts";
+import { getDb, ensureIndexes, closeDb, foldersCollection } from "./db/client.ts";
 import {
-  spawnChild,
-  stopChild,
-  waitReady,
-  state as indexerState,
-} from "./indexer/control.ts";
+  Supervisor,
+  startSupervisor,
+  stopSupervisor,
+  supervisorState,
+} from "./workers/supervisor.ts";
+import { workerRoutes } from "./workers/routes.ts";
 import {
   startGeocodeWorker,
   stopGeocodeWorker,
@@ -249,26 +248,31 @@ async function start(): Promise<void> {
   getDb()
     .then(ensureIndexes)
     .then(() => log.info("DB ready"))
-    .then(() => {
-      // Auto-start the standalone indexer child unless explicitly disabled
-      // (`MAPLE_INDEXER_AUTOSTART=0`). The child opens its own Mongo
-      // connection on its own event loop — see src/indexer/standalone.ts.
+    .then(async () => {
+      // Auto-start the worker supervisor unless explicitly disabled
+      // (`MAPLE_INDEXER_AUTOSTART=0`).
       if (process.env.MAPLE_INDEXER_AUTOSTART === "0") {
         log.info("Indexer autostart disabled (MAPLE_INDEXER_AUTOSTART=0)");
         return;
       }
-      spawnChild();
-      waitReady()
+      // Resolve discover roots: one entry per registered folder.
+      const foldersColl = await foldersCollection();
+      const folders = await foldersColl.find({}, { projection: { abs_path: 1 } }).toArray();
+      const discoverRoots = folders.map((f) => (f as unknown as { abs_path: string }).abs_path).filter(Boolean);
+
+      startSupervisor({
+        stages: ["hash", "exif", "thumb"],
+        discover: discoverRoots.length > 0
+          ? { roots: discoverRoots }
+          : undefined,
+      })
         .then(() =>
-          log.info(
-            { pid: indexerState().pid },
-            "Indexer process running",
-          ),
+          log.info(supervisorState(), "Worker supervisor running"),
         )
         .catch((e) =>
           log.warn(
             { err: e instanceof Error ? e.message : e },
-            "Indexer process failed to start",
+            "Worker supervisor failed to start",
           ),
         );
     })
@@ -383,14 +387,14 @@ async function start(): Promise<void> {
 // Graceful shutdown.
 async function shutdown(signal: string): Promise<void> {
   log.info({ signal }, "shutting down");
-  // Stop the indexer child first so it gets a chance to flush its
-  // pipeline and close its own Mongo connection.
+  // Stop the worker supervisor so stage children get a chance to finish
+  // in-flight work before the process exits.
   try {
-    await stopChild({ graceful: true });
+    await stopSupervisor();
   } catch (e) {
     log.warn(
       { err: e instanceof Error ? e.message : e },
-      "error stopping indexer child",
+      "error stopping worker supervisor",
     );
   }
   try {
