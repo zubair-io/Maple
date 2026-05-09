@@ -378,7 +378,7 @@ describe("poll loop integration", () => {
   });
 });
 
-import { ThroughputWindow } from "./run-stage.ts";
+import { ThroughputWindow, IpcServer } from "./run-stage.ts";
 
 describe("ThroughputWindow", () => {
   it("counts completions within the rolling window", () => {
@@ -399,5 +399,62 @@ describe("ThroughputWindow", () => {
     const tw = new ThroughputWindow(1000);
     tw.record(new Date(Date.now() - 2000));
     expect(tw.countInWindow(Date.now())).toBe(0);
+  });
+});
+
+describe("IpcServer", () => {
+  it("starts on an ephemeral port and responds to /status", async () => {
+    const throughput = new ThroughputWindow();
+    const ipc = new IpcServer({ name: "test-stage", throughput, getInFlight: () => 0 });
+    const port = await ipc.start();
+    expect(typeof port).toBe("number");
+    expect(port).toBeGreaterThan(1000);
+
+    const res = await fetch(`http://127.0.0.1:${port}/status`);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toHaveProperty("status");
+    expect(body).toHaveProperty("throughput");
+
+    await ipc.stop();
+  });
+
+  it("toggles paused state on POST /pause and /resume", async () => {
+    let paused = false;
+    const throughput = new ThroughputWindow();
+    const ipc = new IpcServer({
+      name: "test-stage",
+      throughput,
+      getInFlight: () => 0,
+      onPause: () => { paused = true; },
+      onResume: () => { paused = false; },
+    });
+    const port = await ipc.start();
+
+    await fetch(`http://127.0.0.1:${port}/pause`, { method: "POST" });
+    expect(paused).toBe(true);
+
+    await fetch(`http://127.0.0.1:${port}/resume`, { method: "POST" });
+    expect(paused).toBe(false);
+
+    await ipc.stop();
+  });
+
+  it("calls onReloadConfig on POST /reload-config", async () => {
+    let reloaded = false;
+    const throughput = new ThroughputWindow();
+    const ipc = new IpcServer({
+      name: "test-stage",
+      throughput,
+      getInFlight: () => 0,
+      onReloadConfig: async () => { reloaded = true; },
+    });
+    const port = await ipc.start();
+
+    const res = await fetch(`http://127.0.0.1:${port}/reload-config`, { method: "POST" });
+    expect(res.status).toBe(200);
+    expect(reloaded).toBe(true);
+
+    await ipc.stop();
   });
 });

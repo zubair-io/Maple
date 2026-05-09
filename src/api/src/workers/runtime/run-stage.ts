@@ -256,6 +256,86 @@ export class ThroughputWindow {
 }
 
 // ---------------------------------------------------------------------------
+// IpcServer — localhost HTTP server for supervisor ↔ child communication.
+// ---------------------------------------------------------------------------
+
+interface IpcServerOptions {
+  name: string;
+  throughput: ThroughputWindow;
+  getInFlight: () => number;
+  onPause?: () => void;
+  onResume?: () => void;
+  /**
+   * Called when the supervisor sends POST /reload-config.
+   * The implementation should re-read worker_config[name] from Mongo
+   * and update the running config reference so the next poll tick uses
+   * the new concurrency, pollIntervalMs, batchSize, maxAttempts, and paused.
+   */
+  onReloadConfig?: () => Promise<void>;
+}
+
+/**
+ * Small HTTP server listening on 127.0.0.1 only. The supervisor discovers
+ * the port by reading the child's stdout line "__MAPLE_IPC_PORT__=<port>".
+ * Responds to:
+ *   GET  /status         → { status, inFlight, throughput }
+ *   POST /pause          → calls onPause callback
+ *   POST /resume         → calls onResume callback
+ *   POST /reload-config  → calls onReloadConfig callback (re-reads config from Mongo)
+ */
+export class IpcServer {
+  private server: ReturnType<typeof Bun.serve> | null = null;
+  private readonly opts: IpcServerOptions;
+
+  constructor(opts: IpcServerOptions) {
+    this.opts = opts;
+  }
+
+  /** Start the server on an ephemeral port. Returns the port assigned. */
+  async start(): Promise<number> {
+    const opts = this.opts;
+    const server = Bun.serve({
+      port: 0, // OS assigns an ephemeral port
+      hostname: "127.0.0.1",
+      async fetch(req: Request): Promise<Response> {
+        const url = new URL(req.url);
+        if (req.method === "GET" && url.pathname === "/status") {
+          return Response.json({
+            status: "running",
+            inFlight: opts.getInFlight(),
+            throughput: opts.throughput.countInWindow(),
+          });
+        }
+        if (req.method === "POST" && url.pathname === "/pause") {
+          opts.onPause?.();
+          return Response.json({ ok: true });
+        }
+        if (req.method === "POST" && url.pathname === "/resume") {
+          opts.onResume?.();
+          return Response.json({ ok: true });
+        }
+        if (req.method === "POST" && url.pathname === "/reload-config") {
+          try {
+            await opts.onReloadConfig?.();
+          } catch {
+            return Response.json({ ok: false, error: "reload failed" }, { status: 500 });
+          }
+          return Response.json({ ok: true });
+        }
+        return new Response("not found", { status: 404 });
+      },
+    });
+    this.server = server;
+    return server.port;
+  }
+
+  async stop(): Promise<void> {
+    await this.server?.stop();
+    this.server = null;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // _test export — internal helpers exposed only in test mode.
 // ---------------------------------------------------------------------------
 
