@@ -1,0 +1,16 @@
+# Maple Self Hosted — auto-deploy timer.
+#
+# Fires maple-deploy.service every minute. Each tick is a cheap `git fetch`;
+# the service only does real work when origin/main has new commits.
+
+[Unit]
+Description=Run Maple auto-deploy every minute
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=1min
+AccuracySec=10s
+Unit=maple-deploy.service
+
+[Install]
+WantedBy=timers.target
