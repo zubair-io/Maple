@@ -9,6 +9,27 @@
  * Order is cosmetic — the runtime enforces dependency ordering via each
  * stage's `dependsOn` array, not by position in this list.
  */
+
+import hashStage from "./hash.ts";
+import exifStage from "./exif.ts";
+import thumbStage from "./thumb.ts";
+import faceStage from "./face.ts";
+import ocrStage from "./ocr.ts";
+import describeStage from "./describe.ts";
+import geocodeStage from "./geocode.ts";
+import meiliStage from "./meili.ts";
+
+export const stageManifest = [
+  hashStage,
+  exifStage,
+  thumbStage,
+  faceStage,
+  ocrStage,
+  describeStage,
+  geocodeStage,
+  meiliStage,
+];
+
 export const ALL_STAGE_NAMES = [
   "hash",
   "exif",
