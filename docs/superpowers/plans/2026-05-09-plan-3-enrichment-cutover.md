@@ -57,7 +57,8 @@ import { existsSync, mkdirSync, writeFileSync, mkdtempSync, rmSync } from "node:
 import { join, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { ObjectId } from "mongodb";
-import type { ImageDoc } from "../../db/schema.ts";
+import type { ImageDoc } from "../runtime/define-stage.ts";
+import type { AssetFaceDoc } from "../../db/schema.ts";
 import type { DetectedFace, FaceDetector } from "../../enrichment/face-detector.ts";
 import { cachePathFor } from "../../fs/xmp.ts";
 
@@ -91,7 +92,7 @@ function fakeDoc(overrides: Partial<ImageDoc> & { abs_path: string }): ImageDoc 
     faces: [],
     description: null,
     place: null,
-    stages: {} as never,
+    stages: {} as Record<string, import("../runtime/define-stage.ts").StageState>,
     ...overrides,
   } as ImageDoc;
 }
@@ -138,7 +139,7 @@ describe("faceHandler — happy path", () => {
       const result = await faceHandler(doc, ctx);
       expect(result).toHaveProperty("patch");
       expect((result as { patch: { faces: unknown[] } }).patch.faces).toHaveLength(1);
-      const face = (result as { patch: { faces: Array<{confidence: number; bbox: {x: number}; person_id: null; embedding: number[]}> } }).patch.faces[0]!;
+      const face = (result as { patch: { faces: AssetFaceDoc[] } }).patch.faces[0]!;
       expect(face.confidence).toBeCloseTo(0.95);
       expect(face.bbox.x).toBeCloseTo(0.1);
       expect(face.person_id).toBeNull();
@@ -198,7 +199,7 @@ Create `src/api/src/workers/stages/face.ts`:
 
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
-import type { StageContext, StageResult } from "../runtime/define-stage.ts";
+import type { ImageDoc, StageContext, StageResult } from "../runtime/define-stage.ts";
 import { defineStage } from "../runtime/define-stage.ts";
 import { cachePathFor } from "../../fs/xmp.ts";
 import {
@@ -206,7 +207,7 @@ import {
   type DetectedFace,
   type FaceDetector,
 } from "../../enrichment/face-detector.ts";
-import type { AssetFaceDoc, ImageDoc } from "../../db/schema.ts";
+import type { AssetFaceDoc } from "../../db/schema.ts";
 
 export const THUMB_MISSING_REASON = "thumb-missing";
 
@@ -263,12 +264,16 @@ export default defineStage({
 - [ ] Delete `src/api/src/enrichment/face-worker.ts`.
 - [ ] Delete `src/api/src/enrichment/face-worker.test.ts`.
 
-Confirm all coverage from `face-worker.test.ts` is present in `face.test.ts`:
-- Happy path: detects faces, embeds, returns correct patch shape — covered above.
-- Zero detections returns `faces: []` — covered above.
-- Missing thumb throws `THUMB_MISSING_REASON` — covered above.
-
-The bespoke worker's atomic-claim, lease expiry, circuit-breaker, and dead-letter paths are runtime-level concerns now exercised by Plan 1's `run-stage.test.ts`. They are NOT reimplemented here.
+Coverage from `face-worker.test.ts` accounted for:
+- Happy path: detects faces, embeds, returns correct patch shape — **migrated** (handler-direct).
+- Zero detections returns `faces: []` — **migrated**.
+- Missing thumb throws `THUMB_MISSING_REASON` — **migrated**.
+- Atomic single-winner claim (two parallel `tick()` calls) — **intentionally dropped**: this is a claim-layer concern now covered by Plan 1's `run-stage.test.ts`.
+- Lease expiry re-claim + active-lease no-claim — **intentionally dropped**: claim-layer, Plan 1 runtime.
+- Retry on detector throw (increments attempts, releases lock) — **intentionally dropped**: failure path owned by Plan 1 runtime.
+- Dead-letter after maxAttempts — **intentionally dropped**: Plan 1 runtime.
+- Non-retryable dead-letter on thumb-missing — **intentionally dropped**: Plan 1 runtime classifies errors via `isRetryable`.
+- Circuit-breaker passthrough (`circuit-open` kind) — **intentionally dropped**: Plan 1 runtime.
 
 - [ ] Commit: `feat(api): face stage handler — replaces face-worker.ts`
 
@@ -290,7 +295,7 @@ import { mkdirSync, writeFileSync, mkdtempSync, rmSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { ObjectId } from "mongodb";
-import type { ImageDoc } from "../../db/schema.ts";
+import type { ImageDoc } from "../runtime/define-stage.ts";
 import type { OcrEngine, RecognitionResult } from "../../enrichment/ocr-engine.ts";
 import { cachePathFor } from "../../fs/xmp.ts";
 
@@ -318,7 +323,7 @@ function fakeDoc(absPath: string): ImageDoc {
     faces: [],
     description: null,
     place: null,
-    stages: {} as never,
+    stages: {},
   } as ImageDoc;
 }
 
@@ -411,11 +416,10 @@ Create `src/api/src/workers/stages/ocr.ts`:
  */
 
 import { readFile } from "node:fs/promises";
-import type { StageContext, StageResult } from "../runtime/define-stage.ts";
+import type { ImageDoc, StageContext, StageResult } from "../runtime/define-stage.ts";
 import { defineStage } from "../runtime/define-stage.ts";
 import { cachePathFor } from "../../fs/xmp.ts";
 import { ocrEngine, type OcrEngine } from "../../enrichment/ocr-engine.ts";
-import type { ImageDoc } from "../../db/schema.ts";
 
 export async function ocrHandler(
   image: ImageDoc,
@@ -459,13 +463,16 @@ export default defineStage({
 - [ ] Delete `src/api/src/enrichment/ocr-worker.ts`.
 - [ ] Delete `src/api/src/enrichment/ocr-worker.test.ts`.
 
-Coverage migrated:
-- `ocr_text` + `ocr_meta` written — covered in happy-path test.
-- Empty text is valid — covered.
-- ENOENT propagates (retryable at runtime level) — covered.
-- Engine crash propagates (non-retryable at runtime level) — covered.
-
-The old worker's `search_blob` aggregation-pipeline update and Meilisearch inline upsert are intentionally dropped — the `meili` stage (Task 5) owns both responsibilities after Plan 3.
+Coverage from `ocr-worker.test.ts` accounted for:
+- `ocr_text` + `ocr_meta` written — **migrated**.
+- Empty text is valid — **migrated**.
+- ENOENT on thumb (retryable) — **migrated** (handler throws; runtime classifies ENOENT as retryable).
+- Engine crash (non-retryable) — **migrated** (handler throws; runtime classifies non-filesystem throws as non-retryable).
+- `search_blob` aggregation-pipeline update — **intentionally dropped**: the `meili` stage (Task 5) owns the Meilisearch/search-blob write after Plan 3; the Mongo `search_blob` field is also updated by the `meili` stage via `composeSearchBlob`.
+- Meilisearch inline upsert (all `OcrWorker — Meilisearch sync` assertions) — **intentionally dropped**: moved to `meili.test.ts` (Task 5).
+- Atomic single-winner claim, lease expiry, active-lease no-claim — **intentionally dropped**: Plan 1 runtime.
+- Retry + dead-letter on ENOENT (after maxAttempts) — **intentionally dropped**: Plan 1 runtime.
+- Tesseract crash dead-letters immediately — **intentionally dropped**: Plan 1 runtime.
 
 - [ ] Commit: `feat(api): ocr stage handler — replaces ocr-worker.ts`
 
@@ -487,7 +494,7 @@ import { mkdirSync, writeFileSync, mkdtempSync, rmSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { ObjectId } from "mongodb";
-import type { ImageDoc } from "../../db/schema.ts";
+import type { ImageDoc } from "../runtime/define-stage.ts";
 import {
   RemoteError,
   type DescribeProvider,
@@ -519,7 +526,7 @@ function fakeDoc(absPath: string): ImageDoc {
     faces: [],
     description: null,
     place: null,
-    stages: {} as never,
+    stages: {},
   } as ImageDoc;
 }
 
@@ -635,14 +642,12 @@ Create `src/api/src/workers/stages/describe.ts`:
  */
 
 import { readFile } from "node:fs/promises";
-import type { StageContext, StageResult } from "../runtime/define-stage.ts";
+import type { ImageDoc, StageContext, StageResult } from "../runtime/define-stage.ts";
 import { defineStage } from "../runtime/define-stage.ts";
 import { cachePathFor } from "../../fs/xmp.ts";
 import {
-  getDescribeProvider,
   type DescribeProvider,
 } from "../../enrichment/describe-providers/index.ts";
-import type { ImageDoc } from "../../db/schema.ts";
 
 /** Bump when the default prompt changes. Stored on `description_meta.prompt_version`
  * so a version-bump backfill can re-caption stale rows. */
@@ -703,13 +708,15 @@ export default defineStage({
 - [ ] Delete `src/api/src/enrichment/describe-worker.ts`.
 - [ ] Delete `src/api/src/enrichment/describe-worker.test.ts`.
 
-Coverage migrated:
-- Happy path: `description` + `description_meta` populated — covered.
-- Retryable `RemoteError` propagates — covered.
-- Non-retryable `RemoteError` propagates — covered.
-- `provider_info` extras spread into meta — covered.
-
-Daily-cap `circuit-pause` behavior was a concern of the bespoke worker loop. With the unified runtime that path is expressed as a runtime-level check against `worker_config[describe].daily_cap_usd`; it is not a handler-level assertion and requires no migration here.
+Coverage from `describe-worker.test.ts` accounted for:
+- Happy path: `description` + `description_meta` populated — **migrated**.
+- Retryable `RemoteError` (5xx) propagates — **migrated**.
+- Non-retryable `RemoteError` (4xx) dead-letters immediately — **migrated** (handler throws; Plan 1 runtime classifies via `err instanceof RemoteError && err.retryable`).
+- `provider_info` extras spread into meta — **migrated**.
+- Daily cost cap `circuit-pause` — **intentionally dropped**: this was a bespoke worker-loop concern. In the unified runtime it is expressed as a runtime-level check against `worker_config[describe].daily_cap_usd`; it is not a handler assertion. The `describe-spend.repo.ts` integration remains in place for a future runtime hook.
+- Spend increment on happy path — **intentionally dropped**: same reason; spend tracking is a runtime-level concern, not a handler concern.
+- Cap reset clears pause — **intentionally dropped**: same.
+- Atomic single-winner claim, lease expiry, dead-letter — **intentionally dropped**: Plan 1 runtime.
 
 - [ ] Commit: `feat(api): describe stage handler — replaces describe-worker.ts`
 
@@ -728,7 +735,7 @@ Create `src/api/src/workers/stages/geocode.test.ts`:
 ```ts
 import { describe, it, expect } from "bun:test";
 import { ObjectId } from "mongodb";
-import type { ImageDoc } from "../../db/schema.ts";
+import type { ImageDoc } from "../runtime/define-stage.ts";
 import { CoordinateCache } from "../../enrichment/coordinate-cache.ts";
 import { NominatimClient, NominatimError } from "../../enrichment/nominatim-client.ts";
 
@@ -759,7 +766,7 @@ function fakeDoc(gps: { lat: number; lng: number } | null = { lat: 42.65, lng: -
     faces: [],
     description: null,
     place: null,
-    stages: {} as never,
+    stages: {},
   } as ImageDoc;
 }
 
@@ -879,12 +886,11 @@ Create `src/api/src/workers/stages/geocode.ts`:
  * (Task 5) owns the Meilisearch write once all enrichment stages have run.
  */
 
-import type { StageContext, StageResult } from "../runtime/define-stage.ts";
+import type { ImageDoc, StageContext, StageResult } from "../runtime/define-stage.ts";
 import { defineStage } from "../runtime/define-stage.ts";
 import { CoordinateCache } from "../../enrichment/coordinate-cache.ts";
 import { NominatimClient } from "../../enrichment/nominatim-client.ts";
 import { parseNominatimResponse } from "../../enrichment/place-parser.ts";
-import type { ImageDoc } from "../../db/schema.ts";
 
 export const GEOCODE_HANDLER_VERSION = 1;
 
@@ -930,15 +936,22 @@ export default defineStage({
 - [ ] Delete `src/api/src/enrichment/geocode-worker.test.ts`.
 - [ ] Delete `src/api/src/enrichment/geocode-worker-meilisearch.test.ts`.
 
-Coverage migrated:
-- Happy path: `place` populated from Nominatim response — covered.
-- Coordinate cache deduplications calls to Nominatim — covered.
-- No GPS → `{ skip }` — covered.
-- 5xx propagates as `NominatimError` (retryable) — covered.
-- 4xx propagates as `NominatimError` (non-retryable) — covered.
-- `place.lat`/`lon` from asset EXIF, not Nominatim response — covered.
+Coverage from `geocode-worker.test.ts` accounted for:
+- Happy path: `place` populated from Nominatim response — **migrated**.
+- Coordinate cache deduplicates Nominatim calls — **migrated**.
+- No GPS → `{ skip: "no-gps" }` — **migrated**.
+- 5xx propagates as `NominatimError` (retryable) — **migrated**.
+- 4xx propagates as `NominatimError` (non-retryable) — **migrated**.
+- `place.lat`/`lon` from asset EXIF, not Nominatim response — **migrated**.
+- Atomic single-winner claim, lease expiry, active-lease no-claim — **intentionally dropped**: Plan 1 runtime.
+- Retry + dead-letter after maxAttempts — **intentionally dropped**: Plan 1 runtime.
+- Circuit breaker (`circuit-open` on sustained 5xx) — **intentionally dropped**: Plan 1 runtime.
 
-The Meilisearch upsert assertions from `geocode-worker-meilisearch.test.ts` move to `meili.test.ts` in Task 5 (those assertions belong to the meili stage's responsibility post-Plan-3).
+Coverage from `geocode-worker-meilisearch.test.ts` accounted for:
+- `complete()` upserts to Meilisearch with correct id/folderId/capturedAt/searchBlob — **moved to `meili.test.ts`** (Task 5 owns the Meilisearch write post-Plan-3).
+- Mongo write succeeds even when Meilisearch upsert fails — **moved to `meili.test.ts`**: the `meili` stage throws on upsert failure and retries; the geocode stage no longer touches Meilisearch.
+- Skips Meilisearch upsert when row has no `maple_id` — **moved to `meili.test.ts`**: covered by "no maple_id returns `{ wrote: true }`" case.
+- Upsert includes `description` + `ocrText` when populated — **moved to `meili.test.ts`**: covered by the meili upsert payload shape test.
 
 - [ ] Commit: `feat(api): geocode stage handler — replaces geocode-worker.ts`
 
@@ -959,7 +972,7 @@ Create `src/api/src/workers/stages/meili.test.ts`:
 ```ts
 import { describe, it, expect } from "bun:test";
 import { ObjectId } from "mongodb";
-import type { ImageDoc } from "../../db/schema.ts";
+import type { ImageDoc } from "../runtime/define-stage.ts";
 import type { MeilisearchClient, MeilisearchAssetDoc } from "../../enrichment/meilisearch-client.ts";
 
 import { meiliHandler } from "./meili.ts";
@@ -970,7 +983,8 @@ function fakeDoc(overrides: Partial<ImageDoc> = {}): ImageDoc {
     folder_id: new ObjectId(),
     filename: "test.dng",
     abs_path: "/lib/test.dng",
-    maple_id: "maple-abc-123",
+    // maple_id is an IndexerAssetFields extension; cast through unknown for test setup.
+    ...({ maple_id: "maple-abc-123" } as unknown as Partial<ImageDoc>),
     size: 1,
     mtime: 1,
     rating: 0,
@@ -986,7 +1000,8 @@ function fakeDoc(overrides: Partial<ImageDoc> = {}): ImageDoc {
     },
     faces: [],
     description: "A red bicycle.",
-    ocr_text: "BIKE SHOP",
+    // ocr_text is on AssetDoc; cast through unknown for test setup.
+    ...({ ocr_text: "BIKE SHOP" } as unknown as Partial<ImageDoc>),
     place: {
       source: "nominatim",
       geocoder_version: 1,
@@ -999,7 +1014,7 @@ function fakeDoc(overrides: Partial<ImageDoc> = {}): ImageDoc {
       rollups: { locality: "Albany", region: "NY", country_code: "us" },
       search_blob: "albany ny",
     },
-    stages: {} as never,
+    stages: {},
     ...overrides,
   } as ImageDoc;
 }
@@ -1057,7 +1072,9 @@ describe("meiliHandler — upsert payload shape", () => {
 describe("meiliHandler — no maple_id", () => {
   it("returns { wrote: true } and skips the upsert when maple_id is absent", async () => {
     const { client, upserts } = capturingClient();
-    const doc = fakeDoc({ maple_id: undefined } as Partial<ImageDoc>);
+    // Override to drop maple_id — cast through unknown since it's not on ImageDoc's
+    // base type (it's an IndexerAssetFields extension).
+    const doc = { ...fakeDoc(), ...({ maple_id: undefined } as unknown as Partial<ImageDoc>) } as ImageDoc;
     const result = await meiliHandler(doc, { meilisearch: client } as never);
     expect((result as { wrote: boolean }).wrote).toBe(true);
     expect(upserts.length).toBe(0);
@@ -1076,7 +1093,7 @@ describe("meiliHandler — Meilisearch error tolerance", () => {
 describe("meiliHandler — null enrichment fields", () => {
   it("produces a valid (possibly empty) blob when description and ocr_text are null", async () => {
     const { client, upserts } = capturingClient();
-    const doc = fakeDoc({ description: null, ocr_text: null } as Partial<ImageDoc>);
+    const doc = { ...fakeDoc(), description: null, ...({ ocr_text: null } as unknown as Partial<ImageDoc>) } as ImageDoc;
     await meiliHandler(doc, { meilisearch: client } as never);
     expect(upserts.length).toBe(1);
     const blob = upserts[0]!.searchBlob;
@@ -1109,11 +1126,10 @@ Create `src/api/src/workers/stages/meili.ts`:
  * completes rather than spinning forever on an un-fixable invariant violation.
  */
 
-import type { StageContext, StageResult } from "../runtime/define-stage.ts";
+import type { ImageDoc, StageContext, StageResult } from "../runtime/define-stage.ts";
 import { defineStage } from "../runtime/define-stage.ts";
 import { meilisearchClient, type MeilisearchClient } from "../../enrichment/meilisearch-client.ts";
 import { composeSearchBlob } from "../../enrichment/search-blob.ts";
-import type { ImageDoc } from "../../db/schema.ts";
 
 export async function meiliHandler(
   image: ImageDoc,
@@ -1168,24 +1184,33 @@ export default defineStage({
 
 ### Step 1: Extend the manifest
 
-Open `src/api/src/workers/stages/manifest.ts` (created in Plan 2 with hash/exif/thumb/discover stages). Add the five new stage imports and extend the exported array:
+Open `src/api/src/workers/stages/manifest.ts` (created in Plan 2). Plan 2's manifest exports:
+- `ALL_STAGE_NAMES` — the authoritative string-constant array used by the discover producer to build the `stages` skeleton on every new image doc.
+- `blankStagesSkeleton()` — builds a blank per-stage state record.
+
+Plan 2 does NOT export a `StageConfig[]` array (the supervisor wired hash/exif/thumb directly). Plan 3 adds a `stageManifest` export containing all `StageConfig` objects so the supervisor can iterate them generically. Note that `discover` is a producer child (not a `defineStage` stage) and is NOT included in `stageManifest`.
+
+Add the five new stage imports and add the new `stageManifest` export:
 
 ```ts
-// Existing Plan 2 imports (hash, exif, thumb, discover) remain.
+// Existing Plan 2 imports (hash, exif, thumb stages) remain.
+import hashStage from "./hash.ts";
+import exifStage from "./exif.ts";
+import thumbStage from "./thumb.ts";
+// Plan 3 stages:
 import faceStage from "./face.ts";
 import ocrStage from "./ocr.ts";
 import describeStage from "./describe.ts";
 import geocodeStage from "./geocode.ts";
 import meiliStage from "./meili.ts";
 
-// In the exported array, add the five stages after thumb:
+// Export the full stage config array — the supervisor iterates this to spawn
+// stage children. Discover is a producer (not a defineStage stage) and is
+// wired separately by the supervisor.
 export const stageManifest = [
-  // Plan 2 stages:
-  discoverStage,
   hashStage,
   exifStage,
   thumbStage,
-  // Plan 3 stages:
   faceStage,
   ocrStage,
   describeStage,
@@ -1194,7 +1219,7 @@ export const stageManifest = [
 ];
 ```
 
-The supervisor in `src/api/src/index.ts` already iterates `stageManifest` to spawn stage children — no change required there. After this edit the supervisor will spawn nine children: `discover`, `hash`, `exif`, `thumb`, `face`, `ocr`, `describe`, `geocode`, `meili`.
+The supervisor in `src/api/src/index.ts` iterates `stageManifest` to spawn stage children. After this edit the supervisor will spawn eight stage children (`hash`, `exif`, `thumb`, `face`, `ocr`, `describe`, `geocode`, `meili`) plus the discover producer child — nine children total.
 
 ### Step 2: Verify the manifest compiles and all stages appear
 
