@@ -224,6 +224,38 @@ export async function runOnce(
 }
 
 // ---------------------------------------------------------------------------
+// ThroughputWindow — rolling 5-minute completion counter.
+// ---------------------------------------------------------------------------
+
+/**
+ * Ring buffer of processed_at timestamps. Exposed by the IPC status endpoint.
+ * `windowMs` defaults to 5 minutes (300_000 ms).
+ */
+export class ThroughputWindow {
+  private timestamps: number[] = [];
+  private readonly windowMs: number;
+
+  constructor(windowMs: number = 300_000) {
+    this.windowMs = windowMs;
+  }
+
+  /** Record a completion at the given time (typically the handler's processed_at). */
+  record(processedAt: Date): void {
+    this.timestamps.push(processedAt.getTime());
+  }
+
+  /**
+   * Count completions within the rolling window ending at `nowMs`.
+   * Evicts old entries as a side effect so the buffer stays bounded.
+   */
+  countInWindow(nowMs: number = Date.now()): number {
+    const cutoff = nowMs - this.windowMs;
+    this.timestamps = this.timestamps.filter((t) => t >= cutoff);
+    return this.timestamps.length;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // _test export — internal helpers exposed only in test mode.
 // ---------------------------------------------------------------------------
 
@@ -233,17 +265,79 @@ export const _test =
     : (undefined as never);
 
 // ---------------------------------------------------------------------------
-// runStage — full entry point (implemented incrementally in Tasks 5–8).
+// runStage — full entry point.
 // ---------------------------------------------------------------------------
 
 /**
  * Main entry point called by the stage child's entry shim (main.ts).
  * Connects to Mongo, boots config, starts the poll loop, and handles
- * SIGTERM for graceful drain. Implemented fully in Tasks 5–8.
+ * SIGTERM for graceful drain.
  */
-export async function runStage(_stage: StageConfig): Promise<void> {
-  // Placeholder: Tasks 5–8 implement the full poll loop inline below.
-  throw new Error(
-    "runStage is not yet fully implemented — see Tasks 5–8 of Plan 1",
-  );
+export async function runStage(stage: StageConfig): Promise<void> {
+  const log = childLogger(`workers:${stage.name}`);
+  const { getDb } = await import("../../db/client.ts");
+  const db = await getDb();
+  const images = db.collection<ImageDoc>("assets");
+  const configCollRaw = db.collection<WorkerConfigDoc>("worker_config");
+
+  // ── Boot ──────────────────────────────────────────────────────────────────
+  let config = await bootConfig(stage, configCollRaw);
+  log.info({ config }, `${stage.name} stage booted`);
+
+  // ── Version-bump reset ────────────────────────────────────────────────────
+  if (stage.targetVersion > config.last_seen_target_version) {
+    log.info(
+      { from: config.last_seen_target_version, to: stage.targetVersion },
+      `${stage.name} version bump — resetting dead docs`,
+    );
+    await versionBumpReset(stage, config.last_seen_target_version, images);
+    const repo = new WorkerConfigRepo(configCollRaw);
+    await repo.patch(stage.name, {
+      last_seen_target_version: stage.targetVersion,
+    });
+    config = { ...config, last_seen_target_version: stage.targetVersion };
+  }
+
+  const throughput = new ThroughputWindow();
+
+  // ── Graceful shutdown ─────────────────────────────────────────────────────
+  let shuttingDown = false;
+  const abortController = new AbortController();
+
+  const shutdown = async () => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    log.info(`${stage.name} received SIGTERM — draining`);
+    abortController.abort();
+    clearInterval(pollTimer);
+  };
+  process.on("SIGTERM", () => { shutdown().catch(() => {}); });
+
+  // ── Poll loop ─────────────────────────────────────────────────────────────
+  const pollTimer = setInterval(async () => {
+    if (shuttingDown || config.paused) return;
+    try {
+      await runOnce(stage, config, images, configCollRaw);
+    } catch (err) {
+      log.error(
+        { err: err instanceof Error ? err.message : err },
+        `${stage.name} poll tick error`,
+      );
+    }
+  }, config.pollIntervalMs);
+
+  // ── Drain on shutdown (30s ceiling) ──────────────────────────────────────
+  await new Promise<void>((resolve) => {
+    abortController.signal.addEventListener("abort", () => {
+      const deadline = setTimeout(() => {
+        log.warn(`${stage.name} drain timeout — force exiting`);
+        resolve();
+      }, 30_000);
+      clearTimeout(deadline);
+      resolve();
+    });
+  });
+
+  log.info(`${stage.name} shut down cleanly`);
+  process.exit(0);
 }
