@@ -76,7 +76,7 @@ meili     → [exif, thumb, face, ocr, describe, geocode]   ← fan-in, writes s
 
 `meili` is the search-blob writer. The original pipeline's terminal `mongo` stage is dissolved — each stage writes its own slice, and `meili` does the cross-stage denormalization.
 
-The `thumb` handler reads `image.exif.orientation` and applies the corresponding rotation/flip to the generated preview before encoding. The current thumbnailer at `src/api/src/indexer/thumbnailer.ts` does not honor EXIF orientation — that bug is fixed as part of this redesign by making `exif` a hard dep of `thumb`.
+The `thumb` handler reads `image.exif.orientation` and applies the corresponding rotation/flip to the generated preview before encoding. The current thumbnailer at `src/api/src/indexer/thumbnailer.ts` does not honor EXIF orientation. That fix lands as a standalone commit against the current code *before* this redesign — orientation is a real bug today and shouldn't wait for the controller cutover. Once the redesign lands, the same `thumbnailer` function (now orientation-aware) is called by the new `thumb` handler.
 
 ### Controller contract (A1: static deps + return-value writeback)
 
@@ -93,9 +93,10 @@ export default defineStage({
   dependsOn: ["hash"],
   defaults: {
     concurrency: 4,
-    pollIntervalMs: 500,
+    pollIntervalMs: 1000,
     batchSize: 10,
-    maxAttempts: 3,
+    maxAttempts: 5,
+    pausedOnFirstBoot: false,
   },
   handler: async (image, ctx) => {
     const exif = await readExif(image.primary_url);
@@ -103,6 +104,21 @@ export default defineStage({
   },
 });
 ```
+
+Per-stage defaults — `pollIntervalMs: 1000, maxAttempts: 5` everywhere (matching the existing enrichment workers); concurrency and batchSize tuned per workload:
+
+| Stage    | concurrency | batchSize | pausedOnFirstBoot | Reason                                                              |
+| -------- | ----------- | --------- | ----------------- | ------------------------------------------------------------------- |
+| hash     | 4           | 10        | false             | I/O-bound, parallelizable                                           |
+| exif     | 4           | 10        | false             | I/O-bound, parallelizable                                           |
+| thumb    | 2           | 5         | false             | CPU-heavy (decode + encode); cap to avoid thrashing                 |
+| face     | 1           | 5         | false             | ONNX session is single-threaded                                     |
+| ocr      | 1           | 5         | false             | OCR engine is single-threaded                                       |
+| describe | 2           | 5         | **true**          | External paid API; requires API key setup before opt-in             |
+| geocode  | 1           | 5         | **true**          | Rate-limited (1 req/s Nominatim); requires operator-set rate config |
+| meili    | 2           | 20        | false             | HTTP + read-fan-in; cheap                                           |
+
+`pausedOnFirstBoot: true` is observed only when `worker_config[name]` does not yet exist. After first boot, the operator's saved `paused` value is authoritative — re-deploying the API does not re-pause stages the operator unpaused.
 
 The handler returns one of three shapes:
 
@@ -249,6 +265,7 @@ Bumping a handler's `targetVersion` is the only backfill mechanism:
 
 ### Pause/resume + concurrency change semantics
 
+- **First boot.** When `worker_config[name]` is absent, the controller writes `{ ...defaults, paused: stage.defaults.pausedOnFirstBoot }`. Subsequent boots respect the saved `paused` value, so re-deploying does not re-pause an unpaused stage.
 - **Pause.** Poll loop short-circuits. In-flight docs finish naturally. UI shows `Paused`.
 - **Resume.** Poll loop resumes next tick.
 - **Concurrency increase.** Worker pool grows immediately; next tick can dispatch up to the new size.
@@ -259,7 +276,7 @@ Bumping a handler's `targetVersion` is the only backfill mechanism:
 
 No migrator. Existing image docs without a `stages` field are picked up naturally — Mongo's `$lt` treats a missing field as less than any number, so the claim query matches them and each controller re-processes them at `targetVersion: 1`. We accept the cost of re-running every stage on every existing image, including paid stages (describe, geocode), as a one-time operator decision.
 
-The first thing each new controller does on first boot is set `worker_config[<name>] = { ...defaults, paused: false }` if absent. That's the only setup write needed.
+The first thing each new controller does on first boot is set `worker_config[<name>] = { ...defaults, paused: defaults.pausedOnFirstBoot }` if absent. That's the only setup write needed. Paid/rate-limited stages (`describe`, `geocode`) are paused-by-default — see the defaults table in the controller contract section.
 
 ### What gets retired
 
@@ -292,7 +309,7 @@ The first thing each new controller does on first boot is set `worker_config[<na
 1. **Mongo change stream availability.** Live `worker_config` re-read uses change streams. Self Hosted MongoDB defaults to a standalone (no replica set) — change streams require a replica set. Mitigation: detect standalone at boot, fall back to a 5-second polling loop on `worker_config`.
 2. **Per-stage process count.** With 9 children plus the API plus discover, that's 11 Bun processes per host. Memory footprint must be checked on a small VPS. Mitigation: every controller process loads only its own native deps. Hash/exif/thumb/discover share the raw-ffi dylib; face loads ONNX; OCR loads its engine; describe is HTTP-only; geocode is HTTP-only; meili is HTTP-only. Quick benchmark required before merge.
 3. **In-flight set memory.** `inFlight` is `Set<ObjectId>` of size `concurrency * batchSize`. At default `concurrency: 4, batchSize: 10` that's 40 ids per stage — trivial. Even with `concurrency: 64`, it's 640 ids. Not a concern.
-4. **First-boot reprocess cost.** With no migrator, every controller re-processes every existing doc on first boot of the new code. For local stages this is hours of CPU; for `describe` it costs API spend; for `geocode` it's days at 1 req/sec. Operator-accepted cost. Mitigation: paused-by-default for paid stages would cap the spend — open question whether to default `describe` and `geocode` to `paused: true` on a fresh `worker_config` so the operator opts in explicitly.
+4. **First-boot reprocess cost.** With no migrator, every non-paused controller re-processes every existing doc on first boot. For local stages this is hours of CPU and is operator-accepted. For paid/rate-limited stages (`describe`, `geocode`), `pausedOnFirstBoot: true` is the mitigation — they don't run until the operator unpauses, which they'd need to do anyway to enter API keys / configure rate limits.
 
 ## Open questions
 
