@@ -2,11 +2,10 @@
  * Test that the StatusFrame shape exposed by /api/events round-trips
  * through JSON serialization without losing fields.
  *
- * The pipeline now lives in a separate child process (see
- * `src/indexer/standalone.ts`), so the parent doesn't construct the
- * status payload — it just forwards the child's JSON. This test is now a
- * pure shape contract: any object that satisfies the StatusFrame type
- * must JSON round-trip cleanly.
+ * The pipeline lives in stage-controller child processes; the parent
+ * doesn't construct the status payload — it polls /status on the child
+ * and forwards the JSON. This test is a pure shape contract: any object
+ * that satisfies the StatusFrame type must JSON round-trip cleanly.
  */
 
 import { describe, it, expect } from "bun:test";
