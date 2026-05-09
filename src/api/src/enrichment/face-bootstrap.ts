@@ -112,8 +112,16 @@ async function applyResolved(
   // Enabled — try to load models. A failure leaves the worker dormant
   // but doesn't take the API down; operator can recover by setting the
   // download URL or dropping the model file in.
+  // The DB-backed model dir + URL/SHA values are passed through; env
+  // vars stay as fallback inside `face-models.ts` itself.
   try {
-    await loadFaceModels();
+    await loadFaceModels({
+      modelDir: resolved.face_model_dir,
+      retinafaceUrl: resolved.face_retinaface_url,
+      retinafaceSha256: resolved.face_retinaface_sha256,
+      mobilefacenetUrl: resolved.face_mobilefacenet_url,
+      mobilefacenetSha256: resolved.face_mobilefacenet_sha256,
+    });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     log.error(
