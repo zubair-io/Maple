@@ -83,6 +83,10 @@ function widenToDate(s: string): string {
 
 interface SearchQuery {
   q?: string;
+  /** Phase 3: free-text place search against the `place.search_blob` text
+   * index. Distinct from `q` (filename substring) so a caller can mix the
+   * two — `q=DJI&placeQuery=Albany NY` finds DJI files captured in Albany. */
+  placeQuery?: string;
   libraryId?: string;
   camera?: string;
   lens?: string;
@@ -123,6 +127,18 @@ export function buildFilter(
       { filename: { $regex: pattern, $options: "i" } },
       { abs_path: { $regex: pattern, $options: "i" } },
     ];
+  }
+
+  // Phase 3: free-text PLACE search via the `place.search_blob` text index.
+  // Mongo allows only one `$text` predicate per query and it must be at
+  // top-level — that composes correctly with the other structured filters
+  // (Mongo ANDs top-level fields) and with `applyLiveFilter`'s wrapper
+  // (`{ $and: [filter, liveClause] }` keeps `$text` at top-level of its
+  // sub-filter, which is the legal position).
+  if (q.placeQuery && q.placeQuery.trim().length > 0) {
+    (filter as Record<string, unknown>).$text = {
+      $search: q.placeQuery.trim(),
+    };
   }
 
   // Library scoping.
@@ -364,6 +380,7 @@ function projectAsset(d: AssetDoc & { _id: ObjectId }): SearchResult {
 
 const SearchQueryT = t.Object({
   q: t.Optional(t.String()),
+  placeQuery: t.Optional(t.String()),
   libraryId: t.Optional(t.String()),
   camera: t.Optional(t.String()),
   lens: t.Optional(t.String()),
@@ -411,13 +428,27 @@ export const searchRoutes = new Elysia({ prefix: "/api/search" })
       // q + camera) doesn't shadow this constraint.
       const finalFilter = applyLiveFilter(filter);
 
+      // When a placeQuery is set, sort by Mongo's textScore first so
+      // closer matches lead the page; tie-break on captured_at desc, then
+      // _id for pagination stability. Otherwise honour the caller's sort.
+      const usingPlaceText =
+        typeof query.placeQuery === "string" &&
+        query.placeQuery.trim().length > 0;
+      const sortSpec: Sort = usingPlaceText
+        ? ({
+            score: { $meta: "textScore" },
+            "exif.captured_at": -1,
+            _id: 1,
+          } as unknown as Sort)
+        : pickSort(sort);
+      const projection = usingPlaceText
+        ? { score: { $meta: "textScore" } }
+        : undefined;
+
+      const cursor = coll.find(finalFilter);
+      if (projection) cursor.project(projection);
       const [docs, total] = await Promise.all([
-        coll
-          .find(finalFilter)
-          .sort(pickSort(sort))
-          .skip(skip)
-          .limit(limit)
-          .toArray(),
+        cursor.sort(sortSpec).skip(skip).limit(limit).toArray(),
         coll.countDocuments(finalFilter),
       ]);
 
@@ -657,6 +688,7 @@ function makeBucketsCacheKey(q: SearchQuery): string {
     pathPrefix: q.pathPrefix ?? null,
     libraryId: q.libraryId ?? null,
     q: q.q ?? null,
+    placeQuery: q.placeQuery ?? null,
     camera: q.camera ?? null,
     lens: q.lens ?? null,
     isoMin: q.isoMin ?? null,
