@@ -345,11 +345,56 @@
       the worker fetches them on first boot.
     </p>
 
+    <!-- Live status: model files + loader state ────────────────────── -->
     @if (serverConfig(); as cfg) {
-      @if (cfg.face_worker_enabled && cfg.face_worker_dormant_reason) {
+      @if (cfg.face_models; as fm) {
+        @switch (fm.status) {
+          @case ('loaded') {
+            <div class="mb-4 rounded-md bg-primary-dim px-3 py-2 text-[12px] text-primary">
+              <span class="font-semibold">✓ Models loaded.</span>
+              retinaface.onnx · {{ formatBytes(fm.retinaface.bytes) }} ·
+              mobilefacenet.onnx · {{ formatBytes(fm.mobilefacenet.bytes) }}
+              <span class="ml-1 font-mono text-[10px] text-text-muted" [title]="fm.retinaface.path">
+                {{ shortenPath(fm.retinaface.path) }}
+              </span>
+            </div>
+          }
+          @case ('downloading') {
+            <div class="mb-4 rounded-md bg-surface-hover px-3 py-2 text-[12px] text-text-main">
+              <span class="font-semibold">↓ Downloading buffalo_s.zip…</span>
+              ~127 MB from InsightFace's GitHub Release. First boot only;
+              subsequent boots find the files on disk.
+            </div>
+          }
+          @case ('error') {
+            <div class="mb-4 rounded-md bg-error-bg px-3 py-2.5 text-[12px] text-error-text">
+              <strong class="font-semibold">✗ Load failed:</strong>
+              {{ fm.error_detail || cfg.face_worker_dormant_reason || 'unknown error' }}
+            </div>
+          }
+          @default {
+            @if (fm.retinaface.present && fm.mobilefacenet.present) {
+              <div class="mb-4 rounded-md bg-surface-hover px-3 py-2 text-[12px] text-text-muted">
+                Files ready on disk
+                ({{ formatBytes(fm.retinaface.bytes + fm.mobilefacenet.bytes) }}
+                under <code class="font-mono">{{ shortenPath(cfg.face_model_dir) }}</code>).
+                Will load when the worker is enabled.
+              </div>
+            } @else {
+              <div class="mb-4 rounded-md bg-surface-hover px-3 py-2 text-[12px] text-text-muted">
+                No models on disk. When you enable the worker the loader
+                will auto-download InsightFace's
+                <code class="font-mono">buffalo_s.zip</code> (~127 MB)
+                from its GitHub Release on first boot.
+              </div>
+            }
+          }
+        }
+      } @else if (cfg.face_worker_enabled && cfg.face_worker_dormant_reason) {
+        <!-- Backward-compat for older API responses without face_models -->
         <div class="mb-4 rounded-md bg-error-bg px-3 py-2.5 text-[12px] text-error-text">
           <strong class="font-semibold">Models missing.</strong>
-          The worker is enabled but couldn't load: {{ cfg.face_worker_dormant_reason }}
+          {{ cfg.face_worker_dormant_reason }}
         </div>
       }
     }

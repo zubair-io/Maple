@@ -30,6 +30,10 @@ import {
 import { applyDescribeConfig } from "../enrichment/describe-bootstrap.ts";
 import { NominatimClient, NominatimError } from "../enrichment/nominatim-client.ts";
 import {
+  getFaceModelsStatus,
+  probeFaceModelFiles,
+} from "../enrichment/face-models.ts";
+import {
   RemoteError,
   getDescribeProvider,
 } from "../enrichment/describe-providers/index.ts";
@@ -100,7 +104,21 @@ export const enrichmentRoutes = new Elysia({ prefix: "/api/enrichment" })
   .get("/config", async () => {
     const dbConfig = await loadEnrichmentConfig();
     const resolved = resolveEnrichmentConfig(dbConfig);
-    return resolved;
+    // Live face-models status — combines the loader's runtime state
+    // (idle / downloading / loaded / error) with a disk probe so the
+    // operator can see "files ready, will load on enable" vs. "missing,
+    // will auto-download". Powers the status pill on the face card.
+    const probe = probeFaceModelFiles(resolved.face_model_dir);
+    const status = getFaceModelsStatus();
+    return {
+      ...resolved,
+      face_models: {
+        status: status.kind,
+        error_detail: status.errorDetail,
+        retinaface: probe.retinaface,
+        mobilefacenet: probe.mobilefacenet,
+      },
+    };
   })
 
   .put(

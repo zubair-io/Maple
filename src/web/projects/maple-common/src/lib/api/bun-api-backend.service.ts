@@ -673,6 +673,16 @@ export interface EnrichmentConfigResponse {
   /** Set when face worker is enabled but the model files are missing — UI
    * surfaces this as an actionable banner. Optional for backward compat. */
   face_worker_dormant_reason?: string | null;
+  /** Live face-model loader status + on-disk probe. The UI uses this to
+   * render the badge on the face card: green "loaded · sizes",
+   * blue "downloading…", red "error: <detail>", or neutral "files
+   * present" / "missing — auto-download will run". */
+  face_models?: {
+    status: 'idle' | 'downloading' | 'loaded' | 'error';
+    error_detail: string | null;
+    retinaface: { path: string; present: boolean; bytes: number };
+    mobilefacenet: { path: string; present: boolean; bytes: number };
+  };
   source: {
     nominatim_url: 'db' | 'env' | 'unset';
     geocode_worker_enabled: 'db' | 'env' | 'default';
