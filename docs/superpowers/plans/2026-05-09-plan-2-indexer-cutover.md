@@ -33,7 +33,7 @@
 | `src/api/src/indexer/channel.ts` | Delete | Dissolved. |
 | `src/api/src/indexer/standalone.ts` | Delete | Replaced by per-stage entry shim + supervisor. |
 | `src/api/src/indexer/service.ts` | Delete | Dissolved; surviving logic (GC, progress bus) migrated inline to supervisor or dropped. |
-| `src/api/src/indexer/control.ts` | Delete | Replaced by Plan 1 supervisor. |
+| `src/api/src/indexer/control.ts` | Delete | Replaced by Plan 1 supervisor. (402 lines) |
 
 Files that remain untouched: `src/api/src/indexer/exif.ts`, `thumbnailer.ts`, `id.ts`, `watcher.ts`, `checkpoint.ts`, `images.repo.ts`, `indexer.repo.ts`, `indexer-config.repo.ts`.
 
@@ -274,6 +274,13 @@ export default defineStage({
     const sha1HeadHex = toHex(sha1(head));
     // Derive fallback-form id now; the exif stage will upgrade to primary if
     // capturedAt is available.
+    // NOTE: deriveId(head, null, null, null) calls fallback(head, head.length)
+    // internally, using the head buffer length (≤ 64 KB) as the filesize
+    // substitute. This is intentional — the real stat.size is stored in the
+    // patch for display purposes, but the id derivation uses head.length for
+    // byte-for-byte parity with the Rust fallback form. The exif stage
+    // upgrades to primary form (which uses sha1(head)||capturedAt) when
+    // capturedAt is present, superseding this fallback.
     const id = deriveId(head, null, null, null);
     return {
       patch: {
@@ -941,7 +948,7 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  await getDb().then(ensureIndexes);
+  await getDb().then(() => ensureIndexes());
 
   const handle = await startDiscover({ folderId, roots });
   log.info({ folderId, roots }, "discover started");
@@ -1173,59 +1180,39 @@ import {
 import { foldersCollection } from "./db/client.ts";
 ```
 
-Replace the `spawnChild()` / `waitReady()` call in `start()`:
+Replace the `.then(() => { ... })` callback that contains `spawnChild()` / `waitReady()` in `start()`.
+
+> **Important:** the existing code uses a `.then()` promise chain; this replacement callback uses `await`, so the callback must be declared `async`. Find the `.then(() => {` that contains the `spawnChild()` call and replace the entire arrow function (both the arrow and its body) with an `async` one.
 
 ```ts
-      // Auto-start the standalone indexer child unless explicitly disabled
-      // (`MAPLE_INDEXER_AUTOSTART=0`). The child opens its own Mongo
-      // connection on its own event loop — see src/indexer/standalone.ts.
-      if (process.env.MAPLE_INDEXER_AUTOSTART === "0") {
-        log.info("Indexer autostart disabled (MAPLE_INDEXER_AUTOSTART=0)");
-        return;
-      }
-      spawnChild();
-      waitReady()
-        .then(() =>
-          log.info(
-            { pid: indexerState().pid },
-            "Indexer process running",
-          ),
-        )
-        .catch((e) =>
-          log.warn(
-            { err: e instanceof Error ? e.message : e },
-            "Indexer process failed to start",
-          ),
-        );
-```
+      .then(async () => {
+        // Auto-start the worker supervisor unless explicitly disabled
+        // (`MAPLE_INDEXER_AUTOSTART=0`).
+        if (process.env.MAPLE_INDEXER_AUTOSTART === "0") {
+          log.info("Indexer autostart disabled (MAPLE_INDEXER_AUTOSTART=0)");
+          return;
+        }
+        // Resolve discover roots: one entry per registered folder.
+        const foldersColl = await foldersCollection();
+        const folders = await foldersColl.find({}, { projection: { abs_path: 1 } }).toArray();
+        const discoverRoots = folders.map((f) => (f as unknown as { abs_path: string }).abs_path).filter(Boolean);
 
-With:
-
-```ts
-      if (process.env.MAPLE_INDEXER_AUTOSTART === "0") {
-        log.info("Indexer autostart disabled (MAPLE_INDEXER_AUTOSTART=0)");
-        return;
-      }
-      // Resolve discover roots: one entry per registered folder.
-      const foldersColl = await foldersCollection();
-      const folders = await foldersColl.find({}, { projection: { abs_path: 1 } }).toArray();
-      const discoverRoots = folders.map((f) => (f as unknown as { abs_path: string }).abs_path).filter(Boolean);
-
-      startSupervisor({
-        stages: ["hash", "exif", "thumb"],
-        discover: discoverRoots.length > 0
-          ? { roots: discoverRoots }
-          : undefined,
+        startSupervisor({
+          stages: ["hash", "exif", "thumb"],
+          discover: discoverRoots.length > 0
+            ? { roots: discoverRoots }
+            : undefined,
+        })
+          .then(() =>
+            log.info(supervisorState(), "Worker supervisor running"),
+          )
+          .catch((e) =>
+            log.warn(
+              { err: e instanceof Error ? e.message : e },
+              "Worker supervisor failed to start",
+            ),
+          );
       })
-        .then(() =>
-          log.info(supervisorState(), "Worker supervisor running"),
-        )
-        .catch((e) =>
-          log.warn(
-            { err: e instanceof Error ? e.message : e },
-            "Worker supervisor failed to start",
-          ),
-        );
 ```
 
 Replace the shutdown call:
@@ -1342,7 +1329,10 @@ grep -r "from.*indexer/service" src/api/src --include="*.ts" -l
 grep -r "from.*indexer/control" src/api/src --include="*.ts" -l
 ```
 
-Expected: zero results (all imports were removed in Tasks 7–8). If any remain, fix them before proceeding.
+Expected: zero results. All imports from these files must have been removed in Tasks 7–8 and Task 10:
+- `index.ts` removes the `control.ts` import in Task 7.
+- `routes/indexer.ts` removes the `control.ts` import in Task 10.
+If any remain, fix them before proceeding.
 
 - [ ] **Step 2: Delete the files**
 
@@ -1383,20 +1373,20 @@ The `/api/indexer/status`, `/api/indexer/pause`, `/api/indexer/resume` routes to
 
 - [ ] **Step 1: Read the current indexer routes to identify all usages of control.ts**
 
-Run: `grep -n "control\|targetUrl\|indexerState\|spawnChild\|stopChild\|waitReady" src/api/src/routes/indexer.ts`
+Run: `grep -n "control\|targetUrl\|controlState\|spawnChild\|stopChild\|waitReady" src/api/src/routes/indexer.ts`
 
-Expected: several hits referencing `targetUrl`, `state`, `spawnChild`, `stopChild`, and `waitReady`.
+Expected: several hits referencing `targetUrl`, `state as controlState`, `spawnChild`, `stopChild`, and `waitReady`. The existing file uses the alias `controlState` (not `indexerState`). There is also a large `proxy()` helper function that forwards requests to the child's localhost port.
 
 - [ ] **Step 2: Replace the proxy with supervisor calls**
 
-Edit `src/api/src/routes/indexer.ts`. Replace the import:
+Edit `src/api/src/routes/indexer.ts`. Replace the import block (note the alias is `state as controlState`, not `indexerState`):
 
 ```ts
 import {
   spawnChild,
   stopChild,
   waitReady,
-  state as indexerState,
+  state as controlState,
   targetUrl,
 } from "../indexer/control.ts";
 ```
@@ -1413,17 +1403,24 @@ import {
 } from "../workers/supervisor.ts";
 ```
 
-For the `GET /status` handler, replace the proxy fetch with:
+Delete the `async function proxy(...)` helper entirely — it relies on `targetUrl` and the child's localhost port, which no longer exist.
+
+Replace the proxy-forwarded routes with direct supervisor calls. The existing file has these routes to address:
+
+- `GET /status` — was proxied; replace with `supervisorState()`.
+- `PUT /config` — was proxied to the child's `/config`; return `{ error: "not implemented" }` with status 501 (the per-stage config UI is Plan 4's job).
+- `POST /pause` / `POST /resume` — were proxied; replace with `pauseSupervisor()` / `resumeSupervisor()`.
+- `GET /dead-letter`, `GET /dead-letter/groups`, `POST /dead-letter/reset` — were proxied; return 501 stubs until Plan 3 re-implements dead-letter.
+- `POST /exif-backfill`, `POST /enqueue` — were proxied; return 501 stubs (the enqueue path no longer exists in the new architecture).
+- `POST /rescan/:folderId` — was proxied; return 501 stub (rescan is Plan 3's concern).
+- `POST /start` / `POST /stop` — were lifecycle calls; replace with `startSupervisor` / `stopSupervisor`.
+- `GET /process` — returned `controlState()`; replace with `supervisorState()`.
 
 ```ts
   .get("/status", async () => {
     return supervisorState();
   })
-```
-
-For the `POST /pause` and `POST /resume` handlers:
-
-```ts
+  .put("/config", () => new Response(JSON.stringify({ error: "not implemented" }), { status: 501, headers: { "content-type": "application/json" } }))
   .post("/pause", async () => {
     await pauseSupervisor();
     return { ok: true };
@@ -1432,11 +1429,12 @@ For the `POST /pause` and `POST /resume` handlers:
     await resumeSupervisor();
     return { ok: true };
   })
-```
-
-For the `POST /start` and `POST /stop` handlers (used by the admin UI restart button):
-
-```ts
+  .get("/dead-letter", () => new Response(JSON.stringify({ error: "not implemented" }), { status: 501, headers: { "content-type": "application/json" } }))
+  .get("/dead-letter/groups", () => new Response(JSON.stringify({ error: "not implemented" }), { status: 501, headers: { "content-type": "application/json" } }))
+  .post("/dead-letter/reset", () => new Response(JSON.stringify({ error: "not implemented" }), { status: 501, headers: { "content-type": "application/json" } }))
+  .post("/exif-backfill", () => new Response(JSON.stringify({ error: "not implemented" }), { status: 501, headers: { "content-type": "application/json" } }))
+  .post("/enqueue", () => new Response(JSON.stringify({ error: "not implemented" }), { status: 501, headers: { "content-type": "application/json" } }))
+  .post("/rescan/:folderId", () => new Response(JSON.stringify({ error: "not implemented" }), { status: 501, headers: { "content-type": "application/json" } }))
   .post("/start", async () => {
     await startSupervisor({ stages: ["hash", "exif", "thumb"] });
     return supervisorState();
@@ -1445,9 +1443,8 @@ For the `POST /start` and `POST /stop` handlers (used by the admin UI restart bu
     await stopSupervisor();
     return { ok: true };
   })
+  .get("/process", () => supervisorState())
 ```
-
-Any routes that fetched the old pipeline status shape (channels depth, etc.) should return `supervisorState()` directly — the Angular UI in Plan 4 will be updated to consume the new shape.
 
 - [ ] **Step 3: Verify the build**
 
@@ -1512,7 +1509,7 @@ In `src/api/src/db/client.ts`, inside `ensureIndexes`, add after the existing as
 
 With a local MongoDB running:
 
-Run: `cd src/api && bun -e "import('./src/db/client.ts').then(m => m.getDb()).then(m => m.ensureIndexes()).then(() => console.log('ok'))"`
+Run: `cd src/api && bun -e "import('./src/db/client.ts').then(async m => { await m.getDb(); await m.ensureIndexes(); console.log('ok'); })"`
 
 Expected: `ok` — no errors. The indexes are idempotent (`createIndex` is a no-op when the index already exists with the same options).
 
