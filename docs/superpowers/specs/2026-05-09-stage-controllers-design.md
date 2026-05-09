@@ -66,7 +66,7 @@ Declared statically in each stage's config; the controller builds it into the cl
 ```
 hash      → []
 exif      → [hash]
-thumb     → [hash]
+thumb     → [hash, exif]                                   ← needs EXIF for orientation
 face      → [thumb]
 ocr       → [thumb]
 describe  → [thumb]
@@ -75,6 +75,8 @@ meili     → [exif, thumb, face, ocr, describe, geocode]   ← fan-in, writes s
 ```
 
 `meili` is the search-blob writer. The original pipeline's terminal `mongo` stage is dissolved — each stage writes its own slice, and `meili` does the cross-stage denormalization.
+
+The `thumb` handler reads `image.exif.orientation` and applies the corresponding rotation/flip to the generated preview before encoding. The current thumbnailer at `src/api/src/indexer/thumbnailer.ts` does not honor EXIF orientation — that bug is fixed as part of this redesign by making `exif` a hard dep of `thumb`.
 
 ### Controller contract (A1: static deps + return-value writeback)
 
@@ -123,25 +125,16 @@ Runtime hooks:
 `src/api/src/workers/runtime/run-stage.ts` (~250 lines). Imported by every stage child's `index.ts`. Responsibilities:
 
 1. **Boot.** Connect to Mongo, load `worker_config[stage.name]`, fall back to `stage.defaults`. Subscribe to a Mongo change stream on `worker_config` for live config edits.
-2. **Version-bump reset.** On boot, the controller records `last_seen_target_version` and `last_seen_dep_target_versions` in `worker_config[name]`. The static stage configs (this stage's `targetVersion`, plus each dep's `targetVersion` imported from the dep's stage file) are compared to those stored values:
+2. **Version-bump reset.** On boot, the controller compares its `targetVersion` to `worker_config[name].last_seen_target_version`. If higher, run:
+   ```js
+   db.images.updateMany(
+     { [`stages.${name}.version`]: { $lt: targetVersion } },
+     { $set: { [`stages.${name}.dead`]: false, [`stages.${name}.attempts`]: 0, [`stages.${name}.last_error`]: null } }
+   )
+   ```
+   Persist the new value. This realizes the "bump version → auto-reset dead" semantic.
 
-   - **Self bump.** If `targetVersion > last_seen_target_version` for this stage:
-     ```js
-     db.images.updateMany(
-       { [`stages.${name}.version`]: { $lt: targetVersion } },
-       { $set: { [`stages.${name}.dead`]: false, [`stages.${name}.attempts`]: 0, [`stages.${name}.last_error`]: null } }
-     )
-     ```
-     This realizes the "bump version → auto-reset dead" semantic.
-   - **Dep bump.** For each dep whose `targetVersion > last_seen_dep_target_versions[dep]`, this stage's outputs are now stale even on already-processed docs:
-     ```js
-     db.images.updateMany(
-       {},  // every doc; the controller will only re-pull docs whose deps are at >= 1
-       { $set: { [`stages.${name}.version`]: 0, [`stages.${name}.dead`]: false, [`stages.${name}.attempts`]: 0, [`stages.${name}.last_error`]: null } }
-     )
-     ```
-
-   After both passes, persist the current target versions. This is the entire dep-cascade mechanism — fanout cost is paid at boot, after which the normal poll loop processes them.
+   Cross-stage cascade is **not** automatic. If a dep's algorithm change invalidates this stage's output, the engineer who bumped the dep also bumps this stage's `targetVersion`. Tracking dep-version dependencies in code is engineer responsibility, not runtime magic.
 3. **Poll loop.** On a `pollIntervalMs` timer, while the in-flight set has free slots:
    ```js
    db.images.find({
@@ -264,15 +257,9 @@ Bumping a handler's `targetVersion` is the only backfill mechanism:
 
 ### Migration
 
-A one-time migrator runs at API boot when it detects the absence of the `stages` field on any image doc:
+No migrator. Existing image docs without a `stages` field are picked up naturally — Mongo's `$lt` treats a missing field as less than any number, so the claim query matches them and each controller re-processes them at `targetVersion: 1`. We accept the cost of re-running every stage on every existing image, including paid stages (describe, geocode), as a one-time operator decision.
 
-1. For each existing image doc:
-   - Synthesize `stages` based on which fields exist on the doc today (`exif` present → `stages.exif.version: 1`; `thumb_url` present → `stages.thumb.version: 1`; etc.).
-   - Map each existing bespoke worker's `done` flag to the new `version: 1`.
-2. Set `worker_config[<name>] = { ...defaults, paused: false }` for each stage.
-3. Mark migration complete in a `system` collection.
-
-Migrator is idempotent and can be re-run by deleting the system marker. It is conservative: when a doc's existing state is ambiguous, the corresponding `stages.<name>.version` is left at `0`, and the new controller will re-process it.
+The first thing each new controller does on first boot is set `worker_config[<name>] = { ...defaults, paused: false }` if absent. That's the only setup write needed.
 
 ### What gets retired
 
@@ -297,16 +284,15 @@ Migrator is idempotent and can be re-run by deleting the system marker. It is co
 - **Runtime unit tests.** `run-stage.ts` is tested with a mock Mongo client and a synthetic handler. Cases: claim respects deps, version bump resets dead, max-attempts trips dead, pause short-circuits poll, concurrency change drains correctly, throw → attempts++, throw past maxAttempts → dead.
 - **Per-stage handler tests.** Existing tests for `face-worker.test.ts`, `ocr-worker.test.ts`, etc. are rewritten as direct handler invocations: build an image doc, call the handler, assert the returned `{ patch }`. Faster and more focused than the old polling-loop tests.
 - **Supervisor integration test.** Spawn a tiny stage child, send pause/resume/SIGTERM, kill it, assert respawn with backoff.
-- **Migrator test.** Round-trip a fixture set of "old shape" image docs through the migrator and assert the resulting `stages` object.
 - **No mocks for the indexer↔Mongo seam.** Use the existing test-Mongo fixture pattern.
+- **Thumb EXIF-orientation regression test.** Fixture image with non-default orientation; assert generated preview is upright.
 
 ## Risks
 
-1. **Boot-time migrator on a multi-million-doc library.** A `find().forEach()` over the whole `images` collection at startup could take minutes on a multi-TB library. Mitigation: the migrator runs in batches with progress logging; the API serves traffic during the run; a migration-incomplete sentinel makes new controllers refuse to claim until migration is done.
-2. **Mongo change stream availability.** Live `worker_config` re-read uses change streams. Self Hosted MongoDB defaults to a standalone (no replica set) — change streams require a replica set. Mitigation: detect standalone at boot, fall back to a 5-second polling loop on `worker_config`.
-3. **Per-stage process count.** With 9 children plus the API plus discover, that's 11 Bun processes per host. Memory footprint must be checked on a small VPS. Mitigation: every controller process loads only its own native deps. Hash/exif/thumb/discover share the raw-ffi dylib; face loads ONNX; OCR loads its engine; describe is HTTP-only; geocode is HTTP-only; meili is HTTP-only. Quick benchmark required before merge.
-4. **In-flight set memory.** `inFlight` is `Set<ObjectId>` of size `concurrency * batchSize`. At default `concurrency: 4, batchSize: 10` that's 40 ids per stage — trivial. Even with `concurrency: 64`, it's 640 ids. Not a concern.
-5. **Search-blob fan-in correctness.** `meili` depends on six other stages; if any one bumps version, meili must re-run for those docs. The dep-bump pass in step 2 of the runtime handles this — `meili` resets its own `version` to `0` for all docs when any of its deps' `targetVersion` advances. Documented behavior: fanout cost is paid at boot, with a single `updateMany` per affected stage.
+1. **Mongo change stream availability.** Live `worker_config` re-read uses change streams. Self Hosted MongoDB defaults to a standalone (no replica set) — change streams require a replica set. Mitigation: detect standalone at boot, fall back to a 5-second polling loop on `worker_config`.
+2. **Per-stage process count.** With 9 children plus the API plus discover, that's 11 Bun processes per host. Memory footprint must be checked on a small VPS. Mitigation: every controller process loads only its own native deps. Hash/exif/thumb/discover share the raw-ffi dylib; face loads ONNX; OCR loads its engine; describe is HTTP-only; geocode is HTTP-only; meili is HTTP-only. Quick benchmark required before merge.
+3. **In-flight set memory.** `inFlight` is `Set<ObjectId>` of size `concurrency * batchSize`. At default `concurrency: 4, batchSize: 10` that's 40 ids per stage — trivial. Even with `concurrency: 64`, it's 640 ids. Not a concern.
+4. **First-boot reprocess cost.** With no migrator, every controller re-processes every existing doc on first boot of the new code. For local stages this is hours of CPU; for `describe` it costs API spend; for `geocode` it's days at 1 req/sec. Operator-accepted cost. Mitigation: paused-by-default for paid stages would cap the spend — open question whether to default `describe` and `geocode` to `paused: true` on a fresh `worker_config` so the operator opts in explicitly.
 
 ## Open questions
 
