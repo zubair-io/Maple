@@ -1,0 +1,139 @@
+<div class="mx-auto max-w-[1200px] px-8 pt-6 pb-12">
+  <header class="mb-6 flex items-center gap-4">
+    <a
+      class="text-[12px] text-text-muted no-underline hover:text-text-main hover:underline"
+      routerLink="/settings"
+    >&larr; Settings</a>
+    <h2 class="m-0 flex-1 text-[22px] font-semibold tracking-[-0.01em]">Workers</h2>
+  </header>
+
+  @if (error()) {
+    <p class="mb-4 rounded bg-error-bg px-4 py-2 text-[12px] text-error-text">
+      {{ error() }}
+    </p>
+  }
+
+  @if (!status() && !error()) {
+    <p class="text-[13px] text-text-muted">Loading…</p>
+  }
+
+  @if (stages().length > 0) {
+    <div class="overflow-x-auto rounded-lg border border-border">
+      <table class="w-full text-[12px]">
+        <thead>
+          <tr class="border-b border-border bg-surface-hover">
+            <th class="px-4 py-2.5 text-left font-semibold text-text-muted">Stage</th>
+            <th class="px-4 py-2.5 text-left font-semibold text-text-muted">Status</th>
+            <th class="px-4 py-2.5 text-right font-semibold text-text-muted">Workers</th>
+            <th class="px-4 py-2.5 text-right font-semibold text-text-muted">In flight</th>
+            <th class="px-4 py-2.5 text-right font-semibold text-text-muted">Pending</th>
+            <th class="px-4 py-2.5 text-right font-semibold text-text-muted">Dead</th>
+            <th class="px-4 py-2.5 text-right font-semibold text-text-muted">Throughput</th>
+            <th class="px-4 py-2.5 text-center font-semibold text-text-muted">Config</th>
+            <th class="px-4 py-2.5 text-center font-semibold text-text-muted">Pause</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (s of stages(); track s.name) {
+            <tr
+              class="border-b border-border last:border-0 hover:bg-surface-hover"
+              data-testid="worker-row"
+            >
+              <!-- Stage -->
+              <td class="px-4 py-2.5 font-mono font-medium text-text-main">{{ s.name }}</td>
+
+              <!-- Status -->
+              <td class="px-4 py-2.5">
+                <span class="flex items-center gap-1.5">
+                  <span
+                    class="h-2 w-2 rounded-full"
+                    [class.bg-green-500]="s.status === 'running'"
+                    [class.bg-text-muted]="s.status === 'paused'"
+                    [class.bg-red-500]="s.status === 'error'"
+                    [title]="s.last_error ?? ''"
+                  ></span>
+                  <span
+                    data-testid="status"
+                    class="text-text-main"
+                    [class.text-error-text]="s.status === 'error'"
+                    [title]="s.last_error ?? ''"
+                  >{{ statusLabel(s) }}</span>
+                </span>
+              </td>
+
+              <!-- Workers: active / configured -->
+              <td class="px-4 py-2.5 text-right text-text-main" data-testid="workers">
+                {{ s.workers.active }} / {{ s.workers.configured }}
+              </td>
+
+              <!-- In flight: dispatched / batch_size -->
+              <td class="px-4 py-2.5 text-right text-text-main" data-testid="in-flight">
+                {{ s.in_flight.dispatched }} / {{ s.in_flight.batch_size }}
+              </td>
+
+              <!-- Pending -->
+              <td class="px-4 py-2.5 text-right font-medium text-text-main" data-testid="pending">
+                {{ s.pending | number }}
+              </td>
+
+              <!-- Dead + retry -->
+              <td class="px-4 py-2.5 text-right" data-testid="dead-cell">
+                @if (s.dead > 0) {
+                  <span class="inline-flex items-center gap-1">
+                    <span data-testid="dead-count" class="text-error-text">{{ s.dead }}</span>
+                    <button
+                      data-testid="retry-dead-btn"
+                      type="button"
+                      class="cursor-pointer rounded border-none bg-transparent px-1 py-0.5 text-[11px] text-primary hover:underline"
+                      title="Retry all dead-lettered docs for this stage"
+                      (click)="retryDead(s)"
+                    >&#8635;</button>
+                  </span>
+                } @else {
+                  <span class="text-text-muted">0</span>
+                }
+              </td>
+
+              <!-- Throughput -->
+              <td
+                class="px-4 py-2.5 text-right text-text-muted"
+                data-testid="throughput"
+              >{{ throughputLabel(s) }}</td>
+
+              <!-- Config cog -->
+              <td class="px-4 py-2.5 text-center">
+                <button
+                  type="button"
+                  class="cursor-pointer rounded border-none bg-transparent px-1.5 py-1 text-[14px] text-text-muted hover:text-text-main"
+                  title="Edit stage config"
+                  (click)="openConfig(s)"
+                >&#9881;</button>
+              </td>
+
+              <!-- Pause / resume -->
+              <td class="px-4 py-2.5 text-center">
+                <button
+                  data-testid="pause-resume-btn"
+                  type="button"
+                  class="cursor-pointer rounded border-none bg-transparent px-1.5 py-1 text-[14px] text-text-muted hover:text-text-main"
+                  [title]="pauseResumeTitle(s)"
+                  (click)="togglePause(s)"
+                >{{ pauseResumeLabel(s) }}</button>
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  }
+</div>
+
+<!-- Config dialog — rendered outside the table to avoid stacking-context issues -->
+@if (activeDialogStage(); as ds) {
+  <maple-worker-config-dialog
+    [stage]="ds"
+    [config]="activeConfigSignal(ds.name)()"
+    (saved)="onConfigSaved(ds.name, $event)"
+    (cancelled)="closeDialog()"
+  />
+}
