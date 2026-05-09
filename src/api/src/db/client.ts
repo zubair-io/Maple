@@ -151,6 +151,40 @@ export async function workerConfigCollection(): Promise<
   return (await getDb()).collection<WorkerConfigDoc>("worker_config");
 }
 
+/** Stage names whose claim-query indexes are created at startup. */
+const WORKER_STAGE_NAMES = [
+  "hash",
+  "exif",
+  "thumb",
+  "face",
+  "ocr",
+  "describe",
+  "geocode",
+  "meili",
+] as const;
+
+/**
+ * Create one partial index per stage on { "stages.<name>.version": 1 }.
+ * partialFilterExpression uses { $eq: false } (not $ne: true) because
+ * Mongo's partial index only supports equality operators.
+ * Dead-lettered docs (dead: true) are excluded from both the index and
+ * all claim queries, keeping the index small.
+ *
+ * Safe to call multiple times (idempotent — createIndex is a no-op if the
+ * index already exists with the same options).
+ */
+export async function ensureStageIndexes(db: Db): Promise<void> {
+  for (const name of WORKER_STAGE_NAMES) {
+    await db.collection("assets").createIndex(
+      { [`stages.${name}.version`]: 1 },
+      {
+        name: `stage_${name}_version`,
+        partialFilterExpression: { [`stages.${name}.dead`]: { $eq: false } },
+      },
+    );
+  }
+}
+
 /**
  * Ensure all required indexes exist. Safe to call multiple times (idempotent).
  * Call this once at startup after a successful DB connection.
@@ -606,6 +640,8 @@ export async function ensureIndexes(): Promise<void> {
   await db
     .collection("worker_config")
     .createIndex({ name: 1 }, { unique: true, name: "worker_config_name" });
+
+  await ensureStageIndexes(db);
 
   log.info("indexes ensured");
 }
