@@ -193,7 +193,6 @@ export function buildApp(opts: { stageNames?: string[] } = {}): Elysia {
     // would leak forward to `staticUiPlugin`, breaking unauthenticated cold
     // loads (you can't reach /sign-in if the server demands a bearer to
     // serve index.html).
-    .use(workerRoutes(supervisor))
     .use(
       new Elysia({ name: "authedApi" })
         .use(requireAuth)
@@ -206,7 +205,8 @@ export function buildApp(opts: { stageNames?: string[] } = {}): Elysia {
         .use(jobsRoutes)
         .use(enrichmentRoutes)
         .use(meilisearchBackfillRoutes)
-        .use(peopleRoutes),
+        .use(peopleRoutes)
+        .use(workerRoutes(supervisor)),
     )
 
     // Static UI (catch-all — must be last so specific API routes match first).
