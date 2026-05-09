@@ -87,6 +87,7 @@ export function setFaceModelLoaderForTests(
   injectedLoader = loader;
   singleton = null;
   loadPromise = null;
+  liveStatus = { kind: "idle" };
 }
 
 /** Default model directory — `~/.maple/models/`. Honours `MAPLE_MODEL_DIR`
@@ -99,6 +100,58 @@ export function defaultModelDir(): string {
  * file at `<modelDir>/<basename>` to skip the download path entirely. */
 export const RETINAFACE_BASENAME = "retinaface.onnx";
 export const MOBILEFACENET_BASENAME = "mobilefacenet.onnx";
+
+// ── Live status surface ────────────────────────────────────────────────
+// Module-level state the route handler reads to power the UI badge on
+// /settings/enrichment. Updated by `loadFaceModels()` at every state
+// transition so the operator can see whether a download is in flight,
+// whether the load succeeded, or what failed.
+
+export type FaceModelsLoadStatus =
+  | "idle"        // loadFaceModels has not been called this process
+  | "downloading" // buffalo_s default bundle is being fetched
+  | "loaded"      // ONNX sessions are live
+  | "error";      // last load attempt failed
+
+interface InternalStatus {
+  kind: FaceModelsLoadStatus;
+  errorDetail?: string;
+}
+
+let liveStatus: InternalStatus = { kind: "idle" };
+
+/** Snapshot of the loader's current state. Pure read — never triggers
+ * a load. Used by the /api/enrichment/config route to populate the UI
+ * badge. */
+export function getFaceModelsStatus(): {
+  kind: FaceModelsLoadStatus;
+  errorDetail: string | null;
+} {
+  return { kind: liveStatus.kind, errorDetail: liveStatus.errorDetail ?? null };
+}
+
+/** Inspect a model directory without loading anything. Reports whether
+ * each ONNX file is on disk and how big it is. The route uses this to
+ * tell the operator "files are ready, will load on worker enable" vs.
+ * "files are missing, auto-download will run on enable". */
+export function probeFaceModelFiles(dir: string): {
+  retinaface: { path: string; present: boolean; bytes: number };
+  mobilefacenet: { path: string; present: boolean; bytes: number };
+} {
+  const probe = (basename: string) => {
+    const path = join(dir, basename);
+    if (!existsSync(path)) return { path, present: false, bytes: 0 };
+    try {
+      return { path, present: true, bytes: statSync(path).size };
+    } catch {
+      return { path, present: false, bytes: 0 };
+    }
+  };
+  return {
+    retinaface: probe(RETINAFACE_BASENAME),
+    mobilefacenet: probe(MOBILEFACENET_BASENAME),
+  };
+}
 
 /**
  * Load (or return the cached) singleton model pair. Safe to call from
@@ -131,6 +184,7 @@ export async function loadFaceModels(
     if (injectedLoader) {
       const m = await injectedLoader();
       singleton = m;
+      liveStatus = { kind: "loaded" };
       return m;
     }
     const dir = config.modelDir ?? defaultModelDir();
@@ -149,6 +203,7 @@ export async function loadFaceModels(
       !(config.retinafaceUrl ?? process.env.MAPLE_FACE_RETINAFACE_URL) &&
       !(config.mobilefacenetUrl ?? process.env.MAPLE_FACE_MOBILEFACENET_URL)
     ) {
+      liveStatus = { kind: "downloading" };
       await downloadBuffaloSDefault(dir);
     }
 
@@ -178,6 +233,7 @@ export async function loadFaceModels(
       mobileFaceNet,
       paths: { retinaFace: retinaPath, mobileFaceNet: mfnPath },
     };
+    liveStatus = { kind: "loaded" };
     log.info("ONNX face models ready");
     return singleton;
   })();
@@ -189,6 +245,10 @@ export async function loadFaceModels(
     // the file in after the first boot attempt).
     loadPromise = null;
     singleton = null;
+    liveStatus = {
+      kind: "error",
+      errorDetail: err instanceof Error ? err.message : String(err),
+    };
     throw err;
   }
 }

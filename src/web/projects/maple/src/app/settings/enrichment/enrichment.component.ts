@@ -321,6 +321,28 @@ export class EnrichmentComponent implements OnInit {
     });
   }
 
+  /** Format a byte count compactly: 13478912 → "12.9 MB". */
+  formatBytes(bytes: number | undefined | null): string {
+    if (!bytes || bytes <= 0) return '0 B';
+    const units = ['B', 'KB', 'MB', 'GB'];
+    let v = bytes;
+    let i = 0;
+    while (v >= 1024 && i < units.length - 1) {
+      v /= 1024;
+      i++;
+    }
+    return `${v.toFixed(v < 10 ? 1 : 0)} ${units[i]}`;
+  }
+
+  /** Trim long absolute paths to the last two segments so the badge
+   * doesn't break the card layout on a deep MAPLE_MODEL_DIR. */
+  shortenPath(path: string | undefined | null): string {
+    if (!path) return '';
+    const parts = path.split('/').filter((p) => p.length > 0);
+    if (parts.length <= 2) return path;
+    return '…/' + parts.slice(-2).join('/');
+  }
+
   /** Map a `source` enum to a short pill label. Pure helper. */
   sourceLabel(
     source: 'db' | 'env' | 'unset' | 'default' | undefined,
