@@ -350,8 +350,8 @@ export const _test =
 
 /**
  * Main entry point called by the stage child's entry shim (main.ts).
- * Connects to Mongo, boots config, starts the poll loop, and handles
- * SIGTERM for graceful drain.
+ * Connects to Mongo, boots config, starts the IPC server, emits the port
+ * signal, starts the poll loop, and handles SIGTERM for graceful drain.
  */
 export async function runStage(stage: StageConfig): Promise<void> {
   const log = childLogger(`workers:${stage.name}`);
@@ -379,6 +379,40 @@ export async function runStage(stage: StageConfig): Promise<void> {
   }
 
   const throughput = new ThroughputWindow();
+  const inFlightSet = new Set<string>();
+
+  // ── IPC server ────────────────────────────────────────────────────────────
+  const repo = new WorkerConfigRepo(configCollRaw);
+
+  const ipc = new IpcServer({
+    name: stage.name,
+    throughput,
+    getInFlight: () => inFlightSet.size,
+    onPause: async () => {
+      await repo.patch(stage.name, { paused: true });
+      config = { ...config, paused: true };
+      log.info(`${stage.name} paused via IPC`);
+    },
+    onResume: async () => {
+      await repo.patch(stage.name, { paused: false });
+      config = { ...config, paused: false };
+      log.info(`${stage.name} resumed via IPC`);
+    },
+    onReloadConfig: async () => {
+      // Re-read the full config from Mongo — the supervisor called this after
+      // the PATCH /api/workers/:name/config handler updated the DB.
+      const updated = await repo.load(stage.name);
+      if (updated) {
+        config = updated;
+        log.info({ config }, `${stage.name} config reloaded via IPC`);
+      }
+    },
+  });
+
+  const ipcPort = await ipc.start();
+  // Signal the supervisor with the IPC port so it can send IPC commands.
+  process.stdout.write(`__MAPLE_IPC_PORT__=${ipcPort}\n`);
+  log.info({ ipcPort }, `${stage.name} IPC server started`);
 
   // ── Graceful shutdown ─────────────────────────────────────────────────────
   let shuttingDown = false;
@@ -390,6 +424,7 @@ export async function runStage(stage: StageConfig): Promise<void> {
     log.info(`${stage.name} received SIGTERM — draining`);
     abortController.abort();
     clearInterval(pollTimer);
+    await ipc.stop().catch(() => {});
   };
   process.on("SIGTERM", () => { shutdown().catch(() => {}); });
 
@@ -406,15 +441,17 @@ export async function runStage(stage: StageConfig): Promise<void> {
     }
   }, config.pollIntervalMs);
 
-  // ── Drain on shutdown (30s ceiling) ──────────────────────────────────────
+  // ── Drain on shutdown ─────────────────────────────────────────────────────
   await new Promise<void>((resolve) => {
     abortController.signal.addEventListener("abort", () => {
       const deadline = setTimeout(() => {
-        log.warn(`${stage.name} drain timeout — force exiting`);
+        log.warn(`${stage.name} drain timeout 30s — force exiting`);
         resolve();
       }, 30_000);
-      clearTimeout(deadline);
-      resolve();
+      if (inFlightSet.size === 0) {
+        clearTimeout(deadline);
+        resolve();
+      }
     });
   });
 
