@@ -31,6 +31,7 @@ export * from './lib/api/api-base-url.token';
 export * from './lib/api/bun-api-backend.service';
 export * from './lib/api/filesystem-browse.service';
 export * from './lib/api/search.service';
+export * from './lib/api/workers-api.service';
 export * from './lib/components/loading-banner/loading-banner.component';
 export * from './lib/components/error-banner/error-banner.component';
 export * from './lib/components/library-picker/library-picker.component';
