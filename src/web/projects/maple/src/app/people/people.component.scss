@@ -1,0 +1,7 @@
+// PeopleComponent — most styling is via Tailwind utilities in the
+// template. The few rules below cover behaviours that don't have a
+// terse Tailwind equivalent.
+
+:host {
+  display: block;
+}

@@ -1,0 +1,318 @@
+/**
+ * /api/people/* route tests. Mounts the route without `requireAuth`
+ * (mirrors `tests/enrichment-route.test.ts`); skip-passes when Mongo is
+ * unreachable.
+ */
+
+import {
+  describe,
+  it,
+  expect,
+  beforeAll,
+  beforeEach,
+  afterAll,
+} from "bun:test";
+import { Elysia } from "elysia";
+import { MongoClient, ObjectId, type Db } from "mongodb";
+import type { AssetDoc, AssetFaceDoc } from "../src/db/schema.ts";
+
+const TEST_DB = `maple_test_people_route_${process.pid}`;
+process.env.MAPLE_MONGO_DB = TEST_DB;
+const MONGO_URI = process.env.MAPLE_MONGO_URI ?? "mongodb://localhost:27017";
+
+let mongo: MongoClient | null = null;
+let mongoReachable = false;
+let db: Db | null = null;
+let app: Elysia | null = null;
+
+const DIM = 512;
+
+async function tryConnect(): Promise<MongoClient | null> {
+  const c = new MongoClient(MONGO_URI, {
+    serverSelectionTimeoutMS: 1500,
+    connectTimeoutMS: 1500,
+  });
+  try {
+    await c.connect();
+    await c.db("admin").command({ ping: 1 });
+    return c;
+  } catch {
+    try { await c.close(); } catch {}
+    return null;
+  }
+}
+
+beforeAll(async () => {
+  mongo = await tryConnect();
+  mongoReachable = mongo !== null;
+  if (!mongoReachable) {
+    console.log("[people-route.test] skipping: MongoDB unreachable");
+    return;
+  }
+  db = mongo!.db(TEST_DB);
+  await db.dropDatabase();
+  for (const name of [
+    "users",
+    "credentials",
+    "invites",
+    "refresh_tokens",
+    "challenges",
+  ]) {
+    await db.createCollection(name).catch(() => undefined);
+  }
+  const { closeDb, ensureIndexes } = await import("../src/db/client.ts");
+  await closeDb();
+  await ensureIndexes();
+  const { peopleRoutes } = await import("../src/routes/people.ts");
+  app = new Elysia().use(peopleRoutes);
+});
+
+beforeEach(async () => {
+  if (!mongoReachable) return;
+  await db!.collection("people").deleteMany({});
+  await db!.collection("assets").deleteMany({});
+});
+
+afterAll(async () => {
+  if (mongo) {
+    await mongo.db(TEST_DB).dropDatabase();
+    await mongo.close();
+  }
+  const { closeDb } = await import("../src/db/client.ts");
+  await closeDb();
+});
+
+function nearAxis(axis: number, jitter: number): number[] {
+  const v = new Array<number>(DIM).fill(0);
+  v[axis] = 1 - jitter;
+  v[(axis + 1) % DIM] = jitter / 2;
+  v[(axis + 2) % DIM] = jitter / 2;
+  return v;
+}
+
+async function insertAssetWithFaces(
+  faces: AssetFaceDoc[],
+): Promise<ObjectId> {
+  const doc: AssetDoc = {
+    folder_id: new ObjectId(),
+    filename: `${Math.random().toString(36).slice(2, 8)}.jpg`,
+    abs_path: `/tmp/maple-test/${Math.random().toString(36).slice(2)}.jpg`,
+    size: 1024,
+    mtime: Date.now(),
+    rating: 0,
+    flag: 0,
+    color_label: "",
+    indexed_at: new Date().toISOString(),
+    faces,
+  };
+  const res = await db!.collection("assets").insertOne(doc as AssetDoc);
+  return res.insertedId;
+}
+
+async function get(path: string): Promise<{ status: number; body: unknown }> {
+  const res = await app!.handle(new Request(`http://localhost${path}`));
+  return { status: res.status, body: res.status === 204 ? null : await res.json() };
+}
+
+async function post(
+  path: string,
+  body?: Record<string, unknown>,
+): Promise<{ status: number; body: unknown }> {
+  const res = await app!.handle(
+    new Request(`http://localhost${path}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+    }),
+  );
+  return { status: res.status, body: res.status === 204 ? null : await res.json() };
+}
+
+async function put(
+  path: string,
+  body: Record<string, unknown>,
+): Promise<{ status: number; body: unknown }> {
+  const res = await app!.handle(
+    new Request(`http://localhost${path}`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+  );
+  return { status: res.status, body: res.status === 204 ? null : await res.json() };
+}
+
+async function del(path: string): Promise<{ status: number; body: unknown }> {
+  const res = await app!.handle(
+    new Request(`http://localhost${path}`, { method: "DELETE" }),
+  );
+  return { status: res.status, body: res.status === 204 ? null : await res.json() };
+}
+
+describe("POST /api/people", () => {
+  it("creates a person", async () => {
+    if (!mongoReachable) return;
+    const r = await post("/api/people", { name: "Alpha" });
+    expect(r.status).toBe(200);
+    expect((r.body as { name: string }).name).toBe("Alpha");
+  });
+
+  it("dedupes by name (case-insensitive)", async () => {
+    if (!mongoReachable) return;
+    const a = await post("/api/people", { name: "Beta" });
+    const b = await post("/api/people", { name: "beta" });
+    expect((a.body as { id: string }).id).toBe((b.body as { id: string }).id);
+  });
+
+  it("rejects empty name", async () => {
+    if (!mongoReachable) return;
+    const r = await post("/api/people", { name: "   " });
+    expect(r.status).toBe(400);
+  });
+});
+
+describe("PUT /api/people/:id", () => {
+  it("renames", async () => {
+    if (!mongoReachable) return;
+    const created = await post("/api/people", { name: "Gamma" });
+    const id = (created.body as { id: string }).id;
+    const r = await put(`/api/people/${id}`, { name: "Gam" });
+    expect(r.status).toBe(200);
+    expect((r.body as { name: string }).name).toBe("Gam");
+    expect((r.body as { merged_from: string | null }).merged_from).toBeNull();
+  });
+
+  it("merges on collision and reports merged_from", async () => {
+    if (!mongoReachable) return;
+    const a = await post("/api/people", { name: "Delta" });
+    const b = await post("/api/people", { name: "DeltaBis" });
+    const aId = (a.body as { id: string }).id;
+    const bId = (b.body as { id: string }).id;
+    // Rename b to "Delta" — collides with a.
+    const r = await put(`/api/people/${bId}`, { name: "Delta" });
+    expect(r.status).toBe(200);
+    const body = r.body as { id: string; merged_from: string | null };
+    expect(body.merged_from).not.toBeNull();
+    // Survivor must be the older _id (lexicographic).
+    const survivor = aId < bId ? aId : bId;
+    const orphan = aId < bId ? bId : aId;
+    expect(body.id).toBe(survivor);
+    expect(body.merged_from).toBe(orphan);
+  });
+
+  it("404 for unknown id", async () => {
+    if (!mongoReachable) return;
+    const r = await put(`/api/people/${new ObjectId().toHexString()}`, {
+      name: "Epsilon",
+    });
+    expect(r.status).toBe(404);
+  });
+
+  it("400 for malformed id", async () => {
+    if (!mongoReachable) return;
+    const r = await put(`/api/people/not-an-id`, { name: "Zeta" });
+    expect(r.status).toBe(400);
+  });
+});
+
+describe("GET /api/people", () => {
+  it("returns face counts and excludes merged people", async () => {
+    if (!mongoReachable) return;
+    const a = await post("/api/people", { name: "Helen" });
+    const b = await post("/api/people", { name: "Ivy" });
+    const aId = (a.body as { id: string }).id;
+    const bId = (b.body as { id: string }).id;
+    const asset = await insertAssetWithFaces([
+      { bbox: { x: 0, y: 0, w: 1, h: 1 }, person_id: aId, confidence: 0.9 },
+      { bbox: { x: 1, y: 0, w: 1, h: 1 }, person_id: aId, confidence: 0.9 },
+      { bbox: { x: 2, y: 0, w: 1, h: 1 }, person_id: bId, confidence: 0.9 },
+    ]);
+    expect(asset).toBeInstanceOf(ObjectId);
+    const r = await get("/api/people");
+    expect(r.status).toBe(200);
+    const list = r.body as Array<{ name: string; face_count: number }>;
+    expect(list).toHaveLength(2);
+    const helen = list.find((p) => p.name === "Helen");
+    const ivy = list.find((p) => p.name === "Ivy");
+    expect(helen?.face_count).toBe(2);
+    expect(ivy?.face_count).toBe(1);
+  });
+});
+
+describe("GET /api/people/:id", () => {
+  it("returns the person + recent faces", async () => {
+    if (!mongoReachable) return;
+    const created = await post("/api/people", { name: "Jack" });
+    const id = (created.body as { id: string }).id;
+    await insertAssetWithFaces([
+      { bbox: { x: 0, y: 0, w: 10, h: 10 }, person_id: id, confidence: 0.95 },
+    ]);
+    const r = await get(`/api/people/${id}`);
+    expect(r.status).toBe(200);
+    const body = r.body as {
+      faces: Array<{ asset_id: string; face_index: number; bbox: { w: number } }>;
+    };
+    expect(body.faces).toHaveLength(1);
+    expect(body.faces[0].face_index).toBe(0);
+    expect(body.faces[0].bbox.w).toBe(10);
+  });
+});
+
+describe("POST /api/people/cluster", () => {
+  it("assigns close faces to one cluster and creates new for far face", async () => {
+    if (!mongoReachable) return;
+    await insertAssetWithFaces([
+      { bbox: { x: 0, y: 0, w: 1, h: 1 }, person_id: null, confidence: 0.9, embedding: nearAxis(0, 0.05) },
+      { bbox: { x: 1, y: 0, w: 1, h: 1 }, person_id: null, confidence: 0.9, embedding: nearAxis(0, 0.1) },
+      { bbox: { x: 2, y: 0, w: 1, h: 1 }, person_id: null, confidence: 0.9, embedding: nearAxis(50, 0.05) },
+    ]);
+    const r = await post("/api/people/cluster", {});
+    expect(r.status).toBe(200);
+    const body = r.body as { assigned: number; new_people: number; scanned: number };
+    expect(body.assigned).toBe(3);
+    expect(body.new_people).toBe(2);
+    expect(body.scanned).toBe(3);
+  });
+});
+
+describe("POST /api/people/assign", () => {
+  it("assigns then unassigns a face", async () => {
+    if (!mongoReachable) return;
+    const created = await post("/api/people", { name: "Kate" });
+    const id = (created.body as { id: string }).id;
+    const asset = await insertAssetWithFaces([
+      { bbox: { x: 0, y: 0, w: 1, h: 1 }, person_id: null, confidence: 0.9 },
+    ]);
+    let r = await post("/api/people/assign", {
+      asset_id: asset.toHexString(),
+      face_index: 0,
+      person_id: id,
+    });
+    expect(r.status).toBe(200);
+    let row = await db!.collection<AssetDoc>("assets").findOne({ _id: asset });
+    expect(row?.faces?.[0]?.person_id).toBe(id);
+    r = await post("/api/people/assign", {
+      asset_id: asset.toHexString(),
+      face_index: 0,
+      person_id: null,
+    });
+    expect(r.status).toBe(200);
+    row = await db!.collection<AssetDoc>("assets").findOne({ _id: asset });
+    expect(row?.faces?.[0]?.person_id).toBeNull();
+  });
+});
+
+describe("DELETE /api/people/:id", () => {
+  it("re-points faces to null and removes the row", async () => {
+    if (!mongoReachable) return;
+    const created = await post("/api/people", { name: "Lex" });
+    const id = (created.body as { id: string }).id;
+    const asset = await insertAssetWithFaces([
+      { bbox: { x: 0, y: 0, w: 1, h: 1 }, person_id: id, confidence: 0.9 },
+    ]);
+    const r = await del(`/api/people/${id}`);
+    expect(r.status).toBe(204);
+    const row = await db!.collection<AssetDoc>("assets").findOne({ _id: asset });
+    expect(row?.faces?.[0]?.person_id).toBeNull();
+  });
+});

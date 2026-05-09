@@ -1,0 +1,423 @@
+/**
+ * People repository — CRUD + merge semantics for face-cluster identities.
+ *
+ * Naming rule: a person's `name` is unique under a case-insensitive
+ * collation. Tagging two clusters with the same name MERGES them: the
+ * destination keeps the survivor row, the source is marked
+ * `merged_into = survivor` (audit trail; hidden from listings), and every
+ * `asset.faces[].person_id` pointing at the source is repointed at the
+ * survivor. The DB-level unique index is the safety net — the merge logic
+ * here is what the route calls.
+ *
+ * No `any`. snake_case Mongo fields. Logging via the shared child logger.
+ */
+
+import {
+  ObjectId,
+  type Collection,
+  type WithId,
+  type Filter,
+} from "mongodb";
+import {
+  assetsCollection,
+  peopleCollection,
+} from "../db/client.ts";
+import type {
+  AssetDoc,
+  AssetFaceDoc,
+  PersonDoc,
+  PersonWithId,
+} from "../db/schema.ts";
+import { child as childLogger } from "../log.ts";
+
+const log = childLogger("people:repo");
+
+/** Result of `renamePerson`. When a collision triggers a merge the
+ * `mergedFrom` field reports the orphan id (the row whose faces were
+ * repointed at the survivor). */
+export interface RenameResult {
+  survivor: PersonWithId;
+  mergedFrom?: ObjectId;
+}
+
+/** Result of `listPeople({ withCounts: true })`. The face count is an
+ * aggregation over `assets.faces` filtered by `person_id`. */
+export interface PersonWithCount {
+  person: PersonWithId;
+  faceCount: number;
+}
+
+/** Options shared by the list endpoint. */
+export interface ListPeopleOptions {
+  /** When true, include a `faceCount` per person (one extra aggregation
+   * pipeline). Default true — the `/api/people` UI always renders
+   * counts. */
+  withCounts?: boolean;
+}
+
+/** Result of `getPerson()` with face thumbnails attached. */
+export interface PersonDetailFace {
+  asset_id: string;
+  face_index: number;
+  abs_path: string;
+  bbox: { x: number; y: number; w: number; h: number };
+  confidence: number;
+}
+
+export interface PersonDetail {
+  person: PersonWithId;
+  faces: PersonDetailFace[];
+}
+
+const FACE_DETAIL_LIMIT = 50;
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/** Case-insensitive name match. Mongo's collation = locale "en", strength 2
+ * gives us "Alice" === "alice" === "ALICE" while still matching the unique
+ * index in `ensureIndexes`. */
+async function findByNameCI(
+  coll: Collection<PersonDoc>,
+  name: string,
+): Promise<PersonWithId | null> {
+  return coll.findOne(
+    { name, merged_into: null } as Filter<PersonDoc>,
+    { collation: { locale: "en", strength: 2 } },
+  );
+}
+
+function nowIso(): string {
+  return new Date().toISOString();
+}
+
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
+
+/**
+ * Create a person with the given name. If a person with the same name
+ * (case-insensitive) already exists, return them — the call is idempotent
+ * for the operator's "type a name" UX.
+ *
+ * Throws on a blank name (defensive — the route validates first).
+ */
+export async function createPerson(name: string): Promise<PersonWithId> {
+  const trimmed = name.trim();
+  if (trimmed.length === 0) {
+    throw new Error("name must not be empty");
+  }
+  const coll = await peopleCollection();
+  const existing = await findByNameCI(coll, trimmed);
+  if (existing) return existing;
+  const doc: PersonDoc = {
+    name: trimmed,
+    created_at: nowIso(),
+    updated_at: nowIso(),
+    merged_into: null,
+  };
+  try {
+    const result = await coll.insertOne(doc as PersonDoc);
+    log.info({ id: result.insertedId.toHexString(), name: trimmed }, "created person");
+    return { ...doc, _id: result.insertedId } as PersonWithId;
+  } catch (err) {
+    // Race: another caller inserted the same name between our findOne and
+    // insertOne. Re-fetch and return the survivor.
+    const raced = await findByNameCI(coll, trimmed);
+    if (raced) return raced;
+    throw err;
+  }
+}
+
+/**
+ * Rename a person. If the new name collides with another (live) person,
+ * MERGE: every `asset.faces[].person_id` pointing at the source is
+ * repointed at the survivor, and the source row is marked
+ * `merged_into = survivor`. Returns `{ survivor, mergedFrom }` so callers
+ * can tell whether a merge happened.
+ *
+ * The survivor is determined by lexicographic ObjectId order — the older
+ * (smaller) `_id` wins. This makes the operation deterministic regardless
+ * of which side of the rename the operator triggered.
+ */
+export async function renamePerson(
+  id: ObjectId,
+  name: string,
+): Promise<RenameResult> {
+  const trimmed = name.trim();
+  if (trimmed.length === 0) {
+    throw new Error("name must not be empty");
+  }
+  const coll = await peopleCollection();
+  const subject = await coll.findOne({ _id: id });
+  if (!subject) {
+    throw new Error(`person not found: ${id.toHexString()}`);
+  }
+  if (subject.merged_into) {
+    throw new Error(`person already merged: ${id.toHexString()}`);
+  }
+  // Name unchanged (case-insensitive) — bump updated_at and return.
+  if (subject.name.localeCompare(trimmed, "en", { sensitivity: "accent" }) === 0) {
+    if (subject.name === trimmed) {
+      return { survivor: subject as PersonWithId };
+    }
+    await coll.updateOne(
+      { _id: id },
+      { $set: { name: trimmed, updated_at: nowIso() } },
+    );
+    return { survivor: { ...subject, name: trimmed } as PersonWithId };
+  }
+  const collision = await findByNameCI(coll, trimmed);
+  if (!collision) {
+    // No collision — straightforward rename.
+    await coll.updateOne(
+      { _id: id },
+      { $set: { name: trimmed, updated_at: nowIso() } },
+    );
+    return {
+      survivor: { ...subject, name: trimmed } as PersonWithId,
+    };
+  }
+  if (collision._id.equals(id)) {
+    // Pointing at ourselves (case-only rename hit the same row). Same as
+    // the "name unchanged" branch.
+    await coll.updateOne(
+      { _id: id },
+      { $set: { name: trimmed, updated_at: nowIso() } },
+    );
+    return { survivor: { ...subject, name: trimmed } as PersonWithId };
+  }
+  // Collision — merge. Older _id wins.
+  const survivor =
+    subject._id.toString() < collision._id.toString() ? subject : collision;
+  const orphan = survivor._id.equals(subject._id) ? collision : subject;
+  await mergeInto(survivor._id, orphan._id, trimmed);
+  // The survivor's stored name should match `trimmed`; both incoming
+  // names matched it case-insensitively. We canonicalise to the
+  // operator-supplied spelling.
+  const fresh = await coll.findOne({ _id: survivor._id });
+  if (!fresh) throw new Error("survivor disappeared mid-merge");
+  return { survivor: fresh as PersonWithId, mergedFrom: orphan._id };
+}
+
+/** Internal merge helper: repoint `asset.faces[].person_id` from `orphan`
+ * to `survivor`, then mark the orphan as `merged_into = survivor`. The
+ * survivor's name is canonicalised to `name` (operator spelling). */
+async function mergeInto(
+  survivor: ObjectId,
+  orphan: ObjectId,
+  name: string,
+): Promise<void> {
+  const survivorHex = survivor.toHexString();
+  const orphanHex = orphan.toHexString();
+  const assets = await assetsCollection();
+  const peopleC = await peopleCollection();
+  // Repoint faces. Faces are stored as a sub-array of objects; Mongo's
+  // arrayFilters lets us update every matching element in one pass per
+  // asset doc.
+  const repoint = await assets.updateMany(
+    { "faces.person_id": orphanHex },
+    {
+      $set: { "faces.$[face].person_id": survivorHex },
+    },
+    {
+      arrayFilters: [{ "face.person_id": orphanHex }],
+    },
+  );
+  // Mark the orphan as merged. Keep its name for audit (the partial unique
+  // index excludes merged rows).
+  await peopleC.updateOne(
+    { _id: orphan },
+    { $set: { merged_into: survivor, updated_at: nowIso() } },
+  );
+  // Canonicalise the survivor's name + bump updated_at. Centroid is now
+  // stale (more faces); the next clustering run will recompute.
+  await peopleC.updateOne(
+    { _id: survivor },
+    {
+      $set: {
+        name,
+        updated_at: nowIso(),
+        // Force a centroid recompute on the next pass.
+        centroid_face_count: -1,
+      },
+    },
+  );
+  log.info(
+    {
+      survivor: survivorHex,
+      orphan: orphanHex,
+      faces_repointed: repoint.modifiedCount,
+    },
+    "merged person",
+  );
+}
+
+/**
+ * List all live (non-merged) people. When `withCounts` is true, attach the
+ * face count per person — one aggregation that joins via `asset.faces`.
+ *
+ * Sorted by `name` ascending under the case-insensitive collation.
+ */
+export async function listPeople(
+  options: ListPeopleOptions = {},
+): Promise<PersonWithCount[]> {
+  const { withCounts = true } = options;
+  const coll = await peopleCollection();
+  const people = await coll
+    .find({ merged_into: null } as Filter<PersonDoc>)
+    .collation({ locale: "en", strength: 2 })
+    .sort({ name: 1 })
+    .toArray();
+  if (people.length === 0 || !withCounts) {
+    return people.map((p) => ({ person: p as PersonWithId, faceCount: 0 }));
+  }
+  const counts = await faceCountByPerson();
+  return people.map((p) => ({
+    person: p as PersonWithId,
+    faceCount: counts.get(p._id.toHexString()) ?? 0,
+  }));
+}
+
+/** Aggregation: count `asset.faces` grouped by `person_id`. Returns a map
+ * from hex person id to count. Excludes faces with no `person_id` (i.e.
+ * unassigned) and faces whose person was merged (their person_id was
+ * already repointed by `mergeInto`). */
+async function faceCountByPerson(): Promise<Map<string, number>> {
+  const assets = await assetsCollection();
+  const cursor = assets.aggregate<{ _id: string; count: number }>([
+    { $match: { faces: { $exists: true, $ne: [] } } },
+    { $unwind: "$faces" },
+    { $match: { "faces.person_id": { $ne: null } } },
+    { $group: { _id: "$faces.person_id", count: { $sum: 1 } } },
+  ]);
+  const out = new Map<string, number>();
+  for await (const row of cursor) {
+    if (typeof row._id === "string") out.set(row._id, row.count);
+  }
+  return out;
+}
+
+/** Single person + up to 50 face thumbnails (asset_id + face_index +
+ * bbox), most-recent first by `exif.captured_at`. */
+export async function getPerson(
+  id: ObjectId,
+  faceLimit: number = FACE_DETAIL_LIMIT,
+): Promise<PersonDetail | null> {
+  const coll = await peopleCollection();
+  const person = await coll.findOne({ _id: id });
+  if (!person) return null;
+  if (person.merged_into) return null;
+  const personHex = id.toHexString();
+  const assets = await assetsCollection();
+  // `$unwind ... includeArrayIndex` gives us the face's array index for
+  // free, which is exactly what the UI needs to point a "Move to..."
+  // dropdown back at the right element.
+  const cursor = assets.aggregate<{
+    _id: ObjectId;
+    abs_path: string;
+    face_index: number;
+    bbox: { x: number; y: number; w: number; h: number };
+    confidence: number;
+    captured_at: string | null;
+  }>([
+    { $match: { "faces.person_id": personHex } },
+    {
+      $unwind: { path: "$faces", includeArrayIndex: "face_index" },
+    },
+    { $match: { "faces.person_id": personHex } },
+    {
+      $project: {
+        abs_path: 1,
+        face_index: 1,
+        bbox: "$faces.bbox",
+        confidence: "$faces.confidence",
+        captured_at: { $ifNull: ["$exif.captured_at", null] },
+      },
+    },
+    { $sort: { captured_at: -1, _id: 1 } },
+    { $limit: faceLimit },
+  ]);
+  const faces: PersonDetailFace[] = [];
+  for await (const row of cursor) {
+    faces.push({
+      asset_id: row._id.toHexString(),
+      face_index: row.face_index,
+      abs_path: row.abs_path,
+      bbox: row.bbox,
+      confidence: row.confidence,
+    });
+  }
+  return { person: person as PersonWithId, faces };
+}
+
+/**
+ * Set the `person_id` for a single face on an asset. Pass `null` to
+ * unassign the face.
+ *
+ * This is the "manual override" path used when the operator drags a face
+ * to a different person (or unassigns it). Throws if the asset or face
+ * doesn't exist.
+ */
+export async function assignFaceToPerson(
+  assetId: ObjectId,
+  faceIndex: number,
+  personId: ObjectId | null,
+): Promise<void> {
+  if (!Number.isInteger(faceIndex) || faceIndex < 0) {
+    throw new Error(`invalid face index: ${faceIndex}`);
+  }
+  const assets = await assetsCollection();
+  const personHex = personId ? personId.toHexString() : null;
+  // Use the positional path with the index baked in. We can't use $set with
+  // a literal index on an array element if the path doesn't exist; verify
+  // first.
+  const asset = await assets.findOne(
+    { _id: assetId },
+    { projection: { faces: 1 } },
+  );
+  if (!asset) throw new Error(`asset not found: ${assetId.toHexString()}`);
+  const faces = (asset.faces ?? []) as AssetFaceDoc[];
+  if (faceIndex >= faces.length) {
+    throw new Error(
+      `face index out of range: ${faceIndex} (asset has ${faces.length} faces)`,
+    );
+  }
+  await assets.updateOne(
+    { _id: assetId },
+    { $set: { [`faces.${faceIndex}.person_id`]: personHex } },
+  );
+}
+
+/**
+ * Soft-delete: re-point every assigned face back to `null` and remove the
+ * person row. We keep the audit trail simple — operators can recreate the
+ * person and the next clustering run will recover from the embeddings.
+ */
+export async function deletePerson(id: ObjectId): Promise<void> {
+  const personHex = id.toHexString();
+  const assets = await assetsCollection();
+  await assets.updateMany(
+    { "faces.person_id": personHex },
+    { $set: { "faces.$[face].person_id": null } },
+    { arrayFilters: [{ "face.person_id": personHex }] },
+  );
+  const coll = await peopleCollection();
+  await coll.deleteOne({ _id: id });
+  log.info({ id: personHex }, "deleted person");
+}
+
+/**
+ * Returns the asset's `faces[]` array (typed). Helper used by the clustering
+ * job + tests; not exported to routes directly. Unused export removed for
+ * lint cleanliness.
+ */
+export async function readFaces(assetId: ObjectId): Promise<AssetFaceDoc[]> {
+  const assets = await assetsCollection();
+  const doc = (await assets.findOne(
+    { _id: assetId },
+    { projection: { faces: 1 } },
+  )) as WithId<AssetDoc> | null;
+  return (doc?.faces ?? []) as AssetFaceDoc[];
+}

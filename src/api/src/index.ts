@@ -46,6 +46,7 @@ import { searchRoutes } from "./routes/search.ts";
 import { jobsRoutes } from "./routes/jobs.ts";
 import { enrichmentRoutes } from "./routes/enrichment.ts";
 import { meilisearchBackfillRoutes } from "./routes/admin-backfill-meilisearch.ts";
+import { peopleRoutes } from "./routes/people.ts";
 import { requireAuth } from "./auth/middleware.ts";
 import { staticUiPlugin } from "./routes/static_ui.ts";
 import { getDb, ensureIndexes, closeDb } from "./db/client.ts";
@@ -198,7 +199,8 @@ const app = new Elysia()
       .use(searchRoutes)
       .use(jobsRoutes)
       .use(enrichmentRoutes)
-      .use(meilisearchBackfillRoutes),
+      .use(meilisearchBackfillRoutes)
+      .use(peopleRoutes),
   )
 
   // Static UI (catch-all — must be last so specific API routes match first).
