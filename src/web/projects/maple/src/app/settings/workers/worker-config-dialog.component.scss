@@ -1,0 +1,4 @@
+// Host is transparent — the overlay div inside takes full viewport coverage.
+:host {
+  display: contents;
+}
