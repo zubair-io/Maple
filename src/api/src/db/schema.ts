@@ -93,9 +93,202 @@ export interface AssetDoc {
   exif?: AssetExif | null;
   /** When this record was created (ISO string). */
   indexed_at: string;
+  /**
+   * Per-stage enrichment bookkeeping written by Phase 1's skeleton upsert and
+   * patched by Phase 2+ workers. Optional because rows that pre-date the
+   * skeleton schema may not have it; readers must default to "all stages
+   * pending" when absent. See `docs/indexer-enrichment.md` §1.1, §2.
+   */
+  enrichment?: Enrichment;
+  /** Reverse-geocoded place (Phase 2 geocode worker output). `null` until the
+   * worker has run, or permanently `null` for assets without GPS. */
+  place?: Place | null;
+  /** Face detections (Phase 5 face worker output). `[]` until the worker has run. */
+  faces?: AssetFaceDoc[];
+  /** LLM-generated caption (Phase 6 describe worker output). `null` until run. */
+  description?: string | null;
 }
 
 export type AssetWithId = WithId<AssetDoc>;
+
+// ---------------------------------------------------------------------------
+// Stage handler registry
+// ---------------------------------------------------------------------------
+
+/**
+ * Per-stage handler routing. One row per stage that is allowed to be routed
+ * to an external implementation. Today only `ai` is wired into the pipeline
+ * (see `pipeline.runAi`); other stages ignore any rows that target them.
+ *
+ * `impl` is `"builtin"` to use the in-process default, or `"http"` to dispatch
+ * the contract payload to an external endpoint (see
+ * `src/api/src/handler-registry/`). All fields are snake_case to match the
+ * rest of the schema.
+ */
+export interface StageHandlerDoc {
+  /** Stage name. Today only "ai" is honoured. */
+  stage: string;
+  /** Implementation kind. */
+  impl: "builtin" | "http";
+  /** Required when impl === "http". POSTed the contract input. */
+  url?: string;
+  /** Override transport timeout. Defaults to 30 000 ms when absent. */
+  timeout_ms?: number;
+  /** When false, treated as if the row did not exist. */
+  enabled: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// Enrichment subdocument — `docs/indexer-enrichment.md` §2
+// ---------------------------------------------------------------------------
+
+/**
+ * State carried per-stage on an asset. The fast pipeline seeds it with all
+ * fields nulled (`done_at: null`, etc.) when the skeleton row is inserted;
+ * Phase 2+ workers update it through their claim-and-complete loops.
+ */
+export interface EnrichmentStageState {
+  /** ISO timestamp when the stage completed; `null` while pending. */
+  done_at: string | null;
+  /** Worker id holding the claim; `null` when available. */
+  locked_by: string | null;
+  /** Lease expiry (ISO timestamp); a crashed worker's claim auto-releases. */
+  lease_expires_at: string | null;
+  /** Retry counter; incremented on each failure. */
+  attempts: number;
+  /** Last error message, for triage. */
+  last_error: string | null;
+  /** Handler version that produced the output. Bumping it triggers re-runs. */
+  version: number | null;
+  /** ISO timestamp when the stage exhausted retries; `null` until then. */
+  dead_letter_at: string | null;
+}
+
+export interface Enrichment {
+  geocode: EnrichmentStageState;
+  face: EnrichmentStageState;
+  describe: EnrichmentStageState;
+}
+
+// ---------------------------------------------------------------------------
+// Place — Phase 2 geocode worker output. Declared here so the type lives next
+// to the asset shape, even though it stays `null` until Phase 2.
+// `docs/indexer-enrichment.md` §4.4.
+// ---------------------------------------------------------------------------
+
+export interface PlaceAddress {
+  house_number?: string;
+  road?: string;
+  neighbourhood?: string;
+  suburb?: string;
+  city?: string;
+  town?: string;
+  village?: string;
+  county?: string;
+  state?: string;
+  /** Two-letter ISO 3166-2 subdivision code, e.g. "NY". */
+  state_code?: string;
+  postcode?: string;
+  country?: string;
+  /** Two-letter country code, lowercased, e.g. "us". */
+  country_code?: string;
+}
+
+export interface PlacePoi {
+  name: string;
+  /** OSM category, e.g. "tourism", "amenity". */
+  category: string;
+  /** OSM type within the category, e.g. "museum", "park". */
+  type: string;
+}
+
+export interface PlaceRollups {
+  locality: string | null;
+  region: string | null;
+  country_code: string | null;
+}
+
+export interface Place {
+  source: "nominatim";
+  geocoder_version: number;
+  geocoded_at: string;
+  lat: number;
+  lon: number;
+  display_name: string | null;
+  address: PlaceAddress;
+  pois: PlacePoi[];
+  rollups: PlaceRollups;
+  /** Denormalised text for full-text search (Phase 3). */
+  search_blob: string;
+}
+
+// ---------------------------------------------------------------------------
+// geocode_cache — Phase 2: quantised lat/lon → Place. Lets clustered photos
+// at one location share a single Nominatim API call.
+// `docs/indexer-enrichment.md` §4.3.
+// ---------------------------------------------------------------------------
+
+export interface GeocodeCacheDoc {
+  /** Quantised key, e.g. `"lat:42.6526,lon:-73.7562"` (4 decimal places). */
+  _id: string;
+  place: Place;
+  fetched_at: Date;
+  geocoder_version: number;
+}
+
+// ---------------------------------------------------------------------------
+// Face document — written by the Phase 5 face worker. Re-exported as
+// `AssetFace` from `indexer/images.repo.ts` for the indexer-side callers.
+// ---------------------------------------------------------------------------
+
+export interface AssetFaceDoc {
+  bbox: { x: number; y: number; w: number; h: number };
+  person_id: string | null;
+  confidence: number;
+  embedding?: number[];
+}
+
+/**
+ * Default empty state for one enrichment stage. The fast pipeline's skeleton
+ * upsert seeds every stage with this shape on insert; readers fall back to it
+ * when an old row pre-dates the `enrichment` subdocument.
+ */
+export function pendingStageState(): EnrichmentStageState {
+  return {
+    done_at: null,
+    locked_by: null,
+    lease_expires_at: null,
+    attempts: 0,
+    last_error: null,
+    version: null,
+    dead_letter_at: null,
+  };
+}
+
+/** Default skeleton for the enrichment subdocument: all stages pending. */
+export function pendingEnrichment(): Enrichment {
+  return {
+    geocode: pendingStageState(),
+    face: pendingStageState(),
+    describe: pendingStageState(),
+  };
+}
+
+/**
+ * Read-side normaliser: returns an `Enrichment` object even when the stored
+ * doc has a missing/partial `enrichment` field. Per-stage fields default to
+ * the same pending shape that the writer uses on insert, so old rows look
+ * indistinguishable from freshly-skeletoned ones.
+ */
+export function normaliseEnrichment(
+  raw: Partial<Enrichment> | undefined | null,
+): Enrichment {
+  return {
+    geocode: { ...pendingStageState(), ...(raw?.geocode ?? {}) },
+    face: { ...pendingStageState(), ...(raw?.face ?? {}) },
+    describe: { ...pendingStageState(), ...(raw?.describe ?? {}) },
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Indexer queue task
@@ -116,6 +309,54 @@ export interface IndexerTaskDoc {
 }
 
 export type IndexerTaskWithId = WithId<IndexerTaskDoc>;
+
+// ---------------------------------------------------------------------------
+// JobRunner — sibling subsystem to the indexer pipeline for user-triggered
+// long-running work (export, batch reprocess, …). See
+// `docs/workers-architecture.md` §9, §11. Persisted job documents with
+// progress reporting, atomic claim-and-lease (mirrors the geocode worker),
+// and cooperative cancellation.
+// ---------------------------------------------------------------------------
+
+/** Job kinds the runner knows how to dispatch. Add new kinds by extending
+ * this union and registering a handler in `job-runner/handlers/index.ts`. */
+export type JobKind = "batch_jpeg_export";
+
+/** Lifecycle: queued → running → (done | failed | cancelled).
+ * `cancelled` is set when a running job observes `cancel_requested` between
+ * progress steps and exits cleanly. */
+export type JobStatus =
+  | "queued"
+  | "running"
+  | "done"
+  | "failed"
+  | "cancelled";
+
+export interface JobDoc {
+  kind: JobKind;
+  status: JobStatus;
+  /** Job-specific input. Schema is per-kind and validated by the handler. */
+  payload: Record<string, unknown>;
+  /** Coarse progress tick. `total` is set by the handler on first
+   * progress report; renderers may show indeterminate state until then. */
+  progress: { current: number; total: number };
+  /** Populated on `done`. Shape is per-kind. */
+  result: Record<string, unknown> | null;
+  /** Last error message when status === "failed". */
+  error: string | null;
+  /** Worker id holding the claim; null when available. */
+  locked_by: string | null;
+  /** Lease expiry (ISO timestamp). A crashed worker's claim auto-releases
+   * once `now() > lease_expires_at` so a sibling instance can re-claim. */
+  lease_expires_at: string | null;
+  /** Cancellation flag. Routes flip this; the handler observes it between
+   * progress steps and exits cleanly. */
+  cancel_requested: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export type JobWithId = WithId<JobDoc>;
 
 // ---------------------------------------------------------------------------
 // User

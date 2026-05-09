@@ -12,16 +12,22 @@ import {
   type Collection,
   ServerApiVersion,
 } from "mongodb";
+import { child as childLogger } from "../log.ts";
 import type {
   FolderDoc,
   AssetDoc,
+  GeocodeCacheDoc,
   IndexerTaskDoc,
+  JobDoc,
+  StageHandlerDoc,
   UserDoc,
   CredentialDoc,
   InviteDoc,
   RefreshTokenDoc,
   ChallengeDoc,
 } from "./schema.ts";
+
+const log = childLogger("db");
 
 // Singleton client; created once on first call to getDb().
 let _client: MongoClient | null = null;
@@ -58,7 +64,7 @@ export async function getDb(): Promise<Db> {
       await client.connect();
       // Ping to verify the connection is live.
       await client.db("admin").command({ ping: 1 });
-      console.log("[db] connected to MongoDB at", uri);
+      log.info({ uri }, "connected to MongoDB");
       _client = client;
       _db = client.db(dbName);
       return _db;
@@ -89,10 +95,26 @@ export async function assetsCollection(): Promise<Collection<AssetDoc>> {
   return (await getDb()).collection<AssetDoc>("assets");
 }
 
+export async function geocodeCacheCollection(): Promise<
+  Collection<GeocodeCacheDoc>
+> {
+  return (await getDb()).collection<GeocodeCacheDoc>("geocode_cache");
+}
+
 export async function indexerQueueCollection(): Promise<
   Collection<IndexerTaskDoc>
 > {
   return (await getDb()).collection<IndexerTaskDoc>("indexer_queue");
+}
+
+export async function jobsCollection(): Promise<Collection<JobDoc>> {
+  return (await getDb()).collection<JobDoc>("jobs");
+}
+
+export async function stageHandlersCollection(): Promise<
+  Collection<StageHandlerDoc>
+> {
+  return (await getDb()).collection<StageHandlerDoc>("stage_handlers");
 }
 
 export async function usersCollection(): Promise<Collection<UserDoc>> {
@@ -163,17 +185,18 @@ export async function ensureIndexes(): Promise<void> {
       ],
     );
     if (res.modifiedCount > 0) {
-      console.log(
-        `[db] backfilled exif.captured_year/month for ${res.modifiedCount} rows`,
+      log.info(
+        { rows: res.modifiedCount },
+        "backfilled exif.captured_year/month",
       );
     }
   } catch (err) {
     // Log + continue — the index build below still works against rows
     // that have year/month from the indexer's per-file path, the perf
     // win just won't apply to legacy rows until they're re-indexed.
-    console.warn(
-      "[db] captured_year/month backfill skipped:",
-      err instanceof Error ? err.message : err,
+    log.warn(
+      { err: err instanceof Error ? err.message : err },
+      "captured_year/month backfill skipped",
     );
   }
 
@@ -246,6 +269,47 @@ export async function ensureIndexes(): Promise<void> {
   // indexer_queue: status for fast pending-task lookups
   await db.collection("indexer_queue").createIndex({ status: 1 });
 
+  // jobs (JobRunner) — claim filter is
+  //   { status: "queued",
+  //     $or: [ {locked_by: null}, {lease_expires_at: { $lt: now }} ] }
+  // Also list-by-status for the GET /api/jobs route. The compound index
+  // covers status + lease_expires_at; the kind/created_at index keeps the
+  // list view stable when callers filter by kind.
+  await db
+    .collection("jobs")
+    .createIndex(
+      { status: 1, lease_expires_at: 1 },
+      { name: "jobs_claim" },
+    );
+  await db
+    .collection("jobs")
+    .createIndex(
+      { kind: 1, status: 1, created_at: -1 },
+      { name: "jobs_list" },
+    );
+
+  // Geocode worker — claim query is:
+  //   { exif.gps.lat: $ne null, enrichment.geocode.done_at: null,
+  //     $or: [ {locked_by: null}, {lease_expires_at: { $lt: now }} ] }
+  // The compound index covers the equality + range portion; sort by
+  // captured_at takes the existing exif.captured_at index.
+  // `docs/indexer-enrichment.md` §3.1.
+  await db.collection("assets").createIndex(
+    {
+      "exif.gps.lat": 1,
+      "enrichment.geocode.done_at": 1,
+      "enrichment.geocode.locked_by": 1,
+    },
+    { name: "geocode_claim", sparse: true },
+  );
+
+  // geocode_cache: documents are keyed by quantised lat/lon so the _id is
+  // already a unique index. Add a covering index on geocoder_version so the
+  // §7.3 versioned-rerun bulk update can find stale entries quickly.
+  await db
+    .collection("geocode_cache")
+    .createIndex({ geocoder_version: 1 }, { name: "geocoder_version" });
+
   const users = await usersCollection();
   try {
     await users.dropIndex("email_1");
@@ -277,7 +341,7 @@ export async function ensureIndexes(): Promise<void> {
   const challenges = await challengesCollection();
   await challenges.createIndex({ expires_at: 1 }, { expireAfterSeconds: 0 });
 
-  console.log("[db] indexes ensured");
+  log.info("indexes ensured");
 }
 
 /** Gracefully close the connection (call on server shutdown). */
@@ -287,6 +351,6 @@ export async function closeDb(): Promise<void> {
     _client = null;
     _db = null;
     _connectPromise = null;
-    console.log("[db] connection closed");
+    log.info("connection closed");
   }
 }

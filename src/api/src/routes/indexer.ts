@@ -129,6 +129,12 @@ export const indexerRoutes = new Elysia({ prefix: "/api/indexer" })
   .post("/pause", ({ request }) => proxy(request, "/pause"))
   .post("/resume", ({ request }) => proxy(request, "/resume"))
   .get("/dead-letter", ({ request }) => proxy(request, "/dead-letter"))
+  .get("/dead-letter/groups", ({ request }) =>
+    proxy(request, "/dead-letter/groups"),
+  )
+  .post("/dead-letter/reset", ({ request }) =>
+    proxy(request, "/dead-letter/reset"),
+  )
   .post("/exif-backfill", ({ request }) => proxy(request, "/exif-backfill"))
   .post("/enqueue", ({ request }) => proxy(request, "/enqueue"))
 

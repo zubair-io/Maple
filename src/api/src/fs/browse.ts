@@ -12,6 +12,9 @@ import type { OpResult } from "./root.ts";
 import { assetsCollection, foldersCollection } from "../db/client.ts";
 import type { AssetExif } from "../db/schema.ts";
 import { targetUrl } from "../indexer/control.ts";
+import { child as childLogger } from "../log.ts";
+
+const log = childLogger("fs/browse");
 
 export interface DirEntry {
   name: string;
@@ -310,7 +313,10 @@ export async function listDirContents(
       }
     } catch (err) {
       // EXIF enrichment is best-effort — a DB hiccup shouldn't break browse.
-      console.error(`[fs/browse] exif lookup failed for "${real}":`, err);
+      log.error(
+        { real, err: err instanceof Error ? err.message : err },
+        "exif lookup failed",
+      );
     }
   }
 
@@ -325,9 +331,9 @@ export async function listDirContents(
       .map((i) => i.path);
     if (unindexed.length > 0) {
       void enqueueBrowseIndex(real, unindexed).catch((err) =>
-        console.warn(
-          `[fs/browse] enqueue browse index for "${real}" failed:`,
-          err instanceof Error ? err.message : err,
+        log.warn(
+          { real, err: err instanceof Error ? err.message : err },
+          "enqueue browse index failed",
         ),
       );
     }
@@ -391,9 +397,9 @@ async function enqueueBrowseIndex(
   } catch (err) {
     // Indexer down or unreachable — the watcher will pick this up later
     // when the folder is registered or scanned again. No retry here.
-    console.warn(
-      `[fs/browse] indexer enqueue failed for "${dirPath}":`,
-      err instanceof Error ? err.message : err,
+    log.warn(
+      { dirPath, err: err instanceof Error ? err.message : err },
+      "indexer enqueue failed",
     );
   }
 }

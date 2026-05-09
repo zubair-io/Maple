@@ -27,7 +27,13 @@ import { sha1 } from "@noble/hashes/legacy.js";
 import * as images from "./images.repo.ts";
 import { recordDeadLetter } from "./indexer.repo.ts";
 import { cachePathFor } from "../fs/xmp.ts";
+import { child as childLogger } from "../log.ts";
 import type { AssetExif } from "../db/schema.ts";
+import { resolve as resolveHandler } from "../handler-registry/registry.ts";
+import { dispatchAi } from "../handler-registry/http-transport.ts";
+import { CONTRACT_VERSION } from "../handler-registry/contract.ts";
+
+const log = childLogger("indexer:pipeline");
 
 export type JobKind = "index" | "remove" | "rename";
 
@@ -127,6 +133,11 @@ async function defaultUpsert(job: PipelineJob): Promise<void> {
   if (!job.mapleId || !job.sha1Head || job.size === undefined || job.mtime === undefined) {
     throw new Error("[pipeline] mongo stage missing fields");
   }
+  // Phase 1 skeleton upsert: the fast tier writes only fast-tier fields. The
+  // enrichment outputs (`faces`, `place`, `description`) are seeded on insert
+  // by `upsertByMapleId` and only ever written by Phase 2+ workers afterwards.
+  // `job.faces` / `job.aiTags` remain on the PipelineJob shape (Phase 2's diff
+  // is cleaner with them in place) but are no longer persisted from this stage.
   await images.upsertByMapleId({
     folderId: new ObjectId(job.folderId),
     filename: pathMod.basename(job.absPath),
@@ -135,8 +146,6 @@ async function defaultUpsert(job: PipelineJob): Promise<void> {
     mtime: job.mtime,
     mapleId: job.mapleId,
     sha1Head: job.sha1Head,
-    faces: job.faces ?? [],
-    aiTags: job.aiTags ?? [],
     // exif may be undefined (handler unwired in tests) or null (parse failure).
     // Pass the exact value through so the upsert can decide whether to write it.
     exif: job.exif,
@@ -507,24 +516,48 @@ export class Pipeline {
   }
 
   private async runAi(job: PipelineJob): Promise<void> {
+    // Test override always wins — keeps the existing pipeline tests working
+    // without touching the handler registry collection.
     const h = this.handlers.runAi;
-    if (h) await h(job);
+    if (h) {
+      await h(job);
+    } else if (job.kind === "index" && job.mapleId) {
+      // Consult the registry to see if this stage is routed to an external
+      // implementation. The lookup is cached after the first call, so this
+      // is a Map hit on the hot path.
+      const resolved = await resolveHandler("ai");
+      if (resolved.impl === "http" && resolved.url) {
+        const out = await dispatchAi(
+          {
+            contractVersion: CONTRACT_VERSION,
+            stage: "ai",
+            mapleId: job.mapleId,
+            absPath: job.absPath,
+            exif: job.exif ?? null,
+          },
+          { url: resolved.url, timeoutMs: resolved.timeoutMs ?? undefined },
+        );
+        job.faces = out.faces;
+        job.aiTags = out.aiTags;
+      }
+    }
     // Pass-through today: empty arrays keep the downstream schema stable so
     // consumers can index `faces.personId` even while detection is stubbed.
     // TODO(T7-ai-onnx): swap `[]` for ONNX RetinaFace + MobileFaceNet output.
     job.faces = job.faces ?? [];
     job.aiTags = job.aiTags ?? [];
-    // TODO(T7-logger): replace console.debug with pino once a logger is wired.
-    if (process.env.MAPLE_INDEXER_VERBOSE === "1") console.debug(
-      JSON.stringify({
-        stage: "ai",
-        id: job.mapleId ?? null,
-        absPath: job.absPath,
-        faces: job.faces.length,
-        aiTags: job.aiTags.length,
-        msg: "pass-through",
-      })
-    );
+    if (process.env.MAPLE_INDEXER_VERBOSE === "1") {
+      log.debug(
+        {
+          stage: "ai",
+          id: job.mapleId ?? null,
+          absPath: job.absPath,
+          faces: job.faces.length,
+          aiTags: job.aiTags.length,
+        },
+        "pass-through",
+      );
+    }
     await this.channels.mongo.push(job);
   }
 
@@ -547,14 +580,15 @@ export class Pipeline {
           } catch (e) {
             const code = (e as NodeJS.ErrnoException).code;
             if (code !== "ENOENT") {
-              console.warn(
-                JSON.stringify({
+              log.warn(
+                {
                   stage: "mongo",
                   id: job.mapleId,
                   file,
                   action: "rename-orphan-unlink-failed",
                   error: e instanceof Error ? e.message : String(e),
-                })
+                },
+                "rename-orphan-unlink-failed",
               );
             }
           }
@@ -582,7 +616,10 @@ async function withRetry(
       attempt++;
       const err = e instanceof Error ? e : new Error(String(e));
       if (attempt >= MAX_ATTEMPTS) {
-        console.error(`[pipeline:${stage}] giving up on ${job.absPath}:`, err.message);
+        log.error(
+          { stage, absPath: job.absPath, err: err.message },
+          "giving up",
+        );
         onDeadLetter(err);
         return;
       }

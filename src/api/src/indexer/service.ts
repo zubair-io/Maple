@@ -35,6 +35,9 @@ import { assetsCollection, foldersCollection } from "../db/client.ts";
 import { cachePathFor } from "../fs/xmp.ts";
 import { backfillAssetExif } from "./exif.ts";
 import { generateThumb } from "./thumbnailer.ts";
+import { child as childLogger } from "../log.ts";
+
+const log = childLogger("indexer");
 
 export const SUPPORTED_EXTS = new Set([
   ".dng", ".cr2", ".cr3", ".nef", ".arw", ".raf", ".orf", ".rw2",
@@ -95,9 +98,9 @@ export class IndexerService {
       await ensureCheckpointIndexes();
       await ensureIndexerIndexes();
     } catch (e) {
-      console.warn(
-        "[indexer] could not ensure indexes (DB offline?):",
-        e instanceof Error ? e.message : e
+      log.warn(
+        { err: e instanceof Error ? e.message : e },
+        "could not ensure indexes (DB offline?)",
       );
     }
 
@@ -112,10 +115,10 @@ export class IndexerService {
     // without blocking sign-in.
     if (process.env.MAPLE_EXIF_BACKFILL_ON_START === "1") {
       this.runExifBackfill().catch((e) =>
-        console.warn(
-          "[indexer] EXIF backfill error:",
-          e instanceof Error ? e.message : e
-        )
+        log.warn(
+          { err: e instanceof Error ? e.message : e },
+          "EXIF backfill error",
+        ),
       );
     }
 
@@ -128,12 +131,12 @@ export class IndexerService {
         for (const [stage, count] of Object.entries(saved)) {
           if (count !== undefined) this.pipeline.setPool(stage as Stage, count);
         }
-        console.log(`[indexer] restored worker config: ${JSON.stringify(saved)}`);
+        log.info({ saved }, "restored worker config");
       }
     } catch (e) {
-      console.warn(
-        "[indexer] failed to load worker config:",
-        e instanceof Error ? e.message : e
+      log.warn(
+        { err: e instanceof Error ? e.message : e },
+        "failed to load worker config",
       );
     }
 
@@ -145,9 +148,9 @@ export class IndexerService {
         await this.watchFolder(f._id.toHexString(), f.path);
       }
     } catch (e) {
-      console.warn(
-        "[indexer] skipping watcher setup (DB offline?):",
-        e instanceof Error ? e.message : e
+      log.warn(
+        { err: e instanceof Error ? e.message : e },
+        "skipping watcher setup (DB offline?)",
       );
     }
 
@@ -156,7 +159,10 @@ export class IndexerService {
     // GC sweep once an hour.
     this.gcTimer = setInterval(() => {
       this.runGc().catch((e) =>
-        console.warn("[indexer] GC sweep error:", e instanceof Error ? e.message : e)
+        log.warn(
+          { err: e instanceof Error ? e.message : e },
+          "GC sweep error",
+        ),
       );
     }, GC_INTERVAL_MS);
   }
@@ -209,9 +215,9 @@ export class IndexerService {
     try {
       await saveWorkerConfig(applied);
     } catch (e) {
-      console.warn(
-        "[indexer] failed to persist worker config:",
-        e instanceof Error ? e.message : e
+      log.warn(
+        { err: e instanceof Error ? e.message : e },
+        "failed to persist worker config",
       );
     }
   }
@@ -243,10 +249,10 @@ export class IndexerService {
           needsWalk = true;
         }
       }
-      console.log(`[indexer] watch ${folderPath}: walk=${needsWalk}`);
+      log.info({ folderPath, needsWalk }, "watch");
       if (needsWalk) {
         const enqueued = await this.walkOnce(folderId, folderPath);
-        console.log(`[indexer] walk ${folderPath}: enqueued ${enqueued} files`);
+        log.info({ folderPath, enqueued }, "walk");
         await writeCheckpoint({
           folderId,
           path: folderPath,
@@ -256,9 +262,9 @@ export class IndexerService {
         });
       }
     } catch (e) {
-      console.warn(
-        "[indexer] checkpoint resume failed:",
-        e instanceof Error ? e.message : e
+      log.warn(
+        { err: e instanceof Error ? e.message : e },
+        "checkpoint resume failed",
       );
     }
 
@@ -363,9 +369,9 @@ export class IndexerService {
     try {
       await this.pipeline.channels.discover.push(job);
     } catch (e) {
-      console.warn(
-        "[indexer] failed to enqueue job:",
-        e instanceof Error ? e.message : e
+      log.warn(
+        { err: e instanceof Error ? e.message : e },
+        "failed to enqueue job",
       );
     }
   }
@@ -480,18 +486,25 @@ export class IndexerService {
           const ok = await backfillAssetExif(doc.abs_path);
           if (ok) this.backfillProgress.upgraded++;
         } catch (e) {
-          console.warn(
-            "[indexer] backfill failed for",
-            doc.abs_path,
-            e instanceof Error ? e.message : e
+          log.warn(
+            {
+              absPath: doc.abs_path,
+              err: e instanceof Error ? e.message : e,
+            },
+            "backfill failed",
           );
         }
         if (
           this.backfillProgress.upgraded > 0 &&
           this.backfillProgress.upgraded % 100 === 0
         ) {
-          console.log(
-            `[indexer] EXIF backfill progress: ${this.backfillProgress.upgraded}/${this.backfillProgress.scanned} upgraded (limit ${limit})`
+          log.info(
+            {
+              upgraded: this.backfillProgress.upgraded,
+              scanned: this.backfillProgress.scanned,
+              limit,
+            },
+            "EXIF backfill progress",
           );
         }
         // Yield to the event loop between rows so an in-flight HTTP request
@@ -501,8 +514,12 @@ export class IndexerService {
         await new Promise<void>((resolve) => setImmediate(resolve));
       }
       if (this.backfillProgress.scanned > 0) {
-        console.log(
-          `[indexer] EXIF backfill done: ${this.backfillProgress.upgraded}/${this.backfillProgress.scanned} rows upgraded`
+        log.info(
+          {
+            upgraded: this.backfillProgress.upgraded,
+            scanned: this.backfillProgress.scanned,
+          },
+          "EXIF backfill done",
         );
       }
     } catch (e) {
@@ -528,14 +545,15 @@ export class IndexerService {
     try {
       await fs.access(pathMod.dirname(assetAbsPath));
     } catch (e) {
-      console.warn(
-        JSON.stringify({
+      log.warn(
+        {
           stage: "gc",
           id,
           absPath: assetAbsPath,
           action: "gc-unreachable",
           error: e instanceof Error ? e.message : String(e),
-        })
+        },
+        "gc-unreachable",
       );
       return;
     }
@@ -543,20 +561,22 @@ export class IndexerService {
       const file = cachePathFor(assetAbsPath, kind);
       try {
         await fs.unlink(file);
-        console.log(
-          JSON.stringify({ stage: "gc", id, file, action: "gc-unlink" })
+        log.info(
+          { stage: "gc", id, file, action: "gc-unlink" },
+          "gc-unlink",
         );
       } catch (e) {
         const code = (e as NodeJS.ErrnoException).code;
         if (code === "ENOENT") continue; // already gone
-        console.warn(
-          JSON.stringify({
+        log.warn(
+          {
             stage: "gc",
             id,
             file,
             action: "gc-unlink-failed",
             error: e instanceof Error ? e.message : String(e),
-          })
+          },
+          "gc-unlink-failed",
         );
       }
     }
@@ -584,7 +604,7 @@ export function getIndexerService(): IndexerService {
     _instance = new IndexerService({
       generateThumb: (job) => generateThumb(job.absPath),
     });
-    console.log("[indexer] singleton constructed — handlers wired: generateThumb");
+    log.info("singleton constructed — handlers wired: generateThumb");
   }
   return _instance;
 }

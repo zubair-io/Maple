@@ -16,6 +16,9 @@
 import * as path from "node:path";
 import * as fs from "node:fs/promises";
 import { Elysia } from "elysia";
+import { child as childLogger } from "../log.ts";
+
+const log = childLogger("static");
 
 const IS_DEV = process.env.MAPLE_DEV === "1";
 const DEV_ORIGIN = process.env.MAPLE_DEV_ORIGIN ?? "http://localhost:4201";
@@ -119,12 +122,12 @@ export const staticUiPlugin = new Elysia()
     // In dev mode: proxy to Angular dev server.
     if (IS_DEV) {
       const target = DEV_ORIGIN + uiPath + (url.search ?? "");
-      console.debug(`[static] DEV proxy → ${target}`);
+      log.debug({ target }, "DEV proxy");
       const proxyResp = await fetch(target, {
         method: request.method,
         headers: Object.fromEntries(request.headers),
       }).catch((e) => {
-        console.error("[static] dev proxy error:", e.message);
+        log.error({ err: e.message }, "dev proxy error");
         return null;
       });
       if (!proxyResp) {
@@ -179,10 +182,10 @@ async function checkDist(): Promise<boolean> {
   try {
     await fs.access(path.join(UI_DIST, "index.html"));
     _distExists = true;
-    console.log("[static] UI dist found at", UI_DIST);
+    log.info({ uiDist: UI_DIST }, "UI dist found");
   } catch {
     _distExists = false;
-    console.warn("[static] UI dist NOT found at", UI_DIST);
+    log.warn({ uiDist: UI_DIST }, "UI dist NOT found");
   }
   return _distExists;
 }

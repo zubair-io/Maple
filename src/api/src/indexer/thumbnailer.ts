@@ -24,6 +24,9 @@ import * as fs from "node:fs/promises";
 import { resolveThumbPath } from "../fs/xmp.ts";
 import { ffiPool } from "../ffi/ffi-pool.ts";
 import { renderImageThumbToFile, SHARP_EXTENSIONS } from "../thumbs/render.ts";
+import { child as childLogger } from "../log.ts";
+
+const log = childLogger("thumbnailer");
 
 const RAW_EXTS = new Set([
   ".dng",
@@ -58,7 +61,10 @@ export async function generateThumb(absPath: string): Promise<void> {
     await fs.mkdir(path.dirname(thumbPath), { recursive: true });
   } catch (e) {
     _failed++;
-    console.warn(`[thumbnailer] mkdir failed for ${thumbPath}: ${e instanceof Error ? e.message : e}`);
+    log.warn(
+      { thumbPath, err: e instanceof Error ? e.message : e },
+      "mkdir failed",
+    );
     logTotals();
     return;
   }
@@ -95,7 +101,7 @@ export async function generateThumb(absPath: string): Promise<void> {
     _rendered++;
   } else {
     _failed++;
-    console.warn(`[thumbnailer] failed ${absPath}`);
+    log.warn({ absPath }, "failed");
   }
   logTotals();
 }
@@ -103,7 +109,10 @@ export async function generateThumb(absPath: string): Promise<void> {
 function logTotals(): void {
   const total = _rendered + _cached + _failed;
   if (total > 0 && total % 500 === 0) {
-    console.log(`[thumbnailer] ${_rendered} rendered, ${_cached} cached, ${_failed} failed`);
+    log.info(
+      { rendered: _rendered, cached: _cached, failed: _failed },
+      "totals",
+    );
   }
 }
 
@@ -116,9 +125,8 @@ async function renderRawThumbToFile(
 ): Promise<boolean> {
   const pool = ffiPool();
   if (!pool.available()) {
-    console.warn(
-      "[thumbnailer] raw-ffi not available — RAW thumb generation deferred. " +
-        "Build libraw_ffi.dylib with scripts/build-raw-ffi.sh.",
+    log.warn(
+      "raw-ffi not available — RAW thumb generation deferred. Build libraw_ffi.dylib with scripts/build-raw-ffi.sh.",
     );
     return false;
   }
@@ -130,10 +138,9 @@ async function renderRawThumbToFile(
       82,
     );
   } catch (e) {
-    console.warn(
-      "[thumbnailer] FFI call threw for",
-      rawPath,
-      e instanceof Error ? e.message : e,
+    log.warn(
+      { rawPath, err: e instanceof Error ? e.message : e },
+      "FFI call threw",
     );
     return false;
   }
@@ -158,10 +165,9 @@ async function renderBitmapThumbToFile(
       ext,
     );
   } catch (e) {
-    console.warn(
-      "[thumbnailer] sharp render failed for",
-      srcPath,
-      e instanceof Error ? e.message : e,
+    log.warn(
+      { srcPath, err: e instanceof Error ? e.message : e },
+      "sharp render failed",
     );
     return false;
   }
@@ -180,10 +186,9 @@ async function copyImageAsThumb(
     await fs.copyFile(srcPath, thumbPath);
     return true;
   } catch (e) {
-    console.warn(
-      "[thumbnailer] copy failed for",
-      srcPath,
-      e instanceof Error ? e.message : e,
+    log.warn(
+      { srcPath, err: e instanceof Error ? e.message : e },
+      "copy failed",
     );
     return false;
   }

@@ -59,3 +59,96 @@ export async function listDeadLetter(limit = 200): Promise<DeadLetterDoc[]> {
   const coll = await deadLetterCollection();
   return coll.find({}).sort({ lastFailedAt: -1 }).limit(limit).toArray();
 }
+
+/**
+ * Paginated dead-letter list with optional `stage` and `errorPrefix` filters.
+ * Sorted by `lastFailedAt` desc (most recent failure first). `errorPrefix`
+ * is a literal prefix match (escaped before being fed to a regex).
+ */
+export async function filterDeadLetter(input: {
+  stage?: Stage;
+  errorPrefix?: string;
+  limit?: number;
+}): Promise<DeadLetterDoc[]> {
+  const coll = await deadLetterCollection();
+  const limit = Math.min(1000, Math.max(1, input.limit ?? 200));
+
+  const filter: Record<string, unknown> = {};
+  if (input.stage) filter.stage = input.stage;
+  if (input.errorPrefix && input.errorPrefix.length > 0) {
+    // Escape regex metacharacters so callers can pass plain strings like
+    // "ENOENT:" or "/Users/riabuz/..." without surprises.
+    const escaped = input.errorPrefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    filter.error = { $regex: `^${escaped}` };
+  }
+
+  return coll.find(filter).sort({ lastFailedAt: -1 }).limit(limit).toArray();
+}
+
+/** One row of `groupDeadLetterByError` output. */
+export interface DeadLetterGroup {
+  stage: Stage;
+  errorClass: string;
+  count: number;
+  latestTs: string;
+}
+
+/**
+ * `$group` aggregation that clusters dead-letter rows by `stage` plus the
+ * first 80 chars of `error`. Many failures with the same error message
+ * collapse into one row, sorted by count desc. Used by the triage UI to
+ * spot patterns in a sea of identical errors.
+ */
+export async function groupDeadLetterByError(): Promise<DeadLetterGroup[]> {
+  const coll = await deadLetterCollection();
+  const pipeline = [
+    {
+      $project: {
+        stage: 1,
+        errorClass: { $substrCP: ["$error", 0, 80] },
+        lastFailedAt: 1,
+      },
+    },
+    {
+      $group: {
+        _id: { stage: "$stage", errorClass: "$errorClass" },
+        count: { $sum: 1 },
+        latestTs: { $max: "$lastFailedAt" },
+      },
+    },
+    {
+      $project: {
+        _id: 0,
+        stage: "$_id.stage",
+        errorClass: "$_id.errorClass",
+        count: 1,
+        latestTs: 1,
+      },
+    },
+    { $sort: { count: -1, latestTs: -1 } },
+  ];
+  return coll.aggregate<DeadLetterGroup>(pipeline).toArray();
+}
+
+/**
+ * Delete matching dead-letter rows so the watcher's next pass can re-attempt
+ * them. Either filter is sufficient; both narrow further. Returns
+ * `{ deletedCount }`. Refusing to call without filters is intentional —
+ * an accidental "reset everything" is too easy to fire by mistake.
+ */
+export async function resetDeadLetter(input: {
+  key?: string;
+  stage?: Stage;
+}): Promise<{ deletedCount: number }> {
+  if (!input.key && !input.stage) {
+    throw new Error("resetDeadLetter: must provide at least one of {key, stage}");
+  }
+
+  const coll = await deadLetterCollection();
+  const filter: Record<string, unknown> = {};
+  if (input.key) filter.key = input.key;
+  if (input.stage) filter.stage = input.stage;
+
+  const res = await coll.deleteMany(filter);
+  return { deletedCount: res.deletedCount ?? 0 };
+}
