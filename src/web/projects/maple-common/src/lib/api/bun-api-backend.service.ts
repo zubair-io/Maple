@@ -108,12 +108,46 @@ export interface IndexerDeadLetterItem {
   error?: string;
   attempts?: number;
   failedAt?: string;
+  /** Mongo dedupe key — mapleId hex if known, otherwise absPath. Required
+   * for row-scoped reset; older payloads may omit this field. */
+  key?: string;
 }
 
 export interface IndexerDeadLetterPage {
   items: IndexerDeadLetterItem[];
   total: number;
   warning?: string;
+}
+
+/** One cluster row from `GET /api/indexer/dead-letter/groups`. Bucketed by
+ * (stage, errorClass) where errorClass is a normalised prefix of `error`. */
+export interface IndexerDeadLetterGroup {
+  stage: IndexerStage;
+  errorClass: string;
+  count: number;
+  /** ISO timestamp of the most recent failure in the group. */
+  latestTs: string;
+}
+
+export interface IndexerDeadLetterGroupsResponse {
+  groups: IndexerDeadLetterGroup[];
+}
+
+export interface IndexerDeadLetterFilter {
+  stage?: IndexerStage;
+  errorPrefix?: string;
+  limit?: number;
+}
+
+export interface IndexerDeadLetterResetRequest {
+  /** Per-row reset (Mongo dedupe key — mapleId hex or abs_path). */
+  key?: string;
+  /** Stage-wide reset. Without `key`, deletes every row matching the stage. */
+  stage?: IndexerStage;
+}
+
+export interface IndexerDeadLetterResetResponse {
+  deletedCount: number;
 }
 
 /**
@@ -220,6 +254,38 @@ export class BunApiBackendService {
   listDeadLetter(limit = 200): Observable<IndexerDeadLetterPage> {
     const params = new HttpParams().set('limit', String(limit));
     return this.http.get<IndexerDeadLetterPage>(`${this.base}/indexer/dead-letter`, { params });
+  }
+
+  /** Filtered dead-letter list — server-side narrowing by stage and/or error
+   * prefix. Mirrors `listDeadLetter`'s response shape so the UI can swap one
+   * for the other without changing rendering code. */
+  filterDeadLetter(filter: IndexerDeadLetterFilter): Observable<IndexerDeadLetterPage> {
+    let params = new HttpParams();
+    if (filter.stage) params = params.set('stage', filter.stage);
+    if (filter.errorPrefix) params = params.set('errorPrefix', filter.errorPrefix);
+    params = params.set('limit', String(filter.limit ?? 200));
+    return this.http.get<IndexerDeadLetterPage>(`${this.base}/indexer/dead-letter`, { params });
+  }
+
+  /** Cluster the dead-letter collection by (stage, errorClass). Used by the
+   * triage card's group view so an operator can see which failure modes
+   * dominate before drilling into a single row. */
+  groupDeadLetter(): Observable<IndexerDeadLetterGroupsResponse> {
+    return this.http.get<IndexerDeadLetterGroupsResponse>(
+      `${this.base}/indexer/dead-letter/groups`,
+    );
+  }
+
+  /** Delete dead-letter rows matching the request body so the watcher can
+   * re-attempt. `{ key }` is per-row; `{ stage }` wipes everything for the
+   * stage; `{ key, stage }` ANDs the two. */
+  resetDeadLetter(
+    request: IndexerDeadLetterResetRequest,
+  ): Observable<IndexerDeadLetterResetResponse> {
+    return this.http.post<IndexerDeadLetterResetResponse>(
+      `${this.base}/indexer/dead-letter/reset`,
+      request,
+    );
   }
 
   /** Read the supervisor's view of the indexer child process. */

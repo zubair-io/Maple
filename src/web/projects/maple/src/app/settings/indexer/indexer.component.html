@@ -295,46 +295,168 @@
     <div class="p-8 text-center text-text-muted">Loading…</div>
   }
 
-  <!-- Dead-letter (always visible — persists in Mongo even when child is stopped) -->
+  <!-- Dead-letter triage (always visible — persists in Mongo even when child is stopped) -->
   <section class="mb-7">
-    <div class="mb-2 flex items-center justify-between gap-3">
-      <h3 class="m-0 text-[14px] font-semibold">Dead-letter ({{ deadLetter().length }})</h3>
-      <button
-        type="button"
-        class="cursor-pointer rounded border border-border bg-surface px-2.5 py-1 text-[11px] text-text-main hover:bg-surface-hover"
-        (click)="refreshDeadLetter()"
-      >
-        Refresh
-      </button>
+    <div class="mb-2 flex flex-wrap items-center justify-between gap-3">
+      <h3 class="m-0 text-[14px] font-semibold">
+        Dead-letter triage
+        @if (triageView() === 'group') {
+          <span class="text-text-muted">({{ deadLetterGroups().length }} groups)</span>
+        } @else {
+          <span class="text-text-muted">({{ deadLetter().length }})</span>
+        }
+      </h3>
+      <div class="flex items-center gap-2">
+        <!-- Group / List toggle -->
+        <div class="flex overflow-hidden rounded-md border border-border" role="tablist">
+          <button
+            type="button"
+            role="tab"
+            class="cursor-pointer px-2.5 py-1 text-[11px] font-semibold"
+            [class.bg-primary]="triageView() === 'group'"
+            [class.text-white]="triageView() === 'group'"
+            [class.bg-surface]="triageView() !== 'group'"
+            [class.text-text-main]="triageView() !== 'group'"
+            [class.hover:bg-surface-hover]="triageView() !== 'group'"
+            [attr.aria-selected]="triageView() === 'group'"
+            (click)="setTriageView('group')"
+          >
+            Group
+          </button>
+          <button
+            type="button"
+            role="tab"
+            class="cursor-pointer px-2.5 py-1 text-[11px] font-semibold"
+            [class.bg-primary]="triageView() === 'list'"
+            [class.text-white]="triageView() === 'list'"
+            [class.bg-surface]="triageView() !== 'list'"
+            [class.text-text-main]="triageView() !== 'list'"
+            [class.hover:bg-surface-hover]="triageView() !== 'list'"
+            [attr.aria-selected]="triageView() === 'list'"
+            (click)="setTriageView('list')"
+          >
+            List
+          </button>
+        </div>
+        <button
+          type="button"
+          class="cursor-pointer rounded border border-border bg-surface px-2.5 py-1 text-[11px] text-text-main hover:bg-surface-hover"
+          (click)="refreshDeadLetter()"
+        >
+          Refresh
+        </button>
+      </div>
     </div>
-    @if (deadLetter().length === 0) {
-      <p class="m-0 rounded-lg border border-dashed border-border bg-surface p-6 text-center text-[12px] text-text-muted">No failed jobs.</p>
-    } @else {
-      <table class="w-full overflow-hidden rounded-lg border border-border bg-surface" style="border-collapse: collapse;">
-        <thead>
-          <tr>
-            <th class="border-b border-border bg-surface-alt px-3.5 py-2.5 text-left align-middle text-[10px] font-semibold uppercase tracking-[0.05em] text-text-muted">Stage</th>
-            <th class="border-b border-border bg-surface-alt px-3.5 py-2.5 text-left align-middle text-[10px] font-semibold uppercase tracking-[0.05em] text-text-muted">File</th>
-            <th class="border-b border-border bg-surface-alt px-3.5 py-2.5 text-left align-middle text-[10px] font-semibold uppercase tracking-[0.05em] text-text-muted">Error</th>
-            <th class="border-b border-border bg-surface-alt px-3.5 py-2.5 text-left align-middle text-[10px] font-semibold uppercase tracking-[0.05em] text-text-muted">Failed at</th>
-          </tr>
-        </thead>
-        <tbody>
-          @for (it of deadLetter(); track it.id ?? it.jobId ?? $index) {
-            <tr class="border-b border-border last:border-b-0">
-              <td class="px-3.5 py-2.5 align-middle text-[12px] font-semibold capitalize">{{ it.stage }}</td>
-              <td class="px-3.5 py-2.5 align-middle font-mono text-[11px]" [title]="it.absPath">
-                {{ it.absPath ? basename(it.absPath) : it.jobId ?? '—' }}
-              </td>
-              <td
-                class="max-w-[360px] overflow-hidden text-ellipsis whitespace-nowrap px-3.5 py-2.5 align-middle text-[12px] text-error-text"
-                [title]="it.error"
-              >{{ it.error }}</td>
-              <td class="px-3.5 py-2.5 align-middle font-mono text-[11px] text-text-muted">{{ it.failedAt }}</td>
+
+    @if (triageView() === 'group') {
+      <!-- ── Group view: clustered by (stage, errorClass) ──────────────── -->
+      @if (deadLetterGroups().length === 0) {
+        <p class="m-0 rounded-lg border border-dashed border-border bg-surface p-6 text-center text-[12px] text-text-muted">No failed jobs.</p>
+      } @else {
+        <table class="w-full overflow-hidden rounded-lg border border-border bg-surface" style="border-collapse: collapse;">
+          <thead>
+            <tr>
+              <th class="border-b border-border bg-surface-alt px-3.5 py-2.5 text-left align-middle text-[10px] font-semibold uppercase tracking-[0.05em] text-text-muted">Stage</th>
+              <th class="border-b border-border bg-surface-alt px-3.5 py-2.5 text-left align-middle text-[10px] font-semibold uppercase tracking-[0.05em] text-text-muted">Error class</th>
+              <th class="border-b border-border bg-surface-alt px-3.5 py-2.5 text-right align-middle text-[10px] font-semibold uppercase tracking-[0.05em] text-text-muted">Count</th>
+              <th class="border-b border-border bg-surface-alt px-3.5 py-2.5 text-left align-middle text-[10px] font-semibold uppercase tracking-[0.05em] text-text-muted">Latest</th>
+              <th class="border-b border-border bg-surface-alt px-3.5 py-2.5 text-right align-middle text-[10px] font-semibold uppercase tracking-[0.05em] text-text-muted">Reset</th>
             </tr>
-          }
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            @for (g of deadLetterGroups(); track g.stage + '|' + g.errorClass) {
+              <tr class="border-b border-border last:border-b-0">
+                <td class="px-3.5 py-2.5 align-middle text-[12px] font-semibold capitalize">{{ g.stage }}</td>
+                <td class="max-w-[320px] overflow-hidden text-ellipsis whitespace-nowrap px-3.5 py-2.5 align-middle font-mono text-[11px] text-error-text" [title]="g.errorClass">{{ g.errorClass }}</td>
+                <td class="px-3.5 py-2.5 text-right align-middle font-mono text-[12px] tabular-nums">{{ g.count }}</td>
+                <td class="px-3.5 py-2.5 align-middle font-mono text-[11px] text-text-muted">{{ g.latestTs }}</td>
+                <td class="px-3.5 py-2.5 text-right align-middle">
+                  <button
+                    type="button"
+                    class="cursor-pointer rounded-md border border-error-text bg-surface px-2.5 py-1 text-[11px] font-semibold text-error-text hover:bg-error-bg"
+                    [title]="'Reset every dead-letter row for stage \'' + g.stage + '\''"
+                    (click)="resetStage(g.stage)"
+                  >
+                    Reset stage
+                  </button>
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      }
+    } @else {
+      <!-- ── List view: filterable flat rows ───────────────────────────── -->
+      <div class="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-border bg-surface px-3 py-2">
+        <label class="flex items-center gap-2 text-[11px] text-text-muted">
+          <span>Stage</span>
+          <select
+            class="cursor-pointer rounded border border-border bg-bg px-2 py-1 text-[12px] text-text-main"
+            [value]="filterStage() ?? ''"
+            (change)="onFilterStageChange($any($event.target).value)"
+          >
+            <option value="">All</option>
+            @for (st of stages; track st) {
+              <option [value]="st">{{ st }}</option>
+            }
+          </select>
+        </label>
+        <label class="flex flex-1 items-center gap-2 text-[11px] text-text-muted">
+          <span>Error prefix</span>
+          <input
+            type="text"
+            class="min-w-[200px] flex-1 rounded border border-border bg-bg px-2 py-1 font-mono text-[12px] text-text-main placeholder:text-text-muted"
+            placeholder="e.g. ENOENT"
+            [value]="filterErrorPrefix()"
+            (input)="onFilterErrorPrefixChange($any($event.target).value)"
+          />
+        </label>
+        @if (triageLoading()) {
+          <span class="text-[11px] text-text-muted">Loading…</span>
+        }
+      </div>
+
+      @if (deadLetter().length === 0) {
+        <p class="m-0 rounded-lg border border-dashed border-border bg-surface p-6 text-center text-[12px] text-text-muted">No failed jobs match.</p>
+      } @else {
+        <table class="w-full overflow-hidden rounded-lg border border-border bg-surface" style="border-collapse: collapse;">
+          <thead>
+            <tr>
+              <th class="border-b border-border bg-surface-alt px-3.5 py-2.5 text-left align-middle text-[10px] font-semibold uppercase tracking-[0.05em] text-text-muted">Stage</th>
+              <th class="border-b border-border bg-surface-alt px-3.5 py-2.5 text-left align-middle text-[10px] font-semibold uppercase tracking-[0.05em] text-text-muted">File</th>
+              <th class="border-b border-border bg-surface-alt px-3.5 py-2.5 text-left align-middle text-[10px] font-semibold uppercase tracking-[0.05em] text-text-muted">Error</th>
+              <th class="border-b border-border bg-surface-alt px-3.5 py-2.5 text-left align-middle text-[10px] font-semibold uppercase tracking-[0.05em] text-text-muted">Failed at</th>
+              <th class="border-b border-border bg-surface-alt px-3.5 py-2.5 text-right align-middle text-[10px] font-semibold uppercase tracking-[0.05em] text-text-muted">Reset</th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (it of deadLetter(); track it.key ?? it.id ?? it.jobId ?? $index) {
+              <tr class="border-b border-border last:border-b-0">
+                <td class="px-3.5 py-2.5 align-middle text-[12px] font-semibold capitalize">{{ it.stage }}</td>
+                <td class="px-3.5 py-2.5 align-middle font-mono text-[11px]" [title]="it.absPath">
+                  {{ it.absPath ? basename(it.absPath) : it.jobId ?? '—' }}
+                </td>
+                <td
+                  class="max-w-[320px] overflow-hidden text-ellipsis whitespace-nowrap px-3.5 py-2.5 align-middle text-[12px] text-error-text"
+                  [title]="it.error"
+                >{{ it.error }}</td>
+                <td class="px-3.5 py-2.5 align-middle font-mono text-[11px] text-text-muted">{{ it.failedAt }}</td>
+                <td class="px-3.5 py-2.5 text-right align-middle">
+                  <button
+                    type="button"
+                    class="cursor-pointer rounded border border-border bg-surface px-2 py-0.5 text-[11px] text-text-main hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-50"
+                    [disabled]="!it.key"
+                    [title]="it.key ? 'Reset this row so the watcher re-attempts it' : 'Cannot reset — missing dedupe key'"
+                    (click)="resetRow(it)"
+                  >
+                    Reset
+                  </button>
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      }
     }
   </section>
 </div>
