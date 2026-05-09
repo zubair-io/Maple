@@ -116,10 +116,11 @@ async function applyResolved(
   // Health check first. If the new URL is unreachable, leave any existing
   // worker running so a typo in the UI doesn't take down working geocoding.
   const url = resolved.nominatim_url!;
-  const client = new NominatimClient({ baseUrl: url });
-  log.info({ url }, "checking Nominatim status");
+  const rateLimitPerSec = resolved.nominatim_rate_limit_per_sec;
+  const client = new NominatimClient({ baseUrl: url, rateLimitPerSec });
+  log.info({ url, rateLimitPerSec }, "checking Nominatim status");
   await client.health();
-  log.info({ url }, "Nominatim healthy");
+  log.info({ url, rateLimitPerSec }, "Nominatim healthy");
 
   // Replace the running worker only after the new client passes health.
   if (singleton) {
