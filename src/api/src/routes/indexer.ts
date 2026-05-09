@@ -283,11 +283,6 @@ export const indexerRoutes = new Elysia({ prefix: "/api/indexer" })
     notImplemented("POST /api/indexer/dead-letter/reset"),
   )
 
-  // EXIF backfill is now handled by bumping the exif stage's targetVersion.
-  .post("/exif-backfill", () =>
-    notImplemented("POST /api/indexer/exif-backfill"),
-  )
-
   // Manual enqueue is replaced by the discover watcher which upserts docs
   // automatically when files appear on disk.
   .post("/enqueue", () =>
