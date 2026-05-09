@@ -276,9 +276,43 @@ export class IndexerService {
     this.watchers.set(folderId, w);
   }
 
-  /** Walk a folder once, enqueueing every supported file into discover. */
-  async walkOnce(folderId: string, folderPath: string): Promise<number> {
+  /**
+   * Walk a folder once, enqueueing every supported file into the discover
+   * channel.
+   *
+   * Options:
+   *   - `subPath` — if set, walk only this subtree instead of the full
+   *     `folderPath` root. Must resolve under `folderPath` (anti-traversal
+   *     check) or the call returns 0 without walking.
+   *   - `priority` — if true, every job pushed by this walk carries
+   *     `priority: true`, which makes the pipeline use `pushFront()` at
+   *     every stage handoff. Used by the rescan-from-UI path so a
+   *     user-clicked sub-folder hops the existing 100k+ file backlog
+   *     from the initial walk.
+   */
+  async walkOnce(
+    folderId: string,
+    folderPath: string,
+    opts: { subPath?: string; priority?: boolean } = {},
+  ): Promise<number> {
     let count = 0;
+    // Resolve the walk root and refuse to traverse outside folderPath. The
+    // subPath comes from a user-facing route — without this check a caller
+    // could probe the filesystem via `subPath: '/etc'`.
+    const folderReal = pathMod.resolve(folderPath);
+    let walkRoot = folderReal;
+    if (opts.subPath) {
+      const sub = pathMod.resolve(opts.subPath);
+      if (sub !== folderReal && !sub.startsWith(folderReal + pathMod.sep)) {
+        log.warn(
+          { folderPath, subPath: opts.subPath },
+          "walkOnce: subPath outside folderPath; ignoring",
+        );
+        return 0;
+      }
+      walkRoot = sub;
+    }
+    const priority = opts.priority === true;
     const walk = async (dir: string): Promise<void> => {
       let entries: string[];
       try {
@@ -301,15 +335,21 @@ export class IndexerService {
         }
         if (!stat.isFile()) continue;
         if (!SUPPORTED_EXTS.has(pathMod.extname(name).toLowerCase())) continue;
-        await this.pipeline.channels.discover.push({
-          kind: "index",
+        const job = {
+          kind: "index" as const,
           folderId,
           absPath: abs,
-        });
+          ...(priority ? { priority: true } : {}),
+        };
+        if (priority) {
+          await this.pipeline.channels.discover.pushFront(job);
+        } else {
+          await this.pipeline.channels.discover.push(job);
+        }
         count++;
       }
     };
-    await walk(folderPath);
+    await walk(walkRoot);
     return count;
   }
 
