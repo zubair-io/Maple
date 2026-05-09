@@ -14,7 +14,12 @@
 
 import { stageHandlersCollection } from "../db/client.ts";
 import type { StageHandlerDoc } from "../db/schema.ts";
-import type { Stage } from "../indexer/channel.ts";
+
+/**
+ * Pipeline stage identifiers used by the handler registry.
+ * Previously imported from indexer/channel.ts (now deleted).
+ */
+export type Stage = "discover" | "hash" | "exif" | "thumb" | "ai" | "mongo";
 
 export interface ResolvedHandler {
   stage: Stage;
