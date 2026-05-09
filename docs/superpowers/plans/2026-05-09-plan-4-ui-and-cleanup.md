@@ -4,7 +4,7 @@
 
 **Goal:** Ship `/settings/workers` — a polling Angular page that shows every stage's status, throughput, pending count, and dead-letter count, with per-stage pause/resume, settings dialog (concurrency / pollIntervalMs / batchSize / maxAttempts), and retry-dead. Retire the `*-backfill` job handlers whose work is now absorbed by version-bumping. Rewrite the rescan-folder API path to `updateMany` on `stages.<name>.version` instead of enqueueing backfill jobs. Sweep all stale imports and dead types. After this plan: one operators page manages all workers; no backfill job handler exists; `tsc` is clean.
 
-**Architecture:** Standalone Angular component at `src/web/projects/maple/src/app/settings/workers/workers.component.ts`. Polls `GET /api/workers/status` every 2 s via `setInterval` + Angular `signal()`. Dialog is a second standalone component in the same directory, opened via a boolean signal on the parent. All HTTP calls live on a new `WorkersApiService` in `src/web/projects/maple-common`. On the backend: rescan-folder handler at `src/api/src/indexer/standalone.ts` replaces its `walkOnce` delegation with a `db.images.updateMany` that zeroes `stages.<name>.version` for the affected file tree. Backfill handlers under `src/api/src/job-runner/handlers/` are deleted; the `HANDLERS` registry is updated; `db/schema.ts` `JobKind` union is narrowed.
+**Architecture:** Standalone Angular component at `src/web/projects/maple/src/app/settings/workers/workers.component.ts`. Polls `GET /api/workers/status` every 2 s via `setInterval` + Angular `signal()`. Dialog is a second standalone component in the same directory, opened via a boolean signal on the parent. All HTTP calls live on a new `WorkersApiService` in `src/web/projects/maple-common`. On the backend: rescan-folder handler at `src/api/src/indexer/standalone.ts` replaces its `walkOnce` delegation with an `assetsCollection().updateMany` that zeroes `stages.<name>.version` for the affected file tree (querying by `abs_path`). Backfill handlers under `src/api/src/job-runner/handlers/` are deleted; the `HANDLERS` registry is updated; `db/schema.ts` `JobKind` union is narrowed.
 
 **Tech Stack:** Angular 21, standalone components, signals, RxJS Observable at the service layer; Bun + TypeScript + Elysia on the backend; bun:test for backend tests; TestBed + `provideHttpClientTesting` for Angular component tests.
 
@@ -34,7 +34,7 @@
 | `src/api/src/indexer/standalone.test.ts` | Create | bun:test: rescan-folder handler writes `stages.*.version = 0` instead of enqueueing jobs. |
 | `src/web/projects/maple-common/src/lib/api/workers-api.service.spec.ts` | Create | HttpClientTestingModule smoke test for each method. |
 
-Files deleted in Task 10 (after new code is live):
+Files deleted in Task 6 (after new code is live):
 
 | File | Status |
 |---|---|
@@ -266,7 +266,6 @@ import { HttpTestingController } from '@angular/common/http/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { WorkerConfigDialogComponent } from './worker-config-dialog.component';
 import { API_BASE_URL } from '../../../../../maple-common/src/lib/api/api-base-url.token';
-import { signal } from '@angular/core';
 import type { StageState } from '@maple-common';
 
 const STAGE: StageState = {
@@ -297,9 +296,10 @@ describe('WorkerConfigDialogComponent', () => {
     fixture = TestBed.createComponent(WorkerConfigDialogComponent);
     component = fixture.componentInstance;
     http = TestBed.inject(HttpTestingController);
-    // Set required input signals
-    component.stage = signal(STAGE);
-    component.config = signal({ concurrency: 4, pollIntervalMs: 1000, batchSize: 10, maxAttempts: 5 });
+    // Set required signal inputs via ComponentRef.setInput() — the correct
+    // API for signal-based inputs (input.required<T>()) in TestBed.
+    fixture.componentRef.setInput('stage', STAGE);
+    fixture.componentRef.setInput('config', { concurrency: 4, pollIntervalMs: 1000, batchSize: 10, maxAttempts: 5 });
     fixture.detectChanges();
   });
 
@@ -389,12 +389,11 @@ Create `src/web/projects/maple/src/app/settings/workers/worker-config-dialog.com
 import {
   ChangeDetectionStrategy,
   Component,
-  EventEmitter,
-  Input,
   OnChanges,
-  Output,
-  Signal,
+  effect,
   inject,
+  input,
+  output,
 } from '@angular/core';
 import { ReactiveFormsModule, FormBuilder, Validators } from '@angular/forms';
 import {
@@ -411,19 +410,19 @@ import {
   styleUrl: './worker-config-dialog.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class WorkerConfigDialogComponent implements OnChanges {
+export class WorkerConfigDialogComponent {
   private readonly api = inject(WorkersApiService);
   private readonly fb = inject(FormBuilder);
 
   /** The stage this dialog is editing. Re-syncs form values when it changes. */
-  @Input({ required: true }) stage!: Signal<StageState>;
+  readonly stage = input.required<StageState>();
   /** Current persisted config from the last status poll. */
-  @Input({ required: true }) config!: Signal<WorkerConfig>;
+  readonly config = input.required<WorkerConfig>();
 
   /** Fires with the returned config on a successful PATCH. */
-  @Output() readonly saved = new EventEmitter<WorkerConfig>();
+  readonly saved = output<WorkerConfig>();
   /** Fires when the user dismisses without saving. */
-  @Output() readonly cancelled = new EventEmitter<void>();
+  readonly cancelled = output<void>();
 
   readonly form = this.fb.nonNullable.group({
     concurrency:   [4, [Validators.required, Validators.min(1), Validators.max(32)]],
@@ -435,17 +434,17 @@ export class WorkerConfigDialogComponent implements OnChanges {
   readonly saveError = { value: null as string | null };
   readonly saving = { value: false };
 
-  ngOnChanges(): void {
-    // Re-sync form whenever the parent updates the config signal.
-    const c = this.config();
-    if (c) {
+  constructor() {
+    // Re-sync form whenever the config input signal changes.
+    effect(() => {
+      const c = this.config();
       this.form.setValue({
         concurrency:    c.concurrency,
         pollIntervalMs: c.pollIntervalMs,
         batchSize:      c.batchSize,
         maxAttempts:    c.maxAttempts,
       });
-    }
+    });
   }
 
   save(): void {
@@ -638,8 +637,8 @@ import { ComponentFixture, TestBed, fakeAsync, tick } from '@angular/core/testin
 import { provideHttpClientTesting } from '@angular/common/http/testing';
 import { HttpTestingController } from '@angular/common/http/testing';
 import { provideHttpClient } from '@angular/common/http';
+import { provideRouter } from '@angular/router';
 import { WorkersComponent } from './workers.component';
-import { RouterTestingModule } from '@angular/router/testing';
 import { API_BASE_URL } from '../../../../../maple-common/src/lib/api/api-base-url.token';
 import type { WorkersStatusResponse } from '@maple-common';
 
@@ -685,10 +684,11 @@ describe('WorkersComponent', () => {
 
   beforeEach(async () => {
     await TestBed.configureTestingModule({
-      imports: [WorkersComponent, RouterTestingModule],
+      imports: [WorkersComponent],
       providers: [
         provideHttpClient(),
         provideHttpClientTesting(),
+        provideRouter([]),
         { provide: API_BASE_URL, useValue: '/api' },
       ],
     }).compileComponents();
@@ -1130,8 +1130,8 @@ Create `src/web/projects/maple/src/app/settings/workers/workers.component.html`:
 <!-- Config dialog — rendered outside the table to avoid stacking-context issues -->
 @if (activeDialogStage(); as ds) {
   <maple-worker-config-dialog
-    [stage]="$any(activeDialogStage)"
-    [config]="activeConfigSignal(ds.name)"
+    [stage]="ds"
+    [config]="activeConfigSignal(ds.name)()"
     (saved)="onConfigSaved(ds.name, $event)"
     (cancelled)="closeDialog()"
   />
@@ -1280,19 +1280,20 @@ describe("rescan-folder updateMany semantic", () => {
     await ctx.client.close();
   });
 
-  it("zeroes version on all docs whose primary_url starts with the folder path", async () => {
+  it("zeroes version on all docs whose abs_path starts with the folder path", async () => {
     if (!ctx) {
       console.log("Mongo unavailable — skipping");
       return;
     }
-    const col = ctx.db.collection("images");
+    // The assets collection is named "assets" in MongoDB (same as assetsCollection() in db/client.ts).
+    const col = ctx.db.collection("assets");
     const folderPath = "/photos/2024";
 
     // Insert two docs under the folder and one outside.
     await col.insertMany([
-      { primary_url: "/photos/2024/img1.dng", folderId: "f1", stages: skeleton() },
-      { primary_url: "/photos/2024/sub/img2.dng", folderId: "f1", stages: skeleton() },
-      { primary_url: "/other/img3.dng", folderId: "f2", stages: skeleton() },
+      { abs_path: "/photos/2024/img1.dng", folder_id: "f1", stages: skeleton() },
+      { abs_path: "/photos/2024/sub/img2.dng", folder_id: "f1", stages: skeleton() },
+      { abs_path: "/other/img3.dng", folder_id: "f2", stages: skeleton() },
     ]);
 
     // Simulate the rescan handler's new updateMany call.
@@ -1304,14 +1305,14 @@ describe("rescan-folder updateMany semantic", () => {
       stageResetFields[`stages.${name}.last_error`] = null;
     }
     const result = await col.updateMany(
-      { primary_url: { $regex: `^${folderPath}/` } },
+      { abs_path: { $regex: `^${folderPath}/` } },
       { $set: stageResetFields },
     );
 
     expect(result.modifiedCount).toBe(2);
 
     // Docs under folder have version zeroed.
-    const under = await col.find({ primary_url: { $regex: `^${folderPath}/` } }).toArray();
+    const under = await col.find({ abs_path: { $regex: `^${folderPath}/` } }).toArray();
     for (const doc of under) {
       for (const name of STAGE_NAMES) {
         expect(doc.stages[name].version).toBe(0);
@@ -1322,7 +1323,7 @@ describe("rescan-folder updateMany semantic", () => {
     }
 
     // Doc outside folder is untouched.
-    const outside = await col.findOne({ primary_url: "/other/img3.dng" });
+    const outside = await col.findOne({ abs_path: "/other/img3.dng" });
     expect(outside?.stages.hash.version).toBe(1);
   });
 });
@@ -1357,12 +1358,12 @@ In `src/api/src/indexer/standalone.ts`, locate the `POST /rescan/:folderId` hand
         : undefined;
       const scanRoot = subPath ?? folder.path;
 
-      // New: reset stage state for all images under the scanned tree so the
+      // New: reset stage state for all assets under the scanned tree so the
       // stage controllers pick them up on their next poll. This replaces the
       // old walkOnce() → discover-channel path that no longer exists after the
       // workers-redesign.
       //
-      // For each image whose primary_url starts with `scanRoot/`, zero every
+      // For each asset whose abs_path starts with `scanRoot/`, zero every
       // stage's `version` and clear dead/attempts/last_error so the poll-loop
       // claim query (`stages.<name>.version < targetVersion`) matches them.
       const STAGE_NAMES = ["hash", "exif", "thumb", "face", "ocr", "describe", "geocode", "meili"];
@@ -1373,9 +1374,9 @@ In `src/api/src/indexer/standalone.ts`, locate the `POST /rescan/:folderId` hand
         stageResetFields[`stages.${name}.attempts`] = 0;
         stageResetFields[`stages.${name}.last_error`] = null;
       }
-      const images = await imagesCollection();
-      const updateResult = await images.updateMany(
-        { primary_url: { $regex: `^${scanRoot.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}/` } },
+      const assets = await assetsCollection();
+      const updateResult = await assets.updateMany(
+        { abs_path: { $regex: `^${scanRoot.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}/` } },
         { $set: stageResetFields },
       );
 
@@ -1388,7 +1389,9 @@ In `src/api/src/indexer/standalone.ts`, locate the `POST /rescan/:folderId` hand
     },
 ```
 
-Ensure `imagesCollection` is imported (it should already exist from other route code in the file; if not, add the import alongside `foldersCollection`).
+Ensure `assetsCollection` is imported at the top of the file alongside `foldersCollection`. Both are exported from `../db/client.ts`; the import line in `standalone.ts` is already `import { getDb, ensureIndexes, closeDb, foldersCollection } from "../db/client.ts"` — add `assetsCollection` to that destructuring.
+
+`assetsCollection()` returns `Collection<AssetDoc>`. Post-Plans-1-3, `AssetDoc` is extended by `ImageDoc` which adds the `stages` sub-document. The `$set` operation on `stages.*` fields is runtime-safe even without the type annotation; cast with `as Collection<Document>` if TypeScript complains about the field path.
 
 - [ ] **Step 4: Run tests to confirm pass**
 
@@ -1653,7 +1656,7 @@ git tag workers-redesign-plan-4 -m "Plan 4 complete: worker operator UI + dead-c
 Before declaring this plan complete:
 
 - [ ] Spec's UI row table fully rendered: Stage, Status (with dot), Workers (active/configured), In flight (dispatched/batch_size), Pending (formatted with DecimalPipe), Dead (count + ↻ when > 0), Throughput (n /min or —), ⚙, ⏸/▶. All columns have `data-testid` attributes matched by the spec tests.
-- [ ] Rescan-folder handler at `src/api/src/indexer/standalone.ts` calls `images.updateMany(...)` with `$set: { "stages.<name>.version": 0, ... }` — no call to `walkOnce` remains.
+- [ ] Rescan-folder handler at `src/api/src/indexer/standalone.ts` calls `assets.updateMany(...)` filtering by `abs_path` with `$set: { "stages.<name>.version": 0, ... }` — no call to `walkOnce` remains.
 - [ ] No `*-backfill` handler files exist under `src/api/src/job-runner/handlers/`.
 - [ ] `JobKind` in `src/api/src/db/schema.ts` contains only `batch_jpeg_export`.
 - [ ] `IndexerComponent.runBackfill()` and its template section are gone.
