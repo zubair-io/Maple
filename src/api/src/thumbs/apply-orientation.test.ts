@@ -111,19 +111,14 @@ describe("indexer thumbnailer + orientation", () => {
       } catch {
         return; // fixture missing, soft pass
       }
+      const thumbsDir = path.join(path.dirname(raw), ".maple/thumbs");
+      await fs.rm(thumbsDir, { recursive: true, force: true });
       await generateThumb(raw);
-      const thumbPath = path.join(
-        path.dirname(raw),
-        ".maple/thumbs",
-        // resolveThumbPath uses sha256(absPath).slice(0,16) — recompute to assert.
-      );
-      // Easier: walk the .maple/thumbs dir and find the one .jpg we just made.
-      const entries = await fs.readdir(path.join(path.dirname(raw), ".maple/thumbs"));
+      // Walk the .maple/thumbs dir and find the one .jpg we just made.
+      const entries = await fs.readdir(thumbsDir);
       const jpg = entries.find((e) => e.endsWith(".jpg"));
       expect(jpg).toBeDefined();
-      const meta = await sharp(
-        path.join(path.dirname(raw), ".maple/thumbs", jpg!),
-      ).metadata();
+      const meta = await sharp(path.join(thumbsDir, jpg!)).metadata();
       expect(meta.orientation === undefined || meta.orientation === 1).toBe(true);
     },
   );
