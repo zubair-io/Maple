@@ -28,6 +28,7 @@ import type {
   RefreshTokenDoc,
   ChallengeDoc,
 } from "./schema.ts";
+import type { WorkerConfigDoc } from "../workers/worker-config.repo.ts";
 
 const log = childLogger("db");
 
@@ -142,6 +143,12 @@ export async function challengesCollection(): Promise<
 }
 export async function peopleCollection(): Promise<Collection<PersonDoc>> {
   return (await getDb()).collection<PersonDoc>("people");
+}
+
+export async function workerConfigCollection(): Promise<
+  Collection<WorkerConfigDoc>
+> {
+  return (await getDb()).collection<WorkerConfigDoc>("worker_config");
 }
 
 /**
@@ -594,6 +601,11 @@ export async function ensureIndexes(): Promise<void> {
   // Speeds up `assignFaceToPerson` reverse lookups + the clustering job's
   // bulk centroid recompute.
   await people.createIndex({ merged_into: 1 }, { name: "people_merged" });
+
+  // worker_config: unique index on stage name (the natural key).
+  await db
+    .collection("worker_config")
+    .createIndex({ name: 1 }, { unique: true, name: "worker_config_name" });
 
   log.info("indexes ensured");
 }
