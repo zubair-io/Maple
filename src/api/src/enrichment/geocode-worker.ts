@@ -32,6 +32,10 @@ import {
 } from "./meilisearch-client.ts";
 import { NominatimClient, NominatimError } from "./nominatim-client.ts";
 import { parseNominatimResponse } from "./place-parser.ts";
+import {
+  composeSearchBlob,
+  searchBlobUpdateExpression,
+} from "./search-blob.ts";
 
 const defaultLog = childLogger("enrichment:geocode-worker");
 
@@ -86,6 +90,12 @@ interface ClaimedAsset {
   captured_at: string | null;
   exif: { gps: { lat: number; lng: number } };
   enrichment_attempts: number;
+  /** Sibling enrichment outputs already on the row when we claimed it.
+   * Used to seed `composeSearchBlob` in the JS-side Meilisearch upsert
+   * so the unified blob there matches the one Mongo just wrote. The
+   * Mongo `$set` re-derives from the live row state directly. */
+  description: string | null;
+  ocr_text: string | null;
 }
 
 /** Per-loop status. Returned by `tick()` to keep tests deterministic. */
@@ -245,6 +255,8 @@ export class GeocodeWorker {
       captured_at: result.exif?.captured_at ?? null,
       exif: { gps: { lat: gps.lat, lng: gps.lng } },
       enrichment_attempts: result.enrichment?.geocode.attempts ?? 0,
+      description: result.description ?? null,
+      ocr_text: result.ocr_text ?? null,
     };
   }
 
@@ -269,7 +281,14 @@ export class GeocodeWorker {
   }
 
   /** Single `updateOne` so the success state is atomic — `place`,
-   * `enrichment.geocode.done_at`, and the lock release all flip together.
+   * `enrichment.geocode.done_at`, the unified `search_blob`, and the
+   * lock release all flip together.
+   *
+   * The `search_blob` recompute uses the aggregation-pipeline form of
+   * `updateOne` so the synthesised value reflects `place.search_blob`
+   * we just wrote (via the `placeSearchBlob` override) AND the live
+   * row's existing `description` / `ocr_text` fields. No read-modify-
+   * write race against the describe / ocr workers.
    *
    * After the Mongo write, fire a best-effort upsert into the Meilisearch
    * sidecar (Phase 7). Failures here MUST NOT propagate — the asset is
@@ -280,25 +299,41 @@ export class GeocodeWorker {
    */
   private async complete(claim: ClaimedAsset, place: Place): Promise<void> {
     const c = await this.coll();
-    await c.updateOne(
-      { _id: claim._id },
+    const nowIso = this.now().toISOString();
+    await c.updateOne({ _id: claim._id }, [
       {
         $set: {
           place,
-          "enrichment.geocode.done_at": this.now().toISOString(),
+          search_blob: searchBlobUpdateExpression({
+            placeSearchBlob: place.search_blob,
+          }),
+          "enrichment.geocode.done_at": nowIso,
           "enrichment.geocode.version": GEOCODE_HANDLER_VERSION,
           "enrichment.geocode.locked_by": null,
           "enrichment.geocode.lease_expires_at": null,
           "enrichment.geocode.last_error": null,
         },
       },
-    );
+    ]);
 
     if (claim.maple_id.length === 0) return;
     try {
+      // Recompute the unified blob for the Meilisearch document using
+      // the same composition function — this matches whatever the
+      // aggregation pipeline just wrote to Mongo (modulo any concurrent
+      // describe/ocr write between the two). Per-attribute weighting in
+      // Meilisearch lives on `searchBlob`/`description`/`ocrText` so we
+      // ship the raw fields too.
+      const unified = composeSearchBlob({
+        place,
+        description: claim.description,
+        ocrText: claim.ocr_text,
+      });
       await this.meilisearch.upsert({
         id: claim.maple_id,
-        searchBlob: place.search_blob,
+        searchBlob: unified,
+        description: claim.description,
+        ocrText: claim.ocr_text,
         folderId: claim.folder_id_hex,
         capturedAt: claim.captured_at,
         deletedAt: null,

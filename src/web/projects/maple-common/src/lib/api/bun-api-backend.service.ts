@@ -327,6 +327,17 @@ export class BunApiBackendService {
       nominatim_url: string | null;
       geocode_worker_enabled: boolean;
       nominatim_rate_limit_per_sec?: number | null;
+      // ── Describe worker (Phase 6) ────────────────────────────────
+      describe_worker_enabled?: boolean | null;
+      describe_provider?: DescribeProviderName | null;
+      describe_model?: string | null;
+      describe_system_prompt?: string | null;
+      describe_daily_cap_usd?: number | null;
+      describe_provider_url?: string | null;
+      // ── Face worker (Phase 5) ─────────────────────────────────────
+      face_worker_enabled?: boolean | null;
+      // ── OCR worker (Phase 8) ──────────────────────────────────────
+      ocr_worker_enabled?: boolean | null;
     },
   ): Observable<EnrichmentConfigResponse> {
     return this.http.put<EnrichmentConfigResponse>(`${this.base}/enrichment/config`, body);
@@ -339,7 +350,26 @@ export class BunApiBackendService {
       nominatim_url: url,
     });
   }
+
+  /** Health-check a describe provider without saving. The `api_key` field
+   * is write-only — pass it for paid providers when the user is testing
+   * a freshly-typed key; the server never echoes it back. */
+  testDescribeProvider(
+    body: {
+      provider: DescribeProviderName;
+      url?: string | null;
+      model?: string | null;
+      api_key?: string | null;
+    },
+  ): Observable<EnrichmentTestDescribeResponse> {
+    return this.http.post<EnrichmentTestDescribeResponse>(
+      `${this.base}/enrichment/test-describe`,
+      body,
+    );
+  }
 }
+
+export type DescribeProviderName = 'ollama' | 'anthropic' | 'openai' | 'gemini';
 
 export interface EnrichmentConfigResponse {
   nominatim_url: string | null;
@@ -348,16 +378,46 @@ export interface EnrichmentConfigResponse {
    * number on the wire — the server resolves DB/env/default before
    * responding. */
   nominatim_rate_limit_per_sec: number;
+  // ── Describe worker (Phase 6) ──────────────────────────────────────
+  describe_worker_enabled: boolean;
+  describe_provider: DescribeProviderName;
+  /** `null` for paid providers (their endpoints are hard-coded). */
+  describe_provider_url: string | null;
+  describe_model: string;
+  describe_system_prompt: string;
+  describe_daily_cap_usd: number;
+  /** Phase 5 face worker. Default false until the operator opts in. */
+  face_worker_enabled: boolean;
+  /** Phase 8 OCR worker. Default false until the operator opts in. */
+  ocr_worker_enabled: boolean;
+  /** Set when face worker is enabled but the model files are missing — UI
+   * surfaces this as an actionable banner. Optional for backward compat. */
+  face_worker_dormant_reason?: string | null;
   source: {
     nominatim_url: 'db' | 'env' | 'unset';
     geocode_worker_enabled: 'db' | 'env' | 'default';
     nominatim_rate_limit_per_sec: 'db' | 'env' | 'default';
+    describe_worker_enabled: 'db' | 'env' | 'default';
+    describe_provider: 'db' | 'env' | 'default';
+    describe_provider_url: 'db' | 'env' | 'default' | 'unset';
+    describe_model: 'db' | 'env' | 'default';
+    describe_system_prompt: 'db' | 'env' | 'default';
+    describe_daily_cap_usd: 'db' | 'env' | 'default';
+    face_worker_enabled: 'db' | 'env' | 'default';
+    ocr_worker_enabled: 'db' | 'env' | 'default';
   };
 }
 
 export interface EnrichmentTestResponse {
   ok: boolean;
   url?: string;
+  error?: string;
+  status?: number | null;
+}
+
+export interface EnrichmentTestDescribeResponse {
+  ok: boolean;
+  info?: { provider: DescribeProviderName; model: string | null };
   error?: string;
   status?: number | null;
 }
