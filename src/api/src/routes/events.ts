@@ -18,7 +18,7 @@
  */
 
 import { Elysia, t } from "elysia";
-import { state as controlState, targetUrl } from "../indexer/control.ts";
+import { supervisorState } from "../workers/supervisor.ts";
 import { verifyAccessToken } from "../auth/tokens.ts";
 
 function jwtSecret(): string {
@@ -55,13 +55,27 @@ interface ChildStatus {
   [k: string]: unknown;
 }
 
+/**
+ * TODO(Task 10): Once stage-controller IPC exposes a /status endpoint per
+ * stage, this function should aggregate from each running stage child.
+ * For now it synthesises a status snapshot from the supervisor's in-process
+ * state instead of fetching from a child process.
+ */
 async function fetchStatus(): Promise<ChildStatus | null> {
   try {
-    const res = await fetch(targetUrl("/status"), {
-      signal: AbortSignal.timeout(2_000),
-    });
-    if (!res.ok) return null;
-    return (await res.json()) as ChildStatus;
+    const stages = supervisorState();
+    if (Object.keys(stages).length === 0) return null;
+    // Build a ChildStatus shape compatible with the existing UI frame format.
+    // The new supervisor tracks stages differently: each entry has inFlight
+    // and throughput. Synthesise the old channel/stages shape so the UI
+    // frame format is preserved without a UI change.
+    const channels: Record<string, { depth: number; capacity: number }> = {};
+    const stagesOut: Record<string, { inFlight: number; errors: number; deadLetter: number }> = {};
+    for (const [name, s] of Object.entries(stages)) {
+      channels[name] = { depth: 0, capacity: 0 };
+      stagesOut[name] = { inFlight: s.inFlight, errors: 0, deadLetter: 0 };
+    }
+    return { channels, stages: stagesOut } as ChildStatus;
   } catch {
     return null;
   }
@@ -98,10 +112,10 @@ export const eventsRoutes = new Elysia({ prefix: "/api" }).ws("/events", {
       if (closed) return;
 
       if (!status) {
-        // Child unreachable — emit a process frame and back off.
+        // Supervisor has no running stages — emit a process frame and back off.
         if (lastReachable) {
           try {
-            ws.send({ type: "process", state: controlState() });
+            ws.send({ type: "process", state: supervisorState() });
           } catch {
             /* socket may have closed mid-send */
           }
@@ -139,7 +153,7 @@ export const eventsRoutes = new Elysia({ prefix: "/api" }).ws("/events", {
     // On open: emit one process snapshot so the UI knows the supervisor
     // state before the first /status comes back.
     try {
-      ws.send({ type: "process", state: controlState() });
+      ws.send({ type: "process", state: supervisorState() });
     } catch {
       /* ignore */
     }
