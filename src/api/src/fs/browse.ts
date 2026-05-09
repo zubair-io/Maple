@@ -11,7 +11,6 @@ import * as path from "node:path";
 import type { OpResult } from "./root.ts";
 import { assetsCollection, foldersCollection } from "../db/client.ts";
 import type { AssetExif } from "../db/schema.ts";
-import { targetUrl } from "../indexer/control.ts";
 import { child as childLogger } from "../log.ts";
 
 const log = childLogger("fs/browse");
@@ -375,31 +374,19 @@ async function findOwningFolderId(absPath: string): Promise<string | null> {
 }
 
 /**
- * Push a batch of un-indexed paths into the standalone indexer's discover
- * channel via `POST /enqueue`. Resolves the owning folder by ancestry; if
- * no registered folder contains the browse path, the call no-ops (we have
- * no `folder_id` to attach). Localhost-only fetch — same trust boundary
- * as the indexer proxy.
+ * Push a batch of un-indexed paths into the indexer's discover queue.
+ *
+ * TODO(Task 10): route through supervisor IPC once the discover stage
+ * exposes an enqueue endpoint. For now this is a no-op: the supervisor's
+ * discover stage picks up new files from the watcher automatically.
  */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 async function enqueueBrowseIndex(
   dirPath: string,
   paths: string[],
 ): Promise<void> {
-  const folderId = await findOwningFolderId(dirPath);
-  if (!folderId) return;
-  try {
-    await fetch(targetUrl("/enqueue"), {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ folderId, paths, skipThumb: true }),
-      signal: AbortSignal.timeout(5_000),
-    });
-  } catch (err) {
-    // Indexer down or unreachable — the watcher will pick this up later
-    // when the folder is registered or scanned again. No retry here.
-    log.warn(
-      { dirPath, err: err instanceof Error ? err.message : err },
-      "indexer enqueue failed",
-    );
-  }
+  // No-op: the standalone indexer's /enqueue route has been removed along
+  // with indexer/control.ts. The discover stage will index these files
+  // the next time the watcher triggers or the folder is rescanned.
+  log.debug({ dirPath, count: paths.length }, "enqueueBrowseIndex: no-op pending Task 10");
 }
