@@ -22,6 +22,11 @@
  *                        when unset.
  *   MAPLE_GEOCODE_WORKER_ENABLED — set to "false" to disable the geocode
  *                        worker even when a URL is provided. Default on.
+ *   MAPLE_MEILISEARCH_URL — base URL of a Meilisearch sidecar for typo-
+ *                        tolerant place search. When unset, the search
+ *                        route uses the Mongo $text fallback only. See
+ *                        `docs/operations/meilisearch.md`.
+ *   MAPLE_MEILISEARCH_API_KEY — bearer key for the Meilisearch instance.
  */
 
 import { Elysia } from "elysia";
@@ -40,6 +45,7 @@ import { fsThumbsRoutes } from "./routes/fs-thumbs.ts";
 import { searchRoutes } from "./routes/search.ts";
 import { jobsRoutes } from "./routes/jobs.ts";
 import { enrichmentRoutes } from "./routes/enrichment.ts";
+import { meilisearchBackfillRoutes } from "./routes/admin-backfill-meilisearch.ts";
 import { requireAuth } from "./auth/middleware.ts";
 import { staticUiPlugin } from "./routes/static_ui.ts";
 import { getDb, ensureIndexes, closeDb } from "./db/client.ts";
@@ -53,6 +59,7 @@ import {
   startGeocodeWorker,
   stopGeocodeWorker,
 } from "./enrichment/bootstrap.ts";
+import { meilisearchClient } from "./enrichment/meilisearch-client.ts";
 import { startJobRunner, stopJobRunner } from "./job-runner/runner.ts";
 
 const PORT = Number(process.env.PORT ?? 3000);
@@ -178,7 +185,8 @@ const app = new Elysia()
       .use(fsThumbsRoutes)
       .use(searchRoutes)
       .use(jobsRoutes)
-      .use(enrichmentRoutes),
+      .use(enrichmentRoutes)
+      .use(meilisearchBackfillRoutes),
   )
 
   // Static UI (catch-all — must be last so specific API routes match first).
@@ -252,6 +260,33 @@ async function start(): Promise<void> {
         );
       }),
     )
+    .then(async () => {
+      // Phase 7: Meilisearch sidecar. `health()` returns false when the
+      // URL is unset OR when the service is unreachable. We warn-and-
+      // continue in either case — the search route falls back to Mongo
+      // `$text` so the API stays up. `ensureIndex()` is idempotent.
+      const meili = meilisearchClient();
+      if (!meili.isConfigured()) {
+        log.info("MAPLE_MEILISEARCH_URL unset — Meilisearch sidecar disabled");
+        return;
+      }
+      const healthy = await meili.health();
+      if (!healthy) {
+        log.warn(
+          "Meilisearch health check failed; search will fall back to Mongo $text until the service is reachable",
+        );
+        return;
+      }
+      try {
+        await meili.ensureIndex();
+        log.info("Meilisearch sidecar ready");
+      } catch (err) {
+        log.warn(
+          { err: err instanceof Error ? err.message : err },
+          "Meilisearch ensureIndex failed; search will fall back to Mongo $text",
+        );
+      }
+    })
     .then(() => {
       // JobRunner — sibling subsystem to the indexer pipeline for
       // user-triggered long-running work (export, batch reprocess). See

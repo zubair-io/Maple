@@ -26,6 +26,10 @@ import type { AssetDoc, Place } from "../db/schema.ts";
 import { child as childLogger } from "../log.ts";
 import { CircuitBreaker } from "./circuit-breaker.ts";
 import { CoordinateCache } from "./coordinate-cache.ts";
+import {
+  meilisearchClient,
+  type MeilisearchClient,
+} from "./meilisearch-client.ts";
 import { NominatimClient, NominatimError } from "./nominatim-client.ts";
 import { parseNominatimResponse } from "./place-parser.ts";
 
@@ -43,6 +47,9 @@ export interface GeocodeWorkerConfig {
   client: NominatimClient;
   cache: CoordinateCache;
   breaker?: CircuitBreaker;
+  /** Optional override for tests. Defaults to the module-level singleton
+   * which reads `MAPLE_MEILISEARCH_URL` from env (no-op when unset). */
+  meilisearch?: MeilisearchClient;
 
   /** Unique id for this worker instance — written to `enrichment.geocode.locked_by`
    * so multi-instance deployments can spot which worker owns a stuck claim.
@@ -66,6 +73,17 @@ export interface GeocodeWorkerConfig {
 
 interface ClaimedAsset {
   _id: AssetDoc["folder_id"]; // ObjectId
+  /** Hex string for the row's `folder_id` ObjectId. We carry it through the
+   * loop so the Meilisearch upsert in `complete()` can scope the doc to a
+   * library without re-reading the asset row. */
+  folder_id_hex: string;
+  /** Stable content-derived id used as the Meilisearch document key.
+   * Empty when the row pre-dates the indexer's mapleId migration —
+   * Meilisearch upsert is skipped for those rows (Mongo `$text` still
+   * indexes them). */
+  maple_id: string;
+  /** ISO timestamp from EXIF; used as the Meilisearch `capturedAt` field. */
+  captured_at: string | null;
   exif: { gps: { lat: number; lng: number } };
   enrichment_attempts: number;
 }
@@ -81,6 +99,7 @@ export class GeocodeWorker {
   private readonly client: NominatimClient;
   private readonly cache: CoordinateCache;
   private readonly breaker: CircuitBreaker;
+  private readonly meilisearch: MeilisearchClient;
   private readonly workerId: string;
   private readonly pollMs: number;
   private readonly leaseMs: number;
@@ -96,6 +115,7 @@ export class GeocodeWorker {
     this.client = config.client;
     this.cache = config.cache;
     this.breaker = config.breaker ?? new CircuitBreaker();
+    this.meilisearch = config.meilisearch ?? meilisearchClient();
     this.workerId =
       config.workerId ??
       `geocode-${process.pid}-${Math.random().toString(16).slice(2, 8)}`;
@@ -215,6 +235,14 @@ export class GeocodeWorker {
     }
     return {
       _id: result._id,
+      folder_id_hex: result.folder_id.toHexString(),
+      // `maple_id` is added in Phase 1 (indexer/images.repo.ts $setOnInsert).
+      // Older rows missing the field still get geocoded; their Meilisearch
+      // upsert in `complete()` is skipped (we never have a stable doc id
+      // for them).
+      maple_id:
+        (result as unknown as { maple_id?: string }).maple_id ?? "",
+      captured_at: result.exif?.captured_at ?? null,
       exif: { gps: { lat: gps.lat, lng: gps.lng } },
       enrichment_attempts: result.enrichment?.geocode.attempts ?? 0,
     };
@@ -241,7 +269,15 @@ export class GeocodeWorker {
   }
 
   /** Single `updateOne` so the success state is atomic — `place`,
-   * `enrichment.geocode.done_at`, and the lock release all flip together. */
+   * `enrichment.geocode.done_at`, and the lock release all flip together.
+   *
+   * After the Mongo write, fire a best-effort upsert into the Meilisearch
+   * sidecar (Phase 7). Failures here MUST NOT propagate — the asset is
+   * canonical in Mongo and remains searchable via the `$text` fallback.
+   * The Meilisearch client itself logs warnings on its own errors; we
+   * still wrap in try/catch as belt-and-braces so a programmer-error
+   * exception (e.g. typed-doc validation) can never break the worker.
+   */
   private async complete(claim: ClaimedAsset, place: Place): Promise<void> {
     const c = await this.coll();
     await c.updateOne(
@@ -257,6 +293,28 @@ export class GeocodeWorker {
         },
       },
     );
+
+    if (claim.maple_id.length === 0) return;
+    try {
+      await this.meilisearch.upsert({
+        id: claim.maple_id,
+        searchBlob: place.search_blob,
+        folderId: claim.folder_id_hex,
+        capturedAt: claim.captured_at,
+        deletedAt: null,
+      });
+    } catch (err) {
+      // Defensive — the client already log-and-swallows. Catching here
+      // means a bug in the client can't take the worker down.
+      this.log(
+        JSON.stringify({
+          component: "geocode-worker",
+          event: "meilisearch-upsert-error",
+          mapleId: claim.maple_id,
+          error: err instanceof Error ? err.message : String(err),
+        }),
+      );
+    }
   }
 
   /**
