@@ -15,8 +15,22 @@
  * `*Input` / `*Output` shapes here.
  */
 
-import type { AiFace } from "../indexer/pipeline.ts";
 import type { AssetExif } from "../db/schema.ts";
+
+/**
+ * Face detection output from the ai stage.
+ * Previously imported from indexer/pipeline.ts (now deleted).
+ */
+export interface AiFace {
+  /** Bounding box in normalised [0..1] image coordinates. */
+  bbox: { x: number; y: number; w: number; h: number };
+  /** Optional linked person id (MongoDB ObjectId hex) — null until reviewer confirms. */
+  personId: string | null;
+  /** Detector confidence in [0..1]. */
+  confidence: number;
+  /** MobileFaceNet 512-D embedding. Omitted for pass-through today. */
+  embedding?: Float32Array;
+}
 
 export const CONTRACT_VERSION = 1 as const;
 
