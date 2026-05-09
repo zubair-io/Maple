@@ -290,12 +290,21 @@ export function buildFilter(
  * soft-deleted rows). Always lifts existing top-level fields into a
  * single `$and` so user-supplied `$or`/`$and` clauses can't shadow the
  * deleted_at predicate.
+ *
+ * When `$text` is present, the filter must also be friendly to the
+ * partial text index (`partialFilterExpression: { deleted_at: null,
+ * place: { $type: "object" } }`). Mongo's planner only uses a partial
+ * index when the query implies the predicate — `{ $or: [{deleted_at:null}, ...] }`
+ * does NOT imply `deleted_at: null`. So when `$text` is in play, we use
+ * an exact-equality clause on `deleted_at: null`. The Phase 1 indexer
+ * writes `deleted_at: null` on every skeleton row, so this is safe in
+ * practice — we only filter out rows that were soft-deleted.
  */
 function applyLiveFilter(filter: Filter<AssetDoc>): Filter<AssetDoc> {
-  const liveClause = {
-    $or: [{ deleted_at: null }, { deleted_at: { $exists: false } }],
-  };
-  // If the filter is empty, return a plain match on the live clause.
+  const usesText = "$text" in (filter as Record<string, unknown>);
+  const liveClause: Record<string, unknown> = usesText
+    ? { deleted_at: null, place: { $type: "object" } }
+    : { $or: [{ deleted_at: null }, { deleted_at: { $exists: false } }] };
   const keys = Object.keys(filter);
   if (keys.length === 0) {
     return liveClause as unknown as Filter<AssetDoc>;
