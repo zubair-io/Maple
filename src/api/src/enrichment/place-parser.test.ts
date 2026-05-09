@@ -59,7 +59,27 @@ describe("parseNominatimResponse — golden fixture", () => {
       { name: "New York State Museum", category: "tourism", type: "museum" },
     ]);
 
-    expect(place.search_blob).toBe("");
+    // search_blob is the denormalised text used by the Mongo $text index.
+    // Tokens are lowercased, deduped, and sorted alphabetically. Every
+    // address.* value, the state_code, the country_code, the country
+    // full name, and each POI's name + type contribute their words.
+    const tokens = place.search_blob.split(" ");
+    // Spot-check the user-stated requirements first.
+    expect(tokens).toContain("albany"); // address.city
+    expect(tokens).toContain("ny"); // state_code (so "Albany NY" matches)
+    expect(tokens).toContain("us"); // country_code
+    expect(tokens).toContain("united"); // country split
+    expect(tokens).toContain("states");
+    expect(tokens).toContain("museum"); // POI type — search "Museum" matches
+    expect(tokens).toContain("new"); // shared between state + POI name
+    expect(tokens).toContain("york");
+    expect(tokens).toContain("madison");
+    expect(tokens).toContain("avenue");
+    expect(tokens).toContain("12230"); // postcode
+    // No duplicate tokens (set semantics).
+    expect(new Set(tokens).size).toBe(tokens.length);
+    // Deterministic order (sorted alphabetically).
+    expect([...tokens].sort()).toEqual(tokens);
   });
 });
 
@@ -217,6 +237,134 @@ describe("parseNominatimResponse — failed lookup", () => {
     expect(place.display_name).toBeNull();
     expect(place.address).toEqual({});
     expect(place.rollups.locality).toBeNull();
+  });
+});
+
+describe("parseNominatimResponse — search_blob", () => {
+  it("is empty when the lookup is unresolved (error stub)", () => {
+    const place = parseNominatimResponse(
+      { error: "Unable to geocode" },
+      55.5,
+      -130.2,
+      1,
+      FIXED_NOW,
+    );
+    expect(place.search_blob).toBe("");
+  });
+
+  it("is empty when address is missing (no-result-but-no-error case)", () => {
+    const place = parseNominatimResponse(
+      { display_name: "Open ocean" },
+      0,
+      -180,
+      1,
+      FIXED_NOW,
+    );
+    expect(place.search_blob).toBe("");
+  });
+
+  it("is empty when address is present-but-empty and no POIs", () => {
+    const place = parseNominatimResponse(
+      { address: {} },
+      0,
+      0,
+      1,
+      FIXED_NOW,
+    );
+    expect(place.search_blob).toBe("");
+  });
+
+  it("includes both country_code and country full name", () => {
+    const raw: NominatimReverseResponse = {
+      address: { country: "United States", country_code: "us" },
+    };
+    const place = parseNominatimResponse(raw, 0, 0, 1, FIXED_NOW);
+    const tokens = place.search_blob.split(" ");
+    expect(tokens).toContain("us");
+    expect(tokens).toContain("united");
+    expect(tokens).toContain("states");
+  });
+
+  it("includes the state_code so 'NY' matches", () => {
+    const raw: NominatimReverseResponse = {
+      address: {
+        city: "Albany",
+        state: "New York",
+        "ISO3166-2-lvl4": "US-NY",
+      },
+    };
+    const place = parseNominatimResponse(raw, 0, 0, 1, FIXED_NOW);
+    expect(place.search_blob.split(" ")).toContain("ny");
+  });
+
+  it("includes each POI's name AND type", () => {
+    const raw: NominatimReverseResponse = {
+      category: "leisure",
+      type: "park",
+      name: "Central Park",
+      address: { city: "New York" },
+    };
+    const place = parseNominatimResponse(raw, 0, 0, 1, FIXED_NOW);
+    const tokens = place.search_blob.split(" ");
+    expect(tokens).toContain("central"); // POI name token
+    expect(tokens).toContain("park"); // POI name AND type — search "Park" hits both
+  });
+
+  it("dedupes repeated words across address + POIs", () => {
+    // "New York" appears in address.state, in POI name, and the city is
+    // also "New York" — every "new" and "york" must collapse to one token.
+    const raw: NominatimReverseResponse = {
+      category: "tourism",
+      type: "museum",
+      name: "New York State Museum",
+      address: {
+        city: "New York",
+        state: "New York",
+        "ISO3166-2-lvl4": "US-NY",
+        country: "United States",
+        country_code: "us",
+        tourism: "New York State Museum",
+      },
+    };
+    const place = parseNominatimResponse(raw, 0, 0, 1, FIXED_NOW);
+    const tokens = place.search_blob.split(" ");
+    const counts = tokens.reduce<Record<string, number>>((acc, t) => {
+      acc[t] = (acc[t] ?? 0) + 1;
+      return acc;
+    }, {});
+    expect(counts.new).toBe(1);
+    expect(counts.york).toBe(1);
+    expect(counts.museum).toBe(1);
+    expect(counts.state).toBe(1);
+  });
+
+  it("is empty when address is empty even if POIs are absent", () => {
+    // Re-asserts the no-data corner: no POI, no address → no blob.
+    const place = parseNominatimResponse(
+      { address: {} },
+      0,
+      0,
+      1,
+      FIXED_NOW,
+    );
+    expect(place.search_blob).toBe("");
+    expect(place.pois).toEqual([]);
+  });
+
+  it("lowercases and collapses whitespace", () => {
+    const raw: NominatimReverseResponse = {
+      address: { city: "  Albany   ", state: "NEW   YORK" },
+    };
+    const place = parseNominatimResponse(raw, 0, 0, 1, FIXED_NOW);
+    const tokens = place.search_blob.split(" ");
+    // No empty tokens, all lowercase.
+    for (const t of tokens) {
+      expect(t.length).toBeGreaterThan(0);
+      expect(t).toBe(t.toLowerCase());
+    }
+    expect(tokens).toContain("albany");
+    expect(tokens).toContain("new");
+    expect(tokens).toContain("york");
   });
 });
 

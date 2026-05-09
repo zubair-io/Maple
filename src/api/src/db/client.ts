@@ -253,18 +253,10 @@ export async function ensureIndexes(): Promise<void> {
   // Fast prefix index on filename for lowercase-anchored regex queries
   // ($regex: "^...") — the planner can use this when the pattern is a
   // simple prefix. The case-insensitive substring query in the search route
-  // collation-folds and falls back to a collection scan; the text index
-  // below provides the indexed alternative.
+  // collation-folds and falls back to a collection scan; Phase 3's text
+  // index sits on `place.search_blob` (Mongo allows only ONE text index per
+  // collection, and the place search is the user-visible surface).
   await db.collection("assets").createIndex({ filename: 1 });
-  // Text index covers filename + abs_path. The search route prefers
-  // $regex for substring queries (more permissive matching) but the text
-  // index unblocks future ranked search and is cheap to maintain.
-  await db
-    .collection("assets")
-    .createIndex(
-      { filename: "text", abs_path: "text" },
-      { name: "filename_abs_path_text", default_language: "none" },
-    );
 
   // indexer_queue: status for fast pending-task lookups
   await db.collection("indexer_queue").createIndex({ status: 1 });
@@ -309,6 +301,189 @@ export async function ensureIndexes(): Promise<void> {
   await db
     .collection("geocode_cache")
     .createIndex({ geocoder_version: 1 }, { name: "geocoder_version" });
+
+  // ── Phase 3: search ──────────────────────────────────────────────────
+  // `docs/indexer-enrichment.md` §5.
+
+  // Backfill search_blob for assets the Phase 2 worker ran BEFORE this
+  // Phase 3 code shipped. Those rows have a `place` document with
+  // `search_blob: ""` (Phase 2 emitted an empty blob to keep the type
+  // satisfied). Rebuild the blob from the existing address + POIs in a
+  // single aggregation pipeline so we don't ship a one-shot script.
+  //
+  // Idempotent: the predicate filters to rows whose blob is empty/missing,
+  // so on subsequent boots this matches zero docs and is a no-op.
+  //
+  // We scope to live + place-bearing rows so the update doesn't churn
+  // every soft-deleted or never-geocoded asset.
+  try {
+    const res = await db.collection("assets").updateMany(
+      {
+        place: { $ne: null },
+        $or: [
+          { "place.search_blob": "" },
+          { "place.search_blob": { $exists: false } },
+        ],
+      },
+      [
+        {
+          $set: {
+            "place.search_blob": {
+              $let: {
+                vars: {
+                  // Address values, lowercased. Concat into one string and
+                  // split on whitespace so multi-word values ("New York")
+                  // become individual tokens.
+                  addressTokens: {
+                    $reduce: {
+                      input: [
+                        "$place.address.house_number",
+                        "$place.address.road",
+                        "$place.address.neighbourhood",
+                        "$place.address.suburb",
+                        "$place.address.city",
+                        "$place.address.town",
+                        "$place.address.village",
+                        "$place.address.county",
+                        "$place.address.state",
+                        "$place.address.state_code",
+                        "$place.address.postcode",
+                        "$place.address.country",
+                        "$place.address.country_code",
+                      ],
+                      initialValue: [] as string[],
+                      in: {
+                        $concatArrays: [
+                          "$$value",
+                          {
+                            $cond: [
+                              { $ifNull: ["$$this", false] },
+                              {
+                                $split: [{ $toLower: "$$this" }, " "],
+                              },
+                              [],
+                            ],
+                          },
+                        ],
+                      },
+                    },
+                  },
+                  poiTokens: {
+                    $reduce: {
+                      input: { $ifNull: ["$place.pois", []] },
+                      initialValue: [] as string[],
+                      in: {
+                        $concatArrays: [
+                          "$$value",
+                          { $split: [{ $toLower: "$$this.name" }, " "] },
+                          { $split: [{ $toLower: "$$this.type" }, " "] },
+                        ],
+                      },
+                    },
+                  },
+                },
+                in: {
+                  $reduce: {
+                    input: {
+                      // Sort + dedup by hand: $setUnion gives us the
+                      // dedup; $sortArray gives the deterministic order
+                      // (matches the parser's `[...set].sort().join(" ")`).
+                      $sortArray: {
+                        input: {
+                          $filter: {
+                            input: {
+                              $setUnion: [
+                                "$$addressTokens",
+                                "$$poiTokens",
+                              ],
+                            },
+                            cond: { $gt: [{ $strLenCP: "$$this" }, 0] },
+                          },
+                        },
+                        sortBy: 1,
+                      },
+                    },
+                    initialValue: "",
+                    in: {
+                      $cond: [
+                        { $eq: ["$$value", ""] },
+                        "$$this",
+                        { $concat: ["$$value", " ", "$$this"] },
+                      ],
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      ],
+    );
+    if (res.modifiedCount > 0) {
+      log.info(
+        { rows: res.modifiedCount },
+        "backfilled place.search_blob",
+      );
+    }
+  } catch (err) {
+    // Log + continue. The text index build below is independent — a
+    // backfill failure means a few legacy rows stay un-indexed for the
+    // text search, but freshly-geocoded assets still index correctly.
+    log.warn(
+      { err: err instanceof Error ? err.message : err },
+      "place.search_blob backfill skipped",
+    );
+  }
+
+  // Mongo text index on `place.search_blob`. Partial: scoped to live rows
+  // with `place != null` so libraries with many GPS-less assets don't bloat
+  // the index. Mongo allows only ONE text index per collection — we keep
+  // it on the search blob; free-text filename queries fall back to $regex
+  // (see routes/search.ts).
+  //
+  // Drop the legacy `filename_abs_path_text` index from older deploys —
+  // they're mutually exclusive (only one text index per collection).
+  try {
+    await db.collection("assets").dropIndex("filename_abs_path_text");
+  } catch (err) {
+    if (
+      !(err instanceof Error) ||
+      !/IndexNotFound|index not found/i.test(err.message)
+    ) {
+      throw err;
+    }
+  }
+  await db.collection("assets").createIndex(
+    { "place.search_blob": "text" },
+    {
+      name: "place_search_blob_text",
+      default_language: "english",
+      // Mongo partial-index expressions allow only equality, $exists,
+      // $type, $gt/$gte/$lt/$lte, and top-level $and. `$ne: null` and
+      // `$not` are rejected. Filter to docs whose `place` is an object
+      // (i.e. the geocode worker has populated it) — that's structurally
+      // identical to `place != null` since the schema only sets `place`
+      // to either `null` or a Place document.
+      partialFilterExpression: {
+        deleted_at: null,
+        place: { $type: "object" },
+      },
+    },
+  );
+
+  // Faceted browse compound index — for "country → state → city"
+  // drill-down aggregations against `place.rollups`. `docs/indexer-enrichment.md`
+  // §5.4. Sparse so assets without `place` don't bloat the index.
+  await db
+    .collection("assets")
+    .createIndex(
+      {
+        "place.rollups.country_code": 1,
+        "place.rollups.region": 1,
+        "place.rollups.locality": 1,
+      },
+      { name: "place_rollups", sparse: true },
+    );
 
   const users = await usersCollection();
   try {
