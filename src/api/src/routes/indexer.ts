@@ -19,10 +19,11 @@
  *   POST /dead-letter/reset   → 501 (Plan 3)
  *   POST /exif-backfill       → 501 (version-bump is the new mechanism)
  *   POST /enqueue             → 501 (discover watcher replaces manual enqueue)
- *   POST /rescan/:folderId    → 501 (Plan 3)
+ *   POST /rescan/:folderId    → updateMany stages.*.version=0 for all assets under the folder path
  */
 
 import { Elysia, t } from "elysia";
+import { ObjectId } from "mongodb";
 import {
   startSupervisor,
   stopSupervisor,
@@ -31,6 +32,11 @@ import {
   resumeSupervisor,
   type StageProcessState,
 } from "../workers/supervisor.ts";
+import { assetsCollection, foldersCollection } from "../db/client.ts";
+import { stageManifest } from "../workers/stages/manifest.ts";
+import { child as childLogger } from "../log.ts";
+
+const log = childLogger("indexer-routes");
 
 // ---------------------------------------------------------------------------
 // Legacy shape constants — the six stage names the Angular UI knows about.
@@ -288,9 +294,49 @@ export const indexerRoutes = new Elysia({ prefix: "/api/indexer" })
     notImplemented("POST /api/indexer/enqueue"),
   )
 
-  // Rescan a folder — Plan 3 will implement this as a supervisor IPC call
-  // that re-walks the folder and upserts any missing docs.
-  .post("/rescan/:folderId", () =>
-    // TODO Plan 4: route to supervisor discover rescan
-    notImplemented("POST /api/indexer/rescan/:folderId"),
+  // Rescan a folder — resets stages.*.version to 0 (and clears dead/attempts/
+  // last_error) for every asset doc whose abs_path is under the folder's path
+  // tree. The stage controllers pick them up on their next poll cycle.
+  .post(
+    "/rescan/:folderId",
+    async ({ params, set }) => {
+      const folderIdStr = params.folderId;
+      if (!ObjectId.isValid(folderIdStr)) {
+        set.status = 400;
+        return { ok: false, error: "Invalid folderId" };
+      }
+      const id = new ObjectId(folderIdStr);
+      const folders = await foldersCollection();
+      const folder = await folders.findOne({ _id: id });
+      if (!folder) {
+        set.status = 404;
+        return { ok: false, error: "Folder not found" };
+      }
+      const scanRoot = folder.path;
+
+      // Build the $set payload: zero every stage's version and clear
+      // dead/attempts/last_error so the claim query picks the docs back up.
+      const stageResetFields: Record<string, unknown> = {};
+      for (const stage of stageManifest) {
+        stageResetFields[`stages.${stage.name}.version`] = 0;
+        stageResetFields[`stages.${stage.name}.dead`] = false;
+        stageResetFields[`stages.${stage.name}.attempts`] = 0;
+        stageResetFields[`stages.${stage.name}.last_error`] = null;
+      }
+
+      // Escape special regex chars in the path before embedding it.
+      const escapedRoot = scanRoot.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const assets = await assetsCollection();
+      const updateResult = await (assets as import("mongodb").Collection<import("mongodb").Document>).updateMany(
+        { abs_path: { $regex: `^${escapedRoot}/` } },
+        { $set: stageResetFields },
+      );
+
+      log.info(
+        { folderId: folderIdStr, path: scanRoot, modified: updateResult.modifiedCount },
+        "rescan: stage versions zeroed",
+      );
+
+      return { ok: true, folderId: folderIdStr, path: scanRoot, reset: updateResult.modifiedCount };
+    },
   );
