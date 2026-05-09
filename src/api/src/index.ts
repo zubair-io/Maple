@@ -50,6 +50,8 @@ import { peopleRoutes } from "./routes/people.ts";
 import { requireAuth } from "./auth/middleware.ts";
 import { staticUiPlugin } from "./routes/static_ui.ts";
 import { getDb, ensureIndexes, closeDb } from "./db/client.ts";
+import { Supervisor } from "./workers/supervisor.ts";
+import { workerRoutes } from "./workers/routes.ts";
 import {
   spawnChild,
   stopChild,
@@ -107,106 +109,111 @@ function ensureJwtSecret(): void {
 // Build the Elysia app
 // ---------------------------------------------------------------------------
 
-const app = new Elysia()
-  // CORS + cross-origin isolation headers for every response.
-  //
-  // T10: COOP: same-origin + COEP: require-corp are required so the hosted
-  // Angular bundle can use SharedArrayBuffer for the WASM rayon thread pool.
-  // Both the API responses and the static-UI responses share this middleware
-  // because the page becomes cross-origin-isolated only when *every* top-level
-  // document response carries both headers.
-  .onBeforeHandle(({ set }) => {
-    set.headers["Access-Control-Allow-Origin"] = CORS_ORIGIN;
-    set.headers["Access-Control-Allow-Methods"] =
-      "GET, POST, PUT, DELETE, OPTIONS";
-    set.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization";
-    set.headers["Cross-Origin-Opener-Policy"] = "same-origin";
-    set.headers["Cross-Origin-Embedder-Policy"] = "require-corp";
-  })
-  // Mirror the isolation headers onto OPTIONS preflight too, so that any
-  // cross-origin check counts them as present.
-  .options("/*", ({ set }) => {
-    set.headers["Access-Control-Allow-Origin"] = CORS_ORIGIN;
-    set.headers["Access-Control-Allow-Methods"] =
-      "GET, POST, PUT, DELETE, OPTIONS";
-    set.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization";
-    set.headers["Cross-Origin-Opener-Policy"] = "same-origin";
-    set.headers["Cross-Origin-Embedder-Policy"] = "require-corp";
-    set.status = 204;
-    return;
-  })
+export function buildApp(opts: { stageNames?: string[] } = {}): Elysia {
+  const supervisor = new Supervisor(opts.stageNames ?? []);
 
-  // Error handler
-  .onError(({ error, set, request }) => {
-    const msg = error instanceof Error ? error.message : String(error);
-    const isDbErr = msg.includes("[db]") || msg.includes("MongoDB");
+  return new Elysia()
+    // CORS + cross-origin isolation headers for every response.
+    //
+    // T10: COOP: same-origin + COEP: require-corp are required so the hosted
+    // Angular bundle can use SharedArrayBuffer for the WASM rayon thread pool.
+    // Both the API responses and the static-UI responses share this middleware
+    // because the page becomes cross-origin-isolated only when *every* top-level
+    // document response carries both headers.
+    .onBeforeHandle(({ set }) => {
+      set.headers["Access-Control-Allow-Origin"] = CORS_ORIGIN;
+      set.headers["Access-Control-Allow-Methods"] =
+        "GET, POST, PUT, DELETE, OPTIONS";
+      set.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization";
+      set.headers["Cross-Origin-Opener-Policy"] = "same-origin";
+      set.headers["Cross-Origin-Embedder-Policy"] = "require-corp";
+    })
+    // Mirror the isolation headers onto OPTIONS preflight too, so that any
+    // cross-origin check counts them as present.
+    .options("/*", ({ set }) => {
+      set.headers["Access-Control-Allow-Origin"] = CORS_ORIGIN;
+      set.headers["Access-Control-Allow-Methods"] =
+        "GET, POST, PUT, DELETE, OPTIONS";
+      set.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization";
+      set.headers["Cross-Origin-Opener-Policy"] = "same-origin";
+      set.headers["Cross-Origin-Embedder-Policy"] = "require-corp";
+      set.status = 204;
+      return;
+    })
 
-    log.error(
-      {
-        method: request.method,
-        path: new URL(request.url).pathname,
-        err: msg,
-      },
-      "request error",
-    );
+    // Error handler
+    .onError(({ error, set, request }) => {
+      const msg = error instanceof Error ? error.message : String(error);
+      const isDbErr = msg.includes("[db]") || msg.includes("MongoDB");
 
-    if (isDbErr) {
-      set.status = 503;
-      return {
-        error: "Database unavailable",
-        detail: msg,
-        tip: "Start MongoDB with: docker compose up -d mongo",
-      };
-    }
+      log.error(
+        {
+          method: request.method,
+          path: new URL(request.url).pathname,
+          err: msg,
+        },
+        "request error",
+      );
 
-    // Preserve status codes set by middleware (e.g. requireAuth sets 401
-    // before throwing). Only fall back to 500 for errors with no explicit
-    // status — otherwise an auth rejection surfaces to the client as a
-    // generic 500 and the SPA can't react to it.
-    const preset = typeof set.status === "number" ? set.status : 0;
-    if (preset >= 400 && preset < 600) {
-      return { error: msg };
-    }
-    set.status = 500;
-    return { error: "Internal server error", detail: msg };
-  })
+      if (isDbErr) {
+        set.status = 503;
+        return {
+          error: "Database unavailable",
+          detail: msg,
+          tip: "Start MongoDB with: docker compose up -d mongo",
+        };
+      }
 
-  // Public API routes (no bearer required) — health + the session-bootstrap
-  // half of /api/auth (login/register/refresh/logout). The /api/auth/me +
-  // credentials + invites routes wrap themselves in their own `.use(requireAuth)`
-  // sub-tree internally, so the whole authRoutes plugin can sit outside the gate.
-  .use(healthRoutes)
-  .use(authRoutes)
-  // /api/events self-authenticates via a `?token=` query parameter on the
-  // WS handshake (browsers can't send Authorization headers on
-  // `new WebSocket()`). Mounting it here keeps it outside the bearer-only
-  // sub-app's `requireAuth` derive.
-  .use(eventsRoutes)
+      // Preserve status codes set by middleware (e.g. requireAuth sets 401
+      // before throwing). Only fall back to 500 for errors with no explicit
+      // status — otherwise an auth rejection surfaces to the client as a
+      // generic 500 and the SPA can't react to it.
+      const preset = typeof set.status === "number" ? set.status : 0;
+      if (preset >= 400 && preset < 600) {
+        return { error: msg };
+      }
+      set.status = 500;
+      return { error: "Internal server error", detail: msg };
+    })
 
-  // Authenticated API routes — wrapped in a sub-app so the `requireAuth`
-  // scoped-derive only applies to these. Without the sub-app the derive
-  // would leak forward to `staticUiPlugin`, breaking unauthenticated cold
-  // loads (you can't reach /sign-in if the server demands a bearer to
-  // serve index.html).
-  .use(
-    new Elysia({ name: "authedApi" })
-      .use(requireAuth)
-      .use(foldersRoutes)
-      .use(assetsRoutes)
-      .use(indexerRoutes)
-      .use(fsRoutes)
-      .use(fsThumbsRoutes)
-      .use(searchRoutes)
-      .use(jobsRoutes)
-      .use(enrichmentRoutes)
-      .use(meilisearchBackfillRoutes)
-      .use(peopleRoutes),
-  )
+    // Public API routes (no bearer required) — health + the session-bootstrap
+    // half of /api/auth (login/register/refresh/logout). The /api/auth/me +
+    // credentials + invites routes wrap themselves in their own `.use(requireAuth)`
+    // sub-tree internally, so the whole authRoutes plugin can sit outside the gate.
+    .use(healthRoutes)
+    .use(authRoutes)
+    // /api/events self-authenticates via a `?token=` query parameter on the
+    // WS handshake (browsers can't send Authorization headers on
+    // `new WebSocket()`). Mounting it here keeps it outside the bearer-only
+    // sub-app's `requireAuth` derive.
+    .use(eventsRoutes)
 
-  // Static UI (catch-all — must be last so specific API routes match first).
-  // NOT auth-gated: serves the Angular bundle's index.html + assets, and the
-  // SPA itself walks the user through sign-in via /api/auth/* calls.
-  .use(staticUiPlugin);
+    // Authenticated API routes — wrapped in a sub-app so the `requireAuth`
+    // scoped-derive only applies to these. Without the sub-app the derive
+    // would leak forward to `staticUiPlugin`, breaking unauthenticated cold
+    // loads (you can't reach /sign-in if the server demands a bearer to
+    // serve index.html).
+    .use(workerRoutes(supervisor))
+    .use(
+      new Elysia({ name: "authedApi" })
+        .use(requireAuth)
+        .use(foldersRoutes)
+        .use(assetsRoutes)
+        .use(indexerRoutes)
+        .use(fsRoutes)
+        .use(fsThumbsRoutes)
+        .use(searchRoutes)
+        .use(jobsRoutes)
+        .use(enrichmentRoutes)
+        .use(meilisearchBackfillRoutes)
+        .use(peopleRoutes),
+    )
+
+    // Static UI (catch-all — must be last so specific API routes match first).
+    // NOT auth-gated: serves the Angular bundle's index.html + assets, and the
+    // SPA itself walks the user through sign-in via /api/auth/* calls.
+    .use(staticUiPlugin);
+}
 
 // ---------------------------------------------------------------------------
 // Startup
@@ -353,7 +360,7 @@ async function start(): Promise<void> {
       );
     });
 
-  app.listen(PORT);
+  buildApp().listen(PORT);
 }
 
 // Graceful shutdown.
