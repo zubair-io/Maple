@@ -12,11 +12,12 @@
  * Resolution order for each model file:
  *
  *   1. Operator dropped the file at `<modelDir>/<basename>` — use that.
- *   2. `MAPLE_FACE_RETINAFACE_URL` / `MAPLE_FACE_MOBILEFACENET_URL` is
+ *   2. DB row from /settings/enrichment OR `MAPLE_FACE_*_URL` env var is
  *      set — download once into the model dir, verify the SHA256, then
  *      use it.
- *   3. Neither — fail fast with a single, actionable error message that
- *      lists both options. Never download from a guessed URL.
+ *   3. Zero-config fallback: download InsightFace's `buffalo_s.zip` from
+ *      its public GitHub Release, extract the two files. Suppress with
+ *      `MAPLE_FACE_NO_AUTO_DOWNLOAD=true` to force step 1 or 2.
  *
  * Test override: `setFaceModelLoaderForTests(loader)` lets the worker tests
  * inject a fake session pair without touching disk or `onnxruntime-node`.
@@ -24,10 +25,20 @@
  * Spec: `docs/indexer-enrichment.md` §6 ("Face worker").
  */
 
-import { existsSync, mkdirSync, statSync } from "node:fs";
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  rmSync,
+  statSync,
+} from "node:fs";
 import { writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, dirname } from "node:path";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+
+const execFileAsync = promisify(execFile);
 import { createHash } from "node:crypto";
 import { child as childLogger } from "../log.ts";
 
@@ -124,6 +135,23 @@ export async function loadFaceModels(
     }
     const dir = config.modelDir ?? defaultModelDir();
     mkdirSync(dir, { recursive: true });
+
+    // Zero-config bootstrap: if neither model file exists on disk AND
+    // neither has a configured URL, fetch + extract the InsightFace
+    // buffalo_s bundle from its public GitHub Release. This is the
+    // "personal install, just works at boot" path. Operator can disable
+    // by setting `MAPLE_FACE_NO_AUTO_DOWNLOAD=true`, or override with
+    // their own URLs to skip this branch.
+    if (
+      process.env.MAPLE_FACE_NO_AUTO_DOWNLOAD !== "true" &&
+      !existsSync(join(dir, RETINAFACE_BASENAME)) &&
+      !existsSync(join(dir, MOBILEFACENET_BASENAME)) &&
+      !(config.retinafaceUrl ?? process.env.MAPLE_FACE_RETINAFACE_URL) &&
+      !(config.mobilefacenetUrl ?? process.env.MAPLE_FACE_MOBILEFACENET_URL)
+    ) {
+      await downloadBuffaloSDefault(dir);
+    }
+
     const retinaPath = await ensureModelFile({
       dir,
       basename: RETINAFACE_BASENAME,
@@ -236,4 +264,104 @@ async function loadOnnxRuntime(): Promise<{
 /** Test-only: peek at the cached singleton without triggering a load. */
 export function _getCachedModelsForTests(): FaceModels | null {
   return singleton;
+}
+
+// ─── buffalo_s zero-config bootstrap ────────────────────────────────────────
+//
+// `loadFaceModels()` calls this when neither model file is on disk and
+// neither URL is configured. It downloads the InsightFace `buffalo_s`
+// release zip (the project's official small-model bundle) and extracts
+// the two ONNX files we need into the model dir.
+//
+// Why this URL: InsightFace's GitHub Releases are the canonical source
+// for the `buffalo_*` bundles. The `v0.7` release is the long-standing
+// host for `buffalo_s.zip`; if the project ever rotates it, the download
+// fails with a clear error and the operator falls back to the configured
+// URL fields on /settings/enrichment or drops the files at
+// `<modelDir>/{retinaface,mobilefacenet}.onnx` manually.
+//
+// Why shell out to `unzip`: avoids pulling a JS unzip dep just for one
+// boot-time path. `unzip` is preinstalled on every mainstream Linux
+// distro and the official Bun Docker image. If it's missing, the error
+// is clearly actionable (`apt install unzip`).
+
+const DEFAULT_BUFFALO_S_URL =
+  "https://github.com/deepinsight/insightface/releases/download/v0.7/buffalo_s.zip";
+
+/** Member names inside `buffalo_s.zip` (paths the InsightFace bundle uses). */
+const BUFFALO_S_DET_MEMBER = "det_500m.onnx";
+const BUFFALO_S_REC_MEMBER = "w600k_mbf.onnx";
+
+async function downloadBuffaloSDefault(dir: string): Promise<void> {
+  log.info(
+    { url: DEFAULT_BUFFALO_S_URL, dir },
+    "no face models on disk and no URL configured — downloading buffalo_s default bundle",
+  );
+
+  // Fetch the zip once.
+  const res = await fetch(DEFAULT_BUFFALO_S_URL);
+  if (!res.ok) {
+    throw new Error(
+      `Failed to fetch buffalo_s default bundle from ${DEFAULT_BUFFALO_S_URL}: HTTP ${res.status}. ` +
+        `Either set MAPLE_FACE_RETINAFACE_URL / MAPLE_FACE_MOBILEFACENET_URL, ` +
+        `or drop the model files at ${join(dir, RETINAFACE_BASENAME)} and ${join(dir, MOBILEFACENET_BASENAME)}.`,
+    );
+  }
+  const zipBytes = new Uint8Array(await res.arrayBuffer());
+  const zipPath = join(dir, "_buffalo_s.zip");
+  await writeFile(zipPath, zipBytes);
+  log.info(
+    { zipPath, bytes: zipBytes.length },
+    "buffalo_s downloaded; extracting",
+  );
+
+  // Extract into a staging dir so we can find the two files regardless
+  // of whether the zip places them at the root or under `buffalo_s/`.
+  const stagingDir = join(dir, "_buffalo_s_extract");
+  rmSync(stagingDir, { recursive: true, force: true });
+  mkdirSync(stagingDir, { recursive: true });
+  try {
+    await execFileAsync("unzip", ["-o", "-q", zipPath, "-d", stagingDir]);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new Error(
+      `Failed to extract buffalo_s.zip (${msg}). Install unzip (\`apt install unzip\`) ` +
+        `or drop the model files at ${join(dir, RETINAFACE_BASENAME)} and ${join(dir, MOBILEFACENET_BASENAME)} manually.`,
+    );
+  }
+
+  const findMember = (member: string): string => {
+    for (const candidate of [
+      join(stagingDir, member),
+      join(stagingDir, "buffalo_s", member),
+    ]) {
+      if (existsSync(candidate)) return candidate;
+    }
+    throw new Error(
+      `buffalo_s.zip did not contain ${member} — InsightFace may have rotated the bundle. ` +
+        `Set MAPLE_FACE_RETINAFACE_URL / MAPLE_FACE_MOBILEFACENET_URL with explicit URLs.`,
+    );
+  };
+
+  copyFileSync(
+    findMember(BUFFALO_S_DET_MEMBER),
+    join(dir, RETINAFACE_BASENAME),
+  );
+  copyFileSync(
+    findMember(BUFFALO_S_REC_MEMBER),
+    join(dir, MOBILEFACENET_BASENAME),
+  );
+
+  // Cleanup so we don't leave the zip + extraction droppings under the
+  // model dir (would survive container rebuilds via the volume mount).
+  rmSync(zipPath, { force: true });
+  rmSync(stagingDir, { recursive: true, force: true });
+
+  log.info(
+    {
+      retina: join(dir, RETINAFACE_BASENAME),
+      mfn: join(dir, MOBILEFACENET_BASENAME),
+    },
+    "buffalo_s default bundle extracted",
+  );
 }

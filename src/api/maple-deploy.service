@@ -1,0 +1,29 @@
+# Maple Self Hosted — auto-deploy oneshot
+#
+# Triggered by maple-deploy.timer. Pulls main and rebuilds/restarts the
+# container if there are new commits. See scripts/auto-deploy.sh.
+#
+# Install:
+#   sudo cp /root/Maple/src/api/maple-deploy.service /etc/systemd/system/
+#   sudo cp /root/Maple/src/api/maple-deploy.timer   /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now maple-deploy.timer
+#
+# Tail logs:
+#   journalctl -fu maple-deploy.service
+#
+# Manually trigger a deploy check:
+#   sudo systemctl start maple-deploy.service
+
+[Unit]
+Description=Maple Self Hosted auto-deploy from main
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/root/Maple/src/api/scripts/auto-deploy.sh
+# `docker build` on a cold cache can take a while.
+TimeoutStartSec=30min
+StandardOutput=journal
+StandardError=journal
