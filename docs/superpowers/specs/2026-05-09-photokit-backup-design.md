@@ -38,10 +38,11 @@ PhotoKit assets are second-class in Maple today. `PhotoKitSource.writeXMP` throw
 ### 5. Non-goals
 
 - Editing video or Live Photo motion (we *store* both halves; editing remains stills-only per the project PRD).
-- Writing edits back into the Apple Photos library (`PHAssetChangeRequest` is technically possible; deferred — see § 17).
+- **Writing edits back into the Apple Photos library.** All Maple edits live in sidecars and never modify the original asset, in Photos or anywhere else. This extends Maple's "originals are sacred" rule to the Apple Photos source.
+- **Migrating a backup library to a different root or server.** A migration tool is code that deletes user photos under load; the risk of a bug is unacceptable. Users move libraries with `rsync` or Finder, outside Maple.
 - Backing up to non-Maple destinations (filesystem-only, third-party clouds).
 - Cross-server replication (one library = one server in v1).
-- End-to-end encryption beyond TLS — TLS suffices for v1.
+- End-to-end encryption beyond TLS — TLS suffices for v1, and adding key management on top buys little for a self-hosted server the user already trusts with the bytes.
 
 ### 6. Success criteria
 
@@ -80,9 +81,11 @@ Per PHAsset, the backup writes:
 - **Apple-rendered version** — when the user edited the asset inside Apple Photos, the rendered output is also fetched (`.current` version) and stored alongside as `<base>.rendered.<ext>`. The original is the canonical asset; the rendered copy is auxiliary.
 - **Sidecar XMP** — a `.xmp` file next to the asset, carrying:
   - Existing Maple sidecar payload (`AdjustmentModel`, `CullingState`) — empty for fresh imports
-  - PhotoKit fields: `phassetLocalId`, `deviceId` (UUID stable per device), `captureDate`, GPS, `favorite` flag, `caption`, `keywords[]`, `albumMemberships[]`, `originalFilename`, `mtime`
+  - PhotoKit fields: `phassetLocalId`, `deviceId` (UUID stable per device), `captureDate`, GPS, `favorite` flag, `caption`, `keywords[]`, `tags[]`, `originalFilename`, `mtime`
   - Live Photo linkage: `maple:livePhotoCompanion = "<base>.mov"` on both halves
-  - Burst linkage: `maple:burstStackId` on every frame in a burst
+  - Burst linkage: `maple:burstStackId` on every frame in a burst (each frame is its own PHAsset with its own localIdentifier and filename — no synthetic naming required)
+
+`tags[]` replaces what Apple calls album membership. Apple's nested folder structure ("My Albums > Trips > Tokyo") flattens to `tags: ["Trips", "Tokyo"]` — every ancestor folder name plus the leaf album name becomes a tag. The mapping isn't strictly one-to-one (two leaf albums named "Tokyo" under different parents collapse), but it's close enough and gives Maple a flat, queryable model that matches how photographers actually search. Tags are also the natural foundation for user-added organisation later.
 
 This is an **additive** schema change — `docs/sidecar-schema.md` gets new optional fields; existing readers ignore unknown XMP and pass it through unchanged.
 
@@ -125,14 +128,14 @@ Reverse-geocoded place names come from the existing `src/api/src/enrichment/nomi
 
 ### 11. Edit-while-not-backed-up
 
-Today, `PhotoKitSource.writeXMP` throws. After this work, it writes to a **local sidecar shadow store**:
+Today, `PhotoKitSource.writeXMP` throws. After this work, it writes a regular `.xmp` file in App Support — same XMP format and same atomic write pattern as `XMPSidecarStore`, just keyed by `phassetLocalId` instead of by raw URL:
 
-- File: `~/Library/Application Support/Maple/photokit-shadow.sqlite`
-- Schema: one row per `(deviceId, phassetLocalId)`, columns for the serialised `Sidecar`, mtime, and a "needs upload" flag
-- Read path: `PhotoKitSource.readXMP` (new) returns the shadow row when present, falling back to PhotoKit-only metadata otherwise
-- Write path: every edit writes to the shadow synchronously (responsive UI, no network)
+- Path: `~/Library/Application Support/Maple/PhotoKitSidecars/<phassetLocalId>.xmp`
+- Same temp-then-`replaceItemAt` atomic write `XMPSidecarStore` already uses — no parallel storage layer, no schema, no SQLite
+- Read path: `PhotoKitSource.readXMP` (new) returns the App-Support `.xmp` when present, falling back to PhotoKit-only metadata otherwise
+- An `XMPSidecarStore`-shaped wrapper points `EditSession` at this path, so the rest of the edit pipeline doesn't know or care that the source is PhotoKit
 
-When the engine uploads the asset bytes, the shadow row is materialised as the cloud-side `.xmp` and the shadow row is deleted. If the user is on WiFi when they make the edit, the engine performs a **priority-jump** backup of just that asset — the user's working photo gets queue-bypassed.
+When the engine uploads the asset bytes, the App-Support `.xmp` is copied to the cloud-side path and the local file is deleted. If the user is on WiFi when they make the edit, the engine performs a **priority-jump** backup of just that asset — the user's working photo gets queue-bypassed.
 
 If the user is on cellular and "WiFi-only" is enabled, the bytes wait. The edit is durable on-device. On next WiFi association, the queue resumes.
 
@@ -153,7 +156,7 @@ Open path: prefer the local PhotoKit thumbnail (~5–50 ms via `PHImageManager`)
 
 ### 13. Networking & power
 
-- Bytes upload: WiFi-only by default. The priority-jump in § 11 also respects this — on cellular, an edited asset's bytes wait but the sidecar shadow keeps the edit durable.
+- Bytes upload: WiFi-only by default. The priority-jump in § 11 also respects this — on cellular, an edited asset's bytes wait but the App-Support `.xmp` keeps the edit durable.
 - Sidecar uploads (small) follow the same WiFi-only default; they're not a special-cased exception.
 - iOS low-power mode pauses uploads.
 - macOS Energy Saver: pauses when on battery if the user picks "Energy saver" power profile.
@@ -192,7 +195,7 @@ Open path: prefer the local PhotoKit thumbnail (~5–50 ms via `PHImageManager`)
                  │ MapleBackup (SPM module)   │
                  │ - BackupEngine actor       │
                  │ - BackupQueue protocol     │
-                 │ - PhotoKitShadowStore      │
+                 │ - AppSupportSidecarStore   │
                  │ - PayloadAssembler         │
                  │ - UploadClient             │
                  └────────────┬───────────────┘
@@ -241,12 +244,12 @@ unseen → observed → pending → uploading → uploaded
                        ├──► failed-retry (exp. backoff)
                        └──► skipped-policy
 
-(any state) → local-edit-pending  (sidecar shadow exists, bytes
-                                   not uploaded yet; transitions
+(any state) → local-edit-pending  (App-Support sidecar exists,
+                                   bytes not uploaded yet; transitions
                                    back to pending on next walk)
 ```
 
-State is persisted in `~/Library/Application Support/Maple/backup-state.sqlite`. The engine recovers from any state on restart.
+State is persisted in `~/Library/Application Support/Maple/backup-state.sqlite`. This is internal queue state — counts, retry depth, in-flight chunk offsets — not user data; SQLite is appropriate for the concurrent-update + restart-recovery shape. User-visible sidecars stay as `.xmp` files (§ 11).
 
 ### 18. Worker abstraction
 
@@ -319,19 +322,13 @@ No content, no PII, no remote reporting. Surface in the status panel for the use
 
 ### 24. Open questions
 
-- **Burst frame numbering** — Apple's PHAssetResource burst order is documented as stable but not strictly chronological. Confirm with a real burst before shipping.
-- **Album hierarchy** — Apple supports nested folders ("My Albums > Trips > Tokyo"). Sidecar `albumMemberships[]` flattens this. Confirm whether to preserve hierarchy in the sidecar or only the leaf-album titles.
-- **Apple Photos people / face data** — PhotoKit exposes face rectangles (`PHContentEditingInput`); not in scope for v1, but the schema reservation may be worth doing now.
-- **Live Photo replay in Maple** — out of scope for backup; flagged for follow-up.
-- **Migration story** — moving an existing Maple library backup root to a new server. Not v1.
+- **Apple Photos people / face data** — PhotoKit exposes face rectangles (`PHContentEditingInput`); not in scope for v1, but reserving the sidecar/schema slot now would let a later face-data import land additively.
 
 ### 25. Future work (explicitly deferred)
 
-- Writing edits back into Photos via `PHAssetChangeRequest` (round-trip Maple → Apple Photos).
-- Live Photo / video editing.
+- Live Photo / video editing (v2).
 - Hosted "Maple Cloud" offering as an alternative to Self-Hosted.
 - Cross-server replication.
-- E2E encryption beyond TLS.
 
 ---
 
@@ -340,11 +337,11 @@ No content, no PII, no remote reporting. Surface in the status panel for the use
 This section is intentionally light — full plan lands in `docs/superpowers/plans/`. The natural slicing:
 
 1. **Server foundations** — `assets.phasset_links` schema, ingest endpoint, geocode/reverse endpoint, ingest-tests.
-2. **Shared engine** — `MapleBackup` SPM module, `BackupQueue` in-process implementation, `PayloadAssembler`, `UploadClient`, sidecar shadow store, state-machine persistence.
+2. **Shared engine** — `MapleBackup` SPM module, `BackupQueue` in-process implementation, `PayloadAssembler`, `UploadClient`, App-Support sidecar store for not-yet-uploaded edits, state-machine persistence.
 3. **macOS LaunchAgent** — `MapleBackupAgent` target + plist + install/uninstall flow + IPC with the main app for status display.
 4. **iOS hosting** — engine in-app + `BGProcessingTask` registration + low-power gating.
 5. **Settings UI** — `BackupSettingsView` + status panel + pause/resume controls.
-6. **PhotoKitSource changes** — `writeXMP` writes to shadow store instead of throwing; `readXMP` consults shadow first.
+6. **PhotoKitSource changes** — `writeXMP` writes to App-Support `<phassetLocalId>.xmp` instead of throwing; `readXMP` consults App-Support first.
 7. **Merged timeline** — Browse-view timeline source becomes a union; per-cell badges; open-path preference.
 8. **Continuous sync** — `PhotoKitChangeObserver` wiring; periodic safety walks; reconciliation against `/backup/state`.
 9. **Failure-mode hardening** — retry policy, network gating, resume-from-chunk, telemetry.
