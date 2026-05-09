@@ -409,15 +409,22 @@ export class BunApiBackendService {
   }
 
   /** Force a re-scan of one library folder. Server walks the folder
-   * tree and pushes every supported file back into the discover channel.
-   * The fast-tier upsert is idempotent — unchanged files no-op, new
-   * files get indexed. Returns immediately; the walk runs in the
-   * background. Useful when polling intervals are slow and the operator
-   * just dropped a memory card. */
-  rescanFolder(folderId: string): Observable<{ ok: boolean; folderId: string; path: string; error?: string }> {
+   * tree (or just `subPath` if supplied — must resolve under the
+   * library root) and pushes every supported file into the discover
+   * channel with priority — every stage forwards via pushFront so the
+   * jobs hop the existing backlog. The fast-tier upsert is idempotent;
+   * unchanged files no-op, new ones get indexed.
+   *
+   * Returns immediately; the walk runs in the background. Useful when
+   * the operator just dropped a memory card and wants those photos
+   * surfaced ahead of an in-progress initial walk. */
+  rescanFolder(
+    folderId: string,
+    opts: { subPath?: string } = {},
+  ): Observable<{ ok: boolean; folderId: string; path: string; error?: string }> {
     return this.http.post<{ ok: boolean; folderId: string; path: string; error?: string }>(
       `${this.base}/indexer/rescan/${encodeURIComponent(folderId)}`,
-      {},
+      opts.subPath ? { subPath: opts.subPath } : {},
     );
   }
 

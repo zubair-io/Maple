@@ -9,8 +9,15 @@
  */
 
 export interface BoundedQueue<T> {
-  /** Push an item. Resolves when a slot is free. Rejects if the queue is closed. */
+  /** Push an item to the TAIL (FIFO). Resolves when a slot is free.
+   * Rejects if the queue is closed. */
   push(item: T): Promise<void>;
+  /** Push an item to the HEAD — jumps the queue. Used by the rescan
+   * path to surface a user-clicked subtree ahead of an existing
+   * backlog. Same close + backpressure semantics as `push`. When the
+   * buffer is full, the prepended item enters at the FRONT of the
+   * pending-pushers list, so it's the next one drained. */
+  pushFront(item: T): Promise<void>;
   /** Consume items forever (until close()). Each item goes to exactly one consumer. */
   take(): AsyncIterableIterator<T>;
   /** Signal end-of-input. Pending takers receive `done: true`. */
@@ -52,6 +59,29 @@ export function createBoundedQueue<T>(capacity: number): BoundedQueue<T> {
 
     return new Promise<void>((resolve, reject) => {
       pushers.push({ item, resolve, reject });
+    });
+  }
+
+  function pushFront(item: T): Promise<void> {
+    if (closed) return Promise.reject(new Error("BoundedQueue: pushFront on closed queue"));
+
+    // Same fast paths as push: a waiting taker takes the item immediately.
+    const taker = takers.shift();
+    if (taker) {
+      taker({ value: item, done: false });
+      return Promise.resolve();
+    }
+
+    if (buf.length < capacity) {
+      // Front of the buffer — next take() returns this item.
+      buf.unshift(item);
+      return Promise.resolve();
+    }
+
+    // Buffer full — jump the head of the pending-pushers queue too, so this
+    // item is the FIRST to land in the buffer when a slot frees up.
+    return new Promise<void>((resolve, reject) => {
+      pushers.unshift({ item, resolve, reject });
     });
   }
 
@@ -112,6 +142,7 @@ export function createBoundedQueue<T>(capacity: number): BoundedQueue<T> {
 
   return {
     push,
+    pushFront,
     take,
     close,
     get depth(): number {
