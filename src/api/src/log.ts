@@ -27,10 +27,16 @@
  * a worker thread (via `thread-stream`) that keeps the Bun event loop
  * alive after tests finish, hanging `bun test`. The sync stream stays in
  * the main thread so the test process exits cleanly.
+ *
+ * Deploy note — `pino-pretty` lives in devDependencies because production
+ * doesn't pretty-print. The import is therefore dynamic + try/catch so a
+ * `bun install --production` deploy (which skips devDeps) doesn't crash
+ * at module load when `NODE_ENV` is unset. If the package can't be
+ * resolved we fall through to plain JSON, which is the right shape for
+ * any log-collection pipeline.
  */
 
 import pino, { type Logger } from "pino";
-import pinoPretty from "pino-pretty";
 
 const LEVEL = process.env.MAPLE_LOG_LEVEL ?? "info";
 const IS_PROD = process.env.NODE_ENV === "production";
@@ -39,18 +45,34 @@ const baseOptions = {
   level: LEVEL,
 };
 
-const logger: Logger = IS_PROD
-  ? pino(baseOptions)
-  : pino(
-      baseOptions,
-      pinoPretty({
-        colorize: true,
-        translateTime: "HH:MM:ss.l",
-        ignore: "pid,hostname",
-        messageFormat: "{component} {msg}",
-        sync: true,
-      }),
-    );
+async function buildPrettyStream(): Promise<NodeJS.WritableStream | null> {
+  if (IS_PROD) return null;
+  try {
+    // Dynamic import (resolves at runtime) so the static module graph
+    // doesn't require pino-pretty in production.
+    const mod = await import("pino-pretty");
+    const pinoPretty = (mod.default ?? mod) as unknown as (
+      opts: object,
+    ) => NodeJS.WritableStream;
+    return pinoPretty({
+      colorize: true,
+      translateTime: "HH:MM:ss.l",
+      ignore: "pid,hostname",
+      messageFormat: "{component} {msg}",
+      sync: true,
+    });
+  } catch {
+    // pino-pretty isn't installed (prod deploy without devDeps, or env
+    // forgot to set NODE_ENV=production). Fall through to JSON logging
+    // — same as IS_PROD === true.
+    return null;
+  }
+}
+
+const prettyStream = await buildPrettyStream();
+const logger: Logger = prettyStream
+  ? pino(baseOptions, prettyStream)
+  : pino(baseOptions);
 
 /**
  * Singleton root logger. Prefer `child(component)` over the root for
