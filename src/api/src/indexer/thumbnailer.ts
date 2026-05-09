@@ -24,6 +24,7 @@ import * as fs from "node:fs/promises";
 import { resolveThumbPath } from "../fs/xmp.ts";
 import { ffiPool } from "../ffi/ffi-pool.ts";
 import { renderImageThumbToFile, SHARP_EXTENSIONS } from "../thumbs/render.ts";
+import { applyExifOrientationInPlace } from "../thumbs/apply-orientation.ts";
 import { child as childLogger } from "../log.ts";
 
 const log = childLogger("thumbnailer");
@@ -130,8 +131,9 @@ async function renderRawThumbToFile(
     );
     return false;
   }
+  let ok = false;
   try {
-    return await pool.renderThumbnailJpegToFile(
+    ok = await pool.renderThumbnailJpegToFile(
       rawPath,
       thumbPath,
       THUMB_LONG_EDGE_PX,
@@ -144,6 +146,17 @@ async function renderRawThumbToFile(
     );
     return false;
   }
+  if (!ok) return false;
+  try {
+    await applyExifOrientationInPlace(thumbPath);
+  } catch (e) {
+    log.warn(
+      { rawPath, err: e instanceof Error ? e.message : e },
+      "orientation post-process failed; thumb left unrotated",
+    );
+    // The FFI output is still on disk — mark success rather than failing the stage.
+  }
+  return true;
 }
 
 /**
