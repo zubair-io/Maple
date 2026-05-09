@@ -133,10 +133,67 @@ export function parseNominatimResponse(
     address,
     pois,
     rollups,
-    // Phase 3 builds the search blob; Phase 2 keeps it empty so the type
-    // stays satisfied without preempting the search-index design.
-    search_blob: "",
+    search_blob: buildSearchBlob(address, pois),
   };
+}
+
+/**
+ * Build the denormalised search blob: a single space-separated lowercase
+ * string containing every word a search should match. Spec: §5.2.
+ *
+ * Sources, in order of intent (no ordering is guaranteed in the output —
+ * this is a bag of tokens, deduped and sorted alphabetically for determinism):
+ *
+ *   - All non-empty `address.*` values (so "Albany", "Madison", "Avenue", …).
+ *   - The `state_code` (so "NY" matches even though it's stored as "NY"
+ *     in `address.state_code` — added for clarity even though it would be
+ *     picked up by the address sweep too).
+ *   - For each POI: the `name` AND the `type` (so a search for "Park"
+ *     matches both "Central Park" and any park-typed POI).
+ *   - The `country_code` AND the `country` full name when both are set
+ *     (so "US" matches "United States").
+ *
+ * Each value is lowercased, split on whitespace, deduped, and joined with
+ * single spaces. Returning empty string for a fully empty input keeps the
+ * unresolved-stub case (`error: "Unable to geocode"`) producing `""`.
+ */
+function buildSearchBlob(
+  address: PlaceAddress,
+  pois: PlacePoi[],
+): string {
+  const tokens = new Set<string>();
+  const add = (value: string | undefined): void => {
+    if (!value) return;
+    for (const part of value.toLowerCase().split(/\s+/)) {
+      if (part.length > 0) tokens.add(part);
+    }
+  };
+
+  // Address fields. Iterate keys explicitly so adding a new optional
+  // PlaceAddress field forces a touch here — better than `Object.values`
+  // which would silently include anything new.
+  add(address.house_number);
+  add(address.road);
+  add(address.neighbourhood);
+  add(address.suburb);
+  add(address.city);
+  add(address.town);
+  add(address.village);
+  add(address.county);
+  add(address.state);
+  add(address.state_code);
+  add(address.postcode);
+  add(address.country);
+  add(address.country_code);
+
+  for (const poi of pois) {
+    add(poi.name);
+    add(poi.type);
+  }
+
+  // Sort so the output is deterministic regardless of insertion order —
+  // helps tests stay stable across parser refactors.
+  return [...tokens].sort().join(" ");
 }
 
 function mapAddress(input: NominatimAddress): PlaceAddress {
