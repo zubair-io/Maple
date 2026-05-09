@@ -10,7 +10,7 @@
  * include no test surface.
  */
 
-import type { Collection } from "mongodb";
+import type { Collection, Filter, ObjectId } from "mongodb";
 import { child as childLogger } from "../../log.ts";
 import type { WorkerConfig } from "./define-stage.ts";
 import type { ImageDoc, StageConfig } from "./define-stage.ts";
@@ -83,12 +83,153 @@ export async function versionBumpReset(
 }
 
 // ---------------------------------------------------------------------------
+// Claim query construction.
+// ---------------------------------------------------------------------------
+
+/**
+ * Build the MongoDB filter that selects docs eligible for this stage:
+ *   - stages.<name>.version < targetVersion (missing field treated as < any number)
+ *   - stages.<name>.dead != true
+ *   - For each dep: stages.<dep>.version >= 1
+ *   - _id not in the current in-flight set
+ */
+export function buildClaimQuery(
+  name: string,
+  targetVersion: number,
+  dependsOn: string[],
+  inFlight: Set<ObjectId>,
+): Filter<ImageDoc> {
+  const filter: Filter<ImageDoc> = {
+    [`stages.${name}.version`]: { $lt: targetVersion },
+    [`stages.${name}.dead`]: { $ne: true },
+  };
+  for (const dep of dependsOn) {
+    (filter as Record<string, unknown>)[`stages.${dep}.version`] = { $gte: 1 };
+  }
+  if (inFlight.size > 0) {
+    (filter as Record<string, unknown>)["_id"] = {
+      $nin: [...inFlight],
+    };
+  }
+  return filter;
+}
+
+// ---------------------------------------------------------------------------
+// Single poll tick: claim + dispatch + writeback.
+// ---------------------------------------------------------------------------
+
+/**
+ * Run one poll tick: find eligible docs, dispatch each to the handler,
+ * write back results. Used by the full poll loop and directly from tests.
+ */
+export async function runOnce(
+  stage: StageConfig,
+  config: WorkerConfig,
+  images: Collection<ImageDoc>,
+  _configColl: Collection<WorkerConfigDoc>,
+): Promise<void> {
+  if (config.paused) return;
+
+  const inFlight = new Set<ObjectId>();
+  const log = childLogger(`workers:${stage.name}`);
+  const abortController = new AbortController();
+  const ctx = { log, signal: abortController.signal };
+
+  const query = buildClaimQuery(
+    stage.name,
+    stage.targetVersion,
+    stage.dependsOn,
+    inFlight,
+  );
+
+  const docs = await images
+    .find(query)
+    .limit(config.batchSize)
+    .toArray();
+
+  await Promise.all(
+    docs.map(async (doc) => {
+      const id = (doc as { _id: ObjectId })._id;
+      inFlight.add(id);
+      try {
+        const result = await stage.handler(doc, ctx);
+        const stageState = {
+          version: stage.targetVersion,
+          attempts: 0,
+          last_error: null,
+          processed_at: new Date(),
+          dead: false,
+        };
+
+        if ("patch" in result) {
+          const forbiddenKeys = Object.keys(result.patch).filter((k) =>
+            k.startsWith("stages."),
+          );
+          if (forbiddenKeys.length > 0) {
+            throw new Error(
+              `Handler returned patch with forbidden stage keys: ${forbiddenKeys.join(", ")}`,
+            );
+          }
+          await images.updateOne(
+            { _id: id },
+            {
+              $set: {
+                [`stages.${stage.name}`]: stageState,
+                ...result.patch,
+              },
+            },
+          );
+        } else if ("wrote" in result) {
+          await images.updateOne(
+            { _id: id },
+            { $set: { [`stages.${stage.name}`]: stageState } },
+          );
+        } else if ("skip" in result) {
+          await images.updateOne(
+            { _id: id },
+            {
+              $set: {
+                [`stages.${stage.name}`]: {
+                  ...stageState,
+                  last_error: `skip: ${result.skip}`,
+                },
+              },
+            },
+          );
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        const current = await images.findOne(
+          { _id: id },
+          { projection: { [`stages.${stage.name}`]: 1 } },
+        );
+        const currentAttempts =
+          (current?.stages?.[stage.name]?.attempts ?? 0) + 1;
+        const dead = currentAttempts >= config.maxAttempts;
+        await images.updateOne(
+          { _id: id },
+          {
+            $set: {
+              [`stages.${stage.name}.attempts`]: currentAttempts,
+              [`stages.${stage.name}.last_error`]: msg,
+              [`stages.${stage.name}.dead`]: dead,
+            },
+          },
+        );
+      } finally {
+        inFlight.delete(id);
+      }
+    }),
+  );
+}
+
+// ---------------------------------------------------------------------------
 // _test export — internal helpers exposed only in test mode.
 // ---------------------------------------------------------------------------
 
 export const _test =
   process.env.MAPLE_TEST === "1"
-    ? { bootConfig, versionBumpReset }
+    ? { bootConfig, versionBumpReset, runOnce }
     : (undefined as never);
 
 // ---------------------------------------------------------------------------
