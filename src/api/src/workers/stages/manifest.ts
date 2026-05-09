@@ -1,0 +1,50 @@
+/**
+ * Authoritative list of all per-image stage names.
+ *
+ * The discover producer imports this to build the `stages` skeleton on every
+ * new image doc. The supervisor passes it to the runtime when spawning stage
+ * children. Plan 3 adds face / ocr / describe / geocode / meili here; no
+ * other file needs to change.
+ *
+ * Order is cosmetic — the runtime enforces dependency ordering via each
+ * stage's `dependsOn` array, not by position in this list.
+ */
+export const ALL_STAGE_NAMES = [
+  "hash",
+  "exif",
+  "thumb",
+  "face",
+  "ocr",
+  "describe",
+  "geocode",
+  "meili",
+] as const;
+
+export type StageName = (typeof ALL_STAGE_NAMES)[number];
+
+/**
+ * Build the blank `stages` skeleton that discover writes on every new image doc.
+ * Every field starts at `version: 0` so all wired controllers immediately
+ * see the doc as needing work.
+ */
+export function blankStagesSkeleton(): Record<
+  StageName,
+  {
+    version: number;
+    attempts: number;
+    last_error: null;
+    processed_at: null;
+    dead: boolean;
+  }
+> {
+  const entry = {
+    version: 0,
+    attempts: 0,
+    last_error: null,
+    processed_at: null,
+    dead: false,
+  };
+  return Object.fromEntries(ALL_STAGE_NAMES.map((name) => [name, { ...entry }])) as ReturnType<
+    typeof blankStagesSkeleton
+  >;
+}
