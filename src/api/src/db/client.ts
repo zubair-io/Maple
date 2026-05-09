@@ -20,6 +20,7 @@ import type {
   GeocodeCacheDoc,
   IndexerTaskDoc,
   JobDoc,
+  PersonDoc,
   StageHandlerDoc,
   UserDoc,
   CredentialDoc,
@@ -138,6 +139,9 @@ export async function challengesCollection(): Promise<
   Collection<ChallengeDoc>
 > {
   return (await getDb()).collection<ChallengeDoc>("challenges");
+}
+export async function peopleCollection(): Promise<Collection<PersonDoc>> {
+  return (await getDb()).collection<PersonDoc>("people");
 }
 
 /**
@@ -571,6 +575,25 @@ export async function ensureIndexes(): Promise<void> {
 
   const challenges = await challengesCollection();
   await challenges.createIndex({ expires_at: 1 }, { expireAfterSeconds: 0 });
+
+  // people: case-insensitive unique on `name` so a duplicate name is impossible
+  // at the DB level. The `renamePerson` repo method merges before it would
+  // ever hit this constraint; the index is the safety net for direct inserts.
+  // Partial filter excludes merged rows so a person can be merged then their
+  // name re-used (the merged row keeps `name` for audit, but is not unique).
+  const people = await peopleCollection();
+  await people.createIndex(
+    { name: 1 },
+    {
+      unique: true,
+      collation: { locale: "en", strength: 2 },
+      partialFilterExpression: { merged_into: null },
+      name: "people_name_unique",
+    },
+  );
+  // Speeds up `assignFaceToPerson` reverse lookups + the clustering job's
+  // bulk centroid recompute.
+  await people.createIndex({ merged_into: 1 }, { name: "people_merged" });
 
   log.info("indexes ensured");
 }

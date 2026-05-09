@@ -267,6 +267,42 @@ export interface AssetFaceDoc {
   embedding?: number[];
 }
 
+// ---------------------------------------------------------------------------
+// People — face-cluster identities. Operator names a cluster; tagging two
+// clusters with the same name merges them. See
+// `src/api/src/people/people.repo.ts` for the merge semantics and
+// `clustering-job.ts` for the online assignment loop.
+// ---------------------------------------------------------------------------
+
+export interface PersonDoc {
+  /** Display name. Unique per database under a case-insensitive collation
+   * (the unique index lives in `ensureIndexes`). The merge-on-duplicate
+   * behaviour is enforced by `renamePerson`; the index is the safety net. */
+  name: string;
+  /** ISO timestamp the person row was first inserted. */
+  created_at: string;
+  /** ISO timestamp of the last write to this row (rename, cover update). */
+  updated_at: string;
+  /** Hex of an asset face id used as the grid thumbnail. Optional — when
+   * absent the UI falls back to the first face it can find. */
+  cover_face_id?: string;
+  /** When two clusters get the same name they merge: the orphan keeps
+   * `merged_into` pointing at the survivor for an audit trail. Hidden
+   * from the UI listing. The same field doubles as the soft-delete
+   * marker — a row whose `merged_into` is set is excluded from
+   * `listPeople`. */
+  merged_into?: ObjectId | null;
+  /** Centroid embedding (mean of assigned face embeddings). Refreshed
+   * by `recomputeCentroids()` after each clustering run. Empty/undefined
+   * for a brand-new person with no assignments yet. */
+  centroid?: number[];
+  /** Number of assigned faces at the time `centroid` was last refreshed.
+   * Lets `runOnlineClustering` skip the recompute when nothing changed. */
+  centroid_face_count?: number;
+}
+
+export type PersonWithId = WithId<PersonDoc>;
+
 /**
  * Default empty state for one enrichment stage. The fast pipeline's skeleton
  * upsert seeds every stage with this shape on insert; readers fall back to it
