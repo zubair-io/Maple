@@ -106,6 +106,43 @@
         </span>
       </label>
     </div>
+
+    <!-- Rate limit ───────────────────────────────────────────────────── -->
+    <div class="mt-5">
+      <div class="mb-1.5 flex items-baseline justify-between gap-2">
+        <label for="nominatim-rate" class="text-[12px] font-semibold">Rate limit</label>
+        @if (serverConfig(); as cfg) {
+          @let s = sourceLabel(cfg.source.nominatim_rate_limit_per_sec);
+          <span
+            class="rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide"
+            [class.bg-primary-dim]="s.tone === 'saved'"
+            [class.text-primary]="s.tone === 'saved'"
+            [class.bg-surface-hover]="s.tone === 'env'"
+            [class.text-text-muted]="s.tone !== 'saved'"
+          >{{ s.text }}</span>
+        }
+      </div>
+      <div class="flex items-baseline gap-2">
+        <input
+          id="nominatim-rate"
+          type="number"
+          inputmode="decimal"
+          step="0.1"
+          min="0.1"
+          max="100"
+          placeholder="10"
+          class="w-32 min-w-0 rounded-md border border-border bg-bg px-2.5 py-1.5 font-mono text-[12px] text-text-main outline-none focus:border-primary"
+          [value]="rateLimit()"
+          (input)="rateLimit.set($any($event.target).value)"
+        />
+        <span class="text-[11px] text-text-muted">requests / second</span>
+      </div>
+      <p class="mt-1.5 text-[11px] text-text-muted">
+        Token-bucket throttle on the Nominatim client (default 10).
+        Lower for shared / slow instances; raise for fast Geofabrik
+        deployments. Range 0.1–100. Empty clears back to env / default.
+      </p>
+    </div>
   </section>
 
   @if (saveError(); as e) {

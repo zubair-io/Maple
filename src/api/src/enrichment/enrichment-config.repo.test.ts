@@ -114,6 +114,67 @@ describe("resolveEnrichmentConfig — pure logic", () => {
     expect(r.nominatim_url).toBe("http://env.lan");
     expect(r.source.nominatim_url).toBe("env");
   });
+
+  it("rate limit defaults to 10 when neither DB nor env set it", () => {
+    const r = resolveEnrichmentConfig(null, {});
+    expect(r.nominatim_rate_limit_per_sec).toBe(10);
+    expect(r.source.nominatim_rate_limit_per_sec).toBe("default");
+  });
+
+  it("rate limit reads MAPLE_NOMINATIM_RATE_LIMIT_PER_SEC from env", () => {
+    const r = resolveEnrichmentConfig(null, {
+      MAPLE_NOMINATIM_RATE_LIMIT_PER_SEC: "5",
+    });
+    expect(r.nominatim_rate_limit_per_sec).toBe(5);
+    expect(r.source.nominatim_rate_limit_per_sec).toBe("env");
+  });
+
+  it("rate limit DB wins over env", () => {
+    const r = resolveEnrichmentConfig(
+      {
+        nominatim_url: null,
+        geocode_worker_enabled: true,
+        nominatim_rate_limit_per_sec: 2,
+      },
+      { MAPLE_NOMINATIM_RATE_LIMIT_PER_SEC: "20" },
+    );
+    expect(r.nominatim_rate_limit_per_sec).toBe(2);
+    expect(r.source.nominatim_rate_limit_per_sec).toBe("db");
+  });
+
+  it("rate limit ignores non-positive DB values and falls through", () => {
+    const r = resolveEnrichmentConfig(
+      {
+        nominatim_url: null,
+        geocode_worker_enabled: true,
+        nominatim_rate_limit_per_sec: 0,
+      },
+      { MAPLE_NOMINATIM_RATE_LIMIT_PER_SEC: "7" },
+    );
+    expect(r.nominatim_rate_limit_per_sec).toBe(7);
+    expect(r.source.nominatim_rate_limit_per_sec).toBe("env");
+  });
+
+  it("rate limit ignores garbage env values and uses default", () => {
+    const r = resolveEnrichmentConfig(null, {
+      MAPLE_NOMINATIM_RATE_LIMIT_PER_SEC: "not-a-number",
+    });
+    expect(r.nominatim_rate_limit_per_sec).toBe(10);
+    expect(r.source.nominatim_rate_limit_per_sec).toBe("default");
+  });
+
+  it("rate limit DB null falls through to env", () => {
+    const r = resolveEnrichmentConfig(
+      {
+        nominatim_url: null,
+        geocode_worker_enabled: true,
+        nominatim_rate_limit_per_sec: null,
+      },
+      { MAPLE_NOMINATIM_RATE_LIMIT_PER_SEC: "3" },
+    );
+    expect(r.nominatim_rate_limit_per_sec).toBe(3);
+    expect(r.source.nominatim_rate_limit_per_sec).toBe("env");
+  });
 });
 
 describe("saveEnrichmentConfig + loadEnrichmentConfig — Mongo round-trip", () => {
@@ -158,5 +219,29 @@ describe("saveEnrichmentConfig + loadEnrichmentConfig — Mongo round-trip", () 
     await saveEnrichmentConfig({ nominatim_url: null });
     const c = await loadEnrichmentConfig();
     expect(c!.nominatim_url).toBeNull();
+  });
+
+  it("partial save persists rate-limit and preserves URL", async () => {
+    if (!mongoReachable) return;
+    await saveEnrichmentConfig({
+      nominatim_url: "http://saved.lan",
+      geocode_worker_enabled: true,
+    });
+    await saveEnrichmentConfig({ nominatim_rate_limit_per_sec: 4 });
+    const c = await loadEnrichmentConfig();
+    expect(c!.nominatim_url).toBe("http://saved.lan");
+    expect(c!.nominatim_rate_limit_per_sec).toBe(4);
+  });
+
+  it("can clear the rate limit by saving null", async () => {
+    if (!mongoReachable) return;
+    await saveEnrichmentConfig({
+      nominatim_url: "http://saved.lan",
+      geocode_worker_enabled: true,
+      nominatim_rate_limit_per_sec: 4,
+    });
+    await saveEnrichmentConfig({ nominatim_rate_limit_per_sec: null });
+    const c = await loadEnrichmentConfig();
+    expect(c!.nominatim_rate_limit_per_sec).toBeNull();
   });
 });

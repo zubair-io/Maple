@@ -15,6 +15,8 @@
 import { Elysia, t } from "elysia";
 import { child as childLogger } from "../log.ts";
 import {
+  MAX_NOMINATIM_RATE_LIMIT_PER_SEC,
+  MIN_NOMINATIM_RATE_LIMIT_PER_SEC,
   loadEnrichmentConfig,
   resolveEnrichmentConfig,
   saveEnrichmentConfig,
@@ -29,6 +31,12 @@ const log = childLogger("enrichment:routes");
 const ConfigBody = t.Object({
   nominatim_url: t.Union([t.String(), t.Null()]),
   geocode_worker_enabled: t.Boolean(),
+  /** Optional in PUT — when omitted, the existing DB value (or env, or
+   * default) is kept. Send a number to set, or `null` to clear back to
+   * env-or-default. */
+  nominatim_rate_limit_per_sec: t.Optional(
+    t.Union([t.Number(), t.Null()]),
+  ),
 });
 
 const TestBody = t.Object({
@@ -72,6 +80,24 @@ export const enrichmentRoutes = new Elysia({ prefix: "/api/enrichment" })
       }
       const url = validated as string | null;
 
+      // Range-check the rate limit. `undefined` = field omitted (keep
+      // existing); `null` = clear to env-or-default; otherwise must be in
+      // (MIN, MAX]. Reject 0 / negative — a misclick mustn't pause the
+      // worker silently.
+      let rateLimit: number | null | undefined = body.nominatim_rate_limit_per_sec;
+      if (typeof rateLimit === "number") {
+        if (
+          !Number.isFinite(rateLimit) ||
+          rateLimit < MIN_NOMINATIM_RATE_LIMIT_PER_SEC ||
+          rateLimit > MAX_NOMINATIM_RATE_LIMIT_PER_SEC
+        ) {
+          set.status = 400;
+          return {
+            error: `Invalid nominatim_rate_limit_per_sec: must be a number between ${MIN_NOMINATIM_RATE_LIMIT_PER_SEC} and ${MAX_NOMINATIM_RATE_LIMIT_PER_SEC} (got ${rateLimit})`,
+          };
+        }
+      }
+
       // If the worker would be enabled with a URL, run the health check
       // BEFORE persisting. A typo in the UI shouldn't blow up the running
       // worker — we leave the previous instance alone if the new URL fails.
@@ -92,6 +118,9 @@ export const enrichmentRoutes = new Elysia({ prefix: "/api/enrichment" })
       await saveEnrichmentConfig({
         nominatim_url: url,
         geocode_worker_enabled: body.geocode_worker_enabled,
+        ...(rateLimit !== undefined
+          ? { nominatim_rate_limit_per_sec: rateLimit }
+          : {}),
       });
 
       // Re-resolve from DB to compute the effective config (in case env vars

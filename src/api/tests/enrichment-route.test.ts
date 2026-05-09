@@ -244,6 +244,90 @@ describe("PUT /api/enrichment/config", () => {
     const body = r.body as { nominatim_url: string | null };
     expect(body.nominatim_url).toBeNull();
   });
+
+  it("rejects rate limit below the minimum", async () => {
+    if (!mongoReachable) return;
+    const r = await put("/api/enrichment/config", {
+      nominatim_url: null,
+      geocode_worker_enabled: false,
+      nominatim_rate_limit_per_sec: 0,
+    });
+    expect(r.status).toBe(400);
+    expect((r.body as { error: string }).error).toMatch(/rate_limit/);
+  });
+
+  it("rejects rate limit above the maximum", async () => {
+    if (!mongoReachable) return;
+    const r = await put("/api/enrichment/config", {
+      nominatim_url: null,
+      geocode_worker_enabled: false,
+      nominatim_rate_limit_per_sec: 1000,
+    });
+    expect(r.status).toBe(400);
+  });
+
+  it("rejects negative rate limit", async () => {
+    if (!mongoReachable) return;
+    const r = await put("/api/enrichment/config", {
+      nominatim_url: null,
+      geocode_worker_enabled: false,
+      nominatim_rate_limit_per_sec: -5,
+    });
+    expect(r.status).toBe(400);
+  });
+
+  it("saves and reflects rate limit on a valid value", async () => {
+    if (!mongoReachable) return;
+    const r = await put("/api/enrichment/config", {
+      nominatim_url: null,
+      geocode_worker_enabled: false,
+      nominatim_rate_limit_per_sec: 2.5,
+    });
+    expect(r.status).toBe(200);
+    const body = r.body as {
+      nominatim_rate_limit_per_sec: number;
+      source: { nominatim_rate_limit_per_sec: string };
+    };
+    expect(body.nominatim_rate_limit_per_sec).toBe(2.5);
+    expect(body.source.nominatim_rate_limit_per_sec).toBe("db");
+  });
+
+  it("clears rate limit back to default when null is supplied", async () => {
+    if (!mongoReachable) return;
+    // Save a value first.
+    await put("/api/enrichment/config", {
+      nominatim_url: null,
+      geocode_worker_enabled: false,
+      nominatim_rate_limit_per_sec: 2.5,
+    });
+    // Then null it out.
+    const r = await put("/api/enrichment/config", {
+      nominatim_url: null,
+      geocode_worker_enabled: false,
+      nominatim_rate_limit_per_sec: null,
+    });
+    expect(r.status).toBe(200);
+    const body = r.body as {
+      nominatim_rate_limit_per_sec: number;
+      source: { nominatim_rate_limit_per_sec: string };
+    };
+    expect(body.nominatim_rate_limit_per_sec).toBe(10);
+    expect(body.source.nominatim_rate_limit_per_sec).toBe("default");
+  });
+});
+
+describe("GET /api/enrichment/config — rate limit projection", () => {
+  it("includes the resolved value + source on a fresh DB", async () => {
+    if (!mongoReachable) return;
+    const r = await get("/api/enrichment/config");
+    expect(r.status).toBe(200);
+    const body = r.body as {
+      nominatim_rate_limit_per_sec: number;
+      source: { nominatim_rate_limit_per_sec: string };
+    };
+    expect(body.nominatim_rate_limit_per_sec).toBe(10);
+    expect(["env", "default"]).toContain(body.source.nominatim_rate_limit_per_sec);
+  });
 });
 
 describe("POST /api/enrichment/test", () => {
