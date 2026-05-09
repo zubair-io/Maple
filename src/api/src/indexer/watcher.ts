@@ -57,17 +57,33 @@ export class Watcher {
     this.include = opts.include ?? null;
     this.onEvent = opts.onEvent;
 
+    // Polling instead of inotify. Chokidar's default uses one inotify
+    // watch per file on Linux, which exhausts both the per-process fd
+    // limit AND the kernel-wide `fs.inotify.max_user_watches` cap on
+    // libraries with >10k photos (we hit it on a 1524-asset deploy with
+    // expanded ulimits — the EMFILE wasn't from fds, it was from inotify).
+    //
+    // Polling uses zero inotify watches and zero persistent file handles
+    // — just `stat()` calls on a timer. Cost: 5–30s latency before a new
+    // photo is enqueued, plus a stat-per-file per interval. For a photo
+    // library where files are added in batches and rarely change in
+    // place, this trade-off is correct.
+    //
+    // `binaryInterval` covers all our supported types (RAW + JPEG + HEIC
+    // + video) — `interval` only fires for files chokidar can't classify
+    // as binary, so the active churn budget is dominated by the binary
+    // interval. The 250ms `debounceMs` further coalesces bursts of
+    // events on the same path.
     this.watcher = chokidar.watch(opts.roots, {
       persistent: true,
       ignoreInitial: true, // startup walk is driven by the checkpoint logic
+      usePolling: true,
+      interval: 5_000,
+      binaryInterval: 30_000,
       ignored: (p: string) => {
         const base = path.basename(p);
         if (base.startsWith(".")) return true; // hides .maple/, dotfiles
         return false;
-      },
-      awaitWriteFinish: {
-        stabilityThreshold: 500,
-        pollInterval: 100,
       },
     });
 
