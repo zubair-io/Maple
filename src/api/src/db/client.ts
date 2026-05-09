@@ -13,6 +13,7 @@ import {
   ServerApiVersion,
 } from "mongodb";
 import { child as childLogger } from "../log.ts";
+import { searchBlobUpdateExpression } from "../enrichment/search-blob.ts";
 import type {
   FolderDoc,
   AssetDoc,
@@ -435,38 +436,93 @@ export async function ensureIndexes(): Promise<void> {
     );
   }
 
-  // Mongo text index on `place.search_blob`. Partial: scoped to live rows
-  // with `place != null` so libraries with many GPS-less assets don't bloat
-  // the index. Mongo allows only ONE text index per collection — we keep
-  // it on the search blob; free-text filename queries fall back to $regex
-  // (see routes/search.ts).
+  // ── Phase 8: unified search_blob ─────────────────────────────────────
+  // The text index moved off `place.search_blob` and onto the synthesised
+  // top-level `asset.search_blob` field — this is the union of place +
+  // description + ocr_text, recomputed atomically inside each worker's
+  // `complete()` via the aggregation-pipeline `$set` form so the three
+  // schedulers never race each other. Mongo allows ONE text index per
+  // collection; the unified field is the single user-visible target.
   //
-  // Drop the legacy `filename_abs_path_text` index from older deploys —
-  // they're mutually exclusive (only one text index per collection).
-  try {
-    await db.collection("assets").dropIndex("filename_abs_path_text");
-  } catch (err) {
-    if (
-      !(err instanceof Error) ||
-      !/IndexNotFound|index not found/i.test(err.message)
-    ) {
-      throw err;
+  // Drop both legacy text indexes from older deploys before creating
+  // the new one — they're mutually exclusive (only one text index per
+  // collection).
+  for (const legacy of [
+    "filename_abs_path_text",
+    "place_search_blob_text",
+  ]) {
+    try {
+      await db.collection("assets").dropIndex(legacy);
+    } catch (err) {
+      if (
+        !(err instanceof Error) ||
+        !/IndexNotFound|index not found/i.test(err.message)
+      ) {
+        throw err;
+      }
     }
   }
+
+  // One-shot backfill: rows that have a populated `place.search_blob`
+  // (typical post-Phase-2 state) but an empty/missing top-level
+  // `search_blob` get the unified field synthesised from whatever's on
+  // the row. Idempotent — the predicate only matches rows whose unified
+  // blob is unset; subsequent boots do nothing. Skips rows whose
+  // unified blob is already non-empty so a worker that already ran
+  // doesn't get clobbered.
+  try {
+    const res = await db.collection("assets").updateMany(
+      {
+        $or: [
+          { search_blob: { $exists: false } },
+          { search_blob: "" },
+          { search_blob: null },
+        ],
+        $and: [
+          {
+            $or: [
+              { "place.search_blob": { $exists: true, $ne: "" } },
+              { description: { $exists: true, $ne: null, $ne: "" } },
+              { ocr_text: { $exists: true, $ne: null, $ne: "" } },
+            ],
+          },
+        ],
+      },
+      // Reuse the same pipeline expression the workers use, so the
+      // backfill produces a byte-identical blob to what each worker's
+      // `complete()` would write next time it ran. No overrides — the
+      // expression reads `place.search_blob`, `description`, and
+      // `ocr_text` directly off the live row.
+      [{ $set: { search_blob: searchBlobUpdateExpression() } }],
+    );
+    if (res.modifiedCount > 0) {
+      log.info(
+        { rows: res.modifiedCount },
+        "backfilled asset.search_blob",
+      );
+    }
+  } catch (err) {
+    log.warn(
+      { err: err instanceof Error ? err.message : err },
+      "asset.search_blob backfill skipped",
+    );
+  }
+
   await db.collection("assets").createIndex(
-    { "place.search_blob": "text" },
+    { search_blob: "text" },
     {
-      name: "place_search_blob_text",
+      name: "search_blob_text",
       default_language: "english",
-      // Mongo partial-index expressions allow only equality, $exists,
-      // $type, $gt/$gte/$lt/$lte, and top-level $and. `$ne: null` and
-      // `$not` are rejected. Filter to docs whose `place` is an object
-      // (i.e. the geocode worker has populated it) — that's structurally
-      // identical to `place != null` since the schema only sets `place`
-      // to either `null` or a Place document.
+      // Same partial-filter shape as the legacy `place_search_blob_text`
+      // index: scoped to live rows with a non-empty unified blob so
+      // libraries with many GPS-less assets don't bloat the index.
+      // Mongo partial-index expressions only allow equality, $exists,
+      // $type, $gt/$gte/$lt/$lte, and top-level $and — so we use
+      // `search_blob: { $type: "string", $gt: "" }` which the planner
+      // can satisfy via the index entries themselves.
       partialFilterExpression: {
         deleted_at: null,
-        place: { $type: "object" },
+        search_blob: { $type: "string", $gt: "" },
       },
     },
   );

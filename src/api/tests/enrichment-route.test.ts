@@ -60,6 +60,11 @@ beforeAll(async () => {
   // resolved config gives us a dormant worker.
   delete process.env.MAPLE_NOMINATIM_URL;
   process.env.MAPLE_GEOCODE_WORKER_ENABLED = "false";
+  // Suppress slow-tier workers from auto-starting during these tests so
+  // their health-checks don't trip the global fetch stub or spawn loops.
+  process.env.MAPLE_DESCRIBE_WORKER_ENABLED = "false";
+  process.env.MAPLE_FACE_WORKER_ENABLED = "false";
+  process.env.MAPLE_OCR_WORKER_ENABLED = "false";
   const { enrichmentRoutes } = await import("../src/routes/enrichment.ts");
   app = new Elysia().use(enrichmentRoutes);
 });

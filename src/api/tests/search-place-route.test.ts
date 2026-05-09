@@ -248,6 +248,38 @@ beforeAll(async () => {
       place: albanyMuseum,
       deleted_at: new Date().toISOString(),
     },
+    // Phase 8: a row with NO place but a description that mentions
+    // "telescope". Asserts the unified search_blob picks up description.
+    {
+      folder_id: folder,
+      abs_path: "/lib/telescope.jpg",
+      filename: "telescope.jpg",
+      size: 512,
+      mtime: 7000,
+      rating: 0,
+      flag: 0,
+      color_label: "",
+      indexed_at: new Date().toISOString(),
+      exif: null,
+      place: null,
+      description: "A photograph of a brass telescope on a tripod",
+    },
+    // Phase 8: a row with NO place but OCR text. Asserts ocr_text
+    // contributes to the unified blob.
+    {
+      folder_id: folder,
+      abs_path: "/lib/menu.jpg",
+      filename: "menu.jpg",
+      size: 512,
+      mtime: 8000,
+      rating: 0,
+      flag: 0,
+      color_label: "",
+      indexed_at: new Date().toISOString(),
+      exif: null,
+      place: null,
+      ocr_text: "BRUNCH MENU\nEspresso $4\nCroissant $3",
+    },
   ]);
 
   // Build the text + facet indexes via the same path as production.
@@ -297,13 +329,16 @@ afterAll(async () => {
 });
 
 describe("/api/search?placeQuery", () => {
-  it("ensureIndexes creates place_search_blob_text and place_rollups", async () => {
+  it("ensureIndexes creates search_blob_text and place_rollups, drops legacy index", async () => {
     if (!mongoReachable) return;
     const db = mongo!.db(TEST_DB);
     const indexes = await db.collection("assets").indexes();
     const names = new Set(indexes.map((i) => i.name as string));
-    expect(names.has("place_search_blob_text")).toBe(true);
+    expect(names.has("search_blob_text")).toBe(true);
     expect(names.has("place_rollups")).toBe(true);
+    // Phase 8 — text index moved off `place.search_blob` onto the
+    // unified `asset.search_blob`. The old index must be gone.
+    expect(names.has("place_search_blob_text")).toBe(false);
   });
 
   it("'Albany NY' matches the Albany asset, not New York City", async () => {
@@ -564,5 +599,50 @@ describe("/api/search?placeQuery", () => {
 
     // Cleanup so subsequent tests' counts are stable.
     await db.collection("assets").deleteOne({ _id: legacyId });
+  });
+
+  it("Phase 8: matches description-only rows via unified search_blob", async () => {
+    if (!mongoReachable) return;
+    const { searchRoutes } = await import("../src/routes/search.ts");
+    const { requireAuth } = await import("../src/auth/middleware.ts");
+    const app = new Elysia().use(requireAuth).use(searchRoutes);
+
+    const r = await app.handle(
+      new Request("http://localhost/api/search?placeQuery=telescope", {
+        headers: fmtAuth(),
+      }),
+    );
+    expect(r.status).toBe(200);
+    const body = (await r.json()) as {
+      total: number;
+      results: Array<{ filename: string }>;
+    };
+    expect(body.total).toBeGreaterThanOrEqual(1);
+    const names = new Set(body.results.map((r) => r.filename));
+    expect(names.has("telescope.jpg")).toBe(true);
+  });
+
+  it("Phase 8: matches OCR-text rows via unified search_blob", async () => {
+    if (!mongoReachable) return;
+    const { searchRoutes } = await import("../src/routes/search.ts");
+    const { requireAuth } = await import("../src/auth/middleware.ts");
+    const app = new Elysia().use(requireAuth).use(searchRoutes);
+
+    // OCR text contains "BRUNCH MENU\nEspresso..." — the unified
+    // backfill normalises whitespace, lowercases, and tokenises so
+    // "espresso" should match.
+    const r = await app.handle(
+      new Request("http://localhost/api/search?placeQuery=espresso", {
+        headers: fmtAuth(),
+      }),
+    );
+    expect(r.status).toBe(200);
+    const body = (await r.json()) as {
+      total: number;
+      results: Array<{ filename: string }>;
+    };
+    expect(body.total).toBeGreaterThanOrEqual(1);
+    const names = new Set(body.results.map((r) => r.filename));
+    expect(names.has("menu.jpg")).toBe(true);
   });
 });

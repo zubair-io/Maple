@@ -15,8 +15,11 @@
 import { Elysia, t } from "elysia";
 import { child as childLogger } from "../log.ts";
 import {
+  MAX_DESCRIBE_DAILY_CAP_USD,
   MAX_NOMINATIM_RATE_LIMIT_PER_SEC,
+  MIN_DESCRIBE_DAILY_CAP_USD,
   MIN_NOMINATIM_RATE_LIMIT_PER_SEC,
+  asDescribeProvider,
   loadEnrichmentConfig,
   resolveEnrichmentConfig,
   saveEnrichmentConfig,
@@ -24,7 +27,12 @@ import {
 import {
   applyEnrichmentConfig,
 } from "../enrichment/bootstrap.ts";
+import { applyDescribeConfig } from "../enrichment/describe-bootstrap.ts";
 import { NominatimClient, NominatimError } from "../enrichment/nominatim-client.ts";
+import {
+  RemoteError,
+  getDescribeProvider,
+} from "../enrichment/describe-providers/index.ts";
 
 const log = childLogger("enrichment:routes");
 
@@ -37,10 +45,28 @@ const ConfigBody = t.Object({
   nominatim_rate_limit_per_sec: t.Optional(
     t.Union([t.Number(), t.Null()]),
   ),
+  // ── Describe worker (Phase 6) ──────────────────────────────────────
+  describe_worker_enabled: t.Optional(t.Union([t.Boolean(), t.Null()])),
+  describe_provider: t.Optional(t.Union([t.String(), t.Null()])),
+  describe_model: t.Optional(t.Union([t.String(), t.Null()])),
+  describe_system_prompt: t.Optional(t.Union([t.String(), t.Null()])),
+  describe_daily_cap_usd: t.Optional(t.Union([t.Number(), t.Null()])),
+  describe_provider_url: t.Optional(t.Union([t.String(), t.Null()])),
+  // ── Face worker (Phase 5) ──────────────────────────────────────────
+  face_worker_enabled: t.Optional(t.Union([t.Boolean(), t.Null()])),
+  // ── OCR worker (Phase 8) ───────────────────────────────────────────
+  ocr_worker_enabled: t.Optional(t.Union([t.Boolean(), t.Null()])),
 });
 
 const TestBody = t.Object({
   nominatim_url: t.String({ minLength: 1 }),
+});
+
+const TestDescribeBody = t.Object({
+  provider: t.String({ minLength: 1 }),
+  url: t.Optional(t.Union([t.String(), t.Null()])),
+  model: t.Optional(t.Union([t.String(), t.Null()])),
+  api_key: t.Optional(t.Union([t.String(), t.Null()])),
 });
 
 /** Best-effort URL validator. We accept http(s) only — Nominatim doesn't
@@ -115,11 +141,71 @@ export const enrichmentRoutes = new Elysia({ prefix: "/api/enrichment" })
         }
       }
 
+      // ── Describe-worker validation ────────────────────────────────
+      // All fields are optional. `null` clears back to env/default;
+      // `undefined` leaves the existing value alone. Provider must be
+      // one of the known names; cap must be in (MIN, MAX].
+
+      let describeProvider: string | null | undefined =
+        body.describe_provider;
+      if (
+        typeof describeProvider === "string" &&
+        asDescribeProvider(describeProvider) === null
+      ) {
+        set.status = 400;
+        return {
+          error: `Invalid describe_provider: must be one of "ollama", "anthropic", "openai", "gemini" (got "${describeProvider}")`,
+        };
+      }
+
+      const describeCap = body.describe_daily_cap_usd;
+      if (typeof describeCap === "number") {
+        if (
+          !Number.isFinite(describeCap) ||
+          describeCap <= MIN_DESCRIBE_DAILY_CAP_USD ||
+          describeCap > MAX_DESCRIBE_DAILY_CAP_USD
+        ) {
+          set.status = 400;
+          return {
+            error: `Invalid describe_daily_cap_usd: must be a number in (${MIN_DESCRIBE_DAILY_CAP_USD}, ${MAX_DESCRIBE_DAILY_CAP_USD}] (got ${describeCap})`,
+          };
+        }
+      }
+
       await saveEnrichmentConfig({
         nominatim_url: url,
         geocode_worker_enabled: body.geocode_worker_enabled,
         ...(rateLimit !== undefined
           ? { nominatim_rate_limit_per_sec: rateLimit }
+          : {}),
+        ...(body.describe_worker_enabled !== undefined
+          ? { describe_worker_enabled: body.describe_worker_enabled }
+          : {}),
+        ...(describeProvider !== undefined
+          ? {
+              describe_provider:
+                describeProvider === null
+                  ? null
+                  : asDescribeProvider(describeProvider),
+            }
+          : {}),
+        ...(body.describe_model !== undefined
+          ? { describe_model: body.describe_model }
+          : {}),
+        ...(body.describe_system_prompt !== undefined
+          ? { describe_system_prompt: body.describe_system_prompt }
+          : {}),
+        ...(describeCap !== undefined
+          ? { describe_daily_cap_usd: describeCap }
+          : {}),
+        ...(body.describe_provider_url !== undefined
+          ? { describe_provider_url: body.describe_provider_url }
+          : {}),
+        ...(body.face_worker_enabled !== undefined
+          ? { face_worker_enabled: body.face_worker_enabled }
+          : {}),
+        ...(body.ocr_worker_enabled !== undefined
+          ? { ocr_worker_enabled: body.ocr_worker_enabled }
           : {}),
       });
 
@@ -138,6 +224,16 @@ export const enrichmentRoutes = new Elysia({ prefix: "/api/enrichment" })
         log.error({ err: msg }, "applyEnrichmentConfig failed after save");
         set.status = 502;
         return { error: `Saved, but worker reconfigure failed: ${msg}` };
+      }
+      try {
+        await applyDescribeConfig(resolved);
+      } catch (err) {
+        // Like the geocode-side reapply, this shouldn't fail in the
+        // normal path — describe-bootstrap log-and-skips on health-check
+        // failure. We still surface unexpected exceptions so the
+        // operator sees them.
+        const msg = err instanceof Error ? err.message : String(err);
+        log.error({ err: msg }, "applyDescribeConfig failed after save");
       }
       return resolved;
     },
@@ -167,4 +263,44 @@ export const enrichmentRoutes = new Elysia({ prefix: "/api/enrichment" })
       }
     },
     { body: TestBody },
+  )
+
+  // POST /api/enrichment/test-describe — health-check the configured
+  // describe provider without persisting. Mirrors `/test` for Nominatim.
+  // The `api_key` field is write-only (we never echo it back), so the UI
+  // can pass a freshly-typed key without saving it.
+  .post(
+    "/test-describe",
+    async ({ body, set }) => {
+      const provider = asDescribeProvider(body.provider);
+      if (!provider) {
+        set.status = 400;
+        return {
+          ok: false,
+          error: `Invalid provider "${body.provider}". Must be one of "ollama", "anthropic", "openai", "gemini".`,
+        };
+      }
+      try {
+        const client = getDescribeProvider(provider, {
+          url: body.url ?? null,
+          apiKey: body.api_key ?? null,
+        });
+        await client.health();
+        return {
+          ok: true,
+          info: {
+            provider,
+            model: body.model ?? null,
+          },
+        };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        const status =
+          err instanceof RemoteError && err.status !== undefined
+            ? err.status
+            : null;
+        return { ok: false, error: msg, status };
+      }
+    },
+    { body: TestDescribeBody },
   );
