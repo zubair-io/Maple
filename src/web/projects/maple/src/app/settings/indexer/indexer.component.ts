@@ -343,16 +343,6 @@ export class IndexerComponent implements OnInit, OnDestroy {
     });
   }
 
-  /** Kick off an EXIF backfill. Server returns immediately; the live status
-   * stream picks up the progress on the next tick so the UI updates without
-   * a manual refresh. */
-  runBackfill(): void {
-    this.api.runExifBackfill().subscribe({
-      next: (r) => this.status.set(r.status),
-      error: (e) => this.error.set(e?.error?.error ?? e?.message ?? 'Backfill failed.'),
-    });
-  }
-
   /** Status pill for the "Rescan all" button — operator feedback that the
    * walk has been kicked off. Resets to idle a few seconds after success
    * so a long session of clicks doesn't pile up green checkmarks. */
@@ -410,13 +400,6 @@ export class IndexerComponent implements OnInit, OnDestroy {
         this.rescanStatus.set('failed');
       },
     });
-  }
-
-  backfillPct(): number {
-    const b = this.status()?.exifBackfill;
-    if (!b) return 0;
-    if (b.pending <= 0) return b.scanned > 0 ? 100 : 0;
-    return Math.round((b.scanned / (b.scanned + b.pending)) * 100);
   }
 
   channelPct(stage: IndexerStage): number {

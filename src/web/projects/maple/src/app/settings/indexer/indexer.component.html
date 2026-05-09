@@ -243,68 +243,6 @@
       </table>
     </section>
 
-    <!-- EXIF backfill -->
-    <section class="mb-7 rounded-lg border border-border bg-surface p-4">
-      <div class="mb-2 flex items-center justify-between gap-3">
-        <h3 class="m-0 text-[14px] font-semibold">EXIF backfill</h3>
-        <button
-          type="button"
-          class="run-btn-primary cursor-pointer rounded-md border border-transparent bg-primary px-3.5 py-1.5 text-[12px] font-semibold text-text-main disabled:cursor-not-allowed disabled:bg-primary-dim disabled:text-text-muted"
-          [disabled]="s.exifBackfill?.running"
-          (click)="runBackfill()"
-        >
-          {{ s.exifBackfill?.running ? 'Running…' : 'Reindex EXIF' }}
-        </button>
-      </div>
-      @if (s.exifBackfill; as b) {
-        <p class="mb-3 mt-0 text-[12px] leading-[1.5] text-text-muted">
-          Re-reads EXIF metadata for assets that were indexed before EXIF support
-          was wired (or any rows still missing the <code class="rounded-[3px] bg-bg px-1 py-px font-mono text-[11px]">exif</code> field).
-          Cap per run is <code class="rounded-[3px] bg-bg px-1 py-px font-mono text-[11px]">MAPLE_EXIF_BACKFILL_LIMIT</code> (default 1000).
-        </p>
-        <div class="backfill-grid mb-2 grid gap-2">
-          <div class="flex flex-col gap-1 rounded-md border border-border bg-bg px-2.5 py-2">
-            <span class="text-[10px] uppercase tracking-[0.05em] text-text-muted">State</span>
-            <span
-              class="font-mono text-base font-semibold tabular-nums text-text-main"
-              [class.text-success-text]="b.running"
-            >
-              {{ b.running ? 'Running' : 'Idle' }}
-            </span>
-          </div>
-          <div class="flex flex-col gap-1 rounded-md border border-border bg-bg px-2.5 py-2">
-            <span class="text-[10px] uppercase tracking-[0.05em] text-text-muted">Scanned</span>
-            <span class="font-mono text-base font-semibold tabular-nums text-text-main">{{ b.scanned | number }}</span>
-          </div>
-          <div class="flex flex-col gap-1 rounded-md border border-border bg-bg px-2.5 py-2">
-            <span class="text-[10px] uppercase tracking-[0.05em] text-text-muted">Upgraded</span>
-            <span class="font-mono text-base font-semibold tabular-nums text-text-main">{{ b.upgraded | number }}</span>
-          </div>
-          <div class="flex flex-col gap-1 rounded-md border border-border bg-bg px-2.5 py-2">
-            <span class="text-[10px] uppercase tracking-[0.05em] text-text-muted">Pending (est.)</span>
-            <span class="font-mono text-base font-semibold tabular-nums text-text-main">
-              {{ b.pending < 0 ? '—' : (b.pending | number) }}
-            </span>
-          </div>
-        </div>
-        @if (b.running || b.scanned > 0) {
-          <div class="mt-2 flex items-center gap-2">
-            <div class="h-1.5 flex-1 overflow-hidden rounded-[3px] bg-bg">
-              <div class="bar-fill h-full bg-primary" [style.width.%]="backfillPct()"></div>
-            </div>
-            <span class="min-w-9 text-right font-mono text-[11px] tabular-nums text-text-muted">{{ backfillPct() }}%</span>
-          </div>
-        }
-        @if (b.lastFinishedAt) {
-          <div class="mt-2 text-[11px] text-text-muted">
-            Last finished {{ b.lastFinishedAt }}
-            @if (b.lastError) {
-              <span class="text-error-text">— error: {{ b.lastError }}</span>
-            }
-          </div>
-        }
-      }
-    </section>
   } @else {
     <div class="p-8 text-center text-text-muted">Loading…</div>
   }

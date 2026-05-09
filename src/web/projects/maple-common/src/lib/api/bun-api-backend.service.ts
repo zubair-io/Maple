@@ -397,17 +397,6 @@ export class BunApiBackendService {
     return this.http.post<{ ok: boolean; status: IndexerStatus }>(`${this.base}/indexer/resume`, {});
   }
 
-  /** Trigger an EXIF backfill run. Server returns immediately; progress
-   * is exposed via subsequent `getIndexerStatus().exifBackfill`. */
-  runExifBackfill(limit?: number): Observable<{ ok: boolean; status: IndexerStatus }> {
-    const params = limit !== undefined ? new HttpParams().set('limit', String(limit)) : undefined;
-    return this.http.post<{ ok: boolean; status: IndexerStatus }>(
-      `${this.base}/indexer/exif-backfill`,
-      {},
-      { params },
-    );
-  }
-
   /** Force a re-scan of one library folder. Server walks the folder
    * tree (or just `subPath` if supplied — must resolve under the
    * library root) and pushes every supported file into the discover
