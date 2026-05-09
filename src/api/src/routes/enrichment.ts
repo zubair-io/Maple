@@ -54,6 +54,13 @@ const ConfigBody = t.Object({
   describe_provider_url: t.Optional(t.Union([t.String(), t.Null()])),
   // ── Face worker (Phase 5) ──────────────────────────────────────────
   face_worker_enabled: t.Optional(t.Union([t.Boolean(), t.Null()])),
+  /** Operator-tunable face worker model paths. `null` clears the override
+   * back to env / default; omitted leaves the saved value alone. */
+  face_model_dir: t.Optional(t.Union([t.String(), t.Null()])),
+  face_retinaface_url: t.Optional(t.Union([t.String(), t.Null()])),
+  face_retinaface_sha256: t.Optional(t.Union([t.String(), t.Null()])),
+  face_mobilefacenet_url: t.Optional(t.Union([t.String(), t.Null()])),
+  face_mobilefacenet_sha256: t.Optional(t.Union([t.String(), t.Null()])),
   // ── OCR worker (Phase 8) ───────────────────────────────────────────
   ocr_worker_enabled: t.Optional(t.Union([t.Boolean(), t.Null()])),
 });
@@ -200,6 +207,21 @@ export const enrichmentRoutes = new Elysia({ prefix: "/api/enrichment" })
           : {}),
         ...(body.describe_provider_url !== undefined
           ? { describe_provider_url: body.describe_provider_url }
+          : {}),
+        ...(body.face_model_dir !== undefined
+          ? { face_model_dir: body.face_model_dir }
+          : {}),
+        ...(body.face_retinaface_url !== undefined
+          ? { face_retinaface_url: body.face_retinaface_url }
+          : {}),
+        ...(body.face_retinaface_sha256 !== undefined
+          ? { face_retinaface_sha256: body.face_retinaface_sha256 }
+          : {}),
+        ...(body.face_mobilefacenet_url !== undefined
+          ? { face_mobilefacenet_url: body.face_mobilefacenet_url }
+          : {}),
+        ...(body.face_mobilefacenet_sha256 !== undefined
+          ? { face_mobilefacenet_sha256: body.face_mobilefacenet_sha256 }
           : {}),
         ...(body.face_worker_enabled !== undefined
           ? { face_worker_enabled: body.face_worker_enabled }
