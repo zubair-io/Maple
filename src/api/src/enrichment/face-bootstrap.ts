@@ -28,125 +28,38 @@
  */
 
 import { child as childLogger } from "../log.ts";
-import {
-  loadEnrichmentConfig,
-  resolveEnrichmentConfig,
-  type ResolvedEnrichmentConfig,
-} from "./enrichment-config.repo.ts";
 import { loadFaceModels } from "./face-models.ts";
-import { FaceWorker } from "./face-worker.ts";
 
 const log = childLogger("face");
 
-let singleton: FaceWorker | null = null;
-/** Last-known reason the worker is dormant. Surfaced by the status route /
- * UI banner so the operator knows what to fix. `null` = worker is running
- * (or intentionally disabled). */
-let dormantReason: string | null = null;
-
 /**
- * Build the worker, attempt the model load, and start the loop.
+ * Face lifecycle bootstrap — Plan 3 cutover.
  *
- * Reads the resolved config (DB → env → defaults). NEVER throws on a
- * model-load failure — the worker is left dormant with `dormantReason`
- * set so the API stays up. Returns the worker instance when started, or
- * `null` when it's disabled or dormant.
+ * The bespoke FaceWorker class has been retired (face-worker.ts deleted).
+ * Face detection is now handled by the unified stage-controller runtime
+ * (src/api/src/workers/stages/face.ts). This bootstrap retains the model-
+ * preload side-effect so the ONNX session is warm before the first claim
+ * arrives. The start/stop interface is kept so index.ts doesn't need editing.
  */
-export async function startFaceWorker(): Promise<FaceWorker | null> {
-  const dbConfig = await loadEnrichmentConfig();
-  const resolved = resolveEnrichmentConfig(dbConfig);
-  await applyResolved(resolved);
-  return singleton;
-}
 
-/**
- * Re-apply settings after the operator changes them via the UI. The
- * function compares the new config against the running worker and:
- *   - stops the worker when `face_worker_enabled` flips false
- *   - starts a fresh worker when it flips true (and re-attempts the
- *     model load — fixing the URL via the UI lets the operator recover
- *     from a dormant boot without an API restart)
- */
-export async function applyEnrichmentConfigFace(
-  resolved: ResolvedEnrichmentConfig,
-): Promise<void> {
-  await applyResolved(resolved);
-}
-
-/** Graceful shutdown — called from the SIGTERM handler. */
-export async function stopFaceWorker(): Promise<void> {
-  if (!singleton) return;
-  log.info("worker stopping");
-  await singleton.shutdown();
-  singleton = null;
-  log.info("worker stopped");
-}
-
-/** Why the worker isn't running, if it isn't. UI / status routes read this
- * to render the "models missing" banner. `null` means everything's fine. */
-export function faceWorkerDormantReason(): string | null {
-  return dormantReason;
-}
-
-/** Test-only: peek at the singleton without spawning one. */
-export function _getWorkerForTests(): FaceWorker | null {
-  return singleton;
-}
-
-/** Internal: shared boot + reapply path. */
-async function applyResolved(
-  resolved: ResolvedEnrichmentConfig,
-): Promise<void> {
-  if (!resolved.face_worker_enabled) {
-    if (singleton) {
-      log.info("stopping worker after config change (disabled)");
-      await singleton.shutdown();
-      singleton = null;
-    } else {
-      log.info("face worker disabled (face_worker_enabled=false)");
-    }
-    dormantReason = null; // Intentionally off, not dormant.
-    return;
-  }
-
-  // Enabled — try to load models. A failure leaves the worker dormant
-  // but doesn't take the API down; operator can recover by setting the
-  // download URL or dropping the model file in.
-  // The DB-backed model dir + URL/SHA values are passed through; env
-  // vars stay as fallback inside `face-models.ts` itself.
+/** Attempt to preload the face ONNX models so they are warm on first claim.
+ * Never throws — a missing model is a non-fatal warning; the stage handler
+ * will encounter the error on first inference and dead-letter that asset. */
+export async function startFaceWorker(): Promise<null> {
   try {
-    await loadFaceModels({
-      modelDir: resolved.face_model_dir,
-      retinafaceUrl: resolved.face_retinaface_url,
-      retinafaceSha256: resolved.face_retinaface_sha256,
-      mobilefacenetUrl: resolved.face_mobilefacenet_url,
-      mobilefacenetSha256: resolved.face_mobilefacenet_sha256,
-    });
+    await loadFaceModels();
+    log.info("face models loaded (stage controller will handle detection)");
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    log.error(
+    log.warn(
       { err: msg },
-      "face worker is enabled but model load failed; worker will not start. Fix via /settings/enrichment or set MAPLE_FACE_RETINAFACE_URL / MAPLE_FACE_MOBILEFACENET_URL.",
+      "face model preload failed; first inference will attempt load. Fix via /settings/enrichment.",
     );
-    dormantReason = msg;
-    if (singleton) {
-      // The previous worker had working models — keep it running. We don't
-      // get here because of a per-call detector failure; this only runs
-      // when models couldn't be loaded at all. Defensive nonetheless.
-      return;
-    }
-    return;
   }
+  return null;
+}
 
-  if (singleton) {
-    log.info("worker already running; no restart needed");
-    dormantReason = null;
-    return;
-  }
-
-  const worker = new FaceWorker();
-  worker.start();
-  singleton = worker;
-  dormantReason = null;
-  log.info("worker started");
+/** No-op — lifecycle now owned by the stage controller runtime. */
+export async function stopFaceWorker(): Promise<void> {
+  // Nothing to do — the stage controller shuts down on SIGTERM.
 }
