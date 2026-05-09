@@ -13,6 +13,27 @@
     }
   </div>
 
+  <!-- Rescan button — Self-Hosted only, visible when a registered library
+       contains the current selection. Tells the indexer to walk the
+       library root and pick up anything the slow polling watcher hasn't
+       seen yet. -->
+  @if (state.currentRegisteredFolder(); as rf) {
+    <button
+      type="button"
+      class="pill-btn flex items-center gap-1.5 h-7 px-2.5 rounded-md text-[10px] font-medium cursor-pointer transition-colors duration-[120ms] bg-surface text-text-muted border-[0.5px] border-border hover:bg-surface-hover hover:text-text-main disabled:cursor-not-allowed disabled:opacity-60"
+      [disabled]="state.rescanStatus() === 'running' || state.rescanStatus() === 'done'"
+      [title]="state.rescanError() ?? ('Re-scan ' + rf.path + ' for new files')"
+      (click)="state.rescanCurrentFolder()"
+    >
+      @switch (state.rescanStatus()) {
+        @case ('running') { <span>Rescanning…</span> }
+        @case ('done')    { <span class="text-primary">Queued ✓</span> }
+        @case ('error')   { <span class="text-error-text">Rescan failed</span> }
+        @default          { <span>Rescan</span> }
+      }
+    </button>
+  }
+
   <div class="flex-1"></div>
 
   <!-- Thumb size slider -->
