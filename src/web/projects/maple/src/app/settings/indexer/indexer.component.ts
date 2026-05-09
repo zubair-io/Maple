@@ -8,7 +8,9 @@
 //     cumulative-processed counter
 //   - Per-stage in-flight file paths (collapsible) so an operator can see
 //     exactly which files are being touched right now
-//   - Dead-letter list with stage, path, and error reason
+//   - Dead-letter triage card — defaults to a clustered group view (one row
+//     per (stage, error class)) with a per-stage reset button. Toggling to
+//     "List" reveals filter inputs (stage + error-prefix) and per-row resets.
 
 import {
   ChangeDetectionStrategy,
@@ -21,13 +23,16 @@ import {
 } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { DecimalPipe } from '@angular/common';
-import { Subscription } from 'rxjs';
+import { Subscription, Subject, of, type Observable } from 'rxjs';
+import { catchError, debounceTime, switchMap, tap } from 'rxjs/operators';
 import {
   BunApiBackendService,
   IndexerEventsService,
   type IndexerStage,
   type IndexerStatus,
   type IndexerDeadLetterItem,
+  type IndexerDeadLetterGroup,
+  type IndexerDeadLetterPage,
   type IndexerProcessState,
 } from '@maple-common';
 
@@ -62,7 +67,19 @@ export class IndexerComponent implements OnInit, OnDestroy {
   readonly status = signal<IndexerStatus | null>(null);
   readonly processState = signal<IndexerProcessState | null>(null);
   readonly deadLetter = signal<IndexerDeadLetterItem[]>([]);
+  readonly deadLetterGroups = signal<IndexerDeadLetterGroup[]>([]);
   readonly error = signal<string | null>(null);
+
+  // ── Triage state (group/list view + filters) ────────────────────────────
+  /** Triage view mode. Defaults to "group" so the first thing an operator
+   * sees is the failure-mode breakdown, not a flat row dump. */
+  readonly triageView = signal<'group' | 'list'>('group');
+  /** List-view filter: stage dropdown. `null` = no filter. */
+  readonly filterStage = signal<IndexerStage | null>(null);
+  /** List-view filter: error-prefix substring. Empty string = no filter. */
+  readonly filterErrorPrefix = signal<string>('');
+  /** True while the list/group fetch is in flight. */
+  readonly triageLoading = signal<boolean>(false);
 
   /** Which stages have their in-flight paths drawer expanded. */
   readonly expandedInFlight = signal<Set<IndexerStage>>(new Set());
@@ -130,6 +147,11 @@ export class IndexerComponent implements OnInit, OnDestroy {
 
   private sub?: Subscription;
   private processTimer: ReturnType<typeof setInterval> | null = null;
+  /** Debounced filter trigger — emits whenever `filterStage` or
+   * `filterErrorPrefix` changes; the resulting `switchMap` cancels in-flight
+   * requests when the user keeps typing. */
+  private readonly filterChange$ = new Subject<void>();
+  private filterSub?: Subscription;
 
   ngOnInit(): void {
     // Initial pipeline status (only meaningful while the child is up; the
@@ -159,14 +181,26 @@ export class IndexerComponent implements OnInit, OnDestroy {
     this.refreshProcessState();
     this.processTimer = setInterval(() => this.refreshProcessState(), PROCESS_POLL_MS);
 
-    this.api.listDeadLetter(200).subscribe({
-      next: (p) => this.deadLetter.set(p.items),
-      error: () => this.deadLetter.set([]),
-    });
+    // Initial load: keep the historical 200-row fetch (covers the list-view
+    // default of "no filter") AND fire the groups call so the default group
+    // view has data on first paint.
+    this.loadList();
+    this.loadGroups();
+
+    // Debounced filter pipeline: 300 ms after the last input change, refetch
+    // the list with whatever the current filter signals say. switchMap
+    // cancels any in-flight request from a previous keystroke.
+    this.filterSub = this.filterChange$
+      .pipe(
+        debounceTime(300),
+        switchMap(() => this.fetchList$()),
+      )
+      .subscribe((p) => this.deadLetter.set(p.items));
   }
 
   ngOnDestroy(): void {
     this.sub?.unsubscribe();
+    this.filterSub?.unsubscribe();
     this.events.disconnect();
     if (this.processTimer) {
       clearInterval(this.processTimer);
@@ -219,10 +253,93 @@ export class IndexerComponent implements OnInit, OnDestroy {
     });
   }
 
+  // ── Dead-letter triage ──────────────────────────────────────────────────
+
+  /** Force-refetch both the list and the groups (used by the Refresh button
+   * and after a successful reset). The groups call is the source of truth
+   * for the group-view counts — recomputing client-side from the list would
+   * undercount whenever the list is filtered/limited. */
   refreshDeadLetter(): void {
-    this.api.listDeadLetter(200).subscribe({
-      next: (p) => this.deadLetter.set(p.items),
-      error: () => this.deadLetter.set([]),
+    this.loadList();
+    this.loadGroups();
+  }
+
+  setTriageView(view: 'group' | 'list'): void {
+    this.triageView.set(view);
+  }
+
+  /** Stage filter change handler (template-driven). */
+  onFilterStageChange(value: string): void {
+    this.filterStage.set(value === '' ? null : (value as IndexerStage));
+    this.filterChange$.next();
+  }
+
+  /** Error-prefix filter change handler. */
+  onFilterErrorPrefixChange(value: string): void {
+    this.filterErrorPrefix.set(value);
+    this.filterChange$.next();
+  }
+
+  /** Reset every dead-letter row matching `stage` (group-view button). */
+  resetStage(stage: IndexerStage): void {
+    if (
+      !confirm(
+        `Reset all dead-letter rows for stage "${stage}"? The watcher will re-attempt these jobs on its next pass.`,
+      )
+    ) {
+      return;
+    }
+    this.api.resetDeadLetter({ stage }).subscribe({
+      next: () => this.refreshDeadLetter(),
+      error: (e) =>
+        this.error.set(e?.error?.error ?? e?.message ?? 'Reset failed.'),
+    });
+  }
+
+  /** Reset a single dead-letter row (list-view per-row button). */
+  resetRow(item: IndexerDeadLetterItem): void {
+    if (!item.key) {
+      // Server stores `key` (mapleId hex or absPath) — without it we can't
+      // target a single row without risking a stage-wide wipe. Fall back to
+      // refusing rather than guessing.
+      this.error.set('Cannot reset this row: missing dedupe key.');
+      return;
+    }
+    this.api.resetDeadLetter({ key: item.key }).subscribe({
+      next: () => this.refreshDeadLetter(),
+      error: (e) =>
+        this.error.set(e?.error?.error ?? e?.message ?? 'Reset failed.'),
+    });
+  }
+
+  /** Internal: build the list-view fetch observable based on current filter
+   * signals. Used both for the initial load and the debounced filter pipe. */
+  private fetchList$(): Observable<IndexerDeadLetterPage> {
+    this.triageLoading.set(true);
+    const stage = this.filterStage();
+    const prefix = this.filterErrorPrefix().trim();
+    const obs =
+      stage === null && prefix === ''
+        ? this.api.listDeadLetter(200)
+        : this.api.filterDeadLetter({
+            stage: stage ?? undefined,
+            errorPrefix: prefix === '' ? undefined : prefix,
+            limit: 200,
+          });
+    return obs.pipe(
+      catchError(() => of<IndexerDeadLetterPage>({ items: [], total: 0 })),
+      tap(() => this.triageLoading.set(false)),
+    );
+  }
+
+  private loadList(): void {
+    this.fetchList$().subscribe((p) => this.deadLetter.set(p.items));
+  }
+
+  private loadGroups(): void {
+    this.api.groupDeadLetter().subscribe({
+      next: (r) => this.deadLetterGroups.set(r.groups),
+      error: () => this.deadLetterGroups.set([]),
     });
   }
 
