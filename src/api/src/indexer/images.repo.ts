@@ -6,6 +6,7 @@
 
 import type { Collection, ObjectId, UpdateResult } from "mongodb";
 import { assetsCollection } from "../db/client.ts";
+import { meilisearchClient } from "../enrichment/meilisearch-client.ts";
 import {
   pendingEnrichment,
   type AssetDoc,
@@ -136,13 +137,36 @@ export async function findByAbsPath(absPath: string): Promise<IndexerAssetDoc | 
   return c.findOne({ abs_path: absPath });
 }
 
-/** Soft-delete: mark deletedAt without removing the row. GC sweeps later. */
+/** Soft-delete: mark deletedAt without removing the row. GC sweeps later.
+ *
+ * After the Mongo update, fire a best-effort tombstone into Meilisearch
+ * (Phase 7). Failures must NOT propagate — Mongo is canonical, and the
+ * search route's `applyLiveFilter` excludes soft-deleted rows from the
+ * `$text` fallback regardless of whether the Meilisearch update succeeds.
+ */
 export async function softDelete(absPath: string): Promise<void> {
   const c = await coll();
+  // Read the maple_id first so we can address the same row in Meilisearch.
+  // Skipping when the row doesn't exist or pre-dates the maple_id field
+  // (Phase 1 introduced it; older rows simply aren't in Meilisearch
+  // either, so a no-op is correct).
+  const existing = await c.findOne(
+    { abs_path: absPath },
+    { projection: { maple_id: 1 } },
+  );
   await c.updateOne(
     { abs_path: absPath },
     { $set: { deleted_at: new Date().toISOString() } }
   );
+  const mapleId = existing?.maple_id;
+  if (typeof mapleId === "string" && mapleId.length > 0) {
+    try {
+      await meilisearchClient().tombstone(mapleId);
+    } catch {
+      // The client log-and-swallows on its own; this catch is just
+      // defensive against a programmer-error throw inside the client.
+    }
+  }
 }
 
 /** After a rename, keep the maple:id but update the path + filename. */

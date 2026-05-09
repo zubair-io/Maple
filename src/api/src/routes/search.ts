@@ -28,7 +28,11 @@ import { Elysia, t } from "elysia";
 import { ObjectId } from "mongodb";
 import type { Filter, Sort } from "mongodb";
 import { assetsCollection } from "../db/client.ts";
+import { meilisearchClient } from "../enrichment/meilisearch-client.ts";
+import { child as childLogger } from "../log.ts";
 import type { AssetDoc, Place } from "../db/schema.ts";
+
+const searchLog = childLogger("search");
 
 const COLOR_LABELS = new Set(["", "red", "yellow", "green", "blue", "purple"]);
 const FLAG_BY_NAME: Record<string, -1 | 0 | 1> = {
@@ -443,6 +447,70 @@ export const searchRoutes = new Elysia({ prefix: "/api/search" })
       const usingPlaceText =
         typeof query.placeQuery === "string" &&
         query.placeQuery.trim().length > 0;
+
+      // Phase 7: try Meilisearch first when a placeQuery is present and
+      // the sidecar is configured. On miss/error, fall back to the Mongo
+      // `$text` path. The Mongo path is the source of truth — we only use
+      // Meilisearch's hit ids and re-fetch the full asset rows from Mongo.
+      const meili = meilisearchClient();
+      if (usingPlaceText && meili.isConfigured()) {
+        try {
+          const placeQuery = query.placeQuery!.trim();
+          const meiliResult = await meili.search(placeQuery, {
+            folderId: query.libraryId,
+            offset: skip,
+            limit,
+          });
+          if (meiliResult.ids.length === 0) {
+            return { total: meiliResult.estimatedTotal, page, limit, results: [] };
+          }
+          // Fetch full asset summaries for the Meilisearch ids. Strip
+          // `$text` from the filter — Meilisearch already did the text
+          // match, and re-running Mongo $text on a typo-tolerant hit
+          // ("Musum" → "Museum") would zero the result. The structured
+          // filters (camera, lens, ext, …) and the soft-delete clause
+          // still apply.
+          const filterWithoutText = { ...filter };
+          delete (filterWithoutText as Record<string, unknown>).$text;
+          const restrict = applyLiveFilter({
+            ...filterWithoutText,
+            maple_id: { $in: meiliResult.ids },
+          } as unknown as Filter<AssetDoc>);
+          const docs = await coll.find(restrict).toArray();
+          const byId = new Map<string, AssetDoc & { _id: ObjectId }>();
+          for (const d of docs) {
+            const mapleId = (d as unknown as { maple_id?: string }).maple_id;
+            if (typeof mapleId === "string") {
+              byId.set(mapleId, d as AssetDoc & { _id: ObjectId });
+            }
+          }
+          // Preserve Meilisearch's relevance order. Drop ids that no
+          // longer exist in Mongo (rare; e.g. mid-flight hard delete).
+          const ordered: Array<AssetDoc & { _id: ObjectId }> = [];
+          for (const id of meiliResult.ids) {
+            const d = byId.get(id);
+            if (d) ordered.push(d);
+          }
+          const results = ordered.map((d) => projectAsset(d));
+          return {
+            total: meiliResult.estimatedTotal,
+            page,
+            limit,
+            results,
+          };
+        } catch (err) {
+          // Log and fall through to the Mongo `$text` path. The route
+          // still returns a 200 — the operator sees this in the logs.
+          searchLog.warn(
+            {
+              err: err instanceof Error ? err.message : String(err),
+              placeQuery: query.placeQuery,
+            },
+            "meilisearch query failed; falling back to mongo $text",
+          );
+        }
+      }
+
       const sortSpec: Sort = usingPlaceText
         ? ({
             score: { $meta: "textScore" },
