@@ -639,9 +639,21 @@ export class LibraryStateService {
       this.rescanStatus.set('error');
       return;
     }
+    // Pass the current selection's absPath as subPath when it's a sub-
+    // folder of the registered library — the server walks just that
+    // subtree (with the priority flag flowing through every pipeline
+    // stage). When the selection IS the library root, omit subPath so
+    // the server walks the whole library.
+    const id = this.selectedSourceId();
+    const absPath =
+      id.startsWith('fs:') ? id.slice('fs:'.length) : null;
+    const subPath =
+      absPath && absPath !== folder.path && absPath.startsWith(folder.path + '/')
+        ? absPath
+        : undefined;
     this.rescanError.set(null);
     this.rescanStatus.set('running');
-    this.api.rescanFolder(folder.id).subscribe({
+    this.api.rescanFolder(folder.id, { subPath }).subscribe({
       next: (res) => {
         if (res.ok) {
           this.rescanStatus.set('done');

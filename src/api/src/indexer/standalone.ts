@@ -224,15 +224,21 @@ const app = new Elysia()
     },
   )
 
-  // Re-scan one folder. Resolves the folder by id, walks its tree, and
-  // pushes every supported file back into the discover channel. The
-  // upsert is idempotent (Phase 1 skeleton + $setOnInsert) so unchanged
-  // files no-op and new files get enqueued. Useful after a slow polling
-  // interval or when the operator knows new content has landed and
-  // doesn't want to wait for the next poll cycle.
+  // Re-scan one folder. Resolves the folder by id, walks its tree (or
+  // an optional sub-folder under it), and pushes every supported file
+  // into the discover channel with `priority: true` — every stage uses
+  // pushFront() for these jobs so they hop the existing backlog from
+  // the initial walk. The upsert is idempotent (Phase 1 skeleton +
+  // $setOnInsert) so unchanged files no-op and new files get enqueued.
+  //
+  // Body:
+  //   subPath?: string — optional absolute path under folder.path. When
+  //     set, the walker only enters that subtree (the UI uses this to
+  //     mean "scan the folder I'm currently looking at, not the whole
+  //     library"). When omitted, the entire library root is walked.
   .post(
     "/rescan/:folderId",
-    async ({ params, set }) => {
+    async ({ params, body, set }) => {
       const folderIdStr = params.folderId;
       if (!ObjectId.isValid(folderIdStr)) {
         set.status = 400;
@@ -245,30 +251,44 @@ const app = new Elysia()
         set.status = 404;
         return { ok: false, error: "Folder not found" };
       }
+      const subPath = typeof body?.subPath === "string" && body.subPath.length > 0
+        ? body.subPath
+        : undefined;
+      const walkPath = subPath ?? folder.path;
       const svc = getIndexerService();
       // Run the walk in the background — the discover channel can absorb
       // pushes faster than the rest of the pipeline drains, but a 5TB
       // library can take minutes to traverse and we don't want the HTTP
-      // call to block. Return immediately with the folder path so the
-      // UI can echo what's being scanned.
+      // call to block. Return immediately with the path so the UI can
+      // echo what's being scanned.
       void svc
-        .walkOnce(folderIdStr, folder.path)
+        .walkOnce(folderIdStr, folder.path, { subPath, priority: true })
         .then((count) => {
-          log.info({ folderId: folderIdStr, path: folder.path, enqueued: count }, "rescan complete");
+          log.info(
+            { folderId: folderIdStr, path: walkPath, enqueued: count, priority: true },
+            "rescan complete",
+          );
         })
         .catch((err) => {
           log.warn(
             {
               folderId: folderIdStr,
-              path: folder.path,
+              path: walkPath,
               err: err instanceof Error ? err.message : err,
             },
             "rescan failed",
           );
         });
-      return { ok: true, folderId: folderIdStr, path: folder.path };
+      return { ok: true, folderId: folderIdStr, path: walkPath };
     },
-    { params: t.Object({ folderId: t.String({ minLength: 24, maxLength: 24 }) }) },
+    {
+      params: t.Object({ folderId: t.String({ minLength: 24, maxLength: 24 }) }),
+      body: t.Optional(
+        t.Object({
+          subPath: t.Optional(t.String()),
+        }),
+      ),
+    },
   );
 
 // ---------------------------------------------------------------------------

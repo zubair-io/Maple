@@ -83,6 +83,13 @@ export interface PipelineJob {
    * `ai`) — only the side-effect is skipped.
    */
   skipThumb?: boolean;
+  /**
+   * Jump-the-queue flag. When set, every stage forwards this job via
+   * `pushFront()` instead of `push()`, keeping it at the head of each
+   * stage's channel. Used by the rescan path so a user-clicked sub-folder
+   * surfaces ahead of an existing 100k-file backlog from the initial walk.
+   */
+  priority?: boolean;
 }
 
 /** Face detection output from the ai stage. Shape is frozen so future ONNX wiring is additive only. */
@@ -446,18 +453,31 @@ export class Pipeline {
 
   // ---- Stage handlers ------------------------------------------------------
 
+  /**
+   * Forward a job into the next stage's channel. When `job.priority` is
+   * set (rescan path — see `IndexerService.walkOnce({priority:true})`),
+   * use `pushFront` so the job hops the queue at every stage. Without
+   * this, a priority job pushed to the head of `discover` would still
+   * fall behind the existing backlog at `hash`, `exif`, `thumb`, etc.
+   * Carrying the flag through every handoff is what makes priority
+   * actually deliver bounded latency.
+   */
+  private forward<T>(channel: BoundedQueue<T>, job: T & { priority?: boolean }): Promise<void> {
+    return job.priority ? channel.pushFront(job) : channel.push(job);
+  }
+
   private async runDiscover(job: PipelineJob): Promise<void> {
     if (job.kind === "remove") {
       // Removal bypasses hashing; go straight to mongo for soft-delete.
-      await this.channels.mongo.push(job);
+      await this.forward(this.channels.mongo, job);
       return;
     }
-    await this.channels.hash.push(job);
+    await this.forward(this.channels.hash, job);
   }
 
   private async runHash(job: PipelineJob): Promise<void> {
     if (job.kind === "remove") {
-      await this.channels.exif.push(job);
+      await this.forward(this.channels.exif, job);
       return;
     }
     const read = this.handlers.readHead ?? defaultReadHead;
@@ -473,12 +493,12 @@ export class Pipeline {
     job.size = stat.size;
     job.mtime = stat.mtimeMs;
     job.headBytes = head;
-    await this.channels.exif.push(job);
+    await this.forward(this.channels.exif, job);
   }
 
   private async runExif(job: PipelineJob): Promise<void> {
     if (job.kind === "remove") {
-      await this.channels.thumb.push(job);
+      await this.forward(this.channels.thumb, job);
       return;
     }
     // Tests can override readExif. At runtime, the IndexerService leaves it
@@ -502,17 +522,17 @@ export class Pipeline {
       // Release the 64 KB buffer; it is no longer needed downstream.
       job.headBytes = undefined;
     }
-    await this.channels.thumb.push(job);
+    await this.forward(this.channels.thumb, job);
   }
 
   private async runThumb(job: PipelineJob): Promise<void> {
     if (job.kind === "remove") {
-      await this.channels.ai.push(job);
+      await this.forward(this.channels.ai, job);
       return;
     }
     const h = this.handlers.generateThumb;
     if (h && !job.skipThumb) await h(job);
-    await this.channels.ai.push(job);
+    await this.forward(this.channels.ai, job);
   }
 
   private async runAi(job: PipelineJob): Promise<void> {
@@ -558,7 +578,7 @@ export class Pipeline {
         "pass-through",
       );
     }
-    await this.channels.mongo.push(job);
+    await this.forward(this.channels.mongo, job);
   }
 
   private async runMongo(job: PipelineJob): Promise<void> {
