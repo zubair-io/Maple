@@ -458,3 +458,14 @@ describe("IpcServer", () => {
     await ipc.stop();
   });
 });
+
+describe("IpcServer port signal", () => {
+  it("port is a positive integer when server starts", async () => {
+    const tw = new ThroughputWindow();
+    const ipc = new IpcServer({ name: "sig-test", throughput: tw, getInFlight: () => 0 });
+    const port = await ipc.start();
+    const signal = `__MAPLE_IPC_PORT__=${port}`;
+    expect(signal).toMatch(/^__MAPLE_IPC_PORT__=\d+$/);
+    await ipc.stop();
+  });
+});
