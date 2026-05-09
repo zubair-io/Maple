@@ -51,6 +51,13 @@ export class SettingsIndexComponent {
       ownerOnly: true,
     },
     {
+      icon: 'settings_applications',
+      title: 'Workers',
+      description: 'Monitor and tune every pipeline stage — status, throughput, dead-letter retry.',
+      link: '/settings/workers',
+      ownerOnly: true,
+    },
+    {
       icon: 'groups',
       title: 'People',
       description: 'Face clusters, identities, and per-person merging.',
