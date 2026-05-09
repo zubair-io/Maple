@@ -8,9 +8,12 @@
 
 import { Elysia, t } from "elysia";
 import { ObjectId } from "mongodb";
+import { readdir, stat } from "node:fs/promises";
+import * as nodePath from "node:path";
 import { foldersCollection, assetsCollection } from "../db/client.ts";
 import { validateRoot } from "../fs/root.ts";
 import { child as childLogger } from "../log.ts";
+import { handleEvent } from "../workers/discover/index.ts";
 
 const log = childLogger("folders");
 
@@ -60,11 +63,17 @@ export const foldersRoutes = new Elysia({ prefix: "/api/folders" })
 
       const result = await coll.insertOne(doc);
       const id = result.insertedId.toHexString();
+      const folderId = result.insertedId;
 
-      // TODO(Task 10): kick off discover for the new folder via supervisor IPC.
-      // The old service.ts registerFolderWatch has been removed; the supervisor's
-      // discover stage will pick up this folder on next boot from the folders
-      // collection.
+      // Fire-and-forget: walk the new folder and push each supported image
+      // file through the discover producer so the pipeline starts indexing
+      // immediately without waiting for the next watcher tick.
+      void scanFolderAndDiscover(path, folderId).catch((err) =>
+        log.warn(
+          { path, err: err instanceof Error ? err.message : err },
+          "initial folder scan failed — files will be indexed on next watcher tick",
+        ),
+      );
 
       set.status = 201;
       return {
@@ -135,3 +144,54 @@ export const foldersRoutes = new Elysia({ prefix: "/api/folders" })
       }),
     }
   );
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/** Supported image extensions (lowercase with leading dot). */
+const SUPPORTED_EXTS = new Set([
+  ".dng", ".cr2", ".cr3", ".nef", ".arw", ".raf", ".orf", ".rw2",
+  ".pef", ".srw", ".x3f", ".3fr", ".mef", ".erf", ".mrw",
+  ".jpg", ".jpeg", ".tif", ".tiff", ".heic", ".heif",
+]);
+
+/**
+ * Recursively walk `dirPath` and call `handleEvent({ kind: "created" })` for
+ * every supported image file found. Fire-and-forget per file — a single
+ * failed upsert does not abort the rest of the walk. Silently skips
+ * permission-denied subtrees.
+ */
+async function scanFolderAndDiscover(dirPath: string, folderId: ObjectId): Promise<void> {
+  let names: string[];
+  try {
+    names = await readdir(dirPath);
+  } catch {
+    return; // permission denied or not a directory
+  }
+
+  await Promise.all(
+    names.map(async (name) => {
+      const absPath = nodePath.join(dirPath, name);
+      let st: Awaited<ReturnType<typeof stat>>;
+      try {
+        st = await stat(absPath);
+      } catch {
+        return;
+      }
+
+      if (st.isDirectory()) {
+        await scanFolderAndDiscover(absPath, folderId);
+      } else if (st.isFile()) {
+        const ext = nodePath.extname(name).toLowerCase();
+        if (!SUPPORTED_EXTS.has(ext)) return;
+        handleEvent({ kind: "created", absPath }, folderId).catch((err) =>
+          log.warn(
+            { absPath, err: err instanceof Error ? err.message : err },
+            "discover upsert failed during initial folder scan",
+          ),
+        );
+      }
+    }),
+  );
+}

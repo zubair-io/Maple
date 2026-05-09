@@ -374,19 +374,45 @@ async function findOwningFolderId(absPath: string): Promise<string | null> {
 }
 
 /**
- * Push a batch of un-indexed paths into the indexer's discover queue.
+ * Push a batch of un-indexed paths into the discover producer via handleEvent.
  *
- * TODO(Task 10): route through supervisor IPC once the discover stage
- * exposes an enqueue endpoint. For now this is a no-op: the supervisor's
- * discover stage picks up new files from the watcher automatically.
+ * Calls handleEvent({ kind: "created", absPath }, folderId) for each path that
+ * is not yet in the assets collection. This is a fire-and-forget operation —
+ * the caller does not wait for upserts to complete. A failed upsert is logged
+ * as a warning and does not surface to the HTTP response.
+ *
+ * If no owning folder is found for a path (the folder has not been registered
+ * yet), the path is skipped silently — it will be picked up once the folder is
+ * registered and discover starts watching it.
  */
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
 async function enqueueBrowseIndex(
   dirPath: string,
   paths: string[],
 ): Promise<void> {
-  // No-op: the standalone indexer's /enqueue route has been removed along
-  // with indexer/control.ts. The discover stage will index these files
-  // the next time the watcher triggers or the folder is rescanned.
-  log.debug({ dirPath, count: paths.length }, "enqueueBrowseIndex: no-op pending Task 10");
+  const { handleEvent } = await import("../workers/discover/index.ts");
+  const { ObjectId } = await import("mongodb");
+
+  const folderId = await findOwningFolderId(dirPath);
+  if (!folderId) {
+    log.debug(
+      { dirPath, count: paths.length },
+      "enqueueBrowseIndex: no owning folder found — skipping",
+    );
+    return;
+  }
+
+  const folderObjectId = new ObjectId(folderId);
+  for (const absPath of paths) {
+    handleEvent({ kind: "created", absPath }, folderObjectId).catch((err) =>
+      log.warn(
+        { absPath, err: err instanceof Error ? err.message : err },
+        "enqueueBrowseIndex: handleEvent failed",
+      ),
+    );
+  }
+
+  log.debug(
+    { dirPath, count: paths.length, folderId },
+    "enqueueBrowseIndex: fired",
+  );
 }
