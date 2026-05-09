@@ -9,6 +9,9 @@
 
 import chokidar, { type FSWatcher } from "chokidar";
 import * as path from "node:path";
+import { child as childLogger } from "../log.ts";
+
+const log = childLogger("watcher");
 
 export type WatchKind = "created" | "modified" | "renamed" | "removed";
 
@@ -72,7 +75,7 @@ export class Watcher {
     this.watcher.on("change", (p) => this.enqueue("change", p));
     this.watcher.on("unlink", (p) => this.enqueue("unlink", p));
     this.watcher.on("error", (err) => {
-      console.warn("[watcher] error:", err instanceof Error ? err.message : err);
+      log.warn({ err: err instanceof Error ? err.message : err }, "error");
     });
   }
 

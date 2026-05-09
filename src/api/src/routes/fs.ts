@@ -24,6 +24,9 @@ import { createReadStream } from "node:fs";
 import * as path from "node:path";
 import { Readable } from "node:stream";
 import { listDir, listDirContents, browseRoots, isUnderRoot, RAW_EXTENSIONS } from "../fs/browse.ts";
+import { child as childLogger } from "../log.ts";
+
+const log = childLogger("fs/dir");
 
 export const fsRoutes = new Elysia({ prefix: "/api/fs" })
   .get(
@@ -64,7 +67,7 @@ export const fsRoutes = new Elysia({ prefix: "/api/fs" })
         // try/catch), surface as JSON 500 so the SPA can render a banner
         // instead of getting an opaque error page.
         const msg = err instanceof Error ? err.message : String(err);
-        console.error(`[fs/dir] unhandled error for "${query.path}":`, msg);
+        log.error({ path: query.path, err: msg }, "unhandled error");
         set.status = 500;
         return { error: msg };
       }

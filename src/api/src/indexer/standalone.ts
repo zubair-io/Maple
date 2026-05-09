@@ -12,8 +12,10 @@
  *   POST /pause           — pause the pipeline
  *   POST /resume          — resume the pipeline
  *   PUT  /config          — update worker pool sizes live
- *   GET  /dead-letter     — paginated dead-letter list
- *   POST /exif-backfill   — kick off an EXIF backfill run
+ *   GET  /dead-letter            — paginated dead-letter list (stage / errorPrefix filters)
+ *   GET  /dead-letter/groups     — $group rollup by stage + error class
+ *   POST /dead-letter/reset      — delete matching rows so the watcher re-attempts
+ *   POST /exif-backfill          — kick off an EXIF backfill run
  *
  * On SIGTERM/SIGINT: stops the IndexerService, closes Mongo, exits 0.
  */
@@ -21,7 +23,21 @@
 import { Elysia, t } from "elysia";
 import { getDb, ensureIndexes, closeDb } from "../db/client.ts";
 import { getIndexerService } from "./service.ts";
-import { listDeadLetter } from "./indexer.repo.ts";
+import {
+  filterDeadLetter,
+  groupDeadLetterByError,
+  listDeadLetter,
+  resetDeadLetter,
+} from "./indexer.repo.ts";
+import type { Stage } from "./channel.ts";
+import { child as childLogger } from "../log.ts";
+
+const log = childLogger("indexer:standalone");
+
+const STAGE_VALUES = ["discover", "hash", "exif", "thumb", "ai", "mongo"] as const;
+function isStage(v: unknown): v is Stage {
+  return typeof v === "string" && (STAGE_VALUES as readonly string[]).includes(v);
+}
 
 const PORT = Number(process.env.MAPLE_INDEXER_PORT ?? 3100);
 
@@ -39,9 +55,13 @@ const ConfigBody = t.Object({
 const app = new Elysia()
   .onError(({ error, set, request }) => {
     const msg = error instanceof Error ? error.message : String(error);
-    console.error(
-      `[indexer] ${request.method} ${new URL(request.url).pathname} →`,
-      msg,
+    log.error(
+      {
+        method: request.method,
+        path: new URL(request.url).pathname,
+        err: msg,
+      },
+      "request error",
     );
     const preset = typeof set.status === "number" ? set.status : 0;
     if (preset >= 400 && preset < 600) return { error: msg };
@@ -77,8 +97,16 @@ const app = new Elysia()
     "/dead-letter",
     async ({ query }) => {
       const limit = Math.min(1000, Math.max(1, Number(query.limit ?? 200)));
+      const stage = isStage(query.stage) ? query.stage : undefined;
+      const errorPrefix =
+        typeof query.errorPrefix === "string" && query.errorPrefix.length > 0
+          ? query.errorPrefix
+          : undefined;
       try {
-        const docs = await listDeadLetter(limit);
+        const docs =
+          stage || errorPrefix
+            ? await filterDeadLetter({ stage, errorPrefix, limit })
+            : await listDeadLetter(limit);
         return { items: docs, total: docs.length };
       } catch (e) {
         return {
@@ -88,7 +116,51 @@ const app = new Elysia()
         };
       }
     },
-    { query: t.Object({ limit: t.Optional(t.String()) }) },
+    {
+      query: t.Object({
+        limit: t.Optional(t.String()),
+        stage: t.Optional(t.String()),
+        errorPrefix: t.Optional(t.String()),
+      }),
+    },
+  )
+
+  .get("/dead-letter/groups", async () => {
+    try {
+      const groups = await groupDeadLetterByError();
+      return { groups };
+    } catch (e) {
+      return {
+        groups: [],
+        warning: e instanceof Error ? e.message : String(e),
+      };
+    }
+  })
+
+  .post(
+    "/dead-letter/reset",
+    async ({ body, set }) => {
+      const stage = isStage(body.stage) ? body.stage : undefined;
+      const key =
+        typeof body.key === "string" && body.key.length > 0 ? body.key : undefined;
+      if (!stage && !key) {
+        set.status = 400;
+        return { error: "Provide at least one of {key, stage}" };
+      }
+      try {
+        const res = await resetDeadLetter({ key, stage });
+        return { ok: true, deletedCount: res.deletedCount };
+      } catch (e) {
+        set.status = 500;
+        return { error: e instanceof Error ? e.message : String(e) };
+      }
+    },
+    {
+      body: t.Object({
+        key: t.Optional(t.String()),
+        stage: t.Optional(t.String()),
+      }),
+    },
   )
 
   .post(
@@ -102,9 +174,9 @@ const app = new Elysia()
       svc
         .runExifBackfill(limit)
         .catch((e) =>
-          console.warn(
-            "[indexer] manual EXIF backfill error:",
-            e instanceof Error ? e.message : e,
+          log.warn(
+            { err: e instanceof Error ? e.message : e },
+            "manual EXIF backfill error",
           ),
         );
       return { ok: true, status: svc.status() };
@@ -134,10 +206,9 @@ const app = new Elysia()
           });
           enqueued++;
         } catch (e) {
-          console.warn(
-            "[indexer] enqueue push failed for",
-            absPath,
-            e instanceof Error ? e.message : e,
+          log.warn(
+            { absPath, err: e instanceof Error ? e.message : e },
+            "enqueue push failed",
           );
         }
       }
@@ -157,7 +228,7 @@ const app = new Elysia()
 // ---------------------------------------------------------------------------
 
 async function start(): Promise<void> {
-  console.log(`[indexer] starting on http://127.0.0.1:${PORT}`);
+  log.info({ port: PORT }, "starting on http://127.0.0.1");
 
   // Connect to Mongo + start the service in the background. The HTTP server
   // (the supervisor's `waitReady` poll) needs `/status` to return 200 ASAP,
@@ -165,15 +236,15 @@ async function start(): Promise<void> {
   // offline.
   getDb()
     .then(ensureIndexes)
-    .then(() => console.log("[indexer] DB ready"))
+    .then(() => log.info("DB ready"))
     .then(() => getIndexerService().start())
-    .then(() => console.log("[indexer] service started"))
+    .then(() => log.info("service started"))
     .catch((err) => {
-      console.warn(
-        "[indexer] MongoDB not available:",
-        err instanceof Error ? err.message : err,
+      log.warn(
+        { err: err instanceof Error ? err.message : err },
+        "MongoDB not available",
       );
-      console.warn("[indexer] indexer continues without DB; retry on first job.");
+      log.warn("indexer continues without DB; retry on first job.");
     });
 
   app.listen({ port: PORT, hostname: "127.0.0.1" });
@@ -181,13 +252,13 @@ async function start(): Promise<void> {
 
 // Graceful shutdown.
 async function shutdown(signal: string): Promise<void> {
-  console.log(`[indexer] ${signal} received — stopping service`);
+  log.info({ signal }, "stopping service");
   try {
     await getIndexerService().stop();
   } catch (e) {
-    console.warn(
-      "[indexer] error stopping service:",
-      e instanceof Error ? e.message : e,
+    log.warn(
+      { err: e instanceof Error ? e.message : e },
+      "error stopping service",
     );
   }
   try {
@@ -200,18 +271,21 @@ async function shutdown(signal: string): Promise<void> {
 
 process.on("SIGTERM", () => {
   shutdown("SIGTERM").catch((e) => {
-    console.error("[indexer] shutdown error:", e);
+    log.error({ err: e instanceof Error ? e.message : e }, "shutdown error");
     process.exit(1);
   });
 });
 process.on("SIGINT", () => {
   shutdown("SIGINT").catch((e) => {
-    console.error("[indexer] shutdown error:", e);
+    log.error({ err: e instanceof Error ? e.message : e }, "shutdown error");
     process.exit(1);
   });
 });
 
 start().catch((err) => {
-  console.error("[indexer] fatal startup error:", err);
+  log.error(
+    { err: err instanceof Error ? err.message : err },
+    "fatal startup error",
+  );
   process.exit(1);
 });

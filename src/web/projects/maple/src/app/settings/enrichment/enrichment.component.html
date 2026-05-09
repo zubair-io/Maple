@@ -1,0 +1,133 @@
+<div class="mx-auto max-w-[800px] px-8 pt-6 pb-12">
+  <header class="mb-6 flex items-center gap-4">
+    <a class="text-[12px] text-text-muted no-underline hover:text-text-main hover:underline" routerLink="/browse">&larr; Back to Browse</a>
+    <h2 class="m-0 flex-1 text-[22px] font-semibold tracking-[-0.01em]">Enrichment</h2>
+  </header>
+
+  @if (loadError(); as e) {
+    <div class="mb-4 rounded-md bg-error-bg px-3.5 py-2.5 text-[13px] text-error-text">
+      Failed to load: {{ e }}
+    </div>
+  }
+
+  <section class="mb-4 rounded-lg border border-border bg-surface p-5">
+    <h3 class="mt-0 mb-2 text-[14px] font-semibold">Geocode worker</h3>
+    <p class="mt-0 mb-5 text-[12px] leading-relaxed text-text-muted">
+      Reverse-geocodes EXIF GPS coordinates against a self-hosted Nominatim
+      instance. Cluster of photos at the same place share one API call via the
+      lat/lon cache.
+    </p>
+
+    <!-- Nominatim URL ────────────────────────────────────────────────── -->
+    <div class="mb-5">
+      <div class="mb-1.5 flex items-baseline justify-between gap-2">
+        <label for="nominatim-url" class="text-[12px] font-semibold">Nominatim URL</label>
+        @if (serverConfig(); as cfg) {
+          @let s = sourceLabel(cfg.source.nominatim_url);
+          <span
+            class="rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide"
+            [class.bg-primary-dim]="s.tone === 'saved'"
+            [class.text-primary]="s.tone === 'saved'"
+            [class.bg-surface-hover]="s.tone === 'env'"
+            [class.text-text-muted]="s.tone !== 'saved'"
+          >{{ s.text }}</span>
+        }
+      </div>
+      <div class="flex gap-2">
+        <input
+          id="nominatim-url"
+          type="url"
+          inputmode="url"
+          placeholder="http://nominatim.lan:8080"
+          autocomplete="off"
+          spellcheck="false"
+          class="min-w-0 flex-1 rounded-md border border-border bg-bg px-2.5 py-1.5 font-mono text-[12px] text-text-main outline-none focus:border-primary"
+          [value]="url()"
+          (input)="url.set($any($event.target).value)"
+        />
+        <button
+          type="button"
+          class="cursor-pointer rounded-md border border-border bg-surface px-3 py-1.5 text-[12px] font-semibold text-text-main hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-60"
+          [disabled]="testStatus().kind === 'testing' || url().trim().length === 0"
+          (click)="testConnection()"
+        >
+          @switch (testStatus().kind) {
+            @case ('testing') { Testing… }
+            @default { Test connection }
+          }
+        </button>
+      </div>
+      <p class="mt-1.5 text-[11px] text-text-muted">
+        Empty value disables geocoding. Worker is skipped at boot when this is
+        unset; see <code class="font-mono">docs/indexer-enrichment.md</code> §4.1.
+      </p>
+
+      @switch (testStatus().kind) {
+        @case ('ok') {
+          <div class="mt-2 rounded-md bg-primary-dim px-3 py-2 text-[12px] text-primary">
+            ✓ Reached <span class="font-mono">{{ $any(testStatus()).url }}/status</span>
+          </div>
+        }
+        @case ('error') {
+          <div class="mt-2 rounded-md bg-error-bg px-3 py-2 text-[12px] text-error-text">
+            ✗ {{ $any(testStatus()).message }}
+          </div>
+        }
+      }
+    </div>
+
+    <!-- Enabled toggle ──────────────────────────────────────────────── -->
+    <div class="mb-1">
+      <label class="flex cursor-pointer items-start gap-2.5">
+        <input
+          type="checkbox"
+          class="mt-0.5 h-4 w-4 cursor-pointer accent-primary"
+          [checked]="enabled()"
+          (change)="enabled.set($any($event.target).checked)"
+        />
+        <span class="flex flex-col">
+          <span class="flex items-center gap-2">
+            <span class="text-[13px] font-medium">Enable geocode worker</span>
+            @if (serverConfig(); as cfg) {
+              @let s = sourceLabel(cfg.source.geocode_worker_enabled);
+              <span
+                class="rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide"
+                [class.bg-primary-dim]="s.tone === 'saved'"
+                [class.text-primary]="s.tone === 'saved'"
+                [class.bg-surface-hover]="s.tone === 'env'"
+                [class.text-text-muted]="s.tone !== 'saved'"
+              >{{ s.text }}</span>
+            }
+          </span>
+          <span class="text-[11px] text-text-muted">
+            When off, the loop sleeps and no claims are made. Toggling on
+            requires a reachable Nominatim URL above.
+          </span>
+        </span>
+      </label>
+    </div>
+  </section>
+
+  @if (saveError(); as e) {
+    <div class="mb-3 rounded-md bg-error-bg px-3.5 py-2.5 text-[13px] text-error-text">
+      Save failed: {{ e }}
+    </div>
+  }
+
+  <div class="flex items-center justify-end gap-3">
+    @if (saveStatus() === 'success') {
+      <span class="text-[12px] text-primary">Saved.</span>
+    }
+    <button
+      type="button"
+      class="cursor-pointer rounded-md border border-transparent bg-primary px-4 py-2 text-[13px] font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60 hover:opacity-90"
+      [disabled]="saveStatus() === 'saving'"
+      (click)="save()"
+    >
+      @switch (saveStatus()) {
+        @case ('saving') { Saving… }
+        @default { Save changes }
+      }
+    </button>
+  </div>
+</div>

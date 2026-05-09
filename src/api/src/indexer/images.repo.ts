@@ -6,19 +6,21 @@
 
 import type { Collection, ObjectId, UpdateResult } from "mongodb";
 import { assetsCollection } from "../db/client.ts";
-import type { AssetDoc, AssetExif } from "../db/schema.ts";
+import {
+  pendingEnrichment,
+  type AssetDoc,
+  type AssetExif,
+  type AssetFaceDoc,
+  type Enrichment,
+  type Place,
+} from "../db/schema.ts";
 
 /**
- * Persisted face-detection result. The shape mirrors `AiFace` in `pipeline.ts`;
- * `embedding` is stored only when a real detector has run (Float32 as an
- * array of numbers so Mongo can round-trip it).
+ * Persisted face-detection result. Re-exported from the schema so existing
+ * consumers can keep using the `AssetFace` name; the canonical type lives in
+ * `db/schema.ts` so the repo and the read-side both reference the same shape.
  */
-export interface AssetFace {
-  bbox: { x: number; y: number; w: number; h: number };
-  person_id: string | null;
-  confidence: number;
-  embedding?: number[];
-}
+export type AssetFace = AssetFaceDoc;
 
 /**
  * Extra indexer-owned fields. Stored on the same `assets` document.
@@ -26,9 +28,14 @@ export interface AssetFace {
  * `maple_id` is the stable content-derived hex id (see `./id.ts`).
  * `sha1_head` is the hex of SHA-1 over the first 64 KB; used to
  * detect content change without re-hashing the full file.
- * `faces` / `ai_tags` are written by the ai stage (empty today). They are
- * always present so consumers can index `faces.person_id` without sparse
- * index gymnastics.
+ *
+ * `faces`, `description`, `place` and the `enrichment` sub-document are
+ * Phase 2+ enrichment outputs. The fast-tier upsert seeds them on insert via
+ * `$setOnInsert` and never touches them again, so worker writes are not
+ * clobbered when the file's mtime/sha1Head changes and the indexer re-upserts.
+ * `ai_tags` is a legacy AI-stage output kept on $setOnInsert for backward
+ * compat; it is not written by Phase 1 and will be replaced by `description`
+ * in Phase 6.
  */
 export interface IndexerAssetFields {
   maple_id?: string;
@@ -36,6 +43,9 @@ export interface IndexerAssetFields {
   deleted_at?: string | null;
   faces?: AssetFace[];
   ai_tags?: string[];
+  enrichment?: Enrichment;
+  place?: Place | null;
+  description?: string | null;
 }
 
 export type IndexerAssetDoc = AssetDoc & IndexerAssetFields;
@@ -43,13 +53,6 @@ export type IndexerAssetDoc = AssetDoc & IndexerAssetFields;
 export async function coll(): Promise<Collection<IndexerAssetDoc>> {
   const c = await assetsCollection();
   return c as unknown as Collection<IndexerAssetDoc>;
-}
-
-export interface UpsertFaceInput {
-  bbox: { x: number; y: number; w: number; h: number };
-  personId: string | null;
-  confidence: number;
-  embedding?: Float32Array | number[];
 }
 
 export interface UpsertInput {
@@ -60,8 +63,6 @@ export interface UpsertInput {
   mtime: number;
   mapleId: string;
   sha1Head: string;
-  faces?: UpsertFaceInput[];
-  aiTags?: string[];
   /**
    * EXIF extraction result. `undefined` means the caller (typically a test)
    * did not run exif and we should not write/clear the field. `null` means
@@ -71,33 +72,25 @@ export interface UpsertInput {
   exif?: AssetExif | null;
 }
 
-function faceToDoc(f: UpsertFaceInput): AssetFace {
-  const out: AssetFace = {
-    bbox: f.bbox,
-    person_id: f.personId,
-    confidence: f.confidence,
-  };
-  if (f.embedding) {
-    out.embedding = Array.from(f.embedding);
-  }
-  return out;
-}
-
+/**
+ * Skeleton upsert (Phase 1, `docs/indexer-enrichment.md` §1.1).
+ *
+ * `$set` carries only fast-tier fields the indexer is authoritative for
+ * (size, mtime, sha1Head, mapleId, exif, abs_path). `$setOnInsert` seeds
+ * enrichment state and outputs (`enrichment`, `place`, `faces`, `description`,
+ * `ai_tags`) so a re-upsert from the watcher (e.g. mtime changed) cannot
+ * clobber what a Phase 2+ worker has already written.
+ *
+ * The filter is on the unique index (folder_id, filename), not on maple_id:
+ * the function name is historical. mapleId is a stable secondary identifier
+ * derived from EXIF + file bytes, but the asset's *identity* in the
+ * collection is its (folder_id, filename) pair. Filtering on maple_id meant
+ * a re-scan that derived a slightly different mapleId would miss the existing
+ * row and then collide on the unique index → E11000 spam.
+ */
 export async function upsertByMapleId(input: UpsertInput): Promise<UpdateResult> {
   const c = await coll();
   const now = new Date().toISOString();
-  const faces: AssetFace[] = (input.faces ?? []).map(faceToDoc);
-  const aiTags: string[] = input.aiTags ?? [];
-  // Filter on the unique index (folder_id, filename), not on maple_id. The
-  // function name is historical — mapleId is a stable secondary identifier
-  // derived from EXIF + file bytes, but the asset's *identity* in the
-  // collection is its (folder_id, filename) pair (that's the unique index).
-  // Filtering on maple_id meant a re-scan that derived a slightly different
-  // mapleId (older indexer runs that left maple_id null, or capturedAt that
-  // changed since last index) would miss the existing row, then the upsert
-  // would try to insert and collide on the unique index → E11000 spam.
-  // Filtering on (folder_id, filename) hits the existing row and updates
-  // maple_id alongside the rest of the metadata.
   const setFields: Record<string, unknown> = {
     abs_path: input.absPath,
     size: input.size,
@@ -106,8 +99,6 @@ export async function upsertByMapleId(input: UpsertInput): Promise<UpdateResult>
     maple_id: input.mapleId,
     indexed_at: now,
     deleted_at: null,
-    faces,
-    ai_tags: aiTags,
   };
   // Only write exif when it was provided (undefined = unwired / test path).
   // null is a meaningful value (exif ran, no metadata) so it must persist.
@@ -124,6 +115,11 @@ export async function upsertByMapleId(input: UpsertInput): Promise<UpdateResult>
         rating: 0,
         flag: 0,
         color_label: "",
+        enrichment: pendingEnrichment(),
+        place: null,
+        faces: [] as AssetFace[],
+        description: null,
+        ai_tags: [] as string[],
       },
     },
     { upsert: true }

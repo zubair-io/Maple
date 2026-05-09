@@ -13,6 +13,9 @@
 
 import * as path from "node:path";
 import * as fs from "node:fs";
+import { child as childLogger } from "../log.ts";
+
+const log = childLogger("raw-ffi");
 
 // ---------------------------------------------------------------------------
 // C struct layout for MapleImageBuffer (must match raw-ffi/src/lib.rs)
@@ -45,7 +48,7 @@ interface RawFfi {
   /**
    * Decode `rawAbsPath` and return a JPEG-encoded thumbnail, fitted to
    * `maxPx` on the long edge. Quality defaults to 82. Returns null on
-   * any FFI error (the underlying error is logged via console.error).
+   * any FFI error (the underlying error is logged via the structured logger).
    */
   renderThumbnailJpeg(rawAbsPath: string, maxPx: number, quality?: number): Uint8Array | null;
   /** Extract an embedded RAW preview and write the JPEG directly to `outAbsPath`
@@ -85,10 +88,9 @@ function loadFfi(): RawFfi | null {
   const libPath = nativeLibPath();
 
   if (!fs.existsSync(libPath)) {
-    console.warn(
-      `[raw-ffi] native library not found at "${libPath}". ` +
-        "RAW thumbnail generation will be skipped. " +
-        "Run scripts/build-raw-ffi.sh to build it."
+    log.warn(
+      { libPath },
+      "native library not found. RAW thumbnail generation will be skipped. Run scripts/build-raw-ffi.sh to build it.",
     );
     return null;
   }
@@ -153,7 +155,7 @@ function loadFfi(): RawFfi | null {
 
         if (rc !== 0) {
           const errStr = lib.symbols.maple_last_error() as unknown as string | null;
-          console.error(`[raw-ffi] maple_render_file returned ${rc}: ${errStr}`);
+          log.error({ rc, err: errStr }, "maple_render_file failed");
           return null;
         }
 
@@ -196,7 +198,7 @@ function loadFfi(): RawFfi | null {
 
         if (rc !== 0) {
           const errStr = lib.symbols.maple_last_error() as unknown as string | null;
-          console.error(`[raw-ffi] maple_render_thumbnail_jpeg returned ${rc}: ${errStr}`);
+          log.error({ rc, err: errStr }, "maple_render_thumbnail_jpeg failed");
           return null;
         }
 
@@ -246,16 +248,19 @@ function loadFfi(): RawFfi | null {
         ) as number;
         if (rc !== 0) {
           const errStr = lib.symbols.maple_last_error() as unknown as string | null;
-          console.error(`[raw-ffi] maple_render_thumbnail_jpeg_to_file returned ${rc}: ${errStr}`);
+          log.error(
+            { rc, err: errStr },
+            "maple_render_thumbnail_jpeg_to_file failed",
+          );
           return false;
         }
         return true;
       },
     };
   } catch (err) {
-    console.error(
-      "[raw-ffi] failed to load native library:",
-      err instanceof Error ? err.message : err
+    log.error(
+      { err: err instanceof Error ? err.message : err },
+      "failed to load native library",
     );
     return null;
   }

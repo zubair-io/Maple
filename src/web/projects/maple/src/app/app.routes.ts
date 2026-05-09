@@ -44,6 +44,14 @@ export const routes: Routes = [
       import('./settings/indexer/indexer.component').then((m) => m.IndexerComponent),
   },
   {
+    path: 'settings/enrichment',
+    canActivate: [authGuard, ownerGuard],
+    loadComponent: () =>
+      import('./settings/enrichment/enrichment.component').then(
+        (m) => m.EnrichmentComponent,
+      ),
+  },
+  {
     path: 'search',
     canActivate: [authGuard],
     loadComponent: () =>

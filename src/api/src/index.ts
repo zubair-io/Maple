@@ -17,12 +17,18 @@
  *   MAPLE_DEV_AUTH     — set to "1" to expose /api/auth/dev-login (passkey
  *                        bypass for local development). NEVER set in production.
  *   MAPLE_UI_DIST      — override UI dist directory path
+ *   MAPLE_NOMINATIM_URL — base URL of a self-hosted Nominatim instance for
+ *                        the slow-tier geocode worker. Worker is skipped
+ *                        when unset.
+ *   MAPLE_GEOCODE_WORKER_ENABLED — set to "false" to disable the geocode
+ *                        worker even when a URL is provided. Default on.
  */
 
 import { Elysia } from "elysia";
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { randomBytes } from "node:crypto";
+import { child as childLogger } from "./log.ts";
 import { healthRoutes } from "./routes/health.ts";
 import { foldersRoutes } from "./routes/folders.ts";
 import { assetsRoutes } from "./routes/assets.ts";
@@ -32,6 +38,8 @@ import { authRoutes } from "./routes/auth.ts";
 import { fsRoutes } from "./routes/fs.ts";
 import { fsThumbsRoutes } from "./routes/fs-thumbs.ts";
 import { searchRoutes } from "./routes/search.ts";
+import { jobsRoutes } from "./routes/jobs.ts";
+import { enrichmentRoutes } from "./routes/enrichment.ts";
 import { requireAuth } from "./auth/middleware.ts";
 import { staticUiPlugin } from "./routes/static_ui.ts";
 import { getDb, ensureIndexes, closeDb } from "./db/client.ts";
@@ -41,9 +49,16 @@ import {
   waitReady,
   state as indexerState,
 } from "./indexer/control.ts";
+import {
+  startGeocodeWorker,
+  stopGeocodeWorker,
+} from "./enrichment/bootstrap.ts";
+import { startJobRunner, stopJobRunner } from "./job-runner/runner.ts";
 
 const PORT = Number(process.env.PORT ?? 3000);
 const CORS_ORIGIN = process.env.MAPLE_CORS_ORIGIN ?? "*";
+
+const log = childLogger("server");
 
 // ---------------------------------------------------------------------------
 // JWT secret bootstrap
@@ -65,7 +80,7 @@ function ensureJwtSecret(): void {
   const secret = randomBytes(32).toString("base64url");
   writeFileSync(path, secret, { mode: 0o600 });
   process.env.MAPLE_JWT_SECRET = secret;
-  console.log(`[server] generated JWT secret at ${path}`);
+  log.info({ path }, "generated JWT secret");
 }
 
 // ---------------------------------------------------------------------------
@@ -106,9 +121,13 @@ const app = new Elysia()
     const msg = error instanceof Error ? error.message : String(error);
     const isDbErr = msg.includes("[db]") || msg.includes("MongoDB");
 
-    console.error(
-      `[server] ${request.method} ${new URL(request.url).pathname} →`,
-      msg,
+    log.error(
+      {
+        method: request.method,
+        path: new URL(request.url).pathname,
+        err: msg,
+      },
+      "request error",
     );
 
     if (isDbErr) {
@@ -157,7 +176,9 @@ const app = new Elysia()
       .use(indexerRoutes)
       .use(fsRoutes)
       .use(fsThumbsRoutes)
-      .use(searchRoutes),
+      .use(searchRoutes)
+      .use(jobsRoutes)
+      .use(enrichmentRoutes),
   )
 
   // Static UI (catch-all — must be last so specific API routes match first).
@@ -171,56 +192,80 @@ const app = new Elysia()
 
 async function start(): Promise<void> {
   ensureJwtSecret();
-  console.log(`\nMaple Self Hosted v0.1.0`);
-  console.log(`Listening on http://localhost:${PORT}`);
-  console.log(
-    `MongoDB: ${process.env.MAPLE_MONGO_URI ?? "mongodb://localhost:27017"}`,
+  log.info(
+    {
+      version: "0.1.0",
+      port: PORT,
+      mongo_uri: process.env.MAPLE_MONGO_URI ?? "mongodb://localhost:27017",
+    },
+    "Maple Self Hosted starting",
   );
   if (process.env.MAPLE_DEV === "1") {
-    console.log(
-      `UI: proxying to ${process.env.MAPLE_DEV_ORIGIN ?? "http://localhost:4200"}`,
+    log.info(
+      { dev_origin: process.env.MAPLE_DEV_ORIGIN ?? "http://localhost:4200" },
+      "UI: proxying to dev origin",
     );
   }
   if (process.env.MAPLE_DEV_AUTH === "1") {
-    console.log("");
-    console.log("*** MAPLE_DEV_AUTH=1 — passkey bypass enabled.");
-    console.log("    /api/auth/dev-login is exposed. Do NOT set this in production.");
-    console.log("");
+    log.warn(
+      "*** MAPLE_DEV_AUTH=1 — passkey bypass enabled. /api/auth/dev-login is exposed. Do NOT set this in production.",
+    );
   }
 
   // Connect to MongoDB in the background — don't block server start.
   getDb()
     .then(ensureIndexes)
-    .then(() => console.log("[server] DB ready"))
+    .then(() => log.info("DB ready"))
     .then(() => {
       // Auto-start the standalone indexer child unless explicitly disabled
       // (`MAPLE_INDEXER_AUTOSTART=0`). The child opens its own Mongo
       // connection on its own event loop — see src/indexer/standalone.ts.
       if (process.env.MAPLE_INDEXER_AUTOSTART === "0") {
-        console.log("[server] Indexer autostart disabled (MAPLE_INDEXER_AUTOSTART=0)");
+        log.info("Indexer autostart disabled (MAPLE_INDEXER_AUTOSTART=0)");
         return;
       }
       spawnChild();
       waitReady()
         .then(() =>
-          console.log(
-            `[server] Indexer process running (pid=${indexerState().pid})`,
+          log.info(
+            { pid: indexerState().pid },
+            "Indexer process running",
           ),
         )
         .catch((e) =>
-          console.warn(
-            "[server] Indexer process failed to start:",
-            e instanceof Error ? e.message : e,
+          log.warn(
+            { err: e instanceof Error ? e.message : e },
+            "Indexer process failed to start",
           ),
         );
     })
+    .then(() =>
+      // Slow-tier enrichment workers run in-process. The boot path
+      // health-checks the configured Nominatim instance once. A failure no
+      // longer exits the process — the operator can fix the URL via the
+      // /settings/enrichment UI without a restart. The error is logged so
+      // headless deployments still see it.
+      startGeocodeWorker().catch((err) => {
+        log.error(
+          { err: err instanceof Error ? err.message : err },
+          "geocode worker failed to start; fix via /settings/enrichment",
+        );
+      }),
+    )
+    .then(() => {
+      // JobRunner — sibling subsystem to the indexer pipeline for
+      // user-triggered long-running work (export, batch reprocess). See
+      // `docs/workers-architecture.md` §9, §11. Reuses the FFI pool for
+      // heavy lifting; one in-flight job per process is enough for v1.
+      startJobRunner();
+    })
     .catch((err) => {
-      console.warn(
-        "[server] MongoDB not available:",
-        err instanceof Error ? err.message : err,
+      log.warn(
+        { err: err instanceof Error ? err.message : err },
+        "MongoDB not available",
       );
-      console.warn(
-        "[server] Server continues without DB. API routes that need DB will return 503.",
+      log.warn(
+        "Server continues without DB. API routes that need DB will return 503.",
       );
     });
 
@@ -229,15 +274,31 @@ async function start(): Promise<void> {
 
 // Graceful shutdown.
 async function shutdown(signal: string): Promise<void> {
-  console.log(`\n[server] ${signal} received — shutting down`);
+  log.info({ signal }, "shutting down");
   // Stop the indexer child first so it gets a chance to flush its
   // pipeline and close its own Mongo connection.
   try {
     await stopChild({ graceful: true });
   } catch (e) {
-    console.warn(
-      "[server] error stopping indexer child:",
-      e instanceof Error ? e.message : e,
+    log.warn(
+      { err: e instanceof Error ? e.message : e },
+      "error stopping indexer child",
+    );
+  }
+  try {
+    await stopGeocodeWorker();
+  } catch (e) {
+    log.warn(
+      { err: e instanceof Error ? e.message : e },
+      "error stopping geocode worker",
+    );
+  }
+  try {
+    await stopJobRunner();
+  } catch (e) {
+    log.warn(
+      { err: e instanceof Error ? e.message : e },
+      "error stopping job runner",
     );
   }
   try {
@@ -250,13 +311,13 @@ async function shutdown(signal: string): Promise<void> {
 
 process.on("SIGTERM", () => {
   shutdown("SIGTERM").catch((e) => {
-    console.error("[server] shutdown error:", e);
+    log.error({ err: e instanceof Error ? e.message : e }, "shutdown error");
     process.exit(1);
   });
 });
 process.on("SIGINT", () => {
   shutdown("SIGINT").catch((e) => {
-    console.error("[server] shutdown error:", e);
+    log.error({ err: e instanceof Error ? e.message : e }, "shutdown error");
     process.exit(1);
   });
 });
