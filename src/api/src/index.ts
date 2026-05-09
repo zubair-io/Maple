@@ -57,6 +57,7 @@ import {
   supervisorState,
   setSupervisorSingleton,
 } from "./workers/supervisor.ts";
+import { stageManifest } from "./workers/stages/manifest.ts";
 import { workerRoutes } from "./workers/routes.ts";
 import {
   startGeocodeWorker,
@@ -267,7 +268,7 @@ async function start(): Promise<void> {
       const discoverRoots = folders.map((f) => f.path).filter(Boolean);
 
       startSupervisor({
-        stages: ["hash", "exif", "thumb"],
+        stages: stageManifest.map((s) => s.name),
         discover: discoverRoots.length > 0
           ? { roots: discoverRoots }
           : undefined,
