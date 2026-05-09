@@ -60,26 +60,28 @@ export class Watcher {
     // Polling instead of inotify. Chokidar's default uses one inotify
     // watch per file on Linux, which exhausts both the per-process fd
     // limit AND the kernel-wide `fs.inotify.max_user_watches` cap on
-    // libraries with >10k photos (we hit it on a 1524-asset deploy with
-    // expanded ulimits — the EMFILE wasn't from fds, it was from inotify).
+    // libraries with >10k photos (we hit EMFILE on a 1524-asset deploy
+    // even with the per-process ulimit raised to 524288 — the kernel
+    // inotify cap was the binding constraint).
     //
     // Polling uses zero inotify watches and zero persistent file handles
-    // — just `stat()` calls on a timer. Cost: 5–30s latency before a new
-    // photo is enqueued, plus a stat-per-file per interval. For a photo
-    // library where files are added in batches and rarely change in
-    // place, this trade-off is correct.
+    // — just `stat()` calls on a timer. Cost is `(file count) * stats
+    // per interval`. For a 5TB photo library (~500k files), even a 30s
+    // interval is ~17k stats/s — measurable. We dial way up because a
+    // photo library is import-and-walk-away, not real-time:
     //
-    // `binaryInterval` covers all our supported types (RAW + JPEG + HEIC
-    // + video) — `interval` only fires for files chokidar can't classify
-    // as binary, so the active churn budget is dominated by the binary
-    // interval. The 250ms `debounceMs` further coalesces bursts of
-    // events on the same path.
+    //   binaryInterval (5 min)  — RAW, JPEG, HEIC, video. The 99% case.
+    //   interval        (1 min) — sidecars, metadata, anything chokidar
+    //                             can't classify as binary.
+    //
+    // Operators who want a faster tempo can override at runtime via
+    // env vars (TBD if anyone asks); for now, edit here.
     this.watcher = chokidar.watch(opts.roots, {
       persistent: true,
       ignoreInitial: true, // startup walk is driven by the checkpoint logic
       usePolling: true,
-      interval: 5_000,
-      binaryInterval: 30_000,
+      interval: 60_000,
+      binaryInterval: 300_000,
       ignored: (p: string) => {
         const base = path.basename(p);
         if (base.startsWith(".")) return true; // hides .maple/, dotfiles
