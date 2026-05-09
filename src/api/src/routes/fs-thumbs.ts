@@ -21,6 +21,7 @@ import { browseRoots, isUnderRoot, RAW_EXTENSIONS } from "../fs/browse.ts";
 import { resolveThumbPath } from "../fs/xmp.ts";
 import { ffiPool } from "../ffi/ffi-pool.ts";
 import { renderImageThumbToFile, SHARP_EXTENSIONS } from "../thumbs/render.ts";
+import { applyExifOrientationInPlace } from "../thumbs/apply-orientation.ts";
 import { child as childLogger } from "../log.ts";
 
 const log = childLogger("fs-thumbs");
@@ -188,6 +189,12 @@ export const fsThumbsRoutes = new Elysia({ prefix: "/api/fs" }).get(
       if (!ok) {
         set.status = 500;
         return { error: "Thumbnail render failed (see server log)" };
+      }
+      try {
+        await applyExifOrientationInPlace(thumbPath);
+      } catch {
+        // Non-fatal: the FFI output is still a valid JPEG, just possibly
+        // un-rotated. Better to serve a sideways image than 500 the request.
       }
     }
 
