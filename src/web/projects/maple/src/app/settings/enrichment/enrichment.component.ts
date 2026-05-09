@@ -72,6 +72,11 @@ export class EnrichmentComponent implements OnInit {
 
   // ── Face worker (Phase 5) ─────────────────────────────────────────
   readonly faceEnabled = signal<boolean>(false);
+  readonly faceModelDir = signal<string>('');
+  readonly faceRetinafaceUrl = signal<string>('');
+  readonly faceRetinafaceSha = signal<string>('');
+  readonly faceMobilefacenetUrl = signal<string>('');
+  readonly faceMobilefacenetSha = signal<string>('');
   // ── OCR worker (Phase 8) ──────────────────────────────────────────
   readonly ocrEnabled = signal<boolean>(false);
 
@@ -103,6 +108,11 @@ export class EnrichmentComponent implements OnInit {
         // every load so the operator sees a blank input.
         this.describeApiKey.set('');
         this.faceEnabled.set(cfg.face_worker_enabled);
+        this.faceModelDir.set(cfg.face_model_dir);
+        this.faceRetinafaceUrl.set(cfg.face_retinaface_url ?? '');
+        this.faceRetinafaceSha.set(cfg.face_retinaface_sha256 ?? '');
+        this.faceMobilefacenetUrl.set(cfg.face_mobilefacenet_url ?? '');
+        this.faceMobilefacenetSha.set(cfg.face_mobilefacenet_sha256 ?? '');
         this.ocrEnabled.set(cfg.ocr_worker_enabled);
       },
       error: (err) => {
@@ -255,6 +265,25 @@ export class EnrichmentComponent implements OnInit {
             : null
           : undefined,
       face_worker_enabled: this.faceEnabled(),
+      // Trim everything; empty string clears the override (resolver falls
+      // back to env or default). The model-dir field is special-cased: an
+      // empty input is preserved as null so the resolver picks the
+      // built-in `~/.maple/models/` default rather than persisting "".
+      face_model_dir: this.faceModelDir().trim().length > 0
+        ? this.faceModelDir().trim()
+        : null,
+      face_retinaface_url: this.faceRetinafaceUrl().trim().length > 0
+        ? this.faceRetinafaceUrl().trim()
+        : null,
+      face_retinaface_sha256: this.faceRetinafaceSha().trim().length > 0
+        ? this.faceRetinafaceSha().trim()
+        : null,
+      face_mobilefacenet_url: this.faceMobilefacenetUrl().trim().length > 0
+        ? this.faceMobilefacenetUrl().trim()
+        : null,
+      face_mobilefacenet_sha256: this.faceMobilefacenetSha().trim().length > 0
+        ? this.faceMobilefacenetSha().trim()
+        : null,
       ocr_worker_enabled: this.ocrEnabled(),
     };
     this.saveError.set(null);
@@ -273,6 +302,11 @@ export class EnrichmentComponent implements OnInit {
         this.describeCap.set(String(cfg.describe_daily_cap_usd));
         this.describeApiKey.set('');
         this.faceEnabled.set(cfg.face_worker_enabled);
+        this.faceModelDir.set(cfg.face_model_dir);
+        this.faceRetinafaceUrl.set(cfg.face_retinaface_url ?? '');
+        this.faceRetinafaceSha.set(cfg.face_retinaface_sha256 ?? '');
+        this.faceMobilefacenetUrl.set(cfg.face_mobilefacenet_url ?? '');
+        this.faceMobilefacenetSha.set(cfg.face_mobilefacenet_sha256 ?? '');
         this.ocrEnabled.set(cfg.ocr_worker_enabled);
         this.saveStatus.set('success');
         // Clear the success indicator after a moment so the page stays clean.

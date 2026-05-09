@@ -9,11 +9,20 @@
  * row has been written yet.
  */
 
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { getDb } from "../db/client.ts";
 import type { DescribeProviderName } from "./describe-providers/index.ts";
 
 const COLL = "app_settings";
 const DOC_ID = "enrichment";
+
+/** Default model directory used by the face worker. Mirrors
+ * `face-models.ts:defaultModelDir()` so the resolver and the worker
+ * agree without a circular import. */
+function builtinModelDir(): string {
+  return join(homedir(), ".maple", "models");
+}
 
 /** Default sustained Nominatim rate when no DB row and no env var is set.
  * Matches `nominatim-client.ts:DEFAULT_RATE_LIMIT` so behaviour is identical
@@ -97,6 +106,17 @@ export interface EnrichmentConfig {
    * RetinaFace + MobileFaceNet ONNX model files on disk (or downloadable
    * from operator-supplied URLs). `null` falls through to env / default. */
   face_worker_enabled?: boolean | null;
+  /** Override for the model directory. `null` falls through to
+   * `MAPLE_MODEL_DIR` / `~/.maple/models/`. */
+  face_model_dir?: string | null;
+  /** Operator-supplied download URL for `retinaface.onnx`. Used when the
+   * file isn't already on disk under `<face_model_dir>/retinaface.onnx`. */
+  face_retinaface_url?: string | null;
+  /** Optional SHA256 (hex) verification for the downloaded RetinaFace
+   * blob. Skipped when null. */
+  face_retinaface_sha256?: string | null;
+  face_mobilefacenet_url?: string | null;
+  face_mobilefacenet_sha256?: string | null;
   // ── OCR worker (Phase 8) ─────────────────────────────────────────────
   /** OCR worker enable flag. `null` means "operator hasn't touched it" —
    * resolver falls back to env / default (off). */
@@ -163,6 +183,21 @@ export async function saveEnrichmentConfig(
   if (patch.face_worker_enabled !== undefined) {
     set["config.face_worker_enabled"] = patch.face_worker_enabled;
   }
+  if (patch.face_model_dir !== undefined) {
+    set["config.face_model_dir"] = patch.face_model_dir;
+  }
+  if (patch.face_retinaface_url !== undefined) {
+    set["config.face_retinaface_url"] = patch.face_retinaface_url;
+  }
+  if (patch.face_retinaface_sha256 !== undefined) {
+    set["config.face_retinaface_sha256"] = patch.face_retinaface_sha256;
+  }
+  if (patch.face_mobilefacenet_url !== undefined) {
+    set["config.face_mobilefacenet_url"] = patch.face_mobilefacenet_url;
+  }
+  if (patch.face_mobilefacenet_sha256 !== undefined) {
+    set["config.face_mobilefacenet_sha256"] = patch.face_mobilefacenet_sha256;
+  }
   if (patch.ocr_worker_enabled !== undefined) {
     set["config.ocr_worker_enabled"] = patch.ocr_worker_enabled;
   }
@@ -193,6 +228,16 @@ export interface ResolvedEnrichmentConfig {
   describe_daily_cap_usd: number;
   /** Phase 5 face worker. Resolved from DB → env → built-in default false. */
   face_worker_enabled: boolean;
+  /** Resolved model dir (DB → env → default `~/.maple/models/`). Always
+   * populated. The face worker stages model files here. */
+  face_model_dir: string;
+  /** Resolved RetinaFace download URL — `null` when neither DB nor env
+   * supplied one. The worker requires the file to be already on disk
+   * (under face_model_dir/retinaface.onnx) when this is null. */
+  face_retinaface_url: string | null;
+  face_retinaface_sha256: string | null;
+  face_mobilefacenet_url: string | null;
+  face_mobilefacenet_sha256: string | null;
   /** Phase 8 OCR worker. Resolved from DB → env → built-in default false. */
   ocr_worker_enabled: boolean;
   /** Where each field came from. The UI renders this so the operator knows
@@ -208,6 +253,11 @@ export interface ResolvedEnrichmentConfig {
     describe_system_prompt: "db" | "env" | "default";
     describe_daily_cap_usd: "db" | "env" | "default";
     face_worker_enabled: "db" | "env" | "default";
+    face_model_dir: "db" | "env" | "default";
+    face_retinaface_url: "db" | "env" | "unset";
+    face_retinaface_sha256: "db" | "env" | "unset";
+    face_mobilefacenet_url: "db" | "env" | "unset";
+    face_mobilefacenet_sha256: "db" | "env" | "unset";
     ocr_worker_enabled: "db" | "env" | "default";
   };
 }
@@ -379,6 +429,50 @@ export function resolveEnrichmentConfig(
     faceEnabledSource = "env";
   }
 
+  // Helper for the four "DB → env → unset" face-model URL/SHA fields.
+  // Trims and rejects empty strings so a cleared input doesn't masquerade
+  // as a saved value.
+  function resolveStr(
+    dbVal: string | null | undefined,
+    envVal: string | undefined,
+  ): { value: string | null; source: "db" | "env" | "unset" } {
+    if (typeof dbVal === "string" && dbVal.trim().length > 0) {
+      return { value: dbVal.trim(), source: "db" };
+    }
+    if (typeof envVal === "string" && envVal.trim().length > 0) {
+      return { value: envVal.trim(), source: "env" };
+    }
+    return { value: null, source: "unset" };
+  }
+
+  let faceModelDir = builtinModelDir();
+  let faceModelDirSource: ResolvedEnrichmentConfig["source"]["face_model_dir"] =
+    "default";
+  if (db && typeof db.face_model_dir === "string" && db.face_model_dir.trim().length > 0) {
+    faceModelDir = db.face_model_dir.trim();
+    faceModelDirSource = "db";
+  } else if (env.MAPLE_MODEL_DIR && env.MAPLE_MODEL_DIR.length > 0) {
+    faceModelDir = env.MAPLE_MODEL_DIR;
+    faceModelDirSource = "env";
+  }
+
+  const faceRetinafaceUrl = resolveStr(
+    db?.face_retinaface_url,
+    env.MAPLE_FACE_RETINAFACE_URL,
+  );
+  const faceRetinafaceSha = resolveStr(
+    db?.face_retinaface_sha256,
+    env.MAPLE_FACE_RETINAFACE_SHA256,
+  );
+  const faceMfnUrl = resolveStr(
+    db?.face_mobilefacenet_url,
+    env.MAPLE_FACE_MOBILEFACENET_URL,
+  );
+  const faceMfnSha = resolveStr(
+    db?.face_mobilefacenet_sha256,
+    env.MAPLE_FACE_MOBILEFACENET_SHA256,
+  );
+
   // ── OCR worker (Phase 8) ─────────────────────────────────────────────
   let ocrEnabled = false;
   let ocrEnabledSource: ResolvedEnrichmentConfig["source"]["ocr_worker_enabled"] =
@@ -402,6 +496,11 @@ export function resolveEnrichmentConfig(
     describe_system_prompt: describePrompt,
     describe_daily_cap_usd: describeCap,
     face_worker_enabled: faceEnabled,
+    face_model_dir: faceModelDir,
+    face_retinaface_url: faceRetinafaceUrl.value,
+    face_retinaface_sha256: faceRetinafaceSha.value,
+    face_mobilefacenet_url: faceMfnUrl.value,
+    face_mobilefacenet_sha256: faceMfnSha.value,
     ocr_worker_enabled: ocrEnabled,
     source: {
       nominatim_url: urlSource,
@@ -414,6 +513,11 @@ export function resolveEnrichmentConfig(
       describe_system_prompt: describePromptSource,
       describe_daily_cap_usd: describeCapSource,
       face_worker_enabled: faceEnabledSource,
+      face_model_dir: faceModelDirSource,
+      face_retinaface_url: faceRetinafaceUrl.source,
+      face_retinaface_sha256: faceRetinafaceSha.source,
+      face_mobilefacenet_url: faceMfnUrl.source,
+      face_mobilefacenet_sha256: faceMfnSha.source,
       ocr_worker_enabled: ocrEnabledSource,
     },
   };

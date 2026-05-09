@@ -506,6 +506,13 @@ export class BunApiBackendService {
       describe_provider_url?: string | null;
       // ── Face worker (Phase 5) ─────────────────────────────────────
       face_worker_enabled?: boolean | null;
+      // ── Face model paths (Phase 5) ────────────────────────────────
+      /** `null` clears the override back to env / built-in default. */
+      face_model_dir?: string | null;
+      face_retinaface_url?: string | null;
+      face_retinaface_sha256?: string | null;
+      face_mobilefacenet_url?: string | null;
+      face_mobilefacenet_sha256?: string | null;
       // ── OCR worker (Phase 8) ──────────────────────────────────────
       ocr_worker_enabled?: boolean | null;
     },
@@ -646,6 +653,14 @@ export interface EnrichmentConfigResponse {
   describe_daily_cap_usd: number;
   /** Phase 5 face worker. Default false until the operator opts in. */
   face_worker_enabled: boolean;
+  /** Resolved model dir (DB → env → ~/.maple/models/). Always populated. */
+  face_model_dir: string;
+  /** `null` when neither DB nor env supplied a download URL — the worker
+   * then requires the file to be already on disk under face_model_dir. */
+  face_retinaface_url: string | null;
+  face_retinaface_sha256: string | null;
+  face_mobilefacenet_url: string | null;
+  face_mobilefacenet_sha256: string | null;
   /** Phase 8 OCR worker. Default false until the operator opts in. */
   ocr_worker_enabled: boolean;
   /** Set when face worker is enabled but the model files are missing — UI
@@ -662,6 +677,11 @@ export interface EnrichmentConfigResponse {
     describe_system_prompt: 'db' | 'env' | 'default';
     describe_daily_cap_usd: 'db' | 'env' | 'default';
     face_worker_enabled: 'db' | 'env' | 'default';
+    face_model_dir: 'db' | 'env' | 'default';
+    face_retinaface_url: 'db' | 'env' | 'unset';
+    face_retinaface_sha256: 'db' | 'env' | 'unset';
+    face_mobilefacenet_url: 'db' | 'env' | 'unset';
+    face_mobilefacenet_sha256: 'db' | 'env' | 'unset';
     ocr_worker_enabled: 'db' | 'env' | 'default';
   };
 }

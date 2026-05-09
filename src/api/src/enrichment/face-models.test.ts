@@ -133,9 +133,12 @@ describe("loadFaceModels — disk + env fail-fast path", () => {
     }
     expect(err).not.toBeNull();
     const msg = err instanceof Error ? err.message : String(err);
-    // Must mention BOTH the env-var name AND the on-disk path so the
-    // operator knows their two recovery options.
-    expect(msg).toMatch(/MAPLE_FACE_RETINAFACE_URL/);
+    // Must mention BOTH the recovery surface AND the on-disk path so the
+    // operator knows their two recovery options. The env-var name was
+    // replaced with `/settings/enrichment` once the UI grew face-model
+    // download fields — operators now configure via the page or by
+    // dropping a file at the path.
+    expect(msg).toMatch(/\/settings\/enrichment/);
     expect(msg).toMatch(new RegExp(RETINAFACE_BASENAME));
   });
 

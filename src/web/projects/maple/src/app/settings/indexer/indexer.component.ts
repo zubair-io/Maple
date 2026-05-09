@@ -353,6 +353,65 @@ export class IndexerComponent implements OnInit, OnDestroy {
     });
   }
 
+  /** Status pill for the "Rescan all" button — operator feedback that the
+   * walk has been kicked off. Resets to idle a few seconds after success
+   * so a long session of clicks doesn't pile up green checkmarks. */
+  readonly rescanStatus = signal<'idle' | 'rescanning' | 'queued' | 'failed'>('idle');
+  readonly rescanError = signal<string | null>(null);
+
+  /** Walk every registered library RIGHT NOW. The 5-min watcher polling
+   * interval makes "I just dropped a memory card and want to see the
+   * photos" feel slow — this button is the manual override for that. The
+   * server returns immediately; the discover channel populates as the
+   * walk runs, so the live status table picks it up on the next tick. */
+  rescanAll(): void {
+    this.rescanError.set(null);
+    this.rescanStatus.set('rescanning');
+    this.api.listFolders().subscribe({
+      next: (folders) => {
+        if (folders.length === 0) {
+          this.rescanStatus.set('queued');
+          setTimeout(() => {
+            if (this.rescanStatus() === 'queued') this.rescanStatus.set('idle');
+          }, 2_500);
+          return;
+        }
+        let remaining = folders.length;
+        let firstError: string | null = null;
+        for (const f of folders) {
+          this.api.rescanFolder(f.id).subscribe({
+            next: () => {
+              remaining--;
+              if (remaining === 0) {
+                if (firstError) {
+                  this.rescanError.set(firstError);
+                  this.rescanStatus.set('failed');
+                } else {
+                  this.rescanStatus.set('queued');
+                  setTimeout(() => {
+                    if (this.rescanStatus() === 'queued') this.rescanStatus.set('idle');
+                  }, 2_500);
+                }
+              }
+            },
+            error: (e) => {
+              firstError = firstError ?? (e?.error?.error ?? e?.message ?? 'Rescan failed.');
+              remaining--;
+              if (remaining === 0) {
+                this.rescanError.set(firstError);
+                this.rescanStatus.set('failed');
+              }
+            },
+          });
+        }
+      },
+      error: (e) => {
+        this.rescanError.set(e?.error?.error ?? e?.message ?? 'Could not list folders.');
+        this.rescanStatus.set('failed');
+      },
+    });
+  }
+
   backfillPct(): number {
     const b = this.status()?.exifBackfill;
     if (!b) return 0;

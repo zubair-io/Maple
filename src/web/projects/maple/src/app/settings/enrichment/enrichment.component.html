@@ -1,11 +1,7 @@
 <div class="mx-auto max-w-[800px] px-8 pt-6 pb-12">
   <header class="mb-6 flex items-center gap-4">
-    <a class="text-[12px] text-text-muted no-underline hover:text-text-main hover:underline" routerLink="/browse">&larr; Back to Browse</a>
+    <a class="text-[12px] text-text-muted no-underline hover:text-text-main hover:underline" routerLink="/settings">&larr; Settings</a>
     <h2 class="m-0 flex-1 text-[22px] font-semibold tracking-[-0.01em]">Enrichment</h2>
-    <a
-      class="text-[12px] text-text-muted no-underline hover:text-text-main hover:underline"
-      routerLink="/people"
-    >People &rarr;</a>
   </header>
 
   @if (loadError(); as e) {
@@ -344,12 +340,9 @@
     <h3 class="mt-0 mb-2 text-[14px] font-semibold">Face detection</h3>
     <p class="mt-0 mb-5 text-[12px] leading-relaxed text-text-muted">
       Detects faces in cached thumbnails using RetinaFace + MobileFaceNet
-      (ONNX). Per-asset, opt-in. Requires the model files on disk at
-      <code class="font-mono">$MAPLE_MODEL_DIR</code> (default
-      <code class="font-mono">~/.maple/models/</code>) or
-      <code class="font-mono">MAPLE_FACE_RETINAFACE_URL</code> /
-      <code class="font-mono">MAPLE_FACE_MOBILEFACENET_URL</code> set so the
-      worker can download them on first boot.
+      (ONNX). Per-asset, opt-in. The worker needs both ONNX model files;
+      drop them in the model directory below or set the download URLs and
+      the worker fetches them on first boot.
     </p>
 
     @if (serverConfig(); as cfg) {
@@ -361,7 +354,8 @@
       }
     }
 
-    <div class="mb-1">
+    <!-- Enable toggle ─────────────────────────────────────────────────── -->
+    <div class="mb-5">
       <label class="flex cursor-pointer items-start gap-2.5">
         <input
           type="checkbox"
@@ -384,11 +378,122 @@
             }
           </span>
           <span class="text-[11px] text-text-muted">
-            When off, the loop sleeps and no claims are made. People
-            clustering and the face UI ship in a later round.
+            When off, the loop sleeps and no claims are made.
           </span>
         </span>
       </label>
+    </div>
+
+    <!-- Model directory ───────────────────────────────────────────────── -->
+    <div class="mb-5">
+      <div class="mb-1.5 flex items-baseline justify-between gap-2">
+        <label for="face-model-dir" class="text-[12px] font-semibold">Model directory</label>
+        @if (serverConfig(); as cfg) {
+          @let s = sourceLabel(cfg.source.face_model_dir);
+          <span
+            class="rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide"
+            [class.bg-primary-dim]="s.tone === 'saved'"
+            [class.text-primary]="s.tone === 'saved'"
+            [class.bg-surface-hover]="s.tone === 'env'"
+            [class.text-text-muted]="s.tone !== 'saved'"
+          >{{ s.text }}</span>
+        }
+      </div>
+      <input
+        id="face-model-dir"
+        type="text"
+        placeholder="~/.maple/models"
+        autocomplete="off"
+        spellcheck="false"
+        class="w-full min-w-0 rounded-md border border-border bg-bg px-2.5 py-1.5 font-mono text-[12px] text-text-main outline-none focus:border-primary"
+        [value]="faceModelDir()"
+        (input)="faceModelDir.set($any($event.target).value)"
+      />
+      <p class="mt-1.5 text-[11px] text-text-muted">
+        Where the worker stages <code class="font-mono">retinaface.onnx</code>
+        and <code class="font-mono">mobilefacenet.onnx</code>. Empty falls
+        back to <code class="font-mono">~/.maple/models/</code>.
+      </p>
+    </div>
+
+    <!-- RetinaFace download ───────────────────────────────────────────── -->
+    <div class="mb-5">
+      <div class="mb-1.5 flex items-baseline justify-between gap-2">
+        <label for="face-retina-url" class="text-[12px] font-semibold">RetinaFace download URL</label>
+        @if (serverConfig(); as cfg) {
+          @let s = sourceLabel(cfg.source.face_retinaface_url);
+          <span
+            class="rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide"
+            [class.bg-primary-dim]="s.tone === 'saved'"
+            [class.text-primary]="s.tone === 'saved'"
+            [class.bg-surface-hover]="s.tone === 'env'"
+            [class.text-text-muted]="s.tone !== 'saved'"
+          >{{ s.text }}</span>
+        }
+      </div>
+      <input
+        id="face-retina-url"
+        type="url"
+        inputmode="url"
+        placeholder="https://example.com/retinaface.onnx"
+        autocomplete="off"
+        spellcheck="false"
+        class="mb-2 w-full min-w-0 rounded-md border border-border bg-bg px-2.5 py-1.5 font-mono text-[12px] text-text-main outline-none focus:border-primary"
+        [value]="faceRetinafaceUrl()"
+        (input)="faceRetinafaceUrl.set($any($event.target).value)"
+      />
+      <input
+        id="face-retina-sha"
+        type="text"
+        placeholder="optional sha256 (hex) — verifies the download"
+        autocomplete="off"
+        spellcheck="false"
+        class="w-full min-w-0 rounded-md border border-border bg-bg px-2.5 py-1.5 font-mono text-[11px] text-text-main outline-none focus:border-primary"
+        [value]="faceRetinafaceSha()"
+        (input)="faceRetinafaceSha.set($any($event.target).value)"
+      />
+      <p class="mt-1.5 text-[11px] text-text-muted">
+        Used only when <code class="font-mono">retinaface.onnx</code> is not
+        already in the model dir. The worker downloads + caches on first boot.
+      </p>
+    </div>
+
+    <!-- MobileFaceNet download ────────────────────────────────────────── -->
+    <div>
+      <div class="mb-1.5 flex items-baseline justify-between gap-2">
+        <label for="face-mfn-url" class="text-[12px] font-semibold">MobileFaceNet download URL</label>
+        @if (serverConfig(); as cfg) {
+          @let s = sourceLabel(cfg.source.face_mobilefacenet_url);
+          <span
+            class="rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide"
+            [class.bg-primary-dim]="s.tone === 'saved'"
+            [class.text-primary]="s.tone === 'saved'"
+            [class.bg-surface-hover]="s.tone === 'env'"
+            [class.text-text-muted]="s.tone !== 'saved'"
+          >{{ s.text }}</span>
+        }
+      </div>
+      <input
+        id="face-mfn-url"
+        type="url"
+        inputmode="url"
+        placeholder="https://example.com/mobilefacenet.onnx"
+        autocomplete="off"
+        spellcheck="false"
+        class="mb-2 w-full min-w-0 rounded-md border border-border bg-bg px-2.5 py-1.5 font-mono text-[12px] text-text-main outline-none focus:border-primary"
+        [value]="faceMobilefacenetUrl()"
+        (input)="faceMobilefacenetUrl.set($any($event.target).value)"
+      />
+      <input
+        id="face-mfn-sha"
+        type="text"
+        placeholder="optional sha256 (hex)"
+        autocomplete="off"
+        spellcheck="false"
+        class="w-full min-w-0 rounded-md border border-border bg-bg px-2.5 py-1.5 font-mono text-[11px] text-text-main outline-none focus:border-primary"
+        [value]="faceMobilefacenetSha()"
+        (input)="faceMobilefacenetSha.set($any($event.target).value)"
+      />
     </div>
   </section>
 

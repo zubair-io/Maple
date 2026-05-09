@@ -1,15 +1,7 @@
 <div class="mx-auto max-w-[1100px] px-8 pt-6 pb-12">
   <header class="mb-6 flex items-center gap-4">
-    <a class="text-[12px] text-text-muted no-underline hover:text-text-main hover:underline" routerLink="/browse">&larr; Back to Browse</a>
+    <a class="text-[12px] text-text-muted no-underline hover:text-text-main hover:underline" routerLink="/settings">&larr; Settings</a>
     <h2 class="m-0 flex-1 text-[22px] font-semibold tracking-[-0.01em]">Indexer</h2>
-    <a
-      class="text-[12px] text-text-muted no-underline hover:text-text-main hover:underline"
-      routerLink="/settings/enrichment"
-    >Enrichment settings &rarr;</a>
-    <a
-      class="text-[12px] text-text-muted no-underline hover:text-text-main hover:underline"
-      routerLink="/people"
-    >People &rarr;</a>
 
     <!-- Lifecycle buttons (process-level) -->
     @if (isStopped()) {
@@ -54,6 +46,24 @@
         (click)="togglePause()"
       >
         {{ s.paused ? '▶ Resume' : '⏸ Pause' }}
+      </button>
+    }
+
+    <!-- Rescan all folders (manual override for the 5-min watcher poll) -->
+    @if (isRunning()) {
+      <button
+        class="cursor-pointer rounded-md border border-border bg-surface px-3.5 py-1.5 text-[12px] font-semibold text-text-main hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-60"
+        type="button"
+        [disabled]="rescanStatus() === 'rescanning'"
+        [title]="rescanError() || 'Walk every registered library now (skips the 5-min watcher poll).'"
+        (click)="rescanAll()"
+      >
+        @switch (rescanStatus()) {
+          @case ('rescanning') { Rescanning… }
+          @case ('queued') { Queued ✓ }
+          @case ('failed') { Rescan failed }
+          @default { Rescan all }
+        }
       </button>
     }
   </header>

@@ -26,6 +26,12 @@ export const routes: Routes = [
   { path: 'browse', canActivate: [authGuard], component: BrowseShellComponent },
   { path: 'edit/:id', canActivate: [authGuard], component: EditorShellComponent },
   {
+    path: 'settings',
+    canActivate: [authGuard],
+    loadComponent: () =>
+      import('./settings/settings-index.component').then((m) => m.SettingsIndexComponent),
+  },
+  {
     path: 'settings/account',
     canActivate: [authGuard],
     loadComponent: () =>

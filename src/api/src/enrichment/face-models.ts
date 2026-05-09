@@ -98,7 +98,21 @@ export const MOBILEFACENET_BASENAME = "mobilefacenet.onnx";
  * caller (face bootstrap) catches this and leaves the worker dormant
  * with a loud log line, so the rest of the API stays up.
  */
-export async function loadFaceModels(): Promise<FaceModels> {
+export interface FaceModelsConfig {
+  /** Directory the model files live in (or get downloaded into).
+   * `bootstrap.ts` passes the resolved DB → env → default value. */
+  modelDir?: string;
+  /** Operator-supplied download URL for `retinaface.onnx`. Used only
+   * when the file isn't already on disk. */
+  retinafaceUrl?: string | null;
+  retinafaceSha256?: string | null;
+  mobilefacenetUrl?: string | null;
+  mobilefacenetSha256?: string | null;
+}
+
+export async function loadFaceModels(
+  config: FaceModelsConfig = {},
+): Promise<FaceModels> {
   if (singleton) return singleton;
   if (loadPromise) return loadPromise;
 
@@ -108,19 +122,24 @@ export async function loadFaceModels(): Promise<FaceModels> {
       singleton = m;
       return m;
     }
-    const dir = defaultModelDir();
+    const dir = config.modelDir ?? defaultModelDir();
     mkdirSync(dir, { recursive: true });
     const retinaPath = await ensureModelFile({
       dir,
       basename: RETINAFACE_BASENAME,
-      urlEnv: "MAPLE_FACE_RETINAFACE_URL",
-      sha256Env: "MAPLE_FACE_RETINAFACE_SHA256",
+      url: config.retinafaceUrl ?? process.env.MAPLE_FACE_RETINAFACE_URL ?? null,
+      sha256:
+        config.retinafaceSha256 ?? process.env.MAPLE_FACE_RETINAFACE_SHA256 ?? null,
     });
     const mfnPath = await ensureModelFile({
       dir,
       basename: MOBILEFACENET_BASENAME,
-      urlEnv: "MAPLE_FACE_MOBILEFACENET_URL",
-      sha256Env: "MAPLE_FACE_MOBILEFACENET_SHA256",
+      url:
+        config.mobilefacenetUrl ?? process.env.MAPLE_FACE_MOBILEFACENET_URL ?? null,
+      sha256:
+        config.mobilefacenetSha256 ??
+        process.env.MAPLE_FACE_MOBILEFACENET_SHA256 ??
+        null,
     });
     const ort = await loadOnnxRuntime();
     log.info({ retinaPath, mfnPath }, "loading ONNX face models");
@@ -149,39 +168,40 @@ export async function loadFaceModels(): Promise<FaceModels> {
 interface EnsureFileOpts {
   dir: string;
   basename: string;
-  urlEnv: string;
-  sha256Env: string;
+  /** Download URL — `null` when neither DB nor env supplied one. The
+   * loader then requires the file to be already present at `dir/basename`. */
+  url: string | null;
+  /** Hex SHA256 to verify the downloaded blob. `null` skips verification. */
+  sha256: string | null;
 }
 
 /** Resolve one model file. Order: existing on-disk file → download from
- * pinned URL with optional SHA256 check → throw with operator-actionable
- * advice. Never invents a default URL. */
+ * URL with optional SHA256 check → throw with operator-actionable advice.
+ * Never invents a default URL. */
 async function ensureModelFile(opts: EnsureFileOpts): Promise<string> {
   const target = join(opts.dir, opts.basename);
   if (existsSync(target) && statSync(target).size > 0) {
     return target;
   }
-  const url = process.env[opts.urlEnv];
-  if (!url || url.length === 0) {
+  if (!opts.url || opts.url.length === 0) {
     throw new Error(
       `Face model "${opts.basename}" not found at ${target}. ` +
-        `Set ${opts.urlEnv} to a download URL or place the model file at ${target}.`,
+        `Set the download URL via /settings/enrichment or drop the file at ${target}.`,
     );
   }
-  log.info({ url, target }, "downloading face model");
-  const res = await fetch(url);
+  log.info({ url: opts.url, target }, "downloading face model");
+  const res = await fetch(opts.url);
   if (!res.ok) {
     throw new Error(
-      `Failed to download face model from ${url}: HTTP ${res.status}`,
+      `Failed to download face model from ${opts.url}: HTTP ${res.status}`,
     );
   }
   const bytes = new Uint8Array(await res.arrayBuffer());
-  const expectedSha = process.env[opts.sha256Env];
-  if (expectedSha && expectedSha.length > 0) {
+  if (opts.sha256 && opts.sha256.length > 0) {
     const actual = createHash("sha256").update(bytes).digest("hex");
-    if (actual.toLowerCase() !== expectedSha.toLowerCase()) {
+    if (actual.toLowerCase() !== opts.sha256.toLowerCase()) {
       throw new Error(
-        `SHA256 mismatch for ${opts.basename}: expected ${expectedSha}, got ${actual}`,
+        `SHA256 mismatch for ${opts.basename}: expected ${opts.sha256}, got ${actual}`,
       );
     }
   }
