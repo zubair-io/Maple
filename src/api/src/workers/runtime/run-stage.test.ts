@@ -377,3 +377,27 @@ describe("poll loop integration", () => {
     expect(called).toBe(false);
   });
 });
+
+import { ThroughputWindow } from "./run-stage.ts";
+
+describe("ThroughputWindow", () => {
+  it("counts completions within the rolling window", () => {
+    const tw = new ThroughputWindow(5 * 60_000);
+    const now = Date.now();
+    tw.record(new Date(now - 10_000));
+    tw.record(new Date(now - 20_000));
+    tw.record(new Date(now - 400_000)); // outside 5-min window
+    expect(tw.countInWindow(now)).toBe(2);
+  });
+
+  it("returns 0 when empty", () => {
+    const tw = new ThroughputWindow(5 * 60_000);
+    expect(tw.countInWindow(Date.now())).toBe(0);
+  });
+
+  it("evicts old entries as the window advances", () => {
+    const tw = new ThroughputWindow(1000);
+    tw.record(new Date(Date.now() - 2000));
+    expect(tw.countInWindow(Date.now())).toBe(0);
+  });
+});
