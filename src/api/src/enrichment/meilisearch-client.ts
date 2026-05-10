@@ -92,6 +92,9 @@ export interface MeilisearchClient {
   ensureIndex(): Promise<void>;
   /** Fire-and-forget upsert. Errors are logged and swallowed. */
   upsert(doc: MeilisearchAssetDoc): Promise<void>;
+  /** Like `upsert` but throws on non-2xx. Used by the meili stage so the
+   * runtime retries on Meilisearch transport errors. */
+  upsertOrThrow(doc: MeilisearchAssetDoc): Promise<void>;
   /** Mark a document tombstoned (sets `deletedAt`). The search route filters
    * `deletedAt IS NULL` so tombstoned docs disappear from results. */
   tombstone(id: string): Promise<void>;
@@ -300,6 +303,24 @@ export function createMeilisearchClient(
         log.warn(
           { id: doc.id, status: r.status, err: r.errorText },
           "meilisearch upsert failed",
+        );
+      }
+    },
+
+    async upsertOrThrow(doc: MeilisearchAssetDoc): Promise<void> {
+      if (!isLive(cfg)) {
+        throw new Error("meilisearch: not configured");
+      }
+      // Meilisearch's documents endpoint upserts on the primary key.
+      const r = await http<unknown>(
+        cfg,
+        "POST",
+        `/indexes/${ASSETS_INDEX}/documents`,
+        [doc],
+      );
+      if (!r.ok) {
+        throw new Error(
+          `meilisearch upsert failed: status=${r.status} ${r.errorText ?? ""}`,
         );
       }
     },
