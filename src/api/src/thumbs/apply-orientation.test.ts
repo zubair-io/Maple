@@ -4,6 +4,12 @@ import * as os from "node:os";
 import * as path from "node:path";
 import sharp from "sharp";
 import { applyExifOrientationInPlace } from "./apply-orientation.ts";
+import { generateThumb } from "../indexer/thumbnailer.ts";
+import { ffiPool } from "../ffi/ffi-pool.ts";
+
+// Resolve the repo root so the indexer integration test can find the gitignored
+// fixture regardless of CWD. Mirrors the pattern in `src/api/tests/fs/thumb.test.ts`.
+const REPO_ROOT = path.resolve(import.meta.dir, "..", "..", "..", "..");
 
 // A 16x8 JPEG: portrait when the orientation tag asks for 90° CW (orientation=6),
 // landscape on disk. After rotation, dimensions must swap to 8x16 and the tag
@@ -86,9 +92,6 @@ describe("applyExifOrientationInPlace", () => {
   });
 });
 
-import { generateThumb } from "../indexer/thumbnailer.ts";
-import { ffiPool } from "../ffi/ffi-pool.ts";
-
 describe("indexer thumbnailer + orientation", () => {
   // Skip when raw-ffi is unavailable (CI without libraw_ffi.dylib built).
   const pool = ffiPool();
@@ -103,9 +106,7 @@ describe("indexer thumbnailer + orientation", () => {
       // or absent — i.e. whatever the source orientation is, the on-disk thumb
       // is physically upright.
       const fs = await import("node:fs/promises");
-      const path = await import("node:path");
-      const cwd = process.cwd();
-      const raw = path.resolve(cwd, "../../test-fixtures/raws/test_0017.dng");
+      const raw = path.resolve(REPO_ROOT, "test-fixtures/raws/test_0017.dng");
       try {
         await fs.stat(raw);
       } catch {
