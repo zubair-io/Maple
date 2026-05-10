@@ -44,8 +44,14 @@ export class WorkerConfigRepo {
     );
   }
 
-  /** Patch only the supplied fields on an existing config doc. */
+  /** Patch only the supplied fields on an existing config doc.
+   * Uses upsert so a patch before first-boot (when no doc exists yet)
+   * doesn't silently no-op. `name` is set on insert via $setOnInsert. */
   async patch(name: string, partial: Partial<WorkerConfig>): Promise<void> {
-    await this.coll.updateOne({ name }, { $set: partial });
+    await this.coll.updateOne(
+      { name },
+      { $set: partial, $setOnInsert: { name } as Partial<WorkerConfigDoc> },
+      { upsert: true },
+    );
   }
 }

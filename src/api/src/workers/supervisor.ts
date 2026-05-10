@@ -149,30 +149,21 @@ export class Supervisor {
     const env = { ...process.env };
     const Bun = (globalThis as unknown as { Bun?: { spawn: (o: unknown) => ChildHandle } }).Bun;
 
-    let child: ChildHandle;
-    if (Bun) {
-      child = Bun.spawn({
-        cmd: ["bun", ...this.argsFor(name)],
-        env,
-        stdout: "pipe",
-        stderr: "pipe",
-        stdin: "ignore",
-      });
-      this.forwardStream(child.stdout as ReadableStream<Uint8Array> | null, process.stdout, `[${name}]`, name);
-      this.forwardStream(child.stderr as ReadableStream<Uint8Array> | null, process.stderr, `[${name}]`, name);
-      if (child.exited) {
-        child.exited.then((code) => this.onExit(name, code)).catch(() => this.onExit(name, -1));
-      }
-    } else {
-      const { spawn } = require("node:child_process") as typeof import("node:child_process");
-      const cp = spawn("bun", this.argsFor(name), { env, stdio: ["ignore", "pipe", "pipe"] });
-      child = {
-        pid: cp.pid ?? null,
-        kill: (sig?: NodeJS.Signals | number) => cp.kill(sig as NodeJS.Signals),
-      };
-      cp.stdout?.on("data", (b: Buffer) => this.writeLines(b.toString(), process.stdout, name));
-      cp.stderr?.on("data", (b: Buffer) => this.writeLines(b.toString(), process.stderr, name));
-      cp.on("exit", (code: number | null) => this.onExit(name, code ?? -1));
+    // Bun is the only supported runtime. The Bun global is always present.
+    if (!Bun) {
+      throw new Error("supervisor requires Bun runtime");
+    }
+    const child: ChildHandle = Bun.spawn({
+      cmd: ["bun", ...this.argsFor(name)],
+      env,
+      stdout: "pipe",
+      stderr: "pipe",
+      stdin: "ignore",
+    });
+    this.forwardStream(child.stdout as ReadableStream<Uint8Array> | null, process.stdout, `[${name}]`, name);
+    this.forwardStream(child.stderr as ReadableStream<Uint8Array> | null, process.stderr, `[${name}]`, name);
+    if (child.exited) {
+      child.exited.then((code) => this.onExit(name, code)).catch(() => this.onExit(name, -1));
     }
 
     m.child = child;
@@ -259,7 +250,20 @@ export class Supervisor {
             signal: AbortSignal.timeout(1000),
           });
           if (res.ok) {
-            m.state = { ...m.state, status: "running", lastError: null };
+            // Parse the response body and update inFlight/throughput so
+            // the API /status route reports live values (Issue 12).
+            try {
+              const body = await res.json() as { inFlight?: number; throughput?: number };
+              m.state = {
+                ...m.state,
+                status: "running",
+                lastError: null,
+                inFlight: typeof body.inFlight === "number" ? body.inFlight : m.state.inFlight,
+                throughput: typeof body.throughput === "number" ? body.throughput : m.state.throughput,
+              };
+            } catch {
+              m.state = { ...m.state, status: "running", lastError: null };
+            }
             this.scheduleHealthyReset(name);
             return;
           }
