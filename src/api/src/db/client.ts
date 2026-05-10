@@ -165,8 +165,12 @@ const WORKER_STAGE_NAMES = [
 
 /**
  * Create one partial index per stage on { "stages.<name>.version": 1 }.
- * partialFilterExpression uses { $eq: false } (not $ne: true) because
- * Mongo's partial index only supports equality operators.
+ * partialFilterExpression uses { $eq: false } to exclude dead-lettered docs.
+ *
+ * MongoDB's partialFilterExpression supports a restricted set of operators:
+ * equality, $exists, $gt/$gte/$lt/$lte, $type, and top-level $and/$or.
+ * It does NOT support $ne — use $eq with the complement value instead.
+ *
  * Dead-lettered docs (dead: true) are excluded from both the index and
  * all claim queries, keeping the index small.
  *
