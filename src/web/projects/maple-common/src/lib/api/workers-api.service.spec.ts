@@ -15,12 +15,14 @@ const MOCK_STATUS: WorkersStatusResponse = {
     {
       name: 'hash',
       status: 'running',
-      workers: { active: 4, configured: 4 },
-      in_flight: { dispatched: 3, batch_size: 10 },
+      inFlight: 3,
+      configured: 4,
       pending: 1247,
       dead: 0,
-      throughput_per_minute: 18,
-      last_error: null,
+      throughput: 18,
+      lastError: null,
+      config: { concurrency: 4, pollIntervalMs: 1000, batchSize: 10, maxAttempts: 5 },
+      batchSize: 10,
     },
   ],
 };
@@ -65,20 +67,22 @@ describe('WorkersApiService', () => {
     expect(called).toBe(true);
   });
 
-  it('retryDead() POST /api/workers/face/retry-dead', () => {
-    let result: { reset: number } | undefined;
-    svc.retryDead('face').subscribe((r: { reset: number }) => (result = r));
-    http.expectOne({ method: 'POST', url: '/api/workers/face/retry-dead' }).flush({ reset: 3 });
+  it('retryDead() POST /api/workers/face/retry-dead returns { ok, reset }', () => {
+    let result: { ok: boolean; reset: number } | undefined;
+    svc.retryDead('face').subscribe((r) => (result = r));
+    http.expectOne({ method: 'POST', url: '/api/workers/face/retry-dead' }).flush({ ok: true, reset: 3 });
+    expect(result?.ok).toBe(true);
     expect(result?.reset).toBe(3);
   });
 
-  it('patchConfig() PATCH /api/workers/exif/config', () => {
-    let result: { config: WorkerConfig } | undefined;
-    svc.patchConfig('exif', { concurrency: 8 }).subscribe((r: { config: WorkerConfig }) => (result = r));
+  it('patchConfig() PATCH /api/workers/exif/config returns { ok, config }', () => {
+    let result: { ok: boolean; config: WorkerConfig | null } | undefined;
+    svc.patchConfig('exif', { concurrency: 8 }).subscribe((r) => (result = r));
     const req = http.expectOne('/api/workers/exif/config');
     expect(req.request.method).toBe('PATCH');
     expect(req.request.body).toEqual({ concurrency: 8 });
-    req.flush({ config: { concurrency: 8, pollIntervalMs: 1000, batchSize: 10, maxAttempts: 5 } });
-    expect(result?.config.concurrency).toBe(8);
+    req.flush({ ok: true, config: { concurrency: 8, pollIntervalMs: 1000, batchSize: 10, maxAttempts: 5 } });
+    expect(result?.ok).toBe(true);
+    expect(result?.config?.concurrency).toBe(8);
   });
 });

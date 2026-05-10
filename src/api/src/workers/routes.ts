@@ -9,7 +9,7 @@
  *   2. Write to worker_config in Mongo (persistence).
  *   3. Call supervisor.notifyConfigChanged(name), which POSTs reload-config
  *      to the child's IPC port. The child re-reads from Mongo and applies live.
- *   4. Return { ok: true }.
+ *   4. Return { ok: true, config: WorkerConfig } (reads back saved config).
  *
  * Routes:
  *   GET  /api/workers/status            — aggregated status + pending/dead counts
@@ -71,16 +71,32 @@ export function workerRoutes(supervisor: Supervisor): Elysia {
           } catch {
             // DB unavailable — return zeros
           }
+          // Load the persisted config to include in the status response so the
+          // UI can hydrate its config state without a separate request.
+          let config: import("./runtime/define-stage.ts").WorkerConfig | null = null;
+          let configured = 0;
+          let batchSize = 0;
+          try {
+            if (configColl) {
+              const repo2 = new WorkerConfigRepo(configColl as never);
+              config = await repo2.load(name);
+              configured = config?.concurrency ?? 0;
+              batchSize = config?.batchSize ?? 0;
+            }
+          } catch {
+            // DB unavailable — leave config null
+          }
           return {
             name,
             status: s.status,
-            pid: s.pid,
-            lastError: s.lastError,
-            restartCount: s.restartCount,
             inFlight: s.inFlight,
-            throughput: s.throughput,
+            configured,
             pending,
             dead,
+            throughput: s.throughput,
+            lastError: s.lastError,
+            config,
+            batchSize,
           };
         }),
       );
@@ -132,7 +148,7 @@ export function workerRoutes(supervisor: Supervisor): Elysia {
             },
           },
         );
-        return { ok: true, resetCount: result.modifiedCount };
+        return { ok: true, reset: result.modifiedCount };
       } catch (err) {
         set.status = 500;
         return { error: err instanceof Error ? err.message : String(err) };
@@ -156,7 +172,10 @@ export function workerRoutes(supervisor: Supervisor): Elysia {
           // Returns ok:false with an error if the child is not running — that
           // is non-fatal: the config is persisted and will be loaded on next boot.
           await supervisor.notifyConfigChanged(params.name);
-          return { ok: true };
+          // Read back the saved config so the UI can update its in-memory state
+          // without an extra poll round-trip.
+          const savedConfig = await repo.load(params.name);
+          return { ok: true, config: savedConfig };
         } catch (err) {
           set.status = 500;
           return { error: err instanceof Error ? err.message : String(err) };

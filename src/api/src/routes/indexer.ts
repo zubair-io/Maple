@@ -17,7 +17,6 @@
  *   GET  /dead-letter         → 501 (Plan 3)
  *   GET  /dead-letter/groups  → 501 (Plan 3)
  *   POST /dead-letter/reset   → 501 (Plan 3)
- *   POST /exif-backfill       → 501 (version-bump is the new mechanism)
  *   POST /enqueue             → 501 (discover watcher replaces manual enqueue)
  *   POST /rescan/:folderId    → updateMany stages.*.version=0 for all assets under the folder path
  */

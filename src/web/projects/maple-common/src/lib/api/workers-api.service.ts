@@ -13,21 +13,32 @@ export interface WorkerConfig {
   pollIntervalMs: number;
   batchSize: number;
   maxAttempts: number;
+  paused?: boolean;
 }
 
-export interface StageState {
+/** API status payload — one entry per stage from GET /api/workers/status. */
+export interface StageStatus {
   name: string;
-  status: 'running' | 'paused' | 'error';
-  workers: { active: number; configured: number };
-  in_flight: { dispatched: number; batch_size: number };
+  status: 'running' | 'paused' | 'error' | 'starting' | 'restarting' | 'stopped';
+  /** Dispatched but not yet completed docs. */
+  inFlight: number;
+  /** Configured concurrency (= config.concurrency). */
+  configured: number;
+  /** Claim-query count — docs waiting to be processed. */
   pending: number;
+  /** Dead-lettered doc count. */
   dead: number;
-  throughput_per_minute: number;
-  last_error: string | null;
+  /** Docs completed per minute, rolling window. */
+  throughput: number;
+  lastError: string | null;
+  /** Persisted operator config for this stage. Null when not yet seeded. */
+  config: WorkerConfig | null;
+  /** Batch limit (= config.batchSize). */
+  batchSize: number;
 }
 
 export interface WorkersStatusResponse {
-  stages: StageState[];
+  stages: StageStatus[];
 }
 
 @Injectable({ providedIn: 'root' })
@@ -47,8 +58,8 @@ export class WorkersApiService {
     return this.http.post<void>(`${this.base}/workers/${encodeURIComponent(name)}/resume`, null);
   }
 
-  retryDead(name: string): Observable<{ reset: number }> {
-    return this.http.post<{ reset: number }>(
+  retryDead(name: string): Observable<{ ok: boolean; reset: number }> {
+    return this.http.post<{ ok: boolean; reset: number }>(
       `${this.base}/workers/${encodeURIComponent(name)}/retry-dead`,
       null,
     );
@@ -57,8 +68,8 @@ export class WorkersApiService {
   patchConfig(
     name: string,
     patch: Partial<WorkerConfig>,
-  ): Observable<{ config: WorkerConfig }> {
-    return this.http.patch<{ config: WorkerConfig }>(
+  ): Observable<{ ok: boolean; config: WorkerConfig | null }> {
+    return this.http.patch<{ ok: boolean; config: WorkerConfig | null }>(
       `${this.base}/workers/${encodeURIComponent(name)}/config`,
       patch,
     );
