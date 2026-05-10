@@ -164,121 +164,6 @@ export interface ApiDirListing {
   entries: ApiDirEntry[];
 }
 
-export type IndexerStage = 'discover' | 'hash' | 'exif' | 'thumb' | 'ai' | 'mongo';
-
-export interface IndexerStageCounters {
-  inFlight: number;
-  errors: number;
-  deadLetter: number;
-}
-
-export interface IndexerChannelInfo {
-  depth: number;
-  capacity: number;
-}
-
-export interface IndexerStatus {
-  paused: boolean;
-  pools: Record<IndexerStage, number>;
-  channels: Record<IndexerStage, IndexerChannelInfo>;
-  stages: Record<IndexerStage, IndexerStageCounters>;
-  /** Files currently being processed per stage (capped). Empty when idle. */
-  inFlightPaths?: Record<IndexerStage, string[]>;
-  /** Cumulative count of jobs completed (success+fail) per stage since the
-   * server started. Resets on process restart — not persisted. */
-  processed?: Record<IndexerStage, number>;
-  /** Number of folders currently being watched. */
-  folders?: number;
-  /** Whether the indexer service has started. */
-  started?: boolean;
-  /** EXIF backfill (one-shot upgrade for pre-EXIF rows). */
-  exifBackfill?: IndexerExifBackfillStatus;
-}
-
-export interface IndexerExifBackfillStatus {
-  /** True while a backfill run is in flight. */
-  running: boolean;
-  /** Rows processed so far in the current/last run. */
-  scanned: number;
-  /** Rows successfully upgraded so far in the current/last run. */
-  upgraded: number;
-  /** Estimated rows still missing exif at the start of the run. -1 = unknown. */
-  pending: number;
-  /** ISO timestamp the most recent run finished, or null if never run. */
-  lastFinishedAt: string | null;
-  /** Error from the most recent run, or null if it succeeded. */
-  lastError: string | null;
-}
-
-export interface IndexerDeadLetterItem {
-  id?: string;
-  stage: string;
-  jobId?: string;
-  absPath?: string;
-  error?: string;
-  attempts?: number;
-  failedAt?: string;
-  /** Mongo dedupe key — mapleId hex if known, otherwise absPath. Required
-   * for row-scoped reset; older payloads may omit this field. */
-  key?: string;
-}
-
-export interface IndexerDeadLetterPage {
-  items: IndexerDeadLetterItem[];
-  total: number;
-  warning?: string;
-}
-
-/** One cluster row from `GET /api/indexer/dead-letter/groups`. Bucketed by
- * (stage, errorClass) where errorClass is a normalised prefix of `error`. */
-export interface IndexerDeadLetterGroup {
-  stage: IndexerStage;
-  errorClass: string;
-  count: number;
-  /** ISO timestamp of the most recent failure in the group. */
-  latestTs: string;
-}
-
-export interface IndexerDeadLetterGroupsResponse {
-  groups: IndexerDeadLetterGroup[];
-}
-
-export interface IndexerDeadLetterFilter {
-  stage?: IndexerStage;
-  errorPrefix?: string;
-  limit?: number;
-}
-
-export interface IndexerDeadLetterResetRequest {
-  /** Per-row reset (Mongo dedupe key — mapleId hex or abs_path). */
-  key?: string;
-  /** Stage-wide reset. Without `key`, deletes every row matching the stage. */
-  stage?: IndexerStage;
-}
-
-export interface IndexerDeadLetterResetResponse {
-  deletedCount: number;
-}
-
-/**
- * Supervisor view of the standalone indexer child process. Mirrors
- * `IndexerProcessState` from `src/api/src/indexer/control.ts`.
- */
-export interface IndexerProcessState {
-  status: 'stopped' | 'starting' | 'running' | 'crashed' | 'restarting';
-  pid: number | null;
-  lastStartedAt: string | null;
-  lastExitCode: number | null;
-  lastError: string | null;
-  restartCount: number;
-}
-
-export interface IndexerLifecycleResponse {
-  ok: boolean;
-  state: IndexerProcessState;
-  error?: string;
-}
-
 @Injectable({ providedIn: 'root' })
 export class BunApiBackendService {
   private readonly http = inject(HttpClient);
@@ -378,96 +263,16 @@ export class BunApiBackendService {
     });
   }
 
-  getIndexerStatus(): Observable<IndexerStatus> {
-    return this.http.get<IndexerStatus>(`${this.base}/indexer/status`);
-  }
-
-  setIndexerWorkers(workers: Partial<Record<IndexerStage, number>>): Observable<{ ok: boolean; status: IndexerStatus }> {
-    return this.http.put<{ ok: boolean; status: IndexerStatus }>(
-      `${this.base}/indexer/config`,
-      { workers },
-    );
-  }
-
-  pauseIndexer(): Observable<{ ok: boolean; status: IndexerStatus }> {
-    return this.http.post<{ ok: boolean; status: IndexerStatus }>(`${this.base}/indexer/pause`, {});
-  }
-
-  resumeIndexer(): Observable<{ ok: boolean; status: IndexerStatus }> {
-    return this.http.post<{ ok: boolean; status: IndexerStatus }>(`${this.base}/indexer/resume`, {});
-  }
-
-  /** Force a re-scan of one library folder. Server walks the folder
-   * tree (or just `subPath` if supplied — must resolve under the
-   * library root) and pushes every supported file into the discover
-   * channel with priority — every stage forwards via pushFront so the
-   * jobs hop the existing backlog. The fast-tier upsert is idempotent;
-   * unchanged files no-op, new ones get indexed.
-   *
-   * Returns immediately; the walk runs in the background. Useful when
-   * the operator just dropped a memory card and wants those photos
-   * surfaced ahead of an in-progress initial walk. */
+  /** Force a re-scan of one library folder. Resets every stage's version to 0
+   * for all assets under the folder path tree so the pipeline re-processes them.
+   * Returns immediately; the workers pick up the reset docs on their next poll. */
   rescanFolder(
     folderId: string,
-    opts: { subPath?: string } = {},
-  ): Observable<{ ok: boolean; folderId: string; path: string; error?: string }> {
-    return this.http.post<{ ok: boolean; folderId: string; path: string; error?: string }>(
-      `${this.base}/indexer/rescan/${encodeURIComponent(folderId)}`,
-      opts.subPath ? { subPath: opts.subPath } : {},
+  ): Observable<{ ok: boolean; folderId: string; path: string; reset: number; error?: string }> {
+    return this.http.post<{ ok: boolean; folderId: string; path: string; reset: number; error?: string }>(
+      `${this.base}/folders/${encodeURIComponent(folderId)}/rescan`,
+      {},
     );
-  }
-
-  listDeadLetter(limit = 200): Observable<IndexerDeadLetterPage> {
-    const params = new HttpParams().set('limit', String(limit));
-    return this.http.get<IndexerDeadLetterPage>(`${this.base}/indexer/dead-letter`, { params });
-  }
-
-  /** Filtered dead-letter list — server-side narrowing by stage and/or error
-   * prefix. Mirrors `listDeadLetter`'s response shape so the UI can swap one
-   * for the other without changing rendering code. */
-  filterDeadLetter(filter: IndexerDeadLetterFilter): Observable<IndexerDeadLetterPage> {
-    let params = new HttpParams();
-    if (filter.stage) params = params.set('stage', filter.stage);
-    if (filter.errorPrefix) params = params.set('errorPrefix', filter.errorPrefix);
-    params = params.set('limit', String(filter.limit ?? 200));
-    return this.http.get<IndexerDeadLetterPage>(`${this.base}/indexer/dead-letter`, { params });
-  }
-
-  /** Cluster the dead-letter collection by (stage, errorClass). Used by the
-   * triage card's group view so an operator can see which failure modes
-   * dominate before drilling into a single row. */
-  groupDeadLetter(): Observable<IndexerDeadLetterGroupsResponse> {
-    return this.http.get<IndexerDeadLetterGroupsResponse>(
-      `${this.base}/indexer/dead-letter/groups`,
-    );
-  }
-
-  /** Delete dead-letter rows matching the request body so the watcher can
-   * re-attempt. `{ key }` is per-row; `{ stage }` wipes everything for the
-   * stage; `{ key, stage }` ANDs the two. */
-  resetDeadLetter(
-    request: IndexerDeadLetterResetRequest,
-  ): Observable<IndexerDeadLetterResetResponse> {
-    return this.http.post<IndexerDeadLetterResetResponse>(
-      `${this.base}/indexer/dead-letter/reset`,
-      request,
-    );
-  }
-
-  /** Read the supervisor's view of the indexer child process. */
-  getIndexerProcess(): Observable<IndexerProcessState> {
-    return this.http.get<IndexerProcessState>(`${this.base}/indexer/process`);
-  }
-
-  /** Spawn (or re-spawn) the standalone indexer child and wait for it to
-   * report ready. Returns the supervisor state on completion. */
-  startIndexer(): Observable<IndexerLifecycleResponse> {
-    return this.http.post<IndexerLifecycleResponse>(`${this.base}/indexer/start`, {});
-  }
-
-  /** SIGTERM the indexer child (forced kill on grace timeout). */
-  stopIndexer(): Observable<IndexerLifecycleResponse> {
-    return this.http.post<IndexerLifecycleResponse>(`${this.base}/indexer/stop`, {});
   }
 
   // -------------------------------------------------------------------------

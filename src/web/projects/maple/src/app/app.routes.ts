@@ -44,12 +44,6 @@ export const routes: Routes = [
       import('./settings/users/users.component').then((m) => m.UsersComponent),
   },
   {
-    path: 'settings/indexer',
-    canActivate: [authGuard, ownerGuard],
-    loadComponent: () =>
-      import('./settings/indexer/indexer.component').then((m) => m.IndexerComponent),
-  },
-  {
     path: 'settings/enrichment',
     canActivate: [authGuard, ownerGuard],
     loadComponent: () =>

@@ -15,7 +15,7 @@ const STAGE: StageStatus = {
   dead: 0,
   throughput: 12,
   lastError: null,
-  config: { concurrency: 4, pollIntervalMs: 1000, batchSize: 10, maxAttempts: 5 },
+  config: { concurrency: 4, pollIntervalMs: 1000, batchSize: 10, maxAttempts: 5, paused: false, last_seen_target_version: 1 },
   batchSize: 10,
 };
 
@@ -39,7 +39,7 @@ describe('WorkerConfigDialogComponent', () => {
     // Set required signal inputs via ComponentRef.setInput() — the correct
     // API for signal-based inputs (input.required<T>()) in TestBed.
     fixture.componentRef.setInput('stage', STAGE);
-    fixture.componentRef.setInput('config', { concurrency: 4, pollIntervalMs: 1000, batchSize: 10, maxAttempts: 5 });
+    fixture.componentRef.setInput('config', { concurrency: 4, pollIntervalMs: 1000, batchSize: 10, maxAttempts: 5, paused: false, last_seen_target_version: 1 });
     fixture.detectChanges();
   });
 
