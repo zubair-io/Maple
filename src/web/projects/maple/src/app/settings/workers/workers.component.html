@@ -132,7 +132,7 @@
 @if (activeDialogStage(); as ds) {
   <maple-worker-config-dialog
     [stage]="ds"
-    [config]="activeConfigSignal(ds.name)()"
+    [config]="dialogConfig()"
     (saved)="onConfigSaved(ds.name, $event)"
     (cancelled)="closeDialog()"
   />

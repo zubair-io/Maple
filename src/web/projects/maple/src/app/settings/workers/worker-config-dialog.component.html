@@ -91,9 +91,9 @@
         }
       </div>
 
-      @if (saveError.value) {
+      @if (saveError()) {
         <p class="m-0 rounded bg-error-bg px-3 py-2 text-[12px] text-error-text">
-          {{ saveError.value }}
+          {{ saveError() }}
         </p>
       }
 
@@ -106,8 +106,8 @@
         <button
           type="submit"
           class="cursor-pointer rounded border border-transparent bg-primary px-4 py-1.5 text-[12px] font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
-          [disabled]="form.invalid || saving.value"
-        >{{ saving.value ? 'Saving…' : 'Save' }}</button>
+          [disabled]="form.invalid || saving()"
+        >{{ saving() ? 'Saving…' : 'Save' }}</button>
       </div>
     </form>
   </div>
