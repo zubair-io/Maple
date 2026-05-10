@@ -55,6 +55,7 @@ import {
   startSupervisor,
   stopSupervisor,
   supervisorState,
+  setSupervisorSingleton,
 } from "./workers/supervisor.ts";
 import { workerRoutes } from "./workers/routes.ts";
 import {
@@ -111,7 +112,12 @@ function ensureJwtSecret(): void {
 export function buildApp(opts: { stageNames?: string[] } = {}): Elysia & { supervisor: Supervisor } {
   const supervisor = new Supervisor(opts.stageNames ?? []);
 
-  return new Elysia()
+  // Register as the module singleton immediately so that all supervisor
+  // convenience helpers (supervisorState, pauseSupervisor, etc.) used by
+  // indexerRoutes and eventsRoutes share the same instance (Issue 2 fix).
+  setSupervisorSingleton(supervisor);
+
+  const app = new Elysia()
     // CORS + cross-origin isolation headers for every response.
     //
     // T10: COOP: same-origin + COEP: require-corp are required so the hosted
@@ -211,11 +217,11 @@ export function buildApp(opts: { stageNames?: string[] } = {}): Elysia & { super
     // Static UI (catch-all — must be last so specific API routes match first).
     // NOT auth-gated: serves the Angular bundle's index.html + assets, and the
     // SPA itself walks the user through sign-in via /api/auth/* calls.
-    .use(staticUiPlugin) as Elysia & { supervisor: Supervisor };
+    .use(staticUiPlugin);
 
   // Attach the supervisor so the shutdown handler can call stopAll().
   (app as unknown as Record<string, unknown>)["supervisor"] = supervisor;
-  return app;
+  return app as unknown as Elysia & { supervisor: Supervisor };
 }
 
 // ---------------------------------------------------------------------------
@@ -257,8 +263,8 @@ async function start(): Promise<void> {
       }
       // Resolve discover roots: one entry per registered folder.
       const foldersColl = await foldersCollection();
-      const folders = await foldersColl.find({}, { projection: { abs_path: 1 } }).toArray();
-      const discoverRoots = folders.map((f) => (f as unknown as { abs_path: string }).abs_path).filter(Boolean);
+      const folders = await foldersColl.find({}, { projection: { path: 1 } }).toArray();
+      const discoverRoots = folders.map((f) => f.path).filter(Boolean);
 
       startSupervisor({
         stages: ["hash", "exif", "thumb"],
@@ -373,15 +379,15 @@ async function start(): Promise<void> {
   // Keep supervisor reference for graceful shutdown.
   const supervisor = (app as unknown as Record<string, unknown>)["supervisor"] as Supervisor;
   // Register a one-time SIGTERM/SIGINT hook to stop stage children.
-  const stopSupervisor = () =>
+  const stopStageSupervisor = () =>
     supervisor?.stopAll().catch((e: unknown) => {
       log.warn(
         { err: e instanceof Error ? e.message : e },
         "error stopping stage supervisor",
       );
     });
-  process.once("SIGTERM", stopSupervisor);
-  process.once("SIGINT", stopSupervisor);
+  process.once("SIGTERM", stopStageSupervisor);
+  process.once("SIGINT", stopStageSupervisor);
 }
 
 // Graceful shutdown.

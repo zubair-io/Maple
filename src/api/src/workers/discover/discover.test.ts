@@ -92,10 +92,10 @@ describe("discover producer", () => {
       created_at: new Date().toISOString(),
     } as never);
     const folderId = folderResult.insertedId;
-    const folderIdHex = folderId.toHexString();
 
     // Start discover so we verify the module boots without errors.
-    discoverHandle = await startDiscover({ roots: [dir], folderId: folderIdHex });
+    // folderId is now resolved per-event from the registered folders collection.
+    discoverHandle = await startDiscover({ roots: [dir] });
 
     // Write a file so stat() inside handleEvent succeeds.
     const file = path.join(dir, "test.jpg");
