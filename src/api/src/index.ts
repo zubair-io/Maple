@@ -109,7 +109,7 @@ function ensureJwtSecret(): void {
 // Build the Elysia app
 // ---------------------------------------------------------------------------
 
-export function buildApp(opts: { stageNames?: string[] } = {}): Elysia {
+export function buildApp(opts: { stageNames?: string[] } = {}): Elysia & { supervisor: Supervisor } {
   const supervisor = new Supervisor(opts.stageNames ?? []);
 
   return new Elysia()
@@ -212,7 +212,11 @@ export function buildApp(opts: { stageNames?: string[] } = {}): Elysia {
     // Static UI (catch-all — must be last so specific API routes match first).
     // NOT auth-gated: serves the Angular bundle's index.html + assets, and the
     // SPA itself walks the user through sign-in via /api/auth/* calls.
-    .use(staticUiPlugin);
+    .use(staticUiPlugin) as Elysia & { supervisor: Supervisor };
+
+  // Attach the supervisor so the shutdown handler can call stopAll().
+  (app as unknown as Record<string, unknown>)["supervisor"] = supervisor;
+  return app;
 }
 
 // ---------------------------------------------------------------------------
@@ -360,7 +364,20 @@ async function start(): Promise<void> {
       );
     });
 
-  buildApp().listen(PORT);
+  const app = buildApp();
+  app.listen(PORT);
+  // Keep supervisor reference for graceful shutdown.
+  const supervisor = (app as unknown as Record<string, unknown>)["supervisor"] as Supervisor;
+  // Register a one-time SIGTERM/SIGINT hook to stop stage children.
+  const stopSupervisor = () =>
+    supervisor?.stopAll().catch((e: unknown) => {
+      log.warn(
+        { err: e instanceof Error ? e.message : e },
+        "error stopping stage supervisor",
+      );
+    });
+  process.once("SIGTERM", stopSupervisor);
+  process.once("SIGINT", stopSupervisor);
 }
 
 // Graceful shutdown.
