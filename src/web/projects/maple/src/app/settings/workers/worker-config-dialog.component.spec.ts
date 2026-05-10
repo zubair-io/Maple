@@ -4,17 +4,19 @@ import { HttpTestingController } from '@angular/common/http/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { WorkerConfigDialogComponent } from './worker-config-dialog.component';
 import { API_BASE_URL } from '@maple-common';
-import type { StageState } from '@maple-common';
+import type { StageStatus } from '@maple-common';
 
-const STAGE: StageState = {
+const STAGE: StageStatus = {
   name: 'exif',
   status: 'running',
-  workers: { active: 4, configured: 4 },
-  in_flight: { dispatched: 2, batch_size: 10 },
+  inFlight: 2,
+  configured: 4,
   pending: 500,
   dead: 0,
-  throughput_per_minute: 12,
-  last_error: null,
+  throughput: 12,
+  lastError: null,
+  config: { concurrency: 4, pollIntervalMs: 1000, batchSize: 10, maxAttempts: 5 },
+  batchSize: 10,
 };
 
 describe('WorkerConfigDialogComponent', () => {
@@ -85,21 +87,37 @@ describe('WorkerConfigDialogComponent', () => {
     expect(component.form.controls['maxAttempts'].valid).toBe(true);
   });
 
-  it('PATCHes /api/workers/exif/config on save with valid form', () => {
+  it('PATCHes /api/workers/exif/config on save and emits saved with config', () => {
     component.form.setValue({ concurrency: 8, pollIntervalMs: 2000, batchSize: 15, maxAttempts: 5 });
-    let emitted = false;
-    component.saved.subscribe(() => (emitted = true));
+    let emittedConfig: unknown;
+    component.saved.subscribe((c) => (emittedConfig = c));
     component.save();
     const req = http.expectOne('/api/workers/exif/config');
     expect(req.request.method).toBe('PATCH');
     expect(req.request.body).toEqual({ concurrency: 8, pollIntervalMs: 2000, batchSize: 15, maxAttempts: 5 });
-    req.flush({ config: { concurrency: 8, pollIntervalMs: 2000, batchSize: 15, maxAttempts: 5 } });
-    expect(emitted).toBe(true);
+    req.flush({ ok: true, config: { concurrency: 8, pollIntervalMs: 2000, batchSize: 15, maxAttempts: 5 } });
+    expect((emittedConfig as { concurrency: number })?.concurrency).toBe(8);
+  });
+
+  it('falls back to form values when server returns null config', () => {
+    component.form.setValue({ concurrency: 8, pollIntervalMs: 2000, batchSize: 15, maxAttempts: 5 });
+    let emittedConfig: unknown;
+    component.saved.subscribe((c) => (emittedConfig = c));
+    component.save();
+    http.expectOne('/api/workers/exif/config').flush({ ok: true, config: null });
+    expect((emittedConfig as { concurrency: number })?.concurrency).toBe(8);
   });
 
   it('does not PATCH when form is invalid', () => {
     component.form.controls['concurrency'].setValue(0);
     component.save();
     http.expectNone('/api/workers/exif/config');
+  });
+
+  it('emits cancelled on escape key', () => {
+    let cancelled = false;
+    component.cancelled.subscribe(() => (cancelled = true));
+    component.onEscape();
+    expect(cancelled).toBe(true);
   });
 });
