@@ -36,26 +36,27 @@ Every image doc gains a `stages` object with one entry per stage:
 
 ```ts
 stages: {
-  hash:     { version: 1, attempts: 0, last_error: null, processed_at: ISODate(...), dead: false },
-  exif:     { version: 1, attempts: 0, last_error: null, processed_at: ISODate(...), dead: false },
-  thumb:    { version: 1, attempts: 0, last_error: null, processed_at: ISODate(...), dead: false },
-  face:     { version: 0, attempts: 0, last_error: null, processed_at: null,         dead: false },
-  ocr:      { version: 0, attempts: 0, last_error: null, processed_at: null,         dead: false },
-  describe: { version: 0, attempts: 0, last_error: null, processed_at: null,         dead: false },
-  geocode:  { version: 0, attempts: 0, last_error: null, processed_at: null,         dead: false },
-  meili:    { version: 0, attempts: 0, last_error: null, processed_at: null,         dead: false },
+  hash:     { version: 1, attempts: 0, last_error: null, last_skip_reason: null, processed_at: ISODate(...), dead: false },
+  exif:     { version: 1, attempts: 0, last_error: null, last_skip_reason: null, processed_at: ISODate(...), dead: false },
+  thumb:    { version: 1, attempts: 0, last_error: null, last_skip_reason: null, processed_at: ISODate(...), dead: false },
+  face:     { version: 0, attempts: 0, last_error: null, last_skip_reason: null, processed_at: null,         dead: false },
+  ocr:      { version: 0, attempts: 0, last_error: null, last_skip_reason: null, processed_at: null,         dead: false },
+  describe: { version: 0, attempts: 0, last_error: null, last_skip_reason: null, processed_at: null,         dead: false },
+  geocode:  { version: 0, attempts: 0, last_error: null, last_skip_reason: null, processed_at: null,         dead: false },
+  meili:    { version: 0, attempts: 0, last_error: null, last_skip_reason: null, processed_at: null,         dead: false },
 }
 ```
 
 Field semantics, per stage:
 
-| Field          | Meaning                                                                                    |
-| -------------- | ------------------------------------------------------------------------------------------ |
-| `version`      | Last version the handler ran at. Missing or `0` means "never run". Increments on success.  |
-| `attempts`     | Failed attempts at the *current target version*. Reset to `0` on success or version bump.  |
-| `last_error`   | Stringified error from the most recent failed attempt. Surfaces in the per-doc error list. |
-| `processed_at` | Wall-clock time of the most recent successful run. Used for throughput rolling window.     |
-| `dead`         | True when `attempts >= maxAttempts`. Excluded from the claim query.                        |
+| Field              | Meaning                                                                                         |
+| ------------------ | ----------------------------------------------------------------------------------------------- |
+| `version`          | Last version the handler ran at. Missing or `0` means "never run". Increments on success.       |
+| `attempts`         | Failed attempts at the *current target version*. Reset to `0` on success or version bump.       |
+| `last_error`       | Stringified error from the most recent failed attempt. Surfaces in the per-doc error list.      |
+| `last_skip_reason` | The reason string passed with `{ skip }` on the most recent successful skip. `null` otherwise.  |
+| `processed_at`     | Wall-clock time of the most recent successful run. Used for throughput rolling window.          |
+| `dead`             | True when `attempts >= maxAttempts`. Excluded from the claim query.                             |
 
 The schema is identical for every stage. New stages add an entry to this object — no per-stage flat-field proliferation on the doc.
 
@@ -126,15 +127,15 @@ The handler returns one of three shapes:
 type StageResult =
   | { patch: Record<string, unknown> }   // runtime merges patch into image doc + marks done
   | { wrote: true }                       // handler did its own writes (e.g. meili sidecar collection)
-  | { skip: string }                      // not an error; mark done with reason in last_error, count toward throughput
+  | { skip: string }                      // not an error; mark done with reason in last_skip_reason, count toward throughput
 ```
 
-`{ patch }` is the default for stages whose output lives on the image doc. `{ wrote }` is the escape hatch for stages that write to a sibling collection (meili search index) — the runtime still bumps `stages.<name>.version` but does not write the patch. `{ skip }` is for "this image isn't applicable" cases (e.g. a video file in a face stage) — counts as success, no retry.
+`{ patch }` is the default for stages whose output lives on the image doc. `{ wrote }` is the escape hatch for stages that write to a sibling collection (meili search index) — the runtime still bumps `stages.<name>.version` but does not write the patch. `{ skip }` is for "this image isn't applicable" cases (e.g. a video file in a face stage) — counts as success, no retry. The skip reason string is stored in `last_skip_reason`, not `last_error`.
 
 Runtime hooks:
 
 - **Throw** → caught by runtime → `attempts++`, `last_error = err.message`. If `attempts >= maxAttempts`, `dead = true`.
-- **Return `{ patch }` or `{ wrote }` or `{ skip }`** → success. Runtime writes `version: targetVersion, attempts: 0, last_error: null, processed_at: now, dead: false`.
+- **Return `{ patch }` or `{ wrote }` or `{ skip }`** → success. Runtime writes `version: targetVersion, attempts: 0, last_error: null, last_skip_reason: skipReasonOrNull, processed_at: now, dead: false`.
 
 ### Stage controller runtime
 
@@ -177,6 +178,8 @@ const stageName = process.argv[2];
 const stage = await import(`../stages/${stageName}.ts`).then(m => m.default);
 await runStage(stage);
 ```
+
+`loadStage` validates `stageName` with a regex check (`/^[a-z][a-z0-9_-]{0,31}$/`) before the dynamic import to guard against path traversal. Additionally, `name` must be a member of `ALL_STAGE_NAMES` from `manifest.ts` — values outside the manifest are rejected even if they match the regex.
 
 The supervisor spawns each child as `bun run src/api/src/workers/runtime/main.ts <stageName>`.
 
@@ -307,7 +310,7 @@ The first thing each new controller does on first boot is set `worker_config[<na
 ## Risks
 
 1. **Mongo change stream availability.** Live `worker_config` re-read uses change streams. Self Hosted MongoDB defaults to a standalone (no replica set) — change streams require a replica set. Mitigation: detect standalone at boot, fall back to a 5-second polling loop on `worker_config`.
-2. **Per-stage process count.** With 9 children plus the API plus discover, that's 11 Bun processes per host. Memory footprint must be checked on a small VPS. Mitigation: every controller process loads only its own native deps. Hash/exif/thumb/discover share the raw-ffi dylib; face loads ONNX; OCR loads its engine; describe is HTTP-only; geocode is HTTP-only; meili is HTTP-only. Quick benchmark required before merge.
+2. **Per-stage process count.** With 8 stage-controller children (hash, exif, thumb, face, ocr, describe, geocode, meili) plus the discover producer plus the API process, that's 10 Bun processes per host. Memory footprint must be checked on a small VPS. Mitigation: every controller process loads only its own native deps. Hash/exif/thumb/discover share the raw-ffi dylib; face loads ONNX; OCR loads its engine; describe is HTTP-only; geocode is HTTP-only; meili is HTTP-only. Quick benchmark required before merge.
 3. **In-flight set memory.** `inFlight` is `Set<ObjectId>` of size `concurrency * batchSize`. At default `concurrency: 4, batchSize: 10` that's 40 ids per stage — trivial. Even with `concurrency: 64`, it's 640 ids. Not a concern.
 4. **First-boot reprocess cost.** With no migrator, every non-paused controller re-processes every existing doc on first boot. For local stages this is hours of CPU and is operator-accepted. For paid/rate-limited stages (`describe`, `geocode`), `pausedOnFirstBoot: true` is the mitigation — they don't run until the operator unpauses, which they'd need to do anyway to enter API keys / configure rate limits.
 

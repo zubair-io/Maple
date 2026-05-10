@@ -4,7 +4,7 @@
 
 **Goal:** Ship `/settings/workers` — a polling Angular page that shows every stage's status, throughput, pending count, and dead-letter count, with per-stage pause/resume, settings dialog (concurrency / pollIntervalMs / batchSize / maxAttempts), and retry-dead. Retire the `*-backfill` job handlers whose work is now absorbed by version-bumping. Rewrite the rescan-folder API path to `updateMany` on `stages.<name>.version` instead of enqueueing backfill jobs. Sweep all stale imports and dead types. After this plan: one operators page manages all workers; no backfill job handler exists; `tsc` is clean.
 
-**Architecture:** Standalone Angular component at `src/web/projects/maple/src/app/settings/workers/workers.component.ts`. Polls `GET /api/workers/status` every 2 s via `setInterval` + Angular `signal()`. Dialog is a second standalone component in the same directory, opened via a boolean signal on the parent. All HTTP calls live on a new `WorkersApiService` in `src/web/projects/maple-common`. On the backend: rescan-folder handler at `src/api/src/indexer/standalone.ts` replaces its `walkOnce` delegation with an `assetsCollection().updateMany` that zeroes `stages.<name>.version` for the affected file tree (querying by `abs_path`). Backfill handlers under `src/api/src/job-runner/handlers/` are deleted; the `HANDLERS` registry is updated; `db/schema.ts` `JobKind` union is narrowed.
+**Architecture:** Standalone Angular component at `src/web/projects/maple/src/app/settings/workers/workers.component.ts`. Polls `GET /api/workers/status` every 2 s via `setInterval` + Angular `signal()`. Dialog is a second standalone component in the same directory, opened via a boolean signal on the parent. All HTTP calls live on a new `WorkersApiService` in `src/web/projects/maple-common`. On the backend: rescan-folder handler at `src/api/src/routes/indexer.ts` replaces its `walkOnce` delegation with an `assetsCollection().updateMany` that zeroes `stages.<name>.version` for the affected file tree (querying by `abs_path`). Backfill handlers under `src/api/src/job-runner/handlers/` are deleted; the `HANDLERS` registry is updated; `db/schema.ts` `JobKind` union is narrowed.
 
 **Tech Stack:** Angular 21, standalone components, signals, RxJS Observable at the service layer; Bun + TypeScript + Elysia on the backend; bun:test for backend tests; TestBed + `provideHttpClientTesting` for Angular component tests.
 
@@ -30,8 +30,8 @@
 | `src/web/projects/maple/src/app/settings/settings-index.component.ts` | Modify | Add "Workers" card to the `cards` computed. |
 | `src/web/projects/maple/src/app/settings/workers/workers.component.spec.ts` | Create | TestBed test: render with mock status, assert row columns. |
 | `src/web/projects/maple/src/app/settings/workers/worker-config-dialog.component.spec.ts` | Create | TestBed test: form validation, PATCH on save. |
-| `src/api/src/indexer/standalone.ts` | Modify | Replace rescan-folder `walkOnce` delegation with `updateMany` version-zero on affected docs. |
-| `src/api/src/indexer/standalone.test.ts` | Create | bun:test: rescan-folder handler writes `stages.*.version = 0` instead of enqueueing jobs. |
+| `src/api/src/routes/indexer.ts` | Modify | Replace rescan-folder `walkOnce` delegation with `updateMany` version-zero on affected docs. |
+| `src/api/src/routes/indexer.rescan.test.ts` | Create | bun:test: rescan-folder handler writes `stages.*.version = 0` instead of enqueueing jobs. |
 | `src/web/projects/maple-common/src/lib/api/workers-api.service.spec.ts` | Create | HttpClientTestingModule smoke test for each method. |
 
 Files deleted in Task 6 (after new code is live):
@@ -1224,16 +1224,16 @@ git commit -m "feat(web): /settings/workers route + Workers card in settings ind
 ## Task 5: Backend rescan-folder rewrite
 
 **Files:**
-- Modify: `src/api/src/indexer/standalone.ts`
-- Create: `src/api/src/indexer/standalone.test.ts`
+- Modify: `src/api/src/routes/indexer.ts`
+- Create: `src/api/src/routes/indexer.rescan.test.ts`
 
 The current `/rescan/:folderId` handler calls `svc.walkOnce(...)` which enqueues each file into the legacy indexer pipeline's discover channel. After Plans 1–3, the pipeline is gone; the replacement is to zero `stages.<name>.version` (and clear `dead`, `attempts`, `last_error`) on every image doc under the folder's path tree so the new stage controllers pick them up on their next poll.
 
-The API already has access to the `images` Mongo collection; the change is surgical inside the `POST /rescan/:folderId` handler.
+The API already has access to the `assets` Mongo collection; the change is surgical inside the `POST /rescan/:folderId` handler in `routes/indexer.ts`.
 
 - [ ] **Step 1: Write the failing test**
 
-Create `src/api/src/indexer/standalone.test.ts`:
+Create `src/api/src/routes/indexer.rescan.test.ts`:
 
 ```ts
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
@@ -1271,12 +1271,12 @@ describe("rescan-folder updateMany semantic", () => {
     ctx = await getTestDb();
     if (!ctx) return;
     // Drop the test collection fresh.
-    await ctx.db.collection("images").drop().catch(() => {});
+    await ctx.db.collection("assets").drop().catch(() => {});
   });
 
   afterEach(async () => {
     if (!ctx) return;
-    await ctx.db.collection("images").drop().catch(() => {});
+    await ctx.db.collection("assets").drop().catch(() => {});
     await ctx.client.close();
   });
 
@@ -1331,13 +1331,13 @@ describe("rescan-folder updateMany semantic", () => {
 
 - [ ] **Step 2: Run to confirm failure**
 
-Run: `cd src/api && bun test src/indexer/standalone.test.ts`
+Run: `cd src/api && bun test src/routes/indexer.rescan.test.ts`
 
 Expected: if Mongo is available, FAIL because the actual route still calls `walkOnce`. If Mongo is unavailable, the test skip-passes with a console log — that's acceptable.
 
 - [ ] **Step 3: Rewrite the rescan handler**
 
-In `src/api/src/indexer/standalone.ts`, locate the `POST /rescan/:folderId` handler (around line 240). Replace the entire handler body — from `const folderIdStr = params.folderId;` to the closing brace — with:
+In `src/api/src/routes/indexer.ts`, locate the `POST /rescan/:folderId` handler. Replace the entire handler body — from `const folderIdStr = params.folderId;` to the closing brace — with:
 
 ```ts
     async ({ params, body, set }) => {
@@ -1389,13 +1389,13 @@ In `src/api/src/indexer/standalone.ts`, locate the `POST /rescan/:folderId` hand
     },
 ```
 
-Ensure `assetsCollection` is imported at the top of the file alongside `foldersCollection`. Both are exported from `../db/client.ts`; the import line in `standalone.ts` is already `import { getDb, ensureIndexes, closeDb, foldersCollection } from "../db/client.ts"` — add `assetsCollection` to that destructuring.
+Ensure `assetsCollection` is imported at the top of the file alongside `foldersCollection`. Both are exported from `../db/client.ts`; the import line in `routes/indexer.ts` is already `import { getDb, ensureIndexes, closeDb, foldersCollection } from "../db/client.ts"` — add `assetsCollection` to that destructuring.
 
 `assetsCollection()` returns `Collection<AssetDoc>`. Post-Plans-1-3, `AssetDoc` is extended by `ImageDoc` which adds the `stages` sub-document. The `$set` operation on `stages.*` fields is runtime-safe even without the type annotation; cast with `as Collection<Document>` if TypeScript complains about the field path.
 
 - [ ] **Step 4: Run tests to confirm pass**
 
-Run: `cd src/api && bun test src/indexer/standalone.test.ts`
+Run: `cd src/api && bun test src/routes/indexer.rescan.test.ts`
 
 Expected: 1 test passes (or skips cleanly when Mongo is unavailable).
 
@@ -1406,7 +1406,7 @@ Expected: full suite passes with no regressions.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/api/src/indexer/standalone.ts src/api/src/indexer/standalone.test.ts
+git add src/api/src/routes/indexer.ts src/api/src/routes/indexer.rescan.test.ts
 git commit -m "feat(api): rescan-folder resets stage versions via updateMany instead of enqueueing backfill jobs"
 ```
 
@@ -1656,7 +1656,7 @@ git tag workers-redesign-plan-4 -m "Plan 4 complete: worker operator UI + dead-c
 Before declaring this plan complete:
 
 - [ ] Spec's UI row table fully rendered: Stage, Status (with dot), Workers (active/configured), In flight (dispatched/batch_size), Pending (formatted with DecimalPipe), Dead (count + ↻ when > 0), Throughput (n /min or —), ⚙, ⏸/▶. All columns have `data-testid` attributes matched by the spec tests.
-- [ ] Rescan-folder handler at `src/api/src/indexer/standalone.ts` calls `assets.updateMany(...)` filtering by `abs_path` with `$set: { "stages.<name>.version": 0, ... }` — no call to `walkOnce` remains.
+- [ ] Rescan-folder handler at `src/api/src/routes/indexer.ts` calls `assets.updateMany(...)` filtering by `abs_path` with `$set: { "stages.<name>.version": 0, ... }` — no call to `walkOnce` remains.
 - [ ] No `*-backfill` handler files exist under `src/api/src/job-runner/handlers/`.
 - [ ] `JobKind` in `src/api/src/db/schema.ts` contains only `batch_jpeg_export`.
 - [ ] `IndexerComponent.runBackfill()` and its template section are gone.
