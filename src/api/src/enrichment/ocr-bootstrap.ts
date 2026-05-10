@@ -17,19 +17,36 @@ import {
   type ResolvedEnrichmentConfig,
 } from "./enrichment-config.repo.ts";
 import { resetOcrEngine } from "./ocr-engine.ts";
+import { workerConfigCollection } from "../db/client.ts";
 
 const log = childLogger("ocr");
+
+/**
+ * Propagate the paused state for a stage into the worker_config collection.
+ * Uses upsert so it's safe to call before any stage has been seeded.
+ */
+async function applyPausedToWorkerConfig(name: string, paused: boolean): Promise<void> {
+  try {
+    const coll = await workerConfigCollection();
+    await coll.updateOne({ name }, { $set: { paused }, $setOnInsert: { name } as never }, { upsert: true });
+  } catch (err) {
+    // Non-fatal — log and continue. The stage controller will fall back to
+    // the stage's built-in defaults if the DB write fails.
+    const msg = err instanceof Error ? err.message : String(err);
+    log.warn({ err: msg, name }, "failed to write paused state to worker_config");
+  }
+}
 
 /** No-op: the stage-controller runtime owns worker lifecycle. Retained for
  * backwards-compat with the bootstrap sequence in `index.ts`. */
 export async function startOcrWorker(): Promise<null> {
   const dbConfig = await loadEnrichmentConfig();
   const resolved = resolveEnrichmentConfig(dbConfig);
-  if (!resolved.ocr_worker_enabled) {
-    log.info("worker disabled (ocr_worker_enabled=false) — stage controller handles scheduling");
-  } else {
-    log.info("stage controller will handle OCR scheduling");
-  }
+  const paused = !resolved.ocr_worker_enabled;
+  await applyPausedToWorkerConfig("ocr", paused);
+  log.info(
+    `ocr_bootstrap: ocr_worker_enabled=${resolved.ocr_worker_enabled}; worker_config.ocr.paused=${paused}`,
+  );
   return null;
 }
 
