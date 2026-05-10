@@ -25,26 +25,49 @@ import { getDb } from "../db/client.ts";
 import { WorkerConfigRepo } from "./worker-config.repo.ts";
 import type { WorkerConfig } from "./runtime/define-stage.ts";
 import type { ImageDoc } from "./runtime/define-stage.ts";
+import type { WorkerConfigDoc } from "./worker-config.repo.ts";
 
 export function workerRoutes(supervisor: Supervisor): Elysia {
   return new Elysia({ prefix: "/api/workers" })
 
     .get("/status", async () => {
       const statuses = supervisor.statuses();
+      // Get DB + collections once outside the per-stage loop (Issues 2 + 3).
+      let images: ReturnType<Awaited<ReturnType<typeof getDb>>["collection"]> | null = null;
+      let configColl: ReturnType<Awaited<ReturnType<typeof getDb>>["collection"]> | null = null;
+      try {
+        const db = await getDb();
+        images = db.collection<ImageDoc>("assets");
+        configColl = db.collection<WorkerConfigDoc>("worker_config");
+      } catch {
+        // DB unavailable — all counts will be zeros
+      }
+
       const stages = await Promise.all(
         Object.entries(statuses).map(async ([name, s]) => {
           let pending = 0;
           let dead = 0;
           try {
-            const db = await getDb();
-            const images = db.collection<ImageDoc>("assets");
-            pending = await images.countDocuments({
-              [`stages.${name}.dead`]: { $ne: true },
-              [`stages.${name}.version`]: { $lt: 999999 },
-            });
-            dead = await images.countDocuments({
-              [`stages.${name}.dead`]: true,
-            });
+            if (images && configColl) {
+              // Determine the stage's target version from the persisted config so
+              // the pending count uses the real threshold (not a hardcoded sentinel).
+              // Fall back to 0 if no config doc exists yet, which means all docs
+              // (version missing or 0) are pending.
+              const repo = new WorkerConfigRepo(configColl as never);
+              const workerCfg = await repo.load(name);
+              const targetVersion = workerCfg?.last_seen_target_version ?? 0;
+
+              pending = await (images as import("mongodb").Collection<ImageDoc>).countDocuments({
+                [`stages.${name}.dead`]: { $ne: true },
+                $or: [
+                  { [`stages.${name}.version`]: { $lt: targetVersion } },
+                  { [`stages.${name}.version`]: { $exists: false } },
+                ],
+              });
+              dead = await (images as import("mongodb").Collection<ImageDoc>).countDocuments({
+                [`stages.${name}.dead`]: true,
+              });
+            }
           } catch {
             // DB unavailable — return zeros
           }

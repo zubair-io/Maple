@@ -4,8 +4,7 @@ import { defineStage } from "./define-stage.ts";
 import type { ImageDoc, StageState } from "./define-stage.ts";
 import type { WorkerConfigDoc } from "../worker-config.repo.ts";
 
-// We test the internal helpers exported from run-stage in test mode.
-// run-stage exports them behind an `_test` namespace when MAPLE_TEST=1.
+// Internal helpers are exported unconditionally from run-stage.
 import { _test, buildClaimQuery } from "./run-stage.ts";
 
 const { bootConfig, versionBumpReset } = _test;
@@ -184,9 +183,11 @@ describe("bootConfig", () => {
     const cfg = await bootConfig(baseStage, coll);
     expect(cfg.concurrency).toBe(4);
     expect(cfg.paused).toBe(false);
-    // Verify it was written
-    const loaded = await cfg;
-    expect(loaded.last_seen_target_version).toBe(0);
+    // Verify it was written: do a fresh load via a new repo instance.
+    const { WorkerConfigRepo } = await import("../worker-config.repo.ts");
+    const repo = new WorkerConfigRepo(coll);
+    const loaded = await repo.load(baseStage.name);
+    expect(loaded?.last_seen_target_version).toBe(0);
   });
 
   it("respects pausedOnFirstBoot for paused stages", async () => {

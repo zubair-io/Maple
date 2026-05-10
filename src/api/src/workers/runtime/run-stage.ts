@@ -6,8 +6,6 @@
  * throughput rolling window, pause/resume, reload-config, and graceful drain on SIGTERM.
  *
  * This file is built incrementally across Tasks 4–8 of the plan.
- * The _test export is gated on process.env.MAPLE_TEST so production builds
- * include no test surface.
  */
 
 import type { Collection, Filter, ObjectId } from "mongodb";
@@ -118,6 +116,32 @@ export function buildClaimQuery(
 }
 
 // ---------------------------------------------------------------------------
+// Promise pool helper — limits concurrency to at most `limit` in-flight.
+// ---------------------------------------------------------------------------
+
+async function dispatchPool<T>(
+  items: T[],
+  limit: number,
+  run: (item: T) => Promise<void>,
+): Promise<void> {
+  const queue = [...items];
+  const workers: Promise<void>[] = [];
+  const concurrency = Math.max(1, Math.min(limit, queue.length));
+  for (let i = 0; i < concurrency; i++) {
+    workers.push(
+      (async () => {
+        while (queue.length > 0) {
+          const item = queue.shift();
+          if (item === undefined) return;
+          await run(item);
+        }
+      })(),
+    );
+  }
+  await Promise.all(workers);
+}
+
+// ---------------------------------------------------------------------------
 // Single poll tick: claim + dispatch + writeback.
 // ---------------------------------------------------------------------------
 
@@ -129,6 +153,12 @@ export function buildClaimQuery(
  * must have reached before this stage may process a doc. Defaults to
  * `{ name, minVersion: 1 }` for each entry in `stage.dependsOn` so callers
  * that don't yet pass manifest-resolved versions get the previous behaviour.
+ *
+ * `signal` is the runStage AbortController's signal so handlers can observe
+ * shutdown. Defaults to a new never-aborted signal for test calls.
+ *
+ * `inFlightSet` and `throughput` are threaded in from runStage so the IPC
+ * /status endpoint sees live counts. In tests they default to no-ops.
  */
 export async function runOnce(
   stage: StageConfig,
@@ -136,19 +166,25 @@ export async function runOnce(
   images: Collection<ImageDoc>,
   _configColl: Collection<WorkerConfigDoc>,
   resolvedDeps: Array<{ name: string; minVersion: number }> = stage.dependsOn.map((n) => ({ name: n, minVersion: 1 })),
+  signal?: AbortSignal,
+  inFlightSet?: Set<string>,
+  throughput?: ThroughputWindow,
 ): Promise<void> {
   if (config.paused) return;
 
-  const inFlight = new Set<ObjectId>();
   const log = childLogger(`workers:${stage.name}`);
-  const abortController = new AbortController();
-  const ctx = { log, signal: abortController.signal };
+  const effectiveSignal = signal ?? new AbortController().signal;
+  const ctx = { log, signal: effectiveSignal };
+
+  // Use an empty local set for the claim-query exclusion (per-tick overlap
+  // avoidance). The runStage inFlightSet is for IPC reporting.
+  const claimSet = new Set<ObjectId>();
 
   const query = buildClaimQuery(
     stage.name,
     stage.targetVersion,
     resolvedDeps,
-    inFlight,
+    claimSet,
   );
 
   const docs = await images
@@ -156,80 +192,80 @@ export async function runOnce(
     .limit(config.batchSize)
     .toArray();
 
-  await Promise.all(
-    docs.map(async (doc) => {
-      const id = (doc as { _id: ObjectId })._id;
-      inFlight.add(id);
-      try {
-        const result = await stage.handler(doc, ctx);
-        const stageState = {
-          version: stage.targetVersion,
-          attempts: 0,
-          last_error: null,
-          processed_at: new Date(),
-          dead: false,
-        };
+  await dispatchPool(docs, config.concurrency, async (doc) => {
+    const id = (doc as { _id: ObjectId })._id;
+    const idStr = String(id);
+    inFlightSet?.add(idStr);
+    try {
+      const result = await stage.handler(doc, ctx);
+      const stageState = {
+        version: stage.targetVersion,
+        attempts: 0,
+        last_error: null,
+        processed_at: new Date(),
+        dead: false,
+      };
 
-        if ("patch" in result) {
-          const forbiddenKeys = Object.keys(result.patch).filter((k) =>
-            k.startsWith("stages."),
-          );
-          if (forbiddenKeys.length > 0) {
-            throw new Error(
-              `Handler returned patch with forbidden stage keys: ${forbiddenKeys.join(", ")}`,
-            );
-          }
-          await images.updateOne(
-            { _id: id },
-            {
-              $set: {
-                [`stages.${stage.name}`]: stageState,
-                ...result.patch,
-              },
-            },
-          );
-        } else if ("wrote" in result) {
-          await images.updateOne(
-            { _id: id },
-            { $set: { [`stages.${stage.name}`]: stageState } },
-          );
-        } else if ("skip" in result) {
-          await images.updateOne(
-            { _id: id },
-            {
-              $set: {
-                [`stages.${stage.name}`]: {
-                  ...stageState,
-                  last_error: `skip: ${result.skip}`,
-                },
-              },
-            },
+      if ("patch" in result) {
+        const forbiddenKeys = Object.keys(result.patch).filter((k) =>
+          k.startsWith("stages."),
+        );
+        if (forbiddenKeys.length > 0) {
+          throw new Error(
+            `Handler returned patch with forbidden stage keys: ${forbiddenKeys.join(", ")}`,
           );
         }
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        const current = await images.findOne(
-          { _id: id },
-          { projection: { [`stages.${stage.name}`]: 1 } },
-        );
-        const currentAttempts =
-          (current?.stages?.[stage.name]?.attempts ?? 0) + 1;
-        const dead = currentAttempts >= config.maxAttempts;
         await images.updateOne(
           { _id: id },
           {
             $set: {
-              [`stages.${stage.name}.attempts`]: currentAttempts,
-              [`stages.${stage.name}.last_error`]: msg,
-              [`stages.${stage.name}.dead`]: dead,
+              [`stages.${stage.name}`]: stageState,
+              ...result.patch,
             },
           },
         );
-      } finally {
-        inFlight.delete(id);
+      } else if ("wrote" in result) {
+        await images.updateOne(
+          { _id: id },
+          { $set: { [`stages.${stage.name}`]: stageState } },
+        );
+      } else if ("skip" in result) {
+        await images.updateOne(
+          { _id: id },
+          {
+            $set: {
+              [`stages.${stage.name}`]: {
+                ...stageState,
+                last_error: `skip: ${result.skip}`,
+              },
+            },
+          },
+        );
       }
-    }),
-  );
+      throughput?.record(new Date());
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      const current = await images.findOne(
+        { _id: id },
+        { projection: { [`stages.${stage.name}`]: 1 } },
+      );
+      const currentAttempts =
+        (current?.stages?.[stage.name]?.attempts ?? 0) + 1;
+      const dead = currentAttempts >= config.maxAttempts;
+      await images.updateOne(
+        { _id: id },
+        {
+          $set: {
+            [`stages.${stage.name}.attempts`]: currentAttempts,
+            [`stages.${stage.name}.last_error`]: msg,
+            [`stages.${stage.name}.dead`]: dead,
+          },
+        },
+      );
+    } finally {
+      inFlightSet?.delete(idStr);
+    }
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -272,8 +308,8 @@ interface IpcServerOptions {
   name: string;
   throughput: ThroughputWindow;
   getInFlight: () => number;
-  onPause?: () => void;
-  onResume?: () => void;
+  onPause?: () => Promise<void> | void;
+  onResume?: () => Promise<void> | void;
   /**
    * Called when the supervisor sends POST /reload-config.
    * The implementation should re-read worker_config[name] from Mongo
@@ -288,8 +324,8 @@ interface IpcServerOptions {
  * the port by reading the child's stdout line "__MAPLE_IPC_PORT__=<port>".
  * Responds to:
  *   GET  /status         → { status, inFlight, throughput }
- *   POST /pause          → calls onPause callback
- *   POST /resume         → calls onResume callback
+ *   POST /pause          → calls onPause callback (awaited)
+ *   POST /resume         → calls onResume callback (awaited)
  *   POST /reload-config  → calls onReloadConfig callback (re-reads config from Mongo)
  */
 export class IpcServer {
@@ -316,11 +352,11 @@ export class IpcServer {
           });
         }
         if (req.method === "POST" && url.pathname === "/pause") {
-          opts.onPause?.();
+          await opts.onPause?.();
           return Response.json({ ok: true });
         }
         if (req.method === "POST" && url.pathname === "/resume") {
-          opts.onResume?.();
+          await opts.onResume?.();
           return Response.json({ ok: true });
         }
         if (req.method === "POST" && url.pathname === "/reload-config") {
@@ -345,13 +381,11 @@ export class IpcServer {
 }
 
 // ---------------------------------------------------------------------------
-// _test export — internal helpers exposed only in test mode.
+// _test export — internal helpers exposed unconditionally for testing.
+// Test-only export. Adds no runtime cost; production builds simply don't import it.
 // ---------------------------------------------------------------------------
 
-export const _test =
-  process.env.MAPLE_TEST === "1"
-    ? { bootConfig, versionBumpReset, runOnce }
-    : (undefined as never);
+export const _test = { bootConfig, versionBumpReset, runOnce };
 
 // ---------------------------------------------------------------------------
 // runStage — full entry point.
@@ -393,6 +427,13 @@ export async function runStage(stage: StageConfig): Promise<void> {
   // ── IPC server ────────────────────────────────────────────────────────────
   const repo = new WorkerConfigRepo(configCollRaw);
 
+  // ── Graceful shutdown ─────────────────────────────────────────────────────
+  // Declare before IPC server + poll loop so the shutdown handler can
+  // reference them without TDZ issues.
+  let shuttingDown = false;
+  const abortController = new AbortController();
+  let pollTimer: ReturnType<typeof setTimeout> | null = null;
+
   const ipc = new IpcServer({
     name: stage.name,
     throughput,
@@ -423,32 +464,45 @@ export async function runStage(stage: StageConfig): Promise<void> {
   process.stdout.write(`__MAPLE_IPC_PORT__=${ipcPort}\n`);
   log.info({ ipcPort }, `${stage.name} IPC server started`);
 
-  // ── Graceful shutdown ─────────────────────────────────────────────────────
-  let shuttingDown = false;
-  const abortController = new AbortController();
-
   const shutdown = async () => {
     if (shuttingDown) return;
     shuttingDown = true;
     log.info(`${stage.name} received SIGTERM — draining`);
     abortController.abort();
-    clearInterval(pollTimer);
+    if (pollTimer) clearTimeout(pollTimer);
     await ipc.stop().catch(() => {});
   };
   process.on("SIGTERM", () => { shutdown().catch(() => {}); });
 
-  // ── Poll loop ─────────────────────────────────────────────────────────────
-  const pollTimer = setInterval(async () => {
-    if (shuttingDown || config.paused) return;
-    try {
-      await runOnce(stage, config, images, configCollRaw);
-    } catch (err) {
-      log.error(
-        { err: err instanceof Error ? err.message : err },
-        `${stage.name} poll tick error`,
-      );
+  // ── Poll loop (self-scheduling setTimeout to avoid overlap and re-read
+  //   pollIntervalMs every tick so reload-config takes effect) ───────────────
+  const poll = async (): Promise<void> => {
+    if (shuttingDown) return;
+    if (!config.paused) {
+      try {
+        await runOnce(
+          stage,
+          config,
+          images,
+          configCollRaw,
+          undefined,
+          abortController.signal,
+          inFlightSet,
+          throughput,
+        );
+      } catch (err) {
+        log.error(
+          { err: err instanceof Error ? err.message : err },
+          `${stage.name} poll tick error`,
+        );
+      }
     }
-  }, config.pollIntervalMs);
+    if (!shuttingDown) {
+      pollTimer = setTimeout(poll, config.pollIntervalMs);
+    }
+  };
+
+  pollTimer = setTimeout(poll, config.pollIntervalMs);
 
   // ── Drain on shutdown ─────────────────────────────────────────────────────
   await new Promise<void>((resolve) => {
