@@ -95,16 +95,16 @@ export async function handleEvent(event: WatchEvent, folderId: ObjectId): Promis
 
   const now = new Date().toISOString();
   await coll.updateOne(
-    { folder_id: folderId, filename: path.basename(absPath) },
+    { abs_path: absPath },
     {
       $set: {
-        abs_path: absPath,
         size: stat.size,
         mtime: stat.mtimeMs,
         indexed_at: now,
         deleted_at: null,
       },
       $setOnInsert: {
+        abs_path: absPath,
         folder_id: folderId,
         filename: path.basename(absPath),
         rating: 0,
