@@ -1,15 +1,25 @@
-import { describe, it, expect } from "bun:test";
-import { existsSync, mkdirSync, writeFileSync, mkdtempSync, rmSync } from "node:fs";
+import { afterEach, describe, it, expect } from "bun:test";
+import { mkdirSync, writeFileSync, mkdtempSync, rmSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { ObjectId } from "mongodb";
-import type { ImageDoc } from "../runtime/define-stage.ts";
+import type { ImageDoc, StageContext } from "../runtime/define-stage.ts";
 import type { AssetFaceDoc } from "../../db/schema.ts";
 import type { DetectedFace, FaceDetector } from "../../enrichment/face-detector.ts";
+import { setDefaultFaceDetectorForTests } from "../../enrichment/face-detector.ts";
 import { cachePathFor } from "../../fs/xmp.ts";
 
 // Import after module is created.
 import { faceHandler, THUMB_MISSING_REASON } from "./face.ts";
+
+const noopCtx: StageContext = {
+  log: { info() {}, warn() {}, error() {}, debug() {}, trace() {}, fatal() {}, child: () => noopCtx.log } as never,
+  signal: new AbortController().signal,
+};
+
+afterEach(() => {
+  setDefaultFaceDetectorForTests(null);
+});
 
 function fakeDoc(overrides: Partial<ImageDoc> & { abs_path: string }): ImageDoc {
   return {
@@ -80,9 +90,8 @@ describe("faceHandler — happy path", () => {
       mkdirSync(dirname(thumbPath), { recursive: true });
       writeFileSync(thumbPath, "stub-jpeg");
       const doc = fakeDoc({ abs_path: absPath });
-      const det = mockDetector([fakeDetection()]);
-      const ctx = { detector: det } as never;
-      const result = await faceHandler(doc, ctx);
+      setDefaultFaceDetectorForTests(mockDetector([fakeDetection()]));
+      const result = await faceHandler(doc, noopCtx);
       expect(result).toHaveProperty("patch");
       expect((result as { patch: { faces: unknown[] } }).patch.faces).toHaveLength(1);
       const face = (result as { patch: { faces: AssetFaceDoc[] } }).patch.faces[0]!;
@@ -104,22 +113,23 @@ describe("faceHandler — happy path", () => {
       mkdirSync(dirname(thumbPath), { recursive: true });
       writeFileSync(thumbPath, "stub-jpeg");
       const doc = fakeDoc({ abs_path: absPath });
-      const det = mockDetector([]);
-      const result = await faceHandler(doc, { detector: det } as never);
+      setDefaultFaceDetectorForTests(mockDetector([]));
+      const result = await faceHandler(doc, noopCtx);
       expect((result as { patch: { faces: unknown[] } }).patch.faces).toEqual([]);
     } finally { teardown(); }
   });
 });
 
 describe("faceHandler — thumb missing", () => {
-  it("throws with THUMB_MISSING_REASON when thumb is absent", async () => {
+  it("returns { skip } with THUMB_MISSING_REASON when thumb is absent", async () => {
     const root = setup();
     try {
       const absPath = join(root, "noThumb.dng");
       const doc = fakeDoc({ abs_path: absPath });
-      const det = mockDetector([]);
-      await expect(faceHandler(doc, { detector: det } as never))
-        .rejects.toThrow(THUMB_MISSING_REASON);
+      setDefaultFaceDetectorForTests(mockDetector([]));
+      const result = await faceHandler(doc, noopCtx);
+      expect(result).toHaveProperty("skip");
+      expect((result as { skip: string }).skip).toContain(THUMB_MISSING_REASON);
     } finally { teardown(); }
   });
 });

@@ -1,19 +1,20 @@
 /**
  * Meili (search-blob) stage. Fan-in terminal stage.
  *
- * Depends on all enrichment stages. Once they are all at version >= 1, this
- * stage reads the assembled image doc and writes the unified search document
- * to Meilisearch. Returns `{ wrote: true }` — the runtime bumps
- * `stages.meili.version` but does not merge a patch into the image doc.
+ * Depends on the always-on stages only (exif, thumb). When optional stages
+ * (face/ocr/describe/geocode) run later, meili won't automatically re-process
+ * to incorporate their outputs. Operator must bump meili.targetVersion or
+ * trigger a manual reset to refresh.
  *
- * Throws on Meilisearch transport error so the runtime retries. A Meilisearch
- * outage does not block enrichment stages — they complete independently.
- * Meili simply retries up to `maxAttempts` and dead-letters if Meilisearch
- * is unreachable for a sustained period.
+ * The `search_blob` patch keeps the Mongo `$text` fallback search coherent
+ * so assets remain searchable even without a Meilisearch sidecar.
+ *
+ * When Meilisearch is configured, the doc is also upserted there for
+ * typo-tolerant search. Throws on transport error so the runtime retries.
  *
  * When `maple_id` is absent (legacy row pre-dating the indexer's mapleId
- * migration), returns `{ wrote: true }` and skips the upsert so the stage
- * completes rather than spinning forever on an un-fixable invariant violation.
+ * migration), returns `{ skip: "no-maple-id" }` so the stage completes
+ * rather than spinning forever on an un-fixable invariant violation.
  */
 
 import type { ImageDoc, StageContext, StageResult } from "../runtime/define-stage.ts";
@@ -21,36 +22,55 @@ import { defineStage } from "../runtime/define-stage.ts";
 import { meilisearchClient, type MeilisearchClient } from "../../enrichment/meilisearch-client.ts";
 import { composeSearchBlob } from "../../enrichment/search-blob.ts";
 
+let _client: MeilisearchClient | null = null;
+function getClient(): MeilisearchClient {
+  if (!_client) _client = meilisearchClient();
+  return _client;
+}
+
+/** Test-only setter. Call with `null` to reset between tests. */
+export function setMeilisearchClientForTests(client: MeilisearchClient | null): void {
+  _client = client;
+}
+
 export async function meiliHandler(
   image: ImageDoc,
-  ctx: StageContext & { meilisearch?: MeilisearchClient },
+  _ctx: StageContext,
 ): Promise<StageResult> {
-  const client = ctx.meilisearch ?? meilisearchClient();
   const mapleId = (image as unknown as { maple_id?: string }).maple_id ?? "";
   if (mapleId.length === 0) {
-    return { wrote: true };
+    return { skip: "no-maple-id" };
   }
-  const searchBlob = composeSearchBlob({
+
+  const blob = composeSearchBlob({
     place: image.place,
     description: image.description,
     ocrText: (image as unknown as { ocr_text?: string }).ocr_text ?? null,
   });
-  await client.upsert({
-    id: mapleId,
-    searchBlob,
-    description: image.description ?? null,
-    ocrText: (image as unknown as { ocr_text?: string }).ocr_text ?? null,
-    folderId: image.folder_id.toHexString(),
-    capturedAt: image.exif?.captured_at ?? null,
-    deletedAt: null,
-  });
-  return { wrote: true };
+
+  const client = getClient();
+  if (client.isConfigured()) {
+    await client.upsertOrThrow({
+      id: mapleId,
+      searchBlob: blob,
+      description: image.description ?? null,
+      ocrText: (image as unknown as { ocr_text?: string }).ocr_text ?? null,
+      folderId: image.folder_id.toHexString(),
+      capturedAt: image.exif?.captured_at ?? null,
+      deletedAt: null,
+    });
+  }
+
+  return { patch: { search_blob: blob } };
 }
 
 export default defineStage({
   name: "meili",
   targetVersion: 1,
-  dependsOn: ["exif", "thumb", "face", "ocr", "describe", "geocode"],
+  // Only depends on always-on stages. When optional stages (face/ocr/describe/geocode)
+  // run later, meili won't automatically re-process to incorporate their outputs.
+  // Operator must bump meili.targetVersion or trigger a manual reset to refresh.
+  dependsOn: ["exif", "thumb"],
   defaults: {
     concurrency: 2,
     pollIntervalMs: 1000,

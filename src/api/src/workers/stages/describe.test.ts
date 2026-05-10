@@ -11,7 +11,7 @@ import {
 } from "../../enrichment/describe-providers/index.ts";
 import { cachePathFor } from "../../fs/xmp.ts";
 
-import { describeHandler } from "./describe.ts";
+import { describeHandler, setDescribeDepsForTests } from "./describe.ts";
 
 function fakeDoc(absPath: string): ImageDoc {
   return {
@@ -52,7 +52,10 @@ function mockProvider(result: DescribeResult | Error): DescribeProvider {
 
 let tmpRoot: string;
 beforeEach(() => { tmpRoot = mkdtempSync(join(tmpdir(), "maple-describe-stage-")); });
-afterEach(() => { rmSync(tmpRoot, { recursive: true, force: true }); });
+afterEach(() => {
+  rmSync(tmpRoot, { recursive: true, force: true });
+  setDescribeDepsForTests(null);
+});
 
 function seedThumb(absPath: string): void {
   const thumbPath = cachePathFor(absPath, "thumbs");
@@ -60,11 +63,7 @@ function seedThumb(absPath: string): void {
   writeFileSync(thumbPath, Buffer.from([0xff, 0xd8, 0xff, 0xd9]));
 }
 
-const DEFAULT_CTX = {
-  provider: undefined as never,
-  systemPrompt: "describe this image",
-  model: "llava:latest",
-};
+const fakeCtx = {} as never;
 
 describe("describeHandler — happy path", () => {
   it("returns patch with description and description_meta", async () => {
@@ -76,7 +75,8 @@ describe("describeHandler — happy path", () => {
       cost_usd: 0.01,
       provider_info: { eval_count: "30" },
     });
-    const result = await describeHandler(doc, { ...DEFAULT_CTX, provider } as never);
+    setDescribeDepsForTests({ provider, systemPrompt: "describe this image", model: "llava:latest" });
+    const result = await describeHandler(doc, fakeCtx);
     const patch = (result as { patch: Record<string, unknown> }).patch;
     expect(patch.description).toBe("A red bicycle against a brick wall.");
     const meta = patch.description_meta as Record<string, unknown>;
@@ -95,7 +95,8 @@ describe("describeHandler — provider errors", () => {
     seedThumb(absPath);
     const doc = fakeDoc(absPath);
     const provider = mockProvider(new RemoteError("Provider 5xx: 503", true, 503));
-    await expect(describeHandler(doc, { ...DEFAULT_CTX, provider } as never))
+    setDescribeDepsForTests({ provider, systemPrompt: "describe this image", model: "llava:latest" });
+    await expect(describeHandler(doc, fakeCtx))
       .rejects.toThrow("503");
   });
 
@@ -104,7 +105,8 @@ describe("describeHandler — provider errors", () => {
     seedThumb(absPath);
     const doc = fakeDoc(absPath);
     const provider = mockProvider(new RemoteError("Provider 4xx: 401", false, 401));
-    await expect(describeHandler(doc, { ...DEFAULT_CTX, provider } as never))
+    setDescribeDepsForTests({ provider, systemPrompt: "describe this image", model: "llava:latest" });
+    await expect(describeHandler(doc, fakeCtx))
       .rejects.toThrow("401");
   });
 });
@@ -119,7 +121,8 @@ describe("describeHandler — provider_info extras stored", () => {
       cost_usd: 0.04,
       provider_info: { input_tokens: "120", output_tokens: "20" },
     });
-    const result = await describeHandler(doc, { ...DEFAULT_CTX, provider } as never);
+    setDescribeDepsForTests({ provider, systemPrompt: "describe this image", model: "llava:latest" });
+    const result = await describeHandler(doc, fakeCtx);
     const meta = (result as { patch: { description_meta: Record<string, unknown> } }).patch.description_meta;
     expect(meta.input_tokens).toBe("120");
     expect(meta.output_tokens).toBe("20");
