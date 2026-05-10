@@ -42,7 +42,7 @@ export async function loadStage(name: string): Promise<StageConfig> {
 }
 
 // Only execute when run directly as a child process, not when imported by tests.
-if (import.meta.path === Bun.main) {
+if (import.meta.main) {
   const stageName = process.argv[2];
   if (!stageName) {
     process.stderr.write("Usage: bun run main.ts <stageName>\n");

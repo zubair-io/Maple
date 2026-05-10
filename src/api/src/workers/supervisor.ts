@@ -48,6 +48,8 @@ export interface StageProcessState {
   throughput: number;
   /** Number of in-flight docs at the last IPC poll. */
   inFlight: number;
+  /** The stage's targetVersion as reported by the child's IPC /status. */
+  targetVersion: number;
 }
 
 interface ChildHandle {
@@ -106,6 +108,7 @@ export class Supervisor {
         restartCount: 0,
         throughput: 0,
         inFlight: 0,
+        targetVersion: 1,
       },
       child: null,
       consecutiveCrashes: 0,
@@ -253,13 +256,14 @@ export class Supervisor {
             // Parse the response body and update inFlight/throughput so
             // the API /status route reports live values (Issue 12).
             try {
-              const body = await res.json() as { inFlight?: number; throughput?: number };
+              const body = await res.json() as { inFlight?: number; throughput?: number; targetVersion?: number };
               m.state = {
                 ...m.state,
                 status: "running",
                 lastError: null,
                 inFlight: typeof body.inFlight === "number" ? body.inFlight : m.state.inFlight,
                 throughput: typeof body.throughput === "number" ? body.throughput : m.state.throughput,
+                targetVersion: typeof body.targetVersion === "number" ? body.targetVersion : m.state.targetVersion,
               };
             } catch {
               m.state = { ...m.state, status: "running", lastError: null };

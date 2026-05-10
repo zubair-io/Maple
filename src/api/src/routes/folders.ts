@@ -15,6 +15,7 @@ import { foldersCollection, assetsCollection } from "../db/client.ts";
 import { validateRoot } from "../fs/root.ts";
 import { child as childLogger } from "../log.ts";
 import { handleEvent } from "../workers/discover/index.ts";
+import { stageManifest } from "../workers/stages/manifest.ts";
 
 const log = childLogger("folders");
 
@@ -144,6 +145,53 @@ export const foldersRoutes = new Elysia({ prefix: "/api/folders" })
         limit: t.Optional(t.String()),
       }),
     }
+  )
+
+  // Rescan a folder — resets stages.*.version to 0 (and clears dead/attempts/
+  // last_error) for every asset doc whose abs_path is under the folder's path
+  // tree. The stage controllers pick them up on their next poll cycle.
+  .post(
+    "/:id/rescan",
+    async ({ params, set }) => {
+      const folderIdStr = params.id;
+      if (!ObjectId.isValid(folderIdStr)) {
+        set.status = 400;
+        return { ok: false, error: "Invalid folderId" };
+      }
+      const id = new ObjectId(folderIdStr);
+      const folders = await foldersCollection();
+      const folder = await folders.findOne({ _id: id });
+      if (!folder) {
+        set.status = 404;
+        return { ok: false, error: "Folder not found" };
+      }
+      const scanRoot = folder.path;
+
+      // Build the $set payload: zero every stage's version and clear
+      // dead/attempts/last_error so the claim query picks the docs back up.
+      const stageResetFields: Record<string, unknown> = {};
+      for (const stage of stageManifest) {
+        stageResetFields[`stages.${stage.name}.version`] = 0;
+        stageResetFields[`stages.${stage.name}.dead`] = false;
+        stageResetFields[`stages.${stage.name}.attempts`] = 0;
+        stageResetFields[`stages.${stage.name}.last_error`] = null;
+      }
+
+      // Escape special regex chars in the path before embedding it.
+      const escapedRoot = scanRoot.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const assets = await assetsCollection();
+      const updateResult = await (assets as import("mongodb").Collection<import("mongodb").Document>).updateMany(
+        { abs_path: { $regex: `^${escapedRoot}/` } },
+        { $set: stageResetFields },
+      );
+
+      log.info(
+        { folderId: folderIdStr, path: scanRoot, modified: updateResult.modifiedCount },
+        "rescan: stage versions zeroed",
+      );
+
+      return { ok: true, folderId: folderIdStr, path: scanRoot, reset: updateResult.modifiedCount };
+    },
   );
 
 // ---------------------------------------------------------------------------
@@ -158,9 +206,26 @@ const SUPPORTED_EXTS = new Set([
 ]);
 
 /**
+ * Bounded async dispatcher — runs at most `limit` concurrent invocations of
+ * `run` across all `items`. Errors from individual items are swallowed (callers
+ * log before throwing or after the pool drains).
+ */
+async function dispatchPool<T>(items: T[], limit: number, run: (i: T) => Promise<void>): Promise<void> {
+  let idx = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (idx < items.length) {
+      const item = items[idx++]!;
+      await run(item).catch(() => {});
+    }
+  });
+  await Promise.all(workers);
+}
+
+/**
  * Recursively walk `rootPath` and call `handleEvent({ kind: "created" })` for
- * every supported image file found. Uses a bounded queue (CONCURRENCY=8) to
- * avoid file-descriptor exhaustion and memory spikes on large trees.
+ * every supported image file found. Uses a bounded directory queue (CONCURRENCY=8)
+ * to avoid file-descriptor exhaustion and a dispatchPool to limit concurrent
+ * handleEvent calls (also 8) so DB write pressure stays bounded on large trees.
  * Silently skips permission-denied subtrees.
  */
 async function scanFolderAndDiscover(rootPath: string, folderId: ObjectId): Promise<void> {
@@ -169,6 +234,8 @@ async function scanFolderAndDiscover(rootPath: string, folderId: ObjectId): Prom
 
   while (queue.length > 0) {
     const batch = queue.splice(0, CONCURRENCY);
+    const fileBatch: string[] = [];
+
     await Promise.all(
       batch.map(async (dir) => {
         let entries: Dirent[];
@@ -186,15 +253,20 @@ async function scanFolderAndDiscover(rootPath: string, folderId: ObjectId): Prom
           } else if (entry.isFile()) {
             const ext = nodePath.extname(entryName).toLowerCase();
             if (!SUPPORTED_EXTS.has(ext)) continue;
-            handleEvent({ kind: "created", absPath }, folderId).catch((err) =>
-              log.warn(
-                { absPath, err: err instanceof Error ? err.message : err },
-                "discover upsert failed during initial folder scan",
-              ),
-            );
+            fileBatch.push(absPath);
           }
         }
       }),
     );
+
+    // Dispatch the files found in this directory batch with bounded concurrency.
+    await dispatchPool(fileBatch, CONCURRENCY, async (absPath) => {
+      await handleEvent({ kind: "created", absPath }, folderId).catch((err) =>
+        log.warn(
+          { absPath, err: err instanceof Error ? err.message : err },
+          "discover upsert failed during initial folder scan",
+        ),
+      );
+    });
   }
 }

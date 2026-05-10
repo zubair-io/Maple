@@ -17,6 +17,7 @@ import {
   inject,
   signal,
 } from '@angular/core';
+import { type Subscription } from 'rxjs';
 import { DecimalPipe } from '@angular/common';
 import { RouterLink } from '@angular/router';
 import {
@@ -28,6 +29,7 @@ import {
 import { WorkerConfigDialogComponent } from './worker-config-dialog.component';
 
 const POLL_MS = 2_000;
+const ERROR_POLL_MS = 5_000;
 
 @Component({
   standalone: true,
@@ -50,12 +52,13 @@ export class WorkersComponent implements OnInit, OnDestroy {
 
   readonly stages = computed(() => this.status()?.stages ?? []);
 
+  private pollSub: Subscription | null = null;
   private pollTimer: ReturnType<typeof setTimeout> | null = null;
   private destroyed = false;
 
   ngOnInit(): void {
     // First poll fires immediately (synchronous in tests, immediate in prod).
-    this.doPoll();
+    this.scheduleNextPoll(0);
   }
 
   ngOnDestroy(): void {
@@ -64,33 +67,35 @@ export class WorkersComponent implements OnInit, OnDestroy {
       clearTimeout(this.pollTimer);
       this.pollTimer = null;
     }
-  }
-
-  private doPoll(): void {
-    if (this.destroyed) return;
-    this.api.getStatus().subscribe({
-      next: (data) => {
-        this.status.set(data);
-        this.error.set(null);
-        // Hydrate configs from each stage's persisted config field.
-        const entries: [string, WorkerConfig][] = [];
-        for (const s of data.stages) {
-          if (s.config) entries.push([s.name, s.config]);
-        }
-        if (entries.length > 0) {
-          this.configs.set(Object.fromEntries(entries));
-        }
-      },
-      error: (err) => {
-        this.error.set(err?.error?.error ?? err?.message ?? 'Failed to load worker status.');
-      },
-      complete: () => this.scheduleNextPoll(POLL_MS),
-    });
+    this.pollSub?.unsubscribe();
+    this.pollSub = null;
   }
 
   private scheduleNextPoll(delay: number): void {
     if (this.destroyed) return;
-    this.pollTimer = setTimeout(() => this.doPoll(), delay);
+    this.pollTimer = setTimeout(() => {
+      if (this.destroyed) return;
+      this.pollSub = this.api.getStatus().subscribe({
+        next: (data) => {
+          this.status.set(data);
+          this.error.set(null);
+          // Hydrate configs from each stage's persisted config field.
+          const entries: [string, WorkerConfig][] = [];
+          for (const s of data.stages) {
+            if (s.config) entries.push([s.name, s.config]);
+          }
+          if (entries.length > 0) {
+            this.configs.set(Object.fromEntries(entries));
+          }
+          this.scheduleNextPoll(POLL_MS);
+        },
+        error: (err) => {
+          this.error.set(err?.error?.error ?? err?.message ?? 'Failed to load worker status.');
+          // Back off on error so a temporarily unreachable server doesn't spam requests.
+          this.scheduleNextPoll(ERROR_POLL_MS);
+        },
+      });
+    }, delay);
   }
 
   // ── Actions ──────────────────────────────────────────────────────────────
@@ -140,7 +145,7 @@ export class WorkersComponent implements OnInit, OnDestroy {
 
   readonly dialogConfig = computed<WorkerConfig>(() => {
     const name = this.dialogStage();
-    const defaults: WorkerConfig = { concurrency: 1, pollIntervalMs: 1000, batchSize: 10, maxAttempts: 5 };
+    const defaults: WorkerConfig = { concurrency: 1, pollIntervalMs: 1000, batchSize: 10, maxAttempts: 5, paused: false, last_seen_target_version: 1 };
     if (!name) return defaults;
     return this.configs()[name] ?? defaults;
   });

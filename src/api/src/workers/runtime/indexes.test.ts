@@ -19,6 +19,10 @@ function makeDbStub(): { db: Db; getIndexes: (collName: string) => IndexSpec[] }
         collIndexes.get(name)!.push({ key, options });
         return options["name"] as string ?? JSON.stringify(key);
       },
+      async dropIndex(_indexName: string) {
+        // Simulate a no-op drop — the stub has no pre-existing indexes.
+        // The production code swallows IndexNotFound, so this is fine.
+      },
     } as unknown as Collection;
   }
 
@@ -33,20 +37,22 @@ function makeDbStub(): { db: Db; getIndexes: (collName: string) => IndexSpec[] }
 const STAGE_NAMES = ["hash", "exif", "thumb", "face", "ocr", "describe", "geocode", "meili"];
 
 describe("ensureStageIndexes", () => {
-  it("creates a partial index for each known stage", async () => {
+  it("creates a version index for each known stage (no partial filter)", async () => {
     const { db, getIndexes } = makeDbStub();
     const { ensureStageIndexes } = await import("../../db/client.ts");
     await ensureStageIndexes(db);
     const indexes = getIndexes("assets");
     for (const name of STAGE_NAMES) {
+      // Verify the stage_<name>_version index exists and covers the version field.
       const found = indexes.find(
         (idx) =>
           idx.key[`stages.${name}.version`] === 1 &&
-          (idx.options["partialFilterExpression"] as Record<string, unknown>)?.[
-            `stages.${name}.dead`
-          ] !== undefined,
+          idx.options["name"] === `stage_${name}_version`,
       );
       expect(found).toBeDefined();
+      // No partial filter — the index covers all docs so both dead=false and
+      // dead=missing (fresh assets) hit the index on claim queries.
+      expect(found?.options["partialFilterExpression"]).toBeUndefined();
     }
   });
 

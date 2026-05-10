@@ -179,12 +179,21 @@ const WORKER_STAGE_NAMES = [
  */
 export async function ensureStageIndexes(db: Db): Promise<void> {
   for (const name of WORKER_STAGE_NAMES) {
+    // Drop the old partial index (which used { dead: { $eq: false } }) so we
+    // can recreate it without a partial filter. The old filter excluded docs
+    // where `dead` is missing (freshly-indexed assets never had this field
+    // set) — those new docs would fall back to a collection scan on the claim
+    // query. Without the partial filter the index covers all docs and the
+    // claim query `dead: { $ne: true }` hits the index for both false and
+    // missing values. The index is larger but correctness beats compactness here.
+    try {
+      await db.collection("assets").dropIndex(`stage_${name}_version`);
+    } catch {
+      // IndexNotFound is fine — index may not exist yet on a fresh deploy.
+    }
     await db.collection("assets").createIndex(
       { [`stages.${name}.version`]: 1 },
-      {
-        name: `stage_${name}_version`,
-        partialFilterExpression: { [`stages.${name}.dead`]: { $eq: false } },
-      },
+      { name: `stage_${name}_version` },
     );
   }
 }

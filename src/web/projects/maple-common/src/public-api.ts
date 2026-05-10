@@ -82,8 +82,6 @@ export * from './lib/auth/auth.service';
 export * from './lib/auth/auth.guard';
 export * from './lib/auth/auth.interceptor';
 
-export * from './lib/services/indexer-events.service';
-
 // Timeline view (web — Self-Hosted only).
 export * from './lib/state/timeline-state.service';
 export * from './lib/components/timeline-view/timeline-view.component';

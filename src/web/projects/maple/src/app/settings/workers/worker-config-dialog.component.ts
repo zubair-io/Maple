@@ -82,8 +82,14 @@ export class WorkerConfigDialogComponent {
       next: (res) => {
         this.saving.set(false);
         // Fall back to the submitted form values if the server doesn't echo
-        // the config back (e.g. DB unavailable path returns null).
-        const returnedConfig: WorkerConfig = res.config ?? this.form.getRawValue();
+        // the config back (e.g. DB unavailable path returns null). Merge in
+        // the non-form fields (paused, last_seen_target_version) from the
+        // current config so the emitted value satisfies WorkerConfig fully.
+        const returnedConfig: WorkerConfig = res.config ?? {
+          ...this.form.getRawValue(),
+          paused: this.config().paused,
+          last_seen_target_version: this.config().last_seen_target_version,
+        };
         this.saved.emit(returnedConfig);
       },
       error: (err) => {
