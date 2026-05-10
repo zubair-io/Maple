@@ -462,9 +462,6 @@ export interface StartSupervisorOptions extends SupervisorOptions {
   /** Optional discover configuration — if provided, startDiscover is called
    *  in-process and the handle is bundled into the returned stop(). */
   discover?: {
-    /** Optional folder ObjectId hex. Omit when watching all registered folder
-     *  roots without a specific folder association (e.g. startup auto-discover). */
-    folderId?: string;
     roots: string[];
   };
 }
@@ -476,25 +473,38 @@ export interface SupervisorHandle {
 let _singleton: Supervisor | null = null;
 
 /**
+ * Inject an externally-constructed Supervisor as the module singleton.
+ * Called by buildApp() so that the single Supervisor created there is the same
+ * instance accessed by supervisorState(), pauseSupervisor(), etc.
+ * Must be called before startSupervisor() or any of the convenience helpers.
+ */
+export function setSupervisorSingleton(sup: Supervisor): void {
+  _singleton = sup;
+}
+
+/**
  * Start the supervisor with the given stage list.
- * Idempotent — if already running, stops the old instance first.
+ * If an existing singleton was injected via setSupervisorSingleton, it is
+ * reused (stages are already spawned); otherwise a new one is created.
+ * Idempotent on repeated calls — stops the old instance first when replacing.
  */
 export async function startSupervisor(opts: StartSupervisorOptions): Promise<SupervisorHandle> {
+  // If a singleton was pre-registered by buildApp, use it; don't create a
+  // second Supervisor (Issue 2 fix).
+  let sup: Supervisor;
   if (_singleton) {
-    await _singleton.stopAll();
-    _singleton = null;
+    sup = _singleton;
+  } else {
+    const { stages, ...supervisorOpts } = opts;
+    sup = new Supervisor(stages, supervisorOpts);
+    _singleton = sup;
   }
 
-  const { stages, discover, ...supervisorOpts } = opts;
-  const sup = new Supervisor(stages, supervisorOpts);
-  _singleton = sup;
-
   let discoverHandle: { stop: () => Promise<void> } | null = null;
-  if (discover && discover.roots.length > 0) {
+  if (opts.discover && opts.discover.roots.length > 0) {
     const { startDiscover } = await import("./discover/index.ts");
     discoverHandle = await startDiscover({
-      folderId: discover.folderId ?? "",
-      roots: discover.roots,
+      roots: opts.discover.roots,
     });
   }
 
