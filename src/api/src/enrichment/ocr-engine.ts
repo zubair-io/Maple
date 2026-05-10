@@ -192,3 +192,8 @@ export async function resetOcrEngine(): Promise<void> {
   singleton = null;
   if (s) await s.shutdown();
 }
+
+/** Test-only: replace the engine. Pass `null` to clear. */
+export function setOcrEngineForTests(e: OcrEngine | null): void {
+  singleton = e;
+}

@@ -1,10 +1,10 @@
-import { describe, it, expect } from "bun:test";
+import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { ObjectId } from "mongodb";
 import type { ImageDoc } from "../runtime/define-stage.ts";
 import { CoordinateCache } from "../../enrichment/coordinate-cache.ts";
 import { NominatimClient, NominatimError } from "../../enrichment/nominatim-client.ts";
 
-import { geocodeHandler } from "./geocode.ts";
+import { geocodeHandler, setGeocodeDepsForTests } from "./geocode.ts";
 
 function fakeDoc(gps: { lat: number; lng: number } | null = { lat: 42.65, lng: -73.75 }): ImageDoc {
   return {
@@ -71,14 +71,17 @@ function freshCache(): CoordinateCache {
   return new CoordinateCache({ geocoderVersion: ++versionCounter });
 }
 
-function makeCtx(client: NominatimClient) {
-  return { client, cache: freshCache() } as never;
-}
+const fakeCtx = {} as never;
+
+afterEach(() => {
+  setGeocodeDepsForTests(null);
+});
 
 describe("geocodeHandler — happy path", () => {
   it("returns patch with place populated from Nominatim response", async () => {
     const doc = fakeDoc();
-    const result = await geocodeHandler(doc, makeCtx(fakeNominatim(MUSEUM_RESPONSE)));
+    setGeocodeDepsForTests({ client: fakeNominatim(MUSEUM_RESPONSE), cache: freshCache() });
+    const result = await geocodeHandler(doc, fakeCtx);
     const patch = (result as { patch: { place: Record<string, unknown> } }).patch;
     expect(patch.place).toBeTruthy();
     expect(patch.place.display_name).toBe("Test Museum, Albany");
@@ -95,15 +98,16 @@ describe("geocodeHandler — happy path", () => {
       return new Response(JSON.stringify(MUSEUM_RESPONSE), { status: 200 });
     }) as unknown as typeof fetch;
     const client = new NominatimClient({ baseUrl: "http://nominatim.test", fetchImpl, rateLimitPerSec: 1000 });
-    const ctx = { client, cache } as never;
-    await geocodeHandler(fakeDoc(), ctx);
-    await geocodeHandler(fakeDoc(), ctx);
+    setGeocodeDepsForTests({ client, cache });
+    await geocodeHandler(fakeDoc(), fakeCtx);
+    await geocodeHandler(fakeDoc(), fakeCtx);
     expect(callCount).toBe(1);
   });
 
   it("returns skip when image has no GPS", async () => {
     const doc = fakeDoc(null);
-    const result = await geocodeHandler(doc, makeCtx(fakeNominatim(MUSEUM_RESPONSE)));
+    setGeocodeDepsForTests({ client: fakeNominatim(MUSEUM_RESPONSE), cache: freshCache() });
+    const result = await geocodeHandler(doc, fakeCtx);
     expect((result as { skip: string }).skip).toBeTruthy();
   });
 });
@@ -111,13 +115,15 @@ describe("geocodeHandler — happy path", () => {
 describe("geocodeHandler — Nominatim errors", () => {
   it("5xx propagates as NominatimError (retryable)", async () => {
     const doc = fakeDoc();
-    await expect(geocodeHandler(doc, makeCtx(errorNominatim(503))))
+    setGeocodeDepsForTests({ client: errorNominatim(503), cache: freshCache() });
+    await expect(geocodeHandler(doc, fakeCtx))
       .rejects.toBeInstanceOf(NominatimError);
   });
 
   it("4xx propagates as NominatimError (non-retryable)", async () => {
     const doc = fakeDoc();
-    await expect(geocodeHandler(doc, makeCtx(errorNominatim(400))))
+    setGeocodeDepsForTests({ client: errorNominatim(400), cache: freshCache() });
+    await expect(geocodeHandler(doc, fakeCtx))
       .rejects.toBeInstanceOf(NominatimError);
   });
 });
@@ -126,7 +132,8 @@ describe("geocodeHandler — lat/lon provenance", () => {
   it("place.lat/lon are taken from the asset's EXIF, not Nominatim response", async () => {
     const doc = fakeDoc({ lat: 42.65, lng: -73.75 });
     const bodyWithDifferentCoords = { ...MUSEUM_RESPONSE, lat: "99.9", lon: "99.9" };
-    const result = await geocodeHandler(doc, makeCtx(fakeNominatim(bodyWithDifferentCoords)));
+    setGeocodeDepsForTests({ client: fakeNominatim(bodyWithDifferentCoords), cache: freshCache() });
+    const result = await geocodeHandler(doc, fakeCtx);
     const place = (result as { patch: { place: { lat: number; lon: number } } }).patch.place;
     expect(place.lat).toBe(42.65);
     expect(place.lon).toBe(-73.75);
