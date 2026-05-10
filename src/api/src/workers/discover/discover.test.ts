@@ -202,4 +202,44 @@ describe("discover producer", () => {
     await foldersColl.deleteOne({ _id: folderId });
     await rm(tempDir, { recursive: true, force: true });
   });
+
+  it("does not collide on shared basename across folders", async () => {
+    if (!mongoReachable) return;
+
+    const { handleEvent } = await import("./index.ts");
+    const { assetsCollection, foldersCollection } = await import("../../db/client.ts");
+
+    // Create two real tmp dirs so stat() inside handleEvent succeeds for both paths.
+    const dir2024 = await mkdtemp(path.join(os.tmpdir(), "discover-coll-2024-"));
+    const dir2025 = await mkdtemp(path.join(os.tmpdir(), "discover-coll-2025-"));
+    const file2024 = path.join(dir2024, "IMG_0001.DNG");
+    const file2025 = path.join(dir2025, "IMG_0001.DNG");
+    await writeFile(file2024, Buffer.alloc(100, 0x11));
+    await writeFile(file2025, Buffer.alloc(100, 0x22));
+
+    const foldersColl = await foldersCollection();
+    const folderResult = await foldersColl.insertOne({
+      abs_path: dir2024,
+      name: "collision-test-folder",
+      created_at: new Date().toISOString(),
+    } as never);
+    const folderId = folderResult.insertedId;
+
+    const coll = await assetsCollection();
+
+    // Insert two docs that share a basename but have different absolute paths.
+    await handleEvent({ kind: "created", absPath: file2024 }, folderId);
+    await handleEvent({ kind: "created", absPath: file2025 }, folderId);
+
+    const docs = await coll.find({ filename: "IMG_0001.DNG" }).toArray();
+    expect(docs.length).toBe(2);
+    const paths = docs.map((d) => (d as Record<string, unknown>).abs_path as string).sort();
+    expect(paths).toEqual([file2024, file2025].sort());
+
+    // Clean up.
+    await coll.deleteMany({ filename: "IMG_0001.DNG" });
+    await foldersColl.deleteOne({ _id: folderId });
+    await rm(dir2024, { recursive: true, force: true });
+    await rm(dir2025, { recursive: true, force: true });
+  });
 });
