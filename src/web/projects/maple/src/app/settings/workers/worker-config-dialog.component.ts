@@ -13,6 +13,7 @@ import {
   inject,
   input,
   output,
+  signal,
 } from '@angular/core';
 import { ReactiveFormsModule, FormBuilder, Validators } from '@angular/forms';
 import {
@@ -50,8 +51,8 @@ export class WorkerConfigDialogComponent {
     maxAttempts:    [5, [Validators.required, Validators.min(1), Validators.max(20)]],
   });
 
-  readonly saveError = { value: null as string | null };
-  readonly saving = { value: false };
+  readonly saveError = signal<string | null>(null);
+  readonly saving = signal(false);
 
   constructor() {
     // Re-sync form whenever the config input signal changes.
@@ -68,17 +69,17 @@ export class WorkerConfigDialogComponent {
 
   save(): void {
     if (this.form.invalid) return;
-    this.saving.value = true;
-    this.saveError.value = null;
+    this.saving.set(true);
+    this.saveError.set(null);
     const name = this.stage().name;
     this.api.patchConfig(name, this.form.getRawValue()).subscribe({
       next: (res) => {
-        this.saving.value = false;
+        this.saving.set(false);
         this.saved.emit(res.config);
       },
       error: (err) => {
-        this.saving.value = false;
-        this.saveError.value = err?.error?.error ?? err?.message ?? 'Save failed.';
+        this.saving.set(false);
+        this.saveError.set(err?.error?.error ?? err?.message ?? 'Save failed.');
       },
     });
   }

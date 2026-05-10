@@ -125,11 +125,11 @@ export class WorkersComponent implements OnInit, OnDestroy {
     return this.stages().find((s) => s.name === name) ?? null;
   });
 
-  activeConfigSignal(name: string) {
-    return computed(() => {
-      return this.configs().get(name) ?? { concurrency: 1, pollIntervalMs: 1000, batchSize: 10, maxAttempts: 5 };
-    });
-  }
+  readonly dialogConfig = computed<WorkerConfig>(() => {
+    const name = this.dialogStage();
+    if (!name) return { concurrency: 1, pollIntervalMs: 1000, batchSize: 10, maxAttempts: 5 };
+    return this.configs().get(name) ?? { concurrency: 1, pollIntervalMs: 1000, batchSize: 10, maxAttempts: 5 };
+  });
 
   // ── Display helpers ───────────────────────────────────────────────────────
 
