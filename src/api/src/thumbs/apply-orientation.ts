@@ -12,7 +12,8 @@
  * produce byte-equivalent thumbs in `.maple/thumbs/`.
  */
 
-import { rename, writeFile } from "node:fs/promises";
+import { rename, unlink, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import sharp from "sharp";
 
 export async function applyExifOrientationInPlace(
@@ -25,7 +26,12 @@ export async function applyExifOrientationInPlace(
     .rotate()
     .jpeg({ quality: 82, mozjpeg: true })
     .toBuffer();
-  const tmp = `${jpegPath}.${process.pid}.rot.tmp`;
-  await writeFile(tmp, buf);
-  await rename(tmp, jpegPath);
+  const tmp = `${jpegPath}.${process.pid}.${randomUUID()}.rot.tmp`;
+  try {
+    await writeFile(tmp, buf);
+    await rename(tmp, jpegPath);
+  } catch (err) {
+    await unlink(tmp).catch(() => {});
+    throw err;
+  }
 }
