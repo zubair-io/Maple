@@ -7,24 +7,44 @@
  * now handled by the downstream `meili` stage (which fans in all enrichment
  * outputs and owns the Meilisearch write).
  *
- * ENOENT on the thumbnail propagates as-is; the runtime classifies it as
- * retryable (filesystem transient) per the existing `isRetryable` semantics in
- * `ocr-worker.ts`. Engine throws propagate as non-retryable (bad-input die path).
+ * `pausedOnFirstBoot: true` — OCR was opt-in in the previous worker design.
+ * Operators must explicitly unpause from /settings/workers.
+ *
+ * Error semantics:
+ *   - ENOENT on the thumbnail is non-retryable: the thumb file is gone and
+ *     retrying will not fix it. Returns `{ skip: "image-missing" }` so the
+ *     runtime marks the stage done without consuming attempts.
+ *   - All other errors (engine failures, corrupt input) are retried up to
+ *     maxAttempts by the runtime's default error-handling path. Consider
+ *     returning `{ skip: ... }` for known non-retryable conditions.
+ *
+ * The OcrEngine dependency is resolved from the module-level singleton
+ * (`ocrEngine()`) — not injected via ctx — so the handler is type-compatible
+ * with `defineStage`'s `(image, ctx: StageContext) => ...` contract.
  */
 
 import { readFile } from "node:fs/promises";
 import type { ImageDoc, StageContext, StageResult } from "../runtime/define-stage.ts";
 import { defineStage } from "../runtime/define-stage.ts";
 import { cachePathFor } from "../../fs/xmp.ts";
-import { ocrEngine, type OcrEngine } from "../../enrichment/ocr-engine.ts";
+import { ocrEngine } from "../../enrichment/ocr-engine.ts";
 
 export async function ocrHandler(
   image: ImageDoc,
-  ctx: StageContext & { engine?: OcrEngine },
+  _ctx: StageContext,
 ): Promise<StageResult> {
-  const engine = ctx.engine ?? ocrEngine();
+  const engine = ocrEngine();
   const thumbPath = cachePathFor(image.abs_path as string, "thumbs");
-  const bytes = new Uint8Array(await readFile(thumbPath));
+  let bytes: Uint8Array;
+  try {
+    bytes = new Uint8Array(await readFile(thumbPath));
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === "ENOENT") {
+      return { skip: "image-missing" };
+    }
+    throw err;
+  }
   const out = await engine.recognizeText(bytes);
   return {
     patch: {
@@ -49,7 +69,7 @@ export default defineStage({
     maxAttempts: 5,
     paused: false,
     last_seen_target_version: 0,
-    pausedOnFirstBoot: false,
+    pausedOnFirstBoot: true,
   },
   handler: ocrHandler,
 });

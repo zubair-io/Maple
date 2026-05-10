@@ -1,9 +1,9 @@
-import { describe, it, expect } from "bun:test";
+import { describe, it, expect, afterEach } from "bun:test";
 import { ObjectId } from "mongodb";
 import type { ImageDoc } from "../runtime/define-stage.ts";
 import type { MeilisearchClient, MeilisearchAssetDoc } from "../../enrichment/meilisearch-client.ts";
 
-import { meiliHandler } from "./meili.ts";
+import { meiliHandler, setMeilisearchClientForTests } from "./meili.ts";
 
 function fakeDoc(overrides: Partial<ImageDoc> = {}): ImageDoc {
   return {
@@ -54,6 +54,7 @@ function capturingClient(): { client: MeilisearchClient; upserts: MeilisearchAss
     health: async () => true,
     ensureIndex: async () => {},
     upsert: async (doc) => { upserts.push(doc); },
+    upsertOrThrow: async (doc) => { upserts.push(doc); },
     tombstone: async () => {},
     search: async () => ({ ids: [], estimatedTotal: 0 }),
   };
@@ -66,17 +67,40 @@ function failingClient(): MeilisearchClient {
     health: async () => true,
     ensureIndex: async () => {},
     upsert: async () => { throw new Error("simulated meili failure"); },
+    upsertOrThrow: async () => { throw new Error("simulated meili failure"); },
     tombstone: async () => {},
     search: async () => ({ ids: [], estimatedTotal: 0 }),
   };
 }
 
+function unconfiguredClient(): MeilisearchClient {
+  return {
+    isConfigured: () => false,
+    health: async () => false,
+    ensureIndex: async () => {},
+    upsert: async () => {},
+    upsertOrThrow: async () => { throw new Error("meilisearch: not configured"); },
+    tombstone: async () => {},
+    search: async () => ({ ids: [], estimatedTotal: 0 }),
+  };
+}
+
+const fakeCtx = {} as never;
+
+afterEach(() => {
+  setMeilisearchClientForTests(null);
+});
+
 describe("meiliHandler — upsert payload shape", () => {
-  it("upserts with correct id, folderId, capturedAt, searchBlob, description, ocrText", async () => {
+  it("returns patch.search_blob and upserts with correct id, folderId, capturedAt, searchBlob, description, ocrText", async () => {
     const { client, upserts } = capturingClient();
+    setMeilisearchClientForTests(client);
     const doc = fakeDoc();
-    const result = await meiliHandler(doc, { meilisearch: client } as never);
-    expect((result as { wrote: boolean }).wrote).toBe(true);
+    const result = await meiliHandler(doc, fakeCtx);
+    // Returns patch with search_blob for Mongo $text fallback.
+    const patch = (result as { patch: { search_blob: string } }).patch;
+    expect(typeof patch.search_blob).toBe("string");
+    // Also upserted to Meilisearch.
     expect(upserts.length).toBe(1);
     const u = upserts[0]!;
     expect(u.id).toBe("maple-abc-123");
@@ -98,31 +122,47 @@ describe("meiliHandler — upsert payload shape", () => {
 });
 
 describe("meiliHandler — no maple_id", () => {
-  it("returns { wrote: true } and skips the upsert when maple_id is absent", async () => {
+  it("returns { skip: 'no-maple-id' } and skips the upsert when maple_id is absent", async () => {
     const { client, upserts } = capturingClient();
+    setMeilisearchClientForTests(client);
     // Override to drop maple_id — cast through unknown since it's not on ImageDoc's
     // base type (it's an IndexerAssetFields extension).
     const doc = { ...fakeDoc(), ...({ maple_id: undefined } as unknown as Partial<ImageDoc>) } as ImageDoc;
-    const result = await meiliHandler(doc, { meilisearch: client } as never);
-    expect((result as { wrote: boolean }).wrote).toBe(true);
+    const result = await meiliHandler(doc, fakeCtx);
+    expect((result as { skip: string }).skip).toBe("no-maple-id");
     expect(upserts.length).toBe(0);
   });
 });
 
 describe("meiliHandler — Meilisearch error tolerance", () => {
   it("Meilisearch upsert failure results in handler throw so runtime retries", async () => {
+    setMeilisearchClientForTests(failingClient());
     const doc = fakeDoc();
     await expect(
-      meiliHandler(doc, { meilisearch: failingClient() } as never),
+      meiliHandler(doc, fakeCtx),
     ).rejects.toThrow("simulated meili failure");
+  });
+});
+
+describe("meiliHandler — unconfigured Meilisearch", () => {
+  it("still returns patch.search_blob even when Meilisearch is not configured", async () => {
+    setMeilisearchClientForTests(unconfiguredClient());
+    const doc = fakeDoc();
+    const result = await meiliHandler(doc, fakeCtx);
+    const patch = (result as { patch: { search_blob: string } }).patch;
+    expect(typeof patch.search_blob).toBe("string");
+    // Blob includes tokens from all three sources.
+    const tokens = patch.search_blob.split(" ");
+    expect(tokens).toContain("albany");
   });
 });
 
 describe("meiliHandler — null enrichment fields", () => {
   it("produces a valid (possibly empty) blob when description and ocr_text are null", async () => {
     const { client, upserts } = capturingClient();
+    setMeilisearchClientForTests(client);
     const doc = { ...fakeDoc(), description: null, ...({ ocr_text: null } as unknown as Partial<ImageDoc>) } as ImageDoc;
-    await meiliHandler(doc, { meilisearch: client } as never);
+    await meiliHandler(doc, fakeCtx);
     expect(upserts.length).toBe(1);
     const blob = upserts[0]!.searchBlob;
     // Place tokens still contribute.
