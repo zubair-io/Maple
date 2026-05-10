@@ -21,7 +21,7 @@
 | `src/api/src/indexer/thumbnailer.ts` | Modify | After successful `renderRawThumbToFile`, call the helper on the written thumb. |
 | `src/api/src/routes/fs-thumbs.ts` | Modify | After successful FFI write in the RAW branch, call the helper on the written thumb. |
 
-Three files touched, one helper module created, no public API changes.
+Four files: two new (helper + its test) and two modifications (the indexer and live thumb routes wire the helper in). No public API changes.
 
 ---
 
