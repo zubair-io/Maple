@@ -31,10 +31,6 @@ const log = child("discover");
 export interface DiscoverOptions {
   /** Absolute paths to watch. One path per registered folder root. */
   roots: string[];
-  /** The folder ObjectId hex that all newly created docs are associated with.
-   *  In the full multi-folder system the supervisor passes one discover child
-   *  per folder; for now a single instance is sufficient. */
-  folderId: string;
   /** File extensions to index (default: the standard SUPPORTED_EXTS set). */
   include?: Set<string>;
   /** Debounce window in ms (default: 250). */
@@ -122,18 +118,52 @@ export async function handleEvent(event: WatchEvent, folderId: ObjectId): Promis
 }
 
 /**
+ * Resolve the folder_id for an absolute file path by longest-prefix match
+ * against the list of registered folders.
+ */
+function resolveFolderId(
+  absPath: string,
+  folders: Array<{ _id: ObjectId; path: string }>,
+): ObjectId | null {
+  let best: { _id: ObjectId; path: string } | null = null;
+  for (const f of folders) {
+    const root = f.path.endsWith("/") ? f.path : f.path + "/";
+    if (absPath.startsWith(root) || absPath === f.path) {
+      if (!best || f.path.length > best.path.length) {
+        best = f;
+      }
+    }
+  }
+  return best ? best._id : null;
+}
+
+/**
  * Start the discover loop. Called by the supervisor in-process (or by tests).
+ * Resolves folder documents from MongoDB at start time; each FS event derives
+ * its folder_id from the file's absolute path via longest-prefix match so
+ * that no folderId parameter is required at call time.
  * Returns a handle that stops the watcher gracefully.
  */
 export async function startDiscover(opts: DiscoverOptions): Promise<DiscoverHandle> {
-  const folderId = new ObjectId(opts.folderId);
   const include = opts.include ?? SUPPORTED_EXTS;
+
+  // Load registered folders once at start time. Refreshed on SIGHUP if needed
+  // in the future; for now a restart is sufficient when folders change.
+  const foldersColl = await foldersCollection();
+  const folderDocs = (await foldersColl
+    .find({}, { projection: { path: 1 } })
+    .toArray()) as Array<{ _id: ObjectId; path: string }>;
 
   const watcher = new Watcher({
     roots: opts.roots,
     debounceMs: opts.debounceMs,
     include,
     onEvent: (event: WatchEvent) => {
+      const folderId = resolveFolderId(event.absPath, folderDocs);
+      if (!folderId) {
+        log.warn({ absPath: event.absPath }, "no registered folder matched — skipping event");
+        return;
+      }
       handleEvent(event, folderId).catch((err) => {
         log.error(
           { absPath: event.absPath, err: err instanceof Error ? err.message : err },
@@ -152,23 +182,24 @@ export async function startDiscover(opts: DiscoverOptions): Promise<DiscoverHand
 
 /**
  * Child-process entry point. The supervisor spawns:
- *   bun src/api/src/workers/discover/index.ts <folderId> <root1> [<root2> ...]
+ *   bun src/api/src/workers/discover/index.ts <root1> [<root2> ...]
  *
  * Connects to Mongo, starts the watcher, runs until SIGTERM/SIGINT.
+ * folder_id is resolved per-event from the registered folders collection.
  */
 async function main(): Promise<void> {
-  const [, , folderId, ...roots] = process.argv;
-  if (!folderId || roots.length === 0) {
+  const [, , ...roots] = process.argv;
+  if (roots.length === 0) {
     process.stderr.write(
-      "Usage: bun src/api/src/workers/discover/index.ts <folderId> <root1> [<root2>...]\n",
+      "Usage: bun src/api/src/workers/discover/index.ts <root1> [<root2>...]\n",
     );
     process.exit(1);
   }
 
   await getDb().then(() => ensureIndexes());
 
-  const handle = await startDiscover({ folderId, roots });
-  log.info({ folderId, roots }, "discover started");
+  const handle = await startDiscover({ roots });
+  log.info({ roots }, "discover started");
 
   async function shutdown(): Promise<void> {
     log.info("shutting down discover");
