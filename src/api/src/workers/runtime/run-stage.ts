@@ -308,6 +308,7 @@ interface IpcServerOptions {
   name: string;
   throughput: ThroughputWindow;
   getInFlight: () => number;
+  getTargetVersion?: () => number;
   onPause?: () => Promise<void> | void;
   onResume?: () => Promise<void> | void;
   /**
@@ -323,7 +324,7 @@ interface IpcServerOptions {
  * Small HTTP server listening on 127.0.0.1 only. The supervisor discovers
  * the port by reading the child's stdout line "__MAPLE_IPC_PORT__=<port>".
  * Responds to:
- *   GET  /status         → { status, inFlight, throughput }
+ *   GET  /status         → { status, inFlight, throughput, targetVersion }
  *   POST /pause          → calls onPause callback (awaited)
  *   POST /resume         → calls onResume callback (awaited)
  *   POST /reload-config  → calls onReloadConfig callback (re-reads config from Mongo)
@@ -349,6 +350,7 @@ export class IpcServer {
             status: "running",
             inFlight: opts.getInFlight(),
             throughput: opts.throughput.countInWindow(),
+            targetVersion: opts.getTargetVersion?.() ?? 1,
           });
         }
         if (req.method === "POST" && url.pathname === "/pause") {
@@ -438,6 +440,7 @@ export async function runStage(stage: StageConfig): Promise<void> {
     name: stage.name,
     throughput,
     getInFlight: () => inFlightSet.size,
+    getTargetVersion: () => stage.targetVersion,
     onPause: async () => {
       await repo.patch(stage.name, { paused: true });
       config = { ...config, paused: true };

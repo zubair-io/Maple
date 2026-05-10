@@ -13,7 +13,8 @@ export interface WorkerConfig {
   pollIntervalMs: number;
   batchSize: number;
   maxAttempts: number;
-  paused?: boolean;
+  paused: boolean;
+  last_seen_target_version: number;
 }
 
 /** API status payload — one entry per stage from GET /api/workers/status. */
