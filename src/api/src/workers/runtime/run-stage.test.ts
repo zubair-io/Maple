@@ -101,12 +101,18 @@ function makeImagesMock(initial: ImageDoc[] = []): Collection<ImageDoc> {
 
 function matchesFilter(doc: unknown, filter: Record<string, unknown>): boolean {
   for (const [key, val] of Object.entries(filter)) {
+    // Handle $or at the top level
+    if (key === "$or") {
+      const arr = val as Record<string, unknown>[];
+      if (!arr.some((subFilter) => matchesFilter(doc, subFilter))) return false;
+      continue;
+    }
+
     const docVal = getNestedValue(doc as Record<string, unknown>, key);
     if (val !== null && typeof val === "object") {
       const op = val as Record<string, unknown>;
       if ("$lt" in op) {
         const limit = op["$lt"] as number;
-        // Mongo treats missing fields as "less than any number" — match if missing.
         if (docVal === undefined) continue;
         if (!(typeof docVal === "number" && docVal < limit)) return false;
       }
@@ -118,6 +124,11 @@ function matchesFilter(doc: unknown, filter: Record<string, unknown>): boolean {
       if ("$nin" in op) {
         const arr = op["$nin"] as unknown[];
         if (arr.includes(docVal)) return false;
+      }
+      if ("$exists" in op) {
+        const expected = op["$exists"] as boolean;
+        if (expected === false && docVal !== undefined) return false;
+        if (expected === true && docVal === undefined) return false;
       }
     } else {
       if (docVal !== val) return false;
@@ -254,15 +265,18 @@ describe("versionBumpReset", () => {
 });
 
 describe("buildClaimQuery", () => {
-  it("requires version < targetVersion and not dead", () => {
+  it("uses $or to match version < targetVersion or missing field", () => {
     const q = buildClaimQuery("hash", 2, [], new Set());
-    expect(q["stages.hash.version"]).toEqual({ $lt: 2 });
+    const orClauses = (q as Record<string, unknown>)["$or"] as Record<string, unknown>[];
+    expect(orClauses).toHaveLength(2);
+    expect(orClauses[0]).toEqual({ "stages.hash.version": { $lt: 2 } });
+    expect(orClauses[1]).toEqual({ "stages.hash.version": { $exists: false } });
     expect(q["stages.hash.dead"]).toEqual({ $ne: true });
   });
 
-  it("adds dependency version predicates", () => {
-    const q = buildClaimQuery("exif", 1, ["hash"], new Set());
-    expect(q["stages.hash.version"]).toEqual({ $gte: 1 });
+  it("adds dependency version predicates using dep.minVersion", () => {
+    const q = buildClaimQuery("exif", 1, [{ name: "hash", minVersion: 1 }], new Set());
+    expect((q as Record<string, unknown>)["stages.hash.version"]).toEqual({ $gte: 1 });
   });
 
   it("excludes in-flight _ids", () => {
@@ -270,13 +284,43 @@ describe("buildClaimQuery", () => {
     const id1 = "id1" as unknown as import("mongodb").ObjectId;
     const id2 = "id2" as unknown as import("mongodb").ObjectId;
     const inFlight = new Set([id1, id2]);
-    const q = buildClaimQuery("thumb", 1, ["hash", "exif"], inFlight);
+    const q = buildClaimQuery("thumb", 1, [{ name: "hash", minVersion: 1 }, { name: "exif", minVersion: 1 }], inFlight);
     expect((q["_id"] as { $nin: unknown[] }).$nin).toHaveLength(2);
   });
 
   it("omits _id.$nin when in-flight is empty", () => {
     const q = buildClaimQuery("hash", 1, [], new Set());
     expect(q["_id"]).toBeUndefined();
+  });
+
+  it("matches docs without a stages field (missing-field branch)", async () => {
+    // A doc with no stages at all — should be claimed for processing.
+    const images = makeImagesMock([
+      { abs_path: "/no-stages.raw" } as ImageDoc,
+    ]);
+    const q = buildClaimQuery("hash", 1, [], new Set());
+    const docs = await images.find(q as Record<string, unknown>).limit(10).toArray();
+    expect(docs).toHaveLength(1);
+    expect(docs[0]?.abs_path).toBe("/no-stages.raw");
+  });
+
+  it("respects dep minVersion when greater than 1", async () => {
+    // Dep "hash" is at version 1 but minVersion required is 2 — should NOT be claimed.
+    // Dep "hash" at version 2 should be claimed.
+    const images = makeImagesMock([
+      {
+        abs_path: "/dep-stale.raw",
+        stages: { hash: { version: 1, attempts: 0, last_error: null, processed_at: null, dead: false } },
+      } as ImageDoc,
+      {
+        abs_path: "/dep-ready.raw",
+        stages: { hash: { version: 2, attempts: 0, last_error: null, processed_at: null, dead: false } },
+      } as ImageDoc,
+    ]);
+    const q = buildClaimQuery("exif", 1, [{ name: "hash", minVersion: 2 }], new Set());
+    const docs = await images.find(q as Record<string, unknown>).limit(10).toArray();
+    expect(docs).toHaveLength(1);
+    expect(docs[0]?.abs_path).toBe("/dep-ready.raw");
   });
 });
 
