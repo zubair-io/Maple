@@ -8,7 +8,8 @@
 
 import { Elysia, t } from "elysia";
 import { ObjectId } from "mongodb";
-import { readdir, stat } from "node:fs/promises";
+import { readdir } from "node:fs/promises";
+import type { Dirent } from "node:fs";
 import * as nodePath from "node:path";
 import { foldersCollection, assetsCollection } from "../db/client.ts";
 import { validateRoot } from "../fs/root.ts";
@@ -157,41 +158,43 @@ const SUPPORTED_EXTS = new Set([
 ]);
 
 /**
- * Recursively walk `dirPath` and call `handleEvent({ kind: "created" })` for
- * every supported image file found. Fire-and-forget per file — a single
- * failed upsert does not abort the rest of the walk. Silently skips
- * permission-denied subtrees.
+ * Recursively walk `rootPath` and call `handleEvent({ kind: "created" })` for
+ * every supported image file found. Uses a bounded queue (CONCURRENCY=8) to
+ * avoid file-descriptor exhaustion and memory spikes on large trees.
+ * Silently skips permission-denied subtrees.
  */
-async function scanFolderAndDiscover(dirPath: string, folderId: ObjectId): Promise<void> {
-  let names: string[];
-  try {
-    names = await readdir(dirPath);
-  } catch {
-    return; // permission denied or not a directory
+async function scanFolderAndDiscover(rootPath: string, folderId: ObjectId): Promise<void> {
+  const CONCURRENCY = 8;
+  const queue: string[] = [rootPath];
+
+  while (queue.length > 0) {
+    const batch = queue.splice(0, CONCURRENCY);
+    await Promise.all(
+      batch.map(async (dir) => {
+        let entries: Dirent[];
+        try {
+          entries = (await readdir(dir, { withFileTypes: true })) as unknown as Dirent[];
+        } catch {
+          return; // permission denied or not a directory
+        }
+        for (const entry of entries) {
+          const entryName = entry.name as unknown as string;
+          if (entryName.startsWith(".")) continue;
+          const absPath = nodePath.join(dir, entryName);
+          if (entry.isDirectory()) {
+            queue.push(absPath);
+          } else if (entry.isFile()) {
+            const ext = nodePath.extname(entryName).toLowerCase();
+            if (!SUPPORTED_EXTS.has(ext)) continue;
+            handleEvent({ kind: "created", absPath }, folderId).catch((err) =>
+              log.warn(
+                { absPath, err: err instanceof Error ? err.message : err },
+                "discover upsert failed during initial folder scan",
+              ),
+            );
+          }
+        }
+      }),
+    );
   }
-
-  await Promise.all(
-    names.map(async (name) => {
-      const absPath = nodePath.join(dirPath, name);
-      let st: Awaited<ReturnType<typeof stat>>;
-      try {
-        st = await stat(absPath);
-      } catch {
-        return;
-      }
-
-      if (st.isDirectory()) {
-        await scanFolderAndDiscover(absPath, folderId);
-      } else if (st.isFile()) {
-        const ext = nodePath.extname(name).toLowerCase();
-        if (!SUPPORTED_EXTS.has(ext)) return;
-        handleEvent({ kind: "created", absPath }, folderId).catch((err) =>
-          log.warn(
-            { absPath, err: err instanceof Error ? err.message : err },
-            "discover upsert failed during initial folder scan",
-          ),
-        );
-      }
-    }),
-  );
 }

@@ -41,41 +41,71 @@ export interface StatusFrame {
   ts: number;
 }
 
-const STAGES = ["discover", "hash", "exif", "thumb", "ai", "mongo"] as const;
+const LEGACY_STAGES = ["discover", "hash", "exif", "thumb", "ai", "mongo"] as const;
 
 const FAST_POLL_MS = 250;
 const SLOW_POLL_MS = 2_000;
 
-type StageName = (typeof STAGES)[number];
+type LegacyStageName = (typeof LEGACY_STAGES)[number];
 
 interface ChildStatus {
-  channels: Record<StageName, { depth: number; capacity: number }>;
-  stages: Record<StageName, { inFlight: number; errors: number; deadLetter: number }>;
+  paused: boolean;
+  pools: Record<LegacyStageName, number>;
+  channels: Record<LegacyStageName, { depth: number; capacity: number }>;
+  stages: Record<LegacyStageName, { inFlight: number; errors: number; deadLetter: number }>;
+  started: boolean;
   // Other fields are passed through verbatim in the status frame.
   [k: string]: unknown;
 }
 
 /**
- * TODO(Task 10): Once stage-controller IPC exposes a /status endpoint per
- * stage, this function should aggregate from each running stage child.
- * For now it synthesises a status snapshot from the supervisor's in-process
- * state instead of fetching from a child process.
+ * Synthesise a complete IndexerStatus snapshot from the supervisor's
+ * in-process state. All six legacy stage keys (discover/hash/exif/thumb/ai/mongo)
+ * are always populated so the Angular UI never sees missing keys.
  */
 async function fetchStatus(): Promise<ChildStatus | null> {
   try {
-    const stages = supervisorState();
-    if (Object.keys(stages).length === 0) return null;
-    // Build a ChildStatus shape compatible with the existing UI frame format.
-    // The new supervisor tracks stages differently: each entry has inFlight
-    // and throughput. Synthesise the old channel/stages shape so the UI
-    // frame format is preserved without a UI change.
-    const channels: Record<string, { depth: number; capacity: number }> = {};
-    const stagesOut: Record<string, { inFlight: number; errors: number; deadLetter: number }> = {};
-    for (const [name, s] of Object.entries(stages)) {
-      channels[name] = { depth: 0, capacity: 0 };
-      stagesOut[name] = { inFlight: s.inFlight, errors: 0, deadLetter: 0 };
+    const state = supervisorState();
+    const pools = {} as Record<LegacyStageName, number>;
+    const channels = {} as Record<LegacyStageName, { depth: number; capacity: number }>;
+    const stagesOut = {} as Record<LegacyStageName, { inFlight: number; errors: number; deadLetter: number }>;
+
+    let anyRunning = false;
+
+    for (const name of LEGACY_STAGES) {
+      const s = state[name];
+      if (s) {
+        if (s.status === "running") anyRunning = true;
+        pools[name] = s.inFlight > 0 ? s.inFlight : 1;
+        channels[name] = { depth: 0, capacity: 0 };
+        stagesOut[name] = { inFlight: s.inFlight, errors: 0, deadLetter: 0 };
+      } else {
+        pools[name] = 0;
+        channels[name] = { depth: 0, capacity: 0 };
+        stagesOut[name] = { inFlight: 0, errors: 0, deadLetter: 0 };
+      }
     }
-    return { channels, stages: stagesOut } as ChildStatus;
+
+    const stateValues = Object.values(state);
+    const allQuiescent = stateValues.length > 0 &&
+      stateValues.every((s) => s.status === "stopped" || s.status === "error");
+
+    const status: ChildStatus = {
+      paused: allQuiescent && !anyRunning,
+      pools,
+      channels,
+      stages: stagesOut,
+      started: anyRunning || stateValues.some(
+        (s) => s.status === "starting" || s.status === "restarting",
+      ),
+    };
+
+    // Return null (slow-poll) only when the supervisor has no registered
+    // stages at all — not when they're stopped/errored, since the UI still
+    // needs the shape to render correctly.
+    if (stateValues.length === 0) return null;
+
+    return status;
   } catch {
     return null;
   }
@@ -130,7 +160,7 @@ export const eventsRoutes = new Elysia({ prefix: "/api" }).ws("/events", {
       // Per-stage progress frames (the UI counts on these to drive its
       // per-stage in-flight / errors widgets).
       try {
-        for (const st of STAGES) {
+        for (const st of LEGACY_STAGES) {
           ws.send({
             type: "progress",
             stage: st,
