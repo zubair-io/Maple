@@ -88,23 +88,26 @@ export async function versionBumpReset(
 
 /**
  * Build the MongoDB filter that selects docs eligible for this stage:
- *   - stages.<name>.version < targetVersion (missing field treated as < any number)
+ *   - stages.<name>.version < targetVersion OR stages.<name>.version is missing
  *   - stages.<name>.dead != true
- *   - For each dep: stages.<dep>.version >= 1
+ *   - For each dep: stages.<dep>.version >= dep.minVersion
  *   - _id not in the current in-flight set
  */
 export function buildClaimQuery(
   name: string,
   targetVersion: number,
-  dependsOn: string[],
+  dependsOn: Array<{ name: string; minVersion: number }>,
   inFlight: Set<ObjectId>,
 ): Filter<ImageDoc> {
   const filter: Filter<ImageDoc> = {
-    [`stages.${name}.version`]: { $lt: targetVersion },
+    $or: [
+      { [`stages.${name}.version`]: { $lt: targetVersion } },
+      { [`stages.${name}.version`]: { $exists: false } },
+    ],
     [`stages.${name}.dead`]: { $ne: true },
   };
   for (const dep of dependsOn) {
-    (filter as Record<string, unknown>)[`stages.${dep}.version`] = { $gte: 1 };
+    (filter as Record<string, unknown>)[`stages.${dep.name}.version`] = { $gte: dep.minVersion };
   }
   if (inFlight.size > 0) {
     (filter as Record<string, unknown>)["_id"] = {
@@ -121,12 +124,18 @@ export function buildClaimQuery(
 /**
  * Run one poll tick: find eligible docs, dispatch each to the handler,
  * write back results. Used by the full poll loop and directly from tests.
+ *
+ * `resolvedDeps` carries each dependency's name and the minimum version it
+ * must have reached before this stage may process a doc. Defaults to
+ * `{ name, minVersion: 1 }` for each entry in `stage.dependsOn` so callers
+ * that don't yet pass manifest-resolved versions get the previous behaviour.
  */
 export async function runOnce(
   stage: StageConfig,
   config: WorkerConfig,
   images: Collection<ImageDoc>,
   _configColl: Collection<WorkerConfigDoc>,
+  resolvedDeps: Array<{ name: string; minVersion: number }> = stage.dependsOn.map((n) => ({ name: n, minVersion: 1 })),
 ): Promise<void> {
   if (config.paused) return;
 
@@ -138,7 +147,7 @@ export async function runOnce(
   const query = buildClaimQuery(
     stage.name,
     stage.targetVersion,
-    stage.dependsOn,
+    resolvedDeps,
     inFlight,
   );
 
