@@ -48,27 +48,27 @@
                   <span
                     class="h-2 w-2 rounded-full"
                     [class.bg-green-500]="s.status === 'running'"
-                    [class.bg-text-muted]="s.status === 'paused'"
+                    [class.bg-text-muted]="s.status === 'paused' || s.status === 'stopped' || s.status === 'starting' || s.status === 'restarting'"
                     [class.bg-red-500]="s.status === 'error'"
-                    [title]="s.last_error ?? ''"
+                    [title]="s.lastError ?? ''"
                   ></span>
                   <span
                     data-testid="status"
                     class="text-text-main"
                     [class.text-error-text]="s.status === 'error'"
-                    [title]="s.last_error ?? ''"
+                    [title]="s.lastError ?? ''"
                   >{{ statusLabel(s) }}</span>
                 </span>
               </td>
 
-              <!-- Workers: active / configured -->
+              <!-- Workers: in-flight / configured -->
               <td class="px-4 py-2.5 text-right text-text-main" data-testid="workers">
-                {{ s.workers.active }} / {{ s.workers.configured }}
+                {{ s.inFlight }} / {{ s.configured }}
               </td>
 
-              <!-- In flight: dispatched / batch_size -->
+              <!-- In flight: dispatched / batch limit -->
               <td class="px-4 py-2.5 text-right text-text-main" data-testid="in-flight">
-                {{ s.in_flight.dispatched }} / {{ s.in_flight.batch_size }}
+                {{ s.inFlight }} / {{ s.batchSize }}
               </td>
 
               <!-- Pending -->

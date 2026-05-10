@@ -9,6 +9,7 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  HostListener,
   effect,
   inject,
   input,
@@ -18,7 +19,7 @@ import {
 import { ReactiveFormsModule, FormBuilder, Validators } from '@angular/forms';
 import {
   WorkersApiService,
-  type StageState,
+  type StageStatus,
   type WorkerConfig,
 } from '@maple-common';
 
@@ -35,7 +36,7 @@ export class WorkerConfigDialogComponent {
   private readonly fb = inject(FormBuilder);
 
   /** The stage this dialog is editing. Re-syncs form values when it changes. */
-  readonly stage = input.required<StageState>();
+  readonly stage = input.required<StageStatus>();
   /** Current persisted config from the last status poll. */
   readonly config = input.required<WorkerConfig>();
 
@@ -67,6 +68,11 @@ export class WorkerConfigDialogComponent {
     });
   }
 
+  @HostListener('document:keydown.escape')
+  onEscape(): void {
+    this.cancelled.emit();
+  }
+
   save(): void {
     if (this.form.invalid) return;
     this.saving.set(true);
@@ -75,7 +81,10 @@ export class WorkerConfigDialogComponent {
     this.api.patchConfig(name, this.form.getRawValue()).subscribe({
       next: (res) => {
         this.saving.set(false);
-        this.saved.emit(res.config);
+        // Fall back to the submitted form values if the server doesn't echo
+        // the config back (e.g. DB unavailable path returns null).
+        const returnedConfig: WorkerConfig = res.config ?? this.form.getRawValue();
+        this.saved.emit(returnedConfig);
       },
       error: (err) => {
         this.saving.set(false);

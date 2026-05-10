@@ -1,4 +1,4 @@
-import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { ComponentFixture, TestBed, fakeAsync, tick } from '@angular/core/testing';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
 import { HttpTestingController } from '@angular/common/http/testing';
 import { provideHttpClient } from '@angular/common/http';
@@ -8,37 +8,45 @@ import { WorkersComponent } from './workers.component';
 import { API_BASE_URL } from '@maple-common';
 import type { WorkersStatusResponse } from '@maple-common';
 
+const MOCK_CONFIG = { concurrency: 4, pollIntervalMs: 1000, batchSize: 10, maxAttempts: 5 };
+
 const MOCK_RESPONSE: WorkersStatusResponse = {
   stages: [
     {
       name: 'hash',
       status: 'running',
-      workers: { active: 4, configured: 4 },
-      in_flight: { dispatched: 3, batch_size: 10 },
+      inFlight: 3,
+      configured: 4,
       pending: 1247,
       dead: 0,
-      throughput_per_minute: 18,
-      last_error: null,
+      throughput: 18,
+      lastError: null,
+      config: MOCK_CONFIG,
+      batchSize: 10,
     },
     {
       name: 'face',
       status: 'running',
-      workers: { active: 2, configured: 2 },
-      in_flight: { dispatched: 1, batch_size: 5 },
+      inFlight: 1,
+      configured: 2,
       pending: 842,
       dead: 3,
-      throughput_per_minute: 6,
-      last_error: null,
+      throughput: 6,
+      lastError: null,
+      config: { concurrency: 2, pollIntervalMs: 1000, batchSize: 5, maxAttempts: 5 },
+      batchSize: 5,
     },
     {
       name: 'describe',
       status: 'error',
-      workers: { active: 0, configured: 2 },
-      in_flight: { dispatched: 0, batch_size: 5 },
+      inFlight: 0,
+      configured: 2,
       pending: 842,
       dead: 0,
-      throughput_per_minute: 0,
-      last_error: 'API key invalid',
+      throughput: 0,
+      lastError: 'API key invalid',
+      config: { concurrency: 2, pollIntervalMs: 1000, batchSize: 5, maxAttempts: 5 },
+      batchSize: 5,
     },
   ],
 };
@@ -69,7 +77,7 @@ describe('WorkersComponent', () => {
   });
 
   function initWithMock(): void {
-    fixture.detectChanges(); // triggers ngOnInit → poll()
+    fixture.detectChanges(); // triggers ngOnInit → scheduleNextPoll(0) → immediate poll
     http.expectOne('/api/workers/status').flush(MOCK_RESPONSE);
     fixture.detectChanges();
   }
@@ -90,14 +98,14 @@ describe('WorkersComponent', () => {
     expect(descRow.querySelector('[data-testid="status"]')?.textContent?.trim()).toBe('Error');
   });
 
-  it('renders Workers column as active/configured', () => {
+  it('renders Workers column as inFlight/configured', () => {
     initWithMock();
 
     const row: HTMLElement = fixture.nativeElement.querySelectorAll('[data-testid="worker-row"]')[0];
-    expect(row.querySelector('[data-testid="workers"]')?.textContent?.trim()).toBe('4 / 4');
+    expect(row.querySelector('[data-testid="workers"]')?.textContent?.trim()).toBe('3 / 4');
   });
 
-  it('renders In flight as dispatched/batch_size', () => {
+  it('renders In flight as inFlight/batchSize', () => {
     initWithMock();
 
     const row: HTMLElement = fixture.nativeElement.querySelectorAll('[data-testid="worker-row"]')[0];
@@ -136,16 +144,18 @@ describe('WorkersComponent', () => {
     expect(descRow.querySelector('[data-testid="throughput"]')?.textContent?.trim()).toBe('—');
   });
 
-  it('pause button POSTs /api/workers/hash/pause and re-polls', () => {
+  it('hydrates configs from status poll', () => {
+    initWithMock();
+    expect(component.configs()['hash']).toEqual(MOCK_CONFIG);
+  });
+
+  it('pause button POSTs /api/workers/hash/pause', () => {
     initWithMock();
 
     const row: HTMLElement = fixture.nativeElement.querySelectorAll('[data-testid="worker-row"]')[0];
     row.querySelector<HTMLButtonElement>('[data-testid="pause-resume-btn"]')?.click();
 
-    // optimistic update — no need to wait
     http.expectOne({ method: 'POST', url: '/api/workers/hash/pause' }).flush(null, { status: 204, statusText: '' });
-    // re-poll after success
-    http.expectOne('/api/workers/status').flush(MOCK_RESPONSE);
     fixture.detectChanges();
   });
 });
