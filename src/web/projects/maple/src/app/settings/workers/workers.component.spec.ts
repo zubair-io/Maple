@@ -5,7 +5,7 @@ import { provideHttpClient } from '@angular/common/http';
 import { provideRouter } from '@angular/router';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { WorkersComponent } from './workers.component';
-import { API_BASE_URL } from '../../../../../maple-common/src/lib/api/api-base-url.token';
+import { API_BASE_URL } from '@maple-common';
 import type { WorkersStatusResponse } from '@maple-common';
 
 const MOCK_RESPONSE: WorkersStatusResponse = {

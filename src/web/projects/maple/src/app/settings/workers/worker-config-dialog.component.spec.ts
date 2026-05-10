@@ -3,7 +3,7 @@ import { provideHttpClientTesting } from '@angular/common/http/testing';
 import { HttpTestingController } from '@angular/common/http/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { WorkerConfigDialogComponent } from './worker-config-dialog.component';
-import { API_BASE_URL } from '../../../../../maple-common/src/lib/api/api-base-url.token';
+import { API_BASE_URL } from '@maple-common';
 import type { StageState } from '@maple-common';
 
 const STAGE: StageState = {
