@@ -26,80 +26,85 @@ import { WorkerConfigRepo } from "./worker-config.repo.ts";
 import type { WorkerConfig } from "./runtime/define-stage.ts";
 import type { ImageDoc } from "./runtime/define-stage.ts";
 import type { WorkerConfigDoc } from "./worker-config.repo.ts";
+import { ALL_STAGE_NAMES } from "./stages/manifest.ts";
 
 export function workerRoutes(supervisor: Supervisor): Elysia {
   return new Elysia({ prefix: "/api/workers" })
 
     .get("/status", async () => {
       const statuses = supervisor.statuses();
-      // Get DB + collections once outside the per-stage loop (Issues 2 + 3).
-      let images: ReturnType<Awaited<ReturnType<typeof getDb>>["collection"]> | null = null;
+      const stageNames = Object.keys(statuses);
+
+      // DB collections — fetched once for all stages.
+      let assets: import("mongodb").Collection<import("mongodb").Document> | null = null;
       let configColl: ReturnType<Awaited<ReturnType<typeof getDb>>["collection"]> | null = null;
+      let facetCounts: Record<string, Array<{ n: number }>> = {};
+      let configMap = new Map<string, WorkerConfig>();
+
       try {
         const db = await getDb();
-        images = db.collection<ImageDoc>("assets");
+        assets = db.collection("assets") as import("mongodb").Collection<import("mongodb").Document>;
         configColl = db.collection<WorkerConfigDoc>("worker_config");
-      } catch {
-        // DB unavailable — all counts will be zeros
-      }
 
-      const stages = await Promise.all(
-        Object.entries(statuses).map(async ([name, s]) => {
-          let pending = 0;
-          let dead = 0;
-          try {
-            if (images && configColl) {
-              // Determine the stage's target version from the persisted config so
-              // the pending count uses the real threshold (not a hardcoded sentinel).
-              // Fall back to 0 if no config doc exists yet, which means all docs
-              // (version missing or 0) are pending.
-              const repo = new WorkerConfigRepo(configColl as never);
-              const workerCfg = await repo.load(name);
-              const targetVersion = workerCfg?.last_seen_target_version ?? 0;
+        // Load all worker configs in one query.
+        const allConfigs = await (configColl as import("mongodb").Collection<WorkerConfigDoc>).find({}).toArray();
+        for (const cfg of allConfigs) {
+          configMap.set(cfg.name, cfg);
+        }
 
-              pending = await (images as import("mongodb").Collection<ImageDoc>).countDocuments({
-                [`stages.${name}.dead`]: { $ne: true },
+        // Build a single $facet aggregation to count pending + dead for every
+        // stage in one round trip instead of 2×N sequential countDocuments calls.
+        const facetSpec: Record<string, unknown[]> = {};
+        for (const name of stageNames) {
+          // Use the stage's live targetVersion from the supervisor state.
+          // Falls back to 1 when the IPC hasn't reported yet (stage just started).
+          const tv = statuses[name]?.targetVersion ?? 1;
+          facetSpec[`${name}_pending`] = [
+            {
+              $match: {
                 $or: [
-                  { [`stages.${name}.version`]: { $lt: targetVersion } },
+                  { [`stages.${name}.version`]: { $lt: tv } },
                   { [`stages.${name}.version`]: { $exists: false } },
                 ],
-              });
-              dead = await (images as import("mongodb").Collection<ImageDoc>).countDocuments({
-                [`stages.${name}.dead`]: true,
-              });
-            }
-          } catch {
-            // DB unavailable — return zeros
-          }
-          // Load the persisted config to include in the status response so the
-          // UI can hydrate its config state without a separate request.
-          let config: import("./runtime/define-stage.ts").WorkerConfig | null = null;
-          let configured = 0;
-          let batchSize = 0;
-          try {
-            if (configColl) {
-              const repo2 = new WorkerConfigRepo(configColl as never);
-              config = await repo2.load(name);
-              configured = config?.concurrency ?? 0;
-              batchSize = config?.batchSize ?? 0;
-            }
-          } catch {
-            // DB unavailable — leave config null
-          }
-          return {
-            name,
-            status: s.status,
-            inFlight: s.inFlight,
-            configured,
-            pending,
-            dead,
-            throughput: s.throughput,
-            lastError: s.lastError,
-            config,
-            batchSize,
-          };
-        }),
-      );
+                [`stages.${name}.dead`]: { $ne: true },
+              },
+            },
+            { $count: "n" },
+          ];
+          facetSpec[`${name}_dead`] = [
+            { $match: { [`stages.${name}.dead`]: true } },
+            { $count: "n" },
+          ];
+        }
+
+        if (stageNames.length > 0) {
+          const [result] = await assets.aggregate([{ $facet: facetSpec }]).toArray();
+          facetCounts = result as typeof facetCounts;
+        }
+      } catch {
+        // DB unavailable — all counts remain zeros, configMap empty
+      }
+
+      const stages = Object.entries(statuses).map(([name, s]) => {
+        const pending = facetCounts[`${name}_pending`]?.[0]?.n ?? 0;
+        const dead = facetCounts[`${name}_dead`]?.[0]?.n ?? 0;
+        const config = configMap.get(name) ?? null;
+        const configured = config?.concurrency ?? 0;
+        const batchSize = config?.batchSize ?? 0;
+        return {
+          name,
+          status: s.status,
+          inFlight: s.inFlight,
+          configured,
+          pending,
+          dead,
+          throughput: s.throughput,
+          lastError: s.lastError,
+          config,
+          batchSize,
+        };
+      });
+
       return { stages };
     })
 
@@ -182,15 +187,13 @@ export function workerRoutes(supervisor: Supervisor): Elysia {
         }
       },
       {
-        body: t.Partial(
-          t.Object({
-            concurrency: t.Number(),
-            pollIntervalMs: t.Number(),
-            batchSize: t.Number(),
-            maxAttempts: t.Number(),
-            paused: t.Boolean(),
-          }),
-        ),
+        body: t.Object({
+          concurrency: t.Optional(t.Number({ minimum: 1, maximum: 32 })),
+          pollIntervalMs: t.Optional(t.Number({ minimum: 100, maximum: 60000 })),
+          batchSize: t.Optional(t.Number({ minimum: 1, maximum: 100 })),
+          maxAttempts: t.Optional(t.Number({ minimum: 1, maximum: 20 })),
+          paused: t.Optional(t.Boolean()),
+        }),
       },
     );
 }

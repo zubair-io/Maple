@@ -8,7 +8,7 @@ import { WorkersComponent } from './workers.component';
 import { API_BASE_URL } from '@maple-common';
 import type { WorkersStatusResponse } from '@maple-common';
 
-const MOCK_CONFIG = { concurrency: 4, pollIntervalMs: 1000, batchSize: 10, maxAttempts: 5 };
+const MOCK_CONFIG = { concurrency: 4, pollIntervalMs: 1000, batchSize: 10, maxAttempts: 5, paused: false, last_seen_target_version: 1 };
 
 const MOCK_RESPONSE: WorkersStatusResponse = {
   stages: [
@@ -33,7 +33,7 @@ const MOCK_RESPONSE: WorkersStatusResponse = {
       dead: 3,
       throughput: 6,
       lastError: null,
-      config: { concurrency: 2, pollIntervalMs: 1000, batchSize: 5, maxAttempts: 5 },
+      config: { concurrency: 2, pollIntervalMs: 1000, batchSize: 5, maxAttempts: 5, paused: false, last_seen_target_version: 1 },
       batchSize: 5,
     },
     {
@@ -45,7 +45,7 @@ const MOCK_RESPONSE: WorkersStatusResponse = {
       dead: 0,
       throughput: 0,
       lastError: 'API key invalid',
-      config: { concurrency: 2, pollIntervalMs: 1000, batchSize: 5, maxAttempts: 5 },
+      config: { concurrency: 2, pollIntervalMs: 1000, batchSize: 5, maxAttempts: 5, paused: false, last_seen_target_version: 1 },
       batchSize: 5,
     },
   ],

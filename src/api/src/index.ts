@@ -37,7 +37,6 @@ import { child as childLogger } from "./log.ts";
 import { healthRoutes } from "./routes/health.ts";
 import { foldersRoutes } from "./routes/folders.ts";
 import { assetsRoutes } from "./routes/assets.ts";
-import { indexerRoutes } from "./routes/indexer.ts";
 import { eventsRoutes } from "./routes/events.ts";
 import { authRoutes } from "./routes/auth.ts";
 import { fsRoutes } from "./routes/fs.ts";
@@ -204,7 +203,6 @@ export function buildApp(opts: { stageNames?: string[] } = {}): Elysia & { super
         .use(requireAuth)
         .use(foldersRoutes)
         .use(assetsRoutes)
-        .use(indexerRoutes)
         .use(fsRoutes)
         .use(fsThumbsRoutes)
         .use(searchRoutes)

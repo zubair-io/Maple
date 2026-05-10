@@ -37,13 +37,6 @@ export class SettingsIndexComponent {
       ownerOnly: false,
     },
     {
-      icon: 'manage_search',
-      title: 'Indexer',
-      description: 'Library indexing pipeline — start, stop, and inspect dead-letters.',
-      link: '/settings/indexer',
-      ownerOnly: true,
-    },
-    {
       icon: 'auto_awesome',
       title: 'Enrichment',
       description: 'Geocoding, captioning, face detection, and OCR workers.',
