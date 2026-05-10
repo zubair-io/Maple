@@ -192,9 +192,13 @@ export const fsThumbsRoutes = new Elysia({ prefix: "/api/fs" }).get(
       }
       try {
         await applyExifOrientationInPlace(thumbPath);
-      } catch {
+      } catch (err) {
         // Non-fatal: the FFI output is still a valid JPEG, just possibly
         // un-rotated. Better to serve a sideways image than 500 the request.
+        log.warn(
+          { thumbPath, err: err instanceof Error ? err.message : err },
+          "orientation post-process failed; serving un-rotated thumb",
+        );
       }
     }
 
