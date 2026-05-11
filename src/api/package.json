@@ -21,6 +21,7 @@
     "heic-convert": "^2.1.0",
     "meilisearch": "^0.58.0",
     "mongodb": "^6.10.0",
+    "onnxruntime-node": "^1.26.0",
     "pino": "^10.3.1",
     "sharp": "^0.34.5",
     "tesseract.js": "^5.1.1"
