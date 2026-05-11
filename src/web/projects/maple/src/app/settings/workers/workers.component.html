@@ -24,7 +24,7 @@
           <tr class="border-b border-border bg-surface-hover">
             <th class="px-4 py-2.5 text-left font-semibold text-text-muted">Stage</th>
             <th class="px-4 py-2.5 text-left font-semibold text-text-muted">Status</th>
-            <th class="px-4 py-2.5 text-right font-semibold text-text-muted">Workers</th>
+            <th class="px-4 py-2.5 text-right font-semibold text-text-muted">Concurrency</th>
             <th class="px-4 py-2.5 text-right font-semibold text-text-muted">In flight</th>
             <th class="px-4 py-2.5 text-right font-semibold text-text-muted">Pending</th>
             <th class="px-4 py-2.5 text-right font-semibold text-text-muted">Dead</th>
@@ -61,9 +61,9 @@
                 </span>
               </td>
 
-              <!-- Workers: in-flight / configured -->
+              <!-- Concurrency: configured worker cap -->
               <td class="px-4 py-2.5 text-right text-text-main" data-testid="workers">
-                {{ s.inFlight }} / {{ s.configured }}
+                {{ s.configured }}
               </td>
 
               <!-- In flight: dispatched / batch limit -->
@@ -80,7 +80,13 @@
               <td class="px-4 py-2.5 text-right" data-testid="dead-cell">
                 @if (s.dead > 0) {
                   <span class="inline-flex items-center gap-1">
-                    <span data-testid="dead-count" class="text-error-text">{{ s.dead }}</span>
+                    <button
+                      data-testid="dead-count"
+                      type="button"
+                      class="cursor-pointer rounded border-none bg-transparent p-0 text-error-text hover:underline"
+                      title="Show dead-letter reasons"
+                      (click)="openDead(s)"
+                    >{{ s.dead }}</button>
                     <button
                       data-testid="retry-dead-btn"
                       type="button"
@@ -135,5 +141,13 @@
     [config]="dialogConfig()"
     (saved)="onConfigSaved(ds.name, $event)"
     (cancelled)="closeDialog()"
+  />
+}
+
+<!-- Dead-letter dialog — lists recent dead docs and their last_error. -->
+@if (activeDeadStage(); as ds) {
+  <maple-dead-letter-dialog
+    [stage]="ds"
+    (cancelled)="closeDead()"
   />
 }
