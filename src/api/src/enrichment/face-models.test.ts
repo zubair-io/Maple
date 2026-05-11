@@ -25,6 +25,8 @@ import {
   MOBILEFACENET_BASENAME,
   type FaceModels,
   type OnnxSessionLike,
+  type OnnxTensorConstructor,
+  type OnnxTensorLike,
 } from "./face-models.ts";
 
 function fakeSession(): OnnxSessionLike {
@@ -33,10 +35,22 @@ function fakeSession(): OnnxSessionLike {
   };
 }
 
+class FakeTensor implements OnnxTensorLike {
+  readonly location = "cpu" as const;
+  constructor(
+    readonly type: "float32",
+    readonly data: Float32Array,
+    readonly dims: readonly number[],
+  ) {}
+}
+
+const FakeTensorCtor = FakeTensor as unknown as OnnxTensorConstructor;
+
 function fakeModels(dir: string): FaceModels {
   return {
     retinaFace: fakeSession(),
     mobileFaceNet: fakeSession(),
+    Tensor: FakeTensorCtor,
     paths: {
       retinaFace: join(dir, RETINAFACE_BASENAME),
       mobileFaceNet: join(dir, MOBILEFACENET_BASENAME),

@@ -62,10 +62,27 @@ export interface OnnxTensorLike {
   dims: readonly number[];
 }
 
+/** Constructor for an ORT-compatible tensor. The native `onnxruntime-node`
+ * binding validates each feed's `.location` (string) and `.type` (string)
+ * at the C++ layer — plain `{ data, dims }` objects fail with
+ * "Tensor.location must be a string." Real `Tensor` instances default
+ * `location` to `'cpu'`, so we route all feed construction through the
+ * runtime's own constructor. */
+export interface OnnxTensorConstructor {
+  new (
+    type: "float32",
+    data: Float32Array,
+    dims: readonly number[],
+  ): OnnxTensorLike;
+}
+
 /** Loaded model pair handed to the face detector. */
 export interface FaceModels {
   retinaFace: OnnxSessionLike;
   mobileFaceNet: OnnxSessionLike;
+  /** ORT Tensor constructor — surfaced through the loader so callers don't
+   * have to import `onnxruntime-node` directly (keeps the dep optional). */
+  Tensor: OnnxTensorConstructor;
   /** Resolved on-disk paths the sessions were loaded from. Surfaced for
    * the operator status endpoint so they can confirm which files booted. */
   paths: { retinaFace: string; mobileFaceNet: string };
@@ -231,6 +248,7 @@ export async function loadFaceModels(
     singleton = {
       retinaFace,
       mobileFaceNet,
+      Tensor: ort.Tensor,
       paths: { retinaFace: retinaPath, mobileFaceNet: mfnPath },
     };
     liveStatus = { kind: "loaded" };
@@ -304,13 +322,14 @@ async function ensureModelFile(opts: EnsureFileOpts): Promise<string> {
  * face worker hitting the real model-load path needs it. */
 async function loadOnnxRuntime(): Promise<{
   InferenceSession: { create(path: string): Promise<OnnxSessionLike> };
+  Tensor: OnnxTensorConstructor;
 }> {
   try {
     // Lazy-imported so the typecheck doesn't require the dep on machines
     // where the face worker isn't enabled. Bun resolves this at call time.
-    // @ts-expect-error optional dep — only present when the operator opts in
     const mod = (await import("onnxruntime-node")) as unknown as {
       InferenceSession: { create(path: string): Promise<OnnxSessionLike> };
+      Tensor: OnnxTensorConstructor;
     };
     return mod;
   } catch (err) {

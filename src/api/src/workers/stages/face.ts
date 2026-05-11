@@ -28,11 +28,17 @@ import { defineStage } from "../runtime/define-stage.ts";
 import { cachePathFor } from "../../fs/xmp.ts";
 import {
   defaultFaceDetector,
+  ThumbDecodeError,
   type DetectedFace,
 } from "../../enrichment/face-detector.ts";
 import type { AssetFaceDoc } from "../../db/schema.ts";
 
 export const THUMB_MISSING_REASON = "thumb-missing";
+/** Cached thumbnail exists on disk but `sharp`/libvips can't decode it
+ * (e.g. "VipsJpeg: Invalid SOS parameters"). Non-retryable — the thumb
+ * regen would produce the same bytes. Skip-passes so the stage version
+ * advances and we stop hammering bad inputs. */
+export const THUMB_UNDECODABLE_REASON = "thumb-undecodable";
 
 export async function faceHandler(
   image: ImageDoc,
@@ -44,14 +50,29 @@ export async function faceHandler(
     return { skip: `${THUMB_MISSING_REASON}: ${thumbPath}` };
   }
   const bytes = new Uint8Array(await readFile(thumbPath));
-  const detections = await detector.detectFaces(bytes);
+  let detections: DetectedFace[];
+  try {
+    detections = await detector.detectFaces(bytes);
+  } catch (err) {
+    if (err instanceof ThumbDecodeError) {
+      return { skip: `${THUMB_UNDECODABLE_REASON}: ${err.message}` };
+    }
+    throw err;
+  }
   if (detections.length === 0) {
     return { patch: { faces: [] } };
   }
   const faces: AssetFaceDoc[] = [];
   for (const det of detections) {
-    const embedding = await detector.embedFace(bytes, det);
-    faces.push(detectionToDoc(det, embedding));
+    try {
+      const embedding = await detector.embedFace(bytes, det);
+      faces.push(detectionToDoc(det, embedding));
+    } catch (err) {
+      if (err instanceof ThumbDecodeError) {
+        return { skip: `${THUMB_UNDECODABLE_REASON}: ${err.message}` };
+      }
+      throw err;
+    }
   }
   return { patch: { faces } };
 }
