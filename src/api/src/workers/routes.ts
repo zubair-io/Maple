@@ -32,6 +32,11 @@ export function workerRoutes(supervisor: Supervisor): Elysia {
   return new Elysia({ prefix: "/api/workers" })
 
     .get("/status", async () => {
+      // Pull fresh inFlight + throughput from each running child's IPC
+      // /status endpoint. Without this, supervisor.statuses() returns the
+      // values captured at startup and never updates — the UI reports
+      // 0 in-flight + "—" throughput even when workers are processing.
+      await supervisor.refreshLiveStatus();
       const statuses = supervisor.statuses();
       const stageNames = Object.keys(statuses);
 
@@ -91,9 +96,15 @@ export function workerRoutes(supervisor: Supervisor): Elysia {
         const config = configMap.get(name) ?? null;
         const configured = config?.concurrency ?? 0;
         const batchSize = config?.batchSize ?? 0;
+        // Surface config-level pause as a distinct status. The supervisor
+        // status tracks the process; a stage whose child is alive but whose
+        // poll loop is paused (config.paused = true) should read as
+        // "paused" in the UI, not "running".
+        const status =
+          s.status === "running" && config?.paused === true ? "paused" : s.status;
         return {
           name,
-          status: s.status,
+          status,
           inFlight: s.inFlight,
           configured,
           pending,
@@ -188,10 +199,10 @@ export function workerRoutes(supervisor: Supervisor): Elysia {
       },
       {
         body: t.Object({
-          concurrency: t.Optional(t.Number({ minimum: 1, maximum: 32 })),
-          pollIntervalMs: t.Optional(t.Number({ minimum: 100, maximum: 60000 })),
-          batchSize: t.Optional(t.Number({ minimum: 1, maximum: 100 })),
-          maxAttempts: t.Optional(t.Number({ minimum: 1, maximum: 20 })),
+          concurrency: t.Optional(t.Integer({ minimum: 1, maximum: 32 })),
+          pollIntervalMs: t.Optional(t.Integer({ minimum: 100, maximum: 60000 })),
+          batchSize: t.Optional(t.Integer({ minimum: 1, maximum: 100 })),
+          maxAttempts: t.Optional(t.Integer({ minimum: 1, maximum: 20 })),
           paused: t.Optional(t.Boolean()),
         }),
       },

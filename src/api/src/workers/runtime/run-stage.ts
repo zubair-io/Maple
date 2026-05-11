@@ -25,6 +25,13 @@ import { WorkerConfigRepo } from "../worker-config.repo.ts";
  * pausedOnFirstBoot. Returns the effective WorkerConfig.
  *
  * On re-boot, the saved document wins over defaults — operator changes persist.
+ *
+ * Self-heals partial docs by backfilling missing fields from stage.defaults.
+ * Why: WorkerConfigRepo.patch upserts with `$setOnInsert: { name }`, so a
+ * PATCH /api/workers/:name/config landing before the child has finished
+ * its first bootConfig writes a doc that's missing the integer fields the
+ * poll loop needs. The next boot would otherwise load that partial doc as-
+ * is, and `images.find().limit(undefined)` would throw on every tick.
  */
 export async function bootConfig(
   stage: StageConfig,
@@ -32,19 +39,33 @@ export async function bootConfig(
 ): Promise<WorkerConfig> {
   const repo = new WorkerConfigRepo(coll);
   const existing = await repo.load(stage.name);
-  if (existing) return existing;
 
-  // First boot: seed from defaults, respecting pausedOnFirstBoot.
-  const initial: WorkerConfig = {
-    concurrency: stage.defaults.concurrency,
-    pollIntervalMs: stage.defaults.pollIntervalMs,
-    batchSize: stage.defaults.batchSize,
-    maxAttempts: stage.defaults.maxAttempts,
-    paused: stage.defaults.pausedOnFirstBoot,
-    last_seen_target_version: 0,
+  const merged: WorkerConfig = {
+    concurrency: pickInt(existing?.concurrency, stage.defaults.concurrency),
+    pollIntervalMs: pickInt(
+      existing?.pollIntervalMs,
+      stage.defaults.pollIntervalMs,
+    ),
+    batchSize: pickInt(existing?.batchSize, stage.defaults.batchSize),
+    maxAttempts: pickInt(existing?.maxAttempts, stage.defaults.maxAttempts),
+    paused:
+      typeof existing?.paused === "boolean"
+        ? existing.paused
+        : stage.defaults.pausedOnFirstBoot,
+    last_seen_target_version: pickInt(
+      existing?.last_seen_target_version,
+      0,
+    ),
   };
-  await repo.upsert(stage.name, initial);
-  return initial;
+
+  // Idempotent — first boot seeds, subsequent boots either no-op (when the
+  // doc was already complete) or repair any missing/non-integer fields.
+  await repo.upsert(stage.name, merged);
+  return merged;
+}
+
+function pickInt(value: unknown, fallback: number): number {
+  return typeof value === "number" && Number.isInteger(value) ? value : fallback;
 }
 
 // ---------------------------------------------------------------------------
