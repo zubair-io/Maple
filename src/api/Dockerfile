@@ -106,8 +106,9 @@ FROM oven/bun:1.3-slim AS runtime
 
 WORKDIR /app
 
-# curl is needed for HEALTHCHECK; install before dropping privileges.
-RUN apt-get update && apt-get install -y --no-install-recommends curl \
+# curl is needed for HEALTHCHECK; unzip is needed by the face worker's
+# zero-config buffalo_s bootstrap (src/api/src/enrichment/face-models.ts).
+RUN apt-get update && apt-get install -y --no-install-recommends curl unzip \
  && rm -rf /var/lib/apt/lists/*
 
 # Bun server deps.
