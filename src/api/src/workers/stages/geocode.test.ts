@@ -4,7 +4,7 @@ import type { ImageDoc } from "../runtime/define-stage.ts";
 import { CoordinateCache } from "../../enrichment/coordinate-cache.ts";
 import { NominatimClient, NominatimError } from "../../enrichment/nominatim-client.ts";
 
-import { geocodeHandler, setGeocodeDepsForTests } from "./geocode.ts";
+import geocodeStage, { geocodeHandler, setGeocodeDepsForTests } from "./geocode.ts";
 
 function fakeDoc(gps: { lat: number; lng: number } | null = { lat: 42.65, lng: -73.75 }): ImageDoc {
   return {
@@ -137,5 +137,15 @@ describe("geocodeHandler — lat/lon provenance", () => {
     const place = (result as { patch: { place: { lat: number; lon: number } } }).patch.place;
     expect(place.lat).toBe(42.65);
     expect(place.lon).toBe(-73.75);
+  });
+});
+
+describe("geocode stage config", () => {
+  it("requires exif v2 so it never reads pre-fix wrong-sign GPS", () => {
+    expect(geocodeStage.dependsOn).toEqual([{ name: "exif", minVersion: 2 }]);
+  });
+
+  it("targetVersion bumped to 2 so v1 results are re-geocoded", () => {
+    expect(geocodeStage.targetVersion).toBeGreaterThanOrEqual(2);
   });
 });
