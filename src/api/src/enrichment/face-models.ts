@@ -54,12 +54,20 @@ export interface OnnxSessionLike {
   ): Promise<Record<string, OnnxTensorLike>>;
 }
 
-/** Tensor contract — a typed-array `data` plus a `dims` shape. Matches
- * `onnxruntime-node`'s `Tensor` for the float32 case, which is all the
- * face models use. */
+/** Tensor contract — matches `onnxruntime-node`'s `Tensor` for the float32
+ * case, which is all the face models use.
+ *
+ * `type` and `location` are required (not just `data`/`dims`) because the
+ * native ORT binding rejects feeds whose `.location`/`.type` aren't
+ * strings — see `OnnxTensorConstructor` below. Encoding that in the type
+ * means a plain `{ data, dims }` object won't typecheck as a feed, so
+ * the regression that broke face detection in 1.26 can't reappear
+ * silently. */
 export interface OnnxTensorLike {
-  data: Float32Array | Uint8Array;
-  dims: readonly number[];
+  readonly type: string;
+  readonly data: Float32Array | Uint8Array;
+  readonly dims: readonly number[];
+  readonly location: string;
 }
 
 /** Constructor for an ORT-compatible tensor. The native `onnxruntime-node`
