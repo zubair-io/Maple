@@ -229,18 +229,30 @@ async function alignFaceCrop(
   if (W === 0 || H === 0) {
     throw new Error("face-detector: unable to read image dimensions");
   }
+  // Inflate the box a touch so MobileFaceNet sees a bit of context — it
+  // was trained on slightly-padded crops, not tight bounding boxes.
+  const pad = 0.1;
+  const cx = (detection.bbox.x + detection.bbox.w / 2) * W;
+  const cy = (detection.bbox.y + detection.bbox.h / 2) * H;
+  const side =
+    Math.max(detection.bbox.w * W, detection.bbox.h * H) * (1 + pad);
+  const left = Math.max(0, Math.round(cx - side / 2));
+  const top = Math.max(0, Math.round(cy - side / 2));
+  const width = Math.min(W - left, Math.round(side));
+  const height = Math.min(H - top, Math.round(side));
+  // Validate geometry OUTSIDE the decode try-catch: a degenerate bbox
+  // (zero side, or one wholly outside the image) means the detector
+  // emitted garbage, not that the JPEG is corrupt. Surface it as a
+  // hard error so the operator sees a real signal in the dead-letter
+  // queue instead of a misleading `thumb-undecodable` skip.
+  if (width <= 0 || height <= 0) {
+    throw new Error(
+      `face-detector: invalid crop geometry left=${left} top=${top} ` +
+        `width=${width} height=${height} from bbox=${JSON.stringify(detection.bbox)} ` +
+        `image=${W}x${H}`,
+    );
+  }
   try {
-    // Inflate the box a touch so MobileFaceNet sees a bit of context — it
-    // was trained on slightly-padded crops, not tight bounding boxes.
-    const pad = 0.1;
-    const cx = (detection.bbox.x + detection.bbox.w / 2) * W;
-    const cy = (detection.bbox.y + detection.bbox.h / 2) * H;
-    const side =
-      Math.max(detection.bbox.w * W, detection.bbox.h * H) * (1 + pad);
-    const left = Math.max(0, Math.round(cx - side / 2));
-    const top = Math.max(0, Math.round(cy - side / 2));
-    const width = Math.min(W - left, Math.round(side));
-    const height = Math.min(H - top, Math.round(side));
     cropRaw = await sharp(jpegBytes)
       .extract({ left, top, width, height })
       .resize(MFN_INPUT_SIZE, MFN_INPUT_SIZE, { fit: "fill" })

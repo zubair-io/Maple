@@ -125,3 +125,37 @@ describe("OnnxFaceDetector — JPEG decode failure", () => {
     expect(err).toBeInstanceOf(ThumbDecodeError);
   });
 });
+
+describe("OnnxFaceDetector — degenerate bbox", () => {
+  it("throws a plain Error (not ThumbDecodeError) for invalid crop geometry", async () => {
+    setFaceModelLoaderForTests(
+      async (): Promise<FaceModels> => ({
+        retinaFace: { run: async () => ({}) },
+        mobileFaceNet: { run: async () => ({}) },
+        Tensor: FakeTensorCtor,
+        paths: { retinaFace: "stub", mobileFaceNet: "stub" },
+      }),
+    );
+
+    const detector = new OnnxFaceDetector();
+    // Zero-width/zero-height detection — what a bad RetinaFace export
+    // could conceivably emit. We want the handler to see a generic
+    // Error (retryable, then dead-letters with a real message) rather
+    // than a misleading `thumb-undecodable` skip-pass.
+    const badDetection = {
+      bbox: { x: 0.5, y: 0.5, w: 0, h: 0 },
+      confidence: 0.9,
+      landmarks: [],
+    };
+
+    let err: unknown = null;
+    try {
+      await detector.embedFace(await makeTinyJpeg(), badDetection);
+    } catch (e) {
+      err = e;
+    }
+    expect(err).toBeInstanceOf(Error);
+    expect(err).not.toBeInstanceOf(ThumbDecodeError);
+    expect((err as Error).message).toContain("invalid crop geometry");
+  });
+});
