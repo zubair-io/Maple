@@ -26,7 +26,7 @@ describe("workers smoke test", () => {
   });
 
   it(
-    "hash + exif + thumb all reach version 1 after a file is dropped",
+    "hash + exif + thumb all reach their target version after a file is dropped",
     async () => {
       // Connect to Mongo — skip if unavailable.
       let db: import("mongodb").Db;
@@ -53,6 +53,13 @@ describe("workers smoke test", () => {
         discover: { folderId, roots: [dir] },
       });
 
+      // Read each stage's current target version rather than hardcoding —
+      // the smoke test should track bumps (e.g. exif v1 → v2 for the GPS
+      // hemisphere-ref fix) without a parallel edit here.
+      const hashTarget = (await import("./stages/hash.ts")).default.targetVersion;
+      const exifTarget = (await import("./stages/exif.ts")).default.targetVersion;
+      const thumbTarget = (await import("./stages/thumb.ts")).default.targetVersion;
+
       // Drop a JPEG.
       const file = path.join(dir, "smoke.jpg");
       const buf = await sharp({
@@ -68,7 +75,7 @@ describe("workers smoke test", () => {
       const { handleEvent } = await import("./discover/index.ts");
       await handleEvent({ kind: "created", absPath: file }, new ObjectId(folderId));
 
-      // Poll until all three stages are at version 1 or the deadline fires.
+      // Poll until all three stages reach their target version or the deadline fires.
       const assetsColl = await assetsCollection();
       const deadline = Date.now() + TIMEOUT_MS;
       let doc: Record<string, unknown> | null = null;
@@ -78,9 +85,9 @@ describe("workers smoke test", () => {
         if (doc?.stages) {
           const stages = doc.stages as Record<string, { version: number }>;
           if (
-            stages.hash?.version === 1 &&
-            stages.exif?.version === 1 &&
-            stages.thumb?.version === 1
+            stages.hash?.version === hashTarget &&
+            stages.exif?.version === exifTarget &&
+            stages.thumb?.version === thumbTarget
           ) {
             break;
           }
@@ -91,9 +98,9 @@ describe("workers smoke test", () => {
       // Assertions.
       expect(doc).not.toBeNull();
       const stages = (doc!.stages as Record<string, { version: number }>);
-      expect(stages.hash?.version).toBe(1);
-      expect(stages.exif?.version).toBe(1);
-      expect(stages.thumb?.version).toBe(1);
+      expect(stages.hash?.version).toBe(hashTarget);
+      expect(stages.exif?.version).toBe(exifTarget);
+      expect(stages.thumb?.version).toBe(thumbTarget);
 
       // The Plan 3 stages should still be at version 0 (untouched).
       expect(stages.face?.version).toBe(0);
