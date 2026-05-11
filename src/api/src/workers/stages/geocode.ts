@@ -74,8 +74,12 @@ export async function geocodeHandler(
 
 export default defineStage({
   name: "geocode",
-  targetVersion: 1,
-  dependsOn: ["exif"],
+  // v2: exif v2 corrects western-hemisphere longitude sign — bump so docs
+  // already geocoded with the wrong-sign coords re-run against the fixed gps.
+  targetVersion: 2,
+  // Wait for exif v2 specifically — dep on bare "exif" would let geocode
+  // run on stale v1 coords if it polls a doc before exif catches up.
+  dependsOn: [{ name: "exif", minVersion: 2 }],
   defaults: {
     concurrency: 1,
     pollIntervalMs: 1000,

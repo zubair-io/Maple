@@ -3,6 +3,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import exifStage from "./exif.ts";
+import { EXIF_PICK_TAGS } from "../../indexer/exif.ts";
 
 function makeDoc(absPath: string) {
   return {
@@ -71,5 +72,19 @@ describe("exif handler", () => {
   it("throws when the file does not exist", async () => {
     const doc = makeDoc(path.join(dir, "ghost.jpg"));
     await expect(exifStage.handler(doc as never, {} as never)).rejects.toThrow();
+  });
+
+  // exifr's `pick` filter only reads listed tags. If GPSLatitudeRef /
+  // GPSLongitudeRef are not picked, exifr's internal DMS-to-DD conversion
+  // sees direction=undefined and never negates — every western/southern
+  // coordinate comes out positive. Removing these from the pick list
+  // silently breaks every photo south of the equator or west of Greenwich.
+  it("picks GPS hemisphere refs so exifr applies coordinate sign", () => {
+    expect(EXIF_PICK_TAGS).toContain("GPSLatitudeRef");
+    expect(EXIF_PICK_TAGS).toContain("GPSLongitudeRef");
+  });
+
+  it("exif stage targetVersion is at least 2 (post-GPS-sign-fix)", () => {
+    expect(exifStage.targetVersion).toBeGreaterThanOrEqual(2);
   });
 });

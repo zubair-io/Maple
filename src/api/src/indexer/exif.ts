@@ -25,8 +25,14 @@ const log = childLogger("indexer:exif");
  * exifr's parse result is a loose record. We pluck the fields we want and
  * narrow them ourselves rather than slurping the whole tag dump (some files
  * pull in maker-notes blobs that are tens of KB).
+ *
+ * GPSLatitudeRef / GPSLongitudeRef MUST stay in this list. exifr converts
+ * GPSLatitude/GPSLongitude into the signed `latitude`/`longitude` shortcut
+ * by multiplying by -1 when the ref is "S" or "W" — but its internal
+ * conversion only sees the ref tags if they pass through the pick filter.
+ * Drop them and every western-hemisphere coord comes back positive.
  */
-const EXIF_PICK_TAGS = [
+export const EXIF_PICK_TAGS = [
   "DateTimeOriginal",
   "CreateDate",
   "Make",
@@ -45,6 +51,8 @@ const EXIF_PICK_TAGS = [
   "longitude",
   "GPSLatitude",
   "GPSLongitude",
+  "GPSLatitudeRef",
+  "GPSLongitudeRef",
 ] as const;
 
 type LooseRecord = Record<string, unknown>;
