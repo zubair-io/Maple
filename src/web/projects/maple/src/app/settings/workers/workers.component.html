@@ -85,6 +85,7 @@
                       type="button"
                       class="cursor-pointer rounded border-none bg-transparent p-0 text-error-text hover:underline"
                       title="Show dead-letter reasons"
+                      [attr.aria-label]="'Show dead-letter reasons for ' + s.name + ' (' + s.dead + ' items)'"
                       (click)="openDead(s)"
                     >{{ s.dead }}</button>
                     <button
