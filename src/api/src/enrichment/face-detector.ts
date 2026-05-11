@@ -1,9 +1,17 @@
 /**
  * ONNX wrapper around the face models loaded by `face-models.ts`.
  *
+ * **Detector model:** despite the `retinaFace`/`RETINAFACE_*` names that
+ * date back to the initial port, the detector we actually load is
+ * InsightFace's **SCRFD-500m** (`det_500m.onnx`, shipped inside
+ * `buffalo_s.zip`). The on-disk basename `retinaface.onnx` and the
+ * `FaceModels.retinaFace` session field are kept stable so existing
+ * operator model directories don't need migration; the model behind
+ * them is SCRFD, and the decoder math reflects that.
+ *
  * Two operations:
  *
- *   - `detectFaces(jpegBytes)` runs RetinaFace and returns one entry per
+ *   - `detectFaces(jpegBytes)` runs SCRFD and returns one entry per
  *     detection: `{ bbox, confidence, landmarks }`, all in normalised
  *     [0,1] coordinates relative to the input image. Returning normalised
  *     values means the worker doesn't have to track decoded image size
@@ -336,7 +344,7 @@ function decodeScrfdOutputs(
 
   if (scoreTensors.length === 0 || scoreTensors.length !== bboxTensors.length) {
     throw new Error(
-      `face-detector: SCRFD outputs malformed — got ${scoreTensors.length} score tensors and ${bboxTensors.length} bbox tensors (kps=${kpsTensors.length}); expected matching counts (3 strides)`,
+      `face-detector: SCRFD outputs malformed — got ${scoreTensors.length} score tensors and ${bboxTensors.length} bbox tensors (kps=${kpsTensors.length}); expected matching score/bbox counts (typically one per stride)`,
     );
   }
 
@@ -400,14 +408,15 @@ function decodeScrfdOutputs(
 
 /** Recover (stride, feature-map side, anchors-per-cell) from a head's
  * row count. SCRFD emits `numAnchors × (inputSize/stride)²` rows per
- * stride; we try the standard `numAnchors=2` first (what buffalo_s
- * uses) and fall back to `1` so an operator-supplied variant still
- * decodes. */
+ * stride. We try `numAnchors ∈ {2, 1}` first — the values used by
+ * every public SCRFD variant — and 4 as a generous fallback for
+ * operator-supplied SCRFD/YOLO-style exports that pack more anchors
+ * per cell. Beyond 4 you should be locking the model down anyway. */
 function inferStrideLayout(
   rows: number,
   inputSize: number,
 ): { stride: number; fmSize: number; numAnchors: number } {
-  for (const numAnchors of [2, 1]) {
+  for (const numAnchors of [2, 1, 4, 3]) {
     if (rows % numAnchors !== 0) continue;
     const cells = rows / numAnchors;
     const fmSize = Math.round(Math.sqrt(cells));
