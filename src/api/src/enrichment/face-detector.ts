@@ -33,10 +33,22 @@ import {
   loadFaceModels,
   type FaceModels,
   type OnnxSessionLike,
+  type OnnxTensorConstructor,
   type OnnxTensorLike,
 } from "./face-models.ts";
 
 const log = childLogger("enrichment:face-detector");
+
+/** Thrown when `sharp`/libvips cannot decode the thumbnail JPEG (e.g.
+ * "VipsJpeg: Invalid SOS parameters"). Surfaces a non-retryable signal
+ * to the worker handler, which converts it into a `{ skip }` so we
+ * don't burn 5 retries on a permanently-corrupt thumbnail. */
+export class ThumbDecodeError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ThumbDecodeError";
+  }
+}
 
 /** Single detection from RetinaFace. All coords normalised to [0,1]. */
 export interface DetectedFace {
@@ -84,11 +96,12 @@ export class OnnxFaceDetector implements FaceDetector {
   }
 
   async detectFaces(jpegBytes: Uint8Array): Promise<DetectedFace[]> {
-    const { retinaFace } = await this.models();
+    const { retinaFace, Tensor } = await this.models();
     const { tensor, srcWidth, srcHeight } = await jpegToInputTensor(
       jpegBytes,
       RETINAFACE_INPUT_SIZE,
       "retinaface",
+      Tensor,
     );
     const inputName = inferInputName(retinaFace, "input");
     const outputs = await retinaFace.run({ [inputName]: tensor });
@@ -99,8 +112,8 @@ export class OnnxFaceDetector implements FaceDetector {
     jpegBytes: Uint8Array,
     detection: DetectedFace,
   ): Promise<Float32Array> {
-    const { mobileFaceNet } = await this.models();
-    const aligned = await alignFaceCrop(jpegBytes, detection);
+    const { mobileFaceNet, Tensor } = await this.models();
+    const aligned = await alignFaceCrop(jpegBytes, detection, Tensor);
     const inputName = inferInputName(mobileFaceNet, "input");
     const outputs = await mobileFaceNet.run({ [inputName]: aligned });
     return extractEmbedding(outputs);
@@ -127,25 +140,37 @@ export function setDefaultFaceDetectorForTests(d: FaceDetector | null): void {
 
 /** Decode JPEG → resize to `size`×`size` → produce NCHW float32 tensor.
  * For RetinaFace we mean-subtract; for MobileFaceNet we centre to [-1,1]
- * — controlled by `mode`. */
+ * — controlled by `mode`.
+ *
+ * Throws `ThumbDecodeError` if `sharp`/libvips can't read the input —
+ * the worker handler converts that into `{ skip }` so corrupt thumbnails
+ * dead-letter immediately instead of after 5 retries. */
 async function jpegToInputTensor(
   jpegBytes: Uint8Array,
   size: number,
   mode: "retinaface" | "mobilefacenet",
+  Tensor: OnnxTensorConstructor,
 ): Promise<{
   tensor: OnnxTensorLike;
   srcWidth: number;
   srcHeight: number;
 }> {
-  const img = sharp(jpegBytes);
-  const meta = await img.metadata();
-  const srcWidth = meta.width ?? size;
-  const srcHeight = meta.height ?? size;
-  const raw = await img
-    .resize(size, size, { fit: "fill" })
-    .removeAlpha()
-    .raw()
-    .toBuffer();
+  let srcWidth: number;
+  let srcHeight: number;
+  let raw: Buffer;
+  try {
+    const img = sharp(jpegBytes);
+    const meta = await img.metadata();
+    srcWidth = meta.width ?? size;
+    srcHeight = meta.height ?? size;
+    raw = await img
+      .resize(size, size, { fit: "fill" })
+      .removeAlpha()
+      .raw()
+      .toBuffer();
+  } catch (err) {
+    throw new ThumbDecodeError(err instanceof Error ? err.message : String(err));
+  }
   // Sharp returns interleaved RGB (HWC, uint8). We reshape into NCHW float32.
   const data = new Float32Array(3 * size * size);
   const plane = size * size;
@@ -166,7 +191,7 @@ async function jpegToInputTensor(
     }
   }
   return {
-    tensor: { data, dims: [1, 3, size, size] as const },
+    tensor: new Tensor("float32", data, [1, 3, size, size]),
     srcWidth,
     srcHeight,
   };
@@ -185,30 +210,46 @@ async function jpegToInputTensor(
 async function alignFaceCrop(
   jpegBytes: Uint8Array,
   detection: DetectedFace,
+  Tensor: OnnxTensorConstructor,
 ): Promise<OnnxTensorLike> {
-  const meta = await sharp(jpegBytes).metadata();
-  const W = meta.width ?? 0;
-  const H = meta.height ?? 0;
+  let W: number;
+  let H: number;
+  let cropRaw: Buffer;
+  try {
+    const meta = await sharp(jpegBytes).metadata();
+    W = meta.width ?? 0;
+    H = meta.height ?? 0;
+  } catch (err) {
+    throw new ThumbDecodeError(err instanceof Error ? err.message : String(err));
+  }
+  // Dimension sanity check sits OUTSIDE the decode try-catch on purpose:
+  // sharp accepting bytes but returning zero dims would indicate a bug
+  // in our preprocessing pipeline, not a corrupt JPEG, so we surface it
+  // as a hard error rather than swallowing it as `thumb-undecodable`.
   if (W === 0 || H === 0) {
     throw new Error("face-detector: unable to read image dimensions");
   }
-  // Inflate the box a touch so MobileFaceNet sees a bit of context — it
-  // was trained on slightly-padded crops, not tight bounding boxes.
-  const pad = 0.1;
-  const cx = (detection.bbox.x + detection.bbox.w / 2) * W;
-  const cy = (detection.bbox.y + detection.bbox.h / 2) * H;
-  const side =
-    Math.max(detection.bbox.w * W, detection.bbox.h * H) * (1 + pad);
-  const left = Math.max(0, Math.round(cx - side / 2));
-  const top = Math.max(0, Math.round(cy - side / 2));
-  const width = Math.min(W - left, Math.round(side));
-  const height = Math.min(H - top, Math.round(side));
-  const cropRaw = await sharp(jpegBytes)
-    .extract({ left, top, width, height })
-    .resize(MFN_INPUT_SIZE, MFN_INPUT_SIZE, { fit: "fill" })
-    .removeAlpha()
-    .raw()
-    .toBuffer();
+  try {
+    // Inflate the box a touch so MobileFaceNet sees a bit of context — it
+    // was trained on slightly-padded crops, not tight bounding boxes.
+    const pad = 0.1;
+    const cx = (detection.bbox.x + detection.bbox.w / 2) * W;
+    const cy = (detection.bbox.y + detection.bbox.h / 2) * H;
+    const side =
+      Math.max(detection.bbox.w * W, detection.bbox.h * H) * (1 + pad);
+    const left = Math.max(0, Math.round(cx - side / 2));
+    const top = Math.max(0, Math.round(cy - side / 2));
+    const width = Math.min(W - left, Math.round(side));
+    const height = Math.min(H - top, Math.round(side));
+    cropRaw = await sharp(jpegBytes)
+      .extract({ left, top, width, height })
+      .resize(MFN_INPUT_SIZE, MFN_INPUT_SIZE, { fit: "fill" })
+      .removeAlpha()
+      .raw()
+      .toBuffer();
+  } catch (err) {
+    throw new ThumbDecodeError(err instanceof Error ? err.message : String(err));
+  }
   const data = new Float32Array(3 * MFN_INPUT_SIZE * MFN_INPUT_SIZE);
   const plane = MFN_INPUT_SIZE * MFN_INPUT_SIZE;
   for (let i = 0; i < plane; i++) {
@@ -219,7 +260,7 @@ async function alignFaceCrop(
     data[plane + i] = (g - 127.5) / 128.0;
     data[2 * plane + i] = (b - 127.5) / 128.0;
   }
-  return { data, dims: [1, 3, MFN_INPUT_SIZE, MFN_INPUT_SIZE] as const };
+  return new Tensor("float32", data, [1, 3, MFN_INPUT_SIZE, MFN_INPUT_SIZE]);
 }
 
 /** Pick the model's input tensor name. ONNX exporters disagree on what
