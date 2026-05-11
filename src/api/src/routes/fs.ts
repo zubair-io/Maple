@@ -5,10 +5,11 @@
 //   empty-state to let the user pick a folder to register.
 //
 // GET /api/fs/dir?path=<abs>
-//   Lists subdirectories AND RAW image files at a single directory level.
-//   Used by the "browse by walking the filesystem" tree-view. Does NOT
-//   recurse. Filters images to known RAW extensions (case-insensitive) and
-//   hides dotfiles/dotdirs (including `.maple/`).
+//   Lists subdirectories AND image files at a single directory level. Used
+//   by the "browse by walking the filesystem" tree-view. Does NOT recurse.
+//   Filters images to extensions the thumb endpoint can render — RAWs plus
+//   common bitmap formats (jpg/jpeg/png/webp/gif/tif/tiff/heic/heif/avif),
+//   case-insensitive. Hides dotfiles/dotdirs (including `.maple/`).
 //
 // GET /api/fs/raw?path=<abs>
 //   Streams the raw file bytes (Content-Type: application/octet-stream) for
