@@ -6,4 +6,4 @@ pub use orb::OrbDetector;
 #[cfg(feature = "ml-lightglue")]
 pub mod lightglue;
 #[cfg(feature = "ml-lightglue")]
-pub use lightglue::{matches_from_confidences, LightGlueMatcher};
+pub use lightglue::{matches_from_confidences, LightGlueDetection, LightGlueMatcher};

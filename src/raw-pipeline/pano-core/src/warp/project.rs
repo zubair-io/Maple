@@ -4,8 +4,11 @@
 //! cylindrical and spherical canvases use the stored angular extents, while
 //! rectilinear canvases use a centred pinhole camera model.
 
-use crate::types::Projection;
+use nalgebra::Vector3;
+
+use crate::types::{Camera, Projection};
 use crate::warp::canvas::{Canvas, CanvasParams};
+use crate::warp::distortion::inverse_distort_xy;
 
 /// A point on the selected output projection surface.
 ///
@@ -174,5 +177,173 @@ pub fn projection_to_canvas_pixel(canvas: &Canvas, point: ProjectionPoint) -> Op
             let y = ((point.v - phi_min) / phi_span) * canvas.height as f32;
             Some((x, y))
         }
+    }
+}
+
+/// Forward-project an image-pixel coordinate into the canvas through
+/// a camera's pose. Composes:
+///
+///   1. Image pixel `(px, py)` → ideal camera-space ray via
+///      `K^{-1}` and inverse-Brown-Conrady distortion.
+///   2. World point `world = R · ray + t` (planar-at-unit-depth
+///      back-projection — same convention as `compute_canvas` and
+///      the `warp_image_to_canvas` inverse path).
+///   3. World → `ProjectionPoint` via the canvas's projection.
+///   4. `ProjectionPoint` → canvas pixel via
+///      `projection_to_canvas_pixel`.
+///
+/// Returns `None` for points behind the camera (`world.z ≤ ε` for
+/// rectilinear) or points with degenerate world coordinates
+/// (cylinder axis singularity, sphere centre).
+///
+/// Used by Stage C (global mesh solve) to convert AKAZE+RANSAC
+/// inlier image-pixel coordinates into canvas coordinates so the
+/// per-image mesh solver can attribute residuals to mesh
+/// vertices.
+pub fn image_pixel_to_canvas(
+    camera: &Camera,
+    image_width: u32,
+    image_height: u32,
+    canvas: &Canvas,
+    px: f32,
+    py: f32,
+) -> Option<(f32, f32)> {
+    if !px.is_finite() || !py.is_finite() {
+        return None;
+    }
+
+    // Step 1: pixel → camera-space ray (ideal pinhole, distortion
+    // inverted). Mirrors `canvas::ideal_ray_from_sensor_pixel`.
+    let (cx, cy) = camera.principal_point_or_center(image_width, image_height);
+    if camera.focal <= 0.0 || !camera.focal.is_finite() {
+        return None;
+    }
+    let xn_d = (px as f64 - cx as f64) / camera.focal as f64;
+    let yn_d = (py as f64 - cy as f64) / camera.focal as f64;
+    let (xn, yn) = inverse_distort_xy(xn_d, yn_d, camera.distortion.k1, camera.distortion.k2);
+    let ray_cam = Vector3::new(xn, yn, 1.0_f64);
+
+    // Step 2: camera ray → world point. R is f32, ray is f64;
+    // promote.
+    let r = camera.rotation.cast::<f64>();
+    let t = camera.translation.cast::<f64>();
+    let world = r * ray_cam + t;
+
+    // Step 3: world → projection point.
+    let proj_point: ProjectionPoint = match &canvas.params {
+        CanvasParams::Rectilinear { .. } => {
+            if world.z.abs() < 1e-9 {
+                return None;
+            }
+            ProjectionPoint::rectilinear((world.x / world.z) as f32, (world.y / world.z) as f32)
+        }
+        CanvasParams::Cylindrical { .. } => {
+            let denom = (world.x * world.x + world.z * world.z).sqrt();
+            if denom < 1e-9 {
+                return None;
+            }
+            let theta = world.x.atan2(world.z) as f32;
+            let h = (world.y / denom) as f32;
+            ProjectionPoint::cylindrical(theta, h)
+        }
+        CanvasParams::Spherical { .. } => {
+            let radius = (world.x * world.x + world.y * world.y + world.z * world.z).sqrt();
+            if radius < 1e-9 {
+                return None;
+            }
+            let lambda = world.x.atan2(world.z) as f32;
+            let phi = (world.y / radius).clamp(-1.0, 1.0).asin() as f32;
+            ProjectionPoint::spherical(lambda, phi)
+        }
+    };
+
+    // Step 4: projection → canvas pixel.
+    projection_to_canvas_pixel(canvas, proj_point)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::{CameraIntrinsics, Distortion};
+    use nalgebra::Matrix3;
+
+    fn make_camera(focal: f32, w: u32, h: u32) -> Camera {
+        Camera {
+            focal,
+            principal_point: None,
+            rotation: Matrix3::<f32>::identity(),
+            translation: nalgebra::Vector3::zeros(),
+            distortion: Distortion::default(),
+        }
+    }
+
+    fn make_rectilinear_canvas(w: u32, h: u32, focal: f32) -> Canvas {
+        Canvas {
+            width: w,
+            height: h,
+            projection: Projection::Rectilinear,
+            params: CanvasParams::Rectilinear {
+                focal,
+                cx: w as f32 * 0.5,
+                cy: h as f32 * 0.5,
+            },
+        }
+    }
+
+    /// Round-trip: canvas pixel → projection → canvas pixel
+    /// recovers the original. (Sanity check on the existing
+    /// helpers; the new forward-project test below depends on
+    /// these being correct.)
+    #[test]
+    fn rectilinear_canvas_pixel_round_trip() {
+        let canvas = make_rectilinear_canvas(800, 600, 500.0);
+        let pp = canvas_pixel_to_projection(&canvas, 423.0, 311.0).expect("project");
+        let (x, y) = projection_to_canvas_pixel(&canvas, pp).expect("unproject");
+        assert!((x - 423.0).abs() < 1e-3, "got {}", x);
+        assert!((y - 311.0).abs() < 1e-3, "got {}", y);
+    }
+
+    /// Identity camera + rectilinear canvas with the same focal as
+    /// the camera: the centre of the input image (cx, cy) maps to
+    /// the centre of the canvas.
+    #[test]
+    fn image_pixel_to_canvas_identity_centre() {
+        let cam = make_camera(500.0, 800, 600);
+        let canvas = make_rectilinear_canvas(800, 600, 500.0);
+        // Image principal point (400, 300) → camera ray (0, 0, 1) →
+        // world (0, 0, 1) → rectilinear (0, 0) → canvas centre (400, 300).
+        let (cx, cy) = image_pixel_to_canvas(&cam, 800, 600, &canvas, 400.0, 300.0)
+            .expect("forward projection");
+        assert!((cx - 400.0).abs() < 1e-3, "cx = {}", cx);
+        assert!((cy - 300.0).abs() < 1e-3, "cy = {}", cy);
+    }
+
+    /// Off-axis image pixel maps to a corresponding canvas pixel.
+    /// Image pixel `(450, 300)` is 50 px right of the principal
+    /// point, focal 500 → normalised x = 0.1. Identity rotation
+    /// → world `(0.1, 0, 1)`. Rectilinear canvas focal 500, cx
+    /// 400 → canvas pixel `(0.1 × 500 + 400, 300)` = `(450, 300)`.
+    #[test]
+    fn image_pixel_to_canvas_off_axis_identity_camera() {
+        let cam = make_camera(500.0, 800, 600);
+        let canvas = make_rectilinear_canvas(800, 600, 500.0);
+        let (cx, cy) = image_pixel_to_canvas(&cam, 800, 600, &canvas, 450.0, 300.0)
+            .expect("forward projection");
+        assert!((cx - 450.0).abs() < 1e-2, "cx = {}", cx);
+        assert!((cy - 300.0).abs() < 1e-2, "cy = {}", cy);
+    }
+
+    /// Non-finite pixel coords return None.
+    #[test]
+    fn image_pixel_to_canvas_rejects_nan() {
+        let cam = make_camera(500.0, 800, 600);
+        let canvas = make_rectilinear_canvas(800, 600, 500.0);
+        assert!(image_pixel_to_canvas(&cam, 800, 600, &canvas, f32::NAN, 300.0).is_none());
+    }
+
+    // Suppress dead-code warning on unused field.
+    #[allow(dead_code)]
+    fn _check_intrinsics_type_exists() {
+        let _: CameraIntrinsics;
     }
 }

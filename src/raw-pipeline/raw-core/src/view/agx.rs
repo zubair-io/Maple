@@ -76,6 +76,24 @@ fn agx_per_channel(scene: f32, slope: f32) -> f32 {
     sample_lut(contrast_adjusted).clamp(0.0, 1.0)
 }
 
+/// AgX applied to a single scene-linear Rec.2020 RGB triple.
+/// Returns the display-linear Rec.2020 RGB triple. Useful for
+/// callers that don't have a full `Image` allocation handy
+/// (e.g. pano-smoke's per-pixel write loop, where the working
+/// buffer is `PanoImage` rather than `raw_core::Image`).
+///
+/// `contrast` follows the same convention as `apply()`:
+/// `[-100, +100]`, 0 is the reference sigmoid.
+#[inline]
+pub fn apply_rgb_triple(r: f32, g: f32, b: f32, contrast: f32) -> (f32, f32, f32) {
+    let slope = 1.0 + (contrast / 100.0) * 0.5;
+    (
+        agx_per_channel(r, slope),
+        agx_per_channel(g, slope),
+        agx_per_channel(b, slope),
+    )
+}
+
 /// Apply AgX per-channel across the image. Input must be
 /// `SceneLinearRec2020`; output space is `DisplayLinearRec2020`.
 /// `contrast` in [-100, +100]; 0 is the reference sigmoid.

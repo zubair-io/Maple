@@ -21,15 +21,24 @@
 //! 1. Initialise per-pixel labels via Voronoi: each pixel is assigned
 //!    to the first image whose validity is set there. Pixels with no
 //!    valid input are labelled `-1`.
-//! 2. For each adjacent image pair `(i, i+1)`, if their validity
-//!    overlaps, run the existing pairwise `GraphCutMaxFlowSeamFinder`
+//! 2. Build the overlap-pair list: every `(i, j)` with `i < j` where
+//!    images `i` and `j` share at least one valid canvas pixel. This
+//!    catches cross-row neighbours on multi-row sphere panoramas where
+//!    the on-disk file order is not row-major (`(7, 14)` typical).
+//! 3. **Pairwise alpha-expansion**. For each iteration (capped at
+//!    `MAX_ITER`), iterate over the overlap-pair list. For each pair
+//!    `(i, j)`, run the existing pairwise `GraphCutMaxFlowSeamFinder`
 //!    on that pair. The cut produces a binary partition over the
-//!    overlap: each pixel goes to either image i or image i+1.
-//!    Update labels for pixels in the overlap.
-//! 3. (Optional) For pixels covered by ≥3 images (rare on adjacency-
-//!    chain panoramas), the last pair's decision wins. This is
-//!    suboptimal in principle but stable in practice for our use case.
-//! 4. Convert labels to per-image binary masks: `mask_i[px] = 1.0` iff
+//!    `i`/`j` overlap region. Apply the result **only to pixels whose
+//!    current label is `i` or `j`** — pixels currently labelled `k`
+//!    (some other image) are left for the `(i, k)` or `(j, k)` pair-cut
+//!    iterations to resolve. This is AliceVision's `panoramaSeams`
+//!    strategy: every pair-cut is a valid alpha-expansion move, so the
+//!    iterations monotonically decrease the global energy and converge
+//!    in 1–3 passes for typical panorama overlap graphs.
+//! 4. Stop early when fewer than `CONVERGE_THRESHOLD` of canvas pixels
+//!    flipped labels in the last full pass.
+//! 5. Convert labels to per-image binary masks: `mask_i[px] = 1.0` iff
 //!    `labels[px] == i`, else `0.0`.
 //!
 //! Optional narrow feathering at seam boundaries is left to the caller
@@ -119,7 +128,11 @@ pub fn compute_distance_field_labels(warped: &[PanoImage]) -> Vec<i32> {
 /// invalid pixel (capped at `cap`). Same as the
 /// `compute_edge_feather` helper in pano-smoke but inlined here to
 /// keep the seam module self-contained.
-fn compute_edge_distance(validity: &BitVec, w: u32, h: u32, cap: f32) -> Vec<f32> {
+///
+/// Public so other seam modules (e.g. `graph_cut_maxflow`'s
+/// validity-distance penalty) can pre-compute the same per-image
+/// distance map without duplicating the chamfer.
+pub fn compute_edge_distance(validity: &BitVec, w: u32, h: u32, cap: f32) -> Vec<f32> {
     let n = (w as usize) * (h as usize);
     let mut dist = vec![cap + 1.0; n];
 
@@ -202,6 +215,19 @@ fn compute_edge_distance(validity: &BitVec, w: u32, h: u32, cap: f32) -> Vec<f32
 /// routes that are coarse to within ±downsample/2 px (invisible after
 /// the post-cut feather pass). Pass `1` to skip downsampling.
 pub fn compute_n_way_labels(warped: &[PanoImage], downsample: u32) -> Vec<i32> {
+    compute_n_way_labels_with_finder(warped, downsample, &GraphCutMaxFlowSeamFinder::new())
+}
+
+/// Same as [`compute_n_way_labels`] but takes a pre-configured
+/// `GraphCutMaxFlowSeamFinder`, so callers can override `λ_sal`,
+/// `λ_val`, and `(w_grad, w_col, w_dup)` weights for an A/B test
+/// without rebuilding the binary. The default `compute_n_way_labels`
+/// passes `GraphCutMaxFlowSeamFinder::new()` (Stage D defaults).
+pub fn compute_n_way_labels_with_finder(
+    warped: &[PanoImage],
+    downsample: u32,
+    finder: &GraphCutMaxFlowSeamFinder,
+) -> Vec<i32> {
     let n = warped.len();
     if n == 0 {
         return Vec::new();
@@ -242,38 +268,134 @@ pub fn compute_n_way_labels(warped: &[PanoImage], downsample: u32) -> Vec<i32> {
         }
     }
 
-    // Step 2 (downsampled): pairwise 2-way max-flow cuts for adjacent pairs.
+    // Step 2 (downsampled): build the full overlap-graph pair list.
+    //
+    // For each `(i, j)` with `i < j`, count canvas pixels valid in BOTH
+    // images. Pairs with no overlap are dropped — there's nothing to cut.
+    // The minimum threshold is 1 px so even single-pixel overlaps get a
+    // (degenerate) cut and don't silently become invisible. On a typical
+    // 21-frame multi-row sphere this returns ~30–50 pairs; chain-only
+    // would return only N-1 = 20.
+    //
+    // Sorted by overlap-count descending (largest overlaps first) so the
+    // first iteration tackles the biggest pair-cuts when alpha-expansion
+    // has the most to gain.
+    let pairs = crate::warp::find_overlapping_pairs(&working, 1);
+
     let verbose = std::env::var("PANO_SEAM_VERBOSE").is_ok();
-    let finder = GraphCutMaxFlowSeamFinder::new();
-    for i in 0..(n - 1) {
-        let j = i + 1;
-        let t_pair = std::time::Instant::now();
-        let pair = [&working[i], &working[j]];
-        let seams = match finder.seams(&pair) {
-            Ok(s) => s,
-            Err(e) => {
-                if verbose {
-                    eprintln!("n_way: pair ({i},{j}) cut failed: {e}");
+    if verbose {
+        eprintln!(
+            "n_way: graph-cut N-way over {} overlap pairs (was N-1 = {} chain pairs)",
+            pairs.len(),
+            n.saturating_sub(1),
+        );
+    }
+
+    // Step 3 (downsampled): pairwise alpha-expansion. Iterate the pair
+    // list up to MAX_ITER times; stop early when fewer than
+    // CONVERGE_THRESHOLD of canvas pixels change label in a pass.
+    //
+    // Per AliceVision's `panoramaSeams`: every pair-cut is a valid
+    // alpha-expansion move (each cut decides between two labels for the
+    // pixels currently in those labels' regions), so the global energy
+    // is monotone non-increasing and the iteration converges in 1–3
+    // passes for typical panorama overlap graphs. MAX_ITER caps it at 3
+    // to bound wall-time when the energy is on a long flat plateau.
+    const MAX_ITER: u32 = 3;
+    const CONVERGE_THRESHOLD: f64 = 0.001; // 0.1% of canvas pixels
+
+    let mut total_iters: u32 = 0;
+    let mut last_change_frac: f64 = 0.0;
+    for iter in 0..MAX_ITER {
+        let mut changes: u64 = 0;
+        for &(i, j, _overlap_px) in &pairs {
+            let t_pair = std::time::Instant::now();
+            let pair = [&working[i], &working[j]];
+            let seams = match finder.seams(&pair) {
+                Ok(s) => s,
+                Err(e) => {
+                    if verbose {
+                        eprintln!("n_way: pair ({i},{j}) cut failed: {e}");
+                    }
+                    continue;
                 }
+            };
+            if seams.len() != 2 {
                 continue;
             }
-        };
-        if seams.len() != 2 {
-            continue;
-        }
-        let mask_a = &seams[0];
-        for px in 0..n_pixels_ds {
-            if working[i].validity[px] && working[j].validity[px] {
+            let mask_a = &seams[0];
+
+            // Apply the cut as an alpha-expansion move:
+            //
+            // - Pixels currently labelled `i` or `j`: take the cut
+            //   decision (it minimises the pair energy, and replacing
+            //   `i`/`j` with `i`/`j` is a sound alpha-expansion).
+            // - Pixels currently labelled `k` (some other image, not in
+            //   `{i, j}`): leave alone. The `(i, k)` and `(j, k)` cuts
+            //   in this same iteration handle them.
+            // - Pixels valid only in `i` (not `j`): the cut output is
+            //   forced to `i` by `GraphCutMaxFlowSeamFinder`'s
+            //   "valid only in A" branch (mask_a bit = false → A).
+            //   Same for valid-only-in-`j` → mask_a bit = true → B.
+            //   Either way, the apply-rule below is correct.
+            // - Pixels valid in NEITHER: cut returns mask_a bit = false
+            //   (both bits zero, "default A"). We skip those by gating
+            //   on the current label being i or j. Defensive — the
+            //   Voronoi init would never assign `i` or `j` to a
+            //   pixel where image i is invalid.
+            let i32_i = i as i32;
+            let i32_j = j as i32;
+            for px in 0..n_pixels_ds {
+                let cur = ds_labels[px];
+                if cur != i32_i && cur != i32_j {
+                    continue;
+                }
                 let bit = mask_a.bits[px];
-                ds_labels[px] = if bit { j as i32 } else { i as i32 };
+                let new_label = if bit { i32_j } else { i32_i };
+                if new_label != cur {
+                    // Defensive: never assign a label whose image isn't
+                    // valid here (BK would have produced this only at
+                    // pixels in the i/j overlap, but downsampling
+                    // boundaries could expose edge cases).
+                    let new_idx = new_label as usize;
+                    if working[new_idx].validity[px] {
+                        ds_labels[px] = new_label;
+                        changes += 1;
+                    }
+                }
+            }
+            if verbose {
+                eprintln!(
+                    "n_way: pair ({i},{j}) BK max-flow took {:?}",
+                    t_pair.elapsed()
+                );
             }
         }
+
+        total_iters = iter + 1;
+        let frac = (changes as f64) / (n_pixels_ds.max(1) as f64);
+        last_change_frac = frac;
         if verbose {
             eprintln!(
-                "n_way: pair ({i},{j}) BK max-flow took {:?}",
-                t_pair.elapsed()
+                "n_way: iter {} over {} pairs: {} label changes ({:.3}% of canvas)",
+                iter + 1,
+                pairs.len(),
+                changes,
+                frac * 100.0,
             );
         }
+        if frac < CONVERGE_THRESHOLD {
+            break;
+        }
+    }
+
+    if verbose {
+        eprintln!(
+            "n_way: graph-cut N-way: {} iterations over {} overlap pairs, converged after {:.3}% label changes",
+            total_iters,
+            pairs.len(),
+            last_change_frac * 100.0,
+        );
     }
 
     if ds == 1 {
@@ -759,6 +881,115 @@ mod tests {
                 assert_eq!(masks[1][px], 0.0);
             }
         }
+    }
+
+    /// Build a constant-colour image with validity = a 2D rectangle.
+    /// `valid_x` and `valid_y` are inclusive `(min, max)` ranges. Used
+    /// by `n_way_routes_seams_through_diagonal_overlap` (Stage L test)
+    /// where a 2×2 grid layout needs validity controlled per axis.
+    fn make_image_rect(
+        w: u32,
+        h: u32,
+        rgb: [f32; 3],
+        valid_x: (u32, u32),
+        valid_y: (u32, u32),
+    ) -> PanoImage {
+        let mut img = PanoImage::new(w, h, ColorSpace::rec2020_d65_linear());
+        for y in 0..h {
+            for x in 0..w {
+                let i = (y * w + x) as usize;
+                img.pixels[i * 3] = rgb[0];
+                img.pixels[i * 3 + 1] = rgb[1];
+                img.pixels[i * 3 + 2] = rgb[2];
+                let valid =
+                    x >= valid_x.0 && x <= valid_x.1 && y >= valid_y.0 && y <= valid_y.1;
+                img.validity.set(i, valid);
+            }
+        }
+        img
+    }
+
+    /// **Stage L**: 2×2 grid where image 0 (top-left) and image 3
+    /// (bottom-right) overlap diagonally — but neither is adjacent to
+    /// the other in chain order. The chain-only `compute_n_way_labels`
+    /// (`for i in 0..N-1 { cut (i, i+1) }`) only visits (0,1), (1,2),
+    /// (2,3). The (0,3) pair is *never* cut, and the diagonal-overlap
+    /// region stays at the Voronoi-init label (= 0, the lower index).
+    /// The new pairwise alpha-expansion driver iterates the full
+    /// overlap-graph pair list — (0,1), (0,2), (0,3) here — and the
+    /// (0,3) cut produces label 3 in the diagonal overlap.
+    ///
+    /// Layout (32×32 canvas):
+    /// - image 0: cols 0..20, rows 0..20
+    /// - image 1: cols 16..32, rows 0..12  (overlaps 0 at cols 16..20, rows 0..12)
+    /// - image 2: cols 0..12, rows 16..32  (overlaps 0 at cols 0..12, rows 16..20)
+    /// - image 3: cols 12..32, rows 12..32 (overlaps 0 at cols 12..20, rows 12..20)
+    ///
+    /// (1,2), (1,3), (2,3) have no overlap — they're spatially
+    /// non-adjacent in this layout. So the OLD chain code only ever
+    /// cuts (0,1) (the other two chain pairs no-op on no-overlap).
+    /// The NEW code cuts all three real-overlap pairs.
+    #[test]
+    fn n_way_routes_seams_through_diagonal_overlap() {
+        let w = 32u32;
+        let h = 32u32;
+        let img0 = make_image_rect(w, h, [0.8, 0.2, 0.2], (0, 19), (0, 19));
+        let img1 = make_image_rect(w, h, [0.2, 0.8, 0.2], (16, 31), (0, 11));
+        let img2 = make_image_rect(w, h, [0.2, 0.2, 0.8], (0, 11), (16, 31));
+        let img3 = make_image_rect(w, h, [0.5, 0.2, 0.5], (12, 31), (12, 31));
+        let warped = vec![img0, img1, img2, img3];
+
+        let labels = compute_n_way_labels(&warped, 1);
+
+        // Sanity: all four labels appear on the canvas (every image's
+        // single-coverage region is preserved).
+        let mut counts = [0_u32; 4];
+        for &lab in &labels {
+            if (0..4).contains(&lab) {
+                counts[lab as usize] += 1;
+            }
+        }
+        for (i, &c) in counts.iter().enumerate() {
+            assert!(c > 0, "label {i} missing from canvas (count = 0)");
+        }
+
+        // Core assertion: label 3 appears somewhere in the (0,3)
+        // diagonal-overlap region. Under the chain-only code this
+        // region would be all label 0 (Voronoi init, then the chain
+        // never visits (0,3) so nothing flips).
+        let mut found_label_3_in_diagonal_overlap = false;
+        for y in 12..20 {
+            for x in 12..20 {
+                let idx = (y * w + x) as usize;
+                if labels[idx] == 3 {
+                    found_label_3_in_diagonal_overlap = true;
+                    break;
+                }
+            }
+            if found_label_3_in_diagonal_overlap {
+                break;
+            }
+        }
+        assert!(
+            found_label_3_in_diagonal_overlap,
+            "expected (0,3) cut to assign at least one pixel in the \
+             diagonal-overlap region (cols 12..20, rows 12..20) to \
+             label 3 — the chain-only code never visits (0,3) and \
+             the region stays Voronoi-default label 0"
+        );
+
+        // Equivalent assertion via the seam-paths API: the labelling
+        // produces a (0,3) seam (a 4-neighbour boundary between labels
+        // 0 and 3 somewhere on the canvas). Under the chain-only code
+        // there's no such boundary because no label-3 pixel exists
+        // inside img 0's footprint.
+        let paths = extract_seam_paths(&labels, w, h);
+        assert!(
+            paths.contains_key(&(0usize, 3usize)),
+            "expected extract_seam_paths to report a (0,3) seam, got \
+             pair set: {:?}",
+            paths.keys().collect::<Vec<_>>()
+        );
     }
 
     /// In the overlap region, the partition should split somewhere

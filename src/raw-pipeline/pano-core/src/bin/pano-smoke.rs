@@ -44,7 +44,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 use pano_core::{
     ba::{
         focal::focal_from_homography,
@@ -83,6 +83,35 @@ fn load_image_any_format(path: &Path) -> Result<PanoImage, String> {
 // CLI definition
 // ---------------------------------------------------------------------------
 
+/// Which backend produces the final stitched panorama.
+///
+/// `Maple` (default) is the in-house Rust pipeline that the rest of
+/// `pano-smoke`'s flags configure. `Alicevision` shells out to the
+/// AliceVision binaries discovered via `MAPLE_ALICEVISION_BIN` and
+/// is intended as an OFFLINE measurement tool for comparison only —
+/// not the production engine.
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum Backend {
+    Maple,
+    Alicevision,
+}
+
+/// Which feature matcher to run.
+///
+/// `Akaze` (default) — classical AKAZE detector + brute-force Hamming
+/// matcher + GMS filter. No model files required.
+///
+/// `Lightglue` — SuperPoint encoder + LightGlue matcher (ICCV 2023),
+/// invoked through the ONNX path in `pano-core::features::lightglue`.
+/// Requires the `ml-lightglue` cargo feature at compile time AND the
+/// two ONNX model files at runtime. Falls back to AKAZE with a
+/// warning when either is missing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MatcherKind {
+    Akaze,
+    Lightglue,
+}
+
 #[derive(Parser, Debug)]
 #[command(
     name = "pano-smoke",
@@ -120,24 +149,27 @@ struct Cli {
     blend_mode: String,
 
     /// Partition mode:
-    /// - `distance-field` (default) — fast hard partition by argmax
-    ///   of per-image distance-from-validity-edge. Eliminates
-    ///   blend-averaging ghosts. Seams pass through validity-edge
-    ///   midpoints. O(N · canvas), no max-flow.
-    /// - `graphcut` — graph-cut min-cost seams via BK max-flow,
-    ///   routes seams through smooth regions. Optimal but slow.
-    /// - `multiband-seam-zone` — hard binary partition everywhere
-    ///   except a `--zone-radius` band around each seam, where the
-    ///   masks are softened and renormalised to partition unity. Pair
-    ///   with multi-band blending (auto-enabled): the blender's
-    ///   Laplacian pyramid degenerates to a copy outside the zone
-    ///   (no whole-canvas averaging), and inside the zone hides
-    ///   brightness/colour transitions across all frequency bands.
+    /// - `graphcut-seam-zone` (default) — graph-cut min-cost labels
+    ///   (col + grad + dup + validity-distance + saliency, per Stage
+    ///   D) feeding the seam-zone partition. Inside a `--zone-radius`
+    ///   band around each seam, masks are softened and renormalised
+    ///   to partition unity; outside the band exactly one mask is
+    ///   `1.0`. Auto-promotes the blend mode to `multi-band`.
     ///   Best quality for the panorama use case.
+    /// - `multiband-seam-zone` — same partition shape as the default
+    ///   but labels come from the cheap `compute_distance_field_labels`
+    ///   (Voronoi-of-validity-edge), bypassing Stage D's content
+    ///   awareness. Faster but seams pass through validity-edge
+    ///   midpoints.
+    /// - `distance-field` — fast hard partition by argmax of per-
+    ///   image distance-from-validity-edge. No seam-zone band, no
+    ///   multi-band blend.
+    /// - `graphcut` — graph-cut min-cost seams + plain hard binary
+    ///   masks (no seam-zone band).
     /// - `voronoi` — legacy soft inverse-square + feather weights.
     ///   Averages overlap content → ghosting when BA residual
     ///   produces misalignment.
-    #[arg(long, default_value = "distance-field", value_name = "MODE")]
+    #[arg(long, default_value = "graphcut-seam-zone", value_name = "MODE")]
     partition: String,
 
     /// Seam-zone radius (px) for `--partition multiband-seam-zone`.
@@ -167,6 +199,17 @@ struct Cli {
     /// which is invisible after the seam feather. Default 8.
     #[arg(long, default_value_t = 8, value_name = "FACTOR")]
     seam_downsample: u32,
+
+    /// Saliency / edge-avoidance penalty (`λ_sal`) for the graph-cut
+    /// seam finder (Stage D). Larger → seams are pushed harder toward
+    /// flat (low-gradient) pixels, away from cliffs/horizons/text.
+    /// Default `0.5`. Stage J observed weak saliency lets seams cut
+    /// through sky→horizon edges; bumping to `1.0`-`2.0` is a useful
+    /// A/B knob. Only takes effect when the partition mode invokes
+    /// `compute_n_way_labels` (graphcut, graphcut-seam-zone). Set to
+    /// `0.0` to disable the term entirely.
+    #[arg(long, default_value_t = 0.5, value_name = "LAMBDA")]
+    seam_saliency: f32,
 
     /// After warp + gain compensation, run a per-pair SSD search
     /// to estimate residual canvas-space translation that BA didn't
@@ -247,22 +290,130 @@ struct Cli {
 
     /// Gain compensation mode:
     /// - `luma` (default) — single per-image scalar gain matching
-    ///   Brown & Lowe 2007. Best for same-camera panoramas where
-    ///   white balance is constant across frames; preserves the
-    ///   colour cast of the input.
+    ///   Brown & Lowe 2007. Preserves the colour cast of the input
+    ///   and can apply gain factors well beyond ±log(1.5), which is
+    ///   what most pano_01-class scenes need (image[2] gets ≈ 0.42×
+    ///   on the reference scene). Stage J reverted the default here:
+    ///   on multi-stop overlaps the `block` mode hits its `±log(1.5)`
+    ///   per-tile clamp, leaving residuals at every seam that the
+    ///   multi-band blender can't hide. Ratchet to `block` only after
+    ///   the clamp safety bar is re-thought.
+    /// - `block` — per-tile per-channel log-gain field (Stage F).
+    ///   Hard-clamps every tile to ±log(1.5), aggressively rejects
+    ///   clipped/dark/edge/seam-band/high-gradient pixels before the
+    ///   per-tile median, regularises with smoothness + zero priors.
+    ///   Robust to local photometric variation (vignetting, sky→ground
+    ///   falloff) without bending colour — but only when the inter-
+    ///   image brightness ratios STAY inside the `±log(1.5)` budget.
+    ///   On scenes with bigger ratios it leaves visible bands.
     /// - `per-channel` — independent per-image R/G/B gains with
-    ///   Tikhonov regularisation. Use only when input frames have
-    ///   genuine WB drift (auto-WB across frames, mixed lighting).
-    ///   On WB-constant inputs the per-channel solve over-fits
-    ///   on whatever scene-content asymmetry happens to live in
-    ///   the overlap region, shifting the panorama's overall hue
-    ///   away from the source.
+    ///   Tikhonov regularisation. Compensates real WB drift across
+    ///   frames; on WB-constant inputs it over-fits on overlap
+    ///   content asymmetry and shifts the panorama's hue away from
+    ///   the source.
     #[arg(long, default_value = "luma", value_name = "MODE")]
     gain_mode: String,
+
+    /// Run the post-blend magenta repair passes
+    /// (`repair_magenta_clipping` + `suppress_display_magenta_false_color`).
+    /// Default false. These passes mask real out-of-gamut symptoms
+    /// that point to upstream bugs (gain over-correction, lens-
+    /// correction amplification, Laplacian ringing). Enable only
+    /// when investigating a specific symptom you've already
+    /// understood — leaving it on permanently hides the bugs.
+    #[arg(long, default_value_t = false, action = clap::ArgAction::SetTrue)]
+    repair_magenta: bool,
+
+    /// AgX view-transform contrast in `[-100, +100]`. `0` (default)
+    /// is the reference Sobotka sigmoid. Set to a special value
+    /// `none` (use `--no-agx`) to skip AgX and fall back to the
+    /// legacy soft-desaturate path — useful for debug A/Bs but
+    /// produces an over-saturated, non-tonemapped image. AgX is
+    /// applied between the working-space (Rec.2020 D65 linear)
+    /// and the matrix conversion to sRGB.
+    #[arg(long, default_value_t = 0.0, value_name = "DELTA")]
+    agx_contrast: f32,
+
+    /// Disable AgX view-transform; fall back to the legacy
+    /// soft-desaturate path. Default false (AgX on).
+    #[arg(long, default_value_t = false, action = clap::ArgAction::SetTrue)]
+    no_agx: bool,
+
+    /// Use the legacy pair-offset refinement path (the
+    /// `warp/legacy_pair_offset.rs` module) instead of the new Stage C
+    /// coupled global mesh solve. Default false (Stage C path).
+    ///
+    /// When false (the default), the pipeline runs:
+    ///   AKAZE+RANSAC inliers → forward-project to canvas →
+    ///   `solve_global_mesh` → per-image `LocalWarpField` →
+    ///   single-resample warp.
+    /// The `--refine-pair-offsets`, `--refine-pair-offsets-local`,
+    /// `--refine-pair-coarse-radius`, `--refine-pair-features`, and
+    /// `--refine-pair-features-only` flags have NO effect in that
+    /// mode.
+    ///
+    /// When true, the legacy path runs (warp first, then SSD/AKAZE
+    /// search on warped images, then per-image translation LSQ +
+    /// optional per-tile refinement). Kept for A/Bs and bisects.
+    #[arg(long, default_value_t = false, action = clap::ArgAction::SetTrue)]
+    use_legacy_pair_offset: bool,
 
     /// Generate deterministic synthetic fixtures into DIR and exit.
     #[arg(long, value_name = "DIR")]
     gen_fixtures: Option<PathBuf>,
+
+    /// Which stitching backend to use. `maple` (default) runs the
+    /// in-house pipeline that the other flags configure. `alicevision`
+    /// shells out to the AliceVision binaries discovered via
+    /// `$MAPLE_ALICEVISION_BIN` (or `~/opt/alicevision/bin`) — an
+    /// OFFLINE measurement tool for comparing in-house outputs against
+    /// AliceVision's geometry, seam routes, and ghost masks. Errors
+    /// fast with an install hint when the binaries aren't found. The
+    /// other configuration flags (partition mode, blend mode, gain
+    /// mode, AgX, etc.) only apply when backend=maple.
+    ///
+    /// Output is preserved AV-as-rendered (no Maple AgX/colour
+    /// transform). Use this for geometry/seam comparison; pixel ΔE
+    /// between maple and alicevision outputs reflects BOTH backends'
+    /// colour pipelines, not alignment.
+    #[arg(long, value_enum, default_value_t = Backend::Maple)]
+    backend: Backend,
+
+    /// Where to drop AliceVision intermediate artefacts (per-stage
+    /// subdirectories under `<dir>/<scene_name>/`). Only used when
+    /// `--backend alicevision`. Defaults to a subdirectory next to
+    /// the inputs (`<input_dir>/alicevision_workdir/`).
+    #[arg(long, value_name = "DIR")]
+    av_workdir: Option<PathBuf>,
+
+    /// Scene name used to namespace the AliceVision workdir. Defaults
+    /// to the parent-directory name of the first input. Only used
+    /// when `--backend alicevision`.
+    #[arg(long, value_name = "NAME")]
+    av_scene: Option<String>,
+
+    /// Feature matcher: `akaze` (default — classical AKAZE+GMS, no
+    /// model files required) or `lightglue` (deep matcher,
+    /// SuperPoint+LightGlue ONNX, requires the models bundled at
+    /// `--lightglue-superpoint` and `--lightglue-matcher` paths).
+    /// Only takes effect under `--backend maple`. Default `akaze`
+    /// until model files are bundled and verified on the reference
+    /// scene set.
+    #[arg(long, value_name = "MATCHER", default_value = "akaze")]
+    matcher: String,
+
+    /// Path to the SuperPoint ONNX encoder. Only used when
+    /// `--matcher lightglue`. Defaults to `resources/ml/superpoint.onnx`
+    /// resolved from `$MAPLE_ML_RESOURCES` if set, otherwise from the
+    /// repo's `pano-core/resources/ml/` directory.
+    #[arg(long, value_name = "PATH")]
+    lightglue_superpoint: Option<PathBuf>,
+
+    /// Path to the LightGlue ONNX matcher. Only used when
+    /// `--matcher lightglue`. Defaults to `resources/ml/lightglue.onnx`
+    /// resolved from `$MAPLE_ML_RESOURCES` if set.
+    #[arg(long, value_name = "PATH")]
+    lightglue_matcher: Option<PathBuf>,
 }
 
 // ---------------------------------------------------------------------------
@@ -539,33 +690,58 @@ fn gamut_clamp_srgb(r: f32, g: f32, b: f32) -> (f32, f32, f32) {
     (r + t * (y - r), g + t * (y - g), b + t * (y - b))
 }
 
+/// Convert a Rec.2020 D65 scene-linear RGB triple to an sRGB-encoded
+/// display triple, optionally tonemapping with AgX first.
+///
+/// Pipeline (each step labelled with the colour space it produces):
+///
+///   1. AgX (when `agx_contrast.is_some()`): scene-linear Rec.2020
+///      → display-linear Rec.2020 ([0, 1] bounded).
+///   2. Optional `soft_desaturate_rec2020`: only when AgX is OFF —
+///      AgX already bounds the input so the imbalance-clamp is
+///      redundant after AgX. Kept for the `--agx-contrast none`
+///      legacy / debug path.
+///   3. Matrix Rec.2020-linear → sRGB-linear.
+///   4. Gamut-clamp sRGB-linear.
+///   5. sRGB transfer-function encode.
 #[inline]
-fn encoded_srgb_from_rec2020(r20: f32, g20: f32, b20: f32) -> (f32, f32, f32) {
-    let (r20, g20, b20) = soft_desaturate_rec2020(r20, g20, b20);
+fn encoded_srgb_from_rec2020(
+    r20: f32,
+    g20: f32,
+    b20: f32,
+    agx_contrast: Option<f32>,
+) -> (f32, f32, f32) {
+    let (r20, g20, b20) = match agx_contrast {
+        Some(contrast) => raw_core::view::agx::apply_rgb_triple(r20, g20, b20, contrast),
+        None => soft_desaturate_rec2020(r20, g20, b20),
+    };
     let (r_lin, g_lin, b_lin) = rec2020_linear_to_srgb_linear(r20, g20, b20);
     let (r_lin, g_lin, b_lin) = gamut_clamp_srgb(r_lin, g_lin, b_lin);
     (srgb_encode(r_lin), srgb_encode(g_lin), srgb_encode(b_lin))
 }
 
-fn write_pano_image_as_png16(img: &PanoImage, path: &Path) -> Result<(), String> {
+fn write_pano_image_as_png16(
+    img: &PanoImage,
+    path: &Path,
+    agx_contrast: Option<f32>,
+) -> Result<(), String> {
     let n_pixels = (img.width as usize) * (img.height as usize);
     let mut buf = vec![0u8; n_pixels * 3 * 2]; // 16-bit big-endian, 3 channels
 
     for i in 0..n_pixels {
         let base_src = i * 3;
-        // Pre-matrix Rec.2020 clamp: a Rec.2020 pixel like
-        // (0.95, 0.05, 0.95) — in-gamut for Rec.2020 but extremely
-        // imbalanced — converts to sRGB ≈ (1.48, −0.07, 1.04), which
-        // even after `gamut_clamp_srgb` desaturation lands at a
-        // visibly-pink (1.0, 0.11, 0.75). To avoid that, also
-        // soft-clamp the Rec.2020 input itself: when channels span
-        // an extreme range (max − min > 0.85), desaturate toward
-        // Rec.2020 luminance enough to bring the pixel into a
-        // less-pathological corner of Rec.2020 first.
+        // When AgX is enabled (the default), we skip the Rec.2020
+        // soft-desaturate — AgX already bounds the input to [0, 1]
+        // display-linear before the matrix step. When AgX is off
+        // (legacy / debug), the soft-desaturate inside
+        // `encoded_srgb_from_rec2020` still runs to handle extremely
+        // imbalanced Rec.2020 channels that would otherwise convert
+        // to visibly-pink sRGB.
         let (r_enc, g_enc, b_enc) = encoded_srgb_from_rec2020(
             img.pixels[base_src],
             img.pixels[base_src + 1],
             img.pixels[base_src + 2],
+            agx_contrast,
         );
         // Quantise to u16
         let r16 = (r_enc * 65535.0 + 0.5) as u16;
@@ -1021,6 +1197,17 @@ enum PartitionMode {
     /// canvas averaging) and a true frequency-domain seam blend
     /// inside it. The Photoshop / Hugin approach.
     DistanceFieldSeamZone,
+    /// Same seam-zone partition shape as `DistanceFieldSeamZone`, but
+    /// the per-pixel labels come from the content-aware graph-cut
+    /// solver (`compute_n_way_labels`) rather than from the cheap
+    /// Voronoi-of-validity-edge `compute_distance_field_labels`. The
+    /// graph cut considers colour, gradient, duplication, validity-
+    /// distance and saliency (Stage D) when routing seams, so the
+    /// seam-zone band lands on actually-low-energy pixels (sky,
+    /// water, flat ground) instead of on validity-edge midpoints.
+    /// This is the **default** — combines the partition shape's
+    /// blender-friendly properties with the cut's content awareness.
+    GraphCutSeamZone,
 }
 
 /// Choice of gain compensation solver.
@@ -1028,18 +1215,24 @@ enum PartitionMode {
 enum GainMode {
     /// Single per-image scalar gain (Brown & Lowe 2007). Preserves
     /// white balance; right choice when input frames share WB.
-    /// Default.
     Luma,
     /// Independent per-image R/G/B gains with Tikhonov regularisation.
     /// Compensates real WB drift across frames; can over-fit on
     /// overlap content asymmetry when WB is constant.
     PerChannel,
+    /// Per-tile per-channel log-gain field (Stage F). Hard-clamps
+    /// every tile's log-gain to ±log(1.5), aggressively rejects
+    /// clipped/dark/edge/seam-band/high-gradient pixels before the
+    /// per-tile median, regularises with smoothness + zero priors.
+    /// Default for the panorama pipeline.
+    Block,
 }
 
 /// Internal: gain solver result, branched by mode.
 enum GainOutput {
     Luma(Vec<f32>),
     PerChannel(Vec<[f32; 3]>),
+    Block(Vec<pano_core::compensation::BlockGainField>),
 }
 
 fn stitch(
@@ -1052,6 +1245,7 @@ fn stitch(
     partition_mode: PartitionMode,
     seam_feather: u32,
     seam_downsample: u32,
+    seam_saliency: f32,
     zone_radius: u32,
     gain_mode: GainMode,
     refine_pair_offsets: bool,
@@ -1059,6 +1253,14 @@ fn stitch(
     refine_pair_coarse_radius: i32,
     refine_pair_features: bool,
     refine_pair_features_only: bool,
+    agx_contrast: Option<f32>,
+    repair_magenta: bool,
+    use_legacy_pair_offset: bool,
+    matcher_kind: MatcherKind,
+    #[cfg_attr(not(feature = "ml-lightglue"), allow(unused_variables))]
+    lightglue_superpoint_path: Option<&Path>,
+    #[cfg_attr(not(feature = "ml-lightglue"), allow(unused_variables))]
+    lightglue_matcher_path: Option<&Path>,
 ) -> Result<(), String> {
     if inputs.len() < 2 {
         return Err(format!(
@@ -1067,16 +1269,13 @@ fn stitch(
         ));
     }
 
-    // For 2 images with default (cylindrical) projection, use the existing
-    // pair path (no joint-BA overhead).
-    if inputs.len() == 2 && matches!(projection, Projection::Cylindrical) {
-        let img_a = load_image_any_format(&inputs[0])?;
-        let img_b = load_image_any_format(&inputs[1])?;
-        let result = stitch_pair(img_a, img_b, 0)?;
-        write_stitch(&result, output)?;
-        eprintln!("pano-smoke: done.");
-        return Ok(());
-    }
+    // (The N=2 cylindrical bypass to `stitch_pair` was removed in Stage A
+    // of the global-mesh-solve refactor. That path took a different code
+    // route — AKAZE → BF match → RANSAC → single homography, no joint BA,
+    // no seam-zone partition, no AgX — so a 2-DNG run produced a visually
+    // different result from the same 2 DNGs run as part of a larger N.
+    // All inputs now flow through the joint-BA + canvas + warp + seam +
+    // blend pipeline below regardless of N.)
 
     // --- N-image joint BA path (Phase 2) ----------------------------------
     //
@@ -1176,19 +1375,93 @@ fn stitch(
     };
 
     // --- 2. Detect features -----------------------------------------------
+    //
+    // Default path: classical AKAZE detection per image. Optional
+    // path (Stage G of the rewrite, `--matcher lightglue`):
+    // SuperPoint encoder per image, then LightGlue per pair (the
+    // per-pair invocation lives in section 3 below). Falls back to
+    // AKAZE with a warning when the `ml-lightglue` cargo feature
+    // isn't compiled in.
     eprintln!("pano-smoke: detecting features in {} images", n);
-    let detector = AkazeDetector::default();
-    let mut all_features: Vec<Features> = pano_images
-        .iter()
-        .enumerate()
-        .map(|(i, img)| {
-            let f = detector
-                .detect(img)
-                .map_err(|e| format!("detect on image {i} failed: {e}"))?;
-            eprintln!("pano-smoke:   image[{i}]: {} kps", f.keypoints.len());
-            Ok(f)
-        })
-        .collect::<Result<Vec<_>, String>>()?;
+
+    // Holders for LightGlue's per-image detection. Populated only
+    // when running the LightGlue path. Wrapped in `Option<...>` so a
+    // build without the `ml-lightglue` feature still type-checks
+    // (the `LightGlueDetection` type is feature-gated).
+    #[cfg(feature = "ml-lightglue")]
+    let mut lightglue_detections: Option<Vec<pano_core::features::lightglue::LightGlueDetection>> =
+        None;
+    #[cfg(feature = "ml-lightglue")]
+    let mut lightglue_matcher_handle: Option<pano_core::features::lightglue::LightGlueMatcher> =
+        None;
+
+    let mut all_features: Vec<Features> = match matcher_kind {
+        #[cfg(feature = "ml-lightglue")]
+        MatcherKind::Lightglue => {
+            let sp_path = lightglue_superpoint_path
+                .ok_or_else(|| "matcher=lightglue requires --lightglue-superpoint <PATH>".to_string())?;
+            let lg_path = lightglue_matcher_path
+                .ok_or_else(|| "matcher=lightglue requires --lightglue-matcher <PATH>".to_string())?;
+            eprintln!(
+                "pano-smoke: matcher=lightglue (superpoint={}, lightglue={})",
+                sp_path.display(),
+                lg_path.display()
+            );
+            let mut matcher =
+                pano_core::features::lightglue::LightGlueMatcher::from_paths(sp_path, lg_path)
+                    .map_err(|e| format!("lightglue construction failed: {e}"))?;
+            let mut detections = Vec::with_capacity(pano_images.len());
+            let mut features = Vec::with_capacity(pano_images.len());
+            for (i, img) in pano_images.iter().enumerate() {
+                let det = matcher
+                    .detect(img)
+                    .map_err(|e| format!("lightglue detect on image {i} failed: {e}"))?;
+                eprintln!(
+                    "pano-smoke:   image[{i}]: {} kps (SuperPoint)",
+                    det.features.keypoints.len()
+                );
+                features.push(det.features.clone());
+                detections.push(det);
+            }
+            lightglue_detections = Some(detections);
+            lightglue_matcher_handle = Some(matcher);
+            features
+        }
+        #[cfg(not(feature = "ml-lightglue"))]
+        MatcherKind::Lightglue => {
+            eprintln!(
+                "pano-smoke: WARNING --matcher lightglue requested but the \
+                 `ml-lightglue` cargo feature is not compiled in; falling \
+                 back to AKAZE+GMS"
+            );
+            let detector = AkazeDetector::default();
+            pano_images
+                .iter()
+                .enumerate()
+                .map(|(i, img)| {
+                    let f = detector
+                        .detect(img)
+                        .map_err(|e| format!("detect on image {i} failed: {e}"))?;
+                    eprintln!("pano-smoke:   image[{i}]: {} kps", f.keypoints.len());
+                    Ok(f)
+                })
+                .collect::<Result<Vec<_>, String>>()?
+        }
+        MatcherKind::Akaze => {
+            let detector = AkazeDetector::default();
+            pano_images
+                .iter()
+                .enumerate()
+                .map(|(i, img)| {
+                    let f = detector
+                        .detect(img)
+                        .map_err(|e| format!("detect on image {i} failed: {e}"))?;
+                    eprintln!("pano-smoke:   image[{i}]: {} kps", f.keypoints.len());
+                    Ok(f)
+                })
+                .collect::<Result<Vec<_>, String>>()?
+        }
+    };
 
     // --- 2b. Undistort detected keypoints ---------------------------------
     //
@@ -1236,8 +1509,34 @@ fn stitch(
 
     let has_all_gimbal = gimbal_priors.iter().all(|g| g.is_some());
 
-    let use_overlap_graph = std::env::var("PANO_USE_OVERLAP_GRAPH").is_ok();
-    let pair_candidates: Vec<(usize, usize, PairCandidateReason)> = if has_all_gimbal && use_overlap_graph {
+    // Pair-discovery default: overlap-graph adjacency.
+    //
+    // For multi-row sphere panos (e.g. the DJI 21-frame sphere with three
+    // pitch rows) the on-disk file order is NOT row-major — frames jump
+    // between pitch rows, so file-sequential `(0,1),(1,2),...,(N-2,N-1)`
+    // misses the cross-row neighbours that actually share canvas pixels.
+    // The downstream global mesh solver gets starved of constraints and
+    // multi-row alignment collapses. Driving pair discovery off
+    // gimbal-derived rotations + focal length picks every overlapping pair
+    // (horizontal, vertical, skip, loop) regardless of input order.
+    //
+    // Opt-out: set `PANO_USE_FILE_SEQUENTIAL_PAIRS=1` to force the legacy
+    // file-sequential `(i, i+1)` chain. Useful for A/B comparing the
+    // contribution of cross-row adjacency, or for single-row pano debug.
+    // Honoured even when gimbal data is present.
+    //
+    // The legacy gate `PANO_USE_OVERLAP_GRAPH=1` is now a no-op (kept as a
+    // tolerated env-var so existing scripts don't fail) — overlap-graph is
+    // the default whenever gimbal data is available.
+    let force_file_sequential = std::env::var("PANO_USE_FILE_SEQUENTIAL_PAIRS").is_ok();
+    if std::env::var("PANO_USE_OVERLAP_GRAPH").is_ok() {
+        eprintln!(
+            "pano-smoke: PANO_USE_OVERLAP_GRAPH is deprecated (overlap graph is the default); ignoring"
+        );
+    }
+    let pair_candidates: Vec<(usize, usize, PairCandidateReason)> = if has_all_gimbal
+        && !force_file_sequential
+    {
         let rotations: Vec<nalgebra::Matrix3<f64>> = gimbal_priors
             .iter()
             .map(|g| {
@@ -1260,11 +1559,12 @@ fn stitch(
             build_overlap_graph_from_rotations(&rotations, &focals, &image_sizes, &graph_options)
                 .map_err(|e| format!("overlap graph failed: {e}"))?;
         eprintln!(
-            "pano-smoke: overlap graph selected {} candidate pairs across {} rows (connected={}, components={})",
+            "pano-smoke: pair discovery: overlap-graph (default); selected {} candidate pairs across {} rows (connected={}, components={}) vs {} from file-sequential",
             graph.candidates.len(),
             graph.row_count,
             graph.is_connected,
-            graph.component_count
+            graph.component_count,
+            n.saturating_sub(1)
         );
         if !graph.is_connected {
             eprintln!(
@@ -1277,6 +1577,11 @@ fn stitch(
             .iter()
             .map(|c| (c.a, c.b, c.reason))
             .collect();
+        // Log the actual edges and reasons so multi-row coverage can be
+        // verified in CI logs and bug reports.
+        for (i, j, reason) in &candidates {
+            eprintln!("pano-smoke:   pair ({i},{j}) reason={reason:?}");
+        }
         if candidates.is_empty() {
             eprintln!("pano-smoke:   overlap graph empty — falling back to input-order pairs");
             (0..(n - 1))
@@ -1286,11 +1591,15 @@ fn stitch(
             candidates
         }
     } else {
-        if has_all_gimbal {
-            eprintln!(
-                "pano-smoke: overlap graph disabled by default; set PANO_USE_OVERLAP_GRAPH=1 to enable graph-expanded BA edges"
-            );
-        }
+        let reason = if force_file_sequential {
+            "PANO_USE_FILE_SEQUENTIAL_PAIRS=1 set"
+        } else {
+            "no gimbal priors available"
+        };
+        eprintln!(
+            "pano-smoke: pair discovery: file-sequential ({reason}); {} pairs",
+            n.saturating_sub(1)
+        );
         (0..(n - 1))
             .map(|i| (i, i + 1, PairCandidateReason::Horizontal))
             .collect()
@@ -1320,9 +1629,34 @@ fn stitch(
     let mut min_pair_inliers: usize = usize::MAX;
 
     for &(i, j, candidate_reason) in &pair_candidates {
-        let raw = matcher
-            .match_pairs(&all_features[i], &all_features[j])
-            .map_err(|e| format!("matching pair ({i},{j}) failed: {e}"))?;
+        // For `--matcher lightglue` we use the SuperPoint-detected
+        // descriptors and the LightGlue head we precomputed above.
+        // The brute-force + GMS path is bypassed for that case
+        // because LightGlue already returns scored, geometry-aware
+        // matches. We still pass them through the gimbal filter and
+        // RANSAC below — the geometry consistency check is not the
+        // matcher's job.
+        let raw = match matcher_kind {
+            #[cfg(feature = "ml-lightglue")]
+            MatcherKind::Lightglue => {
+                let detections = lightglue_detections.as_ref().expect(
+                    "lightglue path: detections must be populated before matching",
+                );
+                let lg = lightglue_matcher_handle.as_mut().expect(
+                    "lightglue path: matcher must be populated before matching",
+                );
+                lg.match_features(&detections[i], &detections[j]).map_err(
+                    |e| format!("lightglue match pair ({i},{j}) failed: {e}"),
+                )?
+            }
+            #[cfg(not(feature = "ml-lightglue"))]
+            MatcherKind::Lightglue => matcher
+                .match_pairs(&all_features[i], &all_features[j])
+                .map_err(|e| format!("matching pair ({i},{j}) failed: {e}"))?,
+            MatcherKind::Akaze => matcher
+                .match_pairs(&all_features[i], &all_features[j])
+                .map_err(|e| format!("matching pair ({i},{j}) failed: {e}"))?,
+        };
 
         let gms = gms_filter(
             &raw,
@@ -1836,6 +2170,155 @@ fn stitch(
         }
     }
 
+    // ----------- Stage C: coupled global mesh solve --------------------
+    //
+    // (Skipped when the user opts into the legacy pair-offset path
+    // with `--use-legacy-pair-offset`.)
+    //
+    // Forward-project every AKAZE+RANSAC inlier into canvas-pixel
+    // coordinates under each image's BA-fitted pose. For each pair
+    // `(i, j, matches)` and each inlier `(kp_i, kp_j)`, this gives
+    // `(p_i, p_j)` — the canvas positions where the same physical
+    // feature lands under each camera's projection. If alignment were
+    // perfect, `p_i == p_j`. The disagreement is what the mesh solve
+    // collapses.
+    //
+    // Then `solve_global_mesh` produces one `LocalWarpField` per image
+    // such that the per-canvas-pixel displacement closes the cross-
+    // image disagreements in a coupled, regularised least-squares
+    // sense. Those fields feed the warp below, where the inverse
+    // projection composes them with the camera projection BEFORE the
+    // SINGLE bilinear sample of the source image.
+    let mesh_fields: Option<Vec<pano_core::warp::LocalWarpField>> = if !use_legacy_pair_offset {
+        let mut observations: Vec<pano_core::warp::MatchObservation> = Vec::new();
+        let mut total_pairs_used: usize = 0;
+        let mut total_pairs_skipped: usize = 0;
+        for (i, j, matches) in &pairs {
+            let kps_i = &all_features[*i].keypoints;
+            let kps_j = &all_features[*j].keypoints;
+            let img_i = &pano_images[*i];
+            let img_j = &pano_images[*j];
+            let cam_i = &cameras[*i];
+            let cam_j = &cameras[*j];
+            let mut pair_obs = 0usize;
+            for m in &matches.inliers {
+                let kp_i = match kps_i.get(m.a as usize) {
+                    Some(k) => k,
+                    None => continue,
+                };
+                let kp_j = match kps_j.get(m.b as usize) {
+                    Some(k) => k,
+                    None => continue,
+                };
+                let p_i = pano_core::warp::image_pixel_to_canvas(
+                    cam_i,
+                    img_i.width,
+                    img_i.height,
+                    &canvas,
+                    kp_i.x,
+                    kp_i.y,
+                );
+                let p_j = pano_core::warp::image_pixel_to_canvas(
+                    cam_j,
+                    img_j.width,
+                    img_j.height,
+                    &canvas,
+                    kp_j.x,
+                    kp_j.y,
+                );
+                if let (Some(pa), Some(pb)) = (p_i, p_j) {
+                    observations.push(pano_core::warp::MatchObservation::new(*i, *j, pa, pb));
+                    pair_obs += 1;
+                }
+            }
+            if pair_obs > 0 {
+                total_pairs_used += 1;
+            } else {
+                total_pairs_skipped += 1;
+            }
+        }
+        // Median pair-disagreement diagnostic — quick "is BA already
+        // pretty close?" signal.
+        let mut disagreements: Vec<f32> = observations
+            .iter()
+            .map(|o| {
+                let dx = o.pa.0 - o.pb.0;
+                let dy = o.pa.1 - o.pb.1;
+                (dx * dx + dy * dy).sqrt()
+            })
+            .collect();
+        disagreements.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let median_px = disagreements
+            .get(disagreements.len() / 2)
+            .copied()
+            .unwrap_or(0.0);
+        let max_px = disagreements.last().copied().unwrap_or(0.0);
+        eprintln!(
+            "pano-smoke: global-mesh: {} MatchObservation across {} pairs ({} pairs had no usable inlier projections); pre-solve canvas disagreement median={:.2} px max={:.2} px",
+            observations.len(),
+            total_pairs_used,
+            total_pairs_skipped,
+            median_px,
+            max_px,
+        );
+        let opts = pano_core::warp::GlobalMeshOptions::default();
+        let t = std::time::Instant::now();
+        match pano_core::warp::solve_global_mesh(&observations, n, &canvas, opts) {
+            Ok(fields) => {
+                let mut max_disp = 0.0_f32;
+                let mut sum_disp = 0.0_f32;
+                let mut sample_count = 0usize;
+                for (i, f) in fields.iter().enumerate() {
+                    let mut img_max = 0.0_f32;
+                    let mut img_sum = 0.0_f32;
+                    let mut img_count = 0usize;
+                    for d in f.displacements() {
+                        let mag = (d.dx * d.dx + d.dy * d.dy).sqrt();
+                        img_max = img_max.max(mag);
+                        img_sum += mag;
+                        img_count += 1;
+                    }
+                    let img_mean = if img_count > 0 {
+                        img_sum / img_count as f32
+                    } else {
+                        0.0
+                    };
+                    eprintln!(
+                        "pano-smoke:   mesh[{i}] max={:.2} px mean={:.2} px ({} verts)",
+                        img_max, img_mean, img_count,
+                    );
+                    max_disp = max_disp.max(img_max);
+                    sum_disp += img_sum;
+                    sample_count += img_count;
+                }
+                let global_mean = if sample_count > 0 {
+                    sum_disp / sample_count as f32
+                } else {
+                    0.0
+                };
+                eprintln!(
+                    "pano-smoke: global-mesh solve produced {} fields, max |displacement|={:.2} px, mean={:.2} px, in {:?}",
+                    fields.len(),
+                    max_disp,
+                    global_mean,
+                    t.elapsed(),
+                );
+                Some(fields)
+            }
+            Err(e) => {
+                eprintln!(
+                    "pano-smoke: global-mesh solve failed ({e}); falling back to no-mesh warp",
+                );
+                None
+            }
+        }
+    } else {
+        eprintln!(
+            "pano-smoke: --use-legacy-pair-offset set; skipping Stage C global mesh solve",
+        );
+        None
+    };
+
     eprintln!("pano-smoke: warping {} images", n);
     let warper = CpuWarper::new();
     let mut warped: Vec<PanoImage> = pano_images
@@ -1843,7 +2326,8 @@ fn stitch(
         .zip(cameras.iter())
         .enumerate()
         .map(|(i, (img, cam))| {
-            let w = pano_core::warp::warp_image_to_canvas(&warper, img, cam, &canvas)
+            let mesh = mesh_fields.as_ref().and_then(|fs| fs.get(i));
+            let w = pano_core::warp::warp_image_to_canvas(&warper, img, cam, &canvas, mesh)
                 .map_err(|e| format!("warp image {i} failed: {e}"))?;
             eprintln!(
                 "pano-smoke:   warped[{i}] valid_px={}",
@@ -1881,18 +2365,22 @@ fn stitch(
     // Solve per-image gain from overlap brightness before seam finding so
     // brightness banding at seams is minimised.
     //
-    // Two solvers available:
-    //   - `luma` (default, Brown & Lowe 2007): one scalar per image.
-    //     Preserves white balance — every channel of every image gets
-    //     scaled by the same factor. Right choice when input frames
-    //     come from the same camera with the same WB (typical for
-    //     drone panoramas, the DJI L2D-20c reference set).
+    // Three solvers available:
+    //   - `block` (default, Stage F): per-tile per-channel log-gain field
+    //     with hard ±log(1.5) clamp, robust per-tile median, aggressive
+    //     pixel rejection (clipped highlights, dark, validity-edge,
+    //     near-seam-band, high-gradient). Compensates spatial photometric
+    //     variation within an image (vignetting, sky→ground falloff)
+    //     without bending colour.
+    //   - `luma` (Brown & Lowe 2007): one scalar per image. Preserves
+    //     white balance — every channel of every image gets scaled by
+    //     the same factor. Available as a fallback when overlap area
+    //     is too small for the block solver.
     //   - `per-channel`: independent per-image R/G/B gains with
     //     Tikhonov regularisation. Compensates real WB drift across
     //     frames (auto-WB, mixed lighting), but on WB-constant inputs
     //     it over-fits on overlap content asymmetry and shifts the
-    //     panorama's hue away from the source. Behind a flag for that
-    //     reason.
+    //     panorama's hue away from the source.
     let gain_result = match gain_mode {
         GainMode::Luma => {
             let warped_refs: Vec<&PanoImage> = warped.iter().collect();
@@ -1908,6 +2396,76 @@ fn stitch(
             )
             .map(|gs| GainOutput::PerChannel(gs))
         }
+        GainMode::Block => {
+            // Block-gain wants a `HashMap<(i,j), Vec<(u32,u32)>>` of
+            // seam-path coordinates so it can drop pixels inside the
+            // seam-band (parallax-mismatch zone). The graph-cut /
+            // multi-band stage hasn't run yet — but a cheap distance-
+            // field labelling gets us seam paths good enough for
+            // photometric rejection. The labels themselves are
+            // discarded; only the seam-path coordinates feed the
+            // solver.
+            let seam_paths = {
+                let labels = pano_core::seam::compute_distance_field_labels(&warped);
+                if let Some(first) = warped.first() {
+                    pano_core::seam::extract_seam_paths(&labels, first.width, first.height)
+                } else {
+                    std::collections::HashMap::new()
+                }
+            };
+            let total_seam_pts: usize =
+                seam_paths.values().map(|v| v.len()).sum();
+            eprintln!(
+                "pano-smoke: block-gain seam-band rejection from {} pair(s), {} pts total",
+                seam_paths.len(),
+                total_seam_pts,
+            );
+            let warped_refs: Vec<&PanoImage> = warped.iter().collect();
+            let mut opts = pano_core::compensation::BlockGainOptions::default();
+            // Stage J probe: optional `MAPLE_BLOCK_TILE_GRID=<u32>` env
+            // override for A/B testing the tile grid without a CLI
+            // flag rebuild. Affects both grid_cols and grid_rows.
+            if let Ok(s) = std::env::var("MAPLE_BLOCK_TILE_GRID") {
+                if let Ok(g) = s.parse::<u32>() {
+                    if g >= 2 {
+                        opts.grid_cols = g;
+                        opts.grid_rows = g;
+                        eprintln!(
+                            "pano-smoke: MAPLE_BLOCK_TILE_GRID={} (overriding default 16×16)",
+                            g,
+                        );
+                    }
+                }
+            }
+            let t_start = std::time::Instant::now();
+            let result = pano_core::compensation::solve_block_gains(
+                &warped_refs,
+                &seam_paths,
+                opts,
+            );
+            if let Ok(ref fields) = result {
+                let elapsed_ms = t_start.elapsed().as_millis();
+                let max_lg = fields
+                    .iter()
+                    .flat_map(|f| f.log_gains.iter())
+                    .flat_map(|t| t.iter().map(|v| v.abs()))
+                    .fold(0.0_f32, f32::max);
+                let max_factor = max_lg.exp();
+                let total_tiles: usize =
+                    fields.iter().map(|f| f.log_gains.len()).sum();
+                eprintln!(
+                    "pano-smoke: block-gain solve {} ms, {} images × {} tiles each, \
+                     max |log-gain| = {:.4} (factor {:.3}×)",
+                    elapsed_ms,
+                    fields.len(),
+                    fields.first().map(|f| f.log_gains.len()).unwrap_or(0),
+                    max_lg,
+                    max_factor,
+                );
+                let _ = total_tiles;
+            }
+            result.map(|gs| GainOutput::Block(gs))
+        }
     };
     match gain_result {
         Ok(GainOutput::Luma(gains)) => {
@@ -1918,20 +2476,27 @@ fn stitch(
             eprintln!("pano-smoke: gains_rgb = {:?}", gains);
             let _ = pano_core::compensation::gain::apply_gains_rgb(&mut warped, &gains);
         }
+        Ok(GainOutput::Block(fields)) => {
+            let _ = pano_core::compensation::apply_block_gains(&mut warped, &fields);
+        }
         Err(e) => {
             eprintln!("pano-smoke: gain compensation skipped ({e})");
         }
     }
 
     // ---------------------------------------------------------------
-    // Per-image canvas-space translation refinement. Even a converged
-    // BA leaves 1–4 px reprojection residuals at canvas edges (lens
-    // distortion, focal bias, hover parallax). SSD-search per
-    // adjacent pair, chained into per-image cumulative offset, then
-    // bilinear-translate each warped image. This is the cheap
-    // first-order correction that buys most of T4's value without
-    // needing per-pixel flow.
-    if refine_pair_offsets {
+    // Legacy per-image canvas-space translation refinement (Stage A
+    // path, retired by Stage C global mesh solve above). Active only
+    // when `--use-legacy-pair-offset` is set.
+    //
+    // Even a converged BA leaves 1–4 px reprojection residuals at
+    // canvas edges (lens distortion, focal bias, hover parallax).
+    // SSD-search per adjacent pair, chained into per-image cumulative
+    // offset, then bilinear-translate each warped image. This is the
+    // cheap first-order correction that buys most of T4's value
+    // without needing per-pixel flow. Superseded by the global mesh
+    // solve in the default path; kept for A/Bs and bisects.
+    if use_legacy_pair_offset && refine_pair_offsets {
         // Find ALL overlapping pairs, not just adjacent-in-file or
         // a spanning tree. For multi-row spherical panoramas (DJI
         // 21-frame Sphere mode) each image typically borders 3–4
@@ -2248,8 +2813,156 @@ fn stitch(
             );
             masks
         }
+        PartitionMode::GraphCutSeamZone => {
+            let t = std::time::Instant::now();
+            // Use compute_n_way_labels_with_finder so the CLI's
+            // --seam-saliency override threads into the graph-cut energy.
+            // The default `GraphCutMaxFlowSeamFinder::new()` matches the
+            // `--seam-saliency 0.5` default exactly, so this is a no-op
+            // change unless the caller overrode the flag.
+            let finder =
+                pano_core::seam::GraphCutMaxFlowSeamFinder::new()
+                    .with_lambda_sal(seam_saliency);
+            let labels = pano_core::seam::compute_n_way_labels_with_finder(
+                &warped,
+                seam_downsample,
+                &finder,
+            );
+            let n = warped.len();
+            let w = warped[0].width;
+            let h = warped[0].height;
+            let seam_paths = pano_core::seam::extract_seam_paths(&labels, w, h);
+            let n_seam_pixels: usize =
+                seam_paths.values().map(|v| v.len()).sum();
+            let masks = pano_core::seam::build_seam_zone_partition(
+                &labels,
+                &seam_paths,
+                n,
+                w,
+                h,
+                zone_radius,
+            );
+            eprintln!(
+                "pano-smoke: graph-cut + seam-zone partition ({} images, zone radius {} px, {} seam pixels across {} pairs, downsample {}×) took {:?}",
+                n,
+                zone_radius,
+                n_seam_pixels,
+                seam_paths.len(),
+                seam_downsample,
+                t.elapsed(),
+            );
+            masks
+        }
     };
 
+    // Renormalise masks to enforce Σ_i mask_i[px] = 1 at every
+    // valid pixel before the blender consumes them.
+    //
+    // The seam-zone partition already does this internally (in
+    // `n_way::build_seam_zone_partition`), but the legacy paths
+    // (`distance-field`, `graphcut`, `voronoi`) feather with
+    // `feather_binary_masks` and skip the normalisation step. A
+    // multi-band blend on un-normalised masks produces washed-out
+    // (sum < 1) or saturated (sum > 1) output in the feather
+    // band — visually similar to a brightness step at every seam.
+    //
+    // Stage J diagnostic: histogram the pre-renorm Σ_i mask_i[px]
+    // distribution so we can see whether the seam-zone path is
+    // already partition-of-unity (in which case the renorm here is a
+    // no-op) or producing un-normalised input that the renorm rescues.
+    let mut weight_masks = weight_masks;
+    {
+        let n_imgs = weight_masks.len();
+        if n_imgs > 0 {
+            let n_pixels = weight_masks[0].len();
+            // 12 bins so we can see the < 1 underflow regime with
+            // resolution: [0, 0.05), [0.05, 0.15), … [0.85, 0.95),
+            // [0.95, 1.05), [1.05, 1.5), [1.5, +inf).
+            let mut hist = [0u64; 12];
+            let mut zero_count = 0u64;
+            let mut unit_count = 0u64; // |sum - 1| <= 1e-4
+            let mut renorm_count = 0u64; // sum > 1e-6 && |sum-1| > 1e-4
+            for px in 0..n_pixels {
+                let mut sum: f32 = 0.0;
+                for i in 0..n_imgs {
+                    sum += weight_masks[i][px];
+                }
+                if sum <= 1e-6 {
+                    zero_count += 1;
+                } else if (sum - 1.0).abs() <= 1e-4 {
+                    unit_count += 1;
+                } else {
+                    renorm_count += 1;
+                }
+                let bin = if sum < 0.05 {
+                    0
+                } else if sum < 0.15 {
+                    1
+                } else if sum < 0.25 {
+                    2
+                } else if sum < 0.35 {
+                    3
+                } else if sum < 0.45 {
+                    4
+                } else if sum < 0.55 {
+                    5
+                } else if sum < 0.65 {
+                    6
+                } else if sum < 0.75 {
+                    7
+                } else if sum < 0.85 {
+                    8
+                } else if sum < 0.95 {
+                    9
+                } else if sum < 1.05 {
+                    10
+                } else {
+                    11
+                };
+                hist[bin] += 1;
+            }
+            eprintln!(
+                "pano-smoke: mask sum histogram (pre-renorm): \
+                 [0,.05)={} [.05,.15)={} [.15,.25)={} [.25,.35)={} \
+                 [.35,.45)={} [.45,.55)={} [.55,.65)={} [.65,.75)={} \
+                 [.75,.85)={} [.85,.95)={} [.95,1.05)={} [1.05,+inf)={}",
+                hist[0],
+                hist[1],
+                hist[2],
+                hist[3],
+                hist[4],
+                hist[5],
+                hist[6],
+                hist[7],
+                hist[8],
+                hist[9],
+                hist[10],
+                hist[11],
+            );
+            eprintln!(
+                "pano-smoke: mask sum classes: zero={}, unit={}, needs_renorm={}, total={}",
+                zero_count, unit_count, renorm_count, n_pixels,
+            );
+            let mut renormalised_count = 0usize;
+            for px in 0..n_pixels {
+                let mut sum: f32 = 0.0;
+                for i in 0..n_imgs {
+                    sum += weight_masks[i][px];
+                }
+                if sum > 1e-6 && (sum - 1.0).abs() > 1e-4 {
+                    let inv = 1.0 / sum;
+                    for i in 0..n_imgs {
+                        weight_masks[i][px] *= inv;
+                    }
+                    renormalised_count += 1;
+                }
+            }
+            eprintln!(
+                "pano-smoke: mask renormalisation: {}/{} pixels needed Σ→1",
+                renormalised_count, n_pixels,
+            );
+        }
+    }
     let warped_refs: Vec<&PanoImage> = warped.iter().collect();
     let result = match blend_mode {
         BlendMode::SimpleAlpha => {
@@ -2268,32 +2981,35 @@ fn stitch(
         }
     };
 
-    // Post-blend repair: detect clipping-artefact pixels (the
-    // characteristic out-of-gamut signature of Laplacian-pyramid
-    // ringing at validity edges) and replace them with the median
-    // of nearby clean neighbours. The stricter pass handles hard
-    // clipping; the display-encoded pass below handles moderate
-    // magenta false colour that was already present in warped RAW
-    // highlights or source-image borders.
+    // Optional post-blend magenta repair (debug-only). Both passes
+    // mask real out-of-gamut symptoms that point to upstream bugs
+    // (gain over-correction, lens-correction amplification at
+    // sensor edges). Off by default so those bugs surface visibly;
+    // enable with `--repair-magenta` only when investigating a
+    // specific symptom you've already understood.
     let mut repaired = result;
-    let mut total_repaired = 0usize;
-    let mut prev_count = usize::MAX;
-    for _pass in 0..16 {
-        let n = repair_magenta_clipping(&mut repaired);
-        total_repaired += n;
-        if n == 0 || n == prev_count {
-            break;
+    if repair_magenta {
+        let mut total_repaired = 0usize;
+        let mut prev_count = usize::MAX;
+        for _pass in 0..16 {
+            let n = repair_magenta_clipping(&mut repaired);
+            total_repaired += n;
+            if n == 0 || n == prev_count {
+                break;
+            }
+            prev_count = n;
         }
-        prev_count = n;
-    }
-    if total_repaired > 0 {
-        eprintln!("pano-smoke: repaired {total_repaired} clipping-artefact pixels (RGB ≈ 1,0,1)");
-    }
-    let display_magenta_repaired = suppress_display_magenta_false_color(&mut repaired);
-    if display_magenta_repaired > 0 {
-        eprintln!(
-            "pano-smoke: suppressed {display_magenta_repaired} display-magenta false-colour pixels"
-        );
+        if total_repaired > 0 {
+            eprintln!(
+                "pano-smoke: [debug] repaired {total_repaired} clipping-artefact pixels (RGB ≈ 1,0,1)",
+            );
+        }
+        let display_magenta_repaired = suppress_display_magenta_false_color(&mut repaired);
+        if display_magenta_repaired > 0 {
+            eprintln!(
+                "pano-smoke: [debug] suppressed {display_magenta_repaired} display-magenta false-colour pixels"
+            );
+        }
     }
 
     // Auto-trim the canvas to the bounding box of non-near-zero
@@ -2338,7 +3054,7 @@ fn stitch(
         trimmed
     };
 
-    write_stitch(&final_image, output)?;
+    write_stitch(&final_image, output, agx_contrast)?;
     eprintln!("pano-smoke: done.");
     Ok(())
 }
@@ -2546,7 +3262,11 @@ fn suppress_display_magenta_false_color(img: &mut PanoImage) -> usize {
     img.pixels
         .par_chunks_exact_mut(3)
         .map(|px| {
-            let (r_enc, g_enc, b_enc) = encoded_srgb_from_rec2020(px[0], px[1], px[2]);
+            // Use the legacy (no-AgX) encode for the magenta-detection
+            // probe regardless of caller's AgX setting — this is a
+            // diagnostic / repair heuristic, not the final encode.
+            let (r_enc, g_enc, b_enc) =
+                encoded_srgb_from_rec2020(px[0], px[1], px[2], None);
             let magenta_excess = (r_enc - g_enc).min(b_enc - g_enc);
             let visible_magenta = r_enc > 0.08
                 && b_enc > 0.08
@@ -3016,16 +3736,27 @@ fn compute_edge_feather(
     dist
 }
 
-fn write_stitch(result: &PanoImage, output: &Path) -> Result<(), String> {
+fn write_stitch(
+    result: &PanoImage,
+    output: &Path,
+    agx_contrast: Option<f32>,
+) -> Result<(), String> {
     eprintln!("pano-smoke:   output {}×{}", result.width, result.height);
-    eprintln!("pano-smoke: writing {}", output.display());
+    eprintln!(
+        "pano-smoke: writing {} ({})",
+        output.display(),
+        match agx_contrast {
+            Some(c) => format!("AgX contrast {:.1}", c),
+            None => "no AgX (legacy soft-desaturate)".into(),
+        },
+    );
     if let Some(parent) = output.parent() {
         if !parent.as_os_str().is_empty() {
             fs::create_dir_all(parent)
                 .map_err(|e| format!("cannot create output dir {}: {e}", parent.display()))?;
         }
     }
-    write_pano_image_as_png16(result, output)
+    write_pano_image_as_png16(result, output, agx_contrast)
 }
 
 fn stitch_pair(img_a: PanoImage, img_b: PanoImage, step: usize) -> Result<PanoImage, String> {
@@ -3156,9 +3887,9 @@ fn stitch_pair(img_a: PanoImage, img_b: PanoImage, step: usize) -> Result<PanoIm
         canvas.width, canvas.height
     );
 
-    let mut warped_a = pano_core::warp::warp_image_to_canvas(&warper, &img_a, &cameras[0], &canvas)
+    let mut warped_a = pano_core::warp::warp_image_to_canvas(&warper, &img_a, &cameras[0], &canvas, None)
         .map_err(|e| format!("warp A failed: {e}"))?;
-    let mut warped_b = pano_core::warp::warp_image_to_canvas(&warper, &img_b, &cameras[1], &canvas)
+    let mut warped_b = pano_core::warp::warp_image_to_canvas(&warper, &img_b, &cameras[1], &canvas, None)
         .map_err(|e| format!("warp B failed: {e}"))?;
 
     // Count valid pixels for diagnostic output.
@@ -3304,6 +4035,104 @@ fn cap_summary(cap_gb: Option<f64>, src: &MemoryCapSource) -> String {
 }
 
 // ---------------------------------------------------------------------------
+// AliceVision backend dispatch
+// ---------------------------------------------------------------------------
+
+/// Drive the AliceVision subprocess pipeline, write the final
+/// stitched panorama to `output`. Intermediate per-stage artefacts
+/// (warped tiles, seam labels, EXR composite) land under
+/// `<workdir>/<scene_name>/NN_stage/` for downstream analysis by
+/// `tools/compare-with-alicevision.py`.
+///
+/// `workdir` defaults to `<inputs_parent>/alicevision_workdir/`,
+/// `scene_name` to the parent-directory name of the first input.
+///
+/// AV's final PNG is **copied byte-for-byte** to `output` — Maple's
+/// AgX + Rec.2020→sRGB writer is intentionally bypassed. AV's PNG
+/// is already in sRGB display space; running it through Maple's
+/// scene-linear writer would double-apply the display transform and
+/// destroy the oracle reference. See plan §"Stage M" bug 4.
+fn stitch_alicevision(
+    inputs: &[PathBuf],
+    output: &Path,
+    workdir: Option<&Path>,
+    scene_name: Option<&str>,
+) -> Result<(), String> {
+    use pano_core::backends::alicevision::BackendOutput;
+
+    if inputs.len() < 2 {
+        return Err(format!(
+            "AliceVision backend needs ≥2 input images, got {}",
+            inputs.len()
+        ));
+    }
+
+    let backend = pano_core::backends::alicevision::AlicevisionBackend::from_env()
+        .map_err(|e| format!("init AliceVision backend: {e}"))?;
+
+    let first_parent = inputs[0]
+        .parent()
+        .map(|p| p.to_path_buf())
+        .unwrap_or_else(|| PathBuf::from("."));
+    let workdir_root = workdir
+        .map(|p| p.to_path_buf())
+        .unwrap_or_else(|| first_parent.join("alicevision_workdir"));
+    let scene = scene_name
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| {
+            first_parent
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_else(|| "scene".to_string())
+        });
+
+    eprintln!(
+        "pano-smoke: alicevision backend (workdir={}, scene={})",
+        workdir_root.display(),
+        scene
+    );
+
+    let result = backend
+        .stitch_with_workdir(inputs, &workdir_root, &scene)
+        .map_err(|e| format!("AliceVision stitch: {e}"))?;
+    eprintln!(
+        "pano-smoke: alicevision stitch ok; intermediates: {}",
+        result.workdir.display()
+    );
+
+    match result.output {
+        BackendOutput::PassThrough { source_path } => {
+            // Byte-for-byte copy. Preserves AV's sRGB encoding without
+            // re-applying Maple's AgX or Rec.2020→sRGB matrix.
+            std::fs::copy(&source_path, output).map_err(|e| {
+                format!(
+                    "copy {} -> {}: {e}",
+                    source_path.display(),
+                    output.display()
+                )
+            })?;
+            eprintln!(
+                "pano-smoke: wrote {} (passthrough from {})",
+                output.display(),
+                source_path.display()
+            );
+        }
+        BackendOutput::Image(_) => {
+            // Future-proofing: if a backend variant ever returns an
+            // in-working-space PanoImage, route it through Maple's
+            // standard writer. AliceVision today is always
+            // PassThrough, so this path is unreachable but kept for
+            // forward compatibility with other oracle backends.
+            return Err(
+                "AliceVision backend returned an Image variant unexpectedly; expected PassThrough"
+                    .into(),
+            );
+        }
+    }
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
 // main
 // ---------------------------------------------------------------------------
 
@@ -3318,55 +4147,103 @@ fn main() {
             .output
             .clone()
             .unwrap_or_else(|| PathBuf::from("panorama.png"));
-        let projection = match cli.projection.to_ascii_lowercase().as_str() {
-            "spherical" => Projection::Spherical,
-            "rectilinear" => Projection::Rectilinear,
-            _ => Projection::Cylindrical,
-        };
-        let partition_mode = match cli.partition.to_ascii_lowercase().as_str() {
-            "voronoi" => PartitionMode::Voronoi,
-            "graphcut" | "graph-cut" | "graph_cut" => PartitionMode::GraphCut,
-            "multiband-seam-zone"
-            | "multi-band-seam-zone"
-            | "seam-zone"
-            | "seamzone" => PartitionMode::DistanceFieldSeamZone,
-            _ => PartitionMode::DistanceField,
-        };
-        let gain_mode = match cli.gain_mode.to_ascii_lowercase().as_str() {
-            "per-channel" | "perchannel" | "per_channel" | "rgb" => GainMode::PerChannel,
-            _ => GainMode::Luma,
-        };
-        // The seam-zone partition is *designed* for multi-band: hard-binary
-        // outside the zone makes the Laplacian pyramid degenerate to a copy
-        // (no whole-canvas averaging artefacts) while still smoothing inside
-        // the zone. Auto-promote the blend mode when the user picks it,
-        // overriding the `--blend-mode` flag if it was left at the default.
-        let blend_mode = match (
-            cli.blend_mode.to_ascii_lowercase().as_str(),
-            partition_mode,
-        ) {
-            (_, PartitionMode::DistanceFieldSeamZone) => BlendMode::MultiBand,
-            ("multi-band" | "multiband" | "multi_band", _) => BlendMode::MultiBand,
-            _ => BlendMode::SimpleAlpha,
-        };
-        stitch(
-            &cli.inputs,
-            &output,
-            cli.max_dim,
-            projection,
-            cli.crop_margin,
-            blend_mode,
-            partition_mode,
-            cli.seam_feather,
-            cli.seam_downsample,
-            cli.zone_radius,
-            gain_mode,
-            cli.refine_pair_offsets,
-            cli.refine_pair_offsets_local,
-            cli.refine_pair_coarse_radius,
-            cli.refine_pair_features,
-            cli.refine_pair_features_only,
-        )
+        match cli.backend {
+            Backend::Alicevision => {
+                // AV is a passthrough oracle; Maple's AgX/colour
+                // transform flags don't apply here. AV's final PNG is
+                // copied byte-for-byte. See `--backend` docstring.
+                stitch_alicevision(
+                    &cli.inputs,
+                    &output,
+                    cli.av_workdir.as_deref(),
+                    cli.av_scene.as_deref(),
+                )
+            }
+            Backend::Maple => {
+                let projection = match cli.projection.to_ascii_lowercase().as_str() {
+                    "spherical" => Projection::Spherical,
+                    "rectilinear" => Projection::Rectilinear,
+                    _ => Projection::Cylindrical,
+                };
+                let partition_mode = match cli.partition.to_ascii_lowercase().as_str() {
+                    "voronoi" => PartitionMode::Voronoi,
+                    "graphcut" | "graph-cut" | "graph_cut" => PartitionMode::GraphCut,
+                    "distance-field" | "distancefield" | "distance_field" => {
+                        PartitionMode::DistanceField
+                    }
+                    "multiband-seam-zone"
+                    | "multi-band-seam-zone"
+                    | "seam-zone"
+                    | "seamzone" => PartitionMode::DistanceFieldSeamZone,
+                    "graphcut-seam-zone"
+                    | "graph-cut-seam-zone"
+                    | "graph_cut_seam_zone"
+                    | "gc-seam-zone"
+                    | "gcseamzone" => PartitionMode::GraphCutSeamZone,
+                    _ => PartitionMode::GraphCutSeamZone,
+                };
+                let gain_mode = match cli.gain_mode.to_ascii_lowercase().as_str() {
+                    "block" => GainMode::Block,
+                    "per-channel" | "perchannel" | "per_channel" | "rgb" => GainMode::PerChannel,
+                    // Default falls through to `luma` (Stage J: block mode hits the
+                    // ±log(1.5) clamp on multi-stop scenes, leaving visible seam
+                    // bands the multi-band blender can't hide; luma's per-image
+                    // scalar gain has no clamp and equalises overlap means cleanly).
+                    _ => GainMode::Luma,
+                };
+                // Both seam-zone partitions (distance-field-labelled and
+                // graph-cut-labelled) are *designed* for multi-band: hard-binary
+                // outside the zone makes the Laplacian pyramid degenerate to a copy
+                // (no whole-canvas averaging artefacts) while still smoothing inside
+                // the zone. Auto-promote the blend mode when either is picked,
+                // overriding the `--blend-mode` flag if it was left at the default.
+                let blend_mode = match (
+                    cli.blend_mode.to_ascii_lowercase().as_str(),
+                    partition_mode,
+                ) {
+                    (
+                        _,
+                        PartitionMode::DistanceFieldSeamZone | PartitionMode::GraphCutSeamZone,
+                    ) => BlendMode::MultiBand,
+                    ("multi-band" | "multiband" | "multi_band", _) => BlendMode::MultiBand,
+                    _ => BlendMode::SimpleAlpha,
+                };
+                let agx_contrast = if cli.no_agx {
+                    None
+                } else {
+                    Some(cli.agx_contrast.clamp(-100.0, 100.0))
+                };
+                let matcher_kind = match cli.matcher.to_ascii_lowercase().as_str() {
+                    "lightglue" | "light-glue" | "light_glue" => MatcherKind::Lightglue,
+                    _ => MatcherKind::Akaze,
+                };
+                stitch(
+                    &cli.inputs,
+                    &output,
+                    cli.max_dim,
+                    projection,
+                    cli.crop_margin,
+                    blend_mode,
+                    partition_mode,
+                    cli.seam_feather,
+                    cli.seam_downsample,
+                    cli.seam_saliency,
+                    cli.zone_radius,
+                    gain_mode,
+                    cli.refine_pair_offsets,
+                    cli.refine_pair_offsets_local,
+                    cli.refine_pair_coarse_radius,
+                    cli.refine_pair_features,
+                    cli.refine_pair_features_only,
+                    agx_contrast,
+                    cli.repair_magenta,
+                    cli.use_legacy_pair_offset,
+                    matcher_kind,
+                    cli.lightglue_superpoint.as_deref(),
+                    cli.lightglue_matcher.as_deref(),
+                )
+            }
+        }
     };
 
     if let Err(e) = result {
@@ -3435,7 +4312,8 @@ mod tests {
         let changed = suppress_display_magenta_false_color(&mut img);
         assert_eq!(changed, 1);
 
-        let (r, g, b) = encoded_srgb_from_rec2020(img.pixels[0], img.pixels[1], img.pixels[2]);
+        let (r, g, b) =
+            encoded_srgb_from_rec2020(img.pixels[0], img.pixels[1], img.pixels[2], None);
         assert!(
             (r - g).min(b - g) <= 0.025,
             "pixel still encodes magenta: ({r:.3}, {g:.3}, {b:.3})"
@@ -3480,7 +4358,7 @@ mod tests {
         }
 
         let tmp = std::env::temp_dir().join("pano_smoke_roundtrip_test.png");
-        write_pano_image_as_png16(&img, &tmp).expect("write should succeed");
+        write_pano_image_as_png16(&img, &tmp, None).expect("write should succeed");
 
         // Read back using our own loader.
         let read_back = load_png_as_pano_image(&tmp).expect("read should succeed");

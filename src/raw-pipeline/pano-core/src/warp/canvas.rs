@@ -21,6 +21,7 @@ use crate::error::PanoError;
 use crate::types::{Camera, PanoImage, Projection};
 use crate::warp::cpu::CpuWarper;
 use crate::warp::distortion::{forward_distort_xy, inverse_distort_xy};
+use crate::warp::local_mesh::LocalWarpField;
 use crate::Warper;
 
 /// Minimum forward-z component of a world-direction vector for the
@@ -434,11 +435,24 @@ fn ideal_ray_from_sensor_pixel(
 /// Warp one image into the canvas frame. Output is a canvas-sized
 /// `PanoImage`; pixels outside the image's projected footprint are
 /// marked invalid.
+///
+/// If `mesh` is `Some`, every canvas pixel `(cx, cy)` is shifted by
+/// `mesh.sample(cx, cy)` BEFORE the inverse projection back to the
+/// source image. This is the single-resample composition used by
+/// Stage C of the panorama pipeline: the mesh expresses
+/// "where image i thinks this canvas pixel comes from", and we apply
+/// it without producing an intermediate warped buffer. Source pixels
+/// are sampled exactly once.
+///
+/// If `mesh` is `None`, behaviour is identical to the legacy two-
+/// argument `warp_image_to_canvas`: pure global pose + canvas
+/// projection, no mesh deformation.
 pub fn warp_image_to_canvas(
     warper: &CpuWarper,
     img: &PanoImage,
     cam: &Camera,
     canvas: &Canvas,
+    mesh: Option<&LocalWarpField>,
 ) -> Result<PanoImage, PanoError> {
     match &canvas.params {
         CanvasParams::Cylindrical {
@@ -455,6 +469,7 @@ pub fn warp_image_to_canvas(
             *theta_max,
             *h_min,
             *h_max,
+            mesh,
         ),
         CanvasParams::Spherical {
             lambda_min,
@@ -470,11 +485,15 @@ pub fn warp_image_to_canvas(
             *lambda_max,
             *phi_min,
             *phi_max,
+            mesh,
         ),
         CanvasParams::Rectilinear { .. } => {
             // Fallback: render at input size + paste at (0, 0). Same
             // behavior as before this module landed; multi-image
-            // rectilinear canvases are a follow-up.
+            // rectilinear canvases are a follow-up. Mesh is ignored
+            // on this path (rectilinear canvases are MVP and don't
+            // support per-image mesh fields yet).
+            let _ = mesh;
             let warped = warper.warp(img, cam, canvas.projection)?;
             embed_at_origin(&warped, canvas.width, canvas.height, img)
         }
@@ -520,6 +539,7 @@ fn warp_cylindrical_canvas(
     theta_max: f32,
     h_min: f32,
     h_max: f32,
+    mesh: Option<&LocalWarpField>,
 ) -> Result<PanoImage, PanoError> {
     let (iw, ih) = (img.width, img.height);
     let k_in = camera_k_for_image(cam, iw, ih);
@@ -543,9 +563,23 @@ fn warp_cylindrical_canvas(
         .map(|(cy, row_chunk)| {
             let mut row_valid = vec![false; canvas_w as usize];
             for cx in 0..canvas_w {
+                // Apply the mesh displacement BEFORE projecting back
+                // to image coords. mesh.sample(cx, cy) returns the
+                // displacement at canvas pixel (cx, cy) — the canvas
+                // pixel at (cx, cy) "comes from" image i's projection
+                // at the shifted position (cx - dx, cy - dy). See
+                // module-level docstring on `warp_image_to_canvas`.
+                let (cx_shifted, cy_shifted) = if let Some(m) = mesh {
+                    match m.sample(cx as f32, cy as f32) {
+                        Some(d) => (cx as f32 - d.dx, cy as f32 - d.dy),
+                        None => (cx as f32, cy as f32),
+                    }
+                } else {
+                    (cx as f32, cy as f32)
+                };
                 // Map canvas pixel → cylindrical (θ, h).
-                let theta = theta_min + (cx as f32 / cw_f) * theta_span;
-                let h = h_min + (cy as f32 / ch_f) * h_span;
+                let theta = theta_min + (cx_shifted / cw_f) * theta_span;
+                let h = h_min + (cy_shifted / ch_f) * h_span;
 
                 let cos_theta = theta.cos() as f64;
                 // Same reasoning as the spherical guard: tiny
@@ -617,6 +651,7 @@ fn warp_spherical_canvas(
     lambda_max: f32,
     phi_min: f32,
     phi_max: f32,
+    mesh: Option<&LocalWarpField>,
 ) -> Result<PanoImage, PanoError> {
     let (iw, ih) = (img.width, img.height);
     let k_in = camera_k_for_image(cam, iw, ih);
@@ -652,9 +687,19 @@ fn warp_spherical_canvas(
             let mut row_valid = vec![false; canvas_w as usize];
 
             for cx in 0..canvas_w {
+                // Apply the mesh displacement BEFORE projecting back
+                // to image coords. See `warp_image_to_canvas` docs.
+                let (cx_shifted, cy_shifted) = if let Some(m) = mesh {
+                    match m.sample(cx as f32, cy as f32) {
+                        Some(d) => (cx as f32 - d.dx, cy as f32 - d.dy),
+                        None => (cx as f32, cy as f32),
+                    }
+                } else {
+                    (cx as f32, cy as f32)
+                };
                 // Map canvas pixel → spherical (λ, φ).
-                let lambda = lambda_min + (cx as f32 / cw_f) * lambda_span;
-                let phi = phi_min + (cy as f32 / ch_f) * phi_span;
+                let lambda = lambda_min + (cx_shifted / cw_f) * lambda_span;
+                let phi = phi_min + (cy_shifted / ch_f) * phi_span;
 
                 // Spherical → world direction, then scale onto the z=1
                 // scene plane used by BA's planar-at-unit-depth model.
@@ -817,7 +862,7 @@ mod tests {
         let cam = identity_camera(64.0);
         let canvas = compute_canvas(&[&img], &[cam.clone()], Projection::Cylindrical).unwrap();
         let warper = CpuWarper::new();
-        let warped = warp_image_to_canvas(&warper, &img, &cam, &canvas).unwrap();
+        let warped = warp_image_to_canvas(&warper, &img, &cam, &canvas, None).unwrap();
         assert_eq!(warped.width, canvas.width);
         assert_eq!(warped.height, canvas.height);
         // Most pixels should be valid (single image fills its own canvas).
@@ -903,7 +948,7 @@ mod tests {
         let cam = identity_camera(64.0);
         let canvas = compute_canvas(&[&img], &[cam.clone()], Projection::Spherical).unwrap();
         let warper = CpuWarper::new();
-        let warped = warp_image_to_canvas(&warper, &img, &cam, &canvas).unwrap();
+        let warped = warp_image_to_canvas(&warper, &img, &cam, &canvas, None).unwrap();
         assert_eq!(warped.width, canvas.width);
         assert_eq!(warped.height, canvas.height);
         let valid_frac =
@@ -963,7 +1008,7 @@ mod tests {
             },
         };
         let warper = CpuWarper::new();
-        let warped = warp_image_to_canvas(&warper, &img, &cam, &canvas).unwrap();
+        let warped = warp_image_to_canvas(&warper, &img, &cam, &canvas, None).unwrap();
 
         // The top 4 rows of the canvas correspond to phi very close
         // to π/2 — past the MIN_WORLD_DIR_Z safe band. They MUST be
@@ -987,6 +1032,55 @@ mod tests {
                     "canvas pixel ({x}, {y}) at extreme phi should be rejected by the guard"
                 );
             }
+        }
+    }
+
+    /// Stage C signature extension: when the optional mesh argument
+    /// is a no-op `LocalWarpField` (all displacements zero), the warp
+    /// output must equal the `mesh = None` baseline pixel-for-pixel.
+    /// This guards against accidental coordinate-shift sign flips or
+    /// double-applied displacements when wiring the mesh path in.
+    #[test]
+    fn warp_image_to_canvas_with_zero_mesh_matches_none() {
+        use crate::warp::local_mesh::{LocalWarpField, LocalWarpOptions};
+
+        // Random-ish content so a coordinate-shift would visibly
+        // disagree at every pixel, not stealthily produce identical
+        // output by virtue of a flat input.
+        let mut img = PanoImage::new(64, 64, ColorSpace::rec2020_d65_linear());
+        for y in 0..64 {
+            for x in 0..64 {
+                let i = ((y * 64 + x) * 3) as usize;
+                img.pixels[i] = (x as f32 / 64.0) * 0.6 + 0.1;
+                img.pixels[i + 1] = (y as f32 / 64.0) * 0.6 + 0.1;
+                img.pixels[i + 2] = ((x ^ y) as f32 / 64.0).clamp(0.0, 1.0) * 0.5 + 0.05;
+                img.validity.set((y * 64 + x) as usize, true);
+            }
+        }
+        let cam = identity_camera(64.0);
+        let canvas = compute_canvas(&[&img], &[cam.clone()], Projection::Spherical).unwrap();
+        let warper = CpuWarper::new();
+        let baseline = warp_image_to_canvas(&warper, &img, &cam, &canvas, None).unwrap();
+        let mesh = LocalWarpField::no_op(&canvas, LocalWarpOptions::default()).unwrap();
+        let with_zero_mesh = warp_image_to_canvas(&warper, &img, &cam, &canvas, Some(&mesh))
+            .unwrap();
+        assert_eq!(baseline.width, with_zero_mesh.width);
+        assert_eq!(baseline.height, with_zero_mesh.height);
+        // Pixel-for-pixel equality. We allow a small tolerance to
+        // absorb any platform-dependent FMA ordering jitter the
+        // compiler might introduce — but in practice the shifted
+        // path with `dx = dy = 0` evaluates to the same float
+        // expression as the un-shifted path.
+        for i in 0..(baseline.pixels.len()) {
+            let a = baseline.pixels[i];
+            let b = with_zero_mesh.pixels[i];
+            assert!(
+                (a - b).abs() < 1e-5,
+                "pixel {i} mismatch: baseline={a}, mesh=None: {b}",
+            );
+        }
+        for i in 0..((baseline.width * baseline.height) as usize) {
+            assert_eq!(baseline.validity[i], with_zero_mesh.validity[i]);
         }
     }
 }

@@ -124,8 +124,140 @@ pub fn develop_for_pano_with_gain_map(raw: &RawImage, gain_map: Option<&GainMap>
         highlight_recovery::apply(&mut camera_rgb, HighlightRecoveryMode::Blend);
     }
 
+    // Sensor-clipped neutral repair — runs AFTER `highlight_recovery::Blend`
+    // so the partial-clip blend has already had its chance to fix
+    // pixels with one or two clipped channels. This stage handles the
+    // remaining case the Blend mode skips: pixels where every channel
+    // saturates (`clipped_count == 3` short-circuits Blend).
+    //
+    // Why this is needed: when all four CFA samples saturate (raw
+    // count ≥ white_level), sensor_linearize clamps each channel
+    // independently to 1.0, so a saturated neutral patch reads
+    // `(1, 1, 1)` post-demosaic. DCP's colour matrix is calibrated
+    // such that `CM · XYZ_neutral = AsShotNeutral`, NOT
+    // `CM · XYZ_neutral = (1, 1, 1)`. Feeding a balanced clipped
+    // value into `inv(CM)` therefore produces a strongly chroma-
+    // imbalanced XYZ — for a typical DJI L2D-20c
+    // (`AsShotNeutral ≈ (0.42, 1.0, 0.53)`) the result is RGB triple
+    // ≈ `(2.56, 0.83, 2.65)` in scene-linear Rec.2020, i.e. a
+    // magenta bloom near the sun. The GainMap (vignette correction)
+    // further amplifies the balanced value past 1.0 in real frames
+    // before this stage runs, so existing `highlight_recovery::Blend`
+    // skips the pixel (its `clipped_count == 3` early-out fires).
+    //
+    // The fix: detect any-channel-saturated balanced pixels and
+    // rescale them to be `AsShotNeutral × max_channel_value`. After
+    // the rescale the pixel sits at the camera-space neutral
+    // chromaticity, so DCP outputs a balanced scene-linear Rec.2020
+    // highlight. Running here (post-Blend) means we won't fight
+    // Blend's per-channel decisions on partially-clipped pixels.
+    //
+    // Skipped for `LinearRgb` (Adobe lossy linear DNG): that path
+    // already undoes the converter's WB pre-bake during decode and
+    // has its own clipping characteristics.
+    if raw.cfa != CfaPattern::LinearRgb {
+        rebalance_clipped_neutrals_to_camera_white(&mut camera_rgb, raw.as_shot_neutral);
+    }
+
     let profile = dcp::profile_for(raw)?;
     dcp::apply(&camera_rgb, &profile)
+}
+
+/// For each post-demosaic camera-RGB pixel whose any-channel saturated
+/// AND whose remaining chroma after `highlight_recovery::Blend` is
+/// modest, soft-blend toward the camera-space neutral
+/// (`AsShotNeutral × max_channel_value`) so the downstream DCP step
+/// renders it as a balanced scene-linear highlight rather than a
+/// chroma-imbalanced primary-edge (the "magenta sun" pattern).
+///
+/// Detection:
+///   * `max(R, G, B) ≥ 1.0 - EPSILON` — at least one channel touched
+///     the linearise/demosaic clamp (or, in the pano path, was lifted
+///     above 1.0 by the GainMap). Non-clipped pixels are never
+///     modified.
+///   * Chroma ratio `q = min(R, G, B) / max(R, G, B)`.
+///       - `q ≥ HARD_BLEND_FLOOR (0.92)` → 100 % rebalance. Sensor-
+///         saturated-neutral case (post-Blend `(1.32, 1.32, 1.32)` for
+///         a DJI L2D-20c clipped patch).
+///       - `q ≤ SOFT_BLEND_FLOOR (0.5)` → no rebalance. Real
+///         chromatic highlights (a fire-engine red, a deep-blue sky,
+///         a yellow LED) sit at `q < 0.4` and pass unchanged.
+///       - `SOFT_BLEND_FLOOR < q < HARD_BLEND_FLOOR` → linear ramp
+///         from 0 % to 100 %. Catches the demosaic-edge case where
+///         `highlight_recovery::Blend` has only partially restored
+///         the neutrality (e.g. `(1.06, 0.93, 0.66)`, `q ≈ 0.6`)
+///         and the residual imbalance amplifies through `inv(CM)`
+///         into a magenta-halo primary-edge around the saturated
+///         centre.
+///
+/// Blend target: `AsShotNeutral × max_channel_value`. Result is a
+/// camera-RGB triple at the AsShotNeutral chromaticity scaled to the
+/// same brightness as the input — chroma corrected, brightness
+/// preserved. AgX's per-channel rolloff handles the `> 1.0`
+/// highlight downstream.
+///
+/// No-op when `AsShotNeutral` is itself near-balanced (identity-WB
+/// test fixtures). The cost is `O(pixels)` with no allocation.
+fn rebalance_clipped_neutrals_to_camera_white(image: &mut Image, as_shot_neutral: [f32; 3]) {
+    const EPSILON: f32 = 0.005;
+    const HARD_BLEND_FLOOR: f32 = 0.92;
+    // Lower bound where rebalance has zero effect. Real chromatic
+    // highlights (saturated red `(1, 0.2, 0.05)`, deep blue, yellow
+    // LED) sit at `q < 0.4` — well below 0.5 — so they pass through
+    // unchanged. The 0.5 floor catches the demosaic-edge case where
+    // `highlight_recovery::Blend` has only partially restored
+    // neutrality (`(1.06, 0.93, 0.66)`, `q ≈ 0.6`); without this
+    // wider band the partial-clip edge pixels around a sun-blob
+    // remain chroma-imbalanced and produce a magenta halo at the
+    // boundary even after the centre is rebalanced.
+    const SOFT_BLEND_FLOOR: f32 = 0.5;
+
+    let asn_max = as_shot_neutral[0]
+        .max(as_shot_neutral[1])
+        .max(as_shot_neutral[2]);
+    let asn_min = as_shot_neutral[0]
+        .min(as_shot_neutral[1])
+        .min(as_shot_neutral[2]);
+    if asn_max <= 0.0 {
+        return;
+    }
+    // If AsShotNeutral itself is balanced (e.g. an identity-WB test
+    // fixture), the rebalance is a no-op. Skip the per-pixel work.
+    if asn_min / asn_max >= 1.0 - EPSILON {
+        return;
+    }
+
+    // Normalise so the brightest channel has gain 1.0; clipped neutrals
+    // become `(0.42, 1.0, 0.53)` for the typical DJI sensor.
+    let scale = 1.0 / asn_max;
+    let neutral_r = as_shot_neutral[0] * scale;
+    let neutral_g = as_shot_neutral[1] * scale;
+    let neutral_b = as_shot_neutral[2] * scale;
+    let blend_span = HARD_BLEND_FLOOR - SOFT_BLEND_FLOOR;
+
+    for p in &mut image.pixels {
+        let r = p[0];
+        let g = p[1];
+        let b = p[2];
+        let max_c = r.max(g).max(b);
+        if max_c < 1.0 - EPSILON {
+            continue; // not at saturation; leave alone
+        }
+        let min_c = r.min(g).min(b);
+        let q = min_c / max_c;
+        if q <= SOFT_BLEND_FLOOR {
+            continue; // chromatic highlight — never rebalance real colours
+        }
+        // Linear ramp: 0 at SOFT_BLEND_FLOOR, 1 at HARD_BLEND_FLOOR or above.
+        let t = ((q - SOFT_BLEND_FLOOR) / blend_span).clamp(0.0, 1.0);
+        // Camera-space neutral target at the pixel's brightness.
+        let target_r = neutral_r * max_c;
+        let target_g = neutral_g * max_c;
+        let target_b = neutral_b * max_c;
+        p[0] = r + t * (target_r - r);
+        p[1] = g + t * (target_g - g);
+        p[2] = b + t * (target_b - b);
+    }
 }
 
 /// Decode a RAW from in-memory bytes and run [`develop_for_pano`] in
@@ -1448,6 +1580,223 @@ mod tests {
         assert!(
             k2 > 0.0 && k2 < 0.10,
             "expected mild pincushion k2 in (0, 0.10), got {k2}",
+        );
+    }
+
+    // ── rebalance_clipped_neutrals_to_camera_white ───────────────────────────
+
+    /// Construct a single-pixel `CameraNativeLinearRgb` `Image` whose
+    /// channel triple is exactly `(r, g, b)`.
+    fn cam_rgb_pixel(r: f32, g: f32, b: f32) -> Image {
+        let mut img = Image::new(1, 1, ColorSpace::CameraNativeLinearRgb);
+        img.pixels[0] = [r, g, b];
+        img
+    }
+
+    #[test]
+    fn rebalance_clipped_neutral_replaces_balanced_saturation_with_asn() {
+        // Scenario reproduces the magenta-sun case from pano_01:
+        // demosaic produced `(1.0, 1.0, 1.0)` for a sensor-saturated
+        // patch; AsShotNeutral for the DJI L2D-20c is `(0.42, 1.0, 0.53)`.
+        // After rebalance the pixel must be `(0.42, 1.0, 0.53)` so DCP
+        // sees a camera-space neutral and renders a balanced highlight.
+        let mut img = cam_rgb_pixel(1.0, 1.0, 1.0);
+        rebalance_clipped_neutrals_to_camera_white(&mut img, [0.42, 1.0, 0.53]);
+        let p = img.pixels[0];
+        assert!(
+            (p[0] - 0.42).abs() < 1e-5,
+            "R: expected 0.42, got {}",
+            p[0]
+        );
+        assert!((p[1] - 1.0).abs() < 1e-5, "G: expected 1.0, got {}", p[1]);
+        assert!(
+            (p[2] - 0.53).abs() < 1e-5,
+            "B: expected 0.53, got {}",
+            p[2]
+        );
+    }
+
+    #[test]
+    fn rebalance_clipped_neutral_preserves_brightness_scale() {
+        // Just below max-clip: triple `(0.998, 0.998, 0.998)` is still
+        // detected as clipped-balanced (1.0 - epsilon ≤ 0.998). After
+        // rebalance the brightest channel must equal the original
+        // `max_c` (≈ 0.998) so AgX downstream sees the same radiance.
+        let mut img = cam_rgb_pixel(0.998, 0.998, 0.998);
+        rebalance_clipped_neutrals_to_camera_white(&mut img, [0.42, 1.0, 0.53]);
+        let p = img.pixels[0];
+        let max_c = p[0].max(p[1]).max(p[2]);
+        assert!(
+            (max_c - 0.998).abs() < 1e-4,
+            "expected brightness preserved at 0.998, got max={}",
+            max_c
+        );
+        // Chroma now matches AsShotNeutral.
+        assert!((p[0] / p[1] - 0.42).abs() < 1e-3, "R/G ratio ≠ ASN: {}", p[0] / p[1]);
+        assert!((p[2] / p[1] - 0.53).abs() < 1e-3, "B/G ratio ≠ ASN: {}", p[2] / p[1]);
+    }
+
+    #[test]
+    fn rebalance_clipped_neutral_skips_unclipped_pixels() {
+        // Mid-gray patch: well below the clip threshold. Must be
+        // unchanged so we don't perturb non-clipped colour.
+        let mut img = cam_rgb_pixel(0.5, 0.5, 0.5);
+        rebalance_clipped_neutrals_to_camera_white(&mut img, [0.42, 1.0, 0.53]);
+        let p = img.pixels[0];
+        assert_eq!(p, [0.5, 0.5, 0.5]);
+    }
+
+    #[test]
+    fn rebalance_clipped_neutral_skips_clipped_but_chromatic_pixels() {
+        // A genuinely saturated red — R clipped at 1.0, G and B much
+        // lower. The chroma ratio min/max = 0.05 / 1.0 = 0.05, well
+        // under the 0.5 SOFT_BLEND_FLOOR, so the rebalance must skip
+        // this pixel and let the existing per-channel
+        // `highlight_recovery::Blend` stage handle it.
+        let mut img = cam_rgb_pixel(1.0, 0.2, 0.05);
+        rebalance_clipped_neutrals_to_camera_white(&mut img, [0.42, 1.0, 0.53]);
+        let p = img.pixels[0];
+        assert_eq!(p, [1.0, 0.2, 0.05]);
+    }
+
+    #[test]
+    fn rebalance_clipped_neutral_partial_clip_demosaic_edge_blends() {
+        // Demosaic-edge pixel where `highlight_recovery::Blend` has
+        // partially restored neutrality but `q ≈ 0.6`. With the
+        // wider 0.5 floor this pixel gets a small rebalance toward
+        // neutral. Without the wider floor it'd produce a magenta
+        // halo around the saturated centre.
+        let mut img = cam_rgb_pixel(1.06, 0.93, 0.66);
+        rebalance_clipped_neutrals_to_camera_white(&mut img, [0.42, 1.0, 0.53]);
+        let p = img.pixels[0];
+        // Before fix: q = 0.66/1.06 ≈ 0.62 → no rebalance → output
+        // unchanged at (1.06, 0.93, 0.66). After fix: t ≈
+        // (0.62 - 0.5) / (0.92 - 0.5) ≈ 0.29, partial blend toward
+        // neutral. R drops, B rises slightly, G shifts modestly.
+        // Output chroma should be improved (q closer to 1).
+        let max_c = p[0].max(p[1]).max(p[2]);
+        let min_c = p[0].min(p[1]).min(p[2]);
+        let q = min_c / max_c;
+        assert!(
+            q > 0.62,
+            "expected rebalance to raise chroma ratio above 0.62, got {}",
+            q
+        );
+        // Brightness preserved approximately.
+        assert!(
+            (max_c - 1.06).abs() < 0.2,
+            "expected brightness preserved near 1.06, got max={}",
+            max_c
+        );
+    }
+
+    #[test]
+    fn rebalance_clipped_neutral_partial_clip_edge_blends_proportionally() {
+        // The pano_01 demosaic-edge case: a pixel near the boundary
+        // of a sensor-saturated patch. After the GainMap stretches
+        // the post-Blend triple to roughly `(0.98, 1.15, 0.93)`, the
+        // chroma ratio is `0.93 / 1.15 ≈ 0.81`. With
+        // `SOFT_BLEND_FLOOR = 0.5` and `HARD_BLEND_FLOOR = 0.92`,
+        // the linear ramp gives `t = (0.81 - 0.5) / (0.92 - 0.5)
+        // ≈ 0.74`. The output triple must blend ~74 % toward the
+        // neutral target.
+        let mut img = cam_rgb_pixel(0.98, 1.15, 0.93);
+        rebalance_clipped_neutrals_to_camera_white(&mut img, [0.42, 1.0, 0.53]);
+        let p = img.pixels[0];
+        // Chroma after blend should be much closer to neutral
+        // (`AsShotNeutral / max(ASN) = (0.42, 1.0, 0.53)`) than the
+        // original 0.85. We expect the output's R/G ratio to fall
+        // in a band that's closer to 0.42 than to the input's 0.85.
+        let ratio_rg = p[0] / p[1];
+        assert!(
+            ratio_rg < 0.85 && ratio_rg > 0.40,
+            "R/G expected to move toward AsShotNeutral 0.42, got {} from input 0.85",
+            ratio_rg
+        );
+        // Brightness preserved approximately — the blend keeps max
+        // close to 1.15.
+        let max_c = p[0].max(p[1]).max(p[2]);
+        assert!(
+            (max_c - 1.15).abs() < 0.1,
+            "expected brightness preserved near 1.15, got max={}",
+            max_c
+        );
+    }
+
+    #[test]
+    fn rebalance_clipped_neutral_no_op_for_balanced_asn() {
+        // Identity-WB fixtures (test inputs that report
+        // `AsShotNeutral = (1, 1, 1)`) must see no change — the
+        // function early-outs and the per-pixel loop is skipped.
+        let mut img = cam_rgb_pixel(1.0, 1.0, 1.0);
+        rebalance_clipped_neutrals_to_camera_white(&mut img, [1.0, 1.0, 1.0]);
+        let p = img.pixels[0];
+        assert_eq!(p, [1.0, 1.0, 1.0]);
+    }
+
+    #[test]
+    fn pano_clipped_white_through_full_chain_renders_neutral() {
+        // End-to-end smoke: feed a Bayer-style RawImage whose every
+        // CFA cell saturates (raw_data == white_level). Pre-fix, the
+        // post-DCP triple is the magenta signature
+        // `(R_high, G_low, B_high)` with chroma ratio ≈ 0.32 because
+        // DCP interpreted a balanced `(1, 1, 1)` camera reading as a
+        // chromaticity rather than a clipped scene-neutral. After the
+        // rebalance the same input lands at `AsShotNeutral` in camera
+        // space and DCP renders it as a balanced Rec.2020 highlight.
+        //
+        // Construct an internally-consistent (CM, AsShotNeutral) pair
+        // so the assertion is unambiguously about clipping handling
+        // rather than CM-vs-WB calibration mismatch:
+        //   * Canon-shape CM (XYZ_D65 → camera) used in other tests.
+        //   * AsShotNeutral = `CM · D65_XYZ_white`, normalised so G=1.
+        // With that pair, `inv(CM) · AsShotNeutral ∝ D65_white`, and a
+        // post-rebalance camera-RGB triple of `AsShotNeutral` must
+        // round-trip back to a near-neutral scene-linear value.
+        let cm = Matrix3([
+            [0.6722, -0.0635, -0.0963],
+            [-0.4287, 1.2460, 0.2028],
+            [-0.0908, 0.2162, 0.5668],
+        ]);
+        // D65 in CIE XYZ (Y normalised to 1). Same constant as
+        // `crate::color::matrices::XYZ_D65`.
+        let xyz_d65 = [0.95047, 1.0, 1.08883];
+        let asn_raw = cm.mul_vec(xyz_d65);
+        // Normalise so the G channel reads 1.0 (DNG convention).
+        let asn = [asn_raw[0] / asn_raw[1], 1.0, asn_raw[2] / asn_raw[1]];
+
+        let mut cms = HashMap::new();
+        cms.insert(Illuminant::D65, cm);
+
+        let raw = RawImage {
+            width: 4,
+            height: 4,
+            cfa: CfaPattern::Rggb,
+            black_level: [0; 4],
+            white_level: 1023,
+            raw_data: vec![1023u16; 16], // every cell at sensor saturation
+            as_shot_neutral: asn,
+            as_shot_cct: None,
+            camera_make: "Test".into(),
+            camera_model: "Test".into(),
+            color_matrices: cms,
+            orientation: ExifOrientation::Normal,
+            baseline_exposure: 0.0,
+        };
+
+        let scene = develop_for_pano(&raw).expect("DCP applies");
+        // Sample an interior pixel (avoid demosaic edge effects).
+        let p = scene.pixels[(2 * 4 + 2) as usize];
+        let max_c = p[0].max(p[1]).max(p[2]).max(1e-9);
+        let min_c = p[0].min(p[1]).min(p[2]);
+        let chroma = min_c / max_c;
+        assert!(
+            chroma >= 0.85,
+            "post-DCP chroma ratio expected ≥ 0.85 (balanced), got {:.3} for pixel ({:.3}, {:.3}, {:.3})",
+            chroma,
+            p[0],
+            p[1],
+            p[2],
         );
     }
 }

@@ -139,6 +139,20 @@ impl LocalWarpField {
         })
     }
 
+    /// Construct a `LocalWarpField` directly from a vector of per-vertex
+    /// displacements. Public alias for `try_new` — same validation
+    /// semantics, more descriptive name at call sites that build the
+    /// mesh from a solver's output (e.g. `solve_global_mesh`).
+    pub fn from_vertices(
+        canvas_width: u32,
+        canvas_height: u32,
+        mesh_cols: u32,
+        mesh_rows: u32,
+        displacements: Vec<LocalWarpDisplacement>,
+    ) -> Result<Self, PanoError> {
+        Self::try_new(canvas_width, canvas_height, mesh_cols, mesh_rows, displacements)
+    }
+
     pub fn no_op(canvas: &Canvas, options: LocalWarpOptions) -> Result<Self, PanoError> {
         options.validate()?;
         Self::constant(canvas, options, LocalWarpDisplacement::ZERO)

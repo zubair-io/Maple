@@ -126,3 +126,62 @@ fn grid_overlap_graph_is_connected() {
         vec![(0..poses.len()).collect::<Vec<_>>()]
     );
 }
+
+/// Multi-row scenes: overlap-graph adjacency must beat file-sequential
+/// `(0,1),(1,2),...,(N-2,N-1)` on number-of-pairs.
+///
+/// Regression-prevention for Stage K: pano-smoke's pair discovery used to
+/// gate the overlap graph behind `PANO_USE_OVERLAP_GRAPH=1`, defaulting to
+/// the file-sequential chain. For a multi-row sphere pano (file order does
+/// not match row-major capture), the chain misses every cross-row
+/// neighbour and the global mesh solver gets starved of constraints. The
+/// fix made overlap-graph the default. This test pins the strict
+/// inequality so a future revert that re-introduces the chain default
+/// fails CI.
+///
+/// Scene: 4 synthetic poses arranged as 2 rows of 2 yaw samples each.
+/// File-sequential gives (0,1),(1,2),(2,3) = 3 pairs. Overlap-graph adds
+/// the cross-row vertical neighbours (0,2) and (1,3) on top of the
+/// horizontal pairs (0,1) and (2,3), so the candidate count goes up.
+#[test]
+fn multi_row_overlap_graph_beats_file_sequential() {
+    let n: usize = 4;
+    // Two rows: pitch 0° and pitch 18°. Two yaw samples per row at
+    // -10° and +10° — well within the default horizontal/vertical gap
+    // budgets and giving plenty of estimated overlap.
+    let poses = vec![
+        PoseSummary::new(deg(-10.0), deg(0.0), 3_200.0, (4_000, 3_000)), // 0
+        PoseSummary::new(deg(10.0), deg(0.0), 3_200.0, (4_000, 3_000)),  // 1
+        PoseSummary::new(deg(-10.0), deg(18.0), 3_200.0, (4_000, 3_000)), // 2
+        PoseSummary::new(deg(10.0), deg(18.0), 3_200.0, (4_000, 3_000)), // 3
+    ];
+
+    let file_sequential_pair_count = n - 1; // (0,1)(1,2)(2,3) = 3
+    let report = build_overlap_graph(&poses, &OverlapGraphOptions::default());
+
+    assert!(
+        report.candidates.len() > file_sequential_pair_count,
+        "overlap graph must produce strictly more pairs than the \
+         file-sequential chain on a multi-row scene; got overlap-graph={} \
+         vs file-sequential={}",
+        report.candidates.len(),
+        file_sequential_pair_count,
+    );
+
+    // And the cross-row pairs the chain misses MUST be present. (0,2) and
+    // (1,3) are the within-yaw vertical neighbours — those are the
+    // constraints the global mesh solver actually needs.
+    let pair_set: HashSet<(usize, usize)> = report
+        .candidates
+        .iter()
+        .map(|c| (c.a.min(c.b), c.a.max(c.b)))
+        .collect();
+    assert!(
+        pair_set.contains(&(0, 2)),
+        "vertical pair (0,2) missing; got {pair_set:?}"
+    );
+    assert!(
+        pair_set.contains(&(1, 3)),
+        "vertical pair (1,3) missing; got {pair_set:?}"
+    );
+}
