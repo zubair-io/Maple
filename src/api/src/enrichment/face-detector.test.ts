@@ -182,9 +182,11 @@ describe("OnnxFaceDetector — SCRFD decode", () => {
 
   it("suppresses near-duplicate detections via NMS", async () => {
     // Two adjacent anchors in stride-8 head, both high-confidence with
-    // the same bbox geometry — NMS should keep only the higher-scoring
-    // one. Anchor A at idx 6480, anchor B at idx 6482 (next cell over,
-    // same anchor slot). Identical distances → identical bboxes → IoU=1.
+    // identical distance values. Anchor A at idx 6480 (cell col=40,
+    // row=40) → centre (320, 320). Anchor B at idx 6482 (cell col=41,
+    // row=40) → centre (328, 320). Same distances (128 px each side)
+    // → boxes overlap by ~256/(256+8) per axis → IoU ≈ 0.94, well above
+    // the 0.4 NMS threshold, so the lower-scoring one drops.
     const score = new Float32Array(12800);
     const bbox = new Float32Array(12800 * 4);
     score[6480] = 0.9;
