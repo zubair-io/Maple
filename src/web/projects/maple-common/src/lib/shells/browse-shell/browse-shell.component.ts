@@ -5,11 +5,9 @@
 import {
   ChangeDetectionStrategy,
   Component,
-  ElementRef,
   HostListener,
   OnInit,
   inject,
-  signal,
 } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
 import { LibraryStateService } from '../../state/library-state.service';
@@ -24,7 +22,6 @@ import { MaterialIconComponent } from '../../icons/material-icon.component';
 import { LibraryPickerComponent } from '../../components/library-picker/library-picker.component';
 import { LibraryPickerModalComponent } from '../../components/library-picker-modal/library-picker-modal.component';
 import { TimelineViewComponent } from '../../components/timeline-view/timeline-view.component';
-import { AuthService } from '../../auth/auth.service';
 
 @Component({
   selector: 'browse-shell',
@@ -49,38 +46,7 @@ import { AuthService } from '../../auth/auth.service';
 })
 export class BrowseShellComponent implements OnInit {
   state = inject(LibraryStateService);
-  protected auth = inject(AuthService);
   private router = inject(Router);
-  private host = inject(ElementRef<HTMLElement>);
-
-  /** Whether the chrome Settings dropdown is open. */
-  readonly settingsMenuOpen = signal(false);
-
-  toggleSettingsMenu(event: MouseEvent): void {
-    event.stopPropagation();
-    this.settingsMenuOpen.update((v) => !v);
-  }
-
-  closeSettingsMenu(): void {
-    this.settingsMenuOpen.set(false);
-  }
-
-  /** Dismiss on outside-click. The button itself stops propagation so
-   * its own click toggles rather than immediately closing. */
-  @HostListener('document:click', ['$event'])
-  onDocumentClick(event: MouseEvent): void {
-    if (!this.settingsMenuOpen()) return;
-    const target = event.target as Node | null;
-    const root = this.host.nativeElement;
-    if (target && root.contains(target)) {
-      // Clicks inside the shell that aren't on the button or menu still
-      // dismiss — the menu items themselves use routerLink which navigates
-      // away, so the dismissal is harmless.
-      const menu = root.querySelector('[data-settings-menu]');
-      if (menu && menu.contains(target)) return;
-    }
-    this.settingsMenuOpen.set(false);
-  }
 
   ngOnInit(): void {
     // Self-Hosted: kick off folder enumeration once the browse page mounts.
