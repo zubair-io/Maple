@@ -42,6 +42,20 @@ export interface WorkersStatusResponse {
   stages: StageStatus[];
 }
 
+/** One row in the dead-letter list — returned by GET /api/workers/:name/dead. */
+export interface DeadDoc {
+  id: string;
+  abs_path: string | null;
+  last_error: string | null;
+  attempts: number;
+  /** ISO 8601 string, or null if the doc never reached a terminal state. */
+  processed_at: string | null;
+}
+
+export interface DeadListResponse {
+  items: DeadDoc[];
+}
+
 @Injectable({ providedIn: 'root' })
 export class WorkersApiService {
   private readonly http = inject(HttpClient);
@@ -49,6 +63,12 @@ export class WorkersApiService {
 
   getStatus(): Observable<WorkersStatusResponse> {
     return this.http.get<WorkersStatusResponse>(`${this.base}/workers/status`);
+  }
+
+  listDead(name: string, limit = 50): Observable<DeadListResponse> {
+    return this.http.get<DeadListResponse>(
+      `${this.base}/workers/${encodeURIComponent(name)}/dead?limit=${limit}`,
+    );
   }
 
   pause(name: string): Observable<void> {

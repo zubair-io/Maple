@@ -7,7 +7,7 @@ import {
   HttpTestingController,
   provideHttpClientTesting,
 } from '@angular/common/http/testing';
-import { WorkersApiService, type WorkersStatusResponse, type WorkerConfig } from './workers-api.service';
+import { WorkersApiService, type WorkersStatusResponse, type WorkerConfig, type DeadListResponse } from './workers-api.service';
 import { API_BASE_URL } from './api-base-url.token';
 
 const MOCK_STATUS: WorkersStatusResponse = {
@@ -84,5 +84,19 @@ describe('WorkersApiService', () => {
     req.flush({ ok: true, config: { concurrency: 8, pollIntervalMs: 1000, batchSize: 10, maxAttempts: 5 } });
     expect(result?.ok).toBe(true);
     expect(result?.config?.concurrency).toBe(8);
+  });
+
+  it('listDead() GET /api/workers/face/dead?limit=N returns the items array', () => {
+    let result: DeadListResponse | undefined;
+    svc.listDead('face', 25).subscribe((r) => (result = r));
+    const req = http.expectOne('/api/workers/face/dead?limit=25');
+    expect(req.request.method).toBe('GET');
+    const payload: DeadListResponse = {
+      items: [
+        { id: 'abc', abs_path: '/photos/a.dng', last_error: 'OOM', attempts: 5, processed_at: '2026-05-11T12:00:00Z' },
+      ],
+    };
+    req.flush(payload);
+    expect(result).toEqual(payload);
   });
 });

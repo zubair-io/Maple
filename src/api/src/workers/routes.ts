@@ -13,6 +13,7 @@
  *
  * Routes:
  *   GET  /api/workers/status            — aggregated status + pending/dead counts
+ *   GET  /api/workers/:name/dead        — recent dead-lettered docs with reasons
  *   POST /api/workers/:name/pause       — pause a stage's poll loop
  *   POST /api/workers/:name/resume      — resume a paused stage
  *   POST /api/workers/:name/retry-dead  — reset dead docs for a stage
@@ -27,6 +28,9 @@ import type { WorkerConfig } from "./runtime/define-stage.ts";
 import type { ImageDoc } from "./runtime/define-stage.ts";
 import type { WorkerConfigDoc } from "./worker-config.repo.ts";
 import { ALL_STAGE_NAMES } from "./stages/manifest.ts";
+
+const DEAD_LIST_LIMIT_DEFAULT = 50;
+const DEAD_LIST_LIMIT_MAX = 500;
 
 export function workerRoutes(supervisor: Supervisor): Elysia {
   return new Elysia({ prefix: "/api/workers" })
@@ -117,6 +121,55 @@ export function workerRoutes(supervisor: Supervisor): Elysia {
       });
 
       return { stages };
+    })
+
+    .get("/:name/dead", async ({ params, query, set }) => {
+      const statuses = supervisor.statuses();
+      if (!(params.name in statuses)) {
+        set.status = 404;
+        return { error: `unknown stage: ${params.name}` };
+      }
+      const requested = Number(query.limit ?? DEAD_LIST_LIMIT_DEFAULT);
+      const limit = Number.isFinite(requested)
+        ? Math.max(1, Math.min(DEAD_LIST_LIMIT_MAX, Math.floor(requested)))
+        : DEAD_LIST_LIMIT_DEFAULT;
+      try {
+        const db = await getDb();
+        const assets = db.collection<ImageDoc>("assets");
+        const stageKey = `stages.${params.name}`;
+        const docs = await assets
+          .find(
+            { [`${stageKey}.dead`]: true },
+            {
+              projection: {
+                _id: 1,
+                abs_path: 1,
+                [`${stageKey}.last_error`]: 1,
+                [`${stageKey}.attempts`]: 1,
+                [`${stageKey}.processed_at`]: 1,
+              },
+            },
+          )
+          .sort({ [`${stageKey}.processed_at`]: -1 })
+          .limit(limit)
+          .toArray();
+        const items = docs.map((doc) => {
+          const stage = doc.stages?.[params.name];
+          return {
+            id: String(doc._id),
+            abs_path: doc.abs_path ?? null,
+            last_error: stage?.last_error ?? null,
+            attempts: stage?.attempts ?? 0,
+            processed_at: stage?.processed_at
+              ? new Date(stage.processed_at).toISOString()
+              : null,
+          };
+        });
+        return { items };
+      } catch (err) {
+        set.status = 500;
+        return { error: err instanceof Error ? err.message : String(err) };
+      }
     })
 
     .post("/:name/pause", async ({ params, set }) => {
