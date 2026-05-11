@@ -23,9 +23,15 @@ describe("GET /api/fs/dir", () => {
     await fs.writeFile(path.join(tmpRoot, "IMG_003.NEF"), "raw");
     await fs.writeFile(path.join(tmpRoot, "IMG_004.dng"), "raw");
 
-    // Non-RAW files that must be filtered out
-    await fs.writeFile(path.join(tmpRoot, "notes.txt"), "x");
+    // Bitmap image files (mixed case) — also surfaced by the listing.
     await fs.writeFile(path.join(tmpRoot, "preview.jpg"), "x");
+    await fs.writeFile(path.join(tmpRoot, "shot.JPEG"), "x");
+    await fs.writeFile(path.join(tmpRoot, "scan.PNG"), "x");
+    await fs.writeFile(path.join(tmpRoot, "phone.heic"), "x");
+
+    // Non-image files (and dotfiles) that must be filtered out.
+    await fs.writeFile(path.join(tmpRoot, "notes.txt"), "x");
+    await fs.writeFile(path.join(tmpRoot, "clip.mp4"), "x");
     await fs.writeFile(path.join(tmpRoot, ".env"), "x");
 
     // Pin MAPLE_ROOTS to our tmp dir so the jail rejects everything else.
@@ -37,7 +43,7 @@ describe("GET /api/fs/dir", () => {
     await fs.rm(tmpRoot, { recursive: true, force: true });
   });
 
-  it("returns subdirs and RAW images at the level", async () => {
+  it("returns subdirs and image files (RAW + bitmap) at the level", async () => {
     const { fsRoutes } = await import("../src/routes/fs.ts");
     const res = await fsRoutes.handle(
       new Request(
@@ -64,19 +70,26 @@ describe("GET /api/fs/dir", () => {
       "IMG_002.cr2",
       "IMG_003.NEF",
       "IMG_004.dng",
+      "phone.heic",
+      "preview.jpg",
+      "scan.PNG",
+      "shot.JPEG",
+    ]);
+    const allowedExts = new Set([
+      "cr3", "cr2", "nef", "dng", "jpg", "jpeg", "png", "heic",
     ]);
     for (const img of json.images) {
       expect(typeof img.size).toBe("number");
       expect(img.size).toBeGreaterThan(0);
       expect(typeof img.mtime).toBe("string");
       expect(typeof img.ext).toBe("string");
-      expect(img.ext).toBe(img.ext.toLowerCase());
       // ext is the lowercase form, regardless of filename case
-      expect(["cr3", "cr2", "nef", "dng"]).toContain(img.ext);
+      expect(img.ext).toBe(img.ext.toLowerCase());
+      expect(allowedExts.has(img.ext)).toBe(true);
     }
   });
 
-  it("filters out non-RAW files (.txt, .jpg)", async () => {
+  it("filters out non-image files (.txt, .mp4)", async () => {
     const { fsRoutes } = await import("../src/routes/fs.ts");
     const res = await fsRoutes.handle(
       new Request(
@@ -86,7 +99,7 @@ describe("GET /api/fs/dir", () => {
     const json = await res.json();
     const names = json.images.map((i: any) => i.name);
     expect(names).not.toContain("notes.txt");
-    expect(names).not.toContain("preview.jpg");
+    expect(names).not.toContain("clip.mp4");
   });
 
   it("filters out dotfiles and dotdirs (including .maple/)", async () => {
