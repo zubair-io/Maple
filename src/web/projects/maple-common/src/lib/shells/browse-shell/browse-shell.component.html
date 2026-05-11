@@ -87,79 +87,16 @@
       </div>
     }
 
-    <!-- Settings menu (Self-Hosted only — Hosted has no server-side surfaces). -->
+    <!-- Settings (Self-Hosted only — Hosted has no server-side surfaces). -->
     @if (state.backend === 'self-hosted') {
-      <div class="relative">
-        <button
-          type="button"
-          class="chrome-btn flex h-8 w-8 items-center justify-center rounded-md border-[0.5px] border-transparent cursor-pointer transition-colors duration-[120ms] hover:bg-surface-hover hover:border-border"
-          [class.is-active]="settingsMenuOpen()"
-          title="Settings"
-          aria-label="Open settings menu"
-          [attr.aria-expanded]="settingsMenuOpen()"
-          aria-haspopup="menu"
-          (click)="toggleSettingsMenu($event)"
-        >
-          <maple-material-icon name="settings" [size]="16" color="var(--color-text-muted)" />
-        </button>
-
-        @if (settingsMenuOpen()) {
-          <div
-            data-settings-menu
-            role="menu"
-            class="absolute right-0 top-[calc(100%+4px)] z-50 min-w-[200px] rounded-md border-[0.5px] border-border bg-surface py-1 shadow-lg"
-          >
-            <a
-              role="menuitem"
-              class="flex items-center gap-2.5 px-3 py-2 text-[12px] text-text-main no-underline hover:bg-surface-hover"
-              routerLink="/settings/indexer"
-              (click)="closeSettingsMenu()"
-            >
-              <maple-material-icon name="manage_search" [size]="16" color="var(--color-text-muted)" />
-              <span>Indexer</span>
-            </a>
-            <a
-              role="menuitem"
-              class="flex items-center gap-2.5 px-3 py-2 text-[12px] text-text-main no-underline hover:bg-surface-hover"
-              routerLink="/settings/enrichment"
-              (click)="closeSettingsMenu()"
-            >
-              <maple-material-icon name="auto_awesome" [size]="16" color="var(--color-text-muted)" />
-              <span>Enrichment</span>
-            </a>
-            <a
-              role="menuitem"
-              class="flex items-center gap-2.5 px-3 py-2 text-[12px] text-text-main no-underline hover:bg-surface-hover"
-              routerLink="/people"
-              (click)="closeSettingsMenu()"
-            >
-              <maple-material-icon name="groups" [size]="16" color="var(--color-text-muted)" />
-              <span>People</span>
-            </a>
-            <div class="my-1 h-px bg-border"></div>
-            <a
-              role="menuitem"
-              class="flex items-center gap-2.5 px-3 py-2 text-[12px] text-text-main no-underline hover:bg-surface-hover"
-              routerLink="/settings/account"
-              (click)="closeSettingsMenu()"
-            >
-              <maple-material-icon name="person" [size]="16" color="var(--color-text-muted)" />
-              <span>Account</span>
-            </a>
-            @if (auth.user()?.role === 'owner') {
-              <a
-                role="menuitem"
-                class="flex items-center gap-2.5 px-3 py-2 text-[12px] text-text-main no-underline hover:bg-surface-hover"
-                routerLink="/settings/users"
-                (click)="closeSettingsMenu()"
-              >
-                <maple-material-icon name="key" [size]="16" color="var(--color-text-muted)" />
-                <span>Users</span>
-              </a>
-            }
-          </div>
-        }
-      </div>
+      <a
+        class="chrome-btn flex h-8 w-8 items-center justify-center rounded-md border-[0.5px] border-transparent cursor-pointer transition-colors duration-[120ms] hover:bg-surface-hover hover:border-border"
+        routerLink="/settings"
+        title="Settings"
+        aria-label="Open settings"
+      >
+        <maple-material-icon name="settings" [size]="16" color="var(--color-text-muted)" />
+      </a>
     }
 
     <div class="flex-1"></div>
