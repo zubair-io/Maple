@@ -97,15 +97,14 @@ export class OnnxFaceDetector implements FaceDetector {
 
   async detectFaces(jpegBytes: Uint8Array): Promise<DetectedFace[]> {
     const { retinaFace, Tensor } = await this.models();
-    const { tensor, srcWidth, srcHeight } = await jpegToInputTensor(
+    const { tensor } = await jpegToInputTensor(
       jpegBytes,
       RETINAFACE_INPUT_SIZE,
-      "retinaface",
       Tensor,
     );
     const inputName = inferInputName(retinaFace, "input");
     const outputs = await retinaFace.run({ [inputName]: tensor });
-    return decodeRetinaFaceOutputs(outputs, srcWidth, srcHeight);
+    return decodeScrfdOutputs(outputs, RETINAFACE_INPUT_SIZE);
   }
 
   async embedFace(
@@ -139,8 +138,13 @@ export function setDefaultFaceDetectorForTests(d: FaceDetector | null): void {
 // ---------------------------------------------------------------------------
 
 /** Decode JPEG → resize to `size`×`size` → produce NCHW float32 tensor.
- * For RetinaFace we mean-subtract; for MobileFaceNet we centre to [-1,1]
- * — controlled by `mode`.
+ *
+ * Normalisation is `(pixel - 127.5) / 128.0` in RGB order — what both
+ * InsightFace's SCRFD detector (`buffalo_s/det_500m.onnx`) and
+ * MobileFaceNet expect. The earlier Caffe-style `(B-104, G-117, R-123)`
+ * BGR preprocessing was for the legacy RetinaFace MobileNet0.25 export
+ * that we no longer ship; SCRFD doesn't share that contract and the
+ * mean-subtract path produced wildly wrong scores.
  *
  * Throws `ThumbDecodeError` if `sharp`/libvips can't read the input —
  * the worker handler converts that into `{ skip }` so corrupt thumbnails
@@ -148,7 +152,6 @@ export function setDefaultFaceDetectorForTests(d: FaceDetector | null): void {
 async function jpegToInputTensor(
   jpegBytes: Uint8Array,
   size: number,
-  mode: "retinaface" | "mobilefacenet",
   Tensor: OnnxTensorConstructor,
 ): Promise<{
   tensor: OnnxTensorLike;
@@ -178,17 +181,9 @@ async function jpegToInputTensor(
     const r = raw[i * 3]!;
     const g = raw[i * 3 + 1]!;
     const b = raw[i * 3 + 2]!;
-    if (mode === "retinaface") {
-      // Caffe-style mean subtraction (BGR order in the original model).
-      data[i] = b - 104;
-      data[plane + i] = g - 117;
-      data[2 * plane + i] = r - 123;
-    } else {
-      // MobileFaceNet: RGB, centred to [-1, 1].
-      data[i] = (r - 127.5) / 128.0;
-      data[plane + i] = (g - 127.5) / 128.0;
-      data[2 * plane + i] = (b - 127.5) / 128.0;
-    }
+    data[i] = (r - 127.5) / 128.0;
+    data[plane + i] = (g - 127.5) / 128.0;
+    data[2 * plane + i] = (b - 127.5) / 128.0;
   }
   return {
     tensor: new Tensor("float32", data, [1, 3, size, size]),
@@ -290,75 +285,179 @@ function inferInputName(
   return fallback;
 }
 
-/** Decode RetinaFace's outputs into normalised face entries. The standard
- * RetinaFace ONNX export emits three tensors: `loc` (boxes), `conf`
- * (scores), and `landmarks`. We don't run the full anchor-decode +
- * NMS dance here — that's tied to the specific checkpoint's anchor
- * stride list, which we don't know without reading the model card.
+/** IoU threshold for the post-detection NMS pass. InsightFace's SCRFD
+ * reference uses 0.4 — anything closer is treated as the same face. */
+const NMS_IOU_THRESHOLD = 0.4;
+
+/** Decode SCRFD's outputs into normalised face entries.
  *
- * Strategy: if the model exports already-decoded boxes (some forks do —
- * shape `[N, 5]` for `[x1,y1,x2,y2,score]` or `[N, 15]` including
- * landmarks) we read them directly. Otherwise we throw a clear error
- * pointing at the model card. The worker treats that as a non-retryable
- * failure (dead-letter) so we stop hammering bad inputs.
+ * The InsightFace `buffalo_s/det_500m.onnx` detector emits 9 tensors —
+ * three feature-pyramid strides (8, 16, 32), each with three heads
+ * (score, bbox, kps). Output names are export-specific integer strings
+ * (e.g. `"443"`, `"446"`, `"449"`), so we don't key off names; instead
+ * we bucket by tensor column count — `[N, 1]` is score, `[N, 4]` is
+ * bbox, `[N, 10]` is kps — and pair them across heads by descending
+ * row count, which orders them stride-8, stride-16, stride-32.
  *
- * The structure is permissive on purpose — we'll tighten it in v2 once
- * we lock in a specific RetinaFace export.
+ * Per-anchor decode follows SCRFD's `distance2bbox` convention: the
+ * model emits four positive distances `(dl, dt, dr, db)` from the
+ * anchor centre in stride units. The bbox corners are
+ * `(cx - dl*s, cy - dt*s, cx + dr*s, cy + db*s)`. Landmarks decode as
+ * absolute offsets from the same anchor centre, also in stride units.
+ *
+ * Coordinates come out in input-tensor space (`inputSize × inputSize`),
+ * which `fit: "fill"` mapped 1:1 to the source aspect — so dividing by
+ * `inputSize` gives the same normalised value as dividing by source
+ * dims, and we don't need to track `srcWidth/srcHeight` past here.
+ *
+ * Final pass: greedy NMS at IoU 0.4 to drop duplicates across strides.
  */
-function decodeRetinaFaceOutputs(
+function decodeScrfdOutputs(
   outputs: Record<string, OnnxTensorLike>,
-  srcWidth: number,
-  srcHeight: number,
+  inputSize: number,
 ): DetectedFace[] {
-  // Prefer a decoded "faces" tensor when present.
-  const decoded =
-    outputs["faces"] ?? outputs["output"] ?? Object.values(outputs)[0];
-  if (!decoded) return [];
-  const dims = decoded.dims;
-  if (dims.length !== 2) {
+  const scoreTensors: OnnxTensorLike[] = [];
+  const bboxTensors: OnnxTensorLike[] = [];
+  const kpsTensors: OnnxTensorLike[] = [];
+  for (const t of Object.values(outputs)) {
+    if (t.dims.length !== 2) continue;
+    const k = t.dims[1]!;
+    if (k === 1) scoreTensors.push(t);
+    else if (k === 4) bboxTensors.push(t);
+    else if (k === 10) kpsTensors.push(t);
+  }
+  // Descending by row count = stride 8 → 16 → 32 (the input area shrinks
+  // by 4× each step, so more anchors at finer strides).
+  const byRowsDesc = (a: OnnxTensorLike, b: OnnxTensorLike) =>
+    b.dims[0]! - a.dims[0]!;
+  scoreTensors.sort(byRowsDesc);
+  bboxTensors.sort(byRowsDesc);
+  kpsTensors.sort(byRowsDesc);
+
+  if (scoreTensors.length === 0 || scoreTensors.length !== bboxTensors.length) {
     throw new Error(
-      `face-detector: unexpected RetinaFace output shape ${JSON.stringify(dims)}; expected 2D [N, K]`,
+      `face-detector: SCRFD outputs malformed — got ${scoreTensors.length} score tensors and ${bboxTensors.length} bbox tensors (kps=${kpsTensors.length}); expected matching counts (3 strides)`,
     );
   }
-  const n = dims[0]!;
-  const k = dims[1]!;
-  if (n === 0) return [];
-  if (k !== 5 && k !== 15) {
-    throw new Error(
-      `face-detector: unsupported RetinaFace output stride ${k}; expected 5 (bbox+score) or 15 (bbox+score+5 landmarks)`,
-    );
+
+  const candidates: DetectedFace[] = [];
+  for (let i = 0; i < scoreTensors.length; i++) {
+    const scoreT = scoreTensors[i]!;
+    const bboxT = bboxTensors[i]!;
+    const kpsT: OnnxTensorLike | undefined = kpsTensors[i];
+    const rows = scoreT.dims[0]!;
+    const { stride, fmSize, numAnchors } = inferStrideLayout(rows, inputSize);
+    const scoreData = scoreT.data as Float32Array;
+    const bboxData = bboxT.data as Float32Array;
+    const kpsData = kpsT ? (kpsT.data as Float32Array) : undefined;
+
+    for (let idx = 0; idx < rows; idx++) {
+      const score = scoreData[idx]!;
+      if (score < DEFAULT_DETECTION_THRESHOLD) continue;
+      // Anchors are tiled row-major over the (fmSize × fmSize) grid,
+      // with `numAnchors` copies stacked at each cell.
+      const spatial = Math.floor(idx / numAnchors);
+      const row = Math.floor(spatial / fmSize);
+      const col = spatial % fmSize;
+      const cx = col * stride;
+      const cy = row * stride;
+      const dl = bboxData[idx * 4]! * stride;
+      const dt = bboxData[idx * 4 + 1]! * stride;
+      const dr = bboxData[idx * 4 + 2]! * stride;
+      const db = bboxData[idx * 4 + 3]! * stride;
+      const x1 = cx - dl;
+      const y1 = cy - dt;
+      const x2 = cx + dr;
+      const y2 = cy + db;
+      const landmarks: Array<{ x: number; y: number }> = [];
+      if (kpsData) {
+        for (let p = 0; p < 5; p++) {
+          const px = cx + kpsData[idx * 10 + p * 2]! * stride;
+          const py = cy + kpsData[idx * 10 + p * 2 + 1]! * stride;
+          landmarks.push({ x: px / inputSize, y: py / inputSize });
+        }
+      }
+      candidates.push({
+        bbox: {
+          x: x1 / inputSize,
+          y: y1 / inputSize,
+          w: (x2 - x1) / inputSize,
+          h: (y2 - y1) / inputSize,
+        },
+        confidence: score,
+        landmarks,
+      });
+    }
   }
-  const result: DetectedFace[] = [];
-  const data = decoded.data as Float32Array;
-  const W = srcWidth;
-  const H = srcHeight;
-  for (let i = 0; i < n; i++) {
-    const off = i * k;
-    const x1 = data[off]!;
-    const y1 = data[off + 1]!;
-    const x2 = data[off + 2]!;
-    const y2 = data[off + 3]!;
-    const score = data[off + 4]!;
-    if (score < DEFAULT_DETECTION_THRESHOLD) continue;
-    const bbox = {
-      x: x1 / W,
-      y: y1 / H,
-      w: (x2 - x1) / W,
-      h: (y2 - y1) / H,
-    };
-    const landmarks: Array<{ x: number; y: number }> = [];
-    if (k === 15) {
-      for (let j = 0; j < 5; j++) {
-        landmarks.push({
-          x: data[off + 5 + j * 2]! / W,
-          y: data[off + 5 + j * 2 + 1]! / H,
-        });
+
+  const kept = nms(candidates, NMS_IOU_THRESHOLD);
+  log.debug(
+    { candidates: candidates.length, kept: kept.length },
+    "decoded SCRFD detections",
+  );
+  return kept;
+}
+
+/** Recover (stride, feature-map side, anchors-per-cell) from a head's
+ * row count. SCRFD emits `numAnchors × (inputSize/stride)²` rows per
+ * stride; we try the standard `numAnchors=2` first (what buffalo_s
+ * uses) and fall back to `1` so an operator-supplied variant still
+ * decodes. */
+function inferStrideLayout(
+  rows: number,
+  inputSize: number,
+): { stride: number; fmSize: number; numAnchors: number } {
+  for (const numAnchors of [2, 1]) {
+    if (rows % numAnchors !== 0) continue;
+    const cells = rows / numAnchors;
+    const fmSize = Math.round(Math.sqrt(cells));
+    if (fmSize * fmSize !== cells) continue;
+    if (inputSize % fmSize !== 0) continue;
+    return { stride: inputSize / fmSize, fmSize, numAnchors };
+  }
+  throw new Error(
+    `face-detector: cannot infer SCRFD stride layout from rows=${rows} input=${inputSize}`,
+  );
+}
+
+/** Greedy non-maximum suppression. Sorts by confidence and drops every
+ * detection that overlaps a higher-scoring one above `iouThreshold`. */
+function nms(detections: DetectedFace[], iouThreshold: number): DetectedFace[] {
+  const sorted = [...detections].sort(
+    (a, b) => b.confidence - a.confidence,
+  );
+  const kept: DetectedFace[] = [];
+  for (const det of sorted) {
+    let suppress = false;
+    for (const k of kept) {
+      if (bboxIoU(det.bbox, k.bbox) > iouThreshold) {
+        suppress = true;
+        break;
       }
     }
-    result.push({ bbox, confidence: score, landmarks });
+    if (!suppress) kept.push(det);
   }
-  log.debug({ count: result.length }, "decoded RetinaFace detections");
-  return result;
+  return kept;
+}
+
+function bboxIoU(
+  a: { x: number; y: number; w: number; h: number },
+  b: { x: number; y: number; w: number; h: number },
+): number {
+  const ax2 = a.x + a.w;
+  const ay2 = a.y + a.h;
+  const bx2 = b.x + b.w;
+  const by2 = b.y + b.h;
+  const ix1 = Math.max(a.x, b.x);
+  const iy1 = Math.max(a.y, b.y);
+  const ix2 = Math.min(ax2, bx2);
+  const iy2 = Math.min(ay2, by2);
+  const iw = Math.max(0, ix2 - ix1);
+  const ih = Math.max(0, iy2 - iy1);
+  const inter = iw * ih;
+  const union = a.w * a.h + b.w * b.h - inter;
+  if (union <= 0) return 0;
+  return inter / union;
 }
 
 /** Extract the 512-D embedding from MobileFaceNet's outputs. The model's
