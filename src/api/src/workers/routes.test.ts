@@ -52,6 +52,17 @@ describe("POST /api/workers/:name/retry-dead", () => {
   });
 });
 
+describe("GET /api/workers/:name/dead", () => {
+  it("returns 404 for unknown stage", async () => {
+    const sup = new Supervisor([]);
+    const app = new Elysia().use(workerRoutes(sup));
+    const res = await app.handle(
+      new Request("http://localhost/api/workers/nonexistent/dead"),
+    );
+    expect(res.status).toBe(404);
+  });
+});
+
 describe("PATCH /api/workers/:name/config", () => {
   it("returns 404 for unknown stage", async () => {
     const sup = new Supervisor([]);

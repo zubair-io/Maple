@@ -27,6 +27,7 @@ import {
   type WorkersStatusResponse,
 } from '@maple-common';
 import { WorkerConfigDialogComponent } from './worker-config-dialog.component';
+import { DeadLetterDialogComponent } from './dead-letter-dialog.component';
 
 const POLL_MS = 2_000;
 const ERROR_POLL_MS = 5_000;
@@ -34,7 +35,7 @@ const ERROR_POLL_MS = 5_000;
 @Component({
   standalone: true,
   selector: 'maple-workers-settings',
-  imports: [RouterLink, DecimalPipe, WorkerConfigDialogComponent],
+  imports: [RouterLink, DecimalPipe, WorkerConfigDialogComponent, DeadLetterDialogComponent],
   templateUrl: './workers.component.html',
   styleUrl: './workers.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -46,6 +47,8 @@ export class WorkersComponent implements OnInit, OnDestroy {
   readonly error = signal<string | null>(null);
   /** Name of the stage whose config dialog is open; null = closed. */
   readonly dialogStage = signal<string | null>(null);
+  /** Name of the stage whose dead-letter dialog is open; null = closed. */
+  readonly deadStage = signal<string | null>(null);
   /** Configs as returned by the most recent status poll or PATCH response.
    * Keyed by stage name. */
   readonly configs = signal<Record<string, WorkerConfig>>({});
@@ -57,8 +60,10 @@ export class WorkersComponent implements OnInit, OnDestroy {
   private destroyed = false;
 
   ngOnInit(): void {
-    // First poll fires immediately (synchronous in tests, immediate in prod).
-    this.scheduleNextPoll(0);
+    // First poll fires synchronously so callers (and tests) see the request
+    // dispatched in the same microtask as ngOnInit. Subsequent polls schedule
+    // themselves via setTimeout once the response (or error) lands.
+    this.fetchStatus();
   }
 
   ngOnDestroy(): void {
@@ -71,31 +76,31 @@ export class WorkersComponent implements OnInit, OnDestroy {
     this.pollSub = null;
   }
 
+  private fetchStatus(): void {
+    if (this.destroyed) return;
+    this.pollSub = this.api.getStatus().subscribe({
+      next: (data) => {
+        this.status.set(data);
+        this.error.set(null);
+        const entries: [string, WorkerConfig][] = [];
+        for (const s of data.stages) {
+          if (s.config) entries.push([s.name, s.config]);
+        }
+        if (entries.length > 0) {
+          this.configs.set(Object.fromEntries(entries));
+        }
+        this.scheduleNextPoll(POLL_MS);
+      },
+      error: (err) => {
+        this.error.set(err?.error?.error ?? err?.message ?? 'Failed to load worker status.');
+        this.scheduleNextPoll(ERROR_POLL_MS);
+      },
+    });
+  }
+
   private scheduleNextPoll(delay: number): void {
     if (this.destroyed) return;
-    this.pollTimer = setTimeout(() => {
-      if (this.destroyed) return;
-      this.pollSub = this.api.getStatus().subscribe({
-        next: (data) => {
-          this.status.set(data);
-          this.error.set(null);
-          // Hydrate configs from each stage's persisted config field.
-          const entries: [string, WorkerConfig][] = [];
-          for (const s of data.stages) {
-            if (s.config) entries.push([s.name, s.config]);
-          }
-          if (entries.length > 0) {
-            this.configs.set(Object.fromEntries(entries));
-          }
-          this.scheduleNextPoll(POLL_MS);
-        },
-        error: (err) => {
-          this.error.set(err?.error?.error ?? err?.message ?? 'Failed to load worker status.');
-          // Back off on error so a temporarily unreachable server doesn't spam requests.
-          this.scheduleNextPoll(ERROR_POLL_MS);
-        },
-      });
-    }, delay);
+    this.pollTimer = setTimeout(() => this.fetchStatus(), delay);
   }
 
   // ── Actions ──────────────────────────────────────────────────────────────
@@ -129,6 +134,14 @@ export class WorkersComponent implements OnInit, OnDestroy {
     this.dialogStage.set(null);
   }
 
+  openDead(stage: StageStatus): void {
+    this.deadStage.set(stage.name);
+  }
+
+  closeDead(): void {
+    this.deadStage.set(null);
+  }
+
   onConfigSaved(name: string, config: WorkerConfig): void {
     this.configs.update((cur) => ({ ...cur, [name]: config }));
     this.dialogStage.set(null);
@@ -139,6 +152,13 @@ export class WorkersComponent implements OnInit, OnDestroy {
   /** Signal accessor for the stage currently open in the dialog. */
   readonly activeDialogStage = computed<StageStatus | null>(() => {
     const name = this.dialogStage();
+    if (!name) return null;
+    return this.stages().find((s) => s.name === name) ?? null;
+  });
+
+  /** Signal accessor for the stage currently open in the dead-letter dialog. */
+  readonly activeDeadStage = computed<StageStatus | null>(() => {
+    const name = this.deadStage();
     if (!name) return null;
     return this.stages().find((s) => s.name === name) ?? null;
   });
