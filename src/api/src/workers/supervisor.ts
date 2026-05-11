@@ -494,10 +494,14 @@ export function setSupervisorSingleton(sup: Supervisor): void {
  */
 export async function startSupervisor(opts: StartSupervisorOptions): Promise<SupervisorHandle> {
   // If a singleton was pre-registered by buildApp, use it; don't create a
-  // second Supervisor (Issue 2 fix).
+  // second Supervisor (Issue 2 fix). buildApp registers an empty supervisor so
+  // that workerRoutes can capture the reference at app-build time — the stages
+  // list arrives here once Mongo is up, so we add them to the existing
+  // supervisor (addStage is idempotent).
   let sup: Supervisor;
   if (_singleton) {
     sup = _singleton;
+    for (const name of opts.stages) sup.addStage(name);
   } else {
     const { stages, ...supervisorOpts } = opts;
     sup = new Supervisor(stages, supervisorOpts);
