@@ -98,11 +98,23 @@ describe('WorkersComponent', () => {
     expect(descRow.querySelector('[data-testid="status"]')?.textContent?.trim()).toBe('Error');
   });
 
-  it('renders Workers column as inFlight/configured', () => {
+  it('renders Concurrency column as the configured value', () => {
     initWithMock();
 
     const row: HTMLElement = fixture.nativeElement.querySelectorAll('[data-testid="worker-row"]')[0];
-    expect(row.querySelector('[data-testid="workers"]')?.textContent?.trim()).toBe('3 / 4');
+    expect(row.querySelector('[data-testid="workers"]')?.textContent?.trim()).toBe('4');
+  });
+
+  it('clicking the dead count opens the dead-letter dialog', () => {
+    initWithMock();
+    const faceRow: HTMLElement = fixture.nativeElement.querySelectorAll('[data-testid="worker-row"]')[1];
+    const deadBtn = faceRow.querySelector<HTMLButtonElement>('[data-testid="dead-count"]');
+    expect(deadBtn).toBeTruthy();
+    deadBtn?.click();
+    fixture.detectChanges();
+    // The dialog's ngOnInit fires a GET request — flush it so HttpTestingController.verify() doesn't complain.
+    http.expectOne('/api/workers/face/dead?limit=50').flush({ items: [] });
+    expect(component.deadStage()).toBe('face');
   });
 
   it('renders In flight as inFlight/batchSize', () => {
