@@ -11,6 +11,7 @@ import * as path from "node:path";
 import type { OpResult } from "./root.ts";
 import { assetsCollection, foldersCollection } from "../db/client.ts";
 import type { AssetExif } from "../db/schema.ts";
+import { SHARP_EXTENSIONS } from "../thumbs/render.ts";
 import { child as childLogger } from "../log.ts";
 
 const log = childLogger("fs/browse");
@@ -170,12 +171,22 @@ export async function listDir(
 
 // ---------------------------------------------------------------------------
 // listDirContents — used by GET /api/fs/dir to drive the tree-view that
-// shows folders + RAW images at each level.
+// shows folders + image files at each level.
 // ---------------------------------------------------------------------------
 
-/** RAW file extensions we expose to the browse tree (lowercase, no dot). */
+/** RAW file extensions handled by the libraw FFI pipeline (lowercase, no dot).
+ * Used by `/api/fs/raw` (byte stream into WASM decode) and the thumb endpoint
+ * to choose between the libraw FFI and the sharp/heic-convert path. */
 export const RAW_EXTENSIONS = new Set<string>([
   "cr2", "cr3", "nef", "arw", "dng", "raf", "orf", "rw2", "pef", "srw",
+]);
+
+/** All image extensions surfaced by the directory listing. Union of RAWs
+ * (decoded via FFI) and bitmap formats (decoded via sharp/heic-convert).
+ * Kept in sync with the thumb endpoint's extension gate. */
+const IMAGE_EXTENSIONS = new Set<string>([
+  ...RAW_EXTENSIONS,
+  ...SHARP_EXTENSIONS,
 ]);
 
 export interface DirChild {
@@ -204,10 +215,11 @@ export interface DirContents {
 }
 
 /**
- * List a single directory level: subdirectories + RAW image files.
+ * List a single directory level: subdirectories + image files.
  *
  * - Hides dotfiles/dotdirs (including the `.maple/` cache dir).
- * - Filters images to RAW_EXTENSIONS (case-insensitive).
+ * - Filters images to IMAGE_EXTENSIONS — RAWs + the bitmap formats the thumb
+ *   endpoint can render (case-insensitive).
  * - Enforces the same MAPLE_ROOTS jail as `listDir`, including a per-child
  *   realpath re-check so a symlink swap can't escape the jail.
  * - Does NOT recurse.
@@ -279,7 +291,7 @@ export async function listDirContents(
       const dot = name.lastIndexOf(".");
       if (dot < 0) continue;
       const ext = name.slice(dot + 1).toLowerCase();
-      if (!RAW_EXTENSIONS.has(ext)) continue;
+      if (!IMAGE_EXTENSIONS.has(ext)) continue;
       images.push({
         name,
         path: childReal,
