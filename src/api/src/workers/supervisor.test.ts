@@ -88,6 +88,61 @@ await new Promise(() => {}); // keep alive
   }, 8_000);
 });
 
+describe("Supervisor — refreshLiveStatus", () => {
+  let sup: Supervisor;
+
+  afterEach(async () => {
+    await sup?.stopAll();
+  });
+
+  it("refreshes inFlight + throughput from a running child's IPC /status", async () => {
+    // Script emulates a long-lived stage child: starts an IPC server, prints
+    // the port (the supervisor's __MAPLE_IPC_PORT__ contract), then idles.
+    // /status returns inFlight=3, throughput=42 — non-zero so we can prove
+    // the refresh wrote the response into m.state.
+    const script = await writeTmpScript(`
+const server = Bun.serve({
+  port: 0,
+  hostname: "127.0.0.1",
+  fetch(req) {
+    if (new URL(req.url).pathname === "/status") {
+      return Response.json({ status: "running", inFlight: 3, throughput: 42, targetVersion: 7 });
+    }
+    return new Response("not found", { status: 404 });
+  },
+});
+process.stdout.write(\`__MAPLE_IPC_PORT__=\${server.port}\\n\`);
+await new Promise(() => {}); // keep alive
+`);
+    sup = new Supervisor([], { _stageScriptOverrides: { live: script }, readyTimeoutMs: 5000 });
+    sup.addStage("live");
+
+    // Wait until the supervisor parses the IPC port from stdout.
+    await new Promise<void>((resolve, reject) => {
+      const t = setTimeout(() => reject(new Error("timeout waiting for running")), 6000);
+      const check = setInterval(() => {
+        if (sup.statuses().live?.status === "running") {
+          clearInterval(check);
+          clearTimeout(t);
+          resolve();
+        }
+      }, 50);
+    });
+
+    // Force the supervisor's cached values to known-stale before the refresh
+    // so we can detect that refreshLiveStatus actually wrote new data.
+    const before = sup.statuses().live!;
+    expect(before.status).toBe("running");
+
+    await sup.refreshLiveStatus();
+
+    const after = sup.statuses().live!;
+    expect(after.inFlight).toBe(3);
+    expect(after.throughput).toBe(42);
+    expect(after.targetVersion).toBe(7);
+  }, 10_000);
+});
+
 describe("Supervisor — pause/resume IPC", () => {
   it("returns error for unknown stage", async () => {
     const sup = new Supervisor([]);

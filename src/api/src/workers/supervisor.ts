@@ -286,6 +286,53 @@ export class Supervisor {
     };
   }
 
+  /**
+   * Re-poll every running child's IPC /status endpoint and refresh
+   * `state.inFlight`, `state.throughput`, and `state.targetVersion`.
+   *
+   * `waitReady` only populates these values once at child startup, so the
+   * /api/workers/status route would otherwise return stale numbers forever.
+   * The route calls this before reading `statuses()` so the UI gets live
+   * data on every poll.
+   *
+   * Best-effort: a per-stage IPC timeout (300ms) caps total latency, and a
+   * failed IPC poll is silently ignored — the previous cached values stay.
+   */
+  async refreshLiveStatus(): Promise<void> {
+    await Promise.all(
+      [...this.stages.entries()].map(async ([_name, m]) => {
+        const port = m.child?.ipcPort;
+        if (!port) return;
+        try {
+          const res = await fetch(`http://127.0.0.1:${port}/status`, {
+            signal: AbortSignal.timeout(300),
+          });
+          if (!res.ok) return;
+          const body = (await res.json()) as {
+            inFlight?: number;
+            throughput?: number;
+            targetVersion?: number;
+          };
+          m.state = {
+            ...m.state,
+            inFlight:
+              typeof body.inFlight === "number" ? body.inFlight : m.state.inFlight,
+            throughput:
+              typeof body.throughput === "number"
+                ? body.throughput
+                : m.state.throughput,
+            targetVersion:
+              typeof body.targetVersion === "number"
+                ? body.targetVersion
+                : m.state.targetVersion,
+          };
+        } catch {
+          /* keep previous cached values */
+        }
+      }),
+    );
+  }
+
   /** Parse ready / IPC-port signals from child stdout lines. */
   private handleReadySignal(name: string, line: string): void {
     // IPC port signal emitted by the child's runStage after IpcServer.start()

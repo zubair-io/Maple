@@ -214,6 +214,30 @@ describe("bootConfig", () => {
     expect(cfg.concurrency).toBe(8);
     expect(cfg.paused).toBe(true);
   });
+
+  it("backfills missing integer fields from defaults on partial docs", async () => {
+    // Reproduces the production bug: a PATCH /api/workers/ocr/config landing
+    // before the child's first bootConfig writes a doc with $setOnInsert
+    // limited to `name`. The doc is missing the integer fields the poll
+    // loop needs. Without the merge, the next limit() call throws
+    // `Operation "limit" requires an integer` on every tick.
+    const coll = makeConfigMock();
+    await (coll as unknown as { updateOne: Function }).updateOne(
+      { name: "hash" },
+      { $set: { paused: false }, $setOnInsert: { name: "hash" } },
+      { upsert: true },
+    );
+
+    const cfg = await bootConfig(baseStage, coll);
+
+    expect(Number.isInteger(cfg.concurrency)).toBe(true);
+    expect(Number.isInteger(cfg.pollIntervalMs)).toBe(true);
+    expect(Number.isInteger(cfg.batchSize)).toBe(true);
+    expect(Number.isInteger(cfg.maxAttempts)).toBe(true);
+    expect(Number.isInteger(cfg.last_seen_target_version)).toBe(true);
+    expect(cfg.batchSize).toBe(baseStage.defaults.batchSize);
+    expect(cfg.paused).toBe(false); // preserved from the partial doc
+  });
 });
 
 describe("versionBumpReset", () => {
