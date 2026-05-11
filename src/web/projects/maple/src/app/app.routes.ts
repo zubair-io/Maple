@@ -3,7 +3,7 @@ import { BrowseShellComponent, EditorShellComponent } from '@maple-common';
 // authGuard is not yet exported from @maple-common's public-api (see Task C6);
 // imported via deep relative path in the meantime so this task can land
 // independently of C6.
-import { authGuard, ownerGuard } from '../../../maple-common/src/lib/auth/auth.guard';
+import { authGuard } from '../../../maple-common/src/lib/auth/auth.guard';
 
 // Self-Hosted: the server already hosts the library, so the root path goes
 // straight to /browse. No landing page. All content routes are gated behind
@@ -39,13 +39,13 @@ export const routes: Routes = [
   },
   {
     path: 'settings/users',
-    canActivate: [authGuard, ownerGuard],
+    canActivate: [authGuard],
     loadComponent: () =>
       import('./settings/users/users.component').then((m) => m.UsersComponent),
   },
   {
     path: 'settings/enrichment',
-    canActivate: [authGuard, ownerGuard],
+    canActivate: [authGuard],
     loadComponent: () =>
       import('./settings/enrichment/enrichment.component').then(
         (m) => m.EnrichmentComponent,
@@ -53,7 +53,7 @@ export const routes: Routes = [
   },
   {
     path: 'settings/workers',
-    canActivate: [authGuard, ownerGuard],
+    canActivate: [authGuard],
     loadComponent: () =>
       import('./settings/workers/workers.component').then((m) => m.WorkersComponent),
   },
@@ -67,13 +67,13 @@ export const routes: Routes = [
   // The `:id` variant deep-links into the detail panel.
   {
     path: 'people',
-    canActivate: [authGuard, ownerGuard],
+    canActivate: [authGuard],
     loadComponent: () =>
       import('./people/people.component').then((m) => m.PeopleComponent),
   },
   {
     path: 'people/:id',
-    canActivate: [authGuard, ownerGuard],
+    canActivate: [authGuard],
     loadComponent: () =>
       import('./people/people.component').then((m) => m.PeopleComponent),
   },
