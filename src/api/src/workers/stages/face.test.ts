@@ -6,11 +6,18 @@ import { ObjectId } from "mongodb";
 import type { ImageDoc, StageContext } from "../runtime/define-stage.ts";
 import type { AssetFaceDoc } from "../../db/schema.ts";
 import type { DetectedFace, FaceDetector } from "../../enrichment/face-detector.ts";
-import { setDefaultFaceDetectorForTests } from "../../enrichment/face-detector.ts";
+import {
+  setDefaultFaceDetectorForTests,
+  ThumbDecodeError,
+} from "../../enrichment/face-detector.ts";
 import { cachePathFor } from "../../fs/xmp.ts";
 
 // Import after module is created.
-import { faceHandler, THUMB_MISSING_REASON } from "./face.ts";
+import {
+  faceHandler,
+  THUMB_MISSING_REASON,
+  THUMB_UNDECODABLE_REASON,
+} from "./face.ts";
 
 const noopCtx: StageContext = {
   log: { info() {}, warn() {}, error() {}, debug() {}, trace() {}, fatal() {}, child: () => noopCtx.log } as never,
@@ -130,6 +137,52 @@ describe("faceHandler — thumb missing", () => {
       const result = await faceHandler(doc, noopCtx);
       expect(result).toHaveProperty("skip");
       expect((result as { skip: string }).skip).toContain(THUMB_MISSING_REASON);
+    } finally { teardown(); }
+  });
+});
+
+describe("faceHandler — thumb undecodable", () => {
+  it("returns { skip } with THUMB_UNDECODABLE_REASON when detector throws ThumbDecodeError", async () => {
+    const root = setup();
+    try {
+      const absPath = join(root, "corrupt.jpg");
+      const thumbPath = cachePathFor(absPath, "thumbs");
+      mkdirSync(dirname(thumbPath), { recursive: true });
+      writeFileSync(thumbPath, "garbage-bytes");
+      const doc = fakeDoc({ abs_path: absPath });
+      const detector: FaceDetector = {
+        detectFaces: async () => {
+          throw new ThumbDecodeError("VipsJpeg: Invalid SOS parameters for sequential JPEG");
+        },
+        embedFace: async () => new Float32Array(),
+      };
+      setDefaultFaceDetectorForTests(detector);
+      const result = await faceHandler(doc, noopCtx);
+      expect(result).toHaveProperty("skip");
+      const skip = (result as { skip: string }).skip;
+      expect(skip).toContain(THUMB_UNDECODABLE_REASON);
+      expect(skip).toContain("VipsJpeg");
+    } finally { teardown(); }
+  });
+
+  it("returns { skip } when embedFace throws ThumbDecodeError (post-detection)", async () => {
+    const root = setup();
+    try {
+      const absPath = join(root, "corrupt2.jpg");
+      const thumbPath = cachePathFor(absPath, "thumbs");
+      mkdirSync(dirname(thumbPath), { recursive: true });
+      writeFileSync(thumbPath, "garbage-bytes");
+      const doc = fakeDoc({ abs_path: absPath });
+      const detector: FaceDetector = {
+        detectFaces: async () => [fakeDetection()],
+        embedFace: async () => {
+          throw new ThumbDecodeError("VipsJpeg: late decode failure");
+        },
+      };
+      setDefaultFaceDetectorForTests(detector);
+      const result = await faceHandler(doc, noopCtx);
+      expect(result).toHaveProperty("skip");
+      expect((result as { skip: string }).skip).toContain(THUMB_UNDECODABLE_REASON);
     } finally { teardown(); }
   });
 });
