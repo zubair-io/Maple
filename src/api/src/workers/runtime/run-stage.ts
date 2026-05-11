@@ -186,7 +186,9 @@ export async function runOnce(
   config: WorkerConfig,
   images: Collection<ImageDoc>,
   _configColl: Collection<WorkerConfigDoc>,
-  resolvedDeps: Array<{ name: string; minVersion: number }> = stage.dependsOn.map((n) => ({ name: n, minVersion: 1 })),
+  resolvedDeps: Array<{ name: string; minVersion: number }> = stage.dependsOn.map((d) =>
+    typeof d === "string" ? { name: d, minVersion: 1 } : d,
+  ),
   signal?: AbortSignal,
   inFlightSet?: Set<string>,
   throughput?: ThroughputWindow,

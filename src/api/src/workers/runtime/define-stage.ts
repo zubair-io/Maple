@@ -81,6 +81,16 @@ export interface StageContext {
 // StageConfig — the full config + handler object a stage file exports.
 // ---------------------------------------------------------------------------
 
+/**
+ * A dependency entry in `StageConfig.dependsOn`.
+ *
+ * Bare string `"exif"` is shorthand for `{ name: "exif", minVersion: 1 }` —
+ * the dep just needs to have run at least once. Use the object form when a
+ * stage depends on a specific dep version (e.g. geocode requires exif v2 so
+ * it never reads pre-fix western-hemisphere coords).
+ */
+export type StageDep = string | { name: string; minVersion: number };
+
 export interface StageConfig<TPatch = Record<string, unknown>> {
   name: string;
   /**
@@ -90,11 +100,13 @@ export interface StageConfig<TPatch = Record<string, unknown>> {
    */
   targetVersion: number;
   /**
-   * Stages whose version must be >= 1 before this stage's claim query
-   * matches a doc. Expressed as field-level predicates in the claim query:
-   * { "stages.<dep>.version": { $gte: 1 } }
+   * Stages whose version must reach a minimum before this stage's claim
+   * query matches a doc. Expressed as field-level predicates in the claim
+   * query: { "stages.<dep>.version": { $gte: minVersion } }
+   *
+   * String entries default to minVersion: 1 (dep just needs to have run).
    */
-  dependsOn: string[];
+  dependsOn: StageDep[];
   defaults: WorkerConfig & {
     /**
      * When worker_config[name] does not yet exist, write this as the initial

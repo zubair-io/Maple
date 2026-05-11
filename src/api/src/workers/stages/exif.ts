@@ -30,7 +30,9 @@ async function readHead(absPath: string): Promise<Uint8Array> {
 
 export default defineStage({
   name: "exif",
-  targetVersion: 1,
+  // v2: GPS hemisphere refs added to the exifr pick list — earlier indexes
+  // wrote western-hemisphere longitudes as positive. Bumping forces re-extract.
+  targetVersion: 2,
   dependsOn: ["hash"],
   defaults: {
     concurrency: 4,
