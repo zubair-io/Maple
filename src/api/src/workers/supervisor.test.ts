@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { Supervisor } from "./supervisor.ts";
+import {
+  Supervisor,
+  setSupervisorSingleton,
+  startSupervisor,
+  stopSupervisor,
+  supervisorState,
+} from "./supervisor.ts";
 
 // Helper: write a tiny Bun script to a temp file, return the path.
 async function writeTmpScript(body: string): Promise<string> {
@@ -96,4 +102,39 @@ describe("Supervisor — notifyConfigChanged", () => {
     const result = await sup.notifyConfigChanged("nonexistent");
     expect(result.ok).toBe(false);
   });
+});
+
+describe("startSupervisor — singleton reuse", () => {
+  afterEach(async () => {
+    await stopSupervisor();
+  });
+
+  it("adds stages to a pre-registered empty singleton (buildApp boot path)", async () => {
+    // Mimic index.ts: buildApp() constructs an empty Supervisor and registers
+    // it as the singleton before Mongo connects. The deferred startSupervisor
+    // call carries the real stage list and must populate the existing
+    // supervisor instead of silently discarding it.
+    const empty = new Supervisor([]);
+    setSupervisorSingleton(empty);
+    expect(supervisorState()).toEqual({});
+
+    // Use a stage script that immediately exits — we only care that addStage
+    // was invoked, not that the child reaches "running". The crash backoff
+    // keeps `restarting`/`error` set rather than the stage disappearing.
+    const { mkdtemp, writeFile } = await import("node:fs/promises");
+    const { join } = await import("node:path");
+    const os = await import("node:os");
+    const dir = await mkdtemp(join(os.tmpdir(), "maple-sup-singleton-"));
+    const script = join(dir, "stage.ts");
+    await writeFile(script, `process.exit(1);\n`);
+
+    await startSupervisor({
+      stages: ["alpha", "beta"],
+      _stageScriptOverrides: { alpha: script, beta: script },
+      _backoffMsOverride: [60_000],
+    });
+
+    const names = Object.keys(supervisorState()).sort();
+    expect(names).toEqual(["alpha", "beta"]);
+  }, 10_000);
 });
