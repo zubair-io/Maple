@@ -130,10 +130,11 @@ export async function runOnlineClustering(
       assigned += 1;
       continue;
     }
-    // No good match — spawn a new auto-named person.
+    // No good match — spawn a new auto-named person seeded with this
+    // face as the cover thumb.
     nextAutoIndex += 1;
     const name = `Person ${nextAutoIndex}`;
-    const created = await createAutoPerson(name, face.embedding);
+    const created = await createAutoPerson(name, face.embedding, face.asset_id);
     centroids.push({
       person_id: created,
       centroid: l2Normalise(face.embedding),
@@ -158,6 +159,11 @@ export async function runOnlineClustering(
 
   // Persist refreshed centroids so subsequent runs converge.
   await persistCentroids(centroids);
+
+  // Backfill cover thumbs for any live person without one. Covers may be
+  // missing on rows created before cover-seeding landed, or on people
+  // created manually via `POST /api/people` ahead of any face assignment.
+  await backfillCoverFaces();
 
   log.info(
     { assigned, newPeople, scanned: faces.length, threshold },
@@ -308,6 +314,7 @@ async function maxAutoNameIndex(): Promise<number> {
 async function createAutoPerson(
   name: string,
   embedding: Float32Array,
+  coverAssetId: ObjectId,
 ): Promise<ObjectId> {
   const peopleC = await peopleCollection();
   const doc: PersonDoc = {
@@ -317,9 +324,104 @@ async function createAutoPerson(
     merged_into: null,
     centroid: Array.from(l2Normalise(embedding)),
     centroid_face_count: 1,
+    cover_asset_id: coverAssetId.toHexString(),
   };
   const result = await peopleC.insertOne(doc as PersonDoc);
   return result.insertedId;
+}
+
+/**
+ * Set `cover_asset_id` on every live person that is missing one (no field,
+ * `null`, or only the legacy `cover_face_id`) by picking each person's
+ * highest-confidence assigned face. Idempotent.
+ *
+ * Single aggregation against `assets` groups by `person_id` and reports
+ * the asset id whose face has the highest detector confidence; results
+ * are applied via one bulkWrite. This replaces an earlier per-person
+ * `findOne` + `updateOne` loop that ran in O(N) round-trips.
+ *
+ * Also `$unset`s the legacy `cover_face_id` field on the same write so
+ * docs migrate forward without a separate migration step.
+ */
+async function backfillCoverFaces(): Promise<void> {
+  const peopleC = await peopleCollection();
+  const assets = await assetsCollection();
+
+  const missing = await peopleC
+    .find(
+      {
+        merged_into: null,
+        $or: [
+          { cover_asset_id: { $exists: false } },
+          { cover_asset_id: null },
+        ],
+      } as Filter<PersonDoc>,
+      { projection: { _id: 1 } },
+    )
+    .toArray();
+  if (missing.length === 0) return;
+
+  const missingHexIds = missing.map((p) => p._id.toHexString());
+
+  // One aggregation produces `(person_hex → best_asset_id)` for every
+  // person in `missingHexIds`. $sort + $group/$first picks the highest-
+  // confidence face per person; ties break by Mongo's insertion order on
+  // the unwound rows, which is deterministic enough for "any reasonable
+  // face."
+  const cursor = assets.aggregate<{ _id: string; best_asset_id: ObjectId }>([
+    { $match: { faces: { $exists: true, $ne: [] } } },
+    { $unwind: "$faces" },
+    { $match: { "faces.person_id": { $in: missingHexIds } } },
+    {
+      $project: {
+        _id: 1,
+        person_id: "$faces.person_id",
+        confidence: "$faces.confidence",
+      },
+    },
+    { $sort: { confidence: -1 } },
+    {
+      $group: {
+        _id: "$person_id",
+        best_asset_id: { $first: "$_id" },
+      },
+    },
+  ]);
+
+  const updates: Array<{
+    updateOne: {
+      filter: Filter<PersonDoc>;
+      update: {
+        $set: { cover_asset_id: string; updated_at: string };
+        $unset: { cover_face_id: "" };
+      };
+    };
+  }> = [];
+  const now = new Date().toISOString();
+  for await (const row of cursor) {
+    let personId: ObjectId;
+    try {
+      personId = new ObjectId(row._id);
+    } catch {
+      continue;
+    }
+    updates.push({
+      updateOne: {
+        filter: { _id: personId } as Filter<PersonDoc>,
+        update: {
+          $set: {
+            cover_asset_id: row.best_asset_id.toHexString(),
+            updated_at: now,
+          },
+          // Drop the legacy field so old + new docs converge on one shape.
+          $unset: { cover_face_id: "" },
+        },
+      },
+    });
+  }
+  if (updates.length > 0) {
+    await peopleC.bulkWrite(updates);
+  }
 }
 
 async function persistCentroids(centroids: CentroidEntry[]): Promise<void> {

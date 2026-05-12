@@ -60,7 +60,7 @@ export const peopleRoutes = new Elysia({ prefix: "/api/people" })
       id: r.person._id.toHexString(),
       name: r.person.name,
       face_count: r.faceCount,
-      cover_face_id: r.person.cover_face_id ?? null,
+      cover_asset_id: r.person.cover_asset_id ?? null,
       created_at: r.person.created_at,
       updated_at: r.person.updated_at,
     }));
@@ -83,7 +83,7 @@ export const peopleRoutes = new Elysia({ prefix: "/api/people" })
       name: detail.person.name,
       created_at: detail.person.created_at,
       updated_at: detail.person.updated_at,
-      cover_face_id: detail.person.cover_face_id ?? null,
+      cover_asset_id: detail.person.cover_asset_id ?? null,
       faces: detail.faces.map((f) => ({
         asset_id: f.asset_id,
         face_index: f.face_index,

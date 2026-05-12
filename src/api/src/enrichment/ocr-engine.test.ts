@@ -13,8 +13,18 @@
 import { describe, it, expect } from "bun:test";
 import { createOcrEngine, OCR_ENGINE_VERSION } from "./ocr-engine.ts";
 
+interface FakeWordRaw {
+  text?: string;
+  confidence?: number;
+  bbox?: { x0: number; y0: number; x1: number; y1: number };
+}
+interface FakeRecognizeData {
+  text: string;
+  confidence?: number;
+  words?: FakeWordRaw[];
+}
 interface FakeWorker {
-  recognize(image: unknown): Promise<{ data: { text: string } }>;
+  recognize(image: unknown): Promise<{ data: FakeRecognizeData }>;
   terminate(): Promise<unknown>;
 }
 interface FakeScheduler {
@@ -22,13 +32,19 @@ interface FakeScheduler {
   addJob(
     action: "recognize",
     image: unknown,
-  ): Promise<{ data: { text: string } }>;
+  ): Promise<{ data: FakeRecognizeData }>;
   terminate(): Promise<unknown>;
 }
 
+interface FakeResponse {
+  text: string;
+  confidence?: number;
+  words?: FakeWordRaw[];
+}
+
 function fakeTesseract(opts: {
-  /** Map of input bytes (stringified) → text the worker returns. */
-  responses?: Map<string, string>;
+  /** Map of input bytes (stringified) → response the worker returns. */
+  responses?: Map<string, FakeResponse>;
   /** Track lifecycle calls. */
   events?: string[];
 } = {}) {
@@ -43,7 +59,7 @@ function fakeTesseract(opts: {
           events.push("addWorker");
           return "fake-id";
         },
-        async addJob(action, image): Promise<{ data: { text: string } }> {
+        async addJob(action, image): Promise<{ data: FakeRecognizeData }> {
           if (action !== "recognize") {
             throw new Error(`unexpected action: ${action}`);
           }
@@ -60,11 +76,32 @@ function fakeTesseract(opts: {
     async createWorker(langs: string | string[]): Promise<FakeWorker> {
       events.push(`createWorker:${Array.isArray(langs) ? langs.join("+") : langs}`);
       return {
-        async recognize(image): Promise<{ data: { text: string } }> {
+        async recognize(image): Promise<{ data: FakeRecognizeData }> {
           // The "image" arg is the bytes we passed in.
           const key = String(image);
-          const text = opts.responses?.get(key) ?? "fake recognised text";
-          return { data: { text } };
+          const resp = opts.responses?.get(key);
+          if (resp) {
+            return {
+              data: {
+                text: resp.text,
+                confidence: resp.confidence,
+                words: resp.words,
+              },
+            };
+          }
+          return {
+            data: {
+              text: "fake recognised text",
+              confidence: 88,
+              words: [
+                {
+                  text: "fake",
+                  confidence: 90,
+                  bbox: { x0: 0, y0: 0, x1: 30, y1: 10 },
+                },
+              ],
+            },
+          };
         },
         async terminate() {
           events.push("terminateWorker");
@@ -89,6 +126,13 @@ describe("createOcrEngine — lazy init + result shape", () => {
     expect(r.engine).toBe("tesseract");
     expect(r.engine_version).toBe(OCR_ENGINE_VERSION);
     expect(r.text).toBe("fake recognised text");
+    expect(r.mean_confidence).toBe(88);
+    expect(r.words).toHaveLength(1);
+    expect(r.words[0]).toEqual({
+      text: "fake",
+      confidence: 90,
+      bbox: { x: 0, y: 0, w: 30, h: 10 },
+    });
 
     expect(events.length).toBeGreaterThan(0);
     expect(events).toContain("createScheduler");
@@ -99,8 +143,12 @@ describe("createOcrEngine — lazy init + result shape", () => {
 
   it("returns the worker's text trimmed and CRLF-normalised", async () => {
     const inputBytes = new Uint8Array([0, 1, 2]);
-    const responses = new Map<string, string>();
-    responses.set(String(inputBytes), "Welcome to Maple\r\n  ");
+    const responses = new Map<string, FakeResponse>();
+    responses.set(String(inputBytes), {
+      text: "Welcome to Maple\r\n  ",
+      confidence: 80,
+      words: [],
+    });
     const engine = createOcrEngine({
       languages: "eng",
       idleTeardownMs: 60_000,
@@ -111,6 +159,66 @@ describe("createOcrEngine — lazy init + result shape", () => {
     });
     const r = await engine.recognizeText(inputBytes);
     expect(r.text).toBe("Welcome to Maple");
+    await engine.shutdown();
+  });
+
+  it("falls back to per-word mean when engine confidence is missing", async () => {
+    const inputBytes = new Uint8Array([7, 8, 9]);
+    const responses = new Map<string, FakeResponse>();
+    responses.set(String(inputBytes), {
+      text: "two words",
+      words: [
+        { text: "two", confidence: 70, bbox: { x0: 0, y0: 0, x1: 10, y1: 10 } },
+        { text: "words", confidence: 30, bbox: { x0: 12, y0: 0, x1: 50, y1: 10 } },
+      ],
+      // No top-level confidence — engine omitted it.
+    });
+    const engine = createOcrEngine({
+      languages: "eng",
+      idleTeardownMs: 60_000,
+      loadTesseract: async () => fakeTesseract({ responses }),
+    });
+    const r = await engine.recognizeText(inputBytes);
+    expect(r.mean_confidence).toBe(50); // (70 + 30) / 2
+    expect(r.words.map((w) => w.text)).toEqual(["two", "words"]);
+    await engine.shutdown();
+  });
+
+  it("returns null mean_confidence when the engine produces no words", async () => {
+    const inputBytes = new Uint8Array([42]);
+    const responses = new Map<string, FakeResponse>();
+    responses.set(String(inputBytes), { text: "", words: [] });
+    const engine = createOcrEngine({
+      languages: "eng",
+      idleTeardownMs: 60_000,
+      loadTesseract: async () => fakeTesseract({ responses }),
+    });
+    const r = await engine.recognizeText(inputBytes);
+    expect(r.mean_confidence).toBeNull();
+    expect(r.words).toEqual([]);
+    await engine.shutdown();
+  });
+
+  it("drops words with blank text but keeps a zero bbox when the engine omits one", async () => {
+    const inputBytes = new Uint8Array([10]);
+    const responses = new Map<string, FakeResponse>();
+    responses.set(String(inputBytes), {
+      text: "kept",
+      confidence: 75,
+      words: [
+        { text: "  ", confidence: 99 }, // blank — dropped
+        { text: "kept", confidence: 75 }, // no bbox — zero bbox
+      ],
+    });
+    const engine = createOcrEngine({
+      languages: "eng",
+      idleTeardownMs: 60_000,
+      loadTesseract: async () => fakeTesseract({ responses }),
+    });
+    const r = await engine.recognizeText(inputBytes);
+    expect(r.words).toEqual([
+      { text: "kept", confidence: 75, bbox: { x: 0, y: 0, w: 0, h: 0 } },
+    ]);
     await engine.shutdown();
   });
 

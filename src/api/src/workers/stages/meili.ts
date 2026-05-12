@@ -66,7 +66,11 @@ export async function meiliHandler(
 
 export default defineStage({
   name: "meili",
-  targetVersion: 1,
+  // v2: ocr v2 introduces a mean-confidence gate that blanks `ocr_text` on
+  // textureless photos. Without bumping meili too, the search index keeps
+  // the pre-gate (poisoned) text for rows already meili'd at v1. Bumping
+  // here forces a re-index against the cleaned ocr_text.
+  targetVersion: 2,
   // Only depends on always-on stages. When optional stages (face/ocr/describe/geocode)
   // run later, meili won't automatically re-process to incorporate their outputs.
   // Operator must bump meili.targetVersion or trigger a manual reset to refresh.

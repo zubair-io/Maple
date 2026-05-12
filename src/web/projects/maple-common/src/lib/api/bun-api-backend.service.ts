@@ -46,6 +46,15 @@ export interface ApiAssetPage {
 // Mirror the Mongo schema (`src/api/src/db/schema.ts`). Snake_case fields
 // because the API ships the documents as-is for fidelity.
 
+/** Axis-aligned bounding box. Pixel coordinates relative to whichever
+ * image produced the box (face detector → source image; OCR → thumb). */
+export interface Bbox {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
 export interface ApiPlaceAddress {
   house_number?: string;
   road?: string;
@@ -88,7 +97,7 @@ export interface ApiPlace {
 }
 
 export interface ApiAssetFace {
-  bbox: { x: number; y: number; w: number; h: number };
+  bbox: Bbox;
   person_id: string | null;
   confidence: number;
 }
@@ -116,6 +125,9 @@ export interface ApiOcrMeta {
   engine: string;
   engine_version: string;
   generated_at: string;
+  /** Overall mean confidence reported by the engine, 0–100. `null` for
+   * legacy rows written before per-word capture landed. */
+  mean_confidence?: number | null;
 }
 
 export interface ApiDescriptionMeta {
@@ -359,7 +371,7 @@ export class BunApiBackendService {
           id: r.id,
           name: r.name,
           faceCount: r.face_count,
-          coverFaceId: r.cover_face_id ?? null,
+          coverAssetId: r.cover_asset_id ?? null,
           createdAt: r.created_at,
           updatedAt: r.updated_at,
         })),
@@ -372,7 +384,7 @@ export class BunApiBackendService {
       map((r) => ({
         id: r.id,
         name: r.name,
-        coverFaceId: r.cover_face_id ?? null,
+        coverAssetId: r.cover_asset_id ?? null,
         createdAt: r.created_at,
         updatedAt: r.updated_at,
         faces: r.faces.map((f) => ({
@@ -518,7 +530,7 @@ export interface ApiPerson {
   id: string;
   name: string;
   faceCount: number;
-  coverFaceId: string | null;
+  coverAssetId: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -527,7 +539,7 @@ export interface ApiPerson {
 export interface ApiPersonDetail {
   id: string;
   name: string;
-  coverFaceId: string | null;
+  coverAssetId: string | null;
   createdAt: string;
   updatedAt: string;
   faces: ApiPersonFace[];
@@ -537,7 +549,7 @@ export interface ApiPersonFace {
   assetId: string;
   faceIndex: number;
   absPath: string;
-  bbox: { x: number; y: number; w: number; h: number };
+  bbox: Bbox;
   confidence: number;
 }
 
@@ -566,7 +578,7 @@ interface ApiPersonRaw {
   id: string;
   name: string;
   face_count: number;
-  cover_face_id?: string | null;
+  cover_asset_id?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -574,14 +586,14 @@ interface ApiPersonRaw {
 interface ApiPersonDetailRaw {
   id: string;
   name: string;
-  cover_face_id?: string | null;
+  cover_asset_id?: string | null;
   created_at: string;
   updated_at: string;
   faces: Array<{
     asset_id: string;
     face_index: number;
     abs_path: string;
-    bbox: { x: number; y: number; w: number; h: number };
+    bbox: Bbox;
     confidence: number;
   }>;
 }
