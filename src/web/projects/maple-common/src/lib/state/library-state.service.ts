@@ -767,6 +767,11 @@ export class LibraryStateService {
     const newAssets: Asset[] = listing.images.map((img: FsImageEntry) => {
       const id: AssetId = `fs:${img.path}`;
       this._assetAbsPaths.set(id, img.path);
+      // Register the Mongo asset id so `apiIdFor(id)` resolves, which is what
+      // the detail-panel's `getAssetDetails` call needs to fetch place /
+      // faces / description / ocr. Absent on un-indexed files — the detail
+      // fetch then no-ops and the enrichment sections stay hidden.
+      if (img.id) this._apiAssetIds.set(id, img.id);
       const meta = exifToAssetMetadata(img.exif);
       return {
         id,
