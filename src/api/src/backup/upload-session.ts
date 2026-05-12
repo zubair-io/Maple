@@ -84,6 +84,16 @@ export const uploadSessions = {
     return coll.findOne({ _id: id });
   },
 
+  /** Reset received_bytes to 0 when disk and DB are out of sync (e.g. tmp file
+   * was deleted). The client must restart from offset 0. */
+  async resetForRestart(sessionId: ObjectId): Promise<void> {
+    const coll = await uploadSessionsCollection();
+    await coll.updateOne(
+      { _id: sessionId },
+      { $set: { received_bytes: 0, updated_at: new Date() } },
+    );
+  },
+
   /** Mark "open" sessions whose updated_at is older than `cutoff` as abandoned.
    * Returns the number of rows updated. Called by a periodic job / startup. */
   async gcAbandoned(cutoff: Date): Promise<number> {

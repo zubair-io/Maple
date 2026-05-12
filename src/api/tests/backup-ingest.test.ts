@@ -179,6 +179,68 @@ describe("POST /api/libraries/:id/backup/ingest", () => {
     expect(deviceIds).toContain(deviceB);
   });
 
+  test("Content-Range end < start → 400", async () => {
+    const r = await app.handle(ingest(Buffer.alloc(8), {
+      "X-Maple-Device-Id": deviceId,
+      "X-Maple-Phasset-Id": "range-test-1",
+      "X-Maple-Capture-Date": "2024-03-15T10:30:00Z",
+      "X-Maple-Filename": "IMG_range.HEIC",
+      "X-Maple-Total-Bytes": "256",
+      "Content-Range": "bytes 5-3/256",  // end < start
+    }));
+    expect(r.status).toBe(400);
+  });
+
+  test("body shorter than Content-Range claims → 400", async () => {
+    const r = await app.handle(ingest(Buffer.alloc(8), {  // only 8 bytes
+      "X-Maple-Device-Id": deviceId,
+      "X-Maple-Phasset-Id": "range-test-2",
+      "X-Maple-Capture-Date": "2024-03-15T10:30:00Z",
+      "X-Maple-Filename": "IMG_range2.HEIC",
+      "X-Maple-Total-Bytes": "256",
+      "Content-Range": "bytes 0-127/256",  // claims 128 bytes
+    }));
+    expect(r.status).toBe(400);
+  });
+
+  test("tmp file deleted between chunks → 409 with expected_offset 0", async () => {
+    const phidTmp = "ABC/L0/TMP1";
+    const backupTmpDir = process.env.MAPLE_BACKUP_TMP ?? "/tmp/maple-backup-chunks";
+    const { uploadSessionsCollection } = await import("../src/db/client.ts");
+
+    // First chunk — establishes session
+    const r1 = await app.handle(ingest(Buffer.alloc(128, 9), {
+      "X-Maple-Device-Id": deviceId,
+      "X-Maple-Phasset-Id": phidTmp,
+      "X-Maple-Capture-Date": "2024-05-01T08:00:00Z",
+      "X-Maple-Filename": "IMG_tmp_test.HEIC",
+      "X-Maple-Total-Bytes": "256",
+      "Content-Range": "bytes 0-127/256",
+    }));
+    expect(r1.status).toBe(202);
+
+    // Find the session id and delete the .part file
+    const u = await uploadSessionsCollection();
+    const sess = await u.findOne({ device_id: deviceId, phasset_local_id: phidTmp });
+    expect(sess).toBeTruthy();
+    const partFile = `${backupTmpDir}/${sess!._id.toHexString()}.part`;
+    try { await import("node:fs/promises").then(f => f.unlink(partFile)); } catch { /* already gone */ }
+
+    // Second chunk — server should detect missing tmp file and return 409
+    const r2 = await app.handle(ingest(Buffer.alloc(128, 9), {
+      "X-Maple-Device-Id": deviceId,
+      "X-Maple-Phasset-Id": phidTmp,
+      "X-Maple-Capture-Date": "2024-05-01T08:00:00Z",
+      "X-Maple-Filename": "IMG_tmp_test.HEIC",
+      "X-Maple-Total-Bytes": "256",
+      "X-Maple-Maple-Id": "tmp-test-id",
+      "Content-Range": "bytes 128-255/256",
+    }));
+    expect(r2.status).toBe(409);
+    const b2 = await r2.json();
+    expect(b2.expected_offset).toBe(0);
+  });
+
   test("resume with different filename → 409 session metadata mismatch", async () => {
     const phidResume = "ABC/L0/099";
     // Open session with IMG_a.heic
