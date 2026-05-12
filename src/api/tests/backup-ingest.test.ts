@@ -111,6 +111,74 @@ describe("POST /api/libraries/:id/backup/ingest", () => {
     expect(r.status).toBe(400);
   });
 
+  test("409 when resume offset doesn't match server's received_bytes", async () => {
+    const phid3 = "ABC/L0/003";
+    const r1 = await app.handle(ingest(Buffer.alloc(128, 3), {
+      "X-Maple-Device-Id": deviceId,
+      "X-Maple-Phasset-Id": phid3,
+      "X-Maple-Capture-Date": "2024-03-15T10:30:00Z",
+      "X-Maple-Filename": "IMG_0422.HEIC",
+      "X-Maple-Total-Bytes": "256",
+      "Content-Range": "bytes 0-127/256",
+    }));
+    expect(r1.status).toBe(202);
+    const b1 = await r1.json();
+    expect(b1.next_offset).toBe(128);
+
+    const r2 = await app.handle(ingest(Buffer.alloc(128, 3), {
+      "X-Maple-Device-Id": deviceId,
+      "X-Maple-Phasset-Id": phid3,
+      "X-Maple-Capture-Date": "2024-03-15T10:30:00Z",
+      "X-Maple-Filename": "IMG_0422.HEIC",
+      "X-Maple-Total-Bytes": "256",
+      "Content-Range": "bytes 64-191/256", // wrong start — server expects 128
+    }));
+    expect(r2.status).toBe(409);
+    const b2 = await r2.json();
+    expect(b2.expected_offset).toBe(128);
+  });
+
+  test("second device with same maple_id → $push phasset_link, no new AssetDoc", async () => {
+    const sharedMapleId = "shared-id-dedup";
+    const deviceA = "device-A-dedup";
+    const deviceB = "device-B-dedup";
+    const phidA = "ABC/L0/010";
+    const phidB = "ABC/L0/011";
+
+    // Device A uploads a complete single-chunk asset.
+    const rA = await app.handle(ingest(Buffer.alloc(64, 5), {
+      "X-Maple-Device-Id": deviceA,
+      "X-Maple-Phasset-Id": phidA,
+      "X-Maple-Capture-Date": "2024-06-01T08:00:00Z",
+      "X-Maple-Filename": "IMG_SHARED.HEIC",
+      "X-Maple-Total-Bytes": "64",
+      "X-Maple-Maple-Id": sharedMapleId,
+      "Content-Range": "bytes 0-63/64",
+    }));
+    expect(rA.status).toBe(200);
+
+    // Device B uploads the same asset (same maple_id, different phid).
+    const rB = await app.handle(ingest(Buffer.alloc(64, 5), {
+      "X-Maple-Device-Id": deviceB,
+      "X-Maple-Phasset-Id": phidB,
+      "X-Maple-Capture-Date": "2024-06-01T08:00:00Z",
+      "X-Maple-Filename": "IMG_SHARED.HEIC",
+      "X-Maple-Total-Bytes": "64",
+      "X-Maple-Maple-Id": sharedMapleId,
+      "Content-Range": "bytes 0-63/64",
+    }));
+    expect(rB.status).toBe(200);
+
+    // Exactly one AssetDoc with two phasset_links.
+    const a = await assetsCollection();
+    const docs = await a.find({ maple_id: sharedMapleId }).toArray();
+    expect(docs.length).toBe(1);
+    expect(docs[0].phasset_links.length).toBe(2);
+    const deviceIds = docs[0].phasset_links.map((l: any) => l.device_id);
+    expect(deviceIds).toContain(deviceA);
+    expect(deviceIds).toContain(deviceB);
+  });
+
   test("library not found → 404", async () => {
     const fake = new ObjectId();
     const r = await app.handle(new Request(`http://localhost/api/libraries/${fake.toHexString()}/backup/ingest`, {
