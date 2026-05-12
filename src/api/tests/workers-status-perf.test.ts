@@ -167,4 +167,37 @@ describe("GET /api/workers/status — counts", () => {
     expect(winning).not.toContain("COLLSCAN");
     expect(winning).toContain("stage_hash_dead");
   });
+
+  it("uses an index plan (no COLLSCAN) for the pending-count query", async () => {
+    if (!mongoReachable) return;
+    const { closeDb, ensureStageIndexes } = await import(
+      "../src/db/client.ts"
+    );
+    await closeDb();
+    const db = mongo!.db(TEST_DB);
+    try {
+      await db.createCollection("assets");
+    } catch {}
+    await ensureStageIndexes(db);
+
+    // Seed at least one document so the planner has data to plan against.
+    // A doc with no stages.hash field exercises the $exists:false branch
+    // of the pending query and forces the planner to consider the version index.
+    await db.collection("assets").insertOne({ stages: {} });
+
+    const tv = 3;
+    const explain = await db
+      .collection("assets")
+      .find({
+        $or: [
+          { "stages.hash.version": { $lt: tv } },
+          { "stages.hash.version": { $exists: false } },
+        ],
+        "stages.hash.dead": { $ne: true },
+      })
+      .explain("queryPlanner");
+    const winning = JSON.stringify(explain.queryPlanner?.winningPlan ?? {});
+    expect(winning).not.toContain("COLLSCAN");
+    expect(winning).toContain("stage_hash_version");
+  });
 });
