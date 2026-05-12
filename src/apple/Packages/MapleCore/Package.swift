@@ -26,6 +26,7 @@ let package = Package(
     dependencies: [
         // AMSMB2 — Swift SMB 2/3 client (MIT license; review before App Store submission).
         .package(url: "https://github.com/amosavian/AMSMB2.git", from: "4.0.0"),
+        .package(path: "../MapleBackup"),
     ],
     targets: [
         .target(
@@ -33,6 +34,7 @@ let package = Package(
             dependencies: [
                 "RawPipeline",
                 .product(name: "AMSMB2", package: "AMSMB2"),
+                .product(name: "MapleBackup", package: "MapleBackup"),
             ],
             resources: [
                 // .metal files are CoreImage CIKernel sources, NOT standard
@@ -52,7 +54,10 @@ let package = Package(
         ),
         .testTarget(
             name: "MapleCoreTests",
-            dependencies: ["MapleCore"],
+            dependencies: [
+                "MapleCore",
+                .product(name: "MapleBackup", package: "MapleBackup"),
+            ],
             resources: [
                 .copy("Fixtures/auth-contract.json"),
             ]
