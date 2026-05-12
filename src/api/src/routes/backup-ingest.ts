@@ -33,6 +33,20 @@ import path from "node:path";
 const log = childLogger("backup-ingest");
 const CHUNK_DIR = process.env.MAPLE_BACKUP_TMP ?? "/tmp/maple-backup-chunks";
 
+/** Move src to dst atomically. Falls back to copy+unlink on EXDEV (cross-device). */
+async function atomicMove(src: string, dst: string): Promise<void> {
+  try {
+    await fs.rename(src, dst);
+  } catch (e: any) {
+    if (e?.code === "EXDEV") {
+      await fs.copyFile(src, dst);
+      await fs.unlink(src);
+    } else {
+      throw e;
+    }
+  }
+}
+
 /** Resolve a location name from the geocode cache. Returns null on miss. */
 async function resolveLocation(lat: number, lon: number): Promise<string | null> {
   if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
@@ -196,7 +210,7 @@ export const backupIngestRoutes = new Elysia().post(
     }
 
     // -----------------------------------------------------------------------
-    // Final chunk — move assembled file into place, upsert AssetDoc.
+    // Final chunk — dedup check first, then move assembled file into place.
     // -----------------------------------------------------------------------
 
     if (!mapleId) {
@@ -204,40 +218,64 @@ export const backupIngestRoutes = new Elysia().post(
       return { error: "X-Maple-Maple-Id required on final chunk" };
     }
 
-    const finalPath = path.join(folder.path, resolvedTargetRelPath);
-    await fs.mkdir(path.dirname(finalPath), { recursive: true });
-    // fs.rename is atomic on the same FS; removes the source (tmp file cleanup included).
-    await fs.rename(tmpFile, finalPath);
-    await uploadSessions.complete({ sessionId: session._id, mapleId });
-
-    // Upsert AssetDoc — dedup via maple_id.
+    // 1. Dedup lookup BEFORE any filesystem operations.
     const a = await assetsCollection();
     const existing = await a.findOne({ maple_id: mapleId });
     const link = { device_id: deviceId, phasset_local_id: phid, first_seen: new Date() };
 
     if (existing) {
-      // Same content from a second device — add a phasset_link only if not already present.
-      await a.updateOne(
-        { _id: existing._id, "phasset_links.phasset_local_id": { $ne: phid } },
-        { $push: { phasset_links: link } },
-      );
-    } else {
-      await a.insertOne({
-        _id: new ObjectId(),
-        folder_id: libraryId,
-        filename,
-        abs_path: finalPath,
-        size: totalBytes,
-        mtime: Date.now(),
-        rating: 0,
-        flag: 0,
-        color_label: "",
-        indexed_at: new Date().toISOString(),
-        maple_id: mapleId,
-        phasset_links: [link],
-        deleted_from_photos: false,
-      } as any);
+      // Same content already stored — just link this device to the existing row.
+      const alreadyLinked = (existing.phasset_links ?? [])
+        .some((l: any) => l.device_id === deviceId && l.phasset_local_id === phid);
+      if (!alreadyLinked) {
+        await a.updateOne(
+          { _id: existing._id },
+          { $push: { phasset_links: link } },
+        );
+      }
+      // Delete tmp file — the canonical copy at existing.abs_path is the
+      // authoritative location; we don't need a second copy on disk.
+      try { await fs.unlink(tmpFile); } catch { /* already gone */ }
+      await uploadSessions.complete({ sessionId: session._id, mapleId });
+      await backupSessionsRepo.upsertProgress({ libraryId, deviceId, uploadedDelta: 1, failedDelta: 0 });
+      log.debug({ phid, mapleId, dedup: true }, "ingest complete (dedup)");
+      set.status = 200;
+      return { maple_id: mapleId, target_rel_path: path.relative(folder.path, existing.abs_path) };
     }
+
+    // 2. No existing row — move tmp into the final destination.
+    const finalPath = path.join(folder.path, resolvedTargetRelPath);
+    await fs.mkdir(path.dirname(finalPath), { recursive: true });
+
+    // Guard against a path collision: file on disk but no Mongo row references it.
+    try {
+      await fs.stat(finalPath);
+      // File already exists — this is a server-state inconsistency.
+      set.status = 500;
+      return { error: `path collision; file exists at ${resolvedTargetRelPath}` };
+    } catch (e: any) {
+      if (e?.code !== "ENOENT") throw e;
+      // ENOENT is expected — the path is free.
+    }
+
+    await atomicMove(tmpFile, finalPath);
+    await uploadSessions.complete({ sessionId: session._id, mapleId });
+
+    await a.insertOne({
+      _id: new ObjectId(),
+      folder_id: libraryId,
+      filename,
+      abs_path: finalPath,
+      size: totalBytes,
+      mtime: Date.now(),
+      rating: 0,
+      flag: 0,
+      color_label: "",
+      indexed_at: new Date().toISOString(),
+      maple_id: mapleId,
+      phasset_links: [link],
+      deleted_from_photos: false,
+    } as any);
 
     // Update per-device backup progress summary.
     await backupSessionsRepo.upsertProgress({
