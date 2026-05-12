@@ -1,31 +1,40 @@
-import { describe, test, expect, beforeAll } from "bun:test";
+import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import { ObjectId } from "mongodb";
 import { app } from "../src/index.ts";
 import { assetsCollection, foldersCollection } from "../src/db/client.ts";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 
 const libId = new ObjectId();
 const deviceId = "test-device-state";
+let tmpLib: string;
 
 beforeAll(async () => {
-  await (await foldersCollection()).insertOne({ _id: libId, path: "/tmp/x", label: "x", created_at: new Date(), file_count: 0 } as any);
+  tmpLib = await fs.mkdtemp(path.join(os.tmpdir(), "maple-state-test-"));
+  await (await foldersCollection()).insertOne({ _id: libId, path: tmpLib, label: "state-test", created_at: new Date(), file_count: 0 } as any);
   const a = await assetsCollection();
   await a.deleteMany({ "phasset_links.device_id": deviceId });
   await a.insertMany([
     {
-      folder_id: libId, filename: "a.heic", abs_path: "/tmp/x/a.heic",
+      folder_id: libId, filename: "a.heic", abs_path: path.join(tmpLib, "a.heic"),
       size: 1, mtime: 0, rating: 0, flag: 0, color_label: "",
       indexed_at: "2026-05-11T00:00:00Z",
       maple_id: "hash-a",
       phasset_links: [{ device_id: deviceId, phasset_local_id: "P1", first_seen: new Date("2026-05-10T00:00:00Z") }],
     },
     {
-      folder_id: libId, filename: "b.heic", abs_path: "/tmp/x/b.heic",
+      folder_id: libId, filename: "b.heic", abs_path: path.join(tmpLib, "b.heic"),
       size: 1, mtime: 0, rating: 0, flag: 0, color_label: "",
       indexed_at: "2026-05-11T00:00:00Z",
       maple_id: "hash-b",
       phasset_links: [{ device_id: deviceId, phasset_local_id: "P2", first_seen: new Date("2026-05-11T01:00:00Z") }],
     },
   ] as any);
+});
+
+afterAll(async () => {
+  await fs.rm(tmpLib, { recursive: true, force: true });
 });
 
 describe("GET /api/libraries/:id/backup/state", () => {
