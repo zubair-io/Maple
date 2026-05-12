@@ -116,8 +116,9 @@ export interface AssetDoc {
    * so the threshold can be re-tuned without re-running the engine. `null`
    * until the worker has run; `[]` when nothing was detected. */
   ocr_words?: OcrWord[] | null;
-  /** Provenance of the OCR run. Bumping the engine version triggers a
-   * rerun the same way `enrichment.geocode.version` does. */
+  /** Provenance of the OCR run. `engine_version` is stamped for human
+   * traceability only — reruns are gated by the stage's numeric
+   * `targetVersion` (see `workers/stages/ocr.ts`), not by this string. */
   ocr_meta?: {
     engine: "tesseract";
     engine_version: string;
@@ -269,10 +270,11 @@ export interface GeocodeCacheDoc {
 // `AssetFace` from `indexer/images.repo.ts` for the indexer-side callers.
 // ---------------------------------------------------------------------------
 
-/** Axis-aligned bounding box in pixel coordinates. Shared by the face
- * detector (relative to the source image), the OCR word capture
- * (relative to the OCR'd thumbnail), and the people-detail projection
- * that fans these out to the UI. */
+/** Axis-aligned bounding box. Coordinate space is set by the producer
+ * and documented at the use site — face detector emits normalised
+ * `[0,1]` proportions, the OCR engine emits pixels relative to the
+ * input thumbnail. Both share this shape because the arithmetic is
+ * identical; consumers must respect the documented units. */
 export interface Bbox {
   x: number;
   y: number;
@@ -281,6 +283,10 @@ export interface Bbox {
 }
 
 export interface AssetFaceDoc {
+  /** Normalised `[0,1]` proportions of the source image — emitted by
+   * the face detector (see `enrichment/face-detector.ts`). The web
+   * `faceCropStyle` helper relies on these being proportions so the
+   * CSS background-position percentages line up. */
   bbox: Bbox;
   person_id: string | null;
   confidence: number;
@@ -298,6 +304,8 @@ export interface OcrWord {
   text: string;
   /** Engine-reported confidence, 0–100. */
   confidence: number;
+  /** Pixel coordinates relative to the OCR'd thumbnail. Distinct from
+   * `AssetFaceDoc.bbox`, which is normalised proportions. */
   bbox: Bbox;
 }
 

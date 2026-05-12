@@ -163,7 +163,7 @@ export async function runOnlineClustering(
   // Backfill cover thumbs for any live person without one. Covers may be
   // missing on rows created before cover-seeding landed, or on people
   // created manually via `POST /api/people` ahead of any face assignment.
-  await backfillCoverFaces();
+  await backfillCoverAssets();
 
   log.info(
     { assigned, newPeople, scanned: faces.length, threshold },
@@ -343,7 +343,7 @@ async function createAutoPerson(
  * Also `$unset`s the legacy `cover_face_id` field on the same write so
  * docs migrate forward without a separate migration step.
  */
-async function backfillCoverFaces(): Promise<void> {
+async function backfillCoverAssets(): Promise<void> {
   const peopleC = await peopleCollection();
   const assets = await assetsCollection();
 
