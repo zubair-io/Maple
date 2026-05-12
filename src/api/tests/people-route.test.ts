@@ -237,6 +237,35 @@ describe("GET /api/people", () => {
     expect(helen?.face_count).toBe(2);
     expect(ivy?.face_count).toBe(1);
   });
+
+  it("self-heals missing cover_asset_id from assigned faces", async () => {
+    if (!mongoReachable) return;
+    // Legacy shape: a person doc with faces assigned but no cover_asset_id —
+    // mirrors what we see on installs clustered before commit 1f32022.
+    // POST /api/people creates the doc without seeding cover_asset_id; the
+    // face is assigned out-of-band via insertAssetWithFaces, exactly the
+    // gap that the opportunistic backfill is supposed to close.
+    const created = await post("/api/people", { name: "Nora" });
+    const personId = (created.body as { id: string }).id;
+    const lowConf = await insertAssetWithFaces([
+      { bbox: { x: 0, y: 0, w: 1, h: 1 }, person_id: personId, confidence: 0.5 },
+    ]);
+    const highConf = await insertAssetWithFaces([
+      { bbox: { x: 0, y: 0, w: 1, h: 1 }, person_id: personId, confidence: 0.95 },
+    ]);
+    // Sanity: cover is null before the GET.
+    const before = await db!
+      .collection("people")
+      .findOne({ _id: new ObjectId(personId) });
+    expect(before?.cover_asset_id ?? null).toBeNull();
+    const r = await get("/api/people");
+    expect(r.status).toBe(200);
+    const list = r.body as Array<{ id: string; cover_asset_id: string | null }>;
+    const nora = list.find((p) => p.id === personId);
+    expect(nora?.cover_asset_id).toBe(highConf.toHexString());
+    // The lower-confidence face must not be picked.
+    expect(nora?.cover_asset_id).not.toBe(lowConf.toHexString());
+  });
 });
 
 describe("GET /api/people/:id", () => {
