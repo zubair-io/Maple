@@ -27,6 +27,8 @@ import type {
   InviteDoc,
   RefreshTokenDoc,
   ChallengeDoc,
+  BackupSessionDoc,
+  UploadSessionDoc,
 } from "./schema.ts";
 import type { WorkerConfigDoc } from "../workers/worker-config.repo.ts";
 
@@ -149,6 +151,18 @@ export async function workerConfigCollection(): Promise<
   Collection<WorkerConfigDoc>
 > {
   return (await getDb()).collection<WorkerConfigDoc>("worker_config");
+}
+
+export async function backupSessionsCollection(): Promise<
+  Collection<BackupSessionDoc>
+> {
+  return (await getDb()).collection<BackupSessionDoc>("backup_sessions");
+}
+
+export async function uploadSessionsCollection(): Promise<
+  Collection<UploadSessionDoc>
+> {
+  return (await getDb()).collection<UploadSessionDoc>("upload_sessions");
 }
 
 /** Stage names whose claim-query indexes are created at startup. */
