@@ -20,6 +20,7 @@
 import { Elysia, t } from "elysia";
 import { ObjectId } from "mongodb";
 import { assetsCollection } from "../db/client.ts";
+import type { PhotoKitAssetLink, AssetDoc } from "../db/schema.ts";
 
 export const backupStateRoutes = new Elysia().get(
   "/api/libraries/:libraryId/backup/state",
@@ -37,16 +38,18 @@ export const backupStateRoutes = new Elysia().get(
       return { error: "since must be a valid ISO timestamp" };
     }
 
+    type ProjectedAsset = Pick<AssetDoc, "filename" | "abs_path" | "phasset_links" | "maple_id"> & { _id: ObjectId };
+
     const a = await assetsCollection();
-    const rows = await a.find({
+    const rows = await a.find<ProjectedAsset>({
       folder_id: libraryId,
       phasset_links: { $elemMatch: { device_id: deviceId, first_seen: { $gte: since } } },
-    }).project({ filename: 1, abs_path: 1, phasset_links: 1, maple_id: 1 }).toArray();
+    }).project<ProjectedAsset>({ filename: 1, abs_path: 1, phasset_links: 1, maple_id: 1 }).toArray();
 
-    const out = rows.flatMap((r: any) =>
+    const out = rows.flatMap((r: ProjectedAsset) =>
       (r.phasset_links ?? [])
-        .filter((l: any) => l.device_id === deviceId && new Date(l.first_seen) >= since)
-        .map((l: any) => ({
+        .filter((l: PhotoKitAssetLink) => l.device_id === deviceId && new Date(l.first_seen) >= since)
+        .map((l: PhotoKitAssetLink) => ({
           phasset_local_id: l.phasset_local_id,
           first_seen: l.first_seen,
           maple_id: r.maple_id,
