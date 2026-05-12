@@ -68,4 +68,18 @@ describe("GET /api/libraries/:id/backup/state", () => {
     const res = await app.handle(new Request(`http://localhost/api/libraries/not-an-objectid/backup/state?device_id=${deviceId}`));
     expect(res.status).toBe(400);
   });
+
+  test("rel_path is library-relative, not an absolute path", async () => {
+    const url = `http://localhost/api/libraries/${libId.toHexString()}/backup/state?device_id=${deviceId}`;
+    const res = await app.handle(new Request(url));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    for (const asset of body.assets) {
+      // Must not start with '/' or contain an absolute-path prefix like '/tmp/'
+      expect(asset.rel_path.startsWith("/")).toBe(false);
+      expect(asset.rel_path).not.toContain("/tmp/");
+      // Must be a bare relative path — no '..' escaping the root
+      expect(asset.rel_path.startsWith("..")).toBe(false);
+    }
+  });
 });
