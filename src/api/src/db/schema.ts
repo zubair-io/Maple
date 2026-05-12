@@ -108,14 +108,23 @@ export interface AssetDoc {
   /** LLM-generated caption (Phase 6 describe worker output). `null` until run. */
   description?: string | null;
   /** Recognised text extracted from the thumbnail by the OCR worker.
-   * `null` until the worker has run; empty string when nothing was found. */
+   * `null` until the worker has run; empty string when nothing was found
+   * OR when the mean engine confidence was below the persistence threshold
+   * (see `MAPLE_OCR_MIN_CONFIDENCE` in the OCR stage). */
   ocr_text?: string | null;
+  /** Per-word OCR output. Persisted regardless of the confidence threshold
+   * so the threshold can be re-tuned without re-running the engine. `null`
+   * until the worker has run; `[]` when nothing was detected. */
+  ocr_words?: OcrWord[] | null;
   /** Provenance of the OCR run. Bumping the engine version triggers a
    * rerun the same way `enrichment.geocode.version` does. */
   ocr_meta?: {
     engine: "tesseract";
     engine_version: string;
     generated_at: string;
+    /** Overall mean confidence as reported by the engine, 0–100. `null`
+     * for legacy rows written before per-word capture landed. */
+    mean_confidence: number | null;
   } | null;
   /** Synthesised text-index target. Concatenation of `place.search_blob`,
    * `description`, and `ocr_text` — recomputed atomically inside each
@@ -260,11 +269,36 @@ export interface GeocodeCacheDoc {
 // `AssetFace` from `indexer/images.repo.ts` for the indexer-side callers.
 // ---------------------------------------------------------------------------
 
+/** Axis-aligned bounding box in pixel coordinates. Shared by the face
+ * detector (relative to the source image), the OCR word capture
+ * (relative to the OCR'd thumbnail), and the people-detail projection
+ * that fans these out to the UI. */
+export interface Bbox {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
 export interface AssetFaceDoc {
-  bbox: { x: number; y: number; w: number; h: number };
+  bbox: Bbox;
   person_id: string | null;
   confidence: number;
   embedding?: number[];
+}
+
+// ---------------------------------------------------------------------------
+// OCR word — written by the Phase 6 OCR worker alongside `ocr_text`. Lets
+// the search layer (and any future filtering) re-score on confidence
+// without re-running the engine. Bounding boxes are in pixel coordinates
+// relative to the thumbnail the engine was given.
+// ---------------------------------------------------------------------------
+
+export interface OcrWord {
+  text: string;
+  /** Engine-reported confidence, 0–100. */
+  confidence: number;
+  bbox: Bbox;
 }
 
 // ---------------------------------------------------------------------------
@@ -283,9 +317,13 @@ export interface PersonDoc {
   created_at: string;
   /** ISO timestamp of the last write to this row (rename, cover update). */
   updated_at: string;
-  /** Hex of an asset face id used as the grid thumbnail. Optional — when
-   * absent the UI falls back to the first face it can find. */
-  cover_face_id?: string;
+  /** Hex of the asset id whose thumbnail (with a CSS bbox crop) renders
+   * as this person's cover image on the /people grid. Optional — when
+   * absent the UI falls back to the person's initial. Was named
+   * `cover_face_id` in an earlier draft; the rename clarifies that the
+   * value is an asset _id, not a face _id (faces are sub-array entries
+   * with no stable id of their own). */
+  cover_asset_id?: string;
   /** When two clusters get the same name they merge: the orphan keeps
    * `merged_into` pointing at the survivor for an audit trail. Hidden
    * from the UI listing. The same field doubles as the soft-delete

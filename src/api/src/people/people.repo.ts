@@ -25,6 +25,7 @@ import {
 import type {
   AssetDoc,
   AssetFaceDoc,
+  Bbox,
   PersonDoc,
   PersonWithId,
 } from "../db/schema.ts";
@@ -60,7 +61,7 @@ export interface PersonDetailFace {
   asset_id: string;
   face_index: number;
   abs_path: string;
-  bbox: { x: number; y: number; w: number; h: number };
+  bbox: Bbox;
   confidence: number;
 }
 
@@ -318,7 +319,7 @@ export async function getPerson(
     _id: ObjectId;
     abs_path: string;
     face_index: number;
-    bbox: { x: number; y: number; w: number; h: number };
+    bbox: Bbox;
     confidence: number;
     captured_at: string | null;
   }>([

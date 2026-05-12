@@ -176,6 +176,80 @@ describe("runOnlineClustering", () => {
     const r = await runOnlineClustering({ similarityThreshold: 0.999 });
     expect(r.newPeople).toBe(2);
   });
+
+  it("seeds cover_asset_id on newly-created people", async () => {
+    if (!mongoReachable) return;
+    const { runOnlineClustering } = await import("./clustering-job.ts");
+    const assetId = await insertAssetWithFaces([
+      { bbox: { x: 0, y: 0, w: 1, h: 1 }, person_id: null, confidence: 0.9, embedding: nearAxis(11, 0.05) },
+    ]);
+    await runOnlineClustering();
+    const person = await db!.collection("people").findOne({ merged_into: null });
+    expect(person?.cover_asset_id).toBe(assetId.toHexString());
+  });
+
+  it("backfills cover_asset_id on people that have assigned faces but no cover", async () => {
+    if (!mongoReachable) return;
+    const { runOnlineClustering } = await import("./clustering-job.ts");
+    const { createPerson, assignFaceToPerson } = await import("./people.repo.ts");
+    // Operator-created person with no cover yet — same shape as a row
+    // produced by the old (pre-fix) clustering path.
+    const p = await createPerson("Mary");
+    const assetId = await insertAssetWithFaces([
+      { bbox: { x: 0, y: 0, w: 1, h: 1 }, person_id: null, confidence: 0.9, embedding: nearAxis(13, 0.05) },
+    ]);
+    await assignFaceToPerson(assetId, 0, p._id);
+    // No new unassigned faces — clustering will skip the assignment loop
+    // but still run the backfill at the end.
+    await runOnlineClustering();
+    const fresh = await db!.collection("people").findOne({ _id: p._id });
+    expect(fresh?.cover_asset_id).toBe(assetId.toHexString());
+  });
+
+  it("backfill picks the highest-confidence face per person", async () => {
+    if (!mongoReachable) return;
+    const { runOnlineClustering } = await import("./clustering-job.ts");
+    const { createPerson, assignFaceToPerson } = await import("./people.repo.ts");
+    const p = await createPerson("Nina");
+    // Three assets, each with a face assigned to Nina at different
+    // confidences. The backfill should pick the highest-confidence asset
+    // (mid) regardless of insertion order.
+    const lowConfAsset = await insertAssetWithFaces([
+      { bbox: { x: 0, y: 0, w: 1, h: 1 }, person_id: null, confidence: 0.2, embedding: nearAxis(15, 0.05) },
+    ]);
+    const highConfAsset = await insertAssetWithFaces([
+      { bbox: { x: 0, y: 0, w: 1, h: 1 }, person_id: null, confidence: 0.95, embedding: nearAxis(15, 0.05) },
+    ]);
+    const midConfAsset = await insertAssetWithFaces([
+      { bbox: { x: 0, y: 0, w: 1, h: 1 }, person_id: null, confidence: 0.6, embedding: nearAxis(15, 0.05) },
+    ]);
+    await assignFaceToPerson(lowConfAsset, 0, p._id);
+    await assignFaceToPerson(highConfAsset, 0, p._id);
+    await assignFaceToPerson(midConfAsset, 0, p._id);
+    await runOnlineClustering();
+    const fresh = await db!.collection("people").findOne({ _id: p._id });
+    expect(fresh?.cover_asset_id).toBe(highConfAsset.toHexString());
+  });
+
+  it("backfill migrates legacy cover_face_id rows to cover_asset_id", async () => {
+    if (!mongoReachable) return;
+    const { runOnlineClustering } = await import("./clustering-job.ts");
+    const { createPerson, assignFaceToPerson } = await import("./people.repo.ts");
+    const p = await createPerson("Olive");
+    const assetId = await insertAssetWithFaces([
+      { bbox: { x: 0, y: 0, w: 1, h: 1 }, person_id: null, confidence: 0.85, embedding: nearAxis(17, 0.05) },
+    ]);
+    await assignFaceToPerson(assetId, 0, p._id);
+    // Simulate a row from the earlier draft that only has the legacy field.
+    await db!.collection("people").updateOne(
+      { _id: p._id },
+      { $set: { cover_face_id: "deadbeefdeadbeefdeadbeef" } },
+    );
+    await runOnlineClustering();
+    const fresh = await db!.collection("people").findOne({ _id: p._id });
+    expect(fresh?.cover_asset_id).toBe(assetId.toHexString());
+    expect(fresh?.cover_face_id).toBeUndefined();
+  });
 });
 
 describe("recomputeCentroids", () => {
