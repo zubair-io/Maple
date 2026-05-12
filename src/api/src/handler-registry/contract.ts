@@ -15,7 +15,7 @@
  * `*Input` / `*Output` shapes here.
  */
 
-import type { AssetExif } from "../db/schema.ts";
+import type { AssetExif, Bbox } from "../db/schema.ts";
 
 /**
  * Face detection output from the ai stage.
@@ -23,7 +23,7 @@ import type { AssetExif } from "../db/schema.ts";
  */
 export interface AiFace {
   /** Bounding box in normalised [0..1] image coordinates. */
-  bbox: { x: number; y: number; w: number; h: number };
+  bbox: Bbox;
   /** Optional linked person id (MongoDB ObjectId hex) — null until reviewer confirms. */
   personId: string | null;
   /** Detector confidence in [0..1]. */
