@@ -23,6 +23,16 @@ function makeDbStub(): { db: Db; getIndexes: (collName: string) => IndexSpec[] }
         // Simulate a no-op drop — the stub has no pre-existing indexes.
         // The production code swallows IndexNotFound, so this is fine.
       },
+      async indexes() {
+        // Mirror the real driver's shape: flatten options into each entry so
+        // callers can read `name` / `partialFilterExpression` off the top
+        // level. ensureStageIndexes uses this to decide whether the old
+        // partial-filter version index needs dropping.
+        return (collIndexes.get(name) ?? []).map((i) => ({
+          key: i.key,
+          ...i.options,
+        }));
+      },
     } as unknown as Collection;
   }
 

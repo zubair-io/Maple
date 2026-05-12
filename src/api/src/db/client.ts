@@ -172,8 +172,10 @@ const WORKER_STAGE_NAMES = [
  *      `dead: { $ne: true }`, which matches both `false` and missing; an old
  *      partial filter on `{ dead: false }` would have silently excluded the
  *      missing-field case and caused a collection scan for new assets.
- *      The previous partial index (same name, with the filter) is dropped
- *      first so MongoDB doesn't reject the recreate as a spec conflict.
+ *      On deploys that still carry the old partial-filter version of this
+ *      index, the function drops it before recreating — but only when the
+ *      stored spec has a `partialFilterExpression`, to avoid an expensive
+ *      drop+rebuild on every boot when the correct spec is already in place.
  *
  *   2. `stage_<name>_dead` — partial index on `stages.<name>.dead`, filtered
  *      to documents where that field is `true`. Powers the dead-count branch
@@ -181,26 +183,38 @@ const WORKER_STAGE_NAMES = [
  *      small because dead-lettered docs are a small fraction of the total.
  *
  * Safe to call multiple times — createIndex is a no-op when the index already
- * exists with identical options; the dropIndex for the old version index is
- * wrapped in a try/catch so it is also safe on a fresh deploy.
+ * exists with identical options. The conditional drop for the version index
+ * avoids unnecessary rebuilds on every boot.
  */
 export async function ensureStageIndexes(db: Db): Promise<void> {
+  // One round-trip to read all existing index specs. We use this below to
+  // decide whether any stage_<name>_version index needs to be dropped before
+  // recreation (only when it still carries the old partialFilterExpression).
+  const existingIndexes = await db.collection("assets").indexes();
+  const indexByName = new Map(
+    existingIndexes.map((i) => [i.name as string, i]),
+  );
+
   for (const name of WORKER_STAGE_NAMES) {
-    // Drop the old partial index (which used { dead: { $eq: false } }) so we
-    // can recreate it without a partial filter. The old filter excluded docs
-    // where `dead` is missing (freshly-indexed assets never had this field
-    // set) — those new docs would fall back to a collection scan on the claim
-    // query. Without the partial filter the index covers all docs and the
-    // claim query `dead: { $ne: true }` hits the index for both false and
-    // missing values. The index is larger but correctness beats compactness here.
-    try {
-      await db.collection("assets").dropIndex(`stage_${name}_version`);
-    } catch {
-      // IndexNotFound is fine — index may not exist yet on a fresh deploy.
+    const versionIndexName = `stage_${name}_version`;
+    const existing = indexByName.get(versionIndexName);
+
+    if (existing?.partialFilterExpression) {
+      // Old spec with { dead: false } partial filter — drop it so MongoDB
+      // won't reject the createIndex below as a spec conflict. The old filter
+      // excluded docs where `dead` is missing, which caused collection scans
+      // for freshly-indexed assets. The unconstrained index fixes that.
+      try {
+        await db.collection("assets").dropIndex(versionIndexName);
+      } catch {
+        // IndexNotFound is fine — another process may have already dropped it.
+      }
     }
+    // createIndex is a fast no-op when the index already exists with identical
+    // options, so we always call it regardless of whether we just dropped.
     await db.collection("assets").createIndex(
       { [`stages.${name}.version`]: 1 },
-      { name: `stage_${name}_version` },
+      { name: versionIndexName },
     );
 
     // Tiny partial index on dead-lettered docs. Powers the dead-count branch
