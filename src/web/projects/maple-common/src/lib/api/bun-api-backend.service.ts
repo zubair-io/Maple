@@ -376,6 +376,7 @@ export class BunApiBackendService {
           name: r.name,
           faceCount: r.face_count,
           coverAssetId: r.cover_asset_id ?? null,
+          coverAbsPath: r.cover_abs_path ?? null,
           createdAt: r.created_at,
           updatedAt: r.updated_at,
         })),
@@ -535,6 +536,11 @@ export interface ApiPerson {
   name: string;
   faceCount: number;
   coverAssetId: string | null;
+  /** Absolute filesystem path of the cover asset. Null when the cover
+   * asset is missing — falls back to `coverAssetId` lookup at the call
+   * site. Surfaced so the web can hit `/api/fs/thumb?path=…` (the URL
+   * /browse uses) for cache reuse. */
+  coverAbsPath: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -583,6 +589,7 @@ interface ApiPersonRaw {
   name: string;
   face_count: number;
   cover_asset_id?: string | null;
+  cover_abs_path?: string | null;
   created_at: string;
   updated_at: string;
 }

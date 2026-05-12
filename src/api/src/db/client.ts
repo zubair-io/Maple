@@ -683,6 +683,15 @@ export async function ensureIndexes(): Promise<void> {
   // bulk centroid recompute.
   await people.createIndex({ merged_into: 1 }, { name: "people_merged" });
 
+  // Multikey index on the asset face → person back-reference. Powers the
+  // /api/people aggregation that counts faces per person ($unwind + $group)
+  // and the /api/people/:id detail aggregation that pulls a person's face
+  // tiles. Without it both run as collection scans, which is the bottleneck
+  // on libraries with many faces.
+  await db
+    .collection("assets")
+    .createIndex({ "faces.person_id": 1 }, { name: "assets_face_person_id" });
+
   // worker_config: unique index on stage name (the natural key).
   await db
     .collection("worker_config")
