@@ -110,7 +110,13 @@ export const backupIngestRoutes = new Elysia().post(
     const location = await resolveLocation(lat, lon);
 
     // Compute the destination relative path.
-    const targetRelPath = formatBackupPath({ captureDate, location, filename });
+    let targetRelPath: string;
+    try {
+      targetRelPath = formatBackupPath({ captureDate, location, filename });
+    } catch (e: any) {
+      set.status = 400;
+      return { error: e?.message ?? "invalid filename" };
+    }
 
     // Open or resume the upload session.
     const session = await uploadSessions.openOrResume({
