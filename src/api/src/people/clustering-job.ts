@@ -343,11 +343,25 @@ async function createAutoPerson(
  * Also `$unset`s the legacy `cover_face_id` field on the same write so
  * docs migrate forward without a separate migration step.
  *
- * Exported so the `/api/people` list handler can opportunistically heal
- * existing installs that were clustered before this code shipped — the
- * fast path is one `find` that returns 0 rows.
+ * Exposed via `backfillCoverAssets()` so the `/api/people` list handler
+ * can opportunistically heal existing installs that were clustered before
+ * this code shipped — the fast path is one `find` that returns 0 rows.
+ *
+ * Singleflight coalesces concurrent callers onto a single in-flight run so
+ * a burst of /api/people requests on a cold/legacy DB doesn't fan out into
+ * N duplicate aggregations + bulkWrites against the same docs.
  */
-export async function backfillCoverAssets(): Promise<void> {
+let backfillInFlight: Promise<void> | null = null;
+
+export function backfillCoverAssets(): Promise<void> {
+  if (backfillInFlight) return backfillInFlight;
+  backfillInFlight = doBackfillCoverAssets().finally(() => {
+    backfillInFlight = null;
+  });
+  return backfillInFlight;
+}
+
+async function doBackfillCoverAssets(): Promise<void> {
   const peopleC = await peopleCollection();
   const assets = await assetsCollection();
 
