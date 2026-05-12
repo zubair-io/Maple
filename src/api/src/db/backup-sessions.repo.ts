@@ -1,3 +1,14 @@
+/**
+ * backup_sessions repository.
+ *
+ * One row per (library_id, device_id) summarising cumulative PhotoKit backup
+ * progress from that device. Updated by the backup-ingest endpoint after every
+ * successful or failed upload so the device can render "X% done from this
+ * device" without scanning the assets collection.
+ *
+ * Spec: docs/superpowers/specs/2026-05-09-photokit-backup-design.md §19.
+ */
+
 import type { ObjectId } from "mongodb";
 import { backupSessionsCollection } from "./client.ts";
 
@@ -9,6 +20,9 @@ export const backupSessionsRepo = {
     failedDelta: number;
     totalCount?: number;
   }): Promise<void> {
+    if (args.uploadedDelta < 0 || args.failedDelta < 0) {
+      throw new Error("backupSessionsRepo.upsertProgress: deltas must be >= 0");
+    }
     const coll = await backupSessionsCollection();
     const now = new Date();
     await coll.updateOne(
