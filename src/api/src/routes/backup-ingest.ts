@@ -92,6 +92,14 @@ export const backupIngestRoutes = new Elysia().post(
     const start = parseInt(m[1], 10);
     const end = parseInt(m[2], 10);
     const rangeTotal = parseInt(m[3], 10);
+    if (end < start) {
+      set.status = 400;
+      return { error: "invalid Content-Range: end must be >= start" };
+    }
+    if (end >= rangeTotal) {
+      set.status = 400;
+      return { error: "invalid Content-Range: end must be < total" };
+    }
     if (rangeTotal !== totalBytes) {
       set.status = 400;
       return { error: "Content-Range total mismatch with X-Maple-Total-Bytes" };
@@ -153,6 +161,30 @@ export const backupIngestRoutes = new Elysia().post(
       body instanceof Uint8Array
         ? Buffer.from(body)
         : Buffer.from(body as ArrayBuffer);
+
+    // Verify body length matches Content-Range claim.
+    const expectedChunkLen = end - start + 1;
+    if (buf.byteLength !== expectedChunkLen) {
+      set.status = 400;
+      return { error: `body length ${buf.byteLength} does not match Content-Range span ${expectedChunkLen}` };
+    }
+
+    // Verify tmp file size is consistent with DB state before appending.
+    if (start !== 0) {
+      let tmpStat: Awaited<ReturnType<typeof fs.stat>> | null = null;
+      try {
+        tmpStat = await fs.stat(tmpFile);
+      } catch {
+        // File missing but start != 0 — DB is out of sync with disk.
+        await uploadSessions.resetForRestart(session._id);
+        set.status = 409;
+        return { error: "tmp file missing — restart required", expected_offset: 0 };
+      }
+      if (tmpStat.size !== session.received_bytes) {
+        set.status = 409;
+        return { error: "tmp file size mismatch — restart required", expected_offset: tmpStat.size };
+      }
+    }
 
     await fs.appendFile(tmpFile, buf);
     await uploadSessions.recordChunk({ sessionId: session._id, bytesReceived: buf.byteLength });
