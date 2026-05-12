@@ -14,7 +14,10 @@
 
 import { Elysia, t } from "elysia";
 import { ObjectId } from "mongodb";
-import { runOnlineClustering } from "../people/clustering-job.ts";
+import {
+  backfillCoverAssets,
+  runOnlineClustering,
+} from "../people/clustering-job.ts";
 import {
   assignFaceToPerson,
   createPerson,
@@ -55,6 +58,18 @@ function safeObjectId(raw: string): ObjectId | null {
 export const peopleRoutes = new Elysia({ prefix: "/api/people" })
   // ── List ────────────────────────────────────────────────────────────
   .get("/", async () => {
+    // Opportunistic heal: installs clustered before cover_asset_id shipped
+    // still have null covers on every person doc. backfillCoverAssets is
+    // idempotent and fast on a healthy DB (one find that returns 0 rows).
+    // Errors are logged but don't fail the listing.
+    try {
+      await backfillCoverAssets();
+    } catch (err) {
+      log.warn(
+        { err: err instanceof Error ? err.message : String(err) },
+        "cover backfill failed; serving list anyway",
+      );
+    }
     const rows = await listPeople({ withCounts: true });
     return rows.map((r) => ({
       id: r.person._id.toHexString(),
