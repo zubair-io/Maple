@@ -28,6 +28,9 @@ import type { WorkerConfig } from "./runtime/define-stage.ts";
 import type { ImageDoc } from "./runtime/define-stage.ts";
 import type { WorkerConfigDoc } from "./worker-config.repo.ts";
 import { ALL_STAGE_NAMES } from "./stages/manifest.ts";
+import { child } from "../log.ts";
+
+const log = child("workers:routes");
 
 const DEAD_LIST_LIMIT_DEFAULT = 50;
 const DEAD_LIST_LIMIT_MAX = 500;
@@ -90,11 +93,23 @@ export function workerRoutes(supervisor: Supervisor): Elysia {
                 [`stages.${name}.dead`]: { $ne: true },
               })
               .then((n) => ({ key: "pending" as const, name, n }))
-              .catch(() => ({ key: "pending" as const, name, n: 0 }));
+              .catch((err) => {
+                log.warn(
+                  { stage: name, err: err instanceof Error ? err.message : err },
+                  "countDocuments failed for pending — returning 0",
+                );
+                return { key: "pending" as const, name, n: 0 };
+              });
             const dead = assets!
               .countDocuments({ [`stages.${name}.dead`]: true })
               .then((n) => ({ key: "dead" as const, name, n }))
-              .catch(() => ({ key: "dead" as const, name, n: 0 }));
+              .catch((err) => {
+                log.warn(
+                  { stage: name, err: err instanceof Error ? err.message : err },
+                  "countDocuments failed for dead — returning 0",
+                );
+                return { key: "dead" as const, name, n: 0 };
+              });
             return [pending, dead];
           }),
         );
