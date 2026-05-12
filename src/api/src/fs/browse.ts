@@ -199,6 +199,14 @@ export interface ImageChild extends DirChild {
   size: number;       // bytes
   ext: string;        // lowercase, no dot
   /**
+   * Mongo `_id` of the matching asset doc, hex-encoded. Set when this file
+   * has been indexed; `undefined` when the indexer hasn't seen it yet. The
+   * client uses this to call `/api/assets/:id` for the enriched detail
+   * payload (place, faces, description, ocr) — FS-walk assets have no other
+   * route back to the asset doc since their local id is `fs:${abs_path}`.
+   */
+  id?: string;
+  /**
    * Indexed EXIF for this RAW (camera/lens/exposure/captured_at/gps), looked
    * up by `abs_path` against the `assets` collection. `null` when the indexer
    * processed this file but found no usable EXIF; `undefined` when the file
@@ -312,15 +320,19 @@ export async function listDirContents(
       const coll = await assetsCollection();
       const cursor = coll.find(
         { abs_path: { $in: images.map((i) => i.path) } },
-        { projection: { abs_path: 1, exif: 1 } },
+        { projection: { _id: 1, abs_path: 1, exif: 1 } },
       );
-      const byPath = new Map<string, AssetExif | null | undefined>();
+      const byPath = new Map<string, { id: string; exif: AssetExif | null | undefined }>();
       for await (const doc of cursor) {
-        byPath.set(doc.abs_path, doc.exif);
+        byPath.set(doc.abs_path, { id: doc._id.toHexString(), exif: doc.exif });
         indexedPaths.add(doc.abs_path);
       }
       for (const img of images) {
-        if (byPath.has(img.path)) img.exif = byPath.get(img.path);
+        const hit = byPath.get(img.path);
+        if (hit) {
+          img.id = hit.id;
+          img.exif = hit.exif;
+        }
       }
     } catch (err) {
       // EXIF enrichment is best-effort — a DB hiccup shouldn't break browse.
