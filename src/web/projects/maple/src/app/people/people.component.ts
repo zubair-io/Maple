@@ -17,6 +17,7 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  OnDestroy,
   OnInit,
   computed,
   effect,
@@ -35,6 +36,7 @@ import {
   BunApiBackendService,
   FilesystemBrowseService,
 } from '@maple-common';
+import { MapleVisibleOnceDirective } from './visible-once.directive';
 
 type Tone = 'success' | 'error';
 
@@ -46,12 +48,12 @@ interface Toast {
 @Component({
   standalone: true,
   selector: 'maple-people',
-  imports: [FormsModule, RouterLink],
+  imports: [FormsModule, RouterLink, MapleVisibleOnceDirective],
   templateUrl: './people.component.html',
   styleUrl: './people.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class PeopleComponent implements OnInit {
+export class PeopleComponent implements OnInit, OnDestroy {
   private readonly api = inject(BunApiBackendService);
   private readonly fsBrowse = inject(FilesystemBrowseService);
   private readonly route = inject(ActivatedRoute);
@@ -92,43 +94,65 @@ export class PeopleComponent implements OnInit {
   /** Cache keys currently being fetched — prevents duplicate round-trips
    * when the template re-evaluates a binding before the response lands. */
   private readonly inflightThumbs = new Set<string>();
+  /** Blob URLs we minted via `URL.createObjectURL` (the `/api/assets/:id/thumb`
+   * orphan-cover fallback). Tracked so we can revoke on destroy and not
+   * leak. URLs returned from `FilesystemBrowseService.getThumbBlobUrl`
+   * are owned by that singleton and we deliberately don't revoke them. */
+  private readonly ownedBlobUrls = new Set<string>();
 
   ngOnInit(): void {
     this.refresh();
-    // Deep-link support: `/people/:id` opens the detail panel for that
-    // person on first paint. Skip the round-trip when the URL change was
-    // triggered by our own `openDetail()` (which calls router.navigate);
-    // without this guard every card click costs two GET /api/people/:id.
+    // Single source of truth for "which person is open" is the URL.
+    // Click handlers navigate via `selectPerson()`; only this subscription
+    // fetches /api/people/:id. Tracking `_lastFetchedId` separately rather
+    // than checking `selected()?.id` (which only updates *after* the HTTP
+    // response — a click-then-paramMap race would otherwise re-fetch).
     this.route.paramMap.subscribe((params) => {
       const id = params.get('id');
       if (id) {
-        if (this.selected()?.id === id) return;
+        if (this._lastFetchedId === id) return;
+        this._lastFetchedId = id;
         this.openDetail(id);
       } else {
+        this._lastFetchedId = null;
         this.selected.set(null);
       }
     });
   }
 
+  /** Last person id we kicked a `getPerson()` for. Tracked separately
+   * from `selected()` because the latter doesn't update until the HTTP
+   * response lands — a same-tick re-emit of `paramMap` would race and
+   * re-fetch. */
+  private _lastFetchedId: string | null = null;
+
   constructor() {
-    // Prefetch every visible thumbnail (cover thumbs in the grid + face
-    // thumbs in the open detail panel). Reads of `people()` / `selected()`
-    // make this re-run when the list or open person changes; the
-    // `inflightThumbs` + blob-cache guard inside `ensureThumbBlob` dedupes
-    // repeat keys, and FilesystemBrowseService memoises across pages so
-    // covers already loaded by /browse don't re-fetch.
+    // Detail-panel face thumbs prefetch eagerly — there's a 30-row cap
+    // and most are visible inside the panel scroll area, so paying the
+    // network cost up-front keeps the panel snappy when the user scrolls
+    // it. Cover thumbs in the *grid* don't prefetch here — they're gated
+    // by the (mapleVisibleOnce) directive in the template so off-screen
+    // cards don't kick off N HTTP requests when /api/people lands.
     effect(() => {
-      for (const p of this.people()) {
-        const key = this.coverCacheKey(p);
-        if (key) this.ensureThumbBlob(key, p.coverAbsPath, p.coverAssetId);
-      }
       const detail = this.selected();
-      if (detail) {
-        for (const f of detail.faces) {
-          this.ensureThumbBlob(f.absPath, f.absPath, f.assetId);
-        }
+      if (!detail) return;
+      for (const f of detail.faces) {
+        this.ensureThumbBlob(f.absPath, f.absPath, f.assetId);
       }
     });
+  }
+
+  ngOnDestroy(): void {
+    for (const url of this.ownedBlobUrls) URL.revokeObjectURL(url);
+    this.ownedBlobUrls.clear();
+  }
+
+  /** Called from the template when a card scrolls into the viewport
+   * (`(mapleVisibleOnce)`). Idempotent — repeat fires no-op via the
+   * inflight + cache guards inside {@link ensureThumbBlob}. */
+  ensureCoverThumb(p: ApiPerson): void {
+    const key = this.coverCacheKey(p);
+    if (key) this.ensureThumbBlob(key, p.coverAbsPath, p.coverAssetId);
   }
 
   /** Chooses the cache key for a person's cover. Prefer `absPath` so the
@@ -158,15 +182,23 @@ export class PeopleComponent implements OnInit {
     if (untracked(this.thumbBlobs).has(cacheKey)) return;
     this.inflightThumbs.add(cacheKey);
 
-    const promise: Promise<string> = absPath
-      ? this.fsBrowse.getThumbBlobUrl(absPath, 320)
+    // Match the size /browse asks for (asset-thumb passes 512) so the
+    // cache key (absPath) resolves to the same blob entry — otherwise
+    // whichever route loads first wins and the other route gets the
+    // wrong-resolution thumb. fsBrowse caches by absPath only.
+    const promise: Promise<{ url: string; owned: boolean }> = absPath
+      ? this.fsBrowse.getThumbBlobUrl(absPath, 512).then((url) => ({ url, owned: false }))
       : apiAssetId
-        ? firstValueFrom(this.api.getThumb(apiAssetId)).then((b) => URL.createObjectURL(b))
+        ? firstValueFrom(this.api.getThumb(apiAssetId)).then((b) => ({
+            url: URL.createObjectURL(b),
+            owned: true,
+          }))
         : Promise.reject(new Error('no asset reference'));
 
     promise
-      .then((url) => {
+      .then(({ url, owned }) => {
         this.inflightThumbs.delete(cacheKey);
+        if (owned) this.ownedBlobUrls.add(url);
         const next = new Map(untracked(this.thumbBlobs));
         next.set(cacheKey, url);
         this.thumbBlobs.set(next);
@@ -184,6 +216,15 @@ export class PeopleComponent implements OnInit {
     });
   }
 
+  /** Click handler — only navigates. The paramMap subscription owns the
+   * fetch (single source of truth). Calling this when the person is
+   * already selected is a no-op (router skips same-URL navigation). */
+  selectPerson(id: string): void {
+    void this.router.navigate(['/people', id], { replaceUrl: true });
+  }
+
+  /** Internal — kicks off the GET /api/people/:id. Always called from
+   * the paramMap subscription. Doesn't touch the URL. */
   openDetail(id: string): void {
     this.selectedLoading.set(true);
     this.api.getPerson(id).subscribe({
@@ -196,12 +237,25 @@ export class PeopleComponent implements OnInit {
         this.loadError.set(this.errorMessage(err));
       },
     });
-    // Reflect the open detail in the URL so the back button works.
-    void this.router.navigate(['/people', id], { replaceUrl: true });
+  }
+
+  /** Force a re-fetch of the open detail (e.g. after rename, assign,
+   * unassign — the data went stale). Bypasses the paramMap dedupe by
+   * resetting `_lastFetchedId` and re-firing through `selectPerson()` so
+   * the URL stays in sync (no-op for same-id refresh; real navigation
+   * for the merge survivor case). */
+  private refetchDetail(id: string): void {
+    this._lastFetchedId = null;
+    this.selectPerson(id);
+    // selectPerson just navigates; for same-id case the router skips the
+    // emit, so call openDetail() directly to actually refetch.
+    if (this.selected()?.id === id) {
+      this._lastFetchedId = id;
+      this.openDetail(id);
+    }
   }
 
   closeDetail(): void {
-    this.selected.set(null);
     void this.router.navigate(['/people'], { replaceUrl: true });
   }
 
@@ -242,7 +296,7 @@ export class PeopleComponent implements OnInit {
         // the survivor if the URL still points at the orphan.
         const open = this.selected();
         if (open && (open.id === personId || open.id === result.mergedFrom)) {
-          this.openDetail(result.id);
+          this.refetchDetail(result.id);
         }
       },
       error: (err) => {
@@ -298,7 +352,7 @@ export class PeopleComponent implements OnInit {
     this.api.assignFaceToPerson(face.assetId, face.faceIndex, target).subscribe({
       next: () => {
         const open = this.selected();
-        if (open) this.openDetail(open.id);
+        if (open) this.refetchDetail(open.id);
         this.refresh();
       },
       error: (err) => this.showToast(this.errorMessage(err), 'error'),
