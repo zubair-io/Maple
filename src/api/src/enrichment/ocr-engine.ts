@@ -219,14 +219,20 @@ export function createOcrEngine(cfg: RealEngineConfig = {}): OcrEngine {
 }
 
 /** Drop malformed/empty entries, convert tesseract's `{x0,y0,x1,y1}` to
- * the `{x,y,w,h}` shape used by the face bbox + the search layer. */
+ * the `{x,y,w,h}` shape used by the face bbox + the search layer. Any
+ * non-finite confidence (NaN / ±Infinity) collapses to 0 so it can't
+ * poison `meanConfidence()` downstream — the persisted `mean_confidence`
+ * must satisfy `number | null`, never NaN. */
 function normaliseWords(raw: TesseractWordRaw[] | undefined): RecognizedWord[] {
   if (!raw || raw.length === 0) return [];
   const out: RecognizedWord[] = [];
   for (const w of raw) {
     const text = (w.text ?? "").trim();
     if (text.length === 0) continue;
-    const conf = typeof w.confidence === "number" ? w.confidence : 0;
+    const conf =
+      typeof w.confidence === "number" && Number.isFinite(w.confidence)
+        ? Math.min(100, Math.max(0, w.confidence))
+        : 0;
     const b = w.bbox;
     const bbox =
       b && Number.isFinite(b.x0) && Number.isFinite(b.y0) && Number.isFinite(b.x1) && Number.isFinite(b.y1)

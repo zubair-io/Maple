@@ -249,15 +249,16 @@ export class PeopleComponent implements OnInit {
    * and `background-size` / `background-position` are computed so the
    * face fills the wrapper.
    *
-   * The bbox is in thumb-source pixel coords; we don't know the thumb's
-   * actual rendered size at the worker level, so we use percent-based
-   * background-position which is independent of the thumb's intrinsic
-   * dimensions.
+   * `bbox` is in normalised `[0,1]` proportions of the source image —
+   * the face detector emits them this way (see
+   * `api/enrichment/face-detector.ts`) and they survive end-to-end
+   * unchanged. Percent-based CSS positioning consumes proportions
+   * directly without needing to know the thumb's intrinsic pixel size.
    *
-   * NOTE: this assumes the face detector outputs bboxes that are
-   * normalised to the same aspect ratio as the thumb (which it is —
-   * see face-worker.ts). For library photos with weird aspect ratios
-   * the crop is approximate but recognisable.
+   * NOTE: this assumes the bbox shares the thumb's aspect ratio (it
+   * does — the face detector ran on the same thumbnail). For library
+   * photos with weird aspect ratios the crop is approximate but
+   * recognisable.
    */
   faceCropStyle(face: {
     assetId: string;
