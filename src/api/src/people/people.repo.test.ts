@@ -229,6 +229,40 @@ describe("people.repo — listPeople", () => {
     expect(anna?.faceCount).toBe(2);
     expect(beth?.faceCount).toBe(1);
   });
+
+  it("populates coverAbsPath from the cover_asset_id → assets.abs_path join", async () => {
+    if (!mongoReachable) return;
+    const { createPerson, listPeople } = await import("./people.repo.ts");
+    // Three people: one whose cover points at a real asset, one whose
+    // cover points at a deleted asset (the doc was removed but the
+    // people row still references it), one with no cover_asset_id at
+    // all. The first should resolve, the other two stay null.
+    const live = await createPerson("Live");
+    const orphan = await createPerson("Orphan");
+    const noCover = await createPerson("NoCover");
+    const liveAsset = await insertAssetWithFaces([
+      { bbox: { x: 0, y: 0, w: 10, h: 10 }, person_id: null, confidence: 0.9, embedding: makeEmbedding(512, 8) },
+    ]);
+    const livePath = (
+      await db!.collection<AssetDoc>("assets").findOne({ _id: liveAsset })
+    )?.abs_path;
+    expect(typeof livePath).toBe("string");
+    // Set covers directly. Mixed-case hex on the orphan exercises the
+    // safeObjectId normalisation in coverAbsPathByPerson.
+    await db!
+      .collection<PersonDoc>("people")
+      .updateOne({ _id: live._id }, { $set: { cover_asset_id: liveAsset.toHexString() } });
+    await db!.collection<PersonDoc>("people").updateOne(
+      { _id: orphan._id },
+      { $set: { cover_asset_id: new ObjectId().toHexString().toUpperCase() } },
+    );
+
+    const list = await listPeople({ withCounts: false });
+    const byName = new Map(list.map((r) => [r.person.name, r]));
+    expect(byName.get("Live")?.coverAbsPath).toBe(livePath ?? null);
+    expect(byName.get("Orphan")?.coverAbsPath).toBeNull();
+    expect(byName.get("NoCover")?.coverAbsPath).toBeNull();
+  });
 });
 
 describe("people.repo — assignFaceToPerson", () => {

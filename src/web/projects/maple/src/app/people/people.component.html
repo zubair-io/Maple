@@ -48,7 +48,8 @@
             <article
               class="group flex cursor-pointer flex-col gap-2 rounded-lg border border-border bg-surface p-3 hover:border-primary"
               [class.border-primary]="selected()?.id === p.id"
-              (click)="openDetail(p.id)"
+              (click)="selectPerson(p.id)"
+              (mapleVisibleOnce)="ensureCoverThumb(p)"
             >
               <!-- Cover thumb. <img loading="lazy"> defers off-screen
                    decode/render. The blob URL itself is cached by the
