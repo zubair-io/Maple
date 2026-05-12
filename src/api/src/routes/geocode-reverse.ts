@@ -38,8 +38,8 @@ export const geocodeReverseRoutes = new Elysia().get(
     }
     const lat = parseFloat(query.lat);
     const lon = parseFloat(query.lon);
-    const precision = query.precision
-      ? parseInt(query.precision, 10)
+    const precision = query.precision !== undefined
+      ? (/^\d+$/.test(query.precision) ? parseInt(query.precision, 10) : NaN)
       : DEFAULT_QUANTIZATION_DECIMALS;
     if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
       set.status = 400;
