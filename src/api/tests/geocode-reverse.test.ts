@@ -124,4 +124,20 @@ describe("GET /api/geocode/reverse", () => {
     );
     expect(res.status).toBe(404);
   });
+
+  test("?precision=2.5 (non-integer) → 400", async () => {
+    if (!mongoReachable) return;
+    const { geocodeReverseRoutes } = await import(
+      "../src/routes/geocode-reverse.ts"
+    );
+    const app = new Elysia().use(geocodeReverseRoutes);
+    const res = await app.handle(
+      new Request(
+        "http://localhost/api/geocode/reverse?lat=35.6801&lon=139.6901&precision=2.5",
+      ),
+    );
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toContain("precision");
+  });
 });
