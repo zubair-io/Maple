@@ -269,6 +269,32 @@ describe("POST /api/libraries/:id/backup/ingest", () => {
     expect(b2.error).toContain("mismatch");
   });
 
+  test("path collision (file already on disk, no Mongo row) → 500", async () => {
+    // Pre-create the file at the destination path before uploading
+    const captureDate = "2024-07-04T12:00:00Z";
+    const fname = "IMG_COLLISION.HEIC";
+    const targetDir = path.join(tmpLib, "2024/07/04");
+    await fs.mkdir(targetDir, { recursive: true });
+    const preExistingPath = path.join(targetDir, fname);
+    await fs.writeFile(preExistingPath, Buffer.alloc(64, 0));
+
+    const rCollide = await app.handle(ingest(Buffer.alloc(64, 11), {
+      "X-Maple-Device-Id": deviceId,
+      "X-Maple-Phasset-Id": "ABC/L0/COLLIDE",
+      "X-Maple-Capture-Date": captureDate,
+      "X-Maple-Filename": fname,
+      "X-Maple-Total-Bytes": "64",
+      "X-Maple-Maple-Id": "collision-maple-id",
+      "Content-Range": "bytes 0-63/64",
+    }));
+    expect(rCollide.status).toBe(500);
+    const b = await rCollide.json();
+    expect(b.error).toContain("path collision");
+
+    // Clean up
+    await fs.unlink(preExistingPath);
+  });
+
   test("library not found → 404", async () => {
     const fake = new ObjectId();
     const r = await app.handle(new Request(`http://localhost/api/libraries/${fake.toHexString()}/backup/ingest`, {
