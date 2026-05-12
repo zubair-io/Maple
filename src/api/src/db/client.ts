@@ -195,6 +195,19 @@ export async function ensureStageIndexes(db: Db): Promise<void> {
       { [`stages.${name}.version`]: 1 },
       { name: `stage_${name}_version` },
     );
+
+    // Tiny partial index on dead-lettered docs. Powers the dead-count branch
+    // of GET /api/workers/status — countDocuments({ stages.<name>.dead: true })
+    // becomes a count of index entries instead of a full collection scan.
+    // The partial filter keeps the index size proportional to the (small)
+    // set of dead docs, not the whole collection.
+    await db.collection("assets").createIndex(
+      { [`stages.${name}.dead`]: 1 },
+      {
+        name: `stage_${name}_dead`,
+        partialFilterExpression: { [`stages.${name}.dead`]: true },
+      },
+    );
   }
 }
 
