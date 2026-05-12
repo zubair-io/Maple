@@ -76,6 +76,9 @@ export const peopleRoutes = new Elysia({ prefix: "/api/people" })
       name: r.person.name,
       face_count: r.faceCount,
       cover_asset_id: r.person.cover_asset_id ?? null,
+      // Surfaced so the web can request the cover via /api/fs/thumb (the
+      // same URL the browse view uses) and reuse its blob-URL + HTTP cache.
+      cover_abs_path: r.coverAbsPath,
       created_at: r.person.created_at,
       updated_at: r.person.updated_at,
     }));

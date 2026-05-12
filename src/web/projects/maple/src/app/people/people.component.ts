@@ -17,8 +17,6 @@
 import {
   ChangeDetectionStrategy,
   Component,
-  DestroyRef,
-  OnDestroy,
   OnInit,
   computed,
   effect,
@@ -26,16 +24,16 @@ import {
   signal,
   untracked,
 } from '@angular/core';
-import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { NgStyle } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { firstValueFrom } from 'rxjs';
 import {
   ApiPerson,
   ApiPersonDetail,
+  ApiPersonFace,
   Bbox,
   BunApiBackendService,
+  FilesystemBrowseService,
 } from '@maple-common';
 
 type Tone = 'success' | 'error';
@@ -48,16 +46,16 @@ interface Toast {
 @Component({
   standalone: true,
   selector: 'maple-people',
-  imports: [FormsModule, NgStyle, RouterLink],
+  imports: [FormsModule, RouterLink],
   templateUrl: './people.component.html',
   styleUrl: './people.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class PeopleComponent implements OnInit, OnDestroy {
+export class PeopleComponent implements OnInit {
   private readonly api = inject(BunApiBackendService);
+  private readonly fsBrowse = inject(FilesystemBrowseService);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
-  private readonly destroyRef = inject(DestroyRef);
 
   /** Live list of people. Refreshed on init, after clustering, after
    * rename / delete. */
@@ -80,31 +78,36 @@ export class PeopleComponent implements OnInit, OnDestroy {
 
   readonly hasPeople = computed(() => this.people().length > 0);
 
-  /** assetId → `blob:` URL of the fetched thumbnail JPEG.
+  /** Cache key (`absPath` when present, otherwise `apiId:<id>`) → `blob:`
+   * URL of the fetched thumbnail JPEG.
    *
-   * Direct `<img src=/api/assets/:id/thumb>` and `background-image: url(...)`
-   * bypass Angular's HttpClient and so don't get the Bearer token from
-   * `authInterceptor` — the API would 401 every request. We fetch each
-   * thumb via HttpClient (interceptor attaches the bearer) and hand the
-   * template a `blob:` URL the browser can render with no extra auth. */
+   * Direct `<img src=/api/assets/:id/thumb>` bypasses Angular's HttpClient
+   * and so doesn't get the Bearer token from `authInterceptor` — the API
+   * would 401. We fetch via HttpClient (interceptor attaches the bearer)
+   * and hand the template a `blob:` URL the browser can render with no
+   * extra auth. The absPath path delegates to {@link FilesystemBrowseService}
+   * so the URL is shared with /browse's grid (same `/api/fs/thumb?path=…`
+   * URL → same in-memory blob, same browser HTTP cache entry). */
   private readonly thumbBlobs = signal<ReadonlyMap<string, string>>(new Map());
-  /** assetIds currently being fetched — prevents duplicate round-trips when
-   * the template re-evaluates a binding before the response lands. */
+  /** Cache keys currently being fetched — prevents duplicate round-trips
+   * when the template re-evaluates a binding before the response lands. */
   private readonly inflightThumbs = new Set<string>();
 
   ngOnInit(): void {
     this.refresh();
     // Deep-link support: `/people/:id` opens the detail panel for that
-    // person on first paint.
+    // person on first paint. Skip the round-trip when the URL change was
+    // triggered by our own `openDetail()` (which calls router.navigate);
+    // without this guard every card click costs two GET /api/people/:id.
     this.route.paramMap.subscribe((params) => {
       const id = params.get('id');
-      if (id) this.openDetail(id);
-      else this.selected.set(null);
+      if (id) {
+        if (this.selected()?.id === id) return;
+        this.openDetail(id);
+      } else {
+        this.selected.set(null);
+      }
     });
-  }
-
-  ngOnDestroy(): void {
-    for (const url of this.thumbBlobs().values()) URL.revokeObjectURL(url);
   }
 
   constructor() {
@@ -112,42 +115,64 @@ export class PeopleComponent implements OnInit, OnDestroy {
     // thumbs in the open detail panel). Reads of `people()` / `selected()`
     // make this re-run when the list or open person changes; the
     // `inflightThumbs` + blob-cache guard inside `ensureThumbBlob` dedupes
-    // repeat asset ids.
+    // repeat keys, and FilesystemBrowseService memoises across pages so
+    // covers already loaded by /browse don't re-fetch.
     effect(() => {
       for (const p of this.people()) {
-        if (p.coverAssetId) this.ensureThumbBlob(p.coverAssetId);
+        const key = this.coverCacheKey(p);
+        if (key) this.ensureThumbBlob(key, p.coverAbsPath, p.coverAssetId);
       }
       const detail = this.selected();
       if (detail) {
-        for (const f of detail.faces) this.ensureThumbBlob(f.assetId);
+        for (const f of detail.faces) {
+          this.ensureThumbBlob(f.absPath, f.absPath, f.assetId);
+        }
       }
     });
   }
 
-  private ensureThumbBlob(assetId: string): void {
-    if (!assetId) return;
-    if (this.inflightThumbs.has(assetId)) return;
+  /** Chooses the cache key for a person's cover. Prefer `absPath` so the
+   * blob URL is shared with /browse; fall back to a synthetic `apiId:`
+   * key when the cover asset doc was deleted (covers fetched via
+   * `/api/assets/:id/thumb` instead). */
+  private coverCacheKey(p: { coverAbsPath: string | null; coverAssetId: string | null }): string | null {
+    if (p.coverAbsPath) return p.coverAbsPath;
+    if (p.coverAssetId) return `apiId:${p.coverAssetId}`;
+    return null;
+  }
+
+  /** Idempotently load the blob URL for a thumb keyed by `cacheKey`. When
+   * `absPath` is set we delegate to `FilesystemBrowseService.getThumbBlobUrl`
+   * (singleton cache, shared with /browse). Otherwise we fall back to the
+   * api-id endpoint, which doesn't share with /browse but covers the
+   * orphan case where the asset doc has been deleted. */
+  private ensureThumbBlob(
+    cacheKey: string,
+    absPath: string | null,
+    apiAssetId: string | null,
+  ): void {
+    if (!cacheKey) return;
+    if (this.inflightThumbs.has(cacheKey)) return;
     // `untracked` so adding a new blob URL doesn't re-trigger the caller
     // effect — only `people()` / `selected()` changes should.
-    if (untracked(this.thumbBlobs).has(assetId)) return;
-    this.inflightThumbs.add(assetId);
-    // `takeUntilDestroyed` so an in-flight thumb fetch that lands after the
-    // user navigates away can't (a) allocate a new blob URL that escapes the
-    // `ngOnDestroy` revocation pass or (b) write to a torn-down signal.
-    this.api
-      .getThumb(assetId)
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({
-        next: (blob) => {
-          this.inflightThumbs.delete(assetId);
-          const url = URL.createObjectURL(blob);
-          const next = new Map(untracked(this.thumbBlobs));
-          next.set(assetId, url);
-          this.thumbBlobs.set(next);
-        },
-        error: () => {
-          this.inflightThumbs.delete(assetId);
-        },
+    if (untracked(this.thumbBlobs).has(cacheKey)) return;
+    this.inflightThumbs.add(cacheKey);
+
+    const promise: Promise<string> = absPath
+      ? this.fsBrowse.getThumbBlobUrl(absPath, 320)
+      : apiAssetId
+        ? firstValueFrom(this.api.getThumb(apiAssetId)).then((b) => URL.createObjectURL(b))
+        : Promise.reject(new Error('no asset reference'));
+
+    promise
+      .then((url) => {
+        this.inflightThumbs.delete(cacheKey);
+        const next = new Map(untracked(this.thumbBlobs));
+        next.set(cacheKey, url);
+        this.thumbBlobs.set(next);
+      })
+      .catch(() => {
+        this.inflightThumbs.delete(cacheKey);
       });
   }
 
@@ -291,66 +316,61 @@ export class PeopleComponent implements OnInit, OnDestroy {
     });
   }
 
-  // ── Cover-thumb URL helper ──────────────────────────────────────────
+  // ── Cover-thumb URL helpers ─────────────────────────────────────────
 
   /** Cover-thumb `blob:` URL or `null` if the fetch hasn't landed yet
-   * (template falls back to the initial letter). `coverAssetId` is the
-   * asset whose thumb represents the person; the CSS bbox crop on the
-   * wrapper div narrows it to just the face. */
+   * (template falls back to the initial letter). */
   coverThumbUrl(person: ApiPerson): string | null {
-    if (!person.coverAssetId) return null;
-    return this.thumbBlobs().get(person.coverAssetId) ?? null;
+    const key = this.coverCacheKey(person);
+    if (!key) return null;
+    return this.thumbBlobs().get(key) ?? null;
   }
 
-  /** Face-thumb `blob:` URL for the detail panel, or empty string while
-   * the fetch is in flight (the bbox-cropped div just shows its bg
-   * placeholder until the blob arrives). */
-  faceThumbUrl(assetId: string): string {
-    return this.thumbBlobs().get(assetId) ?? '';
+  /** Cover image for the detail-panel header. Reuses the same blob URL
+   * the grid card already loaded — looks up the original ApiPerson by id
+   * so we hit the same cache key (absPath when available). */
+  detailCoverUrl(detail: ApiPersonDetail): string | null {
+    const original = this.people().find((p) => p.id === detail.id);
+    if (original) return this.coverThumbUrl(original);
+    if (!detail.coverAssetId) return null;
+    return this.thumbBlobs().get(`apiId:${detail.coverAssetId}`) ?? null;
   }
 
-  /** Inline-styled bbox crop. The asset thumb is rendered as a
-   * background-image; the wrapper div is sized to the bbox aspect ratio
-   * and `background-size` / `background-position` are computed so the
-   * face fills the wrapper.
+  /** Face-thumb `blob:` URL for the detail panel, or `null` while the
+   * fetch is in flight (the wrapper div renders its placeholder bg). */
+  faceThumbUrl(face: ApiPersonFace): string | null {
+    return this.thumbBlobs().get(face.absPath) ?? null;
+  }
+
+  /** Bbox-crop transform for the face thumb `<img>`. The wrapper div is
+   * `aspect-square overflow-hidden`; the inner `<img>` is absolute-
+   * positioned and we scale + translate it so the bbox fills the wrapper.
+   * Same arithmetic the previous `background-size`/`background-position`
+   * trick used, expressed as a `transform` so we can put the URL on a
+   * native `<img loading="lazy">` instead of a background-image div.
    *
    * `bbox` is in normalised `[0,1]` proportions of the source image —
    * the face detector emits them this way (see
    * `api/enrichment/face-detector.ts`) and they survive end-to-end
-   * unchanged. Percent-based CSS positioning consumes proportions
-   * directly without needing to know the thumb's intrinsic pixel size.
+   * unchanged.
    *
    * NOTE: this assumes the bbox shares the thumb's aspect ratio (it
    * does — the face detector ran on the same thumbnail). For library
    * photos with weird aspect ratios the crop is approximate but
    * recognisable.
    */
-  faceCropStyle(face: {
-    assetId: string;
-    bbox: Bbox;
-  }): Record<string, string> {
-    const url = this.faceThumbUrl(face.assetId);
-    // Empty URL = blob fetch hasn't resolved yet. Skip background-image
-    // entirely rather than emitting `url()`, which renders as a broken
-    // image in some browsers.
-    if (!url) return {};
-    const { x, y, w, h } = face.bbox;
-    // Treat the bbox as proportions of the thumb's natural size. The
-    // worker emits pixel coords; without knowing the thumb dims we
-    // approximate by assuming the dominant face is roughly centred.
-    // The CSS scales the image so the bbox fills the wrapper; clamp to
-    // 1 to avoid divide-by-zero on bad data.
+  faceCropTransform(bbox: Bbox): string {
+    const { x, y, w, h } = bbox;
+    // Clamp to 0.01 to avoid divide-by-zero on bad data.
     const scaleX = Math.max(1, 1 / Math.max(0.01, w));
     const scaleY = Math.max(1, 1 / Math.max(0.01, h));
     const scale = Math.max(scaleX, scaleY);
-    const px = -x * scale * 100;
-    const py = -y * scale * 100;
-    return {
-      'background-image': `url(${url})`,
-      'background-size': `${scale * 100}% auto`,
-      'background-position': `${px}% ${py}%`,
-      'background-repeat': 'no-repeat',
-    };
+    // Translate first (in source-image %) then scale around the origin so
+    // the bbox top-left ends up at (0, 0). Equivalent to the bg-position%
+    // form, just expressed as a transform.
+    const tx = -x * 100;
+    const ty = -y * 100;
+    return `scale(${scale}) translate(${tx}%, ${ty}%)`;
   }
 
   // ── Helpers ─────────────────────────────────────────────────────────
