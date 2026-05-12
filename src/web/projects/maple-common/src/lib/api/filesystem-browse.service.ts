@@ -51,6 +51,14 @@ export interface FsImageEntry extends FsDirEntry {
   size: number;
   /** Lowercase extension, no dot. */
   ext: string;
+  /**
+   * Mongo asset `_id` (hex). Present when the indexer has registered this
+   * file; absent when the file hasn't been indexed yet. Used to call
+   * `/api/assets/:id` for the enriched detail payload (place, faces,
+   * description, ocr) — FS-walk assets have no other route back to the
+   * asset doc since the client-side id is `fs:${abs_path}`.
+   */
+  id?: string;
   exif?: FsImageExif | null;
 }
 
