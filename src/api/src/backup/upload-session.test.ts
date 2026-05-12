@@ -64,6 +64,48 @@ describe("uploadSessions", () => {
     expect(final?.maple_id).toBe("abc123");
   });
 
+  test("openOrResume throws on totalBytes mismatch", async () => {
+    await uploadSessions.openOrResume({
+      libraryId,
+      deviceId,
+      phassetLocalId: "mismatch-test",
+      totalBytes: 1024,
+      chunkSize: 256,
+      targetRelPath: "2024/03/15/IMG.heic",
+    });
+    await expect(
+      uploadSessions.openOrResume({
+        libraryId,
+        deviceId,
+        phassetLocalId: "mismatch-test",
+        totalBytes: 2048, // different from original
+        chunkSize: 256,
+        targetRelPath: "2024/03/15/IMG.heic",
+      })
+    ).rejects.toThrow("totalBytes mismatch");
+  });
+
+  test("openOrResume throws on targetRelPath mismatch", async () => {
+    await uploadSessions.openOrResume({
+      libraryId,
+      deviceId,
+      phassetLocalId: "mismatch-path-test",
+      totalBytes: 512,
+      chunkSize: 128,
+      targetRelPath: "2024/03/15/IMG_original.heic",
+    });
+    await expect(
+      uploadSessions.openOrResume({
+        libraryId,
+        deviceId,
+        phassetLocalId: "mismatch-path-test",
+        totalBytes: 512,
+        chunkSize: 128,
+        targetRelPath: "2024/03/15/IMG_hijacked.heic", // different path
+      })
+    ).rejects.toThrow("targetRelPath mismatch");
+  });
+
   test("gcAbandoned marks old open sessions as abandoned", async () => {
     const c = await uploadSessionsCollection();
     const old = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000);
