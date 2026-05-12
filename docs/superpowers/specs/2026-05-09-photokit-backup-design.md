@@ -70,7 +70,7 @@ Settings → "Photo Library backup" panel:
    - Bursts (default: picked frame only; toggle for "all frames")
    - iCloud Shared Library (default on)
    - Shared Albums (default off)
-6. **WiFi-only byte uploads** (default on; metadata uploads always allowed)
+6. **WiFi-only uploads** (default on; gates both bytes and sidecar metadata — see § 13)
 7. **Status panel** — queue size, in-flight count, current rate, last error, ETA, pause control.
 
 ### 8. Per-asset backup payload
@@ -91,30 +91,45 @@ This is an **additive** schema change — `docs/sidecar-schema.md` gets new opti
 
 ### 9. Folder layout
 
+Two shapes depending on whether the asset has GPS:
+
+**With GPS:** `<root>/<year>/<location>/<MM>-<DD>/<file>`
+
+**Without GPS (or geocode unavailable):** `<root>/<year>/<MM>/<DD>/<file>`
+
 ```
 <root>/
   2024/
     Tokyo/
-      03/                       ← day-of-month
+      03-15/                    ← month-day; "<MM>-<DD>" disambiguates trips spanning months
         IMG_0420.HEIC
         IMG_0420.HEIC.xmp
         IMG_0420.mov            ← Live Photo companion (shares base name)
         IMG_0421.mov            ← standalone video (separate asset)
-    Tokyo/
-      04/
+      03-16/
         ...
-    07/                         ← no-GPS month fallback for July 2024
+    07/                         ← no-GPS month-fallback for July 2024
       19/
         IMG_0512.HEIC
 ```
 
-- Top: capture year (from sidecar metadata; falls back to file mtime)
-- Middle: reverse-geocoded place name when GPS is present, two-digit month otherwise
-- Leaf: two-digit day-of-month
+Layout rules:
+- Top: capture year (from sidecar metadata; falls back to file mtime).
+- With GPS: middle is the reverse-geocoded place name; leaf is `<MM>-<DD>` so two-month visits to the same place stay separable.
+- Without GPS: middle is two-digit `<MM>`; leaf is two-digit `<DD>`.
 
-The path tree is for human browsing; the canonical date and location live in the sidecar and EXIF.
+The path is for human browsing; the canonical date and location live in the sidecar and EXIF.
 
-Reverse-geocoded place names come from the existing `src/api/src/enrichment/nominatim-client.ts` via a small new server endpoint (`GET /api/geocode/reverse?lat&lon`) that the device calls before deciding the upload path.
+**Location lookup.** Reverse-geocoded place names come from the existing server-side enrichment pipeline (`src/api/src/enrichment/nominatim-client.ts` + `geocode_cache` collection). The Place schema on `main` is already populated by the indexer; the location name lives at `place.pois[0].name`. A new server endpoint `GET /api/geocode/reverse?lat&lon&precision=…` wraps that infra and returns the matching `Place` (or `null` if Nominatim hasn't been called for this quantised coordinate yet and a live lookup wasn't requested). The device calls this before deciding the upload path:
+
+| Endpoint result | Device behaviour |
+| --- | --- |
+| `Place` with non-empty `pois[0].name` | Path = `<year>/<pois[0].name>/<MM>-<DD>/<file>` |
+| `Place` with empty `pois` but populated `rollups.locality` | Path = `<year>/<rollups.locality>/<MM>-<DD>/<file>` (fallback) |
+| `Place` with neither | Path = `<year>/<MM>/<DD>/<file>` (no-GPS shape) |
+| `null` / endpoint unreachable / timeout (5s) | Path = `<year>/<MM>/<DD>/<file>` (no-GPS shape) |
+
+**Geocode-after-upload is deferred.** Once the device picks the path for an asset, that path is final for v1. A later revision could add a server-side relocation pass that moves files when geocode results arrive late — out of scope here.
 
 ### 10. Continuous sync semantics
 
@@ -130,7 +145,8 @@ Reverse-geocoded place names come from the existing `src/api/src/enrichment/nomi
 
 Today, `PhotoKitSource.writeXMP` throws. After this work, it writes a regular `.xmp` file in App Support — same XMP format and same atomic write pattern as `XMPSidecarStore`, just keyed by `phassetLocalId` instead of by raw URL:
 
-- Path: `~/Library/Application Support/Maple/PhotoKitSidecars/<phassetLocalId>.xmp`
+- Path: `~/Library/Application Support/Maple/PhotoKitSidecars/<escapedPhassetLocalId>.xmp`
+- `escapedPhassetLocalId` is the raw `PHAsset.localIdentifier` with `/` replaced by `_`. Apple's identifiers look like `BFBBE32B-2C39-43A5-B7FC-1E9BC0577CFE/L0/001` — the slashes would create unintended subdirectories otherwise. The transform is reversible (slash never appears elsewhere in the identifier format) and the original identifier is also stored inside the XMP as `maple:phassetLocalId` for verification.
 - Same temp-then-`replaceItemAt` atomic write `XMPSidecarStore` already uses — no parallel storage layer, no schema, no SQLite
 - Read path: `PhotoKitSource.readXMP` (new) returns the App-Support `.xmp` when present, falling back to PhotoKit-only metadata otherwise
 - An `XMPSidecarStore`-shaped wrapper points `EditSession` at this path, so the rest of the edit pipeline doesn't know or care that the source is PhotoKit
@@ -148,8 +164,8 @@ The Browse view's timeline scroller becomes the union of two streams:
 
 Merge rule, per asset:
 
-- If the cloud row carries a `phasset_link` matching a local PHAsset → render from local (instant), badge as "synced".
-- If the cloud row has no matching `phasset_link` (e.g. asset deleted from Apple Photos but kept in cloud) → render from cloud, badge as "cloud-only".
+- If the cloud row carries a `phasset_links[]` entry matching a local PHAsset → render from local (instant), badge as "synced".
+- If the cloud row has no matching `phasset_links[]` entry (e.g. asset deleted from Apple Photos but kept in cloud) → render from cloud, badge as "cloud-only".
 - If the local PHAsset has no matching cloud row → render from local, badge as "local-only".
 
 Open path: prefer the local PhotoKit thumbnail (~5–50 ms via `PHImageManager`) when both are available. Fall back to the cloud thumbnail when the asset is `cloud-only`.
@@ -160,7 +176,7 @@ Open path: prefer the local PhotoKit thumbnail (~5–50 ms via `PHImageManager`)
 - Sidecar uploads (small) follow the same WiFi-only default; they're not a special-cased exception.
 - iOS low-power mode pauses uploads.
 - macOS Energy Saver: pauses when on battery if the user picks "Energy saver" power profile.
-- Resume: chunked upload with HTTP `Content-Range`. Server tracks per-`maple_id` upload offset; resume on app or agent restart picks up where it left off.
+- Resume: chunked upload with HTTP `Content-Range`. The server tracks upload offset by a `(device_id, phasset_local_id, upload_session_id)` key established when the first chunk arrives — these are all known at enqueue time, unlike `maple_id` which the device only learns after streaming the bytes. The `maple_id` is computed by the device as it reads bytes for the upload, and sent as a trailer/header on the final chunk; the server uses it as a *dedup* key (collapse to existing row with the same content hash) but not as the resume key.
 - Concurrency: 4 streams default, tuned per-platform.
 
 ### 14. Failure modes
@@ -232,7 +248,7 @@ phasset_links: [
 
 The same photo backed up from iPhone and Mac collapses to one row because both devices compute the same `maple_id` from the same bytes; the array carries both links.
 
-`maple_id` is computed **lazily** — at upload time on the device, not on enumerate. A 100 k-asset eager hash would block the engine for hours of pure I/O. Pre-upload identity uses `(deviceId, phassetLocalId)` for queueing; once the bytes are read for upload, the BLAKE3 hash falls out of the same read.
+`maple_id` is computed **lazily** — at upload time on the device, not on enumerate. A 100 k-asset eager hash would block the engine for hours of pure I/O. Pre-upload identity uses `(deviceId, phassetLocalId)` for queueing **and** as the resume key for chunked uploads (see § 13). Once the bytes are read for upload, the BLAKE3 hash falls out of the same read; the device sends it on the final chunk, and the server uses it as a dedup key to collapse onto any existing row with the same content hash.
 
 ### 17. Engine state machine
 
@@ -287,7 +303,7 @@ Indexes: `assets.phasset_links.phasset_local_id` (sparse), `backup_sessions.devi
 
 - `POST /api/libraries/:id/backup/ingest` — chunked upload; body is multipart with original + optional rendered + sidecar XML; metadata in headers (`X-Maple-Phasset-Id`, `X-Maple-Device-Id`, `X-Maple-Capture-Date`, `X-Maple-Lat`, `X-Maple-Lon`). Returns `{ maple_id, path }`.
 - `GET /api/libraries/:id/backup/state?device_id=…&since=…` — reconciliation feed; returns the list of assets the server has seen from this device since `since`. Used on launch + periodic safety walks.
-- `GET /api/geocode/reverse?lat&lon` — wraps `nominatim-client`, returns `{ place: string?, country: string?, locality: string? }`. Cached server-side using the existing coordinate cache.
+- `GET /api/geocode/reverse?lat&lon&precision=…` — returns the cached `Place` object from `geocode_cache` (existing collection, populated by the indexer enrichment phases). Schema matches `src/api/src/db/schema.ts::Place` — `pois[]`, `rollups`, `address`, etc. Device reads `place.pois[0].name` as the primary location string, falls back to `place.rollups.locality` when `pois` is empty. Returns `404` when the quantised coordinate hasn't been geocoded yet; the device treats this as "no location" and uses the month-only path (§ 9).
 
 All authenticated via the existing passkey-based session (see `2026-04-26-passkey-auth-design.md`).
 
