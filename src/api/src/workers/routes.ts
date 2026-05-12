@@ -27,7 +27,6 @@ import { WorkerConfigRepo } from "./worker-config.repo.ts";
 import type { WorkerConfig } from "./runtime/define-stage.ts";
 import type { ImageDoc } from "./runtime/define-stage.ts";
 import type { WorkerConfigDoc } from "./worker-config.repo.ts";
-import { ALL_STAGE_NAMES } from "./stages/manifest.ts";
 import { child } from "../log.ts";
 
 const log = child("workers:routes");
@@ -95,7 +94,7 @@ export function workerRoutes(supervisor: Supervisor): Elysia {
               .then((n) => ({ key: "pending" as const, name, n }))
               .catch((err) => {
                 log.warn(
-                  { stage: name, err: err instanceof Error ? err.message : err },
+                  { stage: name, err },
                   "countDocuments failed for pending — returning 0",
                 );
                 return { key: "pending" as const, name, n: 0 };
@@ -105,7 +104,7 @@ export function workerRoutes(supervisor: Supervisor): Elysia {
               .then((n) => ({ key: "dead" as const, name, n }))
               .catch((err) => {
                 log.warn(
-                  { stage: name, err: err instanceof Error ? err.message : err },
+                  { stage: name, err },
                   "countDocuments failed for dead — returning 0",
                 );
                 return { key: "dead" as const, name, n: 0 };
