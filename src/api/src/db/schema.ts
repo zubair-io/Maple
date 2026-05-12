@@ -123,6 +123,16 @@ export interface AssetDoc {
    * separate write. The Mongo `$text` index lives on this field
    * (Mongo allows only ONE text index per collection). */
   search_blob?: string;
+  /** Per-device link from Apple Photos. Multiple entries when the same
+   * content has been observed on more than one device. See
+   * `docs/superpowers/specs/2026-05-09-photokit-backup-design.md` §16. */
+  phasset_links?: PhotoKitAssetLink[];
+  /** Set when reconciliation observes the asset has been removed from Apple
+   * Photos on every linked device. The cloud copy is preserved. */
+  deleted_from_photos?: boolean;
+  /** Relative path (under the library root) of the Apple-rendered companion,
+   * when Apple Photos held edits at backup time. `null` for fresh originals. */
+  apple_rendered_path?: string | null;
 }
 
 export type AssetWithId = WithId<AssetDoc>;
@@ -488,3 +498,46 @@ export interface ChallengeDoc {
   expires_at: Date; // TTL — MUST be a Date (TTL monitor ignores ISO strings)
 }
 export type ChallengeWithId = WithId<ChallengeDoc>;
+
+// ---------------------------------------------------------------------------
+// PhotoKit backup
+// ---------------------------------------------------------------------------
+
+export interface PhotoKitAssetLink {
+  device_id: string;
+  phasset_local_id: string;
+  first_seen: Date;
+}
+
+/** One in-flight or resumable upload. Resume key is
+ * (library_id, device_id, phasset_local_id) — all known at enqueue. */
+export interface UploadSessionDoc {
+  _id: ObjectId;
+  library_id: ObjectId;
+  device_id: string;
+  phasset_local_id: string;
+  /** Target path under the library root, decided by the device pre-upload. */
+  target_rel_path: string;
+  total_bytes: number;
+  received_bytes: number;
+  chunk_size: number;
+  /** "open" | "completed" | "abandoned" — sessions older than 7d in "open" get GC'd. */
+  state: "open" | "completed" | "abandoned";
+  created_at: Date;
+  updated_at: Date;
+  /** Set on the final chunk; used for dedup against existing AssetDoc rows. */
+  maple_id?: string;
+}
+
+/** Per-device, per-library progress summary. Updated by the ingest endpoint
+ * so the device can render "X% done from this device" without scanning assets. */
+export interface BackupSessionDoc {
+  _id: ObjectId;
+  library_id: ObjectId;
+  device_id: string;
+  started_at: Date;
+  last_progress_at: Date;
+  total_count: number;
+  uploaded_count: number;
+  failed_count: number;
+}
