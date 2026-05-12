@@ -143,6 +143,14 @@ export interface AssetDoc {
   /** Relative path (under the library root) of the Apple-rendered companion,
    * when Apple Photos held edits at backup time. `null` for fresh originals. */
   apple_rendered_path?: string | null;
+  /**
+   * BLAKE3 hex of the canonical original bytes. Set by the backup ingest
+   * endpoint; null/absent for assets indexed by other paths (the indexer
+   * pipeline does not compute it — only the PhotoKit backup path does).
+   * Used as the deduplication key when the same content arrives from
+   * multiple devices.
+   */
+  maple_id?: string;
 }
 
 export type AssetWithId = WithId<AssetDoc>;
