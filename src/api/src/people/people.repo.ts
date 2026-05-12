@@ -305,6 +305,10 @@ async function coverAbsPathByPerson(
   people: WithId<PersonDoc>[],
 ): Promise<Map<string, string>> {
   const out = new Map<string, string>();
+  // Key by lowercase hex (`oid.toHexString()`) on both sides — Mongo
+  // accepts mixed-case hex in `cover_asset_id` strings, but `_id`s round-
+  // trip as lowercase. Normalising via `safeObjectId(...).toHexString()`
+  // guarantees the keys match.
   const personByCover = new Map<string, string>();
   const coverObjectIds: ObjectId[] = [];
   for (const p of people) {
@@ -313,7 +317,7 @@ async function coverAbsPathByPerson(
     const oid = safeObjectId(coverHex);
     if (!oid) continue;
     coverObjectIds.push(oid);
-    personByCover.set(coverHex, p._id.toHexString());
+    personByCover.set(oid.toHexString(), p._id.toHexString());
   }
   if (coverObjectIds.length === 0) return out;
   const assets = await assetsCollection();
