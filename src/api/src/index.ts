@@ -46,6 +46,7 @@ import { jobsRoutes } from "./routes/jobs.ts";
 import { enrichmentRoutes } from "./routes/enrichment.ts";
 import { meilisearchBackfillRoutes } from "./routes/admin-backfill-meilisearch.ts";
 import { peopleRoutes } from "./routes/people.ts";
+import { geocodeReverseRoutes } from "./routes/geocode-reverse.ts";
 import { requireAuth } from "./auth/middleware.ts";
 import { staticUiPlugin } from "./routes/static_ui.ts";
 import { getDb, ensureIndexes, closeDb, foldersCollection } from "./db/client.ts";
@@ -187,6 +188,10 @@ export function buildApp(opts: { stageNames?: string[] } = {}): Elysia & { super
     // sub-tree internally, so the whole authRoutes plugin can sit outside the gate.
     .use(healthRoutes)
     .use(authRoutes)
+    // Read-only geocode cache lookup — used by PhotoKit-backup clients to
+    // determine a destination folder path before uploading; no auth required
+    // since it returns no user data (only Place metadata keyed by lat/lon).
+    .use(geocodeReverseRoutes)
     // /api/events self-authenticates via a `?token=` query parameter on the
     // WS handshake (browsers can't send Authorization headers on
     // `new WebSocket()`). Mounting it here keeps it outside the bearer-only
