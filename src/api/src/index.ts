@@ -47,6 +47,7 @@ import { enrichmentRoutes } from "./routes/enrichment.ts";
 import { meilisearchBackfillRoutes } from "./routes/admin-backfill-meilisearch.ts";
 import { peopleRoutes } from "./routes/people.ts";
 import { geocodeReverseRoutes } from "./routes/geocode-reverse.ts";
+import { backupIngestRoutes } from "./routes/backup-ingest.ts";
 import { requireAuth } from "./auth/middleware.ts";
 import { staticUiPlugin } from "./routes/static_ui.ts";
 import { getDb, ensureIndexes, closeDb, foldersCollection } from "./db/client.ts";
@@ -192,6 +193,10 @@ export function buildApp(opts: { stageNames?: string[] } = {}): Elysia & { super
     // determine a destination folder path before uploading; no auth required
     // since it returns no user data (only Place metadata keyed by lat/lon).
     .use(geocodeReverseRoutes)
+    // Chunked, resumable backup ingest from PhotoKit-backed devices. No auth
+    // gate yet — the passkey auth design (PR 2026-04-26) hasn't landed. Once
+    // it does, this route should move behind requireAuth.
+    .use(backupIngestRoutes)
     // /api/events self-authenticates via a `?token=` query parameter on the
     // WS handshake (browsers can't send Authorization headers on
     // `new WebSocket()`). Mounting it here keeps it outside the bearer-only
@@ -227,6 +232,13 @@ export function buildApp(opts: { stageNames?: string[] } = {}): Elysia & { super
   (app as unknown as Record<string, unknown>)["supervisor"] = supervisor;
   return app as unknown as Elysia & { supervisor: Supervisor };
 }
+
+/**
+ * Singleton app instance used by tests that import `{ app }` directly.
+ * Constructed with an empty stage list so the supervisor doesn't try to
+ * spawn worker processes during test runs.
+ */
+export const app = buildApp({ stageNames: [] });
 
 // ---------------------------------------------------------------------------
 // Startup
