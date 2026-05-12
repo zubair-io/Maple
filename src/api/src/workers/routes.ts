@@ -36,67 +36,77 @@ export function workerRoutes(supervisor: Supervisor): Elysia {
   return new Elysia({ prefix: "/api/workers" })
 
     .get("/status", async () => {
-      // Pull fresh inFlight + throughput from each running child's IPC
-      // /status endpoint. Without this, supervisor.statuses() returns the
-      // values captured at startup and never updates — the UI reports
-      // 0 in-flight + "—" throughput even when workers are processing.
-      await supervisor.refreshLiveStatus();
-      const statuses = supervisor.statuses();
-      const stageNames = Object.keys(statuses);
+      // Run the supervisor IPC refresh concurrently with the DB work — both
+      // are I/O-bound and independent. refreshLiveStatus is bounded by the
+      // child-side 300 ms AbortSignal.timeout, so total wall time = max(
+      // IPC fan-out, DB fan-out) instead of their sum.
+      const refreshPromise = supervisor.refreshLiveStatus();
 
       // DB collections — fetched once for all stages.
-      let assets: import("mongodb").Collection<import("mongodb").Document> | null = null;
-      let configColl: ReturnType<Awaited<ReturnType<typeof getDb>>["collection"]> | null = null;
-      let facetCounts: Record<string, Array<{ n: number }>> = {};
+      let assets:
+        | import("mongodb").Collection<import("mongodb").Document>
+        | null = null;
       let configMap = new Map<string, WorkerConfig>();
+      let pendingByStage = new Map<string, number>();
+      let deadByStage = new Map<string, number>();
 
       try {
         const db = await getDb();
-        assets = db.collection("assets") as import("mongodb").Collection<import("mongodb").Document>;
-        configColl = db.collection<WorkerConfigDoc>("worker_config");
+        assets = db.collection("assets") as import("mongodb").Collection<
+          import("mongodb").Document
+        >;
+        const configColl = db.collection<WorkerConfigDoc>("worker_config");
 
         // Load all worker configs in one query.
-        const allConfigs = await (configColl as import("mongodb").Collection<WorkerConfigDoc>).find({}).toArray();
+        const allConfigs = await configColl.find({}).toArray();
         for (const cfg of allConfigs) {
           configMap.set(cfg.name, cfg);
         }
+      } catch {
+        // DB unavailable — counts remain zeros, configMap empty.
+      }
 
-        // Build a single $facet aggregation to count pending + dead for every
-        // stage in one round trip instead of 2×N sequential countDocuments calls.
-        const facetSpec: Record<string, unknown[]> = {};
-        for (const name of stageNames) {
-          // Use the stage's live targetVersion from the supervisor state.
-          // Falls back to 1 when the IPC hasn't reported yet (stage just started).
-          const tv = statuses[name]?.targetVersion ?? 1;
-          facetSpec[`${name}_pending`] = [
-            {
-              $match: {
+      // We need the supervisor statuses before we know per-stage targetVersions,
+      // but refreshLiveStatus mutates the in-memory state, so await it first.
+      await refreshPromise;
+      const statuses = supervisor.statuses();
+      const stageNames = Object.keys(statuses);
+
+      if (assets && stageNames.length > 0) {
+        // Fan out 2 indexed countDocuments per stage in parallel.
+        // The pending query uses { stages.<name>.version: 1 } via the $lt branch
+        // and via the $exists:false branch (Mongo indexes missing-field docs
+        // as null entries on a non-sparse index). The dead query hits the new
+        // partial index { stages.<name>.dead: 1 } filtered to dead:true.
+        const counts = await Promise.all(
+          stageNames.flatMap((name) => {
+            const tv = statuses[name]?.targetVersion ?? 1;
+            const pending = assets!
+              .countDocuments({
                 $or: [
                   { [`stages.${name}.version`]: { $lt: tv } },
                   { [`stages.${name}.version`]: { $exists: false } },
                 ],
                 [`stages.${name}.dead`]: { $ne: true },
-              },
-            },
-            { $count: "n" },
-          ];
-          facetSpec[`${name}_dead`] = [
-            { $match: { [`stages.${name}.dead`]: true } },
-            { $count: "n" },
-          ];
+              })
+              .then((n) => ({ key: "pending" as const, name, n }))
+              .catch(() => ({ key: "pending" as const, name, n: 0 }));
+            const dead = assets!
+              .countDocuments({ [`stages.${name}.dead`]: true })
+              .then((n) => ({ key: "dead" as const, name, n }))
+              .catch(() => ({ key: "dead" as const, name, n: 0 }));
+            return [pending, dead];
+          }),
+        );
+        for (const c of counts) {
+          if (c.key === "pending") pendingByStage.set(c.name, c.n);
+          else deadByStage.set(c.name, c.n);
         }
-
-        if (stageNames.length > 0) {
-          const [result] = await assets.aggregate([{ $facet: facetSpec }]).toArray();
-          facetCounts = result as typeof facetCounts;
-        }
-      } catch {
-        // DB unavailable — all counts remain zeros, configMap empty
       }
 
       const stages = Object.entries(statuses).map(([name, s]) => {
-        const pending = facetCounts[`${name}_pending`]?.[0]?.n ?? 0;
-        const dead = facetCounts[`${name}_dead`]?.[0]?.n ?? 0;
+        const pending = pendingByStage.get(name) ?? 0;
+        const dead = deadByStage.get(name) ?? 0;
         const config = configMap.get(name) ?? null;
         const configured = config?.concurrency ?? 0;
         const batchSize = config?.batchSize ?? 0;
@@ -105,7 +115,9 @@ export function workerRoutes(supervisor: Supervisor): Elysia {
         // poll loop is paused (config.paused = true) should read as
         // "paused" in the UI, not "running".
         const status =
-          s.status === "running" && config?.paused === true ? "paused" : s.status;
+          s.status === "running" && config?.paused === true
+            ? "paused"
+            : s.status;
         return {
           name,
           status,
