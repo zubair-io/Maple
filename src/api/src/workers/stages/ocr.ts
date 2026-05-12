@@ -50,23 +50,30 @@ const DEFAULT_MIN_CONFIDENCE = 60;
 const DEFAULT_WORD_CONFIDENCE_FLOOR = 20;
 
 function minConfidence(): number {
-  return parsePositiveNumber(
+  return parseConfidenceEnv(
     process.env.MAPLE_OCR_MIN_CONFIDENCE,
     DEFAULT_MIN_CONFIDENCE,
   );
 }
 
 function wordConfidenceFloor(): number {
-  return parsePositiveNumber(
+  return parseConfidenceEnv(
     process.env.MAPLE_OCR_WORD_CONFIDENCE_FLOOR,
     DEFAULT_WORD_CONFIDENCE_FLOOR,
   );
 }
 
-function parsePositiveNumber(raw: string | undefined, fallback: number): number {
+/** Parse an env-supplied 0–100 confidence value. Falls back to
+ * `fallback` for unset/non-finite input and clamps the parsed number
+ * into `[0, 100]` — Tesseract confidences are already bounded that
+ * way, so an out-of-range override is a misconfiguration, not a
+ * feature. Clamping (rather than rejecting) keeps `=0` and `=100`
+ * usable as "disable the gate" / "require perfect confidence". */
+function parseConfidenceEnv(raw: string | undefined, fallback: number): number {
   if (!raw) return fallback;
   const n = Number.parseFloat(raw);
-  return Number.isFinite(n) ? n : fallback;
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(100, Math.max(0, n));
 }
 
 export async function ocrHandler(
