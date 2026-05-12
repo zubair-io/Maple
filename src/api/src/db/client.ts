@@ -723,6 +723,12 @@ export async function ensureIndexes(): Promise<void> {
     { unique: true, name: "upload_sessions_resume_key" },
   );
 
+  // upload_sessions: TTL — abandoned uploads are swept by MongoDB after 7 days.
+  await db.collection("upload_sessions").createIndex(
+    { updated_at: 1 },
+    { name: "upload_sessions_ttl", expireAfterSeconds: 7 * 24 * 3600 },
+  );
+
   await ensureStageIndexes(db);
 
   log.info("indexes ensured");
