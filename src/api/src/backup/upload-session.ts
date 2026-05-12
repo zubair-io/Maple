@@ -33,7 +33,15 @@ export const uploadSessions = {
       phasset_local_id: args.phassetLocalId,
       state: "open",
     });
-    if (existing) return existing;
+    if (existing) {
+      if (existing.total_bytes !== args.totalBytes) {
+        throw new Error("openOrResume: totalBytes mismatch");
+      }
+      if (existing.target_rel_path !== args.targetRelPath) {
+        throw new Error("openOrResume: targetRelPath mismatch");
+      }
+      return existing;
+    }
     const now = new Date();
     const doc: UploadSessionDoc = {
       _id: new ObjectId(),
