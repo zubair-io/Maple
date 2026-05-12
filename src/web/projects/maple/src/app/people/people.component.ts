@@ -30,6 +30,7 @@ import {
   ApiPerson,
   ApiPersonDetail,
   API_BASE_URL,
+  Bbox,
   BunApiBackendService,
 } from '@maple-common';
 
@@ -228,11 +229,12 @@ export class PeopleComponent implements OnInit {
 
   // ── Cover-thumb URL helper ──────────────────────────────────────────
 
-  /** URL for the cover thumbnail. Falls back to a placeholder asset id
-   * derived from the cover face id (which is itself optional). */
+  /** URL for the cover thumbnail. `coverAssetId` is the asset id whose
+   * thumb is used as the person's representative image; the CSS bbox
+   * crop on the wrapper div narrows it down to just the face. */
   coverThumbUrl(person: ApiPerson): string | null {
-    if (!person.coverFaceId) return null;
-    return `${this.base}/assets/${person.coverFaceId}/thumb`;
+    if (!person.coverAssetId) return null;
+    return `${this.base}/assets/${person.coverAssetId}/thumb`;
   }
 
   /** URL for a face thumbnail in the detail panel. The bbox crop happens
@@ -259,7 +261,7 @@ export class PeopleComponent implements OnInit {
    */
   faceCropStyle(face: {
     assetId: string;
-    bbox: { x: number; y: number; w: number; h: number };
+    bbox: Bbox;
   }): Record<string, string> {
     const { x, y, w, h } = face.bbox;
     // Treat the bbox as proportions of the thumb's natural size. The

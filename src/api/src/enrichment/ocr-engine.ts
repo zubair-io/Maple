@@ -13,17 +13,28 @@
  */
 
 import { child as childLogger } from "../log.ts";
+import type { Bbox } from "../db/schema.ts";
 
 const log = childLogger("enrichment:ocr-engine");
 
-/** Bumped when the engine's output shape changes meaningfully (e.g.
- * a new tesseract major version, or a switch in OEM). Workers compare
- * this against `enrichment.ocr.version` to decide whether to rerun. */
-export const OCR_ENGINE_VERSION = "tesseract@5.1";
+/** Stamped into `ocr_meta.engine_version` for human-readable provenance
+ * only. The worker runtime decides whether to re-run a stage based on the
+ * numeric `targetVersion` declared on the stage definition (see
+ * `workers/stages/ocr.ts`), NOT this string. Bumping this constant
+ * without also bumping `targetVersion` is a no-op for reprocessing. */
+export const OCR_ENGINE_VERSION = "tesseract@5.1-conf";
 
 /** The duration of inactivity after which the scheduler tears itself
  * down. Tunable via env mostly so tests can shrink it. */
 const IDLE_TEARDOWN_MS_DEFAULT = 5 * 60 * 1_000;
+
+/** Per-word output. Bboxes are in input-image pixel coordinates. */
+export interface RecognizedWord {
+  text: string;
+  /** Engine-reported confidence, 0–100. */
+  confidence: number;
+  bbox: Bbox;
+}
 
 export interface RecognitionResult {
   /** Recognised text, normalised to LF newlines. Empty when nothing
@@ -34,6 +45,11 @@ export interface RecognitionResult {
   engine: "tesseract";
   /** Engine version string for provenance. */
   engine_version: string;
+  /** Mean engine confidence over the page, 0–100. `null` when the engine
+   * gave us no useful signal (e.g. zero words detected). */
+  mean_confidence: number | null;
+  /** Per-word output — always present; `[]` when nothing was detected. */
+  words: RecognizedWord[];
 }
 
 /** Pluggable engine surface so tests can swap the real Tesseract for a
@@ -44,14 +60,33 @@ export interface OcrEngine {
   shutdown(): Promise<void>;
 }
 
+/** Tesseract-side word shape. Only the fields we actually consume are
+ * typed; `bbox` is the engine's `{x0, y0, x1, y1}` rectangle. */
+interface TesseractWordRaw {
+  text?: string;
+  confidence?: number;
+  bbox?: { x0: number; y0: number; x1: number; y1: number };
+}
+
+/** Result shape returned by tesseract.js's `recognize` job. Lifted into
+ * `RecognitionResult` by the engine wrapper. */
+interface TesseractRecognizeData {
+  text: string;
+  confidence?: number;
+  words?: TesseractWordRaw[];
+}
+
 interface TesseractWorker {
-  recognize(image: unknown): Promise<{ data: { text: string } }>;
+  recognize(image: unknown): Promise<{ data: TesseractRecognizeData }>;
   terminate(): Promise<unknown>;
 }
 
 interface TesseractScheduler {
   addWorker(worker: TesseractWorker): string;
-  addJob(action: "recognize", image: unknown): Promise<{ data: { text: string } }>;
+  addJob(
+    action: "recognize",
+    image: unknown,
+  ): Promise<{ data: TesseractRecognizeData }>;
   terminate(): Promise<unknown>;
 }
 
@@ -146,10 +181,17 @@ export function createOcrEngine(cfg: RealEngineConfig = {}): OcrEngine {
         // URLs / image elements. We pass the bytes through directly.
         const { data } = await s.addJob("recognize", jpegBytes);
         const text = (data.text ?? "").replace(/\r\n/g, "\n").trim();
+        const words = normaliseWords(data.words);
+        const mean_confidence =
+          typeof data.confidence === "number" && Number.isFinite(data.confidence)
+            ? data.confidence
+            : meanConfidence(words);
         return {
           text,
           engine: "tesseract",
           engine_version: OCR_ENGINE_VERSION,
+          mean_confidence,
+          words,
         };
       } finally {
         inFlight -= 1;
@@ -174,6 +216,40 @@ export function createOcrEngine(cfg: RealEngineConfig = {}): OcrEngine {
       }
     },
   };
+}
+
+/** Drop malformed/empty entries, convert tesseract's `{x0,y0,x1,y1}` to
+ * the `{x,y,w,h}` shape used by the face bbox + the search layer. */
+function normaliseWords(raw: TesseractWordRaw[] | undefined): RecognizedWord[] {
+  if (!raw || raw.length === 0) return [];
+  const out: RecognizedWord[] = [];
+  for (const w of raw) {
+    const text = (w.text ?? "").trim();
+    if (text.length === 0) continue;
+    const conf = typeof w.confidence === "number" ? w.confidence : 0;
+    const b = w.bbox;
+    const bbox =
+      b && Number.isFinite(b.x0) && Number.isFinite(b.y0) && Number.isFinite(b.x1) && Number.isFinite(b.y1)
+        ? {
+            x: Math.min(b.x0, b.x1),
+            y: Math.min(b.y0, b.y1),
+            w: Math.abs(b.x1 - b.x0),
+            h: Math.abs(b.y1 - b.y0),
+          }
+        : { x: 0, y: 0, w: 0, h: 0 };
+    out.push({ text, confidence: conf, bbox });
+  }
+  return out;
+}
+
+/** Fallback mean confidence when the engine didn't give us a page-level
+ * number. Returns `null` on an empty word list so callers can distinguish
+ * "no signal" from "low signal". */
+function meanConfidence(words: RecognizedWord[]): number | null {
+  if (words.length === 0) return null;
+  let sum = 0;
+  for (const w of words) sum += w.confidence;
+  return sum / words.length;
 }
 
 // Module-level singleton — same pattern as `meilisearchClient()` so
