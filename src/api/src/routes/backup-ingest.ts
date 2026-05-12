@@ -143,7 +143,7 @@ export const backupIngestRoutes = new Elysia().post(
     const isFinalChunk = end + 1 === rangeTotal;
     if (!isFinalChunk) {
       set.status = 202;
-      return { next_offset: session.received_bytes + buf.byteLength };
+      return { next_offset: end + 1 };
     }
 
     // -----------------------------------------------------------------------
