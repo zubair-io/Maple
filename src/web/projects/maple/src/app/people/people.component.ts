@@ -17,6 +17,7 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  DestroyRef,
   OnDestroy,
   OnInit,
   computed,
@@ -25,6 +26,7 @@ import {
   signal,
   untracked,
 } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { NgStyle } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
@@ -55,6 +57,7 @@ export class PeopleComponent implements OnInit, OnDestroy {
   private readonly api = inject(BunApiBackendService);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
+  private readonly destroyRef = inject(DestroyRef);
 
   /** Live list of people. Refreshed on init, after clustering, after
    * rename / delete. */
@@ -128,18 +131,24 @@ export class PeopleComponent implements OnInit, OnDestroy {
     // effect — only `people()` / `selected()` changes should.
     if (untracked(this.thumbBlobs).has(assetId)) return;
     this.inflightThumbs.add(assetId);
-    this.api.getThumb(assetId).subscribe({
-      next: (blob) => {
-        this.inflightThumbs.delete(assetId);
-        const url = URL.createObjectURL(blob);
-        const next = new Map(untracked(this.thumbBlobs));
-        next.set(assetId, url);
-        this.thumbBlobs.set(next);
-      },
-      error: () => {
-        this.inflightThumbs.delete(assetId);
-      },
-    });
+    // `takeUntilDestroyed` so an in-flight thumb fetch that lands after the
+    // user navigates away can't (a) allocate a new blob URL that escapes the
+    // `ngOnDestroy` revocation pass or (b) write to a torn-down signal.
+    this.api
+      .getThumb(assetId)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (blob) => {
+          this.inflightThumbs.delete(assetId);
+          const url = URL.createObjectURL(blob);
+          const next = new Map(untracked(this.thumbBlobs));
+          next.set(assetId, url);
+          this.thumbBlobs.set(next);
+        },
+        error: () => {
+          this.inflightThumbs.delete(assetId);
+        },
+      });
   }
 
   refresh(): void {
