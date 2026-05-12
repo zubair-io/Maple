@@ -19,8 +19,9 @@
  */
 import { Elysia, t } from "elysia";
 import { ObjectId } from "mongodb";
-import { assetsCollection } from "../db/client.ts";
-import type { PhotoKitAssetLink, AssetDoc } from "../db/schema.ts";
+import { assetsCollection, foldersCollection } from "../db/client.ts";
+import type { PhotoKitAssetLink, AssetDoc, FolderDoc } from "../db/schema.ts";
+import path from "node:path";
 
 export const backupStateRoutes = new Elysia().get(
   "/api/libraries/:libraryId/backup/state",
@@ -38,6 +39,13 @@ export const backupStateRoutes = new Elysia().get(
       return { error: "since must be a valid ISO timestamp" };
     }
 
+    // Resolve the folder so we can compute library-relative paths.
+    const folder = await (await foldersCollection()).findOne<{ path: string }>({ _id: libraryId }, { projection: { path: 1 } });
+    if (!folder) {
+      set.status = 404;
+      return { error: "library not found" };
+    }
+
     type ProjectedAsset = Pick<AssetDoc, "filename" | "abs_path" | "phasset_links" | "maple_id"> & { _id: ObjectId };
 
     const a = await assetsCollection();
@@ -53,7 +61,7 @@ export const backupStateRoutes = new Elysia().get(
           phasset_local_id: l.phasset_local_id,
           first_seen: l.first_seen,
           maple_id: r.maple_id,
-          rel_path: r.abs_path,
+          rel_path: path.relative(folder.path, r.abs_path),
         }))
     );
     return { assets: out };
