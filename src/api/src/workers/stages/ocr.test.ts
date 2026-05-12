@@ -277,6 +277,35 @@ describe("ocrHandler — confidence gate", () => {
     const patch = patchOf(await ocrHandler(doc, noopCtx));
     expect(patch.ocr_words).toHaveLength(2);
   });
+
+  it("clamps out-of-range confidence env values into [0, 100]", async () => {
+    // Negative would otherwise silently disable the gate (every mean
+    // confidence >= -1); >100 would silently blank all OCR text.
+    process.env.MAPLE_OCR_MIN_CONFIDENCE = "-5";
+    const absPath = join(tmpRoot, "neg.dng");
+    seedThumb(absPath);
+    const doc = fakeDoc(absPath);
+    setOcrEngineForTests(
+      fakeEngine({
+        text: "any text",
+        mean_confidence: 0,
+        words: [],
+      }),
+    );
+    // Clamped to 0 → mean_confidence (0) passes the gate (>= 0).
+    expect(patchOf(await ocrHandler(doc, noopCtx)).ocr_text).toBe("any text");
+
+    process.env.MAPLE_OCR_MIN_CONFIDENCE = "999";
+    setOcrEngineForTests(
+      fakeEngine({
+        text: "perfect text",
+        mean_confidence: 100,
+        words: [],
+      }),
+    );
+    // Clamped to 100 → exactly-100 mean_confidence still passes (>= not >).
+    expect(patchOf(await ocrHandler(doc, noopCtx)).ocr_text).toBe("perfect text");
+  });
 });
 
 describe("ocrHandler — missing thumb returns skip", () => {

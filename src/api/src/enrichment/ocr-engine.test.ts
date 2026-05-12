@@ -184,6 +184,51 @@ describe("createOcrEngine — lazy init + result shape", () => {
     await engine.shutdown();
   });
 
+  it("coerces non-finite word confidences to 0 instead of poisoning the mean", async () => {
+    const inputBytes = new Uint8Array([99]);
+    const responses = new Map<string, FakeResponse>();
+    responses.set(String(inputBytes), {
+      text: "two words",
+      // No top-level confidence — forces the per-word mean fallback.
+      words: [
+        { text: "two", confidence: 80, bbox: { x0: 0, y0: 0, x1: 10, y1: 10 } },
+        // NaN is what we'd get if Tesseract ever emitted a malformed entry.
+        // Without coercion the mean would itself be NaN.
+        { text: "words", confidence: Number.NaN, bbox: { x0: 12, y0: 0, x1: 50, y1: 10 } },
+      ],
+    });
+    const engine = createOcrEngine({
+      languages: "eng",
+      idleTeardownMs: 60_000,
+      loadTesseract: async () => fakeTesseract({ responses }),
+    });
+    const r = await engine.recognizeText(inputBytes);
+    expect(r.words.map((w) => w.confidence)).toEqual([80, 0]);
+    expect(r.mean_confidence).toBe(40); // (80 + 0) / 2 — never NaN.
+    await engine.shutdown();
+  });
+
+  it("clamps out-of-range word confidences into [0, 100]", async () => {
+    const inputBytes = new Uint8Array([12]);
+    const responses = new Map<string, FakeResponse>();
+    responses.set(String(inputBytes), {
+      text: "x",
+      confidence: 60,
+      words: [
+        { text: "neg", confidence: -50, bbox: { x0: 0, y0: 0, x1: 10, y1: 10 } },
+        { text: "huge", confidence: 9_999, bbox: { x0: 0, y0: 0, x1: 10, y1: 10 } },
+      ],
+    });
+    const engine = createOcrEngine({
+      languages: "eng",
+      idleTeardownMs: 60_000,
+      loadTesseract: async () => fakeTesseract({ responses }),
+    });
+    const r = await engine.recognizeText(inputBytes);
+    expect(r.words.map((w) => w.confidence)).toEqual([0, 100]);
+    await engine.shutdown();
+  });
+
   it("returns null mean_confidence when the engine produces no words", async () => {
     const inputBytes = new Uint8Array([42]);
     const responses = new Map<string, FakeResponse>();

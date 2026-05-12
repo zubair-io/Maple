@@ -46,8 +46,12 @@ export interface ApiAssetPage {
 // Mirror the Mongo schema (`src/api/src/db/schema.ts`). Snake_case fields
 // because the API ships the documents as-is for fidelity.
 
-/** Axis-aligned bounding box. Pixel coordinates relative to whichever
- * image produced the box (face detector → source image; OCR → thumb). */
+/** Axis-aligned bounding box. Coordinate space is set by the producer
+ * and documented at the use site — face bboxes are normalised `[0,1]`
+ * proportions of the source image (used as CSS percentages by the crop
+ * helper), OCR word bboxes are pixels relative to the thumbnail. The
+ * shape is the same so the arithmetic is shared; consumers must respect
+ * the documented units. */
 export interface Bbox {
   x: number;
   y: number;
