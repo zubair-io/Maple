@@ -1,0 +1,62 @@
+/**
+ * GET /api/libraries/:libraryId/backup/state
+ *
+ * Reconciliation feed — returns the assets the server has seen from a given
+ * device within a given library, optionally filtered by `first_seen >= since`.
+ * The device calls this on launch and during periodic safety walks to learn
+ * which PhotoKit assets are already backed up so it doesn't re-enqueue them.
+ *
+ * Query:
+ *   device_id  — required
+ *   since      — optional ISO timestamp; defaults to epoch
+ *
+ * Response 200:
+ *   { assets: [ { phasset_local_id, first_seen, maple_id, rel_path }, ... ] }
+ *
+ * Response 400 on missing device_id or invalid library id.
+ *
+ * Spec: docs/superpowers/specs/2026-05-09-photokit-backup-design.md §20.
+ */
+import { Elysia, t } from "elysia";
+import { ObjectId } from "mongodb";
+import { assetsCollection } from "../db/client.ts";
+
+export const backupStateRoutes = new Elysia().get(
+  "/api/libraries/:libraryId/backup/state",
+  async ({ params, query, set }) => {
+    let libraryId: ObjectId;
+    try { libraryId = new ObjectId(params.libraryId); }
+    catch { set.status = 400; return { error: "invalid library id" }; }
+
+    const deviceId = query.device_id;
+    if (!deviceId) { set.status = 400; return { error: "device_id required" }; }
+
+    const since = query.since ? new Date(query.since) : new Date(0);
+    if (isNaN(since.getTime())) {
+      set.status = 400;
+      return { error: "since must be a valid ISO timestamp" };
+    }
+
+    const a = await assetsCollection();
+    const rows = await a.find({
+      folder_id: libraryId,
+      phasset_links: { $elemMatch: { device_id: deviceId, first_seen: { $gte: since } } },
+    }).project({ filename: 1, abs_path: 1, phasset_links: 1, maple_id: 1 }).toArray();
+
+    const out = rows.flatMap((r: any) =>
+      (r.phasset_links ?? [])
+        .filter((l: any) => l.device_id === deviceId && new Date(l.first_seen) >= since)
+        .map((l: any) => ({
+          phasset_local_id: l.phasset_local_id,
+          first_seen: l.first_seen,
+          maple_id: r.maple_id,
+          rel_path: r.abs_path,
+        }))
+    );
+    return { assets: out };
+  },
+  {
+    params: t.Object({ libraryId: t.String() }),
+    query: t.Object({ device_id: t.Optional(t.String()), since: t.Optional(t.String()) }),
+  },
+);
