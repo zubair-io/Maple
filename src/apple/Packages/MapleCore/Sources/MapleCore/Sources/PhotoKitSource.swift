@@ -28,6 +28,7 @@ import CoreGraphics
 import ImageIO
 import Photos
 import UniformTypeIdentifiers
+import MapleBackup
 
 #if canImport(AppKit)
 import AppKit
@@ -47,11 +48,22 @@ public actor PhotoKitSource {
     private var authStatus: PHAuthorizationStatus = .notDetermined
     private var changeObserverToken: UUID?
 
+    /// Sidecar store for PhotoKit assets. Sidecars are written here because
+    /// PhotoKit assets have no stable on-disk URL to place a `.xmp` beside.
+    private let sidecarStore: AppSupportSidecarStore
+
     /// O(1). Backed by the PHFetchResult count (SQLite `COUNT(*)` on the
     /// predicate, not an array length).
     public var count: Int { fetchResult?.count ?? 0 }
 
     public init() {
+        do {
+            self.sidecarStore = AppSupportSidecarStore(
+                root: try AppSupportSidecarStore.defaultRoot())
+        } catch {
+            // App Support is critical — if we can't open it, the app can't function.
+            fatalError("PhotoKit sidecar root unavailable: \(error)")
+        }
         // Subscribe to library-change notifications so a photo added in
         // another app invalidates our cached snapshot. The handler runs on
         // a PhotoKit-private thread; we hop to the actor with `Task`.
@@ -60,6 +72,18 @@ public actor PhotoKitSource {
             Task { await self.invalidateSnapshot() }
         }
         // `actor` init can write to `self` directly without an async hop.
+        self.changeObserverToken = token
+    }
+
+    /// Test-only initialiser that injects an explicit sidecar store so a unit
+    /// test can isolate the on-disk side-effect to a tmp directory rather than
+    /// touching the user's real Application Support folder.
+    internal init(sidecarOverride: AppSupportSidecarStore) {
+        self.sidecarStore = sidecarOverride
+        let token = PhotoKitChangeObserver.shared.subscribe { [weak self] in
+            guard let self else { return }
+            Task { await self.invalidateSnapshot() }
+        }
         self.changeObserverToken = token
     }
 
@@ -368,10 +392,22 @@ extension PhotoKitSource: ImageSource {
         return data
     }
 
-    /// Photo Library sidecars aren't supported on iOS/macOS without an
-    /// editable PHAssetResource — mark the source as read-only for now.
     public func writeXMP(_ sidecar: Sidecar, for ref: ImageRef) async throws {
-        throw ImageSourceError.readOnly("PhotoKit (XMP writes require a companion sidecar store)")
+        let xml = XMPSerializer.serialize(model: sidecar.model, culling: sidecar.culling)
+        try sidecarStore.write(phassetLocalId: ref.id, xmp: xml)
+    }
+
+    /// Read the App-Support sidecar for a PhotoKit asset, or return defaults
+    /// when none exists yet. Mirrors XMPSidecarStore.loadIfPresent semantics
+    /// for the PhotoKit-source case where the asset has no on-disk RAW URL.
+    public func readXMP(for ref: ImageRef) async throws -> (AdjustmentModel, CullingState) {
+        guard let xml = try sidecarStore.read(phassetLocalId: ref.id) else {
+            return (.default, CullingState())
+        }
+        guard let data = xml.data(using: .utf8) else {
+            return (.default, CullingState())
+        }
+        return try XMPParser.parse(data: data)
     }
 
     public func search(_ query: SearchQuery) async throws -> [ImageRef]? { nil }
