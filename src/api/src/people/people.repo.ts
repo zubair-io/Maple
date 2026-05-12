@@ -42,10 +42,17 @@ export interface RenameResult {
 }
 
 /** Result of `listPeople({ withCounts: true })`. The face count is an
- * aggregation over `assets.faces` filtered by `person_id`. */
+ * aggregation over `assets.faces` filtered by `person_id`.
+ *
+ * `coverAbsPath` is the absolute filesystem path of the asset whose thumb
+ * represents the person — surfaced so the web can fetch covers via the
+ * shared `/api/fs/thumb?path=…` URL (same blob-URL cache as /browse), not
+ * the bespoke `/api/assets/:id/thumb` endpoint. Null when the cover asset
+ * doc was deleted or never resolved. */
 export interface PersonWithCount {
   person: PersonWithId;
   faceCount: number;
+  coverAbsPath: string | null;
 }
 
 /** Options shared by the list endpoint. */
@@ -271,14 +278,65 @@ export async function listPeople(
     .collation({ locale: "en", strength: 2 })
     .sort({ name: 1 })
     .toArray();
-  if (people.length === 0 || !withCounts) {
-    return people.map((p) => ({ person: p as PersonWithId, faceCount: 0 }));
+  if (people.length === 0) return [];
+  // One batched _id lookup gets every cover asset's abs_path. Indexed by
+  // _id, so this is O(N) bytes returned, not O(N) round-trips.
+  const coverAbsPaths = await coverAbsPathByPerson(people);
+  if (!withCounts) {
+    return people.map((p) => ({
+      person: p as PersonWithId,
+      faceCount: 0,
+      coverAbsPath: coverAbsPaths.get(p._id.toHexString()) ?? null,
+    }));
   }
   const counts = await faceCountByPerson();
   return people.map((p) => ({
     person: p as PersonWithId,
     faceCount: counts.get(p._id.toHexString()) ?? 0,
+    coverAbsPath: coverAbsPaths.get(p._id.toHexString()) ?? null,
   }));
+}
+
+/** Batch-resolve `cover_asset_id` → `abs_path` for a slice of people. One
+ * `_id`-indexed `find({ _id: { $in: [...] } })` against `assets`; returns a
+ * `personHex → absPath` map. People whose `cover_asset_id` is null/missing
+ * or whose asset doc was deleted simply don't appear in the map. */
+async function coverAbsPathByPerson(
+  people: WithId<PersonDoc>[],
+): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  const personByCover = new Map<string, string>();
+  const coverObjectIds: ObjectId[] = [];
+  for (const p of people) {
+    const coverHex = p.cover_asset_id;
+    if (!coverHex) continue;
+    const oid = safeObjectId(coverHex);
+    if (!oid) continue;
+    coverObjectIds.push(oid);
+    personByCover.set(coverHex, p._id.toHexString());
+  }
+  if (coverObjectIds.length === 0) return out;
+  const assets = await assetsCollection();
+  const cursor = assets.find(
+    { _id: { $in: coverObjectIds } },
+    { projection: { abs_path: 1 } },
+  );
+  for await (const row of cursor) {
+    const personHex = personByCover.get(row._id.toHexString());
+    if (personHex && typeof row.abs_path === "string") {
+      out.set(personHex, row.abs_path);
+    }
+  }
+  return out;
+}
+
+function safeObjectId(raw: string): ObjectId | null {
+  if (!raw || raw.length !== 24 || !/^[0-9a-f]{24}$/i.test(raw)) return null;
+  try {
+    return new ObjectId(raw);
+  } catch {
+    return null;
+  }
 }
 
 /** Aggregation: count `asset.faces` grouped by `person_id`. Returns a map
