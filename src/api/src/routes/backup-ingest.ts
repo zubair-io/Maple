@@ -119,14 +119,25 @@ export const backupIngestRoutes = new Elysia().post(
     }
 
     // Open or resume the upload session.
-    const session = await uploadSessions.openOrResume({
-      libraryId,
-      deviceId,
-      phassetLocalId: phid,
-      totalBytes,
-      chunkSize: end - start + 1,
-      targetRelPath,
-    });
+    let session;
+    try {
+      session = await uploadSessions.openOrResume({
+        libraryId,
+        deviceId,
+        phassetLocalId: phid,
+        totalBytes,
+        chunkSize: end - start + 1,
+        targetRelPath,
+      });
+    } catch (e: any) {
+      set.status = 409;
+      return { error: e?.message ?? "session metadata mismatch on resume" };
+    }
+
+    // Use the stored target_rel_path as the source of truth (not the freshly
+    // computed value) — prevents a client from redirecting an in-progress
+    // upload by sending different metadata on resume.
+    const resolvedTargetRelPath = session.target_rel_path;
 
     // Enforce resume offset — reject if client is behind or ahead.
     if (session.received_bytes !== start) {
@@ -161,7 +172,7 @@ export const backupIngestRoutes = new Elysia().post(
       return { error: "X-Maple-Maple-Id required on final chunk" };
     }
 
-    const finalPath = path.join(folder.path, targetRelPath);
+    const finalPath = path.join(folder.path, resolvedTargetRelPath);
     await fs.mkdir(path.dirname(finalPath), { recursive: true });
     // fs.rename is atomic on the same FS; removes the source (tmp file cleanup included).
     await fs.rename(tmpFile, finalPath);
@@ -204,9 +215,9 @@ export const backupIngestRoutes = new Elysia().post(
       failedDelta: 0,
     });
 
-    log.debug({ phid, targetRelPath, mapleId }, "ingest complete");
+    log.debug({ phid, targetRelPath: resolvedTargetRelPath, mapleId }, "ingest complete");
     set.status = 200;
-    return { maple_id: mapleId, target_rel_path: targetRelPath };
+    return { maple_id: mapleId, target_rel_path: resolvedTargetRelPath };
   },
   {
     params: t.Object({ libraryId: t.String() }),
