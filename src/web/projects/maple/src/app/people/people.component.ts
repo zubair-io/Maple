@@ -17,10 +17,13 @@
 import {
   ChangeDetectionStrategy,
   Component,
-  computed,
-  inject,
+  OnDestroy,
   OnInit,
+  computed,
+  effect,
+  inject,
   signal,
+  untracked,
 } from '@angular/core';
 import { NgStyle } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -29,7 +32,6 @@ import { firstValueFrom } from 'rxjs';
 import {
   ApiPerson,
   ApiPersonDetail,
-  API_BASE_URL,
   Bbox,
   BunApiBackendService,
 } from '@maple-common';
@@ -49,9 +51,8 @@ interface Toast {
   styleUrl: './people.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class PeopleComponent implements OnInit {
+export class PeopleComponent implements OnInit, OnDestroy {
   private readonly api = inject(BunApiBackendService);
-  private readonly base = inject(API_BASE_URL);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
 
@@ -76,6 +77,18 @@ export class PeopleComponent implements OnInit {
 
   readonly hasPeople = computed(() => this.people().length > 0);
 
+  /** assetId → `blob:` URL of the fetched thumbnail JPEG.
+   *
+   * Direct `<img src=/api/assets/:id/thumb>` and `background-image: url(...)`
+   * bypass Angular's HttpClient and so don't get the Bearer token from
+   * `authInterceptor` — the API would 401 every request. We fetch each
+   * thumb via HttpClient (interceptor attaches the bearer) and hand the
+   * template a `blob:` URL the browser can render with no extra auth. */
+  private readonly thumbBlobs = signal<ReadonlyMap<string, string>>(new Map());
+  /** assetIds currently being fetched — prevents duplicate round-trips when
+   * the template re-evaluates a binding before the response lands. */
+  private readonly inflightThumbs = new Set<string>();
+
   ngOnInit(): void {
     this.refresh();
     // Deep-link support: `/people/:id` opens the detail panel for that
@@ -84,6 +97,48 @@ export class PeopleComponent implements OnInit {
       const id = params.get('id');
       if (id) this.openDetail(id);
       else this.selected.set(null);
+    });
+  }
+
+  ngOnDestroy(): void {
+    for (const url of this.thumbBlobs().values()) URL.revokeObjectURL(url);
+  }
+
+  constructor() {
+    // Prefetch every visible thumbnail (cover thumbs in the grid + face
+    // thumbs in the open detail panel). Reads of `people()` / `selected()`
+    // make this re-run when the list or open person changes; the
+    // `inflightThumbs` + blob-cache guard inside `ensureThumbBlob` dedupes
+    // repeat asset ids.
+    effect(() => {
+      for (const p of this.people()) {
+        if (p.coverAssetId) this.ensureThumbBlob(p.coverAssetId);
+      }
+      const detail = this.selected();
+      if (detail) {
+        for (const f of detail.faces) this.ensureThumbBlob(f.assetId);
+      }
+    });
+  }
+
+  private ensureThumbBlob(assetId: string): void {
+    if (!assetId) return;
+    if (this.inflightThumbs.has(assetId)) return;
+    // `untracked` so adding a new blob URL doesn't re-trigger the caller
+    // effect — only `people()` / `selected()` changes should.
+    if (untracked(this.thumbBlobs).has(assetId)) return;
+    this.inflightThumbs.add(assetId);
+    this.api.getThumb(assetId).subscribe({
+      next: (blob) => {
+        this.inflightThumbs.delete(assetId);
+        const url = URL.createObjectURL(blob);
+        const next = new Map(untracked(this.thumbBlobs));
+        next.set(assetId, url);
+        this.thumbBlobs.set(next);
+      },
+      error: () => {
+        this.inflightThumbs.delete(assetId);
+      },
     });
   }
 
@@ -229,19 +284,20 @@ export class PeopleComponent implements OnInit {
 
   // ── Cover-thumb URL helper ──────────────────────────────────────────
 
-  /** URL for the cover thumbnail. `coverAssetId` is the asset id whose
-   * thumb is used as the person's representative image; the CSS bbox
-   * crop on the wrapper div narrows it down to just the face. */
+  /** Cover-thumb `blob:` URL or `null` if the fetch hasn't landed yet
+   * (template falls back to the initial letter). `coverAssetId` is the
+   * asset whose thumb represents the person; the CSS bbox crop on the
+   * wrapper div narrows it to just the face. */
   coverThumbUrl(person: ApiPerson): string | null {
     if (!person.coverAssetId) return null;
-    return `${this.base}/assets/${person.coverAssetId}/thumb`;
+    return this.thumbBlobs().get(person.coverAssetId) ?? null;
   }
 
-  /** URL for a face thumbnail in the detail panel. The bbox crop happens
-   * client-side via CSS background-position — this URL is the same per-
-   * asset thumb the grid uses. */
+  /** Face-thumb `blob:` URL for the detail panel, or empty string while
+   * the fetch is in flight (the bbox-cropped div just shows its bg
+   * placeholder until the blob arrives). */
   faceThumbUrl(assetId: string): string {
-    return `${this.base}/assets/${assetId}/thumb`;
+    return this.thumbBlobs().get(assetId) ?? '';
   }
 
   /** Inline-styled bbox crop. The asset thumb is rendered as a
@@ -264,6 +320,11 @@ export class PeopleComponent implements OnInit {
     assetId: string;
     bbox: Bbox;
   }): Record<string, string> {
+    const url = this.faceThumbUrl(face.assetId);
+    // Empty URL = blob fetch hasn't resolved yet. Skip background-image
+    // entirely rather than emitting `url()`, which renders as a broken
+    // image in some browsers.
+    if (!url) return {};
     const { x, y, w, h } = face.bbox;
     // Treat the bbox as proportions of the thumb's natural size. The
     // worker emits pixel coords; without knowing the thumb dims we
@@ -276,7 +337,7 @@ export class PeopleComponent implements OnInit {
     const px = -x * scale * 100;
     const py = -y * scale * 100;
     return {
-      'background-image': `url(${this.faceThumbUrl(face.assetId)})`,
+      'background-image': `url(${url})`,
       'background-size': `${scale * 100}% auto`,
       'background-position': `${px}% ${py}%`,
       'background-repeat': 'no-repeat',
