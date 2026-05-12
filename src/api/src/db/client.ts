@@ -164,18 +164,25 @@ const WORKER_STAGE_NAMES = [
 ] as const;
 
 /**
- * Create one partial index per stage on { "stages.<name>.version": 1 }.
- * partialFilterExpression uses { $eq: false } to exclude dead-lettered docs.
+ * Creates two indexes per stage:
  *
- * MongoDB's partialFilterExpression supports a restricted set of operators:
- * equality, $exists, $gt/$gte/$lt/$lte, $type, and top-level $and/$or.
- * It does NOT support $ne — use $eq with the complement value instead.
+ *   1. `stage_<name>_version` — unconstrained index on `stages.<name>.version`.
+ *      No partial filter, so it covers all documents including those where
+ *      `dead` is absent (freshly-indexed assets). The claim query uses
+ *      `dead: { $ne: true }`, which matches both `false` and missing; an old
+ *      partial filter on `{ dead: false }` would have silently excluded the
+ *      missing-field case and caused a collection scan for new assets.
+ *      The previous partial index (same name, with the filter) is dropped
+ *      first so MongoDB doesn't reject the recreate as a spec conflict.
  *
- * Dead-lettered docs (dead: true) are excluded from both the index and
- * all claim queries, keeping the index small.
+ *   2. `stage_<name>_dead` — partial index on `stages.<name>.dead`, filtered
+ *      to documents where that field is `true`. Powers the dead-count branch
+ *      of GET /api/workers/status without scanning the full collection; kept
+ *      small because dead-lettered docs are a small fraction of the total.
  *
- * Safe to call multiple times (idempotent — createIndex is a no-op if the
- * index already exists with the same options).
+ * Safe to call multiple times — createIndex is a no-op when the index already
+ * exists with identical options; the dropIndex for the old version index is
+ * wrapped in a try/catch so it is also safe on a fresh deploy.
  */
 export async function ensureStageIndexes(db: Db): Promise<void> {
   for (const name of WORKER_STAGE_NAMES) {
