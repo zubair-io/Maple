@@ -25,6 +25,15 @@ beforeAll(async () => {
     mongoReachable = true;
   } catch {
     mongoReachable = false;
+    // Close the partially-connected client so its server-selection timer
+    // and any open sockets don't keep the test process alive. afterAll
+    // only closes on the reachable path.
+    if (mongo) {
+      try {
+        await mongo.close();
+      } catch {}
+      mongo = null;
+    }
   }
 });
 
@@ -158,6 +167,10 @@ describe("GET /api/workers/status — counts", () => {
       await db.createCollection("assets");
     } catch {}
     await ensureStageIndexes(db);
+    // Self-seed so the test doesn't depend on data left by a prior test.
+    await db
+      .collection("assets")
+      .insertOne({ stages: { hash: { dead: true } } });
 
     const explain = await db
       .collection("assets")
