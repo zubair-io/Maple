@@ -758,11 +758,18 @@ export class LibraryStateService {
    */
   private _applyFsListing(sourceId: string, absPath: string, listing: FsDirListing): void {
     // Forget previous assets for this source (path-based ids may collide
-    // across re-opens after a rename — purge by folderId).
+    // across re-opens after a rename — purge by folderId). Both the absPath
+    // and apiId maps are cleared so a stale Mongo id can't outlive its file
+    // (e.g. the file was deleted then re-created at the same path before
+    // the indexer caught up — without this cleanup `apiIdFor` would return
+    // the dead doc's id and the detail panel would render foreign data).
     const stale = this.assets()
       .filter((a) => a.folderId === sourceId)
       .map((a) => a.id);
-    for (const id of stale) this._assetAbsPaths.delete(id);
+    for (const id of stale) {
+      this._assetAbsPaths.delete(id);
+      this._apiAssetIds.delete(id);
+    }
 
     const newAssets: Asset[] = listing.images.map((img: FsImageEntry) => {
       const id: AssetId = `fs:${img.path}`;
