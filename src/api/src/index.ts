@@ -48,6 +48,7 @@ import { meilisearchBackfillRoutes } from "./routes/admin-backfill-meilisearch.t
 import { peopleRoutes } from "./routes/people.ts";
 import { geocodeReverseRoutes } from "./routes/geocode-reverse.ts";
 import { backupIngestRoutes } from "./routes/backup-ingest.ts";
+import { backupStateRoutes } from "./routes/backup-state.ts";
 import { requireAuth } from "./auth/middleware.ts";
 import { staticUiPlugin } from "./routes/static_ui.ts";
 import { getDb, ensureIndexes, closeDb, foldersCollection } from "./db/client.ts";
@@ -197,6 +198,10 @@ export function buildApp(opts: { stageNames?: string[] } = {}): Elysia & { super
     // gate yet — the passkey auth design (PR 2026-04-26) hasn't landed. Once
     // it does, this route should move behind requireAuth.
     .use(backupIngestRoutes)
+    // Reconciliation feed — device calls this on launch / periodic walks to
+    // learn which assets are already backed up. No auth gate for the same
+    // reason as backupIngestRoutes above.
+    .use(backupStateRoutes)
     // /api/events self-authenticates via a `?token=` query parameter on the
     // WS handshake (browsers can't send Authorization headers on
     // `new WebSocket()`). Mounting it here keeps it outside the bearer-only
