@@ -503,8 +503,12 @@ export type ChallengeWithId = WithId<ChallengeDoc>;
 // PhotoKit backup
 // ---------------------------------------------------------------------------
 
+/** One link between a stored asset and an Apple Photos PHAsset on a specific
+ * device. An asset may have multiple links when the same content was backed
+ * up from more than one device. */
 export interface PhotoKitAssetLink {
   device_id: string;
+  /** Apple's `PHAsset.localIdentifier`, e.g. "BFBBE32B-2C39-43A5-B7FC-1E9BC0577CFE/L0/001". */
   phasset_local_id: string;
   first_seen: Date;
 }
@@ -521,16 +525,20 @@ export interface UploadSessionDoc {
   total_bytes: number;
   received_bytes: number;
   chunk_size: number;
-  /** "open" | "completed" | "abandoned" — sessions older than 7d in "open" get GC'd. */
+  /** Sessions older than 7d in "open" get GC'd by the TTL monitor. */
   state: "open" | "completed" | "abandoned";
+  /** TTL — Date (not string) so the Mongo TTL monitor can prune abandoned sessions older than 7d. */
   created_at: Date;
+  /** Bumped on every chunk; same TTL semantics as `created_at`. */
   updated_at: Date;
   /** Set on the final chunk; used for dedup against existing AssetDoc rows. */
   maple_id?: string;
 }
 
-/** Per-device, per-library progress summary. Updated by the ingest endpoint
- * so the device can render "X% done from this device" without scanning assets. */
+export type UploadSessionWithId = WithId<UploadSessionDoc>;
+
+/** Per-device, per-library progress summary. NOT TTL-pruned — backup
+ * sessions are kept indefinitely so the device can report cumulative state. */
 export interface BackupSessionDoc {
   _id: ObjectId;
   library_id: ObjectId;
@@ -541,3 +549,5 @@ export interface BackupSessionDoc {
   uploaded_count: number;
   failed_count: number;
 }
+
+export type BackupSessionWithId = WithId<BackupSessionDoc>;
