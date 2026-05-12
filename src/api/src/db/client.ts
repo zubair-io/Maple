@@ -711,6 +711,18 @@ export async function ensureIndexes(): Promise<void> {
     .collection("worker_config")
     .createIndex({ name: 1 }, { unique: true, name: "worker_config_name" });
 
+  // backup_sessions: natural key — enforces upsert race-safety.
+  await db.collection("backup_sessions").createIndex(
+    { library_id: 1, device_id: 1 },
+    { unique: true, name: "backup_sessions_library_device" },
+  );
+
+  // upload_sessions: resume key — unique per asset per device per library.
+  await db.collection("upload_sessions").createIndex(
+    { library_id: 1, device_id: 1, phasset_local_id: 1 },
+    { unique: true, name: "upload_sessions_resume_key" },
+  );
+
   await ensureStageIndexes(db);
 
   log.info("indexes ensured");
