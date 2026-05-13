@@ -88,14 +88,23 @@ export class PeopleComponent implements OnInit, OnDestroy {
    * automatically). */
   readonly sortedPeople = computed(() => {
     const rows = this.people();
-    const auto = /^Person \d+$/;
     return [...rows].sort((a, b) => {
-      const aAuto = auto.test(a.name) ? 1 : 0;
-      const bAuto = auto.test(b.name) ? 1 : 0;
+      const aAuto = isAutoNamed(a.name) ? 1 : 0;
+      const bAuto = isAutoNamed(b.name) ? 1 : 0;
       if (aAuto !== bAuto) return aAuto - bAuto;
       return a.name.localeCompare(b.name, undefined, { sensitivity: 'accent' });
     });
   });
+
+  /** Named (operator-renamed) people only — backing list for the inline
+   * rename input's `<datalist>` autocomplete. The intent is to make
+   * "rename Person N to Zubair" a one-click pick that triggers the
+   * existing server-side merge, rather than a manual retype. Auto-named
+   * clusters are deliberately excluded so the suggestion list stays
+   * meaningful even when there are dozens of "Person N" rows. */
+  readonly namedPeople = computed(() =>
+    this.sortedPeople().filter((p) => !isAutoNamed(p.name)),
+  );
 
   /** Cache key (`absPath` when present, otherwise `apiId:<id>`) → `blob:`
    * URL of the fetched thumbnail JPEG.
@@ -481,4 +490,12 @@ export class PeopleComponent implements OnInit, OnDestroy {
     if (err instanceof Error) return err.message;
     return String(err);
   }
+}
+
+/** Auto-name detector — matches the format used by the clustering job
+ * (`clustering-job.ts: 'Person ${nextAutoIndex}'`). Anything else is
+ * considered operator-named. Single source of truth so the sort
+ * tiebreaker and the autocomplete suggestion list stay in sync. */
+function isAutoNamed(name: string): boolean {
+  return /^Person \d+$/.test(name);
 }
