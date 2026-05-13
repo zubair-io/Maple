@@ -56,7 +56,7 @@
                    shared FilesystemBrowseService — repeat visits are
                    instant and covers already loaded by /browse hit
                    the same blob. -->
-              <div class="relative h-32 overflow-hidden rounded-md bg-bg">
+              <div class="relative aspect-square overflow-hidden rounded-md bg-bg">
                 @if (coverThumbUrl(p); as url) {
                   @if (p.coverBbox; as bbox) {
                     <img
@@ -86,10 +86,18 @@
 
               <!-- Name (inline-editable) + face count -->
               @if (editingId() === p.id) {
+                <!-- Autocomplete of existing NAMED people only — picking
+                     an existing name triggers the server-side merge on
+                     commit (renamePerson detects the collision). The
+                     current person is excluded from the suggestions so
+                     "rename Zoe to Zoe" isn't offered as a self-merge.
+                     Auto-named clusters are excluded too — those are the
+                     things the operator is trying to rename AWAY from. -->
                 <input
                   type="text"
                   class="rounded border border-primary bg-bg px-1.5 py-1 text-[13px] font-semibold text-text-main outline-none"
                   [value]="draftName()"
+                  [attr.list]="'people-name-suggestions-' + p.id"
                   (input)="draftName.set($any($event.target).value)"
                   (keydown.enter)="commitEdit(p.id); $event.preventDefault()"
                   (keydown.escape)="cancelEdit(); $event.preventDefault()"
@@ -97,6 +105,13 @@
                   (click)="$event.stopPropagation()"
                   autofocus
                 />
+                <datalist [id]="'people-name-suggestions-' + p.id">
+                  @for (other of namedPeople(); track other.id) {
+                    @if (other.id !== p.id) {
+                      <option [value]="other.name"></option>
+                    }
+                  }
+                </datalist>
               } @else {
                 <button
                   type="button"
