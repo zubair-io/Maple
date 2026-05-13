@@ -81,8 +81,9 @@ export class PeopleComponent implements OnInit, OnDestroy {
 
   readonly hasPeople = computed(() => this.people().length > 0);
 
-  /** Display order: named people first, then auto-named ("Person N")
-   * second, each group ascending case-insensitively. Computed off
+  /** Display order: named people first (alphabetical, accent-insensitive),
+   * then auto-named ("Person N") second — ordered by face count DESC so
+   * the biggest unidentified clusters surface first. Computed off
    * `people()` so renames re-sort in real time (the rename handler
    * updates `people` after the server roundtrip; the computed re-runs
    * automatically). */
@@ -92,6 +93,10 @@ export class PeopleComponent implements OnInit, OnDestroy {
       const aAuto = isAutoNamed(a.name) ? 1 : 0;
       const bAuto = isAutoNamed(b.name) ? 1 : 0;
       if (aAuto !== bAuto) return aAuto - bAuto;
+      if (aAuto === 1) {
+        if (a.faceCount !== b.faceCount) return b.faceCount - a.faceCount;
+        return a.id.localeCompare(b.id);
+      }
       return a.name.localeCompare(b.name, undefined, { sensitivity: 'accent' });
     });
   });
@@ -102,9 +107,7 @@ export class PeopleComponent implements OnInit, OnDestroy {
    * existing server-side merge, rather than a manual retype. Auto-named
    * clusters are deliberately excluded so the suggestion list stays
    * meaningful even when there are dozens of "Person N" rows. */
-  readonly namedPeople = computed(() =>
-    this.sortedPeople().filter((p) => !isAutoNamed(p.name)),
-  );
+  readonly namedPeople = computed(() => this.sortedPeople().filter((p) => !isAutoNamed(p.name)));
 
   /** Cache key (`absPath` when present, otherwise `apiId:<id>`) → `blob:`
    * URL of the fetched thumbnail JPEG.
@@ -185,7 +188,10 @@ export class PeopleComponent implements OnInit, OnDestroy {
    * blob URL is shared with /browse; fall back to a synthetic `apiId:`
    * key when the cover asset doc was deleted (covers fetched via
    * `/api/assets/:id/thumb` instead). */
-  private coverCacheKey(p: { coverAbsPath: string | null; coverAssetId: string | null }): string | null {
+  private coverCacheKey(p: {
+    coverAbsPath: string | null;
+    coverAssetId: string | null;
+  }): string | null {
     if (p.coverAbsPath) return p.coverAbsPath;
     if (p.coverAssetId) return `apiId:${p.coverAssetId}`;
     return null;
@@ -287,7 +293,7 @@ export class PeopleComponent implements OnInit, OnDestroy {
 
   // ── Rename / inline edit ────────────────────────────────────────────
 
-  startEdit(person: ApiPerson): void {
+  startEdit(person: { id: string; name: string }): void {
     this.editingId.set(person.id);
     this.draftName.set(person.name);
   }
