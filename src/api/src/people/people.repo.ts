@@ -345,14 +345,20 @@ function safeObjectId(raw: string): ObjectId | null {
 
 /** Aggregation: count `asset.faces` grouped by `person_id`. Returns a map
  * from hex person id to count. Excludes faces with no `person_id` (i.e.
- * unassigned) and faces whose person was merged (their person_id was
- * already repointed by `mergeInto`). */
+ * unassigned), faces whose person was merged (their person_id was already
+ * repointed by `mergeInto`), and hidden faces (operator marked as
+ * not-tracked). */
 async function faceCountByPerson(): Promise<Map<string, number>> {
   const assets = await assetsCollection();
   const cursor = assets.aggregate<{ _id: string; count: number }>([
     { $match: { faces: { $exists: true, $ne: [] } } },
     { $unwind: "$faces" },
-    { $match: { "faces.person_id": { $ne: null } } },
+    {
+      $match: {
+        "faces.person_id": { $ne: null },
+        "faces.hidden": { $ne: true },
+      },
+    },
     { $group: { _id: "$faces.person_id", count: { $sum: 1 } } },
   ]);
   const out = new Map<string, number>();
@@ -390,6 +396,9 @@ export async function getPerson(
       $unwind: { path: "$faces", includeArrayIndex: "face_index" },
     },
     { $match: { "faces.person_id": personHex } },
+    // Drop hidden faces — the operator marked them as not-tracked, so
+    // they should not appear in any person panel.
+    { $match: { "faces.hidden": { $ne: true } } },
     {
       $project: {
         abs_path: 1,
@@ -450,6 +459,46 @@ export async function assignFaceToPerson(
   await assets.updateOne(
     { _id: assetId },
     { $set: { [`faces.${faceIndex}.person_id`]: personHex } },
+  );
+}
+
+/**
+ * Mark a face as hidden — the operator's "this isn't a face I want
+ * tracked" action. Hidden faces are excluded from clustering and from
+ * every person panel. Writes both `hidden = true` and `person_id = null`
+ * in one update so the doc never sits in a half-state (a hidden face
+ * still pointing at a person would show up nowhere in the UI but still
+ * inflate that person's centroid on the next recompute).
+ *
+ * Idempotent — calling on an already-hidden face is a no-op.
+ */
+export async function hideFace(
+  assetId: ObjectId,
+  faceIndex: number,
+): Promise<void> {
+  if (!Number.isInteger(faceIndex) || faceIndex < 0) {
+    throw new Error(`invalid face index: ${faceIndex}`);
+  }
+  const assets = await assetsCollection();
+  const asset = await assets.findOne(
+    { _id: assetId },
+    { projection: { faces: 1 } },
+  );
+  if (!asset) throw new Error(`asset not found: ${assetId.toHexString()}`);
+  const faces = (asset.faces ?? []) as AssetFaceDoc[];
+  if (faceIndex >= faces.length) {
+    throw new Error(
+      `face index out of range: ${faceIndex} (asset has ${faces.length} faces)`,
+    );
+  }
+  await assets.updateOne(
+    { _id: assetId },
+    {
+      $set: {
+        [`faces.${faceIndex}.hidden`]: true,
+        [`faces.${faceIndex}.person_id`]: null,
+      },
+    },
   );
 }
 
