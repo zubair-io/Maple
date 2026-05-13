@@ -168,6 +168,22 @@ export interface ApiRequeueResponse {
   version: number;
 }
 
+/** Per-stage entry from GET /api/workers/status. Only the fields the
+ * detail panel needs are typed — the API returns more (inFlight,
+ * throughput, dead counts, etc.) but those belong to the workers admin
+ * page. */
+export interface ApiWorkerStatusStage {
+  name: string;
+  /** "running" | "paused" | "starting" | "exited" | "errored" | … —
+   * surfaced verbatim so we can defensively widen later. */
+  status: string;
+  config: { paused?: boolean } | null;
+}
+
+export interface ApiWorkerStatus {
+  stages: ApiWorkerStatusStage[];
+}
+
 export interface ApiDirEntry {
   name: string;
   path: string;
@@ -255,6 +271,15 @@ export class BunApiBackendService {
       `${this.base}/assets/${assetId}/enrichment/requeue`,
       { stage },
     );
+  }
+
+  /** Aggregate worker status (one entry per stage). The detail panel uses
+   * the `config.paused` flag to distinguish "queued and waiting" from
+   * "no worker will ever pick this up" — a stage paused on first boot is
+   * the difference between an honest "Worker paused" badge and a misleading
+   * "Pending" badge that would otherwise stick forever. */
+  getWorkerStatus(): Observable<ApiWorkerStatus> {
+    return this.http.get<ApiWorkerStatus>(`${this.base}/workers/status`);
   }
 
   getRawBytes(assetId: string): Observable<ArrayBuffer> {
