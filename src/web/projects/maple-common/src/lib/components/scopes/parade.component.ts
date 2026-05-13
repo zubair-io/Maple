@@ -19,12 +19,7 @@ import type { DecodedImage } from '../../raw-pipeline/raw-pipeline.types';
 @Component({
   selector: 'editor-parade',
   standalone: true,
-  template: `<canvas
-    #canvas
-    width="200"
-    height="80"
-    class="block w-full h-20"
-  ></canvas>`,
+  templateUrl: './parade.component.html',
   host: { class: 'block' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })

@@ -19,49 +19,8 @@ import { NoiseSectionComponent } from '../develop/noise-section.component';
     SharpeningSectionComponent,
     NoiseSectionComponent,
   ],
-  styles: [
-    `
-      :host {
-        display: flex;
-        flex-direction: column;
-        flex: 1;
-        min-height: 0;
-        overflow-y: auto;
-      }
-      :host::-webkit-scrollbar {
-        width: 6px;
-      }
-      :host::-webkit-scrollbar-track {
-        background: transparent;
-      }
-      :host::-webkit-scrollbar-thumb {
-        background: var(--color-border);
-        border-radius: 3px;
-      }
-
-      .scopes-sticky {
-        position: sticky;
-        top: 0;
-        z-index: 2;
-      }
-
-      .sliders-body {
-        flex: 1;
-      }
-    `,
-  ],
-  template: `
-    <div class="scopes-sticky">
-      <editor-scopes-container />
-    </div>
-    <div class="sliders-body">
-      <editor-tone-section />
-      <editor-white-balance-section />
-      <editor-presence-section />
-      <editor-sharpening-section />
-      <editor-noise-section />
-    </div>
-  `,
+  styleUrl: './develop-tab.component.scss',
+  templateUrl: './develop-tab.component.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class DevelopTabComponent {}

@@ -1,0 +1,38 @@
+<maple-collapsible
+  label="Sharpening"
+  storageKey="dev-sharpen"
+  [padInner]="false"
+  [defaultOpen]="false"
+>
+  @if (assetId()) {
+    <editor-slider
+      label="Amount"
+      [value]="adj().sharpenAmount"
+      [min]="0"
+      [max]="150"
+      (valueChange)="patch('sharpenAmount', $event)"
+    />
+    <editor-slider
+      label="Radius"
+      [value]="adj().sharpenRadius"
+      [min]="0.5"
+      [max]="3.0"
+      [step]="0.1"
+      (valueChange)="patch('sharpenRadius', $event)"
+    />
+    <editor-slider
+      label="Detail"
+      [value]="adj().sharpenDetail"
+      [min]="0"
+      [max]="100"
+      (valueChange)="patch('sharpenDetail', $event)"
+    />
+    <editor-slider
+      label="Masking"
+      [value]="adj().sharpenMasking"
+      [min]="0"
+      [max]="100"
+      (valueChange)="patch('sharpenMasking', $event)"
+    />
+  }
+</maple-collapsible>

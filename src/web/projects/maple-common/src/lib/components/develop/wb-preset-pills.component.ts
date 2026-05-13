@@ -30,50 +30,8 @@ export interface WbPresetSelection {
 @Component({
   selector: 'editor-wb-presets',
   standalone: true,
-  styles: [
-    `
-      :host {
-        display: block;
-        padding: 4px 14px 6px;
-      }
-
-      .pills {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 3px;
-      }
-
-      .pill {
-        padding: 2px 6px;
-        border-radius: 3px;
-        background: var(--color-surface-alt);
-        border: 0.5px solid var(--color-border);
-        font-family: var(--font-sans);
-        font-size: 10px;
-        color: var(--color-text-main);
-        cursor: pointer;
-        transition: background 100ms;
-        white-space: nowrap;
-      }
-      .pill:hover {
-        background: var(--color-surface-hover);
-      }
-      .pill.active {
-        background: var(--color-primary-dim);
-        color: var(--color-primary);
-        border-color: var(--color-primary);
-      }
-    `,
-  ],
-  template: `
-    <div class="pills">
-      @for (p of PRESETS; track p.label) {
-        <div class="pill" [class.active]="active() === p.label" (click)="select(p)">
-          {{ p.label }}
-        </div>
-      }
-    </div>
-  `,
+  styleUrl: './wb-preset-pills.component.scss',
+  templateUrl: './wb-preset-pills.component.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class WbPresetPillsComponent {

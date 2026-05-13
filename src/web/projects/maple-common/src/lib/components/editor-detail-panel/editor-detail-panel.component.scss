@@ -1,0 +1,4 @@
+/* Tab bar uses 0.5px top border which Tailwind can't express. */
+.tab-bar {
+  border-top: 0.5px solid var(--color-border);
+}

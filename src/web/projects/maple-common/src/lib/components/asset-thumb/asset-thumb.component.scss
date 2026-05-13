@@ -1,0 +1,21 @@
+:host {
+  /* Fill the parent .thumb-wrap so the inner .thumb (and the <img>'s
+     height:100%) have a definite size to resolve against. Without this
+     the host stays block-default-auto-height → .thumb collapses to 0
+     → the <img> renders 0×0. */
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* Selection / focus ring colour, driven by parent-class state.
+   Tailwind utilities express transparent default + position; this rule
+   only handles the conditional border-color flips that depend on the
+   .selected / .focused / hover state of the parent .thumb. */
+.thumb.selected .thumb-ring,
+.thumb.focused .thumb-ring {
+  border-color: var(--color-primary);
+}
+.thumb.variant-filmstrip:not(.focused):hover .thumb-ring {
+  border-color: rgba(255, 255, 255, 0.2);
+}
