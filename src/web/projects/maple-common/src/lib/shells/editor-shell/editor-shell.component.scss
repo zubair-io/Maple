@@ -1,0 +1,36 @@
+// Tailwind utilities cover the layout, typography, and hover states.
+// What's left here:
+//   - :host viewport sizing — Angular host selector.
+//   - .chrome-btn.is-active background — bound via [class.is-active] on
+//     the element, can't be expressed as a containment-style variant.
+//   - .export-btn.has-selection / .no-selection — same reason.
+//   - .panel-right.is-hidden border removal.
+:host {
+  display: flex;
+  width: 100vw;
+  height: 100vh;
+  background: var(--color-bg);
+  box-sizing: border-box;
+}
+
+.chrome-btn.is-active {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: var(--color-border);
+}
+
+.export-btn.has-selection {
+  background: var(--color-primary-dim);
+  color: var(--color-primary);
+  border: 0.5px solid var(--color-primary);
+}
+.export-btn.no-selection {
+  background: var(--color-input-bg);
+  color: var(--color-text-muted);
+  border: 0.5px solid var(--color-border);
+  opacity: 0.5;
+  cursor: default;
+}
+
+.panel-right.is-hidden {
+  border-left: none;
+}

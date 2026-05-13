@@ -1,0 +1,7 @@
+<div class="pills">
+  @for (p of PRESETS; track p.label) {
+    <div class="pill" [class.active]="active() === p.label" (click)="select(p)">
+      {{ p.label }}
+    </div>
+  }
+</div>

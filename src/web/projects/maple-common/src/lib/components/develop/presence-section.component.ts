@@ -9,47 +9,7 @@ import { EditorSliderComponent } from './slider.component';
   selector: 'editor-presence-section',
   standalone: true,
   imports: [MapleCollapsibleComponent, EditorSliderComponent],
-  template: `
-    <maple-collapsible label="Presence" storageKey="dev-presence" [padInner]="false">
-      @if (assetId()) {
-        <editor-slider
-          label="Vibrance"
-          [value]="adj().vibrance"
-          [min]="-100"
-          [max]="100"
-          (valueChange)="patch('vibrance', $event)"
-        />
-        <editor-slider
-          label="Saturation"
-          [value]="adj().saturation"
-          [min]="-100"
-          [max]="100"
-          (valueChange)="patch('saturation', $event)"
-        />
-        <editor-slider
-          label="Clarity"
-          [value]="adj().clarity"
-          [min]="-100"
-          [max]="100"
-          (valueChange)="patch('clarity', $event)"
-        />
-        <editor-slider
-          label="Texture"
-          [value]="adj().texture"
-          [min]="-100"
-          [max]="100"
-          (valueChange)="patch('texture', $event)"
-        />
-        <editor-slider
-          label="Dehaze"
-          [value]="adj().dehaze"
-          [min]="-100"
-          [max]="100"
-          (valueChange)="patch('dehaze', $event)"
-        />
-      }
-    </maple-collapsible>
-  `,
+  templateUrl: './presence-section.component.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class PresenceSectionComponent {

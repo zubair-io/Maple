@@ -1,0 +1,51 @@
+<svg
+    [attr.width]="size()"
+    [attr.height]="size()"
+    viewBox="0 0 16 16"
+    [style.display]="'block'"
+    [style.color]="color()"
+>
+    @for (shape of shapes(); track $index) {
+        @switch (shape.kind) {
+            @case ('path') {
+                <path
+                    [attr.d]="shape.d"
+                    [attr.fill]="shape.filled ? color() : 'none'"
+                    [attr.stroke]="shape.filled ? null : color()"
+                    [attr.stroke-width]="shape.filled ? null : strokeWidth()"
+                    [attr.stroke-linecap]="shape.filled ? null : 'round'"
+                    [attr.stroke-linejoin]="shape.filled ? null : 'round'"
+                    [attr.opacity]="shape.opacity ?? null"
+                />
+            }
+            @case ('rect') {
+                <rect
+                    [attr.x]="shape.x"
+                    [attr.y]="shape.y"
+                    [attr.width]="shape.width"
+                    [attr.height]="shape.height"
+                    [attr.rx]="shape.rx ?? null"
+                    [attr.fill]="shape.filled ? color() : 'none'"
+                    [attr.stroke]="shape.filled ? null : color()"
+                    [attr.stroke-width]="shape.filled ? null : strokeWidth()"
+                    [attr.stroke-linecap]="shape.filled ? null : 'round'"
+                    [attr.stroke-linejoin]="shape.filled ? null : 'round'"
+                    [attr.opacity]="shape.opacity ?? null"
+                />
+            }
+            @case ('circle') {
+                <circle
+                    [attr.cx]="shape.cx"
+                    [attr.cy]="shape.cy"
+                    [attr.r]="shape.r"
+                    [attr.fill]="shape.filled ? color() : 'none'"
+                    [attr.stroke]="shape.filled ? null : color()"
+                    [attr.stroke-width]="shape.filled ? null : strokeWidth()"
+                    [attr.stroke-linecap]="shape.filled ? null : 'round'"
+                    [attr.stroke-linejoin]="shape.filled ? null : 'round'"
+                    [attr.opacity]="shape.opacity ?? null"
+                />
+            }
+        }
+    }
+</svg>

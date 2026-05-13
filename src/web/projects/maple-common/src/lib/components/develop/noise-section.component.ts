@@ -9,31 +9,7 @@ import { EditorSliderComponent } from './slider.component';
   selector: 'editor-noise-section',
   standalone: true,
   imports: [MapleCollapsibleComponent, EditorSliderComponent],
-  template: `
-    <maple-collapsible
-      label="Noise Reduction"
-      storageKey="dev-noise"
-      [padInner]="false"
-      [defaultOpen]="false"
-    >
-      @if (assetId()) {
-        <editor-slider
-          label="Luminance"
-          [value]="adj().nrLuminance"
-          [min]="0"
-          [max]="100"
-          (valueChange)="patch('nrLuminance', $event)"
-        />
-        <editor-slider
-          label="Color"
-          [value]="adj().nrColor"
-          [min]="0"
-          [max]="100"
-          (valueChange)="patch('nrColor', $event)"
-        />
-      }
-    </maple-collapsible>
-  `,
+  templateUrl: './noise-section.component.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class NoiseSectionComponent {

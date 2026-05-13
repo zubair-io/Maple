@@ -13,38 +13,8 @@ import { ChangeDetectionStrategy, Component, computed, input } from '@angular/co
   selector: 'maple-material-icon',
   standalone: true,
   imports: [],
-  template: `<span
-    class="material-symbols-outlined"
-    [style.font-size.px]="size()"
-    [style.line-height]="'1'"
-    [style.color]="color()"
-    [attr.aria-hidden]="true"
-    >{{ name() }}</span
-  >`,
-  styles: [
-    `
-      :host {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-      }
-
-      .material-symbols-outlined {
-        font-family: 'Material Symbols Outlined';
-        font-weight: normal;
-        font-style: normal;
-        line-height: 1;
-        letter-spacing: normal;
-        text-transform: none;
-        display: inline-block;
-        white-space: nowrap;
-        word-wrap: normal;
-        direction: ltr;
-        -webkit-font-feature-settings: 'liga';
-        -webkit-font-smoothing: antialiased;
-      }
-    `,
-  ],
+  templateUrl: './material-icon.component.html',
+  styleUrl: './material-icon.component.scss',
   // Belt-and-braces: a host-level rule alone doesn't survive emulated
   // ViewEncapsulation if the span ever gets reparented; the styles array
   // above scopes the rule to this component's template specifically.
