@@ -13,8 +13,8 @@
                     [attr.fill]="shape.filled ? color() : 'none'"
                     [attr.stroke]="shape.filled ? null : color()"
                     [attr.stroke-width]="shape.filled ? null : strokeWidth()"
-                    [attr.stroke-linecap]="shape.filled ? null : 'round'"
-                    [attr.stroke-linejoin]="shape.filled ? null : 'round'"
+                    [attr.stroke-linecap]="shape.filled || shape.sharp ? null : 'round'"
+                    [attr.stroke-linejoin]="shape.filled || shape.sharp ? null : 'round'"
                     [attr.opacity]="shape.opacity ?? null"
                 />
             }
@@ -28,8 +28,8 @@
                     [attr.fill]="shape.filled ? color() : 'none'"
                     [attr.stroke]="shape.filled ? null : color()"
                     [attr.stroke-width]="shape.filled ? null : strokeWidth()"
-                    [attr.stroke-linecap]="shape.filled ? null : 'round'"
-                    [attr.stroke-linejoin]="shape.filled ? null : 'round'"
+                    [attr.stroke-linecap]="shape.filled || shape.sharp ? null : 'round'"
+                    [attr.stroke-linejoin]="shape.filled || shape.sharp ? null : 'round'"
                     [attr.opacity]="shape.opacity ?? null"
                 />
             }
@@ -41,8 +41,8 @@
                     [attr.fill]="shape.filled ? color() : 'none'"
                     [attr.stroke]="shape.filled ? null : color()"
                     [attr.stroke-width]="shape.filled ? null : strokeWidth()"
-                    [attr.stroke-linecap]="shape.filled ? null : 'round'"
-                    [attr.stroke-linejoin]="shape.filled ? null : 'round'"
+                    [attr.stroke-linecap]="shape.filled || shape.sharp ? null : 'round'"
+                    [attr.stroke-linejoin]="shape.filled || shape.sharp ? null : 'round'"
                     [attr.opacity]="shape.opacity ?? null"
                 />
             }
