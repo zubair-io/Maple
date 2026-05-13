@@ -29,6 +29,7 @@ import {
   BunApiBackendService,
   ApiAssetDetail,
   ApiEnrichmentStage,
+  ApiEnrichmentStageState,
 } from '../api/bun-api-backend.service';
 import { Subscription } from 'rxjs';
 
@@ -235,17 +236,35 @@ const REFRESH_POLL_MS = 2_000;
           </div>
         }
         <div class="px-3.5 pt-1.5 pb-0.5">
-          <div
-            class="relative h-[86px] cursor-pointer overflow-hidden rounded border-[0.5px] border-border"
-            style="background: radial-gradient(circle at 42% 62%, rgba(196,73,58,0.8) 0, rgba(196,73,58,0) 6px), linear-gradient(135deg, #22302a 0%, #1a201d 100%)"
-          >
+          @if (asset.gps) {
+            <a
+              [href]="openInMapsUrl(asset.gps.lat, asset.gps.lon)"
+              target="_blank"
+              rel="noopener noreferrer"
+              [title]="'Open in OpenStreetMap (' + asset.gps.lat.toFixed(4) + ', ' + asset.gps.lon.toFixed(4) + ')'"
+              class="relative block h-[86px] cursor-pointer overflow-hidden rounded border-[0.5px] border-border bg-surface-alt"
+            >
+              <img
+                [src]="staticMapTileUrl(asset.gps.lat, asset.gps.lon, MAP_ZOOM)"
+                [alt]="'Map of ' + asset.gps.lat.toFixed(4) + ', ' + asset.gps.lon.toFixed(4)"
+                class="absolute inset-0 h-full w-full object-cover"
+                referrerpolicy="no-referrer"
+                loading="lazy"
+              />
+              <div
+                class="absolute h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary shadow-[0_0_0_3px_rgba(196,73,58,0.25)]"
+                [style.left]="pinOffsetPct(asset.gps.lat, asset.gps.lon).left"
+                [style.top]="pinOffsetPct(asset.gps.lat, asset.gps.lon).top"
+              ></div>
+              <div class="absolute bottom-1.5 left-2 rounded-[3px] bg-surface/80 px-1 py-[1px] font-mono text-[9px] text-text-main">Open in Maps ›</div>
+            </a>
+          } @else {
             <div
-              class="absolute inset-0 opacity-[0.35]"
-              style="background-image: linear-gradient(90deg, rgba(168,162,158,0.2) 1px, transparent 1px), linear-gradient(0deg, rgba(168,162,158,0.15) 1px, transparent 1px); background-size: 16px 16px;"
-            ></div>
-            <div class="absolute left-[42%] top-[62%] h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary shadow-[0_0_0_3px_rgba(196,73,58,0.25)]"></div>
-            <div class="absolute bottom-1.5 left-2 font-mono text-[9px] text-text-muted">Open in Maps ›</div>
-          </div>
+              class="flex h-[58px] items-center justify-center rounded border-[0.5px] border-dashed border-border bg-surface-alt text-[10px] text-text-muted"
+            >
+              No GPS data
+            </div>
+          }
         </div>
       </maple-collapsible>
 
@@ -340,11 +359,15 @@ const REFRESH_POLL_MS = 2_000;
                 }
                 <div class="mt-1.5 flex items-center justify-between">
                   <div class="flex items-center gap-1.5">
-                    @if (d.enrichment.geocode.done_at === null && !d.enrichment.geocode.dead_letter_at) {
-                      <span class="rounded-[3px] bg-surface-alt px-1.5 py-0.5 text-[9px] uppercase tracking-[0.3px] text-text-muted">Pending</span>
-                    }
-                    @if (d.enrichment.geocode.dead_letter_at) {
-                      <span class="rounded-[3px] bg-error-bg px-1.5 py-0.5 text-[9px] uppercase tracking-[0.3px] text-error-text">Failed</span>
+                    @let geocodeStatus = stageStatus('geocode', d.enrichment.geocode);
+                    @if (geocodeStatus.label) {
+                      @if (geocodeStatus.kind === 'failed') {
+                        <span class="rounded-[3px] bg-error-bg px-1.5 py-0.5 text-[9px] uppercase tracking-[0.3px] text-error-text" [title]="geocodeStatus.tooltip ?? ''">{{ geocodeStatus.label }}</span>
+                      } @else if (geocodeStatus.kind === 'paused') {
+                        <a [href]="WORKERS_SETTINGS_URL" class="rounded-[3px] bg-surface-alt px-1.5 py-0.5 text-[9px] uppercase tracking-[0.3px] text-text-muted hover:text-text-main">{{ geocodeStatus.label }} →</a>
+                      } @else {
+                        <span class="rounded-[3px] bg-surface-alt px-1.5 py-0.5 text-[9px] uppercase tracking-[0.3px] text-text-muted" [title]="geocodeStatus.tooltip ?? ''">{{ geocodeStatus.label }}</span>
+                      }
                     }
                   </div>
                   <div class="flex gap-2">
@@ -352,6 +375,11 @@ const REFRESH_POLL_MS = 2_000;
                     <button class="text-[10px] text-text-muted hover:text-text-main" type="button" (click)="requeue(d, 'geocode')">↻ Re-geocode</button>
                   </div>
                 </div>
+                @if (lastClickError()['geocode']) {
+                  <div class="mt-1 text-[10px] text-error-text">{{ lastClickError()['geocode'] }}</div>
+                } @else if (staleAfterRequeue()['geocode']) {
+                  <div class="mt-1 text-[10px] text-text-muted">Still pending — check <a [href]="WORKERS_SETTINGS_URL" class="underline hover:text-text-main">worker status</a>.</div>
+                }
               }
             </div>
           </maple-collapsible>
@@ -382,11 +410,15 @@ const REFRESH_POLL_MS = 2_000;
               </div>
               <div class="mt-1.5 flex items-center justify-between">
                 <div class="flex items-center gap-1.5">
-                  @if (d.enrichment.describe.done_at === null && !d.enrichment.describe.dead_letter_at) {
-                    <span class="rounded-[3px] bg-surface-alt px-1.5 py-0.5 text-[9px] uppercase tracking-[0.3px] text-text-muted">Pending</span>
-                  }
-                  @if (d.enrichment.describe.dead_letter_at) {
-                    <span class="rounded-[3px] bg-error-bg px-1.5 py-0.5 text-[9px] uppercase tracking-[0.3px] text-error-text">Failed</span>
+                  @let describeStatus = stageStatus('describe', d.enrichment.describe);
+                  @if (describeStatus.label) {
+                    @if (describeStatus.kind === 'failed') {
+                      <span class="rounded-[3px] bg-error-bg px-1.5 py-0.5 text-[9px] uppercase tracking-[0.3px] text-error-text" [title]="describeStatus.tooltip ?? ''">{{ describeStatus.label }}</span>
+                    } @else if (describeStatus.kind === 'paused') {
+                      <a [href]="WORKERS_SETTINGS_URL" class="rounded-[3px] bg-surface-alt px-1.5 py-0.5 text-[9px] uppercase tracking-[0.3px] text-text-muted hover:text-text-main">{{ describeStatus.label }} →</a>
+                    } @else {
+                      <span class="rounded-[3px] bg-surface-alt px-1.5 py-0.5 text-[9px] uppercase tracking-[0.3px] text-text-muted" [title]="describeStatus.tooltip ?? ''">{{ describeStatus.label }}</span>
+                    }
                   }
                 </div>
                 <div class="flex gap-2">
@@ -394,6 +426,11 @@ const REFRESH_POLL_MS = 2_000;
                   <button class="text-[10px] text-text-muted hover:text-text-main" type="button" (click)="requeue(d, 'describe')">↻ Re-describe</button>
                 </div>
               </div>
+              @if (lastClickError()['describe']) {
+                <div class="mt-1 text-[10px] text-error-text">{{ lastClickError()['describe'] }}</div>
+              } @else if (staleAfterRequeue()['describe']) {
+                <div class="mt-1 text-[10px] text-text-muted">Still pending — check <a [href]="WORKERS_SETTINGS_URL" class="underline hover:text-text-main">worker status</a>.</div>
+              }
             }
           </div>
         </maple-collapsible>
@@ -421,11 +458,15 @@ const REFRESH_POLL_MS = 2_000;
               }
               <div class="mt-1.5 flex items-center justify-between">
                 <div class="flex items-center gap-1.5">
-                  @if (d.enrichment.ocr.done_at === null && !d.enrichment.ocr.dead_letter_at) {
-                    <span class="rounded-[3px] bg-surface-alt px-1.5 py-0.5 text-[9px] uppercase tracking-[0.3px] text-text-muted">Pending</span>
-                  }
-                  @if (d.enrichment.ocr.dead_letter_at) {
-                    <span class="rounded-[3px] bg-error-bg px-1.5 py-0.5 text-[9px] uppercase tracking-[0.3px] text-error-text">Failed</span>
+                  @let ocrStatus = stageStatus('ocr', d.enrichment.ocr);
+                  @if (ocrStatus.label) {
+                    @if (ocrStatus.kind === 'failed') {
+                      <span class="rounded-[3px] bg-error-bg px-1.5 py-0.5 text-[9px] uppercase tracking-[0.3px] text-error-text" [title]="ocrStatus.tooltip ?? ''">{{ ocrStatus.label }}</span>
+                    } @else if (ocrStatus.kind === 'paused') {
+                      <a [href]="WORKERS_SETTINGS_URL" class="rounded-[3px] bg-surface-alt px-1.5 py-0.5 text-[9px] uppercase tracking-[0.3px] text-text-muted hover:text-text-main">{{ ocrStatus.label }} →</a>
+                    } @else {
+                      <span class="rounded-[3px] bg-surface-alt px-1.5 py-0.5 text-[9px] uppercase tracking-[0.3px] text-text-muted" [title]="ocrStatus.tooltip ?? ''">{{ ocrStatus.label }}</span>
+                    }
                   }
                 </div>
                 <div class="flex gap-2">
@@ -433,6 +474,11 @@ const REFRESH_POLL_MS = 2_000;
                   <button class="text-[10px] text-text-muted hover:text-text-main" type="button" (click)="requeue(d, 'ocr')">↻ Re-OCR</button>
                 </div>
               </div>
+              @if (lastClickError()['ocr']) {
+                <div class="mt-1 text-[10px] text-error-text">{{ lastClickError()['ocr'] }}</div>
+              } @else if (staleAfterRequeue()['ocr']) {
+                <div class="mt-1 text-[10px] text-text-muted">Still pending — check <a [href]="WORKERS_SETTINGS_URL" class="underline hover:text-text-main">worker status</a>.</div>
+              }
             }
           </div>
         </maple-collapsible>
@@ -466,15 +512,24 @@ const REFRESH_POLL_MS = 2_000;
             }
             <div class="mt-1.5 flex items-center justify-between">
               <div class="flex items-center gap-1.5">
-                @if (d.enrichment.face.done_at === null && !d.enrichment.face.dead_letter_at) {
-                  <span class="rounded-[3px] bg-surface-alt px-1.5 py-0.5 text-[9px] uppercase tracking-[0.3px] text-text-muted">Pending</span>
-                }
-                @if (d.enrichment.face.dead_letter_at) {
-                  <span class="rounded-[3px] bg-error-bg px-1.5 py-0.5 text-[9px] uppercase tracking-[0.3px] text-error-text">Failed</span>
+                @let faceStatus = stageStatus('face', d.enrichment.face);
+                @if (faceStatus.label) {
+                  @if (faceStatus.kind === 'failed') {
+                    <span class="rounded-[3px] bg-error-bg px-1.5 py-0.5 text-[9px] uppercase tracking-[0.3px] text-error-text" [title]="faceStatus.tooltip ?? ''">{{ faceStatus.label }}</span>
+                  } @else if (faceStatus.kind === 'paused') {
+                    <a [href]="WORKERS_SETTINGS_URL" class="rounded-[3px] bg-surface-alt px-1.5 py-0.5 text-[9px] uppercase tracking-[0.3px] text-text-muted hover:text-text-main">{{ faceStatus.label }} →</a>
+                  } @else {
+                    <span class="rounded-[3px] bg-surface-alt px-1.5 py-0.5 text-[9px] uppercase tracking-[0.3px] text-text-muted" [title]="faceStatus.tooltip ?? ''">{{ faceStatus.label }}</span>
+                  }
                 }
               </div>
               <button class="text-[10px] text-text-muted hover:text-text-main" type="button" (click)="requeue(d, 'face')">↻ Re-detect</button>
             </div>
+            @if (lastClickError()['face']) {
+              <div class="mt-1 text-[10px] text-error-text">{{ lastClickError()['face'] }}</div>
+            } @else if (staleAfterRequeue()['face']) {
+              <div class="mt-1 text-[10px] text-text-muted">Still pending — check <a [href]="WORKERS_SETTINGS_URL" class="underline hover:text-text-main">worker status</a>.</div>
+            }
           </div>
         </maple-collapsible>
       }
@@ -517,9 +572,38 @@ export class InfoTabComponent implements OnDestroy {
   // ── Self-Hosted enrichment state ──────────────────────────────────────
   readonly selfHosted = this.backend === 'self-hosted';
 
+  /** Deep link for "Worker paused" badges and stale-after-requeue hints.
+   * The workers admin page already exists at this route. */
+  readonly WORKERS_SETTINGS_URL = '/settings/workers';
+
+  /** OSM static-tile zoom. 13 ≈ a town-sized window, which is the right
+   * scale for a 86 px thumbnail; the user can zoom in via the click-out
+   * link. */
+  readonly MAP_ZOOM = 13;
+
   /** The last-fetched detail for the currently-focused asset. Cleared
    * whenever the focused asset changes. */
   readonly detail = signal<ApiAssetDetail | null>(null);
+
+  /** Per-stage paused flag from GET /api/workers/status. Empty record
+   * means "not yet fetched" — render as if not paused (so we don't show
+   * the misleading "Worker paused" badge before we know). */
+  readonly workerPaused = signal<Partial<Record<ApiEnrichmentStage, boolean>>>(
+    {},
+  );
+
+  /** Per-stage last error string from the most recent Re-* or override
+   * click. Cleared on the next successful click for the same stage. */
+  readonly lastClickError = signal<Partial<Record<ApiEnrichmentStage, string>>>(
+    {},
+  );
+
+  /** Per-stage flag set when the 30 s polling window expires without
+   * `done_at` flipping. Tells the user the row is stuck rather than
+   * actively in flight. Cleared on focus change and on the next click. */
+  readonly staleAfterRequeue = signal<Partial<Record<ApiEnrichmentStage, true>>>(
+    {},
+  );
 
   // Per-section edit state. Local UI signals; not persisted.
   readonly placeEditing = signal(false);
@@ -546,20 +630,52 @@ export class InfoTabComponent implements OnDestroy {
   /** Snapshot taken at requeue time; the poll stops when something
    * changes (`done_at` flips, version bumps, dead_letter clears, etc). */
   private refreshBaseline: ApiAssetDetail | null = null;
+  /** Stage whose Re-* click started the current refresh loop, so we can
+   * surface a row-specific "Still pending" hint on deadline expiry. */
+  private refreshStage: ApiEnrichmentStage | null = null;
 
   constructor() {
     // Refetch detail on focus change. Self-Hosted only — Hosted has no
     // server-side enrichment payload.
     if (this.selfHosted) {
+      this.fetchWorkerStatus();
       effect(() => {
         const apiId = this.apiAssetId();
-        // Reset edit state on focus change so a stale draft doesn't leak.
+        // Reset edit state and per-stage UI signals on focus change so
+        // stale state from the previous asset doesn't leak through.
         this.cancelAllEdits();
+        this.lastClickError.set({});
+        this.staleAfterRequeue.set({});
         this.detail.set(null);
         this.stopRefreshLoop();
         if (apiId) this.fetchDetail(apiId);
       });
     }
+  }
+
+  /** Pull `config.paused` per stage from /api/workers/status. Called once
+   * on init and refreshed on every Re-* click so a worker enabled in
+   * another tab doesn't leave us showing a stale "Worker paused" badge. */
+  private fetchWorkerStatus(): void {
+    this.api.getWorkerStatus().subscribe({
+      next: (status) => {
+        const next: Partial<Record<ApiEnrichmentStage, boolean>> = {};
+        for (const s of status.stages) {
+          if (s.name === 'geocode' || s.name === 'describe' || s.name === 'ocr' || s.name === 'face') {
+            // Trust `config.paused` first; fall back to the `status` string
+            // which the API also exposes as "paused" when the config flag
+            // is set on a running child.
+            next[s.name] = s.config?.paused === true || s.status === 'paused';
+          }
+        }
+        this.workerPaused.set(next);
+      },
+      error: () => {
+        // Worker status endpoint unreachable — leave the cache empty.
+        // The UI will show "Pending" (not "Worker paused"), which is the
+        // best we can do without that signal.
+      },
+    });
   }
 
   ngOnDestroy(): void {
@@ -580,18 +696,47 @@ export class InfoTabComponent implements OnDestroy {
     });
   }
 
+  /** Used by the requeue and refresh-poll paths so an inline error message
+   * shows up under the row without leaking the raw HTTP error to the UI. */
+  private setStageError(stage: ApiEnrichmentStage, message: string): void {
+    this.lastClickError.update((m) => ({ ...m, [stage]: message }));
+  }
+
+  /** Clear the per-stage error + stale hint — called right before we
+   * kick off a new request so the old message doesn't sit there. */
+  private clearStageFeedback(stage: ApiEnrichmentStage): void {
+    this.lastClickError.update((m) => {
+      const next = { ...m };
+      delete next[stage];
+      return next;
+    });
+    this.staleAfterRequeue.update((m) => {
+      const next = { ...m };
+      delete next[stage];
+      return next;
+    });
+  }
+
   /** After a requeue, poll the asset every 2 s for up to 30 s, stopping
    * as soon as the worker has clearly run (any per-stage state field
-   * meaningfully different from the snapshot at requeue time). */
-  private startRefreshLoop(): void {
+   * meaningfully different from the snapshot at requeue time). The
+   * `stage` argument is the one the user clicked — if the deadline
+   * expires without progress, we flag that stage's row as stale so the
+   * user sees something other than a frozen "Pending" badge. */
+  private startRefreshLoop(stage: ApiEnrichmentStage): void {
     if (!this.selfHosted) return;
     const apiId = this.apiAssetId();
     if (!apiId) return;
     this.stopRefreshLoop();
     this.refreshBaseline = this.detail();
+    this.refreshStage = stage;
     this.refreshDeadline = Date.now() + REFRESH_TIMEOUT_MS;
     this.refreshTimer = setInterval(() => {
       if (Date.now() > this.refreshDeadline) {
+        const expiredStage = this.refreshStage;
+        if (expiredStage) {
+          this.staleAfterRequeue.update((m) => ({ ...m, [expiredStage]: true }));
+        }
         this.stopRefreshLoop();
         return;
       }
@@ -607,6 +752,11 @@ export class InfoTabComponent implements OnDestroy {
             this.stopRefreshLoop();
           }
         },
+        error: () => {
+          // A transient poll failure shouldn't kill the loop — the next
+          // tick will try again. If the deadline expires we'll surface
+          // it via `staleAfterRequeue` then.
+        },
       });
     }, REFRESH_POLL_MS);
   }
@@ -617,6 +767,7 @@ export class InfoTabComponent implements OnDestroy {
       this.refreshTimer = null;
     }
     this.refreshBaseline = null;
+    this.refreshStage = null;
     this.refreshDeadline = 0;
   }
 
@@ -709,10 +860,14 @@ export class InfoTabComponent implements OnDestroy {
           search_blob: text.toLowerCase(),
         }
       : null;
+    this.clearStageFeedback('geocode');
     this.api.setAssetPlaceOverride(d.id, next).subscribe({
       next: () => {
         this.placeEditing.set(false);
         this.refetchAfterMutation();
+      },
+      error: () => {
+        this.setStageError('geocode', 'Failed to save — try again.');
       },
     });
   }
@@ -727,12 +882,16 @@ export class InfoTabComponent implements OnDestroy {
   }
   saveDescriptionEdit(d: ApiAssetDetail): void {
     const text = this.descriptionDraft();
+    this.clearStageFeedback('describe');
     this.api
       .setAssetDescriptionOverride(d.id, text.length > 0 ? text : null)
       .subscribe({
         next: () => {
           this.descriptionEditing.set(false);
           this.refetchAfterMutation();
+        },
+        error: () => {
+          this.setStageError('describe', 'Failed to save — try again.');
         },
       });
   }
@@ -747,12 +906,16 @@ export class InfoTabComponent implements OnDestroy {
   }
   saveOcrEdit(d: ApiAssetDetail): void {
     const text = this.ocrDraft();
+    this.clearStageFeedback('ocr');
     this.api
       .setAssetOcrOverride(d.id, text.length > 0 ? text : null)
       .subscribe({
         next: () => {
           this.ocrEditing.set(false);
           this.refetchAfterMutation();
+        },
+        error: () => {
+          this.setStageError('ocr', 'Failed to save — try again.');
         },
       });
   }
@@ -774,6 +937,10 @@ export class InfoTabComponent implements OnDestroy {
   // ── Requeue ───────────────────────────────────────────────────────────
 
   requeue(d: ApiAssetDetail, stage: ApiEnrichmentStage): void {
+    this.clearStageFeedback(stage);
+    // Refresh worker pause flags in the background — catches the case
+    // where the user enabled (or paused) a worker in another tab.
+    this.fetchWorkerStatus();
     this.api.requeueEnrichmentStage(d.id, stage).subscribe({
       next: () => {
         // Clear the per-stage `done_at` locally so the Pending badge
@@ -789,11 +956,15 @@ export class InfoTabComponent implements OnDestroy {
                 ...current.enrichment[stage],
                 done_at: null,
                 dead_letter_at: null,
+                last_error: null,
               },
             },
           });
         }
-        this.startRefreshLoop();
+        this.startRefreshLoop(stage);
+      },
+      error: () => {
+        this.setStageError(stage, 'Failed to requeue — try again.');
       },
     });
   }
@@ -841,5 +1012,93 @@ export class InfoTabComponent implements OnDestroy {
   toggleColor(asset: Asset, label: ColorLabel): void {
     const next: ColorLabel = asset.colorLabel === label ? null : label;
     this.state.setColorLabel(asset.id, next);
+  }
+
+  // ── Enrichment status derivation ──────────────────────────────────────
+
+  /** Decide what badge to show for a stage row. The DTO carries enough
+   * fields to pin down every state — we layer the worker-pause cache on
+   * top so a paused-on-first-boot stage reads as "Worker paused" instead
+   * of an indefinite "Pending". Priority order matches the table in the
+   * plan: failed > skipped > complete > paused > running > pending. */
+  stageStatus(
+    stage: ApiEnrichmentStage,
+    s: ApiEnrichmentStageState,
+  ): { kind: 'failed' | 'skipped' | 'paused' | 'running' | 'pending' | 'complete'; label: string; tooltip?: string } {
+    if (s.dead_letter_at) {
+      return { kind: 'failed', label: 'Failed', tooltip: s.last_error ?? undefined };
+    }
+    // A "skip: …" last_error means the worker decided not to process the
+    // asset — done_at is also set in that case (the supervisor stamps
+    // both fields in the skip path).
+    if (s.last_error?.startsWith('skip: ')) {
+      const reason = s.last_error.slice('skip: '.length);
+      return { kind: 'skipped', label: this.skipReasonLabel(reason), tooltip: s.last_error };
+    }
+    if (s.done_at !== null) {
+      // Complete — no badge needed.
+      return { kind: 'complete', label: '' };
+    }
+    if (this.workerPaused()[stage]) {
+      return { kind: 'paused', label: 'Worker paused' };
+    }
+    // Treat a live lease as "Running…"; otherwise the row is queued for
+    // the next supervisor tick.
+    if (s.locked_by && s.lease_expires_at) {
+      const expires = Date.parse(s.lease_expires_at);
+      if (Number.isFinite(expires) && expires > Date.now()) {
+        return { kind: 'running', label: 'Running…' };
+      }
+    }
+    return { kind: 'pending', label: 'Pending' };
+  }
+
+  /** Human label for a `skip: …` reason. Falls back to a generic
+   * "Skipped" with the raw reason in the tooltip so we don't lose info
+   * for skip cases the workers may add later. */
+  private skipReasonLabel(reason: string): string {
+    if (reason === 'no-gps') return 'No GPS';
+    if (reason === 'image-missing') return 'No thumbnail';
+    if (reason.startsWith('thumb-missing')) return 'No thumbnail';
+    if (reason.startsWith('thumb-undecodable')) return 'Thumbnail unreadable';
+    return 'Skipped';
+  }
+
+  // ── Map tile helpers ──────────────────────────────────────────────────
+
+  /** OSM raster tile URL for the slippy-map tile containing (lat, lon)
+   * at the given zoom. Standard math from
+   * https://wiki.openstreetmap.org/wiki/Slippy_map_tilenames. The result
+   * is a single 256×256 tile centered roughly on the point — the pin
+   * helper computes the pixel offset for the exact spot. */
+  staticMapTileUrl(lat: number, lon: number, zoom: number): string {
+    const z = Math.max(0, Math.min(19, Math.floor(zoom)));
+    const n = Math.pow(2, z);
+    const x = Math.floor(((lon + 180) / 360) * n);
+    const latRad = (lat * Math.PI) / 180;
+    const y = Math.floor(
+      ((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2) * n,
+    );
+    return `https://tile.openstreetmap.org/${z}/${x}/${y}.png`;
+  }
+
+  /** CSS left/top percentages so the pin sits on the actual lat/lon
+   * inside the rendered tile. Same slippy-map math, fractional part. */
+  pinOffsetPct(lat: number, lon: number): { left: string; top: string } {
+    const n = Math.pow(2, this.MAP_ZOOM);
+    const xFrac = ((lon + 180) / 360) * n;
+    const latRad = (lat * Math.PI) / 180;
+    const yFrac =
+      ((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2) * n;
+    const left = (xFrac - Math.floor(xFrac)) * 100;
+    const top = (yFrac - Math.floor(yFrac)) * 100;
+    return { left: `${left.toFixed(2)}%`, top: `${top.toFixed(2)}%` };
+  }
+
+  /** External "open in maps" URL — the OSM web viewer with a marker.
+   * `mlat`/`mlon` drop a pin; the `#map=` fragment sets the view. */
+  openInMapsUrl(lat: number, lon: number): string {
+    const z = 14;
+    return `https://www.openstreetmap.org/?mlat=${lat}&mlon=${lon}#map=${z}/${lat}/${lon}`;
   }
 }
