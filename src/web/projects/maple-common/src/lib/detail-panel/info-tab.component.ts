@@ -248,6 +248,7 @@ const REFRESH_POLL_MS = 2_000;
                 [src]="staticMapTileUrl(asset.gps.lat, asset.gps.lon, MAP_ZOOM)"
                 [alt]="'Map of ' + asset.gps.lat.toFixed(4) + ', ' + asset.gps.lon.toFixed(4)"
                 class="absolute inset-0 h-full w-full object-cover"
+                crossorigin="anonymous"
                 referrerpolicy="no-referrer"
                 loading="lazy"
               />
