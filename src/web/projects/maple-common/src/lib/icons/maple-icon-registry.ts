@@ -47,6 +47,11 @@ export type MapleIconName =
 interface ShapeBase {
     filled?: boolean;
     opacity?: number;
+    /** Skip stroke-linecap/linejoin="round" so the shape renders with the
+     * SVG defaults (butt cap, miter join). Used by the grid icons whose
+     * 90° corners must stay sharp; rounded joins would visibly bevel the
+     * 3×3 / 4.5×4.5 cells. */
+    sharp?: boolean;
 }
 
 export type IconShape =
@@ -68,6 +73,15 @@ const rect = (
     height: number,
     rx?: number,
 ): IconShape => ({ kind: 'rect', x, y, width, height, ...(rx !== undefined ? { rx } : {}) });
+
+const sharpRect = (x: number, y: number, width: number, height: number): IconShape => ({
+    kind: 'rect',
+    x,
+    y,
+    width,
+    height,
+    sharp: true,
+});
 
 const path = (d: string): IconShape => ({ kind: 'path', d });
 const circle = (cx: number, cy: number, r: number): IconShape => ({ kind: 'circle', cx, cy, r });
@@ -98,21 +112,21 @@ export const ICON_SHAPES: Record<MapleIconName, readonly IconShape[]> = {
     sort: [path('M4 4l2-2 2 2M6 2v10M12 12l-2 2-2-2M10 14V4')],
     filter: [path('M2.5 3.5h11l-4 5v4l-3 1.5V8.5l-4-5z')],
     'grid-sm': [
-        rect(2.5, 2.5, 3, 3),
-        rect(6.5, 2.5, 3, 3),
-        rect(10.5, 2.5, 3, 3),
-        rect(2.5, 6.5, 3, 3),
-        rect(6.5, 6.5, 3, 3),
-        rect(10.5, 6.5, 3, 3),
-        rect(2.5, 10.5, 3, 3),
-        rect(6.5, 10.5, 3, 3),
-        rect(10.5, 10.5, 3, 3),
+        sharpRect(2.5, 2.5, 3, 3),
+        sharpRect(6.5, 2.5, 3, 3),
+        sharpRect(10.5, 2.5, 3, 3),
+        sharpRect(2.5, 6.5, 3, 3),
+        sharpRect(6.5, 6.5, 3, 3),
+        sharpRect(10.5, 6.5, 3, 3),
+        sharpRect(2.5, 10.5, 3, 3),
+        sharpRect(6.5, 10.5, 3, 3),
+        sharpRect(10.5, 10.5, 3, 3),
     ],
     'grid-lg': [
-        rect(2.5, 2.5, 4.5, 4.5),
-        rect(9, 2.5, 4.5, 4.5),
-        rect(2.5, 9, 4.5, 4.5),
-        rect(9, 9, 4.5, 4.5),
+        sharpRect(2.5, 2.5, 4.5, 4.5),
+        sharpRect(9, 2.5, 4.5, 4.5),
+        sharpRect(2.5, 9, 4.5, 4.5),
+        sharpRect(9, 9, 4.5, 4.5),
     ],
     info: [circle(8, 8, 5.5), path('M8 7.5v3.5M8 5.5v.01')],
     droplet: [path('M8 2.5S3.5 7 3.5 10A4.5 4.5 0 008 14.5 4.5 4.5 0 0012.5 10C12.5 7 8 2.5 8 2.5z')],

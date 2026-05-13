@@ -18,12 +18,14 @@ function normalizeLatLon(lat: number, lon: number): { lat: number; lon: number }
     return { lat: clampedLat, lon: wrappedLon };
 }
 
-/** OSM raster tile URL for the slippy-map tile that *contains* (lat, lon)
- * at the given zoom. Standard math from
- * https://wiki.openstreetmap.org/wiki/Slippy_map_tilenames. */
-export function staticMapTileUrl(lat: number, lon: number, zoom: number = MAP_ZOOM): string {
+/** OSM raster tile URL for the slippy-map tile that *contains* (lat, lon).
+ * Standard math from https://wiki.openstreetmap.org/wiki/Slippy_map_tilenames.
+ * Zoom is fixed at MAP_ZOOM so the tile and the pin (`pinOffsetPct`) stay
+ * in lockstep — a parameterised zoom on the tile without the same zoom on
+ * the pin lands the pin in the wrong spot. */
+export function staticMapTileUrl(lat: number, lon: number): string {
     const { lat: nLat, lon: nLon } = normalizeLatLon(lat, lon);
-    const z = Math.max(0, Math.min(19, Math.floor(zoom)));
+    const z = MAP_ZOOM;
     const n = Math.pow(2, z);
     const xRaw = Math.floor(((nLon + 180) / 360) * n);
     const latRad = (nLat * Math.PI) / 180;

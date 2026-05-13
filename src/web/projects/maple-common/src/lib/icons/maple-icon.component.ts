@@ -3,7 +3,7 @@
 // renderer (single <svg> with three primitive cases).
 
 import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
-import { ICON_SHAPES, MapleIconName } from './maple-icon-registry';
+import { ICON_SHAPES, type MapleIconName } from './maple-icon-registry';
 
 export type { MapleIconName } from './maple-icon-registry';
 
