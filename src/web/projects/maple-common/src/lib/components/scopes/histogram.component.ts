@@ -38,12 +38,7 @@ function hashModel(m: AdjustmentModel): number {
 @Component({
   selector: 'editor-histogram',
   standalone: true,
-  template: `<canvas
-    #canvas
-    width="200"
-    height="80"
-    class="block w-full h-20"
-  ></canvas>`,
+  templateUrl: './histogram.component.html',
   host: { class: 'block' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })

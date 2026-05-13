@@ -9,55 +9,7 @@ import { EditorSliderComponent } from './slider.component';
   selector: 'editor-tone-section',
   standalone: true,
   imports: [MapleCollapsibleComponent, EditorSliderComponent],
-  template: `
-    <maple-collapsible label="Tone" storageKey="dev-tone" [padInner]="false">
-      @if (assetId()) {
-        <editor-slider
-          label="Exposure"
-          [value]="adj().exposure"
-          [min]="-4"
-          [max]="4"
-          [step]="0.01"
-          (valueChange)="patch('exposure', $event)"
-        />
-        <editor-slider
-          label="Contrast"
-          [value]="adj().contrast"
-          [min]="-100"
-          [max]="100"
-          (valueChange)="patch('contrast', $event)"
-        />
-        <editor-slider
-          label="Highlights"
-          [value]="adj().highlights"
-          [min]="-100"
-          [max]="100"
-          (valueChange)="patch('highlights', $event)"
-        />
-        <editor-slider
-          label="Shadows"
-          [value]="adj().shadows"
-          [min]="-100"
-          [max]="100"
-          (valueChange)="patch('shadows', $event)"
-        />
-        <editor-slider
-          label="Whites"
-          [value]="adj().whites"
-          [min]="-100"
-          [max]="100"
-          (valueChange)="patch('whites', $event)"
-        />
-        <editor-slider
-          label="Blacks"
-          [value]="adj().blacks"
-          [min]="-100"
-          [max]="100"
-          (valueChange)="patch('blacks', $event)"
-        />
-      }
-    </maple-collapsible>
-  `,
+  templateUrl: './tone-section.component.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ToneSectionComponent {

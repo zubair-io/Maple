@@ -22,57 +22,12 @@ import { AssetThumbComponent } from '../asset-thumb/asset-thumb.component';
   selector: 'editor-filmstrip',
   standalone: true,
   imports: [AssetThumbComponent],
-  styles: [
-    `
-      /* 0.5px borders + ::-webkit-scrollbar pseudos can't be expressed as
-         Tailwind utilities — keep them in CSS. */
-      :host {
-        border-right: 0.5px solid var(--color-border);
-      }
-
-      .strip-title {
-        border-bottom: 0.5px solid var(--color-border);
-      }
-
-      .strip-scroll::-webkit-scrollbar {
-        width: 4px;
-      }
-      .strip-scroll::-webkit-scrollbar-track {
-        background: transparent;
-      }
-      .strip-scroll::-webkit-scrollbar-thumb {
-        background: var(--color-border);
-        border-radius: 2px;
-      }
-    `,
-  ],
+  styleUrl: './filmstrip.component.scss',
   host: {
     class:
       'flex flex-col w-[110px] min-w-[110px] h-full bg-sidebar overflow-hidden',
   },
-  template: `
-    <div
-      class="strip-title shrink-0 pl-2.5 pr-2.5 pt-2 pb-1.5 text-[9px] font-semibold uppercase tracking-[0.08em] text-text-muted"
-    >{{ state.assetsInSelectedFolder().length }} photos</div>
-
-    <div class="strip-scroll flex-1 overflow-y-auto p-1 flex flex-col gap-[3px]" #scrollContainer>
-      @for (asset of state.assetsInSelectedFolder(); track asset.id) {
-        @let isFocused = state.focusedAssetId() === asset.id;
-        <div
-          class="shrink-0"
-          [style.height.px]="thumbH(asset)"
-          [attr.data-id]="asset.id"
-        >
-          <maple-asset-thumb
-            [asset]="asset"
-            variant="filmstrip"
-            [focused]="isFocused"
-            (thumbClick)="select(asset)"
-          />
-        </div>
-      }
-    </div>
-  `,
+  templateUrl: './filmstrip.component.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class FilmstripComponent implements AfterViewInit, OnDestroy {

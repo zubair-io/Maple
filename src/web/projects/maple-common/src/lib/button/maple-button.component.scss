@@ -1,0 +1,15 @@
+:host {
+  display: inline-flex;
+}
+/* Pill-active state. Tailwind utilities for the base "pill" colors
+   (bg-surface / text-text-main / border-border) and the active-state
+   overrides (bg-primary-dim / text-primary / border-primary) have
+   identical specificity, so the overlap depends on declaration order
+   in the compiled stylesheet. Express the active override as a small
+   class-scoped rule so the cascade is deterministic regardless of
+   utility-class generation order. */
+button.pill-active {
+  background: var(--color-primary-dim);
+  color: var(--color-primary);
+  border-color: var(--color-primary);
+}

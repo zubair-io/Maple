@@ -1,0 +1,411 @@
+@let asset = state.focusedAsset();
+
+@if (!asset) {
+  <div class="flex flex-1 items-center justify-center p-5 text-center text-[11px] text-text-muted">Select an asset to inspect</div>
+} @else {
+  <!-- File -->
+  <maple-collapsible label="File" storageKey="info-file">
+    <div class="flex justify-between gap-2 px-4 py-[5px]">
+      <span class="flex-shrink-0 text-[11px] text-text-muted">Name</span>
+      <span class="max-w-[65%] overflow-hidden text-ellipsis whitespace-nowrap text-right font-mono text-[11px] text-text-main">{{ asset.filename }}</span>
+    </div>
+    <div class="flex justify-between gap-2 px-4 py-[5px]">
+      <span class="flex-shrink-0 text-[11px] text-text-muted">Format</span>
+      <span class="max-w-[65%] overflow-hidden text-ellipsis whitespace-nowrap text-right font-mono text-[11px] text-text-main">Canon RAW · {{ ext(asset.filename) }}</span>
+    </div>
+    <div class="flex justify-between gap-2 px-4 py-[5px]">
+      <span class="flex-shrink-0 text-[11px] text-text-muted">Dimensions</span>
+      <span class="max-w-[65%] overflow-hidden text-ellipsis whitespace-nowrap text-right font-mono text-[11px] text-text-main">{{ asset.width && asset.height ? (asset.width + " × " + asset.height) : "—" }}</span>
+    </div>
+    <div class="flex justify-between gap-2 px-4 py-[5px]">
+      <span class="flex-shrink-0 text-[11px] text-text-muted">Size</span>
+      <span class="max-w-[65%] overflow-hidden text-ellipsis whitespace-nowrap text-right font-mono text-[11px] text-text-main">{{ formatSize(asset.size) }}</span>
+    </div>
+    @if (asset.edited) {
+      <div class="px-3.5 pt-1.5 pb-0.5">
+        <div class="inline-flex items-center gap-1 rounded-[3px] bg-success-bg px-[7px] py-[3px] text-[10px] font-medium text-success-text">
+          <maple-icon
+            name="check"
+            [size]="10"
+            [strokeWidth]="2.5"
+            color="var(--color-success-text)"
+          />
+          <span>{{ xmpName(asset.filename) }}</span>
+        </div>
+      </div>
+    }
+  </maple-collapsible>
+
+  <!-- Camera -->
+  <maple-collapsible label="Camera" storageKey="info-camera">
+    <div class="flex justify-between gap-2 px-4 py-[5px]">
+      <span class="flex-shrink-0 text-[11px] text-text-muted">Body</span>
+      <span class="max-w-[65%] overflow-hidden text-ellipsis whitespace-nowrap text-right font-mono text-[11px] text-text-main">{{ asset.camera || "—" }}</span>
+    </div>
+    <div class="flex justify-between gap-2 px-4 py-[5px]">
+      <span class="flex-shrink-0 text-[11px] text-text-muted">Lens</span>
+      <span class="max-w-[65%] overflow-hidden text-ellipsis whitespace-nowrap text-right font-mono text-[11px] text-text-main">{{ asset.lens || "—" }}</span>
+    </div>
+    <div class="flex justify-between gap-2 px-4 py-[5px]">
+      <span class="flex-shrink-0 text-[11px] text-text-muted">Focal</span>
+      <span class="max-w-[65%] overflow-hidden text-ellipsis whitespace-nowrap text-right font-mono text-[11px] text-text-main">{{ asset.focalLength || "—" }}</span>
+    </div>
+    <div class="flex justify-between gap-2 px-4 py-[5px]">
+      <span class="flex-shrink-0 text-[11px] text-text-muted">Aperture</span>
+      <span class="max-w-[65%] overflow-hidden text-ellipsis whitespace-nowrap text-right font-mono text-[11px] text-text-main">{{ asset.aperture || "—" }}</span>
+    </div>
+    <div class="flex justify-between gap-2 px-4 py-[5px]">
+      <span class="flex-shrink-0 text-[11px] text-text-muted">Shutter</span>
+      <span class="max-w-[65%] overflow-hidden text-ellipsis whitespace-nowrap text-right font-mono text-[11px] text-text-main">{{ asset.shutter || "—" }}</span>
+    </div>
+    <div class="flex justify-between gap-2 px-4 py-[5px]">
+      <span class="flex-shrink-0 text-[11px] text-text-muted">ISO</span>
+      <span class="max-w-[65%] overflow-hidden text-ellipsis whitespace-nowrap text-right font-mono text-[11px] text-text-main">{{ asset.iso || "—" }}</span>
+    </div>
+  </maple-collapsible>
+
+  <!-- Rating & flags -->
+  <maple-collapsible label="Rating & flags" storageKey="info-rating">
+    <div class="flex gap-[3px] px-3.5 pt-0.5 pb-2">
+      <div
+        class="flex h-7 w-7 cursor-pointer items-center justify-center rounded-full border border-border bg-transparent text-[11px] font-semibold text-text-muted"
+        [class.bg-success-bg]="asset.flag === 'pick'"
+        [class.text-success-text]="asset.flag === 'pick'"
+        [class.border-success-text]="asset.flag === 'pick'"
+        title="Pick"
+        (click)="toggleFlag(asset, 'pick')"
+      >
+        P
+      </div>
+      <div
+        class="flex h-7 w-7 cursor-pointer items-center justify-center rounded-full border border-border bg-transparent text-[11px] font-semibold text-text-muted"
+        [class.bg-surface-alt]="asset.flag === 'unflagged'"
+        [class.text-text-main]="asset.flag === 'unflagged'"
+        title="Unflagged"
+        (click)="toggleFlag(asset, 'unflagged')"
+      >
+        —
+      </div>
+      <div
+        class="flex h-7 w-7 cursor-pointer items-center justify-center rounded-full border border-border bg-transparent text-[11px] font-semibold text-text-muted"
+        [class.bg-error-bg]="asset.flag === 'reject'"
+        [class.text-error-text]="asset.flag === 'reject'"
+        [class.border-error-text]="asset.flag === 'reject'"
+        title="Reject"
+        (click)="toggleFlag(asset, 'reject')"
+      >
+        ✕
+      </div>
+    </div>
+
+    <div class="flex gap-0.5 px-3.5 pb-2">
+      @for (i of STAR_INDICES; track i) {
+        <div class="cursor-pointer p-0.5" (click)="toggleStar(asset, i)">
+          <maple-icon
+            [name]="i <= asset.rating ? 'star-filled' : 'star'"
+            [size]="16"
+            [color]="i <= asset.rating ? 'var(--color-star)' : 'var(--color-border)'"
+          />
+        </div>
+      }
+    </div>
+
+    <div class="px-3.5 pb-1">
+      <div class="mb-1.5 text-[10px] uppercase tracking-[0.3px] text-text-muted">Color label</div>
+      <div class="flex gap-1.5">
+        @for (cl of COLOR_LABELS; track cl.name) {
+          <div
+            class="color-dot h-5 w-5 cursor-pointer rounded-full"
+            [class.active]="asset.colorLabel === cl.name"
+            [style.background]="cl.hex"
+            [title]="cl.name"
+            (click)="toggleColor(asset, cl.name)"
+          ></div>
+        }
+      </div>
+    </div>
+  </maple-collapsible>
+
+  <!-- Location -->
+  <maple-collapsible label="Location" storageKey="info-location">
+    @if (asset.gps) {
+      <div class="flex justify-between gap-2 px-4 py-[5px]">
+        <span class="flex-shrink-0 text-[11px] text-text-muted">Coords</span>
+        <span class="max-w-[65%] overflow-hidden text-ellipsis whitespace-nowrap text-right font-mono text-[11px] text-text-main">{{ asset.gps.lat.toFixed(4) }}, {{ asset.gps.lon.toFixed(4) }}</span>
+      </div>
+    }
+    @if (asset.city) {
+      <div class="flex justify-between gap-2 px-4 py-[5px]">
+        <span class="flex-shrink-0 text-[11px] text-text-muted">City</span>
+        <span class="max-w-[65%] overflow-hidden text-ellipsis whitespace-nowrap text-right font-mono text-[11px] text-text-main">{{ asset.city }}, {{ asset.region }}</span>
+      </div>
+      <div class="flex justify-between gap-2 px-4 py-[5px]">
+        <span class="flex-shrink-0 text-[11px] text-text-muted">Country</span>
+        <span class="max-w-[65%] overflow-hidden text-ellipsis whitespace-nowrap text-right font-mono text-[11px] text-text-main">{{ asset.country }}</span>
+      </div>
+    }
+    <div class="px-3.5 pt-1.5 pb-0.5">
+      @if (asset.gps) {
+        <maple-osm-map-thumb [lat]="asset.gps.lat" [lon]="asset.gps.lon" />
+      } @else {
+        <div
+          class="flex h-[58px] items-center justify-center rounded border-[0.5px] border-dashed border-border bg-surface-alt text-[10px] text-text-muted"
+        >
+          No GPS data
+        </div>
+      }
+    </div>
+  </maple-collapsible>
+
+  <!-- Dates -->
+  <maple-collapsible label="Dates" storageKey="info-dates" [defaultOpen]="false">
+    <div class="flex justify-between gap-2 px-4 py-[5px]">
+      <span class="flex-shrink-0 text-[11px] text-text-muted">Captured</span>
+      <span class="max-w-[65%] overflow-hidden text-ellipsis whitespace-nowrap text-right font-mono text-[11px] text-text-main">{{ formatDate(asset.capturedAt) }}</span>
+    </div>
+    <div class="flex justify-between gap-2 px-4 py-[5px]">
+      <span class="flex-shrink-0 text-[11px] text-text-muted">Modified</span>
+      <span class="max-w-[65%] overflow-hidden text-ellipsis whitespace-nowrap text-right font-mono text-[11px] text-text-main">{{ formatDate(asset.mtime) }}</span>
+    </div>
+  </maple-collapsible>
+
+  <!-- IPTC -->
+  <maple-collapsible label="IPTC" storageKey="info-iptc" [defaultOpen]="false">
+    <div class="px-4 py-[5px]">
+      <div class="mb-0.5 text-[10px] text-text-muted">Title</div>
+      <input class="box-border h-6 w-full rounded-[3px] border-[0.5px] border-border bg-input-bg px-1.5 text-[11px] text-text-main outline-none focus:border-primary" [value]="asset.title ?? ''" placeholder="—" />
+    </div>
+    <div class="px-4 py-[5px]">
+      <div class="mb-0.5 text-[10px] text-text-muted">Caption</div>
+      <input class="box-border h-6 w-full rounded-[3px] border-[0.5px] border-border bg-input-bg px-1.5 text-[11px] text-text-main outline-none focus:border-primary" value="" placeholder="—" />
+    </div>
+    <div class="px-4 py-[5px]">
+      <div class="mb-0.5 text-[10px] text-text-muted">Copyright</div>
+      <input class="box-border h-6 w-full rounded-[3px] border-[0.5px] border-border bg-input-bg px-1.5 text-[11px] text-text-main outline-none focus:border-primary" value="© 2026 Z. Lawrence" placeholder="—" />
+    </div>
+    <div class="px-4 py-[5px]">
+      <div class="mb-0.5 text-[10px] text-text-muted">Creator</div>
+      <input class="box-border h-6 w-full rounded-[3px] border-[0.5px] border-border bg-input-bg px-1.5 text-[11px] text-text-main outline-none focus:border-primary" value="Z. Lawrence" placeholder="—" />
+    </div>
+    @if ((asset.keywords?.length ?? 0) > 0) {
+      <div class="px-3.5 pt-1.5 pb-0.5">
+        <div class="mb-1.5 text-[10px] uppercase tracking-[0.3px] text-text-muted">Keywords</div>
+        <div class="flex flex-wrap gap-1">
+          @for (kw of asset.keywords!; track kw) {
+            <div class="flex items-center gap-[3px] rounded-[3px] border-[0.5px] border-border bg-surface-alt px-1.5 py-0.5 text-[10px] text-text-main">
+              {{ kw }}
+              <maple-icon name="x" [size]="8" color="var(--color-text-muted)" />
+            </div>
+          }
+          <div class="cursor-pointer rounded-[3px] border-[0.5px] border-dashed border-border px-1.5 py-0.5 text-[10px] text-text-muted">+ add</div>
+        </div>
+      </div>
+    }
+  </maple-collapsible>
+
+  <!-- Sidecar -->
+  <maple-collapsible label="Sidecar" storageKey="info-sidecar" [defaultOpen]="false">
+    <div class="flex justify-between gap-2 px-4 py-[5px]">
+      <span class="flex-shrink-0 text-[11px] text-text-muted">File</span>
+      <span class="max-w-[65%] overflow-hidden text-ellipsis whitespace-nowrap text-right font-mono text-[11px] text-text-main">{{ xmpName(asset.filename) }}</span>
+    </div>
+    <div class="flex justify-between gap-2 px-4 py-[5px]">
+      <span class="flex-shrink-0 text-[11px] text-text-muted">Edits</span>
+      <span class="max-w-[65%] overflow-hidden text-ellipsis whitespace-nowrap text-right font-mono text-[11px] text-text-main">{{ asset.edited ? '7 adjustments' : 'none' }}</span>
+    </div>
+  </maple-collapsible>
+
+  <!-- ── Enrichment sections (Self Hosted only) ──────────────────── -->
+  @if (selfHosted && detail()) {
+    @let d = detail()!;
+
+    <!-- Place -->
+    @if (showPlaceSection(d)) {
+      <maple-collapsible label="Place" storageKey="info-place">
+        <div class="px-4 py-[5px]">
+          @if (placeEditing()) {
+            <div class="mb-0.5 text-[10px] text-text-muted">Display name</div>
+            <input
+              class="box-border h-6 w-full rounded-[3px] border-[0.5px] border-border bg-input-bg px-1.5 text-[11px] text-text-main outline-none focus:border-primary"
+              [value]="placeDraft()"
+              (input)="placeDraft.set($any($event.target).value)"
+              placeholder="Display name"
+            />
+            <div class="mt-1.5 flex justify-end gap-1.5">
+              <button class="text-[10px] text-text-muted hover:text-text-main" type="button" (click)="cancelPlaceEdit()">Cancel</button>
+              <button class="text-[10px] font-medium text-primary hover:underline" type="button" (click)="savePlaceEdit(d)">Save</button>
+            </div>
+          } @else {
+            @if (d.place) {
+              <div class="text-[11px] font-medium text-text-main">
+                {{ formatRollups(d.place.rollups) }}
+              </div>
+              <div class="mt-0.5 text-[10px] text-text-muted overflow-hidden text-ellipsis">
+                {{ d.place.display_name ?? '(no display name)' }}
+              </div>
+            } @else {
+              <div class="text-[11px] text-text-muted">No place set</div>
+            }
+            <div class="mt-1.5 flex items-center justify-between">
+              <div class="flex items-center gap-1.5">
+                @let geocodeStatus = stageStatus('geocode', d.enrichment.geocode);
+                <maple-enrichment-status-badge [status]="geocodeStatus" [pausedHref]="WORKERS_SETTINGS_URL" />
+              </div>
+              <div class="flex gap-2">
+                <button class="text-[10px] text-text-muted hover:text-text-main" type="button" (click)="startPlaceEdit(d)">Edit</button>
+                <button class="text-[10px] text-text-muted hover:text-text-main" type="button" (click)="requeue(d, 'geocode')">↻ Re-geocode</button>
+              </div>
+            </div>
+            @if (lastClickError()['geocode']) {
+              <div class="mt-1 text-[10px] text-error-text">{{ lastClickError()['geocode'] }}</div>
+            } @else if (staleAfterRequeue()['geocode']) {
+              <div class="mt-1 text-[10px] text-text-muted">Still pending — check <a [href]="WORKERS_SETTINGS_URL" class="underline hover:text-text-main">worker status</a>.</div>
+            }
+          }
+        </div>
+      </maple-collapsible>
+    }
+
+    <!-- Description -->
+    <maple-collapsible label="Description" storageKey="info-description">
+      <div class="px-4 py-[5px]">
+        @if (descriptionEditing()) {
+          <textarea
+            rows="3"
+            class="box-border w-full rounded-[3px] border-[0.5px] border-border bg-input-bg px-1.5 py-1 text-[11px] text-text-main outline-none focus:border-primary resize-y"
+            [value]="descriptionDraft()"
+            (input)="descriptionDraft.set($any($event.target).value)"
+            placeholder="Caption…"
+          ></textarea>
+          <div class="mt-1.5 flex justify-end gap-1.5">
+            <button class="text-[10px] text-text-muted hover:text-text-main" type="button" (click)="cancelDescriptionEdit()">Cancel</button>
+            <button class="text-[10px] font-medium text-primary hover:underline" type="button" (click)="saveDescriptionEdit(d)">Save</button>
+          </div>
+        } @else {
+          <div class="text-[11px] leading-relaxed text-text-main whitespace-pre-wrap break-words">
+            @if (d.description) {
+              {{ d.description }}
+            } @else {
+              <span class="text-text-muted">No description yet</span>
+            }
+          </div>
+          <div class="mt-1.5 flex items-center justify-between">
+            <div class="flex items-center gap-1.5">
+              @let describeStatus = stageStatus('describe', d.enrichment.describe);
+              <maple-enrichment-status-badge [status]="describeStatus" [pausedHref]="WORKERS_SETTINGS_URL" />
+            </div>
+            <div class="flex gap-2">
+              <button class="text-[10px] text-text-muted hover:text-text-main" type="button" (click)="startDescriptionEdit(d)">Edit</button>
+              <button class="text-[10px] text-text-muted hover:text-text-main" type="button" (click)="requeue(d, 'describe')">↻ Re-describe</button>
+            </div>
+          </div>
+          @if (lastClickError()['describe']) {
+            <div class="mt-1 text-[10px] text-error-text">{{ lastClickError()['describe'] }}</div>
+          } @else if (staleAfterRequeue()['describe']) {
+            <div class="mt-1 text-[10px] text-text-muted">Still pending — check <a [href]="WORKERS_SETTINGS_URL" class="underline hover:text-text-main">worker status</a>.</div>
+          }
+        }
+      </div>
+    </maple-collapsible>
+
+    <!-- OCR text -->
+    <maple-collapsible label="OCR text" storageKey="info-ocr">
+      <div class="px-4 py-[5px]">
+        @if (ocrEditing()) {
+          <textarea
+            rows="4"
+            class="ocr-pre box-border w-full rounded-[3px] border-[0.5px] border-border bg-input-bg px-1.5 py-1 font-mono text-[10px] text-text-main outline-none focus:border-primary resize-y"
+            [value]="ocrDraft()"
+            (input)="ocrDraft.set($any($event.target).value)"
+            placeholder="OCR text…"
+          ></textarea>
+          <div class="mt-1.5 flex justify-end gap-1.5">
+            <button class="text-[10px] text-text-muted hover:text-text-main" type="button" (click)="cancelOcrEdit()">Cancel</button>
+            <button class="text-[10px] font-medium text-primary hover:underline" type="button" (click)="saveOcrEdit(d)">Save</button>
+          </div>
+        } @else {
+          @if (d.ocr_text && d.ocr_text.length > 0) {
+            <pre class="ocr-pre m-0 whitespace-pre-wrap break-words font-mono text-[10px] text-text-main">{{ d.ocr_text }}</pre>
+          } @else {
+            <div class="text-[11px] text-text-muted">No text detected</div>
+          }
+          <div class="mt-1.5 flex items-center justify-between">
+            <div class="flex items-center gap-1.5">
+              @let ocrStatus = stageStatus('ocr', d.enrichment.ocr);
+              <maple-enrichment-status-badge [status]="ocrStatus" [pausedHref]="WORKERS_SETTINGS_URL" />
+            </div>
+            <div class="flex gap-2">
+              <button class="text-[10px] text-text-muted hover:text-text-main" type="button" (click)="startOcrEdit(d)">Edit</button>
+              <button class="text-[10px] text-text-muted hover:text-text-main" type="button" (click)="requeue(d, 'ocr')">↻ Re-OCR</button>
+            </div>
+          </div>
+          @if (lastClickError()['ocr']) {
+            <div class="mt-1 text-[10px] text-error-text">{{ lastClickError()['ocr'] }}</div>
+          } @else if (staleAfterRequeue()['ocr']) {
+            <div class="mt-1 text-[10px] text-text-muted">Still pending — check <a [href]="WORKERS_SETTINGS_URL" class="underline hover:text-text-main">worker status</a>.</div>
+          }
+        }
+      </div>
+    </maple-collapsible>
+
+    <!-- Faces -->
+    <maple-collapsible label="Faces" storageKey="info-faces">
+      <div class="px-4 py-[5px]">
+        <div class="mb-1.5 text-[11px] text-text-main">
+          {{ d.faces.length }} {{ d.faces.length === 1 ? 'face' : 'faces' }} detected
+        </div>
+        @if (d.faces.length > 0) {
+          <div class="flex flex-wrap gap-1">
+            @for (face of taggedFaces(d); track face.person_id) {
+              <a
+                [href]="'/people/' + face.person_id"
+                class="flex items-center gap-[3px] rounded-[3px] border-[0.5px] border-border bg-surface-alt px-1.5 py-0.5 text-[10px] text-text-main hover:border-primary hover:text-primary"
+              >
+                <maple-icon name="tag" [size]="9" color="currentColor" />
+                {{ face.person_id }}
+              </a>
+            }
+            @if (untaggedFaceCount(d) > 0) {
+              <a
+                [href]="'/people?asset=' + d.id"
+                class="rounded-[3px] border-[0.5px] border-dashed border-border px-1.5 py-0.5 text-[10px] text-text-muted hover:border-primary hover:text-primary"
+              >
+                + {{ untaggedFaceCount(d) }} unnamed
+              </a>
+            }
+          </div>
+        }
+        <div class="mt-1.5 flex items-center justify-between">
+          <div class="flex items-center gap-1.5">
+            @let faceStatus = stageStatus('face', d.enrichment.face);
+            <maple-enrichment-status-badge [status]="faceStatus" [pausedHref]="WORKERS_SETTINGS_URL" />
+          </div>
+          <button class="text-[10px] text-text-muted hover:text-text-main" type="button" (click)="requeue(d, 'face')">↻ Re-detect</button>
+        </div>
+        @if (lastClickError()['face']) {
+          <div class="mt-1 text-[10px] text-error-text">{{ lastClickError()['face'] }}</div>
+        } @else if (staleAfterRequeue()['face']) {
+          <div class="mt-1 text-[10px] text-text-muted">Still pending — check <a [href]="WORKERS_SETTINGS_URL" class="underline hover:text-text-main">worker status</a>.</div>
+        }
+      </div>
+    </maple-collapsible>
+  }
+
+  <!-- Edit history -->
+  <maple-collapsible label="Edit history" storageKey="info-history" [defaultOpen]="false">
+    <div class="px-3.5 pb-1">
+      @for (h of HISTORY; track h.label; let i = $index) {
+        <div
+          class="flex items-center gap-1.5 py-[5px]"
+          [style.border-bottom]="
+            i < HISTORY.length - 1 ? '0.5px solid var(--color-border)' : 'none'
+          "
+        >
+          <maple-icon name="history" [size]="11" color="var(--color-text-muted)" />
+          <span class="flex-1 text-[11px] text-text-main">{{ h.label }}</span>
+          <span class="font-mono text-[9px] text-text-muted">{{ h.time }}</span>
+        </div>
+      }
+    </div>
+  </maple-collapsible>
+}

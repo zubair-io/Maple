@@ -1,0 +1,89 @@
+<div class="w-full h-full bg-bg overflow-hidden flex flex-col font-sans">
+  <!-- Toolbar -->
+  <div
+    class="flex items-center h-10 bg-surface border-b-[0.5px] border-border px-3 flex-shrink-0 gap-2.5"
+  >
+    <!-- Back to Browse -->
+    <div
+      class="flex items-center gap-1 h-6 px-2 rounded-[5px] bg-surface-alt border-[0.5px] border-border font-sans text-[11px] text-text-muted cursor-pointer transition-colors duration-100 hover:bg-surface-hover hover:text-text-main"
+      (click)="goBack()"
+      title="Back to Browse (Esc)"
+    >
+      <maple-icon name="back" [size]="11" color="var(--color-text-muted)" />
+      <span>Library</span>
+    </div>
+
+    <!-- Filmstrip toggle — hidden when there's only one photo to navigate. -->
+    @if (hasMultiplePhotos()) {
+      <div
+        class="chrome-btn w-7 h-6 rounded-[5px] flex items-center justify-center cursor-pointer transition-colors duration-[120ms] border-[0.5px] border-transparent hover:bg-surface-hover hover:border-border"
+        [class.is-active]="state.sidebarVisible()"
+        [title]="filmstripToggleTitle()"
+        (click)="state.toggleSidebar()"
+      >
+        <maple-icon
+          name="sidebar"
+          [size]="13"
+          [color]="
+            state.sidebarVisible() ? 'var(--color-text-main)' : 'var(--color-text-muted)'
+          "
+        />
+      </div>
+    }
+
+    <div class="flex-1"></div>
+
+    <!-- Export -->
+    <div
+      class="export-btn flex items-center gap-1 px-2.5 py-1 rounded-[5px] text-[11px] cursor-pointer"
+      [class.has-selection]="state.focusedAssetId() !== null"
+      [class.no-selection]="state.focusedAssetId() === null"
+    >
+      <maple-icon name="export" [size]="11" />
+      <span>Export</span>
+    </div>
+
+    <!-- Inspector toggle -->
+    <div
+      class="chrome-btn w-7 h-6 rounded-[5px] flex items-center justify-center cursor-pointer transition-colors duration-[120ms] border-[0.5px] border-transparent hover:bg-surface-hover hover:border-border"
+      [class.is-active]="state.inspectorVisible()"
+      [title]="(state.inspectorVisible() ? 'Hide' : 'Show') + ' inspector  ⌥⌘D'"
+      (click)="state.toggleInspector()"
+    >
+      <maple-icon
+        name="inspector"
+        [size]="13"
+        [color]="
+          state.inspectorVisible() ? 'var(--color-text-main)' : 'var(--color-text-muted)'
+        "
+      />
+    </div>
+  </div>
+
+  <!-- Body -->
+  <div class="flex-1 flex min-h-0 min-w-0 bg-bg">
+    <!-- Left: filmstrip (only when multiple photos are in the folder) -->
+    @if (hasMultiplePhotos()) {
+      <div
+        class="flex-shrink-0 overflow-hidden transition-[width] duration-[180ms] ease-out"
+        [style.width]="state.sidebarVisible() ? '110px' : '0px'"
+      >
+        <editor-filmstrip />
+      </div>
+    }
+
+    <!-- Center: image canvas (crossfade on asset change) -->
+    <div class="flex-1 flex flex-col min-w-0 relative transition-opacity duration-[180ms] ease-out">
+      <editor-image-canvas />
+    </div>
+
+    <!-- Right: detail panel -->
+    <div
+      class="panel-right flex-shrink-0 overflow-hidden transition-[width] duration-[180ms] ease-out border-l-[0.5px] border-border"
+      [class.is-hidden]="!state.inspectorVisible()"
+      [style.width]="state.inspectorVisible() ? '280px' : '0px'"
+    >
+      <editor-detail-panel />
+    </div>
+  </div>
+</div>
