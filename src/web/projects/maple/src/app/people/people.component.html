@@ -44,7 +44,7 @@
         </div>
       } @else {
         <div class="grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-3">
-          @for (p of people(); track p.id) {
+          @for (p of sortedPeople(); track p.id) {
             <article
               class="group flex cursor-pointer flex-col gap-2 rounded-lg border border-border bg-surface p-3 hover:border-primary"
               [class.border-primary]="selected()?.id === p.id"
@@ -58,13 +58,25 @@
                    the same blob. -->
               <div class="relative h-32 overflow-hidden rounded-md bg-bg">
                 @if (coverThumbUrl(p); as url) {
-                  <img
-                    class="absolute inset-0 block h-full w-full object-cover"
-                    [src]="url"
-                    alt=""
-                    loading="lazy"
-                    decoding="async"
-                  />
+                  @if (p.coverBbox; as bbox) {
+                    <img
+                      class="absolute left-0 top-0 block h-full w-full object-cover"
+                      [src]="url"
+                      [style.transform]="faceCropTransform(bbox)"
+                      style="transform-origin: 0 0;"
+                      alt=""
+                      loading="lazy"
+                      decoding="async"
+                    />
+                  } @else {
+                    <img
+                      class="absolute inset-0 block h-full w-full object-cover"
+                      [src]="url"
+                      alt=""
+                      loading="lazy"
+                      decoding="async"
+                    />
+                  }
                 } @else {
                   <div class="flex h-full items-center justify-center text-[40px] text-text-muted">
                     {{ p.name.slice(0, 1).toUpperCase() }}
@@ -123,12 +135,23 @@
                the list paint completes). -->
           <div class="relative h-12 w-12 flex-shrink-0 overflow-hidden rounded-md bg-bg">
             @if (detailCoverUrl(detail); as url) {
-              <img
-                class="absolute inset-0 block h-full w-full object-cover"
-                [src]="url"
-                alt=""
-                decoding="async"
-              />
+              @if (detail.coverBbox; as bbox) {
+                <img
+                  class="absolute left-0 top-0 block h-full w-full object-cover"
+                  [src]="url"
+                  [style.transform]="faceCropTransform(bbox)"
+                  style="transform-origin: 0 0;"
+                  alt=""
+                  decoding="async"
+                />
+              } @else {
+                <img
+                  class="absolute inset-0 block h-full w-full object-cover"
+                  [src]="url"
+                  alt=""
+                  decoding="async"
+                />
+              }
             } @else {
               <div class="flex h-full items-center justify-center text-[18px] text-text-muted">
                 {{ detail.name.slice(0, 1).toUpperCase() }}
@@ -176,6 +199,14 @@
                       decoding="async"
                     />
                   }
+                  <!-- Detector confidence as a small chip. tabular-nums
+                       keeps the width steady as the value changes. -->
+                  <span
+                    class="pointer-events-none absolute right-1 top-1 rounded bg-bg/80 px-1 py-px text-[10px] font-medium tabular-nums text-text-main"
+                    [title]="'Detector confidence'"
+                  >
+                    {{ (f.confidence * 100) | number: '1.0-0' }}%
+                  </span>
                 </div>
                 <div class="flex flex-col gap-1">
                   <select
@@ -183,7 +214,7 @@
                     (change)="moveFaceTo(f, $any($event.target).value); $any($event.target).value = ''"
                   >
                     <option value="">Move to…</option>
-                    @for (other of people(); track other.id) {
+                    @for (other of sortedPeople(); track other.id) {
                       @if (other.id !== detail.id) {
                         <option [value]="other.id">{{ other.name }}</option>
                       }
@@ -195,6 +226,14 @@
                     (click)="unassignFace(f)"
                   >
                     Unassign
+                  </button>
+                  <button
+                    type="button"
+                    class="cursor-pointer rounded border border-border bg-surface px-1.5 py-0.5 text-[10px] text-text-muted hover:border-error-text hover:text-error-text"
+                    [title]="'Hide this face — excluded from clustering. Will not reappear on the next clustering run.'"
+                    (click)="hideFace(f)"
+                  >
+                    Hide
                   </button>
                 </div>
               </li>

@@ -345,3 +345,79 @@ describe("DELETE /api/people/:id", () => {
     expect(row?.faces?.[0]?.person_id).toBeNull();
   });
 });
+
+describe("POST /api/people/hide", () => {
+  it("removes the face from the person panel and prevents re-clustering", async () => {
+    if (!mongoReachable) return;
+    const created = await post("/api/people", { name: "Mira" });
+    const id = (created.body as { id: string }).id;
+    const asset = await insertAssetWithFaces([
+      {
+        bbox: { x: 0.1, y: 0.1, w: 0.2, h: 0.2 },
+        person_id: id,
+        confidence: 0.95,
+        embedding: nearAxis(60, 0.05),
+      },
+    ]);
+    // Visible before hide.
+    let detail = await get(`/api/people/${id}`);
+    expect(
+      (detail.body as { faces: unknown[] }).faces,
+    ).toHaveLength(1);
+    // Hide it.
+    const hide = await post("/api/people/hide", {
+      asset_id: asset.toHexString(),
+      face_index: 0,
+    });
+    expect(hide.status).toBe(200);
+    expect((hide.body as { ok: true }).ok).toBe(true);
+    // Disappears from the detail panel.
+    detail = await get(`/api/people/${id}`);
+    expect(
+      (detail.body as { faces: unknown[] }).faces,
+    ).toHaveLength(0);
+    // Re-running clustering does not pull the hidden face back.
+    const cluster = await post("/api/people/cluster", {});
+    expect((cluster.body as { assigned: number }).assigned).toBe(0);
+    const row = await db!.collection<AssetDoc>("assets").findOne({ _id: asset });
+    expect(row?.faces?.[0]?.hidden).toBe(true);
+    expect(row?.faces?.[0]?.person_id).toBeNull();
+  });
+
+  it("400 on invalid asset_id, 404 when asset doesn't exist", async () => {
+    if (!mongoReachable) return;
+    let r = await post("/api/people/hide", {
+      asset_id: "not-a-hex",
+      face_index: 0,
+    });
+    expect(r.status).toBe(400);
+    r = await post("/api/people/hide", {
+      asset_id: "deadbeefdeadbeefdeadbeef",
+      face_index: 0,
+    });
+    expect(r.status).toBe(404);
+  });
+});
+
+describe("cover_bbox surface", () => {
+  it("list response includes cover_bbox once clustering has run", async () => {
+    if (!mongoReachable) return;
+    const bbox = { x: 0.3, y: 0.2, w: 0.4, h: 0.5 };
+    await insertAssetWithFaces([
+      {
+        bbox,
+        person_id: null,
+        confidence: 0.9,
+        embedding: nearAxis(70, 0.05),
+      },
+    ]);
+    await post("/api/people/cluster", {});
+    const list = await get("/api/people");
+    const rows = list.body as Array<{
+      name: string;
+      cover_bbox: { x: number; y: number; w: number; h: number } | null;
+    }>;
+    expect(rows).toHaveLength(1);
+    expect(rows[0].cover_bbox).toEqual(bbox);
+  });
+});

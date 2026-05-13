@@ -188,6 +188,65 @@ describe("runOnlineClustering", () => {
     expect(person?.cover_asset_id).toBe(assetId.toHexString());
   });
 
+  it("seeds cover_bbox on newly-created people (captures the seeding face's bbox)", async () => {
+    if (!mongoReachable) return;
+    const { runOnlineClustering } = await import("./clustering-job.ts");
+    const bbox = { x: 0.25, y: 0.15, w: 0.4, h: 0.5 };
+    await insertAssetWithFaces([
+      { bbox, person_id: null, confidence: 0.9, embedding: nearAxis(31, 0.05) },
+    ]);
+    await runOnlineClustering();
+    const person = await db!.collection("people").findOne({ merged_into: null });
+    expect(person?.cover_bbox).toEqual(bbox);
+  });
+
+  it("backfill heals rows that have cover_asset_id but no cover_bbox", async () => {
+    if (!mongoReachable) return;
+    const { runOnlineClustering } = await import("./clustering-job.ts");
+    const { createPerson, assignFaceToPerson } = await import("./people.repo.ts");
+    const p = await createPerson("Penny");
+    const bbox = { x: 0.5, y: 0.5, w: 0.25, h: 0.25 };
+    const assetId = await insertAssetWithFaces([
+      { bbox, person_id: null, confidence: 0.9, embedding: nearAxis(33, 0.05) },
+    ]);
+    await assignFaceToPerson(assetId, 0, p._id);
+    // Simulate a row from before cover_bbox shipped — has the asset id
+    // but no bbox.
+    await db!.collection("people").updateOne(
+      { _id: p._id },
+      {
+        $set: { cover_asset_id: assetId.toHexString() },
+        $unset: { cover_bbox: "" },
+      },
+    );
+    await runOnlineClustering();
+    const fresh = await db!.collection("people").findOne({ _id: p._id });
+    expect(fresh?.cover_bbox).toEqual(bbox);
+  });
+
+  it("hidden faces stay out of clustering — won't reappear under any person", async () => {
+    if (!mongoReachable) return;
+    const { runOnlineClustering } = await import("./clustering-job.ts");
+    const { hideFace } = await import("./people.repo.ts");
+    const assetId = await insertAssetWithFaces([
+      { bbox: { x: 0, y: 0, w: 1, h: 1 }, person_id: null, confidence: 0.9, embedding: nearAxis(41, 0.05) },
+      { bbox: { x: 0, y: 0, w: 1, h: 1 }, person_id: null, confidence: 0.9, embedding: nearAxis(41, 0.1) },
+    ]);
+    // Hide one face before any clustering — the unassigned-faces loader
+    // should skip it.
+    await hideFace(assetId, 1);
+    const r = await runOnlineClustering();
+    // Only one face should land in a new cluster.
+    expect(r.assigned).toBe(1);
+    expect(r.newPeople).toBe(1);
+    // Re-running should not pick up the hidden face either.
+    const r2 = await runOnlineClustering();
+    expect(r2.assigned).toBe(0);
+    const row = await db!.collection<AssetDoc>("assets").findOne({ _id: assetId });
+    expect(row?.faces?.[1]?.hidden).toBe(true);
+    expect(row?.faces?.[1]?.person_id).toBeNull();
+  });
+
   it("backfills cover_asset_id on people that have assigned faces but no cover", async () => {
     if (!mongoReachable) return;
     const { runOnlineClustering } = await import("./clustering-job.ts");

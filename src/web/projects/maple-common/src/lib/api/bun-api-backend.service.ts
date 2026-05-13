@@ -402,6 +402,7 @@ export class BunApiBackendService {
           faceCount: r.face_count,
           coverAssetId: r.cover_asset_id ?? null,
           coverAbsPath: r.cover_abs_path ?? null,
+          coverBbox: r.cover_bbox ?? null,
           createdAt: r.created_at,
           updatedAt: r.updated_at,
         })),
@@ -415,6 +416,7 @@ export class BunApiBackendService {
         id: r.id,
         name: r.name,
         coverAssetId: r.cover_asset_id ?? null,
+        coverBbox: r.cover_bbox ?? null,
         createdAt: r.created_at,
         updatedAt: r.updated_at,
         faces: r.faces.map((f) => ({
@@ -456,6 +458,16 @@ export class BunApiBackendService {
       asset_id: assetId,
       face_index: faceIndex,
       person_id: personId,
+    });
+  }
+
+  /** Mark a face as hidden — excluded from clustering and every person
+   * panel. Server-side sets both `hidden=true` and `person_id=null` in
+   * one write. */
+  hideFace(assetId: string, faceIndex: number): Observable<{ ok: true }> {
+    return this.http.post<{ ok: true }>(`${this.base}/people/hide`, {
+      asset_id: assetId,
+      face_index: faceIndex,
     });
   }
 
@@ -566,6 +578,11 @@ export interface ApiPerson {
    * site. Surfaced so the web can hit `/api/fs/thumb?path=…` (the URL
    * /browse uses) for cache reuse. */
   coverAbsPath: string | null;
+  /** Bbox of the cover face on the cover asset, in normalised `[0,1]`.
+   * The UI applies the same crop transform it uses for detail-panel
+   * faces. Null for manually-created people with no faces yet (or
+   * pre-backfill rows). */
+  coverBbox: Bbox | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -575,6 +592,7 @@ export interface ApiPersonDetail {
   id: string;
   name: string;
   coverAssetId: string | null;
+  coverBbox: Bbox | null;
   createdAt: string;
   updatedAt: string;
   faces: ApiPersonFace[];
@@ -615,6 +633,7 @@ interface ApiPersonRaw {
   face_count: number;
   cover_asset_id?: string | null;
   cover_abs_path?: string | null;
+  cover_bbox?: Bbox | null;
   created_at: string;
   updated_at: string;
 }
@@ -623,6 +642,7 @@ interface ApiPersonDetailRaw {
   id: string;
   name: string;
   cover_asset_id?: string | null;
+  cover_bbox?: Bbox | null;
   created_at: string;
   updated_at: string;
   faces: Array<{

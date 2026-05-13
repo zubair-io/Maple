@@ -311,3 +311,77 @@ describe("people.repo — deletePerson", () => {
     expect(gone).toBeNull();
   });
 });
+
+describe("people.repo — hideFace", () => {
+  it("sets hidden=true AND person_id=null in one write", async () => {
+    if (!mongoReachable) return;
+    const { createPerson, assignFaceToPerson, hideFace } = await import(
+      "./people.repo.ts"
+    );
+    const p = await createPerson("Ivan");
+    const asset = await insertAssetWithFaces([
+      {
+        bbox: { x: 0.1, y: 0.1, w: 0.2, h: 0.2 },
+        person_id: null,
+        confidence: 0.95,
+        embedding: makeEmbedding(512, 10),
+      },
+    ]);
+    await assignFaceToPerson(asset, 0, p._id);
+    await hideFace(asset, 0);
+    const row = await db!
+      .collection<AssetDoc>("assets")
+      .findOne({ _id: asset });
+    expect(row?.faces?.[0]?.hidden).toBe(true);
+    expect(row?.faces?.[0]?.person_id).toBeNull();
+  });
+
+  it("rejects out-of-range face index", async () => {
+    if (!mongoReachable) return;
+    const { hideFace } = await import("./people.repo.ts");
+    const asset = await insertAssetWithFaces([
+      {
+        bbox: { x: 0, y: 0, w: 0.1, h: 0.1 },
+        person_id: null,
+        confidence: 0.5,
+      },
+    ]);
+    await expect(hideFace(asset, 4)).rejects.toThrow(/range/);
+  });
+
+  it("hidden faces drop out of getPerson and faceCountByPerson", async () => {
+    if (!mongoReachable) return;
+    const { createPerson, assignFaceToPerson, hideFace, getPerson, listPeople } =
+      await import("./people.repo.ts");
+    const p = await createPerson("Jane");
+    // Two faces — one stays assigned, one gets hidden.
+    const asset = await insertAssetWithFaces([
+      {
+        bbox: { x: 0, y: 0, w: 0.2, h: 0.2 },
+        person_id: null,
+        confidence: 0.9,
+        embedding: makeEmbedding(512, 11),
+      },
+      {
+        bbox: { x: 0.3, y: 0.3, w: 0.2, h: 0.2 },
+        person_id: null,
+        confidence: 0.8,
+        embedding: makeEmbedding(512, 12),
+      },
+    ]);
+    await assignFaceToPerson(asset, 0, p._id);
+    await assignFaceToPerson(asset, 1, p._id);
+    // Sanity: both faces visible before hiding.
+    const before = await getPerson(p._id);
+    expect(before?.faces.length).toBe(2);
+    const beforeList = await listPeople();
+    expect(beforeList.find((r) => r.person.name === "Jane")?.faceCount).toBe(2);
+    // Hide face index 0.
+    await hideFace(asset, 0);
+    const after = await getPerson(p._id);
+    expect(after?.faces.length).toBe(1);
+    expect(after?.faces[0]?.bbox.x).toBeCloseTo(0.3);
+    const afterList = await listPeople();
+    expect(afterList.find((r) => r.person.name === "Jane")?.faceCount).toBe(1);
+  });
+});
