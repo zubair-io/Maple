@@ -1,0 +1,15 @@
+<button
+  class="inline-flex items-center justify-center gap-1 whitespace-nowrap border-none text-[11px] outline-none transition-[background,color] duration-[120ms] cursor-pointer disabled:cursor-default disabled:opacity-45"
+  [class]="variantClasses()"
+  [class.pill-active]="variant() === 'pill' && active()"
+  [disabled]="disabled()"
+  (click)="clicked.emit($event)"
+>
+  @if (iconLeft()) {
+    <maple-icon [name]="iconLeft()!" [size]="11" />
+  }
+  <ng-content />
+  @if (iconRight()) {
+    <maple-icon [name]="iconRight()!" [size]="11" />
+  }
+</button>

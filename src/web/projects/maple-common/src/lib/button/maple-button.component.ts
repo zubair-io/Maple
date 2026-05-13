@@ -11,42 +11,8 @@ export type MapleButtonSize = 'sm' | 'md' | 'lg';
   selector: 'maple-button',
   standalone: true,
   imports: [MapleIconComponent],
-  styles: [
-    `
-      :host {
-        display: inline-flex;
-      }
-      /* Pill-active state. Tailwind utilities for the base "pill" colors
-         (bg-surface / text-text-main / border-border) and the active-state
-         overrides (bg-primary-dim / text-primary / border-primary) have
-         identical specificity, so the overlap depends on declaration order
-         in the compiled stylesheet. Express the active override as a small
-         class-scoped rule so the cascade is deterministic regardless of
-         utility-class generation order. */
-      button.pill-active {
-        background: var(--color-primary-dim);
-        color: var(--color-primary);
-        border-color: var(--color-primary);
-      }
-    `,
-  ],
-  template: `
-    <button
-      class="inline-flex items-center justify-center gap-1 whitespace-nowrap border-none text-[11px] outline-none transition-[background,color] duration-[120ms] cursor-pointer disabled:cursor-default disabled:opacity-45"
-      [class]="variantClasses()"
-      [class.pill-active]="variant() === 'pill' && active()"
-      [disabled]="disabled()"
-      (click)="clicked.emit($event)"
-    >
-      @if (iconLeft()) {
-        <maple-icon [name]="iconLeft()!" [size]="11" />
-      }
-      <ng-content />
-      @if (iconRight()) {
-        <maple-icon [name]="iconRight()!" [size]="11" />
-      }
-    </button>
-  `,
+  styleUrl: './maple-button.component.scss',
+  templateUrl: './maple-button.component.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MapleButtonComponent {

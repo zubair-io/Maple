@@ -1,0 +1,21 @@
+@if (status().label) {
+    @if (status().kind === 'failed') {
+        <span
+            class="rounded-[3px] bg-error-bg px-1.5 py-0.5 text-[9px] uppercase tracking-[0.3px] text-error-text"
+            [title]="status().tooltip ?? ''"
+            >{{ status().label }}</span
+        >
+    } @else if (status().kind === 'paused') {
+        <a
+            [href]="pausedHref()"
+            class="rounded-[3px] bg-surface-alt px-1.5 py-0.5 text-[9px] uppercase tracking-[0.3px] text-text-muted hover:text-text-main"
+            >{{ status().label }} →</a
+        >
+    } @else {
+        <span
+            class="rounded-[3px] bg-surface-alt px-1.5 py-0.5 text-[9px] uppercase tracking-[0.3px] text-text-muted"
+            [title]="status().tooltip ?? ''"
+            >{{ status().label }}</span
+        >
+    }
+}

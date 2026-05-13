@@ -11,41 +11,8 @@ import { GridFolderItem } from '../../models/folder';
   selector: 'maple-folder-tile',
   standalone: true,
   imports: [MapleIconComponent],
-  template: `
-    @let f = folder();
-    <div
-      class="folder-tile relative flex h-full w-full cursor-pointer flex-col items-center justify-center gap-1.5 overflow-hidden rounded-[2px] bg-surface text-text-main outline-none"
-      [class.selected]="selected()"
-      (click)="folderClick.emit($event)"
-      (dblclick)="folderDblClick.emit($event)"
-    >
-      <maple-icon name="folder" [size]="36" color="var(--color-text-muted)" [strokeWidth]="1.25" />
-      <span class="px-2 text-[11px] font-medium text-text-main truncate max-w-full">{{ f.name }}</span>
-      <div class="folder-ring pointer-events-none absolute inset-0 rounded-[2px] border-2 border-transparent transition-[border-color] duration-[80ms]" aria-hidden="true"></div>
-    </div>
-  `,
-  styles: [
-    `
-      :host {
-        display: block;
-        width: 100%;
-        height: 100%;
-      }
-
-      .folder-tile {
-        background: var(--color-surface);
-        border: 0.5px solid var(--color-border);
-      }
-
-      .folder-tile:hover {
-        background: var(--color-bg-hover);
-      }
-
-      .folder-tile.selected .folder-ring {
-        border-color: var(--color-primary);
-      }
-    `,
-  ],
+  templateUrl: './folder-tile.component.html',
+  styleUrl: './folder-tile.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class FolderTileComponent {

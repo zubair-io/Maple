@@ -1,0 +1,20 @@
+<maple-collapsible label="White Balance" storageKey="dev-wb" [padInner]="false">
+  @if (assetId()) {
+    <editor-wb-presets [active]="adj().whiteBalancePreset" (selected)="onPreset($event)" />
+    <editor-slider
+      label="Temperature"
+      [value]="adj().temperature"
+      [min]="2000"
+      [max]="12000"
+      [step]="50"
+      (valueChange)="patch('temperature', $event)"
+    />
+    <editor-slider
+      label="Tint"
+      [value]="adj().tint"
+      [min]="-100"
+      [max]="100"
+      (valueChange)="patch('tint', $event)"
+    />
+  }
+</maple-collapsible>
