@@ -492,10 +492,14 @@ export class PeopleComponent implements OnInit, OnDestroy {
   }
 }
 
+/** Hoisted out of `isAutoNamed` so we don't allocate a fresh RegExp on
+ * every comparator call inside `sortedPeople` or `namedPeople`. */
+const AUTO_NAME_RE = /^Person \d+$/;
+
 /** Auto-name detector — matches the format used by the clustering job
  * (`clustering-job.ts: 'Person ${nextAutoIndex}'`). Anything else is
  * considered operator-named. Single source of truth so the sort
  * tiebreaker and the autocomplete suggestion list stay in sync. */
 function isAutoNamed(name: string): boolean {
-  return /^Person \d+$/.test(name);
+  return AUTO_NAME_RE.test(name);
 }
