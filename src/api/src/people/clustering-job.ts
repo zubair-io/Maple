@@ -28,6 +28,7 @@ import {
 import type {
   AssetDoc,
   AssetFaceDoc,
+  Bbox,
   PersonDoc,
 } from "../db/schema.ts";
 import { child as childLogger } from "../log.ts";
@@ -63,6 +64,10 @@ interface FaceRef {
   asset_id: ObjectId;
   face_index: number;
   embedding: Float32Array;
+  /** Carried alongside the embedding so brand-new "Person N" rows can
+   * capture the seeding face's bbox as the cover crop without a second
+   * DB round-trip per new person. */
+  bbox: Bbox;
 }
 
 interface CentroidEntry {
@@ -134,7 +139,12 @@ export async function runOnlineClustering(
     // face as the cover thumb.
     nextAutoIndex += 1;
     const name = `Person ${nextAutoIndex}`;
-    const created = await createAutoPerson(name, face.embedding, face.asset_id);
+    const created = await createAutoPerson(
+      name,
+      face.embedding,
+      face.asset_id,
+      face.bbox,
+    );
     centroids.push({
       person_id: created,
       centroid: l2Normalise(face.embedding),
@@ -198,6 +208,9 @@ export async function recomputeCentroids(): Promise<number> {
       { $match: { "faces.person_id": personHex } },
       { $unwind: "$faces" },
       { $match: { "faces.person_id": personHex } },
+      // Hidden faces are out of clustering — they should not contribute
+      // to the centroid even if they somehow still carry a `person_id`.
+      { $match: { "faces.hidden": { $ne: true } } },
       { $match: { "faces.embedding": { $exists: true, $ne: [] } } },
       { $project: { embedding: "$faces.embedding" } },
     ]);
@@ -269,15 +282,20 @@ async function loadUnassignedFaces(): Promise<FaceRef[]> {
     _id: ObjectId;
     face_index: number;
     embedding: number[];
+    bbox: Bbox;
   }>([
     { $match: { faces: { $exists: true, $ne: [] } } },
     { $unwind: { path: "$faces", includeArrayIndex: "face_index" } },
     { $match: { "faces.person_id": null } },
+    // Operator-hidden faces stay out of clustering — re-running shouldn't
+    // re-assign them to anyone.
+    { $match: { "faces.hidden": { $ne: true } } },
     { $match: { "faces.embedding": { $exists: true, $ne: [] } } },
     {
       $project: {
         face_index: 1,
         embedding: "$faces.embedding",
+        bbox: "$faces.bbox",
       },
     },
   ]);
@@ -288,6 +306,7 @@ async function loadUnassignedFaces(): Promise<FaceRef[]> {
       asset_id: row._id,
       face_index: row.face_index,
       embedding: l2Normalise(Float32Array.from(row.embedding)),
+      bbox: row.bbox,
     });
   }
   return out;
@@ -315,6 +334,7 @@ async function createAutoPerson(
   name: string,
   embedding: Float32Array,
   coverAssetId: ObjectId,
+  coverBbox: Bbox,
 ): Promise<ObjectId> {
   const peopleC = await peopleCollection();
   const doc: PersonDoc = {
@@ -325,6 +345,7 @@ async function createAutoPerson(
     centroid: Array.from(l2Normalise(embedding)),
     centroid_face_count: 1,
     cover_asset_id: coverAssetId.toHexString(),
+    cover_bbox: coverBbox,
   };
   const result = await peopleC.insertOne(doc as PersonDoc);
   return result.insertedId;
@@ -369,9 +390,13 @@ async function doBackfillCoverAssets(): Promise<void> {
     .find(
       {
         merged_into: null,
+        // Rows that never picked a cover, OR rows that have an asset id
+        // but no bbox yet (existed before cover-crop landed) — both heal
+        // on the same pass.
         $or: [
           { cover_asset_id: { $exists: false } },
           { cover_asset_id: null },
+          { cover_bbox: { $exists: false } },
         ],
       } as Filter<PersonDoc>,
       { projection: { _id: 1 } },
@@ -381,20 +406,27 @@ async function doBackfillCoverAssets(): Promise<void> {
 
   const missingHexIds = missing.map((p) => p._id.toHexString());
 
-  // One aggregation produces `(person_hex → best_asset_id)` for every
-  // person in `missingHexIds`. $sort + $group/$first picks the highest-
-  // confidence face per person; ties break by Mongo's insertion order on
-  // the unwound rows, which is deterministic enough for "any reasonable
-  // face."
-  const cursor = assets.aggregate<{ _id: string; best_asset_id: ObjectId }>([
+  // One aggregation produces `(person_hex → best_asset_id, best_bbox)` for
+  // every person in `missingHexIds`. $sort + $group/$first picks the
+  // highest-confidence face per person; ties break by Mongo's insertion
+  // order on the unwound rows, which is deterministic enough for "any
+  // reasonable face." Hidden faces are filtered out so they can't become
+  // a person's cover.
+  const cursor = assets.aggregate<{
+    _id: string;
+    best_asset_id: ObjectId;
+    best_bbox: AssetFaceDoc["bbox"];
+  }>([
     { $match: { faces: { $exists: true, $ne: [] } } },
     { $unwind: "$faces" },
     { $match: { "faces.person_id": { $in: missingHexIds } } },
+    { $match: { "faces.hidden": { $ne: true } } },
     {
       $project: {
         _id: 1,
         person_id: "$faces.person_id",
         confidence: "$faces.confidence",
+        bbox: "$faces.bbox",
       },
     },
     { $sort: { confidence: -1 } },
@@ -402,6 +434,7 @@ async function doBackfillCoverAssets(): Promise<void> {
       $group: {
         _id: "$person_id",
         best_asset_id: { $first: "$_id" },
+        best_bbox: { $first: "$bbox" },
       },
     },
   ]);
@@ -410,7 +443,11 @@ async function doBackfillCoverAssets(): Promise<void> {
     updateOne: {
       filter: Filter<PersonDoc>;
       update: {
-        $set: { cover_asset_id: string; updated_at: string };
+        $set: {
+          cover_asset_id: string;
+          cover_bbox: AssetFaceDoc["bbox"];
+          updated_at: string;
+        };
         $unset: { cover_face_id: "" };
       };
     };
@@ -429,6 +466,7 @@ async function doBackfillCoverAssets(): Promise<void> {
         update: {
           $set: {
             cover_asset_id: row.best_asset_id.toHexString(),
+            cover_bbox: row.best_bbox,
             updated_at: now,
           },
           // Drop the legacy field so old + new docs converge on one shape.

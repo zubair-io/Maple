@@ -25,6 +25,7 @@ import {
   signal,
   untracked,
 } from '@angular/core';
+import { DecimalPipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { firstValueFrom } from 'rxjs';
@@ -48,7 +49,7 @@ interface Toast {
 @Component({
   standalone: true,
   selector: 'maple-people',
-  imports: [FormsModule, RouterLink, MapleVisibleOnceDirective],
+  imports: [DecimalPipe, FormsModule, RouterLink, MapleVisibleOnceDirective],
   templateUrl: './people.component.html',
   styleUrl: './people.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -79,6 +80,22 @@ export class PeopleComponent implements OnInit, OnDestroy {
   readonly toast = signal<Toast | null>(null);
 
   readonly hasPeople = computed(() => this.people().length > 0);
+
+  /** Display order: named people first, then auto-named ("Person N")
+   * second, each group ascending case-insensitively. Computed off
+   * `people()` so renames re-sort in real time (the rename handler
+   * updates `people` after the server roundtrip; the computed re-runs
+   * automatically). */
+  readonly sortedPeople = computed(() => {
+    const rows = this.people();
+    const auto = /^Person \d+$/;
+    return [...rows].sort((a, b) => {
+      const aAuto = auto.test(a.name) ? 1 : 0;
+      const bAuto = auto.test(b.name) ? 1 : 0;
+      if (aAuto !== bAuto) return aAuto - bAuto;
+      return a.name.localeCompare(b.name, undefined, { sensitivity: 'accent' });
+    });
+  });
 
   /** Cache key (`absPath` when present, otherwise `apiId:<id>`) → `blob:`
    * URL of the fetched thumbnail JPEG.
@@ -361,6 +378,22 @@ export class PeopleComponent implements OnInit, OnDestroy {
 
   unassignFace(face: { assetId: string; faceIndex: number }): void {
     this.api.assignFaceToPerson(face.assetId, face.faceIndex, null).subscribe({
+      next: () => {
+        const open = this.selected();
+        if (open) this.openDetail(open.id);
+        this.refresh();
+      },
+      error: (err) => this.showToast(this.errorMessage(err), 'error'),
+    });
+  }
+
+  /** Mark a face as hidden — removes it from the current person panel,
+   * the clustering pool, and every other person's panel. Unlike
+   * `unassignFace` (which sends the face back to the unassigned pool
+   * for the next clustering run to pick up), Hide is sticky: the face
+   * stays out until a future "Show hidden" toggle restores it. */
+  hideFace(face: { assetId: string; faceIndex: number }): void {
+    this.api.hideFace(face.assetId, face.faceIndex).subscribe({
       next: () => {
         const open = this.selected();
         if (open) this.openDetail(open.id);

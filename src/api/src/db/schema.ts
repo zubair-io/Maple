@@ -291,6 +291,11 @@ export interface AssetFaceDoc {
   person_id: string | null;
   confidence: number;
   embedding?: number[];
+  /** Operator hid this face. Hidden faces are excluded from clustering
+   * (so they don't get re-assigned to any person) and from every
+   * person panel. `person_id` is forced to `null` on hide — the two
+   * are written together by `hideFace`. */
+  hidden?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -332,6 +337,13 @@ export interface PersonDoc {
    * value is an asset _id, not a face _id (faces are sub-array entries
    * with no stable id of their own). */
   cover_asset_id?: string;
+  /** Bbox of the cover face on the cover asset, in normalised `[0,1]`
+   * proportions. Captured at the moment we picked the cover so the
+   * `/api/people` list response can return a face-cropped thumbnail
+   * without a second collection round-trip. Optional for backward
+   * compatibility — `backfillCoverAssets` heals existing rows on the
+   * next list call. */
+  cover_bbox?: Bbox;
   /** When two clusters get the same name they merge: the orphan keeps
    * `merged_into` pointing at the survivor for an audit trail. Hidden
    * from the UI listing. The same field doubles as the soft-delete

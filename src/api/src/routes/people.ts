@@ -8,6 +8,7 @@
  *   DELETE /api/people/:id            — re-points faces to null + removes the row
  *   POST   /api/people/cluster        — kicks off online clustering
  *   POST   /api/people/assign         — manual face → person override
+ *   POST   /api/people/hide           — hide a face (excluded from clustering)
  *
  * Mounted behind `requireAuth` in `src/api/src/index.ts`.
  */
@@ -23,6 +24,7 @@ import {
   createPerson,
   deletePerson,
   getPerson,
+  hideFace,
   listPeople,
   renamePerson,
 } from "../people/people.repo.ts";
@@ -44,6 +46,11 @@ const AssignBody = t.Object({
   asset_id: t.String({ minLength: 1 }),
   face_index: t.Number(),
   person_id: t.Union([t.String(), t.Null()]),
+});
+
+const HideBody = t.Object({
+  asset_id: t.String({ minLength: 1 }),
+  face_index: t.Number(),
 });
 
 function safeObjectId(raw: string): ObjectId | null {
@@ -79,6 +86,12 @@ export const peopleRoutes = new Elysia({ prefix: "/api/people" })
       // Surfaced so the web can request the cover via /api/fs/thumb (the
       // same URL the browse view uses) and reuse its blob-URL + HTTP cache.
       cover_abs_path: r.coverAbsPath,
+      // Bbox of the cover face, in normalised [0,1] — the web applies the
+      // same `faceCropTransform` it uses for detail-panel face thumbs so
+      // the list cards show the person's face, not the whole asset. Null
+      // for manually-created people who have no faces yet (or pre-backfill
+      // rows on a stale install — backfill heals on the next list call).
+      cover_bbox: r.person.cover_bbox ?? null,
       created_at: r.person.created_at,
       updated_at: r.person.updated_at,
     }));
@@ -102,6 +115,7 @@ export const peopleRoutes = new Elysia({ prefix: "/api/people" })
       created_at: detail.person.created_at,
       updated_at: detail.person.updated_at,
       cover_asset_id: detail.person.cover_asset_id ?? null,
+      cover_bbox: detail.person.cover_bbox ?? null,
       faces: detail.faces.map((f) => ({
         asset_id: f.asset_id,
         face_index: f.face_index,
@@ -221,4 +235,25 @@ export const peopleRoutes = new Elysia({ prefix: "/api/people" })
       }
     },
     { body: AssignBody },
+  )
+
+  // ── Hide a face (operator "this isn't a face I want tracked") ───────
+  .post(
+    "/hide",
+    async ({ body, set }) => {
+      const assetId = safeObjectId(body.asset_id);
+      if (!assetId) {
+        set.status = 400;
+        return { error: "invalid asset_id" };
+      }
+      try {
+        await hideFace(assetId, body.face_index);
+        return { ok: true };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        set.status = msg.includes("not found") ? 404 : 400;
+        return { error: msg };
+      }
+    },
+    { body: HideBody },
   );
