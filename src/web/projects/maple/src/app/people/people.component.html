@@ -149,9 +149,9 @@
     <!-- ── Detail panel (slides in when selected) ──────────────────── -->
     @if (selected(); as detail) {
       <aside
-        class="sticky top-6 self-start max-h-[calc(100vh-3rem)] w-[420px] flex-shrink-0 overflow-y-auto rounded-lg border border-border bg-surface p-4"
+        class="sticky top-6 self-start max-h-[calc(100vh_-_3rem)] w-[420px] flex-shrink-0 flex flex-col rounded-lg border border-border bg-surface p-4"
       >
-        <div class="mb-3 flex items-center gap-3">
+        <div class="mb-3 flex flex-shrink-0 items-center gap-3">
           <!-- Cover avatar — reuses the same blob the grid card loaded
                (looked up by person id). Falls back to the initial when
                the URL isn't cached yet (e.g. opened via deep-link before
@@ -218,85 +218,92 @@
             Close
           </button>
         </div>
-        @if (selectedLoading()) {
-          <p class="m-0 text-[12px] text-text-muted">Loading…</p>
-        } @else if (detail.faces.length === 0) {
-          <p
-            class="m-0 rounded-md border border-dashed border-border p-4 text-center text-[12px] text-text-muted"
-          >
-            No faces assigned yet.
-          </p>
-        } @else {
-          <p class="mb-3 mt-0 text-[11px] text-text-muted">
-            Showing {{ detail.faces.length }} most-recent face{{
-              detail.faces.length === 1 ? '' : 's'
-            }}.
-          </p>
-          <ul class="m-0 grid grid-cols-3 gap-2 p-0 list-none">
-            @for (f of detail.faces; track f.assetId + ':' + f.faceIndex) {
-              <li class="flex flex-col gap-1.5">
-                <!-- Face crop. Wrapper is square + overflow-hidden; the
+        <!-- Scrollable body — keeps the header above pinned via the
+             flex-col + min-h-0 + overflow-y-auto pattern. Sticky-positioning
+             the header *inside* an overflowing aside doesn't clip cleanly
+             (scrolled content bleeds into the aside's top padding), so the
+             scroll surface lives on this inner wrapper instead. -->
+        <div class="min-h-0 flex-1 overflow-y-auto">
+          @if (selectedLoading()) {
+            <p class="m-0 text-[12px] text-text-muted">Loading…</p>
+          } @else if (detail.faces.length === 0) {
+            <p
+              class="m-0 rounded-md border border-dashed border-border p-4 text-center text-[12px] text-text-muted"
+            >
+              No faces assigned yet.
+            </p>
+          } @else {
+            <p class="mb-3 mt-0 text-[11px] text-text-muted">
+              Showing {{ detail.faces.length }} most-recent face{{
+                detail.faces.length === 1 ? '' : 's'
+              }}.
+            </p>
+            <ul class="m-0 grid grid-cols-3 gap-2 p-0 list-none">
+              @for (f of detail.faces; track f.assetId + ':' + f.faceIndex) {
+                <li class="flex flex-col gap-1.5">
+                  <!-- Face crop. Wrapper is square + overflow-hidden; the
                      <img> is absolute-positioned and we scale + translate
                      it so the bbox fills the wrapper. Native loading="lazy"
                      defers off-screen rows in the 3-col grid. -->
-                <div
-                  class="relative aspect-square overflow-hidden rounded-md border border-border bg-bg"
-                  [title]="f.absPath"
-                >
-                  @if (faceThumbUrl(f); as url) {
-                    <img
-                      class="absolute left-0 top-0 block h-full w-full object-cover"
-                      [src]="url"
-                      [style.transform]="faceCropTransform(f.bbox)"
-                      style="transform-origin: 0 0"
-                      alt=""
-                      loading="lazy"
-                      decoding="async"
-                    />
-                  }
-                  <!-- Detector confidence as a small chip. tabular-nums
-                       keeps the width steady as the value changes. -->
-                  <span
-                    class="pointer-events-none absolute right-1 top-1 rounded bg-bg/80 px-1 py-px text-[10px] font-medium tabular-nums text-text-main"
-                    [title]="'Detector confidence'"
+                  <div
+                    class="relative aspect-square overflow-hidden rounded-md border border-border bg-bg"
+                    [title]="f.absPath"
                   >
-                    {{ f.confidence * 100 | number: '1.0-0' }}%
-                  </span>
-                </div>
-                <div class="flex flex-col gap-1">
-                  <select
-                    class="cursor-pointer rounded border border-border bg-bg px-1.5 py-0.5 text-[10px] text-text-main"
-                    (change)="
-                      moveFaceTo(f, $any($event.target).value); $any($event.target).value = ''
-                    "
-                  >
-                    <option value="">Move to…</option>
-                    @for (other of sortedPeople(); track other.id) {
-                      @if (other.id !== detail.id) {
-                        <option [value]="other.id">{{ other.name }}</option>
-                      }
+                    @if (faceThumbUrl(f); as url) {
+                      <img
+                        class="absolute left-0 top-0 block h-full w-full object-cover"
+                        [src]="url"
+                        [style.transform]="faceCropTransform(f.bbox)"
+                        style="transform-origin: 0 0"
+                        alt=""
+                        loading="lazy"
+                        decoding="async"
+                      />
                     }
-                  </select>
-                  <button
-                    type="button"
-                    class="cursor-pointer rounded border border-border bg-surface px-1.5 py-0.5 text-[10px] text-text-muted hover:bg-surface-hover hover:text-text-main"
-                    (click)="unassignFace(f)"
-                  >
-                    Unassign
-                  </button>
-                  <button
-                    type="button"
-                    class="cursor-pointer rounded border border-border bg-surface px-1.5 py-0.5 text-[10px] text-text-muted hover:border-error-text hover:text-error-text"
-                    [title]="'Hide this face — excluded from clustering. Will not reappear on the next clustering run.'"
-                    (click)="hideFace(f)"
-                  >
-                    Hide
-                  </button>
-                </div>
-              </li>
-            }
-          </ul>
-        }
+                    <!-- Detector confidence as a small chip. tabular-nums
+                       keeps the width steady as the value changes. -->
+                    <span
+                      class="pointer-events-none absolute right-1 top-1 rounded bg-bg/80 px-1 py-px text-[10px] font-medium tabular-nums text-text-main"
+                      [title]="'Detector confidence'"
+                    >
+                      {{ f.confidence * 100 | number: '1.0-0' }}%
+                    </span>
+                  </div>
+                  <div class="flex flex-col gap-1">
+                    <select
+                      class="cursor-pointer rounded border border-border bg-bg px-1.5 py-0.5 text-[10px] text-text-main"
+                      (change)="
+                        moveFaceTo(f, $any($event.target).value); $any($event.target).value = ''
+                      "
+                    >
+                      <option value="">Move to…</option>
+                      @for (other of sortedPeople(); track other.id) {
+                        @if (other.id !== detail.id) {
+                          <option [value]="other.id">{{ other.name }}</option>
+                        }
+                      }
+                    </select>
+                    <button
+                      type="button"
+                      class="cursor-pointer rounded border border-border bg-surface px-1.5 py-0.5 text-[10px] text-text-muted hover:bg-surface-hover hover:text-text-main"
+                      (click)="unassignFace(f)"
+                    >
+                      Unassign
+                    </button>
+                    <button
+                      type="button"
+                      class="cursor-pointer rounded border border-border bg-surface px-1.5 py-0.5 text-[10px] text-text-muted hover:border-error-text hover:text-error-text"
+                      [title]="'Hide this face — excluded from clustering. Will not reappear on the next clustering run.'"
+                      (click)="hideFace(f)"
+                    >
+                      Hide
+                    </button>
+                  </div>
+                </li>
+              }
+            </ul>
+          }
+        </div>
       </aside>
     }
   </div>
