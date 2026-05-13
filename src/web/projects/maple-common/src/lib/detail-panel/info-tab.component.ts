@@ -1066,28 +1066,54 @@ export class InfoTabComponent implements OnDestroy {
 
   // ── Map tile helpers ──────────────────────────────────────────────────
 
-  /** OSM raster tile URL for the slippy-map tile containing (lat, lon)
-   * at the given zoom. Standard math from
-   * https://wiki.openstreetmap.org/wiki/Slippy_map_tilenames. The result
-   * is a single 256×256 tile centered roughly on the point — the pin
-   * helper computes the pixel offset for the exact spot. */
+  /** Clamp lat to the WebMercator-defined band and wrap lon into
+   * [-180, 180). Without this, lat near ±90 collapses to NaN/Infinity
+   * (cos(π/2) ≈ 0 in the y formula) and lon ≥ 180 lands at x = 2^z
+   * which is one past the valid range — both produce 404 tiles. The
+   * lat bound is atan(sinh(π)) ≈ 85.05112878°, the standard
+   * WebMercator limit. */
+  private normalizeLatLon(lat: number, lon: number): { lat: number; lon: number } {
+    const MAX_LAT = 85.05112877980659;
+    const clampedLat = Math.max(-MAX_LAT, Math.min(MAX_LAT, lat));
+    // ((lon + 180) % 360 + 360) % 360 - 180 — wraps any real lon
+    // (including 180.0 itself, which becomes -180.0, same meridian) to
+    // [-180, 180).
+    const wrappedLon = (((lon + 180) % 360) + 360) % 360 - 180;
+    return { lat: clampedLat, lon: wrappedLon };
+  }
+
+  /** OSM raster tile URL for the slippy-map tile that *contains*
+   * (lat, lon) at the given zoom. Standard math from
+   * https://wiki.openstreetmap.org/wiki/Slippy_map_tilenames. The pin
+   * helper renders the photo's exact spot inside the tile via fractional
+   * offsets — for an 86 px thumbnail this is good enough; the
+   * open-in-maps link opens a real centered view. */
   staticMapTileUrl(lat: number, lon: number, zoom: number): string {
+    const { lat: nLat, lon: nLon } = this.normalizeLatLon(lat, lon);
     const z = Math.max(0, Math.min(19, Math.floor(zoom)));
     const n = Math.pow(2, z);
-    const x = Math.floor(((lon + 180) / 360) * n);
-    const latRad = (lat * Math.PI) / 180;
-    const y = Math.floor(
+    const xRaw = Math.floor(((nLon + 180) / 360) * n);
+    const latRad = (nLat * Math.PI) / 180;
+    const yRaw = Math.floor(
       ((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2) * n,
     );
+    // Defensive clamp — after normalization xRaw/yRaw should already be
+    // in [0, n-1], but FP rounding at exactly the wrap edge could land
+    // at n. A tile request at index n would 404.
+    const x = Math.max(0, Math.min(n - 1, xRaw));
+    const y = Math.max(0, Math.min(n - 1, yRaw));
     return `https://tile.openstreetmap.org/${z}/${x}/${y}.png`;
   }
 
   /** CSS left/top percentages so the pin sits on the actual lat/lon
-   * inside the rendered tile. Same slippy-map math, fractional part. */
+   * inside the rendered tile. Same slippy-map math, fractional part —
+   * applies the same lat clamp + lon wrap as the tile helper so the
+   * pin stays consistent with the tile we picked. */
   pinOffsetPct(lat: number, lon: number): { left: string; top: string } {
+    const { lat: nLat, lon: nLon } = this.normalizeLatLon(lat, lon);
     const n = Math.pow(2, this.MAP_ZOOM);
-    const xFrac = ((lon + 180) / 360) * n;
-    const latRad = (lat * Math.PI) / 180;
+    const xFrac = ((nLon + 180) / 360) * n;
+    const latRad = (nLat * Math.PI) / 180;
     const yFrac =
       ((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2) * n;
     const left = (xFrac - Math.floor(xFrac)) * 100;
