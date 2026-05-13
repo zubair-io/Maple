@@ -81,8 +81,9 @@ export class PeopleComponent implements OnInit, OnDestroy {
 
   readonly hasPeople = computed(() => this.people().length > 0);
 
-  /** Display order: named people first (alphabetical, accent-insensitive),
-   * then auto-named ("Person N") second — ordered by face count DESC so
+  /** Display order: named people first (alphabetical, case-insensitive
+   * via `sensitivity: 'accent'` — accents still distinguish), then
+   * auto-named ("Person N") second — ordered by face count DESC so
    * the biggest unidentified clusters surface first. Computed off
    * `people()` so renames re-sort in real time (the rename handler
    * updates `people` after the server roundtrip; the computed re-runs
