@@ -60,6 +60,22 @@ final class AppSupportSidecarStoreTests: XCTestCase {
         XCTAssertEqual(files.filter { $0.hasSuffix(".tmp") }.count, 0)
     }
 
+    func testReadThrowsOnInvalidUTF8() throws {
+        let (store, tmp) = try makeStore()
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        // Write invalid UTF-8 bytes directly to the underlying file.
+        let phid = "BADUTF8"
+        let safe = phid.replacingOccurrences(of: "/", with: "_")
+        let u = tmp.appendingPathComponent("\(safe).xmp")
+        // 0xFE 0xFF is invalid UTF-8.
+        try Data([0xFE, 0xFF, 0x00, 0xFF]).write(to: u)
+        XCTAssertThrowsError(try store.read(phassetLocalId: phid)) { error in
+            guard case AppSupportSidecarStoreError.decodeFailed = error else {
+                return XCTFail("expected decodeFailed, got \(error)")
+            }
+        }
+    }
+
     func testDefaultRootIsAppSupportMaplePhotoKitSidecars() throws {
         let url = try AppSupportSidecarStore.defaultRoot()
         XCTAssertTrue(url.path.contains("Maple"))

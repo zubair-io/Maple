@@ -13,6 +13,23 @@
 
 import Foundation
 
+// MARK: - AppSupportSidecarStoreError
+
+/// Errors thrown by `AppSupportSidecarStore.read(phassetLocalId:)`.
+public enum AppSupportSidecarStoreError: Error, LocalizedError, Sendable {
+    /// The sidecar file exists but its bytes are not valid UTF-8.
+    case decodeFailed(URL)
+
+    public var errorDescription: String? {
+        switch self {
+        case .decodeFailed(let url):
+            return "PhotoKit sidecar at \(url.lastPathComponent) is not valid UTF-8"
+        }
+    }
+}
+
+// MARK: -
+
 public final class AppSupportSidecarStore {
 
     /// Default location at
@@ -47,11 +64,21 @@ public final class AppSupportSidecarStore {
         return root.appendingPathComponent("\(safe).xmp")
     }
 
+    /// Read the sidecar for `phassetLocalId`.
+    ///
+    /// Returns `nil` when no sidecar file exists for this identifier.
+    /// Throws `AppSupportSidecarStoreError.decodeFailed` when the file exists
+    /// but its bytes cannot be decoded as UTF-8 — callers should treat this
+    /// as a corruption signal rather than silently falling back to defaults,
+    /// which would discard the user's edits.
     public func read(phassetLocalId: String) throws -> String? {
         let u = url(for: phassetLocalId)
         guard FileManager.default.fileExists(atPath: u.path) else { return nil }
         let data = try Data(contentsOf: u)
-        return String(data: data, encoding: .utf8)
+        guard let s = String(data: data, encoding: .utf8) else {
+            throw AppSupportSidecarStoreError.decodeFailed(u)
+        }
+        return s
     }
 
     /// Atomic write: temp file → `replaceItemAt`. Overwrites any existing
