@@ -54,4 +54,35 @@ final class BackupSettingsTests: XCTestCase {
         partial.libraryId = "lib1"
         XCTAssertTrue(partial.isConfigured)
     }
+
+    func testSharedLibraryToggleRoundTrips() {
+        var s = BackupSettings.defaults
+        s.serverURL = "https://srv.example"; s.libraryId = "lib1"
+
+        s.includeSharedLibrary = false
+        s.save(to: defaults)
+        let loaded = BackupSettings.load(from: defaults)
+        XCTAssertFalse(loaded?.includeSharedLibrary ?? true,
+                       "includeSharedLibrary=false must survive save/load round-trip")
+
+        s.includeSharedLibrary = true
+        s.save(to: defaults)
+        let loaded2 = BackupSettings.load(from: defaults)
+        XCTAssertTrue(loaded2?.includeSharedLibrary ?? false,
+                      "includeSharedLibrary=true must survive save/load round-trip")
+    }
+
+    func testSharedAlbumsToggleRoundTrips() {
+        var s = BackupSettings.defaults
+        s.serverURL = "https://srv.example"; s.libraryId = "lib1"
+
+        // Default is false (don't include shared albums).
+        XCTAssertFalse(s.includeSharedAlbums)
+
+        s.includeSharedAlbums = true
+        s.save(to: defaults)
+        let loaded = BackupSettings.load(from: defaults)
+        XCTAssertTrue(loaded?.includeSharedAlbums ?? false,
+                      "includeSharedAlbums=true must survive save/load round-trip")
+    }
 }
