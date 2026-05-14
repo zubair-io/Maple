@@ -44,11 +44,30 @@ public struct ImageRef: Sendable, Hashable, Identifiable, Codable {
     /// `nil` for sourceless adapters (PhotoKit, SelfHosted).
     public let scopeParentURL: URL?
 
-    public init(id: String, displayName: String, url: URL? = nil, scopeParentURL: URL? = nil) {
+    /// Capture date when known by the source. PhotoKit and CloudSource (via
+    /// AssetDoc.exif.captured_at) provide this; filesystem/SMB do not until
+    /// indexed. Used by the merged timeline (Phase 3 Task 3.6) to sort cells
+    /// chronologically across sources.
+    public let captureDate: Date?
+
+    /// Server-side `phasset_links[0].phasset_local_id` when this ImageRef is
+    /// a cloud-side row that was backed up from PhotoKit. `nil` for non-cloud
+    /// rows and for cloud rows that aren't PhotoKit-backed. Used by the
+    /// merged timeline to detect duplicates between the two streams.
+    public let phassetLink: String?
+
+    public init(id: String,
+                displayName: String,
+                url: URL? = nil,
+                scopeParentURL: URL? = nil,
+                captureDate: Date? = nil,
+                phassetLink: String? = nil) {
         self.id = id
         self.displayName = displayName
         self.url = url
         self.scopeParentURL = scopeParentURL
+        self.captureDate = captureDate
+        self.phassetLink = phassetLink
     }
 }
 
