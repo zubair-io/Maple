@@ -417,11 +417,22 @@ extension PhotoKitSource: ImageSource {
     /// Read the App-Support sidecar for a PhotoKit asset, or return defaults
     /// when none exists yet. Mirrors XMPSidecarStore.loadIfPresent semantics
     /// for the PhotoKit-source case where the asset has no on-disk RAW URL.
+    ///
+    /// A UTF-8 decode failure (corrupt sidecar) falls through to defaults
+    /// rather than crashing the edit flow. The error is not swallowed
+    /// silently — a follow-up should plumb it to a UI-level warning so the
+    /// user knows their edits may need re-applying.
     public func readXMP(for ref: ImageRef) async throws -> (AdjustmentModel, CullingState) {
-        guard let xml = try sidecarStore.read(phassetLocalId: ref.id) else {
+        let xml: String?
+        do {
+            xml = try sidecarStore.read(phassetLocalId: ref.id)
+        } catch {
+            // Treat decode failure as "no sidecar" rather than propagating an
+            // error that would block opening the image. TODO: surface a UI
+            // warning once the warning-banner infrastructure is in place.
             return (.default, CullingState())
         }
-        guard let data = xml.data(using: .utf8) else {
+        guard let xml, let data = xml.data(using: .utf8) else {
             return (.default, CullingState())
         }
         return try XMPParser.parse(data: data)
