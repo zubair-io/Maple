@@ -31,14 +31,21 @@ if [ ! -x "$APPLE_DIR/scripts/build-xcframework.sh" ]; then
     exit 1
 fi
 
-# Install Rust (rustup is not preinstalled on Xcode Cloud workers).
+# Install Rust. rustup is not preinstalled on Xcode Cloud workers, and the
+# canonical `curl https://sh.rustup.rs | sh` bootstrap fails because the
+# worker pool's DNS does not resolve sh.rustup.rs (curl exits 6, the pipe
+# masks it, and the next step blows up with `cargo: command not found`).
+# Use the preinstalled Homebrew instead — bottles are served from GitHub,
+# which the workers can reach.
+export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 if ! command -v rustup >/dev/null 2>&1; then
-    echo "==> Installing rustup"
-    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
-        | sh -s -- -y --default-toolchain stable --profile minimal
+    echo "==> brew install rustup-init"
+    brew install rustup-init
+    echo "==> rustup-init"
+    rustup-init -y --default-toolchain stable --profile minimal --no-modify-path
 fi
 
-# rustup installs to ~/.cargo/bin; cargo install lands binaries there too.
+# rustup-init installs to ~/.cargo/bin; cargo install lands binaries there too.
 export PATH="$HOME/.cargo/bin:$PATH"
 
 # build-xcframework.sh validates these are on PATH and adds targets itself,
