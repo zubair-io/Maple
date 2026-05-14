@@ -11,6 +11,7 @@
 		A1F0000300000000000000A1 /* RawPipeline.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = A1F0000400000000000000A1 /* RawPipeline.xcframework */; };
 		E3DD948B2FB50EB9009392B4 /* MapleCore in Frameworks */ = {isa = PBXBuildFile; productRef = E3DD948A2FB50EB9009392B4 /* MapleCore */; };
 		E3DD948E2FB51A67009392B4 /* MapleBackup in Frameworks */ = {isa = PBXBuildFile; productRef = E3DD948D2FB51A67009392B4 /* MapleBackup */; };
+		E3DD94902FB55723009392B4 /* MapleBackup in Frameworks */ = {isa = PBXBuildFile; productRef = E3DD948F2FB55723009392B4 /* MapleBackup */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -78,6 +79,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				E3DD94902FB55723009392B4 /* MapleBackup in Frameworks */,
 				A1F0000300000000000000A1 /* RawPipeline.xcframework in Frameworks */,
 				A1F0000100000000000000A1 /* MapleCore in Frameworks */,
 			);
@@ -179,6 +181,7 @@
 			name = Maple;
 			packageProductDependencies = (
 				A1F0000200000000000000A1 /* MapleCore */,
+				E3DD948F2FB55723009392B4 /* MapleBackup */,
 			);
 			productName = Maple;
 			productReference = A1F0000700000000000000A1 /* Maple: Aperture.app */;
@@ -882,6 +885,11 @@
 		};
 		E3DD948D2FB51A67009392B4 /* MapleBackup */ = {
 			isa = XCSwiftPackageProductDependency;
+			productName = MapleBackup;
+		};
+		E3DD948F2FB55723009392B4 /* MapleBackup */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = E3DD948C2FB51A67009392B4 /* XCLocalSwiftPackageReference "Packages/MapleBackup" */;
 			productName = MapleBackup;
 		};
 /* End XCSwiftPackageProductDependency section */
