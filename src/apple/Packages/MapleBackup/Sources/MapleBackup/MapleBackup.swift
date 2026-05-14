@@ -7,7 +7,10 @@
 //
 //   - BackupEngine actor — orchestrates the queue, upload client, sidecar
 //     store, and state machine.
-//   - BackupQueue protocol + InProcessBackupQueue — durable queue.
+//   - BackupQueue protocol + InProcessBackupQueue — priority-ordered
+//     in-memory queue. Per-task state persists in BackupStateStore so
+//     restarts re-hydrate pending work, but the queue itself is rebuilt
+//     in-process on each engine start.
 //   - BackupStateStore — GRDB-backed runtime state persistence.
 //   - PayloadAssembler — builds upload payloads from PhotoKit asset reads.
 //   - UploadClient — chunked, resumable HTTPS upload.
