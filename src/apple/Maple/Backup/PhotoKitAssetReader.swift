@@ -43,8 +43,18 @@ actor PhotoKitAssetReader: AssetReader {
         }
         let renderedResource = resources.first(where: { $0.type == .fullSizePhoto })
 
+        // Live Photo: detect and read the paired .mov twin.
+        // The paired video resource sits alongside the still as a
+        // PHAssetResourceType.pairedVideo. We only read it when the asset
+        // subtype flags it as a Live Photo, to avoid spurious reads.
+        let isLivePhoto = asset.mediaSubtypes.contains(.photoLive)
+        let liveVideoResource: PHAssetResource? = isLivePhoto
+            ? resources.first(where: { $0.type == .pairedVideo })
+            : nil
+
         let originalBytes = try await Self.readAllBytes(of: originalResource)
         let renderedBytes: Data? = try await renderedResource.map { try await Self.readAllBytes(of: $0) }
+        let liveVideoBytes: Data? = try await liveVideoResource.map { try await Self.readAllBytes(of: $0) }
 
         let captureDate = asset.creationDate ?? Date()
         let lat = asset.location?.coordinate.latitude
@@ -59,6 +69,18 @@ actor PhotoKitAssetReader: AssetReader {
             .map { String(format: "%02x", $0) }
             .joined()
 
+        // For a Live Photo, the .mov twin filename derives from the still:
+        // strip the extension of the original filename and append ".mov".
+        // The companion is referenced in the sidecar so the server can
+        // link them. Actual twin bytes are uploaded via uploadRendered.
+        // TODO: once the server rendered endpoint supports X-Maple-Suffix-Override,
+        // update to write `<base>.mov` instead of `<base>.rendered.mov`.
+        let liveVideoFilename: String? = liveVideoResource.map { _ in
+            let base = (filename as NSString).deletingPathExtension
+            return "\(base).mov"
+        }
+        let livePhotoCompanion: String? = liveVideoFilename
+
         let sidecar = PayloadAssembler.SidecarInput(
             phassetLocalId: phassetLocalId,
             deviceId: deviceId,
@@ -69,7 +91,7 @@ actor PhotoKitAssetReader: AssetReader {
             caption: nil,
             keywords: [],
             tags: [],
-            livePhotoCompanion: nil,
+            livePhotoCompanion: livePhotoCompanion,
             burstStackId: asset.burstIdentifier,
             originalFilename: filename,
             mtime: asset.modificationDate?.timeIntervalSince1970
@@ -79,6 +101,8 @@ actor PhotoKitAssetReader: AssetReader {
         return AssetReadResult(
             originalBytes: originalBytes,
             renderedBytes: renderedBytes,
+            liveVideoBytes: liveVideoBytes,
+            liveVideoFilename: liveVideoFilename,
             sidecar: sidecar,
             mapleId: hash)
     }
