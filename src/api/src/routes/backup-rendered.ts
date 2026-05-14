@@ -17,6 +17,10 @@
  *   Content-Range           — required (bytes <start>-<end>/<total>)
  *   X-Maple-Filename-Ext    — optional; extension of the rendered file.
  *                             Defaults to the extension of X-Maple-Target-Rel-Path.
+ *   X-Maple-Suffix-Override — optional; when set, the final filename is
+ *                             `<base>.<suffix-override>` instead of
+ *                             `<base>.rendered.<ext>`. Used by the Live Photo
+ *                             .mov path to skip the `.rendered.` infix.
  *   X-Maple-Maple-Id        — required on the final chunk
  *
  * Responses:
@@ -75,10 +79,19 @@ function isSafeRelPath(relPath: string): boolean {
  *
  * e.g. "2024/Tokyo/03-15/IMG.HEIC" → "2024/Tokyo/03-15/IMG.rendered.HEIC"
  *      with ext ".JPEG"             → "2024/Tokyo/03-15/IMG.rendered.JPEG"
+ *      with suffixOverride "mov"    → "2024/Tokyo/03-15/IMG.mov"
+ *
+ * @param suffixOverride When present, the file is named `<base>.<suffixOverride>`
+ *   instead of `<base>.rendered.<ext>`. Used by the Live Photo .mov path so the
+ *   twin lands without the `.rendered.` infix.
  */
-function renderedRelPath(originalRelPath: string, ext?: string): string {
-  const extToUse = ext ?? path.extname(originalRelPath);
+function renderedRelPath(originalRelPath: string, ext?: string, suffixOverride?: string): string {
   const base = originalRelPath.slice(0, originalRelPath.length - path.extname(originalRelPath).length);
+  if (suffixOverride) {
+    const normalSuffix = suffixOverride.startsWith(".") ? suffixOverride.slice(1) : suffixOverride;
+    return `${base}.${normalSuffix}`;
+  }
+  const extToUse = ext ?? path.extname(originalRelPath);
   const normalExt = extToUse.startsWith(".") ? extToUse : `.${extToUse}`;
   return `${base}.rendered${normalExt}`;
 }
@@ -103,6 +116,10 @@ export const backupRenderedRoutes = new Elysia().post(
     const range = headers["content-range"];
     const mapleId = headers["x-maple-maple-id"];
     const filenameExt = headers["x-maple-filename-ext"];
+    // Optional suffix-override: when present, the assembled file is named
+    // `<base>.<suffixOverride>` instead of `<base>.rendered.<ext>`.
+    // Used by the Live Photo .mov path to avoid the `.rendered.` infix.
+    const suffixOverride = headers["x-maple-suffix-override"];
 
     if (!deviceId || !phid || !originalRelPath || !totalBytesRaw || !range) {
       set.status = 400;
@@ -151,7 +168,7 @@ export const backupRenderedRoutes = new Elysia().post(
     }
 
     // Compute target rel-path for the rendered companion.
-    const targetRelPath = renderedRelPath(originalRelPath, filenameExt);
+    const targetRelPath = renderedRelPath(originalRelPath, filenameExt, suffixOverride);
 
     // Use synthetic phid so rendered sessions don't collide with original sessions.
     const syntheticPhid = `${phid}::rendered`;
