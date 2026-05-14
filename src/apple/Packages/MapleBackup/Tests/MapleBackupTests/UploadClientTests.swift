@@ -5,11 +5,9 @@ import XCTest
 final class UploadClientTests: XCTestCase {
 
     override func setUp() {
-        URLProtocol.registerClass(StubURLProtocol.self)
         StubURLProtocol.stub = nil
     }
     override func tearDown() {
-        URLProtocol.unregisterClass(StubURLProtocol.self)
         StubURLProtocol.stub = nil
     }
 
