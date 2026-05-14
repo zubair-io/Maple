@@ -9,11 +9,16 @@
 // implementation lives in MapleApp.PhotoKitAssetReader (Phase 3 Task 3.2) —
 // PhotoKit-touching code that's not unit-testable in `swift test`.
 //
-// Retry / backoff policy is added in Phase 3 Task 3.13. This v0 engine
-// surfaces upload failures as thrown errors; the caller drives the
-// retry loop.
+// Wi-Fi gating (Task 3.12): when `wifiOnly` is true and the current
+// reachability is not .wifi, background-priority tasks are re-enqueued
+// instead of uploaded.
 //
-// Spec: docs/superpowers/specs/2026-05-09-photokit-backup-design.md §15, §17.
+// Retry / backoff policy (Task 3.13): upload failures transition the task
+// back to .pending and schedule a re-enqueue via a detached Task that sleeps
+// an exponential backoff (1s, 2s, 4s, … capped at 1h). After 8 attempts,
+// the task is marked .failedRetry.
+//
+// Spec: docs/superpowers/specs/2026-05-09-photokit-backup-design.md §13, §15, §17.
 
 import Foundation
 
@@ -49,17 +54,26 @@ public actor BackupEngine {
     private let upload: UploadClient
     private let sidecars: AppSupportSidecarStore
     private let reader: any AssetReader
+    private let reachability: Reachability?
+    private let wifiOnly: Bool
+
+    /// Maximum retry attempts before a task is marked `.failedRetry`.
+    private static let maxRetries = 8
 
     public init(queue: any BackupQueue,
                 state: BackupStateStore,
                 upload: UploadClient,
                 sidecars: AppSupportSidecarStore,
-                reader: any AssetReader) {
+                reader: any AssetReader,
+                reachability: Reachability? = nil,
+                wifiOnly: Bool = false) {
         self.queue = queue
         self.state = state
         self.upload = upload
         self.sidecars = sidecars
         self.reader = reader
+        self.reachability = reachability
+        self.wifiOnly = wifiOnly
     }
 
     /// Drive the queue until empty. The host (MapleApp / MapleBackupAgent)
@@ -69,8 +83,8 @@ public actor BackupEngine {
             do {
                 try await process(task: next)
             } catch {
-                // v0 surfaces errors; Phase 3's retry policy will mark the
-                // task as failedRetry and re-enqueue with backoff.
+                // Errors are handled inside process(task:) — state transitions
+                // to .pending for retry or .failedRetry on exhaustion.
             }
         }
     }
@@ -83,22 +97,54 @@ public actor BackupEngine {
     }
 
     private func process(task: BackupTask) async throws {
-        try await state.transition(task.id, to: .uploading)
-        let read = try await reader.read(phassetLocalId: task.id.phassetLocalId)
-        let captureDate = read.sidecar.captureDate
-        let lat = read.sidecar.latitude
-        let lon = read.sidecar.longitude
-        let filename = read.sidecar.originalFilename
-        _ = try await upload.upload(
-            phassetLocalId: task.id.phassetLocalId,
-            filename: filename,
-            captureDate: captureDate,
-            lat: lat,
-            lon: lon,
-            bytes: read.originalBytes,
-            mapleId: read.mapleId)
-        // On success, drop any App-Support sidecar (it lived only until upload).
-        try? sidecars.delete(phassetLocalId: task.id.phassetLocalId)
-        try await state.transition(task.id, to: .uploaded, error: nil)
+        // Wi-Fi gate. User-edit priority always uploads (cellular OK).
+        if wifiOnly,
+           let reachability,
+           await reachability.status() != .wifi,
+           task.priority < .userEdit {
+            try await state.transition(task.id, to: .pending)
+            await queue.enqueue(task, priority: task.priority)
+            return
+        }
+
+        do {
+            try await state.transition(task.id, to: .uploading)
+            let read = try await reader.read(phassetLocalId: task.id.phassetLocalId)
+            _ = try await upload.upload(
+                phassetLocalId: task.id.phassetLocalId,
+                filename: read.sidecar.originalFilename,
+                captureDate: read.sidecar.captureDate,
+                lat: read.sidecar.latitude,
+                lon: read.sidecar.longitude,
+                bytes: read.originalBytes,
+                mapleId: read.mapleId)
+            // On success, drop any App-Support sidecar (it lived only until upload).
+            try? sidecars.delete(phassetLocalId: task.id.phassetLocalId)
+            try await state.transition(task.id, to: .uploaded, error: nil)
+        } catch {
+            let nextRetry = task.retryCount + 1
+            if nextRetry >= Self.maxRetries {
+                try? await state.transition(task.id, to: .failedRetry,
+                                            error: "max retries: \(error)")
+            } else {
+                try? await state.transition(task.id, to: .pending,
+                                            error: "\(error)")
+                // Re-enqueue from a detached Task that sleeps the backoff.
+                let backoff = Self.backoffSeconds(for: nextRetry)
+                let queueRef = queue
+                Task.detached(priority: .background) {
+                    try? await Task.sleep(nanoseconds: UInt64(backoff * 1_000_000_000))
+                    var retry = task
+                    retry.retryCount = nextRetry
+                    await queueRef.enqueue(retry, priority: retry.priority)
+                }
+            }
+            throw error
+        }
+    }
+
+    /// Exponential backoff capped at 1 hour.
+    private static func backoffSeconds(for retryCount: Int) -> TimeInterval {
+        min(3600, pow(2.0, Double(retryCount)))
     }
 }
