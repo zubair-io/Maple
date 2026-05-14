@@ -65,9 +65,9 @@ enum ChangeObserverWiring {
         for phid in ids {
             let taskId = BackupTaskID(deviceId: deviceId, phassetLocalId: phid)
             do {
-                if try state.find(taskId) == nil {
+                if try await state.find(taskId) == nil {
                     let task = BackupTask(id: taskId, state: .pending, priority: .background)
-                    try state.upsert(task)
+                    try await state.upsert(task)
                     await queue.enqueue(task, priority: .background)
                 }
             } catch {
