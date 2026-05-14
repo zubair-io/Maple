@@ -162,6 +162,13 @@ public actor BackupEngine {
         do {
             try await state.transition(task.id, to: .uploading)
             let read = try await reader.read(phassetLocalId: task.id.phassetLocalId)
+
+            // Capture local references for the progress closure (actor-isolated
+            // captures aren't permitted directly inside the async closure below).
+            let queueRef = queue
+            let taskId = task.id
+            let total = Int64(read.originalBytes.count)
+
             let result = try await upload.upload(
                 phassetLocalId: task.id.phassetLocalId,
                 filename: read.sidecar.originalFilename,
@@ -169,7 +176,10 @@ public actor BackupEngine {
                 lat: read.sidecar.latitude,
                 lon: read.sidecar.longitude,
                 bytes: read.originalBytes,
-                mapleId: read.mapleId)
+                mapleId: read.mapleId,
+                onProgress: { sent, _ in
+                    await queueRef.emit(.progress(taskId, sent: sent, total: total))
+                })
 
             // Upload the sidecar to the cloud library. Prefer the local-edit XMP if
             // one exists in AppSupportSidecarStore (the user's intentional Maple edit
@@ -199,16 +209,15 @@ public actor BackupEngine {
                     bytes: renderedBytes)
             }
 
-            // Upload Live Photo .mov twin when present.
-            // Lands on server as `<base>.rendered.mov`. TODO: add
-            // X-Maple-Suffix-Override support to the rendered endpoint so
-            // this becomes `<base>.mov` without the `.rendered.` infix.
+            // Upload Live Photo .mov twin when present. Uses suffix-override so
+            // it lands as `<base>.mov` instead of `<base>.rendered.mov`.
             if let liveBytes = read.liveVideoBytes, !liveBytes.isEmpty {
                 try await upload.uploadRendered(
                     phassetLocalId: task.id.phassetLocalId,
                     targetRelPath: result.targetRelPath,
                     filenameExt: "mov",
-                    bytes: liveBytes)
+                    bytes: liveBytes,
+                    suffixOverride: "mov")
             }
 
             try await state.transition(task.id, to: .uploaded, error: nil)
