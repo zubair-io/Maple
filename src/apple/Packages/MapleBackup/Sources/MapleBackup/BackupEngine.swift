@@ -33,13 +33,23 @@ public protocol AssetReader: Actor {
 public struct AssetReadResult: Sendable {
     public let originalBytes: Data
     public let renderedBytes: Data?
+    /// Bytes of the Live Photo .mov twin, if the asset is a Live Photo.
+    /// Uploaded separately via the rendered endpoint with ext "mov".
+    /// TODO: once the server endpoint accepts X-Maple-Suffix-Override, rename
+    /// the server-side file from `<base>.rendered.mov` to `<base>.mov`.
+    public let liveVideoBytes: Data?
+    /// Filename for the Live Photo .mov twin (e.g. "IMG_1234.mov").
+    public let liveVideoFilename: String?
     public let sidecar: PayloadAssembler.SidecarInput
     public let mapleId: String
 
     public init(originalBytes: Data, renderedBytes: Data?,
+                liveVideoBytes: Data? = nil, liveVideoFilename: String? = nil,
                 sidecar: PayloadAssembler.SidecarInput, mapleId: String) {
         self.originalBytes = originalBytes
         self.renderedBytes = renderedBytes
+        self.liveVideoBytes = liveVideoBytes
+        self.liveVideoFilename = liveVideoFilename
         self.sidecar = sidecar
         self.mapleId = mapleId
     }
@@ -140,8 +150,47 @@ public actor BackupEngine {
                 lon: read.sidecar.longitude,
                 bytes: read.originalBytes,
                 mapleId: read.mapleId)
-            // On success, drop any App-Support sidecar (it lived only until upload).
+
+            // Upload the sidecar to the cloud library. Prefer the local-edit XMP if
+            // one exists in AppSupportSidecarStore (the user's intentional Maple edit
+            // wins); fall back to the Apple-metadata XMP generated from PHAsset state.
+            let sidecarXmp: String
+            if let localEdit = try? sidecars.read(phassetLocalId: task.id.phassetLocalId) {
+                sidecarXmp = localEdit
+            } else {
+                sidecarXmp = PayloadAssembler.buildSidecarXMP(input: read.sidecar)
+            }
+            try await upload.uploadSidecar(
+                phassetLocalId: task.id.phassetLocalId,
+                targetRelPath: result.targetRelPath,
+                xmp: sidecarXmp)
+
+            // Only after the sidecar lands on the server, delete the local one.
             try? sidecars.delete(phassetLocalId: task.id.phassetLocalId)
+
+            // Upload the Apple-rendered companion when present.
+            if let renderedBytes = read.renderedBytes, !renderedBytes.isEmpty {
+                let ext = (result.targetRelPath as NSString).pathExtension
+                let renderedExt = ext.isEmpty ? "jpeg" : ext
+                try await upload.uploadRendered(
+                    phassetLocalId: task.id.phassetLocalId,
+                    targetRelPath: result.targetRelPath,
+                    filenameExt: renderedExt,
+                    bytes: renderedBytes)
+            }
+
+            // Upload Live Photo .mov twin when present.
+            // Lands on server as `<base>.rendered.mov`. TODO: add
+            // X-Maple-Suffix-Override support to the rendered endpoint so
+            // this becomes `<base>.mov` without the `.rendered.` infix.
+            if let liveBytes = read.liveVideoBytes, !liveBytes.isEmpty {
+                try await upload.uploadRendered(
+                    phassetLocalId: task.id.phassetLocalId,
+                    targetRelPath: result.targetRelPath,
+                    filenameExt: "mov",
+                    bytes: liveBytes)
+            }
+
             try await state.transition(task.id, to: .uploaded, error: nil)
             await queue.emit(.completed(task.id, mapleId: result.mapleId))
         } catch {
