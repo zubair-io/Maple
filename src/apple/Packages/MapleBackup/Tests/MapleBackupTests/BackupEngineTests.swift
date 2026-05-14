@@ -34,9 +34,11 @@ final class BackupEngineTests: XCTestCase {
 
     override func setUp() {
         StubURLProtocol.stub = nil
+        StubURLProtocol.clearRecording()
     }
     override func tearDown() {
         StubURLProtocol.stub = nil
+        StubURLProtocol.clearRecording()
     }
 
     private func freshHarness() throws -> (BackupEngine, InProcessBackupQueue, BackupStateStore, AppSupportSidecarStore, StubAssetReader, URL) {
@@ -59,8 +61,18 @@ final class BackupEngineTests: XCTestCase {
         return (engine, queue, state, sidecars, reader, tmpRoot)
     }
 
+    // Convenience: a sequence stub for the standard two-request happy path
+    // (ingest → 200+JSON, sidecar → 200 empty).
+    private static func ingestAndSidecarStub(mapleId: String = "hash-P1",
+                                              relPath: String = "2024/03/15/IMG.heic") -> StubURLProtocol.Stub {
+        .sequence([
+            .ok(json: #"{"maple_id":"\#(mapleId)","target_rel_path":"\#(relPath)"}"#),
+            .status(200)
+        ])
+    }
+
     func testProcessOneUploadsAndPersistsUploadedState() async throws {
-        StubURLProtocol.stub = .ok(json: #"{"maple_id":"hash-P1","target_rel_path":"2024/03/15/IMG.heic"}"#)
+        StubURLProtocol.stub = Self.ingestAndSidecarStub()
         let (engine, queue, state, _, _, tmpRoot) = try freshHarness()
         defer { try? FileManager.default.removeItem(at: tmpRoot) }
 
@@ -75,7 +87,7 @@ final class BackupEngineTests: XCTestCase {
     }
 
     func testProcessOneDeletesAppSupportSidecarOnSuccess() async throws {
-        StubURLProtocol.stub = .ok(json: #"{"maple_id":"hash-P1","target_rel_path":"2024/03/15/IMG.heic"}"#)
+        StubURLProtocol.stub = Self.ingestAndSidecarStub()
         let (engine, queue, state, sidecars, _, tmpRoot) = try freshHarness()
         defer { try? FileManager.default.removeItem(at: tmpRoot) }
 
@@ -94,7 +106,7 @@ final class BackupEngineTests: XCTestCase {
     }
 
     func testProcessOnePersistsUploadingThenUploaded() async throws {
-        StubURLProtocol.stub = .ok(json: #"{"maple_id":"hash-P1","target_rel_path":"2024/03/15/IMG.heic"}"#)
+        StubURLProtocol.stub = Self.ingestAndSidecarStub()
         let (engine, queue, state, _, _, tmpRoot) = try freshHarness()
         defer { try? FileManager.default.removeItem(at: tmpRoot) }
 
@@ -159,5 +171,64 @@ final class BackupEngineTests: XCTestCase {
         // State transitions to .pending (retry queued for later).
         let row = try await state.find(id)
         XCTAssertEqual(row?.state, .pending)
+    }
+
+    // MARK: - Issue 1 & 2: Sidecar upload ordering + local-edit preference
+
+    /// Assert the sidecar request is sent after the original ingest request.
+    func testSidecarRequestSentAfterOriginal() async throws {
+        StubURLProtocol.stub = Self.ingestAndSidecarStub(relPath: "2024/03/15/IMG.heic")
+        let (engine, queue, state, _, _, tmpRoot) = try freshHarness()
+        defer { try? FileManager.default.removeItem(at: tmpRoot) }
+
+        let id = BackupTaskID(deviceId: "d", phassetLocalId: "P1")
+        let task = BackupTask(id: id, state: .pending, priority: .background)
+        try await state.upsert(task)
+        await queue.enqueue(task, priority: .background)
+
+        try await engine.processOne()
+
+        let requests = StubURLProtocol.recordedRequests
+        XCTAssertGreaterThanOrEqual(requests.count, 2,
+            "Expected at least 2 requests (ingest + sidecar), got \(requests.count)")
+        // First request must be the ingest (hits /backup/ingest).
+        XCTAssertTrue(requests[0].url?.path.contains("backup/ingest") == true,
+            "First request should be ingest, got \(requests[0].url?.path ?? "nil")")
+        // Second request must be the sidecar (hits /backup/sidecar).
+        XCTAssertTrue(requests[1].url?.path.contains("backup/sidecar") == true,
+            "Second request should be sidecar, got \(requests[1].url?.path ?? "nil")")
+    }
+
+    /// Regression test for Issue 2: when a local-edit XMP exists, the sidecar
+    /// POST body must contain that XMP, not the Apple-metadata-generated one.
+    func testSidecarPostUsesLocalEditXmpWhenAvailable() async throws {
+        StubURLProtocol.stub = Self.ingestAndSidecarStub(relPath: "2024/03/15/IMG.heic")
+        let (engine, queue, state, sidecars, _, tmpRoot) = try freshHarness()
+        defer { try? FileManager.default.removeItem(at: tmpRoot) }
+
+        let localEditXmp = "<x:xmpmeta><maple:exposure>1.5</maple:exposure></x:xmpmeta>"
+        try sidecars.write(phassetLocalId: "P1", xmp: localEditXmp)
+
+        let id = BackupTaskID(deviceId: "d", phassetLocalId: "P1")
+        let task = BackupTask(id: id, state: .pending, priority: .background)
+        try await state.upsert(task)
+        await queue.enqueue(task, priority: .background)
+
+        try await engine.processOne()
+
+        // The sidecar should be gone (deleted after upload).
+        XCTAssertNil(try sidecars.read(phassetLocalId: "P1"),
+            "Local-edit sidecar should be deleted after successful upload")
+
+        // The sidecar POST body must be the local-edit XMP.
+        let requests = StubURLProtocol.recordedRequests
+        let sidecarReq = requests.first(where: { $0.url?.path.contains("backup/sidecar") == true })
+        XCTAssertNotNil(sidecarReq, "No sidecar POST found")
+        if let body = sidecarReq?.httpBody, let bodyStr = String(data: body, encoding: .utf8) {
+            XCTAssertTrue(bodyStr.contains("maple:exposure"),
+                "Sidecar body should be local-edit XMP, got: \(bodyStr.prefix(200))")
+        } else {
+            XCTFail("Sidecar POST had no readable body")
+        }
     }
 }
