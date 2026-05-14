@@ -72,7 +72,9 @@ actor PhotoKitAssetReader: AssetReader {
             livePhotoCompanion: nil,
             burstStackId: asset.burstIdentifier,
             originalFilename: filename,
-            mtime: Date().timeIntervalSince1970)
+            mtime: asset.modificationDate?.timeIntervalSince1970
+                ?? asset.creationDate?.timeIntervalSince1970
+                ?? 0)
 
         return AssetReadResult(
             originalBytes: originalBytes,
