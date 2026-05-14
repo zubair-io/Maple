@@ -4,6 +4,9 @@
 <dict>
   <key>Label</key>
   <string>app.justmaple.aperture.backup</string>
+  <!-- TODO: verify codesigning + notarization tolerate the colon in the
+       bundle name. If they don't, rename the app bundle (project.pbxproj
+       PRODUCT_NAME) and update this path accordingly. -->
   <key>ProgramArguments</key>
   <array>
     <string>/Applications/Maple: Aperture.app/Contents/Helpers/MapleBackupAgent</string>
