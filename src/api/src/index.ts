@@ -49,6 +49,9 @@ import { peopleRoutes } from "./routes/people.ts";
 import { geocodeReverseRoutes } from "./routes/geocode-reverse.ts";
 import { backupIngestRoutes } from "./routes/backup-ingest.ts";
 import { backupStateRoutes } from "./routes/backup-state.ts";
+import { backupSidecarRoutes } from "./routes/backup-sidecar.ts";
+import { backupRenderedRoutes } from "./routes/backup-rendered.ts";
+import { backupNotifyDeletedRoutes } from "./routes/backup-notify-deleted.ts";
 import { requireAuth } from "./auth/middleware.ts";
 import { staticUiPlugin } from "./routes/static_ui.ts";
 import { getDb, ensureIndexes, closeDb, foldersCollection } from "./db/client.ts";
@@ -202,6 +205,13 @@ export function buildApp(opts: { stageNames?: string[] } = {}): Elysia & { super
     // learn which assets are already backed up. No auth gate for the same
     // reason as backupIngestRoutes above.
     .use(backupStateRoutes)
+    // XMP sidecar upload — writes a .xmp file next to a previously-uploaded
+    // asset. No auth gate (same rationale as backupIngestRoutes).
+    .use(backupSidecarRoutes)
+    // Rendered companion upload — chunked + resumable, mirrors ingest.
+    .use(backupRenderedRoutes)
+    // Deletion reconciliation — marks assets deleted from Apple Photos.
+    .use(backupNotifyDeletedRoutes)
     // /api/events self-authenticates via a `?token=` query parameter on the
     // WS handshake (browsers can't send Authorization headers on
     // `new WebSocket()`). Mounting it here keeps it outside the bearer-only
