@@ -1,14 +1,15 @@
 // Tests/MapleBackupTests/Helpers/StubURLProtocol.swift
 import Foundation
 
-/// In-test URL protocol stub. Set `StubURLProtocol.stub` before each test;
-/// register/unregister the class in setUp/tearDown.
+/// In-test URL protocol stub. Set `StubURLProtocol.stub` before each test.
+///
+/// `stubSession()` attaches the protocol directly to the session config via
+/// `protocolClasses`, so no global `URLProtocol.registerClass` call is needed
+/// or wanted — global registration leaks across test suites.
 ///
 /// Usage:
-///   override func setUp() { URLProtocol.registerClass(StubURLProtocol.self) }
-///   override func tearDown() { URLProtocol.unregisterClass(StubURLProtocol.self) }
-///   ...
 ///   StubURLProtocol.stub = .ok(json: #"{"x":1}"#)
+///   let client = MyClient(session: stubSession())
 internal final class StubURLProtocol: URLProtocol {
     enum Stub {
         case ok(json: String)

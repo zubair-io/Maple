@@ -4,11 +4,9 @@ import XCTest
 
 final class GeocodeClientTests: XCTestCase {
     override func setUp() {
-        URLProtocol.registerClass(StubURLProtocol.self)
         StubURLProtocol.stub = nil
     }
     override func tearDown() {
-        URLProtocol.unregisterClass(StubURLProtocol.self)
         StubURLProtocol.stub = nil
     }
 
