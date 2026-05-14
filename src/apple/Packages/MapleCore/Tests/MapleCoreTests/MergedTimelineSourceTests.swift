@@ -72,4 +72,12 @@ final class MergedTimelineSourceTests: XCTestCase {
         let merged = MergedTimelineSource.merge(local: [l], cloud: [c])
         XCTAssertEqual(MergedTimelineSource.renderID(merged[0]), "P1")
     }
+
+    func testDoesNotCrashOnDuplicateLocalIDs() {
+        let l1 = ImageRef(id: "DUP", displayName: "first")
+        let l2 = ImageRef(id: "DUP", displayName: "second")
+        // Must not trap; one of the two should win the dedup.
+        let merged = MergedTimelineSource.merge(local: [l1, l2], cloud: [])
+        XCTAssertEqual(merged.count, 2)  // both local-only cells
+    }
 }

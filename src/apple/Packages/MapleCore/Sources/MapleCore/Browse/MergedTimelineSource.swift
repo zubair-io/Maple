@@ -34,7 +34,8 @@ public enum MergedTimelineSource {
 
         // First pass: walk cloud, attach a local match when found.
         let localByPHID: [String: ImageRef] = Dictionary(
-            uniqueKeysWithValues: local.map { ($0.id, $0) })
+            local.map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first })
 
         for c in cloud {
             if let phid = c.phassetLink, let l = localByPHID[phid] {
