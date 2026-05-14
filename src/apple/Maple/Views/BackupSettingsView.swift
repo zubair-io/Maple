@@ -11,6 +11,7 @@ import MapleBackup
 
 struct BackupSettingsView: View {
   @State private var settings: BackupSettings = BackupSettings.load() ?? .defaults
+  @State private var saveDebounceTask: Task<Void, Never>?
 
   var body: some View {
     Form {
@@ -39,8 +40,13 @@ struct BackupSettingsView: View {
     }
     .formStyle(.grouped)
     .onChange(of: settings) { _, new in
-      new.save()
-      Task { await EngineHost.shared.start(settings: new) }
+      saveDebounceTask?.cancel()
+      saveDebounceTask = Task {
+        try? await Task.sleep(for: .milliseconds(800))
+        if Task.isCancelled { return }
+        new.save()
+        await EngineHost.shared.start(settings: new)
+      }
     }
   }
 }
