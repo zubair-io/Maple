@@ -12,6 +12,7 @@
 import SwiftUI
 import Photos
 import MapleBackup
+import MapleCore
 
 struct BackupStatusPanel: View {
   @State private var progress = BackupProgressViewModel()

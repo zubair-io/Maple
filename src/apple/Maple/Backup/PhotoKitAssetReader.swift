@@ -53,8 +53,16 @@ actor PhotoKitAssetReader: AssetReader {
             : nil
 
         let originalBytes = try await Self.readAllBytes(of: originalResource)
-        let renderedBytes: Data? = try await renderedResource.map { try await Self.readAllBytes(of: $0) }
-        let liveVideoBytes: Data? = try await liveVideoResource.map { try await Self.readAllBytes(of: $0) }
+        let renderedBytes: Data? = if let renderedResource {
+            try await Self.readAllBytes(of: renderedResource)
+        } else {
+            nil
+        }
+        let liveVideoBytes: Data? = if let liveVideoResource {
+            try await Self.readAllBytes(of: liveVideoResource)
+        } else {
+            nil
+        }
 
         let captureDate = asset.creationDate ?? Date()
         let lat = asset.location?.coordinate.latitude
