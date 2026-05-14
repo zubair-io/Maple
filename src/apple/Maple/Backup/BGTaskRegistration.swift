@@ -12,6 +12,7 @@
 
 import Foundation
 import MapleCore
+import MapleBackup
 
 #if canImport(BackgroundTasks) && os(iOS)
 import BackgroundTasks
