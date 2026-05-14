@@ -15,6 +15,9 @@ public protocol BackupQueue: Actor {
     func dequeue() async -> BackupTask?
     func observe() -> AsyncStream<BackupQueueEvent>
     func snapshot() async -> [BackupTask]
+    /// Broadcast an event to all observers. Used by BackupEngine to report
+    /// .started / .completed / .failed transitions.
+    func emit(_ event: BackupQueueEvent) async
 }
 
 public actor InProcessBackupQueue: BackupQueue {
@@ -43,12 +46,12 @@ public actor InProcessBackupQueue: BackupQueue {
         entries.append(Entry(task: task, priority: priority, seq: nextSeq))
         nextSeq &+= 1
         entries.sort()
-        emit(.enqueued(task))
+        await emit(.enqueued(task))
     }
 
     public func cancel(_ id: BackupTaskID) async {
         entries.removeAll { $0.task.id == id }
-        emit(.cancelled(id))
+        await emit(.cancelled(id))
     }
 
     public func dequeue() async -> BackupTask? {
@@ -73,7 +76,7 @@ public actor InProcessBackupQueue: BackupQueue {
 
     // MARK: - Internals
 
-    private func emit(_ event: BackupQueueEvent) {
+    public func emit(_ event: BackupQueueEvent) async {
         for continuation in continuations.values {
             continuation.yield(event)
         }
