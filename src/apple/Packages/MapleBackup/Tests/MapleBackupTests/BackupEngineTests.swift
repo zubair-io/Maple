@@ -128,13 +128,36 @@ final class BackupEngineTests: XCTestCase {
         try await state.upsert(task)
         await queue.enqueue(task, priority: .background)
 
-        // We expect processOne to either throw OR transition to a retry state.
+        // We expect processOne to throw; retry logic transitions to .pending.
         do {
             try await engine.processOne()
+            XCTFail("expected upload to throw")
         } catch {
-            // OK — surface the upload error.
+            // OK — error propagates.
         }
         // The sidecar must NOT be deleted on failure.
         XCTAssertNotNil(try sidecars.read(phassetLocalId: "P1"))
+        // After first failure the task should be back in .pending (retry queued).
+        let row = try await state.find(id)
+        XCTAssertEqual(row?.state, .pending)
+    }
+
+    func testFailureSchedulesRetry() async throws {
+        StubURLProtocol.stub = .status(500)
+        let (engine, queue, state, _, _, tmpRoot) = try freshHarness()
+        defer { try? FileManager.default.removeItem(at: tmpRoot) }
+        let id = BackupTaskID(deviceId: "d", phassetLocalId: "P1")
+        let task = BackupTask(id: id, state: .pending, priority: .background)
+        try await state.upsert(task)
+        await queue.enqueue(task, priority: .background)
+        do {
+            try await engine.processOne()
+            XCTFail("expected upload to fail and throw")
+        } catch {
+            // expected — error propagates out of processOne
+        }
+        // State transitions to .pending (retry queued for later).
+        let row = try await state.find(id)
+        XCTAssertEqual(row?.state, .pending)
     }
 }
