@@ -1705,6 +1705,27 @@ pub unsafe extern "C" fn maple_apply_scene_linear_chain(
     0
 }
 
+/// Compute BLAKE3 hex of arbitrary bytes. Output buffer must be at least 64
+/// bytes (BLAKE3 is 256-bit → 64 hex chars). No null terminator — the caller
+/// knows the length is exactly 64.
+///
+/// Returns 0 on success, -1 on null pointers, -2 on zero-length input.
+#[no_mangle]
+pub extern "C" fn maple_blake3_hex(
+    bytes_ptr: *const u8,
+    bytes_len: usize,
+    out_hex: *mut u8,
+) -> i32 {
+    if bytes_ptr.is_null() || out_hex.is_null() { return -1; }
+    if bytes_len == 0 { return -2; }
+    let bytes = unsafe { std::slice::from_raw_parts(bytes_ptr, bytes_len) };
+    let hex = raw_core::blake3_hex(bytes);
+    unsafe {
+        std::ptr::copy_nonoverlapping(hex.as_ptr(), out_hex, 64);
+    }
+    0
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

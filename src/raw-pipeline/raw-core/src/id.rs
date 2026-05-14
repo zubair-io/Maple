@@ -173,6 +173,19 @@ fn hex_nibble(c: u8) -> Result<u8> {
     }
 }
 
+/// Compute the BLAKE3-256 hash of arbitrary bytes and return it as a
+/// 64-character lowercase hex string. Exposed for FFI callers (e.g.
+/// `maple_blake3_hex` in raw-ffi) that need a standalone content hash without
+/// going through the full `MapleId` derivation.
+pub fn blake3_hex(bytes: &[u8]) -> [u8; 64] {
+    let hash = blake3::hash(bytes);
+    let hex_str = hash.to_hex();
+    let hex_bytes = hex_str.as_bytes();
+    let mut out = [0u8; 64];
+    out.copy_from_slice(hex_bytes);
+    out
+}
+
 /// Derive a [`MapleId`] for a file's bytes given parsed [`Exif`].
 ///
 /// Picks primary form when `exif.captured_at` is `Some`; falls back otherwise.
