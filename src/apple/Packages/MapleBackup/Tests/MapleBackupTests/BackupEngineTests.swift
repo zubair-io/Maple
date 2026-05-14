@@ -33,11 +33,9 @@ private actor FailingAssetReader: AssetReader {
 final class BackupEngineTests: XCTestCase {
 
     override func setUp() {
-        URLProtocol.registerClass(StubURLProtocol.self)
         StubURLProtocol.stub = nil
     }
     override func tearDown() {
-        URLProtocol.unregisterClass(StubURLProtocol.self)
         StubURLProtocol.stub = nil
     }
 
