@@ -123,6 +123,48 @@ describe("POST /api/libraries/:id/backup/rendered", () => {
     expect(body.target_rel_path).toBe("2024/05/01/IMG_EXT.rendered.JPEG");
   });
 
+  test("X-Maple-Suffix-Override: Live Photo .mov lands as <base>.mov (no .rendered. infix)", async () => {
+    const phidMov = "REND/L0/MOV";
+    const mapleIdMov = "rendered-mov-maple-id";
+    const bytes = Buffer.alloc(96, 9);
+
+    const a = await assetsCollection();
+    await a.insertOne({
+      _id: new ObjectId(),
+      folder_id: libId,
+      filename: "IMG_MOV.HEIC",
+      abs_path: path.join(tmpLib, "2024/08/01/IMG_MOV.HEIC"),
+      size: 96,
+      mtime: Date.now(),
+      rating: 0,
+      flag: 0,
+      color_label: "",
+      indexed_at: new Date().toISOString(),
+      maple_id: mapleIdMov,
+      phasset_links: [{ device_id: deviceId, phasset_local_id: phidMov, first_seen: new Date() }],
+      deleted_from_photos: false,
+    } as any);
+
+    const res = await app.handle(rendered(bytes, {
+      "X-Maple-Device-Id": deviceId,
+      "X-Maple-Phasset-Id": phidMov,
+      "X-Maple-Target-Rel-Path": "2024/08/01/IMG_MOV.HEIC",
+      "X-Maple-Total-Bytes": "96",
+      "X-Maple-Rendered-Ext": "mov",
+      "X-Maple-Suffix-Override": "mov",
+      "X-Maple-Maple-Id": mapleIdMov,
+      "Content-Range": "bytes 0-95/96",
+    }));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    // With suffix-override "mov" the file is "IMG_MOV.mov", NOT "IMG_MOV.rendered.mov".
+    expect(body.target_rel_path).toBe("2024/08/01/IMG_MOV.mov");
+
+    // File exists on disk with the correct name.
+    const onDisk = await fs.readFile(path.join(tmpLib, body.target_rel_path));
+    expect(onDisk.byteLength).toBe(96);
+  });
+
   test("chunked resume across two chunks", async () => {
     const mapleId2 = "rendered-resume-maple-id";
 
