@@ -134,6 +134,11 @@ struct AppShell: View {
     @State private var cloudTimelineThumbClient: CloudThumbClient?
     @State private var cloudTimelineThumbCache: CloudThumbCache?
 
+    /// Active CloudSource for the merged Photos+Cloud timeline. Non-nil when
+    /// a PhotoKit filter is active AND BackupSettings.isConfigured. Cleared
+    /// when the user switches to a non-PhotoKit source.
+    @State private var mergedCloudSource: CloudSource?
+
     // The root bookmark for the currently-open folder tree — used to claim
     // security scope when the user clicks a sub-folder cell inside the grid.
     @State private var currentRootBookmark: Data?
@@ -212,6 +217,12 @@ struct AppShell: View {
                 cloudTimelineVM = nil
                 cloudTimelineThumbClient = nil
                 cloudTimelineThumbCache = nil
+            }
+            // Merged timeline only valid while a PhotoKit filter is active.
+            if case .photosFilter = newValue { /* keep mergedCloudSource */ }
+            else {
+                mergedCloudSource = nil
+                browseVM.clearMerged()
             }
         }
         .task {
@@ -992,7 +1003,21 @@ struct AppShell: View {
             do {
                 let source = try PhotoKitSource()
                 try await source.fetchAssets(for: filter)
-                await browseVM.loadSource(source)
+
+                // If backup is configured, launch merged Photos+Cloud timeline.
+                if let settings = BackupSettings.load(), settings.isConfigured,
+                   let serverURL = URL(string: settings.serverURL) {
+                    let httpClient = makeAuthenticatedHTTPClient(server: serverURL)
+                    let cloud = CloudSource(server: serverURL,
+                                            folderID: settings.libraryId,
+                                            libraryPath: settings.rootFolder,
+                                            httpClient: httpClient)
+                    mergedCloudSource = cloud
+                    await browseVM.reloadMerged(photoKit: source, cloud: cloud)
+                } else {
+                    mergedCloudSource = nil
+                    await browseVM.loadSource(source)
+                }
                 SourceSelectionStore.save(.photoKitFilter(filter))
             } catch {
                 browseVM.loadError = error

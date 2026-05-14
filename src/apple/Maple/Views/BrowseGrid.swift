@@ -5,6 +5,9 @@
 
 import SwiftUI
 import MapleCore
+import Photos
+import ImageIO
+import CoreGraphics
 #if canImport(AppKit)
 import AppKit
 #elseif canImport(UIKit)
@@ -110,42 +113,50 @@ struct BrowseGrid: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVGrid(columns: columns, spacing: 4) {
-                        // Sub-folders first — Finder-style — then images.
-                        ForEach(vm.subfolders, id: \.self) { url in
-                            // Single tap navigates into the folder. The
-                            // FolderCell button style provides press
-                            // feedback (scale + tinted background) so the
-                            // user gets immediate confirmation the tap
-                            // registered before the grid reloads.
-                            FolderCell(url: url) {
-                                onNavigateFolder?(url)
+                        if vm.isMerged {
+                            // Merged Photos + Cloud timeline mode.
+                            ForEach(vm.mergedCells, id: \.self) { cell in
+                                MergedCellView(cell: cell,
+                                               displayMode: resolvedDisplayMode)
                             }
-                        }
-                        ForEach(vm.assets) { asset in
-                            ThumbnailCell(asset: asset,
-                                          isSelected: vm.selectedID == asset.id,
-                                          session: sessions[asset.id],
-                                          source: vm.currentSource,
-                                          displayMode: resolvedDisplayMode)
-                                .id(asset.id)
-                                // Lazy session prime — fires when SwiftUI
-                                // instantiates this cell (i.e. when it
-                                // scrolls into view in the LazyVGrid).
-                                // Replaces the previous eager
-                                // `primeSessionsForCurrentAssets()` which
-                                // built a session per asset in the folder
-                                // regardless of visibility.
-                                .onAppear { onPrimeSession?(asset) }
-                                // Single click selects (highlights cell, Info
-                                // pane refreshes).
-                                .onTapGesture {
-                                    vm.selectedID = asset.id
+                        } else {
+                            // Sub-folders first — Finder-style — then images.
+                            ForEach(vm.subfolders, id: \.self) { url in
+                                // Single tap navigates into the folder. The
+                                // FolderCell button style provides press
+                                // feedback (scale + tinted background) so the
+                                // user gets immediate confirmation the tap
+                                // registered before the grid reloads.
+                                FolderCell(url: url) {
+                                    onNavigateFolder?(url)
                                 }
-                                // Double click opens the editor.
-                                .onTapGesture(count: 2) {
-                                    vm.selectedID = asset.id
-                                    onOpenEditor?(asset)
-                                }
+                            }
+                            ForEach(vm.assets) { asset in
+                                ThumbnailCell(asset: asset,
+                                              isSelected: vm.selectedID == asset.id,
+                                              session: sessions[asset.id],
+                                              source: vm.currentSource,
+                                              displayMode: resolvedDisplayMode)
+                                    .id(asset.id)
+                                    // Lazy session prime — fires when SwiftUI
+                                    // instantiates this cell (i.e. when it
+                                    // scrolls into view in the LazyVGrid).
+                                    // Replaces the previous eager
+                                    // `primeSessionsForCurrentAssets()` which
+                                    // built a session per asset in the folder
+                                    // regardless of visibility.
+                                    .onAppear { onPrimeSession?(asset) }
+                                    // Single click selects (highlights cell, Info
+                                    // pane refreshes).
+                                    .onTapGesture {
+                                        vm.selectedID = asset.id
+                                    }
+                                    // Double click opens the editor.
+                                    .onTapGesture(count: 2) {
+                                        vm.selectedID = asset.id
+                                        onOpenEditor?(asset)
+                                    }
+                            }
                         }
                     }
                     // UITest sentinel — the harness uses
@@ -504,6 +515,140 @@ private struct BrowseKeyboardShortcuts: ViewModifier {
 private extension View {
     func keyboardShortcuts(vm: BrowseViewModel, sessions: [AssetRef.ID: EditSession]) -> some View {
         modifier(BrowseKeyboardShortcuts(vm: vm, sessions: sessions))
+    }
+}
+
+// MARK: - MergedCellView
+
+/// Grid cell for the merged PhotoKit + Cloud timeline. Renders a thumbnail with
+/// a small status badge indicating whether the asset is local-only, cloud-only,
+/// or synced (present in both places). Thumbnail preference: PhotoKit for
+/// `.synced` and `.localOnly` (instant, already on device); CloudSource thumb
+/// for `.cloudOnly` via `ThumbnailLoader`.
+private struct MergedCellView: View {
+    let cell: MergedTimelineCell
+    let displayMode: GridDisplayMode
+
+    @State private var thumbData: Data?
+    @State private var loadTask: Task<Void, Never>?
+
+    var body: some View {
+        VStack(spacing: 4) {
+            ZStack(alignment: .bottomTrailing) {
+                ThumbnailImage(jpegData: thumbData, displayMode: displayMode)
+
+                // Status badge
+                badgeView
+                    .padding(4)
+            }
+
+            Text(displayName)
+                .font(MapleTokens.Typography.caption)
+                .foregroundStyle(MapleTokens.textMuted)
+                .lineLimit(1)
+                .truncationMode(.middle)
+        }
+        .onAppear { startLoad() }
+        .onDisappear {
+            loadTask?.cancel()
+            loadTask = nil
+        }
+    }
+
+    @ViewBuilder
+    private var badgeView: some View {
+        switch cell {
+        case .synced:
+            Image(systemName: "checkmark.icloud.fill")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.white)
+                .shadow(radius: 1)
+        case .cloudOnly:
+            Image(systemName: "icloud.fill")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.white)
+                .shadow(radius: 1)
+        case .localOnly:
+            Image(systemName: "icloud.and.arrow.up")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.white)
+                .shadow(radius: 1)
+        }
+    }
+
+    private var displayName: String {
+        switch cell {
+        case .localOnly(let r), .cloudOnly(let r): return r.displayName
+        case .synced(let l, _): return l.displayName
+        }
+    }
+
+    /// For `.synced` and `.localOnly`, fetch via PHImageManager (fast, cached
+    /// by Photos). For `.cloudOnly`, defer to `ThumbnailLoader` (CloudSource
+    /// thumb path).
+    private func startLoad() {
+        guard loadTask == nil else { return }
+        switch cell {
+        case .synced(let local, _), .localOnly(let local):
+            let phid = local.id
+            loadTask = Task { @MainActor in
+                let asset = PHAsset.fetchAssets(withLocalIdentifiers: [phid], options: nil).firstObject
+                guard let asset else { return }
+                let options = PHImageRequestOptions()
+                options.deliveryMode = .opportunistic
+                options.resizeMode = .fast
+                options.isNetworkAccessAllowed = true
+                options.isSynchronous = false
+                let target = ThumbnailDiskCache.defaultThumbSize
+                final class Latch: @unchecked Sendable {
+                    let lock = NSLock(); var fired = false
+                    func tryFire() -> Bool { lock.lock(); defer { lock.unlock() }; if fired { return false }; fired = true; return true }
+                }
+                let latch = Latch()
+                let img: PlatformImage? = await withCheckedContinuation { cont in
+                    PHImageManager.default().requestImage(for: asset, targetSize: target,
+                                                          contentMode: .aspectFill,
+                                                          options: options) { image, info in
+                        if (info?[PHImageResultIsDegradedKey] as? Bool) == true { return }
+                        guard latch.tryFire() else { return }
+                        cont.resume(returning: image)
+                    }
+                }
+                guard !Task.isCancelled, let image = img else { return }
+                if let data = jpegBytes(from: image) {
+                    withAnimation(.easeInOut(duration: 0.18)) { thumbData = data }
+                }
+                loadTask = nil
+            }
+        case .cloudOnly(let ref):
+            loadTask = Task { @MainActor in
+                let data = await ThumbnailLoader.shared.load(for: AssetRef(
+                    displayName: ref.displayName,
+                    hintExtension: (ref.displayName as NSString).pathExtension.lowercased(),
+                    stableID: ref.id,
+                    bytesProvider: { throw ImageSourceError.unsupported("cloud-only preview") }
+                ), from: nil)
+                guard !Task.isCancelled, let data else { return }
+                withAnimation(.easeInOut(duration: 0.18)) { thumbData = data }
+                loadTask = nil
+            }
+        }
+    }
+
+    private func jpegBytes(from image: PlatformImage) -> Data? {
+        #if canImport(UIKit)
+        let cg = image.cgImage
+        #elseif canImport(AppKit)
+        var rect = CGRect(origin: .zero, size: image.size)
+        let cg = image.cgImage(forProposedRect: &rect, context: nil, hints: nil)
+        #endif
+        guard let cg else { return nil }
+        let data = NSMutableData()
+        guard let dest = CGImageDestinationCreateWithData(data, "public.jpeg" as CFString, 1, nil) else { return nil }
+        let opts: [CFString: Any] = [kCGImageDestinationLossyCompressionQuality: 0.82]
+        CGImageDestinationAddImage(dest, cg, opts as CFDictionary)
+        guard CGImageDestinationFinalize(dest) else { return nil }
+        return data as Data
     }
 }
 
