@@ -70,24 +70,23 @@ enum ChangeObserverWiring {
     /// SQLite. For a 100k-asset library this is seconds, not minutes.
     ///
     /// Applies inclusion filters from `settings`:
-    ///  - `includeVideos`: when false, skips video assets entirely.
-    ///  - `includeBursts`: when false, skips non-representative burst frames.
-    ///
-    /// Not yet implemented (PhotoKit API is fragmented across iOS versions):
-    ///  - `includeSharedLibrary`: filtering iCloud Shared Library assets would
-    ///    require checking the asset's source type or smart album membership.
-    ///    The correct approach is to check whether the asset belongs to the
-    ///    smart album `PHAssetCollectionSubtype.smartAlbumShared` or compare
-    ///    `asset.sourceType`. Deferred for a follow-up ticket.
-    ///    TODO: implement via PHAssetCollection.smartAlbumShared membership check.
-    ///  - `includeSharedAlbums`: similarly requires iterating shared albums
-    ///    (PHAssetCollectionType.album, subtype .albumCloudShared) to build
-    ///    a set of phids, then excluding. Deferred.
-    ///    TODO: implement via PHAssetCollectionType.album / albumCloudShared.
+    ///  - `includeVideos`: skip video assets when false.
+    ///  - `includeBursts`: skip non-representative burst frames when false.
+    ///  - `includeSharedLibrary`: skip iCloud Shared Library assets
+    ///    (PHAsset.sourceType == .typeCloudShared) when false.
+    ///  - `includeSharedAlbums`: skip assets that belong to at least one
+    ///    iCloud Shared Album (albumCloudShared) when false.
     private static func enqueueAllNew(deviceId: String, settings: BackupSettings,
                                        libraryId: String, serverBaseURL: URL) async {
         guard let state = EngineHost.shared.state else { return }
         let queue = EngineHost.shared.queue
+
+        // Build the shared-album exclusion set once per walk (before the main
+        // enumeration) so per-asset lookups are O(1) hash checks rather than
+        // re-fetching the album collections for each asset.
+        let sharedAlbumIDs: Set<String> = settings.includeSharedAlbums
+            ? []
+            : sharedAlbumPHIDs()
 
         let opts = PHFetchOptions()
         opts.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
@@ -96,7 +95,8 @@ enum ChangeObserverWiring {
         let imageResult = PHAsset.fetchAssets(with: .image, options: opts)
         ids.reserveCapacity(imageResult.count)
         imageResult.enumerateObjects { asset, _, _ in
-            guard shouldInclude(asset, settings: settings) else { return }
+            guard shouldInclude(asset, settings: settings,
+                                sharedAlbumIDs: sharedAlbumIDs) else { return }
             ids.append(asset.localIdentifier)
         }
 
@@ -104,7 +104,8 @@ enum ChangeObserverWiring {
             let videoResult = PHAsset.fetchAssets(with: .video, options: opts)
             ids.reserveCapacity(ids.count + videoResult.count)
             videoResult.enumerateObjects { asset, _, _ in
-                guard shouldInclude(asset, settings: settings) else { return }
+                guard shouldInclude(asset, settings: settings,
+                                    sharedAlbumIDs: sharedAlbumIDs) else { return }
                 ids.append(asset.localIdentifier)
             }
         }
@@ -161,7 +162,12 @@ enum ChangeObserverWiring {
 
     /// Returns true when the asset should be included in the backup based on
     /// the current `settings`.
-    private static func shouldInclude(_ asset: PHAsset, settings: BackupSettings) -> Bool {
+    ///
+    /// - Parameter sharedAlbumIDs: Pre-built set of PHAsset localIdentifiers
+    ///   that belong to at least one shared album. Pass an empty set when
+    ///   `settings.includeSharedAlbums` is true (no filtering needed).
+    private static func shouldInclude(_ asset: PHAsset, settings: BackupSettings,
+                                       sharedAlbumIDs: Set<String> = []) -> Bool {
         // Bursts: only the representative frame unless includeBursts is true.
         // `representsBurst` is the key frame chosen by iOS; non-representative
         // burst frames have a non-nil burstIdentifier but representsBurst == false.
@@ -170,8 +176,41 @@ enum ChangeObserverWiring {
            !asset.representsBurst {
             return false
         }
-        // iCloud Shared Library / Shared Albums: not yet filtered (see function
-        // doc-comment above for the TODO).
+
+        // iCloud Shared Library (iOS 16.1+): PHAsset.sourceType == .typeCloudShared
+        // identifies assets the user has been added to via iCloud Shared Library
+        // (the newer "shared with family/friends" feature, not shared albums).
+        if !settings.includeSharedLibrary,
+           asset.sourceType == .typeCloudShared {
+            return false
+        }
+
+        // Shared Albums (the older invite-based albums with .albumCloudShared
+        // subtype): check membership in the pre-built set so each per-asset
+        // check is O(1).
+        if !settings.includeSharedAlbums,
+           sharedAlbumIDs.contains(asset.localIdentifier) {
+            return false
+        }
+
         return true
+    }
+
+    /// Build a set of PHAsset localIdentifiers that belong to at least one
+    /// iCloud Shared Album (PHAssetCollectionType.album /
+    /// PHAssetCollectionSubtype.albumCloudShared). This is intentionally done
+    /// once per walk and the result is passed into each `shouldInclude` call so
+    /// we don't re-enumerate the album list for every asset.
+    private static func sharedAlbumPHIDs() -> Set<String> {
+        let collections = PHAssetCollection.fetchAssetCollections(
+            with: .album, subtype: .albumCloudShared, options: nil)
+        var ids = Set<String>()
+        collections.enumerateObjects { collection, _, _ in
+            let assets = PHAsset.fetchAssets(in: collection, options: nil)
+            assets.enumerateObjects { asset, _, _ in
+                ids.insert(asset.localIdentifier)
+            }
+        }
+        return ids
     }
 }
