@@ -6,8 +6,9 @@
 //
 // `start(settings:)` is the single entry point — called from MapleApp's
 // `.task` modifier when the user has configured a server and library.
-// `stop()` cancels the runner task; the engine itself stays alive so a
-// later `start` reuses the same queue and state store.
+// `stop()` cancels the runner task; a later `start()` recreates the queue
+// and state store so settings changes (different library, different server)
+// take effect cleanly.
 //
 // Spec: docs/superpowers/specs/2026-05-09-photokit-backup-design.md §15.
 
@@ -27,9 +28,10 @@ public final class EngineHost {
 
     private init() {}
 
-    /// Start (or restart) the engine against the given settings. Idempotent
-    /// — calling twice in a row with the same settings re-creates the runner
-    /// without losing queued tasks (the queue is the same instance).
+    /// Start (or restart) the engine against the given settings.
+    /// Tears down any prior run, creates a fresh queue (so settings
+    /// changes take effect), rehydrates persisted pending tasks, and
+    /// launches a new runner Task.
     public func start(settings: BackupSettings) async {
         guard settings.isConfigured else {
             // Not enough config to start — UI should already be showing the
@@ -41,7 +43,7 @@ public final class EngineHost {
             return
         }
 
-        // Tear down any previous run.
+        // Tear down any previous run (cancels retry tasks, then the runner).
         stop()
 
         do {
@@ -58,6 +60,22 @@ public final class EngineHost {
                 root: try AppSupportSidecarStore.defaultRoot())
             let state = try BackupStateStore(
                 databaseURL: appSupport.appendingPathComponent("backup-state.sqlite"))
+
+            // Fresh queue per start — settings may have changed (different library).
+            let queue = InProcessBackupQueue()
+
+            // Rehydrate any persisted pending tasks so the engine resumes work
+            // that was queued before a crash / settings change.
+            for task in try await state.tasks(in: .pending) {
+                await queue.enqueue(task, priority: task.priority)
+            }
+            // Any .uploading rows left by a crashed run go back to .pending.
+            for task in try await state.tasks(in: .uploading) {
+                try await state.transition(task.id, to: .pending)
+                await queue.enqueue(task, priority: task.priority)
+            }
+            self.queue = queue
+
             let upload = UploadClient(
                 baseURL: serverBaseURL,
                 libraryId: settings.libraryId,
@@ -72,7 +90,9 @@ public final class EngineHost {
                 state: state,
                 upload: upload,
                 sidecars: sidecars,
-                reader: reader)
+                reader: reader,
+                reachability: Reachability(),
+                wifiOnly: settings.wifiOnly)
             self.engine = engine
             self.state = state
             self.sidecars = sidecars
@@ -88,9 +108,10 @@ public final class EngineHost {
         }
     }
 
-    /// Cancel the runner. The engine + queue + state objects remain alive so
-    /// a subsequent `start` can resume cleanly.
+    /// Cancel the runner and all pending retry tasks cleanly.
     public func stop() {
+        // Cancel retry tasks first so they don't re-enqueue after the runner exits.
+        Task { await engine?.stop() }
         runnerTask?.cancel()
         runnerTask = nil
     }
