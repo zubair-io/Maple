@@ -27,7 +27,7 @@ public enum BLAKE3 {
             guard let base = ptr.baseAddress else { return -1 }
             return maple_blake3_hex(
                 base.assumingMemoryBound(to: UInt8.self),
-                UInt(ptr.count),
+                ptr.count,
                 &out)
         }
         guard rc == 0 else { return nil }
