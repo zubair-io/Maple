@@ -663,13 +663,9 @@ struct AppShell: View {
                 }
                 .accessibilityLabel("Info")
             }
-            ToolbarItem(placement: .topBarTrailing) {
-                Button { showSettings = true } label: {
-                    Image(systemName: "gear")
-                }
-                .accessibilityLabel("Settings")
-                .accessibilityIdentifier("settings-button")
-            }
+            // Settings gear is provided by `browseToolbar` — don't duplicate
+            // it here, or two buttons share the same accessibilityIdentifier
+            // and UI-test lookups become ambiguous.
         }
     }
     #endif
