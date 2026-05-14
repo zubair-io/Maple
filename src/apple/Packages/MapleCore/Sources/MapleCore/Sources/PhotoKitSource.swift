@@ -385,7 +385,8 @@ extension PhotoKitSource: ImageSource {
                 return
             }
             let id = phAsset.localIdentifier
-            refs.append(ImageRef(id: id, displayName: id, url: nil))
+            refs.append(ImageRef(id: id, displayName: id, url: nil,
+                                 captureDate: phAsset.creationDate))
         }
         if cancelled { throw CancellationError() }
         return refs
