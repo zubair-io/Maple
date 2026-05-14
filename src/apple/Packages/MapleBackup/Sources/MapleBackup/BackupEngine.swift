@@ -152,12 +152,16 @@ public actor BackupEngine {
            await reachability.status() != .wifi,
            task.priority < .userEdit {
             try await state.transition(task.id, to: .pending)
-            // Wait before re-enqueueing so we don't pin CPU at 100% spinning on
-            // the same task while Wi-Fi is unavailable. 30s is short enough to
-            // resume responsively when Wi-Fi comes back, long enough that the
-            // engine doesn't burn power.
-            try? await Task.sleep(nanoseconds: 30 * 1_000_000_000)
-            await queue.enqueue(task, priority: task.priority)
+            // Exponential backoff on Wi-Fi deferral, capped at 1h. Reuse
+            // retryCount as the deferral counter — semantically both represent
+            // "this task was attempted and deferred". Prevents a tight 30s spin
+            // on permanent cellular connections.
+            let backoffSeconds = min(3600, 30.0 * pow(2.0, Double(task.retryCount)))
+            let backoffNs = UInt64(backoffSeconds * 1_000_000_000)
+            try? await Task.sleep(nanoseconds: backoffNs)
+            var deferred = task
+            deferred.retryCount += 1
+            await queue.enqueue(deferred, priority: deferred.priority)
             return
         }
 
