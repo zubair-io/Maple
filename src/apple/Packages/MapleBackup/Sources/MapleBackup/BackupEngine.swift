@@ -117,8 +117,12 @@ public actor BackupEngine {
                 } else if inFlight > 0 {
                     _ = await group.next()
                     inFlight -= 1
+                } else if !retryTasks.isEmpty {
+                    // Queue is momentarily empty but retry tasks are still sleeping.
+                    // Wait briefly so they can wake and re-enqueue before we exit.
+                    try? await Task.sleep(for: .seconds(1))
                 } else {
-                    // Queue is drained and no tasks in flight — we're done.
+                    // Queue is drained and no tasks in flight or pending retries — done.
                     break
                 }
             }
