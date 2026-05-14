@@ -63,9 +63,9 @@ public final class EngineHost {
                 libraryId: settings.libraryId,
                 deviceId: deviceId)
 
-            // Reader is wired in Task 3.2 (PhotoKitAssetReader). Until then,
-            // the engine starts but immediately errors on its first task.
-            let reader: any AssetReader = NullAssetReader()
+            let reader: any AssetReader = PhotoKitAssetReader(
+                deviceId: deviceId,
+                geocode: GeocodeClient(baseURL: serverBaseURL))
 
             let engine = BackupEngine(
                 queue: queue,
@@ -93,14 +93,5 @@ public final class EngineHost {
     public func stop() {
         runnerTask?.cancel()
         runnerTask = nil
-    }
-}
-
-/// Fallback used when PhotoKitAssetReader is not yet wired (Task 3.2).
-/// Never returns bytes — the engine just errors on its first task.
-private actor NullAssetReader: AssetReader {
-    func read(phassetLocalId: String) async throws -> AssetReadResult {
-        throw NSError(domain: "EngineHost", code: -1,
-                      userInfo: [NSLocalizedDescriptionKey: "NullAssetReader: PhotoKitAssetReader not yet wired (Task 3.2)"])
     }
 }
