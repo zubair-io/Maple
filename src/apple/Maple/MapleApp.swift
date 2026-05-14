@@ -95,7 +95,7 @@ struct MapleApp: App {
                     // Use the same DeviceIdentity the engine just resolved.
                     if let storage = try? DeviceIdentity.defaultStorageURL(),
                        let deviceId = try? DeviceIdentity.current(storageURL: storage) {
-                        ChangeObserverWiring.start(deviceId: deviceId)
+                        ChangeObserverWiring.start(deviceId: deviceId, settings: settings)
                     }
                 }
                 .onChange(of: scenePhase) { _, newPhase in
