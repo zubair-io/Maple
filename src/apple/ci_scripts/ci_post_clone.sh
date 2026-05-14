@@ -18,9 +18,12 @@ set -eu
 echo "==> ci_post_clone.sh — preparing RawPipeline.xcframework"
 
 # Xcode Cloud sets CI_PRIMARY_REPOSITORY_PATH to the cloned repo root.
-# Fall back to walking up from this script's location for local testing.
+# (Don't use CI_WORKSPACE — deprecated since Xcode 14 and ambiguous: in some
+# contexts it points at the selected workspace/project rather than the
+# repo root.) Fall back to the script's own location for local testing —
+# this file lives at <repo>/src/apple/ci_scripts/, so ../../.. is the root.
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-REPO_ROOT="${CI_PRIMARY_REPOSITORY_PATH:-${CI_WORKSPACE:-$(cd "$SCRIPT_DIR/../../.." && pwd)}}"
+REPO_ROOT="${CI_PRIMARY_REPOSITORY_PATH:-$(cd "$SCRIPT_DIR/../../.." && pwd)}"
 APPLE_DIR="$REPO_ROOT/src/apple"
 
 if [ ! -x "$APPLE_DIR/scripts/build-xcframework.sh" ]; then
@@ -40,9 +43,14 @@ export PATH="$HOME/.cargo/bin:$PATH"
 
 # build-xcframework.sh validates these are on PATH and adds targets itself,
 # but cbindgen is a separate cargo install that we need to handle here.
-if ! command -v cbindgen >/dev/null 2>&1; then
-    echo "==> cargo install cbindgen"
-    cargo install cbindgen --locked
+# Pin the version so a future cbindgen release can't silently change
+# generated headers or fail to build with the toolchain pinned above. Bump
+# this in sync with whatever local devs are running (see CLAUDE.md).
+CBINDGEN_VERSION="0.29.2"
+installed_cbindgen_version="$(cbindgen --version 2>/dev/null | awk '{print $2}' || true)"
+if [ "$installed_cbindgen_version" != "$CBINDGEN_VERSION" ]; then
+    echo "==> cargo install cbindgen@$CBINDGEN_VERSION"
+    cargo install cbindgen --locked --version "$CBINDGEN_VERSION"
 fi
 
 # --release matches what an archive build should link against.
