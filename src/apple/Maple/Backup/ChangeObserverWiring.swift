@@ -126,19 +126,32 @@ enum ChangeObserverWiring {
         }
         lastSeenPhids = currentPhids
 
+        // One round-trip instead of one per phid. Build a Set of known task IDs
+        // and diff in-memory so a 100k library doesn't make 100k SQLite calls.
+        let seen: Set<BackupTaskID>
+        do {
+            let allTasks = try await state.allTasks()
+            seen = Set(allTasks.map(\.id))
+        } catch {
+            #if DEBUG
+            print("ChangeObserverWiring: allTasks() failed: \(error)")
+            #endif
+            return
+        }
+
         for phid in ids {
             let taskId = BackupTaskID(deviceId: deviceId, phassetLocalId: phid)
-            do {
-                if try await state.find(taskId) == nil {
+            if !seen.contains(taskId) {
+                do {
                     let task = BackupTask(id: taskId, state: .pending, priority: .background)
                     try await state.upsert(task)
                     await queue.enqueue(task, priority: .background)
+                } catch {
+                    // Persist failures are rare; skip and try again next walk.
+                    #if DEBUG
+                    print("ChangeObserverWiring: enqueue failed for \(phid): \(error)")
+                    #endif
                 }
-            } catch {
-                // Persist failures are rare; skip and try again next walk.
-                #if DEBUG
-                print("ChangeObserverWiring: enqueue failed for \(phid): \(error)")
-                #endif
             }
         }
     }
