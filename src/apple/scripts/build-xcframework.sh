@@ -123,6 +123,19 @@ build_target() {
     echo "==> cargo build [$triple]"
     (
         cd "$RAW_PIPELINE_DIR"
+        # Set IPHONEOS_DEPLOYMENT_TARGET / MACOSX_DEPLOYMENT_TARGET so the
+        # linker's minimum OS version matches the Xcode project (iOS 17,
+        # macOS 14). Without this, blake3's NEON assembly triggers a
+        # "___chkstk_darwin / built for newer iOS" linker error because the
+        # Rust target's default minimum (iOS 10 / macOS 10.7) is too old.
+        case "$triple" in
+            *-apple-ios)
+                export IPHONEOS_DEPLOYMENT_TARGET=17.0 ;;
+            *-apple-ios-sim)
+                export IPHONEOS_DEPLOYMENT_TARGET=17.0 ;;
+            *-apple-darwin)
+                export MACOSX_DEPLOYMENT_TARGET=14.0 ;;
+        esac
         CARGO_TARGET_DIR="$CARGO_TARGET_DIR" cargo build $CARGO_PROFILE_FLAG \
             --target "$triple" \
             --package raw-ffi \
