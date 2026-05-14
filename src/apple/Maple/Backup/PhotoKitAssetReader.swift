@@ -15,8 +15,8 @@
 
 import Foundation
 import Photos
-import CryptoKit
 import MapleBackup
+import MapleCore
 
 actor PhotoKitAssetReader: AssetReader {
 
@@ -61,13 +61,9 @@ actor PhotoKitAssetReader: AssetReader {
         let lon = asset.location?.coordinate.longitude
         let filename = originalResource.originalFilename
 
-        // BLAKE3 isn't yet exposed for Swift via raw-ffi. SHA-256 hex is a
-        // stop-gap content hash — same shape (hex string), good enough for
-        // dedup at the server side. Replace with BLAKE3 once the FFI lands
-        // (cross-references the design doc's note on §16 maple_id parity).
-        let hash = SHA256.hash(data: originalBytes)
-            .map { String(format: "%02x", $0) }
-            .joined()
+        guard let hash = BLAKE3.hex(originalBytes) else {
+            throw ReaderError.hashFailed
+        }
 
         // For a Live Photo, the .mov twin filename derives from the still:
         // strip the extension of the original filename and append ".mov".
@@ -147,10 +143,12 @@ actor PhotoKitAssetReader: AssetReader {
     enum ReaderError: Error, LocalizedError {
         case assetNotFound(String)
         case noOriginalResource(String)
+        case hashFailed
         var errorDescription: String? {
             switch self {
             case .assetNotFound(let id): return "PHAsset \(id) not found"
             case .noOriginalResource(let id): return "PHAsset \(id) has no original resource"
+            case .hashFailed: return "BLAKE3 hash of original bytes failed (empty data)"
             }
         }
     }
