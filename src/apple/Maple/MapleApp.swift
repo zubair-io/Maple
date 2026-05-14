@@ -155,18 +155,21 @@ struct MapleApp: App {
 private nonisolated(unsafe) var _memoryPressureSource: DispatchSourceMemoryPressure?
 #endif
 
-// MARK: - SettingsView (macOS)
+// MARK: - SettingsView (cross-platform)
 
-#if os(macOS)
 struct SettingsView: View {
     var body: some View {
         TabView {
             GeneralSettingsTab()
                 .tabItem { Label("General", systemImage: "gear") }
+            BackupSettingsView()
+                .tabItem { Label("Backup", systemImage: "icloud.and.arrow.up") }
             SelfHostedSettingsTab()
                 .tabItem { Label("Self Hosted", systemImage: "cloud") }
         }
-        .frame(width: 520, height: 360)
+        #if os(macOS)
+        .frame(width: 520, height: 460)
+        #endif
     }
 }
 
@@ -255,4 +258,3 @@ private struct SelfHostedSettingsTab: View {
         }
     }
 }
-#endif
