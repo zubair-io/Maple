@@ -25,8 +25,21 @@ public final class BackupProgressViewModel {
     public struct InFlight: Identifiable, Hashable, Sendable {
         public let id: BackupTaskID
         public let startedAt: Date
-        public init(id: BackupTaskID, startedAt: Date = Date()) {
+        /// Bytes sent so far for this asset (updated per chunk via .progress events).
+        public var bytesSent: Int64
+        /// Total bytes for this asset. 0 until the first .progress event arrives.
+        public var bytesTotal: Int64
+
+        public init(id: BackupTaskID, startedAt: Date = Date(),
+                    bytesSent: Int64 = 0, bytesTotal: Int64 = 0) {
             self.id = id; self.startedAt = startedAt
+            self.bytesSent = bytesSent; self.bytesTotal = bytesTotal
+        }
+
+        /// 0.0 → 1.0 progress fraction, or nil when total is unknown.
+        public var fractionDone: Double? {
+            guard bytesTotal > 0 else { return nil }
+            return min(1.0, Double(bytesSent) / Double(bytesTotal))
         }
     }
 
@@ -113,10 +126,11 @@ public final class BackupProgressViewModel {
             if !inFlight.contains(where: { $0.id == id }) {
                 inFlight.append(InFlight(id: id))
             }
-        case .progress:
-            // Per-chunk progress arrives once UploadClient grows a callback
-            // hook (deferred). Today nothing emits .progress.
-            break
+        case .progress(let id, let sent, let total):
+            if let idx = inFlight.firstIndex(where: { $0.id == id }) {
+                inFlight[idx].bytesSent = sent
+                inFlight[idx].bytesTotal = total
+            }
         case .completed(let id, let mapleId):
             inFlight.removeAll { $0.id == id }
             totalCompleted += 1
