@@ -22,20 +22,31 @@ enum ChangeObserverWiring {
     /// before adding a new one).
     private static var token: UUID?
 
+    /// The set of phasset localIdentifiers seen on the most recent walk.
+    /// Used to detect deletions: any id present in the previous walk but
+    /// absent in the current walk was deleted from Apple Photos.
+    /// Starts empty — no deletions are reported on the first walk after launch.
+    private static var lastSeenPhids: Set<String> = []
+
     /// Subscribe to library changes. Idempotent.
     /// `settings` controls which asset types and categories are enqueued.
-    static func start(deviceId: String, settings: BackupSettings) {
+    /// `libraryId` and `serverBaseURL` are passed to the walk for delete
+    /// reconciliation notifications.
+    static func start(deviceId: String, settings: BackupSettings,
+                      libraryId: String, serverBaseURL: URL) {
         if let prior = token {
             PhotoKitChangeObserver.shared.unsubscribe(prior)
         }
         token = PhotoKitChangeObserver.shared.subscribe { @Sendable in
             Task { @MainActor in
-                await enqueueAllNew(deviceId: deviceId, settings: settings)
+                await enqueueAllNew(deviceId: deviceId, settings: settings,
+                                    libraryId: libraryId, serverBaseURL: serverBaseURL)
             }
         }
         // Kick off an initial walk so we don't wait for a change event to seed
         // the queue on first launch.
-        Task { await enqueueAllNew(deviceId: deviceId, settings: settings) }
+        Task { await enqueueAllNew(deviceId: deviceId, settings: settings,
+                                   libraryId: libraryId, serverBaseURL: serverBaseURL) }
     }
 
     /// Unsubscribe from library changes. Idempotent.
@@ -48,8 +59,10 @@ enum ChangeObserverWiring {
 
     /// Public entry point for the periodic safety walk (called by EngineHost's
     /// weekly timer and the iOS BGProcessingTask handler).
-    static func runWalk(deviceId: String, settings: BackupSettings) async {
-        await enqueueAllNew(deviceId: deviceId, settings: settings)
+    static func runWalk(deviceId: String, settings: BackupSettings,
+                        libraryId: String, serverBaseURL: URL) async {
+        await enqueueAllNew(deviceId: deviceId, settings: settings,
+                            libraryId: libraryId, serverBaseURL: serverBaseURL)
     }
 
     /// Walk every PHAsset and enqueue any we don't yet have in BackupStateStore.
@@ -71,7 +84,8 @@ enum ChangeObserverWiring {
     ///    (PHAssetCollectionType.album, subtype .albumCloudShared) to build
     ///    a set of phids, then excluding. Deferred.
     ///    TODO: implement via PHAssetCollectionType.album / albumCloudShared.
-    private static func enqueueAllNew(deviceId: String, settings: BackupSettings) async {
+    private static func enqueueAllNew(deviceId: String, settings: BackupSettings,
+                                       libraryId: String, serverBaseURL: URL) async {
         guard let state = EngineHost.shared.state else { return }
         let queue = EngineHost.shared.queue
 
@@ -95,6 +109,18 @@ enum ChangeObserverWiring {
             }
         }
 
+        // Delete reconciliation: diff the current walk against the previous one.
+        // Any phid in lastSeenPhids but not in the current set was deleted
+        // in Apple Photos since our last walk. The first walk after launch
+        // starts with an empty lastSeenPhids, so nothing is flagged as deleted.
+        let currentPhids = Set(ids)
+        let deletedPhids = lastSeenPhids.subtracting(currentPhids)
+        if !deletedPhids.isEmpty {
+            await notifyDeleted(deviceId: deviceId, libraryId: libraryId,
+                                serverBaseURL: serverBaseURL, phids: Array(deletedPhids))
+        }
+        lastSeenPhids = currentPhids
+
         for phid in ids {
             let taskId = BackupTaskID(deviceId: deviceId, phassetLocalId: phid)
             do {
@@ -110,6 +136,27 @@ enum ChangeObserverWiring {
                 #endif
             }
         }
+    }
+
+    /// Notify the server that the given phasset localIdentifiers were deleted
+    /// from Apple Photos. The server sets `deleted_from_photos: true` on the
+    /// matching AssetDoc entries. Best-effort: network failures are silently
+    /// swallowed — the next walk will retry the diff.
+    private static func notifyDeleted(deviceId: String, libraryId: String,
+                                       serverBaseURL: URL, phids: [String]) async {
+        let url = serverBaseURL
+            .appendingPathComponent("api")
+            .appendingPathComponent("libraries")
+            .appendingPathComponent(libraryId)
+            .appendingPathComponent("backup")
+            .appendingPathComponent("notify-deleted")
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.setValue(deviceId, forHTTPHeaderField: "X-Maple-Device-Id")
+        let body = ["phasset_local_ids": phids]
+        req.httpBody = try? JSONEncoder().encode(body)
+        _ = try? await URLSession.shared.data(for: req)
     }
 
     /// Returns true when the asset should be included in the backup based on

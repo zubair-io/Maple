@@ -105,7 +105,8 @@ public final class EngineHost {
                 await engine.run()
             }
 
-            startPeriodicWalk(deviceId: deviceId, settings: settings)
+            startPeriodicWalk(deviceId: deviceId, settings: settings,
+                              libraryId: settings.libraryId, serverBaseURL: serverBaseURL)
         } catch {
             // The most likely failures are filesystem permission issues. We
             // surface them via the status panel by leaving engine = nil; the
@@ -128,7 +129,8 @@ public final class EngineHost {
     /// Start (or restart) the periodic safety walk timer.
     /// Fires every 7 days. On iOS the BGProcessingTask handler also triggers
     /// a walk on every background wake; this timer is the macOS fallback.
-    private func startPeriodicWalk(deviceId: String, settings: BackupSettings) {
+    private func startPeriodicWalk(deviceId: String, settings: BackupSettings,
+                                   libraryId: String, serverBaseURL: URL) {
         periodicWalkTask?.cancel()
         periodicWalkTask = Task.detached(priority: .utility) {
             while !Task.isCancelled {
@@ -136,7 +138,8 @@ public final class EngineHost {
                 let sevenDays: UInt64 = 7 * 24 * 60 * 60 * 1_000_000_000
                 try? await Task.sleep(nanoseconds: sevenDays)
                 if Task.isCancelled { break }
-                await ChangeObserverWiring.runWalk(deviceId: deviceId, settings: settings)
+                await ChangeObserverWiring.runWalk(deviceId: deviceId, settings: settings,
+                                                   libraryId: libraryId, serverBaseURL: serverBaseURL)
             }
         }
     }

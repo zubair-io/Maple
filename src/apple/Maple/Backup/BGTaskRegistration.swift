@@ -63,9 +63,12 @@ enum BGTaskRegistration {
       // then drain the queue. iOS limits execution time via the expiration
       // handler; the engine bails cleanly on cancellation.
       if let settings = BackupSettings.load(),
+         let serverBaseURL = URL(string: settings.serverURL),
          let storage = try? DeviceIdentity.defaultStorageURL(),
          let deviceId = try? DeviceIdentity.current(storageURL: storage) {
-        await ChangeObserverWiring.runWalk(deviceId: deviceId, settings: settings)
+        await ChangeObserverWiring.runWalk(deviceId: deviceId, settings: settings,
+                                           libraryId: settings.libraryId,
+                                           serverBaseURL: serverBaseURL)
       }
       if let engine = EngineHost.shared.engine {
         await engine.run()
