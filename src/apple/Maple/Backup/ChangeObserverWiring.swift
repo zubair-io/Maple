@@ -34,6 +34,10 @@ enum ChangeObserverWiring {
     /// reconciliation notifications.
     static func start(deviceId: String, settings: BackupSettings,
                       libraryId: String, serverBaseURL: URL) {
+        // Reset cross-walk delete-diff state so a library change doesn't mark
+        // assets in the new library as deleted (they weren't in the old set).
+        lastSeenPhids = []
+
         if let prior = token {
             PhotoKitChangeObserver.shared.unsubscribe(prior)
         }
