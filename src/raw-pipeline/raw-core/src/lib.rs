@@ -55,4 +55,4 @@ pub use api::{
 };
 
 pub mod id;
-pub use id::{maple_id, IdKind, MapleId};
+pub use id::{blake3_hex, maple_id, IdKind, MapleId};
