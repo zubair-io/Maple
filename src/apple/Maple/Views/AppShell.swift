@@ -49,6 +49,7 @@ struct AppShell: View {
     @State private var browseVM = BrowseViewModel()
     @State private var sessions: [AssetRef.ID: EditSession] = [:]
     @State private var showExport = false
+    @State private var showSettings = false
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var showFilePicker = false
 
@@ -360,6 +361,10 @@ struct AppShell: View {
                 .modifier(DetailPanelWidth())
         }
         .navigationSplitViewStyle(.balanced)
+        .sheet(isPresented: $showSettings) {
+            SettingsView()
+                .frame(minWidth: 520, minHeight: 460)
+        }
     }
 
     // MARK: - iPhone (compact ZStack drawer)
@@ -434,6 +439,10 @@ struct AppShell: View {
                     }
             }
             .presentationDetents([.medium, .large])
+        }
+        .sheet(isPresented: $showSettings) {
+            SettingsView()
+                .presentationDetents([.large])
         }
     }
 
@@ -654,6 +663,13 @@ struct AppShell: View {
                 }
                 .accessibilityLabel("Info")
             }
+            ToolbarItem(placement: .topBarTrailing) {
+                Button { showSettings = true } label: {
+                    Image(systemName: "gear")
+                }
+                .accessibilityLabel("Settings")
+                .accessibilityIdentifier("settings-button")
+            }
         }
     }
     #endif
@@ -721,6 +737,16 @@ struct AppShell: View {
             // Hide from the visible toolbar — keyboard shortcut only.
             .hidden()
             .accessibilityHidden(true)
+        }
+        ToolbarItem(placement: .automatic) {
+            Button("Settings", systemImage: "gear") {
+                showSettings = true
+            }
+            .accessibilityLabel("Settings")
+            .accessibilityIdentifier("settings-button")
+            #if os(macOS)
+            .keyboardShortcut(",", modifiers: .command)
+            #endif
         }
     }
 
