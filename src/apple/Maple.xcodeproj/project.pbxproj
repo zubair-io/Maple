@@ -786,7 +786,7 @@
 				ENABLE_HARDENED_RUNTIME = YES;
 				INFOPLIST_KEY_BGTaskSchedulerPermittedIdentifiers = app.justmaple.aperture.backup.refresh;
 				INFOPLIST_KEY_UIBackgroundModes = "fetch processing";
-				MACOSX_DEPLOYMENT_TARGET = 26.4;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = macosx;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -803,7 +803,7 @@
 				ENABLE_HARDENED_RUNTIME = YES;
 				INFOPLIST_KEY_BGTaskSchedulerPermittedIdentifiers = app.justmaple.aperture.backup.refresh;
 				INFOPLIST_KEY_UIBackgroundModes = "fetch processing";
-				MACOSX_DEPLOYMENT_TARGET = 26.4;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = macosx;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -885,6 +885,7 @@
 		};
 		E3DD948D2FB51A67009392B4 /* MapleBackup */ = {
 			isa = XCSwiftPackageProductDependency;
+			package = E3DD948C2FB51A67009392B4 /* XCLocalSwiftPackageReference "Packages/MapleBackup" */;
 			productName = MapleBackup;
 		};
 		E3DD948F2FB55723009392B4 /* MapleBackup */ = {
