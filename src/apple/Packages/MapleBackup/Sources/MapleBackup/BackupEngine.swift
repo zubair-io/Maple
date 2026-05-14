@@ -175,7 +175,6 @@ public actor BackupEngine {
             // captures aren't permitted directly inside the async closure below).
             let queueRef = queue
             let taskId = task.id
-            let total = Int64(read.originalBytes.count)
 
             let result = try await upload.upload(
                 phassetLocalId: task.id.phassetLocalId,
@@ -185,7 +184,7 @@ public actor BackupEngine {
                 lon: read.sidecar.longitude,
                 bytes: read.originalBytes,
                 mapleId: read.mapleId,
-                onProgress: { sent, _ in
+                onProgress: { sent, total in
                     await queueRef.emit(.progress(taskId, sent: sent, total: total))
                 })
 
