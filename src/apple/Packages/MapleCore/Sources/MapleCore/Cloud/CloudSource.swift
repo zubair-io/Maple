@@ -64,8 +64,11 @@ extension CloudSource: ImageSource {
   /// listing's `dirs` separately. Single round-trip; no auto-pagination.
   public func images() async throws -> [ImageRef] {
     let listing = try await listDir(absPath: currentPath)
+    let iso8601 = ISO8601DateFormatter()
     return listing.images.map { img in
-      ImageRef(id: "fs:\(img.path)", displayName: img.name, url: nil)
+      let captureDate = img.exif?.captured_at.flatMap { iso8601.date(from: $0) }
+      return ImageRef(id: "fs:\(img.path)", displayName: img.name, url: nil,
+                      captureDate: captureDate)
     }
   }
 
