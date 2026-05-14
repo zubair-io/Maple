@@ -31,7 +31,15 @@ struct BackupStatusPanel: View {
             .foregroundStyle(.secondary)
           HStack(spacing: 8) {
             ForEach(progress.inFlight.prefix(3)) { item in
-              ThumbnailTile(localIdentifier: item.id.phassetLocalId)
+              VStack(spacing: 2) {
+                ThumbnailTile(localIdentifier: item.id.phassetLocalId)
+                if let fraction = item.fractionDone {
+                  Text("\(Int(fraction * 100))%")
+                    .font(.system(size: 9))
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+                }
+              }
             }
             Spacer()
           }
