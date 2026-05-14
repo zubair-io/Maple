@@ -16,8 +16,17 @@ internal final class StubURLProtocol: URLProtocol {
         case status(Int, json: String? = nil)
         case networkError(URLError.Code)
     }
+
+    // Thread-safe accessor for `stub` — Swift tests can run in parallel
+    // (Swift Testing, parallel-test schemes), and the URL loading system
+    // reads `stub` from a network-private thread.
+    private static let lock = NSLock()
+    private nonisolated(unsafe) static var _stub: Stub?
     /// Per-test stub. Cleared in `setUp` for isolation.
-    nonisolated(unsafe) static var stub: Stub?
+    static var stub: Stub? {
+        get { lock.lock(); defer { lock.unlock() }; return _stub }
+        set { lock.lock(); defer { lock.unlock() }; _stub = newValue }
+    }
 
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
