@@ -11,12 +11,14 @@
 //
 // Wi-Fi gating (Task 3.12): when `wifiOnly` is true and the current
 // reachability is not .wifi, background-priority tasks are re-enqueued
-// instead of uploaded.
+// instead of uploaded. A 30s sleep before re-enqueueing prevents a tight
+// CPU loop when Wi-Fi is unavailable.
 //
 // Retry / backoff policy (Task 3.13): upload failures transition the task
 // back to .pending and schedule a re-enqueue via a detached Task that sleeps
 // an exponential backoff (1s, 2s, 4s, … capped at 1h). After 8 attempts,
-// the task is marked .failedRetry.
+// the task is marked .failedRetry. Retry tasks are tracked in `retryTasks`
+// so stop() can cancel them cleanly.
 //
 // Spec: docs/superpowers/specs/2026-05-09-photokit-backup-design.md §13, §15, §17.
 
@@ -57,6 +59,9 @@ public actor BackupEngine {
     private let reachability: Reachability?
     private let wifiOnly: Bool
 
+    /// In-flight retry tasks, tracked so stop() can cancel them cleanly.
+    private var retryTasks: Set<Task<Void, Never>> = []
+
     /// Maximum retry attempts before a task is marked `.failedRetry`.
     private static let maxRetries = 8
 
@@ -76,10 +81,11 @@ public actor BackupEngine {
         self.wifiOnly = wifiOnly
     }
 
-    /// Drive the queue until empty. The host (MapleApp / MapleBackupAgent)
-    /// runs this on a long-lived background Task.
+    /// Drive the queue until empty or until the enclosing Task is cancelled.
+    /// The host (MapleApp / MapleBackupAgent) runs this on a long-lived
+    /// background Task.
     public func run() async {
-        while let next = await queue.dequeue() {
+        while !Task.isCancelled, let next = await queue.dequeue() {
             do {
                 try await process(task: next)
             } catch {
@@ -87,6 +93,15 @@ public actor BackupEngine {
                 // to .pending for retry or .failedRetry on exhaustion.
             }
         }
+    }
+
+    /// Cancel all pending retry tasks. Called by EngineHost.stop() before
+    /// cancelling the runner Task so retries are torn down cleanly.
+    public func stop() {
+        for task in retryTasks {
+            task.cancel()
+        }
+        retryTasks.removeAll()
     }
 
     /// Process the next task in the queue, or return without throwing if
@@ -103,14 +118,21 @@ public actor BackupEngine {
            await reachability.status() != .wifi,
            task.priority < .userEdit {
             try await state.transition(task.id, to: .pending)
+            // Wait before re-enqueueing so we don't pin CPU at 100% spinning on
+            // the same task while Wi-Fi is unavailable. 30s is short enough to
+            // resume responsively when Wi-Fi comes back, long enough that the
+            // engine doesn't burn power.
+            try? await Task.sleep(nanoseconds: 30 * 1_000_000_000)
             await queue.enqueue(task, priority: task.priority)
             return
         }
 
+        await queue.emit(.started(task.id))
+
         do {
             try await state.transition(task.id, to: .uploading)
             let read = try await reader.read(phassetLocalId: task.id.phassetLocalId)
-            _ = try await upload.upload(
+            let result = try await upload.upload(
                 phassetLocalId: task.id.phassetLocalId,
                 filename: read.sidecar.originalFilename,
                 captureDate: read.sidecar.captureDate,
@@ -121,9 +143,11 @@ public actor BackupEngine {
             // On success, drop any App-Support sidecar (it lived only until upload).
             try? sidecars.delete(phassetLocalId: task.id.phassetLocalId)
             try await state.transition(task.id, to: .uploaded, error: nil)
+            await queue.emit(.completed(task.id, mapleId: result.mapleId))
         } catch {
             let nextRetry = task.retryCount + 1
-            if nextRetry >= Self.maxRetries {
+            let willRetry = nextRetry < Self.maxRetries
+            if !willRetry {
                 try? await state.transition(task.id, to: .failedRetry,
                                             error: "max retries: \(error)")
             } else {
@@ -132,15 +156,27 @@ public actor BackupEngine {
                 // Re-enqueue from a detached Task that sleeps the backoff.
                 let backoff = Self.backoffSeconds(for: nextRetry)
                 let queueRef = queue
-                Task.detached(priority: .background) {
+                let retryTask = Task.detached(priority: .background) {
                     try? await Task.sleep(nanoseconds: UInt64(backoff * 1_000_000_000))
                     var retry = task
                     retry.retryCount = nextRetry
                     await queueRef.enqueue(retry, priority: retry.priority)
                 }
+                // Track for cancellation on stop().
+                retryTasks.insert(retryTask)
+                // Auto-clean when the task finishes.
+                Task { [weak self] in
+                    _ = await retryTask.value
+                    await self?.removeRetryTask(retryTask)
+                }
             }
+            await queue.emit(.failed(task.id, error: "\(error)", willRetry: willRetry))
             throw error
         }
+    }
+
+    private func removeRetryTask(_ task: Task<Void, Never>) {
+        retryTasks.remove(task)
     }
 
     /// Exponential backoff capped at 1 hour.
