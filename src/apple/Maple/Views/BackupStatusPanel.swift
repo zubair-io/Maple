@@ -78,7 +78,7 @@ struct BackupStatusPanel: View {
 
       HStack {
         Button("Pause") {
-          EngineHost.shared.stop()
+          Task { await EngineHost.shared.stop() }
         }
         Button("Resume") {
           if let settings = BackupSettings.load() {

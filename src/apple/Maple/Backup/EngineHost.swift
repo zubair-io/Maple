@@ -49,7 +49,7 @@ public final class EngineHost {
         }
 
         // Tear down any previous run (cancels retry tasks, then the runner).
-        stop()
+        await stop()
 
         do {
             let appSupport = try FileManager.default.url(
@@ -117,9 +117,13 @@ public final class EngineHost {
     }
 
     /// Cancel the runner and all pending retry tasks cleanly.
-    public func stop() {
-        // Cancel retry tasks first so they don't re-enqueue after the runner exits.
-        Task { await engine?.stop() }
+    public func stop() async {
+        // Await engine teardown so retry tasks are cancelled before the runner
+        // task exits. This prevents a race where a retry re-enqueues after
+        // the queue has been discarded by a subsequent start().
+        if let engine {
+            await engine.stop()
+        }
         runnerTask?.cancel()
         runnerTask = nil
         periodicWalkTask?.cancel()
