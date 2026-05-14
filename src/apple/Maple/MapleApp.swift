@@ -90,12 +90,15 @@ struct MapleApp: App {
         WindowGroup {
             AppShell(sessionFor: { server in session(for: server) })
                 .task {
-                    guard let settings = BackupSettings.load(), settings.isConfigured else { return }
+                    guard let settings = BackupSettings.load(), settings.isConfigured,
+                          let serverBaseURL = URL(string: settings.serverURL) else { return }
                     await EngineHost.shared.start(settings: settings)
                     // Use the same DeviceIdentity the engine just resolved.
                     if let storage = try? DeviceIdentity.defaultStorageURL(),
                        let deviceId = try? DeviceIdentity.current(storageURL: storage) {
-                        ChangeObserverWiring.start(deviceId: deviceId, settings: settings)
+                        ChangeObserverWiring.start(deviceId: deviceId, settings: settings,
+                                                   libraryId: settings.libraryId,
+                                                   serverBaseURL: serverBaseURL)
                     }
                 }
                 .onChange(of: scenePhase) { _, newPhase in
