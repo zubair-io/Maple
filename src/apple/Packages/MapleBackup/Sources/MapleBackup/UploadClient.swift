@@ -46,6 +46,104 @@ public actor UploadClient {
         self.chunkSize = newValue
     }
 
+    /// Upload an XMP sidecar string to the sidecar endpoint.
+    /// POSTs the XMP body with device / asset / path headers. The server
+    /// writes `<targetRelPath>.xmp` next to the asset bytes.
+    public func uploadSidecar(
+        phassetLocalId: String,
+        targetRelPath: String,
+        xmp: String
+    ) async throws {
+        let url = baseURL
+            .appendingPathComponent("api")
+            .appendingPathComponent("libraries")
+            .appendingPathComponent(libraryId)
+            .appendingPathComponent("backup")
+            .appendingPathComponent("sidecar")
+
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("application/xml", forHTTPHeaderField: "Content-Type")
+        req.setValue(deviceId, forHTTPHeaderField: "X-Maple-Device-Id")
+        req.setValue(phassetLocalId, forHTTPHeaderField: "X-Maple-Phasset-Id")
+        req.setValue(targetRelPath, forHTTPHeaderField: "X-Maple-Target-Rel-Path")
+        req.httpBody = Data(xmp.utf8)
+
+        let (_, response) = try await session.data(for: req)
+        guard let http = response as? HTTPURLResponse else { throw UploadError.badResponse }
+        guard (200..<300).contains(http.statusCode) else {
+            throw UploadError.httpError(http.statusCode)
+        }
+    }
+
+    /// Upload an Apple-rendered companion (or Live Photo .mov twin) to the
+    /// rendered endpoint using the same chunked+resumable pattern as `upload`.
+    /// The server writes `<base>.rendered.<filenameExt>` next to the original.
+    ///
+    /// - Parameters:
+    ///   - phassetLocalId: PHAsset localIdentifier.
+    ///   - targetRelPath: Relative path returned by the ingest endpoint for the
+    ///     matching original (used to derive the rendered path on the server).
+    ///   - filenameExt: Extension for the rendered file (e.g. "jpeg", "mov").
+    ///     Note: the server uses `<base>.rendered.<ext>` naming. A follow-up
+    ///     should add a suffix-override header so the .mov twin lands as
+    ///     `<base>.mov` instead of `<base>.rendered.mov`.
+    ///   - bytes: Raw bytes of the rendered companion.
+    public func uploadRendered(
+        phassetLocalId: String,
+        targetRelPath: String,
+        filenameExt: String,
+        bytes: Data
+    ) async throws {
+        let total = Int64(bytes.count)
+        guard total > 0 else { return }
+        var offset: Int64 = 0
+        let renderedURL = baseURL
+            .appendingPathComponent("api")
+            .appendingPathComponent("libraries")
+            .appendingPathComponent(libraryId)
+            .appendingPathComponent("backup")
+            .appendingPathComponent("rendered")
+
+        while offset < total {
+            let chunkEnd = min(offset + Int64(chunkSize), total) - 1
+            let chunk = bytes.subdata(in: Int(offset)..<Int(chunkEnd + 1))
+            let isFinal = chunkEnd + 1 == total
+
+            var req = URLRequest(url: renderedURL)
+            req.httpMethod = "POST"
+            req.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
+            req.setValue("bytes \(offset)-\(chunkEnd)/\(total)", forHTTPHeaderField: "Content-Range")
+            req.setValue(deviceId, forHTTPHeaderField: "X-Maple-Device-Id")
+            req.setValue(phassetLocalId, forHTTPHeaderField: "X-Maple-Phasset-Id")
+            req.setValue(targetRelPath, forHTTPHeaderField: "X-Maple-Target-Rel-Path")
+            req.setValue(filenameExt, forHTTPHeaderField: "X-Maple-Rendered-Ext")
+            req.httpBody = chunk
+
+            let (data, response) = try await session.data(for: req)
+            guard let http = response as? HTTPURLResponse else { throw UploadError.badResponse }
+
+            switch http.statusCode {
+            case 409:
+                struct Mismatch: Decodable { let expected_offset: Int64? }
+                if let body = try? JSONDecoder().decode(Mismatch.self, from: data),
+                   let newOffset = body.expected_offset {
+                    offset = newOffset
+                    continue
+                }
+                throw UploadError.resumeMismatchNoOffset
+            case 202:
+                guard !isFinal else { throw UploadError.badResponse }
+                offset = chunkEnd + 1
+            case 200:
+                guard isFinal else { throw UploadError.badResponse }
+                return
+            default:
+                throw UploadError.httpError(http.statusCode)
+            }
+        }
+    }
+
     /// Upload `bytes` to the ingest endpoint, splitting into `chunkSize`
     /// chunks. The final chunk carries `X-Maple-Maple-Id` for dedup;
     /// intermediate chunks return 202 with `next_offset` and the loop
