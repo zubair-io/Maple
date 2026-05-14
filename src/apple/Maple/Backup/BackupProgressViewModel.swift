@@ -62,16 +62,18 @@ public final class BackupProgressViewModel {
     public private(set) var isRunning: Bool = false
 
     private var observerTask: Task<Void, Never>?
+    /// Track which task IDs we've counted so retries don't inflate totalEnqueued.
+    private var seenEnqueued: Set<BackupTaskID> = []
 
     public init() {}
 
     /// Subscribe to the queue's event stream and update state in real time.
     /// Idempotent — calling twice resets the prior observer.
-    public func start(queue: some BackupQueue) {
+    public func start(queue: any BackupQueue) {
         observerTask?.cancel()
         observerTask = Task { [weak self] in
             guard let self else { return }
-            let stream = queue.observe()
+            let stream = await queue.observe()
             await MainActor.run { self.isRunning = true }
             for await event in stream {
                 await MainActor.run { self.apply(event) }
@@ -102,8 +104,10 @@ public final class BackupProgressViewModel {
 
     private func apply(_ event: BackupQueueEvent) {
         switch event {
-        case .enqueued:
-            totalEnqueued += 1
+        case .enqueued(let task):
+            if seenEnqueued.insert(task.id).inserted {
+                totalEnqueued += 1
+            }
         case .started(let id):
             // Add to inFlight if not already there.
             if !inFlight.contains(where: { $0.id == id }) {
