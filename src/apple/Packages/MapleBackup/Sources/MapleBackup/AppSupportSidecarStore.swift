@@ -56,9 +56,14 @@ public final class AppSupportSidecarStore {
 
     /// PHAsset `localIdentifier` strings look like
     /// "BFBBE32B-2C39-43A5-B7FC-1E9BC0577CFE/L0/001" — slashes would create
-    /// unintended subdirectories. Replace with `_`. The transform is
-    /// reversible; callers that need the raw identifier read it back from
-    /// the sidecar XML payload.
+    /// unintended subdirectories. Replace `/` → `_`.
+    ///
+    /// Apple's documented identifier format uses dashed hex UUIDs and an
+    /// `/Lx/yyy` suffix, neither of which contain `_`, so the transform is
+    /// reversible IN PRACTICE for Apple-supplied identifiers. We don't rely
+    /// on the reverse direction — the raw identifier is also stored inside
+    /// the XMP payload (`maple:phassetLocalId`), which is the canonical
+    /// round-trip source.
     private func url(for phassetLocalId: String) -> URL {
         let safe = phassetLocalId.replacingOccurrences(of: "/", with: "_")
         return root.appendingPathComponent("\(safe).xmp")
