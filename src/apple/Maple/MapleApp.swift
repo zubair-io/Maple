@@ -5,6 +5,7 @@
 
 import SwiftUI
 import MapleCore
+import MapleBackup
 #if canImport(UIKit)
 import UIKit
 #endif
@@ -15,9 +16,11 @@ struct MapleApp: App {
     /// `session(for:)` and shared across views via `.environment(_:)`.
     /// Plan 2026-04-28-passkey-auth Task B8.
     @State private var sessions: [URL: AuthSession] = [:]
+    @Environment(\.scenePhase) private var scenePhase
 
     init() {
         Self.installMemoryPressureObserver()
+        BGTaskRegistration.register()
 
         #if DEBUG
         // Note: the Plan 1 AgX-kernel load assertion was retired when the
@@ -86,6 +89,20 @@ struct MapleApp: App {
     var body: some Scene {
         WindowGroup {
             AppShell(sessionFor: { server in session(for: server) })
+                .task {
+                    guard let settings = BackupSettings.load(), settings.isConfigured else { return }
+                    await EngineHost.shared.start(settings: settings)
+                    // Use the same DeviceIdentity the engine just resolved.
+                    if let storage = try? DeviceIdentity.defaultStorageURL(),
+                       let deviceId = try? DeviceIdentity.current(storageURL: storage) {
+                        ChangeObserverWiring.start(deviceId: deviceId)
+                    }
+                }
+                .onChange(of: scenePhase) { _, newPhase in
+                    if newPhase == .background {
+                        BGTaskRegistration.schedule()
+                    }
+                }
         }
         #if os(macOS)
         .windowStyle(.titleBar)
