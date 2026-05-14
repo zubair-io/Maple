@@ -22,6 +22,7 @@ public actor UploadClient {
         case httpError(Int)
         case badResponse
         case resumeMismatchNoOffset
+        case emptyAsset
     }
 
     private let baseURL: URL
@@ -57,6 +58,9 @@ public actor UploadClient {
                        bytes: Data,
                        mapleId: String) async throws -> Result {
         let total = Int64(bytes.count)
+        guard total > 0 else {
+            throw UploadError.emptyAsset
+        }
         var offset: Int64 = 0
         let ingestURL = baseURL
             .appendingPathComponent("api")
