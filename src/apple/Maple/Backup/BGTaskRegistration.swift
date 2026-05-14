@@ -59,8 +59,14 @@ enum BGTaskRegistration {
     schedule()
 
     let runner = Task { @MainActor in
-      // Drain a chunk of the backup queue. iOS limits us via the expiration
-      // handler; the engine just keeps pulling tasks until cancelled.
+      // Walk first so any new captures since the app last ran get enqueued,
+      // then drain the queue. iOS limits execution time via the expiration
+      // handler; the engine bails cleanly on cancellation.
+      if let settings = BackupSettings.load(),
+         let storage = try? DeviceIdentity.defaultStorageURL(),
+         let deviceId = try? DeviceIdentity.current(storageURL: storage) {
+        await ChangeObserverWiring.runWalk(deviceId: deviceId, settings: settings)
+      }
       if let engine = EngineHost.shared.engine {
         await engine.run()
       }
