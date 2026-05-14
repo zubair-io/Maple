@@ -989,8 +989,8 @@ struct AppShell: View {
         // `images()` enumeration take noticeable wall time.
         browseVM.beginLoadingPhotosFilter()
         Task { @MainActor in
-            let source = PhotoKitSource()
             do {
+                let source = try PhotoKitSource()
                 try await source.fetchAssets(for: filter)
                 await browseVM.loadSource(source)
                 SourceSelectionStore.save(.photoKitFilter(filter))

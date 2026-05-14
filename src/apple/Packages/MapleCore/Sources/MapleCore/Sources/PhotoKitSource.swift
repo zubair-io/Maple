@@ -36,6 +36,20 @@ import AppKit
 import UIKit
 #endif
 
+// MARK: - PhotoKitSourceError
+
+/// Errors thrown during `PhotoKitSource` initialisation.
+public enum PhotoKitSourceError: Error, LocalizedError, Sendable {
+    case sidecarRootUnavailable(Error)
+
+    public var errorDescription: String? {
+        switch self {
+        case .sidecarRootUnavailable(let underlying):
+            return "PhotoKit sidecar root unavailable: \(underlying.localizedDescription)"
+        }
+    }
+}
+
 // MARK: - PhotoKitSource
 
 /// Browses a filtered view of the user's Photo Library.
@@ -56,13 +70,16 @@ public actor PhotoKitSource {
     /// predicate, not an array length).
     public var count: Int { fetchResult?.count ?? 0 }
 
-    public init() {
+    /// Designated init. Throws `PhotoKitSourceError.sidecarRootUnavailable`
+    /// if the App Support directory cannot be created (e.g. filesystem
+    /// permission issue) — callers should handle the error gracefully rather
+    /// than letting a `fatalError` crash the app.
+    public init() throws {
         do {
             self.sidecarStore = AppSupportSidecarStore(
                 root: try AppSupportSidecarStore.defaultRoot())
         } catch {
-            // App Support is critical — if we can't open it, the app can't function.
-            fatalError("PhotoKit sidecar root unavailable: \(error)")
+            throw PhotoKitSourceError.sidecarRootUnavailable(error)
         }
         // Subscribe to library-change notifications so a photo added in
         // another app invalidates our cached snapshot. The handler runs on
