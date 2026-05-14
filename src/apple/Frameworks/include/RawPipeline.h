@@ -419,3 +419,12 @@ int32_t maple_apply_scene_linear_chain(const uint16_t *in_ptr,
                                        uint32_t height,
                                        const struct MapleAdjustmentParams *params,
                                        uint16_t *out_ptr);
+
+/**
+ * Compute BLAKE3 hex of arbitrary bytes. Output buffer must be at least 64
+ * bytes (BLAKE3 is 256-bit → 64 hex chars). No null terminator — the caller
+ * knows the length is exactly 64.
+ *
+ * Returns 0 on success, -1 on null pointers, -2 on zero-length input.
+ */
+int32_t maple_blake3_hex(const uint8_t *bytes_ptr, uintptr_t bytes_len, uint8_t *out_hex);
