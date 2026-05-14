@@ -210,6 +210,45 @@ public final class BrowseViewModel {
         }
     }
 
+    // MARK: - Merged PhotoKit + Cloud timeline
+
+    /// When set, BrowseGrid renders MergedCellView tiles instead of plain
+    /// AssetRefs. Populated by `reloadMerged(photoKit:cloud:)`.
+    public private(set) var mergedCells: [MergedTimelineCell] = []
+    public private(set) var isMerged: Bool = false
+
+    /// Load both sources, run the merge, and publish the result. Must be
+    /// called from a context that can await; BrowseGrid's `.task` or
+    /// AppShell's `.onChange` are both fine.
+    public func reloadMerged(photoKit: PhotoKitSource, cloud: any ImageSource) async {
+        loadGeneration &+= 1
+        let gen = loadGeneration
+        isLoading = true
+        defer { if gen == loadGeneration { isLoading = false } }
+
+        let l: [ImageRef]
+        do { l = try await photoKit.images() } catch { l = [] }
+        let c: [ImageRef]
+        do { c = try await cloud.images() } catch { c = [] }
+
+        guard gen == loadGeneration else { return }
+        let merged = MergedTimelineSource.merge(local: l, cloud: c)
+        guard gen == loadGeneration else { return }
+
+        mergedCells = merged
+        isMerged = true
+        assets = []
+        subfolders = []
+        loadError = nil
+        photosAuthNeeded = false
+    }
+
+    /// Drop merged state and return to plain-source mode.
+    public func clearMerged() {
+        mergedCells = []
+        isMerged = false
+    }
+
     /// Empty the grid and forget the current source. Used when the shell
     /// switches into a mode that doesn't have a source attached yet (e.g.
     /// Maple Cloud Timeline mode in Phase 2 — placeholder until Phase 3
@@ -223,6 +262,8 @@ public final class BrowseViewModel {
         loadError = nil
         isLoading = false
         photosAuthNeeded = false
+        mergedCells = []
+        isMerged = false
     }
 
     /// Put the grid into the "Photos Library selected but access not granted"
