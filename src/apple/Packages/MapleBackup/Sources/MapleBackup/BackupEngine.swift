@@ -92,15 +92,35 @@ public actor BackupEngine {
     }
 
     /// Drive the queue until empty or until the enclosing Task is cancelled.
+    /// Runs up to `maxConcurrency` tasks in parallel. The real wall-clock
+    /// parallelism comes from the network I/O in `upload.session.data(for:)`,
+    /// which suspends without holding the engine's actor isolation.
+    ///
     /// The host (MapleApp / MapleBackupAgent) runs this on a long-lived
     /// background Task.
     public func run() async {
-        while !Task.isCancelled, let next = await queue.dequeue() {
-            do {
-                try await process(task: next)
-            } catch {
-                // Errors are handled inside process(task:) — state transitions
-                // to .pending for retry or .failedRetry on exhaustion.
+        let maxConcurrency = 4
+        var inFlight = 0
+        await withTaskGroup(of: Void.self) { group in
+            while !Task.isCancelled {
+                if inFlight < maxConcurrency, let next = await queue.dequeue() {
+                    inFlight += 1
+                    group.addTask { [self] in
+                        do {
+                            try await process(task: next)
+                        } catch {
+                            // Errors are handled inside process(task:) — state
+                            // transitions to .pending for retry or .failedRetry
+                            // on exhaustion.
+                        }
+                    }
+                } else if inFlight > 0 {
+                    _ = await group.next()
+                    inFlight -= 1
+                } else {
+                    // Queue is drained and no tasks in flight — we're done.
+                    break
+                }
             }
         }
     }
