@@ -6,10 +6,10 @@
 //
 // 1. `invalidate()` clears all four caches.
 // 2. `PhotoKitChangeObserver` integration — the catalog subscribes once and
-//    calls invalidate() on every fan-out (verified through the observer's own
-//    public API, which IS available in swift test).
-// 3. The actor-isolation contract compiles correctly (a compile-time guarantee
-//    — if this file compiles without `@MainActor` the isolation is broken).
+//    calls invalidate() synchronously on every fan-out, so the cache is
+//    cleared before any other subscriber's handler runs.
+// 3. Paginated stream terminates (stream produces 0 chunks in the `swift test`
+//    sandbox where Photos isn't authorised, but it must not hang).
 //
 // Tests that call PHAsset are intentionally omitted here; they live in
 // `PhotoKitSourceXMPTests.swift` which is gated to Xcode runs that include a
@@ -19,24 +19,31 @@ import XCTest
 import Photos
 @testable import MapleCore
 
-// Compile-time isolation check: assigning the singleton from a non-isolated
-// context requires `await`, which is the correct actor-hop spelling.
-// If the class is ever accidentally de-isolated this test file will fail to
-// compile because MainActor-isolated properties can't be read synchronously
-// from a nonisolated context.
-private func _actorIsolationCompileCheck() async {
-    // This just has to compile — no assertion needed.
-    _ = await PhotoKitCatalog.shared
+// Compile-time check: since PhotoKitCatalog is no longer @MainActor-isolated,
+// `shared` can be read without `await`. If the class is ever accidentally
+// re-isolated this check will fail to compile.
+private func _noActorHopRequired() {
+    // Must compile without `await`.
+    _ = PhotoKitCatalog.shared
 }
 
-@MainActor
 final class PhotoKitCatalogTests: XCTestCase {
 
     // MARK: - invalidate()
 
-    /// After `invalidate()`, the catalog has no cached data. We can verify this
-    /// indirectly: the catalog exposes no public state properties, but we can
-    /// confirm that a second `invalidate()` call (idempotent) does not crash.
+    /// After `invalidate()`, the catalog has no cached data. We verify this
+    /// through the test-only cache accessors.
+    func testInvalidateClearsImageIDCache() {
+        let catalog = PhotoKitCatalog.shared
+        catalog.testOnlySetCache(imageIDs: ["a", "b", "c"])
+        XCTAssertNotNil(catalog.testOnlyCachedImageIDs())
+
+        catalog.invalidate()
+
+        XCTAssertNil(catalog.testOnlyCachedImageIDs(), "invalidate() should nil out cachedImageIDs")
+    }
+
+    /// `invalidate()` must be callable multiple times without crashing.
     func testInvalidateIsIdempotent() {
         let catalog = PhotoKitCatalog.shared
         catalog.invalidate()
@@ -44,9 +51,9 @@ final class PhotoKitCatalogTests: XCTestCase {
         // Pass — no crash.
     }
 
-    /// Confirm that `invalidate()` is synchronous (no suspension point) —
-    /// callers on MainActor can invoke it without `await`. If this ever gains
-    /// an async signature, existing callers in init blocks will break.
+    /// Confirm that `invalidate()` is synchronous — no suspension point, no
+    /// `await` needed. If this ever gains an async signature, existing callers
+    /// in init blocks will fail to build.
     func testInvalidateIsSynchronous() {
         // This test just has to compile. If `invalidate()` were `async`, the
         // call below would require `await` and fail to build.
@@ -55,51 +62,77 @@ final class PhotoKitCatalogTests: XCTestCase {
 
     // MARK: - PhotoKitChangeObserver integration
 
-    /// The catalog subscribes to PhotoKitChangeObserver at init. Fire a
-    /// synthetic change and confirm at least one observer notification was
-    /// delivered (we can't inspect the catalog's internal state directly, but
-    /// the observer fan-out mechanism is already tested in
-    /// PhotoKitChangeObserverTests — here we just verify the catalog doesn't
-    /// crash when a change fires).
-    func testCatalogSurvivesChangeObserverFanOut() async throws {
+    /// The catalog subscribes to PhotoKitChangeObserver at init. After a
+    /// synthetic change fires, the catalog's image-id cache must be nil
+    /// (invalidation was called synchronously — same callstack, no Task hop).
+    func testCatalogInvalidatesOnPhotoKitChange() {
+        let catalog = PhotoKitCatalog.shared
+        // Seed a known cache entry so we can observe it being cleared.
+        catalog.testOnlySetCache(imageIDs: ["test-id-1", "test-id-2"])
+        XCTAssertNotNil(catalog.testOnlyCachedImageIDs())
+
+        // Fire a synthetic change. The catalog's subscriber calls invalidate()
+        // synchronously — by the time fireForTesting() returns, the cache is
+        // already cleared.
+        PhotoKitChangeObserver.shared.fireForTesting()
+
+        XCTAssertNil(catalog.testOnlyCachedImageIDs(),
+                     "Cache must be cleared synchronously before fireForTesting() returns")
+    }
+
+    /// Confirm the fan-out delivers to other subscribers AND the catalog
+    /// clears its cache in the same synchronous call — no Task hop needed.
+    func testCatalogSurvivesChangeObserverFanOut() {
         let observer = PhotoKitChangeObserver.shared
         var fired = false
-        let exp = expectation(description: "observer fan-out delivered")
         let token = observer.subscribe {
             fired = true
-            exp.fulfill()
         }
         defer { observer.unsubscribe(token) }
 
-        // Trigger the fan-out. The catalog's own subscription will also fire,
-        // calling invalidate() on the MainActor asynchronously.
-        let dummy = unsafeBitCast(NSObject(), to: PHChange.self)
-        observer.photoLibraryDidChange(dummy)
+        // Seed the catalog so we can check the synchronous clear.
+        PhotoKitCatalog.shared.testOnlySetCache(imageIDs: ["x"])
 
-        await fulfillment(of: [exp], timeout: 1.0)
-        XCTAssertTrue(fired)
+        observer.fireForTesting()
 
-        // Give the catalog's internal `Task { @MainActor in self.invalidate() }`
-        // a moment to land before we exit the test. Without this yield the
-        // task may be enqueued but not yet executed when the test tears down,
-        // which causes a benign "task executed after test ended" warning in Xcode.
-        await Task.yield()
+        XCTAssertTrue(fired, "Subscriber handler must have been called")
+        XCTAssertNil(PhotoKitCatalog.shared.testOnlyCachedImageIDs(),
+                     "Catalog must have cleared its cache synchronously during fan-out")
     }
 
     // MARK: - paginatedImageIdentifiers() shape
 
     /// Without a live Photos library the method returns an empty stream (the
-    /// underlying `imageIdentifiers()` call will return [] because Photos is
-    /// not authorized in the `swift test` sandbox). Verify the stream finishes
-    /// without hanging.
-    func testPaginatedStreamFinishesWhenEmpty() async {
-        var chunks: [[String]] = []
-        for await chunk in PhotoKitCatalog.shared.paginatedImageIdentifiers(pageSize: 10) {
-            chunks.append(chunk)
+    /// underlying PHFetchResult has zero assets because Photos is not authorised
+    /// in the `swift test` sandbox). Verify the stream terminates rather than
+    /// hanging.
+    func testPaginatedStreamTerminates() async {
+        let expectation = XCTestExpectation(description: "stream terminates")
+        Task {
+            var chunks: [[String]] = []
+            for await chunk in PhotoKitCatalog.shared.paginatedImageIdentifiers(pageSize: 100) {
+                chunks.append(chunk)
+                if chunks.count > 100 { break }  // safety bail before a truly-infinite stream
+            }
+            expectation.fulfill()
         }
-        // Either zero chunks (no authorized Photos library) or N chunks — both
-        // are fine. What matters is that the stream terminated.
-        // No assertion on chunk content since Photos isn't available in CI.
-        XCTAssertTrue(chunks.count >= 0)  // tautology — just confirm no hang.
+        await fulfillment(of: [expectation], timeout: 5.0)
+    }
+
+    /// A pageSize of 0 must not produce an infinite stream of empty chunks.
+    /// The implementation clamps to max(1, pageSize).
+    func testPageSizeZeroClampsToOne() async {
+        // In the test sandbox Photos isn't available so the fetch result is
+        // empty — the stream finishes with 0 chunks regardless of page size.
+        // What matters is that it finishes at all (not an infinite loop of
+        // zero-element yields).
+        let expectation = XCTestExpectation(description: "pageSize=0 stream terminates")
+        Task {
+            for await _ in PhotoKitCatalog.shared.paginatedImageIdentifiers(pageSize: 0) {
+                // consume chunks
+            }
+            expectation.fulfill()
+        }
+        await fulfillment(of: [expectation], timeout: 5.0)
     }
 }
