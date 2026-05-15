@@ -1124,8 +1124,19 @@ struct AppShell: View {
 
         let httpClient = makeAuthenticatedHTTPClient(server: url)
         let client = CloudFoldersClient(server: url, httpClient: httpClient)
-        do { return try await client.listFolders() }
-        catch { return [] }
+        do {
+            let folders = try await client.listFolders()
+            CloudFoldersCache.save(folders, server: url)
+            return folders
+        }
+        catch {
+            // Offline / server hiccup — fall back to the last-known
+            // folder list so the sidebar still has something to render.
+            // Returning [] here used to give the user an empty sidebar
+            // every time the network blipped.
+            if let cached = CloudFoldersCache.load(server: url) { return cached }
+            return []
+        }
     }
 
     @MainActor
