@@ -408,7 +408,6 @@ describe("POST /api/libraries/:id/backup/ingest", () => {
     expect(desktopR.status).toBe(423);
     const body = await desktopR.json();
     expect(body.retry_after_seconds).toBeGreaterThan(0);
-    expect(body.defer_positions).toBe(10);
   });
 
   test("path collision (file already on disk, no Mongo row) → 500", async () => {

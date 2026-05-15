@@ -220,6 +220,47 @@ describe("uploadSessions", () => {
       expect(peer?.state).toBe("abandoned");
     });
 
+    test("stale device returning after cross-device takeover reopens its abandoned row (no unique-key collision)", async () => {
+      const c = await uploadSessionsCollection();
+      // Phone established a session, then went silent and got abandoned by
+      // a cross-device takeover. Simulate that resting state directly.
+      const phoneId = new ObjectId();
+      const ago = new Date(Date.now() - 60_000);
+      await c.insertOne({
+        _id: phoneId,
+        library_id: libraryId,
+        device_id: "phone-stale-return",
+        phasset_local_id: "phone-local-stale-return",
+        target_rel_path: "2024/Paris/IMG_STALE.heic",
+        total_bytes: 4_096,
+        received_bytes: 2_048,
+        chunk_size: 1_024,
+        state: "abandoned",
+        created_at: ago,
+        updated_at: ago,
+        phasset_cloud_id: "icloud-STALE-RETURN",
+      } as any);
+
+      // Phone wakes up and tries to resume. Before the fix this would hit a
+      // unique-key collision because the abandoned row still occupies the
+      // (library_id, device_id, phasset_local_id) slot.
+      const { session, reset } = await uploadSessions.openOrResume({
+        libraryId,
+        deviceId: "phone-stale-return",
+        phassetLocalId: "phone-local-stale-return",
+        totalBytes: 4_096,
+        chunkSize: 1_024,
+        targetRelPath: "2024/Paris/IMG_STALE.heic",
+        phassetCloudId: "icloud-STALE-RETURN",
+      });
+      // Reopened in place on the same _id.
+      expect(session._id.equals(phoneId)).toBe(true);
+      expect(session.state).toBe("open");
+      expect(session.received_bytes).toBe(0);
+      // Route uses reset to clear any stale tmp bytes.
+      expect(reset).toBe(true);
+    });
+
     test("does not flag the caller's own session as a peer conflict", async () => {
       // First call from desktop establishes its own session.
       const { session: first } = await uploadSessions.openOrResume({

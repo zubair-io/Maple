@@ -30,9 +30,12 @@ import { uploadSessionsCollection } from "../db/client.ts";
 import type { UploadSessionDoc } from "../db/schema.ts";
 
 /** A peer device is considered "actively uploading" if its session has
- * received a chunk within this window. Tuned to absorb a single Wi-Fi
- * handoff (typically a few seconds) without false positives, while keeping
- * the takeover latency tight when the peer truly stopped. */
+ * received a chunk within this window. Generous enough that a phone going
+ * to sleep mid-upload, or a network blip across several backoff cycles,
+ * doesn't get its in-progress upload stolen by a sibling device. The cost
+ * of being conservative is that if the peer is truly dead, takeover waits
+ * up to this long — acceptable because both devices typically have the
+ * same iCloud copy, so deferring rather than racing is the safe default. */
 export const CROSS_DEVICE_BUSY_WINDOW_MS = 30 * 60 * 1000;
 
 /** Thrown by openOrResume when another device is actively uploading the same
@@ -68,6 +71,17 @@ export const uploadSessions = {
 
     // Cross-device check: another device on this library actively uploading
     // the same iCloud photo? Only meaningful when both sides have a cloud id.
+    //
+    // This findOne/throw/insert sequence is NOT atomic. Two devices that fire
+    // their first chunk inside the same ~millisecond window can both observe
+    // no peer and both proceed. That's deliberate — the final-chunk path
+    // (`backup-ingest.ts` post-assembly) dedups by `maple_id`, so the worst
+    // case is one device burns redundant bandwidth and its bytes get
+    // discarded at the finish line. Adding a unique constraint over
+    // `(library_id, phasset_cloud_id)` would prevent the wasted upload but
+    // would also serialize legitimate same-cloud-id retries through the
+    // unique-key violation path — a worse trade for this workload, where
+    // simultaneous-first-chunk collisions are rare.
     if (args.phassetCloudId) {
       const peer = await coll.findOne({
         library_id: args.libraryId,
@@ -98,13 +112,19 @@ export const uploadSessions = {
       }
     }
 
+    // Look up by resume key WITHOUT a state filter. The unique index spans
+    // all states (open, abandoned, completed) so we cannot blindly insert
+    // a new row when state="open" misses — an abandoned row from a prior
+    // cross-device takeover would collide with the index and the route
+    // would turn that into the `resumeMismatchNoOffset` failure this PR
+    // is meant to eliminate.
     const existing = await coll.findOne({
       library_id: args.libraryId,
       device_id: args.deviceId,
       phasset_local_id: args.phassetLocalId,
-      state: "open",
     });
-    if (existing) {
+
+    if (existing?.state === "open") {
       const totalChanged = existing.total_bytes !== args.totalBytes;
       const pathChanged = existing.target_rel_path !== args.targetRelPath;
       if (totalChanged || pathChanged) {
@@ -112,6 +132,13 @@ export const uploadSessions = {
         // holds — reset in place so the next chunk starts at offset 0 with
         // the new metadata. The unique index spans all states, so we update
         // rather than abandon-then-insert.
+        const unsetFields: Record<string, ""> = {};
+        if (
+          args.phassetCloudId === undefined &&
+          existing.phasset_cloud_id !== undefined
+        ) {
+          unsetFields.phasset_cloud_id = "";
+        }
         const now = new Date();
         await coll.updateOne(
           { _id: existing._id },
@@ -126,9 +153,8 @@ export const uploadSessions = {
                 ? { phasset_cloud_id: args.phassetCloudId }
                 : {}),
             },
-            ...(args.phassetCloudId === undefined &&
-            existing.phasset_cloud_id !== undefined
-              ? { $unset: { phasset_cloud_id: "" } }
+            ...(Object.keys(unsetFields).length > 0
+              ? { $unset: unsetFields }
               : {}),
           },
         );
@@ -155,6 +181,46 @@ export const uploadSessions = {
       }
       return { session: existing, reset: false };
     }
+
+    if (existing?.state === "abandoned") {
+      // The row was abandoned by a cross-device takeover or by gcAbandoned().
+      // Reopen in place — inserting a new row would collide with the unique
+      // resume-key index. The route treats reset:true as "clear stale tmp
+      // bytes" so the next chunk starts at offset 0 cleanly.
+      const unsetFields: Record<string, ""> = { maple_id: "" };
+      if (
+        args.phassetCloudId === undefined &&
+        existing.phasset_cloud_id !== undefined
+      ) {
+        unsetFields.phasset_cloud_id = "";
+      }
+      const now = new Date();
+      await coll.updateOne(
+        { _id: existing._id },
+        {
+          $set: {
+            state: "open",
+            total_bytes: args.totalBytes,
+            target_rel_path: args.targetRelPath,
+            chunk_size: args.chunkSize,
+            received_bytes: 0,
+            created_at: now,
+            updated_at: now,
+            ...(args.phassetCloudId !== undefined
+              ? { phasset_cloud_id: args.phassetCloudId }
+              : {}),
+          },
+          $unset: unsetFields,
+        },
+      );
+      const refreshed = (await coll.findOne({ _id: existing._id }))!;
+      return { session: refreshed, reset: true };
+    }
+
+    // existing?.state === "completed" falls through to insertOne, which will
+    // hit a unique-key collision — pre-existing behavior outside this PR's
+    // scope (the device is retrying an already-finished upload; the right
+    // response is "already done", not a fresh session).
 
     const now = new Date();
     const doc: UploadSessionDoc = {

@@ -27,9 +27,10 @@ public actor UploadClient {
         case emptyAsset
         /// Another device on the same iCloud library is actively uploading
         /// this asset. `retryAfterSeconds` is the server's hint for how long
-        /// before the peer goes stale; `deferPositions` is how many queue
-        /// slots to skip before re-trying.
-        case busyElsewhere(retryAfterSeconds: TimeInterval, deferPositions: Int)
+        /// before the peer goes stale — the engine sleeps the task for at
+        /// most this long (capped) and re-enqueues at the same priority
+        /// without burning a retry slot.
+        case busyElsewhere(retryAfterSeconds: TimeInterval)
     }
 
     private let baseURL: URL
@@ -153,14 +154,10 @@ public actor UploadClient {
                 // Another device is actively uploading this asset. Surface
                 // the back-off hint so the engine can requeue without
                 // burning a retry slot.
-                struct Busy: Decodable {
-                    let retry_after_seconds: Double?
-                    let defer_positions: Int?
-                }
+                struct Busy: Decodable { let retry_after_seconds: Double? }
                 let body = try? JSONDecoder().decode(Busy.self, from: data)
                 throw UploadError.busyElsewhere(
-                    retryAfterSeconds: body?.retry_after_seconds ?? 60,
-                    deferPositions: body?.defer_positions ?? 10)
+                    retryAfterSeconds: body?.retry_after_seconds ?? 60)
             case 202:
                 guard !isFinal else { throw UploadError.badResponse }
                 offset = chunkEnd + 1
@@ -187,13 +184,19 @@ public actor UploadClient {
     ///   header is sent and the server names the file `<base>.<suffixOverride>`
     ///   instead of `<base>.rendered.<ext>`. Used by the Live Photo .mov path
     ///   so the twin lands as `<base>.mov` without the `.rendered.` infix.
+    /// - Parameter phassetCloudId: Apple PHCloudIdentifier, when available.
+    ///   Sent as `X-Maple-PHAsset-Cloud-Id` so the server can detect when
+    ///   two devices on the same iCloud library both try to upload the
+    ///   rendered companion for the same photo and return 423 to the
+    ///   second one.
     public func uploadRendered(
         phassetLocalId: String,
         targetRelPath: String,
         filenameExt: String,
         bytes: Data,
         onProgress: (@Sendable (_ sent: Int64, _ total: Int64) async -> Void)? = nil,
-        suffixOverride: String? = nil
+        suffixOverride: String? = nil,
+        phassetCloudId: String? = nil
     ) async throws {
         let total = Int64(bytes.count)
         guard total > 0 else { return }
@@ -222,6 +225,9 @@ public actor UploadClient {
             if let suffixOverride {
                 req.setValue(suffixOverride, forHTTPHeaderField: "X-Maple-Suffix-Override")
             }
+            if let phassetCloudId {
+                req.setValue(phassetCloudId, forHTTPHeaderField: "X-Maple-PHAsset-Cloud-Id")
+            }
             req.httpBody = chunk
 
             let (data, response) = try await session.data(for: req)
@@ -237,14 +243,10 @@ public actor UploadClient {
                 }
                 throw UploadError.resumeMismatchNoOffset
             case 423:
-                struct Busy: Decodable {
-                    let retry_after_seconds: Double?
-                    let defer_positions: Int?
-                }
+                struct Busy: Decodable { let retry_after_seconds: Double? }
                 let body = try? JSONDecoder().decode(Busy.self, from: data)
                 throw UploadError.busyElsewhere(
-                    retryAfterSeconds: body?.retry_after_seconds ?? 60,
-                    deferPositions: body?.defer_positions ?? 10)
+                    retryAfterSeconds: body?.retry_after_seconds ?? 60)
             case 202:
                 guard !isFinal else { throw UploadError.badResponse }
                 offset = chunkEnd + 1
