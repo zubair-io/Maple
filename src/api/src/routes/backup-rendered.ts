@@ -28,7 +28,10 @@
  *   200 — final chunk. { target_rel_path }
  *   400 — missing/invalid headers, unsafe path
  *   404 — library not found
- *   409 — resume offset mismatch or session metadata mismatch
+ *   409 — resume offset mismatch
+ *   423 — another device is actively uploading the same iCloud photo.
+ *         Body: { retry_after_seconds, defer_positions }. Same-key metadata
+ *         mismatches self-heal silently (session reset in place).
  */
 import { Elysia, t } from "elysia";
 import { ObjectId } from "mongodb";
@@ -36,7 +39,7 @@ import {
   assetsCollection,
   foldersCollection,
 } from "../db/client.ts";
-import { uploadSessions } from "../backup/upload-session.ts";
+import { uploadSessions, BusyElsewhereError } from "../backup/upload-session.ts";
 import { child as childLogger } from "../log.ts";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -175,8 +178,9 @@ export const backupRenderedRoutes = new Elysia().post(
 
     // Open or resume the upload session.
     let session;
+    let didReset = false;
     try {
-      session = await uploadSessions.openOrResume({
+      const r = await uploadSessions.openOrResume({
         libraryId,
         deviceId,
         phassetLocalId: syntheticPhid,
@@ -184,22 +188,38 @@ export const backupRenderedRoutes = new Elysia().post(
         chunkSize: end - start + 1,
         targetRelPath,
       });
+      session = r.session;
+      didReset = r.reset;
     } catch (e: any) {
+      if (e instanceof BusyElsewhereError) {
+        set.status = 423;
+        return {
+          error: e.message,
+          retry_after_seconds: e.retryAfterSeconds,
+          defer_positions: 10,
+        };
+      }
       set.status = 409;
       return { error: e?.message ?? "session metadata mismatch on resume" };
     }
 
     const resolvedTargetRelPath = session.target_rel_path;
 
+    // Append chunk to the per-session tmp file.
+    const tmpFile = path.join(CHUNK_DIR, `${session._id.toHexString()}.part`);
+    await fs.mkdir(CHUNK_DIR, { recursive: true });
+
+    // Self-heal reset cleared received_bytes — also clear any stale tmp bytes
+    // so the next append starts from 0.
+    if (didReset) {
+      try { await fs.unlink(tmpFile); } catch { /* missing is fine */ }
+    }
+
     // Enforce resume offset.
     if (session.received_bytes !== start) {
       set.status = 409;
       return { error: "resume offset mismatch", expected_offset: session.received_bytes };
     }
-
-    // Append chunk to the per-session tmp file.
-    const tmpFile = path.join(CHUNK_DIR, `${session._id.toHexString()}.part`);
-    await fs.mkdir(CHUNK_DIR, { recursive: true });
 
     const buf =
       body instanceof Uint8Array

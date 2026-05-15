@@ -607,6 +607,12 @@ export interface UploadSessionDoc {
   updated_at: Date;
   /** Set on the final chunk; used for dedup against existing AssetDoc rows. */
   maple_id?: string;
+  /** Apple PHCloudIdentifier — stable across every device on the same iCloud
+   * Photos account. When two devices both have iCloud Photos enabled and try
+   * to back up the same photo, their sessions share this id (their
+   * phasset_local_id differs). openOrResume uses this for cross-device
+   * conflict detection so two devices don't race uploading the same asset. */
+  phasset_cloud_id?: string;
 }
 
 export type UploadSessionWithId = WithId<UploadSessionDoc>;
