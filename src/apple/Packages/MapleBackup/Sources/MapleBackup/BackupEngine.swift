@@ -203,9 +203,6 @@ public actor BackupEngine {
                 targetRelPath: result.targetRelPath,
                 xmp: sidecarXmp)
 
-            // Only after the sidecar lands on the server, delete the local one.
-            try? sidecars.delete(phassetLocalId: task.id.phassetLocalId)
-
             // Upload the Apple-rendered companion when present.
             if let renderedBytes = read.renderedBytes, !renderedBytes.isEmpty {
                 let ext = (result.targetRelPath as NSString).pathExtension
@@ -230,6 +227,16 @@ public actor BackupEngine {
                     phassetCloudId: read.sidecar.phassetCloudId)
             }
 
+            // Local sidecar deletion is deferred until EVERY artifact (sidecar,
+            // rendered companion, Live Photo .mov) has completed. The rendered
+            // + live uploads can throw `busyElsewhere`, which requeues the
+            // whole task — on retry, `reader.read` re-derives metadata from
+            // PHAsset state, and if we'd already nuked the local-edit XMP the
+            // retry would silently regress the user's edits to generated
+            // metadata. Holding the local sidecar until success makes the
+            // retry idempotent.
+            try? sidecars.delete(phassetLocalId: task.id.phassetLocalId)
+
             try await state.transition(task.id, to: .uploaded, error: nil)
             await queue.emit(.completed(task.id, mapleId: result.mapleId))
         } catch UploadClient.UploadError.busyElsewhere(let retryAfterSeconds) {
@@ -245,7 +252,11 @@ public actor BackupEngine {
             let delay = min(retryAfterSeconds, 60)
             let queueRef = queue
             let deferTask = Task.detached(priority: .background) {
+                // `try?` would swallow CancellationError and we'd re-enqueue
+                // after `stop()` was called — re-checking isCancelled after
+                // the sleep keeps the cleanup contract intact.
                 try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                if Task.isCancelled { return }
                 await queueRef.enqueue(task, priority: task.priority)
             }
             retryTasks.insert(deferTask)
@@ -269,7 +280,10 @@ public actor BackupEngine {
                 let backoff = Self.backoffSeconds(for: nextRetry)
                 let queueRef = queue
                 let retryTask = Task.detached(priority: .background) {
+                    // Same cancellation discipline as the busy-elsewhere path —
+                    // bail after the sleep if `stop()` cancelled us.
                     try? await Task.sleep(nanoseconds: UInt64(backoff * 1_000_000_000))
+                    if Task.isCancelled { return }
                     var retry = task
                     retry.retryCount = nextRetry
                     await queueRef.enqueue(retry, priority: retry.priority)
