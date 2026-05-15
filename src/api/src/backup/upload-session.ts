@@ -83,15 +83,30 @@ export const uploadSessions = {
     // unique-key violation path — a worse trade for this workload, where
     // simultaneous-first-chunk collisions are rare.
     if (args.phassetCloudId) {
-      const peer = await coll.findOne({
-        library_id: args.libraryId,
-        phasset_cloud_id: args.phassetCloudId,
-        state: "open",
-        $or: [
-          { device_id: { $ne: args.deviceId } },
-          { phasset_local_id: { $ne: args.phassetLocalId } },
-        ],
-      });
+      // Sort by `updated_at` DESCENDING and inspect the most recently active
+      // peer first. The cloud-id index is intentionally non-unique (see the
+      // comment block below), so after a simultaneous-first-chunk race there
+      // may be multiple "open" peer rows for the same cloud id. A naive
+      // `findOne` would return an arbitrary one — and if that happened to be
+      // a stale duplicate while a sibling row was still actively progressing,
+      // we'd abandon the stale row and let the caller proceed alongside the
+      // active peer, defeating the whole 423 coordination. By preferring the
+      // most-recently-updated peer:
+      //   - If THAT one is active, return 423 (the active peer wins).
+      //   - If THAT one is stale, every other peer (older) is stale too, so
+      //     we sweep them all to "abandoned" in one pass.
+      const peer = await coll.findOne(
+        {
+          library_id: args.libraryId,
+          phasset_cloud_id: args.phassetCloudId,
+          state: "open",
+          $or: [
+            { device_id: { $ne: args.deviceId } },
+            { phasset_local_id: { $ne: args.phassetLocalId } },
+          ],
+        },
+        { sort: { updated_at: -1 } },
+      );
       if (peer) {
         const ageMs = Date.now() - peer.updated_at.getTime();
         if (ageMs <= CROSS_DEVICE_BUSY_WINDOW_MS) {
@@ -102,11 +117,20 @@ export const uploadSessions = {
           );
           throw new BusyElsewhereError(retryAfter);
         }
-        // Peer is stale — abandon it so the merged-timeline GC doesn't keep
-        // pointing at a session that will never complete. The caller's
+        // The most-recent peer is stale → all peers are stale. Sweep every
+        // matching open row to "abandoned" so the merged-timeline GC doesn't
+        // keep pointing at sessions that will never complete. The caller's
         // session (created or reused below) wins.
-        await coll.updateOne(
-          { _id: peer._id, state: "open" },
+        await coll.updateMany(
+          {
+            library_id: args.libraryId,
+            phasset_cloud_id: args.phassetCloudId,
+            state: "open",
+            $or: [
+              { device_id: { $ne: args.deviceId } },
+              { phasset_local_id: { $ne: args.phassetLocalId } },
+            ],
+          },
           { $set: { state: "abandoned", updated_at: new Date() } },
         );
       }
