@@ -318,7 +318,8 @@ struct AppShell: View {
                             thumbClient: thumbClient,
                             thumbCache: thumbCache,
                             displayMode: browseDisplayMode,
-                            onSelectAsset: { asset in openCloudAsset(asset, server: vm.server) }
+                            onSelectAsset: { asset in openCloudAsset(asset, server: vm.server) },
+                            onSelectLocalAsset: { ref in openLocalPhotoKitAsset(ref) }
                         )
                     } else {
                         BrowseGrid(
@@ -619,7 +620,8 @@ struct AppShell: View {
                         thumbClient: thumbClient,
                         thumbCache: thumbCache,
                         displayMode: browseDisplayMode,
-                        onSelectAsset: { asset in openCloudAsset(asset, server: vm.server) }
+                        onSelectAsset: { asset in openCloudAsset(asset, server: vm.server) },
+                        onSelectLocalAsset: { ref in openLocalPhotoKitAsset(ref) }
                     )
                 } else {
                     BrowseGrid(
@@ -1285,6 +1287,40 @@ struct AppShell: View {
                 cloudTimelineThumbCache = CloudThumbCache()
                 libraryTitle = (serverID.host ?? serverID.absoluteString) + " — Timeline"
                 mode = .browse
+            }
+        }
+    }
+
+    /// Open the FullImage editor for a `.localOnly` cell selected from the
+    /// merged cloud timeline. These are PhotoKit photos that haven't been
+    /// uploaded yet, so there is no `SearchAsset` to route through
+    /// `openCloudAsset` — instead, build a PhotoKit-backed AssetRef from
+    /// the asset's local identifier and open it in the editor with
+    /// session-local edits (matches the regular PhotoKit-filter flow).
+    @MainActor
+    private func openLocalPhotoKitAsset(_ ref: ImageRef) {
+        Task { @MainActor in
+            do {
+                let source = try PhotoKitSource()
+                let displayName = ref.displayName
+                let ext = (displayName as NSString).pathExtension.lowercased()
+                let assetRef = AssetRef(
+                    displayName: displayName,
+                    hintExtension: ext.isEmpty ? nil : ext,
+                    stableID: ref.id,
+                    bytesProvider: { [source, ref] in
+                        try await source.rawBytes(for: ref)
+                    }
+                )
+                if sessions[assetRef.id] == nil {
+                    let session = EditSession(asset: assetRef)
+                    sessions[assetRef.id] = session
+                    Task { await session.loadSidecar() }
+                }
+                browseVM.loadSingleCloudAsset(assetRef)
+                mode = .fullImage
+            } catch {
+                browseVM.loadError = error
             }
         }
     }
