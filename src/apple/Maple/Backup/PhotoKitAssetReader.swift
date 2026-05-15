@@ -68,6 +68,11 @@ actor PhotoKitAssetReader: AssetReader {
         let lon = asset.location?.coordinate.longitude
         let filename = originalResource.originalFilename
 
+        // Resolve the device-stable cross-device cloud id. Local-DB lookup
+        // (no iCloud round-trip); nil when iCloud Photos is off or the
+        // asset has no cloud identifier yet.
+        let phassetCloudId = Self.resolveCloudIdentifier(for: phassetLocalId)
+
         // Spec-form maple_id derivation. Matches the server indexer at
         // `src/api/src/workers/stages/exif.ts` so a photo that was already
         // indexed via folder scan and is now being backed up from a device
@@ -108,7 +113,8 @@ actor PhotoKitAssetReader: AssetReader {
             originalFilename: filename,
             mtime: asset.modificationDate?.timeIntervalSince1970
                 ?? asset.creationDate?.timeIntervalSince1970
-                ?? 0)
+                ?? 0,
+            phassetCloudId: phassetCloudId)
 
         return AssetReadResult(
             originalBytes: originalBytes,
@@ -117,6 +123,21 @@ actor PhotoKitAssetReader: AssetReader {
             liveVideoFilename: liveVideoFilename,
             sidecar: sidecar,
             mapleId: mapleId)
+    }
+
+    // MARK: - Cloud identifier resolution
+
+    /// Resolve `PHCloudIdentifier.stringValue` for the local id, or nil
+    /// when the asset has no cloud counterpart (iCloud Photos off, asset
+    /// pending sync, deleted, etc.). Local Photos-DB lookup — no network.
+    nonisolated private static func resolveCloudIdentifier(for localId: String) -> String? {
+        let mappings = PHPhotoLibrary.shared().cloudIdentifierMappings(
+            forLocalIdentifiers: [localId])
+        guard let entry = mappings[localId] else { return nil }
+        switch entry {
+        case .success(let cloudId): return cloudId.stringValue
+        case .failure: return nil
+        }
     }
 
     // MARK: - Maple id derivation

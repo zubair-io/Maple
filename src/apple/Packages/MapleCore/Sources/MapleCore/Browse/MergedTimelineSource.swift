@@ -24,29 +24,59 @@ public enum MergedTimelineCell: Sendable, Hashable {
 public enum MergedTimelineSource {
 
     /// Unions the two streams and emits cells in capture-date-descending order.
-    /// Match rule: a `cloud` row whose `phassetLink == local.id` is the same
-    /// asset; emit as `.synced` (rendering uses the local thumb because it's
-    /// instant).
+    ///
+    /// Join keys, in priority order:
+    ///   1. `cloudIdentifier` — `PHCloudIdentifier.stringValue`, stable
+    ///      across every device on the same iCloud Photos account. The
+    ///      authoritative cross-device match.
+    ///   2. `phassetLink` / `id` — `PHAsset.localIdentifier`, per-device.
+    ///      Fallback for assets without a cloud id (local-only PhotoKit
+    ///      libraries, pre-v2 cache rows).
+    ///
+    /// The cloud-side ref carries arrays of every link's local id + cloud id
+    /// (`allPhassetLinks`, `allCloudIdentifiers`) so every device that has
+    /// ever uploaded the same content gets a chance to match — not just the
+    /// first entry in `phasset_links`.
     public static func merge(local: [ImageRef], cloud: [ImageRef]) -> [MergedTimelineCell] {
-        var matchedLocalIDs = Set<String>()
+        var matchedLocalKeys = Set<String>()
         var cells: [MergedTimelineCell] = []
         cells.reserveCapacity(local.count + cloud.count)
 
-        // First pass: walk cloud, attach a local match when found.
-        let localByPHID: [String: ImageRef] = Dictionary(
-            local.map { ($0.id, $0) },
-            uniquingKeysWith: { first, _ in first })
+        // Build the two lookup maps off the local stream. The cloudIdentifier
+        // map is preferred; the phid map is the fallback. Local refs can
+        // appear in both maps when both keys are known. Duplicates within
+        // either map keep the first occurrence (stable).
+        var localByCloudID: [String: ImageRef] = [:]
+        localByCloudID.reserveCapacity(local.count)
+        var localByPHID: [String: ImageRef] = [:]
+        localByPHID.reserveCapacity(local.count)
+        for l in local {
+            if let cid = l.cloudIdentifier, localByCloudID[cid] == nil {
+                localByCloudID[cid] = l
+            }
+            if localByPHID[l.id] == nil {
+                localByPHID[l.id] = l
+            }
+        }
 
+        // Walk the cloud stream. For each row, attempt cloud-id match first,
+        // then fall back to phid. A multi-device cloud row may carry several
+        // (phid, cloud_id) pairs in `allPhassetLinks` / `allCloudIdentifiers`;
+        // any one matching wins.
         for c in cloud {
-            if let phid = c.phassetLink, let l = localByPHID[phid] {
-                cells.append(.synced(local: l, cloud: c))
-                matchedLocalIDs.insert(phid)
+            let match = findLocalMatch(
+                for: c,
+                byCloudID: localByCloudID,
+                byPHID: localByPHID)
+            if let local = match.local {
+                cells.append(.synced(local: local, cloud: c))
+                matchedLocalKeys.insert(local.id)
             } else {
                 cells.append(.cloudOnly(c))
             }
         }
         // Second pass: any local not matched is .localOnly.
-        for l in local where !matchedLocalIDs.contains(l.id) {
+        for l in local where !matchedLocalKeys.contains(l.id) {
             cells.append(.localOnly(l))
         }
 
@@ -57,6 +87,33 @@ public enum MergedTimelineSource {
             let dr = bestCaptureDate(rhs) ?? .distantPast
             return dl > dr
         }
+    }
+
+    /// Probe cloud-id matches first across every cloud_id this row carries,
+    /// then phid matches across every phid. Returns the first hit found.
+    /// Pure helper; carved out to keep `merge` readable.
+    private static func findLocalMatch(
+        for cloud: ImageRef,
+        byCloudID: [String: ImageRef],
+        byPHID: [String: ImageRef]
+    ) -> (local: ImageRef?, key: String?) {
+        // Cloud-id pass — every entry in allCloudIdentifiers, plus the
+        // legacy single-cloudIdentifier field.
+        let cloudIDs = cloud.allCloudIdentifiers ?? cloud.cloudIdentifier.map { [$0] } ?? []
+        for cid in cloudIDs {
+            if let local = byCloudID[cid] {
+                return (local, cid)
+            }
+        }
+        // Phid pass — every entry in allPhassetLinks, plus the legacy
+        // single-phassetLink field.
+        let phids = cloud.allPhassetLinks ?? cloud.phassetLink.map { [$0] } ?? []
+        for phid in phids {
+            if let local = byPHID[phid] {
+                return (local, phid)
+            }
+        }
+        return (nil, nil)
     }
 
     /// The id used to render / open the cell — prefer the local-side id when

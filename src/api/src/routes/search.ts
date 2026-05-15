@@ -337,6 +337,13 @@ function pickSort(sort: string | undefined): Sort {
   }
 }
 
+interface SearchResultPHLink {
+  phasset_local_id: string;
+  /** Cross-device join key — present when the device that uploaded had
+   * iCloud Photos enabled. See `PhotoKitAssetLink.phasset_cloud_id`. */
+  phasset_cloud_id?: string;
+}
+
 interface SearchResult {
   id: string;
   _id: string;
@@ -360,6 +367,11 @@ interface SearchResult {
   place: Place | null;
   /** LLM-generated caption; `null` before the Phase 6 describe worker has run. */
   description: string | null;
+  /** Per-device PhotoKit links written by the backup ingest endpoint.
+   * Drives the merged Photos+Cloud timeline's `.synced` badge on the
+   * Apple client (see `MergedTimelineSource` in MapleCore). Absent when
+   * the asset wasn't ingested via PhotoKit backup. */
+  phasset_links?: SearchResultPHLink[];
 }
 
 function projectAsset(d: AssetDoc & { _id: ObjectId }): SearchResult {
@@ -368,7 +380,7 @@ function projectAsset(d: AssetDoc & { _id: ObjectId }): SearchResult {
     exif && (exif.camera_make !== null || exif.camera_model !== null)
       ? { make: exif.camera_make, model: exif.camera_model }
       : null;
-  return {
+  const result: SearchResult = {
     // The editor's id format is `fs:<absPath>` (matches Hosted's
     // browser-FS-Access keys); keeping the same shape here lets the FE
     // route a search hit straight into the editor.
@@ -396,6 +408,16 @@ function projectAsset(d: AssetDoc & { _id: ObjectId }): SearchResult {
     place: d.place ?? null,
     description: d.description ?? null,
   };
+  if (d.phasset_links && d.phasset_links.length > 0) {
+    // Strip `device_id` and `first_seen` from the wire shape — the merged
+    // timeline only needs the two identifiers to do its join.
+    result.phasset_links = d.phasset_links.map((l) => {
+      const out: SearchResultPHLink = { phasset_local_id: l.phasset_local_id };
+      if (l.phasset_cloud_id) out.phasset_cloud_id = l.phasset_cloud_id;
+      return out;
+    });
+  }
+  return result;
 }
 
 const SearchQueryT = t.Object({

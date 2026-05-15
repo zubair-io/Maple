@@ -574,8 +574,16 @@ export type ChallengeWithId = WithId<ChallengeDoc>;
  * up from more than one device. */
 export interface PhotoKitAssetLink {
   device_id: string;
-  /** Apple's `PHAsset.localIdentifier`, e.g. "BFBBE32B-2C39-43A5-B7FC-1E9BC0577CFE/L0/001". */
+  /** Apple's `PHAsset.localIdentifier`, e.g. "BFBBE32B-2C39-43A5-B7FC-1E9BC0577CFE/L0/001".
+   * Per-device — different on every device for the same iCloud photo. */
   phasset_local_id: string;
+  /** Apple's `PHCloudIdentifier.stringValue` — stable across every device
+   * signed into the same iCloud Photos account. Absent when the device
+   * doesn't have iCloud Photos enabled, or PhotoKit couldn't resolve a
+   * cloud id at upload time. Used as the cross-device join key by the
+   * merged timeline so a photo backed up from one device shows
+   * `.synced` on every other device that has the same photo locally. */
+  phasset_cloud_id?: string;
   first_seen: Date;
 }
 

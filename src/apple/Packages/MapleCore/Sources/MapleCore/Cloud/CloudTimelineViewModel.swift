@@ -207,19 +207,43 @@ public final class CloudTimelineViewModel {
   // MARK: - Conversion
 
   /// Convert a `SearchAsset` (cloud wire DTO) into the `ImageRef` shape
-  /// that `MergedTimelineSource.merge` operates on. The `phassetLink`
-  /// field is populated from the first `phasset_links` entry so the
-  /// merge logic can detect cloud assets that were ingested from PhotoKit.
+  /// that `MergedTimelineSource.merge` operates on.
+  ///
+  /// The cloud row may have been backed up from multiple devices — every
+  /// device that's uploaded the same content adds another entry to
+  /// `phasset_links`. The merge needs to see ALL of them so that any device
+  /// viewing the library can match against its own local PhotoKit assets,
+  /// not just the one that uploaded first.
+  ///
+  /// Both `phassetLink` (legacy: the [0] phid) and `cloudIdentifier`
+  /// (legacy: first non-nil cloud id across all links — links[0] may
+  /// have no cloud id when an older device uploaded first) are populated
+  /// to keep older single-link callers working; `allPhassetLinks` /
+  /// `allCloudIdentifiers` carry the full arrays used by
+  /// `MergedTimelineSource.findLocalMatch`.
   private static func searchAssetToImageRef(_ a: SearchAsset) -> ImageRef {
     let captured: Date? = a.captured_at.flatMap {
       Self.iso8601.date(from: $0)
     }
+    let links = a.phasset_links ?? []
+    let allPHIDs: [String]? = links.isEmpty
+      ? nil
+      : links.map { $0.phasset_local_id }
+    // First non-nil cloud id across every link, NOT just links[0]. A row
+    // with [0] missing a cloud id but [1] having one (e.g. an older device
+    // uploaded first, a newer one came along later) must still expose the
+    // cloud id through the legacy `cloudIdentifier` field for callers that
+    // don't yet walk `allCloudIdentifiers`.
+    let allCloudIDs: [String] = links.compactMap { $0.phasset_cloud_id }
     return ImageRef(
       id: "fs:\(a.abs_path)",
       displayName: a.filename,
       url: nil,
       captureDate: captured,
-      phassetLink: a.phasset_links?.first?.phasset_local_id)
+      phassetLink: links.first?.phasset_local_id,
+      cloudIdentifier: allCloudIDs.first,
+      allPhassetLinks: allPHIDs,
+      allCloudIdentifiers: allCloudIDs.isEmpty ? nil : allCloudIDs)
   }
 
   /// Process-wide ISO 8601 formatter. `searchAssetToImageRef` is called
