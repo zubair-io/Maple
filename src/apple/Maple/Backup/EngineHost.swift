@@ -74,6 +74,13 @@ public final class EngineHost {
 
             // Fresh queue per start — settings may have changed (different library).
             let queue = InProcessBackupQueue()
+            self.queue = queue
+
+            // Subscribe to the new queue BEFORE rehydrating persisted tasks so
+            // that every `.enqueued` event fired during rehydration is counted
+            // in totalEnqueued. Subscribing after rehydration causes the
+            // progress VM to miss those events and undercount on restart.
+            progress.start(queue: queue)
 
             // Rehydrate any persisted pending tasks so the engine resumes work
             // that was queued before a crash / settings change.
@@ -85,7 +92,6 @@ public final class EngineHost {
                 try await state.transition(task.id, to: .pending)
                 await queue.enqueue(task, priority: task.priority)
             }
-            self.queue = queue
 
             let upload = UploadClient(
                 baseURL: serverBaseURL,
@@ -111,11 +117,6 @@ public final class EngineHost {
                 await engine.run()
             }
 
-            // Start observing the new queue immediately so progress state
-            // survives navigation (the view-model lives on EngineHost, not
-            // on the panel's @State).
-            progress.start(queue: queue)
-
             startPeriodicWalk(deviceId: deviceId, settings: settings,
                               libraryId: settings.libraryId, serverBaseURL: serverBaseURL)
         } catch {
@@ -139,6 +140,10 @@ public final class EngineHost {
         runnerTask = nil
         periodicWalkTask?.cancel()
         periodicWalkTask = nil
+        // Stop the progress VM so it detaches from the now-discarded queue.
+        // `progress.start(queue:)` is idempotent — a subsequent start(settings:)
+        // call will reattach to the new queue cleanly.
+        progress.stop()
     }
 
     /// Start (or restart) the periodic safety walk timer.
