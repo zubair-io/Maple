@@ -7,12 +7,23 @@
 // the state store hasn't seen yet. The change observer fires on a private
 // PhotoKit thread; we hop to MainActor before touching EngineHost state.
 //
+// Concurrency: the enum is MainActor-isolated so callers on the UI can
+// invoke start/stop without ceremony. The actual PhotoKit walk (fetch +
+// enumerate) is heavy — for a 100k-photo library it can take several
+// seconds — so the walk runs on a detached Task at userInitiated priority
+// and only the result is brought back to MainActor. Without that hop, a
+// settings-screen tap freezes the UI until enumeration finishes, which
+// looks indistinguishable from a broken button.
+//
 // Spec: docs/superpowers/specs/2026-05-09-photokit-backup-design.md §10.
 
 import Foundation
 import Photos
+import OSLog
 import MapleBackup
 import MapleCore
+
+private let log = Logger(subsystem: "app.justmaple.aperture", category: "Backup.ChangeObserver")
 
 @MainActor
 enum ChangeObserverWiring {
@@ -34,6 +45,7 @@ enum ChangeObserverWiring {
     /// reconciliation notifications.
     static func start(deviceId: String, settings: BackupSettings,
                       libraryId: String, serverBaseURL: URL) {
+        log.info("start subscribe deviceId=\(deviceId, privacy: .public) libraryId=\(libraryId, privacy: .public) server=\(serverBaseURL.absoluteString, privacy: .public)")
         // Reset cross-walk delete-diff state so a library change doesn't mark
         // assets in the new library as deleted (they weren't in the old set).
         lastSeenPhids = []
@@ -70,8 +82,10 @@ enum ChangeObserverWiring {
     }
 
     /// Walk every PHAsset and enqueue any we don't yet have in BackupStateStore.
-    /// Cheap: PHAsset.fetchAssets is SQLite-backed; the state lookup is also
-    /// SQLite. For a 100k-asset library this is seconds, not minutes.
+    /// PHAsset.fetchAssets is SQLite-backed; the state lookup is also SQLite.
+    /// For a 100k-asset library this is seconds, not minutes — but on the main
+    /// thread, "seconds" is enough to freeze the UI, so the enumeration runs
+    /// on a detached Task and only the resulting id list returns to MainActor.
     ///
     /// Applies inclusion filters from `settings`:
     ///  - `includeVideos`: skip video assets when false.
@@ -82,51 +96,23 @@ enum ChangeObserverWiring {
     ///    iCloud Shared Album (albumCloudShared) when false.
     private static func enqueueAllNew(deviceId: String, settings: BackupSettings,
                                        libraryId: String, serverBaseURL: URL) async {
-        guard let state = EngineHost.shared.state else { return }
+        log.info("walk begin libraryId=\(libraryId, privacy: .public)")
+        guard let state = EngineHost.shared.state else {
+            log.error("walk bail: EngineHost.shared.state is nil — backup engine never finished starting")
+            return
+        }
         let queue = EngineHost.shared.queue
 
-        // Build the shared-album exclusion set once per walk (before the main
-        // enumeration) so per-asset lookups are O(1) hash checks rather than
-        // re-fetching the album collections for each asset. The catalog caches
-        // this result across calls within the same library-change cycle.
-        let sharedAlbumIDs: Set<String> = settings.includeSharedAlbums
-            ? []
-            : PhotoKitCatalog.shared.sharedAlbumIdentifiers()
-
-        // Use the catalog's cached id lists. For large libraries (>5000 ids)
-        // process in 1000-id chunks so the main actor isn't blocked for an
-        // extended period by the include-filter pass.
-        var ids: [String] = []
-
-        let imageIDs = PhotoKitCatalog.shared.imageIdentifiers()
-        if imageIDs.count > 5000 {
-            for await chunk in PhotoKitCatalog.shared.paginatedImageIdentifiers(pageSize: 1000) {
-                for phid in chunk {
-                    guard let asset = PhotoKitCatalog.shared.asset(localId: phid),
-                          shouldInclude(asset, settings: settings, sharedAlbumIDs: sharedAlbumIDs)
-                    else { continue }
-                    ids.append(phid)
-                }
-            }
-        } else {
-            for phid in imageIDs {
-                guard let asset = PhotoKitCatalog.shared.asset(localId: phid),
-                      shouldInclude(asset, settings: settings, sharedAlbumIDs: sharedAlbumIDs)
-                else { continue }
-                ids.append(phid)
-            }
-        }
-
-        if settings.includeVideos {
-            let videoIDs = PhotoKitCatalog.shared.videoIdentifiers()
-            ids.reserveCapacity(ids.count + videoIDs.count)
-            for phid in videoIDs {
-                guard let asset = PhotoKitCatalog.shared.asset(localId: phid),
-                      shouldInclude(asset, settings: settings, sharedAlbumIDs: sharedAlbumIDs)
-                else { continue }
-                ids.append(phid)
-            }
-        }
+        // PhotoKit enumeration off main. PhotoKitCatalog is NSLock-protected
+        // and Sendable so the detached Task can hammer it without crossing
+        // an actor boundary. Doing this on @MainActor would freeze the UI
+        // for several seconds on a 100k-photo library — the original symptom
+        // that made the Start Backup button look dead.
+        let walkStarted = Date()
+        let ids: [String] = await Task.detached(priority: .userInitiated) {
+            walkPhotoKit(settings: settings)
+        }.value
+        log.info("walk enumerated \(ids.count) eligible assets in \(Int(Date().timeIntervalSince(walkStarted) * 1000))ms")
 
         // Delete reconciliation: diff the current walk against the previous one.
         // Any phid in lastSeenPhids but not in the current set was deleted
@@ -147,12 +133,12 @@ enum ChangeObserverWiring {
             let allTasks = try await state.allTasks()
             seen = Set(allTasks.map(\.id))
         } catch {
-            #if DEBUG
-            print("ChangeObserverWiring: allTasks() failed: \(error)")
-            #endif
+            log.error("walk bail: allTasks() failed: \(String(describing: error), privacy: .public)")
             return
         }
 
+        var enqueuedCount = 0
+        var enqueueFailures = 0
         for phid in ids {
             let taskId = BackupTaskID(deviceId: deviceId, phassetLocalId: phid)
             if !seen.contains(taskId) {
@@ -160,14 +146,63 @@ enum ChangeObserverWiring {
                     let task = BackupTask(id: taskId, state: .pending, priority: .background)
                     try await state.upsert(task)
                     await queue.enqueue(task, priority: .background)
+                    enqueuedCount += 1
                 } catch {
                     // Persist failures are rare; skip and try again next walk.
-                    #if DEBUG
-                    print("ChangeObserverWiring: enqueue failed for \(phid): \(error)")
-                    #endif
+                    enqueueFailures += 1
+                    if enqueueFailures <= 3 {
+                        // First few failures are useful diagnostics; after that
+                        // a stream of identical errors just floods Console.
+                        log.error("enqueue failed phid=\(phid, privacy: .public): \(String(describing: error), privacy: .public)")
+                    }
                 }
             }
         }
+        log.info("walk done: enqueued=\(enqueuedCount) skipped=\(ids.count - enqueuedCount) failures=\(enqueueFailures)")
+    }
+
+    // MARK: - Off-main PhotoKit walk
+    //
+    // The functions below are `nonisolated` so they can run from a
+    // detached Task on a background executor. They touch only
+    // PhotoKitCatalog (NSLock-protected + `@unchecked Sendable`) and the
+    // value-type BackupSettings; no shared MainActor state.
+
+    /// PhotoKit enumeration extracted from `enqueueAllNew`. Returns the
+    /// set of eligible PHAsset localIdentifiers given the current settings.
+    /// Pure function — safe to call from any thread. Reads everything
+    /// through PhotoKitCatalog so the (potentially expensive) PHAsset
+    /// fetches are cached across walks within the same change cycle.
+    nonisolated private static func walkPhotoKit(settings: BackupSettings) -> [String] {
+        let sharedAlbumIDs: Set<String> = settings.includeSharedAlbums
+            ? []
+            : PhotoKitCatalog.shared.sharedAlbumIdentifiers()
+
+        // We're already off main, so the chunked async iteration that the
+        // catalog exposes for its main-actor callers isn't needed here —
+        // a plain loop over the cached id list keeps the code simple and
+        // the locking overhead minimal.
+        var ids: [String] = []
+        let imageIDs = PhotoKitCatalog.shared.imageIdentifiers()
+        ids.reserveCapacity(imageIDs.count)
+        for phid in imageIDs {
+            guard let asset = PhotoKitCatalog.shared.asset(localId: phid),
+                  shouldInclude(asset, settings: settings, sharedAlbumIDs: sharedAlbumIDs)
+            else { continue }
+            ids.append(phid)
+        }
+
+        if settings.includeVideos {
+            let videoIDs = PhotoKitCatalog.shared.videoIdentifiers()
+            ids.reserveCapacity(ids.count + videoIDs.count)
+            for phid in videoIDs {
+                guard let asset = PhotoKitCatalog.shared.asset(localId: phid),
+                      shouldInclude(asset, settings: settings, sharedAlbumIDs: sharedAlbumIDs)
+                else { continue }
+                ids.append(phid)
+            }
+        }
+        return ids
     }
 
     /// Notify the server that the given phasset localIdentifiers were deleted
@@ -192,13 +227,14 @@ enum ChangeObserverWiring {
     }
 
     /// Returns true when the asset should be included in the backup based on
-    /// the current `settings`.
+    /// the current `settings`. Nonisolated so the off-main `walkPhotoKit`
+    /// can call it inside `enumerateObjects`.
     ///
     /// - Parameter sharedAlbumIDs: Pre-built set of PHAsset localIdentifiers
     ///   that belong to at least one shared album. Pass an empty set when
     ///   `settings.includeSharedAlbums` is true (no filtering needed).
-    private static func shouldInclude(_ asset: PHAsset, settings: BackupSettings,
-                                       sharedAlbumIDs: Set<String> = []) -> Bool {
+    nonisolated private static func shouldInclude(_ asset: PHAsset, settings: BackupSettings,
+                                                  sharedAlbumIDs: Set<String> = []) -> Bool {
         // Bursts: only the representative frame unless includeBursts is true.
         // `representsBurst` is the key frame chosen by iOS; non-representative
         // burst frames have a non-nil burstIdentifier but representsBurst == false.
@@ -227,4 +263,8 @@ enum ChangeObserverWiring {
         return true
     }
 
+    // Note: the local `sharedAlbumPHIDs()` helper was retired when
+    // `PhotoKitCatalog.shared.sharedAlbumIdentifiers()` shipped on main —
+    // the catalog gives us a process-wide cached answer that invalidates
+    // through the same change-observer fan-out, so every consumer agrees.
 }

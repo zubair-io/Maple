@@ -16,6 +16,11 @@ public final class CloudTimelineViewModel {
 
   public private(set) var buckets: [TimelineBucket] = []
   public private(set) var pagesByBucket: [BucketKey: [SearchAsset]] = [:]
+  /// Per-month merged cells. Populated by `loadPage(...)` when
+  /// `photoKitMerge` is non-nil. Nil for months that haven't been
+  /// loaded yet OR when merge isn't active — consumers fall back to
+  /// `pagesByBucket` in that case.
+  public private(set) var mergedPagesByBucket: [BucketKey: [MergedTimelineCell]] = [:]
   public private(set) var inFlight: Set<BucketKey> = []
   public private(set) var loadError: Error?
   public private(set) var isLoadingBuckets: Bool = false
@@ -41,6 +46,11 @@ public final class CloudTimelineViewModel {
   private let searchClient: CloudSearchClient
   private let bucketsCache: CloudBucketsCache
   private let pagesCache: CloudPagesCache
+  /// When non-nil, `loadPage` builds a merged Photos+Cloud result for
+  /// the bucket and stores it in `mergedPagesByBucket`. Set by AppShell
+  /// when the active cloud library is the configured backup destination
+  /// and PhotoKit access is granted.
+  public let photoKitMerge: PhotoKitMergeAdapter?
 
   /// Bumped on every public load — in-flight closures check this and drop
   /// completions for older generations rather than mutating state.
@@ -54,7 +64,8 @@ public final class CloudTimelineViewModel {
               searchClient: CloudSearchClient,
               bucketsCache: CloudBucketsCache = CloudBucketsCache(),
               pagesCache: CloudPagesCache = CloudPagesCache(),
-              maxConcurrentPageFetches: Int = 2) {
+              maxConcurrentPageFetches: Int = 2,
+              photoKitMerge: PhotoKitMergeAdapter? = nil) {
     self.server = server
     self.libraryID = libraryID
     self.pathPrefix = pathPrefix
@@ -62,6 +73,37 @@ public final class CloudTimelineViewModel {
     self.bucketsCache = bucketsCache
     self.pagesCache = pagesCache
     self.semaphore = AsyncSemaphore(value: maxConcurrentPageFetches)
+    self.photoKitMerge = photoKitMerge
+
+    // When the adapter's background warm-up completes, re-merge buckets
+    // that were loaded against the stale (or empty) cache. Without this,
+    // the first-launch user has to scroll to fresh months to see local
+    // PhotoKit cells appear — already-visible months stay cloud-only
+    // until they're re-rendered. The callback fires on MainActor and the
+    // VM is MainActor-isolated, so the synchronous re-merge is safe.
+    //
+    // Token-based registration lets future callers share a single adapter
+    // instance across multiple VMs without stomping on each other's
+    // callbacks; we don't unsubscribe explicitly because the adapter's
+    // lifetime is bounded by the VM (AppShell rebuilds both together).
+    if let photoKitMerge {
+      _ = photoKitMerge.addOnWarmedUp { [weak self] in
+        self?.remergeLoadedBuckets()
+      }
+    }
+  }
+
+  /// Re-build `mergedPagesByBucket` for every bucket we've already fetched
+  /// from the server. Triggered when the PhotoKit cache warms up so the
+  /// timeline updates in place instead of waiting for the user to scroll
+  /// away and back.
+  private func remergeLoadedBuckets() {
+    guard let merge = photoKitMerge else { return }
+    for (key, results) in pagesByBucket {
+      let localRefs = merge.assetsForMonth(year: key.year, month: key.month)
+      let cloudRefs = results.map { Self.searchAssetToImageRef($0) }
+      mergedPagesByBucket[key] = MergedTimelineSource.merge(local: localRefs, cloud: cloudRefs)
+    }
   }
 
   // MARK: - Loaders
@@ -131,6 +173,11 @@ public final class CloudTimelineViewModel {
                                           year: year, month: month, page: 0) {
       guard g == generation else { return }
       pagesByBucket[key] = cached.results
+      if let merge = photoKitMerge, g == generation {
+        let localRefs = merge.assetsForMonth(year: year, month: month)
+        let cloudRefs = cached.results.map { Self.searchAssetToImageRef($0) }
+        mergedPagesByBucket[key] = MergedTimelineSource.merge(local: localRefs, cloud: cloudRefs)
+      }
     }
 
     await semaphore.acquire()
@@ -146,11 +193,43 @@ public final class CloudTimelineViewModel {
         await pagesCache.write(host: host, libraryID: libraryID,
                                pathPrefix: pathPrefix,
                                year: year, month: month, page: 0, fresh)
+        if let merge = photoKitMerge, g == generation {
+          let localRefs = merge.assetsForMonth(year: year, month: month)
+          let cloudRefs = fresh.results.map { Self.searchAssetToImageRef($0) }
+          mergedPagesByBucket[key] = MergedTimelineSource.merge(local: localRefs, cloud: cloudRefs)
+        }
       }
     } catch {
       if g == generation { loadError = error }
     }
   }
+
+  // MARK: - Conversion
+
+  /// Convert a `SearchAsset` (cloud wire DTO) into the `ImageRef` shape
+  /// that `MergedTimelineSource.merge` operates on. The `phassetLink`
+  /// field is populated from the first `phasset_links` entry so the
+  /// merge logic can detect cloud assets that were ingested from PhotoKit.
+  private static func searchAssetToImageRef(_ a: SearchAsset) -> ImageRef {
+    let captured: Date? = a.captured_at.flatMap {
+      Self.iso8601.date(from: $0)
+    }
+    return ImageRef(
+      id: "fs:\(a.abs_path)",
+      displayName: a.filename,
+      url: nil,
+      captureDate: captured,
+      phassetLink: a.phasset_links?.first?.phasset_local_id)
+  }
+
+  /// Process-wide ISO 8601 formatter. `searchAssetToImageRef` is called
+  /// once per cloud asset on every `loadPage` AND again on every
+  /// `remergeLoadedBuckets` pass — at hundreds of assets per month
+  /// section the allocate-and-tear-down cost shows up under scroll.
+  /// ISO8601DateFormatter is documented thread-safe so a single shared
+  /// instance is fine; matches the `monthFormatter` / `calendar` pattern
+  /// in `CloudTimelineMonthSection`.
+  private static let iso8601: ISO8601DateFormatter = ISO8601DateFormatter()
 
   // MARK: - Helpers
 
