@@ -122,7 +122,7 @@ private struct ThumbnailTile: View {
   }
 
   private func loadThumbnail() async {
-    let asset = await PhotoKitCatalog.shared.asset(localId: localIdentifier)
+    let asset = PhotoKitCatalog.shared.asset(localId: localIdentifier)
     guard let asset else { return }
     let options = PHImageRequestOptions()
     options.deliveryMode = .opportunistic
