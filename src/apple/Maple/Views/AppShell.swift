@@ -1218,9 +1218,35 @@ struct AppShell: View {
                                          folderID: folderID,
                                          libraryPath: libraryPath,
                                          httpClient: httpClient)
-                // Use the dir-listing loader so the grid shows BOTH
-                // subfolders and images at this level.
-                await browseVM.loadCloudDir(source, absPath: libraryPath)
+
+                // If this cloud library is the configured backup destination
+                // AND PhotoKit is authorised, merge in PhotoKit photos so the
+                // user sees their unmounted photos alongside the cloud folder
+                // contents. Falls back to the single-source loadCloudDir
+                // otherwise.
+                let backupSettings = BackupSettings.load()
+                let isBackupDestination = backupSettings?.isConfigured == true
+                    && backupSettings?.serverURL == serverID.absoluteString
+                    && backupSettings?.libraryId == folderID
+                let photoKitStatus = PhotoKitLibrary.authorizationStatus()
+                let photoKitAuthorized = photoKitStatus == .authorized
+                    || photoKitStatus == .limited
+
+                if isBackupDestination && photoKitAuthorized {
+                    do {
+                        let photoKit = try PhotoKitSource()
+                        try await photoKit.fetchAssets(for: .all)
+                        await browseVM.reloadMerged(photoKit: photoKit, cloud: source)
+                        mergedCloudSource = source
+                    } catch {
+                        // PhotoKit failed — fall through to the cloud-only path.
+                        await browseVM.loadCloudDir(source, absPath: libraryPath)
+                    }
+                } else {
+                    // Use the dir-listing loader so the grid shows BOTH
+                    // subfolders and images at this level.
+                    await browseVM.loadCloudDir(source, absPath: libraryPath)
+                }
 
                 // Path-not-on-server fallback. If the persisted path
                 // was renamed or deleted server-side, /api/fs/dir 4xx's
