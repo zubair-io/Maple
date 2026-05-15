@@ -14,27 +14,38 @@
 //
 // Thread-safety
 // -------------
-// The catalog is `@MainActor`-isolated. Callers from other actors cross the
-// hop with `await`. `PHAsset` itself is reference-typed and safe to pass
-// across actor boundaries (it is `@unchecked Sendable` in practice; Photos
-// vends opaque proxy objects backed by their own internal locking).
+// The catalog is a regular `final class` protected by an `NSLock`. Callers
+// from any actor or thread invoke the sync methods directly — no `await`
+// required. `PHAsset` itself is reference-typed and safe to pass across
+// threads (Photos vends opaque proxy objects backed by their own internal
+// locking).
 //
 // Cache invalidation
 // ------------------
-// On every `PhotoKitChangeObserver.shared` fan-out the catalog drops all
-// cached state. The next read from any consumer re-queries PhotoKit and
-// repopulates the caches lazily. Callers do NOT need to participate in
-// invalidation — that contract is entirely internal to this type.
+// `invalidate()` is called SYNCHRONOUSLY from inside the
+// `PhotoKitChangeObserver` fan-out callback — before any other subscriber's
+// handler runs. This guarantees that by the time other subscribers receive
+// the change notification, the catalog's caches have already been cleared
+// and subsequent reads will see fresh data from PhotoKit.
+//
+// Pagination
+// ----------
+// `paginatedImageIdentifiers` enumerates `PHFetchResult` in bounded chunks
+// WITHOUT pre-materialising the full id list. Memory per page is O(pageSize)
+// PHAsset proxies regardless of library size.
 
 import Foundation
 import Photos
 
 // MARK: - PhotoKitCatalog
 
-@MainActor
-public final class PhotoKitCatalog {
+public final class PhotoKitCatalog: @unchecked Sendable {
 
     public static let shared = PhotoKitCatalog()
+
+    // MARK: Internal lock
+
+    private let lock = NSLock()
 
     // MARK: Cached state
 
@@ -61,7 +72,11 @@ public final class PhotoKitCatalog {
 
     private init() {
         observerToken = PhotoKitChangeObserver.shared.subscribe { [weak self] in
-            Task { @MainActor in self?.invalidate() }
+            // Synchronous invalidation — runs on the PhotoKit-private thread
+            // but the lock makes mutation safe. By the time other subscribers'
+            // handlers run, our caches are already cleared, so no subscriber
+            // can read stale cachedImageIDs / assetByID from this catalog.
+            self?.invalidate()
         }
     }
 
@@ -74,9 +89,10 @@ public final class PhotoKitCatalog {
     // MARK: Public API
 
     /// Drop all caches. The next read from any API rebuilds from PhotoKit.
-    /// Called automatically on every `PhotoKitChangeObserver` fan-out.
-    /// Consumers may also call this directly in tests.
+    /// Called automatically — synchronously — on every `PhotoKitChangeObserver`
+    /// fan-out. Consumers may also call this directly in tests.
     public func invalidate() {
+        lock.lock(); defer { lock.unlock() }
         assetByID.removeAll()
         cachedImageIDs = nil
         cachedVideoIDs = nil
@@ -90,10 +106,19 @@ public final class PhotoKitCatalog {
     /// single-id `PHAsset.fetchAssets` call and memoise the result so the
     /// second call for the same id is free.
     public func asset(localId: String) -> PHAsset? {
-        if let cached = assetByID[localId] { return cached }
+        lock.lock()
+        if let cached = assetByID[localId] {
+            lock.unlock()
+            return cached
+        }
+        lock.unlock()
+        // PHAsset.fetchAssets is thread-safe — call outside the lock so we
+        // don't block other readers during the PhotoKit round-trip.
         let result = PHAsset.fetchAssets(withLocalIdentifiers: [localId], options: nil)
         guard let asset = result.firstObject else { return nil }
+        lock.lock()
         assetByID[localId] = asset
+        lock.unlock()
         return asset
     }
 
@@ -103,17 +128,34 @@ public final class PhotoKitCatalog {
     /// all returned assets are populated into `assetByID` so subsequent
     /// `asset(localId:)` calls for those ids are free.
     public func imageIdentifiers() -> [String] {
-        if let cached = cachedImageIDs { return cached }
+        lock.lock()
+        if let cached = cachedImageIDs {
+            lock.unlock()
+            return cached
+        }
+        lock.unlock()
+        // Build outside the lock — PHFetchResult enumeration shouldn't block
+        // other readers. If two callers race, both build the same list and the
+        // last write wins (safe: identical content).
         let opts = PHFetchOptions()
         opts.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
         let result = PHAsset.fetchAssets(with: .image, options: opts)
         var ids: [String] = []
         ids.reserveCapacity(result.count)
+        var newAssets: [String: PHAsset] = [:]
         result.enumerateObjects { asset, _, _ in
             ids.append(asset.localIdentifier)
-            self.assetByID[asset.localIdentifier] = asset
+            newAssets[asset.localIdentifier] = asset
+        }
+        lock.lock()
+        if let cached = cachedImageIDs {
+            // Another caller raced us and already populated the cache.
+            lock.unlock()
+            return cached
         }
         cachedImageIDs = ids
+        for (k, v) in newAssets { assetByID[k] = v }
+        lock.unlock()
         return ids
     }
 
@@ -121,34 +163,67 @@ public final class PhotoKitCatalog {
     ///
     /// Same shape and caching semantics as `imageIdentifiers()`.
     public func videoIdentifiers() -> [String] {
-        if let cached = cachedVideoIDs { return cached }
+        lock.lock()
+        if let cached = cachedVideoIDs {
+            lock.unlock()
+            return cached
+        }
+        lock.unlock()
         let opts = PHFetchOptions()
         opts.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
         let result = PHAsset.fetchAssets(with: .video, options: opts)
         var ids: [String] = []
         ids.reserveCapacity(result.count)
+        var newAssets: [String: PHAsset] = [:]
         result.enumerateObjects { asset, _, _ in
             ids.append(asset.localIdentifier)
-            self.assetByID[asset.localIdentifier] = asset
+            newAssets[asset.localIdentifier] = asset
+        }
+        lock.lock()
+        if let cached = cachedVideoIDs {
+            lock.unlock()
+            return cached
         }
         cachedVideoIDs = ids
+        for (k, v) in newAssets { assetByID[k] = v }
+        lock.unlock()
         return ids
     }
 
     /// Paginated identifier enumeration — yields chunks of `pageSize` ids.
     ///
-    /// Reuses the cached id list when present, so cost is one PhotoKit query
-    /// per cache cycle regardless of how many chunks are consumed. Each
-    /// chunk `await Task.yield()`s between pages so the main run-loop stays
-    /// responsive on large libraries.
+    /// Enumerates `PHFetchResult` directly in bounded slices WITHOUT
+    /// pre-materialising the full id list. For a 100k library with
+    /// pageSize=1000, peak per-page memory is ~1000 PHAsset proxies, not 100k.
+    ///
+    /// `pageSize` is clamped to at least 1 so callers can't accidentally
+    /// request an infinite stream of empty chunks.
     public func paginatedImageIdentifiers(pageSize: Int = 1000) -> AsyncStream<[String]> {
-        AsyncStream { continuation in
-            let all = self.imageIdentifiers()
-            Task { @MainActor in
+        let safePageSize = max(1, pageSize)
+        return AsyncStream { continuation in
+            Task.detached {
+                let opts = PHFetchOptions()
+                opts.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
+                let result = PHAsset.fetchAssets(with: .image, options: opts)
+                let total = result.count
                 var idx = 0
-                while idx < all.count {
-                    let end = min(idx + pageSize, all.count)
-                    continuation.yield(Array(all[idx..<end]))
+                while idx < total {
+                    let end = min(idx + safePageSize, total)
+                    var chunk: [String] = []
+                    chunk.reserveCapacity(end - idx)
+                    // objects(at:) retrieves a bounded page from the
+                    // PHFetchResult without materialising the whole collection.
+                    let indexSet = IndexSet(integersIn: idx..<end)
+                    let pageAssets = result.objects(at: indexSet)
+                    var newAssets: [String: PHAsset] = [:]
+                    for asset in pageAssets {
+                        chunk.append(asset.localIdentifier)
+                        newAssets[asset.localIdentifier] = asset
+                    }
+                    // Opportunistically update the asset cache so later
+                    // `asset(localId:)` calls for these ids are free.
+                    Self.shared.mergeAssetCache(newAssets)
+                    continuation.yield(chunk)
                     idx = end
                     await Task.yield()
                 }
@@ -163,7 +238,12 @@ public final class PhotoKitCatalog {
     /// Used by ChangeObserverWiring to exclude shared-album assets when
     /// `settings.includeSharedAlbums` is false. Result is memoised per cycle.
     public func sharedAlbumIdentifiers() -> Set<String> {
-        if let cached = cachedSharedAlbumIDs { return cached }
+        lock.lock()
+        if let cached = cachedSharedAlbumIDs {
+            lock.unlock()
+            return cached
+        }
+        lock.unlock()
         let collections = PHAssetCollection.fetchAssetCollections(
             with: .album, subtype: .albumCloudShared, options: nil)
         var ids = Set<String>()
@@ -173,7 +253,38 @@ public final class PhotoKitCatalog {
                 ids.insert(asset.localIdentifier)
             }
         }
+        lock.lock()
+        if let cached = cachedSharedAlbumIDs {
+            lock.unlock()
+            return cached
+        }
         cachedSharedAlbumIDs = ids
+        lock.unlock()
         return ids
+    }
+
+    // MARK: Internal helpers
+
+    /// Merge new asset entries into the cache under the lock.
+    /// Used by `paginatedImageIdentifiers` to opportunistically populate the
+    /// per-id lookup cache as pages are streamed.
+    internal func mergeAssetCache(_ newAssets: [String: PHAsset]) {
+        lock.lock(); defer { lock.unlock() }
+        for (k, v) in newAssets { assetByID[k] = v }
+    }
+
+    // MARK: Test-only helpers (internal visibility, not public API)
+
+    /// Seed the image-id cache with a known value. Test use only.
+    internal func testOnlySetCache(imageIDs: [String]) {
+        lock.lock(); defer { lock.unlock() }
+        cachedImageIDs = imageIDs
+    }
+
+    /// Inspect the current image-id cache. Returns nil when the cache is empty.
+    /// Test use only.
+    internal func testOnlyCachedImageIDs() -> [String]? {
+        lock.lock(); defer { lock.unlock() }
+        return cachedImageIDs
     }
 }

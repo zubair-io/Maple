@@ -178,8 +178,8 @@ public actor PhotoKitSource {
     /// Look up a PHAsset by its `localIdentifier` via the process-wide
     /// `PhotoKitCatalog`. The catalog memoises results so repeated calls
     /// for the same id are O(1) after the first hit.
-    private func phAsset(for localID: String) async -> PHAsset? {
-        await PhotoKitCatalog.shared.asset(localId: localID)
+    private func phAsset(for localID: String) -> PHAsset? {
+        PhotoKitCatalog.shared.asset(localId: localID)
     }
 
     /// Fetch the raw image bytes for an asset by localIdentifier (for the
@@ -201,7 +201,7 @@ public actor PhotoKitSource {
     /// UTI is what tells us whether we're looking at `public.heic` /
     /// `public.jpeg` / `public.png` vs `com.adobe.raw-image`).
     public func rawDataWithMetadata(for localID: String) async -> (data: Data, dataUTI: String?)? {
-        guard let phAsset = await phAsset(for: localID) else { return nil }
+        guard let phAsset = phAsset(for: localID) else { return nil }
         return await withCheckedContinuation { continuation in
             let options = PHImageRequestOptions()
             options.version = .unadjusted
@@ -253,7 +253,7 @@ public actor PhotoKitSource {
     /// handler twice (degraded preview, then final). We resume the
     /// continuation exactly once on the final, non-degraded callback.
     public func thumbData(for localID: String) async -> Data? {
-        guard let phAsset = await phAsset(for: localID) else { return nil }
+        guard let phAsset = phAsset(for: localID) else { return nil }
         let target = ThumbnailDiskCache.defaultThumbSize
 
         let platformImage: PlatformImage? = await withCheckedContinuation { continuation in
