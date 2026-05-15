@@ -1,6 +1,12 @@
 // AuthSession.swift
 import Foundation
 import Observation
+import OSLog
+
+/// Logger for the auth subsystem. View in Xcode's debug console or
+/// Console.app filtering on subsystem `app.justmaple.aperture.auth`.
+/// Keep error-level events visible without being chatty.
+let authLogger = Logger(subsystem: "app.justmaple.aperture.auth", category: "session")
 
 public struct AuthUser: Codable, Equatable, Sendable {
   public let id: String
@@ -48,10 +54,23 @@ public final class AuthSession {
   }
 
   public func bootstrapAndRestore() async {
-    guard let tokens = (try? TokenStore.load(server: server)) else {
+    // Distinguish "Keychain says there's no entry" (definitive — clear
+    // cached state) from "Keychain itself failed to read" (transient —
+    // could be a locked Keychain, errSecInteractionNotAllowed, etc.;
+    // preserve cached state so a future bootstrap can recover). The
+    // previous `try?` collapsed both into nil and unconditionally
+    // wiped the cache.
+    let loaded: AuthTokens?
+    do { loaded = try TokenStore.load(server: server) }
+    catch {
+      authLogger.error("TokenStore.load failed transiently: \(error.localizedDescription, privacy: .public) — preserving cached state")
+      return
+    }
+    guard let tokens = loaded else {
       clearLocalCredentials()
       return
     }
+
     do {
       let me = try await client.me(accessToken: tokens.access)
       apply(user: me.user)
@@ -61,10 +80,9 @@ public final class AuthSession {
       // server (or transport) is misbehaving, not the user's
       // credentials.
       return
-    } catch let e as AuthClientError {
+    } catch is AuthClientError {
       // .unauthorized / .forbidden — token is dead, fall through to
       // the refresh attempt below.
-      _ = e
     } catch {
       // Untyped throw from a future code path — treat as transient
       // to preserve the cache; a real auth failure will resurface
@@ -72,24 +90,36 @@ public final class AuthSession {
       return
     }
 
+    // /me said unauthorized. Try to refresh.
+    let newTokens: AuthTokens
     do {
-      let new = try await client.refresh(refreshToken: tokens.refresh)
-      try? TokenStore.save(new.tokens, server: server)
-      apply(user: new.user)
+      newTokens = try await client.refreshTokens(refreshToken: tokens.refresh)
     } catch let e as AuthClientError where !e.isAuthFailure {
       // Refresh failed because the network died, the server returned
       // 5xx, or the response failed to decode. Tokens may still be
-      // valid; do NOT clear them. The previous catch-all here cleared
-      // tokens on every non-network AuthClientError, including 5xx
-      // from /api/auth/refresh — that's the bug Copilot flagged.
+      // valid; do NOT clear them.
       return
     } catch {
-      // Refresh was rejected with 401/403 (or an unexpected error type
-      // that we conservatively treat as a real rejection — anything
-      // transient should have been caught by the typed branch above).
-      // Credentials are dead; clear everything so the next bootstrap
-      // routes to the sign-in sheet.
+      // Refresh was rejected (401/403) or hit an unexpected error type
+      // we conservatively treat as rejection. Credentials are dead.
       clearLocalCredentials()
+      return
+    }
+
+    // Refresh succeeded — the server has invalidated the old refresh
+    // token and issued a new pair. Persist them IMMEDIATELY so a
+    // subsequent /me failure can't lose the rotation (which would
+    // leave us holding a stale refresh token and force sign-in on
+    // the next bootstrap).
+    try? TokenStore.save(newTokens, server: server)
+    hasCredentials = true
+
+    // Fetch fresh user metadata with the new access token. Failure
+    // here is transient — the rotated tokens are good, the cached
+    // user (if any) remains correct, and the next bootstrap will
+    // pick up the metadata.
+    if let me = try? await client.me(accessToken: newTokens.access) {
+      apply(user: me.user)
     }
   }
 
