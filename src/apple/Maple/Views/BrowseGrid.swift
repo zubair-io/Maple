@@ -138,6 +138,17 @@ struct BrowseGrid: View {
                                               source: vm.currentSource,
                                               displayMode: resolvedDisplayMode)
                                     .id(asset.id)
+                                    // Pin hit testing to the cell rectangle. In
+                                    // .fill mode the inner Image's resizable
+                                    // overflow extends past the rounded clip,
+                                    // and without an explicit content shape the
+                                    // tap region follows that overflow into the
+                                    // adjacent cell — so a click near the edge
+                                    // of a portrait cell selects the cell below
+                                    // it, a landscape cell selects the cell to
+                                    // its left, etc. The Rectangle shape is the
+                                    // cell's actual layout frame.
+                                    .contentShape(Rectangle())
                                     // Lazy session prime — fires when SwiftUI
                                     // instantiates this cell (i.e. when it
                                     // scrolls into view in the LazyVGrid).
@@ -146,13 +157,14 @@ struct BrowseGrid: View {
                                     // built a session per asset in the folder
                                     // regardless of visibility.
                                     .onAppear { onPrimeSession?(asset) }
-                                    // Single click selects (highlights cell, Info
-                                    // pane refreshes).
+                                    // Single click opens the editor. Matches
+                                    // the cloud Timeline's click-to-open
+                                    // behavior so a thumbnail tap behaves the
+                                    // same regardless of source (Files,
+                                    // PhotoKit, Cloud). Selection still moves
+                                    // to the tapped asset so keyboard nav and
+                                    // the Info-pane focus are unaffected.
                                     .onTapGesture {
-                                        vm.selectedID = asset.id
-                                    }
-                                    // Double click opens the editor.
-                                    .onTapGesture(count: 2) {
                                         vm.selectedID = asset.id
                                         onOpenEditor?(asset)
                                     }
@@ -168,7 +180,13 @@ struct BrowseGrid: View {
                 .background(MapleTokens.bg)
                 .opacity(isEmpty ? 0 : 1)
                 .onChange(of: vm.selectedID) { _, newID in
-                    if let id = newID { proxy.scrollTo(id, anchor: .center) }
+                    // Minimum scroll — bring the cell into view only when it's
+                    // outside the viewport. `.center` re-centered every click,
+                    // and the resulting mid-click layout shift made rapid taps
+                    // land on the wrong cell. Keyboard arrow nav still works:
+                    // when the next/prev cell is offscreen, SwiftUI scrolls just
+                    // enough to expose it.
+                    if let id = newID { proxy.scrollTo(id, anchor: nil) }
                 }
             }
 
@@ -538,6 +556,10 @@ private struct MergedCellView: View {
             }
 
         }
+        // Same fill-mode hit-test fix as ThumbnailCell — pin the tap area to
+        // the cell rectangle so the inner Image's .fill overflow doesn't bleed
+        // into neighboring cells.
+        .contentShape(Rectangle())
         .onAppear { startLoad() }
         .onDisappear {
             loadTask?.cancel()
