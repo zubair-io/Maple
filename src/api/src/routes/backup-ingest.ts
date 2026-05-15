@@ -12,6 +12,11 @@
  *   400 — missing/invalid headers, bad Content-Range
  *   404 — library id not found
  *   409 — resume offset mismatch. Body: { expected_offset: number }
+ *   423 — another device is actively uploading the same iCloud photo.
+ *         Body: { retry_after_seconds: number, defer_positions: number }.
+ *         Same-key metadata mismatches (total_bytes or target_rel_path
+ *         changed between attempts) are handled silently — the session is
+ *         reset in place rather than returning 409.
  *
  * Spec: docs/superpowers/specs/2026-05-09-photokit-backup-design.md §20.
  */
@@ -22,7 +27,7 @@ import {
   foldersCollection,
   geocodeCacheCollection,
 } from "../db/client.ts";
-import { uploadSessions } from "../backup/upload-session.ts";
+import { uploadSessions, BusyElsewhereError } from "../backup/upload-session.ts";
 import { formatBackupPath } from "../backup/path-formatter.ts";
 import { backupSessionsRepo } from "../db/backup-sessions.repo.ts";
 import { quantizedKey } from "../enrichment/coordinate-cache.ts";
@@ -146,16 +151,28 @@ export const backupIngestRoutes = new Elysia().post(
 
     // Open or resume the upload session.
     let session;
+    let didReset = false;
     try {
-      session = await uploadSessions.openOrResume({
+      const r = await uploadSessions.openOrResume({
         libraryId,
         deviceId,
         phassetLocalId: phid,
         totalBytes,
         chunkSize: end - start + 1,
         targetRelPath,
+        phassetCloudId: phCloudId,
       });
+      session = r.session;
+      didReset = r.reset;
     } catch (e: any) {
+      if (e instanceof BusyElsewhereError) {
+        set.status = 423;
+        return {
+          error: e.message,
+          retry_after_seconds: e.retryAfterSeconds,
+          defer_positions: 10,
+        };
+      }
       set.status = 409;
       return { error: e?.message ?? "session metadata mismatch on resume" };
     }
@@ -165,15 +182,22 @@ export const backupIngestRoutes = new Elysia().post(
     // upload by sending different metadata on resume.
     const resolvedTargetRelPath = session.target_rel_path;
 
+    // Write chunk to a per-session tmp file.
+    const tmpFile = path.join(CHUNK_DIR, `${session._id.toHexString()}.part`);
+    await fs.mkdir(CHUNK_DIR, { recursive: true });
+
+    // The session was reset in place (metadata mismatch self-heal). Clear any
+    // stale tmp bytes from the previous attempt so the next appendFile starts
+    // at offset 0 cleanly.
+    if (didReset) {
+      try { await fs.unlink(tmpFile); } catch { /* missing is fine */ }
+    }
+
     // Enforce resume offset — reject if client is behind or ahead.
     if (session.received_bytes !== start) {
       set.status = 409;
       return { error: "resume offset mismatch", expected_offset: session.received_bytes };
     }
-
-    // Write chunk to a per-session tmp file.
-    const tmpFile = path.join(CHUNK_DIR, `${session._id.toHexString()}.part`);
-    await fs.mkdir(CHUNK_DIR, { recursive: true });
 
     const buf =
       body instanceof Uint8Array

@@ -328,9 +328,9 @@ describe("POST /api/libraries/:id/backup/ingest", () => {
     expect(b2.expected_offset).toBe(0);
   });
 
-  test("resume with different filename → 409 session metadata mismatch", async () => {
+  test("resume with different filename self-heals — server resets, asks client to restart from 0", async () => {
     const phidResume = "ABC/L0/099";
-    // Open session with IMG_a.heic
+    // Open session with IMG_a.heic.
     const r1 = await app.handle(ingest(Buffer.alloc(128, 7), {
       "X-Maple-Device-Id": deviceId,
       "X-Maple-Phasset-Id": phidResume,
@@ -341,19 +341,74 @@ describe("POST /api/libraries/:id/backup/ingest", () => {
     }));
     expect(r1.status).toBe(202);
 
-    // Resume with different filename (IMG_b.heic) → should 409
+    // Same phid, different filename — the metadata mismatch is self-healed
+    // server-side (session reset to offset 0 in place). The client's request
+    // still has start=128, so it gets a normal 409 with expected_offset=0
+    // telling it to restart from the top.
     const r2 = await app.handle(ingest(Buffer.alloc(128, 7), {
       "X-Maple-Device-Id": deviceId,
       "X-Maple-Phasset-Id": phidResume,
       "X-Maple-Capture-Date": "2024-04-01T08:00:00Z",
-      "X-Maple-Filename": "IMG_b.heic",  // different filename
+      "X-Maple-Filename": "IMG_b.heic",  // different filename → new target_rel_path
       "X-Maple-Total-Bytes": "256",
-      "X-Maple-Maple-Id": "resume-hijack-test",
       "Content-Range": "bytes 128-255/256",
     }));
     expect(r2.status).toBe(409);
     const b2 = await r2.json();
-    expect(b2.error).toContain("mismatch");
+    expect(b2.expected_offset).toBe(0);
+
+    // Client follows the expected_offset and restarts at 0 with the new
+    // filename — should now succeed end-to-end.
+    const r3 = await app.handle(ingest(Buffer.alloc(128, 8), {
+      "X-Maple-Device-Id": deviceId,
+      "X-Maple-Phasset-Id": phidResume,
+      "X-Maple-Capture-Date": "2024-04-01T08:00:00Z",
+      "X-Maple-Filename": "IMG_b.heic",
+      "X-Maple-Total-Bytes": "256",
+      "Content-Range": "bytes 0-127/256",
+    }));
+    expect(r3.status).toBe(202);
+
+    const r4 = await app.handle(ingest(Buffer.alloc(128, 8), {
+      "X-Maple-Device-Id": deviceId,
+      "X-Maple-Phasset-Id": phidResume,
+      "X-Maple-Capture-Date": "2024-04-01T08:00:00Z",
+      "X-Maple-Filename": "IMG_b.heic",
+      "X-Maple-Total-Bytes": "256",
+      "X-Maple-Maple-Id": "self-heal-restart-test",
+      "Content-Range": "bytes 128-255/256",
+    }));
+    expect(r4.status).toBe(200);
+  });
+
+  test("cross-device: second device gets 423 while peer is actively uploading", async () => {
+    const sharedCloudId = "icloud-BUSY-PHOTO";
+    // Phone starts a multi-chunk upload but doesn't finish yet.
+    const phoneR1 = await app.handle(ingest(Buffer.alloc(128, 9), {
+      "X-Maple-Device-Id": "phone-busy",
+      "X-Maple-Phasset-Id": "phone-local-busy",
+      "X-Maple-PHAsset-Cloud-Id": sharedCloudId,
+      "X-Maple-Capture-Date": "2024-10-01T08:00:00Z",
+      "X-Maple-Filename": "IMG_BUSY.HEIC",
+      "X-Maple-Total-Bytes": "256",
+      "Content-Range": "bytes 0-127/256",
+    }));
+    expect(phoneR1.status).toBe(202);
+
+    // Desktop tries the same iCloud asset concurrently — should be told to back off.
+    const desktopR = await app.handle(ingest(Buffer.alloc(128, 10), {
+      "X-Maple-Device-Id": "desktop-busy",
+      "X-Maple-Phasset-Id": "desktop-local-busy",
+      "X-Maple-PHAsset-Cloud-Id": sharedCloudId,
+      "X-Maple-Capture-Date": "2024-10-01T08:00:00Z",
+      "X-Maple-Filename": "IMG_BUSY.HEIC",
+      "X-Maple-Total-Bytes": "256",
+      "Content-Range": "bytes 0-127/256",
+    }));
+    expect(desktopR.status).toBe(423);
+    const body = await desktopR.json();
+    expect(body.retry_after_seconds).toBeGreaterThan(0);
+    expect(body.defer_positions).toBe(10);
   });
 
   test("path collision (file already on disk, no Mongo row) → 500", async () => {
