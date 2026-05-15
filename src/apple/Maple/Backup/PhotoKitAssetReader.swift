@@ -134,7 +134,7 @@ actor PhotoKitAssetReader: AssetReader {
     /// otherwise dedup will silently regress on cameras that report
     /// shutter counts.
     private static func deriveMapleId(originalBytes: Data) -> String? {
-        if let ts = readExifDateTimeOriginalISO8601UTC(from: originalBytes) {
+        if let ts = readExifCaptureDateISO8601UTC(from: originalBytes) {
             // Cap the head slice at the spec's 64 KB. Hashing the whole
             // file is wasted work — `MapleId::primary` ignores everything
             // past `SHA1_HEAD_BYTES`. Use `Data(prefix:)` rather than
@@ -153,37 +153,66 @@ actor PhotoKitAssetReader: AssetReader {
         return MapleId.fallback(bytes: originalBytes)
     }
 
-    /// Read EXIF DateTimeOriginal from the asset bytes and normalise to
+    /// Read EXIF capture timestamp from the asset bytes and normalise to
     /// the ISO 8601 string the server indexer hashes
     /// (`<exifr>.DateTimeOriginal.toISOString()`).
     ///
-    /// EXIF DateTimeOriginal has no timezone designator. exifr's default
-    /// behaviour is to interpret it as UTC and emit a Date — we match
-    /// that interpretation here so the resulting ISO 8601 string is
-    /// byte-for-byte the same value the indexer feeds into BLAKE3.
-    /// (If the indexer's interpretation later changes — e.g. once
-    /// OffsetTimeOriginal is plumbed through — this helper has to follow.)
+    /// Tries `DateTimeOriginal` first, then `DateTimeDigitized` (= exifr's
+    /// `CreateDate`) to match the indexer's fallback at
+    /// `src/api/src/indexer/exif.ts:117`
+    /// (`asIsoDate(DateTimeOriginal) ?? asIsoDate(CreateDate)`). Without
+    /// the second key, a file that has only `CreateDate` would compute a
+    /// fallback-form id on device but a primary-form id on the server,
+    /// breaking dedup.
     ///
-    /// Returns nil when DateTimeOriginal is absent or unparseable —
+    /// EXIF date strings have no timezone designator. exifr's default
+    /// behaviour is to interpret them as UTC and emit a Date — we match
+    /// that interpretation here so the resulting ISO 8601 string is
+    /// byte-for-byte the same value the indexer feeds into BLAKE3. (If
+    /// the indexer later honours `OffsetTimeOriginal`, this helper has to
+    /// follow in lockstep.)
+    ///
+    /// Returns nil when both keys are absent or neither parses —
     /// callers fall through to fallback-form derivation.
-    private static func readExifDateTimeOriginalISO8601UTC(from data: Data) -> String? {
+    private static func readExifCaptureDateISO8601UTC(from data: Data) -> String? {
         guard let src = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
         guard let props = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any],
-              let exif = props[kCGImagePropertyExifDictionary] as? [CFString: Any],
-              let dateStr = exif[kCGImagePropertyExifDateTimeOriginal] as? String
+              let exif = props[kCGImagePropertyExifDictionary] as? [CFString: Any]
         else { return nil }
-        let parser = DateFormatter()
-        parser.dateFormat = "yyyy:MM:dd HH:mm:ss"
-        parser.timeZone = TimeZone(secondsFromGMT: 0)
-        parser.locale = Locale(identifier: "en_US_POSIX")
-        guard let date = parser.date(from: dateStr.trimmingCharacters(in: .whitespaces)) else {
+        let dateStr =
+            (exif[kCGImagePropertyExifDateTimeOriginal] as? String)
+            ?? (exif[kCGImagePropertyExifDateTimeDigitized] as? String)
+        guard let dateStr else { return nil }
+        guard let date = Self.exifDateParser
+            .date(from: dateStr.trimmingCharacters(in: .whitespaces)) else {
             return nil
         }
-        let out = ISO8601DateFormatter()
-        out.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        out.timeZone = TimeZone(secondsFromGMT: 0)
-        return out.string(from: date)
+        return Self.iso8601UTCFormatter.string(from: date)
     }
+
+    /// EXIF date parser — `yyyy:MM:dd HH:mm:ss`, UTC, POSIX locale.
+    /// Cached as a `static let` because `DateFormatter` allocation is
+    /// non-trivial on large backups (one parse per asset). `DateFormatter`
+    /// is documented thread-safe for reads after configuration.
+    private static let exifDateParser: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy:MM:dd HH:mm:ss"
+        f.timeZone = TimeZone(secondsFromGMT: 0)
+        f.locale = Locale(identifier: "en_US_POSIX")
+        return f
+    }()
+
+    /// ISO 8601 UTC formatter with millisecond precision — matches
+    /// JavaScript's `Date.prototype.toISOString()` (`YYYY-MM-DDTHH:mm:ss.sssZ`),
+    /// the exact wire format exifr emits and the indexer hashes into the
+    /// primary-form maple_id. Cached for the same reason as
+    /// `exifDateParser`.
+    private static let iso8601UTCFormatter: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        f.timeZone = TimeZone(secondsFromGMT: 0)
+        return f
+    }()
 
     // MARK: - Reading bytes
 

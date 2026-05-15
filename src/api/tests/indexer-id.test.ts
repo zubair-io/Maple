@@ -53,13 +53,6 @@ describe("maple:id primary", () => {
     expect(id.kind).toBe("primary");
     expect(id.bytes.length).toBe(16);
     expect(id.bytes[0]).toBe(0x01);
-
-    // Cross-implementation parity vector — same id is asserted on the
-    // device side by `HashingTests.testMapleIdPrimaryMatchesServerVector`
-    // (Swift wrapper → raw-ffi → raw-core) and inside the Rust raw-ffi
-    // crate by `maple_id_primary_matches_raw_core`. Locking the hex here
-    // keeps all three implementations honest.
-    expect(id.hex).toBe("014866c913dfe35e7b9618b709827be9");
   });
 
   it("uses empty bytes for missing serial + 0 shutter", async () => {
@@ -103,10 +96,47 @@ describe("maple:id fallback", () => {
     expect(id.hex).toBe(toHex(expected));
     expect(id.kind).toBe("fallback");
     expect(id.bytes[0]).toBe(0x02);
+  });
+});
 
-    // Cross-implementation parity vector — asserted identically on the
-    // device side by `HashingTests.testMapleIdFallbackMatchesServerVector`.
+describe("maple:id cross-implementation parity (production ISO 8601 input)", () => {
+  // The exif stage at `src/api/src/workers/stages/exif.ts:60` feeds
+  // `deriveId(head, exif.captured_at, null, null)`, where `captured_at`
+  // has been normalised to JS-`toISOString()` form (`YYYY-MM-DDTHH:mm:ss.sssZ`)
+  // by `normalizeExif`. The device's `PhotoKitAssetReader` re-formats EXIF
+  // DateTimeOriginal to the same ISO shape before calling
+  // `MapleId.primary`. These tests pin the hex output of that exact
+  // production path so a future refactor of the wire format breaks
+  // visibly. Same canonical hex is asserted on the device side by
+  // `HashingTests.testMapleIdPrimaryMatchesServerVector` and the no-serial
+  // sibling.
+
+  it("primary id over ISO 8601 capture date + serial + shutter", async () => {
+    const { primary } = await import("../src/indexer/id.ts");
+    const bytes = new Uint8Array(1024);
+    for (let i = 0; i < bytes.length; i++) bytes[i] = i & 0xff;
+    const id = primary(bytes, "2024-06-01T12:34:56.000Z", "SN-1234", 4242n);
+    expect(id.hex).toBe("014b1f8777da6de0db3c9eca066269ee");
+  });
+
+  it("deriveId on ISO 8601 capture date + null serial + null shutter (production path)", async () => {
+    const { deriveId } = await import("../src/indexer/id.ts");
+    const bytes = new Uint8Array(1024);
+    for (let i = 0; i < bytes.length; i++) bytes[i] = i & 0xff;
+    // null/null mirrors the exif stage's literal call site at
+    // `src/api/src/workers/stages/exif.ts:64-65`.
+    const id = deriveId(bytes, "2024-06-01T12:34:56.000Z", null, null);
+    expect(id.hex).toBe("011d498eb40e67dd93b123d07a8dce82");
+    expect(id.kind).toBe("primary");
+  });
+
+  it("fallback id (no capture date) for a 512-byte ramp", async () => {
+    const { deriveId } = await import("../src/indexer/id.ts");
+    const bytes = new Uint8Array(512);
+    for (let i = 0; i < bytes.length; i++) bytes[i] = (i * 7) & 0xff;
+    const id = deriveId(bytes, null, null, null);
     expect(id.hex).toBe("021ee2b82d3019e91bf272ccb95bb8bb");
+    expect(id.kind).toBe("fallback");
   });
 });
 
