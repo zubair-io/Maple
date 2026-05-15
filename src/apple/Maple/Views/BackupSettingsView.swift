@@ -16,6 +16,11 @@ struct BackupSettingsView: View {
   @State private var libraryLoadError: String?
   @State private var isLoadingLibraries = false
   @State private var saveDebounceTask: Task<Void, Never>?
+  /// Becomes true the first time the user taps "Start Backup" (or on
+  /// appear if the engine is already running from a prior session). Gates
+  /// the Status section so the user doesn't see "No photos queued" before
+  /// they've actually started anything.
+  @State private var hasStarted = false
 
   private var selectedServerURL: URL? {
     URL(string: settings.serverURL)
@@ -39,21 +44,46 @@ struct BackupSettingsView: View {
       Section("Network") {
         Toggle("Wi-Fi only", isOn: $settings.wifiOnly)
       }
-      Section("Status") {
-        BackupStatusPanel()
+      if hasStarted {
+        Section("Status") {
+          BackupStatusPanel()
+        }
+      }
+      Section {
+        Button {
+          Task {
+            settings.save()
+            await EngineHost.shared.start(settings: settings)
+            hasStarted = true
+          }
+        } label: {
+          Text(hasStarted ? "Restart Backup" : "Start Backup")
+            .frame(maxWidth: .infinity)
+        }
+        .disabled(!settings.isConfigured)
+        .buttonStyle(.borderedProminent)
+        .accessibilityIdentifier("backup.startButton")
       }
     }
     .formStyle(.grouped)
     .task(id: settings.serverURL) {
       await reloadLibraries()
     }
+    .task {
+      // If the engine is already running (queued items from a prior session),
+      // surface the status section without making the user re-tap Start.
+      let snapshot = await EngineHost.shared.queue.snapshot()
+      if !snapshot.isEmpty { hasStarted = true }
+    }
     .onChange(of: settings) { _, new in
+      // Persist edits eagerly (debounced) so the user's picks survive
+      // app restarts. Do NOT auto-restart the engine — only the explicit
+      // Start Backup button starts (or restarts) the upload run.
       saveDebounceTask?.cancel()
       saveDebounceTask = Task {
         try? await Task.sleep(for: .milliseconds(800))
         if Task.isCancelled { return }
         new.save()
-        await EngineHost.shared.start(settings: new)
       }
     }
   }
