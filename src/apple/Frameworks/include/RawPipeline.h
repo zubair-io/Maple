@@ -452,7 +452,9 @@ int32_t maple_blake3_hex(const uint8_t *bytes_ptr, uintptr_t bytes_len, uint8_t 
  * Returns:
  *   0  success
  *  -1  null pointer for `head_ptr`, `captured_at_ptr`, or `out_hex`
- *  -2  `head_len == 0` or `captured_at_len == 0`
+ *  -2  `head_len == 0`, `captured_at_len == 0`, OR `captured_at_ptr`
+ *       does not decode as valid UTF-8 (the hash hashes its UTF-8 byte
+ *       view, so non-UTF-8 input is rejected up front rather than hashed)
  */
 int32_t maple_id_primary(const uint8_t *head_ptr,
                          uintptr_t head_len,
