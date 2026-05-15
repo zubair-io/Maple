@@ -415,11 +415,6 @@ struct ThumbnailCell: View {
                 }
             }
 
-            Text(asset.displayName)
-                .font(MapleTokens.Typography.caption)
-                .foregroundStyle(MapleTokens.textMuted)
-                .lineLimit(1)
-                .truncationMode(.middle)
         }
         // UITest harness selector. `app.otherElements["thumb-test_0017"]`
         // resolves the cell containing the asset whose displayName is
@@ -542,11 +537,6 @@ private struct MergedCellView: View {
                     .padding(4)
             }
 
-            Text(displayName)
-                .font(MapleTokens.Typography.caption)
-                .foregroundStyle(MapleTokens.textMuted)
-                .lineLimit(1)
-                .truncationMode(.middle)
         }
         .onAppear { startLoad() }
         .onDisappear {
