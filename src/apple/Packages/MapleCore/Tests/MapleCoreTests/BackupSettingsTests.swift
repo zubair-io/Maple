@@ -36,7 +36,7 @@ final class BackupSettingsTests: XCTestCase {
 
     func testDefaultsConstructor() {
         let s = BackupSettings.defaults
-        XCTAssertEqual(s.rootFolder, "Photos/")
+        XCTAssertEqual(s.rootFolder, "")
         XCTAssertTrue(s.wifiOnly)
         XCTAssertTrue(s.includeLivePhotos)
         XCTAssertTrue(s.includeVideos)
