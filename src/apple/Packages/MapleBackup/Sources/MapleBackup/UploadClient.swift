@@ -91,6 +91,7 @@ public actor UploadClient {
                        lon: Double?,
                        bytes: Data,
                        mapleId: String,
+                       phassetCloudId: String? = nil,
                        onProgress: (@Sendable (_ sent: Int64, _ total: Int64) async -> Void)? = nil) async throws -> Result {
         let total = Int64(bytes.count)
         guard total > 0 else {
@@ -117,6 +118,9 @@ public actor UploadClient {
             req.setValue("bytes \(offset)-\(chunkEnd)/\(total)", forHTTPHeaderField: "Content-Range")
             req.setValue(deviceId, forHTTPHeaderField: "X-Maple-Device-Id")
             req.setValue(phassetLocalId, forHTTPHeaderField: "X-Maple-Phasset-Id")
+            if let phassetCloudId {
+                req.setValue(phassetCloudId, forHTTPHeaderField: "X-Maple-PHAsset-Cloud-Id")
+            }
             req.setValue(iso8601.string(from: captureDate), forHTTPHeaderField: "X-Maple-Capture-Date")
             req.setValue(filename, forHTTPHeaderField: "X-Maple-Filename")
             req.setValue(String(total), forHTTPHeaderField: "X-Maple-Total-Bytes")
