@@ -1025,21 +1025,12 @@ struct AppShell: View {
             do {
                 let source = try PhotoKitSource()
                 try await source.fetchAssets(for: filter)
-
-                // If backup is configured, launch merged Photos+Cloud timeline.
-                if let settings = BackupSettings.load(), settings.isConfigured,
-                   let serverURL = URL(string: settings.serverURL) {
-                    let httpClient = makeAuthenticatedHTTPClient(server: serverURL)
-                    let cloud = CloudSource(server: serverURL,
-                                            folderID: settings.libraryId,
-                                            libraryPath: settings.rootFolder,
-                                            httpClient: httpClient)
-                    mergedCloudSource = cloud
-                    await browseVM.reloadMerged(photoKit: source, cloud: cloud)
-                } else {
-                    mergedCloudSource = nil
-                    await browseVM.loadSource(source)
-                }
+                // PhotoKit-library view is always single-source. The merged
+                // Photos+Cloud view belongs on the cloud-library timeline
+                // (where the user is browsing the backup destination), not
+                // here. Keep mergedCloudSource nil for consistency.
+                mergedCloudSource = nil
+                await browseVM.loadSource(source)
                 SourceSelectionStore.save(.photoKitFilter(filter))
             } catch {
                 browseVM.loadError = error
