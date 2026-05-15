@@ -1748,7 +1748,9 @@ pub extern "C" fn maple_blake3_hex(
 /// Returns:
 ///   0  success
 ///  -1  null pointer for `head_ptr`, `captured_at_ptr`, or `out_hex`
-///  -2  `head_len == 0` or `captured_at_len == 0`
+///  -2  `head_len == 0`, `captured_at_len == 0`, OR `captured_at_ptr`
+///       does not decode as valid UTF-8 (the hash hashes its UTF-8 byte
+///       view, so non-UTF-8 input is rejected up front rather than hashed)
 #[no_mangle]
 pub extern "C" fn maple_id_primary(
     head_ptr: *const u8,
