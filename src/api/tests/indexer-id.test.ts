@@ -53,6 +53,13 @@ describe("maple:id primary", () => {
     expect(id.kind).toBe("primary");
     expect(id.bytes.length).toBe(16);
     expect(id.bytes[0]).toBe(0x01);
+
+    // Cross-implementation parity vector — same id is asserted on the
+    // device side by `HashingTests.testMapleIdPrimaryMatchesServerVector`
+    // (Swift wrapper → raw-ffi → raw-core) and inside the Rust raw-ffi
+    // crate by `maple_id_primary_matches_raw_core`. Locking the hex here
+    // keeps all three implementations honest.
+    expect(id.hex).toBe("014866c913dfe35e7b9618b709827be9");
   });
 
   it("uses empty bytes for missing serial + 0 shutter", async () => {
@@ -96,6 +103,10 @@ describe("maple:id fallback", () => {
     expect(id.hex).toBe(toHex(expected));
     expect(id.kind).toBe("fallback");
     expect(id.bytes[0]).toBe(0x02);
+
+    // Cross-implementation parity vector — asserted identically on the
+    // device side by `HashingTests.testMapleIdFallbackMatchesServerVector`.
+    expect(id.hex).toBe("021ee2b82d3019e91bf272ccb95bb8bb");
   });
 });
 
