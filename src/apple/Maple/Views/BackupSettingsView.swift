@@ -20,7 +20,25 @@ struct BackupSettingsView: View {
   /// appear if the engine is already running from a prior session). Gates
   /// the Status section so the user doesn't see "No photos queued" before
   /// they've actually started anything.
-  @State private var hasStarted = false
+  ///
+  /// Persisted in UserDefaults so it survives view re-appearances AND app
+  /// launches — without persistence, going from this panel to the Browse
+  /// view and back resets the flag and the Start Backup button reappears
+  /// even though the engine has been running the whole time. Cleared only
+  /// when the user explicitly stops via the Pause control in the status
+  /// panel (not on `EngineHost.stop()` from settings-change-driven
+  /// restarts).
+  @State private var hasStarted = BackupSettingsView.loadHasStarted()
+
+  private static let hasStartedKey = "maple.backup.settings.hasStarted.v1"
+
+  private static func loadHasStarted() -> Bool {
+    UserDefaults.standard.bool(forKey: hasStartedKey)
+  }
+
+  private static func saveHasStarted(_ value: Bool) {
+    UserDefaults.standard.set(value, forKey: hasStartedKey)
+  }
 
   private var selectedServerURL: URL? {
     URL(string: settings.serverURL)
@@ -55,6 +73,7 @@ struct BackupSettingsView: View {
             settings.save()
             await EngineHost.shared.start(settings: settings)
             hasStarted = true
+            Self.saveHasStarted(true)
           }
         } label: {
           Text(hasStarted ? "Restart Backup" : "Start Backup")
@@ -72,8 +91,14 @@ struct BackupSettingsView: View {
     .task {
       // If the engine is already running (queued items from a prior session),
       // surface the status section without making the user re-tap Start.
+      // Persisted hasStarted handles the "engine drained but the user wants
+      // it back" case; this catches the "engine restarted by the host"
+      // case for free.
       let snapshot = await EngineHost.shared.queue.snapshot()
-      if !snapshot.isEmpty { hasStarted = true }
+      if !snapshot.isEmpty && !hasStarted {
+        hasStarted = true
+        Self.saveHasStarted(true)
+      }
     }
     .onChange(of: settings) { _, new in
       // Persist edits eagerly (debounced) so the user's picks survive
