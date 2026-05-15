@@ -161,6 +161,12 @@ struct CloudTimelineMonthSection: View {
           // Prefer the merged view when the VM produced one. Otherwise
           // fall back to the raw cloud-only cells.
           if let merged = mergedCells {
+            // abs_path → SearchAsset map so each merged cell can find its
+            // cloud-side asset by id (cell.id is "fs:<abs_path>"). Built
+            // once per section render rather than per-cell.
+            let absPathToAsset: [String: SearchAsset] = Dictionary(
+              assets.map { ($0.abs_path, $0) },
+              uniquingKeysWith: { first, _ in first })
             ForEach(merged, id: \.renderID) { cell in
               CloudTimelineMergedCell(
                 cell: cell,
@@ -168,10 +174,25 @@ struct CloudTimelineMonthSection: View {
                 thumbCache: thumbCache,
                 host: host,
                 displayMode: displayMode,
-                // Tap opens the cloud asset when available; local-only
-                // cells don't have a corresponding SearchAsset so they
-                // are non-interactive for now (future: open from PhotoKit).
-                onSelect: { }
+                // Tap opens the cloud asset for cloud-side cells.
+                // `.localOnly` cells aren't on the server yet — no SearchAsset
+                // exists, so tap no-ops for now (future: open via PhotoKit).
+                onSelect: {
+                  let cloudRef: ImageRef? = {
+                    switch cell {
+                    case .cloudOnly(let ref): return ref
+                    case .synced(_, let cloud): return cloud
+                    case .localOnly: return nil
+                    }
+                  }()
+                  guard let cloudRef else { return }
+                  let absPath = cloudRef.id.hasPrefix("fs:")
+                    ? String(cloudRef.id.dropFirst(3))
+                    : cloudRef.id
+                  if let asset = absPathToAsset[absPath] {
+                    onSelectAsset(asset)
+                  }
+                }
               )
             }
           } else {
@@ -335,10 +356,13 @@ struct CloudTimelineMergedCell: View {
         .foregroundStyle(.white)
         .shadow(radius: 1)
     case .localOnly:
-      Image(systemName: "icloud.and.arrow.up")
-        .font(.system(size: 12, weight: .semibold))
-        .foregroundStyle(.white)
-        .shadow(radius: 1)
+      // Pending-upload state is implied (PhotoKit photo in the cloud-library
+      // view = enrolled in backup, not yet uploaded). Showing
+      // `icloud.and.arrow.up` on every cell during initial backup made the
+      // grid feel cluttered — the BackupStatusPanel surfaces the real
+      // upload progress. Synced/cloud-only stay visible because they're
+      // genuinely informative.
+      EmptyView()
     }
   }
 
