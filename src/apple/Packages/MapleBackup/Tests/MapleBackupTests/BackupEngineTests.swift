@@ -231,4 +231,94 @@ final class BackupEngineTests: XCTestCase {
             XCTFail("Sidecar POST had no readable body")
         }
     }
+
+    // MARK: - Cross-device coordination (HTTP 423 busy-elsewhere)
+
+    /// 423 on the ingest call should: leave the task in `.pending` (not
+    /// `.failedRetry`), keep retryCount unchanged (busy != failure), retain
+    /// the local sidecar so a retry can still find user edits, emit a
+    /// `.failed(willRetry: true)` event, and re-enqueue the task at the same
+    /// priority/retryCount via the deferred Task. Distinct from
+    /// `testFailureSchedulesRetry` because that path burns a retry slot;
+    /// this path explicitly should not.
+    func testBusyElsewhereKeepsPendingWithoutBurningRetry() async throws {
+        // retry_after_seconds=0 so the deferred re-enqueue Task wakes up
+        // immediately — the test can observe the resulting `.enqueued` event
+        // without sleeping the full peer-staleness window.
+        StubURLProtocol.stub = .status(
+            423,
+            json: #"{"error":"busy elsewhere","retry_after_seconds":0}"#)
+        let (engine, queue, state, sidecars, _, tmpRoot) = try freshHarness()
+        defer { try? FileManager.default.removeItem(at: tmpRoot) }
+
+        // Seed a local-edit sidecar so we can prove busy-elsewhere doesn't
+        // accidentally nuke it (the sidecar-deletion fix is sibling to this
+        // PR, but verifying the invariant here keeps the regression bar
+        // visible on the same test surface).
+        try sidecars.write(phassetLocalId: "P1", xmp: "<x:edit/>")
+
+        let id = BackupTaskID(deviceId: "d", phassetLocalId: "P1")
+        let task = BackupTask(id: id, state: .pending, priority: .background,
+                              retryCount: 0)
+        try await state.upsert(task)
+        await queue.enqueue(task, priority: .background)
+
+        // Capture events fired during processOne + the deferred re-enqueue.
+        let eventsStream = await queue.observe()
+
+        do {
+            try await engine.processOne()
+            XCTFail("expected busy-elsewhere to throw out of processOne")
+        } catch UploadClient.UploadError.busyElsewhere {
+            // expected — engine rethrows after recording state + scheduling
+            // the deferred re-enqueue.
+        }
+
+        // 1. State stays at .pending — NOT .failedRetry (which would mean
+        //    retry count was burned past maxRetries).
+        let row = try await state.find(id)
+        XCTAssertEqual(row?.state, .pending,
+            "busy-elsewhere should leave the task pending, not failedRetry")
+
+        // 2. Local sidecar must still exist — the deferred retry will need it.
+        XCTAssertNotNil(try sidecars.read(phassetLocalId: "P1"),
+            "Local sidecar must survive busy-elsewhere so the retry can use it")
+
+        // 3. Walk the event stream until we see both a `.failed(willRetry:true)`
+        //    and the re-enqueue. Cap with a short timeout so a regression that
+        //    fails to re-enqueue can't hang the test indefinitely.
+        var sawFailed = false
+        var sawReEnqueue = false
+        var reEnqueuedRetryCount: Int? = nil
+        let deadline = Date().addingTimeInterval(2.0)
+        var iterator = eventsStream.makeAsyncIterator()
+        while Date() < deadline, !(sawFailed && sawReEnqueue) {
+            let next = await withTaskGroup(of: BackupQueueEvent?.self) { group -> BackupQueueEvent? in
+                group.addTask { await iterator.next() }
+                group.addTask {
+                    try? await Task.sleep(nanoseconds: 200_000_000)
+                    return nil
+                }
+                let first = await group.next() ?? nil
+                group.cancelAll()
+                return first ?? nil
+            }
+            guard let event = next else { continue }
+            switch event {
+            case .failed(let eid, _, let willRetry) where eid == id:
+                XCTAssertTrue(willRetry,
+                    "busy-elsewhere must emit willRetry=true")
+                sawFailed = true
+            case .enqueued(let reTask) where reTask.id == id:
+                sawReEnqueue = true
+                reEnqueuedRetryCount = reTask.retryCount
+            default:
+                break
+            }
+        }
+        XCTAssertTrue(sawFailed, "expected .failed event with willRetry=true")
+        XCTAssertTrue(sawReEnqueue, "expected the task to be re-enqueued")
+        XCTAssertEqual(reEnqueuedRetryCount, 0,
+            "busy-elsewhere is coordination, not failure — retryCount must not be burned")
+    }
 }

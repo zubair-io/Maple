@@ -51,18 +51,41 @@ import path from "node:path";
 const log = childLogger("backup-rendered");
 const CHUNK_DIR = process.env.MAPLE_BACKUP_TMP ?? "/tmp/maple-backup-chunks";
 
-/** Move src to dst atomically. Falls back to copy+unlink on EXDEV (cross-device). */
+/** Move src to dst atomically. Fails with EEXIST when dst already exists —
+ * this is the final-path collision guard for rendered uploads.
+ *
+ * The cross-device cloud-id check in `openOrResume` is intentionally
+ * non-atomic (see the comment block there). If two devices on the same iCloud
+ * library both race past that check and finish their uploads, naively renaming
+ * each tmp file into place would silently let the second mover overwrite the
+ * first's companion file. Refusing to clobber at the move step closes that
+ * window: the caller catches EEXIST and treats it as "the file is already
+ * there" — exactly what we want, since the rendered companion is per-photo,
+ * not per-device, and both devices would produce the same bytes for the same
+ * iCloud asset.
+ *
+ * Same-filesystem path uses `link(2)` (POSIX-atomic with EEXIST semantics).
+ * Cross-filesystem fallback uses `open(O_CREAT | O_EXCL)` via `fs.open(dst, "wx")`
+ * — the kernel-level analog that's atomic w.r.t. concurrent creates. */
 async function atomicMove(src: string, dst: string): Promise<void> {
   try {
-    await fs.rename(src, dst);
+    await fs.link(src, dst);
+    await fs.unlink(src);
+    return;
   } catch (e: any) {
-    if (e?.code === "EXDEV") {
-      await fs.copyFile(src, dst);
-      await fs.unlink(src);
-    } else {
-      throw e;
-    }
+    if (e?.code === "EEXIST") throw e;
+    if (e?.code !== "EXDEV") throw e;
   }
+  // Cross-filesystem: open the destination with "wx" (O_CREAT | O_EXCL), copy
+  // bytes through, then drop the tmp. "wx" surfaces EEXIST atomically.
+  const dstHandle = await fs.open(dst, "wx");
+  try {
+    const data = await fs.readFile(src);
+    await dstHandle.writeFile(data);
+  } finally {
+    await dstHandle.close();
+  }
+  await fs.unlink(src);
 }
 
 /**
@@ -294,7 +317,20 @@ export const backupRenderedRoutes = new Elysia().post(
 
     const finalPath = path.join(folder.path, resolvedTargetRelPath);
     await fs.mkdir(path.dirname(finalPath), { recursive: true });
-    await atomicMove(tmpFile, finalPath);
+    try {
+      await atomicMove(tmpFile, finalPath);
+    } catch (e: any) {
+      if (e?.code === "EEXIST") {
+        // Another device beat us to the final path (cross-device race past
+        // the non-atomic cloud-id check). The rendered companion already
+        // exists at the canonical location and the AssetDoc below will
+        // either already point at it or get updated to the same path — so
+        // drop our tmp and treat as success.
+        await fs.unlink(tmpFile).catch(() => {});
+      } else {
+        throw e;
+      }
+    }
     await uploadSessions.complete({ sessionId: session._id, mapleId });
 
     // Persist apple_rendered_path on the matching AssetDoc.
