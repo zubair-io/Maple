@@ -6,7 +6,7 @@
 
 import Foundation
 
-public struct CloudFolder: Decodable, Equatable, Sendable, Identifiable {
+public struct CloudFolder: Codable, Equatable, Sendable, Identifiable {
   public let id: String
   public let path: String
   public let label: String
