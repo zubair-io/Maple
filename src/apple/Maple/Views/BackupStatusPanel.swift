@@ -15,7 +15,10 @@ import MapleBackup
 import MapleCore
 
 struct BackupStatusPanel: View {
-  @State private var progress = BackupProgressViewModel()
+  // Use the engine-hosted VM so progress survives navigation.
+  // The instance lives on EngineHost.shared for the lifetime of the process;
+  // presenting this panel multiple times always shows the same running totals.
+  private var progress: BackupProgressViewModel { EngineHost.shared.progress }
 
   var body: some View {
     VStack(alignment: .leading, spacing: 12) {
@@ -91,12 +94,6 @@ struct BackupStatusPanel: View {
       .controlSize(.small)
     }
     .padding(.vertical, 4)
-    .task {
-      progress.start(queue: EngineHost.shared.queue)
-    }
-    .onDisappear {
-      progress.stop()
-    }
   }
 }
 
@@ -125,7 +122,7 @@ private struct ThumbnailTile: View {
   }
 
   private func loadThumbnail() async {
-    let asset = PHAsset.fetchAssets(withLocalIdentifiers: [localIdentifier], options: nil).firstObject
+    let asset = await PhotoKitCatalog.shared.asset(localId: localIdentifier)
     guard let asset else { return }
     let options = PHImageRequestOptions()
     options.deliveryMode = .opportunistic
