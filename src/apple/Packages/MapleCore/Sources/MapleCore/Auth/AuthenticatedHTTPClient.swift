@@ -39,7 +39,15 @@ public actor AuthenticatedHTTPClient {
     guard let current = tokensProvider() else { onSignOut(); return (data, resp) }
     let fresh: AuthTokens
     do { fresh = try await refresh(refresh: current.refresh) }
-    catch {
+    catch let e as URLError {
+      // Transport-level failure during refresh — the user went offline
+      // mid-flight. Surface the URLError to the caller so it can fall
+      // back to its own cache instead of treating this as a sign-out.
+      // Tokens stay in the Keychain; next time we have network we'll
+      // try again.
+      cloudHTTPLogger.error("token refresh network error: \(e.localizedDescription, privacy: .public)")
+      throw e
+    } catch {
       cloudHTTPLogger.error("token refresh failed: \(error.localizedDescription, privacy: .public)")
       onSignOut(); return (data, resp)
     }
@@ -50,6 +58,12 @@ public actor AuthenticatedHTTPClient {
     return retried
   }
 
+  /// Sentinel thrown by the refresh task when the refresh endpoint
+  /// returns a non-200 response. We use a distinct error type from
+  /// URLError so the caller can tell "refresh said no" (sign-out is
+  /// correct) from "refresh couldn't reach the server" (keep tokens).
+  private struct RefreshRejected: Error {}
+
   private func refresh(refresh refreshToken: String) async throws -> AuthTokens {
     if let t = inflightRefresh { return try await t.value }
     let task = Task { () throws -> AuthTokens in
@@ -58,7 +72,7 @@ public actor AuthenticatedHTTPClient {
       req.setValue("application/json", forHTTPHeaderField: "Content-Type")
       req.httpBody = try JSONSerialization.data(withJSONObject: ["refresh_token": refreshToken])
       let (data, resp) = try await urlSession.data(for: req)
-      guard (resp as! HTTPURLResponse).statusCode == 200 else { throw URLError(.userAuthenticationRequired) }
+      guard (resp as! HTTPURLResponse).statusCode == 200 else { throw RefreshRejected() }
       struct R: Decodable { let access_token: String; let refresh_token: String }
       let r = try JSONDecoder().decode(R.self, from: data)
       return AuthTokens(access: r.access_token, refresh: r.refresh_token)
