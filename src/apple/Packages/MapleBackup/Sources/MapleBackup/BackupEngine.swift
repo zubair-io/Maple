@@ -214,7 +214,8 @@ public actor BackupEngine {
                     phassetLocalId: task.id.phassetLocalId,
                     targetRelPath: result.targetRelPath,
                     filenameExt: renderedExt,
-                    bytes: renderedBytes)
+                    bytes: renderedBytes,
+                    phassetCloudId: read.sidecar.phassetCloudId)
             }
 
             // Upload Live Photo .mov twin when present. Uses suffix-override so
@@ -225,12 +226,13 @@ public actor BackupEngine {
                     targetRelPath: result.targetRelPath,
                     filenameExt: "mov",
                     bytes: liveBytes,
-                    suffixOverride: "mov")
+                    suffixOverride: "mov",
+                    phassetCloudId: read.sidecar.phassetCloudId)
             }
 
             try await state.transition(task.id, to: .uploaded, error: nil)
             await queue.emit(.completed(task.id, mapleId: result.mapleId))
-        } catch UploadClient.UploadError.busyElsewhere(let retryAfterSeconds, let deferPositions) {
+        } catch UploadClient.UploadError.busyElsewhere(let retryAfterSeconds) {
             // Another device on the same iCloud library is actively uploading
             // this asset. Re-enqueue at the back of the same priority bucket
             // after a short delay so the other device's upload can progress.
@@ -253,8 +255,7 @@ public actor BackupEngine {
             }
             await queue.emit(.failed(task.id, error: "busy elsewhere", willRetry: true))
             throw UploadClient.UploadError.busyElsewhere(
-                retryAfterSeconds: retryAfterSeconds,
-                deferPositions: deferPositions)
+                retryAfterSeconds: retryAfterSeconds)
         } catch {
             let nextRetry = task.retryCount + 1
             let willRetry = nextRetry < Self.maxRetries

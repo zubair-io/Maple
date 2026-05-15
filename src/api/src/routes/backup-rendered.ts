@@ -21,6 +21,10 @@
  *                             `<base>.<suffix-override>` instead of
  *                             `<base>.rendered.<ext>`. Used by the Live Photo
  *                             .mov path to skip the `.rendered.` infix.
+ *   X-Maple-PHAsset-Cloud-Id — optional; Apple PHCloudIdentifier. When two
+ *                             devices on the same iCloud library both back
+ *                             up the rendered companion for the same photo,
+ *                             openOrResume returns 423 to the second device.
  *   X-Maple-Maple-Id        — required on the final chunk
  *
  * Responses:
@@ -30,8 +34,8 @@
  *   404 — library not found
  *   409 — resume offset mismatch
  *   423 — another device is actively uploading the same iCloud photo.
- *         Body: { retry_after_seconds, defer_positions }. Same-key metadata
- *         mismatches self-heal silently (session reset in place).
+ *         Body: { retry_after_seconds }. Same-key metadata mismatches
+ *         self-heal silently (session reset in place).
  */
 import { Elysia, t } from "elysia";
 import { ObjectId } from "mongodb";
@@ -123,6 +127,12 @@ export const backupRenderedRoutes = new Elysia().post(
     // `<base>.<suffixOverride>` instead of `<base>.rendered.<ext>`.
     // Used by the Live Photo .mov path to avoid the `.rendered.` infix.
     const suffixOverride = headers["x-maple-suffix-override"];
+    // Optional iCloud cloud id — when both devices on the same iCloud
+    // library try to upload the rendered companion for the same photo,
+    // openOrResume uses this to detect the cross-device collision and
+    // return 423 instead of letting the second device race the
+    // `atomicMove` at the end of the upload.
+    const phCloudId = headers["x-maple-phasset-cloud-id"];
 
     if (!deviceId || !phid || !originalRelPath || !totalBytesRaw || !range) {
       set.status = 400;
@@ -176,6 +186,12 @@ export const backupRenderedRoutes = new Elysia().post(
     // Use synthetic phid so rendered sessions don't collide with original sessions.
     const syntheticPhid = `${phid}::rendered`;
 
+    // Suffix the cloud id so the cross-device check namespaces rendered
+    // sessions separately from the original-asset sessions for the same
+    // photo — otherwise a rendered upload from device B would see device
+    // A's *original* session as a busy peer.
+    const renderedCloudId = phCloudId ? `${phCloudId}::rendered` : undefined;
+
     // Open or resume the upload session.
     let session;
     let didReset = false;
@@ -187,6 +203,7 @@ export const backupRenderedRoutes = new Elysia().post(
         totalBytes,
         chunkSize: end - start + 1,
         targetRelPath,
+        phassetCloudId: renderedCloudId,
       });
       session = r.session;
       didReset = r.reset;
@@ -196,7 +213,6 @@ export const backupRenderedRoutes = new Elysia().post(
         return {
           error: e.message,
           retry_after_seconds: e.retryAfterSeconds,
-          defer_positions: 10,
         };
       }
       set.status = 409;
@@ -210,9 +226,18 @@ export const backupRenderedRoutes = new Elysia().post(
     await fs.mkdir(CHUNK_DIR, { recursive: true });
 
     // Self-heal reset cleared received_bytes — also clear any stale tmp bytes
-    // so the next append starts from 0.
+    // so the next append starts from 0. Only ENOENT is tolerable; anything
+    // else risks appending onto stale bytes and moving a corrupted companion
+    // file into place.
     if (didReset) {
-      try { await fs.unlink(tmpFile); } catch { /* missing is fine */ }
+      try {
+        await fs.unlink(tmpFile);
+      } catch (e: any) {
+        if (e?.code !== "ENOENT") {
+          set.status = 500;
+          return { error: `could not clear stale tmp file: ${e?.message ?? "unlink failed"}` };
+        }
+      }
     }
 
     // Enforce resume offset.

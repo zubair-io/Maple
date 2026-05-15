@@ -13,10 +13,11 @@
  *   404 — library id not found
  *   409 — resume offset mismatch. Body: { expected_offset: number }
  *   423 — another device is actively uploading the same iCloud photo.
- *         Body: { retry_after_seconds: number, defer_positions: number }.
- *         Same-key metadata mismatches (total_bytes or target_rel_path
- *         changed between attempts) are handled silently — the session is
- *         reset in place rather than returning 409.
+ *         Body: { retry_after_seconds: number } — client should wait at
+ *         least that long before retrying. Same-key metadata mismatches
+ *         (total_bytes or target_rel_path changed between attempts) are
+ *         handled silently — the session is reset in place rather than
+ *         returning 409.
  *
  * Spec: docs/superpowers/specs/2026-05-09-photokit-backup-design.md §20.
  */
@@ -170,7 +171,6 @@ export const backupIngestRoutes = new Elysia().post(
         return {
           error: e.message,
           retry_after_seconds: e.retryAfterSeconds,
-          defer_positions: 10,
         };
       }
       set.status = 409;
@@ -188,9 +188,18 @@ export const backupIngestRoutes = new Elysia().post(
 
     // The session was reset in place (metadata mismatch self-heal). Clear any
     // stale tmp bytes from the previous attempt so the next appendFile starts
-    // at offset 0 cleanly.
+    // at offset 0 cleanly. Only ENOENT is tolerable — anything else means we
+    // could end up appending fresh bytes onto stale ones (start === 0 skips
+    // the tmp-size check below) and silently corrupt the assembled upload.
     if (didReset) {
-      try { await fs.unlink(tmpFile); } catch { /* missing is fine */ }
+      try {
+        await fs.unlink(tmpFile);
+      } catch (e: any) {
+        if (e?.code !== "ENOENT") {
+          set.status = 500;
+          return { error: `could not clear stale tmp file: ${e?.message ?? "unlink failed"}` };
+        }
+      }
     }
 
     // Enforce resume offset — reject if client is behind or ahead.
