@@ -55,6 +55,17 @@ public struct SearchAsset: Codable, Equatable, Sendable {
   /// Pick flag: 1 = pick, 0 = none, -1 = reject. Number on the wire.
   public let flag: Int?
   public let color_label: String?
+  /// PhotoKit asset links. Populated by the backup engine when an asset
+  /// was ingested via PhotoKit backup. The first entry's `phasset_local_id`
+  /// identifies the matching PHAsset so the merged timeline can correlate
+  /// cloud rows with local Photos library rows. Optional — nil for assets
+  /// that weren't ingested via PhotoKit backup.
+  public let phasset_links: [SearchAssetPHLink]?
+}
+
+public struct SearchAssetPHLink: Codable, Equatable, Sendable {
+  /// `PHAsset.localIdentifier` — stable key used to join with PhotoKit.
+  public let phasset_local_id: String
 }
 
 public struct SearchResponse: Codable, Sendable {

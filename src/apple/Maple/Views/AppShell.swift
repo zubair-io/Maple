@@ -1253,11 +1253,26 @@ struct AppShell: View {
                 // both /api/search/buckets and /api/search receive the
                 // same pathPrefix so the bucket counts and asset listings
                 // describe the same scope.
+                // Construct a PhotoKitMergeAdapter when this cloud library is
+                // the configured backup destination AND the user has granted
+                // PhotoKit access. This enables the merged Photos+Cloud view
+                // so the user sees local-only, synced, and cloud-only cells
+                // with sync-status badges.
+                let photoKitMerge: PhotoKitMergeAdapter? = {
+                    guard let settings = BackupSettings.load(),
+                          settings.isConfigured,
+                          settings.serverURL == serverID.absoluteString,
+                          settings.libraryId == folderID else { return nil }
+                    let status = PhotoKitLibrary.authorizationStatus()
+                    guard status == .authorized || status == .limited else { return nil }
+                    return PhotoKitMergeAdapter()
+                }()
                 cloudTimelineVM = CloudTimelineViewModel(
                     server: serverID,
                     libraryID: folderID,
                     pathPrefix: libraryPath,
-                    searchClient: searchClient)
+                    searchClient: searchClient,
+                    photoKitMerge: photoKitMerge)
                 cloudTimelineThumbClient = CloudThumbClient(server: serverID, httpClient: httpClient)
                 cloudTimelineThumbCache = CloudThumbCache()
                 libraryTitle = (serverID.host ?? serverID.absoluteString) + " — Timeline"

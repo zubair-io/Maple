@@ -16,6 +16,11 @@ public final class CloudTimelineViewModel {
 
   public private(set) var buckets: [TimelineBucket] = []
   public private(set) var pagesByBucket: [BucketKey: [SearchAsset]] = [:]
+  /// Per-month merged cells. Populated by `loadPage(...)` when
+  /// `photoKitMerge` is non-nil. Nil for months that haven't been
+  /// loaded yet OR when merge isn't active — consumers fall back to
+  /// `pagesByBucket` in that case.
+  public private(set) var mergedPagesByBucket: [BucketKey: [MergedTimelineCell]] = [:]
   public private(set) var inFlight: Set<BucketKey> = []
   public private(set) var loadError: Error?
   public private(set) var isLoadingBuckets: Bool = false
@@ -41,6 +46,11 @@ public final class CloudTimelineViewModel {
   private let searchClient: CloudSearchClient
   private let bucketsCache: CloudBucketsCache
   private let pagesCache: CloudPagesCache
+  /// When non-nil, `loadPage` builds a merged Photos+Cloud result for
+  /// the bucket and stores it in `mergedPagesByBucket`. Set by AppShell
+  /// when the active cloud library is the configured backup destination
+  /// and PhotoKit access is granted.
+  public let photoKitMerge: PhotoKitMergeAdapter?
 
   /// Bumped on every public load — in-flight closures check this and drop
   /// completions for older generations rather than mutating state.
@@ -54,7 +64,8 @@ public final class CloudTimelineViewModel {
               searchClient: CloudSearchClient,
               bucketsCache: CloudBucketsCache = CloudBucketsCache(),
               pagesCache: CloudPagesCache = CloudPagesCache(),
-              maxConcurrentPageFetches: Int = 2) {
+              maxConcurrentPageFetches: Int = 2,
+              photoKitMerge: PhotoKitMergeAdapter? = nil) {
     self.server = server
     self.libraryID = libraryID
     self.pathPrefix = pathPrefix
@@ -62,6 +73,7 @@ public final class CloudTimelineViewModel {
     self.bucketsCache = bucketsCache
     self.pagesCache = pagesCache
     self.semaphore = AsyncSemaphore(value: maxConcurrentPageFetches)
+    self.photoKitMerge = photoKitMerge
   }
 
   // MARK: - Loaders
@@ -131,6 +143,11 @@ public final class CloudTimelineViewModel {
                                           year: year, month: month, page: 0) {
       guard g == generation else { return }
       pagesByBucket[key] = cached.results
+      if let merge = photoKitMerge, g == generation {
+        let localRefs = merge.assetsForMonth(year: year, month: month)
+        let cloudRefs = cached.results.map { Self.searchAssetToImageRef($0) }
+        mergedPagesByBucket[key] = MergedTimelineSource.merge(local: localRefs, cloud: cloudRefs)
+      }
     }
 
     await semaphore.acquire()
@@ -146,10 +163,33 @@ public final class CloudTimelineViewModel {
         await pagesCache.write(host: host, libraryID: libraryID,
                                pathPrefix: pathPrefix,
                                year: year, month: month, page: 0, fresh)
+        if let merge = photoKitMerge, g == generation {
+          let localRefs = merge.assetsForMonth(year: year, month: month)
+          let cloudRefs = fresh.results.map { Self.searchAssetToImageRef($0) }
+          mergedPagesByBucket[key] = MergedTimelineSource.merge(local: localRefs, cloud: cloudRefs)
+        }
       }
     } catch {
       if g == generation { loadError = error }
     }
+  }
+
+  // MARK: - Conversion
+
+  /// Convert a `SearchAsset` (cloud wire DTO) into the `ImageRef` shape
+  /// that `MergedTimelineSource.merge` operates on. The `phassetLink`
+  /// field is populated from the first `phasset_links` entry so the
+  /// merge logic can detect cloud assets that were ingested from PhotoKit.
+  private static func searchAssetToImageRef(_ a: SearchAsset) -> ImageRef {
+    let captured: Date? = a.captured_at.flatMap {
+      ISO8601DateFormatter().date(from: $0)
+    }
+    return ImageRef(
+      id: "fs:\(a.abs_path)",
+      displayName: a.filename,
+      url: nil,
+      captureDate: captured,
+      phassetLink: a.phasset_links?.first?.phasset_local_id)
   }
 
   // MARK: - Helpers

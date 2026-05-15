@@ -14,6 +14,9 @@
 import SwiftUI
 import MapleCore
 import OSLog
+import Photos
+import ImageIO
+import UniformTypeIdentifiers
 #if canImport(AppKit)
 import AppKit
 #elseif canImport(UIKit)
@@ -45,6 +48,7 @@ struct CloudTimelineView: View {
             month: bucket.month,
             count: bucket.count,
             assets: vm.pagesByBucket[bucketKey] ?? [],
+            mergedCells: vm.mergedPagesByBucket[bucketKey],
             // hasLoaded == true once loadPage has resolved at least once
             // for this bucket (whether with N results or 0). Distinguishes
             // "still fetching" from "fetched + server returned empty"
@@ -85,6 +89,11 @@ extension TimelineBucket {
   fileprivate var bucketKey: String { "\(year)-\(month)" }
 }
 
+extension MergedTimelineCell {
+  /// Stable id for SwiftUI ForEach — delegates to `MergedTimelineSource.renderID`.
+  fileprivate var renderID: String { MergedTimelineSource.renderID(self) }
+}
+
 // MARK: - MonthSection
 
 struct CloudTimelineMonthSection: View {
@@ -92,6 +101,11 @@ struct CloudTimelineMonthSection: View {
   let month: Int
   let count: Int
   let assets: [SearchAsset]
+  /// When non-nil (merge active), the grid renders these merged cells
+  /// instead of the raw `assets` list. Each cell carries a sync-status
+  /// badge (synced / localOnly / cloudOnly). `nil` when the VM has no
+  /// PhotoKitMergeAdapter or the page hasn't loaded yet.
+  let mergedCells: [MergedTimelineCell]?
   /// True once loadPage has resolved at least once for this bucket. The
   /// spinner shows ONLY when (loading && results not yet in) — once the
   /// server has answered, the spinner goes away even if the answer was
@@ -104,6 +118,12 @@ struct CloudTimelineMonthSection: View {
   let onSelectAsset: (SearchAsset) -> Void
 
   private static let columnCount = 4
+
+  /// The content to display is whichever of merged / raw is available.
+  private var hasContent: Bool {
+    if let merged = mergedCells { return !merged.isEmpty }
+    return !assets.isEmpty
+  }
 
   var body: some View {
     VStack(alignment: .leading, spacing: 8) {
@@ -120,7 +140,7 @@ struct CloudTimelineMonthSection: View {
           ProgressView()
             .scaleEffect(0.7)
             .padding(.leading, 4)
-        } else if assets.isEmpty {
+        } else if !hasContent {
           // Server returned 0 results for a bucket whose count > 0
           // (known server-side data inconsistency between
           // /api/search/buckets and /api/search). Surface it instead of
@@ -132,21 +152,39 @@ struct CloudTimelineMonthSection: View {
         }
         Spacer()
       }
-      if !assets.isEmpty {
+      if hasContent {
         LazyVGrid(
           columns: Array(repeating: GridItem(.flexible(), spacing: 6),
                          count: Self.columnCount),
           spacing: 6
         ) {
-          ForEach(assets, id: \.id) { asset in
-            CloudTimelineCell(
-              asset: asset,
-              thumbClient: thumbClient,
-              thumbCache: thumbCache,
-              host: host,
-              displayMode: displayMode,
-              onSelect: { onSelectAsset(asset) }
-            )
+          // Prefer the merged view when the VM produced one. Otherwise
+          // fall back to the raw cloud-only cells.
+          if let merged = mergedCells {
+            ForEach(merged, id: \.renderID) { cell in
+              CloudTimelineMergedCell(
+                cell: cell,
+                thumbClient: thumbClient,
+                thumbCache: thumbCache,
+                host: host,
+                displayMode: displayMode,
+                // Tap opens the cloud asset when available; local-only
+                // cells don't have a corresponding SearchAsset so they
+                // are non-interactive for now (future: open from PhotoKit).
+                onSelect: { }
+              )
+            }
+          } else {
+            ForEach(assets, id: \.id) { asset in
+              CloudTimelineCell(
+                asset: asset,
+                thumbClient: thumbClient,
+                thumbCache: thumbCache,
+                host: host,
+                displayMode: displayMode,
+                onSelect: { onSelectAsset(asset) }
+              )
+            }
           }
         }
       }
@@ -228,7 +266,7 @@ struct CloudTimelineCell: View {
     }
   }
 
-  private static func fetchThumbBytes(
+  fileprivate static func fetchThumbBytes(
     host: String,
     absPath: String,
     cache: CloudThumbCache,
@@ -243,6 +281,122 @@ struct CloudTimelineCell: View {
       return bytes
     } catch {
       return nil
+    }
+  }
+}
+
+// MARK: - CloudTimelineMergedCell
+
+/// Grid cell for a merged Photos+Cloud timeline entry. Shows a thumbnail
+/// and a sync-status badge (.synced / .localOnly / .cloudOnly).
+///
+/// Thumb priority mirrors BrowseGrid.MergedCellView:
+///   .synced / .localOnly — PhotoKit fast path via PHImageManager
+///   .cloudOnly           — cloud thumb via CloudThumbClient
+///
+/// Tapping currently no-ops for .localOnly cells (no SearchAsset to open).
+/// .cloudOnly / .synced open via the parent's `onSelect` callback which
+/// the caller wires to `onSelectAsset` in AppShell.
+struct CloudTimelineMergedCell: View {
+  let cell: MergedTimelineCell
+  let thumbClient: CloudThumbClient
+  let thumbCache: CloudThumbCache
+  let host: String
+  let displayMode: GridDisplayMode
+  let onSelect: () -> Void
+
+  @State private var thumbData: Data?
+  @State private var loadTask: Task<Void, Never>?
+
+  var body: some View {
+    Button(action: onSelect) {
+      ThumbnailImage(jpegData: thumbData, displayMode: displayMode)
+        .overlay(alignment: .bottomTrailing) {
+          badgeView.padding(4)
+        }
+    }
+    .buttonStyle(.plain)
+    .task(id: MergedTimelineSource.renderID(cell)) {
+      await startLoad()
+    }
+  }
+
+  @ViewBuilder
+  private var badgeView: some View {
+    switch cell {
+    case .synced:
+      Image(systemName: "checkmark.icloud.fill")
+        .font(.system(size: 12, weight: .semibold))
+        .foregroundStyle(.white)
+        .shadow(radius: 1)
+    case .cloudOnly:
+      Image(systemName: "icloud.fill")
+        .font(.system(size: 12, weight: .semibold))
+        .foregroundStyle(.white)
+        .shadow(radius: 1)
+    case .localOnly:
+      Image(systemName: "icloud.and.arrow.up")
+        .font(.system(size: 12, weight: .semibold))
+        .foregroundStyle(.white)
+        .shadow(radius: 1)
+    }
+  }
+
+  private func startLoad() async {
+    switch cell {
+    case .synced(let local, _), .localOnly(let local):
+      thumbData = await Self.fetchPhotoKitThumb(localID: local.id)
+    case .cloudOnly(let cloud):
+      // Extract the abs_path from the "fs:<path>" id shape.
+      let absPath = cloud.id.hasPrefix("fs:") ? String(cloud.id.dropFirst(3)) : cloud.id
+      thumbData = await CloudTimelineCell.fetchThumbBytes(
+        host: host, absPath: absPath, cache: thumbCache, client: thumbClient)
+    }
+  }
+
+  private static func fetchPhotoKitThumb(localID: String) async -> Data? {
+    // PHImageManager fast path — Photos' preview cache makes this ~5–50 ms.
+    guard let phAsset = PHAsset
+      .fetchAssets(withLocalIdentifiers: [localID], options: nil)
+      .firstObject else { return nil }
+
+    let target = ThumbnailDiskCache.defaultThumbSize
+    return await withCheckedContinuation { cont in
+      let options = PHImageRequestOptions()
+      options.deliveryMode = .opportunistic
+      options.resizeMode = .fast
+      options.isNetworkAccessAllowed = true
+      options.isSynchronous = false
+      final class Latch: @unchecked Sendable {
+        let lock = NSLock(); var fired = false
+        func tryFire() -> Bool {
+          lock.lock(); defer { lock.unlock() }
+          if fired { return false }; fired = true; return true
+        }
+      }
+      let latch = Latch()
+      PHImageManager.default().requestImage(
+        for: phAsset, targetSize: target, contentMode: .aspectFill, options: options
+      ) { image, info in
+        if (info?[PHImageResultIsDegradedKey] as? Bool) == true { return }
+        guard latch.tryFire() else { return }
+        guard let image else { cont.resume(returning: nil); return }
+        #if canImport(AppKit)
+        var rect = CGRect(origin: .zero, size: image.size)
+        guard let cg = image.cgImage(forProposedRect: &rect, context: nil, hints: nil) else {
+          cont.resume(returning: nil); return
+        }
+        #elseif canImport(UIKit)
+        guard let cg = image.cgImage else { cont.resume(returning: nil); return }
+        #endif
+        let mutableData = NSMutableData()
+        let type = UTType.jpeg.identifier as CFString
+        guard let dest = CGImageDestinationCreateWithData(mutableData, type, 1, nil) else {
+          cont.resume(returning: nil); return
+        }
+        CGImageDestinationAddImage(dest, cg, [kCGImageDestinationLossyCompressionQuality: ThumbnailDiskCache.jpegQuality] as CFDictionary)
+        cont.resume(returning: CGImageDestinationFinalize(dest) ? (mutableData as Data) : nil)
+      }
     }
   }
 }
