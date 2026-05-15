@@ -9,10 +9,16 @@
 // folder switch cannot overwrite the current UI state.
 
 import Foundation
+import OSLog
 
 @MainActor
 @Observable
 public final class BrowseViewModel {
+
+    private static let logger = Logger(
+        subsystem: "app.justmaple.aperture",
+        category: "BrowseViewModel"
+    )
     public var assets: [AssetRef] = []
     /// Sub-folders directly inside the currently-opened folder. Populated
     /// alongside `assets` by the filesystem `loadFolder(url:)` path so the
@@ -231,8 +237,11 @@ public final class BrowseViewModel {
         let c: [ImageRef]
         do { c = try await cloud.images() } catch { c = [] }
 
+        Self.logger.notice("reloadMerged: local=\(l.count), cloud=\(c.count)")
+
         guard gen == loadGeneration else { return }
         let merged = MergedTimelineSource.merge(local: l, cloud: c)
+        Self.logger.notice("reloadMerged: merged cell count=\(merged.count)")
         guard gen == loadGeneration else { return }
 
         mergedCells = merged

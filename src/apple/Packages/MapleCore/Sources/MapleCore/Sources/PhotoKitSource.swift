@@ -26,6 +26,7 @@
 import Foundation
 import CoreGraphics
 import ImageIO
+import OSLog
 import Photos
 import UniformTypeIdentifiers
 import MapleBackup
@@ -54,6 +55,13 @@ public enum PhotoKitSourceError: Error, LocalizedError, Sendable {
 
 /// Browses a filtered view of the user's Photo Library.
 public actor PhotoKitSource {
+
+    // MARK: Logging
+
+    private static let logger = Logger(
+        subsystem: "app.justmaple.aperture",
+        category: "PhotoKitSource"
+    )
 
     // MARK: State
 
@@ -141,6 +149,7 @@ public actor PhotoKitSource {
         }
         lastFilter = filter
         fetchResult = Self.buildFetchResult(for: filter)
+        Self.logger.notice("PhotoKitSource.fetchAssets(for: \(String(describing: filter), privacy: .public)) snapshot count=\(self.fetchResult?.count ?? -1)")
     }
 
     /// Build the PHFetchResult for the requested filter. No enumeration —
@@ -389,6 +398,7 @@ extension PhotoKitSource: ImageSource {
                                  captureDate: phAsset.creationDate))
         }
         if cancelled { throw CancellationError() }
+        Self.logger.notice("PhotoKitSource.images() returning \(refs.count) refs (filter=\(String(describing: self.lastFilter), privacy: .public))")
         return refs
     }
 
