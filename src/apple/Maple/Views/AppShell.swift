@@ -18,10 +18,13 @@
 //   ⌘\ sidebar toggle      — NavigationSplitView column visibility
 
 import SwiftUI
+import OSLog
 import MapleCore
 #if os(iOS)
 import UIKit
 #endif
+
+private let cloudHTTPLogger = Logger(subsystem: "app.justmaple.aperture", category: "Cloud.HTTP")
 
 // MARK: - AppShell
 
