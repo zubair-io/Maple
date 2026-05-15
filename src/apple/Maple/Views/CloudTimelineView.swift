@@ -34,6 +34,11 @@ struct CloudTimelineView: View {
   /// behavior across both grids.
   let displayMode: GridDisplayMode
   let onSelectAsset: (SearchAsset) -> Void
+  /// Tap target for `.localOnly` merged cells — these are PhotoKit photos
+  /// the backup hasn't uploaded yet, so they have no `SearchAsset` to
+  /// route through `onSelectAsset`. AppShell opens them via PhotoKit
+  /// using the local identifier carried on the `ImageRef`.
+  let onSelectLocalAsset: (ImageRef) -> Void
 
   var body: some View {
     ScrollView {
@@ -63,7 +68,8 @@ struct CloudTimelineView: View {
             // three on-disk caches namespace per-server identically.
             host: vm.server.cacheHostKey,
             displayMode: displayMode,
-            onSelectAsset: onSelectAsset
+            onSelectAsset: onSelectAsset,
+            onSelectLocalAsset: onSelectLocalAsset
           )
           // .task(id:) instead of .onAppear so the page-load fires
           // reliably for newly-rendered sections (LazyVStack is fussy
@@ -116,6 +122,7 @@ struct CloudTimelineMonthSection: View {
   let host: String
   let displayMode: GridDisplayMode
   let onSelectAsset: (SearchAsset) -> Void
+  let onSelectLocalAsset: (ImageRef) -> Void
 
   private static let columnCount = 4
 
@@ -174,23 +181,21 @@ struct CloudTimelineMonthSection: View {
                 thumbCache: thumbCache,
                 host: host,
                 displayMode: displayMode,
-                // Tap opens the cloud asset for cloud-side cells.
-                // `.localOnly` cells aren't on the server yet — no SearchAsset
-                // exists, so tap no-ops for now (future: open via PhotoKit).
+                // Cloud-side cells route through the SearchAsset map so the
+                // editor opens via CloudSource. `.localOnly` cells aren't on
+                // the server yet — open the PhotoKit asset directly via the
+                // local identifier carried on the local ImageRef.
                 onSelect: {
-                  let cloudRef: ImageRef? = {
-                    switch cell {
-                    case .cloudOnly(let ref): return ref
-                    case .synced(_, let cloud): return cloud
-                    case .localOnly: return nil
+                  switch cell {
+                  case .cloudOnly(let cloudRef), .synced(_, let cloudRef):
+                    let absPath = cloudRef.id.hasPrefix("fs:")
+                      ? String(cloudRef.id.dropFirst(3))
+                      : cloudRef.id
+                    if let asset = absPathToAsset[absPath] {
+                      onSelectAsset(asset)
                     }
-                  }()
-                  guard let cloudRef else { return }
-                  let absPath = cloudRef.id.hasPrefix("fs:")
-                    ? String(cloudRef.id.dropFirst(3))
-                    : cloudRef.id
-                  if let asset = absPathToAsset[absPath] {
-                    onSelectAsset(asset)
+                  case .localOnly(let local):
+                    onSelectLocalAsset(local)
                   }
                 }
               )
@@ -246,29 +251,34 @@ struct CloudTimelineCell: View {
   @State private var thumbData: Data?
 
   var body: some View {
-    Button(action: onSelect) {
-      ThumbnailImage(jpegData: thumbData, displayMode: displayMode)
-        .overlay(alignment: .topLeading) {
-          if let rating = asset.rating, rating > 0 {
-            HStack(spacing: 1) {
-              ForEach(0..<rating, id: \.self) { _ in
-                Image(systemName: "star.fill").font(.caption2)
-              }
+    ThumbnailImage(jpegData: thumbData, displayMode: displayMode)
+      .overlay(alignment: .topLeading) {
+        if let rating = asset.rating, rating > 0 {
+          HStack(spacing: 1) {
+            ForEach(0..<rating, id: \.self) { _ in
+              Image(systemName: "star.fill").font(.caption2)
             }
-            .foregroundStyle(.yellow)
-            .padding(4)
           }
+          .foregroundStyle(.yellow)
+          .padding(4)
         }
-    }
-    .buttonStyle(.plain)
-    // `.task(id:)` instead of `.onAppear` because LazyVGrid doesn't
-    // reliably fire `.onAppear` for cells created NEW when the parent's
-    // body re-evaluates (e.g. skeleton placeholders → real cells when
-    // a page finishes loading) — they're already in the lazy grid's
-    // visible window so the appear callback never gets queued. `.task`
-    // runs on first attachment regardless of layout state, restarts
-    // when `asset.id` changes, and auto-cancels on disappear.
-    .task(id: asset.id) {
+      }
+      // Tap target is the whole cell rectangle. `Button(.plain)` inside a
+      // LazyVGrid was registering inconsistently on macOS — the cell's
+      // clipShape narrowed the active hit area to the rounded rect and
+      // the corners (and sometimes more) silently swallowed clicks. The
+      // .contentShape + .onTapGesture pair is the pattern BrowseGrid uses
+      // and it gives a reliable hit area across macOS/iPad/iPhone.
+      .contentShape(Rectangle())
+      .onTapGesture { onSelect() }
+      // `.task(id:)` instead of `.onAppear` because LazyVGrid doesn't
+      // reliably fire `.onAppear` for cells created NEW when the parent's
+      // body re-evaluates (e.g. skeleton placeholders → real cells when
+      // a page finishes loading) — they're already in the lazy grid's
+      // visible window so the appear callback never gets queued. `.task`
+      // runs on first attachment regardless of layout state, restarts
+      // when `asset.id` changes, and auto-cancels on disappear.
+      .task(id: asset.id) {
       timelineLog.debug("cell task fire id=\(asset.id, privacy: .public) abs=\(asset.abs_path, privacy: .public)")
       let bytes = await Self.fetchThumbBytes(
         host: host,
@@ -330,16 +340,16 @@ struct CloudTimelineMergedCell: View {
   @State private var loadTask: Task<Void, Never>?
 
   var body: some View {
-    Button(action: onSelect) {
-      ThumbnailImage(jpegData: thumbData, displayMode: displayMode)
-        .overlay(alignment: .bottomTrailing) {
-          badgeView.padding(4)
-        }
-    }
-    .buttonStyle(.plain)
-    .task(id: MergedTimelineSource.renderID(cell)) {
-      await startLoad()
-    }
+    ThumbnailImage(jpegData: thumbData, displayMode: displayMode)
+      .overlay(alignment: .bottomTrailing) {
+        badgeView.padding(4)
+      }
+      // See CloudTimelineCell — same reason. Reliable LazyVGrid tap target.
+      .contentShape(Rectangle())
+      .onTapGesture { onSelect() }
+      .task(id: MergedTimelineSource.renderID(cell)) {
+        await startLoad()
+      }
   }
 
   @ViewBuilder
