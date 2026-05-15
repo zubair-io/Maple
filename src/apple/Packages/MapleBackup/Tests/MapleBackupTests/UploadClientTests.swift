@@ -122,6 +122,52 @@ final class UploadClientTests: XCTestCase {
         }
     }
 
+    /// 423 on the first chunk means another device on the same iCloud
+    /// library is actively uploading this asset. Client surfaces the
+    /// back-off hint so the engine can requeue without burning a retry slot.
+    func test423BusyElsewhereSurfacesBackoffHint() async throws {
+        StubURLProtocol.stub = .status(
+            423,
+            json: #"{"error":"another device is actively uploading this asset","retry_after_seconds":120,"defer_positions":10}"#)
+        let client = await makeClient()
+        do {
+            _ = try await client.upload(
+                phassetLocalId: "P1", filename: "IMG.heic",
+                captureDate: Date(timeIntervalSince1970: 1_700_000_000),
+                lat: nil, lon: nil,
+                bytes: Data(count: 256), mapleId: "abc",
+                phassetCloudId: "icloud-XYZ")
+            XCTFail("expected throw")
+        } catch UploadClient.UploadError.busyElsewhere(let retry, let positions) {
+            XCTAssertEqual(retry, 120)
+            XCTAssertEqual(positions, 10)
+        } catch {
+            XCTFail("expected busyElsewhere, got \(error)")
+        }
+    }
+
+    /// Missing fields in the 423 body fall back to safe defaults so the
+    /// engine can still requeue if the server speaks a slightly different
+    /// dialect.
+    func test423WithEmptyBodyFallsBackToDefaults() async throws {
+        StubURLProtocol.stub = .status(423, json: "{}")
+        let client = await makeClient()
+        do {
+            _ = try await client.upload(
+                phassetLocalId: "P1", filename: "IMG.heic",
+                captureDate: Date(timeIntervalSince1970: 1_700_000_000),
+                lat: nil, lon: nil,
+                bytes: Data(count: 256), mapleId: "abc",
+                phassetCloudId: "icloud-XYZ")
+            XCTFail("expected throw")
+        } catch UploadClient.UploadError.busyElsewhere(let retry, let positions) {
+            XCTAssertGreaterThan(retry, 0)
+            XCTAssertGreaterThan(positions, 0)
+        } catch {
+            XCTFail("expected busyElsewhere, got \(error)")
+        }
+    }
+
     func testNetworkErrorPropagates() async throws {
         StubURLProtocol.stub = .networkError(.notConnectedToInternet)
         let client = await makeClient()

@@ -230,6 +230,31 @@ public actor BackupEngine {
 
             try await state.transition(task.id, to: .uploaded, error: nil)
             await queue.emit(.completed(task.id, mapleId: result.mapleId))
+        } catch UploadClient.UploadError.busyElsewhere(let retryAfterSeconds, let deferPositions) {
+            // Another device on the same iCloud library is actively uploading
+            // this asset. Re-enqueue at the back of the same priority bucket
+            // after a short delay so the other device's upload can progress.
+            // Don't bump retryCount — this isn't a failure, it's coordination.
+            try? await state.transition(task.id, to: .pending,
+                                        error: "busy: another device uploading")
+            // Cap the delay so we don't sit idle for the full peer-staleness
+            // window (30 min) on every collision — re-probing periodically
+            // is cheaper than sleeping the full window.
+            let delay = min(retryAfterSeconds, 60)
+            let queueRef = queue
+            let deferTask = Task.detached(priority: .background) {
+                try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                await queueRef.enqueue(task, priority: task.priority)
+            }
+            retryTasks.insert(deferTask)
+            Task { [weak self] in
+                _ = await deferTask.value
+                await self?.removeRetryTask(deferTask)
+            }
+            await queue.emit(.failed(task.id, error: "busy elsewhere", willRetry: true))
+            throw UploadClient.UploadError.busyElsewhere(
+                retryAfterSeconds: retryAfterSeconds,
+                deferPositions: deferPositions)
         } catch {
             let nextRetry = task.retryCount + 1
             let willRetry = nextRetry < Self.maxRetries
