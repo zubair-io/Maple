@@ -179,6 +179,76 @@ describe("uploadSessions", () => {
       );
     });
 
+    test("prefers freshest peer over stale duplicate when both exist for same cloud_id", async () => {
+      // Simulate the post-race state where the non-atomic cross-device guard
+      // let two peer rows for the same cloud_id slip through (one ended up
+      // stale, one stayed active). Before the sort fix, findOne could return
+      // either one — and if it picked the stale row, openOrResume would
+      // abandon it and let the caller proceed alongside the still-active
+      // sibling, defeating 423 coordination.
+      const c = await uploadSessionsCollection();
+      const sharedCloudId = "icloud-DUPLICATE-PEERS";
+      const stale = new Date(Date.now() - CROSS_DEVICE_BUSY_WINDOW_MS - 60_000);
+      const fresh = new Date(Date.now() - 30_000); // < busy window
+      await c.insertMany([
+        {
+          _id: new ObjectId(),
+          library_id: libraryId,
+          device_id: "phone-stale-dup",
+          phasset_local_id: "phone-local-stale-dup",
+          target_rel_path: "2024/Paris/IMG_DUP.heic",
+          total_bytes: 4_000_000,
+          received_bytes: 1_000_000,
+          chunk_size: 1_000_000,
+          state: "open",
+          created_at: stale,
+          updated_at: stale,
+          phasset_cloud_id: sharedCloudId,
+        },
+        {
+          _id: new ObjectId(),
+          library_id: libraryId,
+          device_id: "tablet-fresh-dup",
+          phasset_local_id: "tablet-local-fresh-dup",
+          target_rel_path: "2024/Paris/IMG_DUP.heic",
+          total_bytes: 4_000_000,
+          received_bytes: 2_000_000,
+          chunk_size: 1_000_000,
+          state: "open",
+          created_at: fresh,
+          updated_at: fresh,
+          phasset_cloud_id: sharedCloudId,
+        },
+      ] as any);
+
+      // Desktop tries the same cloud_id — must see the FRESH peer and 423,
+      // not the stale one.
+      let err: unknown;
+      try {
+        await uploadSessions.openOrResume({
+          libraryId,
+          deviceId: "desktop-arbiter",
+          phassetLocalId: "desktop-local-arbiter",
+          totalBytes: 4_000_000,
+          chunkSize: 1_000_000,
+          targetRelPath: "2024/Paris/IMG_DUP.heic",
+          phassetCloudId: sharedCloudId,
+        });
+      } catch (e) {
+        err = e;
+      }
+      expect(err).toBeInstanceOf(BusyElsewhereError);
+      // Stale peer must NOT have been abandoned — that would have signaled
+      // "all clear" and let a third caller proceed concurrently with the
+      // still-active fresh peer.
+      const stillOpenStale = await c.findOne({
+        library_id: libraryId,
+        device_id: "phone-stale-dup",
+        state: "open",
+      });
+      expect(stillOpenStale).not.toBeNull();
+    });
+
     test("abandons stale peer session and proceeds", async () => {
       const c = await uploadSessionsCollection();
       const staleTime = new Date(
