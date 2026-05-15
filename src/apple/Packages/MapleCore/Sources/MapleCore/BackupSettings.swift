@@ -20,7 +20,10 @@ public struct BackupSettings: Equatable, Codable, Sendable {
     public var libraryId: String
 
     /// Folder relative to the library root where the backup tree lands.
-    /// Default `Photos/`.
+    /// Empty string (the default) writes directly under the library root.
+    /// Subdirectory values like `"iPhotoBackups"` are also accepted by
+    /// callers that want to keep the imported tree out of the library's
+    /// top level.
     public var rootFolder: String
 
     /// Both bytes and sidecar uploads are gated to Wi-Fi by default.
@@ -59,7 +62,7 @@ public struct BackupSettings: Equatable, Codable, Sendable {
     public static let defaults = BackupSettings(
         serverURL: "",
         libraryId: "",
-        rootFolder: "Photos/",
+        rootFolder: "",
         wifiOnly: true,
         includeLivePhotos: true,
         includeVideos: true,
