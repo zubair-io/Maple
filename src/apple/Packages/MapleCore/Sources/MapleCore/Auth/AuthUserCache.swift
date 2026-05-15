@@ -71,12 +71,26 @@ public enum AuthUserCache {
 /// and percent-encoded (so IPv6 literals like `[::1]`, internationalised
 /// domain names, or any other characters the host might legally contain
 /// don't break the filename).
+///
+/// Returns nil only when `server.host` itself is nil (e.g. a `file://`
+/// URL with no host). Percent-encoding of a host is total in practice
+/// because `URL.host` always produces a UTF-8 string, but if it ever
+/// fails the nil return is logged so a silent cache miss doesn't go
+/// undiagnosed — `load`/`save`/`clear` then no-op and the caller falls
+/// back to live fetch / empty state.
 enum AuthCacheKey {
   static func make(for server: URL) -> String? {
-    guard let host = server.host else { return nil }
+    guard let host = server.host else {
+      authLogger.error("AuthCacheKey: no host for server \(server.absoluteString, privacy: .public) — cache disabled for this URL")
+      return nil
+    }
     let portSuffix = server.port.map { "_\($0)" } ?? ""
     let raw = (host + portSuffix).lowercased()
     let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_."))
-    return raw.addingPercentEncoding(withAllowedCharacters: allowed)
+    guard let encoded = raw.addingPercentEncoding(withAllowedCharacters: allowed) else {
+      authLogger.error("AuthCacheKey: failed to percent-encode host \(raw, privacy: .public) — cache disabled for this URL")
+      return nil
+    }
+    return encoded
   }
 }

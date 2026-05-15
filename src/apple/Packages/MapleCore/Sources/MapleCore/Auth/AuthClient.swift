@@ -66,12 +66,18 @@ public actor AuthClient {
     return try await get("/api/auth/me", auth: accessToken)
   }
 
-  public struct RefreshResult { public let tokens: AuthTokens; public let user: AuthUser }
-  public func refresh(refreshToken: String) async throws -> RefreshResult {
+  /// POSTs `/api/auth/refresh` and returns the rotated tokens. The
+  /// caller is expected to persist these IMMEDIATELY before doing
+  /// anything else — the server has already invalidated the old
+  /// refresh token, so any error path that drops the new pair makes
+  /// the credentials unrecoverable. (The previous `refresh()` chained
+  /// `/api/auth/me` inline and threw on its failure, which lost the
+  /// rotation when `/me` 5xx'd post-rotation. That's why this version
+  /// is tokens-only.)
+  public func refreshTokens(refreshToken: String) async throws -> AuthTokens {
     struct R: Decodable { let access_token: String; let refresh_token: String }
     let r: R = try await postJSON("/api/auth/refresh", body: ["refresh_token": refreshToken], auth: nil)
-    let me: AuthMeResponse = try await get("/api/auth/me", auth: r.access_token)
-    return RefreshResult(tokens: AuthTokens(access: r.access_token, refresh: r.refresh_token), user: me.user)
+    return AuthTokens(access: r.access_token, refresh: r.refresh_token)
   }
 
   public func logout(accessToken: String, refreshToken: String) async throws {
