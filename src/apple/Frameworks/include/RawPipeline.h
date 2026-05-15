@@ -428,3 +428,58 @@ int32_t maple_apply_scene_linear_chain(const uint16_t *in_ptr,
  * Returns 0 on success, -1 on null pointers, -2 on zero-length input.
  */
 int32_t maple_blake3_hex(const uint8_t *bytes_ptr, uintptr_t bytes_len, uint8_t *out_hex);
+
+/**
+ * Compute the spec-form **primary** maple_id over a file's leading bytes.
+ * Output is the 32-character lowercase hex of the 16-byte tagged id
+ * (`0x01 || BLAKE3(SHA1(head) || captured_at || serial || u64_le(shutter))[..15]`).
+ *
+ * Only the first `SHA1_HEAD_BYTES` (= 64 KB) of `head_ptr` feed `sha1Head`;
+ * callers may safely pass exactly the first 64 KB rather than the whole
+ * file. `captured_at_ptr` is hashed verbatim (UTF-8 bytes; the server's
+ * indexer normalises the EXIF date to ISO 8601 before hashing — the device
+ * must match that string byte-for-byte for dedup to fire).
+ *
+ * `serial_ptr` may be null (or `serial_len == 0`) — absent serial is
+ * hashed as empty bytes, matching `MapleId::primary(_, _, None, _)`.
+ *
+ * `shutter_count == 0` is hashed as `0u64_le`, identical to
+ * `MapleId::primary(_, _, _, None)`. The spec documents that a real
+ * shutter-count of 0 collides with "absent" — this is by design.
+ *
+ * `out_hex` must point to at least 32 writable bytes. No null terminator.
+ *
+ * Returns:
+ *   0  success
+ *  -1  null pointer for `head_ptr`, `captured_at_ptr`, or `out_hex`
+ *  -2  `head_len == 0` or `captured_at_len == 0`
+ */
+int32_t maple_id_primary(const uint8_t *head_ptr,
+                         uintptr_t head_len,
+                         const uint8_t *captured_at_ptr,
+                         uintptr_t captured_at_len,
+                         const uint8_t *serial_ptr,
+                         uintptr_t serial_len,
+                         uint64_t shutter_count,
+                         uint8_t *out_hex);
+
+/**
+ * Compute the spec-form **fallback** maple_id over a file's full bytes.
+ * Output is the 32-character lowercase hex of the 16-byte tagged id
+ * (`0x02 || BLAKE3(SHA1(all_bytes) || u64_le(filesize))[..15]`).
+ *
+ * `filesize` is typically `bytes_len` but is passed separately so callers
+ * streaming or aliasing buffers can pass the canonical file size
+ * independently (matches the spec formula).
+ *
+ * `out_hex` must point to at least 32 writable bytes. No null terminator.
+ *
+ * Returns:
+ *   0  success
+ *  -1  null pointer for `bytes_ptr` or `out_hex`
+ *  -2  `bytes_len == 0`
+ */
+int32_t maple_id_fallback(const uint8_t *bytes_ptr,
+                          uintptr_t bytes_len,
+                          uint64_t filesize,
+                          uint8_t *out_hex);

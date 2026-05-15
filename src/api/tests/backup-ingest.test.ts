@@ -179,6 +179,93 @@ describe("POST /api/libraries/:id/backup/ingest", () => {
     expect(deviceIds).toContain(deviceB);
   });
 
+  test("backup upload with spec-form maple_id matching pre-seeded AssetDoc → dedup, no second file", async () => {
+    // End-to-end dedup proof for the device-side spec-form maple_id fix:
+    // an indexer-style AssetDoc exists on disk + in Mongo, and the device
+    // backs up the same content with the matching spec-form id. The server
+    // must short-circuit on `findOne({ maple_id })` and not write a second
+    // copy.
+    const { deriveId } = await import("../src/indexer/id.ts");
+
+    // Simulate "indexer scanned this file" — write the file to the library
+    // folder directly, derive a spec-form id from its head, insert the
+    // AssetDoc with that id.
+    const indexerRelPath = "indexed/IMG_INDEXED.HEIC";
+    const indexerAbsPath = path.join(tmpLib, indexerRelPath);
+    await fs.mkdir(path.dirname(indexerAbsPath), { recursive: true });
+    const sharedBytes = Buffer.alloc(1024, 0xab);
+    await fs.writeFile(indexerAbsPath, sharedBytes);
+
+    const capturedAt = "2024-09-01T10:00:00.000Z";
+    const id = deriveId(new Uint8Array(sharedBytes), capturedAt, null, null);
+    // Sanity: id is the 32-char spec form (tag 0x01 primary).
+    expect(id.hex.length).toBe(32);
+    expect(id.kind).toBe("primary");
+
+    const a = await assetsCollection();
+    await a.insertOne({
+      _id: new ObjectId(),
+      folder_id: libId,
+      filename: "IMG_INDEXED.HEIC",
+      abs_path: indexerAbsPath,
+      size: sharedBytes.byteLength,
+      mtime: Date.now(),
+      rating: 0,
+      flag: 0,
+      color_label: "",
+      indexed_at: new Date().toISOString(),
+      maple_id: id.hex,
+      phasset_links: [],
+      deleted_from_photos: false,
+    } as any);
+
+    // Now the device sends a backup with the same content + same spec-form id.
+    const devicePhid = "ABC/L0/SPEC-FORM";
+    const deviceForId = "device-spec-form";
+    const res = await app.handle(ingest(sharedBytes, {
+      "X-Maple-Device-Id": deviceForId,
+      "X-Maple-Phasset-Id": devicePhid,
+      "X-Maple-Capture-Date": capturedAt,
+      "X-Maple-Filename": "IMG_INDEXED.HEIC",
+      "X-Maple-Total-Bytes": String(sharedBytes.byteLength),
+      "X-Maple-Maple-Id": id.hex,
+      "Content-Range": `bytes 0-${sharedBytes.byteLength - 1}/${sharedBytes.byteLength}`,
+    }));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.maple_id).toBe(id.hex);
+    // Response references the pre-seeded asset's path — proves the server
+    // resolved to the existing row, not a fresh upload destination.
+    expect(body.target_rel_path).toBe(indexerRelPath);
+
+    // Exactly one AssetDoc; phasset_links got the device link pushed onto it.
+    const rows = await a.find({ maple_id: id.hex }).toArray();
+    expect(rows.length).toBe(1);
+    expect(rows[0].phasset_links.length).toBe(1);
+    expect(rows[0].phasset_links[0].device_id).toBe(deviceForId);
+    expect(rows[0].phasset_links[0].phasset_local_id).toBe(devicePhid);
+
+    // Only the indexer's file exists on disk under the library folder —
+    // no second copy was written under the device's would-be target path.
+    // The "phid-routing" target path would have been derived from
+    // capture_date + filename → e.g. `2024/2024/09-01/IMG_INDEXED.HEIC` —
+    // walk the folder tree and assert exactly one IMG_INDEXED.HEIC exists.
+    async function walk(dir: string): Promise<string[]> {
+      const out: string[] = [];
+      const ents = await fs.readdir(dir, { withFileTypes: true });
+      for (const e of ents) {
+        const full = path.join(dir, e.name);
+        if (e.isDirectory()) out.push(...(await walk(full)));
+        else out.push(full);
+      }
+      return out;
+    }
+    const allFiles = await walk(tmpLib);
+    const sharedNameMatches = allFiles.filter((p) => p.endsWith("IMG_INDEXED.HEIC"));
+    expect(sharedNameMatches.length).toBe(1);
+    expect(sharedNameMatches[0]).toBe(indexerAbsPath);
+  });
+
   test("Content-Range end < start → 400", async () => {
     const r = await app.handle(ingest(Buffer.alloc(8), {
       "X-Maple-Device-Id": deviceId,

@@ -15,6 +15,7 @@
 
 import Foundation
 import Photos
+import ImageIO
 import MapleBackup
 import MapleCore
 
@@ -67,7 +68,16 @@ actor PhotoKitAssetReader: AssetReader {
         let lon = asset.location?.coordinate.longitude
         let filename = originalResource.originalFilename
 
-        guard let hash = BLAKE3.hex(originalBytes) else {
+        // Spec-form maple_id derivation. Matches the server indexer at
+        // `src/api/src/workers/stages/exif.ts` so a photo that was already
+        // indexed via folder scan and is now being backed up from a device
+        // resolves to the *same* AssetDoc row (server's
+        // `findOne({ maple_id })` short-circuits with a `$push` to
+        // phasset_links rather than writing a second file).
+        //
+        // Primary form when EXIF DateTimeOriginal is present in the
+        // original bytes; fallback (full-file BLAKE3 + filesize) otherwise.
+        guard let mapleId = Self.deriveMapleId(originalBytes: originalBytes) else {
             throw ReaderError.hashFailed
         }
 
@@ -106,7 +116,73 @@ actor PhotoKitAssetReader: AssetReader {
             liveVideoBytes: liveVideoBytes,
             liveVideoFilename: liveVideoFilename,
             sidecar: sidecar,
-            mapleId: hash)
+            mapleId: mapleId)
+    }
+
+    // MARK: - Maple id derivation
+
+    /// Compute the 32-character spec-form `maple_id` for an asset's
+    /// original bytes. Reads EXIF DateTimeOriginal from the bytes (matches
+    /// the indexer's `readExif` source of truth) and feeds the primary
+    /// derivation when present; otherwise falls back to full-bytes hash
+    /// plus filesize.
+    ///
+    /// Camera serial and shutter count are passed as nil/0 to match the
+    /// server indexer (`src/api/src/workers/stages/exif.ts:64`), which
+    /// currently doesn't surface them on `AssetExif`. When the indexer
+    /// starts persisting them, this helper must update in lockstep —
+    /// otherwise dedup will silently regress on cameras that report
+    /// shutter counts.
+    private static func deriveMapleId(originalBytes: Data) -> String? {
+        if let ts = readExifDateTimeOriginalISO8601UTC(from: originalBytes) {
+            // Cap the head slice at the spec's 64 KB. Hashing the whole
+            // file is wasted work — `MapleId::primary` ignores everything
+            // past `SHA1_HEAD_BYTES`. Use `Data(prefix:)` rather than
+            // slicing so the resulting `Data` is a contiguous owned
+            // buffer (the FFI binds via `withUnsafeBytes`).
+            let head = originalBytes.count > 64 * 1024
+                ? originalBytes.prefix(64 * 1024)
+                : originalBytes
+            if let id = MapleId.primary(
+                headBytes: Data(head),
+                capturedAtISO8601: ts
+            ) {
+                return id
+            }
+        }
+        return MapleId.fallback(bytes: originalBytes)
+    }
+
+    /// Read EXIF DateTimeOriginal from the asset bytes and normalise to
+    /// the ISO 8601 string the server indexer hashes
+    /// (`<exifr>.DateTimeOriginal.toISOString()`).
+    ///
+    /// EXIF DateTimeOriginal has no timezone designator. exifr's default
+    /// behaviour is to interpret it as UTC and emit a Date — we match
+    /// that interpretation here so the resulting ISO 8601 string is
+    /// byte-for-byte the same value the indexer feeds into BLAKE3.
+    /// (If the indexer's interpretation later changes — e.g. once
+    /// OffsetTimeOriginal is plumbed through — this helper has to follow.)
+    ///
+    /// Returns nil when DateTimeOriginal is absent or unparseable —
+    /// callers fall through to fallback-form derivation.
+    private static func readExifDateTimeOriginalISO8601UTC(from data: Data) -> String? {
+        guard let src = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
+        guard let props = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any],
+              let exif = props[kCGImagePropertyExifDictionary] as? [CFString: Any],
+              let dateStr = exif[kCGImagePropertyExifDateTimeOriginal] as? String
+        else { return nil }
+        let parser = DateFormatter()
+        parser.dateFormat = "yyyy:MM:dd HH:mm:ss"
+        parser.timeZone = TimeZone(secondsFromGMT: 0)
+        parser.locale = Locale(identifier: "en_US_POSIX")
+        guard let date = parser.date(from: dateStr.trimmingCharacters(in: .whitespaces)) else {
+            return nil
+        }
+        let out = ISO8601DateFormatter()
+        out.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        out.timeZone = TimeZone(secondsFromGMT: 0)
+        return out.string(from: date)
     }
 
     // MARK: - Reading bytes
