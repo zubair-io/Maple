@@ -18,6 +18,13 @@ public enum PayloadAssembler {
 
     public struct SidecarInput: Sendable {
         public let phassetLocalId: String
+        /// `PHCloudIdentifier.stringValue` for the asset — stable across
+        /// every device on the same iCloud Photos account. `nil` when the
+        /// device doesn't have iCloud Photos enabled, or PhotoKit's
+        /// `cloudIdentifierMappings(forLocalIdentifiers:)` lookup didn't
+        /// resolve. Forwarded to the server as `X-Maple-PHAsset-Cloud-Id`
+        /// so the cloud library can serve a cross-device-stable join key.
+        public let phassetCloudId: String?
         public let deviceId: String
         public let captureDate: Date
         public let latitude: Double?
@@ -35,8 +42,10 @@ public enum PayloadAssembler {
                     latitude: Double?, longitude: Double?, favorite: Bool,
                     caption: String?, keywords: [String], tags: [String],
                     livePhotoCompanion: String?, burstStackId: String?,
-                    originalFilename: String, mtime: TimeInterval) {
+                    originalFilename: String, mtime: TimeInterval,
+                    phassetCloudId: String? = nil) {
             self.phassetLocalId = phassetLocalId
+            self.phassetCloudId = phassetCloudId
             self.deviceId = deviceId
             self.captureDate = captureDate
             self.latitude = latitude

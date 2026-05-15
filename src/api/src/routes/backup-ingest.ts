@@ -78,6 +78,10 @@ export const backupIngestRoutes = new Elysia().post(
     // Extract + validate required headers.
     const deviceId = headers["x-maple-device-id"];
     const phid = headers["x-maple-phasset-id"];
+    // Stable across every device on the same iCloud Photos account. Optional
+    // — non-iCloud library users won't have a cloud id, and the merge logic
+    // falls back to phasset_local_id matching in that case.
+    const phCloudId = headers["x-maple-phasset-cloud-id"];
     const captureRaw = headers["x-maple-capture-date"];
     const filename = headers["x-maple-filename"];
     const totalBytesRaw = headers["x-maple-total-bytes"];
@@ -221,7 +225,13 @@ export const backupIngestRoutes = new Elysia().post(
     // 1. Dedup lookup BEFORE any filesystem operations.
     const a = await assetsCollection();
     const existing = await a.findOne({ maple_id: mapleId });
-    const link = { device_id: deviceId, phasset_local_id: phid, first_seen: new Date() };
+    const link: {
+      device_id: string;
+      phasset_local_id: string;
+      phasset_cloud_id?: string;
+      first_seen: Date;
+    } = { device_id: deviceId, phasset_local_id: phid, first_seen: new Date() };
+    if (phCloudId) link.phasset_cloud_id = phCloudId;
 
     if (existing) {
       // Same content already stored — just link this device to the existing row.

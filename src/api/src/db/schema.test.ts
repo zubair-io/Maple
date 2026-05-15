@@ -22,6 +22,38 @@ describe("PhotoKit backup schema additions", () => {
     expect(doc.phasset_links?.length).toBe(1);
   });
 
+  test("phasset_links accepts optional phasset_cloud_id for cross-device join", () => {
+    const doc: AssetDoc = {
+      folder_id: {} as any,
+      filename: "IMG.heic",
+      abs_path: "/Photos/2024/Tokyo/03-15/IMG.heic",
+      size: 1,
+      mtime: 0,
+      rating: 0,
+      flag: 0,
+      color_label: "",
+      indexed_at: "2026-05-11T00:00:00Z",
+      phasset_links: [
+        // First entry has a cloud id (iCloud Photos enabled on the device).
+        {
+          device_id: "device-A",
+          phasset_local_id: "ABC/L0/001",
+          phasset_cloud_id: "icloud-XYZ",
+          first_seen: new Date(),
+        },
+        // Second entry omits it (iCloud off, local-only library).
+        {
+          device_id: "device-B",
+          phasset_local_id: "DEF/L0/002",
+          first_seen: new Date(),
+        },
+      ],
+    };
+    expect(doc.phasset_links?.length).toBe(2);
+    expect(doc.phasset_links?.[0]!.phasset_cloud_id).toBe("icloud-XYZ");
+    expect(doc.phasset_links?.[1]!.phasset_cloud_id).toBeUndefined();
+  });
+
   test("UploadSessionDoc carries the resume key fields", () => {
     const s: UploadSessionDoc = {
       _id: {} as any,

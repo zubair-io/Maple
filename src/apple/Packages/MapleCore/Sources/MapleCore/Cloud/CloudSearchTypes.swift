@@ -104,8 +104,21 @@ public struct SearchAsset: Codable, Equatable, Sendable {
 }
 
 public struct SearchAssetPHLink: Codable, Equatable, Sendable {
-  /// `PHAsset.localIdentifier` — stable key used to join with PhotoKit.
+  /// `PHAsset.localIdentifier` — per-device key. NOT stable across devices
+  /// (each device has its own Photos DB) — keep matching against it for
+  /// local-only-library callers, but prefer `phasset_cloud_id` when both
+  /// sides have one.
   public let phasset_local_id: String
+  /// `PHCloudIdentifier.stringValue` — stable across every device on the
+  /// same iCloud Photos account. Optional: nil when the uploading device
+  /// didn't have iCloud Photos enabled. Drives the cross-device `.synced`
+  /// badge in the merged timeline (see `MergedTimelineSource.merge`).
+  public let phasset_cloud_id: String?
+
+  public init(phasset_local_id: String, phasset_cloud_id: String? = nil) {
+    self.phasset_local_id = phasset_local_id
+    self.phasset_cloud_id = phasset_cloud_id
+  }
 }
 
 public struct SearchResponse: Codable, Sendable {

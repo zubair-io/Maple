@@ -382,6 +382,96 @@ describe("POST /api/libraries/:id/backup/ingest", () => {
     await fs.unlink(preExistingPath);
   });
 
+  test("X-Maple-PHAsset-Cloud-Id is persisted into phasset_links", async () => {
+    const phidCloud = "ABC/L0/CLOUD1";
+    const cloudId = "icloud-XYZ-stable-across-devices";
+    const res = await app.handle(ingest(Buffer.alloc(64, 13), {
+      "X-Maple-Device-Id": deviceId,
+      "X-Maple-Phasset-Id": phidCloud,
+      "X-Maple-PHAsset-Cloud-Id": cloudId,
+      "X-Maple-Capture-Date": "2024-08-01T08:00:00Z",
+      "X-Maple-Filename": "IMG_CLOUD.HEIC",
+      "X-Maple-Total-Bytes": "64",
+      "X-Maple-Maple-Id": "cloud-id-maple-id",
+      "Content-Range": "bytes 0-63/64",
+    }));
+    expect(res.status).toBe(200);
+
+    const a = await assetsCollection();
+    const doc = await a.findOne({ "phasset_links.phasset_local_id": phidCloud });
+    expect(doc).toBeTruthy();
+    const link = doc!.phasset_links!.find((l) => l.phasset_local_id === phidCloud);
+    expect(link).toBeTruthy();
+    expect(link!.phasset_cloud_id).toBe(cloudId);
+  });
+
+  test("absent X-Maple-PHAsset-Cloud-Id leaves phasset_cloud_id unset", async () => {
+    const phidNoCloud = "ABC/L0/NOCLOUD";
+    const res = await app.handle(ingest(Buffer.alloc(64, 14), {
+      "X-Maple-Device-Id": deviceId,
+      "X-Maple-Phasset-Id": phidNoCloud,
+      // No X-Maple-PHAsset-Cloud-Id header — simulates iCloud Photos off.
+      "X-Maple-Capture-Date": "2024-08-01T08:00:00Z",
+      "X-Maple-Filename": "IMG_NOCLOUD.HEIC",
+      "X-Maple-Total-Bytes": "64",
+      "X-Maple-Maple-Id": "no-cloud-maple-id",
+      "Content-Range": "bytes 0-63/64",
+    }));
+    expect(res.status).toBe(200);
+
+    const a = await assetsCollection();
+    const doc = await a.findOne({ "phasset_links.phasset_local_id": phidNoCloud });
+    expect(doc).toBeTruthy();
+    const link = doc!.phasset_links!.find((l) => l.phasset_local_id === phidNoCloud);
+    expect(link).toBeTruthy();
+    expect(link!.phasset_cloud_id).toBeUndefined();
+  });
+
+  test("second device with same maple_id $push's the link including its cloud id", async () => {
+    const sharedMapleId = "shared-maple-id-cloud-test";
+    const deviceA = "device-A-cloud";
+    const deviceB = "device-B-cloud";
+    const phidA = "ABC/L0/CLOUD-A";
+    const phidB = "ABC/L0/CLOUD-B";
+    const sharedCloudId = "icloud-shared-asset";
+
+    // Device A uploads with its own (phid, cloud_id) pair.
+    const rA = await app.handle(ingest(Buffer.alloc(64, 5), {
+      "X-Maple-Device-Id": deviceA,
+      "X-Maple-Phasset-Id": phidA,
+      "X-Maple-PHAsset-Cloud-Id": sharedCloudId,
+      "X-Maple-Capture-Date": "2024-09-01T08:00:00Z",
+      "X-Maple-Filename": "IMG_DEDUP_CLOUD.HEIC",
+      "X-Maple-Total-Bytes": "64",
+      "X-Maple-Maple-Id": sharedMapleId,
+      "Content-Range": "bytes 0-63/64",
+    }));
+    expect(rA.status).toBe(200);
+
+    // Device B uploads the same content (same maple_id) with its own phid
+    // but the same cloud id (because both devices see the same iCloud asset).
+    const rB = await app.handle(ingest(Buffer.alloc(64, 5), {
+      "X-Maple-Device-Id": deviceB,
+      "X-Maple-Phasset-Id": phidB,
+      "X-Maple-PHAsset-Cloud-Id": sharedCloudId,
+      "X-Maple-Capture-Date": "2024-09-01T08:00:00Z",
+      "X-Maple-Filename": "IMG_DEDUP_CLOUD.HEIC",
+      "X-Maple-Total-Bytes": "64",
+      "X-Maple-Maple-Id": sharedMapleId,
+      "Content-Range": "bytes 0-63/64",
+    }));
+    expect(rB.status).toBe(200);
+
+    const a = await assetsCollection();
+    const docs = await a.find({ maple_id: sharedMapleId }).toArray();
+    expect(docs.length).toBe(1);
+    const links = docs[0].phasset_links ?? [];
+    expect(links.length).toBe(2);
+    const byPhid = new Map(links.map((l: any) => [l.phasset_local_id, l]));
+    expect(byPhid.get(phidA)?.phasset_cloud_id).toBe(sharedCloudId);
+    expect(byPhid.get(phidB)?.phasset_cloud_id).toBe(sharedCloudId);
+  });
+
   test("library not found → 404", async () => {
     const fake = new ObjectId();
     const r = await app.handle(new Request(`http://localhost/api/libraries/${fake.toHexString()}/backup/ingest`, {

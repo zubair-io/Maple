@@ -52,22 +52,62 @@ public struct ImageRef: Sendable, Hashable, Identifiable, Codable {
 
     /// Server-side `phasset_links[0].phasset_local_id` when this ImageRef is
     /// a cloud-side row that was backed up from PhotoKit. `nil` for non-cloud
-    /// rows and for cloud rows that aren't PhotoKit-backed. Used by the
-    /// merged timeline to detect duplicates between the two streams.
+    /// rows and for cloud rows that aren't PhotoKit-backed.
+    ///
+    /// Per-device — different on every device for the same iCloud photo. Kept
+    /// as a fallback join key in `MergedTimelineSource.merge`; the preferred
+    /// key is `cloudIdentifier` (cross-device stable). When both sides have
+    /// a cloudIdentifier the merge uses it; phid is only consulted when the
+    /// cloud id is missing (e.g. local-only PhotoKit library).
     public let phassetLink: String?
+
+    /// `PHCloudIdentifier.stringValue` for this asset — stable across every
+    /// device on the same iCloud Photos account.
+    ///
+    /// On a local PhotoKit-backed ImageRef this is resolved via
+    /// `PHPhotoLibrary.shared().cloudIdentifierMappings(forLocalIdentifiers:)`
+    /// when the adapter enumerates the library. On a cloud-side ImageRef
+    /// this is populated from `SearchAssetPHLink.phasset_cloud_id` when any
+    /// of the asset's `phasset_links` entries had one at upload time.
+    ///
+    /// `nil` when iCloud Photos was off on every device that contributed
+    /// to this asset, or for rows that pre-date the cloud-id work.
+    public let cloudIdentifier: String?
+
+    /// Every `phasset_local_id` recorded on a cloud row — populated from
+    /// `phasset_links[*].phasset_local_id`. Used by `MergedTimelineSource`
+    /// to walk all entries instead of dropping every link past `[0]`.
+    /// `nil` for non-cloud rows.
+    public let allPhassetLinks: [String]?
+
+    /// Flattened list of non-nil `phasset_cloud_id` values from this cloud
+    /// row's `phasset_links`. Order preserves the underlying `phasset_links`
+    /// ordering but `phasset_links` entries without a cloud id are skipped,
+    /// so this array is NOT index-aligned with `allPhassetLinks`.
+    /// `MergedTimelineSource` only iterates to find a match, so the
+    /// alignment isn't needed; if a future caller needs index alignment
+    /// it should switch to `[String?]` instead. `nil` for non-cloud rows
+    /// and for rows whose links all lack a cloud id.
+    public let allCloudIdentifiers: [String]?
 
     public init(id: String,
                 displayName: String,
                 url: URL? = nil,
                 scopeParentURL: URL? = nil,
                 captureDate: Date? = nil,
-                phassetLink: String? = nil) {
+                phassetLink: String? = nil,
+                cloudIdentifier: String? = nil,
+                allPhassetLinks: [String]? = nil,
+                allCloudIdentifiers: [String]? = nil) {
         self.id = id
         self.displayName = displayName
         self.url = url
         self.scopeParentURL = scopeParentURL
         self.captureDate = captureDate
         self.phassetLink = phassetLink
+        self.cloudIdentifier = cloudIdentifier
+        self.allPhassetLinks = allPhassetLinks
+        self.allCloudIdentifiers = allCloudIdentifiers
     }
 }
 

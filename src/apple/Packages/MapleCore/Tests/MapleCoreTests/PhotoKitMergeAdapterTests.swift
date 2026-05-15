@@ -87,6 +87,53 @@ final class PhotoKitMergeAdapterTests: XCTestCase {
         XCTAssertEqual(adapter.assetsForMonth(year: 2024, month: 3).count, 0)
     }
 
+    /// v1 caches (pre-cloudIdentifier) get discarded on load — the version
+    /// field is the only check, the inner refs shape is irrelevant. This
+    /// pins down the v1→v2 migration story: users with a v1 cache on disk
+    /// pay one rebuild on the next launch, then v2 onwards is instant.
+    func test_init_v1Cache_discardedAfterBumpTo_v2() throws {
+        let url = makeTempCacheURL()
+        // v1 wire shape: refs are the pre-cloudIdentifier ImageRef encoding.
+        // Modelling it exactly isn't worth the maintenance — the version
+        // check fires before refs are touched.
+        let json = """
+        {
+          "version": 1,
+          "buckets": [{"year": 2024, "month": 3, "refs": [
+            {"id":"P1","displayName":"P1"}
+          ]}]
+        }
+        """
+        try Data(json.utf8).write(to: url)
+
+        let adapter = PhotoKitMergeAdapter(diskCacheURL: url)
+        XCTAssertEqual(adapter.assetsForMonth(year: 2024, month: 3).count, 0,
+                       "v1 cache must be discarded on init under v2")
+    }
+
+    /// Round-trip a ref that carries a cloudIdentifier through encode +
+    /// decode. Locks in that the cross-device join key survives a save +
+    /// reload cycle (the disk-cache layer is what makes first-paint
+    /// instant on relaunch — losing cloud ids here would cost every device
+    /// its synced badges until the next warmUp finishes).
+    func test_diskRoundTrip_preservesCloudIdentifier() throws {
+        let url = makeTempCacheURL()
+        let key = PhotoKitMergeAdapter.BucketKey(year: 2024, month: 3)
+        let ref = ImageRef(id: "local-A",
+                           displayName: "local-A",
+                           url: nil,
+                           captureDate: nil,
+                           cloudIdentifier: "icloud-XYZ")
+        let seed: [PhotoKitMergeAdapter.BucketKey: [ImageRef]] = [key: [ref]]
+        try PhotoKitMergeAdapter.encodeBuckets(seed).write(to: url)
+
+        let adapter = PhotoKitMergeAdapter(diskCacheURL: url)
+        let loaded = adapter.assetsForMonth(year: 2024, month: 3)
+        XCTAssertEqual(loaded.count, 1)
+        XCTAssertEqual(loaded.first?.cloudIdentifier, "icloud-XYZ",
+                       "cloudIdentifier must survive the disk round-trip")
+    }
+
     // MARK: - Invalidate
 
     func test_invalidate_clearsMemoryAndDisk() throws {

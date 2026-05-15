@@ -1299,6 +1299,72 @@ describe("/api/search timeline filters + buckets", () => {
     expect(r.status).toBe(200);
   });
 
+  it("/api/search projects phasset_links (drives cross-device synced badge)", async () => {
+    if (!mongoReachable) return;
+    // Insert a row with phasset_links carrying BOTH a phid and a cloud id —
+    // mirrors what backup-ingest writes when the device had iCloud Photos on.
+    const db = mongo!.db(TEST_DB);
+    const folderID = new ObjectId();
+    await db.collection("assets").insertOne({
+      folder_id: folderID,
+      abs_path: "/lib-c/with-phasset-links.heic",
+      filename: "with-phasset-links.heic",
+      size: 128,
+      mtime: Date.now(),
+      rating: 0,
+      flag: 0,
+      color_label: "",
+      indexed_at: new Date().toISOString(),
+      exif: null,
+      phasset_links: [
+        { device_id: "device-A",
+          phasset_local_id: "DEVICE_A_PHID",
+          phasset_cloud_id: "icloud-XYZ",
+          first_seen: new Date() },
+        { device_id: "device-B",
+          phasset_local_id: "DEVICE_B_PHID",
+          // Second device's row deliberately lacks a cloud id — exercises
+          // the projection's "optional per-entry" behavior.
+          first_seen: new Date() },
+      ],
+    } as any);
+
+    const { searchRoutes } = await import("../src/routes/search.ts");
+    const { requireAuth } = await import("../src/auth/middleware.ts");
+    const app = new Elysia().use(requireAuth).use(searchRoutes);
+
+    const r = await app.handle(
+      new Request(
+        `http://localhost/api/search?libraryId=${folderID.toHexString()}`,
+        { headers: fmtAuth() },
+      ),
+    );
+    expect(r.status).toBe(200);
+    const body = (await r.json()) as {
+      results: Array<{
+        filename: string;
+        phasset_links?: Array<{
+          phasset_local_id: string;
+          phasset_cloud_id?: string;
+        }>;
+      }>;
+    };
+    const hit = body.results.find((x) => x.filename === "with-phasset-links.heic");
+    expect(hit).toBeTruthy();
+    expect(hit!.phasset_links).toBeTruthy();
+    expect(hit!.phasset_links!.length).toBe(2);
+    const byPhid = new Map(
+      hit!.phasset_links!.map((l) => [l.phasset_local_id, l]),
+    );
+    expect(byPhid.get("DEVICE_A_PHID")?.phasset_cloud_id).toBe("icloud-XYZ");
+    expect(byPhid.get("DEVICE_B_PHID")?.phasset_cloud_id).toBeUndefined();
+    // device_id and first_seen are stripped (merged-timeline doesn't need them).
+    for (const link of hit!.phasset_links!) {
+      expect((link as any).device_id).toBeUndefined();
+      expect((link as any).first_seen).toBeUndefined();
+    }
+  });
+
   it("ensureIndexes creates abs_path_1 index (idempotent)", async () => {
     if (!mongoReachable) return;
     const { ensureIndexes } = await import("../src/db/client.ts");
