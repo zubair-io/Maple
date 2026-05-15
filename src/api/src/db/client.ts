@@ -729,6 +729,20 @@ export async function ensureIndexes(): Promise<void> {
     { name: "upload_sessions_ttl", expireAfterSeconds: 7 * 24 * 3600 },
   );
 
+  // upload_sessions: cross-device conflict lookup. Partial index over only
+  // "open" sessions with a phasset_cloud_id — openOrResume probes this to
+  // detect another device actively uploading the same iCloud photo.
+  await db.collection("upload_sessions").createIndex(
+    { library_id: 1, phasset_cloud_id: 1 },
+    {
+      name: "upload_sessions_cloud_id",
+      partialFilterExpression: {
+        state: "open",
+        phasset_cloud_id: { $exists: true },
+      },
+    },
+  );
+
   await ensureStageIndexes(db);
 
   log.info("indexes ensured");

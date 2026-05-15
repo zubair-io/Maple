@@ -4,7 +4,9 @@
 // The resume key (device_id, phasset_local_id) is in headers on every
 // request. The server enforces invariants (end >= start, end < total,
 // body length matches range) and returns 409 with expected_offset on
-// resume-offset mismatch.
+// resume-offset mismatch. On 423 the server tells us another device is
+// actively uploading the same iCloud photo — caller should back off and
+// requeue without burning a retry slot.
 //
 // Spec: docs/superpowers/specs/2026-05-09-photokit-backup-design.md §13.
 // Server contract: src/api/src/routes/backup-ingest.ts (PR #27).
@@ -23,6 +25,11 @@ public actor UploadClient {
         case badResponse
         case resumeMismatchNoOffset
         case emptyAsset
+        /// Another device on the same iCloud library is actively uploading
+        /// this asset. `retryAfterSeconds` is the server's hint for how long
+        /// before the peer goes stale; `deferPositions` is how many queue
+        /// slots to skip before re-trying.
+        case busyElsewhere(retryAfterSeconds: TimeInterval, deferPositions: Int)
     }
 
     private let baseURL: URL
@@ -142,6 +149,18 @@ public actor UploadClient {
                     continue
                 }
                 throw UploadError.resumeMismatchNoOffset
+            case 423:
+                // Another device is actively uploading this asset. Surface
+                // the back-off hint so the engine can requeue without
+                // burning a retry slot.
+                struct Busy: Decodable {
+                    let retry_after_seconds: Double?
+                    let defer_positions: Int?
+                }
+                let body = try? JSONDecoder().decode(Busy.self, from: data)
+                throw UploadError.busyElsewhere(
+                    retryAfterSeconds: body?.retry_after_seconds ?? 60,
+                    deferPositions: body?.defer_positions ?? 10)
             case 202:
                 guard !isFinal else { throw UploadError.badResponse }
                 offset = chunkEnd + 1
@@ -217,6 +236,15 @@ public actor UploadClient {
                     continue
                 }
                 throw UploadError.resumeMismatchNoOffset
+            case 423:
+                struct Busy: Decodable {
+                    let retry_after_seconds: Double?
+                    let defer_positions: Int?
+                }
+                let body = try? JSONDecoder().decode(Busy.self, from: data)
+                throw UploadError.busyElsewhere(
+                    retryAfterSeconds: body?.retry_after_seconds ?? 60,
+                    deferPositions: body?.defer_positions ?? 10)
             case 202:
                 guard !isFinal else { throw UploadError.badResponse }
                 offset = chunkEnd + 1
