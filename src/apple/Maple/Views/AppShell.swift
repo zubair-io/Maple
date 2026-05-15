@@ -1134,8 +1134,15 @@ struct AppShell: View {
             // folder list so the sidebar still has something to render.
             // Returning [] here used to give the user an empty sidebar
             // every time the network blipped.
-            if let cached = CloudFoldersCache.load(server: url) { return cached }
-            return []
+            //
+            // Log the swallowed error so triage can distinguish "live
+            // request failed; served cached data" from "live request
+            // succeeded but returned no folders" — invisible before.
+            let cached = CloudFoldersCache.load(server: url)
+            cloudHTTPLogger.info(
+              "listFolders failed for \(url.absoluteString, privacy: .public): \(error.localizedDescription, privacy: .public) — fallback: \(cached != nil ? "cache (\(cached!.count) folders)" : "empty", privacy: .public)"
+            )
+            return cached ?? []
         }
     }
 
