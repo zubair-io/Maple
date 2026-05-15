@@ -22,6 +22,17 @@ struct BackupStatusPanel: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: 12) {
+      // Surface engine-startup failures right at the top. Without this,
+      // a failed `EngineHost.start` left the user staring at a
+      // "No photos queued" panel with no idea why nothing was happening.
+      if let startErr = EngineHost.shared.lastStartError {
+        Label(startErr, systemImage: "exclamationmark.triangle.fill")
+          .font(.callout)
+          .foregroundStyle(.red)
+          .padding(8)
+          .background(.red.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
+      }
+
       ProgressView(value: progress.fractionDone) {
         Text(progress.progressLabel)
           .font(.headline)
@@ -94,6 +105,13 @@ struct BackupStatusPanel: View {
       .controlSize(.small)
     }
     .padding(.vertical, 4)
+    // No .task / .onDisappear here: the progress VM is now hoisted onto
+    // `EngineHost.shared.progress` (main, PR #49 follow-up) so its
+    // observer lifecycle is tied to the engine's start/stop, not to the
+    // panel's appearance. Running totals therefore survive navigating
+    // away from Settings and back. The `lastStartError` banner above
+    // covers the "engine didn't actually start" diagnostic that the old
+    // .task path used to surface implicitly.
   }
 }
 

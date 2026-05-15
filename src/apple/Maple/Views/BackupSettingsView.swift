@@ -6,8 +6,11 @@
 // Spec: docs/superpowers/specs/2026-05-09-photokit-backup-design.md §7.
 
 import SwiftUI
+import OSLog
 import MapleCore
 import MapleBackup
+
+private let settingsLog = Logger(subsystem: "app.justmaple.aperture", category: "Backup.SettingsView")
 
 struct BackupSettingsView: View {
   @State private var settings: BackupSettings = BackupSettings.load() ?? .defaults
@@ -20,7 +23,32 @@ struct BackupSettingsView: View {
   /// appear if the engine is already running from a prior session). Gates
   /// the Status section so the user doesn't see "No photos queued" before
   /// they've actually started anything.
-  @State private var hasStarted = false
+  ///
+  /// Persisted in UserDefaults so it survives view re-appearances AND app
+  /// launches — without persistence, going from this panel to the Browse
+  /// view and back resets the flag and the Start Backup button reappears
+  /// even though the engine has been running the whole time.
+  ///
+  /// Lifecycle: set to `true` when the user explicitly taps Start Backup,
+  /// AND auto-restored on appear when `EngineHost.shared.queue.snapshot()`
+  /// reports non-empty work. There is currently no clearing path —
+  /// once set, the Status section stays visible for the rest of the
+  /// install's lifetime. The Pause button in BackupStatusPanel stops
+  /// the engine but intentionally leaves this flag set so the user can
+  /// see Resume / progress remnants without having to re-tap Start.
+  /// If a future ticket wants a "hide the panel" affordance, write
+  /// `Self.saveHasStarted(false)` from that code path.
+  @State private var hasStarted = BackupSettingsView.loadHasStarted()
+
+  private static let hasStartedKey = "maple.backup.settings.hasStarted.v1"
+
+  private static func loadHasStarted() -> Bool {
+    UserDefaults.standard.bool(forKey: hasStartedKey)
+  }
+
+  private static func saveHasStarted(_ value: Bool) {
+    UserDefaults.standard.set(value, forKey: hasStartedKey)
+  }
 
   private var selectedServerURL: URL? {
     URL(string: settings.serverURL)
@@ -52,9 +80,31 @@ struct BackupSettingsView: View {
       Section {
         Button {
           Task {
+            settingsLog.info("Start button tapped — saving + starting engine")
             settings.save()
             await EngineHost.shared.start(settings: settings)
+            settingsLog.info("EngineHost.start returned engine=\(EngineHost.shared.engine != nil ? "ok" : "nil") err=\(EngineHost.shared.lastStartError ?? "none", privacy: .public)")
+            // Kick the PhotoKit walk + change observer. Without this the
+            // engine boots against an empty queue and the user just sees
+            // 'No photos queued' even though they configured everything.
+            // MapleApp's .task fires this on app launch when settings
+            // were already configured — but if the user configures here
+            // and taps Start, that path was never hit and we need to
+            // kick it ourselves. The walk itself runs off the main
+            // thread (ChangeObserverWiring.enqueueAllNew → Task.detached)
+            // so this call is non-blocking for the UI.
+            if let serverBaseURL = URL(string: settings.serverURL),
+               let storage = try? DeviceIdentity.defaultStorageURL(),
+               let deviceId = try? DeviceIdentity.current(storageURL: storage) {
+              settingsLog.info("kicking ChangeObserverWiring.start deviceId=\(deviceId, privacy: .public)")
+              ChangeObserverWiring.start(deviceId: deviceId, settings: settings,
+                                         libraryId: settings.libraryId,
+                                         serverBaseURL: serverBaseURL)
+            } else {
+              settingsLog.error("ChangeObserverWiring NOT started — failed to resolve serverBaseURL or DeviceIdentity")
+            }
             hasStarted = true
+            Self.saveHasStarted(true)
           }
         } label: {
           Text(hasStarted ? "Restart Backup" : "Start Backup")
@@ -72,8 +122,14 @@ struct BackupSettingsView: View {
     .task {
       // If the engine is already running (queued items from a prior session),
       // surface the status section without making the user re-tap Start.
+      // Persisted hasStarted handles the "engine drained but the user wants
+      // it back" case; this catches the "engine restarted by the host"
+      // case for free.
       let snapshot = await EngineHost.shared.queue.snapshot()
-      if !snapshot.isEmpty { hasStarted = true }
+      if !snapshot.isEmpty && !hasStarted {
+        hasStarted = true
+        Self.saveHasStarted(true)
+      }
     }
     .onChange(of: settings) { _, new in
       // Persist edits eagerly (debounced) so the user's picks survive

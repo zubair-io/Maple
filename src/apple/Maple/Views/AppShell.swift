@@ -1025,21 +1025,12 @@ struct AppShell: View {
             do {
                 let source = try PhotoKitSource()
                 try await source.fetchAssets(for: filter)
-
-                // If backup is configured, launch merged Photos+Cloud timeline.
-                if let settings = BackupSettings.load(), settings.isConfigured,
-                   let serverURL = URL(string: settings.serverURL) {
-                    let httpClient = makeAuthenticatedHTTPClient(server: serverURL)
-                    let cloud = CloudSource(server: serverURL,
-                                            folderID: settings.libraryId,
-                                            libraryPath: settings.rootFolder,
-                                            httpClient: httpClient)
-                    mergedCloudSource = cloud
-                    await browseVM.reloadMerged(photoKit: source, cloud: cloud)
-                } else {
-                    mergedCloudSource = nil
-                    await browseVM.loadSource(source)
-                }
+                // PhotoKit-library view is always single-source. The merged
+                // Photos+Cloud view belongs on the cloud-library timeline
+                // (where the user is browsing the backup destination), not
+                // here. Keep mergedCloudSource nil for consistency.
+                mergedCloudSource = nil
+                await browseVM.loadSource(source)
                 SourceSelectionStore.save(.photoKitFilter(filter))
             } catch {
                 browseVM.loadError = error
@@ -1262,11 +1253,34 @@ struct AppShell: View {
                 // both /api/search/buckets and /api/search receive the
                 // same pathPrefix so the bucket counts and asset listings
                 // describe the same scope.
+                // Construct a PhotoKitMergeAdapter when this cloud library is
+                // the configured backup destination AND the user has granted
+                // PhotoKit access. This enables the merged Photos+Cloud view
+                // so the user sees local-only, synced, and cloud-only cells
+                // with sync-status badges.
+                let photoKitMerge: PhotoKitMergeAdapter? = {
+                    guard let settings = BackupSettings.load(),
+                          settings.isConfigured,
+                          settings.serverURL == serverID.absoluteString,
+                          settings.libraryId == folderID else { return nil }
+                    let status = PhotoKitLibrary.authorizationStatus()
+                    guard status == .authorized || status == .limited else { return nil }
+                    let adapter = PhotoKitMergeAdapter()
+                    // Kick a background warm-up so the cache refreshes against
+                    // current PhotoKit state. The adapter's init already loaded
+                    // any disk-cached buckets synchronously, so first-paint of
+                    // the cloud timeline is instant on subsequent launches.
+                    // First-ever launch sees cloud-only cells until warm-up
+                    // finishes; the VM observes `onWarmedUp` to re-merge.
+                    Task { await adapter.warmUp() }
+                    return adapter
+                }()
                 cloudTimelineVM = CloudTimelineViewModel(
                     server: serverID,
                     libraryID: folderID,
                     pathPrefix: libraryPath,
-                    searchClient: searchClient)
+                    searchClient: searchClient,
+                    photoKitMerge: photoKitMerge)
                 cloudTimelineThumbClient = CloudThumbClient(server: serverID, httpClient: httpClient)
                 cloudTimelineThumbCache = CloudThumbCache()
                 libraryTitle = (serverID.host ?? serverID.absoluteString) + " — Timeline"
