@@ -182,6 +182,40 @@ final class AuthSessionTests: XCTestCase {
     XCTAssertNotNil(try TokenStore.load(server: server))
   }
 
+  /// Regression: the previous combined `client.refresh()` did
+  /// `/api/auth/refresh` followed by `/api/auth/me` inline and threw on
+  /// the /me leg, which lost the rotated tokens — the server had
+  /// invalidated the old refresh token but the new one was never
+  /// persisted, so the next bootstrap got 401 and forced sign-in. The
+  /// split `refreshTokens()` + separate /me path saves the rotation
+  /// immediately; a /me failure after rotation is transient.
+  func testBootstrap_refreshRotatesTokens_meAfterFails_persistsNewTokens() async throws {
+    try TokenStore.save(tokens, server: server)
+    AuthUserCache.save(cachedUser, server: server)
+    let freshTokens = AuthTokens(access: "A2", refresh: "R2")
+    StubURLProtocol.responder = { req in
+      switch req.url?.path {
+      case "/api/auth/me":
+        let auth = req.value(forHTTPHeaderField: "Authorization")
+        if auth == "Bearer A1" { return .http(status: 401, body: Data()) }
+        if auth == "Bearer A2" { return .http(status: 503, body: Data("transient".utf8)) }
+        return .http(status: 500, body: Data())
+      case "/api/auth/refresh":
+        return .http(status: 200, body: Data(#"{"access_token":"A2","refresh_token":"R2"}"#.utf8))
+      default:
+        return .http(status: 404, body: Data())
+      }
+    }
+    let s = makeSession()
+    await s.bootstrapAndRestore()
+    XCTAssertEqual(try TokenStore.load(server: server), freshTokens,
+                   "rotated tokens must be saved even when post-refresh /me fails")
+    XCTAssertTrue(s.hasCredentials)
+    // /me never returned a fresh user, so the cached one is the best
+    // we have. Next bootstrap will fill it in.
+    XCTAssertEqual(s.user, cachedUser)
+  }
+
   func testBootstrap_meReturns403_refreshAlso403_clearsEverything() async throws {
     try TokenStore.save(tokens, server: server)
     AuthUserCache.save(cachedUser, server: server)
