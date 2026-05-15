@@ -213,6 +213,30 @@ final class CloudTimelineViewModelTests: XCTestCase {
     return (PhotoKitMergeAdapter(diskCacheURL: url), url)
   }
 
+  /// Same as `makeAdapterSeeded` but each local ImageRef carries a cloud
+  /// identifier (the cross-device-stable key resolved via
+  /// `PHPhotoLibrary.cloudIdentifierMappings(...)`).
+  private func makeAdapterSeededWithCloudIDs(
+    pairs: [(localId: String, cloudId: String)],
+    year: Int, month: Int
+  ) throws -> (PhotoKitMergeAdapter, URL) {
+    let url = FileManager.default.temporaryDirectory
+      .appendingPathComponent("VMTests-merge-cid-\(UUID()).json")
+    addTeardownBlock { try? FileManager.default.removeItem(at: url) }
+
+    let refs = pairs.map { p in
+      ImageRef(id: p.localId,
+               displayName: p.localId,
+               url: nil,
+               captureDate: nil,
+               cloudIdentifier: p.cloudId)
+    }
+    let key = PhotoKitMergeAdapter.BucketKey(year: year, month: month)
+    let buckets: [PhotoKitMergeAdapter.BucketKey: [ImageRef]] = [key: refs]
+    try PhotoKitMergeAdapter.encodeBuckets(buckets).write(to: url)
+    return (PhotoKitMergeAdapter(diskCacheURL: url), url)
+  }
+
   /// SearchAsset JSON with `phasset_links` populated — the wire shape the
   /// server emits after a successful PhotoKit-backup upload.
   private func searchJSONWithPHLink(absPath: String, phid: String) -> String {
@@ -285,6 +309,142 @@ final class CloudTimelineViewModelTests: XCTestCase {
       if case .localOnly(let r) = $0, r.id == "P1" { return true }
       return false
     }), "missing expected .localOnly cell in \(merged)")
+  }
+
+  /// Cross-device synced badge: the cloud row was uploaded from a different
+  /// device, so its `phasset_local_id` doesn't match THIS device's
+  /// PhotoKit, but the `phasset_cloud_id` does. The merge should treat
+  /// the cell as `.synced` despite the phid mismatch.
+  func test_loadPage_buildsMergedCells_syncedAcrossDevicesViaCloudId() async throws {
+    let server = URL(string: "https://example.test")!
+    let json = """
+    {"total":1,"page":1,"limit":200,"results":[
+      {"id":"a1","folder_id":"lib1","abs_path":"/lib/2024/07/a.dng","filename":"a.dng",
+       "size":1024,"mtime":null,"captured_at":null,"camera":null,"lens":null,
+       "iso":null,"aperture":null,"shutter":null,"focal_length":null,
+       "rating":null,"flag":null,"color_label":null,
+       "phasset_links":[{"phasset_local_id":"DEVICE_A_PHID","phasset_cloud_id":"icloud-XYZ"}]}
+    ]}
+    """
+    let session = URLSession.stubbed(response: json)
+    let searchClient = CloudSearchClient(
+      server: server,
+      httpClient: AuthenticatedHTTPClient.unauthenticated(server: server, urlSession: session))
+
+    // This device's PhotoKit has the same photo under a different phid
+    // (DEVICE_B_PHID) but the same cloud id.
+    let (adapter, _) = try makeAdapterSeededWithCloudIDs(
+      pairs: [(localId: "DEVICE_B_PHID", cloudId: "icloud-XYZ")],
+      year: 2024, month: 7)
+    let vm = CloudTimelineViewModel(
+      server: server, libraryID: "lib1",
+      searchClient: searchClient,
+      bucketsCache: CloudBucketsCache(baseDir: tmpDir()),
+      pagesCache: CloudPagesCache(baseDir: tmpDir()),
+      photoKitMerge: adapter)
+
+    await vm.loadPage(year: 2024, month: 7)
+    let key = CloudTimelineViewModel.BucketKey(year: 2024, month: 7)
+    let merged = vm.mergedPagesByBucket[key] ?? []
+    XCTAssertEqual(merged.count, 1, "expected one synced cell, got \(merged)")
+    guard case .synced(let local, let cloud) = merged[0] else {
+      XCTFail("expected .synced via cross-device cloud id, got \(merged[0])")
+      return
+    }
+    XCTAssertEqual(local.id, "DEVICE_B_PHID")
+    XCTAssertEqual(cloud.id, "fs:/lib/2024/07/a.dng")
+  }
+
+  /// Regression for the "links[0] has no cloud id but links[1] does"
+  /// case. The legacy single-field `cloudIdentifier` on the resulting
+  /// ImageRef must be populated from the first NON-NIL cloud id, not
+  /// blindly `links[0].phasset_cloud_id` — otherwise the cross-device
+  /// match silently falls back to phid (or misses entirely) for older
+  /// rows where the first uploading device had iCloud Photos off.
+  func test_loadPage_buildsMergedCells_syncedWhenFirstLinkLacksCloudIdButLaterHasOne() async throws {
+    let server = URL(string: "https://example.test")!
+    // links[0] has no cloud id; links[1] does. The cell still has to
+    // resolve via the cloud-id key.
+    let json = """
+    {"total":1,"page":1,"limit":200,"results":[
+      {"id":"a1","folder_id":"lib1","abs_path":"/lib/2024/07/a.dng","filename":"a.dng",
+       "size":1024,"mtime":null,"captured_at":null,"camera":null,"lens":null,
+       "iso":null,"aperture":null,"shutter":null,"focal_length":null,
+       "rating":null,"flag":null,"color_label":null,
+       "phasset_links":[
+         {"phasset_local_id":"OLDER_DEVICE_PHID"},
+         {"phasset_local_id":"NEWER_DEVICE_PHID","phasset_cloud_id":"icloud-XYZ"}
+       ]}
+    ]}
+    """
+    let session = URLSession.stubbed(response: json)
+    let searchClient = CloudSearchClient(
+      server: server,
+      httpClient: AuthenticatedHTTPClient.unauthenticated(server: server, urlSession: session))
+
+    // This device shares the iCloud account and resolves the same photo
+    // under yet another phid + the same cloud id.
+    let (adapter, _) = try makeAdapterSeededWithCloudIDs(
+      pairs: [(localId: "THIS_DEVICE_PHID", cloudId: "icloud-XYZ")],
+      year: 2024, month: 7)
+    let vm = CloudTimelineViewModel(
+      server: server, libraryID: "lib1",
+      searchClient: searchClient,
+      bucketsCache: CloudBucketsCache(baseDir: tmpDir()),
+      pagesCache: CloudPagesCache(baseDir: tmpDir()),
+      photoKitMerge: adapter)
+
+    await vm.loadPage(year: 2024, month: 7)
+    let key = CloudTimelineViewModel.BucketKey(year: 2024, month: 7)
+    let merged = vm.mergedPagesByBucket[key] ?? []
+    XCTAssertEqual(merged.count, 1)
+    guard case .synced(let local, _) = merged[0] else {
+      XCTFail("expected .synced via the second link's cloud id, got \(merged[0])")
+      return
+    }
+    XCTAssertEqual(local.id, "THIS_DEVICE_PHID")
+  }
+
+  /// Multi-device cloud row: `phasset_links` has TWO entries. The matching
+  /// one is at index [1]. Today's bug walked only `phasset_links[0]`; the
+  /// fix must walk every entry.
+  func test_loadPage_buildsMergedCells_walksWholeLinksArray() async throws {
+    let server = URL(string: "https://example.test")!
+    let json = """
+    {"total":1,"page":1,"limit":200,"results":[
+      {"id":"a1","folder_id":"lib1","abs_path":"/lib/2024/07/a.dng","filename":"a.dng",
+       "size":1024,"mtime":null,"captured_at":null,"camera":null,"lens":null,
+       "iso":null,"aperture":null,"shutter":null,"focal_length":null,
+       "rating":null,"flag":null,"color_label":null,
+       "phasset_links":[
+         {"phasset_local_id":"DEVICE_A_PHID"},
+         {"phasset_local_id":"DEVICE_B_PHID"}
+       ]}
+    ]}
+    """
+    let session = URLSession.stubbed(response: json)
+    let searchClient = CloudSearchClient(
+      server: server,
+      httpClient: AuthenticatedHTTPClient.unauthenticated(server: server, urlSession: session))
+
+    let (adapter, _) = try makeAdapterSeeded(
+      localIDs: ["DEVICE_B_PHID"], year: 2024, month: 7)
+    let vm = CloudTimelineViewModel(
+      server: server, libraryID: "lib1",
+      searchClient: searchClient,
+      bucketsCache: CloudBucketsCache(baseDir: tmpDir()),
+      pagesCache: CloudPagesCache(baseDir: tmpDir()),
+      photoKitMerge: adapter)
+
+    await vm.loadPage(year: 2024, month: 7)
+    let key = CloudTimelineViewModel.BucketKey(year: 2024, month: 7)
+    let merged = vm.mergedPagesByBucket[key] ?? []
+    XCTAssertEqual(merged.count, 1)
+    guard case .synced(let local, _) = merged[0] else {
+      XCTFail("expected .synced when match is at links[1], got \(merged[0])")
+      return
+    }
+    XCTAssertEqual(local.id, "DEVICE_B_PHID")
   }
 
   func test_warmUp_remergesPreviouslyLoadedBuckets() async throws {

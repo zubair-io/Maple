@@ -39,7 +39,12 @@ private let log = Logger(subsystem: "app.justmaple.aperture", category: "Backup.
 /// PhotoKit, which is correct but not instant. Decoding mismatches are
 /// logged so regressions surface in Console.app instead of dropping
 /// invisibly through `try?`.
-private let kCacheSchemaVersion: Int = 1
+///
+/// v2 adds `ImageRef.cloudIdentifier` (resolved via
+/// `cloudIdentifierMappings(forLocalIdentifiers:)`) so cross-device sync
+/// matching works on the merged timeline. v1 caches don't have the field
+/// and get discarded — next `warmUp()` rebuilds them with the cloud ids.
+private let kCacheSchemaVersion: Int = 2
 
 @MainActor
 public final class PhotoKitMergeAdapter {
@@ -225,6 +230,14 @@ public final class PhotoKitMergeAdapter {
     /// Task can call it without crossing an actor boundary mid-walk. Reads
     /// only PHAsset fields (thread-safe per Apple docs) and produces a
     /// Sendable dictionary.
+    ///
+    /// Two-pass: enumerate all PHAssets first to collect localIdentifiers,
+    /// then resolve `PHCloudIdentifier`s in batches via
+    /// `cloudIdentifierMappings(forLocalIdentifiers:)` (local DB lookup,
+    /// no iCloud round-trip), then assemble the buckets. The cloud id
+    /// resolution is what makes the merged timeline match assets across
+    /// devices — without it, every device's localIdentifier is its own
+    /// snowflake.
     nonisolated private static func buildFromPhotoKit() -> [BucketKey: [ImageRef]] {
         #if canImport(Photos)
         guard PHPhotoLibrary.authorizationStatus(for: .readWrite) == .authorized
@@ -235,22 +248,63 @@ public final class PhotoKitMergeAdapter {
         options.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
         let result = PHAsset.fetchAssets(with: .image, options: options)
 
+        // Pass 1: gather lightweight per-asset records.
+        struct AssetRow {
+            let localId: String
+            let creationDate: Date?
+        }
+        var rows: [AssetRow] = []
+        rows.reserveCapacity(result.count)
+        result.enumerateObjects { phAsset, _, _ in
+            rows.append(AssetRow(
+                localId: phAsset.localIdentifier,
+                creationDate: phAsset.creationDate))
+        }
+
+        // Pass 2: batch-resolve cloud identifiers. Chunk into 1000-per-call
+        // so a 100k library doesn't bounce off any internal API limit.
+        // Missing entries (iCloud Photos off, lookup failure) leave the
+        // ref's `cloudIdentifier` as nil — the merge logic falls back to
+        // phid matching in that case.
+        let localIds = rows.map(\.localId)
+        var cloudByLocal: [String: String] = [:]
+        cloudByLocal.reserveCapacity(localIds.count)
+        let chunkSize = 1000
+        var i = 0
+        while i < localIds.count {
+            let upper = min(i + chunkSize, localIds.count)
+            let slice = Array(localIds[i..<upper])
+            let mappings = PHPhotoLibrary.shared().cloudIdentifierMappings(
+                forLocalIdentifiers: slice)
+            for (localId, entry) in mappings {
+                switch entry {
+                case .success(let cloudId):
+                    cloudByLocal[localId] = cloudId.stringValue
+                case .failure:
+                    continue
+                }
+            }
+            i = upper
+        }
+
+        // Pass 3: bucket the assets.
         var buckets: [BucketKey: [ImageRef]] = [:]
         buckets.reserveCapacity(48) // two years of months is a typical session
 
         var cal = Calendar(identifier: .gregorian)
         cal.timeZone = TimeZone(secondsFromGMT: 0)!
 
-        result.enumerateObjects { phAsset, _, _ in
-            let date = phAsset.creationDate ?? Date()
+        for row in rows {
+            let date = row.creationDate ?? Date()
             let comps = cal.dateComponents([.year, .month], from: date)
-            guard let y = comps.year, let m = comps.month else { return }
+            guard let y = comps.year, let m = comps.month else { continue }
             let key = BucketKey(year: y, month: m)
             let ref = ImageRef(
-                id: phAsset.localIdentifier,
-                displayName: phAsset.localIdentifier,
+                id: row.localId,
+                displayName: row.localId,
                 url: nil,
-                captureDate: phAsset.creationDate)
+                captureDate: row.creationDate,
+                cloudIdentifier: cloudByLocal[row.localId])
             buckets[key, default: []].append(ref)
         }
         return buckets

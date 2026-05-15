@@ -184,6 +184,7 @@ public actor BackupEngine {
                 lon: read.sidecar.longitude,
                 bytes: read.originalBytes,
                 mapleId: read.mapleId,
+                phassetCloudId: read.sidecar.phassetCloudId,
                 onProgress: { sent, total in
                     await queueRef.emit(.progress(taskId, sent: sent, total: total))
                 })
