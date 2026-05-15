@@ -128,7 +128,7 @@ final class UploadClientTests: XCTestCase {
     func test423BusyElsewhereSurfacesBackoffHint() async throws {
         StubURLProtocol.stub = .status(
             423,
-            json: #"{"error":"another device is actively uploading this asset","retry_after_seconds":120,"defer_positions":10}"#)
+            json: #"{"error":"another device is actively uploading this asset","retry_after_seconds":120}"#)
         let client = await makeClient()
         do {
             _ = try await client.upload(
@@ -138,15 +138,14 @@ final class UploadClientTests: XCTestCase {
                 bytes: Data(count: 256), mapleId: "abc",
                 phassetCloudId: "icloud-XYZ")
             XCTFail("expected throw")
-        } catch UploadClient.UploadError.busyElsewhere(let retry, let positions) {
+        } catch UploadClient.UploadError.busyElsewhere(let retry) {
             XCTAssertEqual(retry, 120)
-            XCTAssertEqual(positions, 10)
         } catch {
             XCTFail("expected busyElsewhere, got \(error)")
         }
     }
 
-    /// Missing fields in the 423 body fall back to safe defaults so the
+    /// Missing fields in the 423 body fall back to a safe default so the
     /// engine can still requeue if the server speaks a slightly different
     /// dialect.
     func test423WithEmptyBodyFallsBackToDefaults() async throws {
@@ -160,11 +159,33 @@ final class UploadClientTests: XCTestCase {
                 bytes: Data(count: 256), mapleId: "abc",
                 phassetCloudId: "icloud-XYZ")
             XCTFail("expected throw")
-        } catch UploadClient.UploadError.busyElsewhere(let retry, let positions) {
+        } catch UploadClient.UploadError.busyElsewhere(let retry) {
             XCTAssertGreaterThan(retry, 0)
-            XCTAssertGreaterThan(positions, 0)
         } catch {
             XCTFail("expected busyElsewhere, got \(error)")
+        }
+    }
+
+    /// The rendered endpoint sends X-Maple-PHAsset-Cloud-Id on every chunk
+    /// when the caller supplies a cloud id — server uses this to detect
+    /// cross-device rendered collisions and return 423.
+    func testUploadRenderedSendsPhassetCloudIdHeader() async throws {
+        StubURLProtocol.stub = .sequence([
+            .status(202, json: #"{"next_offset":100}"#),
+            .ok(json: #"{"target_rel_path":"x"}"#),
+        ])
+        let client = await makeClient(chunkSize: 100)
+        try await client.uploadRendered(
+            phassetLocalId: "P1",
+            targetRelPath: "2024/Tokyo/IMG.heic",
+            filenameExt: "jpeg",
+            bytes: Data(count: 200),
+            phassetCloudId: "icloud-RENDERED")
+        let reqs = StubURLProtocol.recordedRequests
+        XCTAssertEqual(reqs.count, 2)
+        for req in reqs {
+            XCTAssertEqual(req.value(forHTTPHeaderField: "X-Maple-PHAsset-Cloud-Id"),
+                           "icloud-RENDERED")
         }
     }
 
