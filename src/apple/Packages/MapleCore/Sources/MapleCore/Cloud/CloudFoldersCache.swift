@@ -14,13 +14,17 @@ import Foundation
 public enum CloudFoldersCache {
   private static let folder = "cloud-folders"
 
+  /// `Caches/app.justmaple.aperture/cloud-folders/<key>.json`. Key
+  /// includes host AND port and is sanitised for filesystem use — see
+  /// `AuthCacheKey.make` for the rationale (port collisions, IPv6
+  /// brackets, case-insensitive filesystems).
   private static func url(for server: URL) -> URL? {
-    guard let host = server.host else { return nil }
+    guard let key = AuthCacheKey.make(for: server) else { return nil }
     let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
     return caches
       .appendingPathComponent("app.justmaple.aperture", isDirectory: true)
       .appendingPathComponent(folder, isDirectory: true)
-      .appendingPathComponent("\(host).json")
+      .appendingPathComponent("\(key).json")
   }
 
   public static func load(server: URL) -> [CloudFolder]? {
