@@ -55,6 +55,57 @@ public struct SearchAsset: Codable, Equatable, Sendable {
   /// Pick flag: 1 = pick, 0 = none, -1 = reject. Number on the wire.
   public let flag: Int?
   public let color_label: String?
+  /// PhotoKit asset links. Populated by the backup engine when an asset
+  /// was ingested via PhotoKit backup. The first entry's `phasset_local_id`
+  /// identifies the matching PHAsset so the merged timeline can correlate
+  /// cloud rows with local Photos library rows. Optional — nil for assets
+  /// that weren't ingested via PhotoKit backup.
+  public let phasset_links: [SearchAssetPHLink]?
+
+  /// Explicit memberwise init. The synthesized default would require every
+  /// caller to pass `phasset_links:` even when nil, which broke existing
+  /// tests when PR #53 added the field. Keeping `phasset_links` defaulted
+  /// to `nil` here lets pre-PhotoKit-merge test fixtures keep working.
+  public init(id: String,
+              folder_id: String,
+              abs_path: String,
+              filename: String,
+              size: Int64? = nil,
+              mtime: Double? = nil,
+              captured_at: String? = nil,
+              camera: SearchAssetCamera? = nil,
+              lens: String? = nil,
+              iso: Int? = nil,
+              aperture: Double? = nil,
+              shutter: String? = nil,
+              focal_length: Double? = nil,
+              rating: Int? = nil,
+              flag: Int? = nil,
+              color_label: String? = nil,
+              phasset_links: [SearchAssetPHLink]? = nil) {
+    self.id = id
+    self.folder_id = folder_id
+    self.abs_path = abs_path
+    self.filename = filename
+    self.size = size
+    self.mtime = mtime
+    self.captured_at = captured_at
+    self.camera = camera
+    self.lens = lens
+    self.iso = iso
+    self.aperture = aperture
+    self.shutter = shutter
+    self.focal_length = focal_length
+    self.rating = rating
+    self.flag = flag
+    self.color_label = color_label
+    self.phasset_links = phasset_links
+  }
+}
+
+public struct SearchAssetPHLink: Codable, Equatable, Sendable {
+  /// `PHAsset.localIdentifier` — stable key used to join with PhotoKit.
+  public let phasset_local_id: String
 }
 
 public struct SearchResponse: Codable, Sendable {
