@@ -19,6 +19,17 @@ struct BackupStatusPanel: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: 12) {
+      // Surface engine-startup failures right at the top. Without this,
+      // a failed `EngineHost.start` left the user staring at a
+      // "No photos queued" panel with no idea why nothing was happening.
+      if let startErr = EngineHost.shared.lastStartError {
+        Label(startErr, systemImage: "exclamationmark.triangle.fill")
+          .font(.callout)
+          .foregroundStyle(.red)
+          .padding(8)
+          .background(.red.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
+      }
+
       ProgressView(value: progress.fractionDone) {
         Text(progress.progressLabel)
           .font(.headline)
@@ -93,6 +104,15 @@ struct BackupStatusPanel: View {
     .padding(.vertical, 4)
     .task {
       progress.start(queue: EngineHost.shared.queue)
+      // Backfill counts from the queue's current state. observe() only
+      // emits future events, so if the engine enqueued tasks BEFORE this
+      // panel mounted (typical when the engine has been running since
+      // app launch and the user is just now opening Settings) the panel
+      // would otherwise sit at "No photos queued" until the engine
+      // dequeues something. Reading the snapshot once on appear bridges
+      // that gap.
+      let snapshot = await EngineHost.shared.queue.snapshot()
+      progress.backfill(queued: snapshot)
     }
     .onDisappear {
       progress.stop()

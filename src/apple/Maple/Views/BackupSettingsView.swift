@@ -6,8 +6,11 @@
 // Spec: docs/superpowers/specs/2026-05-09-photokit-backup-design.md §7.
 
 import SwiftUI
+import OSLog
 import MapleCore
 import MapleBackup
+
+private let settingsLog = Logger(subsystem: "app.justmaple.aperture", category: "Backup.SettingsView")
 
 struct BackupSettingsView: View {
   @State private var settings: BackupSettings = BackupSettings.load() ?? .defaults
@@ -70,21 +73,28 @@ struct BackupSettingsView: View {
       Section {
         Button {
           Task {
+            settingsLog.info("Start button tapped — saving + starting engine")
             settings.save()
             await EngineHost.shared.start(settings: settings)
+            settingsLog.info("EngineHost.start returned engine=\(EngineHost.shared.engine != nil ? "ok" : "nil") err=\(EngineHost.shared.lastStartError ?? "none", privacy: .public)")
             // Kick the PhotoKit walk + change observer. Without this the
             // engine boots against an empty queue and the user just sees
             // 'No photos queued' even though they configured everything.
             // MapleApp's .task fires this on app launch when settings
             // were already configured — but if the user configures here
             // and taps Start, that path was never hit and we need to
-            // kick it ourselves.
+            // kick it ourselves. The walk itself runs off the main
+            // thread (ChangeObserverWiring.enqueueAllNew → Task.detached)
+            // so this call is non-blocking for the UI.
             if let serverBaseURL = URL(string: settings.serverURL),
                let storage = try? DeviceIdentity.defaultStorageURL(),
                let deviceId = try? DeviceIdentity.current(storageURL: storage) {
+              settingsLog.info("kicking ChangeObserverWiring.start deviceId=\(deviceId, privacy: .public)")
               ChangeObserverWiring.start(deviceId: deviceId, settings: settings,
                                          libraryId: settings.libraryId,
                                          serverBaseURL: serverBaseURL)
+            } else {
+              settingsLog.error("ChangeObserverWiring NOT started — failed to resolve serverBaseURL or DeviceIdentity")
             }
             hasStarted = true
             Self.saveHasStarted(true)

@@ -13,8 +13,11 @@
 // Spec: docs/superpowers/specs/2026-05-09-photokit-backup-design.md §15.
 
 import Foundation
+import OSLog
 import MapleBackup
 import MapleCore
+
+private let log = Logger(subsystem: "app.justmaple.aperture", category: "Backup.EngineHost")
 
 @MainActor
 public final class EngineHost {
@@ -31,6 +34,12 @@ public final class EngineHost {
     /// on macOS this is the primary periodic mechanism.
     private var periodicWalkTask: Task<Void, Never>?
 
+    /// Set when the most recent `start(settings:)` attempt failed. UI
+    /// surfaces this in BackupStatusPanel so the user isn't left staring
+    /// at a "No photos queued" panel wondering why nothing's happening.
+    /// `nil` on success and before the first call.
+    public private(set) var lastStartError: String?
+
     private init() {}
 
     /// Start (or restart) the engine against the given settings.
@@ -38,15 +47,18 @@ public final class EngineHost {
     /// changes take effect), rehydrates persisted pending tasks, and
     /// launches a new runner Task.
     public func start(settings: BackupSettings) async {
+        log.info("start(settings:) called serverURL=\(settings.serverURL, privacy: .public) libraryId=\(settings.libraryId, privacy: .public) wifiOnly=\(settings.wifiOnly)")
         guard settings.isConfigured else {
-            // Not enough config to start — UI should already be showing the
-            // "configure server / library" CTA. Silent no-op here.
+            log.error("start bail: settings.isConfigured == false (serverURL or libraryId empty)")
+            lastStartError = "Settings incomplete — pick a server and library first."
             return
         }
         guard let serverBaseURL = URL(string: settings.serverURL) else {
-            // Settings UI should validate; defensive bail.
+            log.error("start bail: serverURL \(settings.serverURL, privacy: .public) is not a valid URL")
+            lastStartError = "Server URL is not valid."
             return
         }
+        lastStartError = nil
 
         // Tear down any previous run (cancels retry tasks, then the runner).
         await stop()
@@ -107,12 +119,15 @@ public final class EngineHost {
 
             startPeriodicWalk(deviceId: deviceId, settings: settings,
                               libraryId: settings.libraryId, serverBaseURL: serverBaseURL)
+            log.info("start ok engine running, state initialized")
         } catch {
-            // The most likely failures are filesystem permission issues. We
-            // surface them via the status panel by leaving engine = nil; the
-            // UI shows "not running" + the last-error from the panel state.
-            // For now, log to stderr.
-            FileHandle.standardError.write(Data("EngineHost.start failed: \(error)\n".utf8))
+            // The most likely failures are filesystem permission issues or
+            // SQLite open errors. Capture into `lastStartError` so the
+            // BackupStatusPanel can show the user what went wrong instead
+            // of silently leaving engine=nil and the queue empty.
+            let msg = String(describing: error)
+            log.error("start failed: \(msg, privacy: .public)")
+            lastStartError = "Couldn't start backup: \(msg)"
         }
     }
 

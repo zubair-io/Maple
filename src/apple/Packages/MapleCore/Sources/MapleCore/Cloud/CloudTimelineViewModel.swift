@@ -74,6 +74,29 @@ public final class CloudTimelineViewModel {
     self.pagesCache = pagesCache
     self.semaphore = AsyncSemaphore(value: maxConcurrentPageFetches)
     self.photoKitMerge = photoKitMerge
+
+    // When the adapter's background warm-up completes, re-merge buckets
+    // that were loaded against the stale (or empty) cache. Without this,
+    // the first-launch user has to scroll to fresh months to see local
+    // PhotoKit cells appear — already-visible months stay cloud-only
+    // until they're re-rendered. The callback fires on MainActor and the
+    // VM is MainActor-isolated, so the synchronous re-merge is safe.
+    photoKitMerge?.onWarmedUp = { [weak self] in
+      self?.remergeLoadedBuckets()
+    }
+  }
+
+  /// Re-build `mergedPagesByBucket` for every bucket we've already fetched
+  /// from the server. Triggered when the PhotoKit cache warms up so the
+  /// timeline updates in place instead of waiting for the user to scroll
+  /// away and back.
+  private func remergeLoadedBuckets() {
+    guard let merge = photoKitMerge else { return }
+    for (key, results) in pagesByBucket {
+      let localRefs = merge.assetsForMonth(year: key.year, month: key.month)
+      let cloudRefs = results.map { Self.searchAssetToImageRef($0) }
+      mergedPagesByBucket[key] = MergedTimelineSource.merge(local: localRefs, cloud: cloudRefs)
+    }
   }
 
   // MARK: - Loaders

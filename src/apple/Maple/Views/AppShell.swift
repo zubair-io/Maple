@@ -1265,7 +1265,15 @@ struct AppShell: View {
                           settings.libraryId == folderID else { return nil }
                     let status = PhotoKitLibrary.authorizationStatus()
                     guard status == .authorized || status == .limited else { return nil }
-                    return PhotoKitMergeAdapter()
+                    let adapter = PhotoKitMergeAdapter()
+                    // Kick a background warm-up so the cache refreshes against
+                    // current PhotoKit state. The adapter's init already loaded
+                    // any disk-cached buckets synchronously, so first-paint of
+                    // the cloud timeline is instant on subsequent launches.
+                    // First-ever launch sees cloud-only cells until warm-up
+                    // finishes; the VM observes `onWarmedUp` to re-merge.
+                    Task { await adapter.warmUp() }
+                    return adapter
                 }()
                 cloudTimelineVM = CloudTimelineViewModel(
                     server: serverID,

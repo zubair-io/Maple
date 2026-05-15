@@ -101,6 +101,18 @@ public final class BackupProgressViewModel {
         isRunning = false
     }
 
+    /// Backfill `totalEnqueued` from a queue snapshot taken AFTER `start()`
+    /// subscribed but possibly before the panel was visible. Without this,
+    /// a panel that mounts after the engine has already enqueued thousands
+    /// of tasks shows `0 of 0 photos` because `observe()` only emits
+    /// future events. Idempotent — `seenEnqueued` deduplicates against
+    /// any `.enqueued` events that arrived first.
+    public func backfill(queued: [BackupTask]) {
+        for task in queued where seenEnqueued.insert(task.id).inserted {
+            totalEnqueued += 1
+        }
+    }
+
     /// Computed convenience: 0.0 → 1.0 progress when totalEnqueued > 0.
     public var fractionDone: Double {
         guard totalEnqueued > 0 else { return 0 }
