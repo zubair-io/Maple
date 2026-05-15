@@ -45,7 +45,7 @@
 
 /* Begin PBXFileReference section */
 		A1F0000400000000000000A1 /* RawPipeline.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = RawPipeline.xcframework; path = Frameworks/RawPipeline.xcframework; sourceTree = "<group>"; };
-		A1F0000700000000000000A1 /* Maple: Aperture.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Maple: Aperture.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		A1F0000700000000000000A1 /* MapleAperture.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "MapleAperture.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		A1F0000800000000000000A1 /* MapleTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MapleTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		A1F0006000000000000000A1 /* MapleUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MapleUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		E3DD94832FB50E55009392B4 /* MapleBackupAgent */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = MapleBackupAgent; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -141,7 +141,7 @@
 		A1F0000F00000000000000A1 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				A1F0000700000000000000A1 /* Maple: Aperture.app */,
+				A1F0000700000000000000A1 /* MapleAperture.app */,
 				A1F0000800000000000000A1 /* MapleTests.xctest */,
 				A1F0006000000000000000A1 /* MapleUITests.xctest */,
 				E3DD94832FB50E55009392B4 /* MapleBackupAgent */,
@@ -184,7 +184,7 @@
 				E3DD948F2FB55723009392B4 /* MapleBackup */,
 			);
 			productName = Maple;
-			productReference = A1F0000700000000000000A1 /* Maple: Aperture.app */;
+			productReference = A1F0000700000000000000A1 /* MapleAperture.app */;
 			productType = "com.apple.product-type.application";
 		};
 		A1F0001400000000000000A1 /* MapleTests */ = {
@@ -602,7 +602,7 @@
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MARKETING_VERSION = 0.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = app.justmaple.aperture;
-				PRODUCT_NAME = "Maple: Aperture";
+				PRODUCT_NAME = MapleAperture;
 				RUNTIME_EXCEPTION_ALLOW_DYLD_ENVIRONMENT_VARIABLES = NO;
 				RUNTIME_EXCEPTION_ALLOW_JIT = NO;
 				RUNTIME_EXCEPTION_ALLOW_UNSIGNED_EXECUTABLE_MEMORY = NO;
@@ -672,7 +672,7 @@
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MARKETING_VERSION = 0.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = app.justmaple.aperture;
-				PRODUCT_NAME = "Maple: Aperture";
+				PRODUCT_NAME = MapleAperture;
 				RUNTIME_EXCEPTION_ALLOW_DYLD_ENVIRONMENT_VARIABLES = NO;
 				RUNTIME_EXCEPTION_ALLOW_JIT = NO;
 				RUNTIME_EXCEPTION_ALLOW_UNSIGNED_EXECUTABLE_MEMORY = NO;
@@ -707,7 +707,7 @@
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_VERSION = 5.10;
 				TARGETED_DEVICE_FAMILY = "1,2";
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Maple.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Maple";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/MapleAperture.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/MapleAperture";
 			};
 			name = Debug;
 		};
@@ -730,7 +730,7 @@
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_VERSION = 5.10;
 				TARGETED_DEVICE_FAMILY = "1,2";
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Maple.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Maple";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/MapleAperture.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/MapleAperture";
 			};
 			name = Release;
 		};
