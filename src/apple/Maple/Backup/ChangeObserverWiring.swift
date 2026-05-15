@@ -87,30 +87,44 @@ enum ChangeObserverWiring {
 
         // Build the shared-album exclusion set once per walk (before the main
         // enumeration) so per-asset lookups are O(1) hash checks rather than
-        // re-fetching the album collections for each asset.
+        // re-fetching the album collections for each asset. The catalog caches
+        // this result across calls within the same library-change cycle.
         let sharedAlbumIDs: Set<String> = settings.includeSharedAlbums
             ? []
-            : sharedAlbumPHIDs()
+            : await PhotoKitCatalog.shared.sharedAlbumIdentifiers()
 
-        let opts = PHFetchOptions()
-        opts.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
-
+        // Use the catalog's cached id lists. For large libraries (>5000 ids)
+        // process in 1000-id chunks so the main actor isn't blocked for an
+        // extended period by the include-filter pass.
         var ids: [String] = []
-        let imageResult = PHAsset.fetchAssets(with: .image, options: opts)
-        ids.reserveCapacity(imageResult.count)
-        imageResult.enumerateObjects { asset, _, _ in
-            guard shouldInclude(asset, settings: settings,
-                                sharedAlbumIDs: sharedAlbumIDs) else { return }
-            ids.append(asset.localIdentifier)
+
+        let imageIDs = await PhotoKitCatalog.shared.imageIdentifiers()
+        if imageIDs.count > 5000 {
+            for await chunk in await PhotoKitCatalog.shared.paginatedImageIdentifiers(pageSize: 1000) {
+                for phid in chunk {
+                    guard let asset = await PhotoKitCatalog.shared.asset(localId: phid),
+                          shouldInclude(asset, settings: settings, sharedAlbumIDs: sharedAlbumIDs)
+                    else { continue }
+                    ids.append(phid)
+                }
+            }
+        } else {
+            for phid in imageIDs {
+                guard let asset = await PhotoKitCatalog.shared.asset(localId: phid),
+                      shouldInclude(asset, settings: settings, sharedAlbumIDs: sharedAlbumIDs)
+                else { continue }
+                ids.append(phid)
+            }
         }
 
         if settings.includeVideos {
-            let videoResult = PHAsset.fetchAssets(with: .video, options: opts)
-            ids.reserveCapacity(ids.count + videoResult.count)
-            videoResult.enumerateObjects { asset, _, _ in
-                guard shouldInclude(asset, settings: settings,
-                                    sharedAlbumIDs: sharedAlbumIDs) else { return }
-                ids.append(asset.localIdentifier)
+            let videoIDs = await PhotoKitCatalog.shared.videoIdentifiers()
+            ids.reserveCapacity(ids.count + videoIDs.count)
+            for phid in videoIDs {
+                guard let asset = await PhotoKitCatalog.shared.asset(localId: phid),
+                      shouldInclude(asset, settings: settings, sharedAlbumIDs: sharedAlbumIDs)
+                else { continue }
+                ids.append(phid)
             }
         }
 
@@ -213,21 +227,4 @@ enum ChangeObserverWiring {
         return true
     }
 
-    /// Build a set of PHAsset localIdentifiers that belong to at least one
-    /// iCloud Shared Album (PHAssetCollectionType.album /
-    /// PHAssetCollectionSubtype.albumCloudShared). This is intentionally done
-    /// once per walk and the result is passed into each `shouldInclude` call so
-    /// we don't re-enumerate the album list for every asset.
-    private static func sharedAlbumPHIDs() -> Set<String> {
-        let collections = PHAssetCollection.fetchAssetCollections(
-            with: .album, subtype: .albumCloudShared, options: nil)
-        var ids = Set<String>()
-        collections.enumerateObjects { collection, _, _ in
-            let assets = PHAsset.fetchAssets(in: collection, options: nil)
-            assets.enumerateObjects { asset, _, _ in
-                ids.insert(asset.localIdentifier)
-            }
-        }
-        return ids
-    }
 }
