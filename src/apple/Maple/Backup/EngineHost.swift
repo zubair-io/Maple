@@ -24,6 +24,12 @@ public final class EngineHost {
     private(set) public var queue: any BackupQueue = InProcessBackupQueue()
     private(set) public var state: BackupStateStore?
     private(set) public var sidecars: AppSupportSidecarStore?
+
+    /// Persistent progress view-model. Survives navigation — created once
+    /// here so `BackupStatusPanel` reads the same instance regardless of how
+    /// many times the panel appears and disappears.
+    public let progress = BackupProgressViewModel()
+
     private var runnerTask: Task<Void, Never>?
 
     /// Long-running task that triggers a safety walk every 7 days.
@@ -104,6 +110,11 @@ public final class EngineHost {
             self.runnerTask = Task.detached(priority: .background) {
                 await engine.run()
             }
+
+            // Start observing the new queue immediately so progress state
+            // survives navigation (the view-model lives on EngineHost, not
+            // on the panel's @State).
+            progress.start(queue: queue)
 
             startPeriodicWalk(deviceId: deviceId, settings: settings,
                               libraryId: settings.libraryId, serverBaseURL: serverBaseURL)
