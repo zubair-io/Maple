@@ -29,7 +29,7 @@ actor PhotoKitAssetReader: AssetReader {
     }
 
     func read(phassetLocalId: String) async throws -> AssetReadResult {
-        guard let asset = await PhotoKitCatalog.shared.asset(localId: phassetLocalId) else {
+        guard let asset = PhotoKitCatalog.shared.asset(localId: phassetLocalId) else {
             throw ReaderError.assetNotFound(phassetLocalId)
         }
 

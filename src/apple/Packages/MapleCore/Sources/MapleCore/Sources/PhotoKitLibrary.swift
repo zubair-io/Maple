@@ -148,4 +148,14 @@ public final class PhotoKitChangeObserver: NSObject, PHPhotoLibraryChangeObserve
         lock.unlock()
         for handler in handlers { handler() }
     }
+
+    /// Fire a synthetic change notification to all current subscribers.
+    /// For testing only — exercises the full fan-out path without a live
+    /// Photos library. Handlers are called synchronously on the calling thread.
+    internal func fireForTesting() {
+        lock.lock()
+        let handlers = Array(subscribers.values)
+        lock.unlock()
+        for handler in handlers { handler() }
+    }
 }

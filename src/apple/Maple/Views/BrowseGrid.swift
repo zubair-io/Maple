@@ -592,7 +592,7 @@ private struct MergedCellView: View {
         case .synced(let local, _), .localOnly(let local):
             let phid = local.id
             loadTask = Task { @MainActor in
-                let asset = await PhotoKitCatalog.shared.asset(localId: phid)
+                let asset = PhotoKitCatalog.shared.asset(localId: phid)
                 guard let asset else { return }
                 let options = PHImageRequestOptions()
                 options.deliveryMode = .opportunistic

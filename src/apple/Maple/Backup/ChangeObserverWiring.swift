@@ -91,18 +91,18 @@ enum ChangeObserverWiring {
         // this result across calls within the same library-change cycle.
         let sharedAlbumIDs: Set<String> = settings.includeSharedAlbums
             ? []
-            : await PhotoKitCatalog.shared.sharedAlbumIdentifiers()
+            : PhotoKitCatalog.shared.sharedAlbumIdentifiers()
 
         // Use the catalog's cached id lists. For large libraries (>5000 ids)
         // process in 1000-id chunks so the main actor isn't blocked for an
         // extended period by the include-filter pass.
         var ids: [String] = []
 
-        let imageIDs = await PhotoKitCatalog.shared.imageIdentifiers()
+        let imageIDs = PhotoKitCatalog.shared.imageIdentifiers()
         if imageIDs.count > 5000 {
-            for await chunk in await PhotoKitCatalog.shared.paginatedImageIdentifiers(pageSize: 1000) {
+            for await chunk in PhotoKitCatalog.shared.paginatedImageIdentifiers(pageSize: 1000) {
                 for phid in chunk {
-                    guard let asset = await PhotoKitCatalog.shared.asset(localId: phid),
+                    guard let asset = PhotoKitCatalog.shared.asset(localId: phid),
                           shouldInclude(asset, settings: settings, sharedAlbumIDs: sharedAlbumIDs)
                     else { continue }
                     ids.append(phid)
@@ -110,7 +110,7 @@ enum ChangeObserverWiring {
             }
         } else {
             for phid in imageIDs {
-                guard let asset = await PhotoKitCatalog.shared.asset(localId: phid),
+                guard let asset = PhotoKitCatalog.shared.asset(localId: phid),
                       shouldInclude(asset, settings: settings, sharedAlbumIDs: sharedAlbumIDs)
                 else { continue }
                 ids.append(phid)
@@ -118,10 +118,10 @@ enum ChangeObserverWiring {
         }
 
         if settings.includeVideos {
-            let videoIDs = await PhotoKitCatalog.shared.videoIdentifiers()
+            let videoIDs = PhotoKitCatalog.shared.videoIdentifiers()
             ids.reserveCapacity(ids.count + videoIDs.count)
             for phid in videoIDs {
-                guard let asset = await PhotoKitCatalog.shared.asset(localId: phid),
+                guard let asset = PhotoKitCatalog.shared.asset(localId: phid),
                       shouldInclude(asset, settings: settings, sharedAlbumIDs: sharedAlbumIDs)
                 else { continue }
                 ids.append(phid)
