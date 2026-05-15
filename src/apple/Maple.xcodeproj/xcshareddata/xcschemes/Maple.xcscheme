@@ -16,7 +16,7 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "A1F0001000000000000000A1"
-               BuildableName = "Maple: Aperture.app"
+               BuildableName = "MapleAperture.app"
                BlueprintName = "Maple"
                ReferencedContainer = "container:Maple.xcodeproj">
             </BuildableReference>
@@ -82,7 +82,7 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "A1F0001000000000000000A1"
-            BuildableName = "Maple: Aperture.app"
+            BuildableName = "MapleAperture.app"
             BlueprintName = "Maple"
             ReferencedContainer = "container:Maple.xcodeproj">
          </BuildableReference>
@@ -106,7 +106,7 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "A1F0001000000000000000A1"
-            BuildableName = "Maple: Aperture.app"
+            BuildableName = "MapleAperture.app"
             BlueprintName = "Maple"
             ReferencedContainer = "container:Maple.xcodeproj">
          </BuildableReference>
