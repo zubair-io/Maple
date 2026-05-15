@@ -72,6 +72,20 @@ struct BackupSettingsView: View {
           Task {
             settings.save()
             await EngineHost.shared.start(settings: settings)
+            // Kick the PhotoKit walk + change observer. Without this the
+            // engine boots against an empty queue and the user just sees
+            // 'No photos queued' even though they configured everything.
+            // MapleApp's .task fires this on app launch when settings
+            // were already configured — but if the user configures here
+            // and taps Start, that path was never hit and we need to
+            // kick it ourselves.
+            if let serverBaseURL = URL(string: settings.serverURL),
+               let storage = try? DeviceIdentity.defaultStorageURL(),
+               let deviceId = try? DeviceIdentity.current(storageURL: storage) {
+              ChangeObserverWiring.start(deviceId: deviceId, settings: settings,
+                                         libraryId: settings.libraryId,
+                                         serverBaseURL: serverBaseURL)
+            }
             hasStarted = true
             Self.saveHasStarted(true)
           }
