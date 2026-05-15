@@ -100,8 +100,14 @@ struct BrowseGrid: View {
     /// True when the current folder has neither sub-folders nor images. The
     /// empty-state overlay only takes over in that case — otherwise we're
     /// browsing a populated folder.
+    ///
+    /// In merged-timeline mode (`vm.isMerged`), `vm.assets`/`vm.subfolders`
+    /// are intentionally cleared and the grid renders `vm.mergedCells`
+    /// instead. Including those in the check prevents the empty-state from
+    /// covering a populated merged grid.
     private var isEmpty: Bool {
-        vm.assets.isEmpty && vm.subfolders.isEmpty
+        if vm.isMerged { return vm.mergedCells.isEmpty }
+        return vm.assets.isEmpty && vm.subfolders.isEmpty
     }
 
     var body: some View {
