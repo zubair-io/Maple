@@ -19,71 +19,77 @@ public struct AuthUser: Codable, Equatable, Sendable {
 public final class AuthSession {
   public private(set) var server: URL
   public private(set) var user: AuthUser?
-  public var isSignedIn: Bool { user != nil }
+  /// True when a Keychain credential exists for this server. Initialised
+  /// synchronously from a sync Keychain read so cold-start `isSignedIn`
+  /// is correct before any network call. This is the load-bearing
+  /// signal — `user` is only metadata for the UI. The two-source design
+  /// covers the upgrade path where the Keychain has tokens but the
+  /// AuthUserCache file does not (a user upgrading from a build prior
+  /// to that cache being introduced); without `hasCredentials` they
+  /// would still see the sign-in sheet on the first cold offline
+  /// launch, defeating the whole point of the cache.
+  public private(set) var hasCredentials: Bool
+  public var isSignedIn: Bool { hasCredentials || user != nil }
   public var isOwner: Bool { user?.isOwner ?? false }
 
   private let client: AuthClient
 
   public init(server: URL, client: AuthClient) {
-    self.server = server; self.client = client
-    // Hydrate user from the on-disk cache when a Keychain token also
-    // exists, so cold-start `isSignedIn` is true before any network
-    // round-trip. The previous behaviour left `user = nil` until
-    // bootstrapAndRestore() finished, which forced the sign-in sheet
-    // to appear on every cold start when offline — even with valid
-    // tokens. Bootstrap will still run, verify, and refresh the cached
-    // user when the network comes back.
-    if (try? TokenStore.load(server: server)) != nil,
-       let cached = AuthUserCache.load(server: server) {
-      self.user = cached
+    self.server = server
+    self.client = client
+    self.hasCredentials = (try? TokenStore.load(server: server)) != nil
+    // Hydrate the user metadata from disk so the UI can render an
+    // identity (email, owner badge) before bootstrap completes. Purely
+    // a UX nicety — the Keychain presence above is what makes
+    // isSignedIn true.
+    if hasCredentials {
+      self.user = AuthUserCache.load(server: server)
     }
   }
 
   public func bootstrapAndRestore() async {
     guard let tokens = (try? TokenStore.load(server: server)) else {
-      user = nil
-      AuthUserCache.clear(server: server)
+      clearLocalCredentials()
       return
     }
     do {
       let me = try await client.me(accessToken: tokens.access)
-      user = me.user
-      AuthUserCache.save(me.user, server: server)
+      apply(user: me.user)
+      return
+    } catch let e as AuthClientError where !e.isAuthFailure {
+      // .network / .http(5xx) / .decode — keep cached state. The
+      // server (or transport) is misbehaving, not the user's
+      // credentials.
       return
     } catch let e as AuthClientError {
-      if e.isNetworkFailure {
-        // Offline / DNS / TLS — credentials are still good, keep the
-        // cached user so the UI doesn't force a sign-in.
-        return
-      }
-      if e.isAuthFailure {
-        // 401/403 — fall through to refresh below.
-      } else {
-        // 5xx / decode — keep cached user, treat as transient.
-        return
-      }
+      // .unauthorized / .forbidden — token is dead, fall through to
+      // the refresh attempt below.
+      _ = e
     } catch {
-      // Defensive: any other untyped error treated as transient. The
-      // cost of an unnecessary sign-out is worse than a stale cached
-      // user, since the worst case is the next API call surfaces a
-      // real 401 that re-enters this branch through the refresh path.
+      // Untyped throw from a future code path — treat as transient
+      // to preserve the cache; a real auth failure will resurface
+      // through the typed branch above on the next API call.
       return
     }
 
-    // Reached only on 401/403. Try a single refresh.
     do {
       let new = try await client.refresh(refreshToken: tokens.refresh)
       try? TokenStore.save(new.tokens, server: server)
-      user = new.user
-      AuthUserCache.save(new.user, server: server)
-    } catch let e as AuthClientError where e.isNetworkFailure {
-      // Network died between /me and /refresh — leave state alone.
+      apply(user: new.user)
+    } catch let e as AuthClientError where !e.isAuthFailure {
+      // Refresh failed because the network died, the server returned
+      // 5xx, or the response failed to decode. Tokens may still be
+      // valid; do NOT clear them. The previous catch-all here cleared
+      // tokens on every non-network AuthClientError, including 5xx
+      // from /api/auth/refresh — that's the bug Copilot flagged.
       return
     } catch {
-      // Refresh failed for a non-network reason. Tokens are dead.
-      TokenStore.clear(server: server)
-      AuthUserCache.clear(server: server)
-      user = nil
+      // Refresh was rejected with 401/403 (or an unexpected error type
+      // that we conservatively treat as a real rejection — anything
+      // transient should have been caught by the typed branch above).
+      // Credentials are dead; clear everything so the next bootstrap
+      // routes to the sign-in sheet.
+      clearLocalCredentials()
     }
   }
 
@@ -91,14 +97,26 @@ public final class AuthSession {
     if let tokens = try? TokenStore.load(server: server) {
       _ = try? await client.logout(accessToken: tokens.access, refreshToken: tokens.refresh)
     }
-    TokenStore.clear(server: server)
-    AuthUserCache.clear(server: server)
-    user = nil
+    clearLocalCredentials()
   }
 
   public func setSignedIn(user: AuthUser, tokens: AuthTokens) throws {
     try TokenStore.save(tokens, server: server)
     AuthUserCache.save(user, server: server)
     self.user = user
+    self.hasCredentials = true
+  }
+
+  private func apply(user: AuthUser) {
+    self.user = user
+    self.hasCredentials = true
+    AuthUserCache.save(user, server: server)
+  }
+
+  private func clearLocalCredentials() {
+    TokenStore.clear(server: server)
+    AuthUserCache.clear(server: server)
+    user = nil
+    hasCredentials = false
   }
 }

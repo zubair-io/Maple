@@ -47,6 +47,13 @@ public actor AuthenticatedHTTPClient {
       // try again.
       cloudHTTPLogger.error("token refresh network error: \(e.localizedDescription, privacy: .public)")
       throw e
+    } catch let e as AuthClientError where e.isNetworkFailure {
+      // Defensive: if refresh is ever routed through AuthClient (which
+      // wraps URLError into AuthClientError.network) the URLError catch
+      // above stops matching. Re-throw network failures here so we
+      // don't silently sign the user out the moment that refactor lands.
+      cloudHTTPLogger.error("token refresh network error: \(e.localizedDescription, privacy: .public)")
+      throw e
     } catch {
       cloudHTTPLogger.error("token refresh failed: \(error.localizedDescription, privacy: .public)")
       onSignOut(); return (data, resp)
@@ -64,6 +71,15 @@ public actor AuthenticatedHTTPClient {
   /// correct) from "refresh couldn't reach the server" (keep tokens).
   private struct RefreshRejected: Error {}
 
+  /// Hits `/api/auth/refresh` directly through `urlSession`, NOT through
+  /// `AuthClient` — by contract, transport failures here surface as a
+  /// bare `URLError` (and only as a `URLError`), which the caller
+  /// distinguishes from a server-side rejection (`RefreshRejected`) to
+  /// decide whether to sign out. If you route this through `AuthClient`
+  /// in the future, update the caller's catch ladder to handle
+  /// `AuthClientError.network` as a transport failure too — there is
+  /// already a defensive catch upstream so the change won't silently
+  /// break, but the contract here is "URLError = transport."
   private func refresh(refresh refreshToken: String) async throws -> AuthTokens {
     if let t = inflightRefresh { return try await t.value }
     let task = Task { () throws -> AuthTokens in

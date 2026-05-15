@@ -1,33 +1,42 @@
 // AuthUserCache.swift
 //
-// Persists the last-known AuthUser per server so AuthSession can present
-// a signed-in state immediately on cold start without waiting for a
-// successful /api/auth/me round-trip — which fails offline and used to
-// force the sign-in sheet to appear over a perfectly valid Keychain
-// token. The cache is read synchronously from the AuthSession init so
-// `isSignedIn` is correct before the network call even begins.
+// Persists the last-known AuthUser per server so AuthSession can show
+// account metadata (email, owner badge) in the UI before a successful
+// /api/auth/me round-trip. The cache is NOT load-bearing for the
+// signed-in / signed-out decision — AuthSession.hasCredentials (a sync
+// Keychain check) is what backs `isSignedIn`. The cache is purely a UX
+// nicety; a missing entry just means a fresh-looking sidebar until the
+// next /me succeeds.
 //
-// The cache is advisory. The Keychain is still the source of truth for
-// authentication itself — we only fall back to the cached user when a
-// network call fails transiently. On a real 401/403 we clear both the
-// tokens and this cache.
+// Privacy: the cached AuthUser includes the user's email (PII) and is
+// written as plain JSON under ~/Library/Caches/app.justmaple.aperture/
+// auth-users/. That directory is readable by any process running as
+// the user, and is included in Time Machine / iCloud backups of Caches
+// if the user has those enabled. We accept this trade-off because the
+// data is the user's OWN account info on their OWN machine — not third-
+// party PII — and the alternative (Keychain) is heavyweight for what
+// is fundamentally a UI cache. If AuthUser ever grows to include more
+// sensitive fields (tokens, recovery keys, payment info, etc.) move
+// this store to Keychain.
 
 import Foundation
 
 public enum AuthUserCache {
   private static let folder = "auth-users"
 
-  /// `Caches/app.justmaple.aperture/auth-users/<host>.json`. We key on
-  /// host (not full URL) to match TokenStore's keying granularity for
-  /// the common case where a server is reached via a single base URL.
-  /// Pre-existing entries from other URL forms simply miss the cache.
+  /// `Caches/app.justmaple.aperture/auth-users/<key>.json`. The key
+  /// includes both host AND port so two servers on the same hostname
+  /// but different ports don't collide. Hosts can contain characters
+  /// that filesystems mangle (IPv6 brackets, colons) or that fold on
+  /// case-insensitive filesystems, so the key is lowercased and
+  /// percent-encoded down to an ASCII-safe filename.
   private static func url(for server: URL) -> URL? {
-    guard let host = server.host else { return nil }
+    guard let key = AuthCacheKey.make(for: server) else { return nil }
     let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
     return caches
       .appendingPathComponent("app.justmaple.aperture", isDirectory: true)
       .appendingPathComponent(folder, isDirectory: true)
-      .appendingPathComponent("\(host).json")
+      .appendingPathComponent("\(key).json")
   }
 
   public static func load(server: URL) -> AuthUser? {
@@ -52,5 +61,22 @@ public enum AuthUserCache {
   public static func clear(server: URL) {
     guard let url = url(for: server) else { return }
     try? FileManager.default.removeItem(at: url)
+  }
+}
+
+/// Shared helper for caches keyed on a server URL. Produces a stable,
+/// filesystem-safe identifier that includes BOTH host and port (so
+/// `https://x:8443` ≠ `https://x:9443`), lowercased (so case-insensitive
+/// filesystems on macOS don't fold distinct hosts into one cache file),
+/// and percent-encoded (so IPv6 literals like `[::1]`, internationalised
+/// domain names, or any other characters the host might legally contain
+/// don't break the filename).
+enum AuthCacheKey {
+  static func make(for server: URL) -> String? {
+    guard let host = server.host else { return nil }
+    let portSuffix = server.port.map { "_\($0)" } ?? ""
+    let raw = (host + portSuffix).lowercased()
+    let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_."))
+    return raw.addingPercentEncoding(withAllowedCharacters: allowed)
   }
 }
