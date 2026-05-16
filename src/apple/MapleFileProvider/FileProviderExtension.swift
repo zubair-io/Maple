@@ -627,6 +627,63 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
                 NSError(domain: NSCocoaErrorDomain, code: NSFeatureUnsupportedError))
             return Progress()
         }
+
+        // Restore: the only `modifyItem` shape Phase 3 understands for assets
+        // is reparent FROM a trash container TO a folder, with no other
+        // changes. Anything else (rename, in-place modify) is rejected.
+        if case .asset(let assetID) = parsed,
+           changedFields.contains(.parentItemIdentifier) {
+            let newParentID = item.parentItemIdentifier
+            let newParentParsed: FileProviderIdentifier
+            do { newParentParsed = try FileProviderIdentifier(rawValue: newParentID.rawValue) }
+            catch {
+                completionHandler(nil, [], false,
+                    NSError(domain: NSCocoaErrorDomain, code: NSFeatureUnsupportedError))
+                return Progress()
+            }
+            // Phase 3 only restores into a normal folder under the SAME library.
+            // Cross-library moves and renames-during-restore are deferred.
+            guard case .folder(_, let newRelative) = newParentParsed else {
+                completionHandler(nil, [], false,
+                    NSError(domain: NSCocoaErrorDomain, code: NSFeatureUnsupportedError))
+                return Progress()
+            }
+            let progress = Progress(totalUnitCount: 1)
+            Task {
+                defer { progress.completedUnitCount = 1 }
+                do {
+                    let filename = item.filename
+                    let targetRel = newRelative.isEmpty ? filename : "\(newRelative)/\(filename)"
+                    let resp = try await catalog.restoreAsset(assetID: assetID, targetRelativePath: targetRel)
+                    let attrs = try? FileManager.default.attributesOfItem(atPath: resp.absPath)
+                    let size = Int64((attrs?[.size] as? NSNumber)?.intValue ?? 0)
+                    let modified = (attrs?[.modificationDate] as? Date) ?? Date()
+                    let restoredName = (resp.absPath as NSString).lastPathComponent
+                    let ext = (restoredName as NSString).pathExtension.lowercased()
+                    let image = ImageChild(
+                        name: restoredName,
+                        path: resp.absPath,
+                        mtime: modified,
+                        size: size,
+                        ext: ext,
+                        assetID: resp.assetID
+                    )
+                    if let restored = MapleItem(image: image, parentIdentifier: newParentID) {
+                        completionHandler(restored, [], false, nil)
+                    } else {
+                        completionHandler(nil, [], false,
+                            NSError(domain: NSFileProviderErrorDomain,
+                                    code: NSFileProviderError.noSuchItem.rawValue))
+                    }
+                    await self.signalEnumeratorReload(parent: newParentID)
+                } catch {
+                    self.log.error("restore failed: \(error.localizedDescription, privacy: .public)")
+                    completionHandler(nil, [], false, error)
+                }
+            }
+            return progress
+        }
+
         guard case .sidecar(let assetID, let conflictBasename) = parsed,
               let contentsURL = newContents else {
             completionHandler(nil, [], false,
