@@ -57,6 +57,7 @@ import { assetsListRoutes } from "./routes/assets-list.ts";
 import { requireAuth } from "./auth/middleware.ts";
 import { staticUiPlugin } from "./routes/static_ui.ts";
 import { getDb, ensureIndexes, closeDb, foldersCollection } from "./db/client.ts";
+import { startTrashGc, type TrashGcHandle } from "./workers/trash-gc.ts";
 import {
   Supervisor,
   startSupervisor,
@@ -266,6 +267,9 @@ export const app = buildApp({ stageNames: [] });
 // Startup
 // ---------------------------------------------------------------------------
 
+/** Background handles whose lifecycle is owned by start()/shutdown(). */
+let _trashGcHandle: TrashGcHandle | null = null;
+
 async function start(): Promise<void> {
   ensureJwtSecret();
   log.info(
@@ -430,6 +434,9 @@ async function start(): Promise<void> {
 
   const app = buildApp();
   app.listen(PORT);
+  // Phase 3 trash-gc — fire once at boot, then once a day. The handle's
+  // stop() is invoked during shutdown so a clean exit cancels the timer.
+  _trashGcHandle = startTrashGc({});
   // Keep supervisor reference for graceful shutdown.
   const supervisor = (app as unknown as Record<string, unknown>)["supervisor"] as Supervisor;
   // Register a one-time SIGTERM/SIGINT hook to stop stage children.
@@ -456,6 +463,11 @@ async function shutdown(signal: string): Promise<void> {
       { err: e instanceof Error ? e.message : e },
       "error stopping change feed tailer",
     );
+  }
+  // Stop the trash-gc loop next so its daily timer doesn't fire mid-shutdown.
+  try { _trashGcHandle?.stop(); _trashGcHandle = null; }
+  catch (e) {
+    log.warn({ err: e instanceof Error ? e.message : e }, "error stopping trash-gc");
   }
   // Stop the worker supervisor so stage children get a chance to finish
   // in-flight work before the process exits.
