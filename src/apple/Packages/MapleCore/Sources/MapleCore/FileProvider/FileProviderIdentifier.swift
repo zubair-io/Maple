@@ -4,8 +4,13 @@ import Foundation
 public enum FileProviderIdentifier: Equatable, Hashable, Sendable {
     case asset(String)
     case folder(folderID: String, relativePath: String)
+    /// XMP sidecar paired to an asset. `conflictBasename` is nil for the
+    /// canonical `<base>.xmp` and non-nil for conflict copies
+    /// (`<base> (conflict from <device>).xmp`). The basename excludes the
+    /// `.xmp` extension.
+    case sidecar(assetID: String, conflictBasename: String?)
 
-    public enum DecodeError: Error { case invalidPrefix, malformedFolder, badBase64 }
+    public enum DecodeError: Error { case invalidPrefix, malformedFolder, malformedSidecar, badBase64 }
 
     public var rawValue: String {
         switch self {
@@ -13,6 +18,11 @@ public enum FileProviderIdentifier: Equatable, Hashable, Sendable {
             return "asset/\(id)"
         case .folder(let folderID, let relativePath):
             return "folder/\(folderID):\(Self.b64urlEncode(relativePath))"
+        case .sidecar(let assetID, let conflictBasename):
+            if let conflictBasename {
+                return "sidecar/\(assetID):\(Self.b64urlEncode(conflictBasename))"
+            }
+            return "sidecar/\(assetID)"
         }
     }
 
@@ -27,6 +37,24 @@ public enum FileProviderIdentifier: Equatable, Hashable, Sendable {
             let encoded = String(body[body.index(after: colon)...])
             guard let path = Self.b64urlDecode(encoded) else { throw DecodeError.badBase64 }
             self = .folder(folderID: folderID, relativePath: path)
+            return
+        }
+        if let body = rawValue.dropPrefixIfPresent("sidecar/") {
+            if let colon = body.firstIndex(of: ":") {
+                let assetID = String(body[..<colon])
+                if assetID.isEmpty { throw DecodeError.malformedSidecar }
+                let encoded = String(body[body.index(after: colon)...])
+                if encoded.isEmpty {
+                    self = .sidecar(assetID: assetID, conflictBasename: nil)
+                    return
+                }
+                guard let name = Self.b64urlDecode(encoded) else { throw DecodeError.badBase64 }
+                self = .sidecar(assetID: assetID, conflictBasename: name)
+                return
+            }
+            let assetID = String(body)
+            if assetID.isEmpty { throw DecodeError.malformedSidecar }
+            self = .sidecar(assetID: assetID, conflictBasename: nil)
             return
         }
         throw DecodeError.invalidPrefix
