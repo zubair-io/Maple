@@ -316,6 +316,93 @@ export const foldersRoutes = new Elysia({ prefix: "/api/folders" })
     {
       type: "arrayBuffer",
     }
+  )
+
+  // Paged list of trashed assets for one library, newest-first.
+  // Cursor format: "<deleted_at_iso>|<hex_id>" — page where
+  // deleted_at < iso, OR (deleted_at == iso AND _id < hex_id).
+  // Filters require both deleted_at and original_path so vanished
+  // (watcher-removed) assets stay out of Trash.
+  .get(
+    "/:id/trash",
+    async ({ params, query, set }) => {
+      let folderId: ObjectId;
+      try { folderId = new ObjectId(params.id); }
+      catch { set.status = 400; return { error: "Invalid folder id" }; }
+
+      const folders = await foldersCollection();
+      const folder = await folders.findOne({ _id: folderId });
+      if (!folder) { set.status = 404; return { error: "Folder not found" }; }
+
+      const limit = Math.min(500, Math.max(1, Number(query.limit ?? 100)));
+      const filter: Record<string, unknown> = {
+        folder_id: folderId,
+        deleted_at: { $ne: null },
+        original_path: { $ne: null },
+      };
+      const cursor = typeof query.cursor === "string" && query.cursor.length > 0
+        ? query.cursor
+        : null;
+      if (cursor) {
+        const sepIdx = cursor.lastIndexOf("|");
+        if (sepIdx > 0) {
+          const iso = cursor.slice(0, sepIdx);
+          const hex = cursor.slice(sepIdx + 1);
+          try {
+            // Override the simple { $ne: null } filter on deleted_at by
+            // combining the cursor predicate with the non-null guard.
+            filter.$and = [
+              { deleted_at: { $ne: null }, original_path: { $ne: null } },
+              { $or: [
+                  { deleted_at: { $lt: iso } },
+                  { deleted_at: iso, _id: { $lt: new ObjectId(hex) } },
+                ] },
+            ];
+            delete filter.deleted_at;
+            delete filter.original_path;
+          } catch { /* malformed cursor → ignore */ }
+        }
+      }
+
+      const assets = await assetsCollection();
+      const docs = await assets
+        .find(filter)
+        .sort({ deleted_at: -1, _id: -1 })
+        .limit(limit + 1)
+        .toArray();
+      const hasMore = docs.length > limit;
+      const pageDocs = hasMore ? docs.slice(0, limit) : docs;
+      const last = pageDocs[pageDocs.length - 1];
+      const nextCursor = hasMore && last
+        ? `${(last as unknown as { deleted_at: string }).deleted_at}|${last._id.toHexString()}`
+        : null;
+
+      const rootPrefix = folder.path.endsWith("/") ? folder.path : folder.path + "/";
+      return {
+        items: pageDocs.map((d) => {
+          const doc = d as unknown as { _id: ObjectId; filename: string; abs_path: string; size: number; mtime: number; deleted_at: string; original_path: string };
+          const orig = doc.original_path;
+          const originalRel = orig.startsWith(rootPrefix) ? orig.slice(rootPrefix.length) : orig;
+          const trashRel = doc.abs_path.startsWith(rootPrefix) ? doc.abs_path.slice(rootPrefix.length) : doc.abs_path;
+          return {
+            asset_id: doc._id.toHexString(),
+            filename: doc.filename,
+            original_relative_path: originalRel,
+            trash_relative_path: trashRel,
+            size: doc.size,
+            mtime: doc.mtime,
+            deleted_at: doc.deleted_at,
+          };
+        }),
+        next_cursor: nextCursor,
+      };
+    },
+    {
+      query: t.Object({
+        limit: t.Optional(t.String()),
+        cursor: t.Optional(t.String()),
+      }),
+    }
   );
 
 // ---------------------------------------------------------------------------
