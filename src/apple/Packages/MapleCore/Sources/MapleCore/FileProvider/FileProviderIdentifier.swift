@@ -9,8 +9,12 @@ public enum FileProviderIdentifier: Equatable, Hashable, Sendable {
     /// (`<base> (conflict from <device>).xmp`). The basename excludes the
     /// `.xmp` extension.
     case sidecar(assetID: String, conflictBasename: String?)
+    /// Per-library Trash virtual container. Children = trashed asset items.
+    case trash(folderID: String)
 
-    public enum DecodeError: Error { case invalidPrefix, malformedFolder, malformedSidecar, badBase64 }
+    public enum DecodeError: Error {
+        case invalidPrefix, malformedFolder, malformedSidecar, malformedTrash, badBase64
+    }
 
     public var rawValue: String {
         switch self {
@@ -23,6 +27,8 @@ public enum FileProviderIdentifier: Equatable, Hashable, Sendable {
                 return "sidecar/\(assetID):\(Self.b64urlEncode(conflictBasename))"
             }
             return "sidecar/\(assetID)"
+        case .trash(let folderID):
+            return "trash/\(folderID)"
         }
     }
 
@@ -55,6 +61,12 @@ public enum FileProviderIdentifier: Equatable, Hashable, Sendable {
             let assetID = String(body)
             if assetID.isEmpty { throw DecodeError.malformedSidecar }
             self = .sidecar(assetID: assetID, conflictBasename: nil)
+            return
+        }
+        if let body = rawValue.dropPrefixIfPresent("trash/") {
+            let folderID = String(body)
+            if folderID.isEmpty { throw DecodeError.malformedTrash }
+            self = .trash(folderID: folderID)
             return
         }
         throw DecodeError.invalidPrefix
