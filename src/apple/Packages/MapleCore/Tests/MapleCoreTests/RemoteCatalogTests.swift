@@ -61,4 +61,39 @@ final class RemoteCatalogTests: XCTestCase {
         let contents = try d.decode(DirContents.self, from: json)
         XCTAssertNil(contents.parent)
     }
+
+    func testDecodeDirContentsWithSidecars() throws {
+        let json = """
+        {
+          "path": "/photos",
+          "parent": null,
+          "dirs": [],
+          "images": [
+            {"name":"IMG_1.ARW","path":"/photos/IMG_1.ARW","mtime":"2026-05-15T10:00:00Z","size":100,"ext":"arw","id":"650a"}
+          ],
+          "sidecars": [
+            {"name":"IMG_1.xmp","path":"/photos/IMG_1.xmp","mtime":"2026-05-15T10:00:00Z","size":50,"asset_id":"650a"}
+          ]
+        }
+        """.data(using: .utf8)!
+        let d = JSONDecoder()
+        d.dateDecodingStrategy = .iso8601
+        let contents = try d.decode(DirContents.self, from: json)
+        XCTAssertEqual(contents.sidecars.count, 1)
+        XCTAssertEqual(contents.sidecars[0].name, "IMG_1.xmp")
+        XCTAssertEqual(contents.sidecars[0].assetID, "650a")
+        XCTAssertEqual(contents.sidecars[0].size, 50)
+    }
+
+    func testDecodeDirContentsWithoutSidecarsField() throws {
+        // The server omits sidecars[] on older versions of the API — the
+        // client must tolerate that by defaulting to an empty array.
+        let json = """
+        {"path":"/p","parent":null,"dirs":[],"images":[]}
+        """.data(using: .utf8)!
+        let d = JSONDecoder()
+        d.dateDecodingStrategy = .iso8601
+        let contents = try d.decode(DirContents.self, from: json)
+        XCTAssertEqual(contents.sidecars, [])
+    }
 }
