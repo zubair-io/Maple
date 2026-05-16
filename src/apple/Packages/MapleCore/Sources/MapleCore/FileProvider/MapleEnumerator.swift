@@ -74,18 +74,29 @@ public final class FolderEnumerator: NSObject, NSFileProviderEnumerator {
     private let relativePath: String
     private let absolutePath: String
     private let containerIdentifier: NSFileProviderItemIdentifier
+    private let pageSize: Int
     private let log = Logger(subsystem: "app.justmaple.aperture.fileprovider", category: "enumerator")
 
+    /// `pageSize` is sent as the `?limit=` query param on every request.
+    /// Defaults to 500 on macOS and 200 on iOS; the host extension picks
+    /// the value via the platform-specific subclass entry-point. Tests
+    /// override it to small numbers to exercise the multi-page path.
     public init(catalog: RemoteCatalog,
                 folderID: String,
                 relativePath: String,
                 absolutePath: String,
-                containerIdentifier: NSFileProviderItemIdentifier) {
+                containerIdentifier: NSFileProviderItemIdentifier,
+                pageSize: Int? = nil) {
         self.catalog = catalog
         self.folderID = folderID
         self.relativePath = relativePath
         self.absolutePath = absolutePath
         self.containerIdentifier = containerIdentifier
+        #if os(iOS)
+        self.pageSize = pageSize ?? 200
+        #else
+        self.pageSize = pageSize ?? 500
+        #endif
     }
 
     public func invalidate() {}
@@ -93,34 +104,40 @@ public final class FolderEnumerator: NSObject, NSFileProviderEnumerator {
     public func enumerateItems(for observer: NSFileProviderEnumerationObserver, startingAt page: NSFileProviderPage) {
         Task {
             do {
-                let contents = try await catalog.listDir(absolutePath: absolutePath)
-                var items: [NSFileProviderItem] = contents.dirs.map { d in
-                    MapleItem(subdirectory: d,
-                              parentFolderID: folderID,
-                              parentRelativePath: relativePath,
-                              parentIdentifier: containerIdentifier)
-                }
-                // Failable init filters out unindexed images.
-                items.append(contentsOf: contents.images.compactMap {
-                    MapleItem(image: $0, parentIdentifier: containerIdentifier)
-                })
-                // Build a lookup from asset ID to that asset's filename base
-                // (no extension) so each sidecar can resolve canonical-vs-
-                // conflict status.
-                var assetIDToBase: [String: String] = [:]
-                for img in contents.images {
-                    guard let id = img.assetID else { continue }
-                    let dot = img.name.lastIndex(of: ".")
-                    let base = dot.map { String(img.name[..<$0]) } ?? img.name
-                    assetIDToBase[id] = base
-                }
-                for sidecar in contents.sidecars {
-                    let base = assetIDToBase[sidecar.assetID] ?? sidecar.name
-                    items.append(MapleItem(sidecar: sidecar,
-                                           parentImageBase: base,
-                                           parentIdentifier: containerIdentifier))
-                }
-                observer.didEnumerate(items)
+                var cursor: String? = nil
+                repeat {
+                    let contents = try await catalog.listDir(absolutePath: absolutePath,
+                                                              cursor: cursor,
+                                                              limit: pageSize)
+                    var items: [NSFileProviderItem] = contents.dirs.map { d in
+                        MapleItem(subdirectory: d,
+                                  parentFolderID: folderID,
+                                  parentRelativePath: relativePath,
+                                  parentIdentifier: containerIdentifier)
+                    }
+                    // Failable init filters out unindexed images.
+                    items.append(contentsOf: contents.images.compactMap {
+                        MapleItem(image: $0, parentIdentifier: containerIdentifier)
+                    })
+                    // Build a lookup from asset ID to that asset's filename
+                    // base (no extension) so each sidecar can resolve
+                    // canonical-vs-conflict status.
+                    var assetIDToBase: [String: String] = [:]
+                    for img in contents.images {
+                        guard let id = img.assetID else { continue }
+                        let dot = img.name.lastIndex(of: ".")
+                        let base = dot.map { String(img.name[..<$0]) } ?? img.name
+                        assetIDToBase[id] = base
+                    }
+                    for sidecar in contents.sidecars {
+                        let base = assetIDToBase[sidecar.assetID] ?? sidecar.name
+                        items.append(MapleItem(sidecar: sidecar,
+                                               parentImageBase: base,
+                                               parentIdentifier: containerIdentifier))
+                    }
+                    observer.didEnumerate(items)
+                    cursor = contents.nextCursor
+                } while cursor != nil
                 observer.finishEnumerating(upTo: nil)
             } catch {
                 log.error("folder enumerate failed: \(error.localizedDescription, privacy: .public)")
