@@ -10,12 +10,13 @@ final class MapleItem: NSObject, NSFileProviderItem {
     private let size: NSNumber?
     private let modified: Date?
     private let utType: UTType
+    private let writeCapabilities: NSFileProviderItemCapabilities
 
     let itemIdentifier: NSFileProviderItemIdentifier
     let parentItemIdentifier: NSFileProviderItemIdentifier
     let filename: String
     var contentType: UTType { utType }
-    var capabilities: NSFileProviderItemCapabilities { [.allowsReading] }   // read-only in Phase 1
+    var capabilities: NSFileProviderItemCapabilities { writeCapabilities }
     var documentSize: NSNumber? { size }
     var contentModificationDate: Date? { modified }
     var creationDate: Date? { modified }
@@ -24,7 +25,7 @@ final class MapleItem: NSObject, NSFileProviderItem {
         return .init(contentVersion: mtimeBytes, metadataVersion: mtimeBytes)
     }
     var isUploaded: Bool { true }
-    var isDownloaded: Bool { false }  // bytes fetched on demand
+    var isDownloaded: Bool { false }
 
     init(libraryRoot root: LibraryRoot) {
         self.identifier = .folder(folderID: root.id, relativePath: "")
@@ -33,6 +34,7 @@ final class MapleItem: NSObject, NSFileProviderItem {
         self.size = nil
         self.modified = nil
         self.utType = .folder
+        self.writeCapabilities = [.allowsReading]
         self.itemIdentifier = NSFileProviderItemIdentifier(self.identifier.rawValue)
         self.parentItemIdentifier = .rootContainer
         self.filename = root.label
@@ -46,13 +48,13 @@ final class MapleItem: NSObject, NSFileProviderItem {
         self.size = nil
         self.modified = dir.mtime
         self.utType = .folder
+        self.writeCapabilities = [.allowsReading]
         self.itemIdentifier = NSFileProviderItemIdentifier(self.identifier.rawValue)
         self.parentItemIdentifier = parentIdentifier
         self.filename = dir.name
     }
 
-    /// Returns nil for unindexed images (no asset ID) — those cannot be fetched,
-    /// so the enumerator drops them via `compactMap`.
+    /// Returns nil for unindexed images (no asset ID).
     init?(image: ImageChild, parentIdentifier: NSFileProviderItemIdentifier) {
         guard let assetID = image.assetID, !assetID.isEmpty else { return nil }
         self.identifier = .asset(assetID)
@@ -61,8 +63,36 @@ final class MapleItem: NSObject, NSFileProviderItem {
         self.size = NSNumber(value: image.size)
         self.modified = image.mtime
         self.utType = UTType(filenameExtension: image.ext) ?? .data
+        // RAWs remain read-only in Phase 2.
+        self.writeCapabilities = [.allowsReading]
         self.itemIdentifier = NSFileProviderItemIdentifier(self.identifier.rawValue)
         self.parentItemIdentifier = parentIdentifier
         self.filename = image.name
+    }
+
+    /// Writable XMP sidecar. `parentImageBase` is the paired image's
+    /// filename without its extension (e.g. "IMG_1" for "IMG_1.ARW");
+    /// used to decide canonical vs. conflict-copy by comparing against
+    /// the sidecar's on-disk name.
+    init(sidecar: SidecarChild, parentImageBase: String, parentIdentifier: NSFileProviderItemIdentifier) {
+        let canonicalName = "\(parentImageBase).xmp"
+        let isCanonical = sidecar.name == canonicalName
+        let basenameWithoutExt: String? = {
+            guard !isCanonical else { return nil }
+            if sidecar.name.hasSuffix(".xmp") {
+                return String(sidecar.name.dropLast(4))
+            }
+            return sidecar.name
+        }()
+        self.identifier = .sidecar(assetID: sidecar.assetID, conflictBasename: basenameWithoutExt)
+        self.displayName = sidecar.name
+        self.isDirectory = false
+        self.size = NSNumber(value: sidecar.size)
+        self.modified = sidecar.mtime
+        self.utType = UTType(filenameExtension: "xmp") ?? .xml
+        self.writeCapabilities = [.allowsReading, .allowsWriting, .allowsDeleting]
+        self.itemIdentifier = NSFileProviderItemIdentifier(self.identifier.rawValue)
+        self.parentItemIdentifier = parentIdentifier
+        self.filename = sidecar.name
     }
 }
