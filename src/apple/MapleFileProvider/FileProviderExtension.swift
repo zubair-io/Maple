@@ -719,16 +719,22 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
             completionHandler(NSError(domain: NSCocoaErrorDomain, code: NSFeatureUnsupportedError))
             return Progress()
         }
-        guard case .sidecar(let assetID, let conflictBasename) = parsed else {
-            completionHandler(NSError(domain: NSCocoaErrorDomain, code: NSFeatureUnsupportedError))
-            return Progress()
-        }
         let progress = Progress(totalUnitCount: 1)
         Task {
             defer { progress.completedUnitCount = 1 }
             do {
-                try await catalog.deleteXMP(assetID: assetID, conflictBasename: conflictBasename)
-                completionHandler(nil)
+                switch parsed {
+                case .sidecar(let assetID, let conflictBasename):
+                    try await catalog.deleteXMP(assetID: assetID, conflictBasename: conflictBasename)
+                    completionHandler(nil)
+                case .asset(let assetID):
+                    // Server distinguishes trash-vs-purge based on the current
+                    // doc state; we just call DELETE. Idempotent.
+                    try await catalog.deleteAsset(assetID: assetID)
+                    completionHandler(nil)
+                case .folder, .trash:
+                    completionHandler(NSError(domain: NSCocoaErrorDomain, code: NSFeatureUnsupportedError))
+                }
             } catch {
                 self.log.error("deleteItem failed: \(error.localizedDescription, privacy: .public)")
                 completionHandler(error)
