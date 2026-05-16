@@ -189,6 +189,22 @@ const IMAGE_EXTENSIONS = new Set<string>([
   ...SHARP_EXTENSIONS,
 ]);
 
+/**
+ * Match the optional `" (conflict from <device>)"` suffix on a sidecar
+ * filename. Captures the canonical base before the suffix (group 1).
+ * Returns null if the filename isn't a `.xmp` at all.
+ *
+ * Examples:
+ *   "IMG_1.xmp"                                 → "IMG_1"
+ *   "IMG_1 (conflict from MacBook).xmp"         → "IMG_1"
+ *   "IMG_1 (conflict from work-laptop).xmp"     → "IMG_1"
+ *   "notes.txt"                                 → null
+ */
+export function canonicalBaseFromSidecarFilename(filename: string): string | null {
+  const m = /^(.+?)( \(conflict from [^)]+\))?\.xmp$/i.exec(filename);
+  return m ? m[1] : null;
+}
+
 export interface DirChild {
   name: string;
   path: string;       // absolute, symlink-resolved
@@ -215,11 +231,25 @@ export interface ImageChild extends DirChild {
   exif?: AssetExif | null;
 }
 
+export interface SidecarChild {
+  name: string;
+  path: string;       // absolute, symlink-resolved
+  mtime: string;      // ISO-8601
+  size: number;       // bytes
+  /**
+   * Hex Mongo `_id` of the asset this XMP is paired to. Always set —
+   * sidecars without a matching indexed asset are dropped from the
+   * listing (same filter as `images`).
+   */
+  assetID: string;
+}
+
 export interface DirContents {
   path: string;
   parent: string | null;
   dirs: DirChild[];
   images: ImageChild[];
+  sidecars: SidecarChild[];
 }
 
 /**
@@ -273,6 +303,7 @@ export async function listDirContents(
 
   const dirs: DirChild[] = [];
   const images: ImageChild[] = [];
+  const sidecarRaw: Array<Omit<SidecarChild, "assetID">> = [];
 
   for (const name of visible) {
     const childCandidate = real === "/" ? "/" + name : `${real}/${name}`;
@@ -299,14 +330,22 @@ export async function listDirContents(
       const dot = name.lastIndexOf(".");
       if (dot < 0) continue;
       const ext = name.slice(dot + 1).toLowerCase();
-      if (!IMAGE_EXTENSIONS.has(ext)) continue;
-      images.push({
-        name,
-        path: childReal,
-        size: st.size,
-        mtime: st.mtime.toISOString(),
-        ext,
-      });
+      if (IMAGE_EXTENSIONS.has(ext)) {
+        images.push({
+          name,
+          path: childReal,
+          size: st.size,
+          mtime: st.mtime.toISOString(),
+          ext,
+        });
+      } else if (ext === "xmp") {
+        sidecarRaw.push({
+          name,
+          path: childReal,
+          size: st.size,
+          mtime: st.mtime.toISOString(),
+        });
+      }
     }
   }
 
@@ -343,6 +382,27 @@ export async function listDirContents(
     }
   }
 
+  // Pair each candidate sidecar to an indexed asset by matching the
+  // canonical base (strip ".xmp" and optional "(conflict from …)"
+  // suffix) against the filename base of an indexed image in this
+  // listing. Sidecars without a paired indexed image are dropped.
+  const imageBaseToAsset = new Map<string, string>();
+  for (const img of images) {
+    if (!img.id) continue;
+    const dot = img.name.lastIndexOf(".");
+    const base = dot >= 0 ? img.name.slice(0, dot) : img.name;
+    imageBaseToAsset.set(base, img.id);
+  }
+
+  const sidecars: SidecarChild[] = [];
+  for (const cand of sidecarRaw) {
+    const base = canonicalBaseFromSidecarFilename(cand.name);
+    if (!base) continue;
+    const assetID = imageBaseToAsset.get(base);
+    if (!assetID) continue;
+    sidecars.push({ ...cand, assetID });
+  }
+
   // Fire-and-forget: index any RAW images in this listing that don't have
   // an asset doc yet. Skips the thumb stage — `/api/fs/thumb` already
   // renders thumbs lazily, so re-doing the work in the indexer would
@@ -370,6 +430,7 @@ export async function listDirContents(
       parent: isRoot ? null : path.dirname(real),
       dirs,
       images,
+      sidecars,
     },
   };
 }
