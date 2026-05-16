@@ -105,6 +105,16 @@ struct MapleApp: App {
                     if newPhase == .background {
                         BGTaskRegistration.schedule()
                     }
+                    #if os(iOS)
+                    if newPhase == .active {
+                        // Re-foreground: signal every active File Provider
+                        // domain so the next Files-app refresh sees fresh
+                        // server state. Best-effort; failures surface only
+                        // in the in-app status banner. Model construction
+                        // is cheap — it just wraps a stateless controller.
+                        Task { await FileProviderSettingsModel().refreshAll() }
+                    }
+                    #endif
                 }
         }
         #if os(macOS)
@@ -169,6 +179,9 @@ struct SettingsView: View {
             #if os(macOS)
             FileProviderSettingsView()
                 .tabItem { Label("Finder", systemImage: "folder") }
+            #elseif os(iOS)
+            FileProviderSettingsViewIOS()
+                .tabItem { Label("Files", systemImage: "folder") }
             #endif
         }
         #if os(macOS)
