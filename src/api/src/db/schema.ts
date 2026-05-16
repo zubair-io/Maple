@@ -155,6 +155,22 @@ export interface AssetDoc {
    * by the XMP write/delete handlers (Phase 5b). Optional because legacy
    * rows pre-date the flag; readers should treat missing as `false`. */
   has_xmp?: boolean;
+  /**
+   * Soft-delete marker. Set by the discover watcher when a file vanishes
+   * from disk (in which case `original_path` stays unset), AND by the
+   * File Provider DELETE handler when a user drags an asset to Trash
+   * (in which case `original_path` is also set). Trashed assets remain
+   * indexed but are filtered out of folder listings and search results.
+   */
+  deleted_at?: string | null;
+  /**
+   * Pre-trash absolute path. Only set when a File Provider user
+   * trashed the asset (distinct from a watcher-driven `removed`).
+   * Read by the restore handler to compute the default target path,
+   * and by `GET /api/folders/:id/trash` to surface the original
+   * relative path to clients. Cleared on restore.
+   */
+  original_path?: string | null;
 }
 
 export type AssetWithId = WithId<AssetDoc>;
