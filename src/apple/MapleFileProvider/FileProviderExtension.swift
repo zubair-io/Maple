@@ -158,19 +158,24 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
             defer { progress.completedUnitCount = 1 }
             do {
                 let parsed = try FileProviderIdentifier(rawValue: itemIdentifier.rawValue)
-                guard case .asset(let id) = parsed else {
+                let manager = NSFileProviderManager(for: domain)
+                let tmpDir = (try? manager?.temporaryDirectoryURL()) ?? FileManager.default.temporaryDirectory
+                let localURL = tmpDir.appendingPathComponent(UUID().uuidString)
+                switch parsed {
+                case .asset(let id):
+                    try await catalog.downloadAsset(assetID: id, to: localURL)
+                    completionHandler(localURL, nil, nil)
+                    return
+                case .sidecar(let assetID, let conflictBasename):
+                    let bytes = try await catalog.getXMP(assetID: assetID, conflictBasename: conflictBasename)
+                    try bytes.write(to: localURL, options: .atomic)
+                    completionHandler(localURL, nil, nil)
+                    return
+                case .folder:
                     completionHandler(nil, nil, NSError(domain: NSFileProviderErrorDomain,
                                                         code: NSFileProviderError.noSuchItem.rawValue))
                     return
                 }
-                let manager = NSFileProviderManager(for: domain)
-                let tmpDir = (try? manager?.temporaryDirectoryURL()) ?? FileManager.default.temporaryDirectory
-                let localURL = tmpDir.appendingPathComponent(UUID().uuidString)
-                try await catalog.downloadAsset(assetID: id, to: localURL)
-                // Pass nil for the item: the OS will reuse metadata from the prior enumeration.
-                // We don't know the asset's real parent here (only the assetID), so we must not
-                // synthesize one.
-                completionHandler(localURL, nil, nil)
             } catch {
                 log.error("fetch failed: \(error.localizedDescription, privacy: .public)")
                 completionHandler(nil, nil, error)
@@ -327,7 +332,7 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
                 NSError(domain: NSCocoaErrorDomain, code: NSFeatureUnsupportedError))
             return Progress()
         }
-        guard case .sidecar(let assetID, _) = parsed,
+        guard case .sidecar(let assetID, let conflictBasename) = parsed,
               let contentsURL = newContents else {
             completionHandler(nil, [], false,
                 NSError(domain: NSCocoaErrorDomain, code: NSFeatureUnsupportedError))
@@ -345,11 +350,15 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
             defer { progress.completedUnitCount = 1 }
             do {
                 let xmpBytes = try Data(contentsOf: contentsURL)
+                // Conflict copies are addressed by ?conflict=<basename> and
+                // skip the mtime precondition: the user is editing this
+                // exact file directly, not racing against the canonical.
                 let result = try await catalog.putXMP(
                     assetID: assetID,
                     data: xmpBytes,
-                    ifMtimeMatches: priorMtime,
-                    deviceName: self.deviceName
+                    ifMtimeMatches: conflictBasename == nil ? priorMtime : nil,
+                    deviceName: self.deviceName,
+                    conflictBasename: conflictBasename
                 )
                 switch result {
                 case .ok(let mtime):
@@ -415,7 +424,7 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
             completionHandler(NSError(domain: NSCocoaErrorDomain, code: NSFeatureUnsupportedError))
             return Progress()
         }
-        guard case .sidecar(let assetID, _) = parsed else {
+        guard case .sidecar(let assetID, let conflictBasename) = parsed else {
             completionHandler(NSError(domain: NSCocoaErrorDomain, code: NSFeatureUnsupportedError))
             return Progress()
         }
@@ -423,7 +432,7 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
         Task {
             defer { progress.completedUnitCount = 1 }
             do {
-                try await catalog.deleteXMP(assetID: assetID)
+                try await catalog.deleteXMP(assetID: assetID, conflictBasename: conflictBasename)
                 completionHandler(nil)
             } catch {
                 self.log.error("deleteItem failed: \(error.localizedDescription, privacy: .public)")
