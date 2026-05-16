@@ -8,15 +8,18 @@
 
 import { Elysia, t } from "elysia";
 import { ObjectId } from "mongodb";
-import { readdir } from "node:fs/promises";
+import { readdir, open, rename, stat, unlink, mkdir, utimes } from "node:fs/promises";
 import type { Dirent } from "node:fs";
 import * as nodePath from "node:path";
+import { randomUUID } from "node:crypto";
 import { foldersCollection, assetsCollection } from "../db/client.ts";
 import { validateRoot } from "../fs/root.ts";
+import { RAW_EXTENSIONS } from "../fs/browse.ts";
+import { SHARP_EXTENSIONS } from "../thumbs/render.ts";
 import { child as childLogger } from "../log.ts";
 import { computeBodyETag, ifNoneMatchEqual } from "../runtime/http-etag.ts";
 import { handleEvent } from "../workers/discover/index.ts";
-import { stageManifest } from "../workers/stages/manifest.ts";
+import { stageManifest, blankStagesSkeleton } from "../workers/stages/manifest.ts";
 
 const log = childLogger("folders");
 
@@ -209,6 +212,110 @@ export const foldersRoutes = new Elysia({ prefix: "/api/folders" })
 
       return { ok: true, folderId: folderIdStr, path: scanRoot, reset: updateResult.modifiedCount };
     },
+  )
+
+  // Streaming upload: body is raw file bytes, target path in X-Maple-Target-Path.
+  .post(
+    "/:id/upload",
+    async ({ params, body, headers, set }) => {
+      let folderId: ObjectId;
+      try { folderId = new ObjectId(params.id); }
+      catch { set.status = 400; return { error: "Invalid folder id" }; }
+
+      const folders = await foldersCollection();
+      const folder = await folders.findOne({ _id: folderId });
+      if (!folder) { set.status = 404; return { error: "Folder not found" }; }
+
+      const targetHeader = headers["x-maple-target-path"];
+      if (typeof targetHeader !== "string" || targetHeader.length === 0) {
+        set.status = 400; return { error: "Missing X-Maple-Target-Path" };
+      }
+      const target = decodeURIComponent(targetHeader);
+      // Path validation: no leading /, no .. component, no leading-dot component
+      // (the latter would let a caller write into .maple/).
+      if (target.startsWith("/")) { set.status = 400; return { error: "Path must be relative" }; }
+      const parts = target.split("/").filter((p) => p.length > 0);
+      if (parts.length === 0) { set.status = 400; return { error: "Empty target path" }; }
+      for (const part of parts) {
+        if (part === ".." || part === ".") { set.status = 400; return { error: "Path traversal not allowed" }; }
+        if (part.startsWith(".")) { set.status = 400; return { error: "Hidden path components not allowed" }; }
+      }
+      const filename = parts[parts.length - 1]!;
+      const dot = filename.lastIndexOf(".");
+      const ext = dot >= 0 ? filename.slice(dot + 1).toLowerCase() : "";
+      const allowed = RAW_EXTENSIONS.has(ext) || SHARP_EXTENSIONS.has(ext);
+      if (!allowed) {
+        set.status = 415;
+        return { error: `Unsupported file extension: "${ext}"` };
+      }
+
+      const absPath = nodePath.join(folder.path, target);
+      // Refuse overwrite of an existing file.
+      try {
+        await stat(absPath);
+        set.status = 409;
+        return { error: "file exists", abs_path: absPath };
+      } catch { /* free */ }
+
+      // Body comes in as an ArrayBuffer when `type: "arrayBuffer"` is set.
+      const bytes = body instanceof ArrayBuffer
+        ? new Uint8Array(body)
+        : body instanceof Uint8Array
+          ? body
+          : typeof body === "string"
+            ? new TextEncoder().encode(body)
+            : new Uint8Array();
+
+      const dir = nodePath.dirname(absPath);
+      await mkdir(dir, { recursive: true });
+      const tmp = nodePath.join(dir, `.upload-${randomUUID()}`);
+      try {
+        const fh = await open(tmp, "w");
+        try {
+          await fh.writeFile(bytes);
+          await fh.datasync();
+        } finally {
+          await fh.close();
+        }
+        await rename(tmp, absPath);
+      } catch (err) {
+        try { await unlink(tmp); } catch {}
+        set.status = 500;
+        return { error: `Upload write failed: ${err instanceof Error ? err.message : String(err)}` };
+      }
+
+      const st = await stat(absPath);
+      const mtimeHeader = headers["x-maple-file-mtime"];
+      if (typeof mtimeHeader === "string" && /^\d+$/.test(mtimeHeader)) {
+        const epoch = parseInt(mtimeHeader, 10);
+        try { await utimes(absPath, epoch, epoch); } catch {}
+      }
+
+      const assets = await assetsCollection();
+      const _id = new ObjectId();
+      const nowIso = new Date().toISOString();
+      await assets.insertOne({
+        _id,
+        folder_id: folderId,
+        filename,
+        abs_path: absPath,
+        size: st.size,
+        mtime: st.mtimeMs,
+        rating: 0,
+        flag: 0,
+        color_label: "",
+        exif: null,
+        indexed_at: nowIso,
+        deleted_at: null,
+        stages: blankStagesSkeleton(),
+      } as never);
+
+      set.status = 201;
+      return { asset_id: _id.toHexString(), abs_path: absPath, size: st.size, mtime: st.mtimeMs };
+    },
+    {
+      type: "arrayBuffer",
+    }
   );
 
 // ---------------------------------------------------------------------------
