@@ -241,7 +241,7 @@ export interface SidecarChild {
    * sidecars without a matching indexed asset are dropped from the
    * listing (same filter as `images`).
    */
-  assetID: string;
+  asset_id: string;
 }
 
 export interface DirContents {
@@ -400,7 +400,7 @@ export async function listDirContents(
     if (!base) continue;
     const assetID = imageBaseToAsset.get(base);
     if (!assetID) continue;
-    sidecars.push({ ...cand, assetID });
+    sidecars.push({ ...cand, asset_id: assetID });
   }
 
   // Fire-and-forget: index any RAW images in this listing that don't have

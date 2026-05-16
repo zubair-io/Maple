@@ -138,7 +138,7 @@ describe("GET /api/fs/dir — sidecars[] pairing", () => {
     const res = await fsRoutes.handle(new Request(url));
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
-      sidecars: Array<{ name: string; assetID: string }>;
+      sidecars: Array<{ name: string; asset_id: string }>;
     };
     const names = body.sidecars.map((s) => s.name).sort();
     expect(names).toEqual([
@@ -146,7 +146,7 @@ describe("GET /api/fs/dir — sidecars[] pairing", () => {
       "IMG_1.xmp",
     ]);
     for (const s of body.sidecars) {
-      expect(s.assetID).toBe(assetId.toHexString());
+      expect(s.asset_id).toBe(assetId.toHexString());
     }
   });
 
