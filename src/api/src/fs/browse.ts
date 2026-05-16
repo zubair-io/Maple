@@ -355,15 +355,26 @@ export async function listDirContents(
   // touched this folder yet, the find returns nothing and `exif` stays
   // undefined on each entry — the client renders "—" gracefully.
   const indexedPaths = new Set<string>();
+  const trashedPaths = new Set<string>();
   if (images.length > 0) {
     try {
       const coll = await assetsCollection();
       const cursor = coll.find(
         { abs_path: { $in: images.map((i) => i.path) } },
-        { projection: { _id: 1, abs_path: 1, exif: 1 } },
+        { projection: { _id: 1, abs_path: 1, exif: 1, deleted_at: 1 } },
       );
       const byPath = new Map<string, { id: string; exif: AssetExif | null | undefined }>();
       for await (const doc of cursor) {
+        const raw = doc as unknown as Record<string, unknown>;
+        // Files whose asset doc is soft-deleted must not appear under their
+        // pre-trash directory listing — the file has either moved to
+        // .maple/trash/<rel> (File-Provider DELETE) or vanished from disk
+        // (watcher); either way, hiding it from /api/fs/dir matches what
+        // the user expects after a delete.
+        if (raw.deleted_at != null) {
+          trashedPaths.add(doc.abs_path);
+          continue;
+        }
         byPath.set(doc.abs_path, { id: doc._id.toHexString(), exif: doc.exif });
         indexedPaths.add(doc.abs_path);
       }
@@ -380,6 +391,12 @@ export async function listDirContents(
         { real, err: err instanceof Error ? err.message : err },
         "exif lookup failed",
       );
+    }
+  }
+  // Drop trashed-on-disk files so they don't appear in the listing.
+  if (trashedPaths.size > 0) {
+    for (let i = images.length - 1; i >= 0; i--) {
+      if (trashedPaths.has(images[i]!.path)) images.splice(i, 1);
     }
   }
 
