@@ -20,7 +20,16 @@
 import { Elysia, t } from "elysia";
 import { ObjectId } from "mongodb";
 import { assetsCollection } from "../db/client.ts";
-import { readXmp, writeXmpAtomic, writeXmpWithPrecondition, deleteXmpSidecar, resolveThumbPath } from "../fs/xmp.ts";
+import {
+  readXmp,
+  writeXmpAtomic,
+  writeXmpWithPrecondition,
+  deleteXmpSidecar,
+  readConflictSidecar,
+  writeConflictSidecarAtomic,
+  deleteConflictSidecar,
+  resolveThumbPath,
+} from "../fs/xmp.ts";
 import { safeReadFile } from "../fs/root.ts";
 import { normaliseEnrichment, type Place } from "../db/schema.ts";
 import { searchBlobUpdateExpression } from "../enrichment/search-blob.ts";
@@ -151,7 +160,7 @@ export const assetsRoutes = new Elysia({ prefix: "/api/assets" })
   )
 
   // Read XMP sidecar
-  .get("/:id/xmp", async ({ params, set }) => {
+  .get("/:id/xmp", async ({ params, query, set }) => {
     let id: ObjectId;
     try {
       id = new ObjectId(params.id);
@@ -165,6 +174,17 @@ export const assetsRoutes = new Elysia({ prefix: "/api/assets" })
     if (!doc) {
       set.status = 404;
       return { error: "Asset not found" };
+    }
+
+    const conflict = typeof query.conflict === "string" ? query.conflict : null;
+    if (conflict !== null) {
+      const result = await readConflictSidecar(doc.abs_path, conflict);
+      if (!result.ok) {
+        set.status = 404;
+        return { error: result.error };
+      }
+      set.headers["Content-Type"] = "application/xml";
+      return result.data;
     }
 
     const result = await readXmp(doc.abs_path);
@@ -194,7 +214,7 @@ export const assetsRoutes = new Elysia({ prefix: "/api/assets" })
   //                    precondition mismatch; bytes written to conflict copy
   .put(
     "/:id/xmp",
-    async ({ params, body, headers, set }) => {
+    async ({ params, body, headers, query, set }) => {
       let id: ObjectId;
       try {
         id = new ObjectId(params.id);
@@ -216,6 +236,18 @@ export const assetsRoutes = new Elysia({ prefix: "/api/assets" })
           : (body as unknown) instanceof Uint8Array
             ? new TextDecoder().decode(body as unknown as Uint8Array)
             : String(body);
+
+      const conflict = typeof query.conflict === "string" ? query.conflict : null;
+      if (conflict !== null) {
+        const outcome = await writeConflictSidecarAtomic(doc.abs_path, conflict, xmlContent);
+        if (!outcome.ok) {
+          set.status = 400;
+          return { error: outcome.error };
+        }
+        set.headers["Last-Modified"] = outcome.mtime.toUTCString();
+        set.status = 204;
+        return;
+      }
 
       const ifMtimeHeader = headers["x-if-mtime-matches"];
       const ifMtimeMatchesEpoch =
@@ -254,7 +286,7 @@ export const assetsRoutes = new Elysia({ prefix: "/api/assets" })
   )
 
   // Delete XMP sidecar (idempotent).
-  .delete("/:id/xmp", async ({ params, set }) => {
+  .delete("/:id/xmp", async ({ params, query, set }) => {
     let id: ObjectId;
     try {
       id = new ObjectId(params.id);
@@ -268,9 +300,12 @@ export const assetsRoutes = new Elysia({ prefix: "/api/assets" })
       set.status = 404;
       return { error: "Asset not found" };
     }
-    const result = await deleteXmpSidecar(doc.abs_path);
+    const conflict = typeof query.conflict === "string" ? query.conflict : null;
+    const result = conflict !== null
+      ? await deleteConflictSidecar(doc.abs_path, conflict)
+      : await deleteXmpSidecar(doc.abs_path);
     if (!result.ok) {
-      set.status = 500;
+      set.status = 400;
       return { error: result.error };
     }
     set.status = 204;
