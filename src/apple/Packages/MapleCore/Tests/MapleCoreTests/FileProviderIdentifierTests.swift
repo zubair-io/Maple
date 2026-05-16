@@ -39,4 +39,32 @@ final class FileProviderIdentifierTests: XCTestCase {
             XCTAssertEqual(error as? FileProviderIdentifier.DecodeError, .badBase64)
         }
     }
+
+    func testCanonicalSidecarRoundTrip() throws {
+        let id = FileProviderIdentifier.sidecar(assetID: "650a1b", conflictBasename: nil)
+        XCTAssertEqual(id.rawValue, "sidecar/650a1b")
+        XCTAssertEqual(try FileProviderIdentifier(rawValue: id.rawValue), id)
+    }
+
+    func testConflictSidecarRoundTrip() throws {
+        let id = FileProviderIdentifier.sidecar(
+            assetID: "650a1b",
+            conflictBasename: "IMG_1 (conflict from MacBook)"
+        )
+        XCTAssertTrue(id.rawValue.hasPrefix("sidecar/650a1b:"))
+        XCTAssertEqual(try FileProviderIdentifier(rawValue: id.rawValue), id)
+    }
+
+    func testSidecarPrefixWithoutPayloadIsCanonical() throws {
+        // Bare "sidecar/<id>" with no trailing colon is canonical.
+        let id = try FileProviderIdentifier(rawValue: "sidecar/abc")
+        XCTAssertEqual(id, .sidecar(assetID: "abc", conflictBasename: nil))
+    }
+
+    func testSidecarWithEmptyPayloadIsAlsoCanonical() throws {
+        // Defensive: "sidecar/<id>:" with empty payload should still decode
+        // as canonical.
+        let id = try FileProviderIdentifier(rawValue: "sidecar/abc:")
+        XCTAssertEqual(id, .sidecar(assetID: "abc", conflictBasename: nil))
+    }
 }
