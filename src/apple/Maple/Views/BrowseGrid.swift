@@ -308,7 +308,7 @@ private struct BrowseEmptyState: View {
         } else if vm.isLoading {
             HStack(spacing: 8) {
                 ProgressView()
-                    .scaleEffect(0.8)
+                    .controlSize(.small)
                 Text("Loading…")
                     .font(MapleTokens.Typography.emptySecondary)
                     .foregroundStyle(MapleTokens.textMuted)

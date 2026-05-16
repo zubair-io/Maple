@@ -145,7 +145,7 @@ struct CloudTimelineMonthSection: View {
           // confused LazyVGrid's identity tracking and prevented real
           // cells' .task from firing once the page resolved.
           ProgressView()
-            .scaleEffect(0.7)
+            .controlSize(.small)
             .padding(.leading, 4)
         } else if !hasContent {
           // Server returned 0 results for a bucket whose count > 0
