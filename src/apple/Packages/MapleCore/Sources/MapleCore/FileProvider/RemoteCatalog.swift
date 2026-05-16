@@ -249,8 +249,16 @@ public actor RemoteCatalog {
         let payload: Any
     }
 
-    public init(http: AuthenticatedHTTPClient, server: URL) {
-        self.http = http; self.server = server
+    private let downloadURLSession: URLSession
+
+    public init(http: AuthenticatedHTTPClient, server: URL,
+                downloadURLSession: URLSession? = nil) {
+        self.http = http
+        self.server = server
+        // Default download session has no shared cache — asset bodies are
+        // large and the OS-side File Provider cache is the canonical store.
+        // Tests inject a session whose protocolClasses include StubURLProtocol.
+        self.downloadURLSession = downloadURLSession ?? URLSession(configuration: .default)
     }
 
     /// Drop the entire ETag cache. Called by the FP extension's
@@ -299,14 +307,29 @@ public actor RemoteCatalog {
         return try await fetchCachedJSON(url: comps.url!, decode: DirContents.self)
     }
 
-    // Phase 1 simplification: full-body buffering. A 100MP RAW spikes ~150MB.
-    // Acceptable on macOS; revisit with URLSession.download(for:) before iOS.
+    /// Streams the asset body to `localURL` via `URLSession.download(for:)`.
+    /// Peak memory stays at the URLSession download buffer (single-digit MB)
+    /// instead of the full asset body (~150 MB for a 100 MP RAW). The HTTP
+    /// Auth header is injected inside `AuthenticatedHTTPClient
+    /// .refreshIfNeededAndRetry`, which also handles single-flight 401
+    /// refresh + one retry.
     public func downloadAsset(assetID: String, to localURL: URL) async throws {
         try Self.validateAssetID(assetID)
         let req = URLRequest(url: server.appending(path: "/api/assets/\(assetID)/raw"))
-        let (data, resp) = try await http.data(for: req)
+        let session = downloadURLSession
+        let (tmpURL, resp) = try await http.refreshIfNeededAndRetry(request: req) { injected in
+            try await session.download(for: injected)
+        }
         try Self.check2xx(resp)
-        try data.write(to: localURL, options: .atomic)
+        // download() returns a tmp URL inside NSTemporaryDirectory; move it
+        // into place. The destination's parent directory must exist — the
+        // File Provider extension hands us a tmp dir from
+        // NSFileProviderManager.temporaryDirectoryURL().
+        let fm = FileManager.default
+        if fm.fileExists(atPath: localURL.path) {
+            try fm.removeItem(at: localURL)
+        }
+        try fm.moveItem(at: tmpURL, to: localURL)
     }
 
     internal static func check2xx(_ resp: URLResponse) throws {
