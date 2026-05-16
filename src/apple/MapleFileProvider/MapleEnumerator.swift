@@ -90,6 +90,22 @@ final class FolderEnumerator: NSObject, NSFileProviderEnumerator {
                 items.append(contentsOf: contents.images.compactMap {
                     MapleItem(image: $0, parentIdentifier: containerIdentifier)
                 })
+                // Build a lookup from asset ID to that asset's filename base
+                // (no extension) so each sidecar can resolve canonical-vs-
+                // conflict status.
+                var assetIDToBase: [String: String] = [:]
+                for img in contents.images {
+                    guard let id = img.assetID else { continue }
+                    let dot = img.name.lastIndex(of: ".")
+                    let base = dot.map { String(img.name[..<$0]) } ?? img.name
+                    assetIDToBase[id] = base
+                }
+                for sidecar in contents.sidecars {
+                    let base = assetIDToBase[sidecar.assetID] ?? sidecar.name
+                    items.append(MapleItem(sidecar: sidecar,
+                                           parentImageBase: base,
+                                           parentIdentifier: containerIdentifier))
+                }
                 observer.didEnumerate(items)
                 observer.finishEnumerating(upTo: nil)
             } catch {
