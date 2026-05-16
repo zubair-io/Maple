@@ -25,6 +25,15 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
     /// on `invalidate()`. nil while dormant.
     private var changeFeed: ChangeFeedClient?
 
+    /// Upload allowlist for Phase 3 drag-in uploads. Mirrors the server's
+    /// RAW_EXTENSIONS ∪ SHARP_EXTENSIONS — any file outside this set
+    /// rejects with NSFileWriteUnknownError so Finder surfaces a normal
+    /// "operation can't be completed" dialog instead of a server 415.
+    private static let uploadableExtensions: Set<String> = [
+        "cr2", "cr3", "nef", "arw", "dng", "raf", "orf", "rw2", "pef", "srw",
+        "jpg", "jpeg", "png", "webp", "gif", "tif", "tiff", "heic", "heif", "avif",
+    ]
+
     required init(domain: NSFileProviderDomain) {
         self.domain = domain
         let config = FileProviderConfig()
@@ -434,15 +443,37 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
             completionHandler(nil, [], false, notAuthenticatedError())
             return Progress()
         }
-        // Only XMP sidecars are writable in Phase 2.
         let filename = itemTemplate.filename
-        guard filename.lowercased().hasSuffix(".xmp"),
-              let contentsURL = url else {
+        let dot = filename.lastIndex(of: ".")
+        let ext = dot.map { String(filename[filename.index(after: $0)...]).lowercased() } ?? ""
+
+        // Phase 2 path: XMP sidecar create.
+        if ext == "xmp" {
+            return createXMPItem(basedOn: itemTemplate, contents: url, catalog: catalog, completionHandler: completionHandler)
+        }
+
+        // Phase 3 path: drag-in upload.
+        if Self.uploadableExtensions.contains(ext) {
+            return uploadItem(basedOn: itemTemplate, contents: url, catalog: catalog, completionHandler: completionHandler)
+        }
+
+        completionHandler(nil, [], false,
+            NSError(domain: NSCocoaErrorDomain, code: NSFeatureUnsupportedError))
+        return Progress()
+    }
+
+    /// XMP sidecar create — preserved from Phase 2.
+    private func createXMPItem(basedOn itemTemplate: NSFileProviderItem,
+                               contents url: URL?,
+                               catalog: RemoteCatalog,
+                               completionHandler: @escaping (NSFileProviderItem?, NSFileProviderItemFields, Bool, Error?) -> Void) -> Progress {
+        guard let contentsURL = url else {
             completionHandler(nil, [], false,
                 NSError(domain: NSCocoaErrorDomain, code: NSFeatureUnsupportedError))
             return Progress()
         }
         let progress = Progress(totalUnitCount: 1)
+        let filename = itemTemplate.filename
         Task {
             defer { progress.completedUnitCount = 1 }
             do {
@@ -464,15 +495,9 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
                 )
                 switch result {
                 case .ok(let mtime):
-                    // `path` is unknown here — server didn't return the absolute path on
-                    // the 204 path. The field is informational; nothing in MapleItem reads
-                    // it. Use the filename so it's at least self-describing.
                     let synthesized = SidecarChild(
-                        name: filename,
-                        path: filename,
-                        mtime: mtime,
-                        size: Int64(xmpBytes.count),
-                        assetID: assetID
+                        name: filename, path: filename, mtime: mtime,
+                        size: Int64(xmpBytes.count), assetID: assetID
                     )
                     let baseFromFilename = Self.canonicalBase(forSidecarFilename: filename)
                     let item = MapleItem(sidecar: synthesized,
@@ -480,14 +505,11 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
                                          parentIdentifier: parentID)
                     completionHandler(item, [], false, nil)
                 case .conflict(let conflictPath, let conflictMtime):
-                    self.log.notice("createItem conflict — server wrote to \(conflictPath, privacy: .public)")
+                    self.log.notice("createItem XMP conflict — \(conflictPath, privacy: .public)")
                     let conflictName = (conflictPath as NSString).lastPathComponent
                     let synthesized = SidecarChild(
-                        name: conflictName,
-                        path: conflictPath,
-                        mtime: conflictMtime,
-                        size: Int64(xmpBytes.count),
-                        assetID: assetID
+                        name: conflictName, path: conflictPath, mtime: conflictMtime,
+                        size: Int64(xmpBytes.count), assetID: assetID
                     )
                     let baseFromFilename = Self.canonicalBase(forSidecarFilename: filename)
                     let collidingItem = MapleItem(sidecar: synthesized,
@@ -500,7 +522,83 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
                     await self.signalEnumeratorReload(parent: parentID)
                 }
             } catch {
-                self.log.error("createItem failed: \(error.localizedDescription, privacy: .public)")
+                self.log.error("createItem XMP failed: \(error.localizedDescription, privacy: .public)")
+                completionHandler(nil, [], false, error)
+            }
+        }
+        return progress
+    }
+
+    /// Drag-in upload — Phase 3. Parent must be a normal folder under a
+    /// library root; trash containers reject uploads with featureUnsupported.
+    private func uploadItem(basedOn itemTemplate: NSFileProviderItem,
+                            contents url: URL?,
+                            catalog: RemoteCatalog,
+                            completionHandler: @escaping (NSFileProviderItem?, NSFileProviderItemFields, Bool, Error?) -> Void) -> Progress {
+        guard let contentsURL = url else {
+            completionHandler(nil, [], false,
+                NSError(domain: NSCocoaErrorDomain, code: NSFileWriteUnknownError))
+            return Progress()
+        }
+        let parentID = itemTemplate.parentItemIdentifier
+        let parsed: FileProviderIdentifier
+        do { parsed = try FileProviderIdentifier(rawValue: parentID.rawValue) }
+        catch {
+            completionHandler(nil, [], false,
+                NSError(domain: NSFileProviderErrorDomain,
+                        code: NSFileProviderError.noSuchItem.rawValue))
+            return Progress()
+        }
+        // Reject uploads into the root container or into a trash container.
+        guard case .folder(let folderID, let parentRelative) = parsed else {
+            completionHandler(nil, [], false,
+                NSError(domain: NSCocoaErrorDomain, code: NSFeatureUnsupportedError))
+            return Progress()
+        }
+        let filename = itemTemplate.filename
+        let targetRel = parentRelative.isEmpty ? filename : "\(parentRelative)/\(filename)"
+        let progress = Progress(totalUnitCount: 1)
+        Task {
+            defer { progress.completedUnitCount = 1 }
+            do {
+                let outcome = try await catalog.uploadFile(
+                    folderID: folderID,
+                    targetRelativePath: targetRel,
+                    fileURL: contentsURL,
+                    mtime: itemTemplate.contentModificationDate ?? nil,
+                )
+                switch outcome {
+                case .ok(let resp):
+                    let attrs = try? FileManager.default.attributesOfItem(atPath: contentsURL.path)
+                    let size = Int64((attrs?[.size] as? NSNumber)?.intValue ?? Int(resp.size))
+                    let modified = Date(timeIntervalSince1970: TimeInterval(resp.mtime) / 1000)
+                    let ext = (filename as NSString).pathExtension.lowercased()
+                    let image = ImageChild(
+                        name: filename,
+                        path: resp.absPath,
+                        mtime: modified,
+                        size: size,
+                        ext: ext,
+                        assetID: resp.assetID
+                    )
+                    if let item = MapleItem(image: image, parentIdentifier: parentID) {
+                        completionHandler(item, [], false, nil)
+                    } else {
+                        completionHandler(nil, [], false,
+                            NSError(domain: NSFileProviderErrorDomain,
+                                    code: NSFileProviderError.noSuchItem.rawValue))
+                    }
+                    await self.signalEnumeratorReload(parent: parentID)
+                case .conflict:
+                    completionHandler(nil, [], false,
+                        NSError(domain: NSFileProviderErrorDomain,
+                                code: NSFileProviderError.filenameCollision.rawValue))
+                case .unsupported:
+                    completionHandler(nil, [], false,
+                        NSError(domain: NSCocoaErrorDomain, code: NSFileWriteUnknownError))
+                }
+            } catch {
+                self.log.error("upload failed: \(error.localizedDescription, privacy: .public)")
                 completionHandler(nil, [], false, error)
             }
         }
