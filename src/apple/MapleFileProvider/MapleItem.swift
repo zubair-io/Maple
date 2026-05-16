@@ -70,6 +70,44 @@ final class MapleItem: NSObject, NSFileProviderItem {
         self.filename = image.name
     }
 
+    /// Synthetic Trash container shown at the root of each library.
+    /// The identifier is `trash/<folderID>` so the extension can route
+    /// `enumerator(for:)` to a `TrashEnumerator` and decide capabilities.
+    init(trashContainer folderID: String, displayName: String) {
+        self.identifier = .trash(folderID: folderID)
+        self.displayName = displayName
+        self.isDirectory = true
+        self.size = nil
+        self.modified = nil
+        self.utType = .folder
+        // Trash itself is read-only as a container — items inside it can be
+        // moved out (restore) or deleted (permanent purge). Allowing
+        // content enumeration is needed so Finder will fetch children.
+        self.writeCapabilities = [.allowsReading]
+        self.itemIdentifier = NSFileProviderItemIdentifier(self.identifier.rawValue)
+        self.parentItemIdentifier = .rootContainer
+        self.filename = displayName
+    }
+
+    /// Trashed asset surfaced inside the Trash container. Keeps the same
+    /// `asset/<id>` identifier as the live item so identity is stable
+    /// across delete/restore (per spec — server-side identifiers).
+    /// Capabilities allow reading (lazy materialization still works on
+    /// trashed files), reparenting (drag back out of Trash to restore),
+    /// and deleting (drag inside trash → permanent purge).
+    init(trashed item: TrashItem, parentTrashIdentifier: NSFileProviderItemIdentifier) {
+        self.identifier = .asset(item.assetID)
+        self.displayName = item.filename
+        self.isDirectory = false
+        self.size = NSNumber(value: item.size)
+        self.modified = item.deletedAt
+        self.utType = UTType(filenameExtension: (item.filename as NSString).pathExtension) ?? .data
+        self.writeCapabilities = [.allowsReading, .allowsReparenting, .allowsDeleting]
+        self.itemIdentifier = NSFileProviderItemIdentifier(self.identifier.rawValue)
+        self.parentItemIdentifier = parentTrashIdentifier
+        self.filename = item.filename
+    }
+
     /// Writable XMP sidecar. `parentImageBase` is the paired image's
     /// filename without its extension (e.g. "IMG_1" for "IMG_1.ARW");
     /// used to decide canonical vs. conflict-copy by comparing against
