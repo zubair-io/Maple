@@ -51,7 +51,7 @@ Three subsystems change. Everything else from Phase 1 stays as-is.
   "images": [{ "name": "IMG_1.ARW", "assetID": "650a...", ... }],
   "sidecars": [
     { "name": "IMG_1.xmp", "path": "/photos/2024/IMG_1.xmp",
-      "mtime": "2026-05-15T10:00:00Z", "size": 18432, "assetID": "650a..." }
+      "mtime": "2026-05-15T10:00:00Z", "size": 18432, "asset_id": "650a..." }
   ]
 }
 ```
