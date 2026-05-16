@@ -80,10 +80,12 @@ describe("GET /api/fs/dir — sidecars[] pairing", () => {
     rawPath = path.join(realTmpRoot, "IMG_1.ARW");
     canonicalXmpPath = path.join(realTmpRoot, "IMG_1.xmp");
     conflictXmpPath = path.join(realTmpRoot, "IMG_1 (conflict from MacBook).xmp");
+    const numberedConflictXmpPath = path.join(realTmpRoot, "IMG_1 (conflict from MacBook) (2).xmp");
     orphanXmpPath = path.join(realTmpRoot, "DSCF0001.xmp");
     await fs.writeFile(rawPath, new Uint8Array([0xff, 0xd8, 0xff]));
     await fs.writeFile(canonicalXmpPath, "<x:xmpmeta/>");
     await fs.writeFile(conflictXmpPath, "<x:xmpmeta/>");
+    await fs.writeFile(numberedConflictXmpPath, "<x:xmpmeta/>");
     await fs.writeFile(orphanXmpPath, "<x:xmpmeta/>");
 
     // Index the RAW — full shape matching the schema so insert doesn't fail.
@@ -142,6 +144,7 @@ describe("GET /api/fs/dir — sidecars[] pairing", () => {
     };
     const names = body.sidecars.map((s) => s.name).sort();
     expect(names).toEqual([
+      "IMG_1 (conflict from MacBook) (2).xmp",
       "IMG_1 (conflict from MacBook).xmp",
       "IMG_1.xmp",
     ]);
