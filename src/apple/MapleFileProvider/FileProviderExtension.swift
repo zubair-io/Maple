@@ -262,6 +262,9 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
                 )
                 switch result {
                 case .ok(let mtime):
+                    // `path` is unknown here — server didn't return the absolute path on
+                    // the 204 path. The field is informational; nothing in MapleItem reads
+                    // it. Use the filename so it's at least self-describing.
                     let synthesized = SidecarChild(
                         name: filename,
                         path: filename,
@@ -274,12 +277,25 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
                                          parentImageBase: baseFromFilename,
                                          parentIdentifier: parentID)
                     completionHandler(item, [], false, nil)
-                case .conflict(let conflictPath, _):
+                case .conflict(let conflictPath, let conflictMtime):
                     self.log.notice("createItem conflict — server wrote to \(conflictPath, privacy: .public)")
+                    let conflictName = (conflictPath as NSString).lastPathComponent
+                    let synthesized = SidecarChild(
+                        name: conflictName,
+                        path: conflictPath,
+                        mtime: conflictMtime,
+                        size: Int64(xmpBytes.count),
+                        assetID: assetID
+                    )
+                    let baseFromFilename = Self.canonicalBase(forSidecarFilename: filename)
+                    let collidingItem = MapleItem(sidecar: synthesized,
+                                                  parentImageBase: baseFromFilename,
+                                                  parentIdentifier: parentID)
                     completionHandler(nil, [], false,
                         NSError(domain: NSFileProviderErrorDomain,
-                                code: NSFileProviderError.filenameCollision.rawValue))
-                    await self.signalEnumeratorReload()
+                                code: NSFileProviderError.filenameCollision.rawValue,
+                                userInfo: [NSFileProviderErrorItemKey: collidingItem]))
+                    await self.signalEnumeratorReload(parent: parentID)
                 }
             } catch {
                 self.log.error("createItem failed: \(error.localizedDescription, privacy: .public)")
@@ -337,6 +353,9 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
                 )
                 switch result {
                 case .ok(let mtime):
+                    // `path` is unknown here — server didn't return the absolute path on
+                    // the 204 path. The field is informational; nothing in MapleItem reads
+                    // it. Use the filename so it's at least self-describing.
                     let synthesized = SidecarChild(
                         name: item.filename,
                         path: item.filename,
@@ -349,12 +368,25 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
                                                 parentImageBase: baseFromFilename,
                                                 parentIdentifier: item.parentItemIdentifier)
                     completionHandler(updatedItem, [], false, nil)
-                case .conflict(let conflictPath, _):
+                case .conflict(let conflictPath, let conflictMtime):
                     self.log.notice("modifyItem conflict — server wrote to \(conflictPath, privacy: .public)")
+                    let conflictName = (conflictPath as NSString).lastPathComponent
+                    let synthesized = SidecarChild(
+                        name: conflictName,
+                        path: conflictPath,
+                        mtime: conflictMtime,
+                        size: Int64(xmpBytes.count),
+                        assetID: assetID
+                    )
+                    let baseFromFilename = Self.canonicalBase(forSidecarFilename: item.filename)
+                    let collidingItem = MapleItem(sidecar: synthesized,
+                                                  parentImageBase: baseFromFilename,
+                                                  parentIdentifier: item.parentItemIdentifier)
                     completionHandler(nil, [], false,
                         NSError(domain: NSFileProviderErrorDomain,
-                                code: NSFileProviderError.filenameCollision.rawValue))
-                    await self.signalEnumeratorReload()
+                                code: NSFileProviderError.filenameCollision.rawValue,
+                                userInfo: [NSFileProviderErrorItemKey: collidingItem]))
+                    await self.signalEnumeratorReload(parent: item.parentItemIdentifier)
                 }
             } catch {
                 self.log.error("modifyItem failed: \(error.localizedDescription, privacy: .public)")
@@ -440,9 +472,9 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
         return s
     }
 
-    private func signalEnumeratorReload() async {
+    private func signalEnumeratorReload(parent: NSFileProviderItemIdentifier) async {
         guard let mgr = NSFileProviderManager(for: domain) else { return }
-        try? await mgr.signalEnumerator(for: .rootContainer)
+        try? await mgr.signalEnumerator(for: parent)
     }
 }
 
