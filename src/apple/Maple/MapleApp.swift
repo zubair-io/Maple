@@ -166,6 +166,10 @@ struct SettingsView: View {
                 .tabItem { Label("Backup", systemImage: "icloud.and.arrow.up") }
             SelfHostedSettingsTab()
                 .tabItem { Label("Self Hosted", systemImage: "cloud") }
+            #if os(macOS)
+            FileProviderSettingsView()
+                .tabItem { Label("Finder", systemImage: "folder") }
+            #endif
         }
         #if os(macOS)
         .frame(width: 520, height: 460)
