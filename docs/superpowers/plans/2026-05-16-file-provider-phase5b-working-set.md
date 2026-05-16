@@ -2108,31 +2108,30 @@ Choose **(a)**.
 
 - [ ] **Step 1: Add a `MapleItem(workingSetEntry:)` initializer**
 
-In `src/apple/MapleFileProvider/MapleItem.swift`, look for the existing `init(image:parentIdentifier:)` to mirror its shape. Add (next to it):
+In `src/apple/MapleFileProvider/MapleItem.swift`, look for the existing `init(image:parentIdentifier:)` to mirror its shape. **Read the existing file first** — `MapleItem`'s stored properties are `identifier: FileProviderIdentifier`, `displayName`, `isDirectory`, `size: NSNumber?`, `modified: Date?`, `utType: UTType`, `writeCapabilities`, plus the three exposed-by-protocol properties `itemIdentifier`, `parentItemIdentifier`, `filename`. The exposed `contentType` / `capabilities` / `documentSize` / `contentModificationDate` / `itemVersion` are computed from the stored set. Match that shape exactly:
 
 ```swift
-init?(workingSetEntry e: AssetListEntry) {
+init(workingSetEntry e: AssetListEntry) {
     // Reuse the asset-by-id identifier form so the OS routes back to
     // the correct fetchContents path.
-    self.itemIdentifier = NSFileProviderItemIdentifier(
-        FileProviderIdentifier.asset(e.id).rawValue
-    )
+    self.identifier = .asset(e.id)
+    self.displayName = e.filename
+    self.isDirectory = false
+    self.size = nil
+    // The working-set entry doesn't carry an mtime in seconds; convert
+    // the millisecond `mtime` field on AssetListEntry.
+    self.modified = Date(timeIntervalSince1970: TimeInterval(e.mtime) / 1000.0)
+    let ext = (e.filename as NSString).pathExtension
+    self.utType = UTType(filenameExtension: ext) ?? .data
+    self.writeCapabilities = [.allowsReading]
+    self.itemIdentifier = NSFileProviderItemIdentifier(self.identifier.rawValue)
     // The working-set container is the parent for surfaced items
     // (the OS reattaches them to their real container when it sees
     // a folder enumeration).
     self.parentItemIdentifier = .workingSet
     self.filename = e.filename
-    self.contentType = UTType(filenameExtension:
-        (e.filename as NSString).pathExtension) ?? .data
-    self.size = nil
-    self.documentSize = nil
-    self.contentVersion = String(e.mtime).data(using: .utf8) ?? Data()
-    self.metadataVersion = Data()
-    self.capabilities = [.allowsReading, .allowsContentEnumerating]
 }
 ```
-
-Adjust the initializer to whatever `MapleItem`'s real shape is — these are illustrative property names that match the existing class. Read `MapleItem.swift` before writing this to keep the property mapping faithful.
 
 - [ ] **Step 2: Write the enumerator**
 
@@ -2209,12 +2208,10 @@ final class WorkingSetEnumerator: NSObject, NSFileProviderEnumerator {
                         // We don't have full metadata for the changed item
                         // without a per-asset GET. Signal that the item
                         // exists by handing back a stub MapleItem whose
-                        // contentVersion is the new cursor; the OS will
-                        // ask `item(for:)` to get the rest.
-                        if let stub = MapleItem(stubAssetID: assetID,
-                                                cursor: ch.cursor) {
-                            updates.append(stub)
-                        }
+                        // itemVersion derives from the new cursor; the OS
+                        // will ask `item(for:)` to get the rest.
+                        let stub = MapleItem(stubAssetID: assetID, cursor: ch.cursor)
+                        updates.append(stub)
                     }
                 }
                 observer.didUpdate(updates)
@@ -2291,25 +2288,28 @@ actor WorkingSetListCache {
 }
 ```
 
-`MapleItem(stubAssetID:cursor:)` is a new init that returns a minimal item whose contentVersion is the changed cursor — the OS hands it to `item(for:)` to retrieve the full version. Add it in `MapleItem.swift`:
+`MapleItem(stubAssetID:cursor:)` is a new init that returns a minimal item whose `itemVersion` will reflect the cursor change — the OS hands it to `item(for:)` to retrieve the full version. Matches the existing class shape:
 
 ```swift
-init?(stubAssetID assetID: String, cursor: Int64) {
-    self.itemIdentifier = NSFileProviderItemIdentifier(
-        FileProviderIdentifier.asset(assetID).rawValue
-    )
+init(stubAssetID assetID: String, cursor: Int64) {
+    self.identifier = .asset(assetID)
+    self.displayName = "(stub)"
+    self.isDirectory = false
+    self.size = nil
+    // Encode the cursor in the modified date so `itemVersion`
+    // (which derives both content and metadata version from
+    // `modified.timeIntervalSince1970`) bumps when the change feed
+    // delivers a new cursor for this asset. This is a hack and
+    // a follow-up phase should add a real per-asset metadata GET so we
+    // can return the actual mtime.
+    self.modified = Date(timeIntervalSince1970: TimeInterval(cursor))
+    self.utType = .data
+    self.writeCapabilities = [.allowsReading]
+    self.itemIdentifier = NSFileProviderItemIdentifier(self.identifier.rawValue)
     self.parentItemIdentifier = .workingSet
     self.filename = "(stub)"
-    self.contentType = .data
-    self.size = nil
-    self.documentSize = nil
-    self.contentVersion = String(cursor).data(using: .utf8) ?? Data()
-    self.metadataVersion = Data()
-    self.capabilities = [.allowsReading]
 }
 ```
-
-(Again, adjust the property names to match `MapleItem`'s real shape — these are illustrative.)
 
 - [ ] **Step 3: Wire `WorkingSetEnumerator` into `FileProviderExtension`**
 
