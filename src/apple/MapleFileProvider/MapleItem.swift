@@ -76,10 +76,12 @@ final class MapleItem: NSObject, NSFileProviderItem {
     /// the sidecar's on-disk name.
     init(sidecar: SidecarChild, parentImageBase: String, parentIdentifier: NSFileProviderItemIdentifier) {
         let canonicalName = "\(parentImageBase).xmp"
-        let isCanonical = sidecar.name == canonicalName
+        let isCanonical = sidecar.name.caseInsensitiveCompare(canonicalName) == .orderedSame
         let basenameWithoutExt: String? = {
             guard !isCanonical else { return nil }
-            if sidecar.name.hasSuffix(".xmp") {
+            // Strip the .xmp extension case-insensitively so Windows-origin
+            // `.XMP` files don't carry the extension into the identifier.
+            if sidecar.name.lowercased().hasSuffix(".xmp") {
                 return String(sidecar.name.dropLast(4))
             }
             return sidecar.name
