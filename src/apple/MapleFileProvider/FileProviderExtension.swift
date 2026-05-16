@@ -119,6 +119,11 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
                     // folder enumeration that surfaced it; if it asks again, re-enumerate.
                     completionHandler(nil, NSError(domain: NSFileProviderErrorDomain,
                                                    code: NSFileProviderError.noSuchItem.rawValue))
+                case .sidecar:
+                    // Sidecar item lookup not yet supported; the OS receives items via
+                    // folder enumeration.
+                    completionHandler(nil, NSError(domain: NSFileProviderErrorDomain,
+                                                   code: NSFileProviderError.noSuchItem.rawValue))
                 }
             } catch {
                 log.error("item(for:) failed: \(error.localizedDescription, privacy: .public)")
@@ -198,6 +203,10 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
                                             relativePath: relativePath,
                                             containerIdentifier: containerItemIdentifier)
         case .asset:
+            throw NSError(domain: NSFileProviderErrorDomain,
+                          code: NSFileProviderError.noSuchItem.rawValue)
+        case .sidecar:
+            // Sidecars are leaf items, not containers — cannot be enumerated.
             throw NSError(domain: NSFileProviderErrorDomain,
                           code: NSFileProviderError.noSuchItem.rawValue)
         }
