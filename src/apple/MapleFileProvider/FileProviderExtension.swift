@@ -280,11 +280,14 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
                     // folder enumeration.
                     completionHandler(nil, NSError(domain: NSFileProviderErrorDomain,
                                                    code: NSFileProviderError.noSuchItem.rawValue))
-                case .trash:
-                    // Wired in Task 14. For now, return noSuchItem so the
-                    // build stays green during identifier rollout.
-                    completionHandler(nil, NSError(domain: NSFileProviderErrorDomain,
-                                                   code: NSFileProviderError.noSuchItem.rawValue))
+                case .trash(let folderID):
+                    let roots = try await rootCache.roots()
+                    guard let root = roots.first(where: { $0.id == folderID }) else {
+                        completionHandler(nil, NSError(domain: NSFileProviderErrorDomain,
+                                                       code: NSFileProviderError.noSuchItem.rawValue))
+                        return
+                    }
+                    completionHandler(MapleItem(trashContainer: folderID, displayName: "\(root.label) Trash"), nil)
                 }
             } catch {
                 log.error("item(for:) failed: \(error.localizedDescription, privacy: .public)")
@@ -408,11 +411,10 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
             // Sidecars are leaf items, not containers — cannot be enumerated.
             throw NSError(domain: NSFileProviderErrorDomain,
                           code: NSFileProviderError.noSuchItem.rawValue)
-        case .trash:
-            // Wired in Task 14 (TrashEnumerator). Stub for now to keep the
-            // switch exhaustive after the identifier rollout.
-            throw NSError(domain: NSFileProviderErrorDomain,
-                          code: NSFileProviderError.noSuchItem.rawValue)
+        case .trash(let folderID):
+            return TrashEnumerator(catalog: catalog,
+                                   folderID: folderID,
+                                   containerIdentifier: containerItemIdentifier)
         }
     }
 
