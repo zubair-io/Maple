@@ -317,3 +317,130 @@ export async function deleteXmpSidecar(rawAbsPath: string): Promise<OpResult> {
     return { ok: false, error: `XMP delete failed: ${msg}` };
   }
 }
+
+/**
+ * Resolve a conflict-copy sidecar's absolute path for a given asset.
+ *
+ * Validates that `conflictBasename` (without `.xmp` extension) matches the
+ * conflict-suffix pattern for the asset's RAW filename, with optional
+ * numbered variant. This prevents path-traversal: a malicious or buggy
+ * caller can't address arbitrary sidecars on disk.
+ *
+ *   rawAbsPath = "/photos/IMG_1.ARW"
+ *   conflictBasename = "IMG_1 (conflict from MacBook)"
+ *   → "/photos/IMG_1 (conflict from MacBook).xmp"
+ *
+ *   rawAbsPath = "/photos/IMG_1.ARW"
+ *   conflictBasename = "IMG_1 (conflict from MacBook) (2)"
+ *   → "/photos/IMG_1 (conflict from MacBook) (2).xmp"
+ *
+ *   rawAbsPath = "/photos/IMG_1.ARW"
+ *   conflictBasename = "../etc/passwd"
+ *   → null
+ *
+ *   rawAbsPath = "/photos/IMG_1.ARW"
+ *   conflictBasename = "IMG_2 (conflict from MacBook)"   // different RAW
+ *   → null
+ */
+export function resolveConflictSidecarPath(
+  rawAbsPath: string,
+  conflictBasename: string,
+): string | null {
+  if (conflictBasename.includes("/") || conflictBasename.includes("\\")) return null;
+  if (conflictBasename.includes("..")) return null;
+
+  const ext = path.extname(rawAbsPath);
+  const rawBase = path.basename(rawAbsPath, ext); // e.g. "IMG_1"
+
+  // The basename must start with the RAW's base and end with the
+  // conflict-suffix (optionally followed by a numbered variant).
+  const pattern = new RegExp(
+    `^${escapeRegex(rawBase)} \\(conflict from [^)]+\\)( \\(\\d+\\))?$`,
+  );
+  if (!pattern.test(conflictBasename)) return null;
+
+  return path.join(path.dirname(rawAbsPath), `${conflictBasename}.xmp`);
+}
+
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Read a specific conflict-copy sidecar. Returns ok:false if the basename
+ * doesn't validate or the file doesn't exist.
+ */
+export async function readConflictSidecar(
+  rawAbsPath: string,
+  conflictBasename: string,
+): Promise<OpResult<string>> {
+  const sidecar = resolveConflictSidecarPath(rawAbsPath, conflictBasename);
+  if (!sidecar) return { ok: false, error: "Invalid conflict basename" };
+  try {
+    const content = await fs.readFile(sidecar, "utf-8");
+    return { ok: true, data: content };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { ok: false, error: `No conflict sidecar at "${sidecar}": ${msg}` };
+  }
+}
+
+/**
+ * Atomically overwrite a specific conflict-copy sidecar. No precondition —
+ * the user is editing this exact file directly. Returns the new mtime.
+ */
+export async function writeConflictSidecarAtomic(
+  rawAbsPath: string,
+  conflictBasename: string,
+  xmlContent: string,
+): Promise<{ ok: true; mtime: Date } | { ok: false; error: string }> {
+  const sidecar = resolveConflictSidecarPath(rawAbsPath, conflictBasename);
+  if (!sidecar) return { ok: false, error: "Invalid conflict basename" };
+
+  const allowed = await safeWriteAllowed(sidecar);
+  if (!allowed.ok) return { ok: false, error: allowed.error ?? "Path not allowed" };
+
+  const tmp = sidecar + ".tmp." + process.pid;
+  try {
+    await fs.mkdir(path.dirname(sidecar), { recursive: true });
+    const fh = await fs.open(tmp, "w");
+    try {
+      await fh.writeFile(xmlContent, "utf-8");
+      await fh.datasync();
+    } finally {
+      await fh.close();
+    }
+    await fs.rename(tmp, sidecar);
+    const st = await fs.stat(sidecar);
+    return { ok: true, mtime: st.mtime };
+  } catch (err) {
+    try { await fs.unlink(tmp); } catch {}
+    const msg = err instanceof Error ? err.message : String(err);
+    return { ok: false, error: `Conflict sidecar write failed: ${msg}` };
+  }
+}
+
+/**
+ * Delete a specific conflict-copy sidecar. Idempotent — succeeds whether
+ * or not the file existed. Returns error only if the basename doesn't
+ * validate.
+ */
+export async function deleteConflictSidecar(
+  rawAbsPath: string,
+  conflictBasename: string,
+): Promise<OpResult> {
+  const sidecar = resolveConflictSidecarPath(rawAbsPath, conflictBasename);
+  if (!sidecar) return { ok: false, error: "Invalid conflict basename" };
+  const allowed = await safeWriteAllowed(sidecar);
+  if (!allowed.ok) return { ok: false, error: allowed.error ?? "Path not allowed" };
+  try {
+    await fs.unlink(sidecar);
+    return { ok: true };
+  } catch (err: unknown) {
+    if (err && typeof err === "object" && "code" in err && (err as { code: string }).code === "ENOENT") {
+      return { ok: true };
+    }
+    const msg = err instanceof Error ? err.message : String(err);
+    return { ok: false, error: `Conflict sidecar delete failed: ${msg}` };
+  }
+}
