@@ -108,6 +108,39 @@ public actor AuthenticatedHTTPClient {
     try await urlSession.data(for: request)
   }
 
+  /// Streaming upload variant. Same refresh-on-401 contract as `data(for:)`
+  /// but routes through `URLSession.upload(for:fromFile:)` so the request
+  /// body never has to be loaded into memory. Used by the File Provider
+  /// extension's drag-in upload path.
+  public func upload(for request: URLRequest, fromFile fileURL: URL) async throws -> (Data, URLResponse) {
+    Self.logRequest(request, attempt: 1)
+    let signed = inject(request, tokens: tokensProvider())
+    let (data, resp) = try await urlSession.upload(for: signed, fromFile: fileURL)
+    Self.logResponse(resp, data: data, request: request)
+
+    if (resp as? HTTPURLResponse)?.statusCode != 401 { return (data, resp) }
+
+    cloudHTTPLogger.info("401 — attempting token refresh (upload)")
+    guard let current = tokensProvider() else { onSignOut(); return (data, resp) }
+    let fresh: AuthTokens
+    do { fresh = try await refresh(refresh: current.refresh) }
+    catch let e as URLError {
+      cloudHTTPLogger.error("token refresh network error: \(e.localizedDescription, privacy: .public)")
+      throw e
+    } catch let e as AuthClientError where e.isNetworkFailure {
+      cloudHTTPLogger.error("token refresh network error: \(e.localizedDescription, privacy: .public)")
+      throw e
+    } catch {
+      cloudHTTPLogger.error("token refresh failed: \(error.localizedDescription, privacy: .public)")
+      onSignOut(); return (data, resp)
+    }
+    onTokensRefreshed(fresh)
+    Self.logRequest(request, attempt: 2)
+    let retried = try await urlSession.upload(for: inject(request, tokens: fresh), fromFile: fileURL)
+    Self.logResponse(retried.1, data: retried.0, request: request)
+    return retried
+  }
+
   // MARK: - Logging helpers
 
   /// URL paths and query parameters can carry user data (filenames, ids).

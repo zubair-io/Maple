@@ -96,4 +96,39 @@ final class RemoteCatalogTests: XCTestCase {
         let contents = try d.decode(DirContents.self, from: json)
         XCTAssertEqual(contents.sidecars, [])
     }
+
+    func testDecodeTrashList() throws {
+        let json = """
+        {"items":[
+          {"asset_id":"a1","filename":"IMG_1.ARW","original_relative_path":"2024/IMG_1.ARW",
+           "trash_relative_path":".maple/trash/2024/IMG_1.ARW","size":40000000,
+           "mtime":1700000000000,"deleted_at":"2026-05-15T10:00:00Z"}
+        ],"next_cursor":null}
+        """.data(using: .utf8)!
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let resp = try decoder.decode(TrashListResponse.self, from: json)
+        XCTAssertEqual(resp.items.count, 1)
+        XCTAssertEqual(resp.items[0].assetID, "a1")
+        XCTAssertEqual(resp.items[0].originalRelativePath, "2024/IMG_1.ARW")
+        XCTAssertNil(resp.nextCursor)
+    }
+
+    func testDecodeRestoreResponse() throws {
+        let json = """
+        {"asset_id":"a1","abs_path":"/library/2024/IMG_1.restored.ARW"}
+        """.data(using: .utf8)!
+        let resp = try JSONDecoder().decode(RestoreResponse.self, from: json)
+        XCTAssertEqual(resp.assetID, "a1")
+        XCTAssertEqual(resp.absPath, "/library/2024/IMG_1.restored.ARW")
+    }
+
+    func testDecodeUploadResponse() throws {
+        let json = """
+        {"asset_id":"a1","abs_path":"/library/2024/IMG_2.ARW","size":12345,"mtime":1700000000000}
+        """.data(using: .utf8)!
+        let resp = try JSONDecoder().decode(UploadResponse.self, from: json)
+        XCTAssertEqual(resp.assetID, "a1")
+        XCTAssertEqual(resp.size, 12345)
+    }
 }
