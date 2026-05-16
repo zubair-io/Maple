@@ -280,6 +280,11 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
                     // folder enumeration.
                     completionHandler(nil, NSError(domain: NSFileProviderErrorDomain,
                                                    code: NSFileProviderError.noSuchItem.rawValue))
+                case .trash:
+                    // Wired in Task 14. For now, return noSuchItem so the
+                    // build stays green during identifier rollout.
+                    completionHandler(nil, NSError(domain: NSFileProviderErrorDomain,
+                                                   code: NSFileProviderError.noSuchItem.rawValue))
                 }
             } catch {
                 log.error("item(for:) failed: \(error.localizedDescription, privacy: .public)")
@@ -346,7 +351,7 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
                                     conflictBasename: conflictBasename)
                     completionHandler(localURL, nil, nil)
                     return
-                case .folder:
+                case .folder, .trash:
                     completionHandler(nil, nil, NSError(domain: NSFileProviderErrorDomain,
                                                         code: NSFileProviderError.noSuchItem.rawValue))
                     return
@@ -401,6 +406,11 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
                           code: NSFileProviderError.noSuchItem.rawValue)
         case .sidecar:
             // Sidecars are leaf items, not containers — cannot be enumerated.
+            throw NSError(domain: NSFileProviderErrorDomain,
+                          code: NSFileProviderError.noSuchItem.rawValue)
+        case .trash:
+            // Wired in Task 14 (TrashEnumerator). Stub for now to keep the
+            // switch exhaustive after the identifier rollout.
             throw NSError(domain: NSFileProviderErrorDomain,
                           code: NSFileProviderError.noSuchItem.rawValue)
         }
