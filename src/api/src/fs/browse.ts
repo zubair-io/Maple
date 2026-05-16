@@ -251,6 +251,44 @@ export interface DirContents {
   dirs: DirChild[];
   images: ImageChild[];
   sidecars: SidecarChild[];
+  /** Opaque continuation token; present when the listing is paged and more
+   *  remains. Absent / null when the listing is complete. */
+  next_cursor?: string;
+}
+
+export interface ListDirOptions {
+  cursor?: string;
+  /** Page size. Defaults to 500. Clamped to [1, 2000]. */
+  limit?: number;
+}
+
+/** Opaque cursor format: base64url of {"offset":N}. Server is free to
+ *  change this representation (e.g. switch to a name-sorted resume key)
+ *  later — clients must round-trip the string verbatim. */
+const CURSOR_MAX_OFFSET = 1_000_000;
+
+export function encodeCursor(offset: number): string {
+  return Buffer.from(JSON.stringify({ offset })).toString("base64url");
+}
+
+export function decodeCursor(s: string): number {
+  let obj: unknown;
+  try {
+    obj = JSON.parse(Buffer.from(s, "base64url").toString("utf8"));
+  } catch {
+    throw new Error(`malformed cursor: ${s}`);
+  }
+  if (
+    typeof obj !== "object" || obj === null ||
+    typeof (obj as { offset?: unknown }).offset !== "number"
+  ) {
+    throw new Error(`malformed cursor: ${s}`);
+  }
+  const n = (obj as { offset: number }).offset;
+  if (!Number.isInteger(n) || n < 0 || n > CURSOR_MAX_OFFSET) {
+    throw new Error(`cursor offset out of range: ${n}`);
+  }
+  return n;
 }
 
 /**
@@ -265,6 +303,7 @@ export interface DirContents {
  */
 export async function listDirContents(
   reqPath: string,
+  opts: ListDirOptions = {},
 ): Promise<OpResult<DirContents>> {
   if (!path.isAbsolute(reqPath)) {
     return { ok: false, error: "Path must be absolute." };
@@ -302,11 +341,31 @@ export async function listDirContents(
     a.localeCompare(b),
   );
 
+  // Paging window. cursor === undefined AND limit === undefined keeps
+  // the historical single-shot behaviour (no slicing, no next_cursor).
+  // Any cursor OR limit query param triggers paged mode.
+  const pagedMode = opts.cursor !== undefined || opts.limit !== undefined;
+  let offset = 0;
+  if (opts.cursor !== undefined) {
+    try {
+      offset = decodeCursor(opts.cursor);
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  }
+  const limit = pagedMode
+    ? Math.max(1, Math.min(2000, opts.limit ?? 500))
+    : visible.length;
+  const slice = pagedMode ? visible.slice(offset, offset + limit) : visible;
+  const nextOffset = pagedMode && offset + limit < visible.length
+    ? offset + limit
+    : null;
+
   const dirs: DirChild[] = [];
   const images: ImageChild[] = [];
   const sidecarRaw: Array<Omit<SidecarChild, "assetID">> = [];
 
-  for (const name of visible) {
+  for (const name of slice) {
     const childCandidate = real === "/" ? "/" + name : `${real}/${name}`;
 
     // Re-resolve realpath and re-check the jail (symlink-swap defence).
@@ -449,6 +508,7 @@ export async function listDirContents(
       dirs,
       images,
       sidecars,
+      ...(nextOffset !== null ? { next_cursor: encodeCursor(nextOffset) } : {}),
     },
   };
 }

@@ -55,10 +55,21 @@ export const fsRoutes = new Elysia({ prefix: "/api/fs" })
     "/dir",
     async ({ query, headers, set }) => {
       try {
-        const res = await listDirContents(query.path);
+        const parsedLimit = query.limit !== undefined
+          ? Number.parseInt(query.limit, 10)
+          : undefined;
+        if (parsedLimit !== undefined && !Number.isFinite(parsedLimit)) {
+          set.status = 400;
+          return { error: `limit must be an integer, got "${query.limit}"` };
+        }
+        const res = await listDirContents(query.path, {
+          cursor: query.cursor,
+          limit: parsedLimit,
+        });
         if (!res.ok) {
-          // 400 covers both "outside MAPLE_ROOTS" and "cannot access" — the
-          // listDirContents error message distinguishes them.
+          // 400 covers "outside MAPLE_ROOTS", "cannot access", and
+          // "malformed cursor" — the listDirContents error message
+          // distinguishes them.
           set.status = 400;
           return { error: res.error };
         }
@@ -94,6 +105,8 @@ export const fsRoutes = new Elysia({ prefix: "/api/fs" })
     {
       query: t.Object({
         path: t.String({ minLength: 1 }),
+        cursor: t.Optional(t.String()),
+        limit: t.Optional(t.String()),
       }),
     },
   )
