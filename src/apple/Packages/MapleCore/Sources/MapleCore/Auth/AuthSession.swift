@@ -67,7 +67,7 @@ public final class AuthSession {
       return
     }
     guard let tokens = loaded else {
-      clearLocalCredentials()
+      await clearLocalCredentials()
       return
     }
 
@@ -102,7 +102,7 @@ public final class AuthSession {
     } catch {
       // Refresh was rejected (401/403) or hit an unexpected error type
       // we conservatively treat as rejection. Credentials are dead.
-      clearLocalCredentials()
+      await clearLocalCredentials()
       return
     }
 
@@ -113,6 +113,7 @@ public final class AuthSession {
     // the next bootstrap).
     try? TokenStore.save(newTokens, server: server)
     hasCredentials = true
+    await FileProviderDomainController().mirrorTokens(serverURL: server)
 
     // Fetch fresh user metadata with the new access token. Failure
     // here is transient — the rotated tokens are good, the cached
@@ -127,7 +128,7 @@ public final class AuthSession {
     if let tokens = try? TokenStore.load(server: server) {
       _ = try? await client.logout(accessToken: tokens.access, refreshToken: tokens.refresh)
     }
-    clearLocalCredentials()
+    await clearLocalCredentials()
   }
 
   public func setSignedIn(user: AuthUser, tokens: AuthTokens) throws {
@@ -135,6 +136,8 @@ public final class AuthSession {
     AuthUserCache.save(user, server: server)
     self.user = user
     self.hasCredentials = true
+    let server = self.server
+    Task { await FileProviderDomainController().mirrorTokens(serverURL: server) }
   }
 
   private func apply(user: AuthUser) {
@@ -143,10 +146,11 @@ public final class AuthSession {
     AuthUserCache.save(user, server: server)
   }
 
-  private func clearLocalCredentials() {
+  private func clearLocalCredentials() async {
     TokenStore.clear(server: server)
     AuthUserCache.clear(server: server)
     user = nil
     hasCredentials = false
+    await FileProviderDomainController().mirrorTokens(serverURL: server)
   }
 }

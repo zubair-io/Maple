@@ -11,6 +11,15 @@
 	<key>com.apple.security.network.client</key>
 	<true/>
 
+	<key>com.apple.security.application-groups</key>
+	<array>
+		<string>group.app.justmaple.aperture</string>
+	</array>
+	<key>keychain-access-groups</key>
+	<array>
+		<string>$(AppIdentifierPrefix)app.justmaple.aperture.shared</string>
+	</array>
+
 	<!-- High-memory mode for RAW decode.
 	     iOS: raise the per-process limit above the default ~1 GB so the
 	     decoder can hold a 100 MP RAW plus its intermediate buffers.
