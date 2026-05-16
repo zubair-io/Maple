@@ -20,7 +20,7 @@
 import { Elysia, t } from "elysia";
 import { ObjectId } from "mongodb";
 import { assetsCollection } from "../db/client.ts";
-import { readXmp, writeXmpAtomic, resolveThumbPath } from "../fs/xmp.ts";
+import { readXmp, writeXmpAtomic, writeXmpWithPrecondition, deleteXmpSidecar, resolveThumbPath } from "../fs/xmp.ts";
 import { safeReadFile } from "../fs/root.ts";
 import { normaliseEnrichment, type Place } from "../db/schema.ts";
 import { searchBlobUpdateExpression } from "../enrichment/search-blob.ts";
@@ -178,10 +178,23 @@ export const assetsRoutes = new Elysia({ prefix: "/api/assets" })
     return result.data;
   })
 
-  // Write XMP sidecar (atomic)
+  // Write XMP sidecar.
+  //
+  // Optional headers:
+  //   X-If-Mtime-Matches: <epoch-seconds>  Precondition for conflict-copy
+  //                                        mode. Omit to write
+  //                                        unconditionally.
+  //   X-Maple-Device-Name: <string>        Used in the conflict-copy
+  //                                        filename. Defaults to
+  //                                        "Unknown device".
+  //
+  // Responses:
+  //   204 No Content + Last-Modified header — normal write
+  //   409 Conflict   + JSON body { conflict_path, conflict_mtime } —
+  //                    precondition mismatch; bytes written to conflict copy
   .put(
     "/:id/xmp",
-    async ({ params, body, set }) => {
+    async ({ params, body, headers, set }) => {
       let id: ObjectId;
       try {
         id = new ObjectId(params.id);
@@ -204,12 +217,33 @@ export const assetsRoutes = new Elysia({ prefix: "/api/assets" })
             ? new TextDecoder().decode(body as unknown as Uint8Array)
             : String(body);
 
-      const result = await writeXmpAtomic(doc.abs_path, xmlContent);
-      if (!result.ok) {
-        set.status = 500;
-        return { error: result.error };
-      }
+      const ifMtimeHeader = headers["x-if-mtime-matches"];
+      const ifMtimeMatchesEpoch =
+        typeof ifMtimeHeader === "string" && /^\d+$/.test(ifMtimeHeader)
+          ? parseInt(ifMtimeHeader, 10)
+          : null;
+      const deviceHeader = headers["x-maple-device-name"];
+      const deviceName = typeof deviceHeader === "string" ? deviceHeader : "";
 
+      const outcome = await writeXmpWithPrecondition(
+        doc.abs_path,
+        xmlContent,
+        ifMtimeMatchesEpoch,
+        deviceName,
+      );
+
+      if (outcome.kind === "error") {
+        set.status = 500;
+        return { error: outcome.error };
+      }
+      if (outcome.kind === "conflict") {
+        set.status = 409;
+        return {
+          conflict_path: outcome.conflictPath,
+          conflict_mtime: outcome.conflictMtime.toISOString(),
+        };
+      }
+      set.headers["Last-Modified"] = outcome.mtime.toUTCString();
       set.status = 204;
       return;
     },
@@ -218,6 +252,30 @@ export const assetsRoutes = new Elysia({ prefix: "/api/assets" })
       body: t.String(),
     }
   )
+
+  // Delete XMP sidecar (idempotent).
+  .delete("/:id/xmp", async ({ params, set }) => {
+    let id: ObjectId;
+    try {
+      id = new ObjectId(params.id);
+    } catch {
+      set.status = 400;
+      return { error: "Invalid asset id" };
+    }
+    const coll = await assetsCollection();
+    const doc = await coll.findOne({ _id: id });
+    if (!doc) {
+      set.status = 404;
+      return { error: "Asset not found" };
+    }
+    const result = await deleteXmpSidecar(doc.abs_path);
+    if (!result.ok) {
+      set.status = 500;
+      return { error: result.error };
+    }
+    set.status = 204;
+    return;
+  })
 
   // ── Manual override routes ───────────────────────────────────────────
   // The three PUT routes below let the user correct an enrichment output
