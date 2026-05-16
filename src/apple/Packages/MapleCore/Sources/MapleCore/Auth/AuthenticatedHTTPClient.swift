@@ -98,10 +98,58 @@ public actor AuthenticatedHTTPClient {
     return try await task.value
   }
 
+  /// Returns a copy of `req` with the current access token injected as a
+  /// Bearer Authorization header. Public so callers that bypass `data(for:)`
+  /// — notably `URLSession.download(for:)` paths — can still authenticate.
+  /// Token snapshot is taken inside the actor, so concurrent refreshes
+  /// don't mid-flight swap the token on a single inject call.
+  public func inject(_ req: URLRequest) async -> URLRequest {
+    inject(req, tokens: tokensProvider())
+  }
+
   private func inject(_ req: URLRequest, tokens: AuthTokens?) -> URLRequest {
     var r = req
     if let t = tokens { r.setValue("Bearer \(t.access)", forHTTPHeaderField: "Authorization") }
     return r
+  }
+
+  /// Run `block` once with an authenticated request. If the response is
+  /// 401, refresh tokens (single-flight) and retry the block once with a
+  /// freshly-authenticated request. Used by code paths that can't go
+  /// through `data(for:)` because they need a non-buffered transport
+  /// (`URLSession.download(for:)`).
+  ///
+  /// `block` receives the injected request and must return its response;
+  /// the generic `T` is whatever payload kind the caller's transport
+  /// yields (`Data` for `URLSession.data`, `URL` for `URLSession.download`).
+  public func refreshIfNeededAndRetry<T>(
+    request: URLRequest,
+    _ block: (URLRequest) async throws -> (T, URLResponse)
+  ) async throws -> (T, URLResponse) {
+    Self.logRequest(request, attempt: 1)
+    var injected = inject(request, tokens: tokensProvider())
+    var (payload, resp) = try await block(injected)
+    if (resp as? HTTPURLResponse)?.statusCode != 401 { return (payload, resp) }
+
+    cloudHTTPLogger.info("401 — attempting token refresh (download path)")
+    guard let current = tokensProvider() else { onSignOut(); return (payload, resp) }
+    let fresh: AuthTokens
+    do { fresh = try await refresh(refresh: current.refresh) }
+    catch let e as URLError {
+      cloudHTTPLogger.error("token refresh network error: \(e.localizedDescription, privacy: .public)")
+      throw e
+    } catch let e as AuthClientError where e.isNetworkFailure {
+      cloudHTTPLogger.error("token refresh network error: \(e.localizedDescription, privacy: .public)")
+      throw e
+    } catch {
+      cloudHTTPLogger.error("token refresh failed: \(error.localizedDescription, privacy: .public)")
+      onSignOut(); return (payload, resp)
+    }
+    onTokensRefreshed(fresh)
+    Self.logRequest(request, attempt: 2)
+    injected = inject(request, tokens: fresh)
+    (payload, resp) = try await block(injected)
+    return (payload, resp)
   }
 
   private func dataOnce(request: URLRequest) async throws -> (Data, URLResponse) {
