@@ -29,7 +29,13 @@ final class RootEnumerator: NSObject, NSFileProviderEnumerator {
                 } else {
                     roots = try await catalog.listFolders()
                 }
-                let items = roots.map { MapleItem(libraryRoot: $0) }
+                // Library roots followed by one synthetic Trash item per
+                // library. Phase 3: Finder shows "<Library> Trash" alongside
+                // its photos folder; the .maple/ directory itself stays hidden.
+                var items: [NSFileProviderItem] = roots.map { MapleItem(libraryRoot: $0) }
+                items.append(contentsOf: roots.map {
+                    MapleItem(trashContainer: $0.id, displayName: "\($0.label) Trash")
+                })
                 observer.didEnumerate(items)
                 observer.finishEnumerating(upTo: nil)
             } catch {
@@ -119,6 +125,56 @@ final class FolderEnumerator: NSObject, NSFileProviderEnumerator {
                 observer.finishEnumerating(upTo: nil)
             } catch {
                 log.error("folder enumerate failed: \(error.localizedDescription, privacy: .public)")
+                observer.finishEnumeratingWithError(error)
+            }
+        }
+    }
+
+    func enumerateChanges(for observer: NSFileProviderChangeObserver, from anchor: NSFileProviderSyncAnchor) {
+        observer.finishEnumeratingChanges(upTo: anchor, moreComing: false)
+    }
+
+    func currentSyncAnchor(completionHandler: @escaping (NSFileProviderSyncAnchor?) -> Void) {
+        completionHandler(NSFileProviderSyncAnchor(Data("0".utf8)))
+    }
+}
+
+/// Per-library Trash enumerator. Paginates through `GET /api/folders/:id/trash`
+/// and emits one `MapleItem(trashed:)` per row. The trashed items keep their
+/// asset/<id> identifiers so the OS recognises them as the same item that
+/// disappeared from a folder enumeration.
+final class TrashEnumerator: NSObject, NSFileProviderEnumerator {
+    private let catalog: RemoteCatalog
+    private let folderID: String
+    private let containerIdentifier: NSFileProviderItemIdentifier
+    private let log = Logger(subsystem: "app.justmaple.aperture.fileprovider", category: "enumerator")
+
+    init(catalog: RemoteCatalog, folderID: String, containerIdentifier: NSFileProviderItemIdentifier) {
+        self.catalog = catalog
+        self.folderID = folderID
+        self.containerIdentifier = containerIdentifier
+    }
+
+    func invalidate() {}
+
+    func enumerateItems(for observer: NSFileProviderEnumerationObserver, startingAt page: NSFileProviderPage) {
+        Task {
+            do {
+                // Cursor encoded as the page bytes when present; nil for first page.
+                let cursor: String? = {
+                    guard let s = String(data: page.rawValue, encoding: .utf8), !s.isEmpty, s != "0" else { return nil }
+                    return s
+                }()
+                let resp = try await catalog.listTrash(folderID: folderID, limit: 200, cursor: cursor)
+                let items = resp.items.map { MapleItem(trashed: $0, parentTrashIdentifier: containerIdentifier) }
+                observer.didEnumerate(items)
+                if let nextCursor = resp.nextCursor {
+                    observer.finishEnumerating(upTo: NSFileProviderPage(Data(nextCursor.utf8)))
+                } else {
+                    observer.finishEnumerating(upTo: nil)
+                }
+            } catch {
+                log.error("trash enumerate failed: \(error.localizedDescription, privacy: .public)")
                 observer.finishEnumeratingWithError(error)
             }
         }
