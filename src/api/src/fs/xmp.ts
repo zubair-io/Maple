@@ -205,6 +205,38 @@ export function conflictCopyPath(rawAbsPath: string, deviceName: string): string
 }
 
 /**
+ * Find an unused conflict-copy path for this device. Starts with the
+ * unsuffixed form (`<base> (conflict from <device>).xmp`); on collision
+ * appends ` (2)`, ` (3)`, ... before the extension. Bounded to 1000
+ * attempts — if every variant exists, returns the highest path it tried
+ * and lets the caller race for it.
+ *
+ * The check-then-use is racy (TOCTOU). Acceptable: even when two writers
+ * both pick `(N)`, the worst case is ONE collision, not unbounded silent
+ * loss. Compare against the prior behaviour where every concurrent
+ * mismatch on the same device clobbered the same file.
+ */
+export async function pickFreeConflictPath(rawAbsPath: string, deviceName: string): Promise<string> {
+  const base = conflictCopyPath(rawAbsPath, deviceName);
+  try {
+    await fs.stat(base);
+  } catch {
+    return base; // No collision.
+  }
+  // base ends in ".xmp" — strip and append " (N).xmp".
+  const stem = base.slice(0, -".xmp".length);
+  for (let n = 2; n <= 1000; n++) {
+    const candidate = `${stem} (${n}).xmp`;
+    try {
+      await fs.stat(candidate);
+    } catch {
+      return candidate;
+    }
+  }
+  return `${stem} (1000).xmp`;
+}
+
+/**
  * Atomic XMP write with an optional mtime precondition.
  *
  * When `ifMtimeMatchesEpoch` is provided and the on-disk file's mtime in
@@ -231,7 +263,7 @@ export async function writeXmpWithPrecondition(
       onDiskEpoch = null;
     }
     if (onDiskEpoch !== ifMtimeMatchesEpoch) {
-      const conflictPath = conflictCopyPath(rawAbsPath, deviceName);
+      const conflictPath = await pickFreeConflictPath(rawAbsPath, deviceName);
       const allowed = await safeWriteAllowed(conflictPath);
       if (!allowed.ok) return { kind: "error", error: allowed.error ?? "Path not allowed" };
       const tmp = conflictPath + ".tmp." + process.pid;
