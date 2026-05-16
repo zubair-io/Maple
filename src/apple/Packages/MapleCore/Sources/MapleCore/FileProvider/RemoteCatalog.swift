@@ -75,16 +75,25 @@ public struct DirContents: Codable, Equatable, Sendable {
     public let dirs: [DirChild]
     public let images: [ImageChild]
     public let sidecars: [SidecarChild]
+    /// Opaque continuation token from the server. Present when paged mode
+    /// is engaged and more entries remain; nil otherwise. Clients
+    /// round-trip the string verbatim to fetch the next page.
+    public let nextCursor: String?
 
-    public init(path: String, parent: String?, dirs: [DirChild], images: [ImageChild], sidecars: [SidecarChild]) {
+    public init(path: String, parent: String?, dirs: [DirChild], images: [ImageChild],
+                sidecars: [SidecarChild], nextCursor: String? = nil) {
         self.path = path
         self.parent = parent
         self.dirs = dirs
         self.images = images
         self.sidecars = sidecars
+        self.nextCursor = nextCursor
     }
 
-    private enum CodingKeys: String, CodingKey { case path, parent, dirs, images, sidecars }
+    private enum CodingKeys: String, CodingKey {
+        case path, parent, dirs, images, sidecars
+        case nextCursor = "next_cursor"
+    }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -94,6 +103,7 @@ public struct DirContents: Codable, Equatable, Sendable {
         self.images = try c.decode([ImageChild].self, forKey: .images)
         // Tolerate the field being absent — pre-Phase-2 servers don't send it.
         self.sidecars = (try? c.decode([SidecarChild].self, forKey: .sidecars)) ?? []
+        self.nextCursor = try c.decodeIfPresent(String.self, forKey: .nextCursor)
     }
 }
 
@@ -301,9 +311,18 @@ public actor RemoteCatalog {
         return try await fetchCachedJSON(url: url, decode: [LibraryRoot].self)
     }
 
-    public func listDir(absolutePath: String) async throws -> DirContents {
+    public func listDir(absolutePath: String,
+                        cursor: String? = nil,
+                        limit: Int? = nil) async throws -> DirContents {
         var comps = URLComponents(url: server.appending(path: "/api/fs/dir"), resolvingAgainstBaseURL: false)!
-        comps.queryItems = [.init(name: "path", value: absolutePath)]
+        var q: [URLQueryItem] = [.init(name: "path", value: absolutePath)]
+        if let cursor { q.append(.init(name: "cursor", value: cursor)) }
+        if let limit { q.append(.init(name: "limit", value: String(limit))) }
+        comps.queryItems = q
+        // The ETag cache keys on the full URL, so each (path, cursor,
+        // limit) combination gets its own cached entry. Phase 5c's
+        // server-side ETag is body-hash, so paged responses round-trip
+        // correctly through the same revalidation path.
         return try await fetchCachedJSON(url: comps.url!, decode: DirContents.self)
     }
 
