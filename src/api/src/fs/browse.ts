@@ -190,18 +190,19 @@ const IMAGE_EXTENSIONS = new Set<string>([
 ]);
 
 /**
- * Match the optional `" (conflict from <device>)"` suffix on a sidecar
- * filename. Captures the canonical base before the suffix (group 1).
- * Returns null if the filename isn't a `.xmp` at all.
+ * Match a sidecar filename and return its canonical base (no .xmp).
  *
- * Examples:
- *   "IMG_1.xmp"                                 → "IMG_1"
- *   "IMG_1 (conflict from MacBook).xmp"         → "IMG_1"
- *   "IMG_1 (conflict from work-laptop).xmp"     → "IMG_1"
- *   "notes.txt"                                 → null
+ * Recognized forms:
+ *   IMG_1.xmp                               → IMG_1
+ *   IMG_1 (conflict from MacBook).xmp       → IMG_1
+ *   IMG_1 (conflict from MacBook) (2).xmp   → IMG_1
+ *   notes.txt                               → null
+ *
+ * The optional ` (N)` numeric suffix is produced by `pickFreeConflictPath`
+ * when multiple writers race on the same conflict-copy filename.
  */
 export function canonicalBaseFromSidecarFilename(filename: string): string | null {
-  const m = /^(.+?)( \(conflict from [^)]+\))?\.xmp$/i.exec(filename);
+  const m = /^(.+?)( \(conflict from [^)]+\))?( \(\d+\))?\.xmp$/i.exec(filename);
   return m ? m[1] : null;
 }
 
