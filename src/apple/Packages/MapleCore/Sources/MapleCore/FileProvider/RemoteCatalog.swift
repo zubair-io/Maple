@@ -134,23 +134,54 @@ public actor RemoteCatalog {
         guard (200..<300).contains(code) else { throw URLError(.badServerResponse) }
     }
 
+    /// GET /api/assets/<assetID>/xmp[?conflict=<basename>]. Returns the
+    /// raw XMP bytes. For conflict copies, `conflictBasename` must match
+    /// the server's pairing rule (canonical base + " (conflict from …)"
+    /// suffix, optionally with " (N)").
+    public func getXMP(assetID: String, conflictBasename: String?) async throws -> Data {
+        var comps = URLComponents(
+            url: server.appending(path: "/api/assets/\(assetID)/xmp"),
+            resolvingAgainstBaseURL: false,
+        )!
+        if let conflictBasename {
+            comps.queryItems = [.init(name: "conflict", value: conflictBasename)]
+        }
+        let req = URLRequest(url: comps.url!)
+        let (data, resp) = try await http.data(for: req)
+        try Self.check2xx(resp)
+        return data
+    }
+
     /// PUT /api/assets/<assetID>/xmp.
     ///
-    /// - `ifMtimeMatches`: omit (nil) for first-write create; pass the
-    ///   last-known mtime for modify so the server can detect concurrent
-    ///   edits and produce a conflict copy.
-    /// - `deviceName`: stamped into conflict-copy filenames.
+    /// - `conflictBasename`: when non-nil, addresses a specific conflict
+    ///   copy via `?conflict=<basename>`. Unconditional write — the
+    ///   `ifMtimeMatches` precondition is ignored in this mode because
+    ///   the caller is editing this exact file directly.
+    /// - `ifMtimeMatches`: only used when `conflictBasename == nil`.
+    ///   nil = unconditional create; otherwise precondition.
+    /// - `deviceName`: stamped into conflict-copy filenames the server
+    ///   may create on precondition mismatch (canonical-write mode only).
     public func putXMP(
         assetID: String,
         data: Data,
         ifMtimeMatches: Date?,
-        deviceName: String
+        deviceName: String,
+        conflictBasename: String? = nil
     ) async throws -> XMPWriteResult {
-        var req = URLRequest(url: server.appending(path: "/api/assets/\(assetID)/xmp"))
+        var comps = URLComponents(
+            url: server.appending(path: "/api/assets/\(assetID)/xmp"),
+            resolvingAgainstBaseURL: false,
+        )!
+        if let conflictBasename {
+            comps.queryItems = [.init(name: "conflict", value: conflictBasename)]
+        }
+        var req = URLRequest(url: comps.url!)
         req.httpMethod = "PUT"
         req.setValue("text/plain; charset=utf-8", forHTTPHeaderField: "Content-Type")
         req.setValue(deviceName, forHTTPHeaderField: "X-Maple-Device-Name")
-        if let prior = ifMtimeMatches {
+        // Precondition only applies to the canonical write path.
+        if conflictBasename == nil, let prior = ifMtimeMatches {
             req.setValue(String(Int(prior.timeIntervalSince1970)), forHTTPHeaderField: "X-If-Mtime-Matches")
         }
         req.httpBody = data
@@ -173,9 +204,16 @@ public actor RemoteCatalog {
         throw URLError(.badServerResponse)
     }
 
-    /// DELETE /api/assets/<assetID>/xmp. Idempotent.
-    public func deleteXMP(assetID: String) async throws {
-        var req = URLRequest(url: server.appending(path: "/api/assets/\(assetID)/xmp"))
+    /// DELETE /api/assets/<assetID>/xmp[?conflict=<basename>]. Idempotent.
+    public func deleteXMP(assetID: String, conflictBasename: String? = nil) async throws {
+        var comps = URLComponents(
+            url: server.appending(path: "/api/assets/\(assetID)/xmp"),
+            resolvingAgainstBaseURL: false,
+        )!
+        if let conflictBasename {
+            comps.queryItems = [.init(name: "conflict", value: conflictBasename)]
+        }
+        var req = URLRequest(url: comps.url!)
         req.httpMethod = "DELETE"
         let (_, resp) = try await http.data(for: req)
         try Self.check2xx(resp)
