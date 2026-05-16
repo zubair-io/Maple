@@ -40,6 +40,14 @@ public struct SidecarChild: Codable, Equatable, Sendable {
     public let size: Int64
     public let assetID: String
 
+    public init(name: String, path: String, mtime: Date, size: Int64, assetID: String) {
+        self.name = name
+        self.path = path
+        self.mtime = mtime
+        self.size = size
+        self.assetID = assetID
+    }
+
     enum CodingKeys: String, CodingKey {
         case name, path, mtime, size
         case assetID = "asset_id"

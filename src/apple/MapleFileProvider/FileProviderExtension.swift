@@ -10,14 +10,17 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
     private let dormant: Bool
     private let catalog: RemoteCatalog?
     private let rootCache: LibraryRootCache?
+    private let deviceName: String
 
     required init(domain: NSFileProviderDomain) {
         self.domain = domain
         let config = FileProviderConfig()
+        let resolvedDeviceName = ProcessInfo.processInfo.hostName
         guard let cfg = config.load(domain: domain.identifier.rawValue) else {
             self.dormant = true
             self.catalog = nil
             self.rootCache = nil
+            self.deviceName = resolvedDeviceName
             super.init()
             log.notice("init dormant — no config for domain \(domain.identifier.rawValue, privacy: .public)")
             return
@@ -36,6 +39,7 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
         self.dormant = false
         self.catalog = catalog
         self.rootCache = LibraryRootCache(catalog: catalog)
+        self.deviceName = resolvedDeviceName
         super.init()
         log.info("init domain=\(domain.identifier.rawValue, privacy: .public)")
     }
@@ -212,7 +216,7 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
         }
     }
 
-    // MARK: - Write paths — Phase 1 unsupported
+    // MARK: - XMP write paths
 
     func createItem(basedOn itemTemplate: NSFileProviderItem,
                     fields: NSFileProviderItemFields,
@@ -224,8 +228,65 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
             completionHandler(nil, [], false, notAuthenticatedError())
             return Progress()
         }
-        completionHandler(nil, [], false, NSError(domain: NSCocoaErrorDomain, code: NSFeatureUnsupportedError))
-        return Progress()
+        guard let catalog = self.catalog else {
+            completionHandler(nil, [], false, notAuthenticatedError())
+            return Progress()
+        }
+        // Only XMP sidecars are writable in Phase 2.
+        let filename = itemTemplate.filename
+        guard filename.lowercased().hasSuffix(".xmp"),
+              let contentsURL = url else {
+            completionHandler(nil, [], false,
+                NSError(domain: NSCocoaErrorDomain, code: NSFeatureUnsupportedError))
+            return Progress()
+        }
+        let progress = Progress(totalUnitCount: 1)
+        Task {
+            defer { progress.completedUnitCount = 1 }
+            do {
+                let xmpBytes = try Data(contentsOf: contentsURL)
+                let parentID = itemTemplate.parentItemIdentifier
+                guard let assetID = try await self.assetID(forSidecarNamed: filename,
+                                                            in: parentID,
+                                                            catalog: catalog) else {
+                    completionHandler(nil, [], false,
+                        NSError(domain: NSFileProviderErrorDomain,
+                                code: NSFileProviderError.noSuchItem.rawValue))
+                    return
+                }
+                let result = try await catalog.putXMP(
+                    assetID: assetID,
+                    data: xmpBytes,
+                    ifMtimeMatches: nil,
+                    deviceName: self.deviceName
+                )
+                switch result {
+                case .ok(let mtime):
+                    let synthesized = SidecarChild(
+                        name: filename,
+                        path: filename,
+                        mtime: mtime,
+                        size: Int64(xmpBytes.count),
+                        assetID: assetID
+                    )
+                    let baseFromFilename = Self.canonicalBase(forSidecarFilename: filename)
+                    let item = MapleItem(sidecar: synthesized,
+                                         parentImageBase: baseFromFilename,
+                                         parentIdentifier: parentID)
+                    completionHandler(item, [], false, nil)
+                case .conflict(let conflictPath, _):
+                    self.log.notice("createItem conflict — server wrote to \(conflictPath, privacy: .public)")
+                    completionHandler(nil, [], false,
+                        NSError(domain: NSFileProviderErrorDomain,
+                                code: NSFileProviderError.filenameCollision.rawValue))
+                    await self.signalEnumeratorReload()
+                }
+            } catch {
+                self.log.error("createItem failed: \(error.localizedDescription, privacy: .public)")
+                completionHandler(nil, [], false, error)
+            }
+        }
+        return progress
     }
 
     func modifyItem(_ item: NSFileProviderItem,
@@ -239,8 +300,68 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
             completionHandler(nil, [], false, notAuthenticatedError())
             return Progress()
         }
-        completionHandler(nil, [], false, NSError(domain: NSCocoaErrorDomain, code: NSFeatureUnsupportedError))
-        return Progress()
+        guard let catalog = self.catalog else {
+            completionHandler(nil, [], false, notAuthenticatedError())
+            return Progress()
+        }
+        let parsed: FileProviderIdentifier
+        do { parsed = try FileProviderIdentifier(rawValue: item.itemIdentifier.rawValue) }
+        catch {
+            completionHandler(nil, [], false,
+                NSError(domain: NSCocoaErrorDomain, code: NSFeatureUnsupportedError))
+            return Progress()
+        }
+        guard case .sidecar(let assetID, _) = parsed,
+              let contentsURL = newContents else {
+            completionHandler(nil, [], false,
+                NSError(domain: NSCocoaErrorDomain, code: NSFeatureUnsupportedError))
+            return Progress()
+        }
+        // Decode the prior mtime from the version's contentVersion field
+        // (same encoding MapleItem.itemVersion uses: ASCII epoch seconds).
+        let priorMtime: Date? = {
+            guard let s = String(data: version.contentVersion, encoding: .utf8),
+                  let epoch = Int(s), epoch > 0 else { return nil }
+            return Date(timeIntervalSince1970: TimeInterval(epoch))
+        }()
+        let progress = Progress(totalUnitCount: 1)
+        Task {
+            defer { progress.completedUnitCount = 1 }
+            do {
+                let xmpBytes = try Data(contentsOf: contentsURL)
+                let result = try await catalog.putXMP(
+                    assetID: assetID,
+                    data: xmpBytes,
+                    ifMtimeMatches: priorMtime,
+                    deviceName: self.deviceName
+                )
+                switch result {
+                case .ok(let mtime):
+                    let synthesized = SidecarChild(
+                        name: item.filename,
+                        path: item.filename,
+                        mtime: mtime,
+                        size: Int64(xmpBytes.count),
+                        assetID: assetID
+                    )
+                    let baseFromFilename = Self.canonicalBase(forSidecarFilename: item.filename)
+                    let updatedItem = MapleItem(sidecar: synthesized,
+                                                parentImageBase: baseFromFilename,
+                                                parentIdentifier: item.parentItemIdentifier)
+                    completionHandler(updatedItem, [], false, nil)
+                case .conflict(let conflictPath, _):
+                    self.log.notice("modifyItem conflict — server wrote to \(conflictPath, privacy: .public)")
+                    completionHandler(nil, [], false,
+                        NSError(domain: NSFileProviderErrorDomain,
+                                code: NSFileProviderError.filenameCollision.rawValue))
+                    await self.signalEnumeratorReload()
+                }
+            } catch {
+                self.log.error("modifyItem failed: \(error.localizedDescription, privacy: .public)")
+                completionHandler(nil, [], false, error)
+            }
+        }
+        return progress
     }
 
     func deleteItem(identifier: NSFileProviderItemIdentifier,
@@ -252,8 +373,76 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
             completionHandler(notAuthenticatedError())
             return Progress()
         }
-        completionHandler(NSError(domain: NSCocoaErrorDomain, code: NSFeatureUnsupportedError))
-        return Progress()
+        guard let catalog = self.catalog else {
+            completionHandler(notAuthenticatedError())
+            return Progress()
+        }
+        let parsed: FileProviderIdentifier
+        do { parsed = try FileProviderIdentifier(rawValue: identifier.rawValue) }
+        catch {
+            completionHandler(NSError(domain: NSCocoaErrorDomain, code: NSFeatureUnsupportedError))
+            return Progress()
+        }
+        guard case .sidecar(let assetID, _) = parsed else {
+            completionHandler(NSError(domain: NSCocoaErrorDomain, code: NSFeatureUnsupportedError))
+            return Progress()
+        }
+        let progress = Progress(totalUnitCount: 1)
+        Task {
+            defer { progress.completedUnitCount = 1 }
+            do {
+                try await catalog.deleteXMP(assetID: assetID)
+                completionHandler(nil)
+            } catch {
+                self.log.error("deleteItem failed: \(error.localizedDescription, privacy: .public)")
+                completionHandler(error)
+            }
+        }
+        return progress
+    }
+
+    // MARK: - Sidecar helpers
+
+    /// Find the asset whose RAW filename (without extension) matches the
+    /// sidecar's canonical base. Returns nil if no matching image is in
+    /// the enumeration response for the parent folder.
+    private func assetID(forSidecarNamed filename: String,
+                         in parentID: NSFileProviderItemIdentifier,
+                         catalog: RemoteCatalog) async throws -> String? {
+        guard let rootCache = self.rootCache else { return nil }
+        let parsed = try FileProviderIdentifier(rawValue: parentID.rawValue)
+        guard case .folder(let folderID, let relativePath) = parsed else { return nil }
+        let roots = try await rootCache.roots()
+        guard let root = roots.first(where: { $0.id == folderID }) else { return nil }
+        let absolutePath = relativePath.isEmpty ? root.path : "\(root.path)/\(relativePath)"
+        let contents = try await catalog.listDir(absolutePath: absolutePath)
+        let canonicalBase = Self.canonicalBase(forSidecarFilename: filename)
+        for img in contents.images {
+            guard let assetID = img.assetID else { continue }
+            let dot = img.name.lastIndex(of: ".")
+            let imgBase = dot.map { String(img.name[..<$0]) } ?? img.name
+            if imgBase == canonicalBase { return assetID }
+        }
+        return nil
+    }
+
+    /// Strip the `.xmp` extension and an optional `" (conflict from …)"`
+    /// suffix from a sidecar filename. Case-insensitive on the `.xmp`
+    /// extension; mirrors the server-side regex
+    /// `canonicalBaseFromSidecarFilename`.
+    static func canonicalBase(forSidecarFilename name: String) -> String {
+        var s = name
+        if s.lowercased().hasSuffix(".xmp") { s = String(s.dropLast(4)) }
+        if s.hasSuffix(")"),
+           let openParen = s.range(of: " (conflict from ") {
+            s = String(s[..<openParen.lowerBound])
+        }
+        return s
+    }
+
+    private func signalEnumeratorReload() async {
+        guard let mgr = NSFileProviderManager(for: domain) else { return }
+        try? await mgr.signalEnumerator(for: .rootContainer)
     }
 }
 
