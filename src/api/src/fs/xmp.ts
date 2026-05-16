@@ -421,6 +421,39 @@ export async function writeConflictSidecarAtomic(
 }
 
 /**
+ * Return absolute paths of every XMP sidecar paired to the given RAW —
+ * the canonical `<base>.xmp` plus every `<base> (conflict from <device>).xmp`
+ * (with optional ` (N)` numeric suffix). Order is unspecified; callers that
+ * care about ordering must sort.
+ *
+ * Reads the RAW's parent directory once and filters by name. Missing
+ * directory or read errors return an empty array — the caller is moving
+ * sidecars best-effort.
+ */
+export async function listPairedSidecars(rawAbsPath: string): Promise<string[]> {
+  const dir = path.dirname(rawAbsPath);
+  const rawBase = path.basename(rawAbsPath, path.extname(rawAbsPath));
+  let entries: string[];
+  try {
+    entries = await fs.readdir(dir);
+  } catch {
+    return [];
+  }
+  // Anchored: name must START with `<rawBase>` followed by either `.xmp`
+  // (canonical) or ` (conflict from <device>)` ... `.xmp` (variant). The
+  // character after rawBase must NOT be another filename-char, otherwise
+  // `IMG_1` would match `IMG_10.xmp`.
+  const escaped = rawBase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const pattern = new RegExp(
+    `^${escaped}( \\(conflict from [^)]+\\))?( \\(\\d+\\))?\\.xmp$`,
+    "i",
+  );
+  return entries
+    .filter((name) => pattern.test(name))
+    .map((name) => path.join(dir, name));
+}
+
+/**
  * Delete a specific conflict-copy sidecar. Idempotent — succeeds whether
  * or not the file existed. Returns error only if the basename doesn't
  * validate.
