@@ -1,5 +1,4 @@
 // src/apple/Maple/Views/FileProviderSettingsView.swift
-#if os(macOS)
 import SwiftUI
 import MapleCore
 import FileProvider
@@ -31,7 +30,7 @@ final class FileProviderSettingsModel {
         defer { inFlightDomains.remove(id) }
         do {
             _ = try await controller.enable(serverURL: serverURL, displayName: displayName)
-            statusMessage = "Enabled \(displayName) in Finder"
+            statusMessage = "Enabled \(displayName)"
             await reload()
         } catch {
             statusMessage = "Enable failed: \(error.localizedDescription)"
@@ -45,7 +44,7 @@ final class FileProviderSettingsModel {
         defer { inFlightDomains.remove(id) }
         do {
             try await controller.disable(domainIdentifier: id)
-            statusMessage = "Disabled in Finder"
+            statusMessage = "Disabled"
             await reload()
         } catch {
             statusMessage = "Disable failed: \(error.localizedDescription)"
@@ -57,8 +56,22 @@ final class FileProviderSettingsModel {
         do { try await controller.refresh(domainIdentifier: id) }
         catch { statusMessage = "Refresh failed: \(error.localizedDescription)" }
     }
+
+    /// Refresh every active domain. Called from the iOS `scenePhase` hook
+    /// on foreground entry so re-opening the app surfaces fresh server
+    /// state on the next Files-app refresh cycle.
+    func refreshAll() async {
+        await reload()
+        for d in domains {
+            do { try await controller.refresh(domainIdentifier: d.identifier.rawValue) }
+            catch {
+                statusMessage = "Refresh failed for \(d.displayName): \(error.localizedDescription)"
+            }
+        }
+    }
 }
 
+#if os(macOS)
 struct FileProviderSettingsView: View {
     @State private var model = FileProviderSettingsModel()
     @State private var registry = CloudServerRegistry.shared
