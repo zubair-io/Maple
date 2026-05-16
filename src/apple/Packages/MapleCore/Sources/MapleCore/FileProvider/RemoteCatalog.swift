@@ -17,6 +17,12 @@ public struct DirChild: Codable, Equatable, Sendable {
     public let name: String
     public let path: String         // absolute, server-side
     public let mtime: Date          // ISO-8601
+
+    public init(name: String, path: String, mtime: Date) {
+        self.name = name
+        self.path = path
+        self.mtime = mtime
+    }
 }
 
 public struct ImageChild: Codable, Equatable, Sendable {
@@ -26,6 +32,15 @@ public struct ImageChild: Codable, Equatable, Sendable {
     public let size: Int64
     public let ext: String
     public let assetID: String?     // server-side Mongo ObjectId; nil if not yet indexed
+
+    public init(name: String, path: String, mtime: Date, size: Int64, ext: String, assetID: String?) {
+        self.name = name
+        self.path = path
+        self.mtime = mtime
+        self.size = size
+        self.ext = ext
+        self.assetID = assetID
+    }
 
     enum CodingKeys: String, CodingKey {
         case name, path, mtime, size, ext
@@ -80,6 +95,90 @@ public struct DirContents: Codable, Equatable, Sendable {
         // Tolerate the field being absent — pre-Phase-2 servers don't send it.
         self.sidecars = (try? c.decode([SidecarChild].self, forKey: .sidecars)) ?? []
     }
+}
+
+public struct UploadResponse: Codable, Equatable, Sendable {
+    public let assetID: String
+    public let absPath: String
+    public let size: Int64
+    public let mtime: Int64
+
+    public init(assetID: String, absPath: String, size: Int64, mtime: Int64) {
+        self.assetID = assetID
+        self.absPath = absPath
+        self.size = size
+        self.mtime = mtime
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case absPath = "abs_path"
+        case size, mtime
+        case assetID = "asset_id"
+    }
+}
+
+public struct TrashItem: Codable, Equatable, Sendable {
+    public let assetID: String
+    public let filename: String
+    public let originalRelativePath: String
+    public let trashRelativePath: String
+    public let size: Int64
+    public let mtime: Int64
+    public let deletedAt: Date
+
+    public init(assetID: String, filename: String, originalRelativePath: String, trashRelativePath: String, size: Int64, mtime: Int64, deletedAt: Date) {
+        self.assetID = assetID
+        self.filename = filename
+        self.originalRelativePath = originalRelativePath
+        self.trashRelativePath = trashRelativePath
+        self.size = size
+        self.mtime = mtime
+        self.deletedAt = deletedAt
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case filename, size, mtime
+        case assetID = "asset_id"
+        case originalRelativePath = "original_relative_path"
+        case trashRelativePath = "trash_relative_path"
+        case deletedAt = "deleted_at"
+    }
+}
+
+public struct TrashListResponse: Codable, Equatable, Sendable {
+    public let items: [TrashItem]
+    public let nextCursor: String?
+
+    public init(items: [TrashItem], nextCursor: String?) {
+        self.items = items
+        self.nextCursor = nextCursor
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case items
+        case nextCursor = "next_cursor"
+    }
+}
+
+public struct RestoreResponse: Codable, Equatable, Sendable {
+    public let assetID: String
+    public let absPath: String
+
+    public init(assetID: String, absPath: String) {
+        self.assetID = assetID
+        self.absPath = absPath
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case assetID = "asset_id"
+        case absPath = "abs_path"
+    }
+}
+
+public enum UploadOutcome: Equatable, Sendable {
+    case ok(UploadResponse)
+    case conflict
+    case unsupported
 }
 
 public enum XMPWriteResult: Equatable, Sendable {
@@ -339,5 +438,80 @@ public actor RemoteCatalog {
         fmt.timeZone = TimeZone(identifier: "GMT")
         fmt.dateFormat = "EEE, dd MMM yyyy HH:mm:ss zzz"
         return fmt.date(from: raw)
+    }
+
+    // MARK: - Phase 3: uploads + trash + restore
+
+    /// Upload a file to the given folder. Streams `fileURL` via
+    /// `URLSession.upload(for:fromFile:)`. Returns `.ok` on 201,
+    /// `.conflict` on 409, `.unsupported` on 415; throws on anything else.
+    public func uploadFile(
+        folderID: String,
+        targetRelativePath: String,
+        fileURL: URL,
+        mtime: Date?
+    ) async throws -> UploadOutcome {
+        var req = URLRequest(url: server.appending(path: "/api/folders/\(folderID)/upload"))
+        req.httpMethod = "POST"
+        req.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
+        let encoded = targetRelativePath.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? targetRelativePath
+        req.setValue(encoded, forHTTPHeaderField: "X-Maple-Target-Path")
+        if let mtime {
+            req.setValue(String(Int(mtime.timeIntervalSince1970)), forHTTPHeaderField: "X-Maple-File-Mtime")
+        }
+        let attrs = try FileManager.default.attributesOfItem(atPath: fileURL.path)
+        let size = (attrs[.size] as? NSNumber)?.intValue ?? 0
+        req.setValue(String(size), forHTTPHeaderField: "Content-Length")
+        let (data, resp) = try await http.upload(for: req, fromFile: fileURL)
+        let status = (resp as? HTTPURLResponse)?.statusCode ?? -1
+        if status == 201 {
+            return .ok(try decoder.decode(UploadResponse.self, from: data))
+        }
+        if status == 409 { return .conflict }
+        if status == 415 { return .unsupported }
+        throw URLError(.badServerResponse)
+    }
+
+    /// DELETE /api/assets/<id>. 204 = success; everything else throws.
+    /// Server distinguishes trash-vs-permanent-purge from the current
+    /// asset state — both code paths return 204.
+    public func deleteAsset(assetID: String) async throws {
+        var req = URLRequest(url: server.appending(path: "/api/assets/\(assetID)"))
+        req.httpMethod = "DELETE"
+        let (_, resp) = try await http.data(for: req)
+        try Self.check2xx(resp)
+    }
+
+    /// POST /api/assets/<id>/restore. `targetRelativePath` is sent in the
+    /// body when non-nil; server defaults to `original_path` otherwise.
+    /// Server appends `.restored[.N]` on collision; the new path comes
+    /// back in `RestoreResponse.absPath`.
+    public func restoreAsset(assetID: String, targetRelativePath: String?) async throws -> RestoreResponse {
+        var req = URLRequest(url: server.appending(path: "/api/assets/\(assetID)/restore"))
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let body: [String: String] = targetRelativePath != nil
+            ? ["target_relative_path": targetRelativePath!]
+            : [:]
+        req.httpBody = try JSONSerialization.data(withJSONObject: body)
+        let (data, resp) = try await http.data(for: req)
+        try Self.check2xx(resp)
+        return try decoder.decode(RestoreResponse.self, from: data)
+    }
+
+    /// GET /api/folders/<id>/trash. `cursor` and `limit` are optional.
+    public func listTrash(folderID: String, limit: Int? = nil, cursor: String? = nil) async throws -> TrashListResponse {
+        var comps = URLComponents(
+            url: server.appending(path: "/api/folders/\(folderID)/trash"),
+            resolvingAgainstBaseURL: false,
+        )!
+        var qi: [URLQueryItem] = []
+        if let limit { qi.append(.init(name: "limit", value: String(limit))) }
+        if let cursor { qi.append(.init(name: "cursor", value: cursor)) }
+        if !qi.isEmpty { comps.queryItems = qi }
+        let req = URLRequest(url: comps.url!)
+        let (data, resp) = try await http.data(for: req)
+        try Self.check2xx(resp)
+        return try decoder.decode(TrashListResponse.self, from: data)
     }
 }
