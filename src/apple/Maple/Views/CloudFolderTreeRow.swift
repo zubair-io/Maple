@@ -153,7 +153,7 @@ struct CloudFolderTreeRow: View {
       if isExpanded {
         if isLoading {
           HStack {
-            ProgressView().scaleEffect(0.6)
+            ProgressView().controlSize(.small)
             Text("Loading…")
               .font(MapleTokens.Typography.meta)
               .foregroundStyle(MapleTokens.textMuted)
