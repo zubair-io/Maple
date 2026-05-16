@@ -176,3 +176,112 @@ export async function writeThumb(
     return { ok: false, error: `Thumb write failed: ${msg}` };
   }
 }
+
+/**
+ * Result of an XMP write that may produce a conflict copy.
+ * - `ok`: normal atomic write succeeded; `mtime` is the new file's mtime.
+ * - `conflict`: mtime precondition failed; the incoming bytes were written
+ *   to a conflict-copy file alongside the original. The original is
+ *   untouched.
+ * - `error`: any other failure (path jail, disk full, etc.).
+ */
+export type XmpWriteOutcome =
+  | { kind: "ok"; mtime: Date }
+  | { kind: "conflict"; conflictPath: string; conflictMtime: Date }
+  | { kind: "error"; error: string };
+
+/** Sanitize a device name for use in a conflict-copy filename. */
+function sanitizeDeviceName(raw: string | undefined): string {
+  const trimmed = (raw ?? "").trim();
+  if (!trimmed) return "Unknown device";
+  return trimmed.replace(/[\/\\:*?"<>|]/g, "-").slice(0, 64);
+}
+
+/** Compose the conflict-copy path for a given RAW + device name. */
+export function conflictCopyPath(rawAbsPath: string, deviceName: string): string {
+  const ext = path.extname(rawAbsPath);
+  const base = rawAbsPath.slice(0, -ext.length);
+  return `${base} (conflict from ${sanitizeDeviceName(deviceName)}).xmp`;
+}
+
+/**
+ * Atomic XMP write with an optional mtime precondition.
+ *
+ * When `ifMtimeMatchesEpoch` is provided and the on-disk file's mtime in
+ * seconds differs, the bytes are written to a conflict-copy file instead
+ * of the canonical sidecar. The canonical sidecar is untouched in that case.
+ *
+ * mtime granularity is one second. XMP saves happen at human cadence
+ * (one save per editor flush) so this is sufficient.
+ */
+export async function writeXmpWithPrecondition(
+  rawAbsPath: string,
+  xmlContent: string,
+  ifMtimeMatchesEpoch: number | null,
+  deviceName: string,
+): Promise<XmpWriteOutcome> {
+  const sidecar = xmpSidecarPath(rawAbsPath);
+
+  if (ifMtimeMatchesEpoch !== null) {
+    let onDiskEpoch: number | null = null;
+    try {
+      const st = await fs.stat(sidecar);
+      onDiskEpoch = Math.floor(st.mtimeMs / 1000);
+    } catch {
+      onDiskEpoch = null;
+    }
+    if (onDiskEpoch !== ifMtimeMatchesEpoch) {
+      const conflictPath = conflictCopyPath(rawAbsPath, deviceName);
+      const allowed = await safeWriteAllowed(conflictPath);
+      if (!allowed.ok) return { kind: "error", error: allowed.error ?? "Path not allowed" };
+      const tmp = conflictPath + ".tmp." + process.pid;
+      try {
+        await fs.mkdir(path.dirname(conflictPath), { recursive: true });
+        const fh = await fs.open(tmp, "w");
+        try {
+          await fh.writeFile(xmlContent, "utf-8");
+          await fh.datasync();
+        } finally {
+          await fh.close();
+        }
+        await fs.rename(tmp, conflictPath);
+        const st = await fs.stat(conflictPath);
+        return { kind: "conflict", conflictPath, conflictMtime: st.mtime };
+      } catch (err) {
+        try { await fs.unlink(tmp); } catch {}
+        const msg = err instanceof Error ? err.message : String(err);
+        return { kind: "error", error: `Conflict-copy write failed: ${msg}` };
+      }
+    }
+  }
+
+  const result = await writeXmpAtomic(rawAbsPath, xmlContent);
+  if (!result.ok) return { kind: "error", error: result.error ?? "XMP write failed" };
+  try {
+    const st = await fs.stat(sidecar);
+    return { kind: "ok", mtime: st.mtime };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { kind: "error", error: `stat after write failed: ${msg}` };
+  }
+}
+
+/**
+ * Delete an XMP sidecar. Idempotent — succeeds whether or not the file
+ * existed. Never touches the paired RAW.
+ */
+export async function deleteXmpSidecar(rawAbsPath: string): Promise<OpResult> {
+  const sidecar = xmpSidecarPath(rawAbsPath);
+  const allowed = await safeWriteAllowed(sidecar);
+  if (!allowed.ok) return { ok: false, error: allowed.error };
+  try {
+    await fs.unlink(sidecar);
+    return { ok: true };
+  } catch (err: unknown) {
+    if (err && typeof err === "object" && "code" in err && (err as { code: string }).code === "ENOENT") {
+      return { ok: true };
+    }
+    const msg = err instanceof Error ? err.message : String(err);
+    return { ok: false, error: `XMP delete failed: ${msg}` };
+  }
+}
