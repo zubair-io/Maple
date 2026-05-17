@@ -101,9 +101,9 @@ public struct UploadResponse: Codable, Equatable, Sendable {
     public let assetID: String
     public let absPath: String
     public let size: Int64
-    public let mtime: Int64
+    public let mtime: Date
 
-    public init(assetID: String, absPath: String, size: Int64, mtime: Int64) {
+    public init(assetID: String, absPath: String, size: Int64, mtime: Date) {
         self.assetID = assetID
         self.absPath = absPath
         self.size = size
@@ -123,10 +123,10 @@ public struct TrashItem: Codable, Equatable, Sendable {
     public let originalRelativePath: String
     public let trashRelativePath: String
     public let size: Int64
-    public let mtime: Int64
+    public let mtime: Date
     public let deletedAt: Date
 
-    public init(assetID: String, filename: String, originalRelativePath: String, trashRelativePath: String, size: Int64, mtime: Int64, deletedAt: Date) {
+    public init(assetID: String, filename: String, originalRelativePath: String, trashRelativePath: String, size: Int64, mtime: Date, deletedAt: Date) {
         self.assetID = assetID
         self.filename = filename
         self.originalRelativePath = originalRelativePath
@@ -162,16 +162,23 @@ public struct TrashListResponse: Codable, Equatable, Sendable {
 
 public struct RestoreResponse: Codable, Equatable, Sendable {
     public let assetID: String
-    public let absPath: String
+    public let absPath: String       // server-side path; do NOT stat on the Mac
+    public let filename: String
+    public let size: Int64
+    public let mtime: Date
 
-    public init(assetID: String, absPath: String) {
+    public init(assetID: String, absPath: String, filename: String, size: Int64, mtime: Date) {
         self.assetID = assetID
         self.absPath = absPath
+        self.filename = filename
+        self.size = size
+        self.mtime = mtime
     }
 
     enum CodingKeys: String, CodingKey {
         case assetID = "asset_id"
         case absPath = "abs_path"
+        case filename, size, mtime
     }
 }
 
@@ -205,7 +212,24 @@ public actor RemoteCatalog {
     internal let server: URL
     private let decoder: JSONDecoder = {
         let d = JSONDecoder()
-        d.dateDecodingStrategy = .iso8601
+        // `Date.toISOString()` (the server's emitter) always includes
+        // fractional seconds (`2026-05-15T10:00:00.123Z`), but
+        // `.iso8601` does NOT parse them — every trash/upload/restore
+        // decode would fail. Try fractional first, then plain.
+        let withFractional = ISO8601DateFormatter()
+        withFractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let plain = ISO8601DateFormatter()
+        plain.formatOptions = [.withInternetDateTime]
+        d.dateDecodingStrategy = .custom { decoder in
+            let container = try decoder.singleValueContainer()
+            let raw = try container.decode(String.self)
+            if let date = withFractional.date(from: raw) { return date }
+            if let date = plain.date(from: raw) { return date }
+            throw DecodingError.dataCorruptedError(
+                in: container,
+                debugDescription: "Invalid ISO-8601 date: \(raw)",
+            )
+        }
         return d
     }()
 
@@ -460,7 +484,10 @@ public actor RemoteCatalog {
             req.setValue(String(Int(mtime.timeIntervalSince1970)), forHTTPHeaderField: "X-Maple-File-Mtime")
         }
         let attrs = try FileManager.default.attributesOfItem(atPath: fileURL.path)
-        let size = (attrs[.size] as? NSNumber)?.intValue ?? 0
+        // `NSNumber.intValue` is a 32-bit conversion — files larger than
+        // 2 GB (RAW/TIFF can hit this) would overflow before being sent
+        // as Content-Length. Use the 64-bit accessor instead.
+        let size = (attrs[.size] as? NSNumber)?.int64Value ?? 0
         req.setValue(String(size), forHTTPHeaderField: "Content-Length")
         let (data, resp) = try await http.upload(for: req, fromFile: fileURL)
         let status = (resp as? HTTPURLResponse)?.statusCode ?? -1
