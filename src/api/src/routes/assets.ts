@@ -510,6 +510,25 @@ export const assetsRoutes = new Elysia({ prefix: "/api/assets" })
       const folder = await folders.findOne({ _id: doc.folder_id });
       if (!folder) { set.status = 500; return { error: "Asset's folder is missing" }; }
 
+      // Cross-library restore guard. Phase 3 only restores into the
+      // SAME library the asset belongs to; dragging from Library A's
+      // Trash into Library B is out of scope and currently UNDEFINED
+      // — the server moves the file using the ORIGINAL folder root, so
+      // an unguarded request would silently restore into the wrong
+      // place. The File Provider client sends the new parent's
+      // folder_id; reject the request if it doesn't match.
+      const targetFolderID = (body as { target_folder_id?: string } | null)?.target_folder_id;
+      if (typeof targetFolderID === "string" && targetFolderID.length > 0) {
+        if (targetFolderID !== doc.folder_id.toHexString()) {
+          set.status = 400;
+          return {
+            error: "Cross-library restore is not supported",
+            asset_folder_id: doc.folder_id.toHexString(),
+            target_folder_id: targetFolderID,
+          };
+        }
+      }
+
       const targetRel = (body as { target_relative_path?: string } | null)?.target_relative_path;
       let targetAbs: string;
       if (typeof targetRel === "string" && targetRel.length > 0) {
@@ -553,6 +572,18 @@ export const assetsRoutes = new Elysia({ prefix: "/api/assets" })
           "restore: stat of new path failed — using prior doc values",
         );
       }
+      // Watcher race: between `moveOutOfTrash` and our update, the
+      // discover watcher may have observed the file at its new path
+      // and upserted a *new* asset row keyed on `abs_path`. That row
+      // reserves the `{folder_id, filename}` unique slot, so the
+      // updateOne below would collide. Delete the watcher's transient
+      // row (any doc at the new abs_path that isn't our `_id`) before
+      // updating. The watcher's row carries no enrichment / no maple_id
+      // — it's safe to drop in favour of the asset we're restoring.
+      await coll.deleteOne({
+        abs_path: result.newAbsPath,
+        _id: { $ne: id },
+      });
       await coll.updateOne(
         { _id: id },
         { $set: {
@@ -620,6 +651,7 @@ export const assetsRoutes = new Elysia({ prefix: "/api/assets" })
     {
       body: t.Object({
         target_relative_path: t.Optional(t.String()),
+        target_folder_id: t.Optional(t.String()),
       }),
     }
   )
