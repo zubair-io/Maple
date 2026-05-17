@@ -631,9 +631,16 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
 
         // Restore: the only `modifyItem` shape Phase 3 understands for assets
         // is reparent FROM a trash container TO a folder, with no other
-        // changes. Anything else (rename, in-place modify) is rejected.
+        // changes. Anything else (rename + reparent in one shot, in-place
+        // modify) falls through to featureUnsupported.
+        //
+        // Tighten: require .parentItemIdentifier to be the ONLY changed
+        // field. A bare `.contains(.parentItemIdentifier)` check would
+        // let Finder smuggle a rename-during-restore through (out of
+        // Phase 3 scope) — `item.filename` would then be sent to the
+        // server as the target basename.
         if case .asset(let assetID) = parsed,
-           changedFields.contains(.parentItemIdentifier) {
+           changedFields == [.parentItemIdentifier] {
             let newParentID = item.parentItemIdentifier
             let newParentParsed: FileProviderIdentifier
             do { newParentParsed = try FileProviderIdentifier(rawValue: newParentID.rawValue) }
@@ -643,8 +650,11 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
                 return Progress()
             }
             // Phase 3 only restores into a normal folder under the SAME library.
-            // Cross-library moves and renames-during-restore are deferred.
-            guard case .folder(_, let newRelative) = newParentParsed else {
+            // The folderID is forwarded to the server so it can reject
+            // cross-library restores (the file is moved using the asset's
+            // original library root; restoring into a different library
+            // would silently land in the wrong place).
+            guard case .folder(let newFolderID, let newRelative) = newParentParsed else {
                 completionHandler(nil, [], false,
                     NSError(domain: NSCocoaErrorDomain, code: NSFeatureUnsupportedError))
                 return Progress()
@@ -655,7 +665,11 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
                 do {
                     let filename = item.filename
                     let targetRel = newRelative.isEmpty ? filename : "\(newRelative)/\(filename)"
-                    let resp = try await catalog.restoreAsset(assetID: assetID, targetRelativePath: targetRel)
+                    let resp = try await catalog.restoreAsset(
+                        assetID: assetID,
+                        targetRelativePath: targetRel,
+                        targetFolderID: newFolderID,
+                    )
                     // `resp.absPath` is the SERVER's filesystem path, not
                     // a path on this Mac — statting it returns nil/throws,
                     // which is why size + mtime + filename are now returned

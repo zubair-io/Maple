@@ -169,6 +169,37 @@ describe("POST /api/folders/:id/upload", () => {
     expect(await fs.readFile(dest, "utf-8")).toBe("old");
   });
 
+  // Regression: Cat A1+A4 — a soft-deleted asset under the same filename
+  // must NOT block a fresh upload. Previously the `{folder_id, filename}`
+  // unique index reserved the trashed row's filename, so re-uploading
+  // `A.jpg` after trashing the original failed with 409. The fix makes
+  // the unique index partial (`deleted_at: null`).
+  test("re-upload after soft-delete with the same filename succeeds", async () => {
+    if (!mongoReachable) return;
+    const { app } = await import("../src/index.ts");
+    // Seed: a previously-soft-deleted asset under the upload's intended name.
+    await db!.collection("assets").insertOne({
+      _id: new ObjectId(),
+      folder_id: folderId,
+      filename: "REUSE.ARW",
+      abs_path: path.join(realTmpRoot, ".maple", "trash", "REUSE.ARW"),
+      size: 1, mtime: Date.now(),
+      indexed_at: new Date().toISOString(),
+      deleted_at: new Date().toISOString(),
+      original_path: path.join(realTmpRoot, "REUSE.ARW"),
+    } as never);
+
+    const res = await app.handle(upload(Buffer.alloc(4, 9), {
+      "X-Maple-Target-Path": "REUSE.ARW",
+    }));
+    expect(res.status).toBe(201);
+    // Both rows now exist — the trashed one and the new live one.
+    const all = await db!.collection("assets").find({ folder_id: folderId, filename: "REUSE.ARW" }).toArray();
+    expect(all.length).toBe(2);
+    const live = all.find((d) => (d as Record<string, unknown>).deleted_at === null);
+    expect(live).toBeTruthy();
+  });
+
   // Regression: the previous implementation used a stat-then-rename pattern
   // that left a TOCTOU window — two concurrent uploads to the same target
   // both saw `stat` ENOENT, both wrote distinct tmps, and the second

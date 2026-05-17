@@ -325,30 +325,60 @@ export const foldersRoutes = new Elysia({ prefix: "/api/folders" })
       }
 
       const assets = await assetsCollection();
-      const _id = new ObjectId();
       const nowIso = new Date().toISOString();
-      await assets.insertOne({
-        _id,
-        folder_id: folderId,
-        filename,
-        abs_path: absPath,
-        size: st.size,
-        mtime: st.mtimeMs,
-        rating: 0,
-        flag: 0,
-        color_label: "",
-        exif: null,
-        indexed_at: nowIso,
-        deleted_at: null,
-        stages: blankStagesSkeleton(),
-      } as never);
+      // Upsert by `abs_path` to race-safely cooperate with the discover
+      // watcher. If the watcher's chokidar tick observed the just-
+      // written file first and already created an asset row, our
+      // `$setOnInsert` is a no-op and we update size/mtime over the
+      // top. If we win the race, we own the insert. Either way the
+      // route returns the doc's real `_id` from the operation result;
+      // the prior `insertOne` with a pre-generated `_id` would have
+      // failed with a duplicate-key error in the loser case, leaving
+      // an orphan file under the user's intended path even though the
+      // upload had succeeded.
+      let assetID: ObjectId;
+      try {
+        const updated = await assets.findOneAndUpdate(
+          { abs_path: absPath },
+          {
+            $set: {
+              size: st.size,
+              mtime: st.mtimeMs,
+              indexed_at: nowIso,
+              deleted_at: null,
+            },
+            $setOnInsert: {
+              folder_id: folderId,
+              filename,
+              abs_path: absPath,
+              rating: 0,
+              flag: 0,
+              color_label: "",
+              exif: null,
+              stages: blankStagesSkeleton(),
+            },
+          },
+          { upsert: true, returnDocument: "after" },
+        );
+        if (!updated) {
+          throw new Error("upsert returned no document");
+        }
+        assetID = updated._id as ObjectId;
+      } catch (err) {
+        // Schema validation or anything else: undo the file move so we
+        // don't leak an orphan file with no asset doc backing it. The
+        // duplicate-key race is already handled by the upsert above.
+        try { await unlink(absPath); } catch {}
+        set.status = 500;
+        return { error: `Upload metadata failed: ${err instanceof Error ? err.message : String(err)}` };
+      }
 
       set.status = 201;
       // `mtime` is emitted as an ISO-8601 string (matches the rest of
       // the API and the Swift `Date` decoder); the raw `st.mtimeMs`
       // float would corrupt an `Int64` decoder client-side.
       return {
-        asset_id: _id.toHexString(),
+        asset_id: assetID.toHexString(),
         abs_path: absPath,
         size: st.size,
         mtime: new Date(st.mtimeMs).toISOString(),
