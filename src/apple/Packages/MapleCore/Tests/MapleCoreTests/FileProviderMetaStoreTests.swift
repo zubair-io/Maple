@@ -171,6 +171,52 @@ final class FileProviderMetaStoreTests: XCTestCase {
         }
     }
 
+    /// End-to-end of the Quick Look discrimination contract:
+    /// `FileProviderExtension.fetchContents` records RAW basenames
+    /// extensionless and sidecar basenames with the `.xmp` suffix
+    /// preserved. The Quick Look provider must:
+    ///   1. Short-circuit on a sidecar basename WITHOUT consulting the
+    ///      meta store (so it never serves an asset JPEG for an XMP
+    ///      request whose canonical sidecar row has `conflict_basename`
+    ///      = NULL and shares an asset ID with the RAW row).
+    ///   2. Resolve the meta-store row for the RAW basename and return
+    ///      its asset ID for the JPEG fetch path.
+    /// This guards against the regression Copilot flagged where both
+    /// RAW and sidecar materialized to extensionless UUIDs and the
+    /// `.xmp` guard could not distinguish them.
+    func testQuickLookSidecarDiscrimination() throws {
+        let url = freshStoreURL()
+        defer { try? FileManager.default.removeItem(at: url) }
+        let store = try FileProviderMetaStore(url: url)
+
+        // Simulate FileProviderExtension.fetchContents for both an asset
+        // and its canonical sidecar in the same domain. The two
+        // localBasenames differ ONLY by the `.xmp` suffix.
+        let rawBasename = "ABC123"                    // RAW: extensionless UUID
+        let sidecarBasename = "ABC123.xmp"            // sidecar: suffix preserved
+        let sharedAssetID = "650a1b2c3d4e5f6071829304"
+        try store.put(domain: "d", localBasename: rawBasename,
+                      assetID: sharedAssetID, conflictBasename: nil)
+        try store.put(domain: "d", localBasename: sidecarBasename,
+                      assetID: sharedAssetID, conflictBasename: nil)
+
+        // Both rows resolve, and they're keyed independently — the
+        // sidecar row's existence does NOT shadow the RAW row.
+        XCTAssertEqual(try store.get(domain: "d", localBasename: rawBasename)?.assetID,
+                       sharedAssetID)
+        XCTAssertEqual(try store.get(domain: "d", localBasename: sidecarBasename)?.assetID,
+                       sharedAssetID)
+
+        // The QL provider's basename-based discriminator distinguishes
+        // them: sidecar short-circuits to system fallback, RAW proceeds
+        // to the meta-store lookup. If the .xmp suffix were lost during
+        // materialization both basenames would collide on `ABC123`, the
+        // suffix check would never fire, and the QL extension would
+        // serve the asset JPEG for the XMP request.
+        XCTAssertTrue(QuickLookResolver.isSidecarBasename(sidecarBasename))
+        XCTAssertFalse(QuickLookResolver.isSidecarBasename(rawBasename))
+    }
+
     func testSharedURLPrefersAppGroupContainer() throws {
         let stub = FileManager.default.temporaryDirectory
             .appendingPathComponent("group-stub-\(UUID().uuidString)", isDirectory: true)

@@ -174,9 +174,15 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
                 let parsed = try FileProviderIdentifier(rawValue: itemIdentifier.rawValue)
                 let manager = NSFileProviderManager(for: domain)
                 let tmpDir = (try? manager?.temporaryDirectoryURL()) ?? FileManager.default.temporaryDirectory
-                let localURL = tmpDir.appendingPathComponent(UUID().uuidString)
                 switch parsed {
                 case .asset(let id):
+                    // RAW: materialize under a random extensionless basename.
+                    // The identifier carries no extension, so we can't append
+                    // one here without a catalog round-trip — Quick Look
+                    // discriminates RAW vs. sidecar by the *absence* of the
+                    // `.xmp` suffix below, so an extensionless basename for
+                    // RAWs is the contract.
+                    let localURL = tmpDir.appendingPathComponent(UUID().uuidString)
                     try await catalog.downloadAsset(assetID: id, to: localURL)
                     self.recordMeta(domain: self.domain.identifier.rawValue,
                                     localBasename: localURL.lastPathComponent,
@@ -185,6 +191,15 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
                     completionHandler(localURL, nil, nil)
                     return
                 case .sidecar(let assetID, let conflictBasename):
+                    // Sidecar: preserve the `.xmp` extension on the
+                    // materialized URL so the Quick Look extension can tell
+                    // sidecars apart from RAWs by basename alone (the meta
+                    // store keys on `local_basename`, and a canonical
+                    // sidecar's `conflict_basename` is NULL — without the
+                    // extension preserved, MaplePreviewProvider's `.xmp`
+                    // guard could not distinguish the two and would serve
+                    // the asset JPEG for an XMP Quick Look request.
+                    let localURL = tmpDir.appendingPathComponent(UUID().uuidString + ".xmp")
                     let bytes = try await catalog.getXMP(assetID: assetID, conflictBasename: conflictBasename)
                     try bytes.write(to: localURL, options: .atomic)
                     self.recordMeta(domain: self.domain.identifier.rawValue,
