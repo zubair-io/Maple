@@ -132,4 +132,76 @@ final class RemoteCatalogPagingTests: XCTestCase {
     XCTAssertTrue(hits[1].contains("cursor=page2"))
   }
 
+  /// Asset-lookup variant: the matching image is on page 1, so the helper
+  /// must NOT fetch the second page even though it advertises one.
+  func testFindAssetIDStopsOnFirstPageMatch() async throws {
+    StubURLProtocol.register()
+    StubURLProtocol.reset()
+    var hits = 0
+    StubURLProtocol.handler = { _ in
+      hits += 1
+      let body = #"""
+      {"path":"/p","parent":"/","dirs":[],"images":[{"name":"IMG_1.ARW","path":"/p/IMG_1.ARW","mtime":"2026-05-16T00:00:00Z","size":3,"ext":"arw","id":"deadbeef"}],"sidecars":[],"next_cursor":"page2"}
+      """#
+      return (200, Data(body.utf8), [:])
+    }
+    let session = TestURLSession.make()
+    let http = AuthenticatedHTTPClient(
+      server: URL(string: "https://x.test")!,
+      urlSession: session,
+      tokensProvider: { AuthTokens(access: "A1", refresh: "R1") },
+      onSignOut: {}
+    )
+    let catalog = RemoteCatalog(http: http,
+                                server: URL(string: "https://x.test")!,
+                                downloadURLSession: session)
+    let id = try await FileProviderExtensionCore.findAssetID(
+      catalog: catalog,
+      absolutePath: "/p",
+      canonicalBase: "IMG_1"
+    )
+    XCTAssertEqual(id, "deadbeef")
+    XCTAssertEqual(hits, 1, "expected one call; got \(hits)")
+  }
+
+  /// Asset-lookup variant: match on the third (final) page. Verifies the
+  /// helper follows the cursor chain and terminates when next_cursor is nil.
+  func testFindAssetIDExhaustsCursorChain() async throws {
+    StubURLProtocol.register()
+    StubURLProtocol.reset()
+    var hits: [String] = []
+    StubURLProtocol.handler = { req in
+      let q = req.url?.query ?? ""
+      hits.append(q)
+      // Determine page number from cursor query (none, page2, page3).
+      if q.contains("cursor=page3") {
+        let body = #"""
+        {"path":"/p","parent":"/","dirs":[],"images":[{"name":"IMG_1.ARW","path":"/p/IMG_1.ARW","mtime":"2026-05-16T00:00:00Z","size":3,"ext":"arw","id":"feedface"}],"sidecars":[]}
+        """#
+        return (200, Data(body.utf8), [:])
+      }
+      let next = q.contains("cursor=page2") ? "page3" : "page2"
+      let body = """
+      {"path":"/p","parent":"/","dirs":[],"images":[],"sidecars":[],"next_cursor":"\(next)"}
+      """
+      return (200, Data(body.utf8), [:])
+    }
+    let session = TestURLSession.make()
+    let http = AuthenticatedHTTPClient(
+      server: URL(string: "https://x.test")!,
+      urlSession: session,
+      tokensProvider: { AuthTokens(access: "A1", refresh: "R1") },
+      onSignOut: {}
+    )
+    let catalog = RemoteCatalog(http: http,
+                                server: URL(string: "https://x.test")!,
+                                downloadURLSession: session)
+    let id = try await FileProviderExtensionCore.findAssetID(
+      catalog: catalog,
+      absolutePath: "/p",
+      canonicalBase: "IMG_1"
+    )
+    XCTAssertEqual(id, "feedface")
+    XCTAssertEqual(hits.count, 3)
+  }
 }
