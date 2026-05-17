@@ -81,6 +81,33 @@ final class WorkingSetTests: XCTestCase {
         XCTAssertFalse(ids.contains("recent/old"))
     }
 
+    func testConcurrentUpsertsDoNotCrash() async {
+        // Stress test for the NSLock-guarded internal state. Without the
+        // lock this would crash under TSAN / sometimes in production via
+        // a Swift dictionary mutation race.
+        let ws = WorkingSet(capacity: 5_000)
+        await withTaskGroup(of: Void.self) { group in
+            for taskIdx in 0..<8 {
+                group.addTask {
+                    for i in 0..<1_000 {
+                        let id = "asset/\(taskIdx)/\(i)"
+                        ws.upsert(identifier: id,
+                                  kind: .recent,
+                                  lastTouched: Date())
+                        if i % 4 == 0 {
+                            _ = ws.entry(for: id)
+                        }
+                        if i % 7 == 0 {
+                            ws.remove(identifier: id)
+                        }
+                    }
+                }
+            }
+        }
+        // Cap should still hold.
+        XCTAssertLessThanOrEqual(ws.count(), 5_000)
+    }
+
     func testEvictsActiveOnlyAfterRecentExhausted() {
         let ws = WorkingSet(capacity: 2)
         let now = Date()
