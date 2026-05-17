@@ -52,6 +52,26 @@ extension RemoteCatalog {
         return try decoder.decode(ChangesPage.self, from: data)
     }
 
+    /// GET /api/assets/:id — fetch a single asset's metadata. Used by
+    /// `FileProviderExtension.item(for:)` to resolve a bare `.asset(id)`
+    /// identifier (e.g. one delivered through `enumerateChanges`) into a
+    /// real `MapleItem` with filename + mtime + size. Returns nil on 404
+    /// so the caller can map to `noSuchItem` without distinguishing.
+    public func getAsset(assetID: String) async throws -> AssetMetadata? {
+        try Self.validateAssetID(assetID)
+        let req = URLRequest(url: server.appending(path: "/api/assets/\(assetID)"))
+        let (data, resp) = try await http.data(for: req)
+        let code = (resp as? HTTPURLResponse)?.statusCode ?? -1
+        if code == 404 { return nil }
+        try Self.check2xx(resp)
+        let decoder = JSONDecoder()
+        // The server stamps `mtime` in epoch MILLISECONDS for this
+        // route (it's a passthrough of `AssetDoc.mtime`). The
+        // `/api/assets` list endpoint normalises to seconds; we mirror
+        // that conversion here in `AssetMetadata.contentModificationDate`.
+        return try decoder.decode(AssetMetadata.self, from: data)
+    }
+
     /// GET /api/assets — list endpoint with the three working-set
     /// filters (favourites, xmp-bearing, recent). Passing nil for a
     /// filter omits it; `limit` defaults to 1000 (max 20 000 server-side).

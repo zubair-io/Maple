@@ -18,6 +18,11 @@ final class ChangeFeedClient {
     private let cursorStore: ChangeCursorStore
     private let domainID: String
     private let onEvent: @Sendable (AssetChange) async -> Void
+    /// Called when the server returns 409 with its `current` cursor.
+    /// The extension uses this to signal `.workingSet` so the OS does a
+    /// full re-enumeration. Optional so tests can inject without
+    /// touching `NSFileProviderManager`.
+    private let onStaleCursor: (@Sendable (Int64) async -> Void)?
     private let log = Logger(subsystem: "app.justmaple.aperture.fileprovider",
                              category: "change-feed")
     private var task: Task<Void, Never>?
@@ -26,12 +31,14 @@ final class ChangeFeedClient {
          tokensProvider: @escaping @Sendable () -> AuthTokens?,
          cursorStore: ChangeCursorStore,
          domainID: String,
-         onEvent: @escaping @Sendable (AssetChange) async -> Void) {
+         onEvent: @escaping @Sendable (AssetChange) async -> Void,
+         onStaleCursor: (@Sendable (Int64) async -> Void)? = nil) {
         self.server = server
         self.tokensProvider = tokensProvider
         self.cursorStore = cursorStore
         self.domainID = domainID
         self.onEvent = onEvent
+        self.onStaleCursor = onStaleCursor
     }
 
     func start() {
@@ -79,12 +86,41 @@ final class ChangeFeedClient {
         let (bytes, resp) = try await URLSession.shared.bytes(for: req)
         let code = (resp as? HTTPURLResponse)?.statusCode ?? -1
         if code == 409 {
-            // Server says our cursor is too old. Reset to 0 and let the
-            // next reconnect catch up via replay-from-zero; the
-            // working-set enumerator will full-re-enumerate on the next
-            // OS poll thanks to the syncAnchorExpired throw.
-            log.notice("SSE 409 stale cursor; resetting to 0")
-            cursorStore.reset(domain: domainID)
+            // Server tells us our cursor is below the buffer floor.
+            // Old behaviour was `cursorStore.reset(domain:)`, which
+            // pushed since back to 0 — on a server that has had many
+            // events, since=0 ALSO trips the 409 path, so the client
+            // livelocked reconnecting. Instead:
+            //
+            //   1. Read the server's `current` cursor from the 409 body
+            //      and jump to it. We've missed every event between our
+            //      stale `since` and `current`, so step (2) reconciles.
+            //   2. Trigger working-set re-enumeration via the host's
+            //      `onStaleCursor` callback (FileProviderExtension
+            //      signals `.workingSet` so the OS pulls fresh state).
+            //
+            // The 409 body shape mirrors `StaleCursorError` (see
+            // RemoteCatalog+Changes.swift): `{ "error": ..., "current": N }`.
+            // A malformed body falls back to a reset; the worst-case
+            // recovery is one more 409 cycle that hits the same path.
+            var serverCurrent: Int64 = 0
+            var bodyBytes = Data()
+            for try await byte in bytes {
+                bodyBytes.append(byte)
+                if bodyBytes.count > 4096 { break }
+            }
+            struct StaleBody: Decodable { let current: Int64? }
+            if let parsed = try? JSONDecoder().decode(StaleBody.self, from: bodyBytes),
+               let current = parsed.current {
+                serverCurrent = current
+            }
+            log.notice("SSE 409 stale cursor; advancing to server current=\(serverCurrent)")
+            if serverCurrent > 0 {
+                cursorStore.save(serverCurrent, domain: domainID)
+            } else {
+                cursorStore.reset(domain: domainID)
+            }
+            await onStaleCursor?(serverCurrent)
             return
         }
         guard (200..<300).contains(code) else {
@@ -100,10 +136,17 @@ final class ChangeFeedClient {
             if line.isEmpty {
                 if !dataBuffer.isEmpty {
                     if let ev = decodeEvent(dataBuffer) {
+                        // J: dispatch BEFORE we persist the cursor.
+                        // Previously the save ran first and any crash /
+                        // throw inside `onEvent` would leave the cursor
+                        // advanced past an event that never landed in
+                        // the working set, losing it forever. Saving
+                        // after a successful await means a crash here
+                        // replays the event on next reconnect.
+                        await onEvent(ev)
                         if let idStr = idBuffer, let id = Int64(idStr) {
                             cursorStore.save(id, domain: domainID)
                         }
-                        await onEvent(ev)
                     }
                 }
                 dataBuffer = ""
