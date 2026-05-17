@@ -250,12 +250,6 @@ export const foldersRoutes = new Elysia({ prefix: "/api/folders" })
       }
 
       const absPath = nodePath.join(folder.path, target);
-      // Refuse overwrite of an existing file.
-      try {
-        await stat(absPath);
-        set.status = 409;
-        return { error: "file exists", abs_path: absPath };
-      } catch { /* free */ }
 
       // Body comes in as an ArrayBuffer when `type: "arrayBuffer"` is set.
       const bytes = body instanceof ArrayBuffer
@@ -268,6 +262,35 @@ export const foldersRoutes = new Elysia({ prefix: "/api/folders" })
 
       const dir = nodePath.dirname(absPath);
       await mkdir(dir, { recursive: true });
+
+      // Atomically claim the target with O_EXCL (`open(..., "wx")`) so
+      // two concurrent uploads to the same target can't both pass an
+      // existence check and race to overwrite each other. The earlier
+      // stat-then-rename pattern had a TOCTOU window where both writers
+      // saw "free" and the second silently won. EEXIST → 409.
+      //
+      // We still tmp+rename the actual bytes for crash-safety: claim the
+      // target as a 0-byte placeholder, then write to a tmp file, then
+      // rename(tmp, target). The rename atomically replaces the
+      // placeholder; either we see the fully-written file or we see the
+      // empty placeholder (which the next attempt will collide on, which
+      // is the correct semantics — a partially-failed upload doesn't
+      // leak a half-written file under the user's intended path).
+      let claimed = false;
+      try {
+        const claimFh = await open(absPath, "wx");
+        await claimFh.close();
+        claimed = true;
+      } catch (err) {
+        const code = (err as { code?: string }).code;
+        if (code === "EEXIST") {
+          set.status = 409;
+          return { error: "file exists", abs_path: absPath };
+        }
+        set.status = 500;
+        return { error: `Upload claim failed: ${err instanceof Error ? err.message : String(err)}` };
+      }
+
       const tmp = nodePath.join(dir, `.upload-${randomUUID()}`);
       try {
         const fh = await open(tmp, "w");
@@ -280,6 +303,11 @@ export const foldersRoutes = new Elysia({ prefix: "/api/folders" })
         await rename(tmp, absPath);
       } catch (err) {
         try { await unlink(tmp); } catch {}
+        // Release the claim so a retry isn't blocked on a 0-byte
+        // placeholder we just orphaned.
+        if (claimed) {
+          try { await unlink(absPath); } catch {}
+        }
         set.status = 500;
         return { error: `Upload write failed: ${err instanceof Error ? err.message : String(err)}` };
       }
