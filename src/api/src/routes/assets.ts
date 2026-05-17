@@ -534,10 +534,32 @@ export const assetsRoutes = new Elysia({ prefix: "/api/assets" })
         set.status = 500;
         return { error: result.error };
       }
+      // Re-stat the restored file: `moveOutOfTrash` may have appended a
+      // `.restored[.N]` suffix on collision, so the doc's `filename`,
+      // `size`, and `mtime` must be refreshed to match the new on-disk
+      // state. Without this update the `{folder_id, filename}` unique
+      // index would still reserve the OLD filename, blocking re-upload
+      // with the same basename even though the file is at a new path.
+      const restoredFilename = path.basename(result.newAbsPath);
+      let restoredSize = doc.size;
+      let restoredMtimeIso = new Date().toISOString();
+      try {
+        const st = await stat(result.newAbsPath);
+        restoredSize = st.size;
+        restoredMtimeIso = new Date(st.mtimeMs).toISOString();
+      } catch (err) {
+        assetsLog.warn(
+          { absPath: result.newAbsPath, err: err instanceof Error ? err.message : String(err) },
+          "restore: stat of new path failed — using prior doc values",
+        );
+      }
       await coll.updateOne(
         { _id: id },
         { $set: {
             abs_path: result.newAbsPath,
+            filename: restoredFilename,
+            size: restoredSize,
+            mtime: restoredMtimeIso,
             deleted_at: null,
             original_path: null,
           } },
@@ -583,7 +605,17 @@ export const assetsRoutes = new Elysia({ prefix: "/api/assets" })
         folder_id: doc.folder_id,
         abs_path: result.newAbsPath,
       }).catch(() => {});
-      return { asset_id: id.toHexString(), abs_path: result.newAbsPath };
+      // `size` and `mtime` are included so the File Provider extension
+      // can synthesise the restored item's metadata directly from the
+      // response rather than statting `abs_path` (which is the SERVER's
+      // path, not the client's, and would fail/return zeros on the Mac).
+      return {
+        asset_id: id.toHexString(),
+        abs_path: result.newAbsPath,
+        filename: restoredFilename,
+        size: restoredSize,
+        mtime: restoredMtimeIso,
+      };
     },
     {
       body: t.Object({

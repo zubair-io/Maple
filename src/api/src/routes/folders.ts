@@ -344,7 +344,15 @@ export const foldersRoutes = new Elysia({ prefix: "/api/folders" })
       } as never);
 
       set.status = 201;
-      return { asset_id: _id.toHexString(), abs_path: absPath, size: st.size, mtime: st.mtimeMs };
+      // `mtime` is emitted as an ISO-8601 string (matches the rest of
+      // the API and the Swift `Date` decoder); the raw `st.mtimeMs`
+      // float would corrupt an `Int64` decoder client-side.
+      return {
+        asset_id: _id.toHexString(),
+        abs_path: absPath,
+        size: st.size,
+        mtime: new Date(st.mtimeMs).toISOString(),
+      };
     },
     {
       type: "arrayBuffer",
@@ -426,17 +434,24 @@ export const foldersRoutes = new Elysia({ prefix: "/api/folders" })
       const rootPrefix = folder.path.endsWith("/") ? folder.path : folder.path + "/";
       return {
         items: pageDocs.map((d) => {
-          const doc = d as unknown as { _id: ObjectId; filename: string; abs_path: string; size: number; mtime: number; deleted_at: string; original_path: string };
+          const doc = d as unknown as { _id: ObjectId; filename: string; abs_path: string; size: number; mtime: number | string; deleted_at: string; original_path: string };
           const orig = doc.original_path;
           const originalRel = orig.startsWith(rootPrefix) ? orig.slice(rootPrefix.length) : orig;
           const trashRel = doc.abs_path.startsWith(rootPrefix) ? doc.abs_path.slice(rootPrefix.length) : doc.abs_path;
+          // `doc.mtime` is stored as `fs.stat().mtimeMs` (a number) by
+          // the discover watcher, but may legacy-back as an ISO string
+          // from earlier rows. Always emit ISO-8601 over the wire so the
+          // Swift `Date` decoder works regardless.
+          const mtimeIso = typeof doc.mtime === "number"
+            ? new Date(doc.mtime).toISOString()
+            : doc.mtime;
           return {
             asset_id: doc._id.toHexString(),
             filename: doc.filename,
             original_relative_path: originalRel,
             trash_relative_path: trashRel,
             size: doc.size,
-            mtime: doc.mtime,
+            mtime: mtimeIso,
             deleted_at: doc.deleted_at,
           };
         }),
