@@ -91,6 +91,16 @@ public enum XMPWriteResult: Equatable, Sendable {
     case conflict(path: String, mtime: Date)
 }
 
+/// Thrown by `RemoteCatalog` when an asset ID fails shape validation
+/// before any URL is built. The shape is the 24-hex-char Mongo ObjectID
+/// produced by the API at `src/api/src/routes/assets.ts` (`new ObjectId(params.id)`).
+/// Anything else is either a programming error or a path-traversal
+/// attempt; in either case we refuse to interpolate it into the URL.
+public struct InvalidAssetIDError: Error, Equatable, Sendable {
+    public let assetID: String
+    public init(assetID: String) { self.assetID = assetID }
+}
+
 public actor RemoteCatalog {
     private let http: AuthenticatedHTTPClient
     private let server: URL
@@ -123,6 +133,7 @@ public actor RemoteCatalog {
     // Phase 1 simplification: full-body buffering. A 100MP RAW spikes ~150MB.
     // Acceptable on macOS; revisit with URLSession.download(for:) before iOS.
     public func downloadAsset(assetID: String, to localURL: URL) async throws {
+        try Self.validateAssetID(assetID)
         let req = URLRequest(url: server.appending(path: "/api/assets/\(assetID)/raw"))
         let (data, resp) = try await http.data(for: req)
         try Self.check2xx(resp)
@@ -134,11 +145,39 @@ public actor RemoteCatalog {
         guard (200..<300).contains(code) else { throw URLError(.badServerResponse) }
     }
 
+    /// Validates that `assetID` is a 24-character hex Mongo ObjectID.
+    /// Anything else cannot reach the server safely — the value is
+    /// interpolated into a URL path segment, and a string containing
+    /// `..`, `/`, or `%2F` would let an attacker pivot to other routes.
+    /// The API itself parses `new ObjectId(params.id)` (see
+    /// `src/api/src/routes/assets.ts`) so non-ObjectID input always 4xx's
+    /// server-side — guarding here means we never even open the socket.
+    static func validateAssetID(_ assetID: String) throws {
+        guard assetID.count == 24 else {
+            throw InvalidAssetIDError(assetID: assetID)
+        }
+        for scalar in assetID.unicodeScalars {
+            let v = scalar.value
+            let isDigit  = (0x30...0x39).contains(v)
+            let isLower  = (0x61...0x66).contains(v)  // a-f
+            let isUpper  = (0x41...0x46).contains(v)  // A-F
+            guard isDigit || isLower || isUpper else {
+                throw InvalidAssetIDError(assetID: assetID)
+            }
+        }
+    }
+
     /// GET /api/assets/<assetID>/thumb. Returns the JPEG bytes of the
     /// pre-baked preview. Throws on non-2xx — 404 in particular means
     /// "thumbnail not generated yet" and the Quick Look extension
     /// uses that signal to fall back to OS-default RAW materialization.
+    ///
+    /// Note: every spacebar press re-fetches the JPEG today. An ETag /
+    /// `If-None-Match` in-memory cache lands in Phase 5c (perf pass) and
+    /// is intentionally out of scope for 5a — see
+    /// `docs/superpowers/plans/2026-05-16-file-provider-phase5c-perf.md`.
     public func getThumb(assetID: String) async throws -> Data {
+        try Self.validateAssetID(assetID)
         let req = URLRequest(url: server.appending(path: "/api/assets/\(assetID)/thumb"))
         let (data, resp) = try await http.data(for: req)
         try Self.check2xx(resp)
@@ -150,6 +189,7 @@ public actor RemoteCatalog {
     /// the server's pairing rule (canonical base + " (conflict from …)"
     /// suffix, optionally with " (N)").
     public func getXMP(assetID: String, conflictBasename: String?) async throws -> Data {
+        try Self.validateAssetID(assetID)
         var comps = URLComponents(
             url: server.appending(path: "/api/assets/\(assetID)/xmp"),
             resolvingAgainstBaseURL: false,
@@ -180,6 +220,7 @@ public actor RemoteCatalog {
         deviceName: String,
         conflictBasename: String? = nil
     ) async throws -> XMPWriteResult {
+        try Self.validateAssetID(assetID)
         var comps = URLComponents(
             url: server.appending(path: "/api/assets/\(assetID)/xmp"),
             resolvingAgainstBaseURL: false,
@@ -217,6 +258,7 @@ public actor RemoteCatalog {
 
     /// DELETE /api/assets/<assetID>/xmp[?conflict=<basename>]. Idempotent.
     public func deleteXMP(assetID: String, conflictBasename: String? = nil) async throws {
+        try Self.validateAssetID(assetID)
         var comps = URLComponents(
             url: server.appending(path: "/api/assets/\(assetID)/xmp"),
             resolvingAgainstBaseURL: false,
