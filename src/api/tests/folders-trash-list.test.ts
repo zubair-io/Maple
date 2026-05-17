@@ -84,11 +84,15 @@ describe("GET /api/folders/:id/trash", () => {
       headers: { Authorization: BEARER },
     }));
     expect(res.status).toBe(200);
-    const body = await res.json() as { items: Array<{ filename: string; original_relative_path: string; deleted_at: string }>; next_cursor: string | null };
+    const body = await res.json() as { items: Array<{ filename: string; original_relative_path: string; deleted_at: string; mtime: string }>; next_cursor: string | null };
     expect(body.items).toHaveLength(3);
     expect(body.items[0].filename).toBe("T0.ARW");
     expect(body.items[2].filename).toBe("T2.ARW");
     expect(body.items[0].original_relative_path).toBe("T0.ARW");
+    // mtime must be emitted as ISO-8601 (not epoch-ms float) — the
+    // Swift Date decoder cannot otherwise consume it.
+    expect(typeof body.items[0].mtime).toBe("string");
+    expect(body.items[0].mtime).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
   });
 
   test("400 on non-numeric limit (regression: NaN→500 via .limit())", async () => {

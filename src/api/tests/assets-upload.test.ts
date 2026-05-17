@@ -72,9 +72,12 @@ describe("POST /api/folders/:id/upload", () => {
       "X-Maple-Target-Path": "2024/IMG_42.ARW",
     }));
     expect(res.status).toBe(201);
-    const body = await res.json() as { asset_id: string; abs_path: string; size: number };
+    const body = await res.json() as { asset_id: string; abs_path: string; size: number; mtime: string };
     expect(body.size).toBe(64);
     expect(body.abs_path).toBe(path.join(realTmpRoot, "2024", "IMG_42.ARW"));
+    // mtime must be ISO-8601 (Swift Date decoder expects this format).
+    expect(typeof body.mtime).toBe("string");
+    expect(body.mtime).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
     const onDisk = await fs.readFile(body.abs_path);
     expect(onDisk.byteLength).toBe(64);
 
