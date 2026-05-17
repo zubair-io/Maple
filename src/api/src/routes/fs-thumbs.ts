@@ -23,6 +23,7 @@ import { ffiPool } from "../ffi/ffi-pool.ts";
 import { renderImageThumbToFile, SHARP_EXTENSIONS } from "../thumbs/render.ts";
 import { applyExifOrientationInPlace } from "../thumbs/apply-orientation.ts";
 import { child as childLogger } from "../log.ts";
+import { ifNoneMatchEqual } from "../runtime/http-etag.ts";
 
 const log = childLogger("fs-thumbs");
 
@@ -32,7 +33,7 @@ const MAX_SIZE_PX = 4096;
 
 export const fsThumbsRoutes = new Elysia({ prefix: "/api/fs" }).get(
   "/thumb",
-  async ({ query, set }) => {
+  async ({ query, headers, set }) => {
     const reqPath = query.path;
     const sizeStr = query.size ?? String(DEFAULT_SIZE_PX);
     const sizePx = Number.parseInt(sizeStr, 10);
@@ -112,12 +113,18 @@ export const fsThumbsRoutes = new Elysia({ prefix: "/api/fs" }).get(
     const rawMtimeMs = rawStat.mtimeMs;
     const etag = `"${Math.floor(rawMtimeMs)}"`;
 
-    // If-None-Match handling — return 304 when the client already has the
-    // freshest thumb. (Optional but cheap.)
-    // Note: Elysia query/header access uses Web standard request shape,
-    // but we don't have direct access here without `request` — keep this
-    // simple and just always serve bytes. Frontend cache will use the
-    // Cache-Control: max-age path.
+    // If-None-Match short-circuit. The File Provider extension caches
+    // thumb bytes keyed on this ETag; matching ETag returns 304 with an
+    // empty body so the extension can reuse its in-memory copy.
+    const ifNoneMatch = headers["if-none-match"];
+    if (
+      ifNoneMatchEqual(
+        typeof ifNoneMatch === "string" ? ifNoneMatch : undefined,
+        etag,
+      )
+    ) {
+      return new Response(null, { status: 304, headers: { ETag: etag } });
+    }
 
     let thumbStat: Awaited<ReturnType<typeof stat>> | null = null;
     try {
