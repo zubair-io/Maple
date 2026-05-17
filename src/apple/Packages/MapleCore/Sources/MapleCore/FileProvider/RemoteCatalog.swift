@@ -102,8 +102,8 @@ public struct InvalidAssetIDError: Error, Equatable, Sendable {
 }
 
 public actor RemoteCatalog {
-    private let http: AuthenticatedHTTPClient
-    private let server: URL
+    internal let http: AuthenticatedHTTPClient
+    internal let server: URL
     private let decoder: JSONDecoder = {
         let d = JSONDecoder()
         d.dateDecodingStrategy = .iso8601
@@ -140,7 +140,7 @@ public actor RemoteCatalog {
         try data.write(to: localURL, options: .atomic)
     }
 
-    private static func check2xx(_ resp: URLResponse) throws {
+    internal static func check2xx(_ resp: URLResponse) throws {
         let code = (resp as? HTTPURLResponse)?.statusCode ?? -1
         guard (200..<300).contains(code) else { throw URLError(.badServerResponse) }
     }
