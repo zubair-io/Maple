@@ -74,6 +74,52 @@ final class MapleItem: NSObject, NSFileProviderItem {
     /// filename without its extension (e.g. "IMG_1" for "IMG_1.ARW");
     /// used to decide canonical vs. conflict-copy by comparing against
     /// the sidecar's on-disk name.
+    /// Builds an item from an AssetListEntry returned by the working-set
+    /// seeding queries. We don't have full metadata (no extension via the
+    /// list endpoint — fall back to deriving from `filename`), so this is
+    /// a lightweight placeholder. The OS uses the parent identifier
+    /// (.workingSet) only as a routing hint; folder enumeration still
+    /// re-attaches the item to its real container.
+    init(workingSetEntry e: AssetListEntry) {
+        self.identifier = .asset(e.id)
+        self.displayName = e.filename
+        self.isDirectory = false
+        // The list endpoint doesn't carry size; that's OK — the OS will
+        // fetch the real bytes on demand via fetchContents.
+        self.size = nil
+        // AssetListEntry.mtime is epoch seconds (matches the AssetDoc
+        // schema's `mtime` field).
+        self.modified = Date(timeIntervalSince1970: TimeInterval(e.mtime))
+        let ext = (e.filename as NSString).pathExtension
+        self.utType = UTType(filenameExtension: ext) ?? .data
+        self.writeCapabilities = [.allowsReading]
+        self.itemIdentifier = NSFileProviderItemIdentifier(self.identifier.rawValue)
+        self.parentItemIdentifier = .workingSet
+        self.filename = e.filename
+    }
+
+    /// Minimal item returned by enumerateChanges for non-delete events
+    /// when we only have a cursor + assetID. The OS will call
+    /// `item(for:)` to pick up real metadata; this stub exists so the
+    /// itemVersion bumps and tells the OS to re-read.
+    init(stubAssetID assetID: String, cursor: Int64) {
+        self.identifier = .asset(assetID)
+        self.displayName = "(stub)"
+        self.isDirectory = false
+        self.size = nil
+        // Encode the cursor in the modified date so `itemVersion`
+        // (which derives both content + metadata versions from
+        // `modified.timeIntervalSince1970`) bumps on every delta. A
+        // follow-up phase should add a per-asset metadata GET so
+        // enumerateChanges can hand back real items in one round-trip.
+        self.modified = Date(timeIntervalSince1970: TimeInterval(cursor))
+        self.utType = .data
+        self.writeCapabilities = [.allowsReading]
+        self.itemIdentifier = NSFileProviderItemIdentifier(self.identifier.rawValue)
+        self.parentItemIdentifier = .workingSet
+        self.filename = "(stub)"
+    }
+
     init(sidecar: SidecarChild, parentImageBase: String, parentIdentifier: NSFileProviderItemIdentifier) {
         let canonicalName = "\(parentImageBase).xmp"
         let isCanonical = sidecar.name.caseInsensitiveCompare(canonicalName) == .orderedSame
