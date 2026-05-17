@@ -16,6 +16,14 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
     /// open failure must not break the FP extension — Quick Look will
     /// degrade to OS-default RAW materialization in that case.
     private let metaStore: FileProviderMetaStore?
+    /// Bounded working-set table. Reused across every WorkingSetEnumerator
+    /// the OS instantiates within a single extension lifetime.
+    private let workingSet: WorkingSet
+    private let cursorStore: ChangeCursorStore
+    private let workingSetListCache: WorkingSetListCache?
+    /// Long-lived SSE consumer. Started in init when not dormant; stopped
+    /// on `invalidate()`. nil while dormant.
+    private var changeFeed: ChangeFeedClient?
 
     required init(domain: NSFileProviderDomain) {
         self.domain = domain
@@ -34,6 +42,9 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
             self.rootCache = nil
             self.deviceName = resolvedDeviceName
             self.metaStore = resolvedMetaStore
+            self.workingSet = WorkingSet(capacity: 20_000)
+            self.cursorStore = ChangeCursorStore()
+            self.workingSetListCache = nil
             super.init()
             log.notice("init dormant — no config for domain \(domain.identifier.rawValue, privacy: .public)")
             return
@@ -49,12 +60,31 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
             onSignOut: { tokensStore.remove(domain: domainID) }
         )
         let catalog = RemoteCatalog(http: http, server: cfg.serverURL)
+        let resolvedWorkingSet = WorkingSet(capacity: 20_000)
+        let resolvedCursorStore = ChangeCursorStore()
         self.dormant = false
         self.catalog = catalog
         self.rootCache = LibraryRootCache(catalog: catalog)
         self.deviceName = resolvedDeviceName
         self.metaStore = resolvedMetaStore
+        self.workingSet = resolvedWorkingSet
+        self.cursorStore = resolvedCursorStore
+        self.workingSetListCache = WorkingSetListCache(catalog: catalog)
         super.init()
+        // Wire up the SSE client after super.init so we can capture self.
+        // Tokens are read on every reconnect — they're refreshed by the
+        // host app and we don't want to hold a stale snapshot.
+        self.changeFeed = ChangeFeedClient(
+            server: cfg.serverURL,
+            tokensProvider: { tokensStore.load(domain: domainID) },
+            cursorStore: resolvedCursorStore,
+            domainID: domainID,
+            onEvent: { [weak self] event in
+                guard let self else { return }
+                await self.handleChangeEvent(event)
+            }
+        )
+        self.changeFeed?.start()
         log.info("init domain=\(domain.identifier.rawValue, privacy: .public)")
     }
 
@@ -63,7 +93,40 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
                 code: NSFileProviderError.notAuthenticated.rawValue)
     }
 
-    func invalidate() { log.info("invalidate") }
+    func invalidate() {
+        changeFeed?.stop()
+        log.info("invalidate")
+    }
+
+    // MARK: - Change-feed handling
+
+    /// Called by ChangeFeedClient on every SSE-delivered event. Updates
+    /// the working-set bookkeeping and signals the working-set
+    /// enumerator (and the affected folder, if any) so the OS pulls
+    /// the new state.
+    private func handleChangeEvent(_ event: AssetChange) async {
+        if let assetID = event.assetID {
+            let ident = FileProviderIdentifier.asset(assetID).rawValue
+            switch event.kind {
+            case .delete:
+                workingSet.remove(identifier: ident)
+            default:
+                workingSet.upsert(identifier: ident, kind: .recent,
+                                  lastTouched: event.at)
+            }
+        }
+        guard let mgr = NSFileProviderManager(for: domain) else { return }
+        try? await mgr.signalEnumerator(for: .workingSet)
+        if let folderID = event.folderID {
+            let folderIdent = NSFileProviderItemIdentifier(
+                FileProviderIdentifier.folder(folderID: folderID, relativePath: "").rawValue
+            )
+            try? await mgr.signalEnumerator(for: folderIdent)
+            // Folder counts may have shifted — drop the library-root cache
+            // so the next root enumeration re-reads.
+            await rootCache?.invalidate()
+        }
+    }
 
     // MARK: - Item lookup
 
@@ -237,7 +300,17 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
         if containerItemIdentifier == .rootContainer {
             return RootEnumerator(catalog: catalog, rootCache: rootCache)
         }
-        if containerItemIdentifier == .workingSet || containerItemIdentifier == .trashContainer {
+        if containerItemIdentifier == .workingSet {
+            guard let listCache = workingSetListCache else {
+                return EmptyEnumerator()
+            }
+            return WorkingSetEnumerator(catalog: catalog,
+                                        workingSet: workingSet,
+                                        cursorStore: cursorStore,
+                                        domainID: domain.identifier.rawValue,
+                                        listCache: listCache)
+        }
+        if containerItemIdentifier == .trashContainer {
             return EmptyEnumerator()
         }
         let parsed = try FileProviderIdentifier(rawValue: containerItemIdentifier.rawValue)
