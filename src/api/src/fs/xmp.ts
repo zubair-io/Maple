@@ -439,13 +439,15 @@ export async function listPairedSidecars(rawAbsPath: string): Promise<string[]> 
   } catch {
     return [];
   }
-  // Anchored: name must START with `<rawBase>` followed by either `.xmp`
-  // (canonical) or ` (conflict from <device>)` ... `.xmp` (variant). The
-  // character after rawBase must NOT be another filename-char, otherwise
-  // `IMG_1` would match `IMG_10.xmp`.
+  // Anchored: name is either `<rawBase>.xmp` (canonical) or
+  // `<rawBase> (conflict from <device>)[ (N)].xmp` (variant). The
+  // numeric `(N)` suffix is only valid AFTER a conflict-from suffix —
+  // a bare `<rawBase> (N).xmp` (e.g. `IMG_1 (2).xmp`) is NOT a paired
+  // sidecar and must not match, otherwise trash/purge would move
+  // unrelated XMP files with that name.
   const escaped = rawBase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const pattern = new RegExp(
-    `^${escaped}( \\(conflict from [^)]+\\))?( \\(\\d+\\))?\\.xmp$`,
+    `^${escaped}(?:\\.xmp| \\(conflict from [^)]+\\)(?: \\(\\d+\\))?\\.xmp)$`,
     "i",
   );
   return entries
