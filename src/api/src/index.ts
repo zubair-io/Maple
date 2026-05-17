@@ -84,6 +84,7 @@ import {
 } from "./enrichment/describe-bootstrap.ts";
 import { meilisearchClient } from "./enrichment/meilisearch-client.ts";
 import { startJobRunner, stopJobRunner } from "./job-runner/runner.ts";
+import { getChangeFeedTailer } from "./runtime/change-feed-tailer.ts";
 
 const PORT = Number(process.env.PORT ?? 3000);
 const CORS_ORIGIN = process.env.MAPLE_CORS_ORIGIN ?? "*";
@@ -291,6 +292,22 @@ async function start(): Promise<void> {
   getDb()
     .then(ensureIndexes)
     .then(() => log.info("DB ready"))
+    .then(async () => {
+      // Bridge cross-process change emissions: workers spawned by the
+      // supervisor live in child processes whose in-process bus is
+      // invisible to SSE clients connected here. The tailer polls
+      // `asset_changes` and republishes new rows to the parent bus so
+      // every SSE subscriber sees them. It is also the sole source of
+      // the bus's persisted high-watermark (see ChangeBus comments).
+      try {
+        await getChangeFeedTailer().start();
+      } catch (err) {
+        log.error(
+          { err: err instanceof Error ? err.message : err },
+          "change feed tailer failed to start",
+        );
+      }
+    })
     .then(async () => {
       // Auto-start the worker supervisor unless explicitly disabled
       // (`MAPLE_INDEXER_AUTOSTART=0`).
