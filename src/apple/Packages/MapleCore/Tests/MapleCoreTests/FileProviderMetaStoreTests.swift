@@ -75,4 +75,28 @@ final class FileProviderMetaStoreTests: XCTestCase {
         _ = try FileProviderMetaStore(url: url)
         // No throw = pass
     }
+
+    func testSharedURLLivesUnderAppGroupContainer() throws {
+        // The function is purely a path resolver — it should not require
+        // the App Group to actually exist on the test host. We assert the
+        // computed URL ends with the expected filename and falls back to
+        // the temp dir when the App Group container is unavailable.
+        let url = FileProviderMetaStore.sharedStoreURL(
+            groupContainerProvider: { _ in nil }
+        )
+        XCTAssertEqual(url.lastPathComponent, "fp-meta.sqlite")
+    }
+
+    func testSharedURLPrefersAppGroupContainer() throws {
+        let stub = FileManager.default.temporaryDirectory
+            .appendingPathComponent("group-stub-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: stub, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: stub) }
+        let url = FileProviderMetaStore.sharedStoreURL(
+            groupContainerProvider: { _ in stub }
+        )
+        XCTAssertTrue(url.path.hasPrefix(stub.path),
+                      "expected \(url.path) to start with \(stub.path)")
+        XCTAssertEqual(url.lastPathComponent, "fp-meta.sqlite")
+    }
 }

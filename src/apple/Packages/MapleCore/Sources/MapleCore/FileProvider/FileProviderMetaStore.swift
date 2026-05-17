@@ -170,3 +170,33 @@ private let SQLITE_TRANSIENT = unsafeBitCast(
     OpaquePointer(bitPattern: -1),
     to: sqlite3_destructor_type.self
 )
+
+extension FileProviderMetaStore {
+    public static let appGroupSuiteName = "group.app.justmaple.aperture"
+
+    /// Resolves the canonical on-disk URL for the shared store. Lives at
+    /// `<appGroup>/fp-meta.sqlite`. Falls back to a per-user temp path
+    /// when the App Group container is unavailable (e.g. an unsigned
+    /// dev build) — the FP extension will write somewhere readable but
+    /// the QL extension in a different process won't see it. The
+    /// resulting behaviour is graceful degradation: QL misses, OS
+    /// materializes the RAW the old way.
+    public static func sharedStoreURL(
+        groupContainerProvider: (String) -> URL? =
+            { FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: $0) }
+    ) -> URL {
+        if let container = groupContainerProvider(appGroupSuiteName) {
+            return container.appendingPathComponent("fp-meta.sqlite")
+        }
+        // Same basename as the App Group path so callers see a consistent
+        // file. The dirname differs (temp vs container) so the QL extension
+        // in a different process simply won't see writes — degraded mode.
+        return FileManager.default.temporaryDirectory
+            .appendingPathComponent("fp-meta.sqlite")
+    }
+
+    /// Convenience initializer that opens the canonical shared store.
+    public convenience init() throws {
+        try self.init(url: Self.sharedStoreURL())
+    }
+}
