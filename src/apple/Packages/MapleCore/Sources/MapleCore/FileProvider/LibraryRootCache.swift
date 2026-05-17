@@ -27,11 +27,13 @@ public actor LibraryRootCache {
 
     public init(domainID: String,
                 defaults: UserDefaults? = nil,
+                driftHandler: DriftHandler? = nil,
                 fetcher: @escaping Fetcher) {
         self.domainID = domainID
         self.defaults = defaults
             ?? UserDefaults(suiteName: FileProviderConfig.appGroupSuiteName)
             ?? .standard
+        self.driftHandler = driftHandler
         self.fetcher = fetcher
     }
 
