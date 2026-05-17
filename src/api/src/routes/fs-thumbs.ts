@@ -15,7 +15,7 @@
 // resolved and rejected if they fall outside any allowed root.
 
 import { Elysia, t } from "elysia";
-import { stat, readFile, realpath, mkdir } from "node:fs/promises";
+import { stat, readFile, writeFile, realpath, mkdir } from "node:fs/promises";
 import * as path from "node:path";
 import { browseRoots, isUnderRoot, RAW_EXTENSIONS } from "../fs/browse.ts";
 import { resolveThumbPath } from "../fs/xmp.ts";
@@ -144,7 +144,35 @@ export const fsThumbsRoutes = new Elysia({ prefix: "/api/fs" }).get(
       thumbStat = null;
     }
 
-    const fresh = thumbStat !== null && thumbStat.mtimeMs >= rawMtimeMs;
+    // Freshness MUST consider both the RAW mtime and the RAW size.
+    // The ETag composes both, so a stale-but-matching-mtime overwrite
+    // with a different size produces a fresh ETag — without the size
+    // gate here, the cached thumb would be reused and we'd serve
+    // stale JPEG bytes under the new ETag. The sidecar .meta file
+    // records the (mtimeMs, size) pair that produced the cached thumb.
+    let cachedMeta: { mtimeMs: number; size: number } | null = null;
+    if (thumbStat !== null) {
+      try {
+        const raw = await readFile(`${thumbPath}.meta`, "utf8");
+        const parsed = JSON.parse(raw) as { mtimeMs?: number; size?: number };
+        if (
+          typeof parsed.mtimeMs === "number" &&
+          typeof parsed.size === "number"
+        ) {
+          cachedMeta = { mtimeMs: parsed.mtimeMs, size: parsed.size };
+        }
+      } catch {
+        // Missing or unreadable meta — treat as stale and regenerate.
+        cachedMeta = null;
+      }
+    }
+
+    const fresh =
+      thumbStat !== null &&
+      thumbStat.mtimeMs >= rawMtimeMs &&
+      cachedMeta !== null &&
+      cachedMeta.mtimeMs === rawMtimeMs &&
+      cachedMeta.size === rawStat.size;
 
     if (fresh) {
       try {
@@ -218,6 +246,21 @@ export const fsThumbsRoutes = new Elysia({ prefix: "/api/fs" }).get(
           "orientation post-process failed; serving un-rotated thumb",
         );
       }
+    }
+
+    // Write the sidecar meta so the next request can verify the cache
+    // entry corresponds to the current (mtime, size) of the RAW. Best-
+    // effort: a failed meta write only forces a regenerate next time.
+    try {
+      await writeFile(
+        `${thumbPath}.meta`,
+        JSON.stringify({ mtimeMs: rawMtimeMs, size: rawStat.size }),
+      );
+    } catch (err) {
+      log.warn(
+        { thumbPath, err: err instanceof Error ? err.message : err },
+        "meta write failed; cache will regenerate on next request",
+      );
     }
 
     // Read the freshly written file back to serve. Cheap (thumbs <100 KB).
