@@ -15,8 +15,7 @@ import { createHash } from "node:crypto";
 
 export function computeBodyETag(body: string | Buffer | Uint8Array): string {
   const h = createHash("sha1");
-  if (typeof body === "string") h.update(body);
-  else h.update(body);
+  h.update(body);
   return `"${h.digest("hex")}"`;
 }
 
