@@ -41,4 +41,50 @@ final class ChangeCursorStoreTests: XCTestCase {
         store.reset(domain: "d")
         XCTAssertEqual(store.load(domain: "d"), 0)
     }
+
+    /// Cursors must never regress: a stale save (lower value) is
+    /// ignored. This is the in-process guard against a host-app race
+    /// clobbering a fresher extension save.
+    func testSaveNeverRegresses() {
+        let store = ChangeCursorStore(defaults: freshDefaults())
+        store.save(100, domain: "d")
+        store.save(50, domain: "d")
+        XCTAssertEqual(store.load(domain: "d"), 100)
+        store.save(99, domain: "d")
+        XCTAssertEqual(store.load(domain: "d"), 100)
+        store.save(101, domain: "d")
+        XCTAssertEqual(store.load(domain: "d"), 101)
+    }
+
+    /// Simulates two concurrent processes (host + extension) writing
+    /// to the same App Group suite. The higher cursor must win
+    /// regardless of arrival order — this is the behaviour the
+    /// extension relies on when the host occasionally checkpoints.
+    func testConcurrentProcessesPreserveHighestCursor() {
+        let suite = "test-cursorstore-shared-\(UUID().uuidString)"
+        let d1 = UserDefaults(suiteName: suite)!
+        let d2 = UserDefaults(suiteName: suite)!
+        // Two store instances against the same backing suite stand in
+        // for two processes sharing the App Group.
+        let host = ChangeCursorStore(defaults: d1)
+        let ext  = ChangeCursorStore(defaults: d2)
+
+        ext.save(500, domain: "d")
+        // Host writes a stale value (e.g. its cached cursor from
+        // before the extension's most recent SSE event).
+        host.save(400, domain: "d")
+        XCTAssertEqual(host.load(domain: "d"), 500)
+        XCTAssertEqual(ext.load(domain: "d"), 500)
+
+        // Host writes a newer value — now it should win.
+        host.save(600, domain: "d")
+        XCTAssertEqual(ext.load(domain: "d"), 600)
+
+        // Ext writes stale; load still reflects host's 600.
+        ext.save(550, domain: "d")
+        XCTAssertEqual(host.load(domain: "d"), 600)
+
+        // Cleanup.
+        d1.removePersistentDomain(forName: suite)
+    }
 }
