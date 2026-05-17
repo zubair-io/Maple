@@ -174,6 +174,65 @@ describe("POST /api/assets/:id/restore", () => {
     expect(doc.size).toBe(3);
   });
 
+  // Cat A3: cross-library restore must be rejected. The server's file
+  // move uses the asset's ORIGINAL folder root; restoring into a
+  // different library would silently land in the wrong place.
+  test("400 when target_folder_id != asset's folder_id (cross-library guard)", async () => {
+    if (!mongoReachable) return;
+    const { app } = await import("../src/index.ts");
+    const { assetId } = await trashedAsset("IMG_XLIB.ARW");
+    const otherFolderId = new ObjectId().toHexString();
+    const res = await app.handle(jsonReq(`http://localhost/api/assets/${assetId.toHexString()}/restore`, {
+      target_folder_id: otherFolderId,
+    }));
+    expect(res.status).toBe(400);
+    // Doc unchanged.
+    const doc = await db!.collection("assets").findOne({ _id: assetId }) as Record<string, unknown>;
+    expect(doc.deleted_at).toBeTruthy();
+  });
+
+  test("200 when target_folder_id matches asset's folder_id", async () => {
+    if (!mongoReachable) return;
+    const { app } = await import("../src/index.ts");
+    const { assetId } = await trashedAsset("IMG_XLIB_OK.ARW");
+    const res = await app.handle(jsonReq(`http://localhost/api/assets/${assetId.toHexString()}/restore`, {
+      target_folder_id: folderId.toHexString(),
+    }));
+    expect(res.status).toBe(200);
+  });
+
+  // Cat A4-restore: watcher race — if the discover watcher beat the
+  // route handler and upserted a fresh asset row at the restored
+  // abs_path, the route used to fail on the {folder_id, filename}
+  // unique index. Now we delete the watcher's transient row before
+  // updating.
+  test("restore wins over a watcher-inserted ghost row at the same abs_path", async () => {
+    if (!mongoReachable) return;
+    const { app } = await import("../src/index.ts");
+    const { assetId, originalPath } = await trashedAsset("IMG_WATCHER.ARW");
+    // Simulate the watcher: insert a transient row at the restore target.
+    const ghostId = new ObjectId();
+    await db!.collection("assets").insertOne({
+      _id: ghostId,
+      folder_id: folderId,
+      filename: "IMG_WATCHER.ARW",
+      abs_path: originalPath,
+      size: 99,
+      mtime: Date.now(),
+      indexed_at: new Date().toISOString(),
+      deleted_at: null,
+    } as never);
+
+    const res = await app.handle(jsonReq(`http://localhost/api/assets/${assetId.toHexString()}/restore`, {}));
+    expect(res.status).toBe(200);
+    // Ghost is gone, original asset row is now live at the restored path.
+    const ghost = await db!.collection("assets").findOne({ _id: ghostId });
+    expect(ghost).toBeNull();
+    const restored = await db!.collection("assets").findOne({ _id: assetId }) as Record<string, unknown>;
+    expect(restored.deleted_at).toBeNull();
+    expect(restored.abs_path).toBe(originalPath);
+  });
+
   test("409 when asset is not trashed", async () => {
     if (!mongoReachable) return;
     const { app } = await import("../src/index.ts");

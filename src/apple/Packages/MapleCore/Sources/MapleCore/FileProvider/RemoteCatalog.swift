@@ -511,15 +511,21 @@ public actor RemoteCatalog {
 
     /// POST /api/assets/<id>/restore. `targetRelativePath` is sent in the
     /// body when non-nil; server defaults to `original_path` otherwise.
-    /// Server appends `.restored[.N]` on collision; the new path comes
-    /// back in `RestoreResponse.absPath`.
-    public func restoreAsset(assetID: String, targetRelativePath: String?) async throws -> RestoreResponse {
+    /// `targetFolderID` is the new parent's library folder ID — the server
+    /// uses it to reject cross-library restores (Phase 3 only restores
+    /// into the asset's own library). Server appends `.restored[.N]` on
+    /// collision; the new path comes back in `RestoreResponse.absPath`.
+    public func restoreAsset(
+        assetID: String,
+        targetRelativePath: String?,
+        targetFolderID: String? = nil,
+    ) async throws -> RestoreResponse {
         var req = URLRequest(url: server.appending(path: "/api/assets/\(assetID)/restore"))
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        let body: [String: String] = targetRelativePath != nil
-            ? ["target_relative_path": targetRelativePath!]
-            : [:]
+        var body: [String: String] = [:]
+        if let targetRelativePath { body["target_relative_path"] = targetRelativePath }
+        if let targetFolderID { body["target_folder_id"] = targetFolderID }
         req.httpBody = try JSONSerialization.data(withJSONObject: body)
         let (data, resp) = try await http.data(for: req)
         try Self.check2xx(resp)
