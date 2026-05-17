@@ -5,7 +5,7 @@
 **Goal:** Make repeated enumerations and warm refreshes cheap. Add `ETag` + `If-None-Match` to the three enumeration responses (`/api/folders`, `/api/fs/dir`, `/api/assets/:id/thumb`), have the client send `If-None-Match` and reuse its in-memory decoded payload on 304. Prime the library-root list from a `UserDefaults`-backed disk cache so the first `enumerateItems` returns instantly while a background revalidation runs. Then conduct a single measured allocation/profile pass and fix what shows up — without speculating about what will.
 
 **Architecture:**
-1. Server: a `withETag()` Elysia helper that wraps a JSON-body handler. Computes `ETag` as `SHA-1(body)` (hex), checks the request's `If-None-Match` header, returns 304 when equal. Apply to `/api/folders`, `/api/fs/dir`. The thumb endpoint (`/api/assets/:id/thumb` and `/api/fs/thumb`) already computes an ETag from the file mtime; finish the `If-None-Match` check that's currently TODO.
+1. Server: a `withBodyETag()` Elysia helper that wraps a JSON-body handler. Computes `ETag` as `SHA-1(body)` (hex), checks the request's `If-None-Match` header, returns 304 when equal. Apply to `/api/folders`, `/api/fs/dir`. The thumb endpoint (`/api/assets/:id/thumb` and `/api/fs/thumb`) already computes an ETag from the file mtime; finish the `If-None-Match` check that's currently TODO.
 2. Client: `RemoteCatalog` grows an in-memory ETag-keyed response cache. Each cacheable call (folders, dir, thumb) reads the cached entry, sends `If-None-Match`, and on 304 returns the cached body. On 200 it replaces the entry.
 3. Client: `LibraryRootCache` persists to App Group `UserDefaults` and returns the cached list synchronously on `roots()` while triggering a background revalidation. The revalidation signals `.rootContainer` if it sees a change.
 4. Measurement: an `os_signpost`-instrumented run captures before/after for two scenarios (cold Finder open, warm Refresh). Numbers go in the PR description, not a CI test.
@@ -234,9 +234,17 @@ export function ifNoneMatchEqual(
   serverEtag: string
 ): boolean {
   if (!clientHeader) return false;
-  if (clientHeader.trim() === "*") return true;
-  const norm = (s: string) => s.startsWith("W/") ? s.slice(2) : s;
-  return norm(clientHeader.trim()) === norm(serverEtag);
+  const trimmed = clientHeader.trim();
+  if (trimmed === "*") return true;
+  // RFC 9110 §13.1.2 — If-None-Match may carry a comma-separated list of
+  // validators. Split, strip the optional W/ weak prefix on each side,
+  // and return true if any tag matches.
+  const norm = (s: string) => {
+    const t = s.trim();
+    return t.startsWith("W/") ? t.slice(2) : t;
+  };
+  const serverNorm = norm(serverEtag);
+  return trimmed.split(",").some(tag => norm(tag) === serverNorm);
 }
 ```
 
@@ -1049,15 +1057,21 @@ public actor LibraryRootCache {
         guard inflight == nil else { return }
         let primed = memoryCache
         inflight = Task { [weak self, fetcher] in
+            // `defer` here guarantees `inflight` is cleared whether the
+            // fetcher succeeds or throws — otherwise a single failure
+            // would leave `inflight` non-nil forever and every subsequent
+            // `runFetcher` call would await a dead task.
+            defer { Task { await self?.clearInflight() } }
             let fresh = try await fetcher()
             await self?.applyRevalidation(fresh: fresh, primed: primed)
             return fresh
         }
     }
 
+    private func clearInflight() { inflight = nil }
+
     private func applyRevalidation(fresh: [LibraryRoot],
                                     primed: [LibraryRoot]?) {
-        defer { inflight = nil }
         memoryCache = fresh
         if let data = try? JSONEncoder().encode(fresh) {
             defaults.set(data, forKey: diskKey)
@@ -1069,8 +1083,16 @@ public actor LibraryRootCache {
     }
 
     private func runFetcher() async throws -> [LibraryRoot] {
-        if let t = inflight { return try await t.value }
-        let task = Task { [fetcher] in try await fetcher() }
+        if let t = inflight {
+            // Awaiting a sibling Task that's about to clear `inflight` in
+            // its own `defer` is fine — the await unblocks before the
+            // defer runs.
+            return try await t.value
+        }
+        let task = Task { [fetcher] () async throws -> [LibraryRoot] in
+            defer { Task { await self.clearInflight() } }
+            return try await fetcher()
+        }
         inflight = task
         let fresh = try await task.value
         applyRevalidation(fresh: fresh, primed: memoryCache)

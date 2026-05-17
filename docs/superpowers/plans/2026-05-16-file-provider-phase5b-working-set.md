@@ -182,7 +182,7 @@ git commit -m "feat(api): add asset_changes + server_state schema for FP change 
 - Create: `src/api/src/db/changes.repo.ts`
 - Create: `src/api/src/db/changes.repo.test.ts`
 
-The cursor allocator must guarantee monotonicity across concurrent writers. Pattern: `findOneAndUpdate({_id: "asset_changes_cursor"}, {$inc: {seq: 1}}, {upsert: true, returnDocument: "after"})`. Mongo's `$inc` is atomic at the document level; concurrent allocators get distinct values with no gaps.
+The cursor allocator must guarantee monotonicity across concurrent writers. Pattern: `findOneAndUpdate({_id: "asset_changes_cursor"}, {$inc: {seq: 1}}, {upsert: true, returnDocument: "after"})`. Mongo's `$inc` is atomic at the document level; concurrent allocators get distinct, monotonically increasing values. Note: gaps in the sequence are possible because the next paragraph allows change-row insert failures (cursor already allocated by the time we attempt the insert). What's guaranteed is monotonicity, not contiguity — clients tolerate gaps via the 409 stale-cursor path.
 
 The change row is inserted carrying the allocated cursor. If the insert fails (network, duplicate-key on a retry), we log and move on — the system tolerates lost events because clients can poll the catch-up route or re-enumerate.
 
