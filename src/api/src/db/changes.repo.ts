@@ -10,7 +10,7 @@
  * gaps via the cursor-too-old 409 path which triggers full re-enumeration.
  */
 
-import type { Db, ObjectId } from "mongodb";
+import { ObjectId, type Db } from "mongodb";
 import { assetChangesCollection, serverStateCollection } from "./client.ts";
 import type {
   AssetChangeDoc,
@@ -55,6 +55,26 @@ export interface RecordChangeInput {
  * sequence). Callers should NOT block their primary write on this — the
  * recommended pattern is to call this AFTER a successful asset mutation
  * and let exceptions bubble only for logging.
+ *
+ * Invariant — cursors are monotonic but NOT contiguous. The allocate
+ * step ($inc on server_state) and the insert step are two separate
+ * Mongo ops; if the insert fails after the allocate succeeds we leak a
+ * cursor and leave a gap in `asset_changes`. Consumers must tolerate
+ * gaps:
+ *   - The HTTP poll path filters `cursor > since` and returns whatever
+ *     is present.
+ *   - The SSE replay path filters `cursor > since` against the in-proc
+ *     ring buffer (which only sees successful publishes, so gaps are
+ *     invisible there but reappear after restart).
+ *   - The Apple `ChangeFeedClient` saves the highest id it has seen
+ *     from the SSE `id:` field and reconnects with that as `since`;
+ *     it does not require `id == since + 1`.
+ *   - `ChangeBus.isCursorReplayable(since)` checks `since + 1 >= floor`,
+ *     which is correct under gaps (if floor > since + 1 the client
+ *     can't be brought up to date by replay regardless of why the
+ *     intermediate cursors are missing).
+ * Do NOT introduce a Mongo transaction here — the codebase intentionally
+ * avoids transactions, and the tolerate-gaps model is sufficient.
  */
 export async function recordAssetChange(
   dbOverride: Db | undefined,
@@ -112,12 +132,22 @@ export async function recordAndPublishAssetChange(
   input: RecordChangeInput
 ): Promise<void> {
   try {
+    // Allocate + insert in Mongo, then publish to the bus locally from
+    // the cursor + input. We avoid an extra `findOne({cursor})` round
+    // trip: the bus payload is reconstructable from what we already
+    // have (the `_id` we synthesize is unused by SSE consumers — they
+    // only see the serialised SSE form, which strips `_id`).
     const cursor = await recordAssetChange(undefined, input);
-    const coll = await assetChangesCollection();
-    const inserted = await coll.findOne({ cursor });
-    if (inserted) {
-      getChangeBus().publish(inserted as AssetChangeWithId);
-    }
+    const synthetic: AssetChangeWithId = {
+      _id: new ObjectId(),
+      cursor,
+      asset_id: input.asset_id,
+      folder_id: input.folder_id,
+      kind: input.kind,
+      abs_path: input.abs_path,
+      at: new Date(),
+    } as AssetChangeWithId;
+    getChangeBus().publish(synthetic);
   } catch (err) {
     log.warn(
       { err, kind: input.kind, abs_path: input.abs_path },
