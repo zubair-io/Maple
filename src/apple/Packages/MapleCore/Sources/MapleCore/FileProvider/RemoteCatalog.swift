@@ -110,24 +110,69 @@ public actor RemoteCatalog {
         return d
     }()
 
+    /// In-memory cache of `(etag, decoded value)` keyed by absolute URL.
+    /// One entry per URL — sufficient for `/api/folders` (one URL),
+    /// `/api/fs/dir?path=…` (one URL per directory the user touches),
+    /// and `/api/assets/<id>/thumb` (one URL per asset).
+    ///
+    /// The payload is stored as `Any` because the three call sites
+    /// produce different concrete types (`[LibraryRoot]`, `DirContents`,
+    /// `Data`). All access happens inside the actor, so the value-level
+    /// `Sendable` story is safe — the dictionary itself is actor-isolated.
+    private var etagCache: [String: ETagEntry] = [:]
+
+    private struct ETagEntry {
+        let etag: String
+        let payload: Any
+    }
+
     public init(http: AuthenticatedHTTPClient, server: URL) {
         self.http = http; self.server = server
     }
 
-    public func listFolders() async throws -> [LibraryRoot] {
-        let req = URLRequest(url: server.appending(path: "/api/folders"))
+    /// Drop the entire ETag cache. The FP extension calls this when it
+    /// observes a `signalEnumerator(for: .rootContainer)` style event
+    /// that should force the next round-trip to be a full fetch.
+    public func invalidateETagCache() {
+        etagCache.removeAll()
+    }
+
+    /// Generic helper: send `If-None-Match` when we have a cached entry,
+    /// return cached value on 304, decode + store on 200. Used by every
+    /// JSON-bodied catalog call that participates in revalidation.
+    private func fetchCachedJSON<T: Decodable & Sendable>(
+        url: URL,
+        decode: T.Type,
+    ) async throws -> T {
+        var req = URLRequest(url: url)
+        let key = url.absoluteString
+        if let cached = etagCache[key] {
+            req.setValue(cached.etag, forHTTPHeaderField: "If-None-Match")
+        }
         let (data, resp) = try await http.data(for: req)
+        let httpResp = resp as? HTTPURLResponse
+        if httpResp?.statusCode == 304,
+           let cached = etagCache[key],
+           let value = cached.payload as? T {
+            return value
+        }
         try Self.check2xx(resp)
-        return try decoder.decode([LibraryRoot].self, from: data)
+        let value = try decoder.decode(T.self, from: data)
+        if let etag = httpResp?.value(forHTTPHeaderField: "ETag") {
+            etagCache[key] = ETagEntry(etag: etag, payload: value)
+        }
+        return value
+    }
+
+    public func listFolders() async throws -> [LibraryRoot] {
+        let url = server.appending(path: "/api/folders")
+        return try await fetchCachedJSON(url: url, decode: [LibraryRoot].self)
     }
 
     public func listDir(absolutePath: String) async throws -> DirContents {
         var comps = URLComponents(url: server.appending(path: "/api/fs/dir"), resolvingAgainstBaseURL: false)!
         comps.queryItems = [.init(name: "path", value: absolutePath)]
-        let req = URLRequest(url: comps.url!)
-        let (data, resp) = try await http.data(for: req)
-        try Self.check2xx(resp)
-        return try decoder.decode(DirContents.self, from: data)
+        return try await fetchCachedJSON(url: comps.url!, decode: DirContents.self)
     }
 
     // Phase 1 simplification: full-body buffering. A 100MP RAW spikes ~150MB.
@@ -172,15 +217,29 @@ public actor RemoteCatalog {
     /// "thumbnail not generated yet" and the Quick Look extension
     /// uses that signal to fall back to OS-default RAW materialization.
     ///
-    /// Note: every spacebar press re-fetches the JPEG today. An ETag /
-    /// `If-None-Match` in-memory cache lands in Phase 5c (perf pass) and
-    /// is intentionally out of scope for 5a — see
-    /// `docs/superpowers/plans/2026-05-16-file-provider-phase5c-perf.md`.
+    /// Participates in the same per-URL ETag cache as the JSON
+    /// enumeration calls: a 304 reply returns the in-memory `Data` from
+    /// the prior 200. Memory cost: one `Data` per asset previewed.
+    /// Phase 6 will bound this with an LRU.
     public func getThumb(assetID: String) async throws -> Data {
         try Self.validateAssetID(assetID)
-        let req = URLRequest(url: server.appending(path: "/api/assets/\(assetID)/thumb"))
+        let url = server.appending(path: "/api/assets/\(assetID)/thumb")
+        var req = URLRequest(url: url)
+        let key = url.absoluteString
+        if let cached = etagCache[key] {
+            req.setValue(cached.etag, forHTTPHeaderField: "If-None-Match")
+        }
         let (data, resp) = try await http.data(for: req)
+        let httpResp = resp as? HTTPURLResponse
+        if httpResp?.statusCode == 304,
+           let cached = etagCache[key],
+           let bytes = cached.payload as? Data {
+            return bytes
+        }
         try Self.check2xx(resp)
+        if let etag = httpResp?.value(forHTTPHeaderField: "ETag") {
+            etagCache[key] = ETagEntry(etag: etag, payload: data)
+        }
         return data
     }
 
