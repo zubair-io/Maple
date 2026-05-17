@@ -112,6 +112,18 @@ describe("POST /api/folders/:id/upload", () => {
     expect(res.status).toBe(400);
   });
 
+  test("400 on malformed percent-escape in X-Maple-Target-Path", async () => {
+    if (!mongoReachable) return;
+    const { app } = await import("../src/index.ts");
+    // `%ZZ` is not a valid percent escape; decodeURIComponent throws
+    // URIError. The route must surface 400 instead of falling through
+    // to the global 500 handler.
+    const res = await app.handle(upload(Buffer.from("x"), {
+      "X-Maple-Target-Path": "broken%ZZ.ARW",
+    }));
+    expect(res.status).toBe(400);
+  });
+
   test("400 on absolute path", async () => {
     if (!mongoReachable) return;
     const { app } = await import("../src/index.ts");

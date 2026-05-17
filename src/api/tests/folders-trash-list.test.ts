@@ -91,6 +91,24 @@ describe("GET /api/folders/:id/trash", () => {
     expect(body.items[0].original_relative_path).toBe("T0.ARW");
   });
 
+  test("400 on non-numeric limit (regression: NaN→500 via .limit())", async () => {
+    if (!mongoReachable) return;
+    const { app } = await import("../src/index.ts");
+    const res = await app.handle(new Request(`http://localhost/api/folders/${folderId.toHexString()}/trash?limit=abc`, {
+      headers: { Authorization: BEARER },
+    }));
+    expect(res.status).toBe(400);
+  });
+
+  test("400 on negative limit", async () => {
+    if (!mongoReachable) return;
+    const { app } = await import("../src/index.ts");
+    const res = await app.handle(new Request(`http://localhost/api/folders/${folderId.toHexString()}/trash?limit=-1`, {
+      headers: { Authorization: BEARER },
+    }));
+    expect(res.status).toBe(400);
+  });
+
   test("pagination via limit + cursor returns subsequent page", async () => {
     if (!mongoReachable) return;
     const { app } = await import("../src/index.ts");

@@ -230,7 +230,12 @@ export const foldersRoutes = new Elysia({ prefix: "/api/folders" })
       if (typeof targetHeader !== "string" || targetHeader.length === 0) {
         set.status = 400; return { error: "Missing X-Maple-Target-Path" };
       }
-      const target = decodeURIComponent(targetHeader);
+      // `decodeURIComponent` throws `URIError` on malformed percent
+      // escapes (e.g. `%ZZ`). The header is client input; surface a 400
+      // instead of letting the global handler return 500.
+      let target: string;
+      try { target = decodeURIComponent(targetHeader); }
+      catch { set.status = 400; return { error: "Invalid X-Maple-Target-Path encoding" }; }
       // Path validation: no leading /, no .. component, no leading-dot component
       // (the latter would let a caller write into .maple/).
       if (target.startsWith("/")) { set.status = 400; return { error: "Path must be relative" }; }
@@ -362,7 +367,20 @@ export const foldersRoutes = new Elysia({ prefix: "/api/folders" })
       const folder = await folders.findOne({ _id: folderId });
       if (!folder) { set.status = 404; return { error: "Folder not found" }; }
 
-      const limit = Math.min(500, Math.max(1, Number(query.limit ?? 100)));
+      // Parse + validate `limit`. `Number("abc")` is `NaN`, which
+      // `Math.min/max` preserve; passing `NaN` to MongoDB `.limit()`
+      // throws a 500. Reject non-numeric / out-of-range values with 400
+      // and clamp valid values into [1, 500].
+      const limitRaw = query.limit;
+      let limit = 100;
+      if (typeof limitRaw === "string" && limitRaw.length > 0) {
+        const parsed = Number.parseInt(limitRaw, 10);
+        if (!Number.isFinite(parsed) || parsed < 1) {
+          set.status = 400;
+          return { error: "Invalid limit — must be a positive integer" };
+        }
+        limit = Math.min(500, parsed);
+      }
       const filter: Record<string, unknown> = {
         folder_id: folderId,
         deleted_at: { $ne: null },
