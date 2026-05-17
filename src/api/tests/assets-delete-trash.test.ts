@@ -19,6 +19,7 @@ const BEARER = "Bearer " + signAccessToken(
 
 const TEST_DB = `maple_test_fp3_delete_${process.pid}`;
 const PRIOR_MONGO_DB = process.env.MAPLE_MONGO_DB;
+const PRIOR_MAPLE_ROOTS = process.env.MAPLE_ROOTS;
 const MONGO_URI = process.env.MAPLE_MONGO_URI ?? "mongodb://localhost:27017";
 
 let mongo: MongoClient | null = null;
@@ -114,6 +115,8 @@ describe("DELETE /api/assets/:id (trash + permanent purge)", () => {
     setMeilisearchClientForTests(null);
     if (PRIOR_MONGO_DB === undefined) delete process.env.MAPLE_MONGO_DB;
     else process.env.MAPLE_MONGO_DB = PRIOR_MONGO_DB;
+    if (PRIOR_MAPLE_ROOTS === undefined) delete process.env.MAPLE_ROOTS;
+    else process.env.MAPLE_ROOTS = PRIOR_MAPLE_ROOTS;
   });
 
   beforeEach(() => {
