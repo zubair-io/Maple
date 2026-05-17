@@ -44,6 +44,12 @@ public struct WorkingSetEntry: Sendable, Equatable {
 public final class WorkingSet: @unchecked Sendable {
     public let capacity: Int
     private var entries: [String: WorkingSetEntry] = [:]
+    /// Protects `entries`. The working set is mutated from multiple
+    /// Task contexts (the working-set enumerator's enumerateItems/
+    /// enumerateChanges Tasks plus the ChangeFeedClient's onEvent
+    /// Task). NSLock is cheaper than actor-hops and contention is
+    /// trivial — only the SSE consumer + occasional OS enumerations.
+    private let lock = NSLock()
 
     public init(capacity: Int = 20_000) {
         self.capacity = capacity
@@ -53,6 +59,7 @@ public final class WorkingSet: @unchecked Sendable {
     /// ladder (e.g. .recent → .favorite if the user stars an asset);
     /// downgrades are ignored to preserve eviction immunity once granted.
     public func upsert(identifier: String, kind: WorkingSetKind, lastTouched: Date) {
+        lock.lock(); defer { lock.unlock() }
         if let existing = entries[identifier] {
             let newKind = max(existing.kind, kind)
             entries[identifier] = WorkingSetEntry(kind: newKind, lastTouched: lastTouched)
@@ -60,27 +67,34 @@ public final class WorkingSet: @unchecked Sendable {
             entries[identifier] = WorkingSetEntry(kind: kind, lastTouched: lastTouched)
         }
         if entries.count > capacity {
-            evictUntilUnderCap()
+            evictUntilUnderCapLocked()
         }
     }
 
     public func remove(identifier: String) {
+        lock.lock(); defer { lock.unlock() }
         entries.removeValue(forKey: identifier)
     }
 
     public func entry(for identifier: String) -> WorkingSetEntry? {
-        entries[identifier]
+        lock.lock(); defer { lock.unlock() }
+        return entries[identifier]
     }
 
     public func allIdentifiers() -> [String] {
-        Array(entries.keys)
+        lock.lock(); defer { lock.unlock() }
+        return Array(entries.keys)
     }
 
-    public func count() -> Int { entries.count }
+    public func count() -> Int {
+        lock.lock(); defer { lock.unlock() }
+        return entries.count
+    }
 
     // MARK: - Eviction
 
-    private func evictUntilUnderCap() {
+    /// Caller must hold `lock`.
+    private func evictUntilUnderCapLocked() {
         // Drain by ascending priority: recent first, then active.
         // xmp/favorite are eviction-immune and never appear in this list.
         let evictableKinds: [WorkingSetKind] = [.recent, .active]
