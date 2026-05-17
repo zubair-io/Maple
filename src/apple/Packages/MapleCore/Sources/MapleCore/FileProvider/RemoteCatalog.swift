@@ -265,11 +265,32 @@ public actor RemoteCatalog {
                 downloadURLSession: URLSession? = nil) {
         self.http = http
         self.server = server
-        // Default download session has no shared cache — asset bodies are
-        // large and the OS-side File Provider cache is the canonical store.
-        // Tests inject a session whose protocolClasses include StubURLProtocol.
-        self.downloadURLSession = downloadURLSession ?? URLSession(configuration: .default)
+        // Default download session uses `.ephemeral` so RAW asset bodies are
+        // never persisted to URLCache, cookie storage, or credential storage:
+        // the OS-side File Provider cache is the canonical store and the
+        // bodies are large (100 MP RAW ≈ 150 MB) — sharing them with
+        // `URLSession.shared.configuration.urlCache` would both waste disk
+        // and cross-contaminate caching state with the main app. Tests
+        // inject a session whose protocolClasses include StubURLProtocol.
+        if let injected = downloadURLSession {
+            self.downloadURLSession = injected
+        } else {
+            let cfg = URLSessionConfiguration.ephemeral
+            // `.ephemeral` already nils urlCache/cookies/credentials; the
+            // assignments below are belt-and-suspenders + intent-as-doc.
+            cfg.urlCache = nil
+            cfg.httpCookieStorage = nil
+            cfg.urlCredentialStorage = nil
+            self.downloadURLSession = URLSession(configuration: cfg)
+        }
     }
+
+    /// Test-only accessor: the URLSession used for streaming asset bodies.
+    /// Exposed so the Issue #3 regression test can assert the ephemeral
+    /// configuration. Not part of the public contract; use only from
+    /// `@testable import MapleCore`. `nonisolated` because the underlying
+    /// `let` is set during init and never mutated.
+    internal nonisolated var _downloadURLSessionForTesting: URLSession { downloadURLSession }
 
     /// Drop the entire ETag cache. Called by the FP extension's
     /// ChangeFeedClient on a 409 stale-cursor reply — the cursor reset
