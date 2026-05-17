@@ -111,7 +111,10 @@ export const fsThumbsRoutes = new Elysia({ prefix: "/api/fs" }).get(
     const thumbPath = resolveThumbPath(real);
 
     const rawMtimeMs = rawStat.mtimeMs;
-    const etag = `"${Math.floor(rawMtimeMs)}"`;
+    // ETag composes mtime + size so an mtime-preserved overwrite
+    // (e.g. `utimes` after a content edit) still produces a fresh
+    // validator. Mirror assets.ts which uses the same shape.
+    const etag = `"${Math.floor(rawMtimeMs)}-${rawStat.size}"`;
 
     // If-None-Match short-circuit. The File Provider extension caches
     // thumb bytes keyed on this ETag; matching ETag returns 304 with an
