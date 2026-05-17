@@ -130,9 +130,10 @@ public actor RemoteCatalog {
         self.http = http; self.server = server
     }
 
-    /// Drop the entire ETag cache. The FP extension calls this when it
-    /// observes a `signalEnumerator(for: .rootContainer)` style event
-    /// that should force the next round-trip to be a full fetch.
+    /// Drop the entire ETag cache. Called by the FP extension's
+    /// ChangeFeedClient on a 409 stale-cursor reply — the cursor reset
+    /// implies the cache's entries reflect pre-gap state and a 304
+    /// against them would serve a stale folder/dir list.
     public func invalidateETagCache() {
         etagCache.removeAll()
     }

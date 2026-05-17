@@ -97,9 +97,16 @@ scope" section is explicit).
    with the concrete intervention. Land each intervention as its own
    commit with the before/after numbers in the commit body.
 
-## PR description contract
+## Mode B marker
 
-The PR for this branch carries the marker `PERF_BASELINES_UNAVAILABLE`
-in its description so reviewers know the perf numbers are owed and the
-optimisations rely on the design (additive ETag caching + disk priming
-that is independently unit-tested) rather than on a measured delta.
+This document IS the authoritative `PERF_BASELINES_UNAVAILABLE`
+declaration for the 5c PR. The PR description should reference this
+file rather than embed a redundant marker; if the PR carries no marker
+and no link to this audit, treat the perf numbers as unavailable by
+default. The 5c optimisations rely on design rigour (additive ETag
+caching + disk priming with unit-test coverage) and not on a measured
+delta.
+
+To convert this branch to Mode A, follow "How a future agent would
+convert this to Mode A" above and replace this section with a table
+of before/after numbers from the Instruments runs.

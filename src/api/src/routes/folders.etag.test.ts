@@ -1,4 +1,4 @@
-import { afterAll, beforeEach, describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { Elysia } from "elysia";
 import { MongoClient, ObjectId, type Db } from "mongodb";
 import { closeDb } from "../db/client.ts";
@@ -51,9 +51,16 @@ describe("GET /api/folders — ETag", () => {
     } as never);
   });
 
-  afterAll(async () => {
-    if (db) await db.dropDatabase();
-    if (client) await client.close();
+  // afterEach (not afterAll) so each `beforeEach` re-create has its
+  // counterpart cleanup. afterAll would leak every iteration except
+  // the last and keep MongoClient connections (and module-cached DB
+  // pool) alive longer than needed.
+  afterEach(async () => {
+    if (db) await db.dropDatabase().catch(() => {});
+    if (client) await client.close().catch(() => {});
+    await closeDb();
+    db = null;
+    client = null;
   });
 
 

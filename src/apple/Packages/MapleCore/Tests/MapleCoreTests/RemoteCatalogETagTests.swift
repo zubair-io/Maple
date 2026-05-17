@@ -185,8 +185,8 @@ final class RemoteCatalogETagTests: XCTestCase {
 
 /// Sendable wrapper around an array of observed If-None-Match values.
 /// `URLProtocolStub.responseProvider` is @Sendable so the closure body
-/// must avoid capturing mutable locals; this actor-backed reference type
-/// gives us thread-safe `record` / `snapshot` without using
+/// must avoid capturing mutable locals; this NSLock-backed reference
+/// type gives us thread-safe `record` / `snapshot` without using
 /// `nonisolated(unsafe)`.
 private final class HeaderObserver: @unchecked Sendable {
     private let lock = NSLock()

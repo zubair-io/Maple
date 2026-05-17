@@ -1,4 +1,4 @@
-import { afterAll, beforeEach, describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { Elysia } from "elysia";
 import { mkdtemp, rm, writeFile, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -30,8 +30,10 @@ describe("GET /api/fs/dir — ETag", () => {
     await writeFile(join(tmp, "a.dng"), Buffer.alloc(8));
   });
 
-  afterAll(async () => {
-    if (tmp) await rm(tmp, { recursive: true, force: true });
+  afterEach(async () => {
+    if (tmp) await rm(tmp, { recursive: true, force: true }).catch(() => {});
+    tmp = null;
+    await closeDb();
   });
 
 

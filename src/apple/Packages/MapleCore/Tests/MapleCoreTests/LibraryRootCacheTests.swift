@@ -293,38 +293,24 @@ private actor AsyncCounter {
 }
 
 /// One-shot flag used to assert "did something async happen within
-/// timeout T." Avoids polling sleeps in test bodies.
+/// timeout T." Polls the actor at a 10ms cadence rather than parking
+/// on a continuation — the previous TaskGroup-based shape left the
+/// waiter continuation unresumed on timeout-driven cancellation, which
+/// risked hanging when the harness aborted a test. A deadline-poll
+/// loop is simpler and guarantees the call returns within `timeout`.
 private actor AsyncFlag {
     private(set) var didFire: Bool = false
-    private var waiters: [CheckedContinuation<Void, Never>] = []
 
     func fire() {
         didFire = true
-        for w in waiters { w.resume() }
-        waiters.removeAll()
     }
 
     func wait(timeout: TimeInterval) async -> Bool {
-        if didFire { return true }
-        return await withTaskGroup(of: Bool.self) { group in
-            group.addTask {
-                await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
-                    Task { await self.append(cont) }
-                }
-                return true
-            }
-            group.addTask {
-                try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
-                return false
-            }
-            let first = await group.next()!
-            group.cancelAll()
-            return first
+        let deadline = Date().addingTimeInterval(timeout)
+        while !didFire {
+            if Date() >= deadline { return false }
+            try? await Task.sleep(nanoseconds: 10_000_000)
         }
-    }
-
-    private func append(_ cont: CheckedContinuation<Void, Never>) {
-        if didFire { cont.resume(); return }
-        waiters.append(cont)
+        return true
     }
 }

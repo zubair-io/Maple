@@ -8,7 +8,7 @@
 // The route is exercised via its own pre-staged thumb cache file so the
 // test does not require sharp/heic/libraw to be available.
 
-import { afterAll, beforeEach, describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { Elysia } from "elysia";
 import {
   mkdtemp,
@@ -53,8 +53,9 @@ describe("GET /api/fs/thumb — ETag", () => {
     );
   });
 
-  afterAll(async () => {
-    if (tmp) await rm(tmp, { recursive: true, force: true });
+  afterEach(async () => {
+    if (tmp) await rm(tmp, { recursive: true, force: true }).catch(() => {});
+    tmp = null;
   });
 
   it("returns ETag containing mtime AND size on 200", async () => {
