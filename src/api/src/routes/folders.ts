@@ -14,17 +14,19 @@ import * as nodePath from "node:path";
 import { foldersCollection, assetsCollection } from "../db/client.ts";
 import { validateRoot } from "../fs/root.ts";
 import { child as childLogger } from "../log.ts";
+import { computeBodyETag, ifNoneMatchEqual } from "../runtime/http-etag.ts";
 import { handleEvent } from "../workers/discover/index.ts";
 import { stageManifest } from "../workers/stages/manifest.ts";
 
 const log = childLogger("folders");
 
 export const foldersRoutes = new Elysia({ prefix: "/api/folders" })
-  // List all folders
-  .get("/", async () => {
+  // List all folders. Body-hash ETag + If-None-Match short-circuit so the
+  // File Provider extension can revalidate cheaply on cold Finder open.
+  .get("/", async ({ headers }) => {
     const coll = await foldersCollection();
     const docs = await coll.find({}).sort({ created_at: 1 }).toArray();
-    return docs.map((d) => ({
+    const payload = docs.map((d) => ({
       id: d._id.toHexString(),
       path: d.path,
       label: d.label,
@@ -32,6 +34,21 @@ export const foldersRoutes = new Elysia({ prefix: "/api/folders" })
       file_count: d.file_count,
       created_at: d.created_at,
     }));
+    const body = JSON.stringify(payload);
+    const etag = computeBodyETag(body);
+    const ifNoneMatch = headers["if-none-match"];
+    if (
+      ifNoneMatchEqual(
+        typeof ifNoneMatch === "string" ? ifNoneMatch : undefined,
+        etag,
+      )
+    ) {
+      return new Response(null, { status: 304, headers: { ETag: etag } });
+    }
+    return new Response(body, {
+      status: 200,
+      headers: { ETag: etag, "Content-Type": "application/json" },
+    });
   })
 
   // Register a new folder
