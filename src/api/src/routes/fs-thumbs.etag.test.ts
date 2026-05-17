@@ -61,7 +61,10 @@ describe("GET /api/fs/thumb — ETag", () => {
     expect(res.headers.get("ETag")).toMatch(/^"\d+-\d+"$/);
   });
 
-  it("returns 304 when If-None-Match matches", async () => {
+  it("returns 304 with Cache-Control echoed when If-None-Match matches", async () => {
+    // RFC 9110 §15.4.5: a 304 SHOULD carry the same Cache-Control the
+    // 200 would, so URLSession's HTTP cache doesn't downgrade its
+    // freshness on every revalidation.
     const app = new Elysia().use(fsThumbsRoutes);
     const first = await app.handle(
       new Request(
@@ -69,6 +72,9 @@ describe("GET /api/fs/thumb — ETag", () => {
       ),
     );
     const etag = first.headers.get("ETag")!;
+    const cacheControl200 = first.headers.get("Cache-Control");
+    expect(cacheControl200).toBe("private, max-age=3600");
+
     const second = await app.handle(
       new Request(
         `http://localhost/api/fs/thumb?path=${encodeURIComponent(rawPath!)}`,
@@ -77,6 +83,7 @@ describe("GET /api/fs/thumb — ETag", () => {
     );
     expect(second.status).toBe(304);
     expect(second.headers.get("ETag")).toBe(etag);
+    expect(second.headers.get("Cache-Control")).toBe(cacheControl200);
   });
 
   it("produces a different ETag when content changes but mtime is preserved", async () => {

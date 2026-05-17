@@ -109,4 +109,28 @@ describe("GET /api/assets/:id/thumb — ETag", () => {
     );
     expect(second.status).toBe(304);
   });
+
+  it("304 echoes the 200 Cache-Control so URLSession keeps freshness", async () => {
+    // RFC 9110 §15.4.5 — a 304 response SHOULD include the same
+    // Cache-Control the 200 would. Without this, URLSession's HTTP
+    // cache downgrades its freshness on every revalidation.
+    if (!client) return;
+    const app = new Elysia().use(assetsRoutes);
+    const first = await app.handle(
+      new Request(
+        `http://localhost/api/assets/${assetId!.toHexString()}/thumb`,
+      ),
+    );
+    const etag = first.headers.get("ETag")!;
+    const cacheControl200 = first.headers.get("Cache-Control");
+    expect(cacheControl200).toBe("public, max-age=604800, immutable");
+    const second = await app.handle(
+      new Request(
+        `http://localhost/api/assets/${assetId!.toHexString()}/thumb`,
+        { headers: { "If-None-Match": etag } },
+      ),
+    );
+    expect(second.status).toBe(304);
+    expect(second.headers.get("Cache-Control")).toBe(cacheControl200);
+  });
 });

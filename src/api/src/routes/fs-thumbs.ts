@@ -116,6 +116,11 @@ export const fsThumbsRoutes = new Elysia({ prefix: "/api/fs" }).get(
     // validator. Mirror assets.ts which uses the same shape.
     const etag = `"${Math.floor(rawMtimeMs)}-${rawStat.size}"`;
 
+    // Cache-Control echoed on both 200 and 304. RFC 9110 §15.4.5: a 304
+    // SHOULD carry the same Cache-Control so URLSession (and other HTTP
+    // caches) don't downgrade freshness on revalidation.
+    const cacheControl = "private, max-age=3600";
+
     // If-None-Match short-circuit. The File Provider extension caches
     // thumb bytes keyed on this ETag; matching ETag returns 304 with an
     // empty body so the extension can reuse its in-memory copy.
@@ -126,7 +131,10 @@ export const fsThumbsRoutes = new Elysia({ prefix: "/api/fs" }).get(
         etag,
       )
     ) {
-      return new Response(null, { status: 304, headers: { ETag: etag } });
+      return new Response(null, {
+        status: 304,
+        headers: { ETag: etag, "Cache-Control": cacheControl },
+      });
     }
 
     let thumbStat: Awaited<ReturnType<typeof stat>> | null = null;
@@ -142,7 +150,7 @@ export const fsThumbsRoutes = new Elysia({ prefix: "/api/fs" }).get(
       try {
         const bytes = await readFile(thumbPath);
         set.headers["Content-Type"] = "image/jpeg";
-        set.headers["Cache-Control"] = "private, max-age=3600";
+        set.headers["Cache-Control"] = cacheControl;
         set.headers["ETag"] = etag;
         set.headers["X-Thumb-Cache"] = "hit";
         return bytes;
@@ -233,7 +241,7 @@ export const fsThumbsRoutes = new Elysia({ prefix: "/api/fs" }).get(
       status: 200,
       headers: {
         "Content-Type": "image/jpeg",
-        "Cache-Control": "private, max-age=3600",
+        "Cache-Control": cacheControl,
         ETag: etag,
         "X-Thumb-Cache": "miss",
       },
