@@ -29,6 +29,8 @@ import type {
   ChallengeDoc,
   BackupSessionDoc,
   UploadSessionDoc,
+  AssetChangeDoc,
+  ServerStateDoc,
 } from "./schema.ts";
 import type { WorkerConfigDoc } from "../workers/worker-config.repo.ts";
 
@@ -163,6 +165,18 @@ export async function uploadSessionsCollection(): Promise<
   Collection<UploadSessionDoc>
 > {
   return (await getDb()).collection<UploadSessionDoc>("upload_sessions");
+}
+
+export async function assetChangesCollection(): Promise<
+  Collection<AssetChangeDoc>
+> {
+  return (await getDb()).collection<AssetChangeDoc>("asset_changes");
+}
+
+export async function serverStateCollection(): Promise<
+  Collection<ServerStateDoc>
+> {
+  return (await getDb()).collection<ServerStateDoc>("server_state");
 }
 
 /** Stage names whose claim-query indexes are created at startup. */
@@ -742,6 +756,24 @@ export async function ensureIndexes(): Promise<void> {
       },
     },
   );
+
+  // asset_changes (Phase 5b — File Provider push channel). Cursor is the
+  // primary key for the change feed; unique because allocateCursor's
+  // $inc never repeats. Per-asset and per-folder indexes power the
+  // "all changes affecting this asset/folder" lookup that future
+  // diagnostic tooling might want.
+  await db
+    .collection("asset_changes")
+    .createIndex({ cursor: 1 }, { unique: true, name: "asset_changes_cursor" });
+  await db
+    .collection("asset_changes")
+    .createIndex({ asset_id: 1 }, { name: "asset_changes_asset" });
+  await db
+    .collection("asset_changes")
+    .createIndex(
+      { folder_id: 1, cursor: 1 },
+      { name: "asset_changes_folder_cursor" },
+    );
 
   await ensureStageIndexes(db);
 
