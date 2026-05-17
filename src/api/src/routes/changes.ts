@@ -10,7 +10,7 @@
  *     prefixed by a replay of buffered events > since.
  */
 
-import { Elysia, t } from "elysia";
+import { Elysia, sse, t } from "elysia";
 import { listChangesSince } from "../db/changes.repo.ts";
 import { getChangeBus } from "../runtime/change-bus.ts";
 import type { AssetChangeWithId } from "../db/schema.ts";
@@ -35,9 +35,17 @@ function asPayload(r: AssetChangeWithId): ChangePayload {
   };
 }
 
-/** Raw SSE frame in the spec's id/event/data form. */
-function frame(event: string, data: unknown, id: string): string {
-  return `id: ${id}\nevent: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+/**
+ * Build an SSE-payload object for `sse()`. Elysia's helper formats the
+ * `event` / `id` / `data` lines per the SSE spec; `data` may be a string
+ * or a JSON-serialisable object.
+ */
+function sseChangeFrame(ev: AssetChangeWithId): ReturnType<typeof sse> {
+  return sse({
+    event: "change",
+    id: String(ev.cursor),
+    data: asPayload(ev),
+  });
 }
 
 export const changesRoutes = new Elysia({ prefix: "/api/changes" })
@@ -88,9 +96,15 @@ export const changesRoutes = new Elysia({ prefix: "/api/changes" })
       // Disable Nginx-style proxy buffering — SSE is incompatible with it.
       set.headers["x-accel-buffering"] = "no";
 
+      // Force the response to flush headers + open the stream
+      // immediately. Without this, Elysia waits for the first yield
+      // before sending the 200 line, which would block for the full
+      // keepalive interval on an otherwise-silent connection.
+      yield sse(": stream opened");
+
       // 1. Replay anything already in the buffer.
       for (const ev of bus.replay({ since })) {
-        yield frame("change", asPayload(ev), String(ev.cursor));
+        yield sseChangeFrame(ev);
       }
 
       // 2. Live subscription with 15-s keepalive comments.
@@ -121,12 +135,15 @@ export const changesRoutes = new Elysia({ prefix: "/api/changes" })
             const result = await Promise.race([event, keepalive, aborted]);
             if (result === "abort") break;
             if (result === "keepalive") {
-              yield ": keepalive\n\n";
+              // SSE keepalive comment line; Elysia passes plain strings
+              // through as a single `data:` line, so use the comment
+              // form (": ...") wrapped so it stays as a comment.
+              yield sse(": keepalive");
               continue;
             }
           }
           const ev = queue.shift()!;
-          yield frame("change", asPayload(ev), String(ev.cursor));
+          yield sseChangeFrame(ev);
         }
       } finally {
         unsub();
