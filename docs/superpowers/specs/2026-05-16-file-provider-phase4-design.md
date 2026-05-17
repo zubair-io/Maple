@@ -43,12 +43,19 @@ In:
 - iOS Settings panel in the Maple app for enabling/disabling the File
   Provider domain (mirrors macOS Settings → Finder tab).
 
+Also in (revised 2026-05-17):
+- Phase 2/3 write paths (XMP create/modify/delete, asset upload, asset
+  delete/restore) reach iOS for free via `FileProviderExtensionCore`
+  inheritance. The original spec deferred iOS writes to a later phase;
+  pre-launch we want the broader surface available to E2E testing rather
+  than gated. iOS-specific edge cases (doc-picker handoff lifetime,
+  sandbox write-scope quirks) get caught by the E2E pass before launch
+  and fixed in place. No iOS-only test coverage ships with Phase 4 — the
+  same `RemoteCatalog` and `AuthenticatedHTTPClient` paths exercised by
+  macOS unit tests cover the iOS code paths, and the server endpoints
+  are platform-agnostic.
+
 Out (deferred):
-- Phase 3 writes on iOS. Uploads from the iOS Files app are unusual; if
-  needed they can ship as a Phase 4 follow-up after macOS Phase 3 lands
-  and we know the upload codepath is solid. iOS Files-app deletes hit the
-  same Phase 3 server endpoints if those endpoints exist by Phase 4 ship —
-  the extension code wires them either way, behind a feature gate.
 - Quick Look generator (Phase 5a).
 - Working-set tracking and push change feed (Phase 5b). iOS gets the same
   manual-refresh-only behaviour as macOS Phase 1-3.
@@ -369,6 +376,8 @@ A user can:
 7. Drag a photo from Maple into Mail, Messages, or another doc-picker-aware
    app.
 
-The iOS extension does not write. It does not push, it does not prefetch.
-Phase 4 is "the macOS extension, on iOS, without the memory and scaling
-caveats biting." Writes, push, and Quick Look ride along in later phases.
+The iOS extension shares Phase 2/3 write paths via inheritance (see "Also
+in" above); push and prefetch remain deferred. Phase 4 is "the macOS
+extension, on iOS, without the memory and scaling caveats biting" — with
+writes carried along for E2E pre-launch testing. Push and Quick Look ride
+along in later phases.
