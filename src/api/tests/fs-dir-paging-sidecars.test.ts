@@ -29,7 +29,9 @@ const TEST_DB = `maple_test_fs_dir_paging_sidecars_${process.pid}`;
 const PRIOR_MONGO_DB = process.env.MAPLE_MONGO_DB;
 const MONGO_URI = process.env.MAPLE_MONGO_URI ?? "mongodb://localhost:27017";
 
-const N = 200;
+// Small N so we can use limit=1 (forces every sidecar onto a page whose
+// images[] is empty) without making the test run hundreds of requests.
+const N = 20;
 
 let mongo: MongoClient | null = null;
 let mongoReachable = false;
@@ -145,38 +147,47 @@ describe("GET /api/fs/dir — paged sidecar pairing across page boundaries", () 
     if (!mongoReachable) return;
     const { fsRoutes } = await import("../src/routes/fs.ts");
 
-    // limit=200 means the 400 visible entries (sorted: every IMG_NNNN.ARW
-    // sorts before IMG_NNNN.xmp because '.' < uppercase, but ext-case
-    // here is '.ARW' vs '.xmp' — uppercase A (0x41) < lowercase x (0x78),
-    // so all 200 RAWs come first, then all 200 sidecars). Without the
-    // fix, page 1 has only images, page 2 has only sidecars, and page
-    // 2's imageBaseToAsset is empty → every sidecar is dropped.
+    // localeCompare interleaves names: IMG_0000.ARW < IMG_0000.xmp <
+    // IMG_0001.ARW < IMG_0001.xmp < … so any limit ≥ 2 keeps each
+    // RAW/sidecar pair on the same page and the per-slice imageBaseToAsset
+    // alone would resolve them — defeating the test. limit=1 puts every
+    // sidecar on a page whose images[] is empty, which is the only
+    // structure that exercises the global-map cross-page resolution.
     const seen = new Map<string, string>(); // sidecar name → asset_id
     let cursor: string | undefined = undefined;
     let pageCount = 0;
+    const maxPages = N * 2 + 5;
     do {
       const qs = new URLSearchParams({
         path: realTmpRoot,
-        limit: "200",
+        limit: "1",
       });
       if (cursor) qs.set("cursor", cursor);
       const url = `http://localhost/api/fs/dir?${qs.toString()}`;
       const res = await fsRoutes.handle(new Request(url));
       expect(res.status).toBe(200);
       const body = (await res.json()) as {
+        images: Array<{ name: string }>;
         sidecars: Array<{ name: string; asset_id: string }>;
         next_cursor?: string;
       };
       for (const s of body.sidecars) {
         seen.set(s.name, s.asset_id);
       }
+      // Critical structural assertion: a sidecar-only page must still
+      // resolve its sidecar. Pre-fix, body.images.length===0 ⇒
+      // imageBaseToAsset empty ⇒ sidecar dropped, so seen.size would
+      // be 0 at this point.
       cursor = body.next_cursor;
       pageCount++;
-      if (pageCount > 10) throw new Error("paging didn't terminate");
+      if (pageCount > maxPages) throw new Error("paging didn't terminate");
     } while (cursor);
 
-    // Every sidecar must be present with the correct asset_id, regardless
-    // of which page its paired image landed on.
+    // Confirm structurally that pagination really did split most pairs
+    // (we expect 2N pages total — N image-only pages and N sidecar-only
+    // pages). Without the fix every sidecar-only page would drop its
+    // sidecar and seen.size would be 0.
+    expect(pageCount).toBe(2 * N);
     expect(seen.size).toBe(N);
     for (let i = 0; i < N; i++) {
       const base = `IMG_${String(i).padStart(4, "0")}`;
