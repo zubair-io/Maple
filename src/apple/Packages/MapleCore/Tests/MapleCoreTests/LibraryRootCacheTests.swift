@@ -129,6 +129,66 @@ final class LibraryRootCacheTests: XCTestCase {
         XCTAssertTrue(ok, "drift handler should fire when fresh list differs")
     }
 
+    /// Smoke test for the kick-throw recovery path. After a primed
+    /// read kicks a revalidation that throws, a subsequent primed read
+    /// must kick a fresh revalidation, that one succeeds, the drift
+    /// handler fires, and the memory cache updates to the new value.
+    ///
+    /// Note: the underlying race-window improvement (narrowing from
+    /// deferred-Task clear to a single-actor-block clear via
+    /// `finishRevalidation`) is sub-hop and not reliably discriminable
+    /// from a sleep-based test — both the buggy and fixed code clear
+    /// inflight within microseconds of the throw. What this test
+    /// guards against is the catastrophic regression where inflight
+    /// is never cleared at all, locking the cache up permanently.
+    /// The window narrowing itself is verified by code review.
+    func testPiggybackThrows_NextCallRetries() async throws {
+        struct Boom: Error {}
+        let defaults = freshDefaults()
+        // Prime disk so roots() returns from disk and kicks
+        // revalidation in the background — exercising the piggyback
+        // path rather than the cold-runFetcher path.
+        let priorRoots = [mkRoot("a")]
+        let data = try JSONEncoder().encode(priorRoots)
+        defaults.set(data, forKey: "fileprovider.default.library-roots")
+
+        let freshRoots = [mkRoot("b")]
+        let counter = AsyncCounter()
+        let cache = LibraryRootCache(domainID: "default",
+                                     defaults: defaults,
+                                     fetcher: {
+            await counter.bump()
+            let n = await counter.value
+            if n == 1 { throw Boom() }
+            return freshRoots
+        })
+        let driftFired = AsyncFlag()
+        await cache.setDriftHandler {
+            await driftFired.fire()
+        }
+
+        // First read: returns from disk, kicks revalidation #1 (throws).
+        let first = try await cache.roots()
+        XCTAssertEqual(first, priorRoots)
+        // Let revalidation #1 finish and finishRevalidation() run on
+        // the actor, clearing inflight.
+        try await Task.sleep(nanoseconds: 100_000_000)
+
+        // Second read: returns from memory (still priorRoots), kicks
+        // revalidation #2. If the bug were present, inflight would
+        // still be non-nil and this kick would no-op forever.
+        let second = try await cache.roots()
+        XCTAssertEqual(second, priorRoots)
+
+        // Wait for revalidation #2 to publish through the drift handler.
+        let drifted = await driftFired.wait(timeout: 1.0)
+        XCTAssertTrue(drifted,
+                      "second kick must run, succeed, and signal drift")
+        let calls = await counter.value
+        XCTAssertEqual(calls, 2,
+                       "fetcher must be invoked again after the previous kick threw")
+    }
+
     func testDriftHandlerDoesNotFireOnUnchangedRevalidation() async throws {
         let defaults = freshDefaults()
         let roots = [mkRoot("a")]
