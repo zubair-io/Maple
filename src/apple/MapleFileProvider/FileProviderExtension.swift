@@ -66,10 +66,20 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
         self.catalog = catalog
         // LibraryRootCache primes from App Group `UserDefaults` so the
         // first `roots()` call after a cold extension launch returns
-        // synchronously. Background revalidation fires a drift event
-        // (wired below after super.init) when the fresh list differs.
+        // synchronously. The drift handler is wired up at construction
+        // time so a revalidation that lands BEFORE we get to the
+        // post-`super.init()` block still publishes the signal — the
+        // earlier "set later" shape left a race window where the first
+        // disk-primed read kicked a revalidation whose result was
+        // observed before any handler was installed.
+        let domainForDrift = domain
+        let driftHandler: LibraryRootCache.DriftHandler = { @Sendable in
+            guard let mgr = NSFileProviderManager(for: domainForDrift) else { return }
+            try? await mgr.signalEnumerator(for: .rootContainer)
+        }
         let rootCache = LibraryRootCache(
             domainID: domainID,
+            driftHandler: driftHandler,
             fetcher: { [catalog] in try await catalog.listFolders() }
         )
         self.rootCache = rootCache
@@ -102,18 +112,6 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
             }
         )
         self.changeFeed?.start()
-        // Wire the root-cache drift handler. On a background
-        // revalidation that yields a list different from the one we
-        // previously served, signal the root container so the OS
-        // re-enumerates and Finder picks up the new label / folder
-        // count without a manual refresh.
-        let domainForDrift = domain
-        Task {
-            await rootCache.setDriftHandler {
-                guard let mgr = NSFileProviderManager(for: domainForDrift) else { return }
-                try? await mgr.signalEnumerator(for: .rootContainer)
-            }
-        }
         log.info("init domain=\(domain.identifier.rawValue, privacy: .public)")
     }
 

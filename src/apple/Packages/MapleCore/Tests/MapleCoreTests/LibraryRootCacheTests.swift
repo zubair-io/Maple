@@ -103,6 +103,34 @@ final class LibraryRootCacheTests: XCTestCase {
                        "fetcher must be invoked on each cold call after a throw")
     }
 
+    /// CRITICAL: the drift handler must be wireable at construction
+    /// time. The post-super.init Task installation shape that this
+    /// fix replaces left a race window in which the first disk-primed
+    /// `roots()` could land a revalidation BEFORE the handler was
+    /// installed — drift would be silently lost. Constructing with the
+    /// handler in-place must guarantee the very first revalidation
+    /// signals.
+    func testDriftHandlerFiresWhenInstalledAtInit() async throws {
+        let defaults = freshDefaults()
+        let priorRoots = [mkRoot("a", fileCount: 1)]
+        let data = try JSONEncoder().encode(priorRoots)
+        defaults.set(data, forKey: "fileprovider.default.library-roots")
+        let freshRoots = [mkRoot("a", fileCount: 99)]
+        let driftFired = AsyncFlag()
+        // Pass the handler via init — NOT via setDriftHandler.
+        let cache = LibraryRootCache(
+            domainID: "default",
+            defaults: defaults,
+            driftHandler: { await driftFired.fire() },
+            fetcher: { freshRoots }
+        )
+        let served = try await cache.roots()
+        XCTAssertEqual(served, priorRoots)
+        let ok = await driftFired.wait(timeout: 1.0)
+        XCTAssertTrue(ok,
+                      "drift handler installed at init must fire on first revalidation")
+    }
+
     /// Revalidation that yields a list different from what was
     /// previously served fires the drift handler. A revalidation that
     /// matches does not.
