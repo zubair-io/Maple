@@ -215,9 +215,16 @@ export const foldersRoutes = new Elysia({ prefix: "/api/folders" })
   )
 
   // Streaming upload: body is raw file bytes, target path in X-Maple-Target-Path.
+  //
+  // The route reads `request.body` directly as a Web ReadableStream and
+  // pipes it to disk chunk-by-chunk via `Bun.write`. Earlier revisions
+  // used `type: "arrayBuffer"`, which made Elysia buffer the entire
+  // body in RAM before the handler ran — a 1 GB upload would have
+  // spiked server RSS by 1 GB. Streaming keeps the working set bounded
+  // to a few KB regardless of file size.
   .post(
     "/:id/upload",
-    async ({ params, body, headers, set }) => {
+    async ({ params, headers, request, set }) => {
       let folderId: ObjectId;
       try { folderId = new ObjectId(params.id); }
       catch { set.status = 400; return { error: "Invalid folder id" }; }
@@ -256,15 +263,6 @@ export const foldersRoutes = new Elysia({ prefix: "/api/folders" })
 
       const absPath = nodePath.join(folder.path, target);
 
-      // Body comes in as an ArrayBuffer when `type: "arrayBuffer"` is set.
-      const bytes = body instanceof ArrayBuffer
-        ? new Uint8Array(body)
-        : body instanceof Uint8Array
-          ? body
-          : typeof body === "string"
-            ? new TextEncoder().encode(body)
-            : new Uint8Array();
-
       const dir = nodePath.dirname(absPath);
       await mkdir(dir, { recursive: true });
 
@@ -298,12 +296,32 @@ export const foldersRoutes = new Elysia({ prefix: "/api/folders" })
 
       const tmp = nodePath.join(dir, `.upload-${randomUUID()}`);
       try {
-        const fh = await open(tmp, "w");
-        try {
-          await fh.writeFile(bytes);
-          await fh.datasync();
-        } finally {
+        // Stream the request body chunk-by-chunk to the tmp file via
+        // Bun's FileSink (writer). This is genuinely streaming — RSS
+        // stays bounded regardless of upload size — unlike a buffered
+        // `fh.writeFile(bytes)` over an `ArrayBuffer` body.
+        const stream = request.body as ReadableStream<Uint8Array> | null;
+        if (stream === null) {
+          // Empty body — touch the file to keep the tmp+rename invariant.
+          const fh = await open(tmp, "w");
           await fh.close();
+        } else {
+          const sink = Bun.file(tmp).writer();
+          try {
+            const reader = stream.getReader();
+            try {
+              while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                if (value && value.byteLength > 0) sink.write(value);
+              }
+            } finally {
+              reader.releaseLock();
+            }
+            await sink.flush();
+          } finally {
+            await sink.end();
+          }
         }
         await rename(tmp, absPath);
       } catch (err) {
@@ -385,7 +403,11 @@ export const foldersRoutes = new Elysia({ prefix: "/api/folders" })
       };
     },
     {
-      type: "arrayBuffer",
+      // Skip Elysia body parsing — the handler consumes `request.body`
+      // as a ReadableStream directly so it can stream to disk without
+      // buffering. With no `type:` / `parse:` set, Elysia leaves the
+      // body untouched.
+      parse: "none",
     }
   )
 
