@@ -162,6 +162,10 @@ export const assetsRoutes = new Elysia({ prefix: "/api/assets" })
         // Race: thumb file disappeared between read and stat. Skip the
         // conditional path; serve the bytes we already loaded.
       }
+      // RFC 9110 §15.4.5: 304 must carry the same Cache-Control as the
+      // 200 path so URLSession's HTTP cache doesn't downgrade freshness
+      // on revalidation. Pin the value here and reuse it on both paths.
+      const cacheControl = "public, max-age=604800, immutable";
       if (etag) {
         const ifNoneMatch = headers["if-none-match"];
         if (
@@ -172,13 +176,13 @@ export const assetsRoutes = new Elysia({ prefix: "/api/assets" })
         ) {
           return new Response(null, {
             status: 304,
-            headers: { ETag: etag },
+            headers: { ETag: etag, "Cache-Control": cacheControl },
           });
         }
         set.headers["ETag"] = etag;
       }
       set.headers["Content-Type"] = "image/jpeg";
-      set.headers["Cache-Control"] = "public, max-age=604800, immutable";
+      set.headers["Cache-Control"] = cacheControl;
       return result.data;
     },
     {
