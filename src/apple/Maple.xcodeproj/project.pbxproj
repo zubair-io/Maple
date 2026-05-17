@@ -14,6 +14,8 @@
 		68887492F6CA34B96DFB3128 /* QuickLook.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 385F03E7203135D6A8D4C07C /* QuickLook.framework */; };
 		8D33FBC64B990E9B2542DF58 /* MapleCore in Frameworks */ = {isa = PBXBuildFile; productRef = 07D7B596343161F1A66BD85A /* MapleCore */; };
 		9913DE4AB2F2AFC8674F57C0 /* FileProviderExtension.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CA678A9D2E0D47F2A861CC6 /* FileProviderExtension.swift */; };
+		A1F0010100000000000000B1 /* WorkingSetEnumerator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1F0010200000000000000B1 /* WorkingSetEnumerator.swift */; };
+		A1F0010300000000000000B1 /* ChangeFeedClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1F0010400000000000000B1 /* ChangeFeedClient.swift */; };
 		A1F0000100000000000000A1 /* MapleCore in Frameworks */ = {isa = PBXBuildFile; productRef = A1F0000200000000000000A1 /* MapleCore */; };
 		A1F0000300000000000000A1 /* RawPipeline.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = A1F0000400000000000000A1 /* RawPipeline.xcframework */; };
 		B8FE7E2DDA6B10D25A18085C /* RawPipeline.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = A1F0000400000000000000A1 /* RawPipeline.xcframework */; };
@@ -88,6 +90,8 @@
 		3FBCDF3B0304A2567DC076AE /* MapleEnumerator.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MapleEnumerator.swift; sourceTree = "<group>"; };
 		443236A672080511BD1FC170 /* MapleQuickLook.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = MapleQuickLook.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		9CA678A9D2E0D47F2A861CC6 /* FileProviderExtension.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FileProviderExtension.swift; sourceTree = "<group>"; };
+		A1F0010200000000000000B1 /* WorkingSetEnumerator.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WorkingSetEnumerator.swift; sourceTree = "<group>"; };
+		A1F0010400000000000000B1 /* ChangeFeedClient.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ChangeFeedClient.swift; sourceTree = "<group>"; };
 		A1F0000400000000000000A1 /* RawPipeline.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = RawPipeline.xcframework; path = Frameworks/RawPipeline.xcframework; sourceTree = "<group>"; };
 		A1F0000700000000000000A1 /* MapleAperture.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MapleAperture.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A1F0000800000000000000A1 /* MapleTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MapleTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -260,6 +264,8 @@
 				9CA678A9D2E0D47F2A861CC6 /* FileProviderExtension.swift */,
 				D4260CC05BF83D4E64860DFB /* MapleItem.swift */,
 				3FBCDF3B0304A2567DC076AE /* MapleEnumerator.swift */,
+				A1F0010200000000000000B1 /* WorkingSetEnumerator.swift */,
+				A1F0010400000000000000B1 /* ChangeFeedClient.swift */,
 				A8BB8561B7CB78D59F7D1DDC /* Info.plist */,
 				BA39B6A9245FA00D972845C6 /* MapleFileProvider.entitlements */,
 			);
@@ -563,6 +569,8 @@
 				9913DE4AB2F2AFC8674F57C0 /* FileProviderExtension.swift in Sources */,
 				0C2C137B342AC74AF449A726 /* MapleItem.swift in Sources */,
 				632EB0C8A8FFA3033BB955BF /* MapleEnumerator.swift in Sources */,
+				A1F0010100000000000000B1 /* WorkingSetEnumerator.swift in Sources */,
+				A1F0010300000000000000B1 /* ChangeFeedClient.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
