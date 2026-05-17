@@ -82,6 +82,15 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
             onEvent: { [weak self] event in
                 guard let self else { return }
                 await self.handleChangeEvent(event)
+            },
+            onStaleCursor: { [weak self] _ in
+                // Server returned 409 — our cursor is stranded. Force
+                // the OS to re-enumerate the working set so it pulls
+                // everything afresh from the new server cursor (which
+                // the client already saved before invoking us).
+                guard let self else { return }
+                guard let mgr = NSFileProviderManager(for: self.domain) else { return }
+                try? await mgr.signalEnumerator(for: .workingSet)
             }
         )
         self.changeFeed?.start()
@@ -102,8 +111,8 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
 
     /// Called by ChangeFeedClient on every SSE-delivered event. Updates
     /// the working-set bookkeeping and signals the working-set
-    /// enumerator (and the affected folder, if any) so the OS pulls
-    /// the new state.
+    /// enumerator and the affected folder (root or nested) so the OS
+    /// pulls the new state.
     private func handleChangeEvent(_ event: AssetChange) async {
         if let assetID = event.assetID {
             let ident = FileProviderIdentifier.asset(assetID).rawValue
@@ -118,13 +127,56 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
         guard let mgr = NSFileProviderManager(for: domain) else { return }
         try? await mgr.signalEnumerator(for: .workingSet)
         if let folderID = event.folderID {
-            let folderIdent = NSFileProviderItemIdentifier(
-                FileProviderIdentifier.folder(folderID: folderID, relativePath: "").rawValue
+            // Resolve the affected sub-folder if the event carries an
+            // `absPath`. Previously we always signalled the root, which
+            // meant a Finder window deep inside the library never saw
+            // an update until the user re-navigated. With `absPath` and
+            // the cached library roots we can strip the matching root
+            // prefix and signal `folder(folderID, relativeDir)` so the
+            // exact directory the file lives in repaints.
+            let folderIdent = await deriveFolderIdentifier(
+                folderID: folderID,
+                absPath: event.absPath
             )
             try? await mgr.signalEnumerator(for: folderIdent)
             // Folder counts may have shifted — drop the library-root cache
             // so the next root enumeration re-reads.
             await rootCache?.invalidate()
+        }
+    }
+
+    /// Derive the FP folder identifier for an event payload. If the
+    /// abs_path falls under a known library root, return the per-folder
+    /// (folderID, relativeDir) identifier. Otherwise fall back to the
+    /// root identifier — better than silent skip because the root will
+    /// at least repaint top-level entries.
+    private func deriveFolderIdentifier(folderID: String, absPath: String?) async
+        -> NSFileProviderItemIdentifier
+    {
+        let rootRaw = FileProviderIdentifier.folder(folderID: folderID, relativePath: "").rawValue
+        guard let absPath, let cache = rootCache else {
+            return NSFileProviderItemIdentifier(rootRaw)
+        }
+        do {
+            let roots = try await cache.roots()
+            guard let root = roots.first(where: { $0.id == folderID }) else {
+                return NSFileProviderItemIdentifier(rootRaw)
+            }
+            // Normalise root.path to end without a trailing slash so
+            // hasPrefix matches "/a/b/c.dng" against root "/a/b".
+            let rootPath = root.path.hasSuffix("/")
+                ? String(root.path.dropLast())
+                : root.path
+            guard absPath.hasPrefix(rootPath + "/") || absPath == rootPath else {
+                return NSFileProviderItemIdentifier(rootRaw)
+            }
+            // Strip the root + leading slash, take the directory.
+            let rel = String(absPath.dropFirst(rootPath.count + 1))
+            let dir = (rel as NSString).deletingLastPathComponent
+            let raw = FileProviderIdentifier.folder(folderID: folderID, relativePath: dir).rawValue
+            return NSFileProviderItemIdentifier(raw)
+        } catch {
+            return NSFileProviderItemIdentifier(rootRaw)
         }
     }
 
@@ -194,12 +246,23 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
                             nil
                         )
                     }
-                case .asset:
-                    // Phase 1: lone asset lookup is not supported (would require a per-asset
-                    // metadata endpoint we don't expose yet). The OS gets the item via the
-                    // folder enumeration that surfaced it; if it asks again, re-enumerate.
-                    completionHandler(nil, NSError(domain: NSFileProviderErrorDomain,
-                                                   code: NSFileProviderError.noSuchItem.rawValue))
+                case .asset(let assetID):
+                    // Resolve via GET /api/assets/:id. Used by the OS
+                    // after `WorkingSetEnumerator` hands back a stub
+                    // item — without this round-trip the OS would see
+                    // a placeholder filename and never get the real
+                    // bytes. Returns nil on 404; we map to noSuchItem.
+                    do {
+                        guard let meta = try await catalog.getAsset(assetID: assetID) else {
+                            completionHandler(nil, NSError(domain: NSFileProviderErrorDomain,
+                                                           code: NSFileProviderError.noSuchItem.rawValue))
+                            return
+                        }
+                        completionHandler(MapleItem(assetMetadata: meta), nil)
+                    } catch {
+                        log.error("getAsset failed: \(error.localizedDescription, privacy: .public)")
+                        completionHandler(nil, error)
+                    }
                 case .sidecar:
                     // Sidecar item lookup not yet supported; the OS receives items via
                     // folder enumeration.
