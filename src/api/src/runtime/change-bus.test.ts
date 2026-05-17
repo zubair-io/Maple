@@ -58,9 +58,41 @@ describe("ChangeBus", () => {
     expect(received).toEqual([1, 2, 3]);
   });
 
-  it("isCursorReplayable returns true when buffer is empty", () => {
+  it("isCursorReplayable on empty buffer respects persisted high-watermark", () => {
     const bus = new ChangeBus({ capacity: 10 });
+    // No watermark set yet — every since is replayable (fresh server,
+    // never had events).
     expect(bus.isCursorReplayable(0)).toBe(true);
     expect(bus.isCursorReplayable(99)).toBe(true);
+    // Simulate a restart: the persistent store says cursor 500 was the
+    // last allocated. A client with since=200 has missed events; only
+    // since >= 500 is honest-empty.
+    bus.setPersistedHighWatermark(500);
+    expect(bus.isCursorReplayable(200)).toBe(false);
+    expect(bus.isCursorReplayable(499)).toBe(false);
+    expect(bus.isCursorReplayable(500)).toBe(true);
+    expect(bus.isCursorReplayable(600)).toBe(true);
+  });
+
+  it("publish keeps the buffer cursor-sorted under out-of-order arrivals", () => {
+    const bus = new ChangeBus({ capacity: 10 });
+    // Simulate the race in recordAndPublishAssetChange — cursor 1 gets
+    // allocated first but its Mongo insert + publish runs after cursor 2.
+    bus.publish(evt(2));
+    bus.publish(evt(1));
+    bus.publish(evt(4));
+    bus.publish(evt(3));
+    expect(bus.snapshot().map((e) => e.cursor)).toEqual([1, 2, 3, 4]);
+    expect(bus.replay({ since: 2 }).map((e) => e.cursor)).toEqual([3, 4]);
+    expect(bus.bufferFloor()).toBe(1);
+  });
+
+  it("publish is idempotent on cursor — duplicate publishes are dropped", () => {
+    const bus = new ChangeBus({ capacity: 10 });
+    bus.publish(evt(1));
+    bus.publish(evt(1));
+    bus.publish(evt(2));
+    bus.publish(evt(2));
+    expect(bus.snapshot().map((e) => e.cursor)).toEqual([1, 2]);
   });
 });

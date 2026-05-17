@@ -31,9 +31,34 @@ export class ChangeBus {
     this.emitter.setMaxListeners(0);
   }
 
+  /**
+   * Publish an event. Inserts into the buffer in cursor order — handlers
+   * that allocate cursors concurrently and then race on the Mongo insert
+   * can deliver `publish()` out of cursor order, but the buffer must
+   * always be cursor-sorted so `snapshot()` / `replay()` / floor checks
+   * are deterministic. Linear scan for the insert position is fine at
+   * 10k capacity (worst case: a few µs).
+   *
+   * Returns silently if the event's cursor already exists in the buffer
+   * (idempotency for the change-feed tailer that may replay rows the
+   * in-process publisher already enqueued).
+   */
   publish(event: AssetChangeWithId): void {
-    this.buf.push(event);
-    if (this.buf.length > this.capacity) this.buf.shift();
+    // Fast path — buffer empty or strictly increasing (the common case).
+    const last = this.buf.length > 0 ? this.buf[this.buf.length - 1]! : null;
+    if (last === null || event.cursor > last.cursor) {
+      this.buf.push(event);
+    } else if (event.cursor === last.cursor) {
+      return; // dedupe — already in buffer
+    } else {
+      // Out-of-order arrival — binary-insert. Linear search reads cleanly
+      // and stays comfortably fast at this capacity.
+      let i = this.buf.length;
+      while (i > 0 && this.buf[i - 1]!.cursor > event.cursor) i--;
+      if (i > 0 && this.buf[i - 1]!.cursor === event.cursor) return;
+      this.buf.splice(i, 0, event);
+    }
+    while (this.buf.length > this.capacity) this.buf.shift();
     this.emitter.emit("change", event);
   }
 
@@ -47,16 +72,47 @@ export class ChangeBus {
   }
 
   /**
+   * Lowest cursor currently held in the buffer, or null if empty.
+   */
+  bufferFloor(): number | null {
+    return this.buf.length === 0 ? null : this.buf[0]!.cursor;
+  }
+
+  /**
+   * Persisted high-watermark — set by the API process at boot from
+   * `highestCursor()` in the asset_changes collection. The bus uses this
+   * to refuse replay when the in-memory buffer is empty but the
+   * persistent store has events the client never saw (post-restart
+   * recovery). Updated by the tailer as it republishes Mongo rows so
+   * the bus stays in sync.
+   */
+  private persistedHighWatermark = 0;
+
+  /** Set the persisted high-watermark (called by the tailer / boot). */
+  setPersistedHighWatermark(cursor: number): void {
+    if (cursor > this.persistedHighWatermark) {
+      this.persistedHighWatermark = cursor;
+    }
+  }
+
+  getPersistedHighWatermark(): number {
+    return this.persistedHighWatermark;
+  }
+
+  /**
    * True when `since` is within the buffer's reach (i.e. we can serve a
-   * replay without going to Mongo). An empty buffer is considered
-   * always-replayable (no events to miss).
+   * replay without going to Mongo).
    *
-   * The check is `since + 1 >= floor` — if the next event the client
-   * needs is cursor `since + 1`, we can serve it as long as the buffer
-   * still holds it.
+   * - When the buffer is non-empty: `since + 1 >= floor`.
+   * - When the buffer is empty: replayable iff the client is up-to-date
+   *   with the persisted high-watermark. Old buffers post-restart are
+   *   NOT replayable — the client has missed everything the prior
+   *   process delivered, and would otherwise silently get nothing here.
    */
   isCursorReplayable(since: number): boolean {
-    if (this.buf.length === 0) return true;
+    if (this.buf.length === 0) {
+      return since >= this.persistedHighWatermark;
+    }
     const floor = this.buf[0]!.cursor;
     return since + 1 >= floor;
   }
