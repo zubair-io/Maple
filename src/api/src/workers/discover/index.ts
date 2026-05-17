@@ -25,6 +25,7 @@ import { Watcher, type WatchEvent } from "../../indexer/watcher.ts";
 import { blankStagesSkeleton } from "../stages/manifest.ts";
 import { child } from "../../log.ts";
 import { assetsCollection, foldersCollection, getDb, ensureIndexes, closeDb } from "../../db/client.ts";
+import { recordAndPublishAssetChange } from "../../db/changes.repo.ts";
 
 const log = child("discover");
 
@@ -56,15 +57,34 @@ export async function handleEvent(event: WatchEvent, folderId: ObjectId): Promis
   const coll = await assetsCollection();
 
   if (kind === "removed") {
+    // Read the asset ID before the soft-delete so the change event can
+    // carry it. Soft-deletes preserve the row, so this never races with
+    // a delete-then-readd.
+    const existing = await coll.findOne(
+      { abs_path: absPath },
+      { projection: { _id: 1, folder_id: 1 } },
+    );
     await coll.updateOne(
       { abs_path: absPath },
       { $set: { deleted_at: new Date().toISOString() } },
     );
     log.info({ absPath }, "soft-deleted");
+    if (existing) {
+      await recordAndPublishAssetChange({
+        kind: "delete",
+        asset_id: existing._id,
+        folder_id: existing.folder_id ?? folderId,
+        abs_path: absPath,
+      });
+    }
     return;
   }
 
   if (kind === "renamed" && fromPath) {
+    const before = await coll.findOne(
+      { abs_path: fromPath },
+      { projection: { _id: 1 } },
+    );
     await coll.updateOne(
       { abs_path: fromPath },
       {
@@ -77,6 +97,16 @@ export async function handleEvent(event: WatchEvent, folderId: ObjectId): Promis
       },
     );
     log.info({ from: fromPath, to: absPath }, "renamed");
+    if (before) {
+      // Renames keep the same _id but change the path — surface as an
+      // `update` so File Provider clients pick up the new filename.
+      await recordAndPublishAssetChange({
+        kind: "update",
+        asset_id: before._id,
+        folder_id: folderId,
+        abs_path: absPath,
+      });
+    }
     return;
   }
 
@@ -90,7 +120,7 @@ export async function handleEvent(event: WatchEvent, folderId: ObjectId): Promis
   }
 
   const now = new Date().toISOString();
-  await coll.updateOne(
+  const res = await coll.findOneAndUpdate(
     { abs_path: absPath },
     {
       $set: {
@@ -112,9 +142,20 @@ export async function handleEvent(event: WatchEvent, folderId: ObjectId): Promis
         stages: blankStagesSkeleton(),
       },
     },
-    { upsert: true },
+    { upsert: true, returnDocument: "after" },
   );
   log.info({ absPath, kind }, "upserted");
+  // Emit a change feed entry. `created` events become a "create" kind
+  // for File Provider clients; `modified` becomes "update".
+  const assetId = (res as unknown as { _id?: ObjectId } | null)?._id ?? null;
+  if (assetId) {
+    await recordAndPublishAssetChange({
+      kind: kind === "created" ? "create" : "update",
+      asset_id: assetId,
+      folder_id: folderId,
+      abs_path: absPath,
+    });
+  }
 }
 
 /**
