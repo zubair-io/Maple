@@ -69,6 +69,15 @@ public actor LibraryRootCache {
     /// a time. The Task is responsible for clearing `inflight` in BOTH
     /// the success and failure paths so a single transient error does
     /// not leave the slot permanently occupied.
+    ///
+    /// Critical: `inflight` is cleared in the SAME actor-bound block
+    /// that processes the success/failure outcome (`finishRevalidation`)
+    /// — not via a separate deferred `Task { ... }`. With the deferred
+    /// shape, a synchronous caller arriving between the catch and the
+    /// deferred clear would see `inflight != nil`, await the dead Task,
+    /// re-throw its error, and the next `kickRevalidation` would be a
+    /// no-op too because `inflight` still looked occupied to the next
+    /// memory-served read.
     private func kickRevalidation() {
         guard inflight == nil else { return }
         let primed = memoryCache
@@ -77,17 +86,29 @@ public actor LibraryRootCache {
         }
         inflight = task
         Task { [weak self] in
-            defer { Task { [weak self] in await self?.clearInflight() } }
+            let outcome: Result<[LibraryRoot], Error>
             do {
-                let fresh = try await task.value
-                await self?.applyRevalidation(fresh: fresh, primed: primed)
+                outcome = .success(try await task.value)
             } catch {
-                // Background revalidation failure is non-fatal — the
-                // memory/disk-served value is still good. Log and move
-                // on; `clearInflight` runs via defer so the next call
-                // will try again.
-                await self?.logRevalidationFailure(error)
+                outcome = .failure(error)
             }
+            await self?.finishRevalidation(outcome, primed: primed)
+        }
+    }
+
+    /// Single actor-isolated landing for both success and failure of a
+    /// background revalidation. Clears `inflight` as part of the same
+    /// atomic actor block that applies the result — there is no window
+    /// in which `inflight` is non-nil but the outcome has already been
+    /// observed.
+    private func finishRevalidation(_ outcome: Result<[LibraryRoot], Error>,
+                                    primed: [LibraryRoot]?) {
+        inflight = nil
+        switch outcome {
+        case .success(let fresh):
+            applyRevalidation(fresh: fresh, primed: primed)
+        case .failure(let error):
+            logRevalidationFailure(error)
         }
     }
 
