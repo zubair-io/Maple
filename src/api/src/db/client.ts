@@ -335,7 +335,17 @@ export async function ensureIndexes(): Promise<void> {
   // partialFilterExpression. Drop it before re-creating with the new
   // spec; createIndex would otherwise reject as IndexOptionsConflict.
   // The introspect-and-drop pattern mirrors `ensureStageIndexes` above.
-  const assetIndexes = await db.collection("assets").indexes();
+  // On a fresh DB the `assets` collection doesn't exist yet — calling
+  // `.indexes()` on a missing namespace throws `NamespaceNotFound`
+  // (Mongo error 26). The migration check is a no-op in that case
+  // anyway (no pre-existing index to drop), so swallow the error.
+  let assetIndexes: { name?: unknown; partialFilterExpression?: unknown }[] = [];
+  try {
+    assetIndexes = (await db.collection("assets").indexes()) as typeof assetIndexes;
+  } catch (err) {
+    const code = (err as { code?: number } | null)?.code;
+    if (code !== 26) throw err;
+  }
   const existingFolderFilenameIdx = assetIndexes.find(
     (i) =>
       (i.name as string) === "folder_id_1_filename_1" &&
