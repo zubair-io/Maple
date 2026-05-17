@@ -20,7 +20,6 @@
 		BF306371601D933BE6ECCBEF /* FileProvider.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E471E86FF6276852A3960D14 /* FileProvider.framework */; };
 		C0D28215847FC19B22E663BC /* MapleFileProvider.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = EC6472D425AC44A1388478EF /* MapleFileProvider.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		CD96B6E04439562F54AD13B8 /* MapleQuickLook.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 443236A672080511BD1FC170 /* MapleQuickLook.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
-		D9D113BC74DE77C590375075 /* Cocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 4341720A458931FEFD72BE8F /* Cocoa.framework */; };
 		E3DD948B2FB50EB9009392B4 /* MapleCore in Frameworks */ = {isa = PBXBuildFile; productRef = E3DD948A2FB50EB9009392B4 /* MapleCore */; };
 		E3DD948E2FB51A67009392B4 /* MapleBackup in Frameworks */ = {isa = PBXBuildFile; productRef = E3DD948D2FB51A67009392B4 /* MapleBackup */; };
 		E3DD94902FB55723009392B4 /* MapleBackup in Frameworks */ = {isa = PBXBuildFile; productRef = E3DD948F2FB55723009392B4 /* MapleBackup */; };
@@ -87,7 +86,6 @@
 		368C4388B923E485F1FB55F8 /* MaplePreviewProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MaplePreviewProvider.swift; sourceTree = "<group>"; };
 		385F03E7203135D6A8D4C07C /* QuickLook.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = QuickLook.framework; path = System/Library/Frameworks/QuickLook.framework; sourceTree = SDKROOT; };
 		3FBCDF3B0304A2567DC076AE /* MapleEnumerator.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MapleEnumerator.swift; sourceTree = "<group>"; };
-		4341720A458931FEFD72BE8F /* Cocoa.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Cocoa.framework; path = Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.0.sdk/System/Library/Frameworks/Cocoa.framework; sourceTree = DEVELOPER_DIR; };
 		443236A672080511BD1FC170 /* MapleQuickLook.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = MapleQuickLook.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		9CA678A9D2E0D47F2A861CC6 /* FileProviderExtension.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FileProviderExtension.swift; sourceTree = "<group>"; };
 		A1F0000400000000000000A1 /* RawPipeline.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = RawPipeline.xcframework; path = Frameworks/RawPipeline.xcframework; sourceTree = "<group>"; };
@@ -150,7 +148,6 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				D9D113BC74DE77C590375075 /* Cocoa.framework in Frameworks */,
 				68887492F6CA34B96DFB3128 /* QuickLook.framework in Frameworks */,
 				EBA6500530BFEA35449C6FE3 /* QuickLookUI.framework in Frameworks */,
 				0E43AF9C39E0B84EEA3D136E /* MapleCore in Frameworks */,
@@ -196,7 +193,6 @@
 		21221CD5764C20C661DA70B2 /* OS X */ = {
 			isa = PBXGroup;
 			children = (
-				4341720A458931FEFD72BE8F /* Cocoa.framework */,
 			);
 			name = "OS X";
 			sourceTree = "<group>";
