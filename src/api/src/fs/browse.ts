@@ -411,7 +411,11 @@ export async function listDirContents(
 
   const dirs: DirChild[] = [];
   const images: ImageChild[] = [];
-  const sidecarRaw: Array<Omit<SidecarChild, "assetID">> = [];
+  // `SidecarChild` keys are snake_case (`asset_id`); the original
+  // `Omit<…, "assetID">` was a no-op typo that left `sidecarRaw`
+  // effectively typed as `SidecarChild[]`, making the literal pushed
+  // below (without `asset_id`) invalid under strict TS.
+  const sidecarRaw: Array<Omit<SidecarChild, "asset_id">> = [];
 
   for (const name of slice) {
     const childCandidate = real === "/" ? "/" + name : `${real}/${name}`;
