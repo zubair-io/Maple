@@ -361,6 +361,54 @@ export async function listDirContents(
     ? offset + limit
     : null;
 
+  // ── Cross-page sidecar pairing (issue #6 of PR #66 review) ─────────
+  // Sidecars are paired to images by canonical filename base. When the
+  // visible list is sliced, an image and its `.xmp` sidecar can land on
+  // different pages — and the sidecar would be silently dropped because
+  // `imageBaseToAsset` was built only from the current slice's images.
+  //
+  // Fix: in paged mode, pre-walk ALL visible image filenames (cheap —
+  // just an extension test + path join, no realpath/stat) and look up
+  // the full set of indexed asset IDs in one Mongo `$in` query. That
+  // map is then consulted by the per-slice sidecar loop below so a
+  // sidecar resolves its assetID regardless of which page its paired
+  // image fell on. In unpaged mode the slice == visible, so the global
+  // map collapses to the legacy behaviour.
+  const globalImageBaseToAsset = new Map<string, string>();
+  if (pagedMode) {
+    const allImageBases = new Map<string, string>(); // base → candidate abs_path
+    for (const name of visible) {
+      const dot = name.lastIndexOf(".");
+      if (dot < 0) continue;
+      const ext = name.slice(dot + 1).toLowerCase();
+      if (!IMAGE_EXTENSIONS.has(ext)) continue;
+      const base = name.slice(0, dot);
+      const candidate = real === "/" ? "/" + name : `${real}/${name}`;
+      allImageBases.set(base, candidate);
+    }
+    if (allImageBases.size > 0) {
+      try {
+        const coll = await assetsCollection();
+        const cursor = coll.find(
+          { abs_path: { $in: Array.from(allImageBases.values()) } },
+          { projection: { _id: 1, abs_path: 1 } },
+        );
+        const pathToBase = new Map<string, string>();
+        for (const [b, p] of allImageBases) pathToBase.set(p, b);
+        for await (const doc of cursor) {
+          const b = pathToBase.get(doc.abs_path);
+          if (b) globalImageBaseToAsset.set(b, doc._id.toHexString());
+        }
+      } catch (err) {
+        // Best-effort — same posture as the EXIF enrichment below.
+        log.error(
+          { real, err: err instanceof Error ? err.message : err },
+          "global image-base lookup failed",
+        );
+      }
+    }
+  }
+
   const dirs: DirChild[] = [];
   const images: ImageChild[] = [];
   const sidecarRaw: Array<Omit<SidecarChild, "assetID">> = [];
@@ -461,9 +509,11 @@ export async function listDirContents(
 
   // Pair each candidate sidecar to an indexed asset by matching the
   // canonical base (strip ".xmp" and optional "(conflict from …)"
-  // suffix) against the filename base of an indexed image in this
-  // listing. Sidecars without a paired indexed image are dropped.
-  const imageBaseToAsset = new Map<string, string>();
+  // suffix) against the filename base of an indexed image. In paged
+  // mode we consult the dir-wide map computed above so a sidecar can
+  // pair to its image even when paging split them across two responses.
+  // In unpaged mode the per-slice map is sufficient.
+  const imageBaseToAsset = new Map<string, string>(globalImageBaseToAsset);
   for (const img of images) {
     if (!img.id) continue;
     const dot = img.name.lastIndexOf(".");
