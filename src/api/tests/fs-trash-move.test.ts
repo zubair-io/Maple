@@ -124,6 +124,33 @@ describe("pickFreePath / pickFreeRestoredPath — extensionless input", () => {
     const result = await pickFreeRestoredPath(target);
     expect(result).toBe(`${target}.restored`);
   });
+
+  // Regression: the prior implementation returned `${stem}.1000${ext}`
+  // after exhausting candidates even if that path was occupied — the
+  // subsequent `fs.rename` would then silently overwrite the existing
+  // file. Throwing converts that into a 500 at the route level so the
+  // caller sees a real error instead of losing data.
+  test("pickFreePath throws after exhausting 1000 candidates", async () => {
+    const dir = path.join(tmpRoot, "pickfree-exhausted");
+    await fs.mkdir(dir, { recursive: true });
+    const target = path.join(dir, "FULL.ARW");
+    await fs.writeFile(target, "base");
+    for (let n = 1; n <= 1000; n++) {
+      await fs.writeFile(path.join(dir, `FULL.${n}.ARW`), `n=${n}`);
+    }
+    await expect(pickFreePath(target)).rejects.toThrow(/exceeded 1000/);
+  });
+
+  test("pickFreeRestoredPath throws after exhausting 1000 candidates", async () => {
+    const dir = path.join(tmpRoot, "pickfree-restored-exhausted");
+    await fs.mkdir(dir, { recursive: true });
+    const target = path.join(dir, "FULL.ARW");
+    await fs.writeFile(path.join(dir, "FULL.restored.ARW"), "first");
+    for (let n = 1; n <= 1000; n++) {
+      await fs.writeFile(path.join(dir, `FULL.restored.${n}.ARW`), `n=${n}`);
+    }
+    await expect(pickFreeRestoredPath(target)).rejects.toThrow(/exceeded 1000/);
+  });
 });
 
 describe("computeTrashPath", () => {

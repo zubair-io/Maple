@@ -36,6 +36,10 @@ export function computeTrashPath(absPath: string, folderRoot: string): string {
 
 /** Append `.N.<ext>` until the path is free. Bounded to 1000 attempts.
  *
+ * Throws after exhausting all candidates rather than returning the last
+ * (occupied) one — the prior behaviour would have let the subsequent
+ * `fs.rename` overwrite an existing trashed file, causing data loss.
+ *
  * Extensionless-input edge case: `path.extname("/x/foo")` returns `""`, and
  * `basePath.slice(0, -0)` is `""` — naively building `${stem}.${n}${ext}`
  * would produce `.1` (a root-level dotfile), losing the basename entirely.
@@ -49,10 +53,14 @@ export async function pickFreePath(basePath: string): Promise<string> {
     const cand = `${stem}.${n}${ext}`;
     try { await fs.stat(cand); } catch { return cand; }
   }
-  return `${stem}.1000${ext}`;
+  throw new Error(`pickFreePath: trash collision — exceeded 1000 candidate paths for ${basePath}`);
 }
 
 /** Append `.restored[.N]<ext>` until the path is free. Bounded to 1000 attempts.
+ *
+ * Throws after exhausting all candidates rather than returning the last
+ * (occupied) one — the prior behaviour would have let the subsequent
+ * `fs.rename` overwrite an existing restored file, causing data loss.
  *
  * Same extensionless guard as `pickFreePath` — see comment there. */
 export async function pickFreeRestoredPath(basePath: string): Promise<string> {
@@ -64,7 +72,7 @@ export async function pickFreeRestoredPath(basePath: string): Promise<string> {
     const cand = `${stem}.restored.${n}${ext}`;
     try { await fs.stat(cand); } catch { return cand; }
   }
-  return `${stem}.restored.1000${ext}`;
+  throw new Error(`pickFreeRestoredPath: restore collision — exceeded 1000 candidate paths for ${basePath}`);
 }
 
 /**
