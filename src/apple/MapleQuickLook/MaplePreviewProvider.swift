@@ -45,7 +45,10 @@ final class MaplePreviewProvider: QLPreviewProvider, QLPreviewingController {
         //    show the raw text/XML. Bail before touching the meta store
         //    or domain config: this is the expected case for every .xmp
         //    surfaced through the FP, not an error worth investigating.
-        if basename.lowercased().hasSuffix(".xmp") {
+        //    `FileProviderExtension.fetchContents` preserves the `.xmp`
+        //    suffix when materializing sidecars (RAWs stay extensionless)
+        //    so this single basename check is a reliable discriminator.
+        if QuickLookResolver.isSidecarBasename(basename) {
             throw Self.fallbackError("xmp sidecar — no jpeg preview")
         }
 

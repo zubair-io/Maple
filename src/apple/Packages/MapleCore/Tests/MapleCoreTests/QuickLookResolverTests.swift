@@ -28,4 +28,31 @@ final class QuickLookResolverTests: XCTestCase {
         let hit = QuickLookResolver.resolveDomain(from: url, configured: [])
         XCTAssertNil(hit)
     }
+
+    // MARK: - isSidecarBasename
+
+    func testIsSidecarBasenameDetectsLowercase() {
+        XCTAssertTrue(QuickLookResolver.isSidecarBasename("ABC123.xmp"))
+    }
+
+    func testIsSidecarBasenameDetectsUppercase() {
+        XCTAssertTrue(QuickLookResolver.isSidecarBasename("ABC123.XMP"))
+    }
+
+    func testIsSidecarBasenameDetectsMixedCase() {
+        XCTAssertTrue(QuickLookResolver.isSidecarBasename("ABC123.Xmp"))
+    }
+
+    /// RAW basenames materialized by the File Provider are extensionless
+    /// (`UUID().uuidString`) — they must NOT trip the sidecar guard,
+    /// otherwise QuickLook would fall back to system preview and serve
+    /// no JPEG.
+    func testIsSidecarBasenameRejectsExtensionlessRAW() {
+        XCTAssertFalse(QuickLookResolver.isSidecarBasename("ABC123"))
+        XCTAssertFalse(QuickLookResolver.isSidecarBasename(UUID().uuidString))
+    }
+
+    func testIsSidecarBasenameRejectsXmpInTheMiddle() {
+        XCTAssertFalse(QuickLookResolver.isSidecarBasename("xmp-archive.zip"))
+    }
 }

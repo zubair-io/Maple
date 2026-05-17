@@ -2,6 +2,17 @@
 import Foundation
 
 public enum QuickLookResolver {
+    /// Returns `true` if the materialized basename refers to an XMP
+    /// sidecar (case-insensitive). The File Provider extension preserves
+    /// the `.xmp` extension on sidecar fetches so this single string
+    /// check is the source of truth — RAW basenames are extensionless
+    /// (no `.dng`, `.arw`, etc.) because the asset identifier doesn't
+    /// carry an extension and we don't take a catalog round-trip to
+    /// recover one.
+    public static func isSidecarBasename(_ basename: String) -> Bool {
+        basename.lowercased().hasSuffix(".xmp")
+    }
+
     /// Walks parent components of a Quick-Look-supplied file URL looking
     /// for a directory whose name matches a configured File Provider
     /// domain identifier. Returns the first match.
