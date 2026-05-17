@@ -23,6 +23,12 @@ final class ChangeFeedClient {
     /// full re-enumeration. Optional so tests can inject without
     /// touching `NSFileProviderManager`.
     private let onStaleCursor: (@Sendable (Int64) async -> Void)?
+    /// Optional reference to the catalog. When the server tells us our
+    /// cursor is stale (409), the in-memory ETag cache is by definition
+    /// also stale — purging it forces the next `/api/folders` and
+    /// `/api/fs/dir` round trip to be a full fetch rather than a 304-
+    /// short-circuited reuse of pre-409 bodies.
+    private let catalog: RemoteCatalog?
     private let log = Logger(subsystem: "app.justmaple.aperture.fileprovider",
                              category: "change-feed")
     private var task: Task<Void, Never>?
@@ -31,12 +37,14 @@ final class ChangeFeedClient {
          tokensProvider: @escaping @Sendable () -> AuthTokens?,
          cursorStore: ChangeCursorStore,
          domainID: String,
+         catalog: RemoteCatalog? = nil,
          onEvent: @escaping @Sendable (AssetChange) async -> Void,
          onStaleCursor: (@Sendable (Int64) async -> Void)? = nil) {
         self.server = server
         self.tokensProvider = tokensProvider
         self.cursorStore = cursorStore
         self.domainID = domainID
+        self.catalog = catalog
         self.onEvent = onEvent
         self.onStaleCursor = onStaleCursor
     }
@@ -94,8 +102,11 @@ final class ChangeFeedClient {
             //
             //   1. Read the server's `current` cursor from the 409 body
             //      and jump to it. We've missed every event between our
-            //      stale `since` and `current`, so step (2) reconciles.
-            //   2. Trigger working-set re-enumeration via the host's
+            //      stale `since` and `current`, so step (3) reconciles.
+            //   2. Drop the RemoteCatalog ETag cache — its entries
+            //      reflect the pre-gap state and a 304 against them
+            //      after a force-reseed would serve a stale folder list.
+            //   3. Trigger working-set re-enumeration via the host's
             //      `onStaleCursor` callback (FileProviderExtension
             //      signals `.workingSet` so the OS pulls fresh state).
             //
@@ -120,6 +131,7 @@ final class ChangeFeedClient {
             } else {
                 cursorStore.reset(domain: domainID)
             }
+            await catalog?.invalidateETagCache()
             await onStaleCursor?(serverCurrent)
             return
         }
