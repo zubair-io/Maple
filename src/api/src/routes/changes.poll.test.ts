@@ -62,6 +62,16 @@ describe("GET /api/changes", () => {
     expect(body.next_cursor).toBeUndefined();
   });
 
+  it("returns 400 for non-integer limit (regression — used to 500)", async () => {
+    if (!mongoReachable || !app) return;
+    const res = await app.handle(
+      new Request("http://localhost/api/changes?since=0&limit=abc")
+    );
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toMatch(/limit/i);
+  });
+
   it("respects limit parameter", async () => {
     if (!mongoReachable || !db || !app) return;
     for (let i = 0; i < 10; i++) {
