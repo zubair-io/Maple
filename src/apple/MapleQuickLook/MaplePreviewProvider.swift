@@ -22,10 +22,17 @@ final class MaplePreviewProvider: QLPreviewProvider, QLPreviewingController {
                              category: "provider")
     private let metaStore: FileProviderMetaStore?
     private let config: FileProviderConfig
+    /// One URLSession for the lifetime of the provider instance. Cheap
+    /// to share across requests — every spacebar press in Finder reuses
+    /// the same connection pool, TLS session resumption, and DNS cache.
+    /// `AuthenticatedHTTPClient` and `RemoteCatalog` are still
+    /// per-request because they're per-domain (server URL + tokens).
+    private let urlSession: URLSession
 
     override init() {
         self.metaStore = try? FileProviderMetaStore()
         self.config = FileProviderConfig()
+        self.urlSession = URLSession(configuration: .default)
         super.init()
     }
 
@@ -33,6 +40,14 @@ final class MaplePreviewProvider: QLPreviewProvider, QLPreviewingController {
         let fileURL = request.fileURL
         let basename = fileURL.lastPathComponent
         log.notice("providePreview basename=\(basename, privacy: .public)")
+
+        // 0. XMP sidecars don't have an image preview — let the system
+        //    show the raw text/XML. Bail before touching the meta store
+        //    or domain config: this is the expected case for every .xmp
+        //    surfaced through the FP, not an error worth investigating.
+        if basename.lowercased().hasSuffix(".xmp") {
+            throw Self.fallbackError("xmp sidecar — no jpeg preview")
+        }
 
         // 1. Resolve the FP domain that owns the cached file.
         let configuredDomains = Set(config.allDomains().map { $0.domainIdentifier })
@@ -59,29 +74,22 @@ final class MaplePreviewProvider: QLPreviewProvider, QLPreviewingController {
             throw Self.fallbackError("meta store error")
         }
 
-        // 3. XMP sidecars don't have an image preview — let the system show
-        //    the raw text/XML.
-        if basename.lowercased().hasSuffix(".xmp") {
-            throw Self.fallbackError("xmp sidecar — no jpeg preview")
-        }
-
-        // 4. Resolve the per-domain server URL + auth tokens.
+        // 3. Resolve the per-domain server URL + auth tokens.
         guard let cfg = config.load(domain: domainID) else {
             log.notice("domain config missing for \(domainID, privacy: .public) — falling back")
             throw Self.fallbackError("domain config missing")
         }
         let tokensStore = FileProviderTokensStore()
-        let session = URLSession(configuration: .default)
         let http = AuthenticatedHTTPClient(
             server: cfg.serverURL,
-            urlSession: session,
+            urlSession: urlSession,
             tokensProvider: { tokensStore.load(domain: domainID) },
             onTokensRefreshed: { tokensStore.save($0, domain: domainID) },
             onSignOut: { tokensStore.remove(domain: domainID) }
         )
         let catalog = RemoteCatalog(http: http, server: cfg.serverURL)
 
-        // 5. Fetch the JPEG preview.
+        // 4. Fetch the JPEG preview.
         let bytes: Data
         do {
             bytes = try await catalog.getThumb(assetID: row.assetID)
@@ -90,7 +98,7 @@ final class MaplePreviewProvider: QLPreviewProvider, QLPreviewingController {
             throw Self.fallbackError("thumb fetch failed")
         }
 
-        // 6. Build the reply. `contentSize` is advisory; QL re-reads the
+        // 5. Build the reply. `contentSize` is advisory; QL re-reads the
         //    actual dimensions from the JPEG header and re-aspects on
         //    display. The 1024-square placeholder is conventional.
         let reply = QLPreviewReply(
