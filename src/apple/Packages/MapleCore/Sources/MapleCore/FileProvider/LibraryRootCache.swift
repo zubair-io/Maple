@@ -21,6 +21,13 @@ public actor LibraryRootCache {
     private let fetcher: Fetcher
     private var memoryCache: [LibraryRoot]?
     private var inflight: Task<[LibraryRoot], Error>?
+    /// Monotonic counter bumped on every `invalidate()`. Each background
+    /// kick captures the value at start time; `finishRevalidation` drops
+    /// the result if the captured value no longer matches — i.e. an
+    /// invalidate() arrived between kick and completion. Without this,
+    /// a slow in-flight fetcher could land after an invalidate and
+    /// silently repopulate the cache the caller just emptied.
+    private var generation: Int = 0
     private var driftHandler: DriftHandler?
     private let log = Logger(subsystem: "app.justmaple.aperture.fileprovider",
                              category: "root-cache")
@@ -63,6 +70,15 @@ public actor LibraryRootCache {
     public func invalidate() {
         memoryCache = nil
         defaults.removeObject(forKey: diskKey)
+        // Cancel and detach any in-flight revalidation so a slow
+        // fetcher landing after the caller emptied the cache cannot
+        // repopulate it. The generation bump is the authoritative
+        // signal: even if `cancel()` is a no-op (URLSession completes
+        // anyway), `finishRevalidation` drops the result because the
+        // generation it captured no longer matches.
+        inflight?.cancel()
+        inflight = nil
+        generation &+= 1
     }
 
     // MARK: - Internals
@@ -83,6 +99,7 @@ public actor LibraryRootCache {
     private func kickRevalidation() {
         guard inflight == nil else { return }
         let primed = memoryCache
+        let capturedGeneration = generation
         let task = Task { [fetcher] () async throws -> [LibraryRoot] in
             try await fetcher()
         }
@@ -94,7 +111,9 @@ public actor LibraryRootCache {
             } catch {
                 outcome = .failure(error)
             }
-            await self?.finishRevalidation(outcome, primed: primed)
+            await self?.finishRevalidation(outcome,
+                                            primed: primed,
+                                            capturedGeneration: capturedGeneration)
         }
     }
 
@@ -104,8 +123,18 @@ public actor LibraryRootCache {
     /// in which `inflight` is non-nil but the outcome has already been
     /// observed.
     private func finishRevalidation(_ outcome: Result<[LibraryRoot], Error>,
-                                    primed: [LibraryRoot]?) {
+                                    primed: [LibraryRoot]?,
+                                    capturedGeneration: Int) {
+        // Always clear inflight: even a stale result frees the slot for
+        // the next caller. Generation gate then decides whether the
+        // payload is applied.
         inflight = nil
+        guard capturedGeneration == generation else {
+            // Cache was invalidated between kick and completion. Drop
+            // the result — applying it would silently repopulate what
+            // the caller just emptied.
+            return
+        }
         switch outcome {
         case .success(let fresh):
             applyRevalidation(fresh: fresh, primed: primed)
@@ -126,6 +155,7 @@ public actor LibraryRootCache {
             // its own defer chain).
             return try await t.value
         }
+        let capturedGeneration = generation
         let task = Task { [fetcher] () async throws -> [LibraryRoot] in
             try await fetcher()
         }
@@ -133,7 +163,13 @@ public actor LibraryRootCache {
         do {
             let fresh = try await task.value
             inflight = nil
-            applyRevalidation(fresh: fresh, primed: memoryCache)
+            // If the cache was invalidated while we were awaiting, do
+            // not write the result back into memory/disk — but still
+            // return it to the caller so its current operation
+            // completes. The next caller will start fresh.
+            if capturedGeneration == generation {
+                applyRevalidation(fresh: fresh, primed: memoryCache)
+            }
             return fresh
         } catch {
             // Critical: a fetcher failure here must clear `inflight`
