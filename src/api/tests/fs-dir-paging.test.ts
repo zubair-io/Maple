@@ -89,6 +89,32 @@ describe("GET /api/fs/dir paging", () => {
     expect(all.size).toBe(1200);
   });
 
+  it("limit=10abc returns 400 (strict integer validation)", async () => {
+    const { fsRoutes } = await import("../src/routes/fs.ts");
+    // Number.parseInt would happily accept "10abc" → 10. The strict
+    // regex pre-check must reject it as a 400 instead, matching the
+    // error message contract.
+    const res = await fsRoutes.handle(
+      new Request(
+        `http://localhost/api/fs/dir?path=${encodeURIComponent(big)}&limit=10abc`,
+      ),
+    );
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(typeof json.error).toBe("string");
+    expect(json.error).toContain("limit");
+  });
+
+  it("limit=abc returns 400", async () => {
+    const { fsRoutes } = await import("../src/routes/fs.ts");
+    const res = await fsRoutes.handle(
+      new Request(
+        `http://localhost/api/fs/dir?path=${encodeURIComponent(big)}&limit=abc`,
+      ),
+    );
+    expect(res.status).toBe(400);
+  });
+
   it("invalid cursor returns 400", async () => {
     const { fsRoutes } = await import("../src/routes/fs.ts");
     const res = await fsRoutes.handle(

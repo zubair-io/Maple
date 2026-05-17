@@ -55,12 +55,17 @@ export const fsRoutes = new Elysia({ prefix: "/api/fs" })
     "/dir",
     async ({ query, headers, set }) => {
       try {
-        const parsedLimit = query.limit !== undefined
-          ? Number.parseInt(query.limit, 10)
-          : undefined;
-        if (parsedLimit !== undefined && !Number.isFinite(parsedLimit)) {
-          set.status = 400;
-          return { error: `limit must be an integer, got "${query.limit}"` };
+        // Strict integer validation — Number.parseInt accepts partially
+        // numeric strings ("10abc" → 10), which contradicts the error
+        // message. Pre-check with a regex (same pattern as
+        // routes/geocode-reverse.ts and routes/assets.ts).
+        let parsedLimit: number | undefined;
+        if (query.limit !== undefined) {
+          if (!/^\d+$/.test(query.limit)) {
+            set.status = 400;
+            return { error: `limit must be an integer, got "${query.limit}"` };
+          }
+          parsedLimit = Number.parseInt(query.limit, 10);
         }
         const res = await listDirContents(query.path, {
           cursor: query.cursor,
