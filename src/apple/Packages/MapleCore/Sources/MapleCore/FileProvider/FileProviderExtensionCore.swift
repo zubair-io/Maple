@@ -33,6 +33,17 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
         "jpg", "jpeg", "png", "webp", "gif", "tif", "tiff", "heic", "heif", "avif",
     ]
 
+    /// Page size used when streaming a parent listing to resolve a single
+    /// child by name (subdir lookup in `item(for:)`, sidecar→assetID lookup
+    /// in `assetID(forSidecarNamed:in:catalog:)`). Matches the server's
+    /// default page size so most directories resolve in one round-trip.
+    static let itemLookupPageLimit: Int = 500
+    /// Hard cap on pages walked before giving up — defence against a
+    /// misbehaving server returning a non-terminating cursor chain.
+    /// 100 pages × 500 entries = 50,000 children; well past any real
+    /// directory the photo workflow produces.
+    static let itemLookupMaxPages: Int = 100
+
     public required init(domain: NSFileProviderDomain) {
         self.domain = domain
         let config = FileProviderConfig()
@@ -249,8 +260,17 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                             return
                         }
                         let parentAbs = parentRelative.isEmpty ? root.path : "\(root.path)/\(parentRelative)"
-                        let contents = try await catalog.listDir(absolutePath: parentAbs)
-                        guard let dir = contents.dirs.first(where: { $0.name == childName }) else {
+                        // Stream pages and early-return on the first match so
+                        // a folder with thousands of children doesn't get
+                        // fully buffered into memory just to resolve one
+                        // subdirectory's MapleItem.
+                        let found = try await Self.findChildDir(
+                            catalog: catalog,
+                            absolutePath: parentAbs,
+                            childName: childName,
+                            log: log
+                        )
+                        guard let dir = found else {
                             completionHandler(nil, NSError(domain: NSFileProviderErrorDomain,
                                                            code: NSFileProviderError.noSuchItem.rawValue))
                             return
@@ -836,6 +856,33 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
             let imgBase = dot.map { String(img.name[..<$0]) } ?? img.name
             if imgBase == canonicalBase { return assetID }
         }
+        return nil
+    }
+
+    /// Pages through `catalog.listDir(absolutePath:cursor:limit:)`, returning
+    /// the first `DirChild` whose `name` matches `childName`, or nil if the
+    /// child is not present after walking up to `itemLookupMaxPages` pages.
+    /// Internal so tests can drive it directly through a stubbed catalog.
+    static func findChildDir(catalog: RemoteCatalog,
+                             absolutePath: String,
+                             childName: String,
+                             log: Logger? = nil) async throws -> DirChild? {
+        var cursor: String? = nil
+        var pageGuard = 0
+        repeat {
+            let page = try await catalog.listDir(absolutePath: absolutePath,
+                                                 cursor: cursor,
+                                                 limit: itemLookupPageLimit)
+            if let hit = page.dirs.first(where: { $0.name == childName }) {
+                return hit
+            }
+            cursor = page.nextCursor
+            pageGuard += 1
+            if pageGuard > itemLookupMaxPages {
+                log?.error("findChildDir page guard tripped at \(pageGuard) pages for \(absolutePath, privacy: .public)")
+                break
+            }
+        } while cursor != nil
         return nil
     }
 
