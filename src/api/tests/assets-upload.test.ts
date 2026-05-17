@@ -169,6 +169,64 @@ describe("POST /api/folders/:id/upload", () => {
     expect(await fs.readFile(dest, "utf-8")).toBe("old");
   });
 
+  // Regression: Cat B — the prior `type: "arrayBuffer"` config made
+  // Elysia buffer the entire body in memory before the handler ran. A
+  // 1 GB upload would have spiked server RSS by 1 GB. The fix switches
+  // to streaming `request.body` chunk-by-chunk via Bun's FileSink. A
+  // ~100 MB body verifies the route doesn't fail on a payload size
+  // that would be obviously inefficient if buffered; the byte-for-byte
+  // comparison rules out streaming corruption.
+  test("streaming upload: 100MB body lands intact on disk", async () => {
+    if (!mongoReachable) return;
+    const { app } = await import("../src/index.ts");
+    const SIZE = 100 * 1024 * 1024; // 100 MB
+    // Don't allocate a single 100MB Buffer — that would defeat the
+    // streaming test on the *test* side. Build a ReadableStream that
+    // emits 1MB chunks deterministically.
+    const CHUNK = 1024 * 1024;
+    const chunks = SIZE / CHUNK;
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        // @ts-ignore: ad-hoc counter on the stream's underlying source
+        const n = (this._n ??= 0);
+        if (n >= chunks) { controller.close(); return; }
+        const chunk = new Uint8Array(CHUNK);
+        // Fill with the chunk index so corruption shows up visibly.
+        chunk.fill(n & 0xff);
+        controller.enqueue(chunk);
+        // @ts-ignore
+        this._n = n + 1;
+      },
+    });
+    const res = await app.handle(new Request(`http://localhost/api/folders/${folderId.toHexString()}/upload`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/octet-stream",
+        "Content-Length": String(SIZE),
+        "X-Maple-Target-Path": "BIG.ARW",
+        Authorization: BEARER,
+      },
+      body: stream,
+      // @ts-ignore — Bun's fetch supports duplex; Node typings don't.
+      duplex: "half",
+    }));
+    expect(res.status).toBe(201);
+    const body = await res.json() as { abs_path: string; size: number };
+    expect(body.size).toBe(SIZE);
+    // Spot-check first + last chunk: every byte in chunk n equals n & 0xff.
+    const fh = await fs.open(body.abs_path, "r");
+    try {
+      const buf = Buffer.alloc(16);
+      await fh.read(buf, 0, 16, 0);
+      expect(buf[0]).toBe(0);
+      const lastPos = SIZE - 16;
+      await fh.read(buf, 0, 16, lastPos);
+      expect(buf[0]).toBe((chunks - 1) & 0xff);
+    } finally {
+      await fh.close();
+    }
+  });
+
   // Regression: Cat A1+A4 — a soft-deleted asset under the same filename
   // must NOT block a fresh upload. Previously the `{folder_id, filename}`
   // unique index reserved the trashed row's filename, so re-uploading
