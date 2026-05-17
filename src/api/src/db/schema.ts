@@ -151,6 +151,10 @@ export interface AssetDoc {
    * multiple devices.
    */
   maple_id?: string;
+  /** True iff an XMP sidecar exists on disk next to this asset. Populated
+   * by the XMP write/delete handlers (Phase 5b). Optional because legacy
+   * rows pre-date the flag; readers should treat missing as `false`. */
+  has_xmp?: boolean;
 }
 
 export type AssetWithId = WithId<AssetDoc>;
@@ -631,3 +635,41 @@ export interface BackupSessionDoc {
 }
 
 export type BackupSessionWithId = WithId<BackupSessionDoc>;
+
+// ---------------------------------------------------------------------------
+// Asset change feed (Phase 5b — File Provider push channel)
+// ---------------------------------------------------------------------------
+
+export type AssetChangeKind = "create" | "update" | "delete" | "restore";
+
+export interface AssetChangeDoc {
+  /** Monotonically increasing per insert. Allocated via the
+   * server_state.next_cursor counter (see ServerStateDoc). */
+  cursor: number;
+  asset_id: ObjectId | null;
+  folder_id: ObjectId | null;
+  kind: AssetChangeKind;
+  /** Absolute filesystem path of the affected asset. Null for changes
+   * that don't have a single canonical path (e.g. a folder rescan). */
+  abs_path: string | null;
+  /** Insertion timestamp — informational. The cursor is the source of
+   * truth for ordering. */
+  at: Date;
+}
+
+export type AssetChangeWithId = WithId<AssetChangeDoc>;
+
+/**
+ * A small key/value collection for server-wide counters. Today the only
+ * key in use is `_id: "asset_changes_cursor"`, holding the next cursor
+ * value to allocate.
+ */
+export interface ServerStateDoc {
+  _id: string;
+  /** For the asset_changes counter row: the most recently allocated
+   * cursor. The next allocation atomically `$inc`'s this and returns
+   * the new value. */
+  seq?: number;
+}
+
+export type ServerStateWithId = WithId<ServerStateDoc>;
