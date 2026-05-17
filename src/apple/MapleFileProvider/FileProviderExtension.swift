@@ -133,51 +133,44 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
             // an update until the user re-navigated. With `absPath` and
             // the cached library roots we can strip the matching root
             // prefix and signal `folder(folderID, relativeDir)` so the
-            // exact directory the file lives in repaints.
-            let folderIdent = await deriveFolderIdentifier(
+            // exact directory the file lives in repaints. When no root
+            // matches the absPath we skip the per-folder signal — the
+            // `.workingSet` signal above is still in flight and will
+            // pick up the change.
+            if let folderIdent = await deriveFolderIdentifier(
                 folderID: folderID,
                 absPath: event.absPath
-            )
-            try? await mgr.signalEnumerator(for: folderIdent)
+            ) {
+                try? await mgr.signalEnumerator(for: folderIdent)
+            }
             // Folder counts may have shifted — drop the library-root cache
             // so the next root enumeration re-reads.
             await rootCache?.invalidate()
         }
     }
 
-    /// Derive the FP folder identifier for an event payload. If the
-    /// abs_path falls under a known library root, return the per-folder
-    /// (folderID, relativeDir) identifier. Otherwise fall back to the
-    /// root identifier — better than silent skip because the root will
-    /// at least repaint top-level entries.
+    /// Derive the FP folder identifier for an event payload. Returns nil
+    /// when the absPath doesn't fall under any cached library root, so
+    /// the caller can skip a per-folder signal that would target an
+    /// identifier the OS doesn't understand. The root-level signal at
+    /// the call site keeps top-level views fresh in that case.
     private func deriveFolderIdentifier(folderID: String, absPath: String?) async
-        -> NSFileProviderItemIdentifier
+        -> NSFileProviderItemIdentifier?
     {
-        let rootRaw = FileProviderIdentifier.folder(folderID: folderID, relativePath: "").rawValue
-        guard let absPath, let cache = rootCache else {
-            return NSFileProviderItemIdentifier(rootRaw)
-        }
-        do {
-            let roots = try await cache.roots()
-            guard let root = roots.first(where: { $0.id == folderID }) else {
-                return NSFileProviderItemIdentifier(rootRaw)
-            }
-            // Normalise root.path to end without a trailing slash so
-            // hasPrefix matches "/a/b/c.dng" against root "/a/b".
-            let rootPath = root.path.hasSuffix("/")
-                ? String(root.path.dropLast())
-                : root.path
-            guard absPath.hasPrefix(rootPath + "/") || absPath == rootPath else {
-                return NSFileProviderItemIdentifier(rootRaw)
-            }
-            // Strip the root + leading slash, take the directory.
-            let rel = String(absPath.dropFirst(rootPath.count + 1))
-            let dir = (rel as NSString).deletingLastPathComponent
-            let raw = FileProviderIdentifier.folder(folderID: folderID, relativePath: dir).rawValue
-            return NSFileProviderItemIdentifier(raw)
-        } catch {
-            return NSFileProviderItemIdentifier(rootRaw)
-        }
+        guard let absPath, let cache = rootCache else { return nil }
+        let roots: [LibraryRoot]
+        do { roots = try await cache.roots() } catch { return nil }
+        guard let root = roots.first(where: { $0.id == folderID }) else { return nil }
+        // Normalise root.path to end without a trailing slash so
+        // hasPrefix matches "/a/b/c.dng" against root "/a/b".
+        let rootPath = root.path.hasSuffix("/")
+            ? String(root.path.dropLast())
+            : root.path
+        guard absPath.hasPrefix(rootPath + "/") || absPath == rootPath else { return nil }
+        let rel = String(absPath.dropFirst(rootPath.count + 1))
+        let dir = (rel as NSString).deletingLastPathComponent
+        let raw = FileProviderIdentifier.folder(folderID: folderID, relativePath: dir).rawValue
+        return NSFileProviderItemIdentifier(raw)
     }
 
     // MARK: - Item lookup
