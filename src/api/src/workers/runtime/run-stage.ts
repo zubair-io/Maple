@@ -14,6 +14,7 @@ import type { WorkerConfig } from "./define-stage.ts";
 import type { ImageDoc, StageConfig } from "./define-stage.ts";
 import type { WorkerConfigDoc } from "../worker-config.repo.ts";
 import { WorkerConfigRepo } from "../worker-config.repo.ts";
+import { recordAndPublishAssetChange } from "../../db/changes.repo.ts";
 
 // ---------------------------------------------------------------------------
 // Boot: load or seed worker_config for this stage.
@@ -247,11 +248,26 @@ export async function runOnce(
             },
           },
         );
+        // Best-effort change-feed emission. The doc carries folder_id +
+        // abs_path; field-by-field updates to a single asset are
+        // collapsed by File Provider clients into a single re-fetch.
+        await recordAndPublishAssetChange({
+          kind: "update",
+          asset_id: id,
+          folder_id: (doc as { folder_id: ObjectId }).folder_id,
+          abs_path: (doc as { abs_path: string }).abs_path,
+        }).catch(() => {});
       } else if ("wrote" in result) {
         await images.updateOne(
           { _id: id },
           { $set: { [`stages.${stage.name}`]: stageState } },
         );
+        await recordAndPublishAssetChange({
+          kind: "update",
+          asset_id: id,
+          folder_id: (doc as { folder_id: ObjectId }).folder_id,
+          abs_path: (doc as { abs_path: string }).abs_path,
+        }).catch(() => {});
       } else if ("skip" in result) {
         await images.updateOne(
           { _id: id },
