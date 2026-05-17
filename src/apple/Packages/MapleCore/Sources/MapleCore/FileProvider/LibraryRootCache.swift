@@ -181,8 +181,6 @@ public actor LibraryRootCache {
         }
     }
 
-    private func clearInflight() { inflight = nil }
-
     private func logRevalidationFailure(_ error: Error) {
         log.error("revalidation failed: \(error.localizedDescription, privacy: .public)")
     }

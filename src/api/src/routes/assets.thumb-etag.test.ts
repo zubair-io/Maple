@@ -1,4 +1,4 @@
-import { afterAll, beforeEach, describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { Elysia } from "elysia";
 import { MongoClient, ObjectId, type Db } from "mongodb";
 import { mkdtemp, rm, writeFile, mkdir, realpath, unlink } from "node:fs/promises";
@@ -70,10 +70,14 @@ describe("GET /api/assets/:id/thumb — ETag", () => {
     } as never);
   });
 
-  afterAll(async () => {
-    if (db) await db.dropDatabase();
-    if (client) await client.close();
-    if (tmp) await rm(tmp, { recursive: true, force: true });
+  afterEach(async () => {
+    if (db) await db.dropDatabase().catch(() => {});
+    if (client) await client.close().catch(() => {});
+    if (tmp) await rm(tmp, { recursive: true, force: true }).catch(() => {});
+    await closeDb();
+    db = null;
+    client = null;
+    tmp = null;
   });
 
 

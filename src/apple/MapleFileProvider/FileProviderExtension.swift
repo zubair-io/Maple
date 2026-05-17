@@ -97,6 +97,7 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
             tokensProvider: { tokensStore.load(domain: domainID) },
             cursorStore: resolvedCursorStore,
             domainID: domainID,
+            catalog: catalog,
             onEvent: { [weak self] event in
                 guard let self else { return }
                 await self.handleChangeEvent(event)
