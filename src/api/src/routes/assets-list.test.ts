@@ -39,6 +39,7 @@ async function seed(d: Db): Promise<void> {
       color_label: "",
       has_xmp: true,
       indexed_at: "now",
+      deleted_at: null,
       exif: { captured_at: now.toISOString() },
     },
     {
@@ -52,6 +53,7 @@ async function seed(d: Db): Promise<void> {
       color_label: "",
       has_xmp: false,
       indexed_at: "now",
+      deleted_at: null,
       exif: { captured_at: old.toISOString() },
     },
     {
@@ -65,6 +67,7 @@ async function seed(d: Db): Promise<void> {
       color_label: "",
       has_xmp: true,
       indexed_at: "now",
+      deleted_at: null,
       exif: { captured_at: now.toISOString() },
     },
   ] as never);
@@ -126,5 +129,66 @@ describe("GET /api/assets", () => {
     const res = await app.handle(new Request("http://localhost/api/assets"));
     const body = await res.json();
     expect(body.assets.length).toBe(3);
+  });
+
+  it("excludes soft-deleted rows (M)", async () => {
+    if (!mongoReachable || !db) return;
+    await seed(db);
+    // Soft-delete one row.
+    await db
+      .collection("assets")
+      .updateOne(
+        { filename: "a.dng" },
+        { $set: { deleted_at: new Date().toISOString() } },
+      );
+    const app = new Elysia().use(assetsListRoutes);
+    const res = await app.handle(new Request("http://localhost/api/assets"));
+    const body = await res.json();
+    const names = body.assets.map((a: { filename: string }) => a.filename);
+    expect(names).not.toContain("a.dng");
+    expect(body.assets.length).toBe(2);
+  });
+
+  it("returns 400 for non-integer rating_gte (L)", async () => {
+    if (!mongoReachable || !db) return;
+    await seed(db);
+    const app = new Elysia().use(assetsListRoutes);
+    const res = await app.handle(
+      new Request("http://localhost/api/assets?rating_gte=abc"),
+    );
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toMatch(/rating_gte/);
+  });
+
+  it("returns mtime in seconds, round-trips to a sensible Date (G)", async () => {
+    if (!mongoReachable || !db) return;
+    // Seed a row with a realistic ms-resolution mtime — must come back
+    // as the same instant in seconds.
+    const folder = new ObjectId();
+    const mtimeMs = Date.UTC(2026, 4, 17, 12, 30, 0); // 2026-05-17 12:30 UTC
+    await db.collection("assets").insertOne({
+      folder_id: folder,
+      filename: "g.dng",
+      abs_path: "/p/g.dng",
+      size: 1,
+      mtime: mtimeMs,
+      rating: 0,
+      flag: 0,
+      color_label: "",
+      has_xmp: false,
+      indexed_at: "now",
+      deleted_at: null,
+    } as never);
+    const app = new Elysia().use(assetsListRoutes);
+    const res = await app.handle(new Request("http://localhost/api/assets"));
+    const body = await res.json();
+    const g = body.assets.find((a: { filename: string }) => a.filename === "g.dng");
+    expect(g).toBeDefined();
+    // Server returns seconds. Build a Date the same way Swift would
+    // (timeIntervalSince1970:) and assert it lands inside 2026.
+    const reconstructed = new Date(g.mtime * 1000);
+    expect(reconstructed.getUTCFullYear()).toBe(2026);
+    expect(g.mtime).toBe(Math.floor(mtimeMs / 1000));
   });
 });

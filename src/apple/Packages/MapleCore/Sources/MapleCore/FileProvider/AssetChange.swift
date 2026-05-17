@@ -62,6 +62,12 @@ public struct AssetListEntry: Codable, Sendable, Equatable {
     public let folderID: String
     public let filename: String
     public let absPath: String
+    /// Last-modified time in epoch seconds. The server stores
+    /// `AssetDoc.mtime` in milliseconds (from `stat.mtimeMs`) but the
+    /// `/api/assets` list endpoint divides by 1000 before responding so
+    /// it lines up with `Date(timeIntervalSince1970:)` on the consumer
+    /// side. Crossing this boundary in ms would put
+    /// `contentModificationDate` in the year 55,000.
     public let mtime: Int64
     public let rating: Int
     public let hasXMP: Bool
