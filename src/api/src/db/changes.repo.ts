@@ -18,6 +18,7 @@ import type {
   AssetChangeWithId,
 } from "./schema.ts";
 import { child as childLogger } from "../log.ts";
+import { getChangeBus } from "../runtime/change-bus.ts";
 
 const log = childLogger("changes-repo");
 
@@ -97,6 +98,32 @@ export async function listChangesSince(
     .sort({ cursor: 1 })
     .limit(Math.min(Math.max(q.limit, 1), 1000));
   return (await cursor.toArray()) as AssetChangeWithId[];
+}
+
+/**
+ * High-level helper: record the change in Mongo AND publish to the
+ * in-process bus so connected SSE clients see it immediately.
+ *
+ * Best-effort: errors are logged but never thrown. Change-row failures
+ * must never fail the primary asset write — the system tolerates lost
+ * events via the 409 stale-cursor path which triggers full re-enumeration.
+ */
+export async function recordAndPublishAssetChange(
+  input: RecordChangeInput
+): Promise<void> {
+  try {
+    const cursor = await recordAssetChange(undefined, input);
+    const coll = await assetChangesCollection();
+    const inserted = await coll.findOne({ cursor });
+    if (inserted) {
+      getChangeBus().publish(inserted as AssetChangeWithId);
+    }
+  } catch (err) {
+    log.warn(
+      { err, kind: input.kind, abs_path: input.abs_path },
+      "recordAndPublishAssetChange failed (best-effort, ignoring)"
+    );
+  }
 }
 
 /** Returns the highest cursor currently in the collection, or 0 if empty. */
