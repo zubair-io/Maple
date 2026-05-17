@@ -36,9 +36,13 @@ import {
 import { moveToTrash, moveOutOfTrash } from "../fs/trash.ts";
 import { safeReadFile } from "../fs/root.ts";
 import { normaliseEnrichment, type Place } from "../db/schema.ts";
-import { searchBlobUpdateExpression } from "../enrichment/search-blob.ts";
+import { searchBlobUpdateExpression, composeSearchBlob } from "../enrichment/search-blob.ts";
 import { recordAndPublishAssetChange } from "../db/changes.repo.ts";
 import { ifNoneMatchEqual } from "../runtime/http-etag.ts";
+import { meilisearchClient } from "../enrichment/meilisearch-client.ts";
+import { child as childLogger } from "../log.ts";
+
+const assetsLog = childLogger("routes:assets");
 
 /** Whitelisted enrichment stage names for the requeue route. Anything else
  * is rejected with 400 so a client can't poke a Mongo path that doesn't
@@ -420,6 +424,11 @@ export const assetsRoutes = new Elysia({ prefix: "/api/assets" })
         try { await unlink(sidecar); } catch {}
       }
       await coll.deleteOne({ _id: id });
+      // The doc was already tombstoned in Meilisearch by the prior
+      // soft-delete (`tombstone` sets `deletedAt`, which the search filter
+      // excludes). Meilisearch has no per-asset delete-document path here
+      // — the tombstone is sufficient and the row is GC'd by the
+      // next bulk backfill / index rebuild.
       set.status = 204;
       // Emit a delete change so the File Provider extension drops this
       // item from its working set on the next pull.
@@ -455,6 +464,23 @@ export const assetsRoutes = new Elysia({ prefix: "/api/assets" })
           original_path: originalAbsPath,
         } },
     );
+
+    // Best-effort Meilisearch tombstone — mirrors the indexer's
+    // `softDelete()` pattern (src/api/src/indexer/images.repo.ts). The
+    // search route's `deletedAt IS NULL` filter excludes the row from
+    // results. Mongo is canonical; a Meilisearch failure here must NOT
+    // roll back the soft-delete or change the 204 response.
+    const mapleIdForTombstone = (docAny as { maple_id?: unknown }).maple_id;
+    if (typeof mapleIdForTombstone === "string" && mapleIdForTombstone.length > 0) {
+      try {
+        await meilisearchClient().tombstone(mapleIdForTombstone);
+      } catch (err) {
+        assetsLog.warn(
+          { assetId: id.toHexString(), mapleId: mapleIdForTombstone, err: err instanceof Error ? err.message : String(err) },
+          "meilisearch tombstone on trash failed — Mongo is canonical, search will exclude via deleted_at filter",
+        );
+      }
+    }
     set.status = 204;
     // Emit a delete change keyed on the path the OS / File Provider knows
     // about (the pre-trash location). The asset row stays for restore.
@@ -516,6 +542,38 @@ export const assetsRoutes = new Elysia({ prefix: "/api/assets" })
             original_path: null,
           } },
       );
+
+      // Best-effort Meilisearch re-index — symmetric with the tombstone
+      // on DELETE. Resurrects the row by upserting with `deletedAt: null`
+      // so the search filter `deletedAt IS NULL` picks it up again. The
+      // text payload comes from whatever enrichment fields are present;
+      // missing enrichment (rows that never finished the meili stage)
+      // just upserts an empty `searchBlob` — the meili stage will
+      // backfill content on its next pass.
+      const mapleIdForRestore = (docAny as { maple_id?: unknown }).maple_id;
+      if (typeof mapleIdForRestore === "string" && mapleIdForRestore.length > 0) {
+        const placeForBlob = (docAny.place ?? null) as Place | null;
+        const description = typeof docAny.description === "string" ? docAny.description : null;
+        const ocrText = typeof docAny.ocr_text === "string" ? docAny.ocr_text : null;
+        const exif = docAny.exif as { captured_at?: string | null } | null | undefined;
+        try {
+          await meilisearchClient().upsert({
+            id: mapleIdForRestore,
+            searchBlob: composeSearchBlob({ place: placeForBlob, description, ocrText }),
+            description,
+            ocrText,
+            folderId: doc.folder_id.toHexString(),
+            capturedAt: exif?.captured_at ?? null,
+            deletedAt: null,
+          });
+        } catch (err) {
+          assetsLog.warn(
+            { assetId: id.toHexString(), mapleId: mapleIdForRestore, err: err instanceof Error ? err.message : String(err) },
+            "meilisearch re-index on restore failed — Mongo restored OK, search will lag until next meili stage pass",
+          );
+        }
+      }
+
       set.status = 200;
       // Emit a restore change so the File Provider extension reinstates
       // the item at its new location.
