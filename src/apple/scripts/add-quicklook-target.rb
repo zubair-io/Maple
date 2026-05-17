@@ -14,8 +14,32 @@ SOURCES_DIR  = File.expand_path('../MapleQuickLook', __dir__)
 
 project = Xcodeproj::Project.open(PROJECT_PATH)
 
+# `xcodeproj`'s `new_target(:app_extension, ..., :osx, ...)` auto-links
+# Cocoa.framework via the project's `frameworks_group` and pins it under
+# `DEVELOPER_DIR` to a specific MacOSX SDK (e.g. `MacOSX15.0.sdk`). That
+# breaks on machines with a different installed SDK and isn't needed by
+# a QuickLook preview-provider extension (which only uses QuickLookUI +
+# Foundation). Strip any stale Cocoa references whether or not the
+# target already exists, so re-runs converge on a clean state.
+def strip_cocoa_references(project, target_name)
+  target = project.targets.find { |t| t.name == target_name }
+  if target
+    target.frameworks_build_phase.files.dup.each do |bf|
+      next unless bf.file_ref && bf.file_ref.path.to_s.include?('Cocoa.framework')
+      target.frameworks_build_phase.remove_build_file(bf)
+    end
+  end
+  project.frameworks_group.recursive_children.dup.each do |child|
+    next unless child.respond_to?(:path) && child.path.to_s.include?('Cocoa.framework')
+    child.remove_from_project
+  end
+end
+
 if project.targets.find { |t| t.name == TARGET_NAME }
-  puts "[add-quicklook-target] target #{TARGET_NAME} already present — nothing to do"
+  puts "[add-quicklook-target] target #{TARGET_NAME} already present"
+  strip_cocoa_references(project, TARGET_NAME)
+  project.save
+  puts "[add-quicklook-target] stripped any Cocoa.framework references; nothing else to do"
   exit 0
 end
 
@@ -107,6 +131,10 @@ build_file.settings = { 'ATTRIBUTES' => ['RemoveHeadersOnCopy'] }
 
 # Add as a build dependency so it's compiled before the host links/embeds.
 maple_target.add_dependency(target)
+
+# Final pass: drop any Cocoa.framework references the gem auto-added
+# during `new_target`. See the helper definition for why.
+strip_cocoa_references(project, TARGET_NAME)
 
 project.save
 puts "[add-quicklook-target] added #{TARGET_NAME} target and embedded into Maple"
