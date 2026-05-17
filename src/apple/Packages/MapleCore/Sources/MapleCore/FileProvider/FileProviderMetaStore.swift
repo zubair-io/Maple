@@ -194,16 +194,21 @@ public final class FileProviderMetaStore: @unchecked Sendable {
         // before sampling sqlite3_errcode, which can reset the error
         // code and report SQLITE_OK for a step that actually failed.
         var stmt: OpaquePointer?
-        guard sqlite3_prepare_v2(db, "PRAGMA user_version;", -1, &stmt, nil) == SQLITE_OK,
-              sqlite3_step(stmt) == SQLITE_ROW else {
+        let prepareRc = sqlite3_prepare_v2(db, "PRAGMA user_version;", -1, &stmt, nil)
+        guard prepareRc == SQLITE_OK else {
             sqlite3_finalize(stmt)
-            throw StoreError.prepareFailed("PRAGMA user_version", sqlite3_errcode(db))
+            throw StoreError.prepareFailed("PRAGMA user_version", prepareRc)
+        }
+        let stepRc = sqlite3_step(stmt)
+        guard stepRc == SQLITE_ROW else {
+            sqlite3_finalize(stmt)
+            throw StoreError.stepFailed("PRAGMA user_version", stepRc)
         }
         let version = sqlite3_column_int(stmt, 0)
         sqlite3_finalize(stmt)
-        if version < 1 {
+        if version < FileProviderMetaStoreSchema.current {
             try execLocked(FileProviderMetaStoreSchema.createV1)
-            try execLocked("PRAGMA user_version = 1;")
+            try execLocked("PRAGMA user_version = \(FileProviderMetaStoreSchema.current);")
         }
         // Future migrations go here, gated on version < N.
     }
