@@ -447,6 +447,16 @@ async function start(): Promise<void> {
 // Graceful shutdown.
 async function shutdown(signal: string): Promise<void> {
   log.info({ signal }, "shutting down");
+  // Stop the change-feed tailer first — its self-scheduling setTimeout
+  // would otherwise keep the event loop alive after Mongo closes.
+  try {
+    getChangeFeedTailer().stop();
+  } catch (e) {
+    log.warn(
+      { err: e instanceof Error ? e.message : e },
+      "error stopping change feed tailer",
+    );
+  }
   // Stop the worker supervisor so stage children get a chance to finish
   // in-flight work before the process exits.
   try {
