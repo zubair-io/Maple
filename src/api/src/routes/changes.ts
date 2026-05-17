@@ -79,13 +79,23 @@ export const changesRoutes = new Elysia({ prefix: "/api/changes" })
     "/",
     async ({ query, set }) => {
       const since = Number.parseInt(query.since ?? "0", 10);
-      const limit = Math.min(
-        Math.max(Number.parseInt(query.limit ?? "100", 10), 1),
-        1000
-      );
       if (!Number.isFinite(since) || since < 0) {
         set.status = 400;
         return { error: "since must be a non-negative integer" };
+      }
+      // Validate `limit` rather than coercing NaN through Math.max — a
+      // garbage value like `?limit=abc` would otherwise produce NaN ->
+      // Math.max(NaN, 1) === NaN -> Math.min(NaN, 1000) === NaN, and the
+      // Mongo driver throws a 500 deep inside the query.
+      const rawLimit = query.limit;
+      let limit = 100;
+      if (rawLimit !== undefined) {
+        const parsed = Number.parseInt(rawLimit, 10);
+        if (!Number.isFinite(parsed) || parsed < 1) {
+          set.status = 400;
+          return { error: "limit must be a positive integer" };
+        }
+        limit = Math.min(parsed, 1000);
       }
       const rows = await listChangesSince(undefined, { since, limit });
       const payload = rows.map(asPayload);
@@ -122,18 +132,15 @@ export const changesRoutes = new Elysia({ prefix: "/api/changes" })
       // Disable Nginx-style proxy buffering — SSE is incompatible with it.
       set.headers["x-accel-buffering"] = "no";
 
-      // Force the response to flush headers + open the stream
-      // immediately. Without this, Elysia waits for the first yield
-      // before sending the 200 line, which would block for the full
-      // keepalive interval on an otherwise-silent connection. Yield the
-      // raw bytes so Elysia's SSE handler doesn't wrap them in a `data:`
-      // line (which would corrupt the comment frame).
-      yield SSE_STREAM_OPENED_FRAME;
-
-      // 1. Subscribe BEFORE we drain the replay so concurrent publishes
-      //    don't land in the seam between snapshot and live. We capture
-      //    `replayMax` from the replay snapshot and filter live events
-      //    `> replayMax` to dedupe anything the bus delivered to both.
+      // 1. Subscribe + snapshot BEFORE the first yield. The previous
+      //    iteration of this code yielded the open frame first, which
+      //    let the generator's first suspension happen between the
+      //    isCursorReplayable check and the subscribe + replay
+      //    handshake. If enough events arrived during that suspension,
+      //    the buffer floor could advance past `since` and the later
+      //    `bus.replay({ since })` would silently omit them. We do all
+      //    the bookkeeping synchronously before any await/yield so the
+      //    seam window is empty.
       const queue: AssetChangeWithId[] = [];
       let queueOverflow = false;
       let waiter: ((v: "event") => void) | null = null;
@@ -159,11 +166,30 @@ export const changesRoutes = new Elysia({ prefix: "/api/changes" })
         }
       });
 
-      // 2. Replay anything already in the buffer, and remember the
-      //    highest replayed cursor so we can deduplicate against the
-      //    live subscription.
+      // 2. Snapshot the replay. Do this AFTER subscribe so a publish
+      //    that lands between subscribe and snapshot will be in both
+      //    the live queue AND the snapshot — the `cursor <= replayMax`
+      //    dedupe in the live loop drops the duplicate.
       const snapshot = bus.replay({ since });
       const replayMax = snapshot.at(-1)?.cursor ?? since;
+
+      // 3. Re-validate the floor: while we were setting up the
+      //    subscription the buffer floor could have advanced past
+      //    `since` (high-throughput burst). If so, abort — the client
+      //    would otherwise silently miss events between
+      //    `since + 1` and `floor - 1`. We unsubscribe and close 409.
+      if (!bus.isCursorReplayable(since)) {
+        unsub();
+        set.status = 409;
+        const current = bus.snapshot().at(-1)?.cursor ?? 0;
+        return { error: "cursor too old", current };
+      }
+
+      // 4. Now safe to flush headers. Yield the open frame as raw bytes
+      //    so Elysia's SSE handler doesn't wrap them in `data:`.
+      yield SSE_STREAM_OPENED_FRAME;
+
+      // 5. Drain the replay snapshot.
       for (const ev of snapshot) {
         yield sseChangeFrame(ev);
       }

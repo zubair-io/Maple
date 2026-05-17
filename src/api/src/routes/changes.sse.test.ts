@@ -153,6 +153,29 @@ describe("GET /api/changes/subscribe (SSE)", () => {
     } catch {}
   });
 
+  it("re-validates buffer floor after subscribe and returns 409 if cursor became stale", async () => {
+    // Regression — the previous handler yielded the open frame before
+    // the subscribe + snapshot, which let the buffer floor advance past
+    // `since` during the suspension and silently swallow events. The
+    // hardened path re-checks isCursorReplayable after the snapshot.
+    //
+    // We simulate the staleness directly: pre-seed a buffer at the
+    // capacity ceiling (forcing floor > since), then connect. The
+    // handler must return 409 with the server's current cursor, not a
+    // truncated event stream.
+    const bus = getChangeBus();
+    // Capacity is 10_000; pump enough events to push the floor above 1.
+    for (let i = 1; i <= 10_005; i++) bus.publish(evt(i));
+    const app = new Elysia().use(changesRoutes);
+    const res = await app.handle(
+      new Request("http://localhost/api/changes/subscribe?since=1")
+    );
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.error).toMatch(/too old/i);
+    expect(body.current).toBeGreaterThanOrEqual(10_005);
+  });
+
   it("closes the connection when the per-client queue exceeds the cap", async () => {
     // Force overflow by publishing > SSE_QUEUE_LIMIT events without
     // letting the reader drain them. The handler must drop the queue
