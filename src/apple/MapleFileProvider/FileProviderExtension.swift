@@ -11,16 +11,29 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
     private let catalog: RemoteCatalog?
     private let rootCache: LibraryRootCache?
     private let deviceName: String
+    /// Shared SQLite mirror used by the Quick Look extension to resolve a
+    /// local cached file URL back to its asset ID. Best-effort: a store-
+    /// open failure must not break the FP extension — Quick Look will
+    /// degrade to OS-default RAW materialization in that case.
+    private let metaStore: FileProviderMetaStore?
 
     required init(domain: NSFileProviderDomain) {
         self.domain = domain
         let config = FileProviderConfig()
         let resolvedDeviceName = ProcessInfo.processInfo.hostName
+        let resolvedMetaStore: FileProviderMetaStore? = {
+            do { return try FileProviderMetaStore() } catch {
+                Logger(subsystem: "app.justmaple.aperture.fileprovider", category: "extension")
+                    .error("FileProviderMetaStore open failed: \(String(describing: error), privacy: .public)")
+                return nil
+            }
+        }()
         guard let cfg = config.load(domain: domain.identifier.rawValue) else {
             self.dormant = true
             self.catalog = nil
             self.rootCache = nil
             self.deviceName = resolvedDeviceName
+            self.metaStore = resolvedMetaStore
             super.init()
             log.notice("init dormant — no config for domain \(domain.identifier.rawValue, privacy: .public)")
             return
@@ -40,6 +53,7 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
         self.catalog = catalog
         self.rootCache = LibraryRootCache(catalog: catalog)
         self.deviceName = resolvedDeviceName
+        self.metaStore = resolvedMetaStore
         super.init()
         log.info("init domain=\(domain.identifier.rawValue, privacy: .public)")
     }
@@ -164,11 +178,19 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
                 switch parsed {
                 case .asset(let id):
                     try await catalog.downloadAsset(assetID: id, to: localURL)
+                    self.recordMeta(domain: self.domain.identifier.rawValue,
+                                    localBasename: localURL.lastPathComponent,
+                                    assetID: id,
+                                    conflictBasename: nil)
                     completionHandler(localURL, nil, nil)
                     return
                 case .sidecar(let assetID, let conflictBasename):
                     let bytes = try await catalog.getXMP(assetID: assetID, conflictBasename: conflictBasename)
                     try bytes.write(to: localURL, options: .atomic)
+                    self.recordMeta(domain: self.domain.identifier.rawValue,
+                                    localBasename: localURL.lastPathComponent,
+                                    assetID: assetID,
+                                    conflictBasename: conflictBasename)
                     completionHandler(localURL, nil, nil)
                     return
                 case .folder:
@@ -484,6 +506,23 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
     private func signalEnumeratorReload(parent: NSFileProviderItemIdentifier) async {
         guard let mgr = NSFileProviderManager(for: domain) else { return }
         try? await mgr.signalEnumerator(for: parent)
+    }
+
+    /// Best-effort: a write failure here only means Quick Look will fall
+    /// back to RAW materialization. We log and swallow.
+    private func recordMeta(domain: String,
+                            localBasename: String,
+                            assetID: String,
+                            conflictBasename: String?) {
+        guard let metaStore else { return }
+        do {
+            try metaStore.put(domain: domain,
+                              localBasename: localBasename,
+                              assetID: assetID,
+                              conflictBasename: conflictBasename)
+        } catch {
+            log.error("metaStore.put failed: \(error.localizedDescription, privacy: .public)")
+        }
     }
 }
 
