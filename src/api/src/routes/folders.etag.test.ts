@@ -1,13 +1,14 @@
 import { afterAll, beforeEach, describe, expect, it } from "bun:test";
 import { Elysia } from "elysia";
 import { MongoClient, ObjectId, type Db } from "mongodb";
+import { closeDb } from "../db/client.ts";
 import { foldersRoutes } from "./folders.ts";
 
 const MONGO_URI = process.env.MAPLE_MONGO_URI ?? "mongodb://localhost:27017";
-const TEST_DB = `maple_folders_etag_test_${process.pid}`;
-let client: MongoClient | null = null;
-let db: Db | null = null;
-
+// Shared DB name across all etag tests in this process so the
+// module-cached MongoClient (which is keyed on the env var read at first
+// connect) never points at a stale DB when tests interleave.
+const TEST_DB = `maple_etag_test_${process.pid}`;
 async function tryConnect(): Promise<MongoClient | null> {
   const c = new MongoClient(MONGO_URI, {
     serverSelectionTimeoutMS: 1_500,
@@ -25,29 +26,37 @@ async function tryConnect(): Promise<MongoClient | null> {
   }
 }
 
-beforeEach(async () => {
-  client = await tryConnect();
-  if (!client) return;
-  process.env.MAPLE_MONGO_URI = MONGO_URI;
-  process.env.MAPLE_MONGO_DB = TEST_DB;
-  db = client.db(TEST_DB);
-  await db.dropDatabase();
-  await db.collection("folders").insertOne({
-    _id: new ObjectId(),
-    path: "/srv/p",
-    label: "p",
-    last_scan: null,
-    file_count: 0,
-    created_at: new Date().toISOString(),
-  } as never);
-});
-
-afterAll(async () => {
-  if (db) await db.dropDatabase();
-  if (client) await client.close();
-});
-
 describe("GET /api/folders — ETag", () => {
+  let client: MongoClient | null = null;
+  let db: Db | null = null;
+
+  beforeEach(async () => {
+    client = await tryConnect();
+    if (!client) return;
+    process.env.MAPLE_MONGO_URI = MONGO_URI;
+    process.env.MAPLE_MONGO_DB = TEST_DB;
+    // Reset the API's module-cached MongoClient so the next route call
+    // picks up MAPLE_MONGO_DB fresh. Without this, a previous test in the
+    // same process may have locked the cached _db to a different name.
+    await closeDb();
+    db = client.db(TEST_DB);
+    await db.dropDatabase();
+    await db.collection("folders").insertOne({
+      _id: new ObjectId(),
+      path: "/srv/p",
+      label: "p",
+      last_scan: null,
+      file_count: 0,
+      created_at: new Date().toISOString(),
+    } as never);
+  });
+
+  afterAll(async () => {
+    if (db) await db.dropDatabase();
+    if (client) await client.close();
+  });
+
+
   it("returns ETag header on 200", async () => {
     if (!client) {
       console.log("[folders.etag.test] MongoDB unreachable — skipping");

@@ -19,6 +19,7 @@
 
 import { Elysia, t } from "elysia";
 import { ObjectId } from "mongodb";
+import { stat } from "node:fs/promises";
 import { assetsCollection } from "../db/client.ts";
 import {
   readXmp,
@@ -34,6 +35,7 @@ import { safeReadFile } from "../fs/root.ts";
 import { normaliseEnrichment, type Place } from "../db/schema.ts";
 import { searchBlobUpdateExpression } from "../enrichment/search-blob.ts";
 import { recordAndPublishAssetChange } from "../db/changes.repo.ts";
+import { ifNoneMatchEqual } from "../runtime/http-etag.ts";
 
 /** Whitelisted enrichment stage names for the requeue route. Anything else
  * is rejected with 400 so a client can't poke a Mongo path that doesn't
@@ -124,7 +126,7 @@ export const assetsRoutes = new Elysia({ prefix: "/api/assets" })
   // Serve thumbnail from .maple/ cache
   .get(
     "/:id/thumb",
-    async ({ params, query, set }) => {
+    async ({ params, query, headers, set }) => {
       let id: ObjectId;
       try {
         id = new ObjectId(params.id);
@@ -149,6 +151,32 @@ export const assetsRoutes = new Elysia({ prefix: "/api/assets" })
         return { error: "Thumbnail not yet generated" };
       }
 
+      // Compute the ETag from the thumb's mtime + size. Stable across
+      // re-encodes that happen to produce identical bytes (rare), and
+      // changes whenever the thumb is re-rendered.
+      let etag: string | null = null;
+      try {
+        const st = await stat(thumbPath);
+        etag = `"${Math.floor(st.mtimeMs)}-${st.size}"`;
+      } catch {
+        // Race: thumb file disappeared between read and stat. Skip the
+        // conditional path; serve the bytes we already loaded.
+      }
+      if (etag) {
+        const ifNoneMatch = headers["if-none-match"];
+        if (
+          ifNoneMatchEqual(
+            typeof ifNoneMatch === "string" ? ifNoneMatch : undefined,
+            etag,
+          )
+        ) {
+          return new Response(null, {
+            status: 304,
+            headers: { ETag: etag },
+          });
+        }
+        set.headers["ETag"] = etag;
+      }
       set.headers["Content-Type"] = "image/jpeg";
       set.headers["Cache-Control"] = "public, max-age=604800, immutable";
       return result.data;
