@@ -26,6 +26,7 @@ import * as path from "node:path";
 import { Readable } from "node:stream";
 import { listDir, listDirContents, browseRoots, isUnderRoot, RAW_EXTENSIONS } from "../fs/browse.ts";
 import { child as childLogger } from "../log.ts";
+import { computeBodyETag, ifNoneMatchEqual } from "../runtime/http-etag.ts";
 
 const log = childLogger("fs/dir");
 
@@ -52,7 +53,7 @@ export const fsRoutes = new Elysia({ prefix: "/api/fs" })
   )
   .get(
     "/dir",
-    async ({ query, set }) => {
+    async ({ query, headers, set }) => {
       try {
         const res = await listDirContents(query.path);
         if (!res.ok) {
@@ -61,7 +62,24 @@ export const fsRoutes = new Elysia({ prefix: "/api/fs" })
           set.status = 400;
           return { error: res.error };
         }
-        return res.data!;
+        // Body-hash ETag + If-None-Match short-circuit. The File Provider
+        // extension uses this on warm folder refreshes to avoid re-decoding
+        // unchanged directory listings.
+        const body = JSON.stringify(res.data);
+        const etag = computeBodyETag(body);
+        const ifNoneMatch = headers["if-none-match"];
+        if (
+          ifNoneMatchEqual(
+            typeof ifNoneMatch === "string" ? ifNoneMatch : undefined,
+            etag,
+          )
+        ) {
+          return new Response(null, { status: 304, headers: { ETag: etag } });
+        }
+        return new Response(body, {
+          status: 200,
+          headers: { ETag: etag, "Content-Type": "application/json" },
+        });
       } catch (err) {
         // Defensive: if anything inside listDirContents throws (e.g. a
         // permission edge case on a child entry that escapes the inner
