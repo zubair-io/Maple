@@ -147,8 +147,8 @@ final class RemoteCatalogETagTests: XCTestCase {
         let http = AuthenticatedHTTPClient.unauthenticated(server: server,
                                                             urlSession: session)
         let cat = RemoteCatalog(http: http, server: server)
-        let first = try await cat.getThumb(assetID: "650a")
-        let second = try await cat.getThumb(assetID: "650a")
+        let first = try await cat.getThumb(assetID: "650a000000000000000000aa")
+        let second = try await cat.getThumb(assetID: "650a000000000000000000aa")
         XCTAssertEqual(first, jpegBytes)
         XCTAssertEqual(second, jpegBytes)
         let seen = observed.snapshot()
