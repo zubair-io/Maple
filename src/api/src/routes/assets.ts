@@ -33,6 +33,7 @@ import {
 import { safeReadFile } from "../fs/root.ts";
 import { normaliseEnrichment, type Place } from "../db/schema.ts";
 import { searchBlobUpdateExpression } from "../enrichment/search-blob.ts";
+import { recordAndPublishAssetChange } from "../db/changes.repo.ts";
 
 /** Whitelisted enrichment stage names for the requeue route. Anything else
  * is rejected with 400 so a client can't poke a Mongo path that doesn't
@@ -246,6 +247,15 @@ export const assetsRoutes = new Elysia({ prefix: "/api/assets" })
         }
         set.headers["Last-Modified"] = outcome.mtime.toUTCString();
         set.status = 204;
+        // Conflict-sidecar writes still represent a change to the asset's
+        // sidecar state — emit so devices subscribing to the change feed
+        // pick the new sidecar up.
+        await recordAndPublishAssetChange({
+          kind: "update",
+          asset_id: id,
+          folder_id: doc.folder_id,
+          abs_path: doc.abs_path,
+        }).catch(() => {});
         return;
       }
 
@@ -277,6 +287,19 @@ export const assetsRoutes = new Elysia({ prefix: "/api/assets" })
       }
       set.headers["Last-Modified"] = outcome.mtime.toUTCString();
       set.status = 204;
+      // Mark the asset as carrying an XMP sidecar so the working-set
+      // `has_xmp` filter can find it cheaply (Task B1).
+      await coll
+        .updateOne({ _id: id }, { $set: { has_xmp: true } })
+        .catch(() => {});
+      // Best-effort change-feed emit so the File Provider extension can
+      // signal the OS to re-fetch this asset's sidecar.
+      await recordAndPublishAssetChange({
+        kind: "update",
+        asset_id: id,
+        folder_id: doc.folder_id,
+        abs_path: doc.abs_path,
+      }).catch(() => {});
       return;
     },
     {
@@ -309,6 +332,21 @@ export const assetsRoutes = new Elysia({ prefix: "/api/assets" })
       return { error: result.error };
     }
     set.status = 204;
+    // For canonical-sidecar deletes the asset no longer has an XMP;
+    // for conflict-sidecar deletes the canonical may still be there,
+    // so leave has_xmp alone in that branch.
+    if (conflict === null) {
+      await coll
+        .updateOne({ _id: id }, { $set: { has_xmp: false } })
+        .catch(() => {});
+    }
+    // The sidecar state changed — emit a feed event either way.
+    await recordAndPublishAssetChange({
+      kind: "update",
+      asset_id: id,
+      folder_id: doc.folder_id,
+      abs_path: doc.abs_path,
+    }).catch(() => {});
     return;
   })
 
@@ -357,6 +395,12 @@ export const assetsRoutes = new Elysia({ prefix: "/api/assets" })
       ]);
 
       set.status = 204;
+      await recordAndPublishAssetChange({
+        kind: "update",
+        asset_id: id,
+        folder_id: doc.folder_id,
+        abs_path: doc.abs_path,
+      }).catch(() => {});
       return;
     },
     {
@@ -400,6 +444,12 @@ export const assetsRoutes = new Elysia({ prefix: "/api/assets" })
       ]);
 
       set.status = 204;
+      await recordAndPublishAssetChange({
+        kind: "update",
+        asset_id: id,
+        folder_id: doc.folder_id,
+        abs_path: doc.abs_path,
+      }).catch(() => {});
       return;
     },
     {
@@ -440,6 +490,12 @@ export const assetsRoutes = new Elysia({ prefix: "/api/assets" })
       ]);
 
       set.status = 204;
+      await recordAndPublishAssetChange({
+        kind: "update",
+        asset_id: id,
+        folder_id: doc.folder_id,
+        abs_path: doc.abs_path,
+      }).catch(() => {});
       return;
     },
     {
