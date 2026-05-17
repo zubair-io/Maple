@@ -145,42 +145,47 @@ export const assetsRoutes = new Elysia({ prefix: "/api/assets" })
       // Single per-file thumb (size param is render-target advisory only;
       // the cache key no longer includes size — see fs/xmp.ts).
       const thumbPath = resolveThumbPath(doc.abs_path);
-      const result = await safeReadFile(thumbPath);
-      if (!result.ok) {
-        set.status = 404;
-        return { error: "Thumbnail not yet generated" };
-      }
 
-      // Compute the ETag from the thumb's mtime + size. Stable across
-      // re-encodes that happen to produce identical bytes (rare), and
-      // changes whenever the thumb is re-rendered.
-      let etag: string | null = null;
+      // Stat the thumb FIRST so a 304-bound request never pays the
+      // body-read cost. The previous shape (read then stat) defeated
+      // the short-circuit — the disk read happened on every request
+      // regardless of If-None-Match. With this order, the only cost on
+      // a cache-hit revalidation is one stat() call.
+      let etag: string;
       try {
         const st = await stat(thumbPath);
         etag = `"${Math.floor(st.mtimeMs)}-${st.size}"`;
       } catch {
-        // Race: thumb file disappeared between read and stat. Skip the
-        // conditional path; serve the bytes we already loaded.
+        set.status = 404;
+        return { error: "Thumbnail not yet generated" };
       }
+
       // RFC 9110 §15.4.5: 304 must carry the same Cache-Control as the
       // 200 path so URLSession's HTTP cache doesn't downgrade freshness
       // on revalidation. Pin the value here and reuse it on both paths.
       const cacheControl = "public, max-age=604800, immutable";
-      if (etag) {
-        const ifNoneMatch = headers["if-none-match"];
-        if (
-          ifNoneMatchEqual(
-            typeof ifNoneMatch === "string" ? ifNoneMatch : undefined,
-            etag,
-          )
-        ) {
-          return new Response(null, {
-            status: 304,
-            headers: { ETag: etag, "Cache-Control": cacheControl },
-          });
-        }
-        set.headers["ETag"] = etag;
+      const ifNoneMatch = headers["if-none-match"];
+      if (
+        ifNoneMatchEqual(
+          typeof ifNoneMatch === "string" ? ifNoneMatch : undefined,
+          etag,
+        )
+      ) {
+        return new Response(null, {
+          status: 304,
+          headers: { ETag: etag, "Cache-Control": cacheControl },
+        });
       }
+
+      // Cache miss — now do the body read.
+      const result = await safeReadFile(thumbPath);
+      if (!result.ok) {
+        // Race: stat succeeded but read failed (file removed between
+        // calls, or jail-rejected). Treat as 404 either way.
+        set.status = 404;
+        return { error: "Thumbnail not yet generated" };
+      }
+      set.headers["ETag"] = etag;
       set.headers["Content-Type"] = "image/jpeg";
       set.headers["Cache-Control"] = cacheControl;
       return result.data;
