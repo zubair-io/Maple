@@ -2,7 +2,13 @@ import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import { moveToTrash, moveOutOfTrash, computeTrashPath } from "../src/fs/trash.ts";
+import {
+  moveToTrash,
+  moveOutOfTrash,
+  computeTrashPath,
+  pickFreePath,
+  pickFreeRestoredPath,
+} from "../src/fs/trash.ts";
 
 let tmpRoot: string;
 
@@ -87,6 +93,36 @@ describe("moveOutOfTrash", () => {
     expect(await fs.readFile(path.join(dir, "IMG_3.restored.ARW"), "utf-8")).toBe("raw");
     // Sidecar followed with `.restored` to match new RAW base.
     await fs.stat(path.join(dir, "IMG_3.restored.xmp"));
+  });
+});
+
+describe("pickFreePath / pickFreeRestoredPath — extensionless input", () => {
+  // Regression: `path.extname("/x/foo")` is `""`, and the original
+  // implementation called `basePath.slice(0, -ext.length)` which for
+  // `ext.length === 0` evaluates to `basePath.slice(0, 0) === ""`. The
+  // candidate then became `/.1` (a malformed root-level dotfile) instead
+  // of `/x/foo.1`. Not exploitable through the upload route (extension
+  // allowlist) but `restore` reads `original_path` from the asset doc —
+  // any future code path with an extensionless `abs_path` would land
+  // here, so we lock in the safe behaviour with a test.
+  test("pickFreePath appends .1 to an extensionless basename", async () => {
+    const dir = path.join(tmpRoot, "extensionless-pickfree");
+    await fs.mkdir(dir, { recursive: true });
+    const target = path.join(dir, "noext");
+    await fs.writeFile(target, "occupier");
+
+    const result = await pickFreePath(target);
+    expect(result).toBe(`${target}.1`);
+  });
+
+  test("pickFreeRestoredPath appends .restored to an extensionless basename", async () => {
+    const dir = path.join(tmpRoot, "extensionless-restored");
+    await fs.mkdir(dir, { recursive: true });
+    const target = path.join(dir, "noext");
+    await fs.writeFile(target, "occupier");
+
+    const result = await pickFreeRestoredPath(target);
+    expect(result).toBe(`${target}.restored`);
   });
 });
 
