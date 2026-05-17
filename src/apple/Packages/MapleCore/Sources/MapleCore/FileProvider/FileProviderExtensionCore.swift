@@ -848,14 +848,46 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
         let roots = try await rootCache.roots()
         guard let root = roots.first(where: { $0.id == folderID }) else { return nil }
         let absolutePath = relativePath.isEmpty ? root.path : "\(root.path)/\(relativePath)"
-        let contents = try await catalog.listDir(absolutePath: absolutePath)
         let canonicalBase = Self.canonicalBase(forSidecarFilename: filename)
-        for img in contents.images {
-            guard let assetID = img.assetID else { continue }
-            let dot = img.name.lastIndex(of: ".")
-            let imgBase = dot.map { String(img.name[..<$0]) } ?? img.name
-            if imgBase == canonicalBase { return assetID }
-        }
+        // Stream pages and early-return on match so a folder with thousands
+        // of images doesn't get fully buffered into memory just to look up
+        // one sidecar's paired assetID.
+        return try await Self.findAssetID(
+            catalog: catalog,
+            absolutePath: absolutePath,
+            canonicalBase: canonicalBase,
+            log: log
+        )
+    }
+
+    /// Pages through `catalog.listDir(absolutePath:cursor:limit:)`, returning
+    /// the first image whose filename-base matches `canonicalBase` (and has
+    /// a non-nil `assetID`), or nil after walking up to `itemLookupMaxPages`
+    /// pages. Internal so tests can drive it directly through a stubbed
+    /// catalog.
+    static func findAssetID(catalog: RemoteCatalog,
+                            absolutePath: String,
+                            canonicalBase: String,
+                            log: Logger? = nil) async throws -> String? {
+        var cursor: String? = nil
+        var pageGuard = 0
+        repeat {
+            let page = try await catalog.listDir(absolutePath: absolutePath,
+                                                 cursor: cursor,
+                                                 limit: itemLookupPageLimit)
+            for img in page.images {
+                guard let assetID = img.assetID else { continue }
+                let dot = img.name.lastIndex(of: ".")
+                let imgBase = dot.map { String(img.name[..<$0]) } ?? img.name
+                if imgBase == canonicalBase { return assetID }
+            }
+            cursor = page.nextCursor
+            pageGuard += 1
+            if pageGuard > itemLookupMaxPages {
+                log?.error("findAssetID page guard tripped at \(pageGuard) pages for \(absolutePath, privacy: .public)")
+                break
+            }
+        } while cursor != nil
         return nil
     }
 
