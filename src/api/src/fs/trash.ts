@@ -34,11 +34,17 @@ export function computeTrashPath(absPath: string, folderRoot: string): string {
   return path.join(root, ".maple", "trash", rel);
 }
 
-/** Append `.N.<ext>` until the path is free. Bounded to 1000 attempts. */
-async function pickFreePath(basePath: string): Promise<string> {
+/** Append `.N.<ext>` until the path is free. Bounded to 1000 attempts.
+ *
+ * Extensionless-input edge case: `path.extname("/x/foo")` returns `""`, and
+ * `basePath.slice(0, -0)` is `""` — naively building `${stem}.${n}${ext}`
+ * would produce `.1` (a root-level dotfile), losing the basename entirely.
+ * Guard the slice on a non-empty ext so an extensionless input simply gets
+ * the suffix appended (`/x/foo` → `/x/foo.1`). */
+export async function pickFreePath(basePath: string): Promise<string> {
   try { await fs.stat(basePath); } catch { return basePath; }
   const ext = path.extname(basePath);
-  const stem = basePath.slice(0, -ext.length);
+  const stem = ext ? basePath.slice(0, -ext.length) : basePath;
   for (let n = 1; n <= 1000; n++) {
     const cand = `${stem}.${n}${ext}`;
     try { await fs.stat(cand); } catch { return cand; }
@@ -46,10 +52,12 @@ async function pickFreePath(basePath: string): Promise<string> {
   return `${stem}.1000${ext}`;
 }
 
-/** Append `.restored[.N]<ext>` until the path is free. Bounded to 1000 attempts. */
-async function pickFreeRestoredPath(basePath: string): Promise<string> {
+/** Append `.restored[.N]<ext>` until the path is free. Bounded to 1000 attempts.
+ *
+ * Same extensionless guard as `pickFreePath` — see comment there. */
+export async function pickFreeRestoredPath(basePath: string): Promise<string> {
   const ext = path.extname(basePath);
-  const stem = basePath.slice(0, -ext.length);
+  const stem = ext ? basePath.slice(0, -ext.length) : basePath;
   const first = `${stem}.restored${ext}`;
   try { await fs.stat(first); } catch { return first; }
   for (let n = 1; n <= 1000; n++) {
