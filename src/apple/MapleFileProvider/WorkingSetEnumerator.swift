@@ -22,6 +22,16 @@ final class WorkingSetEnumerator: NSObject, NSFileProviderEnumerator {
     private let listCache: WorkingSetListCache
     private let log = Logger(subsystem: "app.justmaple.aperture.fileprovider",
                              category: "workingset")
+    /// Counts change events applied since the list cache was last
+    /// invalidated. The cache is populated lazily by
+    /// `WorkingSetListCache.entries()` from three list queries; the
+    /// change feed keeps the working-set table fresh, but the list
+    /// cache itself goes stale as soon as new assets land. Reseed
+    /// after a small batch so the next cold-start `enumerateItems`
+    /// sees recent additions without waiting for the extension to
+    /// restart.
+    private static let listCacheInvalidationThreshold = 50
+    private var eventsSinceListCacheReseed = 0
 
     init(catalog: RemoteCatalog,
          workingSet: WorkingSet,
@@ -98,6 +108,15 @@ final class WorkingSetEnumerator: NSObject, NSFileProviderEnumerator {
                 let newAnchor = page.nextCursor.map { Self.anchor($0) } ?? anchor
                 if let next = page.nextCursor {
                     cursorStore.save(next, domain: domainID)
+                }
+                // Bump the list-cache invalidation counter and reseed
+                // once we've absorbed enough changes. We keep the
+                // counter cheap (in-memory, lost on extension recycle —
+                // that's fine, recycle is itself a reseed trigger).
+                eventsSinceListCacheReseed += page.changes.count
+                if eventsSinceListCacheReseed >= Self.listCacheInvalidationThreshold {
+                    eventsSinceListCacheReseed = 0
+                    await listCache.invalidate()
                 }
                 observer.finishEnumeratingChanges(upTo: newAnchor, moreComing: false)
             } catch let e as StaleCursorError {
