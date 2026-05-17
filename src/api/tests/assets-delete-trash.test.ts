@@ -1,10 +1,15 @@
-import { describe, test, expect, beforeAll, afterAll } from "bun:test";
+import { describe, test, expect, beforeAll, afterAll, beforeEach } from "bun:test";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { MongoClient, ObjectId, type Db } from "mongodb";
 import { pendingEnrichment } from "../src/db/schema.ts";
 import { signAccessToken } from "../src/auth/tokens.ts";
+import {
+  setMeilisearchClientForTests,
+  type MeilisearchClient,
+  type MeilisearchAssetDoc,
+} from "../src/enrichment/meilisearch-client.ts";
 
 process.env.MAPLE_JWT_SECRET = "x".repeat(32);
 const BEARER = "Bearer " + signAccessToken(
@@ -28,12 +33,13 @@ async function tryConnect(): Promise<MongoClient | null> {
   catch { try { await c.close(); } catch {}; return null; }
 }
 
-async function makeAsset(filename: string, content: Buffer): Promise<{ assetId: ObjectId; absPath: string }> {
+async function makeAsset(filename: string, content: Buffer, opts?: { mapleId?: string }): Promise<{ assetId: ObjectId; absPath: string; mapleId: string | null }> {
   const absPath = path.join(realTmpRoot, "2024", filename);
   await fs.mkdir(path.dirname(absPath), { recursive: true });
   await fs.writeFile(absPath, content);
   const assetId = new ObjectId();
-  await db!.collection("assets").insertOne({
+  const mapleId = opts?.mapleId ?? null;
+  const doc: Record<string, unknown> = {
     _id: assetId,
     folder_id: folderId,
     filename,
@@ -43,8 +49,31 @@ async function makeAsset(filename: string, content: Buffer): Promise<{ assetId: 
     indexed_at: new Date().toISOString(),
     deleted_at: null,
     enrichment: pendingEnrichment(),
-  } as never);
-  return { assetId, absPath };
+  };
+  if (mapleId) doc.maple_id = mapleId;
+  await db!.collection("assets").insertOne(doc as never);
+  return { assetId, absPath, mapleId };
+}
+
+interface CapturingMeili extends MeilisearchClient {
+  tombstones: string[];
+  upserts: MeilisearchAssetDoc[];
+}
+
+function capturingMeili(): CapturingMeili {
+  const tombstones: string[] = [];
+  const upserts: MeilisearchAssetDoc[] = [];
+  return {
+    tombstones,
+    upserts,
+    isConfigured: () => true,
+    health: async () => true,
+    ensureIndex: async () => {},
+    upsert: async (doc) => { upserts.push(doc); },
+    upsertOrThrow: async (doc) => { upserts.push(doc); },
+    tombstone: async (id) => { tombstones.push(id); },
+    search: async () => ({ ids: [], estimatedTotal: 0 }),
+  };
 }
 
 describe("DELETE /api/assets/:id (trash + permanent purge)", () => {
@@ -73,6 +102,13 @@ describe("DELETE /api/assets/:id (trash + permanent purge)", () => {
   afterAll(async () => {
     if (tmpRoot) await fs.rm(tmpRoot, { recursive: true, force: true });
     if (mongo) await mongo.close();
+    setMeilisearchClientForTests(null);
+  });
+
+  beforeEach(() => {
+    // Reset the meili mock before every test so calls don't leak across
+    // cases. Individual tests reinstall a capturing mock when needed.
+    setMeilisearchClientForTests(null);
   });
 
   test("moves RAW + sidecar to trash; sets deleted_at + original_path", async () => {
@@ -128,6 +164,61 @@ describe("DELETE /api/assets/:id (trash + permanent purge)", () => {
     const doc = await db!.collection("assets").findOne({ _id: assetId });
     expect(doc).toBeNull();
     void absPath; // assertion is on the post-trash path
+  });
+
+  test("soft-delete tombstones the asset in Meilisearch when maple_id is present", async () => {
+    if (!mongoReachable) return;
+    const meili = capturingMeili();
+    setMeilisearchClientForTests(meili);
+    const { app } = await import("../src/index.ts");
+    const mapleId = "deadbeefdeadbeef";
+    const { assetId } = await makeAsset("IMG_meili1.ARW", Buffer.from("raw"), { mapleId });
+
+    const res = await app.handle(new Request(`http://localhost/api/assets/${assetId.toHexString()}`, {
+      method: "DELETE", headers: { Authorization: BEARER },
+    }));
+    expect(res.status).toBe(204);
+    expect(meili.tombstones).toEqual([mapleId]);
+    expect(meili.upserts).toEqual([]);
+  });
+
+  test("soft-delete skips Meilisearch when maple_id is absent (legacy row)", async () => {
+    if (!mongoReachable) return;
+    const meili = capturingMeili();
+    setMeilisearchClientForTests(meili);
+    const { app } = await import("../src/index.ts");
+    const { assetId } = await makeAsset("IMG_meili2.ARW", Buffer.from("raw"));
+
+    const res = await app.handle(new Request(`http://localhost/api/assets/${assetId.toHexString()}`, {
+      method: "DELETE", headers: { Authorization: BEARER },
+    }));
+    expect(res.status).toBe(204);
+    expect(meili.tombstones).toEqual([]);
+  });
+
+  test("soft-delete 204s even when Meilisearch throws", async () => {
+    if (!mongoReachable) return;
+    const failing: MeilisearchClient = {
+      isConfigured: () => true,
+      health: async () => true,
+      ensureIndex: async () => {},
+      upsert: async () => {},
+      upsertOrThrow: async () => {},
+      tombstone: async () => { throw new Error("meili boom"); },
+      search: async () => ({ ids: [], estimatedTotal: 0 }),
+    };
+    setMeilisearchClientForTests(failing);
+    const { app } = await import("../src/index.ts");
+    const { assetId, absPath } = await makeAsset("IMG_meili3.ARW", Buffer.from("raw"), { mapleId: "abc123" });
+
+    const res = await app.handle(new Request(`http://localhost/api/assets/${assetId.toHexString()}`, {
+      method: "DELETE", headers: { Authorization: BEARER },
+    }));
+    expect(res.status).toBe(204);
+    // Mongo state still flipped despite Meili failure.
+    const doc = await db!.collection("assets").findOne({ _id: assetId }) as Record<string, unknown>;
+    expect(doc.deleted_at).toBeTruthy();
+    expect(doc.original_path).toBe(absPath);
   });
 
   test("404 on unknown asset id", async () => {
