@@ -22,6 +22,12 @@ public final class FileProviderMetaStore: @unchecked Sendable {
         case openFailed(Int32)
         case prepareFailed(String, Int32)
         case stepFailed(String, Int32)
+        /// `PRAGMA journal_mode=WAL;` either returned a non-OK rc or the
+        /// follow-up `PRAGMA journal_mode;` reported a mode other than
+        /// "wal". WAL is load-bearing — both the FP and QL processes hold
+        /// the same DB open concurrently, and without WAL a writer blocks
+        /// all readers. Throw rather than continue silently.
+        case walNotActive(String)
     }
 
     private let url: URL
@@ -132,12 +138,61 @@ public final class FileProviderMetaStore: @unchecked Sendable {
             log.error("sqlite3_open_v2 failed rc=\(rc)")
             throw StoreError.openFailed(rc)
         }
-        sqlite3_exec(db, "PRAGMA journal_mode=WAL;", nil, nil, nil)
-        sqlite3_exec(db, "PRAGMA synchronous=NORMAL;", nil, nil, nil)
-        sqlite3_exec(db, "PRAGMA busy_timeout=2000;", nil, nil, nil)
+        // Set WAL, then verify by reading back. `PRAGMA journal_mode=WAL;`
+        // can silently fall back to the previous mode (delete, memory,
+        // etc.) on filesystems that don't support shared-memory
+        // mapping — and WAL is the only thing letting the QL extension
+        // read while the FP extension is writing. Treat a mismatch as
+        // fatal: the QL fallback is degraded but still correct, but
+        // silent loss of WAL with no signal is exactly the bug class
+        // we're guarding against.
+        let walSetRc = sqlite3_exec(db, "PRAGMA journal_mode=WAL;", nil, nil, nil)
+        if walSetRc != SQLITE_OK {
+            log.error("PRAGMA journal_mode=WAL exec failed rc=\(walSetRc)")
+            throw StoreError.walNotActive("exec rc=\(walSetRc)")
+        }
+        try verifyWALActiveLocked()
+        let syncRc = sqlite3_exec(db, "PRAGMA synchronous=NORMAL;", nil, nil, nil)
+        if syncRc != SQLITE_OK {
+            log.error("PRAGMA synchronous=NORMAL failed rc=\(syncRc)")
+            throw StoreError.stepFailed("PRAGMA synchronous=NORMAL", syncRc)
+        }
+        let busyRc = sqlite3_exec(db, "PRAGMA busy_timeout=2000;", nil, nil, nil)
+        if busyRc != SQLITE_OK {
+            log.error("PRAGMA busy_timeout=2000 failed rc=\(busyRc)")
+            throw StoreError.stepFailed("PRAGMA busy_timeout=2000", busyRc)
+        }
+    }
+
+    /// Reads `PRAGMA journal_mode;` back and asserts the value is
+    /// "wal" (case-insensitive). Throws `walNotActive` otherwise.
+    private func verifyWALActiveLocked() throws {
+        var stmt: OpaquePointer?
+        let prepareRc = sqlite3_prepare_v2(db, "PRAGMA journal_mode;", -1, &stmt, nil)
+        guard prepareRc == SQLITE_OK else {
+            sqlite3_finalize(stmt)
+            log.error("prepare PRAGMA journal_mode failed rc=\(prepareRc)")
+            throw StoreError.walNotActive("prepare rc=\(prepareRc)")
+        }
+        let stepRc = sqlite3_step(stmt)
+        guard stepRc == SQLITE_ROW else {
+            sqlite3_finalize(stmt)
+            log.error("step PRAGMA journal_mode failed rc=\(stepRc)")
+            throw StoreError.walNotActive("step rc=\(stepRc)")
+        }
+        let mode = String(cString: sqlite3_column_text(stmt, 0)).lowercased()
+        sqlite3_finalize(stmt)
+        guard mode == "wal" else {
+            log.error("PRAGMA journal_mode reports \(mode, privacy: .public), expected wal")
+            throw StoreError.walNotActive("mode=\(mode)")
+        }
     }
 
     private func migrateLocked() throws {
+        // Split prepare/step into separate guards so each surfaces the
+        // correct rc. Combining them in one `guard` ran sqlite3_finalize
+        // before sampling sqlite3_errcode, which can reset the error
+        // code and report SQLITE_OK for a step that actually failed.
         var stmt: OpaquePointer?
         guard sqlite3_prepare_v2(db, "PRAGMA user_version;", -1, &stmt, nil) == SQLITE_OK,
               sqlite3_step(stmt) == SQLITE_ROW else {
