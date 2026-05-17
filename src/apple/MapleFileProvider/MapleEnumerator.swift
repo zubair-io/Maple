@@ -40,13 +40,22 @@ final class RootEnumerator: NSObject, NSFileProviderEnumerator {
     }
 
     // Phase 1: enumerator changes are coarse — current state, no per-item delta.
-    // Invalidate the library-root cache so the next enumerateItems hits the server.
-    // Triggered by NSFileProviderManager.signalEnumerator(for: .rootContainer) from the main app.
+    //
+    // We DO NOT invalidate the LibraryRootCache here. The drift handler
+    // installed on the cache calls signalEnumerator(.rootContainer)
+    // whenever a background revalidation returns a list that differs
+    // from the served one — by the time the OS calls enumerateChanges
+    // in response, the in-memory cache already holds the fresh data.
+    // Invalidating it here would wipe that fresh prime and force the
+    // next `enumerateItems` to re-await the server round trip we just
+    // completed.
+    //
+    // Any genuine external "drop the cache" event (e.g. a change-feed
+    // event affecting folder membership) routes through
+    // `FileProviderExtension.handleChangeEvent`, which invalidates the
+    // cache explicitly before signaling the enumerator.
     func enumerateChanges(for observer: NSFileProviderChangeObserver, from anchor: NSFileProviderSyncAnchor) {
-        Task {
-            await rootCache?.invalidate()
-            observer.finishEnumeratingChanges(upTo: anchor, moreComing: false)
-        }
+        observer.finishEnumeratingChanges(upTo: anchor, moreComing: false)
     }
 
     func currentSyncAnchor(completionHandler: @escaping (NSFileProviderSyncAnchor?) -> Void) {
