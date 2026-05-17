@@ -12,6 +12,7 @@ const BEARER = "Bearer " + signAccessToken(
 );
 
 const TEST_DB = `maple_test_fp3_trash_list_${process.pid}`;
+const PRIOR_MONGO_DB = process.env.MAPLE_MONGO_DB;
 const MONGO_URI = process.env.MAPLE_MONGO_URI ?? "mongodb://localhost:27017";
 
 let mongo: MongoClient | null = null;
@@ -73,8 +74,19 @@ describe("GET /api/folders/:id/trash", () => {
   });
 
   afterAll(async () => {
+    // Close the APP DB client (held by the routes via the singleton
+    // `getDb()` in src/db/client.ts) so it doesn't leak across tests —
+    // otherwise subsequent test files inherit a connection pointed at
+    // this file's TEST_DB. Pattern mirrors assets-xmp-delete.test.ts.
+    const { closeDb } = await import("../src/db/client.ts");
+    await closeDb();
+    if (mongo) {
+      try { await mongo.db(TEST_DB).dropDatabase(); } catch {}
+      await mongo.close();
+    }
     if (tmpRoot) await fs.rm(tmpRoot, { recursive: true, force: true });
-    if (mongo) await mongo.close();
+    if (PRIOR_MONGO_DB === undefined) delete process.env.MAPLE_MONGO_DB;
+    else process.env.MAPLE_MONGO_DB = PRIOR_MONGO_DB;
   });
 
   test("returns trashed assets newest-first, excludes vanished (no original_path)", async () => {

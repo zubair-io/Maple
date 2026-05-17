@@ -13,6 +13,7 @@ const BEARER = "Bearer " + signAccessToken(
 );
 
 const TEST_DB = `maple_test_fp3_upload_${process.pid}`;
+const PRIOR_MONGO_DB = process.env.MAPLE_MONGO_DB;
 const MONGO_URI = process.env.MAPLE_MONGO_URI ?? "mongodb://localhost:27017";
 
 let mongo: MongoClient | null = null;
@@ -52,8 +53,20 @@ describe("POST /api/folders/:id/upload", () => {
   });
 
   afterAll(async () => {
+    // Close the APP DB client (held by routes via the `getDb()`
+    // singleton) before closing the test client; otherwise the app's
+    // connection stays open against TEST_DB and leaks into later
+    // test files. Restore the prior env var. Pattern mirrors
+    // assets-xmp-delete.test.ts.
+    const { closeDb } = await import("../src/db/client.ts");
+    await closeDb();
+    if (mongo) {
+      try { await mongo.db(TEST_DB).dropDatabase(); } catch {}
+      await mongo.close();
+    }
     if (tmpRoot) await fs.rm(tmpRoot, { recursive: true, force: true });
-    if (mongo) await mongo.close();
+    if (PRIOR_MONGO_DB === undefined) delete process.env.MAPLE_MONGO_DB;
+    else process.env.MAPLE_MONGO_DB = PRIOR_MONGO_DB;
   });
 
   function upload(body: Buffer, headers: Record<string, string>): Request {
