@@ -52,6 +52,7 @@ import { backupStateRoutes } from "./routes/backup-state.ts";
 import { backupSidecarRoutes } from "./routes/backup-sidecar.ts";
 import { backupRenderedRoutes } from "./routes/backup-rendered.ts";
 import { backupNotifyDeletedRoutes } from "./routes/backup-notify-deleted.ts";
+import { changesRoutes } from "./routes/changes.ts";
 import { requireAuth } from "./auth/middleware.ts";
 import { staticUiPlugin } from "./routes/static_ui.ts";
 import { getDb, ensureIndexes, closeDb, foldersCollection } from "./db/client.ts";
@@ -235,6 +236,7 @@ export function buildApp(opts: { stageNames?: string[] } = {}): Elysia & { super
         .use(enrichmentRoutes)
         .use(meilisearchBackfillRoutes)
         .use(peopleRoutes)
+        .use(changesRoutes)
         .use(workerRoutes(supervisor)),
     )
 
