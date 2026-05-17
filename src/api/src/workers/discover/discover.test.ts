@@ -203,6 +203,74 @@ describe("discover producer", () => {
     await rm(tempDir, { recursive: true, force: true });
   });
 
+  it("emits asset_changes rows on create / modify / rename / soft-delete", async () => {
+    if (!mongoReachable) return;
+
+    const { handleEvent } = await import("./index.ts");
+    const { assetsCollection, foldersCollection, assetChangesCollection } =
+      await import("../../db/client.ts");
+
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "discover-changes-"));
+    const file = path.join(tempDir, "feed.jpg");
+    await writeFile(file, Buffer.alloc(64, 0x33));
+
+    const foldersColl = await foldersCollection();
+    const folderResult = await foldersColl.insertOne({
+      abs_path: tempDir,
+      name: path.basename(tempDir),
+      created_at: new Date().toISOString(),
+    } as never);
+    const folderId = folderResult.insertedId;
+    const coll = await assetsCollection();
+    const changesColl = await assetChangesCollection();
+    await changesColl.deleteMany({});
+
+    // create → expect a "create" change row.
+    await handleEvent({ kind: "created", absPath: file }, folderId);
+    let rows = await changesColl
+      .find({ abs_path: file })
+      .sort({ cursor: 1 })
+      .toArray();
+    expect(rows.length).toBe(1);
+    expect(rows[0]!.kind).toBe("create");
+
+    // modify → "update"
+    await handleEvent({ kind: "modified", absPath: file }, folderId);
+    rows = await changesColl
+      .find({ abs_path: file })
+      .sort({ cursor: 1 })
+      .toArray();
+    expect(rows.length).toBe(2);
+    expect(rows[1]!.kind).toBe("update");
+
+    // rename — give chokidar a new path
+    const newPath = path.join(tempDir, "feed-renamed.jpg");
+    await writeFile(newPath, Buffer.alloc(64, 0x33));
+    await handleEvent(
+      { kind: "renamed", absPath: newPath, fromPath: file },
+      folderId,
+    );
+    const renamedRows = await changesColl
+      .find({ abs_path: newPath })
+      .sort({ cursor: 1 })
+      .toArray();
+    expect(renamedRows.length).toBe(1);
+    expect(renamedRows[0]!.kind).toBe("update");
+
+    // soft-delete → "delete"
+    await handleEvent({ kind: "removed", absPath: newPath }, folderId);
+    const deleted = await changesColl
+      .find({ abs_path: newPath, kind: "delete" })
+      .toArray();
+    expect(deleted.length).toBe(1);
+
+    // Clean up.
+    await coll.deleteMany({ folder_id: folderId });
+    await changesColl.deleteMany({ folder_id: folderId });
+    await foldersColl.deleteOne({ _id: folderId });
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
   it("does not collide on shared basename across folders", async () => {
     if (!mongoReachable) return;
 
