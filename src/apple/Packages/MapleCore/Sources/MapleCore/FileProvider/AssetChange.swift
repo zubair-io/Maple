@@ -98,3 +98,43 @@ public struct AssetListResponse: Codable, Sendable, Equatable {
         self.assets = assets
     }
 }
+
+/// Single-asset metadata returned by GET /api/assets/:id. Mirrors the
+/// per-asset shape `assets.ts` emits; the route is older than the
+/// `/api/assets` list endpoint and still returns `mtime` in
+/// milliseconds.
+public struct AssetMetadata: Codable, Sendable, Equatable {
+    public let id: String
+    public let folderID: String
+    public let filename: String
+    public let absPath: String
+    public let size: Int64
+    /// Epoch MILLISECONDS — convert with `Date(timeIntervalSince1970:
+    /// Double(mtimeMS) / 1000.0)` for SwiftUI `contentModificationDate`.
+    public let mtimeMS: Int64
+    public let rating: Int
+
+    public init(id: String, folderID: String, filename: String, absPath: String,
+                size: Int64, mtimeMS: Int64, rating: Int) {
+        self.id = id
+        self.folderID = folderID
+        self.filename = filename
+        self.absPath = absPath
+        self.size = size
+        self.mtimeMS = mtimeMS
+        self.rating = rating
+    }
+
+    /// Convenience: the modification date as a Foundation `Date`,
+    /// computed from the server's millisecond timestamp.
+    public var contentModificationDate: Date {
+        Date(timeIntervalSince1970: Double(mtimeMS) / 1000.0)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, filename, rating, size
+        case folderID = "folder_id"
+        case absPath = "abs_path"
+        case mtimeMS = "mtime"
+    }
+}

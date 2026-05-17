@@ -71,12 +71,19 @@ final class WorkingSetEnumerator: NSObject, NSFileProviderEnumerator {
         }
     }
 
+    /// Per-call cap on rows pulled from `/api/changes`. When the
+    /// returned page hits this size we report `moreComing: true` so the
+    /// OS will call `enumerateChanges` again from the new anchor; the
+    /// remaining backlog is then drained in a second (and third, …)
+    /// round-trip.
+    private static let changesPageLimit = 500
+
     func enumerateChanges(for observer: NSFileProviderChangeObserver,
                           from anchor: NSFileProviderSyncAnchor) {
         let since = Self.parseAnchor(anchor)
         Task {
             do {
-                let page = try await catalog.listChanges(since: since, limit: 500)
+                let page = try await catalog.listChanges(since: since, limit: Self.changesPageLimit)
                 var updates: [NSFileProviderItem] = []
                 var deletes: [NSFileProviderItemIdentifier] = []
                 for ch in page.changes {
@@ -118,7 +125,12 @@ final class WorkingSetEnumerator: NSObject, NSFileProviderEnumerator {
                     eventsSinceListCacheReseed = 0
                     await listCache.invalidate()
                 }
-                observer.finishEnumeratingChanges(upTo: newAnchor, moreComing: false)
+                // If we hit the page cap there's almost certainly more
+                // backlog beyond it. Tell the OS so it loops back with
+                // the new anchor; the cursor we just persisted ensures
+                // the next call starts where this one left off.
+                let moreComing = page.changes.count >= Self.changesPageLimit
+                observer.finishEnumeratingChanges(upTo: newAnchor, moreComing: moreComing)
             } catch let e as StaleCursorError {
                 log.notice("stale cursor (server current=\(e.current)); requesting full re-enumeration")
                 observer.finishEnumeratingWithError(

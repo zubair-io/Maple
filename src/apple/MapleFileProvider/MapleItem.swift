@@ -98,6 +98,30 @@ final class MapleItem: NSObject, NSFileProviderItem {
         self.filename = e.filename
     }
 
+    /// Built from a single-asset metadata fetch (`GET /api/assets/:id`).
+    /// Used by `FileProviderExtension.item(for:)` when the OS resolves
+    /// a bare `.asset(id)` identifier (typically delivered through
+    /// `enumerateChanges`). Carries real filename / mtime / size, so the
+    /// OS gets the canonical content version on the first lookup.
+    /// `parentItemIdentifier` is `.workingSet` — the asset's true folder
+    /// parent would be `folder(folderID, relativePath)`, but the API
+    /// endpoint doesn't yet expose `relativePath`. Routing to the
+    /// folder root would point at the wrong directory; `.workingSet`
+    /// is always-valid and the OS reattaches on folder enumeration.
+    init(assetMetadata m: AssetMetadata) {
+        self.identifier = .asset(m.id)
+        self.displayName = m.filename
+        self.isDirectory = false
+        self.size = NSNumber(value: m.size)
+        self.modified = m.contentModificationDate
+        let ext = (m.filename as NSString).pathExtension
+        self.utType = UTType(filenameExtension: ext) ?? .data
+        self.writeCapabilities = [.allowsReading]
+        self.itemIdentifier = NSFileProviderItemIdentifier(self.identifier.rawValue)
+        self.parentItemIdentifier = .workingSet
+        self.filename = m.filename
+    }
+
     /// Minimal item returned by enumerateChanges for non-delete events
     /// when we only have a cursor + assetID. The OS will call
     /// `item(for:)` to pick up real metadata; this stub exists so the
