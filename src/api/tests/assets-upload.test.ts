@@ -153,4 +153,47 @@ describe("POST /api/folders/:id/upload", () => {
     expect(res.status).toBe(409);
     expect(await fs.readFile(dest, "utf-8")).toBe("old");
   });
+
+  // Regression: the previous implementation used a stat-then-rename pattern
+  // that left a TOCTOU window — two concurrent uploads to the same target
+  // both saw `stat` ENOENT, both wrote distinct tmps, and the second
+  // `rename` silently overwrote the first. Two asset docs ended up
+  // pointing at the same `abs_path`. The fix uses `open(target, "wx")`
+  // (O_EXCL) to atomically claim the target before writing — second
+  // claimant gets EEXIST → 409.
+  test("concurrent uploads to the same target: one 201, one 409, one file, one asset doc", async () => {
+    if (!mongoReachable) return;
+    const { app } = await import("../src/index.ts");
+    const targetRel = "race/IMG_RACE.ARW";
+    const dest = path.join(realTmpRoot, targetRel);
+
+    // Issue both requests as close to simultaneously as possible. The
+    // claim happens early in the handler (before the async writeFile),
+    // so even with cooperative scheduling one of them must lose the race.
+    const [resA, resB] = await Promise.all([
+      app.handle(upload(Buffer.alloc(32, 1), { "X-Maple-Target-Path": targetRel })),
+      app.handle(upload(Buffer.alloc(32, 2), { "X-Maple-Target-Path": targetRel })),
+    ]);
+
+    const statuses = [resA.status, resB.status].sort();
+    expect(statuses).toEqual([201, 409]);
+
+    // Exactly one asset doc, exactly one file on disk.
+    const winner = resA.status === 201 ? resA : resB;
+    const winnerBody = await winner.json() as { asset_id: string; abs_path: string; size: number };
+    expect(winnerBody.abs_path).toBe(dest);
+    expect(winnerBody.size).toBe(32);
+
+    const onDisk = await fs.readFile(dest);
+    expect(onDisk.byteLength).toBe(32);
+
+    const docs = await db!.collection("assets").find({ abs_path: dest }).toArray();
+    expect(docs.length).toBe(1);
+    expect(docs[0]!._id.toHexString()).toBe(winnerBody.asset_id);
+
+    // The loser must not have left a tmp file or partial state in the dir.
+    const dirEntries = await fs.readdir(path.dirname(dest));
+    const tmps = dirEntries.filter((n) => n.startsWith(".upload-"));
+    expect(tmps).toEqual([]);
+  });
 });
