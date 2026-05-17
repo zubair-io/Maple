@@ -324,10 +324,37 @@ export async function ensureIndexes(): Promise<void> {
   // folders: path is unique
   await db.collection("folders").createIndex({ path: 1 }, { unique: true });
 
-  // assets: unique per (folder_id, filename); secondary on mtime
-  await db
-    .collection("assets")
-    .createIndex({ folder_id: 1, filename: 1 }, { unique: true });
+  // assets: unique per (folder_id, filename) BUT only for live rows.
+  // Soft-deleted assets keep their original `filename`; if the unique
+  // index applied to them too, the user could not re-upload a file with
+  // the same name as a trashed asset (core trash/restore workflow).
+  // Scope it via partialFilterExpression so trashed rows are exempt.
+  //
+  // Migration: the index that existed before this partial filter has
+  // the default name `folder_id_1_filename_1` with no
+  // partialFilterExpression. Drop it before re-creating with the new
+  // spec; createIndex would otherwise reject as IndexOptionsConflict.
+  // The introspect-and-drop pattern mirrors `ensureStageIndexes` above.
+  const assetIndexes = await db.collection("assets").indexes();
+  const existingFolderFilenameIdx = assetIndexes.find(
+    (i) =>
+      (i.name as string) === "folder_id_1_filename_1" &&
+      !(i as { partialFilterExpression?: unknown }).partialFilterExpression,
+  );
+  if (existingFolderFilenameIdx) {
+    try {
+      await db.collection("assets").dropIndex("folder_id_1_filename_1");
+    } catch {
+      // IndexNotFound is fine — another process may have already dropped.
+    }
+  }
+  await db.collection("assets").createIndex(
+    { folder_id: 1, filename: 1 },
+    {
+      unique: true,
+      partialFilterExpression: { deleted_at: null },
+    },
+  );
   await db.collection("assets").createIndex({ mtime: 1 }, { sparse: true });
   await db.collection("assets").createIndex({ folder_id: 1 });
 
