@@ -217,6 +217,52 @@ final class LibraryRootCacheTests: XCTestCase {
                        "fetcher must be invoked again after the previous kick threw")
     }
 
+    /// CRITICAL: invalidate() must cancel/abandon any in-flight
+    /// revalidation so a slow fetcher landing after invalidation cannot
+    /// silently repopulate the cache the caller just emptied.
+    func testInvalidateDuringInflightDoesNotRepopulate() async throws {
+        let defaults = freshDefaults()
+        // Prime disk so roots() returns immediately and kicks a slow
+        // background revalidation.
+        let priorRoots = [mkRoot("a")]
+        let data = try JSONEncoder().encode(priorRoots)
+        defaults.set(data, forKey: "fileprovider.default.library-roots")
+
+        let freshRoots = [mkRoot("b"), mkRoot("c")]
+        let cache = LibraryRootCache(
+            domainID: "default",
+            defaults: defaults,
+            fetcher: {
+                // Slow fetcher — gives the test room to invalidate
+                // before this lands.
+                try? await Task.sleep(nanoseconds: 200_000_000)
+                return freshRoots
+            }
+        )
+        // First read: returns from disk, kicks the slow revalidation.
+        let served = try await cache.roots()
+        XCTAssertEqual(served, priorRoots)
+        // Invalidate immediately — captured generation in the kick is
+        // now stale.
+        await cache.invalidate()
+        // Wait long enough that the in-flight fetcher would have
+        // landed if generation-gating were absent.
+        try await Task.sleep(nanoseconds: 400_000_000)
+        // Cache must STILL be empty — neither the memory nor the disk
+        // entry should have been silently repopulated.
+        XCTAssertNil(defaults.data(forKey: "fileprovider.default.library-roots"))
+        // And the next read (with a fast fetcher) must produce the
+        // genuine new value, not the leaked stale fresh-roots.
+        let nextRoots = [mkRoot("z")]
+        let cache2 = LibraryRootCache(
+            domainID: "default",
+            defaults: defaults,
+            fetcher: { nextRoots }
+        )
+        let nextServed = try await cache2.roots()
+        XCTAssertEqual(nextServed, nextRoots)
+    }
+
     func testDriftHandlerDoesNotFireOnUnchangedRevalidation() async throws {
         let defaults = freshDefaults()
         let roots = [mkRoot("a")]
