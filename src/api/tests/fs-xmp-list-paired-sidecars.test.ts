@@ -48,4 +48,32 @@ describe("listPairedSidecars", () => {
     const got = await listPairedSidecars("/no/such/dir/IMG_1.ARW");
     expect(got).toEqual([]);
   });
+
+  test("does NOT match bare numeric variants like `<base> (N).xmp`", async () => {
+    // Regression: the earlier pattern made BOTH the conflict-from group
+    // and the numeric group optional, so `IMG_1 (2).xmp` matched as if
+    // it were a paired sidecar for `IMG_1`. That would let trash/purge
+    // move or delete unrelated XMP files with that name. The fix anchors
+    // the numeric `(N)` suffix so it can only appear AFTER a
+    // conflict-from group.
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "maple-paired-no-numeric-"));
+    try {
+      const raw = path.join(dir, "IMG_1.ARW");
+      await fs.writeFile(raw, "raw");
+      await fs.writeFile(path.join(dir, "IMG_1.xmp"), "canon");
+      // Bare numeric variant — must NOT be considered paired with IMG_1.
+      await fs.writeFile(path.join(dir, "IMG_1 (2).xmp"), "stray");
+      // Conflict-from + numeric is still a paired variant.
+      await fs.writeFile(path.join(dir, "IMG_1 (conflict from Mac) (3).xmp"), "ok");
+
+      const got = await listPairedSidecars(raw);
+      const names = got.map((p) => path.basename(p)).sort();
+      expect(names).toEqual([
+        "IMG_1 (conflict from Mac) (3).xmp",
+        "IMG_1.xmp",
+      ]);
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  });
 });
