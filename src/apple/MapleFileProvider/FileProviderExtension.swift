@@ -569,15 +569,16 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
                 )
                 switch outcome {
                 case .ok(let resp):
-                    let attrs = try? FileManager.default.attributesOfItem(atPath: contentsURL.path)
-                    let size = Int64((attrs?[.size] as? NSNumber)?.intValue ?? Int(resp.size))
-                    let modified = Date(timeIntervalSince1970: TimeInterval(resp.mtime) / 1000)
+                    // The server-stat'd `size` and `mtime` are authoritative;
+                    // the local file may have been truncated/modified between
+                    // upload and this completion handler. Don't stat the
+                    // local stash again.
                     let ext = (filename as NSString).pathExtension.lowercased()
                     let image = ImageChild(
                         name: filename,
                         path: resp.absPath,
-                        mtime: modified,
-                        size: size,
+                        mtime: resp.mtime,
+                        size: resp.size,
                         ext: ext,
                         assetID: resp.assetID
                     )
@@ -655,16 +656,16 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
                     let filename = item.filename
                     let targetRel = newRelative.isEmpty ? filename : "\(newRelative)/\(filename)"
                     let resp = try await catalog.restoreAsset(assetID: assetID, targetRelativePath: targetRel)
-                    let attrs = try? FileManager.default.attributesOfItem(atPath: resp.absPath)
-                    let size = Int64((attrs?[.size] as? NSNumber)?.intValue ?? 0)
-                    let modified = (attrs?[.modificationDate] as? Date) ?? Date()
-                    let restoredName = (resp.absPath as NSString).lastPathComponent
-                    let ext = (restoredName as NSString).pathExtension.lowercased()
+                    // `resp.absPath` is the SERVER's filesystem path, not
+                    // a path on this Mac — statting it returns nil/throws,
+                    // which is why size + mtime + filename are now returned
+                    // authoritatively in the response.
+                    let ext = (resp.filename as NSString).pathExtension.lowercased()
                     let image = ImageChild(
-                        name: restoredName,
+                        name: resp.filename,
                         path: resp.absPath,
-                        mtime: modified,
-                        size: size,
+                        mtime: resp.mtime,
+                        size: resp.size,
                         ext: ext,
                         assetID: resp.assetID
                     )

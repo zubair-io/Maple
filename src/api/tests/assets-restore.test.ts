@@ -157,10 +157,21 @@ describe("POST /api/assets/:id/restore", () => {
 
     const res = await app.handle(jsonReq(`http://localhost/api/assets/${assetId.toHexString()}/restore`, {}));
     expect(res.status).toBe(200);
-    const body = await res.json() as { abs_path: string };
+    const body = await res.json() as { abs_path: string; filename: string; size: number; mtime: string };
     expect(body.abs_path).toBe(path.join(path.dirname(originalPath), "IMG_R3.restored.ARW"));
     expect(await fs.readFile(originalPath, "utf-8")).toBe("occupier");
     expect(await fs.readFile(body.abs_path, "utf-8")).toBe("raw");
+    // Response must carry the freshly-stat'd metadata so the File
+    // Provider extension doesn't need to stat the server-side path.
+    expect(body.filename).toBe("IMG_R3.restored.ARW");
+    expect(body.size).toBe(3); // "raw"
+    expect(body.mtime).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
+    // Doc must carry the renamed filename so the unique
+    // {folder_id, filename} index no longer reserves the OLD basename
+    // (otherwise a fresh upload at the original name would 409).
+    const doc = await db!.collection("assets").findOne({ _id: assetId }) as Record<string, unknown>;
+    expect(doc.filename).toBe("IMG_R3.restored.ARW");
+    expect(doc.size).toBe(3);
   });
 
   test("409 when asset is not trashed", async () => {
