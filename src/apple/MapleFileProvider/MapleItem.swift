@@ -102,6 +102,17 @@ final class MapleItem: NSObject, NSFileProviderItem {
     /// when we only have a cursor + assetID. The OS will call
     /// `item(for:)` to pick up real metadata; this stub exists so the
     /// itemVersion bumps and tells the OS to re-read.
+    ///
+    /// `parentItemIdentifier` stays `.workingSet` even when the
+    /// `AssetChange` carries a `folderID`: a real folder-child
+    /// identifier is `folder(folderID, relativePath)`, and the
+    /// change-feed payload does NOT include the relative path. Routing
+    /// the stub to `folder(folderID, "")` would point the OS at the
+    /// folder ROOT — wrong parent for a nested asset, and worse than
+    /// `.workingSet` which is at least always-valid. Follow-up: extend
+    /// the change-feed payload with the asset's full relative path (or
+    /// add a `GET /api/assets/:id` round-trip) so this stub can hand
+    /// back a real folder parent.
     init(stubAssetID assetID: String, cursor: Int64) {
         self.identifier = .asset(assetID)
         self.displayName = "(stub)"
