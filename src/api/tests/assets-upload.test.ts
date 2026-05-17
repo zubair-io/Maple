@@ -14,6 +14,7 @@ const BEARER = "Bearer " + signAccessToken(
 
 const TEST_DB = `maple_test_fp3_upload_${process.pid}`;
 const PRIOR_MONGO_DB = process.env.MAPLE_MONGO_DB;
+const PRIOR_MAPLE_ROOTS = process.env.MAPLE_ROOTS;
 const MONGO_URI = process.env.MAPLE_MONGO_URI ?? "mongodb://localhost:27017";
 
 let mongo: MongoClient | null = null;
@@ -67,6 +68,8 @@ describe("POST /api/folders/:id/upload", () => {
     if (tmpRoot) await fs.rm(tmpRoot, { recursive: true, force: true });
     if (PRIOR_MONGO_DB === undefined) delete process.env.MAPLE_MONGO_DB;
     else process.env.MAPLE_MONGO_DB = PRIOR_MONGO_DB;
+    if (PRIOR_MAPLE_ROOTS === undefined) delete process.env.MAPLE_ROOTS;
+    else process.env.MAPLE_ROOTS = PRIOR_MAPLE_ROOTS;
   });
 
   function upload(body: Buffer, headers: Record<string, string>): Request {
