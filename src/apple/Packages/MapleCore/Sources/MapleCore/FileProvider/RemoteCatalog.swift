@@ -134,6 +134,17 @@ public actor RemoteCatalog {
         guard (200..<300).contains(code) else { throw URLError(.badServerResponse) }
     }
 
+    /// GET /api/assets/<assetID>/thumb. Returns the JPEG bytes of the
+    /// pre-baked preview. Throws on non-2xx — 404 in particular means
+    /// "thumbnail not generated yet" and the Quick Look extension
+    /// uses that signal to fall back to OS-default RAW materialization.
+    public func getThumb(assetID: String) async throws -> Data {
+        let req = URLRequest(url: server.appending(path: "/api/assets/\(assetID)/thumb"))
+        let (data, resp) = try await http.data(for: req)
+        try Self.check2xx(resp)
+        return data
+    }
+
     /// GET /api/assets/<assetID>/xmp[?conflict=<basename>]. Returns the
     /// raw XMP bytes. For conflict copies, `conflictBasename` must match
     /// the server's pairing rule (canonical base + " (conflict from …)"
