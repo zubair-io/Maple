@@ -18,6 +18,7 @@ const BEARER = "Bearer " + signAccessToken(
 );
 
 const TEST_DB = `maple_test_fp3_delete_${process.pid}`;
+const PRIOR_MONGO_DB = process.env.MAPLE_MONGO_DB;
 const MONGO_URI = process.env.MAPLE_MONGO_URI ?? "mongodb://localhost:27017";
 
 let mongo: MongoClient | null = null;
@@ -100,9 +101,19 @@ describe("DELETE /api/assets/:id (trash + permanent purge)", () => {
   });
 
   afterAll(async () => {
+    // Close the APP DB client first so it doesn't leak across tests
+    // (the routes import the `getDb()` singleton). Pattern mirrors
+    // assets-xmp-delete.test.ts.
+    const { closeDb } = await import("../src/db/client.ts");
+    await closeDb();
+    if (mongo) {
+      try { await mongo.db(TEST_DB).dropDatabase(); } catch {}
+      await mongo.close();
+    }
     if (tmpRoot) await fs.rm(tmpRoot, { recursive: true, force: true });
-    if (mongo) await mongo.close();
     setMeilisearchClientForTests(null);
+    if (PRIOR_MONGO_DB === undefined) delete process.env.MAPLE_MONGO_DB;
+    else process.env.MAPLE_MONGO_DB = PRIOR_MONGO_DB;
   });
 
   beforeEach(() => {
