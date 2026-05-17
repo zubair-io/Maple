@@ -53,6 +53,7 @@ import { backupSidecarRoutes } from "./routes/backup-sidecar.ts";
 import { backupRenderedRoutes } from "./routes/backup-rendered.ts";
 import { backupNotifyDeletedRoutes } from "./routes/backup-notify-deleted.ts";
 import { changesRoutes } from "./routes/changes.ts";
+import { assetsListRoutes } from "./routes/assets-list.ts";
 import { requireAuth } from "./auth/middleware.ts";
 import { staticUiPlugin } from "./routes/static_ui.ts";
 import { getDb, ensureIndexes, closeDb, foldersCollection } from "./db/client.ts";
@@ -228,6 +229,9 @@ export function buildApp(opts: { stageNames?: string[] } = {}): Elysia & { super
       new Elysia({ name: "authedApi" })
         .use(requireAuth)
         .use(foldersRoutes)
+        // Mounted BEFORE assetsRoutes so the bare `GET /api/assets` list
+        // endpoint matches before the `:id`-prefixed routes shadow it.
+        .use(assetsListRoutes)
         .use(assetsRoutes)
         .use(fsRoutes)
         .use(fsThumbsRoutes)
