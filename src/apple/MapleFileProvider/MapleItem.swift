@@ -34,7 +34,10 @@ final class MapleItem: NSObject, NSFileProviderItem {
         self.size = nil
         self.modified = nil
         self.utType = .folder
-        self.writeCapabilities = [.allowsReading]
+        // `.allowsAddingSubItems` is required for Finder to offer the
+        // drag-in upload affordance. Without it the Phase 3 createItem
+        // path never fires for the library root.
+        self.writeCapabilities = [.allowsReading, .allowsContentEnumerating, .allowsAddingSubItems]
         self.itemIdentifier = NSFileProviderItemIdentifier(self.identifier.rawValue)
         self.parentItemIdentifier = .rootContainer
         self.filename = root.label
@@ -48,7 +51,9 @@ final class MapleItem: NSObject, NSFileProviderItem {
         self.size = nil
         self.modified = dir.mtime
         self.utType = .folder
-        self.writeCapabilities = [.allowsReading]
+        // Subdirectories inside a library must also accept drag-in
+        // uploads (Phase 3) — same as the library root.
+        self.writeCapabilities = [.allowsReading, .allowsContentEnumerating, .allowsAddingSubItems]
         self.itemIdentifier = NSFileProviderItemIdentifier(self.identifier.rawValue)
         self.parentItemIdentifier = parentIdentifier
         self.filename = dir.name
@@ -63,8 +68,11 @@ final class MapleItem: NSObject, NSFileProviderItem {
         self.size = NSNumber(value: image.size)
         self.modified = image.mtime
         self.utType = UTType(filenameExtension: image.ext) ?? .data
-        // RAWs remain read-only in Phase 2.
-        self.writeCapabilities = [.allowsReading]
+        // Phase 3: live images allow drag-to-trash (Finder needs
+        // `.allowsDeleting` to surface the action). RAWs remain
+        // otherwise read-only — no in-place writes (.allowsWriting),
+        // no rename (.allowsRenaming), no reparenting at this time.
+        self.writeCapabilities = [.allowsReading, .allowsDeleting]
         self.itemIdentifier = NSFileProviderItemIdentifier(self.identifier.rawValue)
         self.parentItemIdentifier = parentIdentifier
         self.filename = image.name
@@ -80,10 +88,13 @@ final class MapleItem: NSObject, NSFileProviderItem {
         self.size = nil
         self.modified = nil
         self.utType = .folder
-        // Trash itself is read-only as a container — items inside it can be
-        // moved out (restore) or deleted (permanent purge). Allowing
-        // content enumeration is needed so Finder will fetch children.
-        self.writeCapabilities = [.allowsReading]
+        // Trash itself is read-only as a container — items inside it
+        // can be moved out (restore) or deleted (permanent purge).
+        // `.allowsContentEnumerating` is required for Finder to call
+        // `enumerator(for:)` on it (which routes to TrashEnumerator).
+        // We deliberately do NOT include `.allowsAddingSubItems` —
+        // uploads into Trash are not supported.
+        self.writeCapabilities = [.allowsReading, .allowsContentEnumerating]
         self.itemIdentifier = NSFileProviderItemIdentifier(self.identifier.rawValue)
         self.parentItemIdentifier = .rootContainer
         self.filename = displayName
