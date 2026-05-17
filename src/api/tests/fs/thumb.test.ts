@@ -225,6 +225,14 @@ describe("/api/fs/thumb — cache-hit (no FFI required)", () => {
     const rawStat = await fs.stat(stagedRaw);
     const future = rawStat.mtimeMs / 1000 + 60;
     await fs.utimes(cachedPath, future, future);
+    // The freshness check also requires a .meta sidecar recording the
+    // (mtimeMs, size) of the RAW that produced the cached thumb.
+    // Without it, the route treats the thumb as stale and falls
+    // through to the FFI regen path.
+    await fs.writeFile(
+      `${cachedPath}.meta`,
+      JSON.stringify({ mtimeMs: rawStat.mtimeMs, size: rawStat.size }),
+    );
   });
 
   afterAll(async () => {
