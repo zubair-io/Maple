@@ -1,0 +1,196 @@
+import XCTest
+@testable import MapleCore
+
+final class LibraryRootCacheTests: XCTestCase {
+    private func freshDefaults() -> UserDefaults {
+        UserDefaults(suiteName: "test-\(UUID().uuidString)")!
+    }
+
+    private func mkRoot(_ id: String, fileCount: Int = 1) -> LibraryRoot {
+        LibraryRoot(id: id, path: "/p/\(id)", label: id, fileCount: fileCount)
+    }
+
+    /// Cold path with no disk cache: the cache must await the fetcher
+    /// and return its result.
+    func testColdDiskMiss_RunsFetcher() async throws {
+        let defaults = freshDefaults()
+        let counter = AsyncCounter()
+        let primed = [mkRoot("a")]
+        let cache = LibraryRootCache(domainID: "default",
+                                     defaults: defaults,
+                                     fetcher: {
+            await counter.bump()
+            return primed
+        })
+        let result = try await cache.roots()
+        XCTAssertEqual(result.map { $0.id }, ["a"])
+        let calls = await counter.value
+        XCTAssertEqual(calls, 1)
+    }
+
+    /// Disk cache present: the cache must return the primed value
+    /// without first awaiting the fetcher. The fetcher may run in the
+    /// background but the FIRST call returns the primed roots.
+    func testDiskHit_ReturnsPrimedBeforeFetcherCompletes() async throws {
+        let defaults = freshDefaults()
+        let primed = [mkRoot("a"), mkRoot("b")]
+        let data = try JSONEncoder().encode(primed)
+        defaults.set(data, forKey: "fileprovider.default.library-roots")
+
+        // Fetcher takes 200ms — far longer than the assertion below
+        // will tolerate if the cache awaits it synchronously.
+        let cache = LibraryRootCache(domainID: "default",
+                                     defaults: defaults,
+                                     fetcher: {
+            try? await Task.sleep(nanoseconds: 200_000_000)
+            return primed
+        })
+        let start = Date()
+        let result = try await cache.roots()
+        let elapsed = Date().timeIntervalSince(start)
+        XCTAssertEqual(result.map { $0.id }, ["a", "b"])
+        XCTAssertLessThan(elapsed, 0.1,
+                          "roots() must return synchronously from disk cache")
+    }
+
+    /// After a successful fetch, the disk cache is written.
+    func testPersistsToDiskAfterFetch() async throws {
+        let defaults = freshDefaults()
+        let cache = LibraryRootCache(domainID: "default",
+                                     defaults: defaults,
+                                     fetcher: { [self.mkRoot("a")] })
+        _ = try await cache.roots()
+        XCTAssertNotNil(defaults.data(forKey: "fileprovider.default.library-roots"))
+    }
+
+    /// `invalidate()` drops both the memory and the disk cache.
+    func testInvalidateDropsDiskCache() async throws {
+        let defaults = freshDefaults()
+        let cache = LibraryRootCache(domainID: "default",
+                                     defaults: defaults,
+                                     fetcher: { [self.mkRoot("a")] })
+        _ = try await cache.roots()
+        XCTAssertNotNil(defaults.data(forKey: "fileprovider.default.library-roots"))
+        await cache.invalidate()
+        XCTAssertNil(defaults.data(forKey: "fileprovider.default.library-roots"))
+    }
+
+    /// CRITICAL: a fetcher that throws must not leave `inflight`
+    /// permanently occupied. We assert the public observable: a
+    /// second `roots()` call after a throw also reaches the fetcher
+    /// (i.e. the fetcher is invoked twice, not just once with the
+    /// second call quietly awaiting a dead Task).
+    func testFetcherThrows_NextCallRetries() async throws {
+        struct Boom: Error {}
+        let defaults = freshDefaults()
+        let counter = AsyncCounter()
+        let cache = LibraryRootCache(domainID: "default",
+                                     defaults: defaults,
+                                     fetcher: {
+            await counter.bump()
+            throw Boom()
+        })
+        do {
+            _ = try await cache.roots()
+            XCTFail("expected first call to throw")
+        } catch {}
+        do {
+            _ = try await cache.roots()
+            XCTFail("expected second call to throw")
+        } catch {}
+        let calls = await counter.value
+        XCTAssertEqual(calls, 2,
+                       "fetcher must be invoked on each cold call after a throw")
+    }
+
+    /// Revalidation that yields a list different from what was
+    /// previously served fires the drift handler. A revalidation that
+    /// matches does not.
+    func testDriftHandlerFiresOnChangedRevalidation() async throws {
+        let defaults = freshDefaults()
+        // Prime disk with one value, configure the fetcher to return a
+        // different list — the cache will serve the disk value first
+        // and revalidate against the fetcher in the background.
+        let priorRoots = [mkRoot("a", fileCount: 1)]
+        let data = try JSONEncoder().encode(priorRoots)
+        defaults.set(data, forKey: "fileprovider.default.library-roots")
+        let freshRoots = [mkRoot("a", fileCount: 99)]
+        let cache = LibraryRootCache(domainID: "default",
+                                     defaults: defaults,
+                                     fetcher: { freshRoots })
+        let driftFired = AsyncFlag()
+        await cache.setDriftHandler {
+            await driftFired.fire()
+        }
+        let served = try await cache.roots()
+        XCTAssertEqual(served, priorRoots)
+        // Wait for the background revalidation to complete and fire.
+        let ok = await driftFired.wait(timeout: 1.0)
+        XCTAssertTrue(ok, "drift handler should fire when fresh list differs")
+    }
+
+    func testDriftHandlerDoesNotFireOnUnchangedRevalidation() async throws {
+        let defaults = freshDefaults()
+        let roots = [mkRoot("a")]
+        let data = try JSONEncoder().encode(roots)
+        defaults.set(data, forKey: "fileprovider.default.library-roots")
+        let cache = LibraryRootCache(domainID: "default",
+                                     defaults: defaults,
+                                     fetcher: { roots })
+        let driftFired = AsyncFlag()
+        await cache.setDriftHandler {
+            await driftFired.fire()
+        }
+        _ = try await cache.roots()
+        // Give the background revalidation room to complete.
+        try await Task.sleep(nanoseconds: 200_000_000)
+        let fired = await driftFired.didFire
+        XCTAssertFalse(fired, "drift handler must not fire on matching revalidation")
+    }
+}
+
+// MARK: - Test helpers
+
+/// Tiny actor wrapper so multiple Tasks can bump a counter without
+/// `nonisolated(unsafe)` shenanigans under Swift 6 strict concurrency.
+private actor AsyncCounter {
+    private(set) var value: Int = 0
+    func bump() { value += 1 }
+}
+
+/// One-shot flag used to assert "did something async happen within
+/// timeout T." Avoids polling sleeps in test bodies.
+private actor AsyncFlag {
+    private(set) var didFire: Bool = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    func fire() {
+        didFire = true
+        for w in waiters { w.resume() }
+        waiters.removeAll()
+    }
+
+    func wait(timeout: TimeInterval) async -> Bool {
+        if didFire { return true }
+        return await withTaskGroup(of: Bool.self) { group in
+            group.addTask {
+                await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+                    Task { await self.append(cont) }
+                }
+                return true
+            }
+            group.addTask {
+                try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
+                return false
+            }
+            let first = await group.next()!
+            group.cancelAll()
+            return first
+        }
+    }
+
+    private func append(_ cont: CheckedContinuation<Void, Never>) {
+        if didFire { cont.resume(); return }
+        waiters.append(cont)
+    }
+}
