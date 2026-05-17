@@ -15,6 +15,32 @@ import { listChangesSince } from "../db/changes.repo.ts";
 import { getChangeBus } from "../runtime/change-bus.ts";
 import type { AssetChangeWithId } from "../db/schema.ts";
 
+// Bounded backlog per SSE connection. Mirrors the ChangeBus ring-buffer
+// capacity — a client that can't keep up with 10k buffered events is
+// already past the point where it could replay from the bus on
+// reconnect, so closing the stream and letting the existing 409
+// stale-cursor path kick in is the right recovery.
+const SSE_QUEUE_LIMIT = 10_000;
+
+// Force every SSE connection to recycle after this lifetime so an
+// expired auth token never lives indefinitely behind an open stream.
+// The Apple client reconnects cleanly on normal close (no backoff
+// penalty), so this is invisible to users.
+const SSE_MAX_LIFETIME_MS = 5 * 60_000;
+
+// Keepalive frequency. Sent as a raw SSE comment frame so intermediaries
+// don't reap the connection; the Apple parser ignores lines starting
+// with ":" per the SSE spec.
+const SSE_KEEPALIVE_MS = 15_000;
+
+// Pre-encoded comment frames. Elysia's SSE handler wraps yielded
+// strings as `data: <str>\n\n` even when in SSE mode, which the Swift
+// parser would treat as a JSON payload and fail to decode. Yielding a
+// Uint8Array bypasses the format() step (see enqueueBinaryChunk in
+// `elysia/dist/adapter/utils.js`) and writes the raw bytes through.
+const SSE_KEEPALIVE_FRAME = new TextEncoder().encode(": keepalive\n\n");
+const SSE_STREAM_OPENED_FRAME = new TextEncoder().encode(": stream opened\n\n");
+
 interface ChangePayload {
   cursor: number;
   asset_id: string | null;
@@ -99,18 +125,33 @@ export const changesRoutes = new Elysia({ prefix: "/api/changes" })
       // Force the response to flush headers + open the stream
       // immediately. Without this, Elysia waits for the first yield
       // before sending the 200 line, which would block for the full
-      // keepalive interval on an otherwise-silent connection.
-      yield sse(": stream opened");
+      // keepalive interval on an otherwise-silent connection. Yield the
+      // raw bytes so Elysia's SSE handler doesn't wrap them in a `data:`
+      // line (which would corrupt the comment frame).
+      yield SSE_STREAM_OPENED_FRAME;
 
-      // 1. Replay anything already in the buffer.
-      for (const ev of bus.replay({ since })) {
-        yield sseChangeFrame(ev);
-      }
-
-      // 2. Live subscription with 15-s keepalive comments.
+      // 1. Subscribe BEFORE we drain the replay so concurrent publishes
+      //    don't land in the seam between snapshot and live. We capture
+      //    `replayMax` from the replay snapshot and filter live events
+      //    `> replayMax` to dedupe anything the bus delivered to both.
       const queue: AssetChangeWithId[] = [];
+      let queueOverflow = false;
       let waiter: ((v: "event") => void) | null = null;
       const unsub = bus.subscribe((ev) => {
+        if (queueOverflow) return;
+        if (queue.length >= SSE_QUEUE_LIMIT) {
+          // Stuck client — bound the backlog and force a reconnect.
+          // Dropping the queue means the client's persisted cursor will
+          // likely be below the bus floor on reconnect, which triggers
+          // the existing 409 path → working-set re-enumeration.
+          queueOverflow = true;
+          queue.length = 0;
+          if (waiter) {
+            waiter("event");
+            waiter = null;
+          }
+          return;
+        }
         queue.push(ev);
         if (waiter) {
           waiter("event");
@@ -118,10 +159,27 @@ export const changesRoutes = new Elysia({ prefix: "/api/changes" })
         }
       });
 
+      // 2. Replay anything already in the buffer, and remember the
+      //    highest replayed cursor so we can deduplicate against the
+      //    live subscription.
+      const snapshot = bus.replay({ since });
+      const replayMax = snapshot.at(-1)?.cursor ?? since;
+      for (const ev of snapshot) {
+        yield sseChangeFrame(ev);
+      }
+
+      // Lifetime cap — once we hit it, close cleanly so the client
+      // immediately reconnects (no backoff penalty on clean return).
+      const deadline = Date.now() + SSE_MAX_LIFETIME_MS;
+
       try {
         while (!request.signal.aborted) {
+          if (queueOverflow) break;
           if (queue.length === 0) {
-            // Race a 15s keepalive against the next event / abort.
+            const remainingLifetime = deadline - Date.now();
+            if (remainingLifetime <= 0) break;
+            const lifetimeMs = Math.min(SSE_KEEPALIVE_MS, remainingLifetime);
+            // Race keepalive vs next event vs abort vs lifetime.
             const aborted = new Promise<"abort">((resolve) => {
               const onAbort = (): void => resolve("abort");
               request.signal.addEventListener("abort", onAbort, { once: true });
@@ -130,19 +188,22 @@ export const changesRoutes = new Elysia({ prefix: "/api/changes" })
               waiter = resolve;
             });
             const keepalive = new Promise<"keepalive">((resolve) =>
-              setTimeout(() => resolve("keepalive"), 15_000)
+              setTimeout(() => resolve("keepalive"), lifetimeMs)
             );
             const result = await Promise.race([event, keepalive, aborted]);
             if (result === "abort") break;
             if (result === "keepalive") {
-              // SSE keepalive comment line; Elysia passes plain strings
-              // through as a single `data:` line, so use the comment
-              // form (": ...") wrapped so it stays as a comment.
-              yield sse(": keepalive");
+              // Raw SSE comment frame — Uint8Array bypasses Elysia's
+              // `data:` wrapping (see SSE_KEEPALIVE_FRAME comment).
+              yield SSE_KEEPALIVE_FRAME;
               continue;
             }
           }
+          if (queueOverflow) break;
           const ev = queue.shift()!;
+          // Drop anything we already replayed — closes the
+          // replay/subscribe race window.
+          if (ev.cursor <= replayMax) continue;
           yield sseChangeFrame(ev);
         }
       } finally {
