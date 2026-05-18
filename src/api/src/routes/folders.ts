@@ -453,34 +453,10 @@ export const foldersRoutes = new Elysia({ prefix: "/api/folders" })
         }
         limit = Math.min(500, parsed);
       }
-      const filter: Record<string, unknown> = {
-        folder_id: folderId,
-        deleted_at: { $ne: null },
-        original_path: { $ne: null },
-      };
       const cursor = typeof query.cursor === "string" && query.cursor.length > 0
         ? query.cursor
         : null;
-      if (cursor) {
-        const sepIdx = cursor.lastIndexOf("|");
-        if (sepIdx > 0) {
-          const iso = cursor.slice(0, sepIdx);
-          const hex = cursor.slice(sepIdx + 1);
-          try {
-            // Override the simple { $ne: null } filter on deleted_at by
-            // combining the cursor predicate with the non-null guard.
-            filter.$and = [
-              { deleted_at: { $ne: null }, original_path: { $ne: null } },
-              { $or: [
-                  { deleted_at: { $lt: iso } },
-                  { deleted_at: iso, _id: { $lt: new ObjectId(hex) } },
-                ] },
-            ];
-            delete filter.deleted_at;
-            delete filter.original_path;
-          } catch { /* malformed cursor → ignore */ }
-        }
-      }
+      const filter = buildTrashListFilter(folderId, cursor);
 
       const assets = await assetsCollection();
       const docs = await assets
@@ -533,6 +509,68 @@ export const foldersRoutes = new Elysia({ prefix: "/api/folders" })
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * Build the Mongo filter for `GET /api/folders/:id/trash`.
+ *
+ * Issue #83: the route must include `{ deleted_at: { $type: "string" } }`
+ * in the predicate so the planner can prove the `deleted_at_1` partial
+ * index (built with `partialFilterExpression: { deleted_at: { $type: "string" } }`)
+ * subsumes the query and pick IXSCAN over a per-folder COLLSCAN.
+ *
+ * Without `$type: "string"` the planner falls back to scanning the
+ * `folder_id` keys and filter-after-fetching — 1000s of docsExamined for
+ * a 5-row response.
+ *
+ * Exported for explain() tests in `folders.trash-list.test.ts`.
+ */
+export function buildTrashListFilter(
+  folderId: ObjectId,
+  cursor: string | null,
+): Record<string, unknown> {
+  // Base trash predicate: `$type: "string"` is the load-bearing bit (see
+  // doc comment above). Implies `$ne: null` for free but we keep the
+  // explicit clause for legacy rows that may have been written with
+  // odd shapes.
+  const trashPredicate = {
+    deleted_at: { $type: "string" as const, $ne: null },
+    original_path: { $ne: null },
+  };
+
+  const filter: Record<string, unknown> = {
+    folder_id: folderId,
+    ...trashPredicate,
+  };
+
+  if (!cursor) return filter;
+  const sepIdx = cursor.lastIndexOf("|");
+  if (sepIdx <= 0) return filter;
+  const iso = cursor.slice(0, sepIdx);
+  const hex = cursor.slice(sepIdx + 1);
+  let cursorId: ObjectId;
+  try { cursorId = new ObjectId(hex); }
+  catch { return filter; /* malformed cursor → no cursor */ }
+
+  // Combine the trash predicate with the cursor's tuple comparison.
+  // `$type: "string"` MUST appear inside the $and clause too — the
+  // planner unions the index-eligibility analysis across both sides of
+  // an $and, so dropping it on the cursor branch reintroduces the bug.
+  return {
+    folder_id: folderId,
+    $and: [
+      trashPredicate,
+      {
+        $or: [
+          { deleted_at: { $type: "string" as const, $lt: iso } },
+          {
+            deleted_at: { $type: "string" as const, $eq: iso },
+            _id: { $lt: cursorId },
+          },
+        ],
+      },
+    ],
+  };
+}
 
 /** Supported image extensions (lowercase with leading dot). */
 const SUPPORTED_EXTS = new Set([
