@@ -15,6 +15,7 @@ public final class RootEnumerator: NSObject, NSFileProviderEnumerator {
     public func invalidate() {}
 
     public func enumerateItems(for observer: NSFileProviderEnumerationObserver, startingAt page: NSFileProviderPage) {
+        log.notice("root enumerate start cache=\(self.rootCache != nil, privacy: .public)")
         Task {
             do {
                 // Hit the cache when present so the OS asking for the root
@@ -28,6 +29,7 @@ public final class RootEnumerator: NSObject, NSFileProviderEnumerator {
                 } else {
                     roots = try await catalog.listFolders()
                 }
+                log.notice("root enumerate got \(roots.count, privacy: .public) roots: \(roots.map { $0.label }.joined(separator: ","), privacy: .public)")
                 // Library roots followed by one synthetic Trash item per
                 // library. Phase 3: Finder shows "<Library> Trash" alongside
                 // its photos folder; the .maple/ directory itself stays hidden.
@@ -35,10 +37,11 @@ public final class RootEnumerator: NSObject, NSFileProviderEnumerator {
                 items.append(contentsOf: roots.map {
                     MapleItem(trashContainer: $0.id, displayName: "\($0.label) Trash")
                 })
+                log.notice("root enumerate published \(items.count, privacy: .public) items (incl. trash)")
                 observer.didEnumerate(items)
                 observer.finishEnumerating(upTo: nil)
             } catch {
-                log.error("root enumerate failed: \(error.localizedDescription, privacy: .public)")
+                log.error("root enumerate failed: \(String(describing: error), privacy: .public)")
                 observer.finishEnumeratingWithError(error)
             }
         }
