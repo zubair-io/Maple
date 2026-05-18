@@ -55,7 +55,9 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                 return nil
             }
         }()
-        guard let cfg = config.load(domain: domain.identifier.rawValue) else {
+        let cfgOrFallback: FileProviderDomainConfig? = config.load(domain: domain.identifier.rawValue)
+            ?? Self.devFallbackConfig(for: domain)
+        guard let cfg = cfgOrFallback else {
             self.dormant = true
             self.catalog = nil
             self.rootCache = nil
@@ -67,6 +69,9 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
             super.init()
             log.notice("init dormant — no config for domain \(domain.identifier.rawValue, privacy: .public)")
             return
+        }
+        if config.load(domain: domain.identifier.rawValue) == nil {
+            log.notice("DEV FALLBACK — using hardcoded serverURL=\(cfg.serverURL.absoluteString, privacy: .public) for domain \(domain.identifier.rawValue, privacy: .public). File-based config is unreadable from sandboxed extension when host is unsandboxed; remove this fallback once App Groups capability is on the provisioning profile.")
         }
         let tokensStore = FileProviderTokensStore()
         let session = URLSession(configuration: .default)
@@ -132,12 +137,50 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
             }
         )
         self.changeFeed?.start()
-        log.info("init domain=\(domain.identifier.rawValue, privacy: .public)")
+        let hasTokens = tokensStore.load(domain: domainID) != nil
+        log.notice("init domain=\(domain.identifier.rawValue, privacy: .public) serverURL=\(cfg.serverURL.absoluteString, privacy: .public) hasTokens=\(hasTokens, privacy: .public) device=\(resolvedDeviceName, privacy: .public)")
+        if !hasTokens {
+            log.error("EXTENSION HAS NO AUTH TOKENS — host app must be signed in for this server. Open Maple, sign in, then the extension will pick them up on next launch.")
+        }
     }
 
     private func notAuthenticatedError() -> NSError {
         NSError(domain: NSFileProviderErrorDomain,
                 code: NSFileProviderError.notAuthenticated.rawValue)
+    }
+
+    /// Development-time fallback: when the on-disk config can't be read
+    /// (the file-based FileProviderConfig doesn't survive an unsandboxed
+    /// host → sandboxed extension hand-off because macOS's container
+    /// manager doesn't bless files written from outside the sandbox),
+    /// reconstruct the config from the domain identifier itself. The
+    /// host-app sets the identifier to the server hostname via
+    /// `FileProviderDomainController.domainIdentifier(for:)`, so we can
+    /// reverse-derive a working serverURL.
+    ///
+    /// REMOVE this fallback once the host app's provisioning profile
+    /// carries the App Groups capability — then file-based config works
+    /// in both directions and this path is dead code.
+    static func devFallbackConfig(for domain: NSFileProviderDomain) -> FileProviderDomainConfig? {
+        let id = domain.identifier.rawValue
+        // domainIdentifier shape: "<host>" or "<host>-<port>" (see
+        // FileProviderDomainController.domainIdentifier(for:)).
+        // Reverse to "https://<host>" (default port assumed).
+        var host = id
+        var port: Int?
+        if let dash = id.lastIndex(of: "-"),
+           let p = Int(id[id.index(after: dash)...]) {
+            host = String(id[..<dash])
+            port = p
+        }
+        var comps = URLComponents()
+        comps.scheme = "https"
+        comps.host = host
+        if let port { comps.port = port }
+        guard let url = comps.url else { return nil }
+        return FileProviderDomainConfig(domainIdentifier: id,
+                                        displayName: domain.displayName,
+                                        serverURL: url)
     }
 
     open func invalidate() {
@@ -244,6 +287,19 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                 completionHandler(RootContainerItem(), nil)
                 return
             }
+            if identifier == .workingSet {
+                // The working set is an OS-internal index, not a user-
+                // visible folder. Returning a synthetic container with
+                // `.folder` UTType made Finder display "Working Set" at
+                // the library root. Returning noSuchItem here, combined
+                // with `resolveAssetParent` giving every asset a real
+                // folder parent (so no item is actually routed under
+                // .workingSet), causes the OS to omit the container
+                // from Finder entirely.
+                completionHandler(nil, NSError(domain: NSFileProviderErrorDomain,
+                                               code: NSFileProviderError.noSuchItem.rawValue))
+                return
+            }
             do {
                 let parsed = try FileProviderIdentifier(rawValue: identifier.rawValue)
                 switch parsed {
@@ -309,7 +365,8 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                                                            code: NSFileProviderError.noSuchItem.rawValue))
                             return
                         }
-                        completionHandler(MapleItem(assetMetadata: meta), nil)
+                        let parent = await Self.resolveAssetParent(meta: meta, rootCache: rootCache)
+                        completionHandler(MapleItem(assetMetadata: meta, parent: parent), nil)
                     } catch {
                         log.error("getAsset failed: \(error.localizedDescription, privacy: .public)")
                         completionHandler(nil, error)
@@ -329,7 +386,7 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                     completionHandler(MapleItem(trashContainer: folderID, displayName: "\(root.label) Trash"), nil)
                 }
             } catch {
-                log.error("item(for:) failed: \(error.localizedDescription, privacy: .public)")
+                log.error("item(for:) failed id=\(identifier.rawValue, privacy: .public) err=\(String(describing: error), privacy: .public)")
                 completionHandler(nil, error)
             }
         }
@@ -359,6 +416,7 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                 let parsed = try FileProviderIdentifier(rawValue: itemIdentifier.rawValue)
                 let manager = NSFileProviderManager(for: domain)
                 let tmpDir = (try? manager?.temporaryDirectoryURL()) ?? FileManager.default.temporaryDirectory
+                log.notice("fetchContents id=\(itemIdentifier.rawValue, privacy: .public) tmpDir=\(tmpDir.path, privacy: .public)")
                 switch parsed {
                 case .asset(let id):
                     // RAW: materialize under a random extensionless basename.
@@ -368,30 +426,51 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                     // `.xmp` suffix below, so an extensionless basename for
                     // RAWs is the contract.
                     let localURL = tmpDir.appendingPathComponent(UUID().uuidString)
-                    try await catalog.downloadAsset(assetID: id, to: localURL)
+                    // Fetch metadata in parallel with the bytes — we need
+                    // both to satisfy the macOS Sequoia/Tahoe contract:
+                    // the completion handler MUST receive a non-nil
+                    // NSFileProviderItem alongside the URL, or
+                    // FPXExtensionContext aborts the extension with an
+                    // NSAssertionHandler failure.
+                    async let metaTask = catalog.getAsset(assetID: id)
+                    async let downloadTask: Void = catalog.downloadAsset(assetID: id, to: localURL)
+                    _ = try await downloadTask
+                    let resolved = try await metaTask
+                    guard let resolved else {
+                        log.error("fetchContents asset \(id, privacy: .public) — getAsset returned nil")
+                        completionHandler(nil, nil, NSError(domain: NSFileProviderErrorDomain,
+                                                            code: NSFileProviderError.noSuchItem.rawValue))
+                        return
+                    }
                     self.recordMeta(domain: self.domain.identifier.rawValue,
                                     localBasename: localURL.lastPathComponent,
                                     assetID: id,
                                     conflictBasename: nil)
-                    completionHandler(localURL, nil, nil)
+                    log.notice("fetchContents asset \(id, privacy: .public) ok bytes-at=\(localURL.path, privacy: .public)")
+                    let parent = await Self.resolveAssetParent(meta: resolved, rootCache: self.rootCache)
+                    completionHandler(localURL, MapleItem(assetMetadata: resolved, parent: parent), nil)
                     return
                 case .sidecar(let assetID, let conflictBasename):
                     // Sidecar: preserve the `.xmp` extension on the
                     // materialized URL so the Quick Look extension can tell
-                    // sidecars apart from RAWs by basename alone (the meta
-                    // store keys on `local_basename`, and a canonical
-                    // sidecar's `conflict_basename` is NULL — without the
-                    // extension preserved, MaplePreviewProvider's `.xmp`
-                    // guard could not distinguish the two and would serve
-                    // the asset JPEG for an XMP Quick Look request.
+                    // sidecars apart from RAWs by basename alone.
                     let localURL = tmpDir.appendingPathComponent(UUID().uuidString + ".xmp")
-                    let bytes = try await catalog.getXMP(assetID: assetID, conflictBasename: conflictBasename)
+                    async let metaTask = catalog.getAsset(assetID: assetID)
+                    async let bytesTask = catalog.getXMP(assetID: assetID, conflictBasename: conflictBasename)
+                    let bytes = try await bytesTask
                     try bytes.write(to: localURL, options: .atomic)
+                    let resolved = try await metaTask
+                    guard let resolved else {
+                        completionHandler(nil, nil, NSError(domain: NSFileProviderErrorDomain,
+                                                            code: NSFileProviderError.noSuchItem.rawValue))
+                        return
+                    }
                     self.recordMeta(domain: self.domain.identifier.rawValue,
                                     localBasename: localURL.lastPathComponent,
                                     assetID: assetID,
                                     conflictBasename: conflictBasename)
-                    completionHandler(localURL, nil, nil)
+                    let parentSidecar = await Self.resolveAssetParent(meta: resolved, rootCache: self.rootCache)
+                    completionHandler(localURL, MapleItem(assetMetadata: resolved, parent: parentSidecar), nil)
                     return
                 case .folder, .trash:
                     completionHandler(nil, nil, NSError(domain: NSFileProviderErrorDomain,
@@ -399,7 +478,7 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                     return
                 }
             } catch {
-                log.error("fetch failed: \(error.localizedDescription, privacy: .public)")
+                log.error("fetch failed: \(String(describing: error), privacy: .public)")
                 completionHandler(nil, nil, error)
             }
         }
@@ -430,7 +509,8 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                                         workingSet: workingSet,
                                         cursorStore: cursorStore,
                                         domainID: domain.identifier.rawValue,
-                                        listCache: listCache)
+                                        listCache: listCache,
+                                        rootCache: self.rootCache)
         }
         if containerItemIdentifier == .trashContainer {
             return EmptyEnumerator()
@@ -465,6 +545,7 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                     options: NSFileProviderCreateItemOptions = [],
                     request: NSFileProviderRequest,
                     completionHandler: @escaping (NSFileProviderItem?, NSFileProviderItemFields, Bool, Error?) -> Void) -> Progress {
+        log.notice("createItem filename=\(itemTemplate.filename, privacy: .public) parent=\(itemTemplate.parentItemIdentifier.rawValue, privacy: .public) contents=\(url?.path ?? "<nil>", privacy: .public)")
         if dormant {
             completionHandler(nil, [], false, notAuthenticatedError())
             return Progress()
@@ -591,12 +672,14 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
         Task {
             defer { progress.completedUnitCount = 1 }
             do {
+                self.log.notice("upload start folderID=\(folderID, privacy: .public) target=\(targetRel, privacy: .public) bytes-from=\(contentsURL.path, privacy: .public)")
                 let outcome = try await catalog.uploadFile(
                     folderID: folderID,
                     targetRelativePath: targetRel,
                     fileURL: contentsURL,
                     mtime: itemTemplate.contentModificationDate ?? nil,
                 )
+                self.log.notice("upload outcome=\(String(describing: outcome), privacy: .public)")
                 switch outcome {
                 case .ok(let resp):
                     // The server-stat'd `size` and `mtime` are authoritative;
@@ -906,6 +989,34 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
     /// the first `DirChild` whose `name` matches `childName`, or nil if the
     /// child is not present after walking up to `itemLookupMaxPages` pages.
     /// Internal so tests can drive it directly through a stubbed catalog.
+    /// Derive the FP parent identifier for an asset from its server
+    /// metadata. Strips the matching library-root prefix off `absPath`
+    /// and returns `.folder(folderID, parentRelativePath)`. Falls back
+    /// to `.workingSet` when the root cache can't find the folder (e.g.
+    /// the asset belongs to a domain whose root has been unregistered)
+    /// or when the absPath doesn't start with the root path. The
+    /// fallback is a no-op for Finder — the working-set parent stays
+    /// invisible — but the OS keeps it valid.
+    static func resolveAssetParent(meta: AssetMetadata,
+                                    rootCache: LibraryRootCache?) async -> NSFileProviderItemIdentifier {
+        guard let rootCache,
+              let roots = try? await rootCache.roots(),
+              let root = roots.first(where: { $0.id == meta.folderID }) else {
+            return .workingSet
+        }
+        // absPath e.g. "/srv/photos/Library/2026/Adam/04-02/IMG.jpg"
+        // root.path e.g. "/srv/photos/Library"
+        // -> relative = "2026/Adam/04-02/IMG.jpg"
+        // -> parent   = "2026/Adam/04-02"
+        let rootWithSlash = root.path.hasSuffix("/") ? root.path : root.path + "/"
+        guard meta.absPath.hasPrefix(rootWithSlash) else { return .workingSet }
+        let relative = String(meta.absPath.dropFirst(rootWithSlash.count))
+        let parentRelative = (relative as NSString).deletingLastPathComponent
+        let parentID = FileProviderIdentifier.folder(folderID: meta.folderID,
+                                                       relativePath: parentRelative)
+        return NSFileProviderItemIdentifier(parentID.rawValue)
+    }
+
     static func findChildDir(catalog: RemoteCatalog,
                              absolutePath: String,
                              childName: String,
@@ -1033,6 +1144,34 @@ private final class RootContainerItem: NSObject, NSFileProviderItem {
     var filename: String { "Maple" }
     var contentType: UTType { .folder }
     var capabilities: NSFileProviderItemCapabilities { [.allowsContentEnumerating] }
+    // macOS Sequoia/Tahoe rejects items whose itemVersion uses the
+    // protocol default (empty bytes) with `__FILEPROVIDER_BAD_ITEM_MISSING_ITEMVERSION__`.
+    // Root container is immutable; stable version is fine.
+    var itemVersion: NSFileProviderItemVersion {
+        let bytes = Data("root-v1".utf8)
+        return .init(contentVersion: bytes, metadataVersion: bytes)
+    }
+}
+
+/// Synthetic item for the working-set container. `MapleItem(assetMetadata:)`
+/// reports its parent as `.workingSet`, so the OS calls `item(for: .workingSet)`
+/// to validate the container; without this stub the parser threw
+/// `invalidPrefix` and the OS retried materialization in a loop.
+private final class WorkingSetContainerItem: NSObject, NSFileProviderItem {
+    var itemIdentifier: NSFileProviderItemIdentifier { .workingSet }
+    // Self-parent + empty capabilities so Finder doesn't surface a
+    // "Working Set" folder under the library root. The container still
+    // exists for the OS (item(for: .workingSet) needs to succeed so
+    // items whose parent is .workingSet can be validated), but it's not
+    // browsable from Finder.
+    var parentItemIdentifier: NSFileProviderItemIdentifier { .workingSet }
+    var filename: String { ".workingset" }
+    var contentType: UTType { .folder }
+    var capabilities: NSFileProviderItemCapabilities { [] }
+    var itemVersion: NSFileProviderItemVersion {
+        let bytes = Data("workingset-v1".utf8)
+        return .init(contentVersion: bytes, metadataVersion: bytes)
+    }
 }
 
 public final class EmptyEnumerator: NSObject, NSFileProviderEnumerator {
