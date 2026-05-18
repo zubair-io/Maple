@@ -38,8 +38,17 @@ export async function runTrashGcOnce(opts: TrashGcOptions = {}): Promise<TrashGc
   const retentionDays = opts.retentionDays ?? DEFAULT_RETENTION_DAYS;
   const cutoffIso = new Date(Date.now() - retentionDays * DAY_MS).toISOString();
   const coll = await assetsCollection();
+  // `$type: "string"` is mandatory for the planner to use the
+  // `deleted_at_1` partial index — without it, the predicate
+  // `{ $lt: cutoffIso, $ne: null }` does NOT provably subsume the
+  // index's `partialFilterExpression: { deleted_at: { $type: "string" } }`,
+  // so Mongo falls back to a COLLSCAN over all 430k+ assets.
+  // (Verified empirically in client.test.ts.) Adds the `$ne: null`
+  // belt-and-braces — `$type: "string"` already excludes null, but the
+  // explicit guard documents intent and matches how live rows are
+  // written (`deleted_at: null` on every fresh skeleton row).
   const cursor = coll.find(
-    { deleted_at: { $lt: cutoffIso, $ne: null } },
+    { deleted_at: { $type: "string", $lt: cutoffIso, $ne: null } },
     { projection: { _id: 1, abs_path: 1 } },
   );
   let scanned = 0;
