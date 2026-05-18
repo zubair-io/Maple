@@ -134,13 +134,14 @@ public struct AssetMetadata: Codable, Sendable, Equatable {
     public let filename: String
     public let absPath: String
     public let size: Int64
-    /// Epoch MILLISECONDS — convert with `Date(timeIntervalSince1970:
-    /// Double(mtimeMS) / 1000.0)` for SwiftUI `contentModificationDate`.
-    public let mtimeMS: Int64
+    /// Epoch MILLISECONDS. Server emits `stat.mtimeMs` which is a
+    /// floating-point number (sub-millisecond precision); decode as
+    /// `Double` so the JSON parser doesn't reject the fractional part.
+    public let mtimeMS: Double
     public let rating: Int
 
     public init(id: String, folderID: String, filename: String, absPath: String,
-                size: Int64, mtimeMS: Int64, rating: Int) {
+                size: Int64, mtimeMS: Double, rating: Int) {
         self.id = id
         self.folderID = folderID
         self.filename = filename
@@ -153,7 +154,7 @@ public struct AssetMetadata: Codable, Sendable, Equatable {
     /// Convenience: the modification date as a Foundation `Date`,
     /// computed from the server's millisecond timestamp.
     public var contentModificationDate: Date {
-        Date(timeIntervalSince1970: Double(mtimeMS) / 1000.0)
+        Date(timeIntervalSince1970: mtimeMS / 1000.0)
     }
 
     private enum CodingKeys: String, CodingKey {
