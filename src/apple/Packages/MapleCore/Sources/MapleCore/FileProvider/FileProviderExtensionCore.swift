@@ -407,6 +407,20 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                                     localBasename: localURL.lastPathComponent,
                                     assetID: id,
                                     conflictBasename: nil)
+                    // Stamp the downloaded file's mtime to match the
+                    // asset's server-side mtime. Without this, the file
+                    // hits disk with mtime = "now" (whatever URLSession
+                    // wrote), the MapleItem we return has
+                    // contentModificationDate = server mtime — the OS
+                    // compares and decides the local file is newer than
+                    // the item, then fires modifyItem to push the
+                    // "local edit" back. That path isn't supported for
+                    // RAW bytes and surfaces in Finder as an up-arrow
+                    // sync error.
+                    try? FileManager.default.setAttributes(
+                        [.modificationDate: resolved.contentModificationDate],
+                        ofItemAtPath: localURL.path
+                    )
                     log.notice("fetchContents asset \(id, privacy: .public) ok bytes-at=\(localURL.path, privacy: .public)")
                     let parent = await Self.resolveAssetParent(meta: resolved, rootCache: self.rootCache)
                     completionHandler(localURL, MapleItem(assetMetadata: resolved, parent: parent), nil)
@@ -430,6 +444,14 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                                     localBasename: localURL.lastPathComponent,
                                     assetID: assetID,
                                     conflictBasename: conflictBasename)
+                    // Match the file's mtime to the asset's server mtime
+                    // so the OS doesn't think the sidecar was edited
+                    // locally and try to push it back via modifyItem.
+                    // (Same root cause as the RAW path above.)
+                    try? FileManager.default.setAttributes(
+                        [.modificationDate: resolved.contentModificationDate],
+                        ofItemAtPath: localURL.path
+                    )
                     // Construct a SIDECAR-shaped MapleItem so the returned
                     // item's `itemIdentifier` matches the request's
                     // `.sidecar(assetID:conflictBasename:)` shape. Building
