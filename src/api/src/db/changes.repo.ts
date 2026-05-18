@@ -11,7 +11,11 @@
  */
 
 import { ObjectId, type Db } from "mongodb";
-import { assetChangesCollection, serverStateCollection } from "./client.ts";
+import {
+  assetChangesCollection,
+  foldersCollection,
+  serverStateCollection,
+} from "./client.ts";
 import type {
   AssetChangeDoc,
   AssetChangeKind,
@@ -23,6 +27,63 @@ import { getChangeBus } from "../runtime/change-bus.ts";
 const log = childLogger("changes-repo");
 
 const CURSOR_DOC_ID = "asset_changes_cursor";
+
+// Tiny per-process cache for folder.path lookups. Folders are
+// effectively immutable at the path level (rename is not a supported
+// operation in the current schema) so we never invalidate; a process
+// restart picks up any rare change. Keeps `recordAndPublishAssetChange`
+// at a single Mongo round-trip per emit after the first hit.
+const folderPathCache: Map<string, string> = new Map();
+
+async function lookupFolderPath(
+  dbOverride: Db | undefined,
+  folderId: ObjectId,
+): Promise<string | null> {
+  const key = folderId.toHexString();
+  const hit = folderPathCache.get(key);
+  if (hit !== undefined) return hit;
+  const coll = dbOverride
+    ? dbOverride.collection("folders")
+    : await foldersCollection();
+  const doc = await coll.findOne(
+    { _id: folderId },
+    { projection: { path: 1 } },
+  );
+  const p = (doc as unknown as { path?: string } | null)?.path;
+  if (typeof p !== "string") return null;
+  folderPathCache.set(key, p);
+  return p;
+}
+
+/** Test hook — drops the in-process folder.path cache. */
+export function __resetFolderPathCacheForTests(): void {
+  folderPathCache.clear();
+}
+
+/**
+ * Compute the asset path relative to its folder root. Returns:
+ *   - `""` if absPath is the folder root itself
+ *   - `"sub/dir/file.dng"` for nested assets
+ *   - `null` if absPath doesn't fall under the folder root (defensive —
+ *     callers log a warn and persist null rather than a wrong path).
+ *
+ * Path separator is forward-slash throughout (the server stores POSIX
+ * paths; the apple FP extension consumes them the same way).
+ */
+export function computeRelativePath(
+  folderPath: string,
+  absPath: string,
+): string | null {
+  // Normalise the folder path so a trailing slash on the folder doc
+  // doesn't break the prefix-match.
+  const rootNoTrail = folderPath.endsWith("/")
+    ? folderPath.slice(0, -1)
+    : folderPath;
+  if (absPath === rootNoTrail) return "";
+  const prefix = rootNoTrail + "/";
+  if (!absPath.startsWith(prefix)) return null;
+  return absPath.slice(prefix.length);
+}
 
 export async function allocateCursor(dbOverride?: Db): Promise<number> {
   const coll = dbOverride
@@ -47,6 +108,15 @@ export interface RecordChangeInput {
   asset_id: ObjectId | null;
   folder_id: ObjectId | null;
   abs_path: string | null;
+  /**
+   * Path relative to the folder root. Optional at this layer — the
+   * higher-level `recordAndPublishAssetChange` computes it from
+   * `folder.path` + `abs_path`. Callers that drive the repo directly
+   * (tests, the change-feed tailer) may pass it or leave it undefined.
+   * Stored as `null` when not provided so old rows look the same as
+   * absent-on-write rows.
+   */
+  relative_path?: string | null;
 }
 
 /**
@@ -90,6 +160,7 @@ export async function recordAssetChange(
     folder_id: input.folder_id,
     kind: input.kind,
     abs_path: input.abs_path,
+    relative_path: input.relative_path ?? null,
     at: new Date(),
   };
   try {
@@ -127,17 +198,46 @@ export async function listChangesSince(
  * Best-effort: errors are logged but never thrown. Change-row failures
  * must never fail the primary asset write — the system tolerates lost
  * events via the 409 stale-cursor path which triggers full re-enumeration.
+ *
+ * Resolves `relative_path` from the named folder root via a small
+ * in-process cache so File Provider clients can route per-folder
+ * invalidation precisely (Phase 6 item 2). This is the one place we do
+ * the folder.path lookup — pushing it here keeps the ~12 call sites
+ * free of folder boilerplate. When the caller pre-computed the
+ * relative path (tests, change-feed replay), we use that and skip the
+ * lookup.
  */
 export async function recordAndPublishAssetChange(
   input: RecordChangeInput
 ): Promise<void> {
   try {
+    let relativePath: string | null = input.relative_path ?? null;
+    if (relativePath === null && input.folder_id && input.abs_path) {
+      const folderPath = await lookupFolderPath(undefined, input.folder_id);
+      if (folderPath) {
+        relativePath = computeRelativePath(folderPath, input.abs_path);
+        if (relativePath === null) {
+          log.warn(
+            {
+              folder_id: input.folder_id.toHexString(),
+              folder_path: folderPath,
+              abs_path: input.abs_path,
+            },
+            "recordAndPublishAssetChange: abs_path is outside folder.path; storing null relative_path"
+          );
+        }
+      }
+    }
+    const enriched: RecordChangeInput = {
+      ...input,
+      relative_path: relativePath,
+    };
     // Allocate + insert in Mongo, then publish to the bus locally from
     // the cursor + input. We avoid an extra `findOne({cursor})` round
     // trip: the bus payload is reconstructable from what we already
     // have (the `_id` we synthesize is unused by SSE consumers — they
     // only see the serialised SSE form, which strips `_id`).
-    const cursor = await recordAssetChange(undefined, input);
+    const cursor = await recordAssetChange(undefined, enriched);
     const synthetic: AssetChangeWithId = {
       _id: new ObjectId(),
       cursor,
@@ -145,6 +245,7 @@ export async function recordAndPublishAssetChange(
       folder_id: input.folder_id,
       kind: input.kind,
       abs_path: input.abs_path,
+      relative_path: relativePath,
       at: new Date(),
     } as AssetChangeWithId;
     getChangeBus().publish(synthetic);

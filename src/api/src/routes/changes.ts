@@ -47,6 +47,13 @@ interface ChangePayload {
   folder_id: string | null;
   kind: string;
   abs_path: string | null;
+  /**
+   * Path relative to the folder root. Nullable: rows persisted before
+   * Phase 6 lack the field, and the defensive `computeRelativePath`
+   * branch stores null when absPath doesn't match folder.path. Apple
+   * decoder tolerates either shape.
+   */
+  relative_path: string | null;
   at: string;
 }
 
@@ -57,6 +64,10 @@ function asPayload(r: AssetChangeWithId): ChangePayload {
     folder_id: r.folder_id?.toHexString() ?? null,
     kind: r.kind,
     abs_path: r.abs_path,
+    // Old asset_changes rows pre-date this field; default to null
+    // rather than letting Mongo's implicit `undefined` flow through
+    // JSON.stringify (which would omit the key entirely).
+    relative_path: r.relative_path ?? null,
     at: r.at.toISOString(),
   };
 }
