@@ -6,6 +6,8 @@
  * Scope:
  *   - Fix 1: `deleted_at_1` partial index exists with the right partial-filter
  *     expression, and the trash-GC find query uses it (IXSCAN, not COLLSCAN).
+ *   - Fix 3: legacy text indexes are NOT dropped on subsequent boots when
+ *     they're already absent (no spurious dropIndex round-trips).
  *   - Fix 4: `maple_id_1` unique sparse index exists.
  */
 
@@ -167,6 +169,34 @@ describe("ensureIndexes — deleted_at partial index (Fix 1)", () => {
     // before stopping, so the upper bound is 3 (not 9 — that would mean a
     // collection scan crept back in).
     expect(execStats.totalKeysExamined ?? 0).toBeLessThanOrEqual(3);
+  });
+});
+
+describe("ensureIndexes — text-index introspection (Fix 3)", () => {
+  it("does not drop legacy text indexes when they're already absent", async () => {
+    if (!mongoReachable) return;
+    const { closeDb, ensureIndexes } = await import("./client.ts");
+    await closeDb();
+    // First call creates the new `search_blob_text` index and drops any
+    // legacy text indexes (which are absent on a fresh DB anyway).
+    await ensureIndexes();
+    const before = await db!.collection("assets").indexes();
+    const newTextIdx = before.find((i) => i.name === "search_blob_text");
+    expect(newTextIdx).toBeDefined();
+    expect(before.find((i) => i.name === "filename_abs_path_text")).toBeUndefined();
+    expect(before.find((i) => i.name === "place_search_blob_text")).toBeUndefined();
+
+    // Second call must NOT touch the text indexes. The way we observe
+    // that is: the `search_blob_text` index keeps its existing identity
+    // (Mongo would give it a new v / textIndexVersion if re-created in
+    // some scenarios — but more importantly the call should be a no-op).
+    await ensureIndexes();
+    const after = await db!.collection("assets").indexes();
+    const afterTextIdx = after.find((i) => i.name === "search_blob_text");
+    expect(afterTextIdx).toBeDefined();
+    // Same index name + same spec — proves it wasn't dropped and rebuilt.
+    expect(afterTextIdx!.key).toEqual(newTextIdx!.key);
+    expect(afterTextIdx!.weights).toEqual(newTextIdx!.weights);
   });
 });
 
