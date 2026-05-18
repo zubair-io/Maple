@@ -22,15 +22,25 @@ public struct AssetChange: Codable, Sendable, Equatable {
     public let folderID: String?
     public let kind: AssetChangeKind
     public let absPath: String?
+    /// Path relative to the folder root (`folder.path`). Populated by
+    /// the server's `recordAndPublishAssetChange` at write time (Phase
+    /// 6 item 2). `nil` when the row pre-dates the change OR when the
+    /// server couldn't reconcile the absPath against the named folder
+    /// root (defensive — server logs a warn and stores null rather
+    /// than emit a wrong path). Consumers MUST tolerate `nil` and fall
+    /// back to the prior `.workingSet` routing in that case.
+    public let relativePath: String?
     public let at: Date
 
     public init(cursor: Int64, assetID: String?, folderID: String?,
-                kind: AssetChangeKind, absPath: String?, at: Date) {
+                kind: AssetChangeKind, absPath: String?,
+                relativePath: String? = nil, at: Date) {
         self.cursor = cursor
         self.assetID = assetID
         self.folderID = folderID
         self.kind = kind
         self.absPath = absPath
+        self.relativePath = relativePath
         self.at = at
     }
 
@@ -39,6 +49,21 @@ public struct AssetChange: Codable, Sendable, Equatable {
         case assetID = "asset_id"
         case folderID = "folder_id"
         case absPath = "abs_path"
+        case relativePath = "relative_path"
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.cursor = try c.decode(Int64.self, forKey: .cursor)
+        self.assetID = try c.decodeIfPresent(String.self, forKey: .assetID)
+        self.folderID = try c.decodeIfPresent(String.self, forKey: .folderID)
+        self.kind = try c.decode(AssetChangeKind.self, forKey: .kind)
+        self.absPath = try c.decodeIfPresent(String.self, forKey: .absPath)
+        // Tolerate both shapes: legacy rows omit the key entirely;
+        // newer rows may carry an explicit null. `decodeIfPresent`
+        // returns nil for either form.
+        self.relativePath = try c.decodeIfPresent(String.self, forKey: .relativePath)
+        self.at = try c.decode(Date.self, forKey: .at)
     }
 }
 
