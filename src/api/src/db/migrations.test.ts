@@ -86,12 +86,13 @@ describe("migrations module", () => {
     expect(await migrationApplied(db!, "exif-captured-year-month-backfill")).toBe(false);
     await recordMigration(db!, "exif-captured-year-month-backfill", 42);
     expect(await migrationApplied(db!, "exif-captured-year-month-backfill")).toBe(true);
-    // Stores rows + appliedAt.
+    // Stores rows + applied_at.
     const doc = await db!.collection("migrations").findOne({
       _id: "exif-captured-year-month-backfill",
     } as Parameters<ReturnType<typeof db.collection>["findOne"]>[0]);
     expect(doc).toBeDefined();
     expect((doc as { rows: number }).rows).toBe(42);
+    expect((doc as { applied_at: Date }).applied_at).toBeInstanceOf(Date);
   });
 
   it("recordMigration is idempotent — duplicate calls don't throw", async () => {
