@@ -1,5 +1,6 @@
 // src/apple/Packages/MapleCore/Sources/MapleCore/FileProvider/RemoteCatalog.swift
 import Foundation
+import OSLog
 
 public struct LibraryRoot: Codable, Equatable, Sendable {
     public let id: String
@@ -220,6 +221,7 @@ public struct InvalidAssetIDError: Error, Equatable, Sendable {
 public actor RemoteCatalog {
     internal let http: AuthenticatedHTTPClient
     internal let server: URL
+    private let log = Logger(subsystem: "app.justmaple.aperture.fileprovider", category: "catalog")
     private let decoder: JSONDecoder = {
         let d = JSONDecoder()
         // `Date.toISOString()` (the server's emitter) always includes
@@ -390,7 +392,15 @@ public actor RemoteCatalog {
 
     public func listFolders() async throws -> [LibraryRoot] {
         let url = server.appending(path: "/api/folders")
-        return try await fetchCachedJSON(url: url, decode: [LibraryRoot].self)
+        log.notice("listFolders GET \(url.absoluteString, privacy: .public)")
+        do {
+            let result = try await fetchCachedJSON(url: url, decode: [LibraryRoot].self)
+            log.notice("listFolders ok count=\(result.count, privacy: .public)")
+            return result
+        } catch {
+            log.error("listFolders FAILED: \(String(describing: error), privacy: .public)")
+            throw error
+        }
     }
 
     public func listDir(absolutePath: String,
