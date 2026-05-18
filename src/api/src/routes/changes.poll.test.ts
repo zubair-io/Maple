@@ -90,11 +90,12 @@ describe("GET /api/changes", () => {
   });
 
   it("emits relative_path: null (explicit) for legacy rows lacking the field", async () => {
-    // Regression — Phase 6 wire format: payload must include the key
-    // even when the persisted document predates the column. Without the
-    // `?? null` fallback in `asPayload`, JSON.stringify would omit the
-    // key entirely and Apple's decoder (a struct member, not Optional)
-    // would fail to decode the event.
+    // Regression — Phase 6 wire format: explicit null is the contract.
+    // Apple's decoder uses `decodeIfPresent` so it tolerates the key
+    // being missing, but the wire format guarantees the key is present
+    // (with `?? null`) so downstream consumers can rely on its
+    // existence — asserting the explicit-null shape protects against
+    // accidental drift in `asPayload`.
     if (!mongoReachable || !db || !app) return;
     // Insert directly so the BSON lacks `relative_path` entirely,
     // mimicking a row written before Phase 6.
