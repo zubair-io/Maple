@@ -46,22 +46,27 @@ public final class ChangeCursorStore: @unchecked Sendable {
     public init(directory: URL? = nil) {
         if let d = directory {
             self.directory = d
-        } else if let container = FileManager.default.containerURL(
-            forSecurityApplicationGroupIdentifier: FileProviderConfig.appGroupSuiteName
-        ) {
-            self.directory = container.appendingPathComponent(
-                "ChangeCursor", isDirectory: true
-            )
         } else {
-            cursorLogger.error(
-                "App Group container \(FileProviderConfig.appGroupSuiteName, privacy: .public) unavailable — falling back to NSTemporaryDirectory; extension will not see writes"
+            // Cursor state is extension-private (host app never reads
+            // or writes it). Use the process-local Application Support
+            // dir instead of the App Group container — when host is
+            // unsandboxed and creates the App Group container, its
+            // restrictive perms block the sandboxed extension from
+            // writing inside it. Process-local storage sidesteps the
+            // whole sandbox seam and is the right scope for the cursor
+            // anyway.
+            let appSupport = (try? FileManager.default.url(
+                for: .applicationSupportDirectory, in: .userDomainMask,
+                appropriateFor: nil, create: true
+            )) ?? URL(fileURLWithPath: NSTemporaryDirectory())
+            self.directory = appSupport.appendingPathComponent(
+                "MapleChangeCursor", isDirectory: true
             )
-            self.directory = URL(fileURLWithPath: NSTemporaryDirectory())
-                .appendingPathComponent("MapleChangeCursor-fallback", isDirectory: true)
         }
         try? FileManager.default.createDirectory(
             at: self.directory, withIntermediateDirectories: true
         )
+        cursorLogger.notice("ChangeCursorStore dir=\(self.directory.path, privacy: .public)")
     }
 
     /// Last-seen cursor for `domain`, or 0 if the domain has never
@@ -150,6 +155,15 @@ public final class ChangeCursorStore: @unchecked Sendable {
     private func writeFile(_ cursor: Int64, at url: URL, domain: String) {
         let payload = "\(cursor)\n".data(using: .utf8) ?? Data()
         do {
+            // Atomic write fails with ENOENT if the parent dir isn't
+            // there. The directory is created in `init`, but a
+            // never-existed App Group container (first run after a
+            // domain disable/enable) can race the dir creation with
+            // the first save. mkdir-p-then-write is cheap and idempotent.
+            try FileManager.default.createDirectory(
+                at: url.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
             try payload.write(to: url, options: .atomic)
         } catch {
             cursorLogger.error(
