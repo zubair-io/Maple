@@ -524,6 +524,22 @@ describe("/api/search?placeQuery", () => {
   it("backfills search_blob for legacy place rows (idempotent)", async () => {
     if (!mongoReachable) return;
     const db = mongo!.db(TEST_DB);
+    // The boot-time backfill is gated on the `migrations` sentinel so it
+    // runs exactly once per database lifetime (avoiding a 0.6s COLLSCAN
+    // on every API boot). The beforeAll() above already triggered the
+    // first run — wipe the sentinel here so this test's legacy-row
+    // assertion can exercise the backfill against a freshly-inserted
+    // legacy-shaped doc.
+    await db
+      .collection("migrations")
+      .deleteMany({
+        _id: {
+          $in: [
+            "place-search-blob-backfill",
+            "asset-search-blob-backfill",
+          ],
+        },
+      } as Parameters<ReturnType<typeof db.collection>["deleteMany"]>[0]);
     // Insert a legacy-shaped doc: place set, but search_blob empty (the
     // Phase 2 worker shipped this shape before Phase 3 landed). The
     // backfill in ensureIndexes should populate search_blob.
