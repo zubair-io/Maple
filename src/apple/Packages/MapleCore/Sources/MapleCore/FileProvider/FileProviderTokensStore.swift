@@ -18,14 +18,24 @@ public struct FileProviderTokensStore: Sendable {
 
     public init() {}
 
-    public func load(domain: String) -> AuthTokens? {
-        let query: [CFString: Any] = [
+    /// macOS has two keychain backends: legacy "login" (unsandboxed default)
+    /// and "data protection" (sandboxed default, iOS-shaped). Access groups
+    /// only work in data protection. Unsandboxed host + sandboxed extension
+    /// would otherwise land in different keychains and never share tokens.
+    /// Pin both sides to data protection via `kSecUseDataProtectionKeychain`.
+    private static func baseQuery(service: String) -> [CFString: Any] {
+        [
             kSecClass: kSecClassGenericPassword,
-            kSecAttrService: "\(serviceBase).\(domain)",
-            kSecAttrAccessGroup: Self.accessGroup,
-            kSecReturnData: true,
-            kSecMatchLimit: kSecMatchLimitOne,
+            kSecAttrService: service,
+            kSecAttrAccessGroup: accessGroup,
+            kSecUseDataProtectionKeychain: true,
         ]
+    }
+
+    public func load(domain: String) -> AuthTokens? {
+        var query = Self.baseQuery(service: "\(serviceBase).\(domain)")
+        query[kSecReturnData] = true
+        query[kSecMatchLimit] = kSecMatchLimitOne
         var ref: AnyObject?
         let status = SecItemCopyMatching(query as CFDictionary, &ref)
         guard status == errSecSuccess, let data = ref as? Data else { return nil }
@@ -37,11 +47,7 @@ public struct FileProviderTokensStore: Sendable {
             keychainLogger.error("encode failed for domain \(domain, privacy: .public)")
             return
         }
-        let base: [CFString: Any] = [
-            kSecClass: kSecClassGenericPassword,
-            kSecAttrService: "\(serviceBase).\(domain)",
-            kSecAttrAccessGroup: Self.accessGroup,
-        ]
+        let base = Self.baseQuery(service: "\(serviceBase).\(domain)")
         SecItemDelete(base as CFDictionary)
         var add = base
         add[kSecValueData] = data
@@ -53,11 +59,6 @@ public struct FileProviderTokensStore: Sendable {
     }
 
     public func remove(domain: String) {
-        let q: [CFString: Any] = [
-            kSecClass: kSecClassGenericPassword,
-            kSecAttrService: "\(serviceBase).\(domain)",
-            kSecAttrAccessGroup: Self.accessGroup,
-        ]
-        SecItemDelete(q as CFDictionary)
+        SecItemDelete(Self.baseQuery(service: "\(serviceBase).\(domain)") as CFDictionary)
     }
 }
