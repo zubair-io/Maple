@@ -2,33 +2,49 @@ import XCTest
 @testable import MapleCore
 
 final class ChangeCursorStoreTests: XCTestCase {
-    private func freshDefaults() -> UserDefaults {
-        let suite = "test-cursorstore-\(UUID().uuidString)"
-        return UserDefaults(suiteName: suite)!
+    /// Each test gets its own tmp directory. The store accepts a
+    /// `directory:` override so we never touch the real App Group
+    /// container during testing.
+    private func freshDirectory() -> URL {
+        let url = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("cursorstore-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
+
+    private func cleanup(_ url: URL) {
+        try? FileManager.default.removeItem(at: url)
     }
 
     func testInitiallyZero() {
-        let store = ChangeCursorStore(defaults: freshDefaults())
+        let dir = freshDirectory()
+        defer { cleanup(dir) }
+        let store = ChangeCursorStore(directory: dir)
         XCTAssertEqual(store.load(domain: "d"), 0)
     }
 
     func testSaveAndLoad() {
-        let d = freshDefaults()
-        let s1 = ChangeCursorStore(defaults: d)
+        let dir = freshDirectory()
+        defer { cleanup(dir) }
+        let s1 = ChangeCursorStore(directory: dir)
         s1.save(123, domain: "d")
-        let s2 = ChangeCursorStore(defaults: d)
+        let s2 = ChangeCursorStore(directory: dir)
         XCTAssertEqual(s2.load(domain: "d"), 123)
     }
 
     func testSaveAndLoadLargeCursor() {
-        let store = ChangeCursorStore(defaults: freshDefaults())
+        let dir = freshDirectory()
+        defer { cleanup(dir) }
+        let store = ChangeCursorStore(directory: dir)
         let big: Int64 = 4_000_000_000  // > Int32 max
         store.save(big, domain: "d")
         XCTAssertEqual(store.load(domain: "d"), big)
     }
 
     func testPerDomainIsolation() {
-        let store = ChangeCursorStore(defaults: freshDefaults())
+        let dir = freshDirectory()
+        defer { cleanup(dir) }
+        let store = ChangeCursorStore(directory: dir)
         store.save(10, domain: "a")
         store.save(20, domain: "b")
         XCTAssertEqual(store.load(domain: "a"), 10)
@@ -36,7 +52,9 @@ final class ChangeCursorStoreTests: XCTestCase {
     }
 
     func testReset() {
-        let store = ChangeCursorStore(defaults: freshDefaults())
+        let dir = freshDirectory()
+        defer { cleanup(dir) }
+        let store = ChangeCursorStore(directory: dir)
         store.save(5, domain: "d")
         store.reset(domain: "d")
         XCTAssertEqual(store.load(domain: "d"), 0)
@@ -46,7 +64,9 @@ final class ChangeCursorStoreTests: XCTestCase {
     /// ignored. This is the in-process guard against a host-app race
     /// clobbering a fresher extension save.
     func testSaveNeverRegresses() {
-        let store = ChangeCursorStore(defaults: freshDefaults())
+        let dir = freshDirectory()
+        defer { cleanup(dir) }
+        let store = ChangeCursorStore(directory: dir)
         store.save(100, domain: "d")
         store.save(50, domain: "d")
         XCTAssertEqual(store.load(domain: "d"), 100)
@@ -57,17 +77,16 @@ final class ChangeCursorStoreTests: XCTestCase {
     }
 
     /// Simulates two concurrent processes (host + extension) writing
-    /// to the same App Group suite. The higher cursor must win
+    /// to the same App Group container. The higher cursor must win
     /// regardless of arrival order — this is the behaviour the
     /// extension relies on when the host occasionally checkpoints.
     func testConcurrentProcessesPreserveHighestCursor() {
-        let suite = "test-cursorstore-shared-\(UUID().uuidString)"
-        let d1 = UserDefaults(suiteName: suite)!
-        let d2 = UserDefaults(suiteName: suite)!
-        // Two store instances against the same backing suite stand in
-        // for two processes sharing the App Group.
-        let host = ChangeCursorStore(defaults: d1)
-        let ext  = ChangeCursorStore(defaults: d2)
+        let dir = freshDirectory()
+        defer { cleanup(dir) }
+        // Two store instances against the same backing directory stand
+        // in for two processes sharing the App Group container.
+        let host = ChangeCursorStore(directory: dir)
+        let ext  = ChangeCursorStore(directory: dir)
 
         ext.save(500, domain: "d")
         // Host writes a stale value (e.g. its cached cursor from
@@ -83,8 +102,108 @@ final class ChangeCursorStoreTests: XCTestCase {
         // Ext writes stale; load still reflects host's 600.
         ext.save(550, domain: "d")
         XCTAssertEqual(host.load(domain: "d"), 600)
+    }
 
-        // Cleanup.
-        d1.removePersistentDomain(forName: suite)
+    // MARK: - Phase 6 item 3: cross-process atomicity
+
+    /// Two stores point at the same directory (standing in for two
+    /// processes). Both load cursor 0, then save with one higher than
+    /// the other. The persisted value must be the max regardless of
+    /// arrival order. Exercises BOTH orderings.
+    func testCrossProcessMaxRegardlessOfOrder() {
+        // Order 1: A=100 first, then B=50.
+        do {
+            let dir = freshDirectory()
+            defer { cleanup(dir) }
+            let a = ChangeCursorStore(directory: dir)
+            let b = ChangeCursorStore(directory: dir)
+            XCTAssertEqual(a.load(domain: "d"), 0)
+            XCTAssertEqual(b.load(domain: "d"), 0)
+            a.save(100, domain: "d")
+            b.save(50, domain: "d")
+            XCTAssertEqual(a.load(domain: "d"), 100, "A-then-B: max wins")
+            XCTAssertEqual(b.load(domain: "d"), 100, "A-then-B: max wins")
+        }
+        // Order 2: B=50 first, then A=100.
+        do {
+            let dir = freshDirectory()
+            defer { cleanup(dir) }
+            let a = ChangeCursorStore(directory: dir)
+            let b = ChangeCursorStore(directory: dir)
+            b.save(50, domain: "d")
+            a.save(100, domain: "d")
+            XCTAssertEqual(a.load(domain: "d"), 100, "B-then-A: max wins")
+            XCTAssertEqual(b.load(domain: "d"), 100, "B-then-A: max wins")
+        }
+        // Order 3: B=100 first, then A=50 (A's lower value must not regress).
+        do {
+            let dir = freshDirectory()
+            defer { cleanup(dir) }
+            let a = ChangeCursorStore(directory: dir)
+            let b = ChangeCursorStore(directory: dir)
+            b.save(100, domain: "d")
+            a.save(50, domain: "d")
+            XCTAssertEqual(a.load(domain: "d"), 100, "B=100 then A=50: 100 wins")
+            XCTAssertEqual(b.load(domain: "d"), 100, "B=100 then A=50: 100 wins")
+        }
+    }
+
+    /// Concurrent write storm: two queues each issue 1000 monotonically
+    /// increasing writes into the same directory. After both finish the
+    /// persisted value must equal the largest attempted (2000).
+    func testConcurrentWriteStormPreservesMax() {
+        let dir = freshDirectory()
+        defer { cleanup(dir) }
+        let storeA = ChangeCursorStore(directory: dir)
+        let storeB = ChangeCursorStore(directory: dir)
+
+        let q1 = DispatchQueue(label: "cursor-storm-1", attributes: .concurrent)
+        let q2 = DispatchQueue(label: "cursor-storm-2", attributes: .concurrent)
+        let group = DispatchGroup()
+
+        group.enter()
+        q1.async {
+            for i in 1...1000 {
+                storeA.save(Int64(i), domain: "d")
+            }
+            group.leave()
+        }
+        group.enter()
+        q2.async {
+            for i in 1001...2000 {
+                storeB.save(Int64(i), domain: "d")
+            }
+            group.leave()
+        }
+        group.wait()
+
+        let reader = ChangeCursorStore(directory: dir)
+        XCTAssertEqual(
+            reader.load(domain: "d"), 2000,
+            "max of all attempted writes must survive the storm"
+        )
+    }
+
+    /// Simulates a stray tmp file from a crashed write (or any garbage
+    /// file in the directory). `load()` must return the last
+    /// successfully-saved value — never a partial / stale sibling file.
+    func testStrayTempFileDoesNotCorruptLoad() throws {
+        let dir = freshDirectory()
+        defer { cleanup(dir) }
+        let store = ChangeCursorStore(directory: dir)
+        store.save(777, domain: "d")
+        XCTAssertEqual(store.load(domain: "d"), 777)
+
+        // Drop a stray tmp file with garbage next to the real one.
+        let garbageURL = dir.appendingPathComponent("d.cursor.tmp")
+        try "garbage-not-a-cursor".write(to: garbageURL, atomically: true, encoding: .utf8)
+        let unrelatedURL = dir.appendingPathComponent("d.cursor.bak")
+        try "9999999".write(to: unrelatedURL, atomically: true, encoding: .utf8)
+
+        // load() reads only `d.cursor`, ignores siblings.
+        XCTAssertEqual(store.load(domain: "d"), 777)
+        // A fresh store sees the same canonical value.
+        let store2 = ChangeCursorStore(directory: dir)
+        XCTAssertEqual(store2.load(domain: "d"), 777)
     }
 }
