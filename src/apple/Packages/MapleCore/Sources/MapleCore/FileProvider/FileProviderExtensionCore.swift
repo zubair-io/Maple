@@ -165,21 +165,32 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
         guard let mgr = NSFileProviderManager(for: domain) else { return }
         try? await mgr.signalEnumerator(for: .workingSet)
         if let folderID = event.folderID {
-            // Resolve the affected sub-folder if the event carries an
-            // `absPath`. Previously we always signalled the root, which
-            // meant a Finder window deep inside the library never saw
-            // an update until the user re-navigated. With `absPath` and
-            // the cached library roots we can strip the matching root
-            // prefix and signal `folder(folderID, relativeDir)` so the
-            // exact directory the file lives in repaints. When no root
-            // matches the absPath we skip the per-folder signal — the
-            // `.workingSet` signal above is still in flight and will
-            // pick up the change.
-            if let folderIdent = await deriveFolderIdentifier(
+            // Resolve the affected sub-folder. Phase 6 item 2: the
+            // change-feed payload now carries `relativePath` directly,
+            // so we can build the folder identifier without consulting
+            // the library-roots cache (no async round-trip). Fall back
+            // to absPath-derivation when the payload pre-dates that
+            // change (`relativePath == nil`), and to the root-level
+            // `.workingSet` signal above when neither resolves. Always
+            // valid; a Finder window deep inside the library still
+            // repaints because the OS reattaches on enumeration.
+            let folderIdent: NSFileProviderItemIdentifier? = {
+                if let rel = event.relativePath {
+                    let parentRel = (rel as NSString).deletingLastPathComponent
+                    let raw = FileProviderIdentifier
+                        .folder(folderID: folderID, relativePath: parentRel)
+                        .rawValue
+                    return NSFileProviderItemIdentifier(raw)
+                }
+                return nil
+            }()
+            if let folderIdent {
+                try? await mgr.signalEnumerator(for: folderIdent)
+            } else if let derived = await deriveFolderIdentifier(
                 folderID: folderID,
                 absPath: event.absPath
             ) {
-                try? await mgr.signalEnumerator(for: folderIdent)
+                try? await mgr.signalEnumerator(for: derived)
             }
             // Folder counts may have shifted — drop the library-root cache
             // so the next root enumeration re-reads.
