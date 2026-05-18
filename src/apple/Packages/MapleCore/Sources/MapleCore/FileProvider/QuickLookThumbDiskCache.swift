@@ -153,6 +153,13 @@ public actor QuickLookThumbDiskCache {
         assetID: String,
         using fetch: @Sendable (_ ifNoneMatch: String?) async throws -> RemoteCatalog.ThumbFetchResult
     ) async throws -> Data {
+        // Shape-validate before letting the value anywhere near a file
+        // path. A malformed `assetID` containing `/` or `..` would
+        // otherwise escape `cacheDir` once interpolated into the
+        // filename — see `fileURL(in:assetID:etag:)`. The validator
+        // enforces the 24-hex Mongo ObjectID format the API guarantees.
+        try RemoteCatalog.validateAssetID(assetID)
+
         // No cache dir = degraded mode, straight pass-through.
         guard let dir = cacheDir else {
             let result = try await fetch(nil)
