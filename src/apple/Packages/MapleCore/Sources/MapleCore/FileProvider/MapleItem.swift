@@ -20,8 +20,20 @@ public final class MapleItem: NSObject, NSFileProviderItem {
     public var contentModificationDate: Date? { modified }
     public var creationDate: Date? { modified }
     public var itemVersion: NSFileProviderItemVersion {
-        let mtimeBytes = String(Int(modified?.timeIntervalSince1970 ?? 0)).data(using: .utf8) ?? Data()
-        return .init(contentVersion: mtimeBytes, metadataVersion: mtimeBytes)
+        // macOS rejects zero-length version bytes with the cryptic
+        // __FILEPROVIDER_BAD_ITEM_MISSING_ITEMVERSION__ abort. Compose a
+        // version that's guaranteed non-empty for every item — items
+        // without a server mtime (library roots, trash containers,
+        // synthetic stubs) get the identifier itself as their version,
+        // which is stable as long as the item exists.
+        let seed: String
+        if let modified {
+            seed = "\(Int(modified.timeIntervalSince1970))-\(identifier.rawValue)"
+        } else {
+            seed = "v1-\(identifier.rawValue)"
+        }
+        let bytes = Data(seed.utf8)
+        return .init(contentVersion: bytes, metadataVersion: bytes)
     }
     public var isUploaded: Bool { true }
     public var isDownloaded: Bool { false }
@@ -128,7 +140,7 @@ public final class MapleItem: NSObject, NSFileProviderItem {
     /// a lightweight placeholder. The OS uses the parent identifier
     /// (.workingSet) only as a routing hint; folder enumeration still
     /// re-attaches the item to its real container.
-    public init(workingSetEntry e: AssetListEntry) {
+    public init(workingSetEntry e: AssetListEntry, parent: NSFileProviderItemIdentifier = .workingSet) {
         self.identifier = .asset(e.id)
         self.displayName = e.filename
         self.isDirectory = false
@@ -142,7 +154,7 @@ public final class MapleItem: NSObject, NSFileProviderItem {
         self.utType = UTType(filenameExtension: ext) ?? .data
         self.writeCapabilities = [.allowsReading]
         self.itemIdentifier = NSFileProviderItemIdentifier(self.identifier.rawValue)
-        self.parentItemIdentifier = .workingSet
+        self.parentItemIdentifier = parent
         self.filename = e.filename
     }
 
@@ -156,7 +168,7 @@ public final class MapleItem: NSObject, NSFileProviderItem {
     /// endpoint doesn't yet expose `relativePath`. Routing to the
     /// folder root would point at the wrong directory; `.workingSet`
     /// is always-valid and the OS reattaches on folder enumeration.
-    public init(assetMetadata m: AssetMetadata) {
+    public init(assetMetadata m: AssetMetadata, parent: NSFileProviderItemIdentifier = .workingSet) {
         self.identifier = .asset(m.id)
         self.displayName = m.filename
         self.isDirectory = false
@@ -166,7 +178,7 @@ public final class MapleItem: NSObject, NSFileProviderItem {
         self.utType = UTType(filenameExtension: ext) ?? .data
         self.writeCapabilities = [.allowsReading]
         self.itemIdentifier = NSFileProviderItemIdentifier(self.identifier.rawValue)
-        self.parentItemIdentifier = .workingSet
+        self.parentItemIdentifier = parent
         self.filename = m.filename
     }
 

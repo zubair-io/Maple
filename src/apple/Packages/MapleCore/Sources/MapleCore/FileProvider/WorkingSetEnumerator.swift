@@ -32,16 +32,20 @@ final class WorkingSetEnumerator: NSObject, NSFileProviderEnumerator {
     private static let listCacheInvalidationThreshold = 50
     private var eventsSinceListCacheReseed = 0
 
+    private let rootCache: LibraryRootCache?
+
     init(catalog: RemoteCatalog,
          workingSet: WorkingSet,
          cursorStore: ChangeCursorStore,
          domainID: String,
-         listCache: WorkingSetListCache) {
+         listCache: WorkingSetListCache,
+         rootCache: LibraryRootCache? = nil) {
         self.catalog = catalog
         self.workingSet = workingSet
         self.cursorStore = cursorStore
         self.domainID = domainID
         self.listCache = listCache
+        self.rootCache = rootCache
     }
 
     func invalidate() {}
@@ -60,7 +64,18 @@ final class WorkingSetEnumerator: NSObject, NSFileProviderEnumerator {
                         lastTouched: now
                     )
                 }
-                let items = entries.map { MapleItem(workingSetEntry: $0) }
+                // Resolve each entry's real folder parent so working-set
+                // items don't appear under a "Working Set" container in
+                // Finder. The OS still uses the working set for indexing
+                // and search; with real parents, items show up only in
+                // their owning folder.
+                let roots = (try? await rootCache?.roots()) ?? []
+                let items = entries.map { e -> MapleItem in
+                    let parent = Self.resolveParent(folderID: e.folderID,
+                                                     absPath: e.absPath,
+                                                     roots: roots)
+                    return MapleItem(workingSetEntry: e, parent: parent)
+                }
                 observer.didEnumerate(items)
                 observer.finishEnumerating(upTo: nil)
             } catch {
@@ -155,6 +170,22 @@ final class WorkingSetEnumerator: NSObject, NSFileProviderEnumerator {
     }
 
     // MARK: - Helpers
+
+    /// Same shape as `FileProviderExtensionCore.resolveAssetParent` but
+    /// scoped to the WorkingSet enumeration loop — caller pre-fetches
+    /// the roots once and we resolve all entries against the same list.
+    static func resolveParent(folderID: String,
+                              absPath: String,
+                              roots: [LibraryRoot]) -> NSFileProviderItemIdentifier {
+        guard let root = roots.first(where: { $0.id == folderID }) else { return .workingSet }
+        let rootWithSlash = root.path.hasSuffix("/") ? root.path : root.path + "/"
+        guard absPath.hasPrefix(rootWithSlash) else { return .workingSet }
+        let relative = String(absPath.dropFirst(rootWithSlash.count))
+        let parentRelative = (relative as NSString).deletingLastPathComponent
+        let parentID = FileProviderIdentifier.folder(folderID: folderID,
+                                                       relativePath: parentRelative)
+        return NSFileProviderItemIdentifier(parentID.rawValue)
+    }
 
     private static func kindFor(_ e: AssetListEntry) -> WorkingSetKind {
         // Priority order matches the eviction ladder in WorkingSetKind.
