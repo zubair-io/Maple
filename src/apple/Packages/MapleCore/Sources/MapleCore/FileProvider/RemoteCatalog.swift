@@ -493,6 +493,49 @@ public actor RemoteCatalog {
         return data
     }
 
+    /// Thumb fetch result used by `getThumbConditional`. `notModified`
+    /// happens when the server returned 304 to an `If-None-Match` —
+    /// callers reuse their own cached bytes. `ok` carries the 200 body
+    /// plus the new ETag (nil if the server didn't send one).
+    public enum ThumbFetchResult: Sendable, Equatable {
+        case ok(data: Data, etag: String?)
+        case notModified
+    }
+
+    /// GET /api/assets/<assetID>/thumb with an explicit `If-None-Match`
+    /// header and a structured result that exposes the response ETag.
+    ///
+    /// Sibling to `getThumb(assetID:)` — `getThumb` participates in the
+    /// in-process LRU ETag cache, which is the right behaviour for the
+    /// host app (long-lived process, ETag cache amortises across requests).
+    /// The QL extension is short-lived per launch, so it disk-caches the
+    /// bytes itself via `QuickLookThumbDiskCache` and needs the raw
+    /// ETag back to key the file. This method intentionally bypasses
+    /// `etagCache` to keep both roles independent — the disk cache is
+    /// the only thumb cache that survives the extension's lifetime.
+    ///
+    /// 404 still throws (URLError) — caller falls back to the OS-default
+    /// preview path, same as `getThumb`.
+    public func getThumbConditional(
+        assetID: String,
+        ifNoneMatch: String?
+    ) async throws -> ThumbFetchResult {
+        try Self.validateAssetID(assetID)
+        let url = server.appending(path: "/api/assets/\(assetID)/thumb")
+        var req = URLRequest(url: url)
+        if let etag = ifNoneMatch {
+            req.setValue(etag, forHTTPHeaderField: "If-None-Match")
+        }
+        let (data, resp) = try await http.data(for: req)
+        let httpResp = resp as? HTTPURLResponse
+        if httpResp?.statusCode == 304 {
+            return .notModified
+        }
+        try Self.check2xx(resp)
+        let newETag = httpResp?.value(forHTTPHeaderField: "ETag")
+        return .ok(data: data, etag: newETag)
+    }
+
     /// GET /api/assets/<assetID>/xmp[?conflict=<basename>]. Returns the
     /// raw XMP bytes. For conflict copies, `conflictBasename` must match
     /// the server's pairing rule (canonical base + " (conflict from …)"
