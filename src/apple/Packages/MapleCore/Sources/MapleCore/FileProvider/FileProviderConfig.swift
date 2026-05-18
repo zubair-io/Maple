@@ -20,23 +20,9 @@ public struct FileProviderDomainConfig: Codable, Equatable, Sendable {
 /// We used to store this in `UserDefaults(suiteName:)` but CFPreferences
 /// rejects `kCFPreferencesAnyUser + container` from non-sandboxed clients
 /// ("Using kCFPreferencesAnyUser with a container is only allowed for
-/// System Containers, detaching from cfprefsd"). The host app needs to
-/// run unsandboxed in local-dev builds (App Groups capability isn't on the
-/// dev provisioning profile), so UserDefaults is off the table.
-///
-/// File storage is the right mechanism when BOTH sides are sandboxed
-/// (the Release / shipping target):
-/// - Sandboxed host writes to `~/Library/Group Containers/<group>/FileProviderConfig/<domain>.json`.
-/// - Sandboxed extension reads from the same path.
-///
-/// During LOCAL DEV the host runs unsandboxed (see `Maple-Debug.entitlements`)
-/// because the dev provisioning profile lacks the App Groups capability.
-/// The sandboxed extension can then hit EPERM trying to read files the
-/// unsandboxed host wrote — macOS's container manager doesn't bless
-/// files written from outside the sandbox boundary. The
-/// `devFallbackConfig` static on `FileProviderExtensionCore` bridges
-/// that gap by reverse-deriving the config from the domain identifier
-/// itself.
+/// System Containers, detaching from cfprefsd"). File storage works for
+/// both sandboxed sides (host writes, extension reads) via the App Group
+/// container at `~/Library/Group Containers/<group>/FileProviderConfig/<domain>.json`.
 public final class FileProviderConfig: @unchecked Sendable {
     public static let appGroupSuiteName = "group.app.justmaple.aperture"
     private let directory: URL
