@@ -1026,25 +1026,40 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
     /// Internal so tests can drive it directly through a stubbed catalog.
     /// Derive the FP parent identifier for an asset from its server
     /// metadata. Strips the matching library-root prefix off `absPath`
-    /// and returns `.folder(folderID, parentRelativePath)`. Falls back
-    /// to `.workingSet` when the root cache can't find the folder (e.g.
-    /// the asset belongs to a domain whose root has been unregistered)
-    /// or when the absPath doesn't start with the root path. The
-    /// fallback is a no-op for Finder — the working-set parent stays
-    /// invisible — but the OS keeps it valid.
+    /// and returns `.folder(folderID, parentRelativePath)`.
+    ///
+    /// Fallbacks — NEVER `.workingSet`. Routing to the working-set
+    /// container forces the OS to `item(for: .workingSet)`, which now
+    /// returns `noSuchItem` (the container is hidden), and that breaks
+    /// materialization. Instead:
+    ///   - folderID is in roots but absPath prefix mismatch (server bug
+    ///     or out-of-tree asset): fall back to the library root —
+    ///     `.folder(folderID, "")` — which the rest of the codebase
+    ///     guarantees exists.
+    ///   - folderID itself isn't in roots (domain unregistered, race
+    ///     against root cache invalidation): fall back to
+    ///     `.rootContainer`. Uglier — the asset surfaces alongside the
+    ///     library roots instead of inside one — but the identifier is
+    ///     always valid and materialization completes.
     static func resolveAssetParent(meta: AssetMetadata,
                                     rootCache: LibraryRootCache?) async -> NSFileProviderItemIdentifier {
         guard let rootCache,
               let roots = try? await rootCache.roots(),
               let root = roots.first(where: { $0.id == meta.folderID }) else {
-            return .workingSet
+            return .rootContainer
         }
         // absPath e.g. "/srv/photos/Library/2026/Adam/04-02/IMG.jpg"
         // root.path e.g. "/srv/photos/Library"
         // -> relative = "2026/Adam/04-02/IMG.jpg"
         // -> parent   = "2026/Adam/04-02"
         let rootWithSlash = root.path.hasSuffix("/") ? root.path : root.path + "/"
-        guard meta.absPath.hasPrefix(rootWithSlash) else { return .workingSet }
+        guard meta.absPath.hasPrefix(rootWithSlash) else {
+            // absPath doesn't fall under the resolved root — likely a
+            // server bug. The library root itself is always valid.
+            let rootIdent = FileProviderIdentifier.folder(folderID: meta.folderID,
+                                                           relativePath: "")
+            return NSFileProviderItemIdentifier(rootIdent.rawValue)
+        }
         let relative = String(meta.absPath.dropFirst(rootWithSlash.count))
         let parentRelative = (relative as NSString).deletingLastPathComponent
         let parentID = FileProviderIdentifier.folder(folderID: meta.folderID,
