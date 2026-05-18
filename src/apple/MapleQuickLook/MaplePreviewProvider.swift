@@ -28,11 +28,16 @@ final class MaplePreviewProvider: QLPreviewProvider, QLPreviewingController {
     /// `AuthenticatedHTTPClient` and `RemoteCatalog` are still
     /// per-request because they're per-domain (server URL + tokens).
     private let urlSession: URLSession
+    /// Process-shared disk cache for thumb bytes under the App Group
+    /// container. Phase 6 item 4 — turns the second spacebar across QL
+    /// extension sessions into a no-network read (HTTP 304 path only).
+    private let thumbDiskCache: QuickLookThumbDiskCache
 
     override init() {
         self.metaStore = try? FileProviderMetaStore()
         self.config = FileProviderConfig()
         self.urlSession = URLSession(configuration: .default)
+        self.thumbDiskCache = QuickLookThumbDiskCache.shared
         super.init()
     }
 
@@ -92,10 +97,21 @@ final class MaplePreviewProvider: QLPreviewProvider, QLPreviewingController {
         )
         let catalog = RemoteCatalog(http: http, server: cfg.serverURL)
 
-        // 4. Fetch the JPEG preview.
+        // 4. Fetch the JPEG preview via the App Group disk cache. The
+        //    cache wraps `RemoteCatalog.getThumbConditional` and turns
+        //    a same-ETag revalidation into a disk read instead of a
+        //    payload-bearing 200. Across QL extension sessions (the
+        //    appex dies on the next spacebar press for a different
+        //    file type), this is the difference between paying N
+        //    JPEG round-trips and paying N HTTP 304s + 0 bytes.
         let bytes: Data
+        let assetID = row.assetID
         do {
-            bytes = try await catalog.getThumb(assetID: row.assetID)
+            bytes = try await thumbDiskCache.fetch(assetID: assetID) { inm in
+                try await catalog.getThumbConditional(
+                    assetID: assetID, ifNoneMatch: inm
+                )
+            }
         } catch {
             log.notice("thumb fetch failed: \(error.localizedDescription, privacy: .public) — falling back")
             throw Self.fallbackError("thumb fetch failed")
