@@ -127,19 +127,27 @@ public final class ChangeCursorStore: @unchecked Sendable {
     /// short ascii, but defensively percent-encode anything outside
     /// `[A-Za-z0-9._-]` to prevent a stray `/` or `..` escaping the
     /// directory.
+    ///
+    /// Non-ASCII scalars are encoded as their UTF-8 byte sequence (each
+    /// byte percent-encoded). Truncating the scalar value to one byte
+    /// (`& 0xFF`) would collide distinct scalars sharing a low byte
+    /// (e.g. U+00E4 and U+01E4 both → `%E4`), letting two domains share
+    /// a single cursor file.
     private func fileURL(for domain: String) -> URL {
-        let safe = domain.unicodeScalars.map { scalar -> String in
-            let s = String(scalar)
-            if scalar.isASCII,
-               let c = s.cString(using: .utf8)?.first,
-               (c >= 0x30 && c <= 0x39)   // 0-9
-                || (c >= 0x41 && c <= 0x5A) // A-Z
-                || (c >= 0x61 && c <= 0x7A) // a-z
-                || c == 0x2E || c == 0x2D || c == 0x5F { // . - _
-                return s
+        var safe = ""
+        for scalar in domain.unicodeScalars {
+            let v = scalar.value
+            if (v >= 0x30 && v <= 0x39)   // 0-9
+                || (v >= 0x41 && v <= 0x5A) // A-Z
+                || (v >= 0x61 && v <= 0x7A) // a-z
+                || v == 0x2E || v == 0x2D || v == 0x5F { // . - _
+                safe.append(Character(scalar))
+            } else {
+                for byte in String(scalar).utf8 {
+                    safe.append(String(format: "%%%02X", byte))
+                }
             }
-            return String(format: "%%%02X", scalar.value & 0xFF)
-        }.joined()
+        }
         return directory.appendingPathComponent("\(safe).cursor")
     }
 }
