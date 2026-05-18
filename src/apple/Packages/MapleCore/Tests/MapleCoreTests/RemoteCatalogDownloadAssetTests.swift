@@ -13,10 +13,16 @@ final class RemoteCatalogDownloadAssetTests: XCTestCase {
     super.tearDown()
   }
 
+  // 24-hex-char Mongo ObjectIDs to satisfy RemoteCatalog.validateAssetID
+  // (added in Phase 5; the original Phase 4 tests pre-dated it).
+  private let validAssetID1 = "0123456789abcdef01234567"
+  private let validAssetID2 = "fedcba9876543210fedcba98"
+
   func testDownloadAssetStreamsBytesToFile() async throws {
     let payload = Data(repeating: 0xAB, count: 1024 * 1024) // 1 MB
+    let expectedPath = "/api/assets/\(validAssetID1)/raw"
     StubURLProtocol.handler = { req in
-      XCTAssertEqual(req.url!.path, "/api/assets/abc/raw")
+      XCTAssertEqual(req.url!.path, expectedPath)
       XCTAssertEqual(req.value(forHTTPHeaderField: "Authorization"), "Bearer A1")
       return (200, payload, [:])
     }
@@ -33,7 +39,7 @@ final class RemoteCatalogDownloadAssetTests: XCTestCase {
     let tmp = URL(fileURLWithPath: NSTemporaryDirectory())
       .appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: tmp) }
-    try await catalog.downloadAsset(assetID: "abc", to: tmp)
+    try await catalog.downloadAsset(assetID: validAssetID1, to: tmp)
     let written = try Data(contentsOf: tmp)
     XCTAssertEqual(written, payload)
   }
@@ -66,7 +72,7 @@ final class RemoteCatalogDownloadAssetTests: XCTestCase {
     let tmp = URL(fileURLWithPath: NSTemporaryDirectory())
       .appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: tmp) }
-    try await catalog.downloadAsset(assetID: "xyz", to: tmp)
+    try await catalog.downloadAsset(assetID: validAssetID2, to: tmp)
     XCTAssertEqual(try Data(contentsOf: tmp), payload)
     XCTAssertEqual(current.access, "A2")
     // Three calls total: 401, refresh, retry-200.
