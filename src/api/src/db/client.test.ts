@@ -3,9 +3,10 @@
  * MongoDB instance. Skip-pass when Mongo is unreachable (CI without a
  * running mongod gets a soft pass, matching the rest of the repo's pattern).
  *
- * Initial scope (this commit): Fix 1 — `deleted_at_1` partial index exists
- * with the right partial-filter expression, and the trash-GC find query
- * uses it (IXSCAN, not COLLSCAN). Subsequent commits extend this file.
+ * Scope:
+ *   - Fix 1: `deleted_at_1` partial index exists with the right partial-filter
+ *     expression, and the trash-GC find query uses it (IXSCAN, not COLLSCAN).
+ *   - Fix 4: `maple_id_1` unique sparse index exists.
  */
 
 import {
@@ -166,5 +167,23 @@ describe("ensureIndexes — deleted_at partial index (Fix 1)", () => {
     // before stopping, so the upper bound is 3 (not 9 — that would mean a
     // collection scan crept back in).
     expect(execStats.totalKeysExamined ?? 0).toBeLessThanOrEqual(3);
+  });
+});
+
+describe("ensureIndexes — maple_id index (Fix 4)", () => {
+  it("creates a unique sparse index on maple_id", async () => {
+    if (!mongoReachable) return;
+    const { closeDb, ensureIndexes } = await import("./client.ts");
+    await closeDb();
+    await ensureIndexes();
+    const indexes = await db!.collection("assets").indexes();
+    const idx = indexes.find((i) => i.name === "maple_id_1");
+    expect(idx).toBeDefined();
+    expect(idx!.key).toEqual({ maple_id: 1 });
+    expect(idx!.unique).toBe(true);
+    // Sparse — `maple_id` is a content hash assigned during the hash stage;
+    // freshly-discovered skeleton rows don't have one yet, and the unique
+    // constraint must not block them from co-existing.
+    expect(idx!.sparse).toBe(true);
   });
 });
