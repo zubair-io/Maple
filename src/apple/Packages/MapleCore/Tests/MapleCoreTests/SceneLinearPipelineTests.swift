@@ -980,9 +980,11 @@ final class SceneLinearPipelineTests: XCTestCase {
 
     /// Stricter mirror that loads the same `agx_lut.bin` Rust uses (via
     /// `Bundle.module`) and applies linear interpolation identical to
-    /// `view/agx.rs:52-77`. Compared against Rust's `view::agx::apply`
-    /// outputs captured at AGX_VERSION 5 by
-    /// `examples/spike_1_2_refs.rs`. The LUT binary is byte-identical
+    /// `view/agx.rs:52-77`. Compared against Rust's per-channel AgX kernel
+    /// outputs captured at AGX_VERSION 6 by `examples/spike_1_2_refs.rs`.
+    /// The fixture bypasses `view::agx::apply`'s pre-form rolloff wrapper
+    /// (added in AGX_VERSION 6) and calls the per-channel kernel directly
+    /// so the Swift LUT mirror can match. The LUT binary is byte-identical
     /// across Rust and Swift, so the only deltas should be f32 rounding
     /// (~1e-7) — well below the LUT-interpolation noise floor (~1e-4)
     /// the Spike 1.2 brief calls for.
@@ -1125,7 +1127,8 @@ final class SceneLinearPipelineTests: XCTestCase {
     /// the Rust LUT at `src/raw-pipeline/raw-core/src/view/agx_lut.bin`,
     /// resolved relative to this test file at compile time. Reasoning:
     /// the Rust reference outputs in `rustReferenceOutputs` were generated
-    /// from THAT exact LUT (AGX_VERSION 5 per agx_coeffs.rs). As of the
+    /// from THAT exact LUT (AGX_VERSION 6 per agx_coeffs.rs, via the
+    /// per-channel kernel — see fixture header). As of the
     /// Spike 1.2 follow-up, the MapleCore-bundled `Metal/agx_lut.bin` is
     /// byte-identical to the Rust LUT (enforced by
     /// `testAppleBundledAgxLUTMatchesRustLUT`); this helper still loads
