@@ -114,4 +114,77 @@ final class RemoteCatalogThumbTests: XCTestCase {
         try RemoteCatalog.validateAssetID("650a1b2c3d4e5f6071829304")
         try RemoteCatalog.validateAssetID("ABCDEF0123456789abcdef01")
     }
+
+    // MARK: - getThumbConditional (Phase 6 item 4)
+
+    func testGetThumbConditional200ReturnsOkWithETag() async throws {
+        let server = URL(string: "https://example.test")!
+        let jpeg = Data([0xFF, 0xD8, 0xFF, 0xE0])
+        var observedINM: String? = "sentinel"
+        let session = URLSession.stubbedSequence { req in
+            observedINM = req.value(forHTTPHeaderField: "If-None-Match")
+            let resp = HTTPURLResponse(url: req.url!, statusCode: 200,
+                                       httpVersion: "HTTP/1.1",
+                                       headerFields: ["ETag": "\"v7\""])!
+            return (jpeg, resp)
+        }
+        let http = AuthenticatedHTTPClient.unauthenticated(server: server,
+                                                            urlSession: session)
+        let catalog = RemoteCatalog(http: http, server: server)
+        let result = try await catalog.getThumbConditional(
+            assetID: "650a1b2c3d4e5f6071829304", ifNoneMatch: nil
+        )
+        switch result {
+        case .ok(let data, let etag):
+            XCTAssertEqual(data, jpeg)
+            XCTAssertEqual(etag, "\"v7\"")
+        case .notModified:
+            XCTFail("expected .ok")
+        }
+        XCTAssertNil(observedINM, "no ifNoneMatch supplied → header absent")
+    }
+
+    func testGetThumbConditional304ReturnsNotModified() async throws {
+        let server = URL(string: "https://example.test")!
+        var observedINM: String?
+        let session = URLSession.stubbedSequence { req in
+            observedINM = req.value(forHTTPHeaderField: "If-None-Match")
+            let resp = HTTPURLResponse(url: req.url!, statusCode: 304,
+                                       httpVersion: "HTTP/1.1",
+                                       headerFields: ["ETag": "\"v7\""])!
+            return (Data(), resp)
+        }
+        let http = AuthenticatedHTTPClient.unauthenticated(server: server,
+                                                            urlSession: session)
+        let catalog = RemoteCatalog(http: http, server: server)
+        let result = try await catalog.getThumbConditional(
+            assetID: "650a1b2c3d4e5f6071829304", ifNoneMatch: "\"v7\""
+        )
+        XCTAssertEqual(result, .notModified)
+        XCTAssertEqual(observedINM, "\"v7\"")
+    }
+
+    /// `getThumbConditional` is the disk-cache code path — it must NOT
+    /// share the in-memory ETag cache with `getThumb`, or a single
+    /// long-lived host-app process could pin payloads twice.
+    func testGetThumbConditionalBypassesInMemoryETagCache() async throws {
+        let server = URL(string: "https://example.test")!
+        let bytes = Data([0x42])
+        let session = URLSession.stubbedSequence { req in
+            let resp = HTTPURLResponse(url: req.url!, statusCode: 200,
+                                       httpVersion: "HTTP/1.1",
+                                       headerFields: ["ETag": "\"v1\""])!
+            return (bytes, resp)
+        }
+        let http = AuthenticatedHTTPClient.unauthenticated(server: server,
+                                                            urlSession: session)
+        let catalog = RemoteCatalog(http: http, server: server)
+        let before = await catalog._etagCacheCountForTesting
+        XCTAssertEqual(before, 0)
+        _ = try await catalog.getThumbConditional(
+            assetID: "650a1b2c3d4e5f6071829304", ifNoneMatch: nil
+        )
+        let after = await catalog._etagCacheCountForTesting
+        XCTAssertEqual(after, 0, "conditional path must not populate in-memory cache")
+    }
 }
