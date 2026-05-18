@@ -636,11 +636,33 @@ export async function ensureIndexes(): Promise<void> {
   //
   // Drop both legacy text indexes from older deploys before creating
   // the new one — they're mutually exclusive (only one text index per
-  // collection).
+  // collection). On fresh deploys and on every boot after the first, the
+  // legacy indexes are absent, so the unconditional dropIndex commands
+  // here used to issue two no-op round-trips per boot (visible in
+  // mongod.log as `dropIndexes: "filename_abs_path_text"` followed by
+  // `dropIndexes: "place_search_blob_text"`). Introspect first so the
+  // common case (already migrated) is silent.
+  //
+  // Re-read `assetIndexes` to capture indexes created since the earlier
+  // snapshot above (e.g. the `folder_id_1_filename_1` rebuild).
+  const assetIndexesPostFolderRebuild = await db
+    .collection("assets")
+    .indexes()
+    .catch((err: unknown) => {
+      const code = (err as { code?: number } | null)?.code;
+      if (code === 26) return [] as typeof assetIndexes;
+      throw err;
+    });
+  const presentLegacyTextIndexes = new Set(
+    assetIndexesPostFolderRebuild
+      .map((i) => i.name as string | undefined)
+      .filter((n): n is string => n != null),
+  );
   for (const legacy of [
     "filename_abs_path_text",
     "place_search_blob_text",
   ]) {
+    if (!presentLegacyTextIndexes.has(legacy)) continue;
     try {
       await db.collection("assets").dropIndex(legacy);
     } catch (err) {
