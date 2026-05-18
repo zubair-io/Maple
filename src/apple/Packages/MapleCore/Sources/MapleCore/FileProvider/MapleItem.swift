@@ -26,6 +26,13 @@ public final class MapleItem: NSObject, NSFileProviderItem {
         // without a server mtime (library roots, trash containers,
         // synthetic stubs) get the identifier itself as their version,
         // which is stable as long as the item exists.
+        //
+        // FORMAT: "<mtimeEpoch>-<identifier>" when we have a server mtime,
+        // "v1-<identifier>" otherwise. The mtime prefix is load-bearing:
+        // `modifyItem` decodes it via `decodePriorMtime` and forwards it
+        // to the server as the `ifMtimeMatches` precondition for XMP
+        // writes. A decoder that can't see the mtime would silently
+        // disable conflict detection.
         let seed: String
         if let modified {
             seed = "\(Int(modified.timeIntervalSince1970))-\(identifier.rawValue)"
@@ -34,6 +41,24 @@ public final class MapleItem: NSObject, NSFileProviderItem {
         }
         let bytes = Data(seed.utf8)
         return .init(contentVersion: bytes, metadataVersion: bytes)
+    }
+
+    /// Inverse of the `itemVersion` encoder. Reads the leading "<epoch>-"
+    /// segment back out of a content-version blob. Returns nil for blobs
+    /// without a numeric prefix ("v1-…" stubs, or zero/negative epochs).
+    ///
+    /// Used by `FileProviderExtensionCore.modifyItem` to populate the XMP
+    /// write precondition. The split-before-`-` shape tolerates the
+    /// post-Phase-5 format change that appended `<identifier>` to the
+    /// seed; the prior `Int(s)` decode parsed the entire blob and
+    /// returned nil for every non-pure-int payload, silently disabling
+    /// conflict detection.
+    public static func decodePriorMtime(_ contentVersion: Data) -> Date? {
+        guard let s = String(data: contentVersion, encoding: .utf8) else { return nil }
+        let prefix = s.split(separator: "-", maxSplits: 1,
+                             omittingEmptySubsequences: false).first.map(String.init) ?? ""
+        guard let epoch = Int(prefix), epoch > 0 else { return nil }
+        return Date(timeIntervalSince1970: TimeInterval(epoch))
     }
     public var isUploaded: Bool { true }
     public var isDownloaded: Bool { false }
