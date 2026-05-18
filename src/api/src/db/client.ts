@@ -426,6 +426,21 @@ export async function ensureIndexes(): Promise<void> {
       },
     },
   );
+  // Content-derived dedup key: `maple_id` is the 16-byte hash assigned by
+  // the hash stage. Hot-path callers:
+  //   - `src/routes/backup-ingest.ts` `findOne({ maple_id })` per upload
+  //   - `src/indexer/images.repo.ts` `findAssetByMapleId`
+  //   - `src/enrichment/meilisearch-client.ts` `find({ maple_id: { $in } })`
+  // All three would COLLSCAN without an index. Unique because the hash is
+  // unique by construction; sparse because freshly-discovered skeleton
+  // rows have `maple_id: null` before the hash stage runs (see
+  // `src/workers/discover/index.ts` line 140) and the unique constraint
+  // must not collapse those rows together.
+  await db.collection("assets").createIndex(
+    { maple_id: 1 },
+    { name: "maple_id_1", unique: true, sparse: true },
+  );
+
   // Fast prefix index on filename for lowercase-anchored regex queries
   // ($regex: "^...") — the planner can use this when the pattern is a
   // simple prefix. The case-insensitive substring query in the search route
