@@ -96,12 +96,15 @@ describe("changes.repo", () => {
       label: "lib",
     } as any);
     const assetId = new ObjectId();
-    await recordAndPublishAssetChange({
-      kind: "create",
-      asset_id: assetId,
-      folder_id: folderId,
-      abs_path: "/srv/photos/2024/holiday/IMG_0001.dng",
-    });
+    await recordAndPublishAssetChange(
+      {
+        kind: "create",
+        asset_id: assetId,
+        folder_id: folderId,
+        abs_path: "/srv/photos/2024/holiday/IMG_0001.dng",
+      },
+      db,
+    );
     const rows = await db.collection("asset_changes").find({}).toArray();
     expect(rows.length).toBe(1);
     expect(rows[0].relative_path).toBe("2024/holiday/IMG_0001.dng");
@@ -119,12 +122,15 @@ describe("changes.repo", () => {
       path: "/srv/photos/",
       label: "lib",
     } as any);
-    await recordAndPublishAssetChange({
-      kind: "update",
-      asset_id: new ObjectId(),
-      folder_id: folderId,
-      abs_path: "/srv/photos/IMG_0002.dng",
-    });
+    await recordAndPublishAssetChange(
+      {
+        kind: "update",
+        asset_id: new ObjectId(),
+        folder_id: folderId,
+        abs_path: "/srv/photos/IMG_0002.dng",
+      },
+      db,
+    );
     const rows = await db.collection("asset_changes").find({}).toArray();
     expect(rows[0].relative_path).toBe("IMG_0002.dng");
   });
@@ -139,12 +145,15 @@ describe("changes.repo", () => {
     } as any);
     // Defensive case — should not normally happen, but storing null is
     // safer than emitting a wrong path; the writer logs a warn.
-    await recordAndPublishAssetChange({
-      kind: "create",
-      asset_id: new ObjectId(),
-      folder_id: folderId,
-      abs_path: "/elsewhere/oops.dng",
-    });
+    await recordAndPublishAssetChange(
+      {
+        kind: "create",
+        asset_id: new ObjectId(),
+        folder_id: folderId,
+        abs_path: "/elsewhere/oops.dng",
+      },
+      db,
+    );
     const rows = await db.collection("asset_changes").find({}).toArray();
     expect(rows.length).toBe(1);
     expect(rows[0].relative_path).toBeNull();
