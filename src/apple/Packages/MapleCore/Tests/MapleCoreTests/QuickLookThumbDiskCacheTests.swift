@@ -321,6 +321,44 @@ final class QuickLookThumbDiskCacheTests: XCTestCase {
         }
     }
 
+    // MARK: - 7b. Oversize response bypasses size cap entirely
+
+    /// A response body strictly larger than `sizeCap` must NOT be
+    /// written to disk. Under the old behaviour, eviction would wipe
+    /// every other entry trying to make room and then write the
+    /// oversize file, leaving the cache permanently over its
+    /// documented hard cap. Bytes are still returned to the caller.
+    func testOversizeResponseSkipsCaching() async throws {
+        let container = try makeTmpDir()
+        // 1 KiB cap, 2 KiB payload — payload alone exceeds the cap.
+        let cap: Int64 = 1024
+        let cache = try makeCache(container: container, sizeCap: cap)
+
+        // Seed with a small entry that should NOT be evicted by the
+        // oversize write.
+        let small = Data(repeating: 0x11, count: 256)
+        let smallID = "ffffffffffffffffffffffff"
+        _ = try await cache.fetch(assetID: smallID) { _ in .ok(data: small, etag: "\"small\"") }
+        let preCount = await cache._entryCountForTesting()
+        XCTAssertEqual(preCount, 1)
+
+        // Oversize response — 2 KiB body against 1 KiB cap.
+        let bigPayload = Data(repeating: 0x22, count: 2 * 1024)
+        let bigID = "abcdef0123456789abcdef02"
+        let got = try await cache.fetch(assetID: bigID) { _ in
+            .ok(data: bigPayload, etag: "\"big\"")
+        }
+        XCTAssertEqual(got, bigPayload, "caller still receives the bytes")
+
+        // The oversize entry must not be on disk; the small entry must survive.
+        let postCount = await cache._entryCountForTesting()
+        XCTAssertEqual(postCount, 1,
+                       "oversize response must not land on disk; small entry must survive")
+        let total = await cache._totalSizeForTesting()
+        XCTAssertLessThanOrEqual(total, cap,
+                                 "total bytes must respect the cap (was \(total), cap \(cap))")
+    }
+
     // MARK: - 8. No-etag responses pass through without polluting cache
 
     func testResponseWithoutETagNotCached() async throws {
