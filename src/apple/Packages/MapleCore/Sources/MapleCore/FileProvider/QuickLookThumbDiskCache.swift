@@ -252,10 +252,20 @@ public actor QuickLookThumbDiskCache {
 
     private func writeEntry(dir: URL, assetID: String, etag: String, data: Data) {
         let url = fileURL(in: dir, assetID: assetID, etag: etag)
+        let incomingSize = Int64(data.count)
+        // Oversize bypass: a single payload larger than the entire
+        // sizeCap can never legitimately live in the cache. Skip the
+        // write before eviction runs — otherwise the eviction sweep
+        // wipes every other entry trying to make room, and we'd land
+        // a file that itself blows past the documented hard cap.
+        // Caller still receives the bytes from `fetch`.
+        if incomingSize > sizeCap {
+            log.notice("skipping cache write: payload \(incomingSize, privacy: .public)B exceeds sizeCap \(self.sizeCap, privacy: .public)B")
+            return
+        }
         // Reserve room: if this write would push us past sizeCap, evict
         // until there's space. Compute current size lazily — we only
         // pay the directory walk on writes that might overflow.
-        let incomingSize = Int64(data.count)
         evictForSizeIfNeeded(dir: dir, incomingSize: incomingSize, excluding: url)
         do {
             try data.write(to: url, options: .atomic)
