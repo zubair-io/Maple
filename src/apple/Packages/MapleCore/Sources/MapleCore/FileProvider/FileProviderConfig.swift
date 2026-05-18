@@ -15,51 +15,90 @@ public struct FileProviderDomainConfig: Codable, Equatable, Sendable {
     }
 }
 
+/// File-based domain config under the App Group container.
+///
+/// We used to store this in `UserDefaults(suiteName:)` but CFPreferences
+/// rejects `kCFPreferencesAnyUser + container` from non-sandboxed clients
+/// ("Using kCFPreferencesAnyUser with a container is only allowed for
+/// System Containers, detaching from cfprefsd"). The host app needs to
+/// run unsandboxed in local-dev builds (App Groups capability isn't on the
+/// dev provisioning profile), so UserDefaults is off the table.
+///
+/// File storage works for both regimes:
+/// - Sandboxed extension reads `~/Library/Group Containers/<group>/FileProviderConfig/<domain>.json` via `FileManager.containerURL(forSecurityApplicationGroupIdentifier:)`.
+/// - Non-sandboxed host writes to the same path directly.
 public final class FileProviderConfig: @unchecked Sendable {
     public static let appGroupSuiteName = "group.app.justmaple.aperture"
-    private let defaults: UserDefaults
-    private let prefix = "fileprovider.domain."
+    private let directory: URL
+    private let lock = NSLock()
 
-    /// `defaults` overrides the App Group container — used by tests so they
-    /// don't touch the real shared store. When omitted, opens the App Group
-    /// suite; if that's unavailable (entitlement missing / sandboxed away)
-    /// falls back to `.standard`. The extension reading from `.standard` in
-    /// the main app's process will see nothing and stay dormant, which is
-    /// the same behaviour as "no config" — degraded but not crashing.
-    public init(defaults: UserDefaults? = nil) {
-        if let d = defaults {
-            self.defaults = d
-            return
-        }
-        if let group = UserDefaults(suiteName: Self.appGroupSuiteName) {
-            self.defaults = group
+    /// Resolved storage directory under the App Group container.
+    /// Tests can override by passing a tmp `directory`. When omitted,
+    /// derives `<App Group container>/FileProviderConfig/`.
+    public init(directory: URL? = nil) {
+        if let dir = directory {
+            self.directory = dir
+        } else if let container = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: Self.appGroupSuiteName) {
+            self.directory = container.appendingPathComponent("FileProviderConfig", isDirectory: true)
         } else {
-            configLogger.error("App Group \(Self.appGroupSuiteName, privacy: .public) unavailable — falling back to .standard; extension will not see writes")
-            self.defaults = .standard
+            // App Group container unavailable (no entitlement). Fall back
+            // to the user's caches dir — matches the prior "degraded but
+            // not crashing" stance. Cross-process sharing won't work, so
+            // the extension will boot dormant; surface this in the log.
+            configLogger.error("App Group \(Self.appGroupSuiteName, privacy: .public) container unavailable — falling back to caches dir; extension will not see writes")
+            let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
+                ?? URL(fileURLWithPath: NSTemporaryDirectory())
+            self.directory = caches.appendingPathComponent("FileProviderConfig", isDirectory: true)
         }
+        try? FileManager.default.createDirectory(at: self.directory, withIntermediateDirectories: true)
+        configLogger.notice("FileProviderConfig dir=\(self.directory.path, privacy: .public)")
+    }
+
+    private func fileURL(domain: String) -> URL {
+        directory.appendingPathComponent("\(domain).json", isDirectory: false)
     }
 
     public func load(domain: String) -> FileProviderDomainConfig? {
-        guard let data = defaults.data(forKey: prefix + domain) else { return nil }
-        return try? JSONDecoder().decode(FileProviderDomainConfig.self, from: data)
+        lock.lock(); defer { lock.unlock() }
+        let url = fileURL(domain: domain)
+        let exists = FileManager.default.fileExists(atPath: url.path)
+        configLogger.notice("load domain=\(domain, privacy: .public) path=\(url.path, privacy: .public) exists=\(exists, privacy: .public)")
+        guard exists else { return nil }
+        do {
+            let data = try Data(contentsOf: url)
+            return try JSONDecoder().decode(FileProviderDomainConfig.self, from: data)
+        } catch {
+            configLogger.error("load read/decode failed for \(domain, privacy: .public): \(String(describing: error), privacy: .public)")
+            return nil
+        }
     }
 
     public func save(_ config: FileProviderDomainConfig) {
+        lock.lock(); defer { lock.unlock() }
         guard let data = try? JSONEncoder().encode(config) else {
             configLogger.error("encode failed for domain \(config.domainIdentifier, privacy: .public)")
             return
         }
-        defaults.set(data, forKey: prefix + config.domainIdentifier)
+        do {
+            try data.write(to: fileURL(domain: config.domainIdentifier), options: .atomic)
+            configLogger.notice("saved config for domain \(config.domainIdentifier, privacy: .public) at \(self.directory.path, privacy: .public)")
+        } catch {
+            configLogger.error("write failed for domain \(config.domainIdentifier, privacy: .public): \(String(describing: error), privacy: .public)")
+        }
     }
 
     public func remove(domain: String) {
-        defaults.removeObject(forKey: prefix + domain)
+        lock.lock(); defer { lock.unlock() }
+        try? FileManager.default.removeItem(at: fileURL(domain: domain))
     }
 
     public func allDomains() -> [FileProviderDomainConfig] {
-        defaults.dictionaryRepresentation().keys
-            .filter { $0.hasPrefix(prefix) }
-            .compactMap { defaults.data(forKey: $0) }
+        lock.lock(); defer { lock.unlock() }
+        let entries = (try? FileManager.default.contentsOfDirectory(at: directory,
+                                                                     includingPropertiesForKeys: nil)) ?? []
+        return entries
+            .filter { $0.pathExtension == "json" }
+            .compactMap { try? Data(contentsOf: $0) }
             .compactMap { try? JSONDecoder().decode(FileProviderDomainConfig.self, from: $0) }
     }
 }

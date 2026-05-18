@@ -3,8 +3,10 @@ import XCTest
 
 final class FileProviderConfigTests: XCTestCase {
     func testRoundTrip() throws {
-        let defaults = UserDefaults(suiteName: "test.\(UUID().uuidString)")!
-        let store = FileProviderConfig(defaults: defaults)
+        let tmp = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("fp-config-test-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let store = FileProviderConfig(directory: tmp)
         XCTAssertNil(store.load(domain: "d1"))
         store.save(.init(domainIdentifier: "d1",
                          displayName: "My Server",
