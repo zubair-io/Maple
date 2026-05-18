@@ -57,6 +57,28 @@ final class FileProviderSettingsModel {
         catch { statusMessage = "Refresh failed: \(error.localizedDescription)" }
     }
 
+    #if os(macOS)
+    /// Reveal the mounted File Provider root in Finder. Uses
+    /// `getUserVisibleURL(for: .rootContainer)` so the path is whatever
+    /// the OS chose (typically `~/Library/CloudStorage/<DisplayName>/`).
+    /// The console may emit sandbox-extension warnings — they're
+    /// cosmetic; LaunchServices opens the folder regardless.
+    func openInFinder(_ url: URL) async {
+        guard let id = FileProviderDomainController.domainIdentifier(for: url) else { return }
+        guard let domain = domains.first(where: { $0.identifier.rawValue == id }),
+              let mgr = NSFileProviderManager(for: domain) else {
+            statusMessage = "Open in Finder failed: domain not registered"
+            return
+        }
+        do {
+            let visibleURL = try await mgr.getUserVisibleURL(for: .rootContainer)
+            NSWorkspace.shared.activateFileViewerSelecting([visibleURL])
+        } catch {
+            statusMessage = "Open in Finder failed: \(error.localizedDescription)"
+        }
+    }
+    #endif
+
     /// Refresh every active domain. Called from the iOS `scenePhase` hook
     /// on foreground entry so re-opening the app surfaces fresh server
     /// state on the next Files-app refresh cycle.
@@ -127,6 +149,10 @@ struct FileProviderSettingsView: View {
             }
             Spacer()
             if enabled {
+                Button("Open in Finder") {
+                    Task { await model.openInFinder(url) }
+                }
+                .accessibilityIdentifier("file-provider-open-\(domainID ?? host)")
                 Button("Refresh") {
                     Task { await model.refresh(url) }
                 }
