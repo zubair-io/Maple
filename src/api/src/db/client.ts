@@ -276,7 +276,7 @@ export async function ensureIndexes(): Promise<void> {
   // keys + docs = 3.6s / 1GB read in the user's library; see
   // mongod.log evidence in PR body). After the first successful boot
   // post-deploy this branch is skipped entirely.
-  if (!(await migrationApplied("exif-captured-year-month-backfill"))) {
+  if (!(await migrationApplied(db, "exif-captured-year-month-backfill"))) {
     try {
       const res = await db.collection("assets").updateMany(
         {
@@ -309,6 +309,7 @@ export async function ensureIndexes(): Promise<void> {
         ],
       );
       await recordMigration(
+        db,
         "exif-captured-year-month-backfill",
         res.modifiedCount,
       );
@@ -530,7 +531,7 @@ export async function ensureIndexes(): Promise<void> {
   //
   // We scope to live + place-bearing rows so the update doesn't churn
   // every soft-deleted or never-geocoded asset.
-  if (!(await migrationApplied("place-search-blob-backfill"))) {
+  if (!(await migrationApplied(db, "place-search-blob-backfill"))) {
     try {
       const res = await db.collection("assets").updateMany(
         {
@@ -634,7 +635,7 @@ export async function ensureIndexes(): Promise<void> {
           },
         ],
       );
-      await recordMigration("place-search-blob-backfill", res.modifiedCount);
+      await recordMigration(db, "place-search-blob-backfill", res.modifiedCount);
       log.info(
         { rows: res.modifiedCount },
         "applied place.search_blob backfill",
@@ -711,7 +712,7 @@ export async function ensureIndexes(): Promise<void> {
   // and place.search_blob backfills above for the rationale. The
   // predicate alone doesn't prevent a full collection scan to confirm
   // "match zero" on subsequent boots.
-  if (!(await migrationApplied("asset-search-blob-backfill"))) {
+  if (!(await migrationApplied(db, "asset-search-blob-backfill"))) {
     try {
       const res = await db.collection("assets").updateMany(
         {
@@ -737,7 +738,7 @@ export async function ensureIndexes(): Promise<void> {
         // `ocr_text` directly off the live row.
         [{ $set: { search_blob: searchBlobUpdateExpression() } }],
       );
-      await recordMigration("asset-search-blob-backfill", res.modifiedCount);
+      await recordMigration(db, "asset-search-blob-backfill", res.modifiedCount);
       log.info(
         { rows: res.modifiedCount },
         "applied asset.search_blob backfill",
