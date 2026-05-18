@@ -174,12 +174,24 @@ final class WorkingSetEnumerator: NSObject, NSFileProviderEnumerator {
     /// Same shape as `FileProviderExtensionCore.resolveAssetParent` but
     /// scoped to the WorkingSet enumeration loop — caller pre-fetches
     /// the roots once and we resolve all entries against the same list.
+    ///
+    /// Fallbacks mirror the extension-core helper: never `.workingSet`
+    /// (the OS now treats that container as `noSuchItem`, which aborts
+    /// materialization). folderID-in-roots-but-prefix-mismatch routes
+    /// to the library root; folderID-not-in-roots routes to
+    /// `.rootContainer`.
     static func resolveParent(folderID: String,
                               absPath: String,
                               roots: [LibraryRoot]) -> NSFileProviderItemIdentifier {
-        guard let root = roots.first(where: { $0.id == folderID }) else { return .workingSet }
+        guard let root = roots.first(where: { $0.id == folderID }) else {
+            return .rootContainer
+        }
         let rootWithSlash = root.path.hasSuffix("/") ? root.path : root.path + "/"
-        guard absPath.hasPrefix(rootWithSlash) else { return .workingSet }
+        guard absPath.hasPrefix(rootWithSlash) else {
+            let rootIdent = FileProviderIdentifier.folder(folderID: folderID,
+                                                           relativePath: "")
+            return NSFileProviderItemIdentifier(rootIdent.rawValue)
+        }
         let relative = String(absPath.dropFirst(rootWithSlash.count))
         let parentRelative = (relative as NSString).deletingLastPathComponent
         let parentID = FileProviderIdentifier.folder(folderID: folderID,
