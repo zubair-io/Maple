@@ -161,7 +161,8 @@ final class ChangeFeedClient {
                             cursorStore.save(id, domain: domainID)
                         }
                     } else {
-                        log.error("SSE event decode failed dataBuffer-prefix=\(dataBuffer.prefix(120), privacy: .public)")
+                        // Payload contains asset paths / filenames — redact.
+                        log.error("SSE event decode failed dataBuffer-prefix=\(dataBuffer.prefix(120), privacy: .private)")
                     }
                 }
                 dataBuffer = ""

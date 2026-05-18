@@ -66,7 +66,8 @@ public final class ChangeCursorStore: @unchecked Sendable {
         try? FileManager.default.createDirectory(
             at: self.directory, withIntermediateDirectories: true
         )
-        cursorLogger.notice("ChangeCursorStore dir=\(self.directory.path, privacy: .public)")
+        // dir contains the user's home path; redact.
+        cursorLogger.notice("ChangeCursorStore dir=\(self.directory.path, privacy: .private)")
     }
 
     /// Last-seen cursor for `domain`, or 0 if the domain has never
