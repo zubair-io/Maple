@@ -29,8 +29,9 @@ final class MaplePreviewProvider: QLPreviewProvider, QLPreviewingController {
     /// per-request because they're per-domain (server URL + tokens).
     private let urlSession: URLSession
     /// Process-shared disk cache for thumb bytes under the App Group
-    /// container. Phase 6 item 4 — turns the second spacebar across QL
-    /// extension sessions into a no-network read (HTTP 304 path only).
+    /// container. Phase 6 item 4 — the second spacebar across QL
+    /// extension sessions avoids re-downloading the JPEG payload
+    /// (still revalidates via If-None-Match each time).
     private let thumbDiskCache: QuickLookThumbDiskCache
 
     override init() {
