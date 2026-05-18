@@ -199,6 +199,50 @@ final class QuickLookThumbDiskCacheTests: XCTestCase {
                                  "total bytes must respect the cap")
     }
 
+    // MARK: - 5b. Overwrite with same etag → no spurious eviction of OTHER entries
+
+    func testSameETagOverwriteDoesNotEvictOtherEntries() async throws {
+        let container = try makeTmpDir()
+        // Cap fits exactly two 1 KiB payloads with a tiny slack. If the
+        // overwrite path double-counts the existing file's bytes, the
+        // sweep will think `current + incoming` (2048 + 1024 = 3072)
+        // exceeds the cap (2304) and evict the OTHER (newer) entry to
+        // make room.
+        let payload = Data(repeating: 0xCD, count: 1024)
+        let cap: Int64 = 2 * 1024 + 256
+        let cache = try makeCache(container: container, sizeCap: cap)
+
+        let idA = "aaaaaaaaaaaaaaaaaaaaaaa1"
+        let idB = "bbbbbbbbbbbbbbbbbbbbbbb2"
+        let etagA = "\"stableA\""
+        let etagB = "\"stableB\""
+
+        // Seed B first, then A — so B is the oldest-by-mtime entry.
+        // We're going to refresh A and ensure B (the unrelated, older
+        // entry) survives.
+        _ = try await cache.fetch(assetID: idB) { _ in .ok(data: payload, etag: etagB) }
+        try await Task.sleep(nanoseconds: 20_000_000)
+        _ = try await cache.fetch(assetID: idA) { _ in .ok(data: payload, etag: etagA) }
+        let countAfterSeed = await cache._entryCountForTesting()
+        XCTAssertEqual(countAfterSeed, 2)
+
+        // Server replies 200 to A with the SAME etag — the cache
+        // refreshes A's disk file. With double-counting, the eviction
+        // sweep treats us as 3072 bytes vs a 2304 cap and evicts the
+        // oldest-by-mtime entry — that's B, which is completely
+        // unrelated to the write we just made.
+        _ = try await cache.fetch(assetID: idA) { inm in
+            XCTAssertEqual(inm, etagA)
+            return .ok(data: payload, etag: etagA)
+        }
+        let countAfterRefresh = await cache._entryCountForTesting()
+        XCTAssertEqual(countAfterRefresh, 2,
+                       "same-etag refresh of A must not evict B")
+
+        let total = await cache._totalSizeForTesting()
+        XCTAssertEqual(total, 2 * 1024)
+    }
+
     // MARK: - 6. lastKnownETag dict cap → FIFO eviction
 
     func testETagDictFIFOEviction() async throws {
