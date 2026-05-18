@@ -175,19 +175,30 @@ public final class MapleItem: NSObject, NSFileProviderItem {
     /// `item(for:)` to pick up real metadata; this stub exists so the
     /// itemVersion bumps and tells the OS to re-read.
     ///
-    /// `parentItemIdentifier` stays `.workingSet` even when the
-    /// `AssetChange` carries a `folderID`: a real folder-child
-    /// identifier is `folder(folderID, relativePath)`, and the
-    /// change-feed payload does NOT include the relative path. Routing
-    /// the stub to `folder(folderID, "")` would point the OS at the
-    /// folder ROOT — wrong parent for a nested asset, and worse than
-    /// `.workingSet` which is at least always-valid. Follow-up: extend
-    /// the change-feed payload with the asset's full relative path (or
-    /// add a `GET /api/assets/:id` round-trip) so this stub can hand
-    /// back a real folder parent.
-    public init(stubAssetID assetID: String, cursor: Int64) {
+    /// `parentItemIdentifier` is derived from `folderID + relativePath`
+    /// when both are present (Phase 6 item 2): the change-feed payload
+    /// now carries the asset's path relative to its folder root, so we
+    /// can attach the stub under `folder(folderID, dirname(relPath))`
+    /// instead of `.workingSet`. Falls back to `.workingSet` when
+    /// either is nil — legacy server payloads, or rows where the
+    /// server couldn't reconcile absPath against folder.path. The
+    /// `.workingSet` parent is always-valid; the OS reattaches under
+    /// the real folder on the next folder enumeration regardless.
+    ///
+    /// `filename` falls back to `lastPathComponent(relativePath)` when
+    /// available — saves Finder from briefly painting "(stub)" before
+    /// `item(for:)` resolves the full metadata.
+    public init(stubAssetID assetID: String,
+                cursor: Int64,
+                folderID: String? = nil,
+                relativePath: String? = nil) {
         self.identifier = .asset(assetID)
-        self.displayName = "(stub)"
+        let resolvedFilename: String = {
+            guard let rel = relativePath, !rel.isEmpty else { return "(stub)" }
+            let last = (rel as NSString).lastPathComponent
+            return last.isEmpty ? "(stub)" : last
+        }()
+        self.displayName = resolvedFilename
         self.isDirectory = false
         self.size = nil
         // Encode the cursor in the modified date so `itemVersion`
@@ -196,11 +207,26 @@ public final class MapleItem: NSObject, NSFileProviderItem {
         // follow-up phase should add a per-asset metadata GET so
         // enumerateChanges can hand back real items in one round-trip.
         self.modified = Date(timeIntervalSince1970: TimeInterval(cursor))
-        self.utType = .data
+        // Extension is derived from the resolved filename so Quick
+        // Look's "spacebar shows the right icon" affordance kicks in
+        // before `item(for:)` fills in the rest.
+        let ext = (resolvedFilename as NSString).pathExtension
+        self.utType = ext.isEmpty ? .data : (UTType(filenameExtension: ext) ?? .data)
         self.writeCapabilities = [.allowsReading]
         self.itemIdentifier = NSFileProviderItemIdentifier(self.identifier.rawValue)
-        self.parentItemIdentifier = .workingSet
-        self.filename = "(stub)"
+        if let folderID, let rel = relativePath {
+            // Parent dir relative to the folder root. `lastPathComponent`
+            // of `relativePath` is the filename; `deletingLastPathComponent`
+            // gives the dir. Both for a root-level asset reduce to `""`,
+            // which is the folder-root identifier (`folder(folderID, "")`).
+            let parentRel = (rel as NSString).deletingLastPathComponent
+            let parent = FileProviderIdentifier.folder(folderID: folderID,
+                                                       relativePath: parentRel)
+            self.parentItemIdentifier = NSFileProviderItemIdentifier(parent.rawValue)
+        } else {
+            self.parentItemIdentifier = .workingSet
+        }
+        self.filename = resolvedFilename
     }
 
     public init(sidecar: SidecarChild, parentImageBase: String, parentIdentifier: NSFileProviderItemIdentifier) {

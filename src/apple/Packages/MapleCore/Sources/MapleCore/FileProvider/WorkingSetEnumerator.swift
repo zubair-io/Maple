@@ -94,12 +94,18 @@ final class WorkingSetEnumerator: NSObject, NSFileProviderEnumerator {
                         deletes.append(ident)
                         workingSet.remove(identifier: ident.rawValue)
                     } else {
-                        // We don't have a per-asset metadata endpoint yet;
-                        // hand back a stub whose itemVersion derives from
-                        // the cursor so the OS asks `item(for:)` for the
-                        // real metadata. A follow-up phase should add
-                        // GET /api/assets/:id and skip this round-trip.
-                        let stub = MapleItem(stubAssetID: assetID, cursor: ch.cursor)
+                        // Hand back a stub whose itemVersion derives
+                        // from the cursor so the OS asks `item(for:)`
+                        // for full metadata. When the change event
+                        // carries `folderID + relativePath` (Phase 6
+                        // item 2) the stub gets its real folder parent
+                        // so the OS routes invalidation to the exact
+                        // directory; older payloads without those
+                        // fields fall back to `.workingSet`.
+                        let stub = MapleItem(stubAssetID: assetID,
+                                             cursor: ch.cursor,
+                                             folderID: ch.folderID,
+                                             relativePath: ch.relativePath)
                         updates.append(stub)
                         // Touch the working set so eviction reflects activity.
                         workingSet.upsert(
