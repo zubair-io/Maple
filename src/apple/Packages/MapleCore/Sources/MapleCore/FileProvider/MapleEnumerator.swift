@@ -1,21 +1,20 @@
-// src/apple/MapleFileProvider/MapleEnumerator.swift
+// src/apple/Packages/MapleCore/Sources/MapleCore/FileProvider/MapleEnumerator.swift
 import FileProvider
-import MapleCore
 import OSLog
 
-final class RootEnumerator: NSObject, NSFileProviderEnumerator {
+public final class RootEnumerator: NSObject, NSFileProviderEnumerator {
     private let catalog: RemoteCatalog
     private let rootCache: LibraryRootCache?
     private let log = Logger(subsystem: "app.justmaple.aperture.fileprovider", category: "enumerator")
 
-    init(catalog: RemoteCatalog, rootCache: LibraryRootCache? = nil) {
+    public init(catalog: RemoteCatalog, rootCache: LibraryRootCache? = nil) {
         self.catalog = catalog
         self.rootCache = rootCache
     }
 
-    func invalidate() {}
+    public func invalidate() {}
 
-    func enumerateItems(for observer: NSFileProviderEnumerationObserver, startingAt page: NSFileProviderPage) {
+    public func enumerateItems(for observer: NSFileProviderEnumerationObserver, startingAt page: NSFileProviderPage) {
         Task {
             do {
                 // Hit the cache when present so the OS asking for the root
@@ -60,16 +59,16 @@ final class RootEnumerator: NSObject, NSFileProviderEnumerator {
     // event affecting folder membership) routes through
     // `FileProviderExtension.handleChangeEvent`, which invalidates the
     // cache explicitly before signaling the enumerator.
-    func enumerateChanges(for observer: NSFileProviderChangeObserver, from anchor: NSFileProviderSyncAnchor) {
+    public func enumerateChanges(for observer: NSFileProviderChangeObserver, from anchor: NSFileProviderSyncAnchor) {
         observer.finishEnumeratingChanges(upTo: anchor, moreComing: false)
     }
 
-    func currentSyncAnchor(completionHandler: @escaping (NSFileProviderSyncAnchor?) -> Void) {
+    public func currentSyncAnchor(completionHandler: @escaping (NSFileProviderSyncAnchor?) -> Void) {
         completionHandler(NSFileProviderSyncAnchor(Data("0".utf8)))
     }
 }
 
-final class FolderEnumerator: NSObject, NSFileProviderEnumerator {
+public final class FolderEnumerator: NSObject, NSFileProviderEnumerator {
     private let catalog: RemoteCatalog
     private let folderID: String
     private let relativePath: String
@@ -77,11 +76,11 @@ final class FolderEnumerator: NSObject, NSFileProviderEnumerator {
     private let containerIdentifier: NSFileProviderItemIdentifier
     private let log = Logger(subsystem: "app.justmaple.aperture.fileprovider", category: "enumerator")
 
-    init(catalog: RemoteCatalog,
-         folderID: String,
-         relativePath: String,
-         absolutePath: String,
-         containerIdentifier: NSFileProviderItemIdentifier) {
+    public init(catalog: RemoteCatalog,
+                folderID: String,
+                relativePath: String,
+                absolutePath: String,
+                containerIdentifier: NSFileProviderItemIdentifier) {
         self.catalog = catalog
         self.folderID = folderID
         self.relativePath = relativePath
@@ -89,9 +88,9 @@ final class FolderEnumerator: NSObject, NSFileProviderEnumerator {
         self.containerIdentifier = containerIdentifier
     }
 
-    func invalidate() {}
+    public func invalidate() {}
 
-    func enumerateItems(for observer: NSFileProviderEnumerationObserver, startingAt page: NSFileProviderPage) {
+    public func enumerateItems(for observer: NSFileProviderEnumerationObserver, startingAt page: NSFileProviderPage) {
         Task {
             do {
                 let contents = try await catalog.listDir(absolutePath: absolutePath)
@@ -130,11 +129,11 @@ final class FolderEnumerator: NSObject, NSFileProviderEnumerator {
         }
     }
 
-    func enumerateChanges(for observer: NSFileProviderChangeObserver, from anchor: NSFileProviderSyncAnchor) {
+    public func enumerateChanges(for observer: NSFileProviderChangeObserver, from anchor: NSFileProviderSyncAnchor) {
         observer.finishEnumeratingChanges(upTo: anchor, moreComing: false)
     }
 
-    func currentSyncAnchor(completionHandler: @escaping (NSFileProviderSyncAnchor?) -> Void) {
+    public func currentSyncAnchor(completionHandler: @escaping (NSFileProviderSyncAnchor?) -> Void) {
         completionHandler(NSFileProviderSyncAnchor(Data("0".utf8)))
     }
 }
@@ -143,21 +142,21 @@ final class FolderEnumerator: NSObject, NSFileProviderEnumerator {
 /// and emits one `MapleItem(trashed:)` per row. The trashed items keep their
 /// asset/<id> identifiers so the OS recognises them as the same item that
 /// disappeared from a folder enumeration.
-final class TrashEnumerator: NSObject, NSFileProviderEnumerator {
+public final class TrashEnumerator: NSObject, NSFileProviderEnumerator {
     private let catalog: RemoteCatalog
     private let folderID: String
     private let containerIdentifier: NSFileProviderItemIdentifier
     private let log = Logger(subsystem: "app.justmaple.aperture.fileprovider", category: "enumerator")
 
-    init(catalog: RemoteCatalog, folderID: String, containerIdentifier: NSFileProviderItemIdentifier) {
+    public init(catalog: RemoteCatalog, folderID: String, containerIdentifier: NSFileProviderItemIdentifier) {
         self.catalog = catalog
         self.folderID = folderID
         self.containerIdentifier = containerIdentifier
     }
 
-    func invalidate() {}
+    public func invalidate() {}
 
-    func enumerateItems(for observer: NSFileProviderEnumerationObserver, startingAt page: NSFileProviderPage) {
+    public func enumerateItems(for observer: NSFileProviderEnumerationObserver, startingAt page: NSFileProviderPage) {
         Task {
             do {
                 // Cursor encoded as the page bytes when present; nil for first page.
@@ -180,11 +179,11 @@ final class TrashEnumerator: NSObject, NSFileProviderEnumerator {
         }
     }
 
-    func enumerateChanges(for observer: NSFileProviderChangeObserver, from anchor: NSFileProviderSyncAnchor) {
+    public func enumerateChanges(for observer: NSFileProviderChangeObserver, from anchor: NSFileProviderSyncAnchor) {
         observer.finishEnumeratingChanges(upTo: anchor, moreComing: false)
     }
 
-    func currentSyncAnchor(completionHandler: @escaping (NSFileProviderSyncAnchor?) -> Void) {
+    public func currentSyncAnchor(completionHandler: @escaping (NSFileProviderSyncAnchor?) -> Void) {
         completionHandler(NSFileProviderSyncAnchor(Data("0".utf8)))
     }
 }

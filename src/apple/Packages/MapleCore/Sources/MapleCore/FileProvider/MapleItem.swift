@@ -1,9 +1,8 @@
-// src/apple/MapleFileProvider/MapleItem.swift
+// src/apple/Packages/MapleCore/Sources/MapleCore/FileProvider/MapleItem.swift
 import FileProvider
-import MapleCore
 import UniformTypeIdentifiers
 
-final class MapleItem: NSObject, NSFileProviderItem {
+public final class MapleItem: NSObject, NSFileProviderItem {
     private let identifier: FileProviderIdentifier
     private let displayName: String
     private let isDirectory: Bool
@@ -12,22 +11,22 @@ final class MapleItem: NSObject, NSFileProviderItem {
     private let utType: UTType
     private let writeCapabilities: NSFileProviderItemCapabilities
 
-    let itemIdentifier: NSFileProviderItemIdentifier
-    let parentItemIdentifier: NSFileProviderItemIdentifier
-    let filename: String
-    var contentType: UTType { utType }
-    var capabilities: NSFileProviderItemCapabilities { writeCapabilities }
-    var documentSize: NSNumber? { size }
-    var contentModificationDate: Date? { modified }
-    var creationDate: Date? { modified }
-    var itemVersion: NSFileProviderItemVersion {
+    public let itemIdentifier: NSFileProviderItemIdentifier
+    public let parentItemIdentifier: NSFileProviderItemIdentifier
+    public let filename: String
+    public var contentType: UTType { utType }
+    public var capabilities: NSFileProviderItemCapabilities { writeCapabilities }
+    public var documentSize: NSNumber? { size }
+    public var contentModificationDate: Date? { modified }
+    public var creationDate: Date? { modified }
+    public var itemVersion: NSFileProviderItemVersion {
         let mtimeBytes = String(Int(modified?.timeIntervalSince1970 ?? 0)).data(using: .utf8) ?? Data()
         return .init(contentVersion: mtimeBytes, metadataVersion: mtimeBytes)
     }
-    var isUploaded: Bool { true }
-    var isDownloaded: Bool { false }
+    public var isUploaded: Bool { true }
+    public var isDownloaded: Bool { false }
 
-    init(libraryRoot root: LibraryRoot) {
+    public init(libraryRoot root: LibraryRoot) {
         self.identifier = .folder(folderID: root.id, relativePath: "")
         self.displayName = root.label
         self.isDirectory = true
@@ -43,7 +42,7 @@ final class MapleItem: NSObject, NSFileProviderItem {
         self.filename = root.label
     }
 
-    init(subdirectory dir: DirChild, parentFolderID: String, parentRelativePath: String, parentIdentifier: NSFileProviderItemIdentifier) {
+    public init(subdirectory dir: DirChild, parentFolderID: String, parentRelativePath: String, parentIdentifier: NSFileProviderItemIdentifier) {
         let child = parentRelativePath.isEmpty ? dir.name : "\(parentRelativePath)/\(dir.name)"
         self.identifier = .folder(folderID: parentFolderID, relativePath: child)
         self.displayName = dir.name
@@ -60,7 +59,7 @@ final class MapleItem: NSObject, NSFileProviderItem {
     }
 
     /// Returns nil for unindexed images (no asset ID).
-    init?(image: ImageChild, parentIdentifier: NSFileProviderItemIdentifier) {
+    public init?(image: ImageChild, parentIdentifier: NSFileProviderItemIdentifier) {
         guard let assetID = image.assetID, !assetID.isEmpty else { return nil }
         self.identifier = .asset(assetID)
         self.displayName = image.name
@@ -81,7 +80,7 @@ final class MapleItem: NSObject, NSFileProviderItem {
     /// Synthetic Trash container shown at the root of each library.
     /// The identifier is `trash/<folderID>` so the extension can route
     /// `enumerator(for:)` to a `TrashEnumerator` and decide capabilities.
-    init(trashContainer folderID: String, displayName: String) {
+    public init(trashContainer folderID: String, displayName: String) {
         self.identifier = .trash(folderID: folderID)
         self.displayName = displayName
         self.isDirectory = true
@@ -106,7 +105,7 @@ final class MapleItem: NSObject, NSFileProviderItem {
     /// Capabilities allow reading (lazy materialization still works on
     /// trashed files), reparenting (drag back out of Trash to restore),
     /// and deleting (drag inside trash → permanent purge).
-    init(trashed item: TrashItem, parentTrashIdentifier: NSFileProviderItemIdentifier) {
+    public init(trashed item: TrashItem, parentTrashIdentifier: NSFileProviderItemIdentifier) {
         self.identifier = .asset(item.assetID)
         self.displayName = item.filename
         self.isDirectory = false
@@ -129,7 +128,7 @@ final class MapleItem: NSObject, NSFileProviderItem {
     /// a lightweight placeholder. The OS uses the parent identifier
     /// (.workingSet) only as a routing hint; folder enumeration still
     /// re-attaches the item to its real container.
-    init(workingSetEntry e: AssetListEntry) {
+    public init(workingSetEntry e: AssetListEntry) {
         self.identifier = .asset(e.id)
         self.displayName = e.filename
         self.isDirectory = false
@@ -157,7 +156,7 @@ final class MapleItem: NSObject, NSFileProviderItem {
     /// endpoint doesn't yet expose `relativePath`. Routing to the
     /// folder root would point at the wrong directory; `.workingSet`
     /// is always-valid and the OS reattaches on folder enumeration.
-    init(assetMetadata m: AssetMetadata) {
+    public init(assetMetadata m: AssetMetadata) {
         self.identifier = .asset(m.id)
         self.displayName = m.filename
         self.isDirectory = false
@@ -186,7 +185,7 @@ final class MapleItem: NSObject, NSFileProviderItem {
     /// the change-feed payload with the asset's full relative path (or
     /// add a `GET /api/assets/:id` round-trip) so this stub can hand
     /// back a real folder parent.
-    init(stubAssetID assetID: String, cursor: Int64) {
+    public init(stubAssetID assetID: String, cursor: Int64) {
         self.identifier = .asset(assetID)
         self.displayName = "(stub)"
         self.isDirectory = false
@@ -204,7 +203,7 @@ final class MapleItem: NSObject, NSFileProviderItem {
         self.filename = "(stub)"
     }
 
-    init(sidecar: SidecarChild, parentImageBase: String, parentIdentifier: NSFileProviderItemIdentifier) {
+    public init(sidecar: SidecarChild, parentImageBase: String, parentIdentifier: NSFileProviderItemIdentifier) {
         let canonicalName = "\(parentImageBase).xmp"
         let isCanonical = sidecar.name.caseInsensitiveCompare(canonicalName) == .orderedSame
         let basenameWithoutExt: String? = {
