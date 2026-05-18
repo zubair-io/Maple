@@ -368,6 +368,24 @@ export async function ensureIndexes(): Promise<void> {
   await db.collection("assets").createIndex({ mtime: 1 }, { sparse: true });
   await db.collection("assets").createIndex({ folder_id: 1 });
 
+  // Trash-GC sweeper queries `{ deleted_at: { $lt: cutoffIso, $ne: null } }`
+  // every interval (and once on boot). Without this index the find is a
+  // COLLSCAN across the whole assets collection (~430k rows in the user's
+  // library = 1.4 GB / 3.85s per pass; see mongod.log evidence in PR body).
+  //
+  // Partial filter: live rows write `deleted_at: null` explicitly (see
+  // `src/workers/discover/index.ts` lines 95 + 130 — every new asset gets
+  // the field), so `$exists: true` would index the entire collection.
+  // `$type: "string"` narrows the index to actual ISO-string values, i.e.
+  // the small set of trashed rows that the GC actually iterates.
+  await db.collection("assets").createIndex(
+    { deleted_at: 1 },
+    {
+      name: "deleted_at_1",
+      partialFilterExpression: { deleted_at: { $type: "string" } },
+    },
+  );
+
   // Search indexes — added with EXIF support. Captured-at sorts the default
   // result list (newest first); camera + lens cover the FE's facet dropdowns;
   // the text index over filename + abs_path lets the search route fall back
