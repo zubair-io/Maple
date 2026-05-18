@@ -359,6 +359,61 @@ final class QuickLookThumbDiskCacheTests: XCTestCase {
                                  "total bytes must respect the cap (was \(total), cap \(cap))")
     }
 
+    // MARK: - 7c. Concurrent ETag pointer writes from two cache instances
+
+    /// Spawns 100 concurrent `fetch` calls with distinct assetIDs from
+    /// TWO cache instances on the same directory (simulating two
+    /// processes — the host app and the QL extension — sharing the
+    /// App Group container). Every pointer must survive the storm —
+    /// the previous UserDefaults-dict implementation did
+    /// read-modify-write on a single shared blob with no inter-process
+    /// coordination, so a concurrent write from the other instance
+    /// would clobber the entry just added.
+    func testConcurrentETagPointerWritesAllSurvive() async throws {
+        let container = try makeTmpDir()
+        let defaults = makeDefaults()
+        let cacheA = try makeCache(container: container, defaults: defaults)
+        let cacheB = try makeCache(container: container, defaults: defaults)
+
+        // 100 distinct assetIDs, each 24 hex chars (Mongo ObjectID shape).
+        // Split into two halves so each cache instance writes its own
+        // assetIDs — distinct IDs map to distinct pointer files under
+        // the per-asset layout, so all 100 must survive.
+        var ids: [String] = []
+        for i in 0..<100 {
+            ids.append(String(format: "%024x", i + 1))
+        }
+
+        await withTaskGroup(of: Void.self) { group in
+            for (i, id) in ids.enumerated() {
+                let cache = (i % 2 == 0) ? cacheA : cacheB
+                let etag = "\"e\(i)\""
+                let bytes = Data([UInt8(i & 0xFF)])
+                group.addTask {
+                    _ = try? await cache.fetch(assetID: id) { _ in
+                        .ok(data: bytes, etag: etag)
+                    }
+                }
+            }
+        }
+
+        // Every pointer must round-trip via the public API: the next
+        // fetch call must observe the stored ETag as If-None-Match.
+        // We supply bytes on any 200 (in case the pointer is missing
+        // and the cache decides to unconditionally refetch) so the
+        // outer call doesn't throw — we only care WHICH path it took.
+        var observed: Set<String> = []
+        for (i, id) in ids.enumerated() {
+            let expected = "\"e\(i)\""
+            _ = try? await cacheA.fetch(assetID: id) { inm in
+                if inm == expected { observed.insert(id) }
+                return .ok(data: Data([0xFF]), etag: expected)
+            }
+        }
+        XCTAssertEqual(observed.count, ids.count,
+                       "every concurrent pointer write must survive (got \(observed.count)/\(ids.count))")
+    }
+
     // MARK: - 8. No-etag responses pass through without polluting cache
 
     func testResponseWithoutETagNotCached() async throws {
