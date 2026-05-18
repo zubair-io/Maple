@@ -9,15 +9,19 @@
 
  Storage: one small file per domain under the App Group container at
  `~/Library/Group Containers/<appGroup>/ChangeCursor/<domain>.cursor`.
- Saves do read → max → atomic write (`Data.write(.atomic)` performs
- write-tmp + `rename(2)` under the hood). POSIX `rename` is atomic
- across processes on APFS, so two processes racing both end up with
- the higher cursor regardless of which `rename` won — the max-check
- each performed guarantees the winning value is the higher one.
 
- An in-process `NSLock` still serialises read-modify-write within a
- single process, because two threads can otherwise interleave between
- the read and the rename.
+ Cross-process atomicity uses `NSFileCoordinator` to serialise the
+ entire read-modify-write window. `Data.write(.atomic)` alone makes
+ only the WRITE atomic — two processes racing on RMW can both read
+ the same baseline, each compute max(baseline, their_value), and the
+ lower of those maxes can win the `rename(2)` and clobber the higher
+ cursor. `NSFileCoordinator` is Apple's standard primitive for App
+ Group file coordination; coordinated readers and writers on the same
+ URL serialise across process boundaries.
+
+ The in-process `NSLock` is retained as a fast path for same-process
+ threads (coordinator round-trips are heavier than a contended
+ NSLock).
  */
 
 import Foundation
@@ -62,48 +66,80 @@ public final class ChangeCursorStore: @unchecked Sendable {
 
     /// Last-seen cursor for `domain`, or 0 if the domain has never
     /// received an event (or the file is missing / unreadable).
+    ///
+    /// Reads are coordinated via `NSFileCoordinator` so a load that
+    /// races a concurrent save in another process sees the post-write
+    /// value (or the pre-write value) — never a partially-written
+    /// state. The in-process `NSLock` is held across the coordinator
+    /// call to keep same-process readers behind same-process writers.
     public func load(domain: String) -> Int64 {
         lock.lock()
         defer { lock.unlock() }
-        return readUnsafe(domain: domain)
+        let url = fileURL(for: domain)
+        let coordinator = NSFileCoordinator(filePresenter: nil)
+        var coordErr: NSError?
+        var result: Int64 = 0
+        coordinator.coordinate(readingItemAt: url, options: [], error: &coordErr) { coordinatedURL in
+            result = readFile(at: coordinatedURL)
+        }
+        if let coordErr {
+            cursorLogger.error(
+                "load coordinator failed for domain \(domain, privacy: .public): \(coordErr.localizedDescription, privacy: .public)"
+            )
+        }
+        return result
     }
 
     /// Persists `cursor` for `domain`, but only if it is greater than
     /// the currently-persisted value — the cursor must never regress.
     ///
-    /// Cross-process atomicity comes from `Data.write(.atomic)` which
-    /// writes to a sibling temp file then `rename(2)`s over the target;
-    /// POSIX `rename` is atomic on APFS. The in-process `NSLock`
-    /// covers the read-modify-write window against other threads in
-    /// this process (two threads can otherwise both read the old
-    /// value before either writes).
-    ///
-    /// If two PROCESSES race, both perform the max-check, both write
-    /// atomically, and the second `rename` wins. Because both did the
-    /// max-check against whatever was on disk at their read time, the
-    /// winning value is at least the higher of the two attempts. Worst
-    /// case is a brief moment where the file holds the lower of two
-    /// "newer" values; the next save heals it.
+    /// The entire read-modify-write window runs inside an
+    /// `NSFileCoordinator` `coordinate(writingItemAt:)` block, which
+    /// serialises against any other coordinated reader or writer on
+    /// the same URL across processes. This is the inter-process
+    /// equivalent of the in-process `NSLock` — without it, two
+    /// processes can both read baseline X, both compute max(X, their),
+    /// and whichever `rename(2)` wins overwrites the other's max even
+    /// if it was lower (because both maxes only saw the pre-write
+    /// baseline, not each other).
     public func save(_ cursor: Int64, domain: String) {
         lock.lock()
         defer { lock.unlock() }
-        let onDisk = readUnsafe(domain: domain)
-        let winner = max(onDisk, cursor)
-        if winner == onDisk { return }
-        writeUnsafe(winner, domain: domain)
+        let url = fileURL(for: domain)
+        let coordinator = NSFileCoordinator(filePresenter: nil)
+        var coordErr: NSError?
+        coordinator.coordinate(writingItemAt: url, options: [], error: &coordErr) { coordinatedURL in
+            let onDisk = readFile(at: coordinatedURL)
+            let winner = max(onDisk, cursor)
+            if winner == onDisk { return }
+            writeFile(winner, at: coordinatedURL, domain: domain)
+        }
+        if let coordErr {
+            cursorLogger.error(
+                "save coordinator failed for domain \(domain, privacy: .public): \(coordErr.localizedDescription, privacy: .public)"
+            )
+        }
     }
 
     public func reset(domain: String) {
         lock.lock()
         defer { lock.unlock() }
         let url = fileURL(for: domain)
-        try? FileManager.default.removeItem(at: url)
+        let coordinator = NSFileCoordinator(filePresenter: nil)
+        var coordErr: NSError?
+        coordinator.coordinate(writingItemAt: url, options: .forDeleting, error: &coordErr) { coordinatedURL in
+            try? FileManager.default.removeItem(at: coordinatedURL)
+        }
+        if let coordErr {
+            cursorLogger.error(
+                "reset coordinator failed for domain \(domain, privacy: .public): \(coordErr.localizedDescription, privacy: .public)"
+            )
+        }
     }
 
-    // MARK: - Internals (must be called with `lock` held)
+    // MARK: - Internals (must be called inside the coordinator block)
 
-    private func readUnsafe(domain: String) -> Int64 {
-        let url = fileURL(for: domain)
+    private func readFile(at url: URL) -> Int64 {
         guard let data = try? Data(contentsOf: url),
               let text = String(data: data, encoding: .utf8) else {
             return 0
@@ -111,8 +147,7 @@ public final class ChangeCursorStore: @unchecked Sendable {
         return Int64(text.trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0
     }
 
-    private func writeUnsafe(_ cursor: Int64, domain: String) {
-        let url = fileURL(for: domain)
+    private func writeFile(_ cursor: Int64, at url: URL, domain: String) {
         let payload = "\(cursor)\n".data(using: .utf8) ?? Data()
         do {
             try payload.write(to: url, options: .atomic)
