@@ -1,4 +1,4 @@
-// src/apple/MapleFileProvider/WorkingSetEnumerator.swift
+// src/apple/Packages/MapleCore/Sources/MapleCore/FileProvider/WorkingSetEnumerator.swift
 //
 // Backs `.workingSet` (Phase 5b). Phase 1's EmptyEnumerator returned
 // nothing; this enumerator seeds the working set from three list
@@ -11,7 +11,6 @@
 // scratch — that's our 409-equivalent on the client side.
 
 import FileProvider
-import MapleCore
 import OSLog
 
 final class WorkingSetEnumerator: NSObject, NSFileProviderEnumerator {
