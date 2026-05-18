@@ -15,7 +15,7 @@
  * just wasteful — we accept the rare double-run to keep the design simple.
  */
 
-import { getDb } from "./client.ts";
+import type { Db } from "mongodb";
 
 export type MigrationId =
   | "exif-captured-year-month-backfill"
@@ -28,9 +28,20 @@ interface MigrationDoc {
   rows: number;
 }
 
-/** True when the migration has been recorded as applied. */
-export async function migrationApplied(id: MigrationId): Promise<boolean> {
-  const db = await getDb();
+/**
+ * True when the migration has been recorded as applied.
+ *
+ * Takes `Db` as a parameter so the migrations module doesn't import from
+ * `./client.ts` — which would create a circular import (client.ts imports
+ * these helpers to gate its backfills). ESM live bindings happen to make
+ * that cycle work today, but cycles are fragile under bundling and lazy
+ * module init; parameterising on `Db` keeps the dependency direction
+ * one-way (client → migrations).
+ */
+export async function migrationApplied(
+  db: Db,
+  id: MigrationId,
+): Promise<boolean> {
   // Cast: the TS driver insists `_id` be ObjectId for `Collection<T>` when
   // T._id isn't an ObjectId itself. The runtime query is fine — Mongo
   // happily matches on a string _id when one exists.
@@ -44,10 +55,10 @@ export async function migrationApplied(id: MigrationId): Promise<boolean> {
 
 /** Records a migration as applied. Idempotent — duplicate inserts are swallowed. */
 export async function recordMigration(
+  db: Db,
   id: MigrationId,
   rows: number,
 ): Promise<void> {
-  const db = await getDb();
   try {
     await db.collection<MigrationDoc>("migrations").insertOne({
       _id: id,

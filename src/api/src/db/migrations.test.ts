@@ -83,9 +83,9 @@ describe("migrations module", () => {
     const { closeDb } = await import("./client.ts");
     await closeDb();
     const { migrationApplied, recordMigration } = await import("./migrations.ts");
-    expect(await migrationApplied("exif-captured-year-month-backfill")).toBe(false);
-    await recordMigration("exif-captured-year-month-backfill", 42);
-    expect(await migrationApplied("exif-captured-year-month-backfill")).toBe(true);
+    expect(await migrationApplied(db!, "exif-captured-year-month-backfill")).toBe(false);
+    await recordMigration(db!, "exif-captured-year-month-backfill", 42);
+    expect(await migrationApplied(db!, "exif-captured-year-month-backfill")).toBe(true);
     // Stores rows + appliedAt.
     const doc = await db!.collection("migrations").findOne({
       _id: "exif-captured-year-month-backfill",
@@ -99,11 +99,11 @@ describe("migrations module", () => {
     const { closeDb } = await import("./client.ts");
     await closeDb();
     const { recordMigration, migrationApplied } = await import("./migrations.ts");
-    await recordMigration("place-search-blob-backfill", 10);
+    await recordMigration(db!, "place-search-blob-backfill", 10);
     // Second call must not throw (E11000 duplicate key is swallowed —
     // it just means another boot got there first).
-    await recordMigration("place-search-blob-backfill", 99);
-    expect(await migrationApplied("place-search-blob-backfill")).toBe(true);
+    await recordMigration(db!, "place-search-blob-backfill", 99);
+    expect(await migrationApplied(db!, "place-search-blob-backfill")).toBe(true);
     // First write wins; second is a no-op.
     const doc = await db!.collection("migrations").findOne({
       _id: "place-search-blob-backfill",
@@ -143,7 +143,7 @@ describe("ensureIndexes — backfills don't re-run on second boot", () => {
 
     // Sentinel should now be present.
     const { migrationApplied } = await import("./migrations.ts");
-    expect(await migrationApplied("exif-captured-year-month-backfill")).toBe(true);
+    expect(await migrationApplied(db!, "exif-captured-year-month-backfill")).toBe(true);
 
     // Stomp the captured_year field. If the gate is broken, the second
     // ensureIndexes() call will re-run the backfill and restore it.
@@ -173,7 +173,7 @@ describe("ensureIndexes — backfills don't re-run on second boot", () => {
     // First boot — no rows, sentinel gets written for a zero-row run.
     await ensureIndexes();
     const { migrationApplied } = await import("./migrations.ts");
-    expect(await migrationApplied("place-search-blob-backfill")).toBe(true);
+    expect(await migrationApplied(db!, "place-search-blob-backfill")).toBe(true);
 
     // Insert a row that WOULD be matched by the backfill predicate. If
     // the gate is broken, the second ensureIndexes() will populate the
@@ -206,7 +206,7 @@ describe("ensureIndexes — backfills don't re-run on second boot", () => {
 
     await ensureIndexes();
     const { migrationApplied } = await import("./migrations.ts");
-    expect(await migrationApplied("asset-search-blob-backfill")).toBe(true);
+    expect(await migrationApplied(db!, "asset-search-blob-backfill")).toBe(true);
 
     // Row that would be matched by the unified-blob predicate:
     // place.search_blob set, no top-level search_blob.
