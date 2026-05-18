@@ -20,6 +20,21 @@ function evt(cursor: number): AssetChangeWithId {
   } as AssetChangeWithId;
 }
 
+/** Like `evt` but with NO `relative_path` field on the object — simulates a
+ *  legacy row replayed through the bus before the Phase 6 schema change. */
+function evtNoRelPath(cursor: number): AssetChangeWithId {
+  return {
+    _id: new ObjectId(),
+    cursor,
+    asset_id: new ObjectId(),
+    folder_id: new ObjectId(),
+    kind: "update",
+    abs_path: `/p/legacy-${cursor}.dng`,
+    at: new Date(),
+    // intentionally no `relative_path`
+  } as AssetChangeWithId;
+}
+
 beforeEach(() => {
   __resetChangeBusForTests();
 });
@@ -174,6 +189,36 @@ describe("GET /api/changes/subscribe (SSE)", () => {
     const body = await res.json();
     expect(body.error).toMatch(/too old/i);
     expect(body.current).toBeGreaterThanOrEqual(10_005);
+  });
+
+  it("emits relative_path: null (explicit) for legacy events lacking the field", async () => {
+    // Regression — Phase 6 wire format: SSE payload must include
+    // `relative_path` even when the source row pre-dates the column.
+    // Apple's decoder treats the field as a non-optional `String?` member
+    // and fails if the key is omitted; the `?? null` fallback in
+    // `asPayload` is what guarantees the key is present.
+    const bus = getChangeBus();
+    bus.publish(evtNoRelPath(1));
+    const app = new Elysia().use(changesRoutes);
+    const res = await app.handle(
+      new Request("http://localhost/api/changes/subscribe?since=0")
+    );
+    expect(res.status).toBe(200);
+    const reader = res.body!.getReader();
+    const text = await readWhile(reader, 250);
+    // Find the `data: {...}` JSON line for the cursor=1 frame and parse it.
+    const dataLine = text
+      .split("\n")
+      .find((l) => l.startsWith("data: ") && l.includes('"cursor":1'));
+    expect(dataLine).toBeDefined();
+    const payload = JSON.parse(dataLine!.slice("data: ".length));
+    expect(Object.prototype.hasOwnProperty.call(payload, "relative_path")).toBe(
+      true
+    );
+    expect(payload.relative_path).toBeNull();
+    try {
+      await reader.cancel();
+    } catch {}
   });
 
   it("closes the connection when the per-client queue exceeds the cap", async () => {

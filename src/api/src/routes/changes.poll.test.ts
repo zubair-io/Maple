@@ -88,4 +88,36 @@ describe("GET /api/changes", () => {
     const body = await res.json();
     expect(body.changes.length).toBe(3);
   });
+
+  it("emits relative_path: null (explicit) for legacy rows lacking the field", async () => {
+    // Regression — Phase 6 wire format: payload must include the key
+    // even when the persisted document predates the column. Without the
+    // `?? null` fallback in `asPayload`, JSON.stringify would omit the
+    // key entirely and Apple's decoder (a struct member, not Optional)
+    // would fail to decode the event.
+    if (!mongoReachable || !db || !app) return;
+    // Insert directly so the BSON lacks `relative_path` entirely,
+    // mimicking a row written before Phase 6.
+    await db.collection("asset_changes").insertOne({
+      cursor: 1,
+      asset_id: new ObjectId(),
+      folder_id: new ObjectId(),
+      kind: "update",
+      abs_path: "/p/legacy.dng",
+      at: new Date(),
+    } as never);
+    const res = await app.handle(
+      new Request("http://localhost/api/changes?since=0")
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.changes.length).toBe(1);
+    const row = body.changes[0];
+    // The key must be present AND its value must be `null` — not
+    // `undefined` (which would be elided by JSON.stringify).
+    expect(Object.prototype.hasOwnProperty.call(row, "relative_path")).toBe(
+      true
+    );
+    expect(row.relative_path).toBeNull();
+  });
 });
