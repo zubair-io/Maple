@@ -131,5 +131,22 @@ app_target.dependencies.each do |dep|
   end
 end
 
+# Drop the SDK-pinned Foundation.framework reference that
+# Xcodeproj.new_target auto-adds for iOS targets. Swift gets Foundation
+# implicitly via the stdlib; the explicit reference would pin every
+# clone to a specific Xcode SDK version (see PR #66 Issue #4).
+foundation_pin = "Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS18.0.sdk/System/Library/Frameworks/Foundation.framework"
+target.frameworks_build_phase.files.dup.each do |bf|
+  ref = bf.file_ref
+  if ref && ref.path == foundation_pin
+    target.frameworks_build_phase.remove_build_file(bf)
+  end
+end
+project.files.dup.each do |f|
+  if f.path == foundation_pin
+    f.remove_from_project
+  end
+end
+
 project.save
 puts "[add-ios-fileprovider-target] target #{TARGET_NAME} added."
