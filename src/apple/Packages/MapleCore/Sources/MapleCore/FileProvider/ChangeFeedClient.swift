@@ -1,15 +1,14 @@
-// src/apple/MapleFileProvider/ChangeFeedClient.swift
+// src/apple/Packages/MapleCore/Sources/MapleCore/FileProvider/ChangeFeedClient.swift
 //
 // Subscribes to /api/changes/subscribe (SSE) and signals the FP
 // working-set enumerator on each event. Reconnects on failure with
 // exponential backoff capped at 16 s. Resumes from the last-seen
 // cursor via the `?since=` query param.
 //
-// One instance per FP domain; owned by FileProviderExtension.
+// One instance per FP domain; owned by FileProviderExtensionCore.
 
 import Foundation
 import FileProvider
-import MapleCore
 import OSLog
 
 final class ChangeFeedClient {
