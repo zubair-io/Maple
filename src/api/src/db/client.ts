@@ -440,13 +440,24 @@ export async function ensureIndexes(): Promise<void> {
   //   - `src/indexer/images.repo.ts` `findAssetByMapleId`
   //   - `src/enrichment/meilisearch-client.ts` `find({ maple_id: { $in } })`
   // All three would COLLSCAN without an index. Unique because the hash is
-  // unique by construction; sparse because freshly-discovered skeleton
-  // rows have `maple_id: null` before the hash stage runs (see
-  // `src/workers/discover/index.ts` line 140) and the unique constraint
-  // must not collapse those rows together.
+  // unique by construction.
+  //
+  // Partial filter (NOT `sparse: true`): freshly-discovered skeleton rows
+  // are inserted with `maple_id: null` explicitly (see
+  // `src/workers/discover/index.ts` line 140 — `$setOnInsert: { maple_id: null }`).
+  // `sparse: true` only excludes documents where the field is *absent*, not
+  // where it's present with value `null`, so a `sparse` unique index would
+  // collapse every null-maple-id skeleton row into a single key and reject
+  // the second insert with E11000. `$type: "string"` narrows the index to
+  // real hash values, which is exactly the set the unique constraint needs
+  // to police.
   await db.collection("assets").createIndex(
     { maple_id: 1 },
-    { name: "maple_id_1", unique: true, sparse: true },
+    {
+      name: "maple_id_1",
+      unique: true,
+      partialFilterExpression: { maple_id: { $type: "string" } },
+    },
   );
 
   // Fast prefix index on filename for lowercase-anchored regex queries

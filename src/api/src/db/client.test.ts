@@ -201,7 +201,7 @@ describe("ensureIndexes — text-index introspection (Fix 3)", () => {
 });
 
 describe("ensureIndexes — maple_id index (Fix 4)", () => {
-  it("creates a unique sparse index on maple_id", async () => {
+  it("creates a unique partial-filter index on maple_id (excludes null skeleton rows)", async () => {
     if (!mongoReachable) return;
     const { closeDb, ensureIndexes } = await import("./client.ts");
     await closeDb();
@@ -211,9 +211,64 @@ describe("ensureIndexes — maple_id index (Fix 4)", () => {
     expect(idx).toBeDefined();
     expect(idx!.key).toEqual({ maple_id: 1 });
     expect(idx!.unique).toBe(true);
-    // Sparse — `maple_id` is a content hash assigned during the hash stage;
-    // freshly-discovered skeleton rows don't have one yet, and the unique
-    // constraint must not block them from co-existing.
-    expect(idx!.sparse).toBe(true);
+    // Partial filter — `maple_id` is a content hash assigned during the
+    // hash stage; freshly-discovered skeleton rows have `maple_id: null`
+    // explicitly written by `$setOnInsert` in the discover worker.
+    // `sparse: true` only skips documents where the field is *absent* —
+    // it does NOT skip documents where the field is present with value
+    // `null`. A `sparse` unique index would therefore reject the second
+    // null-maple-id skeleton row with E11000. `$type: "string"` confines
+    // the index to real hash values, exactly the set uniqueness applies to.
+    expect(idx!.partialFilterExpression).toEqual({
+      maple_id: { $type: "string" },
+    });
+    expect(idx!.sparse).toBeUndefined();
+  });
+
+  it("allows multiple null-maple-id skeleton rows AND enforces uniqueness on real hashes", async () => {
+    if (!mongoReachable) return;
+    const { closeDb, ensureIndexes } = await import("./client.ts");
+    await closeDb();
+    await ensureIndexes();
+
+    const base = {
+      folder_id: "f",
+      abs_path: "/x",
+      size: 1,
+      mtime: 0,
+      rating: 0,
+      flag: 0,
+      color_label: "",
+      indexed_at: "2026-05-11T00:00:00Z",
+      deleted_at: null,
+    };
+
+    // 3 skeleton rows with maple_id: null — the discover worker's
+    // `$setOnInsert: { maple_id: null }` shape. `sparse: true` would
+    // collapse these and reject the second insert with E11000; the
+    // partial-filter index lets them all coexist.
+    await db!.collection("assets").insertMany([
+      { ...base, filename: "skel-1.jpg", maple_id: null },
+      { ...base, filename: "skel-2.jpg", maple_id: null },
+      { ...base, filename: "skel-3.jpg", maple_id: null },
+    ]);
+
+    // First row with a real hash inserts cleanly.
+    await db!
+      .collection("assets")
+      .insertOne({ ...base, filename: "hashed-1.jpg", maple_id: "abc" });
+
+    // Second row with the SAME real hash must be rejected — that's the
+    // whole point of the unique constraint.
+    let dupKeyError: unknown = null;
+    try {
+      await db!
+        .collection("assets")
+        .insertOne({ ...base, filename: "hashed-2.jpg", maple_id: "abc" });
+    } catch (err) {
+      dupKeyError = err;
+    }
+    expect(dupKeyError).not.toBeNull();
+    expect((dupKeyError as { code?: number }).code).toBe(11000);
   });
 });
