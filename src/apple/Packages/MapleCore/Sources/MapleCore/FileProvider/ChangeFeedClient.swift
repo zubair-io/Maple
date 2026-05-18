@@ -78,6 +78,7 @@ final class ChangeFeedClient {
 
     private func runOneConnection() async throws {
         let since = cursorStore.load(domain: domainID)
+        log.notice("SSE connect since=\(since, privacy: .public)")
         var comps = URLComponents(
             url: server.appending(path: "/api/changes/subscribe"),
             resolvingAgainstBaseURL: false
@@ -147,6 +148,7 @@ final class ChangeFeedClient {
             if line.isEmpty {
                 if !dataBuffer.isEmpty {
                     if let ev = decodeEvent(dataBuffer) {
+                        log.notice("SSE event cursor=\(ev.cursor, privacy: .public) kind=\(String(describing: ev.kind), privacy: .public) asset=\(ev.assetID ?? "?", privacy: .public)")
                         // J: dispatch BEFORE we persist the cursor.
                         // Previously the save ran first and any crash /
                         // throw inside `onEvent` would leave the cursor
@@ -158,6 +160,8 @@ final class ChangeFeedClient {
                         if let idStr = idBuffer, let id = Int64(idStr) {
                             cursorStore.save(id, domain: domainID)
                         }
+                    } else {
+                        log.error("SSE event decode failed dataBuffer-prefix=\(dataBuffer.prefix(120), privacy: .public)")
                     }
                 }
                 dataBuffer = ""
