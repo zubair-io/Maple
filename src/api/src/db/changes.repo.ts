@@ -206,14 +206,18 @@ export async function listChangesSince(
  * free of folder boilerplate. When the caller pre-computed the
  * relative path (tests, change-feed replay), we use that and skip the
  * lookup.
+ *
+ * `dbOverride` is for tests that want to target an isolated database.
+ * Production callers omit it; the global `getDb()` resolution applies.
  */
 export async function recordAndPublishAssetChange(
-  input: RecordChangeInput
+  input: RecordChangeInput,
+  dbOverride?: Db,
 ): Promise<void> {
   try {
     let relativePath: string | null = input.relative_path ?? null;
     if (relativePath === null && input.folder_id && input.abs_path) {
-      const folderPath = await lookupFolderPath(undefined, input.folder_id);
+      const folderPath = await lookupFolderPath(dbOverride, input.folder_id);
       if (folderPath) {
         relativePath = computeRelativePath(folderPath, input.abs_path);
         if (relativePath === null) {
@@ -237,7 +241,7 @@ export async function recordAndPublishAssetChange(
     // trip: the bus payload is reconstructable from what we already
     // have (the `_id` we synthesize is unused by SSE consumers — they
     // only see the serialised SSE form, which strips `_id`).
-    const cursor = await recordAssetChange(undefined, enriched);
+    const cursor = await recordAssetChange(dbOverride, enriched);
     const synthetic: AssetChangeWithId = {
       _id: new ObjectId(),
       cursor,
