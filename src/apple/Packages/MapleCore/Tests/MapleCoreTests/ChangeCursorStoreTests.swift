@@ -184,6 +184,35 @@ final class ChangeCursorStoreTests: XCTestCase {
         )
     }
 
+    /// Distinct Unicode scalars whose low byte coincides must NOT share
+    /// a cursor file. Earlier the percent-encoder did `scalar.value & 0xFF`,
+    /// which mapped both U+00E4 ("ä") and U+01E4 ("Ǥ") to `%E4` — saving
+    /// a cursor under one domain would silently overwrite the other.
+    /// The fix percent-encodes the scalar's UTF-8 byte sequence instead,
+    /// so each domain occupies its own file.
+    func testPercentEncodingDoesNotCollideOnLowByte() {
+        let dir = freshDirectory()
+        defer { cleanup(dir) }
+        let store = ChangeCursorStore(directory: dir)
+
+        let domainA = "\u{00E4}"  // ä — UTF-8 C3 A4
+        let domainB = "\u{01E4}"  // Ǥ — UTF-8 C7 A4 (same low byte as scalar.value)
+
+        store.save(111, domain: domainA)
+        store.save(222, domain: domainB)
+
+        XCTAssertEqual(store.load(domain: domainA), 111,
+                       "U+00E4 cursor must not be clobbered by U+01E4 save")
+        XCTAssertEqual(store.load(domain: domainB), 222,
+                       "U+01E4 cursor must not collide with U+00E4")
+
+        // And the on-disk filenames must actually differ.
+        let files = (try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? []
+        let cursorFiles = files.filter { $0.hasSuffix(".cursor") }
+        XCTAssertEqual(cursorFiles.count, 2,
+                       "expected two distinct cursor files, got: \(cursorFiles)")
+    }
+
     /// Simulates a stray tmp file from a crashed write (or any garbage
     /// file in the directory). `load()` must return the last
     /// successfully-saved value — never a partial / stale sibling file.
