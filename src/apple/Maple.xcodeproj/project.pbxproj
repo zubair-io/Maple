@@ -7,17 +7,22 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		0718A582AE0357D1850C8A3F /* FileProviderExtensionIOS.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3A022FD8D059C9A3053CC6A /* FileProviderExtensionIOS.swift */; };
 		0E43AF9C39E0B84EEA3D136E /* MapleCore in Frameworks */ = {isa = PBXBuildFile; productRef = F06000F4EB1B951071886262 /* MapleCore */; };
 		5DD5171E450EC883D7DBD9AF /* MaplePreviewProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 368C4388B923E485F1FB55F8 /* MaplePreviewProvider.swift */; };
 		68887492F6CA34B96DFB3128 /* QuickLook.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 385F03E7203135D6A8D4C07C /* QuickLook.framework */; };
+		6C9708A35CBAAEC728E0C92B /* MapleCore in Frameworks */ = {isa = PBXBuildFile; productRef = AD2BAC138F82299C19BFC9C5 /* MapleCore */; };
 		8D33FBC64B990E9B2542DF58 /* MapleCore in Frameworks */ = {isa = PBXBuildFile; productRef = 07D7B596343161F1A66BD85A /* MapleCore */; };
+		90B84E91D77C641B60A348DA /* FileProvider.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E471E86FF6276852A3960D14 /* FileProvider.framework */; };
 		9913DE4AB2F2AFC8674F57C0 /* FileProviderExtension.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CA678A9D2E0D47F2A861CC6 /* FileProviderExtension.swift */; };
 		A1F0000100000000000000A1 /* MapleCore in Frameworks */ = {isa = PBXBuildFile; productRef = A1F0000200000000000000A1 /* MapleCore */; };
 		A1F0000300000000000000A1 /* RawPipeline.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = A1F0000400000000000000A1 /* RawPipeline.xcframework */; };
 		B8FE7E2DDA6B10D25A18085C /* RawPipeline.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = A1F0000400000000000000A1 /* RawPipeline.xcframework */; };
 		BF306371601D933BE6ECCBEF /* FileProvider.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E471E86FF6276852A3960D14 /* FileProvider.framework */; };
-		C0D28215847FC19B22E663BC /* MapleFileProvider.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = EC6472D425AC44A1388478EF /* MapleFileProvider.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
-		CD96B6E04439562F54AD13B8 /* MapleQuickLook.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 443236A672080511BD1FC170 /* MapleQuickLook.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		C0D28215847FC19B22E663BC /* MapleFileProvider.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = EC6472D425AC44A1388478EF /* MapleFileProvider.appex */; platformFilters = (macos, ); settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		CD96B6E04439562F54AD13B8 /* MapleQuickLook.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 443236A672080511BD1FC170 /* MapleQuickLook.appex */; platformFilters = (macos, ); settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		D681B5B31AAF3A2CEA529EAE /* MapleFileProviderIOS.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 521B6F9B85049DBA00FD7C56 /* MapleFileProviderIOS.appex */; platformFilters = (ios, ); settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		E1993CE634D734EDA2028FF6 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A1CA51247FBF42FB8BE0CD00 /* Foundation.framework */; };
 		E3DD948B2FB50EB9009392B4 /* MapleCore in Frameworks */ = {isa = PBXBuildFile; productRef = E3DD948A2FB50EB9009392B4 /* MapleCore */; };
 		E3DD948E2FB51A67009392B4 /* MapleBackup in Frameworks */ = {isa = PBXBuildFile; productRef = E3DD948D2FB51A67009392B4 /* MapleBackup */; };
 		E3DD94902FB55723009392B4 /* MapleBackup in Frameworks */ = {isa = PBXBuildFile; productRef = E3DD948F2FB55723009392B4 /* MapleBackup */; };
@@ -25,6 +30,13 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
+		6C0BF6B7E85D714F2FFABA55 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A1F0001A00000000000000A1 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 246E80A8F95722377C731777;
+			remoteInfo = MapleFileProviderIOS;
+		};
 		A1F0006900000000000000A1 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = A1F0001A00000000000000A1 /* Project object */;
@@ -64,6 +76,7 @@
 			files = (
 				C0D28215847FC19B22E663BC /* MapleFileProvider.appex in Embed Foundation Extensions */,
 				CD96B6E04439562F54AD13B8 /* MapleQuickLook.appex in Embed Foundation Extensions */,
+				D681B5B31AAF3A2CEA529EAE /* MapleFileProviderIOS.appex in Embed Foundation Extensions */,
 			);
 			name = "Embed Foundation Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -84,7 +97,11 @@
 		368C4388B923E485F1FB55F8 /* MaplePreviewProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MaplePreviewProvider.swift; sourceTree = "<group>"; };
 		385F03E7203135D6A8D4C07C /* QuickLook.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = QuickLook.framework; path = System/Library/Frameworks/QuickLook.framework; sourceTree = SDKROOT; };
 		443236A672080511BD1FC170 /* MapleQuickLook.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = MapleQuickLook.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		521B6F9B85049DBA00FD7C56 /* MapleFileProviderIOS.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = MapleFileProviderIOS.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		60914AF0B51BBB56CCEFD8E3 /* MapleFileProviderIOS.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; path = MapleFileProviderIOS.entitlements; sourceTree = "<group>"; };
+		9AC3CD62F8F6DA8F9505341F /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		9CA678A9D2E0D47F2A861CC6 /* FileProviderExtension.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FileProviderExtension.swift; sourceTree = "<group>"; };
+		A1CA51247FBF42FB8BE0CD00 /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS18.0.sdk/System/Library/Frameworks/Foundation.framework; sourceTree = DEVELOPER_DIR; };
 		A1F0000400000000000000A1 /* RawPipeline.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = RawPipeline.xcframework; path = Frameworks/RawPipeline.xcframework; sourceTree = "<group>"; };
 		A1F0000700000000000000A1 /* MapleAperture.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MapleAperture.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A1F0000800000000000000A1 /* MapleTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MapleTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -93,6 +110,7 @@
 		BA39B6A9245FA00D972845C6 /* MapleFileProvider.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; path = MapleFileProvider.entitlements; sourceTree = "<group>"; };
 		C311E84456147F8B58D53877 /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		D297F45123C9B9F4FF4AC24F /* MapleQuickLook.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; path = MapleQuickLook.entitlements; sourceTree = "<group>"; };
+		E3A022FD8D059C9A3053CC6A /* FileProviderExtensionIOS.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FileProviderExtensionIOS.swift; sourceTree = "<group>"; };
 		E3DD94832FB50E55009392B4 /* MapleBackupAgent */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = MapleBackupAgent; sourceTree = BUILT_PRODUCTS_DIR; };
 		E471E86FF6276852A3960D14 /* FileProvider.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = FileProvider.framework; path = System/Library/Frameworks/FileProvider.framework; sourceTree = SDKROOT; };
 		EC6472D425AC44A1388478EF /* MapleFileProvider.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = MapleFileProvider.appex; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -150,6 +168,16 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		5E92E2B9757DC6AA8F25362E /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				E1993CE634D734EDA2028FF6 /* Foundation.framework in Frameworks */,
+				6C9708A35CBAAEC728E0C92B /* MapleCore in Frameworks */,
+				90B84E91D77C641B60A348DA /* FileProvider.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		A1F0000A00000000000000A1 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -186,11 +214,30 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		1FA097CDA4E5254F25DD49BA /* MapleFileProviderIOS */ = {
+			isa = PBXGroup;
+			children = (
+				E3A022FD8D059C9A3053CC6A /* FileProviderExtensionIOS.swift */,
+				9AC3CD62F8F6DA8F9505341F /* Info.plist */,
+				60914AF0B51BBB56CCEFD8E3 /* MapleFileProviderIOS.entitlements */,
+			);
+			name = MapleFileProviderIOS;
+			path = MapleFileProviderIOS;
+			sourceTree = "<group>";
+		};
 		21221CD5764C20C661DA70B2 /* OS X */ = {
 			isa = PBXGroup;
 			children = (
 			);
 			name = "OS X";
+			sourceTree = "<group>";
+		};
+		36C4F60DCF06B9D3E5F1ECE8 /* iOS */ = {
+			isa = PBXGroup;
+			children = (
+				A1CA51247FBF42FB8BE0CD00 /* Foundation.framework */,
+			);
+			name = iOS;
 			sourceTree = "<group>";
 		};
 		698028BF3FB094189B51F71F /* MapleQuickLook */ = {
@@ -215,6 +262,7 @@
 				E3FF1B052F9D8CE600FD7E5E /* Recovered References */,
 				B119715AB39081A63317BE96 /* MapleFileProvider */,
 				698028BF3FB094189B51F71F /* MapleQuickLook */,
+				1FA097CDA4E5254F25DD49BA /* MapleFileProviderIOS */,
 			);
 			sourceTree = "<group>";
 		};
@@ -233,6 +281,7 @@
 				E471E86FF6276852A3960D14 /* FileProvider.framework */,
 				385F03E7203135D6A8D4C07C /* QuickLook.framework */,
 				0D23B0EDD7DF1B168C777B68 /* QuickLookUI.framework */,
+				36C4F60DCF06B9D3E5F1ECE8 /* iOS */,
 			);
 			name = Frameworks;
 			sourceTree = "<group>";
@@ -246,6 +295,7 @@
 				E3DD94832FB50E55009392B4 /* MapleBackupAgent */,
 				EC6472D425AC44A1388478EF /* MapleFileProvider.appex */,
 				443236A672080511BD1FC170 /* MapleQuickLook.appex */,
+				521B6F9B85049DBA00FD7C56 /* MapleFileProviderIOS.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -273,6 +323,26 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		246E80A8F95722377C731777 /* MapleFileProviderIOS */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 7360BCA2598FCC1F859CA515 /* Build configuration list for PBXNativeTarget "MapleFileProviderIOS" */;
+			buildPhases = (
+				C5CDC0229BED60B9DF2496BB /* Sources */,
+				5E92E2B9757DC6AA8F25362E /* Frameworks */,
+				6C412D540F24B9A4211012AB /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = MapleFileProviderIOS;
+			packageProductDependencies = (
+				AD2BAC138F82299C19BFC9C5 /* MapleCore */,
+			);
+			productName = MapleFileProviderIOS;
+			productReference = 521B6F9B85049DBA00FD7C56 /* MapleFileProviderIOS.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 		2B0A1BC438B6D017026535AE /* MapleQuickLook */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = A0DAB2E76822C2BA4A28F418 /* Build configuration list for PBXNativeTarget "MapleQuickLook" */;
@@ -309,6 +379,7 @@
 			dependencies = (
 				6E7046EBC2924B60E9A53BDF /* PBXTargetDependency */,
 				A94BA048F0AF3949586FB40E /* PBXTargetDependency */,
+				F036300CB260BA8DAC101057 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				A1F0000900000000000000A1 /* Maple */,
@@ -458,12 +529,20 @@
 				E3DD94822FB50E55009392B4 /* MapleBackupAgent */,
 				FBF9A9CA395B79B5F88F2B88 /* MapleFileProvider */,
 				2B0A1BC438B6D017026535AE /* MapleQuickLook */,
+				246E80A8F95722377C731777 /* MapleFileProviderIOS */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
 		3984EC185A536E638BEBF2C5 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		6C412D540F24B9A4211012AB /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -579,6 +658,14 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		C5CDC0229BED60B9DF2496BB /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				0718A582AE0357D1850C8A3F /* FileProviderExtensionIOS.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		E3DD947F2FB50E55009392B4 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -592,6 +679,9 @@
 		6E7046EBC2924B60E9A53BDF /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			name = MapleFileProvider;
+			platformFilters = (
+				macos,
+			);
 			target = FBF9A9CA395B79B5F88F2B88 /* MapleFileProvider */;
 			targetProxy = B52A919217EDFA9852CD4A11 /* PBXContainerItemProxy */;
 		};
@@ -608,12 +698,53 @@
 		A94BA048F0AF3949586FB40E /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			name = MapleQuickLook;
+			platformFilters = (
+				macos,
+			);
 			target = 2B0A1BC438B6D017026535AE /* MapleQuickLook */;
 			targetProxy = EF2E9A12C37DAF0EAAA3261E /* PBXContainerItemProxy */;
+		};
+		F036300CB260BA8DAC101057 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			name = MapleFileProviderIOS;
+			platformFilters = (
+				ios,
+			);
+			target = 246E80A8F95722377C731777 /* MapleFileProviderIOS */;
+			targetProxy = 6C0BF6B7E85D714F2FFABA55 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
+		05E3343BCA7A720B4BFAC48E /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_ENABLE_OBJC_WEAK = NO;
+				CODE_SIGN_ENTITLEMENTS = MapleFileProviderIOS/MapleFileProviderIOS.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = QREP66JW5U;
+				ENABLE_HARDENED_RUNTIME = NO;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = MapleFileProviderIOS/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = app.justmaple.aperture.FileProviderIOS;
+				PRODUCT_NAME = MapleFileProviderIOS;
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_VERSION = 5.10;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
 		2BCB4C79E07F4EE2F790D52D /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -691,6 +822,34 @@
 				SWIFT_VERSION = 5.0;
 			};
 			name = Release;
+		};
+		9D94FE34EA23DCDA6B91A786 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_ENABLE_OBJC_WEAK = NO;
+				CODE_SIGN_ENTITLEMENTS = MapleFileProviderIOS/MapleFileProviderIOS.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = QREP66JW5U;
+				ENABLE_HARDENED_RUNTIME = NO;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = MapleFileProviderIOS/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = app.justmaple.aperture.FileProviderIOS;
+				PRODUCT_NAME = MapleFileProviderIOS;
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_VERSION = 5.10;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
 		};
 		A1F0001D00000000000000A1 /* Debug */ = {
 			isa = XCBuildConfiguration;
@@ -1116,6 +1275,15 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		7360BCA2598FCC1F859CA515 /* Build configuration list for PBXNativeTarget "MapleFileProviderIOS" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				05E3343BCA7A720B4BFAC48E /* Release */,
+				9D94FE34EA23DCDA6B91A786 /* Debug */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		A0DAB2E76822C2BA4A28F418 /* Build configuration list for PBXNativeTarget "MapleQuickLook" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
@@ -1200,6 +1368,11 @@
 		};
 		A1F0000200000000000000A1 /* MapleCore */ = {
 			isa = XCSwiftPackageProductDependency;
+			productName = MapleCore;
+		};
+		AD2BAC138F82299C19BFC9C5 /* MapleCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A1F0001C00000000000000A1 /* XCLocalSwiftPackageReference "MapleCore" */;
 			productName = MapleCore;
 		};
 		E3DD948A2FB50EB9009392B4 /* MapleCore */ = {
