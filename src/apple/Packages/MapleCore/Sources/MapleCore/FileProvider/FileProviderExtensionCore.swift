@@ -469,8 +469,44 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                                     localBasename: localURL.lastPathComponent,
                                     assetID: assetID,
                                     conflictBasename: conflictBasename)
+                    // Construct a SIDECAR-shaped MapleItem so the returned
+                    // item's `itemIdentifier` matches the request's
+                    // `.sidecar(assetID:conflictBasename:)` shape. Building
+                    // an `assetMetadata`-based item here would produce
+                    // `.asset(id)` and the OS would associate the downloaded
+                    // `.xmp` bytes with the RAW asset, breaking subsequent
+                    // sidecar lookups and Quick Look discrimination.
                     let parentSidecar = await Self.resolveAssetParent(meta: resolved, rootCache: self.rootCache)
-                    completionHandler(localURL, MapleItem(assetMetadata: resolved, parent: parentSidecar), nil)
+                    let imageBase: String = {
+                        let f = resolved.filename
+                        let dot = f.lastIndex(of: ".")
+                        return dot.map { String(f[..<$0]) } ?? f
+                    }()
+                    // The on-disk filename the server will report is
+                    // either `<imageBase>.xmp` (canonical) or
+                    // `<conflictBasename>.xmp` (conflict copy). The
+                    // `init(sidecar:parentImageBase:parentIdentifier:)`
+                    // initializer reads `sidecar.name` to decide
+                    // canonical-vs-conflict, so we synthesize the right
+                    // name explicitly.
+                    let sidecarName: String = {
+                        if let cb = conflictBasename, !cb.isEmpty {
+                            return "\(cb).xmp"
+                        }
+                        return "\(imageBase).xmp"
+                    }()
+                    let mtime = Date()
+                    let synthesized = SidecarChild(
+                        name: sidecarName,
+                        path: sidecarName,
+                        mtime: mtime,
+                        size: Int64(bytes.count),
+                        assetID: assetID
+                    )
+                    let sidecarItem = MapleItem(sidecar: synthesized,
+                                                parentImageBase: imageBase,
+                                                parentIdentifier: parentSidecar)
+                    completionHandler(localURL, sidecarItem, nil)
                     return
                 case .folder, .trash:
                     completionHandler(nil, nil, NSError(domain: NSFileProviderErrorDomain,
