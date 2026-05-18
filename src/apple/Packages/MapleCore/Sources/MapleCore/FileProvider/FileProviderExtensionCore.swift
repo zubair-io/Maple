@@ -417,10 +417,19 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                     // "local edit" back. That path isn't supported for
                     // RAW bytes and surfaces in Finder as an up-arrow
                     // sync error.
-                    try? FileManager.default.setAttributes(
-                        [.modificationDate: resolved.contentModificationDate],
-                        ofItemAtPath: localURL.path
-                    )
+                    do {
+                        try FileManager.default.setAttributes(
+                            [.modificationDate: resolved.contentModificationDate],
+                            ofItemAtPath: localURL.path
+                        )
+                    } catch {
+                        // Non-fatal — the download still succeeded. But
+                        // a silent failure here means a subsequent
+                        // up-arrow sync error has no obvious cause, so
+                        // log it (notice, not error: the bytes are
+                        // good, the user-facing operation completed).
+                        log.notice("setAttributes(modificationDate:) failed for \(localURL.lastPathComponent, privacy: .public): \(String(describing: error), privacy: .public)")
+                    }
                     log.notice("fetchContents asset \(id, privacy: .public) ok bytes-at=\(localURL.path, privacy: .public)")
                     let parent = await Self.resolveAssetParent(meta: resolved, rootCache: self.rootCache)
                     completionHandler(localURL, MapleItem(assetMetadata: resolved, parent: parent), nil)
@@ -448,10 +457,19 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                     // so the OS doesn't think the sidecar was edited
                     // locally and try to push it back via modifyItem.
                     // (Same root cause as the RAW path above.)
-                    try? FileManager.default.setAttributes(
-                        [.modificationDate: resolved.contentModificationDate],
-                        ofItemAtPath: localURL.path
-                    )
+                    do {
+                        try FileManager.default.setAttributes(
+                            [.modificationDate: resolved.contentModificationDate],
+                            ofItemAtPath: localURL.path
+                        )
+                    } catch {
+                        // Non-fatal — the download still succeeded. But
+                        // a silent failure here means a subsequent
+                        // up-arrow sync error has no obvious cause, so
+                        // log it (notice, not error: the bytes are
+                        // good, the user-facing operation completed).
+                        log.notice("setAttributes(modificationDate:) failed for \(localURL.lastPathComponent, privacy: .public): \(String(describing: error), privacy: .public)")
+                    }
                     // Construct a SIDECAR-shaped MapleItem so the returned
                     // item's `itemIdentifier` matches the request's
                     // `.sidecar(assetID:conflictBasename:)` shape. Building
@@ -478,7 +496,14 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                         }
                         return "\(imageBase).xmp"
                     }()
-                    let mtime = Date()
+                    // Use the resolved asset's server-side mtime so the
+                    // synthesized SidecarChild — and therefore the
+                    // MapleItem's contentModificationDate — agrees with
+                    // the file mtime we stamp a few lines down. Falling
+                    // back to "now" here would reintroduce the OS's
+                    // file-vs-item mtime mismatch in the inverted
+                    // direction: file = server-mtime, item = now.
+                    let mtime = resolved.contentModificationDate
                     let synthesized = SidecarChild(
                         name: sidecarName,
                         path: sidecarName,
