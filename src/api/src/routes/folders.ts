@@ -13,6 +13,7 @@ import type { Dirent } from "node:fs";
 import * as nodePath from "node:path";
 import { randomUUID } from "node:crypto";
 import { foldersCollection, assetsCollection } from "../db/client.ts";
+import { recordAndPublishAssetChange } from "../db/changes.repo.ts";
 import { validateRoot } from "../fs/root.ts";
 import { RAW_EXTENSIONS } from "../fs/browse.ts";
 import { SHARP_EXTENSIONS } from "../thumbs/render.ts";
@@ -390,6 +391,17 @@ export const foldersRoutes = new Elysia({ prefix: "/api/folders" })
         set.status = 500;
         return { error: `Upload metadata failed: ${err instanceof Error ? err.message : String(err)}` };
       }
+
+      // Best-effort change-feed emit so File Provider clients see the
+      // new asset without waiting for the discover watcher to notice
+      // the file. `.catch(() => {})` honours the Phase 5b guarantee
+      // that change-feed failure is non-fatal to the primary write.
+      await recordAndPublishAssetChange({
+        kind: "create",
+        asset_id: assetID,
+        folder_id: folderId,
+        abs_path: absPath,
+      }).catch(() => {});
 
       set.status = 201;
       // `mtime` is emitted as an ISO-8601 string (matches the rest of
