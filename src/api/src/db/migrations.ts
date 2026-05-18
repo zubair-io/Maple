@@ -24,7 +24,7 @@ export type MigrationId =
 
 interface MigrationDoc {
   _id: MigrationId;
-  appliedAt: Date;
+  applied_at: Date;
   rows: number;
 }
 
@@ -62,7 +62,7 @@ export async function recordMigration(
   try {
     await db.collection<MigrationDoc>("migrations").insertOne({
       _id: id,
-      appliedAt: new Date(),
+      applied_at: new Date(),
       rows,
     });
   } catch (err) {
