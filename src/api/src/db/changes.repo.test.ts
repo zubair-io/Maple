@@ -17,9 +17,14 @@ import {
   getChangeBus,
   __resetChangeBusForTests,
 } from "../runtime/change-bus.ts";
+import { closeDb } from "./client.ts";
 
 const MONGO_URI = process.env.MAPLE_MONGO_URI ?? "mongodb://localhost:27017";
 const TEST_DB = `maple_changes_repo_test_${process.pid}`;
+// Snapshot of the env at module load so afterAll can restore it; another
+// test file run later in the same process must not inherit our DB name.
+const ORIGINAL_MONGO_DB = process.env.MAPLE_MONGO_DB;
+const ORIGINAL_MONGO_URI = process.env.MAPLE_MONGO_URI;
 
 let client: MongoClient | null = null;
 let db: Db | null = null;
@@ -44,6 +49,12 @@ async function tryConnect(): Promise<MongoClient | null> {
 beforeEach(async () => {
   client = await tryConnect();
   if (!client) return;
+  // Reset the API's module-cached MongoClient BEFORE changing the env so
+  // any subsequent `getDb()` call (e.g. from a helper that doesn't take
+  // a dbOverride) re-resolves MAPLE_MONGO_DB to OUR test DB rather than
+  // re-using a sibling test file's cached connection. Mirrors the
+  // pattern in folders.etag.test.ts.
+  await closeDb();
   process.env.MAPLE_MONGO_URI = MONGO_URI;
   process.env.MAPLE_MONGO_DB = TEST_DB;
   db = client.db(TEST_DB);
@@ -55,6 +66,20 @@ beforeEach(async () => {
 afterAll(async () => {
   if (db) await db.dropDatabase();
   if (client) await client.close();
+  // Restore env so the next test file in the same process picks up its
+  // own MAPLE_MONGO_DB (or none) instead of our isolated DB name, and
+  // drop the cached singleton so it re-resolves from the restored env.
+  if (ORIGINAL_MONGO_DB === undefined) {
+    delete process.env.MAPLE_MONGO_DB;
+  } else {
+    process.env.MAPLE_MONGO_DB = ORIGINAL_MONGO_DB;
+  }
+  if (ORIGINAL_MONGO_URI === undefined) {
+    delete process.env.MAPLE_MONGO_URI;
+  } else {
+    process.env.MAPLE_MONGO_URI = ORIGINAL_MONGO_URI;
+  }
+  await closeDb();
 });
 
 describe("changes.repo", () => {
