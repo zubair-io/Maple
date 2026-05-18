@@ -436,11 +436,12 @@ public actor QuickLookThumbDiskCache {
 
     // MARK: - Hash
 
-    /// SHA-1 of the ETag, hex-encoded, prefix-16. ETags include quotes
-    /// and special characters; hashing keeps the filename safe and
-    /// short. SHA-1 is fine here — collision risk is "two ETag strings
-    /// happen to hash the same, second one orphans the first on disk",
-    /// which is non-malicious and self-healing on next fetch.
+    /// SHA-1 of the ETag, hex-encoded, first 8 bytes = 16 hex chars.
+    /// ETags include quotes and special characters; hashing keeps the
+    /// filename safe and short. SHA-1 is fine here — collision risk is
+    /// "two ETag strings happen to hash the same, second one orphans
+    /// the first on disk", which is non-malicious and self-healing on
+    /// next fetch.
     private func etagHash(_ etag: String) -> String {
         let digest = Insecure.SHA1.hash(data: Data(etag.utf8))
         return digest.prefix(8).map { String(format: "%02x", $0) }.joined()
