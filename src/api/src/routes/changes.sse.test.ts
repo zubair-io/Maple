@@ -192,11 +192,12 @@ describe("GET /api/changes/subscribe (SSE)", () => {
   });
 
   it("emits relative_path: null (explicit) for legacy events lacking the field", async () => {
-    // Regression — Phase 6 wire format: SSE payload must include
-    // `relative_path` even when the source row pre-dates the column.
-    // Apple's decoder treats the field as a non-optional `String?` member
-    // and fails if the key is omitted; the `?? null` fallback in
-    // `asPayload` is what guarantees the key is present.
+    // Regression — Phase 6 wire format: explicit null is the contract.
+    // Apple's decoder uses `decodeIfPresent` so it tolerates the key
+    // being missing, but the SSE wire format guarantees the key is
+    // present (via the `?? null` fallback in `asPayload`) so
+    // downstream consumers can rely on its existence. Asserting the
+    // explicit-null shape protects against accidental drift.
     const bus = getChangeBus();
     bus.publish(evtNoRelPath(1));
     const app = new Elysia().use(changesRoutes);
