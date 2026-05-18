@@ -668,6 +668,18 @@ export interface AssetChangeDoc {
   /** Absolute filesystem path of the affected asset. Null for changes
    * that don't have a single canonical path (e.g. a folder rescan). */
   abs_path: string | null;
+  /**
+   * Path of the affected asset relative to its containing library root
+   * (`folder.path`). Computed at write time by
+   * `recordAndPublishAssetChange` so File Provider clients can route
+   * per-folder invalidation precisely instead of falling back to the
+   * working-set. `""` when the absPath equals the folder root itself.
+   * `null` when the field is absent (rows written before Phase 6) OR
+   * when the absPath doesn't fall under the named folder root
+   * (defensive — the writer logs and stores null rather than emitting
+   * a wrong path). Readers MUST tolerate null.
+   */
+  relative_path: string | null;
   /** Insertion timestamp — informational. The cursor is the source of
    * truth for ordering. */
   at: Date;
