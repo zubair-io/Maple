@@ -14,6 +14,7 @@ import {
 } from "mongodb";
 import { child as childLogger } from "../log.ts";
 import { searchBlobUpdateExpression } from "../enrichment/search-blob.ts";
+import { migrationApplied, recordMigration } from "./migrations.ts";
 import type {
   FolderDoc,
   AssetDoc,
@@ -268,57 +269,64 @@ export async function ensureIndexes(): Promise<void> {
   const db = await getDb();
 
   // Backfill exif.captured_year + exif.captured_month for any rows
-  // indexed before the timeline-buckets perf change. Idempotent: the
-  // predicate filters to rows that have captured_at but no captured_year,
-  // so on subsequent boots this matches zero docs and is a no-op. Runs
-  // BEFORE the compound index creation so the index has data to cover
-  // immediately (Mongo would build the index either way, but doing the
-  // updates first means the index build sees fewer dirty pages).
-  try {
-    const res = await db.collection("assets").updateMany(
-      {
-        "exif.captured_at": { $ne: null, $exists: true },
-        "exif.captured_year": { $exists: false },
-      },
-      [
+  // indexed before the timeline-buckets perf change. Gated on the
+  // `migrations` collection — the predicate alone is NOT enough to
+  // make this cheap on subsequent boots: the planner's "match zero"
+  // check still has to walk the `exif.captured_at: -1` index (309k
+  // keys + docs = 3.6s / 1GB read in the user's library; see
+  // mongod.log evidence in PR body). After the first successful boot
+  // post-deploy this branch is skipped entirely.
+  if (!(await migrationApplied("exif-captured-year-month-backfill"))) {
+    try {
+      const res = await db.collection("assets").updateMany(
         {
-          $set: {
-            "exif.captured_year": {
-              $year: {
-                $dateFromString: {
-                  dateString: "$exif.captured_at",
-                  onError: null,
-                  onNull: null,
+          "exif.captured_at": { $ne: null, $exists: true },
+          "exif.captured_year": { $exists: false },
+        },
+        [
+          {
+            $set: {
+              "exif.captured_year": {
+                $year: {
+                  $dateFromString: {
+                    dateString: "$exif.captured_at",
+                    onError: null,
+                    onNull: null,
+                  },
                 },
               },
-            },
-            "exif.captured_month": {
-              $month: {
-                $dateFromString: {
-                  dateString: "$exif.captured_at",
-                  onError: null,
-                  onNull: null,
+              "exif.captured_month": {
+                $month: {
+                  $dateFromString: {
+                    dateString: "$exif.captured_at",
+                    onError: null,
+                    onNull: null,
+                  },
                 },
               },
             },
           },
-        },
-      ],
-    );
-    if (res.modifiedCount > 0) {
+        ],
+      );
+      await recordMigration(
+        "exif-captured-year-month-backfill",
+        res.modifiedCount,
+      );
       log.info(
         { rows: res.modifiedCount },
-        "backfilled exif.captured_year/month",
+        "applied exif.captured_year/month backfill",
+      );
+    } catch (err) {
+      // Log + continue — the index build below still works against rows
+      // that have year/month from the indexer's per-file path, the perf
+      // win just won't apply to legacy rows until they're re-indexed.
+      // We intentionally do NOT record the migration on failure: the next
+      // boot will retry, which is the right behaviour for transient errors.
+      log.warn(
+        { err: err instanceof Error ? err.message : err },
+        "captured_year/month backfill skipped",
       );
     }
-  } catch (err) {
-    // Log + continue — the index build below still works against rows
-    // that have year/month from the indexer's per-file path, the perf
-    // win just won't apply to legacy rows until they're re-indexed.
-    log.warn(
-      { err: err instanceof Error ? err.message : err },
-      "captured_year/month backfill skipped",
-    );
   }
 
   // folders: path is unique
@@ -502,128 +510,135 @@ export async function ensureIndexes(): Promise<void> {
   // satisfied). Rebuild the blob from the existing address + POIs in a
   // single aggregation pipeline so we don't ship a one-shot script.
   //
-  // Idempotent: the predicate filters to rows whose blob is empty/missing,
-  // so on subsequent boots this matches zero docs and is a no-op.
+  // Gated on the `migrations` collection — the previous "predicate is
+  // narrow so subsequent runs are no-ops" reasoning is wrong: the
+  // updateMany still has to scan the collection (no index on
+  // `place.search_blob`, so it COLLSCANs 431k to confirm zero matches —
+  // 0.6s per boot in the user's library). The sentinel skips the entire
+  // round-trip after first success.
   //
   // We scope to live + place-bearing rows so the update doesn't churn
   // every soft-deleted or never-geocoded asset.
-  try {
-    const res = await db.collection("assets").updateMany(
-      {
-        place: { $ne: null },
-        $or: [
-          { "place.search_blob": "" },
-          { "place.search_blob": { $exists: false } },
-        ],
-      },
-      [
+  if (!(await migrationApplied("place-search-blob-backfill"))) {
+    try {
+      const res = await db.collection("assets").updateMany(
         {
-          $set: {
-            "place.search_blob": {
-              $let: {
-                vars: {
-                  // Address values, lowercased. Concat into one string and
-                  // split on whitespace so multi-word values ("New York")
-                  // become individual tokens.
-                  addressTokens: {
-                    $reduce: {
-                      input: [
-                        "$place.address.house_number",
-                        "$place.address.road",
-                        "$place.address.neighbourhood",
-                        "$place.address.suburb",
-                        "$place.address.city",
-                        "$place.address.town",
-                        "$place.address.village",
-                        "$place.address.county",
-                        "$place.address.state",
-                        "$place.address.state_code",
-                        "$place.address.postcode",
-                        "$place.address.country",
-                        "$place.address.country_code",
-                      ],
-                      initialValue: [] as string[],
-                      in: {
-                        $concatArrays: [
-                          "$$value",
-                          {
-                            $cond: [
-                              { $ifNull: ["$$this", false] },
-                              {
-                                $split: [{ $toLower: "$$this" }, " "],
-                              },
-                              [],
-                            ],
-                          },
+          place: { $ne: null },
+          $or: [
+            { "place.search_blob": "" },
+            { "place.search_blob": { $exists: false } },
+          ],
+        },
+        [
+          {
+            $set: {
+              "place.search_blob": {
+                $let: {
+                  vars: {
+                    // Address values, lowercased. Concat into one string and
+                    // split on whitespace so multi-word values ("New York")
+                    // become individual tokens.
+                    addressTokens: {
+                      $reduce: {
+                        input: [
+                          "$place.address.house_number",
+                          "$place.address.road",
+                          "$place.address.neighbourhood",
+                          "$place.address.suburb",
+                          "$place.address.city",
+                          "$place.address.town",
+                          "$place.address.village",
+                          "$place.address.county",
+                          "$place.address.state",
+                          "$place.address.state_code",
+                          "$place.address.postcode",
+                          "$place.address.country",
+                          "$place.address.country_code",
                         ],
-                      },
-                    },
-                  },
-                  poiTokens: {
-                    $reduce: {
-                      input: { $ifNull: ["$place.pois", []] },
-                      initialValue: [] as string[],
-                      in: {
-                        $concatArrays: [
-                          "$$value",
-                          { $split: [{ $toLower: "$$this.name" }, " "] },
-                          { $split: [{ $toLower: "$$this.type" }, " "] },
-                        ],
-                      },
-                    },
-                  },
-                },
-                in: {
-                  $reduce: {
-                    input: {
-                      // Sort + dedup by hand: $setUnion gives us the
-                      // dedup; $sortArray gives the deterministic order
-                      // (matches the parser's `[...set].sort().join(" ")`).
-                      $sortArray: {
-                        input: {
-                          $filter: {
-                            input: {
-                              $setUnion: [
-                                "$$addressTokens",
-                                "$$poiTokens",
+                        initialValue: [] as string[],
+                        in: {
+                          $concatArrays: [
+                            "$$value",
+                            {
+                              $cond: [
+                                { $ifNull: ["$$this", false] },
+                                {
+                                  $split: [{ $toLower: "$$this" }, " "],
+                                },
+                                [],
                               ],
                             },
-                            cond: { $gt: [{ $strLenCP: "$$this" }, 0] },
-                          },
+                          ],
                         },
-                        sortBy: 1,
                       },
                     },
-                    initialValue: "",
-                    in: {
-                      $cond: [
-                        { $eq: ["$$value", ""] },
-                        "$$this",
-                        { $concat: ["$$value", " ", "$$this"] },
-                      ],
+                    poiTokens: {
+                      $reduce: {
+                        input: { $ifNull: ["$place.pois", []] },
+                        initialValue: [] as string[],
+                        in: {
+                          $concatArrays: [
+                            "$$value",
+                            { $split: [{ $toLower: "$$this.name" }, " "] },
+                            { $split: [{ $toLower: "$$this.type" }, " "] },
+                          ],
+                        },
+                      },
+                    },
+                  },
+                  in: {
+                    $reduce: {
+                      input: {
+                        // Sort + dedup by hand: $setUnion gives us the
+                        // dedup; $sortArray gives the deterministic order
+                        // (matches the parser's `[...set].sort().join(" ")`).
+                        $sortArray: {
+                          input: {
+                            $filter: {
+                              input: {
+                                $setUnion: [
+                                  "$$addressTokens",
+                                  "$$poiTokens",
+                                ],
+                              },
+                              cond: { $gt: [{ $strLenCP: "$$this" }, 0] },
+                            },
+                          },
+                          sortBy: 1,
+                        },
+                      },
+                      initialValue: "",
+                      in: {
+                        $cond: [
+                          { $eq: ["$$value", ""] },
+                          "$$this",
+                          { $concat: ["$$value", " ", "$$this"] },
+                        ],
+                      },
                     },
                   },
                 },
               },
             },
           },
-        },
-      ],
-    );
-    if (res.modifiedCount > 0) {
+        ],
+      );
+      await recordMigration("place-search-blob-backfill", res.modifiedCount);
       log.info(
         { rows: res.modifiedCount },
-        "backfilled place.search_blob",
+        "applied place.search_blob backfill",
+      );
+    } catch (err) {
+      // Log + continue. The text index build below is independent — a
+      // backfill failure means a few legacy rows stay un-indexed for the
+      // text search, but freshly-geocoded assets still index correctly.
+      // We intentionally do NOT record the migration on failure: the next
+      // boot will retry, which is the right behaviour for transient errors.
+      log.warn(
+        { err: err instanceof Error ? err.message : err },
+        "place.search_blob backfill skipped",
       );
     }
-  } catch (err) {
-    // Log + continue. The text index build below is independent — a
-    // backfill failure means a few legacy rows stay un-indexed for the
-    // text search, but freshly-geocoded assets still index correctly.
-    log.warn(
-      { err: err instanceof Error ? err.message : err },
-      "place.search_blob backfill skipped",
-    );
   }
 
   // ── Phase 8: unified search_blob ─────────────────────────────────────
@@ -678,46 +693,52 @@ export async function ensureIndexes(): Promise<void> {
   // One-shot backfill: rows that have a populated `place.search_blob`
   // (typical post-Phase-2 state) but an empty/missing top-level
   // `search_blob` get the unified field synthesised from whatever's on
-  // the row. Idempotent — the predicate only matches rows whose unified
-  // blob is unset; subsequent boots do nothing. Skips rows whose
-  // unified blob is already non-empty so a worker that already ran
-  // doesn't get clobbered.
-  try {
-    const res = await db.collection("assets").updateMany(
-      {
-        $or: [
-          { search_blob: { $exists: false } },
-          { search_blob: "" },
-          { search_blob: null },
-        ],
-        $and: [
-          {
-            $or: [
-              { "place.search_blob": { $exists: true, $ne: "" } },
-              { description: { $exists: true, $ne: null, $ne: "" } },
-              { ocr_text: { $exists: true, $ne: null, $ne: "" } },
-            ],
-          },
-        ],
-      },
-      // Reuse the same pipeline expression the workers use, so the
-      // backfill produces a byte-identical blob to what each worker's
-      // `complete()` would write next time it ran. No overrides — the
-      // expression reads `place.search_blob`, `description`, and
-      // `ocr_text` directly off the live row.
-      [{ $set: { search_blob: searchBlobUpdateExpression() } }],
-    );
-    if (res.modifiedCount > 0) {
+  // the row. Skips rows whose unified blob is already non-empty so a
+  // worker that already ran doesn't get clobbered.
+  //
+  // Gated on the `migrations` collection — see the captured_year/month
+  // and place.search_blob backfills above for the rationale. The
+  // predicate alone doesn't prevent a full collection scan to confirm
+  // "match zero" on subsequent boots.
+  if (!(await migrationApplied("asset-search-blob-backfill"))) {
+    try {
+      const res = await db.collection("assets").updateMany(
+        {
+          $or: [
+            { search_blob: { $exists: false } },
+            { search_blob: "" },
+            { search_blob: null },
+          ],
+          $and: [
+            {
+              $or: [
+                { "place.search_blob": { $exists: true, $ne: "" } },
+                { description: { $exists: true, $ne: null, $ne: "" } },
+                { ocr_text: { $exists: true, $ne: null, $ne: "" } },
+              ],
+            },
+          ],
+        },
+        // Reuse the same pipeline expression the workers use, so the
+        // backfill produces a byte-identical blob to what each worker's
+        // `complete()` would write next time it ran. No overrides — the
+        // expression reads `place.search_blob`, `description`, and
+        // `ocr_text` directly off the live row.
+        [{ $set: { search_blob: searchBlobUpdateExpression() } }],
+      );
+      await recordMigration("asset-search-blob-backfill", res.modifiedCount);
       log.info(
         { rows: res.modifiedCount },
-        "backfilled asset.search_blob",
+        "applied asset.search_blob backfill",
+      );
+    } catch (err) {
+      // We intentionally do NOT record the migration on failure: the next
+      // boot will retry, which is the right behaviour for transient errors.
+      log.warn(
+        { err: err instanceof Error ? err.message : err },
+        "asset.search_blob backfill skipped",
       );
     }
-  } catch (err) {
-    log.warn(
-      { err: err instanceof Error ? err.message : err },
-      "asset.search_blob backfill skipped",
-    );
   }
 
   await db.collection("assets").createIndex(
