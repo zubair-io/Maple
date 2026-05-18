@@ -158,6 +158,17 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
     /// `FileProviderDomainController.domainIdentifier(for:)`, so we can
     /// reverse-derive a working serverURL.
     ///
+    /// Scheme: `http://` for localhost (dev server on `bun run dev`
+    /// rarely speaks TLS), `https://` for everything else.
+    ///
+    /// LIMITATION: the `host-port` parse is naive — `lastIndex(of: "-")`
+    /// can't distinguish `my-server-8080` (host `my-server`, port 8080)
+    /// from `my-server-8080` meaning the literal hostname. We guard
+    /// against obvious garbage (numeric port, port < 65536) but the
+    /// ambiguity is real. In practice the codebase controls both sides
+    /// (`domainIdentifier(for:)` is the inverse) so the pairing round-
+    /// trips correctly for everything it produces.
+    ///
     /// REMOVE this fallback once the host app's provisioning profile
     /// carries the App Groups capability — then file-based config works
     /// in both directions and this path is dead code.
@@ -165,16 +176,26 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
         let id = domain.identifier.rawValue
         // domainIdentifier shape: "<host>" or "<host>-<port>" (see
         // FileProviderDomainController.domainIdentifier(for:)).
-        // Reverse to "https://<host>" (default port assumed).
         var host = id
         var port: Int?
-        if let dash = id.lastIndex(of: "-"),
-           let p = Int(id[id.index(after: dash)...]) {
-            host = String(id[..<dash])
-            port = p
+        if let dash = id.lastIndex(of: "-") {
+            let portSlice = id[id.index(after: dash)...]
+            // Numeric AND in-range AND non-empty. CharacterSet check
+            // rejects "12a3" which Int() would also reject, but being
+            // explicit makes the guard obvious.
+            if !portSlice.isEmpty,
+               portSlice.allSatisfy({ $0.isASCII && $0.isNumber }),
+               let p = Int(portSlice), p > 0, p < 65536 {
+                host = String(id[..<dash])
+                port = p
+            }
         }
+        // Localhost in dev rarely runs TLS; using https would force a
+        // cert handshake against `localhost` that the dev server
+        // doesn't have. Anything else assumes https.
+        let isLocalhost = host == "localhost" || host == "127.0.0.1" || host == "::1"
         var comps = URLComponents()
-        comps.scheme = "https"
+        comps.scheme = isLocalhost ? "http" : "https"
         comps.host = host
         if let port { comps.port = port }
         guard let url = comps.url else { return nil }
