@@ -818,13 +818,12 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                 NSError(domain: NSCocoaErrorDomain, code: NSFeatureUnsupportedError))
             return Progress()
         }
-        // Decode the prior mtime from the version's contentVersion field
-        // (same encoding MapleItem.itemVersion uses: ASCII epoch seconds).
-        let priorMtime: Date? = {
-            guard let s = String(data: version.contentVersion, encoding: .utf8),
-                  let epoch = Int(s), epoch > 0 else { return nil }
-            return Date(timeIntervalSince1970: TimeInterval(epoch))
-        }()
+        // Decode the prior mtime from the version's contentVersion field.
+        // Format: "<epoch>-<identifier>" (see `MapleItem.itemVersion`).
+        // The dedicated helper extracts the epoch prefix so a format
+        // change to the seed body doesn't break the XMP write
+        // precondition.
+        let priorMtime = MapleItem.decodePriorMtime(version.contentVersion)
         let progress = Progress(totalUnitCount: 1)
         Task {
             defer { progress.completedUnitCount = 1 }
