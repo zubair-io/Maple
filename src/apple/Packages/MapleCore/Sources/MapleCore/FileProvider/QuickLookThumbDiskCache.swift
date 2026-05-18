@@ -8,8 +8,8 @@
 // The QL extension is short-lived — every spacebar press in a fresh
 // session re-fetches the thumb from the server. The in-memory ETag
 // cache on RemoteCatalog covers same-process reuse only. This disk
-// cache turns the second spacebar across sessions into a no-network
-// read.
+// cache avoids re-downloading the JPEG payload across sessions —
+// the cache still revalidates via If-None-Match every spacebar.
 //
 // Eviction: TTL (entries with mtime older than `ttl` drop on lazy
 // sweep) plus a size cap (oldest-by-mtime evicted when a write would
@@ -43,6 +43,17 @@ public actor QuickLookThumbDiskCache {
                              category: "thumb-disk-cache")
     private let fm = FileManager.default
     private let cacheDir: URL?
+    /// Per-asset ETag pointer directory at `<cacheDir>/etag-pointers/`.
+    /// Each pointer is a tiny text file containing the asset's last
+    /// observed ETag; the filename is the sha1 of the assetID. Per-file
+    /// granularity means concurrent writes for DIFFERENT assets do not
+    /// collide at all — eliminating the cross-process race that an
+    /// App Group UserDefaults dict would otherwise have.
+    private let pointersDir: URL?
+    /// Retained for source compatibility; the previous implementation
+    /// stored the [assetID: etag] map in this UserDefaults instance.
+    /// The per-asset pointer-file layout makes it unused — kept so
+    /// existing callers (tests, host app initialiser) don't break.
     private let defaults: UserDefaults
 
     /// Soft TTL for entries. Read older than this on next access ->
@@ -55,15 +66,16 @@ public actor QuickLookThumbDiskCache {
     /// roughly 2,000–4,000 typical JPEG thumbs at 50–100 KB each.
     public let sizeCap: Int64
 
-    /// Maximum entries in the `lastKnownETag` defaults dict. The disk
-    /// file is the actual cache; this is just a pointer to the most
-    /// recent ETag observed per assetID. FIFO-evict the oldest entry
-    /// when full. 1024 covers a comfortable working set without
-    /// bloating App Group defaults (which is read by every FP extension
-    /// launch and should stay small).
+    /// Maximum entries in the lastKnownETag pointer directory. The
+    /// disk file is the actual cache; pointers just record the most
+    /// recent ETag observed per assetID. Oldest-by-mtime evicted when
+    /// the count exceeds the cap. 1024 covers a comfortable working
+    /// set without bloating the App Group container.
     public let etagDictCap: Int
 
-    /// Defaults key for the `[assetID: etag]` dict.
+    /// Legacy key from the old UserDefaults-dict implementation;
+    /// retained for documentation purposes only — the cache now uses
+    /// per-asset pointer files under `etag-pointers/`.
     public static let etagsDefaultsKey = "quicklook.thumb-etags"
 
     /// In-memory cache of total cache-dir size in bytes. Refreshed by
@@ -122,8 +134,20 @@ public actor QuickLookThumbDiskCache {
             )
         }
         self.cacheDir = resolved
+        // Pointer subdir lives alongside the .jpg files. Per-asset
+        // pointer files eliminate the cross-process RMW race that the
+        // previous UserDefaults dict had.
+        if let dir = resolved {
+            let pdir = dir.appendingPathComponent("etag-pointers", isDirectory: true)
+            try? FileManager.default.createDirectory(
+                at: pdir, withIntermediateDirectories: true
+            )
+            self.pointersDir = pdir
+        } else {
+            self.pointersDir = nil
+        }
 
-        // Defaults for the lastKnownETag dict.
+        // Defaults retained for source compatibility; unused.
         if let d = defaults {
             self.defaults = d
         } else if let group = UserDefaults(suiteName: FileProviderConfig.appGroupSuiteName) {
@@ -231,9 +255,11 @@ public actor QuickLookThumbDiskCache {
         return computeTotalSize(dir: dir)
     }
 
-    /// Number of entries in the lastKnownETag dict.
+    /// Number of pointer files in the etag-pointers subdir.
     internal func _etagDictCountForTesting() -> Int {
-        loadETagDict().etags.count
+        guard let pdir = pointersDir else { return 0 }
+        let urls = (try? fm.contentsOfDirectory(at: pdir, includingPropertiesForKeys: nil)) ?? []
+        return urls.filter { $0.pathExtension == "txt" }.count
     }
 
     /// Force a TTL sweep (test-only — production gates on `sweepInterval`).
@@ -398,50 +424,68 @@ public actor QuickLookThumbDiskCache {
         return total
     }
 
-    // MARK: - lastKnownETag dict (App Group defaults)
+    // MARK: - lastKnownETag pointers (per-asset files)
 
-    /// Wire format: a JSON object encoded into a single defaults blob
-    /// with two parallel arrays — `etags` is the map, `order` is the
-    /// FIFO insertion order used for cap eviction. Storing as JSON
-    /// keeps the schema explicit and rules out cross-version surprises
-    /// from defaults' weak typing.
-    private struct ETagDict: Codable {
-        var etags: [String: String]
-        var order: [String]
-    }
-
-    private func loadETagDict() -> ETagDict {
-        guard let data = defaults.data(forKey: Self.etagsDefaultsKey),
-              let dict = try? JSONDecoder().decode(ETagDict.self, from: data) else {
-            return ETagDict(etags: [:], order: [])
-        }
-        return dict
-    }
-
-    private func saveETagDict(_ dict: ETagDict) {
-        guard let data = try? JSONEncoder().encode(dict) else { return }
-        defaults.set(data, forKey: Self.etagsDefaultsKey)
+    /// Per-asset pointer files live at
+    /// `<cacheDir>/etag-pointers/<sha1(assetID)>.txt` and contain just
+    /// the asset's last-observed ETag. Distinct assetIDs map to
+    /// distinct paths, so concurrent writers for different assets
+    /// never collide — no inter-process coordination needed for the
+    /// dict-replacement layer. Eviction is oldest-by-mtime when the
+    /// pointer count exceeds `etagDictCap`, mirroring the pattern the
+    /// JPEG bytes cache already uses.
+    private func pointerURL(assetID: String) -> URL? {
+        guard let pdir = pointersDir else { return nil }
+        let digest = Insecure.SHA1.hash(data: Data(assetID.utf8))
+        let name = digest.map { String(format: "%02x", $0) }.joined()
+        return pdir.appendingPathComponent("\(name).txt")
     }
 
     private func loadETag(assetID: String) -> String? {
-        loadETagDict().etags[assetID]
+        guard let url = pointerURL(assetID: assetID),
+              let data = try? Data(contentsOf: url),
+              let s = String(data: data, encoding: .utf8) else {
+            return nil
+        }
+        let trimmed = s.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     private func saveETag(assetID: String, etag: String) {
-        var dict = loadETagDict()
-        if dict.etags[assetID] != nil {
-            // Refresh in place; don't reorder (FIFO is about insertion).
-            dict.etags[assetID] = etag
-        } else {
-            dict.etags[assetID] = etag
-            dict.order.append(assetID)
-            // FIFO cap: evict oldest insertions until we're at or under cap.
-            while dict.order.count > etagDictCap {
-                let oldest = dict.order.removeFirst()
-                dict.etags.removeValue(forKey: oldest)
-            }
+        guard let url = pointerURL(assetID: assetID) else { return }
+        let payload = Data(etag.utf8)
+        do {
+            try payload.write(to: url, options: .atomic)
+        } catch {
+            log.notice("pointer write failed for \(assetID, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            return
         }
-        saveETagDict(dict)
+        evictPointersIfNeeded()
+    }
+
+    /// LRU-by-mtime eviction once the pointer file count exceeds
+    /// `etagDictCap`. The pointer dir is small (~28 bytes per file ×
+    /// 1024 entries ≈ 30 KB) so this directory walk is cheap.
+    private func evictPointersIfNeeded() {
+        guard let pdir = pointersDir else { return }
+        let urls = (try? fm.contentsOfDirectory(
+            at: pdir,
+            includingPropertiesForKeys: [.contentModificationDateKey],
+            options: [.skipsHiddenFiles]
+        )) ?? []
+        let pointers = urls.filter { $0.pathExtension == "txt" }
+        guard pointers.count > etagDictCap else { return }
+        struct Entry { let url: URL; let mtime: Date }
+        var entries: [Entry] = []
+        for u in pointers {
+            let vals = try? u.resourceValues(forKeys: [.contentModificationDateKey])
+            entries.append(Entry(url: u, mtime: vals?.contentModificationDate ?? .distantPast))
+        }
+        entries.sort { $0.mtime < $1.mtime }
+        let surplus = entries.count - etagDictCap
+        for e in entries.prefix(surplus) {
+            try? fm.removeItem(at: e.url)
+        }
     }
 
     // MARK: - Hash
