@@ -248,15 +248,74 @@ public actor RemoteCatalog {
     /// `/api/fs/dir?path=…` (one URL per directory the user touches),
     /// and `/api/assets/<id>/thumb` (one URL per asset).
     ///
+    /// Bounded LRU: insertions beyond `etagCacheCap` evict the least-
+    /// recently-used entry. Without the bound, a Finder spacebar-walk
+    /// through a 10k-asset folder pins ~1 GB of `Data` in the extension
+    /// (Phase 5c perf audit, Phase 6 item 1).
+    ///
     /// The payload is stored as `Any` because the three call sites
     /// produce different concrete types (`[LibraryRoot]`, `DirContents`,
     /// `Data`). All access happens inside the actor, so the value-level
     /// `Sendable` story is safe — the dictionary itself is actor-isolated.
+    ///
+    /// Implementation: an order-array (LRU at index 0, MRU at end) +
+    /// a dict for O(1) lookup. The order array stays tiny (≤ cap) so the
+    /// linear `firstIndex(of:)` on touch is cheap in practice — 256
+    /// pointer compares per slider tick is dwarfed by the network call
+    /// the cache exists to avoid.
     private var etagCache: [String: ETagEntry] = [:]
+    private var etagOrder: [String] = []
+
+    /// Maximum number of entries the ETag cache holds. 256 is well above
+    /// any realistic single-session enumeration (a typical Finder window
+    /// touches one folder and ≤ a few hundred thumbs at a time) and
+    /// caps memory at a few hundred MB worst-case (thumbs are the
+    /// largest payload). Revisit if profiling shows the working-set
+    /// straddles this number.
+    public static let etagCacheCap: Int = 256
+
+    /// Test-only accessor: current number of entries in the ETag cache.
+    /// Lets `RemoteCatalogETagTests` assert the bound holds under load
+    /// without poking at private state via `@testable` reflection.
+    internal var _etagCacheCountForTesting: Int { etagCache.count }
 
     private struct ETagEntry {
         let etag: String
         let payload: Any
+    }
+
+    /// Look up an entry and promote it to MRU on hit. Returns the entry
+    /// or nil if absent.
+    private func etagCacheGet(_ key: String) -> ETagEntry? {
+        guard let entry = etagCache[key] else { return nil }
+        etagOrderTouch(key)
+        return entry
+    }
+
+    /// Insert or refresh an entry. New keys are appended; existing keys
+    /// have their payload replaced and are promoted to MRU. When inserting
+    /// a new key past the cap, the LRU key is evicted first.
+    private func etagCacheSet(_ key: String, _ entry: ETagEntry) {
+        if etagCache[key] != nil {
+            etagCache[key] = entry
+            etagOrderTouch(key)
+            return
+        }
+        if etagCache.count >= Self.etagCacheCap, let lru = etagOrder.first {
+            etagOrder.removeFirst()
+            etagCache.removeValue(forKey: lru)
+        }
+        etagCache[key] = entry
+        etagOrder.append(key)
+    }
+
+    /// Move `key` to the MRU end of `etagOrder`. Caller has already
+    /// confirmed the key exists.
+    private func etagOrderTouch(_ key: String) {
+        if let idx = etagOrder.firstIndex(of: key) {
+            etagOrder.remove(at: idx)
+        }
+        etagOrder.append(key)
     }
 
     private let downloadURLSession: URLSession
@@ -298,6 +357,7 @@ public actor RemoteCatalog {
     /// against them would serve a stale folder/dir list.
     public func invalidateETagCache() {
         etagCache.removeAll()
+        etagOrder.removeAll()
     }
 
     /// Generic helper: send `If-None-Match` when we have a cached entry,
@@ -309,20 +369,21 @@ public actor RemoteCatalog {
     ) async throws -> T {
         var req = URLRequest(url: url)
         let key = url.absoluteString
-        if let cached = etagCache[key] {
+        let cached = etagCacheGet(key)
+        if let cached {
             req.setValue(cached.etag, forHTTPHeaderField: "If-None-Match")
         }
         let (data, resp) = try await http.data(for: req)
         let httpResp = resp as? HTTPURLResponse
         if httpResp?.statusCode == 304,
-           let cached = etagCache[key],
+           let cached,
            let value = cached.payload as? T {
             return value
         }
         try Self.check2xx(resp)
         let value = try decoder.decode(T.self, from: data)
         if let etag = httpResp?.value(forHTTPHeaderField: "ETag") {
-            etagCache[key] = ETagEntry(etag: etag, payload: value)
+            etagCacheSet(key, ETagEntry(etag: etag, payload: value))
         }
         return value
     }
@@ -406,26 +467,28 @@ public actor RemoteCatalog {
     ///
     /// Participates in the same per-URL ETag cache as the JSON
     /// enumeration calls: a 304 reply returns the in-memory `Data` from
-    /// the prior 200. Memory cost: one `Data` per asset previewed.
-    /// Phase 6 will bound this with an LRU.
+    /// the prior 200. The cache is bounded LRU (cap: `etagCacheCap`) —
+    /// a spacebar-walk across thousands of assets evicts older thumb
+    /// payloads instead of pinning them all.
     public func getThumb(assetID: String) async throws -> Data {
         try Self.validateAssetID(assetID)
         let url = server.appending(path: "/api/assets/\(assetID)/thumb")
         var req = URLRequest(url: url)
         let key = url.absoluteString
-        if let cached = etagCache[key] {
+        let cached = etagCacheGet(key)
+        if let cached {
             req.setValue(cached.etag, forHTTPHeaderField: "If-None-Match")
         }
         let (data, resp) = try await http.data(for: req)
         let httpResp = resp as? HTTPURLResponse
         if httpResp?.statusCode == 304,
-           let cached = etagCache[key],
+           let cached,
            let bytes = cached.payload as? Data {
             return bytes
         }
         try Self.check2xx(resp)
         if let etag = httpResp?.value(forHTTPHeaderField: "ETag") {
-            etagCache[key] = ETagEntry(etag: etag, payload: data)
+            etagCacheSet(key, ETagEntry(etag: etag, payload: data))
         }
         return data
     }
