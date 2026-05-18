@@ -213,6 +213,34 @@ final class ChangeCursorStoreTests: XCTestCase {
                        "expected two distinct cursor files, got: \(cursorFiles)")
     }
 
+    /// Cross-process TOCTOU regression test: spawns concurrent saves
+    /// from two store instances pointing at the same directory and
+    /// requires that the persisted max equals the largest attempted
+    /// value (100), not some intermediate value lost to an interleaved
+    /// read-modify-write. The pre-fix code used `Data.write(.atomic)` —
+    /// atomic write per process but no inter-process serialisation of
+    /// the read-max-write window — and could regress under load. The
+    /// fix uses `NSFileCoordinator` to serialise the entire RMW.
+    func testCrossProcessConcurrentSavesDoNotRegress() async throws {
+        let dir = freshDirectory()
+        defer { cleanup(dir) }
+        let storeA = ChangeCursorStore(directory: dir)
+        let storeB = ChangeCursorStore(directory: dir)
+        let domain = "test"
+        await withTaskGroup(of: Void.self) { group in
+            for i in 1...100 {
+                let aVal = Int64(i)
+                let bVal = Int64(101 - i)
+                group.addTask { storeA.save(aVal, domain: domain) }
+                group.addTask { storeB.save(bVal, domain: domain) }
+            }
+        }
+        XCTAssertEqual(storeA.load(domain: domain), 100,
+                       "concurrent RMW from two processes must not regress max")
+        XCTAssertEqual(storeB.load(domain: domain), 100,
+                       "concurrent RMW from two processes must not regress max")
+    }
+
     /// Simulates a stray tmp file from a crashed write (or any garbage
     /// file in the directory). `load()` must return the last
     /// successfully-saved value — never a partial / stale sibling file.
