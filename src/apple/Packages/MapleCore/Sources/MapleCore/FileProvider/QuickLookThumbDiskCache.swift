@@ -276,9 +276,32 @@ public actor QuickLookThumbDiskCache {
     /// would exceed `sizeCap`. `excluding` is the URL of the file
     /// about to be written — never evict it (the new entry's existence
     /// is irrelevant to the new write).
+    ///
+    /// When the same (assetID, etag) is being refreshed in place (a
+    /// 200 reply with the ETag we already have on disk), `current`
+    /// already includes the existing file's bytes. The naive
+    /// `current + incomingSize` comparison double-counts that file
+    /// against the cap and can trigger spurious eviction of unrelated
+    /// older entries. Subtract the existing file's size — if any —
+    /// from `current` so we measure the post-write footprint instead.
+    ///
+    /// Also resolves both paths via `resolvingSymlinksInPath()` before
+    /// comparing: `contentsOfDirectory(at:)` returns symlink-resolved
+    /// URLs (e.g. `/private/var/...`) while `appendingPathComponent`
+    /// doesn't, so raw `==` would never match and the `excluding`
+    /// filter would silently no-op.
     private func evictForSizeIfNeeded(dir: URL, incomingSize: Int64, excluding: URL) {
+        let excludingPath = excluding.resolvingSymlinksInPath().path
+        let existingSize: Int64
+        if let attrs = try? fm.attributesOfItem(atPath: excluding.path),
+           let size = attrs[.size] as? NSNumber {
+            existingSize = size.int64Value
+        } else {
+            existingSize = 0
+        }
         let current = recomputeTotalSizeIfNeeded(dir: dir)
-        if current + incomingSize <= sizeCap { return }
+        let projected = current - existingSize + incomingSize
+        if projected <= sizeCap { return }
 
         // Walk the dir, collect (url, mtime, size), sort by mtime asc,
         // delete from oldest until we're under cap.
@@ -289,7 +312,8 @@ public actor QuickLookThumbDiskCache {
         )) ?? []
         struct Entry { let url: URL; let mtime: Date; let size: Int64 }
         var entries: [Entry] = []
-        for u in urls where u.pathExtension == "jpg" && u != excluding {
+        for u in urls where u.pathExtension == "jpg" {
+            if u.resolvingSymlinksInPath().path == excludingPath { continue }
             let vals = try? u.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey])
             let mtime = vals?.contentModificationDate ?? .distantPast
             let size = Int64(vals?.fileSize ?? 0)
@@ -297,10 +321,10 @@ public actor QuickLookThumbDiskCache {
         }
         entries.sort { $0.mtime < $1.mtime }
 
-        var running = current
+        var running = projected
         var freed: Int64 = 0
         for e in entries {
-            if running + incomingSize <= sizeCap { break }
+            if running <= sizeCap { break }
             try? fm.removeItem(at: e.url)
             running -= e.size
             freed += e.size
@@ -308,7 +332,8 @@ public actor QuickLookThumbDiskCache {
         if freed > 0 {
             log.notice("size-cap evicted \(freed, privacy: .public) bytes")
         }
-        totalSizeCache = running
+        // Invalidate — the upcoming writeEntry will recompute on next need.
+        totalSizeCache = nil
     }
 
     private func runTTLSweep(dir: URL) {
