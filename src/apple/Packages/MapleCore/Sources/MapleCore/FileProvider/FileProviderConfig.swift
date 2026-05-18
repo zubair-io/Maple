@@ -24,9 +24,19 @@ public struct FileProviderDomainConfig: Codable, Equatable, Sendable {
 /// run unsandboxed in local-dev builds (App Groups capability isn't on the
 /// dev provisioning profile), so UserDefaults is off the table.
 ///
-/// File storage works for both regimes:
-/// - Sandboxed extension reads `~/Library/Group Containers/<group>/FileProviderConfig/<domain>.json` via `FileManager.containerURL(forSecurityApplicationGroupIdentifier:)`.
-/// - Non-sandboxed host writes to the same path directly.
+/// File storage is the right mechanism when BOTH sides are sandboxed
+/// (the Release / shipping target):
+/// - Sandboxed host writes to `~/Library/Group Containers/<group>/FileProviderConfig/<domain>.json`.
+/// - Sandboxed extension reads from the same path.
+///
+/// During LOCAL DEV the host runs unsandboxed (see `Maple-Debug.entitlements`)
+/// because the dev provisioning profile lacks the App Groups capability.
+/// The sandboxed extension can then hit EPERM trying to read files the
+/// unsandboxed host wrote — macOS's container manager doesn't bless
+/// files written from outside the sandbox boundary. The
+/// `devFallbackConfig` static on `FileProviderExtensionCore` bridges
+/// that gap by reverse-deriving the config from the domain identifier
+/// itself.
 public final class FileProviderConfig: @unchecked Sendable {
     public static let appGroupSuiteName = "group.app.justmaple.aperture"
     private let directory: URL
@@ -51,7 +61,8 @@ public final class FileProviderConfig: @unchecked Sendable {
             self.directory = caches.appendingPathComponent("FileProviderConfig", isDirectory: true)
         }
         try? FileManager.default.createDirectory(at: self.directory, withIntermediateDirectories: true)
-        configLogger.notice("FileProviderConfig dir=\(self.directory.path, privacy: .public)")
+        // dir contains the user's home path; redact.
+        configLogger.notice("FileProviderConfig dir=\(self.directory.path, privacy: .private)")
     }
 
     private func fileURL(domain: String) -> URL {

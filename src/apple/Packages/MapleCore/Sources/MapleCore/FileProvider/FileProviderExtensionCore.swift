@@ -602,7 +602,12 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                     options: NSFileProviderCreateItemOptions = [],
                     request: NSFileProviderRequest,
                     completionHandler: @escaping (NSFileProviderItem?, NSFileProviderItemFields, Bool, Error?) -> Void) -> Progress {
-        log.notice("createItem filename=\(itemTemplate.filename, privacy: .public) parent=\(itemTemplate.parentItemIdentifier.rawValue, privacy: .public) contents=\(url?.path ?? "<nil>", privacy: .public)")
+        // filename / parent / contents path all carry user-visible
+        // names; redact in non-debug logs. Identifier shape (the
+        // `parent.rawValue` prefix `folder/`, `asset/`, etc.) is still
+        // visible when the redacted suffix is decoded, which is enough
+        // for log triage without surfacing the user's photo paths.
+        log.notice("createItem filename=\(itemTemplate.filename, privacy: .private) parent=\(itemTemplate.parentItemIdentifier.rawValue, privacy: .private) contents=\(url?.path ?? "<nil>", privacy: .private)")
         if dormant {
             completionHandler(nil, [], false, notAuthenticatedError())
             return Progress()
@@ -729,7 +734,10 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
         Task {
             defer { progress.completedUnitCount = 1 }
             do {
-                self.log.notice("upload start folderID=\(folderID, privacy: .public) target=\(targetRel, privacy: .public) bytes-from=\(contentsURL.path, privacy: .public)")
+                // folderID is a server-side opaque ObjectId so it's
+                // safe to surface; targetRel + bytes-from are user-
+                // visible path/filename — redact.
+                self.log.notice("upload start folderID=\(folderID, privacy: .public) target=\(targetRel, privacy: .private) bytes-from=\(contentsURL.path, privacy: .private)")
                 let outcome = try await catalog.uploadFile(
                     folderID: folderID,
                     targetRelativePath: targetRel,
@@ -1041,10 +1049,6 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
         return nil
     }
 
-    /// Pages through `catalog.listDir(absolutePath:cursor:limit:)`, returning
-    /// the first `DirChild` whose `name` matches `childName`, or nil if the
-    /// child is not present after walking up to `itemLookupMaxPages` pages.
-    /// Internal so tests can drive it directly through a stubbed catalog.
     /// Derive the FP parent identifier for an asset from its server
     /// metadata. Strips the matching library-root prefix off `absPath`
     /// and returns `.folder(folderID, parentRelativePath)`.
@@ -1088,6 +1092,10 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
         return NSFileProviderItemIdentifier(parentID.rawValue)
     }
 
+    /// Pages through `catalog.listDir(absolutePath:cursor:limit:)`, returning
+    /// the first `DirChild` whose `name` matches `childName`, or nil if the
+    /// child is not present after walking up to `itemLookupMaxPages` pages.
+    /// Internal so tests can drive it directly through a stubbed catalog.
     static func findChildDir(catalog: RemoteCatalog,
                              absolutePath: String,
                              childName: String,
