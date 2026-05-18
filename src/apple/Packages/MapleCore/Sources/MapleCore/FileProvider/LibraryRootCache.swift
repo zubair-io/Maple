@@ -53,18 +53,23 @@ public actor LibraryRootCache {
     public func roots() async throws -> [LibraryRoot] {
         // Memory cache wins — return immediately, kick a background revalidation.
         if let mc = memoryCache {
+            log.notice("roots() memory hit count=\(mc.count, privacy: .public)")
             kickRevalidation()
             return mc
         }
         // Disk cache: prime memory, return synchronously, kick revalidation.
         if let data = defaults.data(forKey: diskKey),
            let decoded = try? JSONDecoder().decode([LibraryRoot].self, from: data) {
+            log.notice("roots() disk hit count=\(decoded.count, privacy: .public)")
             memoryCache = decoded
             kickRevalidation()
             return decoded
         }
         // Cold path: await the fetcher.
-        return try await runFetcher()
+        log.notice("roots() cold, awaiting fetcher")
+        let fresh = try await runFetcher()
+        log.notice("roots() cold fetch returned count=\(fresh.count, privacy: .public)")
+        return fresh
     }
 
     public func invalidate() {
