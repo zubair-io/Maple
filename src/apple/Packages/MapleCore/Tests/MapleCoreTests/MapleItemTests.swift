@@ -66,6 +66,52 @@ final class MapleItemTests: XCTestCase {
         XCTAssertNil(decoded)
     }
 
+    // MARK: - Sidecar item identity
+    //
+    // The sidecar `fetchContents` branch must return a MapleItem whose
+    // `itemIdentifier` parses back to `.sidecar(...)` — NOT to
+    // `.asset(...)`. Otherwise the OS associates the downloaded `.xmp`
+    // bytes with the RAW asset and subsequent sidecar lookups break.
+
+    func testSidecarMapleItemCarriesSidecarIdentifierForCanonical() throws {
+        let synthesized = SidecarChild(
+            name: "IMG_1.xmp",
+            path: "IMG_1.xmp",
+            mtime: Date(timeIntervalSince1970: 1_700_000_000),
+            size: 200,
+            assetID: "abc123"
+        )
+        let item = MapleItem(sidecar: synthesized,
+                             parentImageBase: "IMG_1",
+                             parentIdentifier: NSFileProviderItemIdentifier("folder/x:"))
+        let parsed = try FileProviderIdentifier(rawValue: item.itemIdentifier.rawValue)
+        guard case .sidecar(let aid, let cb) = parsed else {
+            return XCTFail("expected .sidecar identifier, got \(parsed)")
+        }
+        XCTAssertEqual(aid, "abc123")
+        XCTAssertNil(cb, "canonical sidecar must have nil conflictBasename")
+    }
+
+    func testSidecarMapleItemCarriesSidecarIdentifierForConflict() throws {
+        let synthesized = SidecarChild(
+            name: "IMG_1 (conflict from MacBook).xmp",
+            path: "IMG_1 (conflict from MacBook).xmp",
+            mtime: Date(timeIntervalSince1970: 1_700_000_000),
+            size: 200,
+            assetID: "abc123"
+        )
+        let item = MapleItem(sidecar: synthesized,
+                             parentImageBase: "IMG_1",
+                             parentIdentifier: NSFileProviderItemIdentifier("folder/x:"))
+        let parsed = try FileProviderIdentifier(rawValue: item.itemIdentifier.rawValue)
+        guard case .sidecar(let aid, let cb) = parsed else {
+            return XCTFail("expected .sidecar identifier, got \(parsed)")
+        }
+        XCTAssertEqual(aid, "abc123")
+        XCTAssertEqual(cb, "IMG_1 (conflict from MacBook)",
+                       "conflict sidecar must carry the basename without .xmp")
+    }
+
     /// Regression guard: the pre-fix `modifyItem` decoder was
     ///     `Int(String(data: contentVersion, encoding: .utf8) ?? "")`
     /// Against the post-Phase-5 itemVersion seed `"<epoch>-<identifier>"`
