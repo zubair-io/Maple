@@ -233,7 +233,51 @@ final class QuickLookThumbDiskCacheTests: XCTestCase {
                      "the oldest ID's pointer should have been FIFO-evicted")
     }
 
-    // MARK: - 7. No-etag responses pass through without polluting cache
+    // MARK: - 7. assetID shape validation rejects path-traversal
+
+    func testFetchRejectsPathTraversalAssetID() async throws {
+        let container = try makeTmpDir()
+        let cache = try makeCache(container: container)
+        do {
+            _ = try await cache.fetch(assetID: "../../etc/passwd") { _ in
+                XCTFail("fetch closure must not run for invalid assetID")
+                return .ok(data: Data(), etag: nil)
+            }
+            XCTFail("expected InvalidAssetIDError")
+        } catch let err as InvalidAssetIDError {
+            XCTAssertEqual(err.assetID, "../../etc/passwd")
+        }
+    }
+
+    func testFetchRejectsSlashInAssetID() async throws {
+        let container = try makeTmpDir()
+        let cache = try makeCache(container: container)
+        do {
+            _ = try await cache.fetch(assetID: "foo/bar") { _ in
+                XCTFail("fetch closure must not run for invalid assetID")
+                return .ok(data: Data(), etag: nil)
+            }
+            XCTFail("expected InvalidAssetIDError")
+        } catch let err as InvalidAssetIDError {
+            XCTAssertEqual(err.assetID, "foo/bar")
+        }
+    }
+
+    func testFetchRejectsTooShortAssetID() async throws {
+        let container = try makeTmpDir()
+        let cache = try makeCache(container: container)
+        do {
+            _ = try await cache.fetch(assetID: "abc") { _ in
+                XCTFail("fetch closure must not run for invalid assetID")
+                return .ok(data: Data(), etag: nil)
+            }
+            XCTFail("expected InvalidAssetIDError")
+        } catch let err as InvalidAssetIDError {
+            XCTAssertEqual(err.assetID, "abc")
+        }
+    }
+
+    // MARK: - 8. No-etag responses pass through without polluting cache
 
     func testResponseWithoutETagNotCached() async throws {
         let container = try makeTmpDir()
