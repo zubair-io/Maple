@@ -103,13 +103,23 @@ export const bucketsRoute = new Elysia().get(
         ...finalFilter,
         "exif.captured_year": { $ne: null },
       } as typeof finalFilter;
+      // Wrap the untimed predicate with `$and` instead of spreading: when
+      // `applyLiveFilter` returned a top-level `$or` (empty query case —
+      // the soft-delete clause is `{ $or: [{ deleted_at: null }, ...] }`),
+      // a naive spread + `$or` override would silently drop the live-row
+      // constraint and let soft-deleted untimed rows leak into the count.
+      // `$and` keeps both predicates restrictive.
       const untimedFilter = {
-        ...finalFilter,
-        $or: [
-          { "exif.captured_at": null },
-          { "exif.captured_at": { $exists: false } },
+        $and: [
+          finalFilter,
+          {
+            $or: [
+              { "exif.captured_at": null },
+              { "exif.captured_at": { $exists: false } },
+            ],
+          },
         ],
-      } as typeof finalFilter;
+      } as unknown as typeof finalFilter;
 
       const [timed, untimed_count] = await Promise.all([
         coll

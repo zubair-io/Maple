@@ -287,6 +287,25 @@ beforeAll(async () => {
       },
       deleted_at: new Date().toISOString(),
     },
+    // Soft-deleted AND untimed: regression seed for the `/buckets`
+    // empty-query path. Before the buckets `untimedFilter` was switched
+    // from spread-and-override-$or to `$and`, the soft-delete `$or`
+    // clause produced by `applyLiveFilter({})` was silently dropped
+    // when building `untimedFilter`, and this row leaked into
+    // `untimed_count`. Now it must not.
+    {
+      folder_id: folderC,
+      abs_path: "/buckets/deleted-untimed.dng",
+      filename: `${TL_MARK}_del_untimed.tlraw`,
+      size: 1024,
+      mtime: 250,
+      rating: 0,
+      flag: 0,
+      color_label: "",
+      indexed_at: new Date().toISOString(),
+      exif: null,
+      deleted_at: new Date().toISOString(),
+    },
   ];
   await db.collection("assets").insertMany(seeds);
   await backfillCapturedYearMonth(db);
@@ -527,7 +546,36 @@ describe("/api/search timeline filters + buckets", () => {
     expect(r.status).toBe(200);
     const body = (await r.json()) as { untimed_count: number };
     // Two seeded under /buckets/: one with `exif.captured_at: null`,
-    // one with no `exif` field at all. Both must count.
+    // one with no `exif` field at all. Both must count. The third
+    // /buckets/ row (`deleted-untimed.dng`) is soft-deleted, so the
+    // live-row filter must drop it from `untimed_count`.
+    expect(body.untimed_count).toBe(2);
+  });
+
+  it("/buckets with no filter excludes soft-deleted untimed rows", async () => {
+    // Regression for the spread-vs-$and bug in `untimedFilter`. With no
+    // top-level filter, `applyLiveFilter({})` returns the live-row
+    // clause as `{ $or: [{ deleted_at: null }, { deleted_at: { $exists: false } }] }`.
+    // Building `untimedFilter` as `{ ...finalFilter, $or: [...] }` used
+    // to overwrite the live-row `$or` and count soft-deleted untimed
+    // rows; switching to `{ $and: [finalFilter, { $or: [...] }] }` keeps
+    // both predicates restrictive.
+    if (!mongoReachable) return;
+    const { searchRoutes } = await import("../../src/routes/search.ts");
+    const { requireAuth } = await import("../../src/auth/middleware.ts");
+    const app = new Elysia().use(requireAuth).use(searchRoutes);
+
+    const r = await app.handle(
+      new Request("http://localhost/api/search/buckets", {
+        headers: fmtAuth(),
+      }),
+    );
+    expect(r.status).toBe(200);
+    const body = (await r.json()) as { untimed_count: number };
+    // Across every seeded row in the test DB, exactly two are live AND
+    // untimed (`/buckets/null-captured.dng`, `/buckets/no-exif.dng`).
+    // The third untimed row (`/buckets/deleted-untimed.dng`) is
+    // soft-deleted and must NOT contribute.
     expect(body.untimed_count).toBe(2);
   });
 
