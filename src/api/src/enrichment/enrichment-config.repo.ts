@@ -41,7 +41,12 @@ export const MAX_NOMINATIM_RATE_LIMIT_PER_SEC = 100;
 export const DEFAULT_DESCRIBE_PROVIDER: DescribeProviderName = "ollama";
 export const DEFAULT_DESCRIBE_OLLAMA_URL = "http://localhost:11434";
 export const DEFAULT_DESCRIBE_MODELS: Record<DescribeProviderName, string> = {
-  ollama: "llava:latest",
+  // Default to qwen2.5-vl:7b — produces structured JSON matching the
+  // DEFAULT_DESCRIBE_VISION_PROMPT schema below. The previous "llava:latest"
+  // default produced free-text captions and is no longer compatible with
+  // the parser; operators staying on llava must also override
+  // describe_system_prompt back to the legacy DEFAULT_DESCRIBE_SYSTEM_PROMPT.
+  ollama: "qwen2.5-vl:7b",
   anthropic: "claude-haiku-4-5",
   openai: "gpt-4o-mini",
   gemini: "gemini-flash",
