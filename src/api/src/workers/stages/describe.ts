@@ -43,7 +43,11 @@ import {
   DEFAULT_DESCRIBE_VISION_PROMPT,
   DESCRIBE_VISION_PROMPT_VERSION,
 } from "../../enrichment/enrichment-config.repo.ts";
-import { parseVisionJson } from "../../enrichment/describe-providers/parse-vision-json.ts";
+import {
+  parseVisionJson,
+  strippedRawFor,
+} from "../../enrichment/describe-providers/parse-vision-json.ts";
+import { PREVIEW_SIZE_KEY } from "../../indexer/previewer.ts";
 
 /**
  * Prompt version stamped on both `description_meta.prompt_version` and
@@ -95,7 +99,7 @@ export async function describeHandler(
   // signs and small subjects. The preview stage produces this artefact;
   // its absence means either the preview stage hasn't run yet (DAG bug)
   // or the source asset has gone missing.
-  const previewPath = cachePathFor(image.abs_path as string, "previews", "1280");
+  const previewPath = cachePathFor(image.abs_path as string, "previews", PREVIEW_SIZE_KEY);
   let jpegBytes: Buffer;
   try {
     jpegBytes = await readFile(previewPath);
@@ -115,7 +119,9 @@ export async function describeHandler(
   const vision = parseVisionJson(result.text);
 
   const now = new Date().toISOString();
-  const rawResponseSize = Buffer.byteLength(result.text, "utf8");
+  // Measure post-fence-strip so the recorded size matches what the parser
+  // actually consumed, per VisionMeta.raw_response_size contract.
+  const rawResponseSize = Buffer.byteLength(strippedRawFor(result.text), "utf8");
 
   const patch: Record<string, unknown> = {
     // Free-text caption mirror — legacy clients still read `description`.

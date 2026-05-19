@@ -123,13 +123,15 @@ export interface ApiEnrichment {
 }
 
 export interface ApiOcrMeta {
-  /** Always the literal `'qwen2.5-vl'` — the describe stage is the sole
-   * source of OCR text now. */
-  engine: 'qwen2.5-vl';
+  /** The describe stage is the sole writer and stamps `'qwen2.5-vl'`. The
+   * `'tesseract'` literal remains because pre-#158 installs still have
+   * rows tagged that way until the describe stage re-runs them — the API
+   * returns the value verbatim (no read-side rewrite). */
+  engine: 'qwen2.5-vl' | 'tesseract';
   engine_version: string;
   generated_at: string;
-  /** Always `null` for the qwen2.5-vl path — the VLM has no per-token
-   * confidence. Kept on the type for legacy rows. */
+  /** `null` for the qwen2.5-vl path. Legacy Tesseract rows carry the
+   * engine's reported 0-100 mean confidence. */
   mean_confidence?: number | null;
 }
 

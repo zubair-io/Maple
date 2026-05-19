@@ -139,7 +139,7 @@ async function renderRawPreviewToFile(
   const pool = ffiPool();
   if (!pool.available()) {
     log.warn(
-      "raw-ffi not available — RAW preview generation deferred. Build libraw_ffi.dylib with scripts/build-raw-ffi.sh.",
+      "raw-ffi not available — RAW preview generation deferred. Build the native/libraw_ffi.* (dylib on macOS, .so on Linux) with src/api/scripts/build-raw-ffi.sh.",
     );
     return false;
   }

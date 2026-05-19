@@ -227,16 +227,19 @@ export interface AssetDoc {
    * describe stage from `vision.text_visible`. `null` until the describe
    * stage has run on this asset; empty string when the model saw no text. */
   ocr_text?: string | null;
-  /** Provenance of the OCR mirror. `engine` is always the literal
-   * `"qwen2.5-vl"` — the describe stage is the sole writer. Reruns are
-   * gated by the describe stage's `targetVersion`. */
+  /** Provenance of the OCR mirror. The describe stage is the sole writer
+   * and always stamps `engine: "qwen2.5-vl"`. The `"tesseract"` literal
+   * remains in the union because production installs that were indexed
+   * before #158 still carry rows with `engine: "tesseract"` until the
+   * describe stage re-runs them; the API returns those values verbatim
+   * (no read-side rewrite) so the wire contract must allow both. */
   ocr_meta?: {
-    engine: "qwen2.5-vl";
+    engine: "qwen2.5-vl" | "tesseract";
     engine_version: string;
     generated_at: string;
     /** Always `null` for the qwen2.5-vl path — the VLM has no per-token
-     * confidence the way a classic OCR engine does. Kept on the type for
-     * legacy rows that may carry a stale value from an earlier engine. */
+     * confidence the way a classic OCR engine does. Legacy Tesseract
+     * rows carry the engine's reported 0-100 mean confidence. */
     mean_confidence: number | null;
   } | null;
   /** Synthesised text-index target. Concatenation of `place.search_blob`,

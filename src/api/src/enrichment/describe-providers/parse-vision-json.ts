@@ -94,6 +94,13 @@ export type VisionParseReason =
   | "bad-enum"
   | "empty-response";
 
+/** Short prefix of the raw snippet to embed in `error.message`. The stage
+ * runtime persists only `err.message` into `stages.<name>.last_error`,
+ * so this is what an operator sees in the dead-letter triage UI without
+ * having to crack open the dead-letter doc. Full snippet stays available
+ * on the `snippet` field for programmatic readers. */
+const MESSAGE_SNIPPET_BYTES = 240;
+
 export class VisionParseError extends Error {
   readonly reason: VisionParseReason;
   readonly field: string | null;
@@ -101,19 +108,28 @@ export class VisionParseError extends Error {
   readonly snippet: string;
 
   constructor(reason: VisionParseReason, message: string, raw: string, field: string | null = null) {
-    super(`vision-parse[${reason}${field ? `:${field}` : ""}]: ${message}`);
+    const snippet = truncateBytes(raw, MAX_ERROR_SNIPPET_BYTES);
+    const preview = truncateBytes(raw, MESSAGE_SNIPPET_BYTES);
+    super(
+      `vision-parse[${reason}${field ? `:${field}` : ""}]: ${message} | raw: ${preview}`,
+    );
     this.name = "VisionParseError";
     this.reason = reason;
     this.field = field;
-    this.snippet = truncate(raw, MAX_ERROR_SNIPPET_BYTES);
+    this.snippet = snippet;
   }
 }
 
-function truncate(s: string, maxBytes: number): string {
-  if (Buffer.byteLength(s, "utf8") <= maxBytes) return s;
-  // Drop bytes from the end rather than smartly splitting on code points —
-  // the snippet is for human inspection, not re-parsing.
-  return s.slice(0, maxBytes) + "…[truncated]";
+/** Byte-aware truncation. `String.slice` cuts UTF-16 code units, so a
+ * multi-byte character near the boundary would let the result exceed
+ * `maxBytes` — important because the snippet caps Mongo last_error +
+ * dead-letter doc growth, not a character count. */
+function truncateBytes(s: string, maxBytes: number): string {
+  const buf = Buffer.from(s, "utf8");
+  if (buf.byteLength <= maxBytes) return s;
+  // toString on an arbitrary byte boundary may leave a half-character at
+  // the end — fine for human inspection.
+  return buf.subarray(0, maxBytes).toString("utf8") + "…[truncated]";
 }
 
 /** Strip a single matching markdown fence pair, if present. Leaves
@@ -138,6 +154,14 @@ function asStringArray(v: unknown): string[] | null {
     out.push(x);
   }
   return out;
+}
+
+/** Strip a fence wrapper if present and return the JSON body the parser
+ * would consume. Exposed so callers (the describe stage) can compute
+ * `raw_response_size` against the same string the parser saw, rather
+ * than against the pre-strip text. */
+export function strippedRawFor(raw: string): string {
+  return stripFences(raw.trim()).trim();
 }
 
 /** Parse a model response into a typed `VisionDoc`. Throws
