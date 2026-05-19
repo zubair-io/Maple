@@ -63,6 +63,14 @@ export interface MeilisearchAssetDoc {
    * by setting this rather than `deleteDocument` so eventual-consistency
    * lag never resurrects a deleted row. */
   deletedAt: string | null;
+  /** Closed-union scene classification from `vision.scene_type`. `null` on
+   * rows that haven't been through the qwen2.5-vl describe stage yet. */
+  visionSceneType?: string | null;
+  /** Open-vocab activity tag from `vision.activity`. */
+  visionActivity?: string | null;
+  /** Open-vocab subject tags from `vision.subjects`. Array filterable so a
+   * future meili-side facet path can intersect on subject. */
+  visionSubjects?: string[] | null;
 }
 
 export interface MeilisearchSearchOptions {
@@ -101,7 +109,10 @@ export interface MeilisearchClient {
   /** Typo-tolerant text search. Returns ids only; the route fetches the
    * full asset rows from Mongo. Throws on transport error so the route can
    * fall back to Mongo `$text`. */
-  search(q: string, opts?: MeilisearchSearchOptions): Promise<MeilisearchSearchResult>;
+  search(
+    q: string,
+    opts?: MeilisearchSearchOptions,
+  ): Promise<MeilisearchSearchResult>;
 }
 
 interface ClientConfig {
@@ -278,7 +289,13 @@ export function createMeilisearchClient(
           // description (LLM caption — higher signal than chrome), then
           // ocrText (often UI/menu strings).
           searchableAttributes: ["searchBlob", "description", "ocrText"],
-          filterableAttributes: ["folderId", "deletedAt"],
+          filterableAttributes: [
+            "folderId",
+            "deletedAt",
+            "visionSceneType",
+            "visionActivity",
+            "visionSubjects",
+          ],
           sortableAttributes: ["capturedAt"],
         },
       );

@@ -32,6 +32,7 @@ import {
   SearchFacets,
   SearchParams,
   SearchResult,
+  SearchSceneType,
   SearchService,
   SearchSort,
 } from '@maple-common';
@@ -45,7 +46,21 @@ const SORT_LABEL: Record<SearchSort, string> = {
   rating: 'Rating',
 };
 
-const COLOR_LABELS: Array<{ value: '' | 'red' | 'yellow' | 'green' | 'blue' | 'purple'; label: string; swatch: string }> = [
+const SCENE_TYPE_OPTIONS: ReadonlyArray<{ value: SearchSceneType; label: string }> = [
+  { value: '', label: 'Any' },
+  { value: 'indoor', label: 'Indoor' },
+  { value: 'outdoor', label: 'Outdoor' },
+  { value: 'aerial', label: 'Aerial' },
+  { value: 'macro', label: 'Macro' },
+  { value: 'studio', label: 'Studio' },
+  { value: 'mixed', label: 'Mixed' },
+];
+
+const COLOR_LABELS: Array<{
+  value: '' | 'red' | 'yellow' | 'green' | 'blue' | 'purple';
+  label: string;
+  swatch: string;
+}> = [
   { value: '', label: 'Any', swatch: 'transparent' },
   { value: 'red', label: 'Red', swatch: '#e11d48' },
   { value: 'yellow', label: 'Yellow', swatch: '#eab308' },
@@ -95,11 +110,18 @@ export class SearchComponent implements OnInit, OnDestroy {
   readonly from = computed(() => this.query()?.get('from') ?? '');
   readonly to = computed(() => this.query()?.get('to') ?? '');
   readonly rating = computed(() => Number(this.query()?.get('rating') ?? '0'));
-  readonly flag = computed(() => (this.query()?.get('flag') ?? '') as '' | 'pick' | 'reject' | 'none');
+  readonly flag = computed(
+    () => (this.query()?.get('flag') ?? '') as '' | 'pick' | 'reject' | 'none',
+  );
   readonly color = computed(
     () => (this.query()?.get('color') ?? '') as '' | 'red' | 'yellow' | 'green' | 'blue' | 'purple',
   );
   readonly extSelectedCsv = computed(() => this.query()?.get('ext') ?? '');
+  readonly sceneType = computed<SearchSceneType>(
+    () => (this.query()?.get('sceneType') as SearchSceneType) || '',
+  );
+  readonly activity = computed(() => this.query()?.get('activity') ?? '');
+  readonly subjectsCsv = computed(() => this.query()?.get('subjects') ?? '');
   readonly sort = computed<SearchSort>(
     () => (this.query()?.get('sort') as SearchSort) || 'captured_desc',
   );
@@ -108,7 +130,24 @@ export class SearchComponent implements OnInit, OnDestroy {
   readonly extSelected = computed<Set<string>>(() => {
     const csv = this.extSelectedCsv();
     if (!csv) return new Set();
-    return new Set(csv.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean));
+    return new Set(
+      csv
+        .split(',')
+        .map((s) => s.trim().toLowerCase())
+        .filter(Boolean),
+    );
+  });
+
+  /** Set of selected vision subjects, parsed from the comma-separated `subjects` param. */
+  readonly subjectsSelected = computed<Set<string>>(() => {
+    const csv = this.subjectsCsv();
+    if (!csv) return new Set();
+    return new Set(
+      csv
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean),
+    );
   });
 
   /** Local q input (may differ from the URL while the debounce is running). */
@@ -128,6 +167,7 @@ export class SearchComponent implements OnInit, OnDestroy {
     Object.entries(SORT_LABEL) as Array<[SearchSort, string]>
   ).map(([value, label]) => ({ value, label }));
   readonly colorOptions = COLOR_LABELS;
+  readonly sceneTypeOptions = SCENE_TYPE_OPTIONS;
   readonly stars = [1, 2, 3, 4, 5];
 
   /** True when any structured filter (i.e. anything besides q) is set. */
@@ -142,9 +182,7 @@ export class SearchComponent implements OnInit, OnDestroy {
     return false;
   });
 
-  readonly canLoadMore = computed(
-    () => this.results().length < this.total() && !this.loading(),
-  );
+  readonly canLoadMore = computed(() => this.results().length < this.total() && !this.loading());
 
   readonly sortLabel = computed(() => SORT_LABEL[this.sort()] ?? this.sort());
 
@@ -216,6 +254,9 @@ export class SearchComponent implements OnInit, OnDestroy {
       flag: (this.flag() || undefined) as 'pick' | 'reject' | 'none' | undefined,
       color: this.color() || undefined,
       ext: this.extSelectedCsv() || undefined,
+      sceneType: (this.sceneType() || undefined) as SearchSceneType | undefined,
+      activity: this.activity() || undefined,
+      subjects: this.subjectsSelected().size > 0 ? Array.from(this.subjectsSelected()) : undefined,
       sort: this.sort(),
     };
   }
@@ -315,6 +356,22 @@ export class SearchComponent implements OnInit, OnDestroy {
     this.patchQueryParams({ ext: csv, page: null });
   }
 
+  setSceneType(value: SearchSceneType): void {
+    this.patchQueryParams({ sceneType: value, page: null });
+  }
+
+  setActivity(value: string): void {
+    this.patchQueryParams({ activity: value, page: null });
+  }
+
+  toggleSubject(value: string): void {
+    const next = new Set(this.subjectsSelected());
+    if (next.has(value)) next.delete(value);
+    else next.add(value);
+    const csv = Array.from(next).sort().join(',');
+    this.patchQueryParams({ subjects: csv, page: null });
+  }
+
   /** Quick date presets — write the from/to params directly. */
   preset(kind: 'last7' | 'last30' | 'thisYear'): void {
     const now = new Date();
@@ -411,9 +468,7 @@ export class SearchComponent implements OnInit, OnDestroy {
       );
     } catch {
       this.results.update((list) =>
-        list.map((r) =>
-          r.abs_path === vm.abs_path ? { ...r, thumbLoading: false } : r,
-        ),
+        list.map((r) => (r.abs_path === vm.abs_path ? { ...r, thumbLoading: false } : r)),
       );
     }
   }
@@ -426,9 +481,20 @@ export class SearchComponent implements OnInit, OnDestroy {
   // ── Template helpers ─────────────────────────────────────────────────────
   trackResult = (_: number, r: ResultViewModel) => r.id;
   trackExt = (_: number, e: { value: string }) => e.value;
+  trackFacetValue = (_: number, e: { value: string }) => e.value;
 
   cameraLabel(c: { make: string | null; model: string | null }): string {
     return [c.make, c.model].filter(Boolean).join(' · ') || 'Unknown';
+  }
+
+  /** Count for a given scene_type from the current facet snapshot.
+   * Returns null when there are no matches (so the option label can omit
+   * the parenthetical for empty buckets). */
+  sceneTypeCount(value: string): number | null {
+    const buckets = this.facets()?.scene_types;
+    if (!buckets) return null;
+    const hit = buckets.find((b) => b.value === value);
+    return hit ? hit.count : null;
   }
 
   retry(): void {

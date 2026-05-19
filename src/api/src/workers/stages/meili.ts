@@ -17,9 +17,16 @@
  * rather than spinning forever on an un-fixable invariant violation.
  */
 
-import type { ImageDoc, StageContext, StageResult } from "../runtime/define-stage.ts";
+import type {
+  ImageDoc,
+  StageContext,
+  StageResult,
+} from "../runtime/define-stage.ts";
 import { defineStage } from "../runtime/define-stage.ts";
-import { meilisearchClient, type MeilisearchClient } from "../../enrichment/meilisearch-client.ts";
+import {
+  meilisearchClient,
+  type MeilisearchClient,
+} from "../../enrichment/meilisearch-client.ts";
 import { composeSearchBlob } from "../../enrichment/search-blob.ts";
 
 let _client: MeilisearchClient | null = null;
@@ -29,7 +36,9 @@ function getClient(): MeilisearchClient {
 }
 
 /** Test-only setter. Call with `null` to reset between tests. */
-export function setMeilisearchClientForTests(client: MeilisearchClient | null): void {
+export function setMeilisearchClientForTests(
+  client: MeilisearchClient | null,
+): void {
   _client = client;
 }
 
@@ -46,8 +55,12 @@ export async function meiliHandler(
   // §VisionDoc. Optional: `vision` is null on assets that haven't been
   // through the describe stage yet (paused on first boot, paid provider
   // without a key, etc.) — the blob simply omits them in that case.
-  const vision = (image as unknown as { vision?: import("../../db/schema.ts").VisionDoc | null })
-    .vision ?? null;
+  const vision =
+    (
+      image as unknown as {
+        vision?: import("../../db/schema.ts").VisionDoc | null;
+      }
+    ).vision ?? null;
 
   const blob = composeSearchBlob({
     place: image.place,
@@ -69,6 +82,9 @@ export async function meiliHandler(
       folderId: image.folder_id.toHexString(),
       capturedAt: image.exif?.captured_at ?? null,
       deletedAt: null,
+      visionSceneType: vision?.scene_type ?? null,
+      visionActivity: vision?.activity ?? null,
+      visionSubjects: vision?.subjects ?? null,
     });
   }
 
@@ -86,7 +102,12 @@ export default defineStage({
   // (subjects / setting / activity / notable_objects) from the qwen2.5-vl
   // describe stage. Bumping invalidates v2 rows so the index picks up the
   // new tokens.
-  targetVersion: 3,
+  //
+  // v4: the Meilisearch document now carries discrete `visionSceneType` /
+  // `visionActivity` / `visionSubjects` fields (filterable attributes) for
+  // the browse-facets UI. Bumping forces re-index so v3 rows learn the
+  // new attribute shape.
+  targetVersion: 4,
   // Only depends on always-on stages. When optional stages (face/ocr/describe/geocode)
   // run later, meili won't automatically re-process to incorporate their outputs.
   // Operator must bump meili.targetVersion or trigger a manual reset to refresh.
