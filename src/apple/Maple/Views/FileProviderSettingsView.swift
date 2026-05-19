@@ -2,6 +2,9 @@
 import SwiftUI
 import MapleCore
 import FileProvider
+#if os(iOS)
+import UIKit
+#endif
 
 @MainActor
 @Observable
@@ -84,6 +87,42 @@ final class FileProviderSettingsModel {
         catch { statusMessage = "Refresh failed: \(error.localizedDescription)" }
     }
 
+    /// Cross-platform helper: resolve the user-visible mount root URL for
+    /// a server's File Provider domain (typically
+    /// `~/Library/CloudStorage/<DisplayName>/` on macOS or the
+    /// OS-managed Files-app location on iOS). Returns `nil` when the
+    /// domain isn't registered or `NSFileProviderManager(for:)` can't
+    /// construct a manager; throws when `getUserVisibleURL` itself fails.
+    func mountURL(for url: URL) async throws -> URL? {
+        guard let id = FileProviderDomainController.domainIdentifier(for: url),
+              let domain = domains.first(where: { $0.identifier.rawValue == id }),
+              let mgr = NSFileProviderManager(for: domain) else {
+            return nil
+        }
+        return try await mgr.getUserVisibleURL(for: .rootContainer)
+    }
+
+    /// Returns true when `candidate` is the same directory as `mount`
+    /// or a descendant of it. Both URLs are resolved/standardised first
+    /// to compare without symlink or `..` noise.
+    static func isURL(_ candidate: URL, withinMount mount: URL) -> Bool {
+        let cPath = candidate.resolvingSymlinksInPath().standardizedFileURL.path
+        let mPath = mount.resolvingSymlinksInPath().standardizedFileURL.path
+        if cPath == mPath { return true }
+        let prefix = mPath.hasSuffix("/") ? mPath : mPath + "/"
+        return cPath.hasPrefix(prefix)
+    }
+
+    /// Clear a previously-granted bookmark. The user can re-grant later
+    /// via the "Use synced folder" button (macOS) or the document picker
+    /// flow on iOS.
+    func revokeSyncedFolderAccess(_ url: URL) {
+        guard let id = FileProviderDomainController.domainIdentifier(for: url) else { return }
+        FileProviderMountBookmark.remove(domain: id)
+        refreshBookmarkState()
+        statusMessage = "Synced folder access revoked."
+    }
+
     #if os(macOS)
     /// Reveal the mounted File Provider root in Finder. Uses
     /// `getUserVisibleURL(for: .rootContainer)` so the path is whatever
@@ -91,14 +130,11 @@ final class FileProviderSettingsModel {
     /// The console may emit sandbox-extension warnings — they're
     /// cosmetic; LaunchServices opens the folder regardless.
     func openInFinder(_ url: URL) async {
-        guard let id = FileProviderDomainController.domainIdentifier(for: url) else { return }
-        guard let domain = domains.first(where: { $0.identifier.rawValue == id }),
-              let mgr = NSFileProviderManager(for: domain) else {
-            statusMessage = "Open in Finder failed: domain not registered"
-            return
-        }
         do {
-            let visibleURL = try await mgr.getUserVisibleURL(for: .rootContainer)
+            guard let visibleURL = try await mountURL(for: url) else {
+                statusMessage = "Open in Finder failed: domain not registered"
+                return
+            }
             NSWorkspace.shared.activateFileViewerSelecting([visibleURL])
         } catch {
             statusMessage = "Open in Finder failed: \(error.localizedDescription)"
@@ -112,14 +148,13 @@ final class FileProviderSettingsModel {
     /// grant and surfaces "Synced ✓" in the UI.
     func grantSyncedFolderAccess(_ url: URL) async {
         guard let id = FileProviderDomainController.domainIdentifier(for: url) else { return }
-        guard let domain = domains.first(where: { $0.identifier.rawValue == id }),
-              let mgr = NSFileProviderManager(for: domain) else {
-            statusMessage = "Grant failed: domain not registered"
-            return
-        }
         let mountURL: URL
         do {
-            mountURL = try await mgr.getUserVisibleURL(for: .rootContainer)
+            guard let resolved = try await self.mountURL(for: url) else {
+                statusMessage = "Grant failed: domain not registered"
+                return
+            }
+            mountURL = resolved
         } catch {
             statusMessage = "Grant failed: \(error.localizedDescription)"
             return
@@ -166,25 +201,79 @@ final class FileProviderSettingsModel {
             statusMessage = "Bookmark failed: \(error.localizedDescription)"
         }
     }
+    #endif
 
-    /// Returns true when `candidate` is the same directory as `mount`
-    /// or a descendant of it. Both URLs are resolved/standardised first
-    /// to compare without symlink or `..` noise.
-    static func isURL(_ candidate: URL, withinMount mount: URL) -> Bool {
-        let cPath = candidate.resolvingSymlinksInPath().standardizedFileURL.path
-        let mPath = mount.resolvingSymlinksInPath().standardizedFileURL.path
-        if cPath == mPath { return true }
-        let prefix = mPath.hasSuffix("/") ? mPath : mPath + "/"
-        return cPath.hasPrefix(prefix)
+    #if os(iOS)
+    /// Deep-link into the Files app at the FP mount root. Uses the
+    /// `shareddocuments://` scheme — the iOS-documented pattern for
+    /// jumping to a Files-app location given a file URL. If `UIApplication`
+    /// can't open the URL (e.g. Files app restricted by MDM), the status
+    /// banner surfaces the failure rather than silently no-op'ing.
+    ///
+    /// Caveat: the `shareddocuments://` scheme is not formally documented
+    /// by Apple but is the only reliable way to launch Files at a known
+    /// folder; if Apple removes it the button degrades to a no-op (the
+    /// `open` call returns `false` and we surface a status message).
+    @MainActor
+    func openInFiles(_ url: URL) async {
+        do {
+            guard let visibleURL = try await mountURL(for: url) else {
+                statusMessage = "Open in Files failed: domain not registered"
+                return
+            }
+            // Strip the file:// scheme and replace with shareddocuments://.
+            // visibleURL.path keeps the absolute path; URLComponents lets us
+            // re-encode that path correctly for the scheme transition.
+            var components = URLComponents()
+            components.scheme = "shareddocuments"
+            components.path = visibleURL.path
+            guard let filesURL = components.url else {
+                statusMessage = "Open in Files failed: couldn't build deep-link URL"
+                return
+            }
+            let ok = await UIApplication.shared.open(filesURL)
+            if !ok {
+                statusMessage = "Open in Files failed: the system couldn't route the URL"
+            }
+        } catch {
+            statusMessage = "Open in Files failed: \(error.localizedDescription)"
+        }
     }
 
-    /// Clear a previously-granted bookmark. The user can re-grant later
-    /// via the "Use synced folder" button.
-    func revokeSyncedFolderAccess(_ url: URL) {
-        guard let id = FileProviderDomainController.domainIdentifier(for: url) else { return }
-        FileProviderMountBookmark.remove(domain: id)
-        refreshBookmarkState()
-        statusMessage = "Synced folder access revoked."
+    /// Persist a security-scope-free bookmark for the URL the user picked
+    /// in `UIDocumentPickerViewController(forOpeningContentTypes: [.folder])`.
+    ///
+    /// iOS bookmarks don't use the macOS `.withSecurityScope` option flag —
+    /// the Files framework's URL handoff carries scope through implicitly.
+    /// `FileProviderMountBookmark.resolveURL(domain:)` already gates the
+    /// resolution options on `os(macOS)` so resolves correctly here.
+    ///
+    /// `mountURL` is the pre-resolved FP root we pre-pointed the picker at;
+    /// we accept the exact URL or a subdirectory and reject anything else
+    /// with a status message (mirrors the macOS NSOpenPanel safety check).
+    func persistGrantedBookmark(serverURL: URL, picked: URL, mountURL: URL) {
+        guard let id = FileProviderDomainController.domainIdentifier(for: serverURL) else { return }
+        guard Self.isURL(picked, withinMount: mountURL) else {
+            statusMessage = "Grant cancelled — selected folder is outside the synced mount."
+            return
+        }
+        // iOS folder-picker URLs come back security-scoped; we must call
+        // start/stopAccessingSecurityScopedResource around bookmarkData to
+        // mint a usable bookmark.
+        let didStart = picked.startAccessingSecurityScopedResource()
+        defer { if didStart { picked.stopAccessingSecurityScopedResource() } }
+        do {
+            let bookmark = try picked.bookmarkData(
+                options: [],
+                includingResourceValuesForKeys: nil,
+                relativeTo: nil
+            )
+            FileProviderMountBookmark.save(bookmark, domain: id)
+            refreshBookmarkState()
+            statusMessage = "Synced folder access granted."
+        } catch {
+            statusMessage = "Bookmark failed: \(error.localizedDescription)"
+        }
     }
     #endif
 

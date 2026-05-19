@@ -137,6 +137,42 @@ final class FileProviderMountBookmarkTests: XCTestCase {
         }
     }
 
+    /// iOS round-trip: production `resolveURL(domain:)` passes an empty
+    /// options set on iOS (no `.withSecurityScope` flag — the Files
+    /// framework's URL handoff carries scope implicitly). A bookmark
+    /// minted with empty options must resolve cleanly through that
+    /// production path, with no stale flag, when the target still exists.
+    ///
+    /// Mirrors the iOS code path in `FileProviderSettingsViewIOS` /
+    /// `FileProviderSettingsModel.persistGrantedBookmark` which calls
+    /// `bookmarkData(options: [])` on the picker-returned URL. Running
+    /// this on macOS would require `.withSecurityScope`, so gate it.
+    #if os(iOS)
+    func testResolveURLRoundTripIOS() throws {
+        let tmp = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("fp-mount-bookmark-ios-resolve-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        let bookmark = try tmp.bookmarkData(
+            options: [],
+            includingResourceValuesForKeys: nil,
+            relativeTo: nil
+        )
+        FileProviderMountBookmark.save(bookmark, domain: "d-ios", defaults: defaults)
+
+        let resolved = try XCTUnwrap(
+            FileProviderMountBookmark.resolveURL(domain: "d-ios", defaults: defaults),
+            "resolveURL should succeed on iOS for a bookmark minted with empty options"
+        )
+        XCTAssertFalse(resolved.isStale, "fresh iOS bookmark should not resolve as stale")
+        XCTAssertEqual(
+            resolved.url.standardizedFileURL.path,
+            tmp.standardizedFileURL.path
+        )
+    }
+    #endif
+
     /// Contract test for the missing-target re-prompt path in
     /// `_resolve(bookmark:options:domain:)`. On macOS the OS itself
     /// throws `NSCocoaErrorDomain code 4 ("file doesn't exist")` for
