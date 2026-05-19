@@ -858,6 +858,34 @@ struct AppShell: View {
     /// scope.
     @MainActor
     private func navigateFolder(_ url: URL) {
+        // Issue #101 (continued): FP-routed cloud libraries — when the
+        // active library is a cloud server AND we have a usable FP-mount
+        // bookmark for it, the subfolder URL the grid hands us is already
+        // a real filesystem URL under the FP mount (FilesystemSource
+        // produced it). Drive through `browseVM.loadFolder(url:)` exactly
+        // like the top-level FP open, and keep `librarySelection` /
+        // `currentRootBookmark` unchanged.
+        //
+        // This branch MUST come before the `.cloudLibrary + CloudSource`
+        // branch below — otherwise a stale `CloudSource` left over from
+        // a previous API-routed visit in the same session would silently
+        // re-route this drill-down through `/api/fs/dir`, defeating the
+        // whole point of FP routing.
+        if case .cloudLibrary(let serverID, _) = librarySelection,
+           case .folderView = FileProviderMountRouter.resolve(serverURL: serverID) {
+            Task.detached { await ThumbnailLoader.shared.cancelAll() }
+            Task.detached {
+                await ThumbnailDiskCache.shared.configure(folderURL: url)
+                await RenderedPreviewCache.shared.configure(folderURL: url)
+                await DecodedBufferCache.shared.configure(folderURL: url)
+            }
+            claimScope(for: url)
+            browseVM.currentScopeRoot = url
+            browseVM.loadFolder(url: url)
+            libraryTitle = url.lastPathComponent
+            return
+        }
+
         // Cloud-library context: drill into the subfolder via /api/fs/dir
         // instead of the filesystem-bookmark path. URL.path carries the
         // server-side absolute path. We don't update LibrarySelection

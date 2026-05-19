@@ -101,7 +101,8 @@ final class FileProviderMountRouterTests: XCTestCase {
         let broken = FileProviderMountRouter.isBookmarkBroken(
             serverURL: server,
             resolver: { _ in nil },
-            scopeProbe: { _ in false }
+            scopeProbe: { _ in false },
+            bookmarkExists: { _ in false }
         )
         XCTAssertFalse(broken)
     }
@@ -110,7 +111,8 @@ final class FileProviderMountRouterTests: XCTestCase {
         let broken = FileProviderMountRouter.isBookmarkBroken(
             serverURL: server,
             resolver: { _ in (url: self.bookmarkURL, isStale: false) },
-            scopeProbe: { _ in true }
+            scopeProbe: { _ in true },
+            bookmarkExists: { _ in true }
         )
         XCTAssertFalse(broken)
     }
@@ -119,7 +121,8 @@ final class FileProviderMountRouterTests: XCTestCase {
         let broken = FileProviderMountRouter.isBookmarkBroken(
             serverURL: server,
             resolver: { _ in (url: self.bookmarkURL, isStale: true) },
-            scopeProbe: { _ in false }
+            scopeProbe: { _ in false },
+            bookmarkExists: { _ in true }
         )
         XCTAssertTrue(broken)
     }
@@ -128,7 +131,26 @@ final class FileProviderMountRouterTests: XCTestCase {
         let broken = FileProviderMountRouter.isBookmarkBroken(
             serverURL: server,
             resolver: { _ in (url: self.bookmarkURL, isStale: false) },
-            scopeProbe: { _ in false }
+            scopeProbe: { _ in false },
+            bookmarkExists: { _ in true }
+        )
+        XCTAssertTrue(broken)
+    }
+
+    /// Copilot review on PR #106: with the default resolver, a stored
+    /// bookmark whose resolve throws would silently report "not broken"
+    /// — Settings would never surface "Sync access lost" for corrupted /
+    /// vanished-target bookmarks that don't have a chance to set
+    /// `isStale`. `bookmarkExists` breaks the tie.
+    func testIsBookmarkBrokenTrueWhenBookmarkStoredButResolverFails() {
+        let broken = FileProviderMountRouter.isBookmarkBroken(
+            serverURL: server,
+            resolver: { _ in nil },               // resolve failed
+            scopeProbe: { _ in
+                XCTFail("scope probe should not run when resolver returned nil")
+                return false
+            },
+            bookmarkExists: { _ in true }         // but data was on disk
         )
         XCTAssertTrue(broken)
     }

@@ -52,6 +52,13 @@ public enum FileProviderMountRouter {
     /// re-issues it for the session lifetime via `claimScope(for:)`.
     public typealias ScopeProbe = @Sendable (_ url: URL) -> Bool
 
+    /// Existence check for a stored bookmark, independent of whether it
+    /// resolves. `isBookmarkBroken` uses this to distinguish "no bookmark
+    /// stored" (not broken — user just hasn't granted access) from
+    /// "bookmark stored but resolution failed" (broken — Settings should
+    /// surface "Sync access lost").
+    public typealias BookmarkExists = @Sendable (_ domain: String) -> Bool
+
     public static let defaultResolver: Resolver = { domain in
         FileProviderMountBookmark.resolveURL(domain: domain)
     }
@@ -63,6 +70,10 @@ public enum FileProviderMountRouter {
         // claim no one will release.
         if ok { url.stopAccessingSecurityScopedResource() }
         return ok
+    }
+
+    public static let defaultBookmarkExists: BookmarkExists = { domain in
+        FileProviderMountBookmark.load(domain: domain) != nil
     }
 
     // MARK: - Public API
@@ -93,21 +104,30 @@ public enum FileProviderMountRouter {
         return .folderView(resolved.url)
     }
 
-    /// True when a bookmark exists for `serverURL` AND it currently
-    /// reports stale OR fails the scope probe. The Settings UI uses this
-    /// signal to render "Sync access lost, please re-grant."
+    /// True when a bookmark exists for `serverURL` AND it currently fails
+    /// to produce a usable URL — resolution returned nil, reported
+    /// `isStale`, or the OS denied the scope probe. The Settings UI uses
+    /// this signal to render "Sync access lost, please re-grant."
+    ///
+    /// Returns false when no bookmark is stored at all (the user just
+    /// hasn't granted access yet — not a broken state) and when the
+    /// bookmark is fully usable.
     public static func isBookmarkBroken(
         serverURL: URL,
         resolver: Resolver = defaultResolver,
-        scopeProbe: ScopeProbe = defaultScopeProbe
+        scopeProbe: ScopeProbe = defaultScopeProbe,
+        bookmarkExists: BookmarkExists = defaultBookmarkExists
     ) -> Bool {
         guard let domain = FileProviderDomainController.domainIdentifier(for: serverURL) else {
             return false
         }
+        let exists = bookmarkExists(domain)
         guard let resolved = resolver(domain) else {
-            // No bookmark at all is not a "broken" state — it just means
-            // the user hasn't granted access yet.
-            return false
+            // Resolver returned nil. Two cases:
+            //   - no bookmark stored          → not broken (user hasn't granted)
+            //   - bookmark stored, resolve failed → broken (corrupted / target gone
+            //     and the bookmark didn't have a chance to set `isStale`)
+            return exists
         }
         if resolved.isStale { return true }
         return !scopeProbe(resolved.url)
