@@ -143,6 +143,58 @@ export interface ApiDescriptionMeta {
   [key: string]: unknown;
 }
 
+/**
+ * Structured vision metadata from the qwen2.5-vl describe stage.
+ * Mirrors `VisionDoc` in `src/api/src/db/schema.ts`. `null` until the
+ * stage has run on the asset.
+ */
+export interface ApiVision {
+  caption: string;
+  subjects: string[];
+  scene_type: 'indoor' | 'outdoor' | 'aerial' | 'macro' | 'studio' | 'mixed';
+  setting: string | null;
+  activity: string | null;
+  time_of_day:
+    | 'morning'
+    | 'midday'
+    | 'afternoon'
+    | 'golden hour'
+    | 'evening'
+    | 'night'
+    | 'unknown';
+  lighting: 'natural' | 'artificial' | 'mixed' | 'low-light' | 'backlit' | 'flash';
+  weather: 'clear' | 'cloudy' | 'rainy' | 'snowy' | 'foggy' | 'indoor' | 'unknown';
+  mood: string;
+  colors: string[];
+  composition:
+    | 'wide shot'
+    | 'close-up'
+    | 'portrait'
+    | 'landscape'
+    | 'aerial'
+    | 'macro'
+    | 'candid';
+  text_visible: string | null;
+  notable_objects: string[];
+  shot_type:
+    | 'action'
+    | 'static'
+    | 'candid'
+    | 'posed'
+    | 'architectural'
+    | 'nature'
+    | 'event';
+  indoor_outdoor: 'indoor' | 'outdoor';
+}
+
+export interface ApiVisionMeta {
+  provider: 'ollama' | 'anthropic' | 'openai' | 'gemini';
+  model: string;
+  prompt_version: number;
+  generated_at: string;
+  raw_response_size: number;
+}
+
 export interface ApiAssetDetail {
   id: string;
   folder_id: string;
@@ -160,6 +212,9 @@ export interface ApiAssetDetail {
   description_meta: ApiDescriptionMeta | null;
   ocr_text: string | null;
   ocr_meta: ApiOcrMeta | null;
+  /** Structured vision data from the qwen2.5-vl describe stage. */
+  vision: ApiVision | null;
+  vision_meta: ApiVisionMeta | null;
   enrichment: ApiEnrichment;
 }
 

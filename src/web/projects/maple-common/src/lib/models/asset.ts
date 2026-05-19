@@ -6,6 +6,52 @@ export type Flag = 'unflagged' | 'pick' | 'reject';
 
 export type ColorLabel = 'red' | 'orange' | 'yellow' | 'green' | 'blue' | null;
 
+/**
+ * Structured vision metadata from the API's qwen2.5-vl describe stage.
+ * Mirrors `ApiVision` in `bun-api-backend.service.ts`, kept here as a
+ * standalone type so consumers outside the API client surface (offline
+ * caches, view-model adapters) can hold a typed reference. `null` until
+ * the describe stage has run on the asset.
+ */
+export interface Vision {
+  caption: string;
+  subjects: string[];
+  sceneType: 'indoor' | 'outdoor' | 'aerial' | 'macro' | 'studio' | 'mixed';
+  setting: string | null;
+  activity: string | null;
+  timeOfDay:
+    | 'morning'
+    | 'midday'
+    | 'afternoon'
+    | 'golden hour'
+    | 'evening'
+    | 'night'
+    | 'unknown';
+  lighting: 'natural' | 'artificial' | 'mixed' | 'low-light' | 'backlit' | 'flash';
+  weather: 'clear' | 'cloudy' | 'rainy' | 'snowy' | 'foggy' | 'indoor' | 'unknown';
+  mood: string;
+  colors: string[];
+  composition:
+    | 'wide shot'
+    | 'close-up'
+    | 'portrait'
+    | 'landscape'
+    | 'aerial'
+    | 'macro'
+    | 'candid';
+  textVisible: string | null;
+  notableObjects: string[];
+  shotType:
+    | 'action'
+    | 'static'
+    | 'candid'
+    | 'posed'
+    | 'architectural'
+    | 'nature'
+    | 'event';
+  indoorOutdoor: 'indoor' | 'outdoor';
+}
+
 export interface Asset {
   id: AssetId;
   filename: string;
@@ -52,4 +98,9 @@ export interface Asset {
   city?: string;
   region?: string;
   country?: string;
+
+  /** Structured vision metadata from the qwen2.5-vl describe stage.
+   * `null`/missing on assets that haven't been through the stage yet
+   * (paused on first boot, paid provider without a key, etc.). */
+  vision?: Vision | null;
 }

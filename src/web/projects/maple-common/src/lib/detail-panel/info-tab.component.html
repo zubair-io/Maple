@@ -308,6 +308,81 @@
       </div>
     </maple-collapsible>
 
+    <!-- Vision (structured) — populated by the qwen2.5-vl describe stage -->
+    @if (d.vision) {
+      <maple-collapsible label="Vision" storageKey="info-vision">
+        <div class="space-y-2 px-4 py-[5px]">
+          <!-- subjects -->
+          @if (d.vision.subjects.length > 0) {
+            <div>
+              <div class="mb-1 text-[10px] uppercase tracking-[0.3px] text-text-muted">Subjects</div>
+              <div class="flex flex-wrap gap-1">
+                @for (s of d.vision.subjects; track s) {
+                  <div class="rounded-[3px] border-[0.5px] border-border bg-surface-alt px-1.5 py-0.5 text-[10px] text-text-main">{{ s }}</div>
+                }
+              </div>
+            </div>
+          }
+
+          <!-- scene + setting + activity (single-value chips, only show populated) -->
+          <div class="flex flex-wrap gap-1">
+            <div class="rounded-[3px] border-[0.5px] border-border bg-surface-alt px-1.5 py-0.5 text-[10px] text-text-main">{{ d.vision.scene_type }}</div>
+            @if (d.vision.setting) {
+              <div class="rounded-[3px] border-[0.5px] border-border bg-surface-alt px-1.5 py-0.5 text-[10px] text-text-main">{{ d.vision.setting }}</div>
+            }
+            @if (d.vision.activity) {
+              <div class="rounded-[3px] border-[0.5px] border-border bg-surface-alt px-1.5 py-0.5 text-[10px] text-text-main">{{ d.vision.activity }}</div>
+            }
+            <div class="rounded-[3px] border-[0.5px] border-border bg-surface-alt px-1.5 py-0.5 text-[10px] text-text-main">{{ d.vision.shot_type }}</div>
+          </div>
+
+          <!-- mood + composition + time/lighting/weather context (smaller, secondary row) -->
+          <div class="flex flex-wrap gap-1">
+            @if (d.vision.mood) {
+              <div class="rounded-[3px] border-[0.5px] border-border bg-surface-alt px-1.5 py-0.5 text-[10px] text-text-muted">{{ d.vision.mood }}</div>
+            }
+            <div class="rounded-[3px] border-[0.5px] border-border bg-surface-alt px-1.5 py-0.5 text-[10px] text-text-muted">{{ d.vision.composition }}</div>
+            <div class="rounded-[3px] border-[0.5px] border-border bg-surface-alt px-1.5 py-0.5 text-[10px] text-text-muted">{{ d.vision.time_of_day }}</div>
+            <div class="rounded-[3px] border-[0.5px] border-border bg-surface-alt px-1.5 py-0.5 text-[10px] text-text-muted">{{ d.vision.lighting }}</div>
+            @if (d.vision.weather !== 'indoor' && d.vision.weather !== 'unknown') {
+              <div class="rounded-[3px] border-[0.5px] border-border bg-surface-alt px-1.5 py-0.5 text-[10px] text-text-muted">{{ d.vision.weather }}</div>
+            }
+          </div>
+
+          <!-- notable objects -->
+          @if (d.vision.notable_objects.length > 0) {
+            <div>
+              <div class="mb-1 text-[10px] uppercase tracking-[0.3px] text-text-muted">Notable objects</div>
+              <div class="flex flex-wrap gap-1">
+                @for (o of d.vision.notable_objects; track o) {
+                  <div class="rounded-[3px] border-[0.5px] border-border bg-surface-alt px-1.5 py-0.5 text-[10px] text-text-main">{{ o }}</div>
+                }
+              </div>
+            </div>
+          }
+
+          <!-- colors swatch + name -->
+          @if (d.vision.colors.length > 0) {
+            <div>
+              <div class="mb-1 text-[10px] uppercase tracking-[0.3px] text-text-muted">Colors</div>
+              <div class="flex flex-wrap gap-1">
+                @for (c of d.vision.colors; track c) {
+                  <div class="rounded-[3px] border-[0.5px] border-border bg-surface-alt px-1.5 py-0.5 text-[10px] text-text-main">{{ c }}</div>
+                }
+              </div>
+            </div>
+          }
+
+          <!-- provenance footer (small, muted) -->
+          @if (d.vision_meta) {
+            <div class="pt-1 text-[9px] text-text-muted">
+              {{ d.vision_meta.model }} · prompt v{{ d.vision_meta.prompt_version }}
+            </div>
+          }
+        </div>
+      </maple-collapsible>
+    }
+
     <!-- OCR text -->
     <maple-collapsible label="OCR text" storageKey="info-ocr">
       <div class="px-4 py-[5px]">

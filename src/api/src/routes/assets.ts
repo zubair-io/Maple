@@ -97,6 +97,10 @@ export const assetsRoutes = new Elysia({ prefix: "/api/assets" })
       description_meta: rawDoc.description_meta ?? null,
       ocr_text: doc.ocr_text ?? null,
       ocr_meta: doc.ocr_meta ?? null,
+      // Structured vision metadata from the qwen2.5-vl describe stage.
+      // Both are null until the stage runs on the asset.
+      vision: doc.vision ?? null,
+      vision_meta: doc.vision_meta ?? null,
       enrichment: normaliseEnrichment(doc.enrichment),
     };
   })
