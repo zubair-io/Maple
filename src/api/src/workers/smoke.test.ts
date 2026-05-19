@@ -104,7 +104,6 @@ describe("workers smoke test", () => {
 
       // The Plan 3 stages should still be at version 0 (untouched).
       expect(stages.face?.version).toBe(0);
-      expect(stages.ocr?.version).toBe(0);
 
       // Clean up.
       await assetsColl.deleteOne({ abs_path: file });

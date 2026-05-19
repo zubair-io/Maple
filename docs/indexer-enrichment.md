@@ -397,7 +397,7 @@ The full shape lives in `src/api/src/db/schema.ts` (search for `VisionDoc` / `Vi
 | `mood` | 1–3 words. |
 | `colors[]` | Dominant colors, max 5. |
 | `composition` | `wide shot` \| `close-up` \| `portrait` \| `landscape` \| `aerial` \| `macro` \| `candid`. |
-| `text_visible` | Any readable text in the image, or `null`. Feeds `ocr_text` when no Tesseract result exists. |
+| `text_visible` | Any readable text in the image, or `null`. Always mirrored into `ocr_text` by the describe stage. |
 | `notable_objects[]` | Distinctive objects, max 8. |
 | `shot_type` | `action` \| `static` \| `candid` \| `posed` \| `architectural` \| `nature` \| `event`. |
 | `indoor_outdoor` | `indoor` \| `outdoor`. |
@@ -413,7 +413,7 @@ The full shape lives in `src/api/src/db/schema.ts` (search for `VisionDoc` / `Vi
 
 Either knob causes existing assets to re-run the describe stage on their own. No backfill script, no admin route — the per-asset bookkeeping in `enrichment.<stage>` does the work.
 
-**OCR engine union.** `ocr_meta.engine` is now a union: `"tesseract" | "qwen2.5-vl"`. Both engines can produce `ocr_text`. Precedence rule: **Tesseract wins when both have run**, because Tesseract is the only path that yields per-word bounding boxes — the reason an operator would enable it in the first place. The describe handler writes `ocr_text` / `ocr_meta` only when `ocr_meta` is null **or** the existing `ocr_meta.engine === "qwen2.5-vl"` (so a re-caption refreshes its own output but doesn't overwrite Tesseract's). `engine_version` carries the concrete tag — `"qwen2.5-vl:7b"` for the VLM path, the Tesseract semver for the classical path. The Tesseract stage stays `pausedOnFirstBoot: true` and is opt-in for document workflows.
+**OCR.** `ocr_text` is populated from `vision.text_visible` by the describe stage on every pass; `ocr_meta.engine === "qwen2.5-vl"` always. There is no separate OCR worker — the parallel Tesseract stage was removed in #158 because nothing consumed its per-word bboxes.
 
 **`search_blob` fan-in.** `composeSearchBlob` in `src/api/src/enrichment/search-blob.ts` folds `vision.subjects`, `vision.setting`, `vision.activity`, and `vision.notable_objects` into the per-asset search blob. The `meili` stage threads them through, so existing typo-tolerant text search benefits without any new infrastructure. Meili `targetVersion` was bumped to invalidate prior index entries.
 

@@ -141,9 +141,9 @@ export interface VisionDoc {
     | "aerial"
     | "macro"
     | "candid";
-  /** Any readable text in the image. `null` when there is none. When the
-   * describe stage wrote this row, the runtime mirrors this value into
-   * `ocr_text` and stamps `ocr_meta.engine = "qwen2.5-vl"`. */
+  /** Any readable text in the image. `null` when there is none. The
+   * describe stage mirrors this value into `ocr_text` and stamps
+   * `ocr_meta.engine = "qwen2.5-vl"` on every run. */
   text_visible: string | null;
   /** Distinctive objects, max 8. */
   notable_objects: string[];
@@ -223,29 +223,20 @@ export interface AssetDoc {
   /** Provenance of the `vision` subdoc. Carries the model + prompt version
    * so a config change automatically invalidates stale rows. */
   vision_meta?: VisionMeta | null;
-  /** Recognised text extracted from the asset's preview by the OCR path.
-   * Source depends on `ocr_meta.engine`: `tesseract` (legacy, opt-in) or
-   * `qwen2.5-vl` (default, written by the describe stage from
-   * `vision.text_visible`). `null` until either path has run; empty string
-   * when nothing was found OR when the Tesseract path's mean confidence was
-   * below `MAPLE_OCR_MIN_CONFIDENCE`. */
+  /** Recognised text extracted from the asset's preview, mirrored by the
+   * describe stage from `vision.text_visible`. `null` until the describe
+   * stage has run on this asset; empty string when the model saw no text. */
   ocr_text?: string | null;
-  /** Per-word OCR output. Tesseract-only — the qwen2.5-vl path does not
-   * emit per-word bboxes, so this stays `null` when `ocr_meta.engine ===
-   * "qwen2.5-vl"`. `null` until any OCR path has run; `[]` when Tesseract
-   * detected nothing. */
-  ocr_words?: OcrWord[] | null;
-  /** Provenance of the OCR run. `engine` identifies which path wrote the
-   * `ocr_text`/`ocr_words`. Reruns are gated by the writing stage's
-   * `targetVersion`, not by this string. */
+  /** Provenance of the OCR mirror. `engine` is always the literal
+   * `"qwen2.5-vl"` — the describe stage is the sole writer. Reruns are
+   * gated by the describe stage's `targetVersion`. */
   ocr_meta?: {
-    engine: "tesseract" | "qwen2.5-vl";
+    engine: "qwen2.5-vl";
     engine_version: string;
     generated_at: string;
-    /** Tesseract's overall mean confidence (0–100). `null` for the
-     * qwen2.5-vl path (the VLM has no per-token confidence the way
-     * Tesseract does) and for legacy rows written before per-word
-     * capture landed. */
+    /** Always `null` for the qwen2.5-vl path — the VLM has no per-token
+     * confidence the way a classic OCR engine does. Kept on the type for
+     * legacy rows that may carry a stale value from an earlier engine. */
     mean_confidence: number | null;
   } | null;
   /** Synthesised text-index target. Concatenation of `place.search_blob`,
@@ -353,9 +344,6 @@ export interface Enrichment {
   geocode: EnrichmentStageState;
   face: EnrichmentStageState;
   describe: EnrichmentStageState;
-  /** OCR worker bookkeeping (Phase 8). Pending on every fresh skeleton
-   * row; flipped to done by `OcrWorker.complete()`. */
-  ocr: EnrichmentStageState;
 }
 
 // ---------------------------------------------------------------------------
@@ -430,10 +418,8 @@ export interface GeocodeCacheDoc {
 // ---------------------------------------------------------------------------
 
 /** Axis-aligned bounding box. Coordinate space is set by the producer
- * and documented at the use site — face detector emits normalised
- * `[0,1]` proportions, the OCR engine emits pixels relative to the
- * input thumbnail. Both share this shape because the arithmetic is
- * identical; consumers must respect the documented units. */
+ * and documented at the use site — the face detector emits normalised
+ * `[0,1]` proportions. Consumers must respect the documented units. */
 export interface Bbox {
   x: number;
   y: number;
@@ -455,22 +441,6 @@ export interface AssetFaceDoc {
    * person panel. `person_id` is forced to `null` on hide — the two
    * are written together by `hideFace`. */
   hidden?: boolean;
-}
-
-// ---------------------------------------------------------------------------
-// OCR word — written by the Phase 6 OCR worker alongside `ocr_text`. Lets
-// the search layer (and any future filtering) re-score on confidence
-// without re-running the engine. Bounding boxes are in pixel coordinates
-// relative to the thumbnail the engine was given.
-// ---------------------------------------------------------------------------
-
-export interface OcrWord {
-  text: string;
-  /** Engine-reported confidence, 0–100. */
-  confidence: number;
-  /** Pixel coordinates relative to the OCR'd thumbnail. Distinct from
-   * `AssetFaceDoc.bbox`, which is normalised proportions. */
-  bbox: Bbox;
 }
 
 // ---------------------------------------------------------------------------
@@ -543,7 +513,6 @@ export function pendingEnrichment(): Enrichment {
     geocode: pendingStageState(),
     face: pendingStageState(),
     describe: pendingStageState(),
-    ocr: pendingStageState(),
   };
 }
 
@@ -560,7 +529,6 @@ export function normaliseEnrichment(
     geocode: { ...pendingStageState(), ...(raw?.geocode ?? {}) },
     face: { ...pendingStageState(), ...(raw?.face ?? {}) },
     describe: { ...pendingStageState(), ...(raw?.describe ?? {}) },
-    ocr: { ...pendingStageState(), ...(raw?.ocr ?? {}) },
   };
 }
 

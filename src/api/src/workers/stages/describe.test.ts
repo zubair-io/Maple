@@ -281,38 +281,11 @@ describe("describeHandler — OCR mirror from vision.text_visible", () => {
     expect(patch.ocr_text).toBe("");
   });
 
-  it("does NOT overwrite ocr_text when Tesseract owns the OCR meta", async () => {
-    const absPath = join(tmpRoot, "ocr-tess.dng");
+  it("unconditionally writes ocr_text + ocr_meta on refresh (vision wins; engine is the literal 'qwen2.5-vl')", async () => {
+    const absPath = join(tmpRoot, "ocr-refresh.dng");
     seedPreview(absPath);
     const doc = fakeDoc(absPath);
-    // Prior Tesseract run — describe must respect its bbox-bearing output.
-    (doc as unknown as Record<string, unknown>).ocr_meta = {
-      engine: "tesseract",
-      engine_version: "5.1-conf",
-      generated_at: "2026-05-01T00:00:00.000Z",
-      mean_confidence: 87,
-    };
-    const vision = { ...VALID_VISION, text_visible: "DO NOT WRITE THIS" };
-    const provider = mockProvider({
-      text: JSON.stringify(vision),
-      cost_usd: 0,
-      provider_info: {},
-    });
-    setDescribeDepsForTests({
-      provider,
-      systemPrompt: "p",
-      model: "qwen2.5-vl:7b",
-    });
-    const result = await describeHandler(doc, fakeCtx);
-    const patch = (result as { patch: Record<string, unknown> }).patch;
-    expect("ocr_text" in patch).toBe(false);
-    expect("ocr_meta" in patch).toBe(false);
-  });
-
-  it("DOES overwrite when prior ocr_meta was itself written by qwen2.5-vl (refresh)", async () => {
-    const absPath = join(tmpRoot, "ocr-vlm-refresh.dng");
-    seedPreview(absPath);
-    const doc = fakeDoc(absPath);
+    // Prior ocr_meta of any shape on the doc is ignored — vision always wins.
     (doc as unknown as Record<string, unknown>).ocr_meta = {
       engine: "qwen2.5-vl",
       engine_version: "qwen2.5-vl:7b",
@@ -333,7 +306,8 @@ describe("describeHandler — OCR mirror from vision.text_visible", () => {
     const result = await describeHandler(doc, fakeCtx);
     const patch = (result as { patch: Record<string, unknown> }).patch;
     expect(patch.ocr_text).toBe("FRESH READ");
-    const ocrMeta = patch.ocr_meta as { engine: string };
+    const ocrMeta = patch.ocr_meta as { engine: "qwen2.5-vl" };
+    // Engine is the single literal — no union with other engines exists.
     expect(ocrMeta.engine).toBe("qwen2.5-vl");
   });
 });

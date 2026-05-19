@@ -180,10 +180,6 @@ export interface EnrichmentConfig {
   face_retinaface_sha256?: string | null;
   face_mobilefacenet_url?: string | null;
   face_mobilefacenet_sha256?: string | null;
-  // ── OCR worker (Phase 8) ─────────────────────────────────────────────
-  /** OCR worker enable flag. `null` means "operator hasn't touched it" —
-   * resolver falls back to env / default (off). */
-  ocr_worker_enabled?: boolean | null;
   updated_at?: number;
 }
 
@@ -261,9 +257,6 @@ export async function saveEnrichmentConfig(
   if (patch.face_mobilefacenet_sha256 !== undefined) {
     set["config.face_mobilefacenet_sha256"] = patch.face_mobilefacenet_sha256;
   }
-  if (patch.ocr_worker_enabled !== undefined) {
-    set["config.ocr_worker_enabled"] = patch.ocr_worker_enabled;
-  }
   await db
     .collection(COLL)
     .updateOne({ _id: DOC_ID }, { $set: set }, { upsert: true });
@@ -301,8 +294,6 @@ export interface ResolvedEnrichmentConfig {
   face_retinaface_sha256: string | null;
   face_mobilefacenet_url: string | null;
   face_mobilefacenet_sha256: string | null;
-  /** Phase 8 OCR worker. Resolved from DB → env → built-in default false. */
-  ocr_worker_enabled: boolean;
   /** Where each field came from. The UI renders this so the operator knows
    * whether they're seeing a saved value or an env-var fallback. */
   source: {
@@ -321,7 +312,6 @@ export interface ResolvedEnrichmentConfig {
     face_retinaface_sha256: "db" | "env" | "unset";
     face_mobilefacenet_url: "db" | "env" | "unset";
     face_mobilefacenet_sha256: "db" | "env" | "unset";
-    ocr_worker_enabled: "db" | "env" | "default";
   };
 }
 
@@ -536,18 +526,6 @@ export function resolveEnrichmentConfig(
     env.MAPLE_FACE_MOBILEFACENET_SHA256,
   );
 
-  // ── OCR worker (Phase 8) ─────────────────────────────────────────────
-  let ocrEnabled = false;
-  let ocrEnabledSource: ResolvedEnrichmentConfig["source"]["ocr_worker_enabled"] =
-    "default";
-  if (db && typeof db.ocr_worker_enabled === "boolean") {
-    ocrEnabled = db.ocr_worker_enabled;
-    ocrEnabledSource = "db";
-  } else if (env.MAPLE_OCR_WORKER_ENABLED !== undefined) {
-    ocrEnabled = env.MAPLE_OCR_WORKER_ENABLED === "true";
-    ocrEnabledSource = "env";
-  }
-
   return {
     nominatim_url: url,
     geocode_worker_enabled: enabled,
@@ -564,7 +542,6 @@ export function resolveEnrichmentConfig(
     face_retinaface_sha256: faceRetinafaceSha.value,
     face_mobilefacenet_url: faceMfnUrl.value,
     face_mobilefacenet_sha256: faceMfnSha.value,
-    ocr_worker_enabled: ocrEnabled,
     source: {
       nominatim_url: urlSource,
       geocode_worker_enabled: enabledSource,
@@ -581,7 +558,6 @@ export function resolveEnrichmentConfig(
       face_retinaface_sha256: faceRetinafaceSha.source,
       face_mobilefacenet_url: faceMfnUrl.source,
       face_mobilefacenet_sha256: faceMfnSha.source,
-      ocr_worker_enabled: ocrEnabledSource,
     },
   };
 }

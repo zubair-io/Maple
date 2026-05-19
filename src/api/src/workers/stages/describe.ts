@@ -10,6 +10,8 @@
  *   description_meta  — { provider, model, prompt_version, generated_at, cost_usd, … }
  *   vision            — full structured VisionDoc
  *   vision_meta       — { provider, model, prompt_version, generated_at, raw_response_size }
+ *   ocr_text          — mirrored from vision.text_visible
+ *   ocr_meta          — { engine: "qwen2.5-vl", … } — qwen2.5-vl is the sole OCR source
  *
  * On a parse failure the handler re-throws `VisionParseError`; the runtime
  * stamps the message into `stages.describe.last_error` and increments
@@ -138,24 +140,16 @@ export async function describeHandler(
   };
 
   // OCR mirror: the structured vision pass extracts visible text as part
-  // of captioning, so we populate ocr_text from vision.text_visible.
-  // Precedence: don't clobber a Tesseract result. An operator who opts
-  // into the Tesseract stage wants the per-word bboxes it provides; the
-  // VLM doesn't emit bboxes. We only write OCR fields when the existing
-  // ocr_meta is missing OR was itself written by the qwen2.5-vl path.
-  const existingOcr = (image as unknown as { ocr_meta?: { engine?: string } | null }).ocr_meta;
-  const tesseractOwnsOcr =
-    existingOcr != null && existingOcr.engine === "tesseract";
-  if (!tesseractOwnsOcr) {
-    patch.ocr_text = vision.text_visible ?? "";
-    patch.ocr_meta = {
-      engine: "qwen2.5-vl",
-      engine_version: model,
-      generated_at: now,
-      // qwen2.5-vl has no per-token confidence the way Tesseract does.
-      mean_confidence: null,
-    };
-  }
+  // of captioning, so we populate ocr_text from vision.text_visible. qwen2.5-vl
+  // is the sole OCR source; the engine field is always the literal "qwen2.5-vl".
+  patch.ocr_text = vision.text_visible ?? "";
+  patch.ocr_meta = {
+    engine: "qwen2.5-vl",
+    engine_version: model,
+    generated_at: now,
+    // qwen2.5-vl has no per-token confidence the way a classic OCR engine does.
+    mean_confidence: null,
+  };
 
   return { patch };
 }

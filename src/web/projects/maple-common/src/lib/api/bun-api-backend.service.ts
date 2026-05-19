@@ -49,9 +49,7 @@ export interface ApiAssetPage {
 /** Axis-aligned bounding box. Coordinate space is set by the producer
  * and documented at the use site — face bboxes are normalised `[0,1]`
  * proportions of the source image (used as CSS percentages by the crop
- * helper), OCR word bboxes are pixels relative to the thumbnail. The
- * shape is the same so the arithmetic is shared; consumers must respect
- * the documented units. */
+ * helper). Consumers must respect the documented units. */
 export interface Bbox {
   x: number;
   y: number;
@@ -116,21 +114,22 @@ export interface ApiEnrichmentStageState {
   dead_letter_at: string | null;
 }
 
-export type ApiEnrichmentStage = 'geocode' | 'face' | 'describe' | 'ocr';
+export type ApiEnrichmentStage = 'geocode' | 'face' | 'describe';
 
 export interface ApiEnrichment {
   geocode: ApiEnrichmentStageState;
   face: ApiEnrichmentStageState;
   describe: ApiEnrichmentStageState;
-  ocr: ApiEnrichmentStageState;
 }
 
 export interface ApiOcrMeta {
-  engine: string;
+  /** Always the literal `'qwen2.5-vl'` — the describe stage is the sole
+   * source of OCR text now. */
+  engine: 'qwen2.5-vl';
   engine_version: string;
   generated_at: string;
-  /** Overall mean confidence reported by the engine, 0–100. `null` for
-   * legacy rows written before per-word capture landed. */
+  /** Always `null` for the qwen2.5-vl path — the VLM has no per-token
+   * confidence. Kept on the type for legacy rows. */
   mean_confidence?: number | null;
 }
 
@@ -282,7 +281,7 @@ export class BunApiBackendService {
   }
 
   /** Detail-pane payload — same `/api/assets/:id` route, but typed to surface
-   * the enrichment outputs (place, faces, description, ocr) the info-pane
+   * the enrichment outputs (place, faces, description, vision) the info-pane
    * needs. Snake_case fields pass through untouched. */
   getAssetDetails(assetId: string): Observable<ApiAssetDetail> {
     return this.http.get<ApiAssetDetail>(`${this.base}/assets/${assetId}`);
@@ -305,14 +304,6 @@ export class BunApiBackendService {
     text: string | null,
   ): Observable<void> {
     return this.http.put<void>(`${this.base}/assets/${assetId}/description`, { text });
-  }
-
-  /** Manually override the OCR text. Pass `null` to clear. */
-  setAssetOcrOverride(
-    assetId: string,
-    text: string | null,
-  ): Observable<void> {
-    return this.http.put<void>(`${this.base}/assets/${assetId}/ocr`, { text });
   }
 
   /** Reset a per-stage enrichment state so the worker re-runs on its next
@@ -410,8 +401,6 @@ export class BunApiBackendService {
       face_retinaface_sha256?: string | null;
       face_mobilefacenet_url?: string | null;
       face_mobilefacenet_sha256?: string | null;
-      // ── OCR worker (Phase 8) ──────────────────────────────────────
-      ocr_worker_enabled?: boolean | null;
     },
   ): Observable<EnrichmentConfigResponse> {
     return this.http.put<EnrichmentConfigResponse>(`${this.base}/enrichment/config`, body);
@@ -571,8 +560,6 @@ export interface EnrichmentConfigResponse {
   face_retinaface_sha256: string | null;
   face_mobilefacenet_url: string | null;
   face_mobilefacenet_sha256: string | null;
-  /** Phase 8 OCR worker. Default false until the operator opts in. */
-  ocr_worker_enabled: boolean;
   /** Set when face worker is enabled but the model files are missing — UI
    * surfaces this as an actionable banner. Optional for backward compat. */
   face_worker_dormant_reason?: string | null;
@@ -602,7 +589,6 @@ export interface EnrichmentConfigResponse {
     face_retinaface_sha256: 'db' | 'env' | 'unset';
     face_mobilefacenet_url: 'db' | 'env' | 'unset';
     face_mobilefacenet_sha256: 'db' | 'env' | 'unset';
-    ocr_worker_enabled: 'db' | 'env' | 'default';
   };
 }
 

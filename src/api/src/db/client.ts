@@ -186,7 +186,6 @@ const WORKER_STAGE_NAMES = [
   "exif",
   "thumb",
   "face",
-  "ocr",
   "describe",
   "geocode",
   "meili",

@@ -93,10 +93,8 @@ export async function meiliHandler(
 
 export default defineStage({
   name: "meili",
-  // v2: ocr v2 introduces a mean-confidence gate that blanks `ocr_text` on
-  // textureless photos. Without bumping meili too, the search index keeps
-  // the pre-gate (poisoned) text for rows already meili'd at v1. Bumping
-  // here forces a re-index against the cleaned ocr_text.
+  // v2: introduced a mean-confidence gate on `ocr_text` (removed with the
+  // legacy OCR stage). Bumping forced a re-index against the cleaned value.
   //
   // v3: search_blob now folds in the structured vision fields
   // (subjects / setting / activity / notable_objects) from the qwen2.5-vl

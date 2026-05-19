@@ -349,3 +349,17 @@ suggested build order; nothing strictly blocks except as noted.
 
 (Apple inspector surface, embeddings/vector search, and panorama splitting
 are deliberately not in this list. Spec follow-ups when the time comes.)
+
+## Update 2026-05-19
+
+The original design above kept the Tesseract OCR stage in parallel
+with qwen2.5-vl so per-word bboxes stayed available. That decision
+was reversed in #158: nothing consumed the bboxes (no document
+scanner UI, no sign-language overlay), and carrying two engines
+meant two stages to monitor and a `ocr_meta.engine` union the rest
+of the code had to defend against. The Tesseract stage, engine,
+bootstrap, settings card, and `OcrWord` schema were removed.
+`ocr_text` / `ocr_meta` are still populated — by the describe
+stage, from `vision.text_visible` — and `ocr_meta.engine` is now
+the single literal `"qwen2.5-vl"`.
+
