@@ -1223,6 +1223,30 @@ struct AppShell: View {
                 return
             }
 
+            // Issue #101: when the user has granted the app a bookmark to
+            // the FP-mounted folder for this server, route reads/writes
+            // through the existing Folder-View code path against that
+            // mount instead of the API. The FP extension is doing the
+            // server I/O on demand — the app stays out of the loop.
+            //
+            // Stale bookmark / scope-denied: fall back to the API path
+            // (don't silently fail). The Settings UI surfaces "Sync
+            // access lost" via `FileProviderMountRouter.isBookmarkBroken`
+            // on next open.
+            if case .folderView(let mountURL) = FileProviderMountRouter.resolve(serverURL: serverID) {
+                cloudTimelineVM = nil
+                // `loadFolder(url:)` is the same entry point the local
+                // folder picker uses — listing, thumbnails, XMP read /
+                // write, edit pipeline all flow through it unchanged.
+                // No FP-specific code path; `librarySelection` becomes
+                // `.folder(...)` so XMP writes route through
+                // `XMPSidecarStore` (local file), and the FP extension
+                // syncs the change back to the server.
+                loadFolder(url: mountURL)
+                cloudHTTPLogger.notice("FP mount routing: \(serverID.absoluteString, privacy: .public) → folder view at \(mountURL.path, privacy: .public)")
+                return
+            }
+
             let viewMode = CloudServerRegistry.shared.viewMode(for: serverID)
             switch viewMode {
             case .folder:
