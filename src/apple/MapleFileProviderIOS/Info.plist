@@ -22,11 +22,6 @@
     <string>$(CURRENT_PROJECT_VERSION)</string>
     <key>NSExtension</key>
     <dict>
-        <!-- App Group container the FP documents live in. iOS-only
-             requirement (macOS uses the App Group entitlement on the
-             binary directly). Apple's App Store validator rejects
-             builds without this with ITMS-90360. Must match the App
-             Group declared in MapleFileProviderIOS.entitlements. -->
         <key>NSExtensionFileProviderDocumentGroup</key>
         <string>group.app.justmaple.aperture</string>
         <key>NSExtensionFileProviderSupportsEnumeration</key>
