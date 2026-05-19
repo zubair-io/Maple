@@ -137,6 +137,44 @@ final class FileProviderMountBookmarkTests: XCTestCase {
         }
     }
 
+    /// Contract test for the iOS resolve path: production `resolveURL(domain:)`
+    /// passes an empty options set on iOS (no `.withSecurityScope` flag — the
+    /// Files framework's URL handoff carries scope implicitly). A bookmark
+    /// minted with empty options must resolve cleanly through the empty-options
+    /// branch, with no stale flag, when the target still exists.
+    ///
+    /// Runs on macOS by exercising the `@_spi(MapleTesting) _resolve(...)`
+    /// helper directly with `options: []`, which bypasses the macOS-only
+    /// `.withSecurityScope` gate in `resolveURL(domain:)`. This way the
+    /// iOS code path is actually exercised in the macOS-host CI run rather
+    /// than silently compiled out under `#if os(iOS)`.
+    func testResolveURLRoundTripIOSPath() throws {
+        let tmp = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("fp-mount-bookmark-ios-resolve-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        let bookmark = try tmp.bookmarkData(
+            options: [],
+            includingResourceValuesForKeys: nil,
+            relativeTo: nil
+        )
+
+        let resolved = try XCTUnwrap(
+            FileProviderMountBookmark._resolve(
+                bookmark: bookmark,
+                options: [],
+                domain: "d-ios"
+            ),
+            "_resolve should succeed for a bookmark minted with empty options"
+        )
+        XCTAssertFalse(resolved.isStale, "fresh empty-options bookmark should not resolve as stale")
+        XCTAssertEqual(
+            resolved.url.standardizedFileURL.path,
+            tmp.standardizedFileURL.path
+        )
+    }
+
     /// Contract test for the missing-target re-prompt path in
     /// `_resolve(bookmark:options:domain:)`. On macOS the OS itself
     /// throws `NSCocoaErrorDomain code 4 ("file doesn't exist")` for
