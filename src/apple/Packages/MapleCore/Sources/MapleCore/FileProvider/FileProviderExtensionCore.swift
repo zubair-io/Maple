@@ -591,25 +591,23 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                     let bytes = try await bytesTask
                     try bytes.write(to: localURL, options: .atomic)
                     let resolved = try await metaTask
-                    let thumbName: String = {
-                        guard let resolved else { return "\(assetID).jpg" }
-                        return MapleThumbCacheKey.thumbFilename(forRawBasename: resolved.filename)
-                    }()
-                    let parentIdent: NSFileProviderItemIdentifier = await {
-                        guard let resolved else { return .workingSet }
-                        let roots = (try? await self.rootCache?.roots()) ?? []
-                        let parentRelativePath: String = {
-                            guard let root = roots.first(where: { $0.id == resolved.folderID }),
-                                  let rel = FileProviderMount.relativePath(under: root.path, of: resolved.absPath)
-                            else { return "" }
-                            return (rel as NSString).deletingLastPathComponent
-                        }()
-                        let raw = FileProviderIdentifier
-                            .mapleThumbsDir(folderID: resolved.folderID,
-                                            parentRelativePath: parentRelativePath)
-                            .rawValue
-                        return NSFileProviderItemIdentifier(raw)
-                    }()
+                    // If the underlying asset is gone (server deleted,
+                    // never indexed) there's nothing meaningful to hand
+                    // back: the earlier shape fabricated an item parented
+                    // at `.workingSet`, but the OS no longer treats
+                    // `.workingSet` as a real container (see
+                    // `resolveAssetParent`'s NEVER `.workingSet` clause
+                    // from PR #79's review fixes). Surface noSuchItem so
+                    // the OS evicts the stranded thumb from its cache.
+                    guard let resolved else {
+                        log.notice("fetchContents thumb \(assetID, privacy: .public) — getAsset returned nil; underlying asset gone")
+                        completionHandler(nil, nil, NSError(domain: NSFileProviderErrorDomain,
+                                                            code: NSFileProviderError.noSuchItem.rawValue))
+                        return
+                    }
+                    let thumbName = MapleThumbCacheKey.thumbFilename(forRawBasename: resolved.filename)
+                    let parentIdent = try await Self.resolveThumbParent(meta: resolved,
+                                                                        rootCache: self.rootCache)
                     let item = MapleItem(
                         thumbForAsset: assetID,
                         displayFilename: thumbName,

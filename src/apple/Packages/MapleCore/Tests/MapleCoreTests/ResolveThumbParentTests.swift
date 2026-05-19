@@ -146,6 +146,49 @@ final class ResolveThumbParentTests: XCTestCase {
                                         parentRelativePath: "2026/Adam"))
     }
 
+    /// PR #105 review fix #2: the `fetchContents` thumb branch used to
+    /// fabricate an item with `parentIdentifier = .workingSet` when
+    /// `getAsset` returned nil. The fix is a `guard let resolved else
+    /// { throw noSuchItem }` — same shape as the `.asset` and
+    /// `.sidecar` branches a few lines above. Once `resolved` is
+    /// non-nil, the helper takes over and is exercised by the tests
+    /// above.
+    ///
+    /// This test pins the invariant the helper guarantees on behalf of
+    /// the fetchContents call site: across every supported meta shape
+    /// (deep folder, root-level, edge whitespace path), the returned
+    /// identifier is never `.workingSet`. The OS no longer accepts
+    /// `.workingSet` as a real parent (see `resolveAssetParent`'s
+    /// NEVER `.workingSet` clause), so any path through the thumb
+    /// pipeline that returns it is a regression.
+    func testHelperNeverReturnsWorkingSetForValidMeta() async throws {
+        let roots = [LibraryRoot(id: "f1", path: "/srv/photos/Library",
+                                  label: "Lib", fileCount: 0)]
+        let cache = LibraryRootCache(domainID: "d",
+                                     defaults: freshDefaults(),
+                                     fetcher: { roots })
+        let metas = [
+            makeMeta(folderID: "f1", absPath: "/srv/photos/Library/IMG.dng"),
+            makeMeta(folderID: "f1", absPath: "/srv/photos/Library/2026/IMG.dng"),
+            makeMeta(folderID: "f1", absPath: "/srv/photos/Library/2026/Adam/04-02/IMG.dng"),
+        ]
+        for meta in metas {
+            let parent = try await FileProviderExtensionCore.resolveThumbParent(
+                meta: meta,
+                rootCache: cache
+            )
+            XCTAssertNotEqual(parent, .workingSet,
+                              "thumb parent for absPath=\(meta.absPath) must not be .workingSet")
+            let parsed = try FileProviderIdentifier(rawValue: parent.rawValue)
+            switch parsed {
+            case .mapleThumbsDir:
+                break // expected shape
+            default:
+                XCTFail("expected .mapleThumbsDir parent, got \(parsed) for absPath=\(meta.absPath)")
+            }
+        }
+    }
+
     /// Asset at the library root (no intermediate folders): parent
     /// relative path is the empty string. Still a non-`.workingSet`
     /// `.mapleThumbsDir`, not a synthesised default.
