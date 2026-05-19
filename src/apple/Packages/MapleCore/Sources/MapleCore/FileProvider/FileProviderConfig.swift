@@ -25,13 +25,26 @@ public struct FileProviderDomainConfig: Codable, Equatable, Sendable {
 /// container at `~/Library/Group Containers/<group>/FileProviderConfig/<domain>.json`.
 public final class FileProviderConfig: @unchecked Sendable {
     public static let appGroupSuiteName = "group.app.justmaple.aperture"
+    /// Legacy `UserDefaults` key prefix used before the JSON-file layout.
+    /// Pre-PR-#79 we stored each domain's config under
+    /// `UserDefaults(suiteName: appGroupSuiteName)` keyed by
+    /// `legacyDefaultsKeyPrefix + domain`. Retained for the one-shot
+    /// migration in `load(domain:)`.
+    static let legacyDefaultsKeyPrefix = "fileprovider.domain."
     private let directory: URL
+    private let legacyDefaults: UserDefaults?
     private let lock = NSLock()
 
     /// Resolved storage directory under the App Group container.
     /// Tests can override by passing a tmp `directory`. When omitted,
     /// derives `<App Group container>/FileProviderConfig/`.
-    public init(directory: URL? = nil) {
+    ///
+    /// `legacyDefaults` is the `UserDefaults` instance that may still
+    /// hold pre-PR-#79 entries. Production callers leave it nil — the
+    /// initializer opens `UserDefaults(suiteName: appGroupSuiteName)`
+    /// for them. Tests pass a unique-suite instance so the migration
+    /// path can be exercised without touching the real shared store.
+    public init(directory: URL? = nil, legacyDefaults: UserDefaults? = nil) {
         if let dir = directory {
             self.directory = dir
         } else if let container = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: Self.appGroupSuiteName) {
@@ -45,6 +58,14 @@ public final class FileProviderConfig: @unchecked Sendable {
             let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
                 ?? URL(fileURLWithPath: NSTemporaryDirectory())
             self.directory = caches.appendingPathComponent("FileProviderConfig", isDirectory: true)
+        }
+        if let legacyDefaults {
+            self.legacyDefaults = legacyDefaults
+        } else {
+            // Same suite the pre-PR-#79 code wrote into. Returns nil only
+            // when CFPreferences refuses the suite (sandbox edge cases);
+            // in that case there is nothing to migrate from.
+            self.legacyDefaults = UserDefaults(suiteName: Self.appGroupSuiteName)
         }
         try? FileManager.default.createDirectory(at: self.directory, withIntermediateDirectories: true)
         // dir contains the user's home path; redact.
@@ -60,14 +81,53 @@ public final class FileProviderConfig: @unchecked Sendable {
         let url = fileURL(domain: domain)
         let exists = FileManager.default.fileExists(atPath: url.path)
         configLogger.notice("load domain=\(domain, privacy: .public) path=\(url.path, privacy: .public) exists=\(exists, privacy: .public)")
-        guard exists else { return nil }
+        if exists {
+            do {
+                let data = try Data(contentsOf: url)
+                return try JSONDecoder().decode(FileProviderDomainConfig.self, from: data)
+            } catch {
+                configLogger.error("load read/decode failed for \(domain, privacy: .public): \(String(describing: error), privacy: .public)")
+                return nil
+            }
+        }
+        // Fall back to the legacy `UserDefaults` suite. Pre-PR-#79 we
+        // wrote each domain's config under `fileprovider.domain.<id>` in
+        // `UserDefaults(suiteName: appGroupSuiteName)`. Try to read it,
+        // re-save via the new file layout, and only then clear the
+        // legacy entry — if the file write fails we leave the suite
+        // entry intact so the next launch retries.
+        return migrateLegacyDefaultsLocked(domain: domain)
+    }
+
+    /// Caller must hold `lock`.
+    private func migrateLegacyDefaultsLocked(domain: String) -> FileProviderDomainConfig? {
+        guard let defaults = legacyDefaults else { return nil }
+        let legacyKey = Self.legacyDefaultsKeyPrefix + domain
+        guard let data = defaults.data(forKey: legacyKey) else { return nil }
+        let decoded: FileProviderDomainConfig
         do {
-            let data = try Data(contentsOf: url)
-            return try JSONDecoder().decode(FileProviderDomainConfig.self, from: data)
+            decoded = try JSONDecoder().decode(FileProviderDomainConfig.self, from: data)
         } catch {
-            configLogger.error("load read/decode failed for \(domain, privacy: .public): \(String(describing: error), privacy: .public)")
+            configLogger.error("legacy UserDefaults entry for \(domain, privacy: .public) failed to decode: \(String(describing: error), privacy: .public)")
             return nil
         }
+        // Write the new file before clearing the legacy entry — if the
+        // write fails (disk full, container missing) the next launch
+        // gets another shot at migrating.
+        let url = fileURL(domain: domain)
+        do {
+            try data.write(to: url, options: .atomic)
+        } catch {
+            configLogger.error("legacy-migrate write failed for \(domain, privacy: .public): \(String(describing: error), privacy: .public) — leaving legacy entry in place")
+            return decoded
+        }
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            configLogger.error("legacy-migrate write reported success but file missing for \(domain, privacy: .public) — leaving legacy entry in place")
+            return decoded
+        }
+        defaults.removeObject(forKey: legacyKey)
+        configLogger.notice("migrated legacy UserDefaults config to file for domain=\(domain, privacy: .public)")
+        return decoded
     }
 
     public func save(_ config: FileProviderDomainConfig) {
