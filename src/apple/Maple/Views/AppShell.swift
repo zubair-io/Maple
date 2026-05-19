@@ -25,7 +25,6 @@ import UIKit
 #endif
 
 private let cloudHTTPLogger = Logger(subsystem: "app.justmaple.aperture", category: "Cloud.HTTP")
-private let fileProviderLogger = Logger(subsystem: "app.justmaple.aperture", category: "FileProvider")
 
 // MARK: - AppShell
 
@@ -774,7 +773,7 @@ struct AppShell: View {
     // MARK: - Folder flows
 
     @MainActor
-    private func loadFolder(url: URL, isFPRouted: Bool = false) {
+    private func loadFolder(url: URL) {
         // Cancel any in-flight thumbnail decodes from the previous folder so
         // they don't keep burning CPU against files the user no longer sees.
         Task.detached { await ThumbnailLoader.shared.cancelAll() }
@@ -795,11 +794,6 @@ struct AppShell: View {
         // upsert still succeed (because those paths re-claim scope on
         // their own), so the folder ends up in the sidebar and usable —
         // but the user just saw a spurious "can't open folder" error.
-        //
-        // Also satisfies the FP-routing contract: `FileProviderMountRouter`
-        // hands back a scope-backed bookmark URL and documents that the
-        // caller must claim scope — `claimScope(for:)` here is that claim,
-        // so the FP call site doesn't need to do it separately.
         claimScope(for: url)
 
         // `url` here came from `.fileImporter` which returns a scope-backed
@@ -807,16 +801,8 @@ struct AppShell: View {
         // the scope reference through to the pipeline / loader.
         browseVM.currentScopeRoot = url
         browseVM.loadFolder(url: url)
-        // FP-routed callers keep their own `librarySelection` (the cloud
-        // server row in the sidebar) and own their title — see the FP
-        // branch in `loadCloudLibrary`. Overwriting either here would
-        // ghost-highlight "Local folders" while the user is reading the
-        // FP-mounted cloud library, and would clobber the cloud server
-        // hostname in the title bar.
-        if !isFPRouted {
-            librarySelection = .folder(path: url.path)
-            libraryTitle = url.lastPathComponent
-        }
+        librarySelection = .folder(path: url.path)
+        libraryTitle = url.lastPathComponent
         mode = .browse
 
         for asset in browseVM.assets where sessions[asset.id] == nil {
@@ -824,15 +810,6 @@ struct AppShell: View {
             sessions[asset.id] = session
             Task { await session.loadSidecar() }
         }
-        // FP-routed callers MUST NOT mint a new filesystem bookmark or
-        // persist a `.filesystem` SourceSelection / SavedFolder entry: the
-        // server's identity stays `cloudLibrary(serverID:…)` so cold start
-        // re-enters `loadCloudLibrary` (which re-runs the FP-routing
-        // decision). Recording the FP mount path under "Local folders"
-        // would also leave a dangling stale-bookmark entry if the user
-        // later disables sync for that server — the bookmark target
-        // disappears with the FP domain.
-        if isFPRouted { return }
         Task { @MainActor in
             let fs = FilesystemSource()
             do {
@@ -858,34 +835,6 @@ struct AppShell: View {
     /// scope.
     @MainActor
     private func navigateFolder(_ url: URL) {
-        // Issue #101 (continued): FP-routed cloud libraries — when the
-        // active library is a cloud server AND we have a usable FP-mount
-        // bookmark for it, the subfolder URL the grid hands us is already
-        // a real filesystem URL under the FP mount (FilesystemSource
-        // produced it). Drive through `browseVM.loadFolder(url:)` exactly
-        // like the top-level FP open, and keep `librarySelection` /
-        // `currentRootBookmark` unchanged.
-        //
-        // This branch MUST come before the `.cloudLibrary + CloudSource`
-        // branch below — otherwise a stale `CloudSource` left over from
-        // a previous API-routed visit in the same session would silently
-        // re-route this drill-down through `/api/fs/dir`, defeating the
-        // whole point of FP routing.
-        if case .cloudLibrary(let serverID, _) = librarySelection,
-           case .folderView = FileProviderMountRouter.resolve(serverURL: serverID) {
-            Task.detached { await ThumbnailLoader.shared.cancelAll() }
-            Task.detached {
-                await ThumbnailDiskCache.shared.configure(folderURL: url)
-                await RenderedPreviewCache.shared.configure(folderURL: url)
-                await DecodedBufferCache.shared.configure(folderURL: url)
-            }
-            claimScope(for: url)
-            browseVM.currentScopeRoot = url
-            browseVM.loadFolder(url: url)
-            libraryTitle = url.lastPathComponent
-            return
-        }
-
         // Cloud-library context: drill into the subfolder via /api/fs/dir
         // instead of the filesystem-bookmark path. URL.path carries the
         // server-side absolute path. We don't update LibrarySelection
@@ -1243,76 +1192,6 @@ struct AppShell: View {
         }
     }
 
-    /// Resolve the local URL under the FP mount that corresponds to the
-    /// persisted `libraryPath` for `folderID`. Issue #107.
-    ///
-    /// Lookup order:
-    ///   1. On-disk `CloudFoldersCache` — populated every time the sidebar
-    ///      refreshes, so warm-cache cold starts hit this branch and avoid
-    ///      a network round-trip before opening the folder.
-    ///   2. Live `CloudFoldersClient.listFolders()` — when the cache is
-    ///      absent (first-ever launch, cache cleared) or doesn't contain
-    ///      `folderID` (newly added library since last refresh).
-    ///
-    /// Returns `nil` (caller falls back to the mount root + logs) when:
-    ///   - no registered root is found for `folderID` after both lookups,
-    ///   - the registered root's `path` doesn't prefix `libraryPath`
-    ///     (libraryPath off-tree — server admin renamed the library, the
-    ///     user's persisted state is stale).
-    @MainActor
-    private func resolveFPOpenURL(
-        serverID: URL,
-        folderID: String,
-        libraryPath: String,
-        mountURL: URL
-    ) async -> URL? {
-        func translate(_ folder: CloudFolder) -> URL? {
-            return FileProviderMount.localURL(
-                forServerPath: libraryPath,
-                rootPath: folder.path,
-                rootLabel: folder.displayName,
-                mountURL: mountURL
-            )
-        }
-
-        // 1. Disk cache — same source the sidebar reads when offline.
-        if let cached = CloudFoldersCache.load(server: serverID),
-           let folder = cached.first(where: { $0.id == folderID }) {
-            if let url = translate(folder) {
-                return url
-            }
-            // Cached entry exists but the libraryPath doesn't fall under
-            // the registered root — could be a stale cache (server admin
-            // moved the library after the last refresh). Try a live
-            // fetch before declaring the path off-tree.
-        }
-
-        // 2. Live fetch.
-        let httpClient = makeAuthenticatedHTTPClient(server: serverID)
-        let client = CloudFoldersClient(server: serverID, httpClient: httpClient)
-        guard let folders = try? await client.listFolders() else {
-            fileProviderLogger.warning(
-                "FP open URL resolve: listFolders failed for \(serverID.absoluteString, privacy: .public); falling back to mount root"
-            )
-            return nil
-        }
-        // Refresh the on-disk cache so the next cold start hits step 1.
-        CloudFoldersCache.save(folders, server: serverID)
-        guard let folder = folders.first(where: { $0.id == folderID }) else {
-            fileProviderLogger.warning(
-                "FP open URL resolve: folderID \(folderID, privacy: .public) not in registered roots for \(serverID.absoluteString, privacy: .public); falling back to mount root"
-            )
-            return nil
-        }
-        if let url = translate(folder) {
-            return url
-        }
-        fileProviderLogger.warning(
-            "FP open URL resolve: libraryPath \(libraryPath, privacy: .public) off-tree under root \(folder.path, privacy: .public) for \(serverID.absoluteString, privacy: .public); falling back to mount root"
-        )
-        return nil
-    }
-
     @MainActor
     private func loadCloudLibrary(serverID: URL, folderID: String, libraryPath: String) {
         librarySelection = .cloudLibrary(serverID: serverID, folderID: folderID)
@@ -1341,62 +1220,6 @@ struct AppShell: View {
             }
             guard session.isSignedIn else {
                 addCloudSheetTarget = .prefilled(serverID.host ?? serverID.absoluteString)
-                return
-            }
-
-            // Issue #101: when the user has granted the app a bookmark to
-            // the FP-mounted folder for this server, route reads/writes
-            // through the existing Folder-View code path against that
-            // mount instead of the API. The FP extension is doing the
-            // server I/O on demand — the app stays out of the loop.
-            //
-            // Stale bookmark / scope-denied: fall back to the API path
-            // (don't silently fail). The Settings UI surfaces "Sync
-            // access lost" via `FileProviderMountRouter.isBookmarkBroken`
-            // on next open.
-            if case .folderView(let mountURL) = FileProviderMountRouter.resolve(serverURL: serverID) {
-                cloudTimelineVM = nil
-                // Reuses the local folder-picker entry point — listing,
-                // thumbnails, XMP read/write, and the edit pipeline all
-                // flow through unchanged; the FP extension does the
-                // server I/O on demand.
-                //
-                // `isFPRouted: true` opts out of the persistence tail:
-                //   - no FilesystemSource bookmark mint over the FP mount
-                //   - no `.filesystem(bookmark:)` SourceSelection save
-                //     (we keep the `.cloudLibrary(...)` one persisted
-                //     just above, so cold start re-enters this method
-                //     and re-runs the FP-routing decision)
-                //   - no SavedFolderStore entry for ~/Library/CloudStorage/…
-                //     in the user's "Local folders" sidebar
-                //   - librarySelection stays `.cloudLibrary(...)` so the
-                //     sidebar highlights the cloud server row, not Local
-                //     folders. XMP writes still route through
-                //     XMPSidecarStore because EditSession picks its
-                //     sidecar path from the asset's primaryURL — the
-                //     FilesystemSource-synthesized AssetRefs carry no
-                //     stableID, so `ensureSession` cannot construct a
-                //     CloudSidecarStore for them either.
-                libraryTitle = serverID.host ?? serverID.absoluteString
-                // Issue #107: translate the server-absolute `libraryPath`
-                // into a mount-relative URL so cold start restores at the
-                // drilled depth, and multi-library servers route each
-                // library row to its own subdirectory under the FP mount.
-                // The translation requires the registered LibraryRoot
-                // (server path + label) for `folderID` — first consult
-                // the on-disk CloudFoldersCache populated by sidebar
-                // refreshes, then fall back to a /api/folders fetch.
-                // Off-tree / lookup-failed cases fall back to the mount
-                // root and log a warning (don't silently land in a wrong
-                // directory).
-                let openURL = await resolveFPOpenURL(
-                    serverID: serverID,
-                    folderID: folderID,
-                    libraryPath: libraryPath,
-                    mountURL: mountURL
-                ) ?? mountURL
-                loadFolder(url: openURL, isFPRouted: true)
-                fileProviderLogger.notice("FP mount routing: \(serverID.absoluteString, privacy: .public) → folder view at \(openURL.path, privacy: .public)")
                 return
             }
 
