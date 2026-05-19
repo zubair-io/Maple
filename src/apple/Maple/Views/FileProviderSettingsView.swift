@@ -11,11 +11,33 @@ final class FileProviderSettingsModel {
     var statusMessage: String? = nil
     /// Domain identifiers with an in-flight enable/disable.
     var inFlightDomains: Set<String> = []
+    /// Domain identifiers with a persisted mount bookmark (Synced ✓).
+    var syncedDomains: Set<String> = []
     private let controller = FileProviderDomainController()
 
     func reload() async {
         do { domains = try await controller.currentDomains() }
         catch { statusMessage = "Couldn't list domains: \(error.localizedDescription)" }
+        refreshBookmarkState()
+    }
+
+    /// Re-read the App Group UserDefaults for which domains currently
+    /// have a persisted security-scoped bookmark. Cheap; called after
+    /// any mutation to the bookmark store.
+    func refreshBookmarkState() {
+        var synced: Set<String> = []
+        for d in domains {
+            let id = d.identifier.rawValue
+            if FileProviderMountBookmark.load(domain: id) != nil {
+                synced.insert(id)
+            }
+        }
+        syncedDomains = synced
+    }
+
+    func isSynced(_ url: URL) -> Bool {
+        guard let id = FileProviderDomainController.domainIdentifier(for: url) else { return false }
+        return syncedDomains.contains(id)
     }
 
     func isEnabled(_ url: URL) -> Bool {
@@ -76,6 +98,60 @@ final class FileProviderSettingsModel {
         } catch {
             statusMessage = "Open in Finder failed: \(error.localizedDescription)"
         }
+    }
+
+    /// Prompt the user via NSOpenPanel for access to the FP mount root,
+    /// then persist the resulting security-scoped bookmark via
+    /// `FileProviderMountBookmark`. The bookmark itself is not consumed
+    /// yet — that's a follow-up (#101). This call only establishes the
+    /// grant and surfaces "Synced ✓" in the UI.
+    func grantSyncedFolderAccess(_ url: URL) async {
+        guard let id = FileProviderDomainController.domainIdentifier(for: url) else { return }
+        guard let domain = domains.first(where: { $0.identifier.rawValue == id }),
+              let mgr = NSFileProviderManager(for: domain) else {
+            statusMessage = "Grant failed: domain not registered"
+            return
+        }
+        let mountURL: URL
+        do {
+            mountURL = try await mgr.getUserVisibleURL(for: .rootContainer)
+        } catch {
+            statusMessage = "Grant failed: \(error.localizedDescription)"
+            return
+        }
+
+        let panel = NSOpenPanel()
+        panel.message = "Grant Maple access to the synced folder."
+        panel.prompt = "Allow"
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.directoryURL = mountURL
+
+        let response = await panel.begin()
+        guard response == .OK, let chosen = panel.url else { return }
+
+        do {
+            let bookmark = try chosen.bookmarkData(
+                options: .withSecurityScope,
+                includingResourceValuesForKeys: nil,
+                relativeTo: nil
+            )
+            FileProviderMountBookmark.save(bookmark, domain: id)
+            refreshBookmarkState()
+            statusMessage = "Synced folder access granted."
+        } catch {
+            statusMessage = "Bookmark failed: \(error.localizedDescription)"
+        }
+    }
+
+    /// Clear a previously-granted bookmark. The user can re-grant later
+    /// via the "Use synced folder" button.
+    func revokeSyncedFolderAccess(_ url: URL) {
+        guard let id = FileProviderDomainController.domainIdentifier(for: url) else { return }
+        FileProviderMountBookmark.remove(domain: id)
+        refreshBookmarkState()
+        statusMessage = "Synced folder access revoked."
     }
     #endif
 
@@ -153,6 +229,27 @@ struct FileProviderSettingsView: View {
                     Task { await model.openInFinder(url) }
                 }
                 .accessibilityIdentifier("file-provider-open-\(domainID ?? host)")
+
+                if model.isSynced(url) {
+                    HStack(spacing: 6) {
+                        Text("Synced ✓")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .accessibilityIdentifier("file-provider-synced-\(domainID ?? host)")
+                        Button("Revoke") {
+                            model.revokeSyncedFolderAccess(url)
+                        }
+                        .buttonStyle(.link)
+                        .accessibilityIdentifier("file-provider-revoke-\(domainID ?? host)")
+                    }
+                } else {
+                    Button("Use synced folder for fast access") {
+                        Task { await model.grantSyncedFolderAccess(url) }
+                    }
+                    .help("One-time permission grant lets Maple read directly from the synced folder instead of through the server.")
+                    .accessibilityIdentifier("file-provider-grant-\(domainID ?? host)")
+                }
+
                 Button("Refresh") {
                     Task { await model.refresh(url) }
                 }
