@@ -17,8 +17,8 @@
  */
 
 import { readFile } from "node:fs/promises";
-import type { ImageDoc, StageContext, StageResult } from "../runtime/define-stage.ts";
-import { defineStage } from "../runtime/define-stage.ts";
+import type { ImageDoc, StageContext, StageResult } from "../run-stage.ts";
+import { defineStage, runStage, type RunStageHandle } from "../run-stage.ts";
 import { cachePathFor } from "../../fs/xmp.ts";
 import {
   type DescribeProvider,
@@ -88,7 +88,7 @@ export async function describeHandler(
   };
 }
 
-export default defineStage({
+const describeStage = defineStage({
   name: "describe",
   targetVersion: 1,
   dependsOn: ["thumb"],
@@ -103,3 +103,9 @@ export default defineStage({
   },
   handler: describeHandler,
 });
+
+export default describeStage;
+
+export async function startDescribeStage(): Promise<RunStageHandle> {
+  return runStage(describeStage);
+}

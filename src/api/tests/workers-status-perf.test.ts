@@ -121,28 +121,27 @@ describe("GET /api/workers/status — counts", () => {
       { stages: { hash: { version: 1, dead: true } } },
     ]);
 
-    // Build a supervisor stub that reports the hash stage with targetVersion = tv.
+    // Register a fake hash stage in the in-process registry so the route's
+    // status loop knows what targetVersion to count against.
     const { Elysia } = await import("elysia");
     const { workerRoutes } = await import("../src/workers/routes.ts");
-    const sup = {
-      refreshLiveStatus: async () => {},
-      statuses: () => ({
-        hash: {
-          status: "running",
-          inFlight: 0,
-          throughput: 0,
-          lastError: null,
-          targetVersion: tv,
-        },
-      }),
-    } as unknown as import("../src/workers/supervisor.ts").Supervisor;
+    const { stageRegistry } = await import("../src/workers/registry.ts");
+    stageRegistry.register("hash", {
+      targetVersion: tv,
+      getInFlight: () => 0,
+      getThroughput: () => 0,
+      getPaused: () => false,
+      reloadConfig: async () => {},
+      pause: async () => {},
+      resume: async () => {},
+    });
 
     // Force the route's getDb() to point at TEST_DB.
     process.env.MAPLE_MONGO_DB = TEST_DB;
     await closeDb();
     await getDb();
 
-    const app = new Elysia().use(workerRoutes(sup));
+    const app = new Elysia().use(workerRoutes());
     const res = await app.handle(
       new Request("http://localhost/api/workers/status"),
     );
@@ -154,6 +153,9 @@ describe("GET /api/workers/status — counts", () => {
     expect(hash).toBeDefined();
     expect(hash!.pending).toBe(3);
     expect(hash!.dead).toBe(1);
+
+    // Tear down the fake registration so it doesn't leak into other tests.
+    stageRegistry.unregister("hash");
   });
 
   it("uses an index plan (no COLLSCAN) for the dead-count query", async () => {

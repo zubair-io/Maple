@@ -1,12 +1,11 @@
 import { describe, expect, it } from "bun:test";
 import { Elysia } from "elysia";
 import { workerRoutes } from "./routes.ts";
-import { Supervisor } from "./supervisor.ts";
+import { stageRegistry } from "./registry.ts";
 
 describe("GET /api/workers/status", () => {
-  it("returns an empty stages array when supervisor has no stages", async () => {
-    const sup = new Supervisor([]);
-    const app = new Elysia().use(workerRoutes(sup));
+  it("returns an empty stages array when the registry has no stages", async () => {
+    const app = new Elysia().use(workerRoutes());
 
     const res = await app.handle(
       new Request("http://localhost/api/workers/status"),
@@ -21,8 +20,8 @@ describe("GET /api/workers/status", () => {
 
 describe("POST /api/workers/:name/pause", () => {
   it("returns 404 for unknown stage", async () => {
-    const sup = new Supervisor([]);
-    const app = new Elysia().use(workerRoutes(sup));
+    expect(stageRegistry.has("nonexistent")).toBe(false);
+    const app = new Elysia().use(workerRoutes());
     const res = await app.handle(
       new Request("http://localhost/api/workers/nonexistent/pause", { method: "POST" }),
     );
@@ -32,8 +31,7 @@ describe("POST /api/workers/:name/pause", () => {
 
 describe("POST /api/workers/:name/resume", () => {
   it("returns 404 for unknown stage", async () => {
-    const sup = new Supervisor([]);
-    const app = new Elysia().use(workerRoutes(sup));
+    const app = new Elysia().use(workerRoutes());
     const res = await app.handle(
       new Request("http://localhost/api/workers/nonexistent/resume", { method: "POST" }),
     );
@@ -43,8 +41,7 @@ describe("POST /api/workers/:name/resume", () => {
 
 describe("POST /api/workers/:name/retry-dead", () => {
   it("returns 404 for unknown stage", async () => {
-    const sup = new Supervisor([]);
-    const app = new Elysia().use(workerRoutes(sup));
+    const app = new Elysia().use(workerRoutes());
     const res = await app.handle(
       new Request("http://localhost/api/workers/nonexistent/retry-dead", { method: "POST" }),
     );
@@ -54,8 +51,7 @@ describe("POST /api/workers/:name/retry-dead", () => {
 
 describe("GET /api/workers/:name/dead", () => {
   it("returns 404 for unknown stage", async () => {
-    const sup = new Supervisor([]);
-    const app = new Elysia().use(workerRoutes(sup));
+    const app = new Elysia().use(workerRoutes());
     const res = await app.handle(
       new Request("http://localhost/api/workers/nonexistent/dead"),
     );
@@ -65,8 +61,7 @@ describe("GET /api/workers/:name/dead", () => {
 
 describe("PATCH /api/workers/:name/config", () => {
   it("returns 404 for unknown stage", async () => {
-    const sup = new Supervisor([]);
-    const app = new Elysia().use(workerRoutes(sup));
+    const app = new Elysia().use(workerRoutes());
     const res = await app.handle(
       new Request("http://localhost/api/workers/nonexistent/config", {
         method: "PATCH",

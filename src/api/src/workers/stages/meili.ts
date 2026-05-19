@@ -17,8 +17,8 @@
  * rather than spinning forever on an un-fixable invariant violation.
  */
 
-import type { ImageDoc, StageContext, StageResult } from "../runtime/define-stage.ts";
-import { defineStage } from "../runtime/define-stage.ts";
+import type { ImageDoc, StageContext, StageResult } from "../run-stage.ts";
+import { defineStage, runStage, type RunStageHandle } from "../run-stage.ts";
 import { meilisearchClient, type MeilisearchClient } from "../../enrichment/meilisearch-client.ts";
 import { composeSearchBlob } from "../../enrichment/search-blob.ts";
 
@@ -64,7 +64,7 @@ export async function meiliHandler(
   return { patch: { search_blob: blob } };
 }
 
-export default defineStage({
+const meiliStage = defineStage({
   name: "meili",
   // v2: ocr v2 introduces a mean-confidence gate that blanks `ocr_text` on
   // textureless photos. Without bumping meili too, the search index keeps
@@ -86,3 +86,9 @@ export default defineStage({
   },
   handler: meiliHandler,
 });
+
+export default meiliStage;
+
+export async function startMeiliStage(): Promise<RunStageHandle> {
+  return runStage(meiliStage);
+}

@@ -58,14 +58,9 @@ import { requireAuth } from "./auth/middleware.ts";
 import { staticUiPlugin } from "./routes/static_ui.ts";
 import { getDb, ensureIndexes, closeDb, foldersCollection } from "./db/client.ts";
 import { startTrashGc, type TrashGcHandle } from "./workers/trash-gc.ts";
-import {
-  Supervisor,
-  startSupervisor,
-  stopSupervisor,
-  supervisorState,
-  setSupervisorSingleton,
-} from "./workers/supervisor.ts";
-import { ALL_STAGE_NAMES } from "./workers/stages/manifest.ts";
+import { startAllStages, stopAllStages } from "./workers/orchestrator.ts";
+import { stageRegistry } from "./workers/registry.ts";
+import { startDiscover, type DiscoverHandle } from "./workers/discover/index.ts";
 import { workerRoutes } from "./workers/routes.ts";
 import {
   startGeocodeWorker,
@@ -119,14 +114,7 @@ function ensureJwtSecret(): void {
 // Build the Elysia app
 // ---------------------------------------------------------------------------
 
-export function buildApp(opts: { stageNames?: string[] } = {}): Elysia & { supervisor: Supervisor } {
-  const supervisor = new Supervisor(opts.stageNames ?? []);
-
-  // Register as the module singleton immediately so that all supervisor
-  // convenience helpers (supervisorState, pauseSupervisor, etc.) used by
-  // indexerRoutes and eventsRoutes share the same instance (Issue 2 fix).
-  setSupervisorSingleton(supervisor);
-
+export function buildApp(_opts: { stageNames?: string[] } = {}): Elysia {
   const app = new Elysia()
     // CORS + cross-origin isolation headers for every response.
     //
@@ -243,7 +231,7 @@ export function buildApp(opts: { stageNames?: string[] } = {}): Elysia & { super
         .use(meilisearchBackfillRoutes)
         .use(peopleRoutes)
         .use(changesRoutes)
-        .use(workerRoutes(supervisor)),
+        .use(workerRoutes()),
     )
 
     // Static UI (catch-all — must be last so specific API routes match first).
@@ -251,15 +239,12 @@ export function buildApp(opts: { stageNames?: string[] } = {}): Elysia & { super
     // SPA itself walks the user through sign-in via /api/auth/* calls.
     .use(staticUiPlugin);
 
-  // Attach the supervisor so the shutdown handler can call stopAll().
-  (app as unknown as Record<string, unknown>)["supervisor"] = supervisor;
-  return app as unknown as Elysia & { supervisor: Supervisor };
+  return app;
 }
 
 /**
  * Singleton app instance used by tests that import `{ app }` directly.
- * Constructed with an empty stage list so the supervisor doesn't try to
- * spawn worker processes during test runs.
+ * Stages are started by `start()` below — never during a test-driven import.
  */
 export const app = buildApp({ stageNames: [] });
 
@@ -269,6 +254,7 @@ export const app = buildApp({ stageNames: [] });
 
 /** Background handles whose lifecycle is owned by start()/shutdown(). */
 let _trashGcHandle: TrashGcHandle | null = null;
+let _discoverHandle: DiscoverHandle | null = null;
 
 async function start(): Promise<void> {
   ensureJwtSecret();
@@ -313,32 +299,38 @@ async function start(): Promise<void> {
       }
     })
     .then(async () => {
-      // Auto-start the worker supervisor unless explicitly disabled
+      // Auto-start the in-process stage runners unless explicitly disabled
       // (`MAPLE_INDEXER_AUTOSTART=0`).
       if (process.env.MAPLE_INDEXER_AUTOSTART === "0") {
         log.info("Indexer autostart disabled (MAPLE_INDEXER_AUTOSTART=0)");
         return;
       }
-      // Resolve discover roots: one entry per registered folder.
-      const foldersColl = await foldersCollection();
-      const folders = await foldersColl.find({}, { projection: { path: 1 } }).toArray();
-      const discoverRoots = folders.map((f) => f.path).filter(Boolean);
-
-      startSupervisor({
-        stages: [...ALL_STAGE_NAMES],
-        discover: discoverRoots.length > 0
-          ? { roots: discoverRoots }
-          : undefined,
-      })
-        .then(() =>
-          log.info(supervisorState(), "Worker supervisor running"),
-        )
-        .catch((e) =>
-          log.warn(
-            { err: e instanceof Error ? e.message : e },
-            "Worker supervisor failed to start",
-          ),
+      try {
+        await startAllStages();
+        log.info(stageRegistry.statuses(), "Worker stages running");
+      } catch (e) {
+        log.warn(
+          { err: e instanceof Error ? e.message : e },
+          "Worker stages failed to start",
         );
+      }
+
+      // Resolve discover roots: one entry per registered folder. The
+      // file-system watcher runs in-process and feeds new docs into the
+      // stage runners via the same Mongo collection.
+      try {
+        const foldersColl = await foldersCollection();
+        const folders = await foldersColl.find({}, { projection: { path: 1 } }).toArray();
+        const discoverRoots = folders.map((f) => f.path).filter(Boolean);
+        if (discoverRoots.length > 0) {
+          _discoverHandle = await startDiscover({ roots: discoverRoots });
+        }
+      } catch (e) {
+        log.warn(
+          { err: e instanceof Error ? e.message : e },
+          "Discover failed to start",
+        );
+      }
     })
     .then(() =>
       // Slow-tier enrichment workers run in-process. The boot path
@@ -437,18 +429,7 @@ async function start(): Promise<void> {
   // Phase 3 trash-gc — fire once at boot, then once a day. The handle's
   // stop() is invoked during shutdown so a clean exit cancels the timer.
   _trashGcHandle = startTrashGc({});
-  // Keep supervisor reference for graceful shutdown.
-  const supervisor = (app as unknown as Record<string, unknown>)["supervisor"] as Supervisor;
-  // Register a one-time SIGTERM/SIGINT hook to stop stage children.
-  const stopStageSupervisor = () =>
-    supervisor?.stopAll().catch((e: unknown) => {
-      log.warn(
-        { err: e instanceof Error ? e.message : e },
-        "error stopping stage supervisor",
-      );
-    });
-  process.once("SIGTERM", stopStageSupervisor);
-  process.once("SIGINT", stopStageSupervisor);
+  // shutdown() handles stage drain via stopAllStages(); no separate hook needed.
 }
 
 // Graceful shutdown.
@@ -469,14 +450,24 @@ async function shutdown(signal: string): Promise<void> {
   catch (e) {
     log.warn({ err: e instanceof Error ? e.message : e }, "error stopping trash-gc");
   }
-  // Stop the worker supervisor so stage children get a chance to finish
-  // in-flight work before the process exits.
+  // Stop the file-system watcher so it stops producing new docs while we drain.
   try {
-    await stopSupervisor();
+    await _discoverHandle?.stop();
+    _discoverHandle = null;
   } catch (e) {
     log.warn(
       { err: e instanceof Error ? e.message : e },
-      "error stopping worker supervisor",
+      "error stopping discover",
+    );
+  }
+  // Stop the in-process stage runners so any in-flight handler can drain
+  // before the process exits.
+  try {
+    await stopAllStages();
+  } catch (e) {
+    log.warn(
+      { err: e instanceof Error ? e.message : e },
+      "error stopping worker stages",
     );
   }
   try {

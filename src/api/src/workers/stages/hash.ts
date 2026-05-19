@@ -12,7 +12,7 @@
 import * as fs from "node:fs/promises";
 import { sha1 } from "@noble/hashes/legacy.js";
 import { deriveId } from "../../indexer/id.ts";
-import { defineStage } from "../runtime/define-stage.ts";
+import { defineStage, runStage, type RunStageHandle } from "../run-stage.ts";
 
 const SHA1_HEAD_BYTES = 64 * 1024;
 
@@ -33,7 +33,7 @@ async function readHead(absPath: string): Promise<Uint8Array> {
   }
 }
 
-export default defineStage({
+const hashStage = defineStage({
   name: "hash",
   targetVersion: 1,
   dependsOn: [],
@@ -70,3 +70,9 @@ export default defineStage({
     };
   },
 });
+
+export default hashStage;
+
+export async function startHashStage(): Promise<RunStageHandle> {
+  return runStage(hashStage);
+}

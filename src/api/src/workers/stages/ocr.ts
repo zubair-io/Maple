@@ -31,8 +31,8 @@
  */
 
 import { readFile } from "node:fs/promises";
-import type { ImageDoc, StageContext, StageResult } from "../runtime/define-stage.ts";
-import { defineStage } from "../runtime/define-stage.ts";
+import type { ImageDoc, StageContext, StageResult } from "../run-stage.ts";
+import { defineStage, runStage, type RunStageHandle } from "../run-stage.ts";
 import { cachePathFor } from "../../fs/xmp.ts";
 import { ocrEngine } from "../../enrichment/ocr-engine.ts";
 
@@ -117,7 +117,7 @@ export async function ocrHandler(
   };
 }
 
-export default defineStage({
+const ocrStage = defineStage({
   name: "ocr",
   // v2: per-word confidence + mean-confidence gate on `ocr_text` — bump
   // so docs OCR'd before the gate landed re-run and have their garbage
@@ -135,3 +135,9 @@ export default defineStage({
   },
   handler: ocrHandler,
 });
+
+export default ocrStage;
+
+export async function startOcrStage(): Promise<RunStageHandle> {
+  return runStage(ocrStage);
+}
