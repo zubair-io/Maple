@@ -1,5 +1,5 @@
 import XCTest
-@testable import MapleCore
+@testable @_spi(MapleTesting) import MapleCore
 
 final class FileProviderMountBookmarkTests: XCTestCase {
     private var defaults: UserDefaults!
@@ -8,7 +8,13 @@ final class FileProviderMountBookmarkTests: XCTestCase {
     override func setUp() {
         super.setUp()
         suiteName = "fp-mount-bookmark-test-\(UUID().uuidString)"
-        defaults = UserDefaults(suiteName: suiteName)
+        // `UserDefaults(suiteName:)` returns optional. Force-unwrap with a
+        // clear message: a transient-suite construction failure here is a
+        // test-environment problem, not an expected production path.
+        guard let d = UserDefaults(suiteName: suiteName) else {
+            fatalError("UserDefaults(suiteName: \(suiteName!)) returned nil — test environment cannot create transient suites")
+        }
+        defaults = d
     }
 
     override func tearDown() {
@@ -128,6 +134,46 @@ final class FileProviderMountBookmarkTests: XCTestCase {
             // Other platforms throw — that's an equally valid signal to
             // re-prompt.
             break
+        }
+    }
+
+    /// Contract test for the missing-target re-prompt path in
+    /// `_resolve(bookmark:options:domain:)`. On macOS the OS itself
+    /// throws `NSCocoaErrorDomain code 4 ("file doesn't exist")` for
+    /// plain bookmarks against a deleted dir — that's caught and the
+    /// call returns `nil` (a valid re-prompt signal). We can't reach
+    /// the post-resolve `fileExists` branch in a unit test because no
+    /// fixture-friendly bookmark variant produces the "resolved but
+    /// gone" condition the security-scoped production path occasionally
+    /// hits. The assertion is therefore "nil OR isStale=true, never a
+    /// silent success" — the production branch is a defensive guard
+    /// against the security-scoped behaviour observed in the field.
+    func testResolveOnDeletedTargetForcesIsStale() throws {
+        let tmp = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("fp-mount-bookmark-deleted-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+
+        let bookmark = try tmp.bookmarkData(
+            options: [],
+            includingResourceValuesForKeys: nil,
+            relativeTo: nil
+        )
+        try FileManager.default.removeItem(at: tmp)
+
+        let resolved = FileProviderMountBookmark._resolve(
+            bookmark: bookmark,
+            options: [],
+            domain: "d1"
+        )
+        // Either: the resolve threw and we got nil (also a valid re-prompt
+        // signal), or it succeeded and our fileExists check tripped
+        // isStale = true. The bug we're guarding against is "URL returned,
+        // isStale = false, target missing".
+        if let resolved {
+            XCTAssertTrue(
+                resolved.isStale,
+                "resolve returned a URL for a deleted target without flagging isStale — caller would mistakenly trust it"
+            )
         }
     }
 }
