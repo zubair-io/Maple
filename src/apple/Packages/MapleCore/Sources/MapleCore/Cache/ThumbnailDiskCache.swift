@@ -1,13 +1,26 @@
 // ThumbnailDiskCache.swift — .maple/ folder thumbnail cache compatible with
 // Maple Hosted and Maple Self Hosted (spec § 08 / § 05).
 //
-// Key: MD5(primaryURL.path) — matches the Maple Hosted LibraryIndex format.
+// Key: sha256(basename)[:16] — first 16 hex chars (8 bytes) of the SHA-256
+//   digest of the asset's filename (extension included). Matches:
+//     - Web (Maple Hosted Angular): src/web/projects/maple-common/src/lib/maple-cache/sha.ts
+//     - Server (Bun indexer):       src/api/src/fs/xmp.ts (sha256Prefix16)
+//   Hashing the basename (not the full path) lets `.maple/thumbs/` travel
+//   with the photos — copy the folder elsewhere and the same key resolves.
+//   The shared helper lives in `MapleThumbCacheKey.sha256Prefix16(_:)`
+//   (FileProvider/MapleThumbCacheKey.swift) and is the single source of
+//   truth for all three layers.
 // Value: JPEG bytes stored at .maple/thumbs/<hash>.jpg
 // Eviction: LRU by file mtime; max 500MB or 10,000 entries (configurable).
+//
+// Migration note: pre-2026-05 builds keyed thumbs by `MD5(url.path)`
+// (32 hex chars). Existing entries at the old key are harmless orphans
+// and will be cleaned up by LRU eviction over time — we deliberately do
+// NOT sweep them, since a regex-based cleanup risks deleting unrelated
+// files in `.maple/thumbs/`.
 
 import Foundation
 import CoreImage
-import CryptoKit
 
 // MARK: - ThumbnailDiskCache
 
@@ -67,9 +80,12 @@ public actor ThumbnailDiskCache {
 
     /// Return JPEG bytes for an opaque stable key (e.g. an `AssetRef.id` or a
     /// server-provided maple:id hex). Used by sourceless assets (PhotoKit,
-    /// SelfHosted) where there is no filesystem URL to MD5.
+    /// SelfHosted) where there is no filesystem URL to hash by basename.
+    /// Note: pre-2026-05 this overload used MD5 of the key; it now shares
+    /// the same `sha256Prefix16` helper as the URL-keyed path, so any
+    /// pre-existing cloud-thumb entries at the old MD5 path are orphans.
     public func thumbnailData(forKey key: String) -> Data? {
-        let hashed = md5(key)
+        let hashed = hashKey(key)
         if let d = dataMemCache[hashed] { return d }
         guard let dir = cacheDir else { return nil }
         let fileURL = dir.appendingPathComponent("\(hashed).jpg")
@@ -110,7 +126,7 @@ public actor ThumbnailDiskCache {
     /// Store pre-encoded JPEG bytes under an opaque stable key. Sibling of the
     /// URL-keyed overload — used for sourceless assets keyed by `AssetRef.id`.
     public func storeThumbnailData(_ data: Data, forKey key: String) {
-        let hashed = md5(key)
+        let hashed = hashKey(key)
         evictIfNeeded()
         dataMemCache[hashed] = data
         guard let dir = cacheDir else { return }
@@ -122,38 +138,24 @@ public actor ThumbnailDiskCache {
 
     /// Cache key derived from the **filename only** so `.maple/thumbs/`
     /// travels with the photos: copy the folder elsewhere and the same
-    /// hash still resolves. Aligned with the API (`src/api/.../fs/xmp.ts`
-    /// `sha256Prefix16`) and the web Hosted variant
-    /// (`src/web/.../maple-cache/sha.ts`) so thumbnails are interchangeable
-    /// across all three layers.
-    ///
-    /// (Pre-2026-05 versions hashed `url.path`, which made the cache
-    /// non-portable — copying a folder invalidated every entry. Existing
-    /// caches will be regenerated on first access; orphaned files at the
-    /// old key remain harmless until manually swept.)
+    /// hash still resolves. Delegates to `MapleThumbCacheKey.sha256Prefix16`
+    /// — the single source of truth shared with the API
+    /// (`src/api/src/fs/xmp.ts`) and the web Hosted variant
+    /// (`src/web/projects/maple-common/src/lib/maple-cache/sha.ts`) so
+    /// thumbnails are interchangeable across all three layers.
     public static func cacheKey(for url: URL) -> String {
-        return stableHash(url.lastPathComponent)
+        return MapleThumbCacheKey.sha256Prefix16(url.lastPathComponent)
     }
 
     nonisolated func cacheKey(for url: URL) -> String {
         return Self.cacheKey(for: url)
     }
 
-    // MARK: - Stable hash (SHA256 prefix for cache key stability)
-
-    /// First 16 hex chars of sha256(string) — i.e. 8 leading bytes formatted
-    /// as hex. Matches the web (Hosted) `sha256Prefix16` and the API
-    /// `sha256Prefix16` so a cache file written by any of the three is
-    /// readable by the others. Pre-2026-05 took `prefix(16)` of the BYTES
-    /// (= 32 hex chars) which produced a longer key; existing on-disk
-    /// thumbs at the old length are orphans and will be regenerated.
-    private static func stableHash(_ string: String) -> String {
-        let digest = SHA256.hash(data: Data(string.utf8))
-        return digest.prefix(8).map { String(format: "%02x", $0) }.joined()
-    }
-
-    private func md5(_ string: String) -> String {
-        return Self.stableHash(string)
+    /// Hash for opaque stable keys (cloud asset IDs etc.) — shares the
+    /// same `sha256Prefix16` derivation as `cacheKey(for:)`, so a single
+    /// helper governs every on-disk filename this cache writes.
+    private func hashKey(_ string: String) -> String {
+        return MapleThumbCacheKey.sha256Prefix16(string)
     }
 
     // MARK: - Memory pressure
