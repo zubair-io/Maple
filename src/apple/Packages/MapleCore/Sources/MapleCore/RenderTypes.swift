@@ -48,7 +48,8 @@ public enum RenderPhase: Sendable, Equatable {
 
 // MARK: - RenderError
 
-/// Errors surfaced by `EditSession._render`.
+/// Errors surfaced by `EditSession.decodeAndRender(targetSize:phase:gen:)`
+/// and `EditSession.renderForExport()`.
 public enum RenderError: Error, LocalizedError, Sendable {
     case pipelineFailed
 
