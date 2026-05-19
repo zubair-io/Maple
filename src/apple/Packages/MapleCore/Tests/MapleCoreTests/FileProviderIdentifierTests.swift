@@ -79,4 +79,43 @@ final class FileProviderIdentifierTests: XCTestCase {
             XCTAssertEqual(error as? FileProviderIdentifier.DecodeError, .malformedTrash)
         }
     }
+
+    // MARK: - .maple/ identifiers (issue #102)
+
+    func testMapleDirRootRoundTrip() throws {
+        let id = FileProviderIdentifier.mapleDir(folderID: "f1", parentRelativePath: "")
+        XCTAssertEqual(id.rawValue, "mapledir/f1:")
+        XCTAssertEqual(try FileProviderIdentifier(rawValue: id.rawValue), id)
+    }
+
+    func testMapleDirNestedRoundTrip() throws {
+        let id = FileProviderIdentifier.mapleDir(folderID: "f1", parentRelativePath: "2026/04-30")
+        XCTAssertEqual(try FileProviderIdentifier(rawValue: id.rawValue), id)
+    }
+
+    func testMapleThumbsDirRoundTrip() throws {
+        let id = FileProviderIdentifier.mapleThumbsDir(folderID: "f1", parentRelativePath: "sub")
+        XCTAssertEqual(try FileProviderIdentifier(rawValue: id.rawValue), id)
+        // Critical: the `mapledirthumbs/` prefix must NOT be decoded as
+        // `.mapleDir(folderID: "thumbs/…", …)` — the longer prefix
+        // must be matched first. Reversed order would silently break
+        // thumb enumeration.
+        let parsed = try FileProviderIdentifier(rawValue: id.rawValue)
+        switch parsed {
+        case .mapleThumbsDir: break
+        default: XCTFail("expected .mapleThumbsDir, got \(parsed)")
+        }
+    }
+
+    func testThumbRoundTrip() throws {
+        let id = FileProviderIdentifier.thumb(assetID: "650a1b2c3d4e5f6071829304")
+        XCTAssertEqual(id.rawValue, "thumb/650a1b2c3d4e5f6071829304")
+        XCTAssertEqual(try FileProviderIdentifier(rawValue: id.rawValue), id)
+    }
+
+    func testThumbWithoutAssetIDRejected() {
+        XCTAssertThrowsError(try FileProviderIdentifier(rawValue: "thumb/")) { error in
+            XCTAssertEqual(error as? FileProviderIdentifier.DecodeError, .malformedThumb)
+        }
+    }
 }

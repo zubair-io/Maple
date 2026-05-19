@@ -11,9 +11,27 @@ public enum FileProviderIdentifier: Equatable, Hashable, Sendable {
     case sidecar(assetID: String, conflictBasename: String?)
     /// Per-library Trash virtual container. Children = trashed asset items.
     case trash(folderID: String)
+    /// Synthetic `.maple/` container surfaced under every enumerable
+    /// folder. The server filters `.maple/` out of `/api/fs/dir` (dotdir
+    /// hide), so the FP extension synthesizes the dir client-side from
+    /// the parent folder's image list. `parentRelativePath` is the
+    /// enclosing folder relative to its library root (`""` at the
+    /// library root). Contains a single synthesized `thumbs/` child.
+    case mapleDir(folderID: String, parentRelativePath: String)
+    /// Synthetic `.maple/thumbs/` container. Children are one
+    /// `.thumb(assetID:)` per indexed image in `parentRelativePath`,
+    /// named after the server's on-disk filename convention
+    /// (`<sha256_prefix16(image basename)>.jpg`).
+    case mapleThumbsDir(folderID: String, parentRelativePath: String)
+    /// Pre-rendered JPEG thumbnail for an asset, served from the
+    /// server-side `.maple/thumbs/` cache via
+    /// `GET /api/assets/<id>/thumb`. Surfaces under
+    /// `.mapleThumbsDir(folderID:parentRelativePath:)`.
+    case thumb(assetID: String)
 
     public enum DecodeError: Error {
-        case invalidPrefix, malformedFolder, malformedSidecar, malformedTrash, badBase64
+        case invalidPrefix, malformedFolder, malformedSidecar, malformedTrash,
+             malformedMapleDir, malformedThumbsDir, malformedThumb, badBase64
     }
 
     public var rawValue: String {
@@ -29,6 +47,12 @@ public enum FileProviderIdentifier: Equatable, Hashable, Sendable {
             return "sidecar/\(assetID)"
         case .trash(let folderID):
             return "trash/\(folderID)"
+        case .mapleDir(let folderID, let parentRelativePath):
+            return "mapledir/\(folderID):\(Self.b64urlEncode(parentRelativePath))"
+        case .mapleThumbsDir(let folderID, let parentRelativePath):
+            return "mapledirthumbs/\(folderID):\(Self.b64urlEncode(parentRelativePath))"
+        case .thumb(let assetID):
+            return "thumb/\(assetID)"
         }
     }
 
@@ -67,6 +91,42 @@ public enum FileProviderIdentifier: Equatable, Hashable, Sendable {
             let folderID = String(body)
             if folderID.isEmpty { throw DecodeError.malformedTrash }
             self = .trash(folderID: folderID)
+            return
+        }
+        // The `mapledirthumbs/` check MUST precede `mapledir/` — both
+        // share the `mapledir` prefix, and `dropPrefixIfPresent` accepts
+        // the first match. Reversing the order would misroute every
+        // thumbs container to `.mapleDir` and break enumeration.
+        if let body = rawValue.dropPrefixIfPresent("mapledirthumbs/") {
+            guard let colon = body.firstIndex(of: ":") else {
+                throw DecodeError.malformedThumbsDir
+            }
+            let folderID = String(body[..<colon])
+            if folderID.isEmpty { throw DecodeError.malformedThumbsDir }
+            let encoded = String(body[body.index(after: colon)...])
+            guard let path = Self.b64urlDecode(encoded) else {
+                throw DecodeError.badBase64
+            }
+            self = .mapleThumbsDir(folderID: folderID, parentRelativePath: path)
+            return
+        }
+        if let body = rawValue.dropPrefixIfPresent("mapledir/") {
+            guard let colon = body.firstIndex(of: ":") else {
+                throw DecodeError.malformedMapleDir
+            }
+            let folderID = String(body[..<colon])
+            if folderID.isEmpty { throw DecodeError.malformedMapleDir }
+            let encoded = String(body[body.index(after: colon)...])
+            guard let path = Self.b64urlDecode(encoded) else {
+                throw DecodeError.badBase64
+            }
+            self = .mapleDir(folderID: folderID, parentRelativePath: path)
+            return
+        }
+        if let body = rawValue.dropPrefixIfPresent("thumb/") {
+            let assetID = String(body)
+            if assetID.isEmpty { throw DecodeError.malformedThumb }
+            self = .thumb(assetID: assetID)
             return
         }
         throw DecodeError.invalidPrefix
