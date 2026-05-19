@@ -153,4 +153,161 @@ final class FileProviderMountTests: XCTestCase {
         XCTAssertNil(FileProviderMount.relativePath(under: "", of: "/srv/lib/a.dng"))
         XCTAssertNil(FileProviderMount.relativePath(under: "/srv/lib", of: ""))
     }
+
+    // MARK: - localURL(forServerPath:rootPath:rootLabel:mountURL:)
+
+    /// Server path equal to the registered root opens at the library
+    /// folder under the mount, NOT the bare mount root. This is the
+    /// multi-library-server case — different libraries must route to
+    /// different subdirectories under the same FP mount.
+    func testLocalURLForServerPathRootMapsToLabeledSubdir() {
+        let mount = URL(fileURLWithPath: "/Users/u/Library/CloudStorage/Maple-Server")
+        let url = FileProviderMount.localURL(
+            forServerPath: "/srv/photos/Library",
+            rootPath: "/srv/photos/Library",
+            rootLabel: "Library",
+            mountURL: mount
+        )
+        XCTAssertEqual(
+            url?.path,
+            "/Users/u/Library/CloudStorage/Maple-Server/Library"
+        )
+    }
+
+    func testLocalURLForServerPathOneLevelDeep() {
+        let mount = URL(fileURLWithPath: "/Users/u/Library/CloudStorage/Maple-Server")
+        let url = FileProviderMount.localURL(
+            forServerPath: "/srv/photos/Library/2026",
+            rootPath: "/srv/photos/Library",
+            rootLabel: "Library",
+            mountURL: mount
+        )
+        XCTAssertEqual(
+            url?.path,
+            "/Users/u/Library/CloudStorage/Maple-Server/Library/2026"
+        )
+    }
+
+    func testLocalURLForServerPathSeveralLevelsDeep() {
+        let mount = URL(fileURLWithPath: "/Users/u/Library/CloudStorage/Maple-Server")
+        let url = FileProviderMount.localURL(
+            forServerPath: "/srv/photos/Library/2026/Camping/Day1",
+            rootPath: "/srv/photos/Library",
+            rootLabel: "Photos",
+            mountURL: mount
+        )
+        XCTAssertEqual(
+            url?.path,
+            "/Users/u/Library/CloudStorage/Maple-Server/Photos/2026/Camping/Day1"
+        )
+        // Each segment must be its own path component — guard against a
+        // regression that passes the whole relative string into one
+        // appendingPathComponent call.
+        let suffix = Array(url?.pathComponents.suffix(4) ?? [])
+        XCTAssertEqual(suffix, ["Photos", "2026", "Camping", "Day1"])
+    }
+
+    func testLocalURLForServerPathOffTreeReturnsNil() {
+        let mount = URL(fileURLWithPath: "/Users/u/Library/CloudStorage/Maple-Server")
+        let url = FileProviderMount.localURL(
+            forServerPath: "/srv/photos/OtherLibrary/2026",
+            rootPath: "/srv/photos/Library",
+            rootLabel: "Library",
+            mountURL: mount
+        )
+        XCTAssertNil(url, "server path outside the registered root must yield nil")
+    }
+
+    /// Sibling-directory whose name *prefixes* the root path as a string
+    /// must NOT match. Same defensive prefix-strip semantics as
+    /// `composePath` / `relativePath`.
+    func testLocalURLRejectsSiblingDirectoryPrefix() {
+        let mount = URL(fileURLWithPath: "/Users/u/Library/CloudStorage/Maple-Server")
+        let url = FileProviderMount.localURL(
+            forServerPath: "/srv/photos/LibraryB/2026",
+            rootPath: "/srv/photos/Library",
+            rootLabel: "Library",
+            mountURL: mount
+        )
+        XCTAssertNil(url)
+    }
+
+    /// Trailing-slash variations on `serverPath` must produce the same
+    /// result. The server's path canonicalisation isn't uniform across
+    /// every endpoint.
+    func testLocalURLTrailingSlashAgnostic() {
+        let mount = URL(fileURLWithPath: "/Users/u/Library/CloudStorage/Maple-Server")
+        let without = FileProviderMount.localURL(
+            forServerPath: "/srv/photos/Library/2026",
+            rootPath: "/srv/photos/Library",
+            rootLabel: "Library",
+            mountURL: mount
+        )
+        let with = FileProviderMount.localURL(
+            forServerPath: "/srv/photos/Library/2026/",
+            rootPath: "/srv/photos/Library",
+            rootLabel: "Library",
+            mountURL: mount
+        )
+        XCTAssertEqual(without?.path, with?.path)
+        XCTAssertEqual(
+            without?.path,
+            "/Users/u/Library/CloudStorage/Maple-Server/Library/2026"
+        )
+    }
+
+    /// Same agnosticism for the root path side — `/srv/lib` and
+    /// `/srv/lib/` must produce identical output.
+    func testLocalURLTrailingSlashAgnosticOnRoot() {
+        let mount = URL(fileURLWithPath: "/Users/u/Library/CloudStorage/Maple-Server")
+        let withoutRootSlash = FileProviderMount.localURL(
+            forServerPath: "/srv/photos/Library/2026",
+            rootPath: "/srv/photos/Library",
+            rootLabel: "Library",
+            mountURL: mount
+        )
+        let withRootSlash = FileProviderMount.localURL(
+            forServerPath: "/srv/photos/Library/2026",
+            rootPath: "/srv/photos/Library/",
+            rootLabel: "Library",
+            mountURL: mount
+        )
+        XCTAssertEqual(withoutRootSlash?.path, withRootSlash?.path)
+    }
+
+    /// Server path equal to root with a trailing slash must round-trip
+    /// to the same library URL.
+    func testLocalURLForServerPathRootWithTrailingSlash() {
+        let mount = URL(fileURLWithPath: "/Users/u/Library/CloudStorage/Maple-Server")
+        let url = FileProviderMount.localURL(
+            forServerPath: "/srv/photos/Library/",
+            rootPath: "/srv/photos/Library",
+            rootLabel: "Library",
+            mountURL: mount
+        )
+        XCTAssertEqual(
+            url?.path,
+            "/Users/u/Library/CloudStorage/Maple-Server/Library"
+        )
+    }
+
+    func testLocalURLReturnsNilForEmptyServerPath() {
+        let mount = URL(fileURLWithPath: "/Users/u/Library/CloudStorage/Maple-Server")
+        XCTAssertNil(FileProviderMount.localURL(
+            forServerPath: "",
+            rootPath: "/srv/photos/Library",
+            rootLabel: "Library",
+            mountURL: mount
+        ))
+    }
+
+    func testLocalURLReturnsNilForEmptyRootPath() {
+        let mount = URL(fileURLWithPath: "/Users/u/Library/CloudStorage/Maple-Server")
+        XCTAssertNil(FileProviderMount.localURL(
+            forServerPath: "/srv/photos/Library/2026",
+            rootPath: "",
+            rootLabel: "Library",
+            mountURL: mount
+        ))
+    }
 }

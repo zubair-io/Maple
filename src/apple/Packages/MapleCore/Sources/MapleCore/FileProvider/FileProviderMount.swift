@@ -101,4 +101,54 @@ public struct FileProviderMount {
         guard absPath.hasPrefix(rootWithSlash) else { return nil }
         return String(absPath.dropFirst(rootWithSlash.count))
     }
+
+    /// Translate a server-absolute directory path into the local URL under
+    /// the FP mount that corresponds to it. Sibling to `composePath`, but
+    /// for the AppShell's "open a folder at this depth" path rather than
+    /// the FP extension's "synthesize an asset URL" path.
+    ///
+    /// Returns:
+    ///   - `mountURL/<rootLabel>` when `serverPath` equals `rootPath`
+    ///     (with or without a trailing slash) — the library root itself.
+    ///   - `mountURL/<rootLabel>/<a>/<b>/…` when `serverPath` is a
+    ///     subdirectory of `rootPath`.
+    ///   - `nil` when `serverPath` is empty or doesn't fall under
+    ///     `rootPath` (off-tree — e.g. the user-side persisted state
+    ///     references a library/path that was deleted server-side). The
+    ///     caller logs and falls back to opening at the mount root.
+    ///
+    /// Tolerates a trailing slash on `serverPath` (server-side path
+    /// canonicalisation varies). Uses the same prefix-strip semantics as
+    /// `composePath` so the asset and folder code paths can't drift —
+    /// inverse of `FileProviderExtensionCore.resolveAssetParent`.
+    public static func localURL(
+        forServerPath serverPath: String,
+        rootPath: String,
+        rootLabel: String,
+        mountURL: URL
+    ) -> URL? {
+        guard !serverPath.isEmpty, !rootPath.isEmpty else { return nil }
+        // Normalise both sides to a single trailing slash for the
+        // equality / prefix check, so callers don't have to know which
+        // shape the server happens to return.
+        let trimmedServer = serverPath.hasSuffix("/") && serverPath.count > 1
+            ? String(serverPath.dropLast())
+            : serverPath
+        let trimmedRoot = rootPath.hasSuffix("/") && rootPath.count > 1
+            ? String(rootPath.dropLast())
+            : rootPath
+        let rootURL = mountURL.appendingPathComponent(rootLabel, isDirectory: true)
+        if trimmedServer == trimmedRoot {
+            return rootURL
+        }
+        guard let relative = relativePath(under: trimmedRoot, of: trimmedServer),
+              !relative.isEmpty
+        else { return nil }
+        var url = rootURL
+        let parts = relative.split(separator: "/", omittingEmptySubsequences: true)
+        for part in parts {
+            url = url.appendingPathComponent(String(part), isDirectory: true)
+        }
+        return url
+    }
 }
