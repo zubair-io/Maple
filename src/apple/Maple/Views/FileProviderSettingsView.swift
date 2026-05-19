@@ -24,11 +24,16 @@ final class FileProviderSettingsModel {
     /// Re-read the App Group UserDefaults for which domains currently
     /// have a persisted security-scoped bookmark. Cheap; called after
     /// any mutation to the bookmark store.
+    ///
+    /// Fetches `defaultDefaults` once and passes it down the loop —
+    /// otherwise the default-parameter pattern on `load(domain:)`
+    /// rebuilds `UserDefaults(suiteName:)` on every iteration.
     func refreshBookmarkState() {
+        let defaults = FileProviderMountBookmark.defaultDefaults
         var synced: Set<String> = []
         for d in domains {
             let id = d.identifier.rawValue
-            if FileProviderMountBookmark.load(domain: id) != nil {
+            if FileProviderMountBookmark.load(domain: id, defaults: defaults) != nil {
                 synced.insert(id)
             }
         }

@@ -31,7 +31,11 @@ public enum FileProviderMountBookmark {
     /// degraded path matches `FileProviderConfig`'s "fall back, log, keep
     /// running" stance.
     public static var defaultDefaults: UserDefaults {
-        UserDefaults(suiteName: suiteName) ?? .standard
+        if let suite = UserDefaults(suiteName: suiteName) {
+            return suite
+        }
+        bookmarkLogger.error("UserDefaults(suiteName: \(suiteName, privacy: .public)) returned nil; falling back to .standard")
+        return .standard
     }
 
     private static func key(forDomain domain: String) -> String {
