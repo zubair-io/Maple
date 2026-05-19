@@ -1243,6 +1243,76 @@ struct AppShell: View {
         }
     }
 
+    /// Resolve the local URL under the FP mount that corresponds to the
+    /// persisted `libraryPath` for `folderID`. Issue #107.
+    ///
+    /// Lookup order:
+    ///   1. On-disk `CloudFoldersCache` — populated every time the sidebar
+    ///      refreshes, so warm-cache cold starts hit this branch and avoid
+    ///      a network round-trip before opening the folder.
+    ///   2. Live `CloudFoldersClient.listFolders()` — when the cache is
+    ///      absent (first-ever launch, cache cleared) or doesn't contain
+    ///      `folderID` (newly added library since last refresh).
+    ///
+    /// Returns `nil` (caller falls back to the mount root + logs) when:
+    ///   - no registered root is found for `folderID` after both lookups,
+    ///   - the registered root's `path` doesn't prefix `libraryPath`
+    ///     (libraryPath off-tree — server admin renamed the library, the
+    ///     user's persisted state is stale).
+    @MainActor
+    private func resolveFPOpenURL(
+        serverID: URL,
+        folderID: String,
+        libraryPath: String,
+        mountURL: URL
+    ) async -> URL? {
+        func translate(_ folder: CloudFolder) -> URL? {
+            return FileProviderMount.localURL(
+                forServerPath: libraryPath,
+                rootPath: folder.path,
+                rootLabel: folder.displayName,
+                mountURL: mountURL
+            )
+        }
+
+        // 1. Disk cache — same source the sidebar reads when offline.
+        if let cached = CloudFoldersCache.load(server: serverID),
+           let folder = cached.first(where: { $0.id == folderID }) {
+            if let url = translate(folder) {
+                return url
+            }
+            // Cached entry exists but the libraryPath doesn't fall under
+            // the registered root — could be a stale cache (server admin
+            // moved the library after the last refresh). Try a live
+            // fetch before declaring the path off-tree.
+        }
+
+        // 2. Live fetch.
+        let httpClient = makeAuthenticatedHTTPClient(server: serverID)
+        let client = CloudFoldersClient(server: serverID, httpClient: httpClient)
+        guard let folders = try? await client.listFolders() else {
+            fileProviderLogger.warning(
+                "FP open URL resolve: listFolders failed for \(serverID.absoluteString, privacy: .public); falling back to mount root"
+            )
+            return nil
+        }
+        // Refresh the on-disk cache so the next cold start hits step 1.
+        CloudFoldersCache.save(folders, server: serverID)
+        guard let folder = folders.first(where: { $0.id == folderID }) else {
+            fileProviderLogger.warning(
+                "FP open URL resolve: folderID \(folderID, privacy: .public) not in registered roots for \(serverID.absoluteString, privacy: .public); falling back to mount root"
+            )
+            return nil
+        }
+        if let url = translate(folder) {
+            return url
+        }
+        fileProviderLogger.warning(
+            "FP open URL resolve: libraryPath \(libraryPath, privacy: .public) off-tree under root \(folder.path, privacy: .public) for \(serverID.absoluteString, privacy: .public); falling back to mount root"
+        )
+        return nil
+    }
+
     @MainActor
     private func loadCloudLibrary(serverID: URL, folderID: String, libraryPath: String) {
         librarySelection = .cloudLibrary(serverID: serverID, folderID: folderID)
@@ -1308,8 +1378,25 @@ struct AppShell: View {
                 //     stableID, so `ensureSession` cannot construct a
                 //     CloudSidecarStore for them either.
                 libraryTitle = serverID.host ?? serverID.absoluteString
-                loadFolder(url: mountURL, isFPRouted: true)
-                fileProviderLogger.notice("FP mount routing: \(serverID.absoluteString, privacy: .public) → folder view at \(mountURL.path, privacy: .public)")
+                // Issue #107: translate the server-absolute `libraryPath`
+                // into a mount-relative URL so cold start restores at the
+                // drilled depth, and multi-library servers route each
+                // library row to its own subdirectory under the FP mount.
+                // The translation requires the registered LibraryRoot
+                // (server path + label) for `folderID` — first consult
+                // the on-disk CloudFoldersCache populated by sidebar
+                // refreshes, then fall back to a /api/folders fetch.
+                // Off-tree / lookup-failed cases fall back to the mount
+                // root and log a warning (don't silently land in a wrong
+                // directory).
+                let openURL = await resolveFPOpenURL(
+                    serverID: serverID,
+                    folderID: folderID,
+                    libraryPath: libraryPath,
+                    mountURL: mountURL
+                ) ?? mountURL
+                loadFolder(url: openURL, isFPRouted: true)
+                fileProviderLogger.notice("FP mount routing: \(serverID.absoluteString, privacy: .public) → folder view at \(openURL.path, privacy: .public)")
                 return
             }
 
