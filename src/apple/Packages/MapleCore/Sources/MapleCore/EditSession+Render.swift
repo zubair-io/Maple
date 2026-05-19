@@ -3,13 +3,15 @@
 // Split from EditSession.swift (issue #120). Owns the path from a model
 // mutation (slider tick, asset open) to a published `renderedPreview`:
 //   • Two-phase scheduling (`_scheduleRender` fast → debounced refine)
-//   • Visible-region refine + composite-over-prior-preview
+//   • Visible-region refine using the cached decoded buffer
 //   • The fast/refine dispatch through `decodeAndRender`
-//   • `renderFull` entry point + cache persistence for cold-open seeding
+//   • `renderFull` public entry point
 //
-// The cold Rust FFI decode itself + the decoded-image cache state machine
-// live in `EditSession+Decode.swift`. The export-render bypass lives there
-// too because it shares decode-time-model parsing helpers.
+// The Rust FFI decode + the decoded-image cache state machine live in
+// `EditSession+Decode.swift`. The cache invalidation / sidecar / preview-
+// persist helpers live in `EditSession+Cache.swift`. The
+// composite-over-prior-preview helper consumed by both `refineVisibleRegion`
+// (here) and `refineDeepZoom` (in DeepZoom) lives in `EditSession+DeepZoom`.
 
 import Foundation
 import CoreImage
@@ -22,26 +24,6 @@ extension EditSession {
     public func renderFull() async {
         renderRequested = true
         await decodeAndRender(targetSize: nil, phase: .refine)
-    }
-
-    // MARK: - Cache persistence
-
-    /// Snapshot the current `renderedPreview` into `RenderedPreviewCache`
-    /// so a future cold open of this asset can paint pixels instantly.
-    /// Called from both the refine path (after refine publishes) and the
-    /// refine-skip branch in `_scheduleRefine` — without the latter,
-    /// fit-to-window opens (the most common case) never populate the
-    /// cache and every cold re-open redoes the Rust pipeline.
-    func persistCurrentPreviewToCache() {
-        guard let url = asset.primaryURL,
-              let preview = renderedPreview else { return }
-        let capturedImage = preview
-        let capturedWidth = Int(max(previewSize.width, 1))
-        Task.detached(priority: .utility) {
-            await RenderedPreviewCache.shared.storePreview(
-                capturedImage, for: url, screenWidth: capturedWidth
-            )
-        }
     }
 
     // MARK: - Two-phase scheduler
@@ -233,41 +215,6 @@ extension EditSession {
             }
             persistCurrentPreviewToCache()
         }
-    }
-
-    /// Place the tile composite (full-canvas extent, transparent where
-    /// no tiles loaded) over an upscaled `underlay` (preview-quality
-    /// image) so unloaded regions show preview pixels instead of black.
-    /// The output extent equals `canvasSize`.
-    func compositeWithPreviewUnderlay(
-        _ composite: CIImage,
-        underlay: CIImage?,
-        canvasSize: CGSize
-    ) -> CIImage {
-        let canvasRect = CGRect(origin: .zero, size: canvasSize)
-        guard let underlay,
-              underlay.extent.width > 0,
-              underlay.extent.height > 0,
-              canvasSize.width > 0,
-              canvasSize.height > 0
-        else {
-            return composite
-        }
-        // Scale the underlay to the full canvas. Translate origin to
-        // (0, 0) first because some preview-source CIImages carry a
-        // non-zero origin (cropped buffers, embedded JPEGs).
-        let originNormalized = underlay.transformed(by: CGAffineTransform(
-            translationX: -underlay.extent.origin.x,
-            y: -underlay.extent.origin.y
-        ))
-        let sx = canvasSize.width / underlay.extent.width
-        let sy = canvasSize.height / underlay.extent.height
-        let scaledUnderlay = originNormalized
-            .transformed(by: CGAffineTransform(scaleX: sx, y: sy))
-            .cropped(to: canvasRect)
-        return composite
-            .composited(over: scaledUnderlay)
-            .cropped(to: canvasRect)
     }
 
     // MARK: - Unified decode + render

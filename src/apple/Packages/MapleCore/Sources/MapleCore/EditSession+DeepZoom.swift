@@ -92,6 +92,45 @@ extension EditSession {
         }
     }
 
+    /// Place the tile composite (full-canvas extent, transparent where
+    /// no tiles loaded) over an upscaled `underlay` (preview-quality
+    /// image) so unloaded regions show preview pixels instead of black.
+    /// The output extent equals `canvasSize`.
+    ///
+    /// Lives here because the deep-zoom path was designed around it; the
+    /// visible-region refine in `EditSession+Render.swift` calls it too
+    /// for the same "fresh viewport patch over prior preview" behaviour.
+    func compositeWithPreviewUnderlay(
+        _ composite: CIImage,
+        underlay: CIImage?,
+        canvasSize: CGSize
+    ) -> CIImage {
+        let canvasRect = CGRect(origin: .zero, size: canvasSize)
+        guard let underlay,
+              underlay.extent.width > 0,
+              underlay.extent.height > 0,
+              canvasSize.width > 0,
+              canvasSize.height > 0
+        else {
+            return composite
+        }
+        // Scale the underlay to the full canvas. Translate origin to
+        // (0, 0) first because some preview-source CIImages carry a
+        // non-zero origin (cropped buffers, embedded JPEGs).
+        let originNormalized = underlay.transformed(by: CGAffineTransform(
+            translationX: -underlay.extent.origin.x,
+            y: -underlay.extent.origin.y
+        ))
+        let sx = canvasSize.width / underlay.extent.width
+        let sy = canvasSize.height / underlay.extent.height
+        let scaledUnderlay = originNormalized
+            .transformed(by: CGAffineTransform(scaleX: sx, y: sy))
+            .cropped(to: canvasRect)
+        return composite
+            .composited(over: scaledUnderlay)
+            .cropped(to: canvasRect)
+    }
+
     /// Lazy create the session's `TileManager` and start the
     /// tile-completion subscription. Subsequent calls return the
     /// existing instance. Must be called from the main actor — the
