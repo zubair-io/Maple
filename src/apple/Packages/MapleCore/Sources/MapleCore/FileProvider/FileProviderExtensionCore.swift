@@ -367,25 +367,23 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                     // the on-disk thumb filename (`sha256_prefix16` of
                     // the RAW basename) and reattach the item under
                     // its correct `.maple/thumbs/` parent.
+                    //
+                    // `resolveThumbParent` throws on every failure mode
+                    // (rootCache.roots() throws, folderID not in roots,
+                    // absPath off-tree) so a wrongly-parented thumb is
+                    // never synthesized. Earlier shape used
+                    // `try? await rootCache.roots() ?? []` which
+                    // silently degraded a network failure into "no
+                    // matching root" and attached the thumb to a thumbs
+                    // container at the library root, displacing it from
+                    // its real folder.
                     do {
                         guard let meta = try await catalog.getAsset(assetID: assetID) else {
                             completionHandler(nil, NSError(domain: NSFileProviderErrorDomain,
                                                            code: NSFileProviderError.noSuchItem.rawValue))
                             return
                         }
-                        let parentFolderID = meta.folderID
-                        let roots = (try? await rootCache.roots()) ?? []
-                        let parentRelativePath: String = {
-                            guard let root = roots.first(where: { $0.id == parentFolderID }),
-                                  let rel = FileProviderMount.relativePath(under: root.path, of: meta.absPath)
-                            else { return "" }
-                            return (rel as NSString).deletingLastPathComponent
-                        }()
-                        let parentRaw = FileProviderIdentifier
-                            .mapleThumbsDir(folderID: parentFolderID,
-                                            parentRelativePath: parentRelativePath)
-                            .rawValue
-                        let parentID = NSFileProviderItemIdentifier(parentRaw)
+                        let parentID = try await Self.resolveThumbParent(meta: meta, rootCache: rootCache)
                         let thumbName = MapleThumbCacheKey.thumbFilename(forRawBasename: meta.filename)
                         completionHandler(MapleItem(
                             thumbForAsset: assetID,
@@ -393,7 +391,7 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                             parentIdentifier: parentID
                         ), nil)
                     } catch {
-                        log.error("thumb item(for:) getAsset failed: \(error.localizedDescription, privacy: .public)")
+                        log.error("thumb item(for:) failed: \(error.localizedDescription, privacy: .public)")
                         completionHandler(nil, error)
                     }
                 case .trash(let folderID):
@@ -1202,6 +1200,48 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
         let parentRelative = (relative as NSString).deletingLastPathComponent
         let parentID = FileProviderIdentifier.folder(folderID: meta.folderID,
                                                        relativePath: parentRelative)
+        return NSFileProviderItemIdentifier(parentID.rawValue)
+    }
+
+    /// Derive the `.maple/thumbs/` parent identifier for a thumb item
+    /// from its underlying asset's metadata. Unlike `resolveAssetParent`
+    /// which falls back to a valid (though uglier) identifier when the
+    /// library roots can't be resolved, this helper THROWS on every
+    /// failure mode so callers route the error back to the OS instead
+    /// of synthesizing an item under a bad parent.
+    ///
+    /// Rationale: a thumb only exists as a child of a `.mapleThumbsDir`
+    /// container whose `parentRelativePath` agrees with the underlying
+    /// asset's folder. Picking the wrong parent (empty path when the
+    /// asset lives several directories deep) attaches the thumb to a
+    /// container the OS cannot reconcile against any enumeration, and
+    /// `.workingSet` is no longer accepted as a fallback parent (see
+    /// `resolveAssetParent`'s NEVER `.workingSet` clause). So:
+    ///   - `rootCache.roots()` throws — propagate the error so the OS
+    ///     retries instead of silently producing a wrongly-parented item.
+    ///   - `meta.folderID` not in roots — throw `noSuchItem`; the thumb
+    ///     genuinely has no resolvable parent.
+    ///   - `absPath` not under the resolved root — throw `noSuchItem`;
+    ///     same rationale, no valid parent identifier exists.
+    static func resolveThumbParent(meta: AssetMetadata,
+                                    rootCache: LibraryRootCache?) async throws -> NSFileProviderItemIdentifier {
+        guard let rootCache else {
+            throw NSError(domain: NSFileProviderErrorDomain,
+                          code: NSFileProviderError.noSuchItem.rawValue)
+        }
+        let roots = try await rootCache.roots()
+        guard let root = roots.first(where: { $0.id == meta.folderID }) else {
+            throw NSError(domain: NSFileProviderErrorDomain,
+                          code: NSFileProviderError.noSuchItem.rawValue)
+        }
+        guard let relative = FileProviderMount.relativePath(under: root.path, of: meta.absPath) else {
+            throw NSError(domain: NSFileProviderErrorDomain,
+                          code: NSFileProviderError.noSuchItem.rawValue)
+        }
+        let parentRelative = (relative as NSString).deletingLastPathComponent
+        let parentID = FileProviderIdentifier
+            .mapleThumbsDir(folderID: meta.folderID,
+                            parentRelativePath: parentRelative)
         return NSFileProviderItemIdentifier(parentID.rawValue)
     }
 
