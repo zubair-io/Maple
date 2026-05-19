@@ -205,6 +205,16 @@ Imported sidecars retain their original version string.
 
 ---
 
+## What does not live in XMP
+
+XMP is the contract for **user-authored** adjustments, culling, crop, and metadata. Derived metadata — values produced by deterministic re-runnable enrichment passes — stays in MongoDB. The line is the same one drawn for face detections and reverse-geocoded place data today, and it now also covers the structured `vision.*` subdoc.
+
+The `vision.*` data (caption, subjects, scene_type, setting, activity, mood, colors, composition, text_visible, notable_objects, shot_type, indoor_outdoor) is **never** written to the sidecar. The reason is that it is fully reproducible from `(model, prompt_version)` — the two fields carried in `vision_meta` — and the indexer already re-runs the describe stage automatically when either is bumped. Burning it into the XMP sidecar would mean a sidecar write on every re-caption (each prompt bump re-touches every asset), ~1 KB of sidecar bloat per asset, and a backwards-compat question every time the structured schema gains or renames a field.
+
+User-authored captions still round-trip via the existing free-text `description` and keyword paths — those are authored content, not derived, and they belong in the sidecar. The new structured `vision.*` doc is database-only. See `docs/indexer-enrichment.md` § "Vision (structured)" for the full field list and the OCR-engine precedence rule.
+
+---
+
 ## Test contract
 
 Both parsers must produce the same `AdjustmentModel` from any valid input, and
