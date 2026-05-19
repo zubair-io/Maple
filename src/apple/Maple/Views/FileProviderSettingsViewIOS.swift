@@ -2,7 +2,6 @@
 #if os(iOS)
 import SwiftUI
 import MapleCore
-import UIKit
 
 struct FileProviderSettingsViewIOS: View {
     @State private var model = FileProviderSettingsModel()
