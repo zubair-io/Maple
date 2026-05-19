@@ -70,6 +70,114 @@ export interface AssetExif {
   gps: { lat: number; lng: number } | null;
 }
 
+/**
+ * Structured photo-vision metadata emitted by the qwen2.5-vl describe stage.
+ *
+ * One JSON object per asset, produced by a single VLM pass over the 1280-px
+ * preview. The fields are independently queryable so the UI can filter by
+ * subject, scene, activity, etc. without first having to read free-text
+ * captions.
+ *
+ * Versioned by `vision_meta.{model, prompt_version}`: bumping either causes
+ * the runtime to invalidate stale rows and re-run the stage.
+ *
+ * Spec: `docs/superpowers/specs/2026-05-19-qwen-vision-ocr-design.md`.
+ */
+export interface VisionDoc {
+  /** 1–2 sentence caption focused on searchable content. Mirrors the
+   * top-level `description` field; kept here so the structured doc is
+   * self-contained. */
+  caption: string;
+  /** Categorical subject types: "person", "child", "adult", "dog", "cat",
+   * "building", "vehicle", "landscape", "food", "plant", … Open vocabulary,
+   * but the prompt guides the model toward common values. */
+  subjects: string[];
+  scene_type:
+    | "indoor"
+    | "outdoor"
+    | "aerial"
+    | "macro"
+    | "studio"
+    | "mixed";
+  /** Specific environment, e.g. "kitchen", "beach", "sports field".
+   * Free-text but constrained by the prompt's examples. `null` when the
+   * model cannot identify the setting. */
+  setting: string | null;
+  /** What is happening, e.g. "lacrosse", "cooking", "hiking". `null` for
+   * a static scene with no action. */
+  activity: string | null;
+  time_of_day:
+    | "morning"
+    | "midday"
+    | "afternoon"
+    | "golden hour"
+    | "evening"
+    | "night"
+    | "unknown";
+  lighting:
+    | "natural"
+    | "artificial"
+    | "mixed"
+    | "low-light"
+    | "backlit"
+    | "flash";
+  weather:
+    | "clear"
+    | "cloudy"
+    | "rainy"
+    | "snowy"
+    | "foggy"
+    | "indoor"
+    | "unknown";
+  /** 1–3 words describing atmosphere. */
+  mood: string;
+  /** Dominant colors, max 5. */
+  colors: string[];
+  composition:
+    | "wide shot"
+    | "close-up"
+    | "portrait"
+    | "landscape"
+    | "aerial"
+    | "macro"
+    | "candid";
+  /** Any readable text in the image. `null` when there is none. When the
+   * describe stage wrote this row, the runtime mirrors this value into
+   * `ocr_text` and stamps `ocr_meta.engine = "qwen2.5-vl"`. */
+  text_visible: string | null;
+  /** Distinctive objects, max 8. */
+  notable_objects: string[];
+  shot_type:
+    | "action"
+    | "static"
+    | "candid"
+    | "posed"
+    | "architectural"
+    | "nature"
+    | "event";
+  indoor_outdoor: "indoor" | "outdoor";
+}
+
+/**
+ * Provenance for the `vision` subdoc.
+ *
+ * `prompt_version` is the lever used to invalidate stale rows when the
+ * prompt copy changes — bump it in `workers/stages/describe.ts` and the
+ * runtime will reprocess.
+ */
+export interface VisionMeta {
+  /** Describe provider that produced this row. */
+  provider: "ollama" | "anthropic" | "openai" | "gemini";
+  /** Concrete model tag, e.g. "qwen2.5-vl:7b". */
+  model: string;
+  /** Bumped whenever the system prompt changes. */
+  prompt_version: number;
+  generated_at: string;
+  /** Bytes of the raw model response, post-fence-strip. Helps spot
+   * truncation when triaging dead-letter rows. */
+  raw_response_size: number;
+}
+
 export interface AssetDoc {
   folder_id: ObjectId;
   /** Filename only (no directory). */
@@ -105,26 +213,39 @@ export interface AssetDoc {
   place?: Place | null;
   /** Face detections (Phase 5 face worker output). `[]` until the worker has run. */
   faces?: AssetFaceDoc[];
-  /** LLM-generated caption (Phase 6 describe worker output). `null` until run. */
+  /** LLM-generated caption (Phase 6 describe worker output). `null` until run.
+   * Free-text mirror of `vision.caption` once the structured vision stage has
+   * run — duplicated so legacy clients reading `description` still work. */
   description?: string | null;
-  /** Recognised text extracted from the thumbnail by the OCR worker.
-   * `null` until the worker has run; empty string when nothing was found
-   * OR when the mean engine confidence was below the persistence threshold
-   * (see `MAPLE_OCR_MIN_CONFIDENCE` in the OCR stage). */
+  /** Structured photo-vision metadata from the qwen2.5-vl describe stage.
+   * `null` until the stage has run on this asset. See `VisionDoc`. */
+  vision?: VisionDoc | null;
+  /** Provenance of the `vision` subdoc. Carries the model + prompt version
+   * so a config change automatically invalidates stale rows. */
+  vision_meta?: VisionMeta | null;
+  /** Recognised text extracted from the asset's preview by the OCR path.
+   * Source depends on `ocr_meta.engine`: `tesseract` (legacy, opt-in) or
+   * `qwen2.5-vl` (default, written by the describe stage from
+   * `vision.text_visible`). `null` until either path has run; empty string
+   * when nothing was found OR when the Tesseract path's mean confidence was
+   * below `MAPLE_OCR_MIN_CONFIDENCE`. */
   ocr_text?: string | null;
-  /** Per-word OCR output. Persisted regardless of the confidence threshold
-   * so the threshold can be re-tuned without re-running the engine. `null`
-   * until the worker has run; `[]` when nothing was detected. */
+  /** Per-word OCR output. Tesseract-only — the qwen2.5-vl path does not
+   * emit per-word bboxes, so this stays `null` when `ocr_meta.engine ===
+   * "qwen2.5-vl"`. `null` until any OCR path has run; `[]` when Tesseract
+   * detected nothing. */
   ocr_words?: OcrWord[] | null;
-  /** Provenance of the OCR run. `engine_version` is stamped for human
-   * traceability only — reruns are gated by the stage's numeric
-   * `targetVersion` (see `workers/stages/ocr.ts`), not by this string. */
+  /** Provenance of the OCR run. `engine` identifies which path wrote the
+   * `ocr_text`/`ocr_words`. Reruns are gated by the writing stage's
+   * `targetVersion`, not by this string. */
   ocr_meta?: {
-    engine: "tesseract";
+    engine: "tesseract" | "qwen2.5-vl";
     engine_version: string;
     generated_at: string;
-    /** Overall mean confidence as reported by the engine, 0–100. `null`
-     * for legacy rows written before per-word capture landed. */
+    /** Tesseract's overall mean confidence (0–100). `null` for the
+     * qwen2.5-vl path (the VLM has no per-token confidence the way
+     * Tesseract does) and for legacy rows written before per-word
+     * capture landed. */
     mean_confidence: number | null;
   } | null;
   /** Synthesised text-index target. Concatenation of `place.search_blob`,
