@@ -983,6 +983,29 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
             return progress
         }
 
+        // Asset, but not a restore: accept benign metadata-only edits
+        // silently. After fetchContents materialises a RAW, the OS often
+        // surfaces a modifyItem call carrying `.lastUsedDate`,
+        // `.extendedAttributes` (quarantine, Spotlight metadata), Finder
+        // `.tagData`, or `.favoriteRank` — none of which the Maple server
+        // tracks. Returning featureUnsupported here makes Finder badge
+        // every freshly-opened RAW with a persistent "upload error". Echo
+        // the input item back instead so the OS records the local
+        // metadata change without re-trying.
+        //
+        // Genuine in-place edits (changedFields ⊇ `.contents`), renames
+        // (`.filename`), and moves (`.parentItemIdentifier`) still fall
+        // through to featureUnsupported — those operations would silently
+        // drop user work if accepted, so a clear error is correct.
+        if case .asset = parsed {
+            let unsupportedAssetFields: NSFileProviderItemFields =
+                [.contents, .filename, .parentItemIdentifier]
+            if changedFields.intersection(unsupportedAssetFields).isEmpty {
+                completionHandler(item, [], false, nil)
+                return Progress()
+            }
+        }
+
         guard case .sidecar(let assetID, let conflictBasename) = parsed,
               let contentsURL = newContents else {
             completionHandler(nil, [], false,
