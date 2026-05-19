@@ -221,12 +221,16 @@ final class FileProviderSettingsModel {
                 statusMessage = "Open in Files failed: domain not registered"
                 return
             }
-            // Strip the file:// scheme and replace with shareddocuments://.
-            // visibleURL.path keeps the absolute path; URLComponents lets us
-            // re-encode that path correctly for the scheme transition.
-            var components = URLComponents()
+            // Decompose the file:// URL and swap the scheme to shareddocuments://.
+            // Building URLComponents from scratch produces `shareddocuments:/<path>`
+            // (single slash) which Files won't route; copying from the existing
+            // file URL preserves the empty-host component so the output is
+            // `shareddocuments:///<path>` — the hierarchical form Files expects.
+            guard var components = URLComponents(url: visibleURL, resolvingAgainstBaseURL: false) else {
+                statusMessage = "Open in Files failed: couldn't decompose mount URL"
+                return
+            }
             components.scheme = "shareddocuments"
-            components.path = visibleURL.path
             guard let filesURL = components.url else {
                 statusMessage = "Open in Files failed: couldn't build deep-link URL"
                 return
@@ -259,9 +263,15 @@ final class FileProviderSettingsModel {
         }
         // iOS folder-picker URLs come back security-scoped; we must call
         // start/stopAccessingSecurityScopedResource around bookmarkData to
-        // mint a usable bookmark.
-        let didStart = picked.startAccessingSecurityScopedResource()
-        defer { if didStart { picked.stopAccessingSecurityScopedResource() } }
+        // mint a usable bookmark. If the scope claim fails we'd still
+        // mint a bookmark, but the bytes would be unusable when resolved
+        // later — surface the failure and bail rather than persist a
+        // bookmark that silently doesn't work.
+        guard picked.startAccessingSecurityScopedResource() else {
+            statusMessage = "Couldn't claim access to the selected folder — please try again."
+            return
+        }
+        defer { picked.stopAccessingSecurityScopedResource() }
         do {
             let bookmark = try picked.bookmarkData(
                 options: [],
