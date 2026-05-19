@@ -13,6 +13,7 @@
 import hashStage from "./hash.ts";
 import exifStage from "./exif.ts";
 import thumbStage from "./thumb.ts";
+import previewStage from "./preview.ts";
 import faceStage from "./face.ts";
 import ocrStage from "./ocr.ts";
 import describeStage from "./describe.ts";
@@ -23,6 +24,7 @@ export const stageManifest = [
   hashStage,
   exifStage,
   thumbStage,
+  previewStage,
   faceStage,
   ocrStage,
   describeStage,
@@ -34,6 +36,7 @@ export const ALL_STAGE_NAMES = [
   "hash",
   "exif",
   "thumb",
+  "preview",
   "face",
   "ocr",
   "describe",
