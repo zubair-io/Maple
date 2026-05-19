@@ -29,6 +29,7 @@ const VALID_VISION = {
   notable_objects: ["bicycle", "brick wall"],
   shot_type: "static",
   indoor_outdoor: "outdoor",
+  is_screenshot: false,
 };
 
 function fakeDoc(absPath: string): ImageDoc {
@@ -127,6 +128,31 @@ describe("describeHandler — happy path", () => {
     expect(vmeta.prompt_version).toBe(DESCRIBE_PROMPT_VERSION);
     expect(typeof vmeta.raw_response_size).toBe("number");
     expect((vmeta.raw_response_size as number) > 0).toBe(true);
+
+    // Top-level is_screenshot mirror — overwrites the exif heuristic.
+    expect(patch.is_screenshot).toBe(false);
+  });
+
+  it("writes is_screenshot: true at the top level when the VLM flags it", async () => {
+    const absPath = join(tmpRoot, "screenshot.png");
+    seedPreview(absPath);
+    const doc = fakeDoc(absPath);
+    const vision = { ...VALID_VISION, is_screenshot: true };
+    const provider = mockProvider({
+      text: JSON.stringify(vision),
+      cost_usd: 0,
+      provider_info: {},
+    });
+    setDescribeDepsForTests({
+      provider,
+      systemPrompt: "p",
+      model: "qwen2.5-vl:7b",
+    });
+
+    const result = await describeHandler(doc, fakeCtx);
+    const patch = (result as { patch: Record<string, unknown> }).patch;
+    expect(patch.is_screenshot).toBe(true);
+    expect((patch.vision as { is_screenshot: boolean }).is_screenshot).toBe(true);
   });
 
   it("forgives a markdown-fence-wrapped model response", async () => {

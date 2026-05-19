@@ -122,6 +122,12 @@ export class SearchComponent implements OnInit, OnDestroy {
   );
   readonly activity = computed(() => this.query()?.get('activity') ?? '');
   readonly subjectsCsv = computed(() => this.query()?.get('subjects') ?? '');
+  /** Tri-state screenshot filter: `''` (Any), `'true'` (Screenshots only),
+   * `'false'` (Photos only). Stored as the literal query-param value so
+   * the URL round-trips cleanly. */
+  readonly isScreenshot = computed<'' | 'true' | 'false'>(
+    () => (this.query()?.get('isScreenshot') as '' | 'true' | 'false') || '',
+  );
   readonly sort = computed<SearchSort>(
     () => (this.query()?.get('sort') as SearchSort) || 'captured_desc',
   );
@@ -257,6 +263,12 @@ export class SearchComponent implements OnInit, OnDestroy {
       sceneType: (this.sceneType() || undefined) as SearchSceneType | undefined,
       activity: this.activity() || undefined,
       subjects: this.subjectsSelected().size > 0 ? Array.from(this.subjectsSelected()) : undefined,
+      isScreenshot:
+        this.isScreenshot() === 'true'
+          ? true
+          : this.isScreenshot() === 'false'
+            ? false
+            : undefined,
       sort: this.sort(),
     };
   }
@@ -370,6 +382,10 @@ export class SearchComponent implements OnInit, OnDestroy {
     else next.add(value);
     const csv = Array.from(next).sort().join(',');
     this.patchQueryParams({ subjects: csv, page: null });
+  }
+
+  setIsScreenshot(value: '' | 'true' | 'false'): void {
+    this.patchQueryParams({ isScreenshot: value, page: null });
   }
 
   /** Quick date presets — write the from/to params directly. */

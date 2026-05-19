@@ -218,6 +218,23 @@
         </section>
       }
 
+      <!-- Screenshot tri-state -->
+      <section class="mb-[18px]">
+        <h3 class="mb-2 mt-0 text-[11px] font-semibold uppercase tracking-[0.05em] text-text-muted">
+          Type
+        </h3>
+        <select
+          class="h-8 w-full rounded border border-border bg-surface-alt px-2 text-[12px] text-text-main"
+          [value]="isScreenshot()"
+          (change)="setIsScreenshot($any($event.target).value)"
+          aria-label="Photos or screenshots"
+        >
+          <option value="">Any{{ facets()?.is_screenshot ? ' (' + (facets()!.is_screenshot.true + facets()!.is_screenshot.false + facets()!.is_screenshot.unknown) + ')' : '' }}</option>
+          <option value="false">Photos only{{ facets()?.is_screenshot ? ' (' + facets()!.is_screenshot.false + ')' : '' }}</option>
+          <option value="true">Screenshots only{{ facets()?.is_screenshot ? ' (' + facets()!.is_screenshot.true + ')' : '' }}</option>
+        </select>
+      </section>
+
       <!-- ISO -->
       <section class="mb-[18px]">
         <h3 class="mb-2 mt-0 text-[11px] font-semibold uppercase tracking-[0.05em] text-text-muted">

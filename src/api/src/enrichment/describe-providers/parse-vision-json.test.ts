@@ -21,6 +21,7 @@ const VALID = {
   notable_objects: ["lacrosse stick", "helmet", "cleats"],
   shot_type: "action",
   indoor_outdoor: "outdoor",
+  is_screenshot: false,
 };
 
 describe("parseVisionJson — happy paths", () => {
@@ -147,6 +148,35 @@ describe("parseVisionJson — rejection paths", () => {
     }
   });
 
+  it("rejects when is_screenshot is missing", () => {
+    const v = { ...VALID } as Partial<typeof VALID>;
+    delete v.is_screenshot;
+    try {
+      parseVisionJson(JSON.stringify(v));
+    } catch (e) {
+      const err = e as VisionParseError;
+      expect(err.reason).toBe("wrong-type");
+      expect(err.field).toBe("is_screenshot");
+    }
+  });
+
+  it("rejects when is_screenshot is a string (e.g. \"false\") instead of a boolean", () => {
+    const v = { ...VALID, is_screenshot: "false" };
+    try {
+      parseVisionJson(JSON.stringify(v));
+    } catch (e) {
+      const err = e as VisionParseError;
+      expect(err.reason).toBe("wrong-type");
+      expect(err.field).toBe("is_screenshot");
+    }
+  });
+
+  it("accepts is_screenshot = true", () => {
+    const v = { ...VALID, is_screenshot: true };
+    const out = parseVisionJson(JSON.stringify(v));
+    expect(out.is_screenshot).toBe(true);
+  });
+
   it("includes a truncated snippet in the error for triage", () => {
     const big = "x".repeat(20_000); // > 8 KB cap
     try {
@@ -182,6 +212,7 @@ describe("prompt ↔ parser cross-check", () => {
     "notable_objects",
     "shot_type",
     "indoor_outdoor",
+    "is_screenshot",
   ] as const;
 
   for (const key of REQUIRED_KEYS) {
@@ -192,8 +223,8 @@ describe("prompt ↔ parser cross-check", () => {
     });
   }
 
-  it("DESCRIBE_VISION_PROMPT_VERSION is 2 (post-llava)", () => {
-    expect(DESCRIBE_VISION_PROMPT_VERSION).toBe(2);
+  it("DESCRIBE_VISION_PROMPT_VERSION is 3 (post-is_screenshot)", () => {
+    expect(DESCRIBE_VISION_PROMPT_VERSION).toBe(3);
   });
 });
 

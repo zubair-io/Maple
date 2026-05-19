@@ -312,6 +312,12 @@
     @if (d.vision) {
       <maple-collapsible label="Vision" storageKey="info-vision">
         <div class="space-y-2 px-4 py-[5px]">
+          @if (d.vision.is_screenshot) {
+            <div class="flex">
+              <div class="rounded-[3px] border-[0.5px] border-primary bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">Screenshot</div>
+            </div>
+          }
+
           <!-- subjects -->
           @if (d.vision.subjects.length > 0) {
             <div>

@@ -95,7 +95,8 @@ export const DEFAULT_DESCRIBE_VISION_PROMPT = `You are indexing a personal photo
   "text_visible":    "any readable text in the image, or null",
   "notable_objects": ["distinctive objects, max 8"],
   "shot_type":       "action | static | candid | posed | architectural | nature | event",
-  "indoor_outdoor":  "indoor | outdoor"
+  "indoor_outdoor":  "indoor | outdoor",
+  "is_screenshot":   "true when this image is a screenshot of a phone/computer/app UI (including cropped screenshots and screenshots-of-screenshots), false for photographs and photos-of-screens"
 }
 
 Rules:
@@ -111,8 +112,9 @@ Rules:
  * History:
  *   1 — free-text `DEFAULT_DESCRIBE_SYSTEM_PROMPT` (llava era)
  *   2 — structured JSON `DEFAULT_DESCRIBE_VISION_PROMPT` (qwen2.5-vl)
+ *   3 — adds `is_screenshot` boolean field (#175)
  */
-export const DESCRIBE_VISION_PROMPT_VERSION = 2;
+export const DESCRIBE_VISION_PROMPT_VERSION = 3;
 /** Daily USD spend cap for paid providers. The worker pauses (returns
  * `circuit-pause`) for the rest of the UTC day once the cap is hit. */
 export const DEFAULT_DESCRIBE_DAILY_CAP_USD = 5;

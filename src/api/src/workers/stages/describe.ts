@@ -143,6 +143,11 @@ export async function describeHandler(
       generated_at: now,
       raw_response_size: rawResponseSize,
     },
+    // Top-level mirror of the VLM's screenshot verdict, overwriting any
+    // exif-stage heuristic. The describe stage has more signal than
+    // filename + missing camera_make (it sees cropped screenshots and
+    // photos-of-screens correctly), so its verdict wins.
+    is_screenshot: vision.is_screenshot,
   };
 
   // OCR mirror: the structured vision pass extracts visible text as part

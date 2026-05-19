@@ -100,6 +100,9 @@ export const assetsRoutes = new Elysia({ prefix: "/api/assets" })
       // Both are null until the stage runs on the asset.
       vision: doc.vision ?? null,
       vision_meta: doc.vision_meta ?? null,
+      // Top-level mirror of vision.is_screenshot — seeded by the exif
+      // stage heuristic, overwritten by the describe stage's VLM verdict.
+      is_screenshot: doc.is_screenshot ?? null,
       enrichment: normaliseEnrichment(doc.enrichment),
     };
   })

@@ -51,6 +51,9 @@ export interface SearchParams {
   /** Multi-select subject tags. Sent as a comma-separated `subjects`
    * param — Mongo does OR within the field, AND against other filters. */
   subjects?: string[];
+  /** Tri-state screenshot filter: `true` → screenshots only, `false` →
+   * photographs only, `undefined` → both. */
+  isScreenshot?: boolean;
 }
 
 /** Single hit returned by /api/search. */
@@ -98,6 +101,9 @@ export interface SearchFacets {
   activities: Array<{ value: string; count: number }>;
   /** Counts per `vision.subjects` element (array field, unwound). */
   subjects: Array<{ value: string; count: number }>;
+  /** Tri-state screenshot bucket counts. `unknown` covers legacy rows
+   * indexed before #175 where the field wasn't written. */
+  is_screenshot: { true: number; false: number; unknown: number };
 }
 
 /** One year/month aggregation row from /api/search/buckets. */
@@ -149,6 +155,7 @@ function paramsFrom(p: SearchParams): HttpParams {
   if (p.subjects && p.subjects.length > 0) {
     set('subjects', p.subjects.join(','));
   }
+  if (p.isScreenshot !== undefined) set('isScreenshot', p.isScreenshot ? 'true' : 'false');
   return h;
 }
 

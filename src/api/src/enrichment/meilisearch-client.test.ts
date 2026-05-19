@@ -222,6 +222,7 @@ describe("Meilisearch client — happy path with mocked fetch", () => {
         "visionSceneType",
         "visionActivity",
         "visionSubjects",
+        "isScreenshot",
       ],
       sortableAttributes: ["capturedAt"],
     });

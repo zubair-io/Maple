@@ -146,6 +146,7 @@ describe("meiliHandler — upsert payload shape", () => {
     expect(u.visionSceneType).toBeNull();
     expect(u.visionActivity).toBeNull();
     expect(u.visionSubjects).toBeNull();
+    expect(u.isScreenshot).toBeNull();
   });
 
   it("fans vision.scene_type / activity / subjects into discrete upsert fields", async () => {
@@ -170,7 +171,9 @@ describe("meiliHandler — upsert payload shape", () => {
           notable_objects: ["lacrosse stick"],
           shot_type: "action",
           indoor_outdoor: "outdoor",
+          is_screenshot: false,
         },
+        is_screenshot: false,
       } as unknown as Partial<ImageDoc>),
     } as ImageDoc;
     await meiliHandler(doc, fakeCtx);
@@ -179,6 +182,19 @@ describe("meiliHandler — upsert payload shape", () => {
     expect(u.visionSceneType).toBe("outdoor");
     expect(u.visionActivity).toBe("lacrosse");
     expect(u.visionSubjects).toEqual(["person", "child", "athlete"]);
+    expect(u.isScreenshot).toBe(false);
+  });
+
+  it("forwards is_screenshot: true to the upsert payload", async () => {
+    const { client, upserts } = capturingClient();
+    setMeilisearchClientForTests(client);
+    const doc = {
+      ...fakeDoc(),
+      ...({ is_screenshot: true } as unknown as Partial<ImageDoc>),
+    } as ImageDoc;
+    await meiliHandler(doc, fakeCtx);
+    expect(upserts.length).toBe(1);
+    expect(upserts[0]!.isScreenshot).toBe(true);
   });
 });
 

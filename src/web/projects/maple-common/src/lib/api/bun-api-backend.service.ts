@@ -186,6 +186,8 @@ export interface ApiVision {
     | 'nature'
     | 'event';
   indoor_outdoor: 'indoor' | 'outdoor';
+  /** True when the image is a screenshot rather than a photograph. */
+  is_screenshot: boolean;
 }
 
 export interface ApiVisionMeta {
@@ -216,6 +218,10 @@ export interface ApiAssetDetail {
   /** Structured vision data from the qwen2.5-vl describe stage. */
   vision: ApiVision | null;
   vision_meta: ApiVisionMeta | null;
+  /** Top-level mirror of `vision.is_screenshot` — seeded by the exif
+   * stage heuristic, overwritten by the describe stage's VLM verdict.
+   * `null` for legacy rows indexed before #175. */
+  is_screenshot: boolean | null;
   enrichment: ApiEnrichment;
 }
 

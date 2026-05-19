@@ -71,6 +71,9 @@ export interface MeilisearchAssetDoc {
   /** Open-vocab subject tags from `vision.subjects`. Array filterable so a
    * future meili-side facet path can intersect on subject. */
   visionSubjects?: string[] | null;
+  /** Screenshot vs photograph — top-level mirror of `vision.is_screenshot`
+   * (or the exif-stage heuristic when describe hasn't run yet). */
+  isScreenshot?: boolean | null;
 }
 
 export interface MeilisearchSearchOptions {
@@ -295,6 +298,7 @@ export function createMeilisearchClient(
             "visionSceneType",
             "visionActivity",
             "visionSubjects",
+            "isScreenshot",
           ],
           sortableAttributes: ["capturedAt"],
         },

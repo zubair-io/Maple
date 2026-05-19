@@ -2,7 +2,7 @@ import { describe, expect, it, beforeAll, afterAll } from "bun:test";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import exifStage from "./exif.ts";
+import exifStage, { isLikelyScreenshot } from "./exif.ts";
 import { EXIF_PICK_TAGS } from "../../indexer/exif.ts";
 
 function makeDoc(absPath: string) {
@@ -85,5 +85,73 @@ describe("exif handler", () => {
 
   it("exif stage targetVersion is at least 2 (post-GPS-sign-fix)", () => {
     expect(exifStage.targetVersion).toBeGreaterThanOrEqual(2);
+  });
+
+  it("flags is_screenshot for a no-EXIF iOS-style filename", async () => {
+    const file = path.join(dir, "Screenshot 2026-05-19 at 10.04.32.png");
+    const { default: sharp } = await import("sharp");
+    const buf = await sharp({
+      create: { width: 8, height: 16, channels: 3, background: { r: 0, g: 0, b: 0 } },
+    })
+      .png()
+      .toBuffer();
+    await writeFile(file, buf);
+    const doc = makeDoc(file);
+    const result = await exifStage.handler(doc as never, {} as never);
+    const { patch } = result as { patch: Record<string, unknown> };
+    expect(patch.is_screenshot).toBe(true);
+  });
+
+  it("does NOT flag is_screenshot for a regular JPEG without EXIF", async () => {
+    const file = path.join(dir, "vacation.jpg");
+    const { default: sharp } = await import("sharp");
+    const buf = await sharp({
+      create: { width: 4, height: 4, channels: 3, background: { r: 0, g: 0, b: 0 } },
+    })
+      .jpeg()
+      .toBuffer();
+    await writeFile(file, buf);
+    const doc = makeDoc(file);
+    const result = await exifStage.handler(doc as never, {} as never);
+    const { patch } = result as { patch: Record<string, unknown> };
+    expect(patch.is_screenshot).toBe(false);
+  });
+});
+
+describe("isLikelyScreenshot — heuristic", () => {
+  it("matches iOS screenshot filenames", () => {
+    expect(isLikelyScreenshot("Screenshot 2026-05-19 at 10.04.32.png", null)).toBe(true);
+    expect(isLikelyScreenshot("Screenshot 2024-12-01.png", "")).toBe(true);
+  });
+
+  it("matches macOS Screen Shot filenames", () => {
+    expect(isLikelyScreenshot("Screen Shot 2024-12-01 at 1.23.45 PM.png", null)).toBe(true);
+  });
+
+  it("matches Android screenshot filenames", () => {
+    expect(isLikelyScreenshot("Screenshot_20240601_102030.png", null)).toBe(true);
+    expect(isLikelyScreenshot("Screenshot_2024-06-01.png", undefined)).toBe(true);
+  });
+
+  it("does not match when a camera_make is present", () => {
+    // Pathological filename but the camera tag wins — these are e.g. renamed
+    // photos imported from a phone.
+    expect(isLikelyScreenshot("Screenshot 2024-01-01.png", "Apple")).toBe(false);
+  });
+
+  it("does not match generic photo filenames", () => {
+    expect(isLikelyScreenshot("IMG_0042.JPG", null)).toBe(false);
+    expect(isLikelyScreenshot("DSC_1234.NEF", null)).toBe(false);
+    expect(isLikelyScreenshot("vacation.jpg", null)).toBe(false);
+    expect(isLikelyScreenshot("my-screenshot-of-X.png", null)).toBe(false);
+  });
+
+  it("handles absolute paths by checking only the basename", () => {
+    expect(
+      isLikelyScreenshot("/Users/foo/Pictures/Screenshot 2026-05-19.png", null),
+    ).toBe(true);
+    expect(
+      isLikelyScreenshot("/Users/foo/Screenshots/IMG_0042.JPG", null),
+    ).toBe(false);
   });
 });

@@ -72,6 +72,9 @@ export async function meiliHandler(
     visionNotableObjects: vision?.notable_objects ?? null,
   });
 
+  const isScreenshot =
+    (image as unknown as { is_screenshot?: boolean }).is_screenshot ?? null;
+
   const client = getClient();
   if (client.isConfigured()) {
     await client.upsertOrThrow({
@@ -85,6 +88,7 @@ export async function meiliHandler(
       visionSceneType: vision?.scene_type ?? null,
       visionActivity: vision?.activity ?? null,
       visionSubjects: vision?.subjects ?? null,
+      isScreenshot,
     });
   }
 
@@ -105,7 +109,11 @@ export default defineStage({
   // `visionActivity` / `visionSubjects` fields (filterable attributes) for
   // the browse-facets UI. Bumping forces re-index so v3 rows learn the
   // new attribute shape.
-  targetVersion: 4,
+  //
+  // v5: adds `isScreenshot` to the Meilisearch document + filterable
+  // attributes for the photos-vs-screenshots filter. Bumping invalidates
+  // v4 rows so the index picks up the new field.
+  targetVersion: 5,
   // Only depends on always-on stages. When optional stages (face/ocr/describe/geocode)
   // run later, meili won't automatically re-process to incorporate their outputs.
   // Operator must bump meili.targetVersion or trigger a manual reset to refresh.

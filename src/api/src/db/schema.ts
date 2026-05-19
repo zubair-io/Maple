@@ -156,6 +156,12 @@ export interface VisionDoc {
     | "nature"
     | "event";
   indoor_outdoor: "indoor" | "outdoor";
+  /** True when the image is a screenshot of a phone/computer/app UI
+   * rather than a photograph. Canonical signal — the top-level
+   * `AssetDoc.is_screenshot` mirrors this once the describe stage has
+   * run, overwriting whatever the exif stage's filename heuristic
+   * guessed first. */
+  is_screenshot: boolean;
 }
 
 /**
@@ -217,6 +223,14 @@ export interface AssetDoc {
    * Free-text mirror of `vision.caption` once the structured vision stage has
    * run — duplicated so legacy clients reading `description` still work. */
   description?: string | null;
+  /** True when this asset is a screenshot (phone/computer/app UI capture)
+   * rather than a photograph. Set by the exif stage as a fast heuristic
+   * (no camera_make + filename matches `Screenshot…` / `Screen Shot…`)
+   * and then overwritten by the describe stage with the qwen2.5-vl
+   * verdict, which handles cropped screenshots and photos-of-screens
+   * the heuristic can't. Mirrors `vision.is_screenshot` once describe
+   * has run; until then, the heuristic value stands. */
+  is_screenshot?: boolean;
   /** Structured photo-vision metadata from the qwen2.5-vl describe stage.
    * `null` until the stage has run on this asset. See `VisionDoc`. */
   vision?: VisionDoc | null;

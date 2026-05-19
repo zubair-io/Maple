@@ -124,6 +124,9 @@ interface SearchQuery {
   /** Comma-separated `vision.subjects` — OR within the field (any match
    * wins), AND against other top-level filters. */
   subjects?: string;
+  /** Screenshot filter. `"true"` shows only screenshots, `"false"` shows
+   * only photographs, omitted shows everything. */
+  isScreenshot?: string;
   page?: string;
   limit?: string;
   sort?: string;
@@ -314,6 +317,16 @@ export function buildFilter(
     }
   }
 
+  // Screenshot filter. Boolean stringified as "true" / "false"; anything
+  // else (omitted, empty, "any") leaves both kinds in the result set.
+  if (q.isScreenshot === "true") {
+    (filter as Record<string, unknown>).is_screenshot = true;
+  } else if (q.isScreenshot === "false") {
+    // `$ne: true` rather than `false` so rows where is_screenshot was
+    // never written (pre-#175 indexes) still appear under "Photos only".
+    (filter as Record<string, unknown>).is_screenshot = { $ne: true };
+  }
+
   // Extensions: comma-separated, alphanumeric only.
   if (q.ext && q.ext.trim().length > 0) {
     const exts = q.ext
@@ -487,6 +500,7 @@ const SearchQueryT = t.Object({
   sceneType: t.Optional(t.String()),
   activity: t.Optional(t.String()),
   subjects: t.Optional(t.String()),
+  isScreenshot: t.Optional(t.String()),
   page: t.Optional(t.String()),
   limit: t.Optional(t.String()),
   sort: t.Optional(t.String()),
@@ -640,6 +654,7 @@ export const searchRoutes = new Elysia({ prefix: "/api/search" })
         sceneAgg,
         activityAgg,
         subjectsAgg,
+        screenshotAgg,
       ] = await Promise.all([
         coll.countDocuments(finalFilter),
         coll
@@ -742,6 +757,31 @@ export const searchRoutes = new Elysia({ prefix: "/api/search" })
             { $limit: 50 },
           ])
           .toArray(),
+        // Screenshot tri-state: true / false / unknown (field absent on
+        // legacy rows). Group on a $cond so the bucket key normalises.
+        coll
+          .aggregate([
+            { $match: finalFilter },
+            {
+              $project: {
+                bucket: {
+                  $cond: [
+                    { $eq: ["$is_screenshot", true] },
+                    "true",
+                    {
+                      $cond: [
+                        { $eq: ["$is_screenshot", false] },
+                        "false",
+                        "unknown",
+                      ],
+                    },
+                  ],
+                },
+              },
+            },
+            { $group: { _id: "$bucket", count: { $sum: 1 } } },
+          ])
+          .toArray(),
       ]);
 
       const cameras = cameraAgg.map((r) => ({
@@ -781,6 +821,15 @@ export const searchRoutes = new Elysia({ prefix: "/api/search" })
         .filter((r) => typeof r._id === "string" && r._id.length > 0)
         .map((r) => ({ value: r._id as string, count: r.count as number }));
 
+      const is_screenshot = {
+        true:
+          (screenshotAgg.find((r) => r._id === "true")?.count as number | undefined) ?? 0,
+        false:
+          (screenshotAgg.find((r) => r._id === "false")?.count as number | undefined) ?? 0,
+        unknown:
+          (screenshotAgg.find((r) => r._id === "unknown")?.count as number | undefined) ?? 0,
+      };
+
       return {
         total,
         cameras,
@@ -791,6 +840,7 @@ export const searchRoutes = new Elysia({ prefix: "/api/search" })
         scene_types,
         activities,
         subjects,
+        is_screenshot,
       };
     },
     { query: SearchQueryT },
@@ -926,6 +976,7 @@ function makeBucketsCacheKey(q: SearchQuery): string {
     sceneType: q.sceneType ?? null,
     activity: q.activity ?? null,
     subjects: q.subjects ?? null,
+    isScreenshot: q.isScreenshot ?? null,
   });
 }
 

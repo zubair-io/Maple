@@ -350,6 +350,16 @@ export function parseVisionJson(raw: string): VisionDoc {
     );
   }
 
+  if (typeof obj.is_screenshot !== "boolean") {
+    throw new VisionParseError(
+      "wrong-type",
+      "expected boolean",
+      raw,
+      "is_screenshot",
+    );
+  }
+  const is_screenshot = obj.is_screenshot;
+
   return {
     caption,
     subjects,
@@ -366,5 +376,6 @@ export function parseVisionJson(raw: string): VisionDoc {
     notable_objects,
     shot_type: shot_type as VisionDoc["shot_type"],
     indoor_outdoor: indoor_outdoor as VisionDoc["indoor_outdoor"],
+    is_screenshot,
   };
 }
