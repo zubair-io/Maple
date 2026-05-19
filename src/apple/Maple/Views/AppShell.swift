@@ -25,6 +25,7 @@ import UIKit
 #endif
 
 private let cloudHTTPLogger = Logger(subsystem: "app.justmaple.aperture", category: "Cloud.HTTP")
+private let fileProviderLogger = Logger(subsystem: "app.justmaple.aperture", category: "FileProvider")
 
 // MARK: - AppShell
 
@@ -773,7 +774,7 @@ struct AppShell: View {
     // MARK: - Folder flows
 
     @MainActor
-    private func loadFolder(url: URL) {
+    private func loadFolder(url: URL, isFPRouted: Bool = false) {
         // Cancel any in-flight thumbnail decodes from the previous folder so
         // they don't keep burning CPU against files the user no longer sees.
         Task.detached { await ThumbnailLoader.shared.cancelAll() }
@@ -794,6 +795,11 @@ struct AppShell: View {
         // upsert still succeed (because those paths re-claim scope on
         // their own), so the folder ends up in the sidebar and usable —
         // but the user just saw a spurious "can't open folder" error.
+        //
+        // Also satisfies the FP-routing contract: `FileProviderMountRouter`
+        // hands back a scope-backed bookmark URL and documents that the
+        // caller must claim scope — `claimScope(for:)` here is that claim,
+        // so the FP call site doesn't need to do it separately.
         claimScope(for: url)
 
         // `url` here came from `.fileImporter` which returns a scope-backed
@@ -801,8 +807,16 @@ struct AppShell: View {
         // the scope reference through to the pipeline / loader.
         browseVM.currentScopeRoot = url
         browseVM.loadFolder(url: url)
-        librarySelection = .folder(path: url.path)
-        libraryTitle = url.lastPathComponent
+        // FP-routed callers keep their own `librarySelection` (the cloud
+        // server row in the sidebar) and own their title — see the FP
+        // branch in `loadCloudLibrary`. Overwriting either here would
+        // ghost-highlight "Local folders" while the user is reading the
+        // FP-mounted cloud library, and would clobber the cloud server
+        // hostname in the title bar.
+        if !isFPRouted {
+            librarySelection = .folder(path: url.path)
+            libraryTitle = url.lastPathComponent
+        }
         mode = .browse
 
         for asset in browseVM.assets where sessions[asset.id] == nil {
@@ -810,6 +824,15 @@ struct AppShell: View {
             sessions[asset.id] = session
             Task { await session.loadSidecar() }
         }
+        // FP-routed callers MUST NOT mint a new filesystem bookmark or
+        // persist a `.filesystem` SourceSelection / SavedFolder entry: the
+        // server's identity stays `cloudLibrary(serverID:…)` so cold start
+        // re-enters `loadCloudLibrary` (which re-runs the FP-routing
+        // decision). Recording the FP mount path under "Local folders"
+        // would also leave a dangling stale-bookmark entry if the user
+        // later disables sync for that server — the bookmark target
+        // disappears with the FP domain.
+        if isFPRouted { return }
         Task { @MainActor in
             let fs = FilesystemSource()
             do {
@@ -1235,15 +1258,30 @@ struct AppShell: View {
             // on next open.
             if case .folderView(let mountURL) = FileProviderMountRouter.resolve(serverURL: serverID) {
                 cloudTimelineVM = nil
-                // `loadFolder(url:)` is the same entry point the local
-                // folder picker uses — listing, thumbnails, XMP read /
-                // write, edit pipeline all flow through it unchanged.
-                // No FP-specific code path; `librarySelection` becomes
-                // `.folder(...)` so XMP writes route through
-                // `XMPSidecarStore` (local file), and the FP extension
-                // syncs the change back to the server.
-                loadFolder(url: mountURL)
-                cloudHTTPLogger.notice("FP mount routing: \(serverID.absoluteString, privacy: .public) → folder view at \(mountURL.path, privacy: .public)")
+                // Reuses the local folder-picker entry point — listing,
+                // thumbnails, XMP read/write, and the edit pipeline all
+                // flow through unchanged; the FP extension does the
+                // server I/O on demand.
+                //
+                // `isFPRouted: true` opts out of the persistence tail:
+                //   - no FilesystemSource bookmark mint over the FP mount
+                //   - no `.filesystem(bookmark:)` SourceSelection save
+                //     (we keep the `.cloudLibrary(...)` one persisted
+                //     just above, so cold start re-enters this method
+                //     and re-runs the FP-routing decision)
+                //   - no SavedFolderStore entry for ~/Library/CloudStorage/…
+                //     in the user's "Local folders" sidebar
+                //   - librarySelection stays `.cloudLibrary(...)` so the
+                //     sidebar highlights the cloud server row, not Local
+                //     folders. XMP writes still route through
+                //     XMPSidecarStore because EditSession picks its
+                //     sidecar path from the asset's primaryURL — the
+                //     FilesystemSource-synthesized AssetRefs carry no
+                //     stableID, so `ensureSession` cannot construct a
+                //     CloudSidecarStore for them either.
+                libraryTitle = serverID.host ?? serverID.absoluteString
+                loadFolder(url: mountURL, isFPRouted: true)
+                fileProviderLogger.notice("FP mount routing: \(serverID.absoluteString, privacy: .public) → folder view at \(mountURL.path, privacy: .public)")
                 return
             }
 
