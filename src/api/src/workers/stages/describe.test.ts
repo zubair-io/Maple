@@ -236,6 +236,108 @@ describe("describeHandler — provider errors", () => {
   });
 });
 
+describe("describeHandler — OCR mirror from vision.text_visible", () => {
+  it("writes ocr_text + ocr_meta when the asset has no prior ocr_meta", async () => {
+    const absPath = join(tmpRoot, "ocr-fresh.dng");
+    seedPreview(absPath);
+    const doc = fakeDoc(absPath);
+    // No ocr_meta on the doc — describe should populate it.
+    const vision = { ...VALID_VISION, text_visible: "STOP" };
+    const provider = mockProvider({
+      text: JSON.stringify(vision),
+      cost_usd: 0,
+      provider_info: {},
+    });
+    setDescribeDepsForTests({
+      provider,
+      systemPrompt: "p",
+      model: "qwen2.5-vl:7b",
+    });
+    const result = await describeHandler(doc, fakeCtx);
+    const patch = (result as { patch: Record<string, unknown> }).patch;
+    expect(patch.ocr_text).toBe("STOP");
+    const ocrMeta = patch.ocr_meta as { engine: string; engine_version: string };
+    expect(ocrMeta.engine).toBe("qwen2.5-vl");
+    expect(ocrMeta.engine_version).toBe("qwen2.5-vl:7b");
+  });
+
+  it("writes ocr_text as empty string when vision.text_visible is null", async () => {
+    const absPath = join(tmpRoot, "ocr-null.dng");
+    seedPreview(absPath);
+    const doc = fakeDoc(absPath);
+    const vision = { ...VALID_VISION, text_visible: null };
+    const provider = mockProvider({
+      text: JSON.stringify(vision),
+      cost_usd: 0,
+      provider_info: {},
+    });
+    setDescribeDepsForTests({
+      provider,
+      systemPrompt: "p",
+      model: "qwen2.5-vl:7b",
+    });
+    const result = await describeHandler(doc, fakeCtx);
+    const patch = (result as { patch: Record<string, unknown> }).patch;
+    expect(patch.ocr_text).toBe("");
+  });
+
+  it("does NOT overwrite ocr_text when Tesseract owns the OCR meta", async () => {
+    const absPath = join(tmpRoot, "ocr-tess.dng");
+    seedPreview(absPath);
+    const doc = fakeDoc(absPath);
+    // Prior Tesseract run — describe must respect its bbox-bearing output.
+    (doc as unknown as Record<string, unknown>).ocr_meta = {
+      engine: "tesseract",
+      engine_version: "5.1-conf",
+      generated_at: "2026-05-01T00:00:00.000Z",
+      mean_confidence: 87,
+    };
+    const vision = { ...VALID_VISION, text_visible: "DO NOT WRITE THIS" };
+    const provider = mockProvider({
+      text: JSON.stringify(vision),
+      cost_usd: 0,
+      provider_info: {},
+    });
+    setDescribeDepsForTests({
+      provider,
+      systemPrompt: "p",
+      model: "qwen2.5-vl:7b",
+    });
+    const result = await describeHandler(doc, fakeCtx);
+    const patch = (result as { patch: Record<string, unknown> }).patch;
+    expect("ocr_text" in patch).toBe(false);
+    expect("ocr_meta" in patch).toBe(false);
+  });
+
+  it("DOES overwrite when prior ocr_meta was itself written by qwen2.5-vl (refresh)", async () => {
+    const absPath = join(tmpRoot, "ocr-vlm-refresh.dng");
+    seedPreview(absPath);
+    const doc = fakeDoc(absPath);
+    (doc as unknown as Record<string, unknown>).ocr_meta = {
+      engine: "qwen2.5-vl",
+      engine_version: "qwen2.5-vl:7b",
+      generated_at: "2026-05-01T00:00:00.000Z",
+      mean_confidence: null,
+    };
+    const vision = { ...VALID_VISION, text_visible: "FRESH READ" };
+    const provider = mockProvider({
+      text: JSON.stringify(vision),
+      cost_usd: 0,
+      provider_info: {},
+    });
+    setDescribeDepsForTests({
+      provider,
+      systemPrompt: "p",
+      model: "qwen2.5-vl:7b",
+    });
+    const result = await describeHandler(doc, fakeCtx);
+    const patch = (result as { patch: Record<string, unknown> }).patch;
+    expect(patch.ocr_text).toBe("FRESH READ");
+    const ocrMeta = patch.ocr_meta as { engine: string };
+    expect(ocrMeta.engine).toBe("qwen2.5-vl");
+  });
+});
+
 describe("describeHandler — provider_info extras", () => {
   it("spreads provider_info into description_meta", async () => {
     const absPath = join(tmpRoot, "img4.dng");

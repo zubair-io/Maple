@@ -42,10 +42,21 @@ export async function meiliHandler(
     return { skip: "no-maple-id" };
   }
 
+  // Vision signals from the qwen2.5-vl describe stage — see schema.ts
+  // §VisionDoc. Optional: `vision` is null on assets that haven't been
+  // through the describe stage yet (paused on first boot, paid provider
+  // without a key, etc.) — the blob simply omits them in that case.
+  const vision = (image as unknown as { vision?: import("../../db/schema.ts").VisionDoc | null })
+    .vision ?? null;
+
   const blob = composeSearchBlob({
     place: image.place,
     description: image.description,
     ocrText: (image as unknown as { ocr_text?: string }).ocr_text ?? null,
+    visionSubjects: vision?.subjects ?? null,
+    visionSetting: vision?.setting ?? null,
+    visionActivity: vision?.activity ?? null,
+    visionNotableObjects: vision?.notable_objects ?? null,
   });
 
   const client = getClient();
@@ -70,7 +81,12 @@ export default defineStage({
   // textureless photos. Without bumping meili too, the search index keeps
   // the pre-gate (poisoned) text for rows already meili'd at v1. Bumping
   // here forces a re-index against the cleaned ocr_text.
-  targetVersion: 2,
+  //
+  // v3: search_blob now folds in the structured vision fields
+  // (subjects / setting / activity / notable_objects) from the qwen2.5-vl
+  // describe stage. Bumping invalidates v2 rows so the index picks up the
+  // new tokens.
+  targetVersion: 3,
   // Only depends on always-on stages. When optional stages (face/ocr/describe/geocode)
   // run later, meili won't automatically re-process to incorporate their outputs.
   // Operator must bump meili.targetVersion or trigger a manual reset to refresh.

@@ -115,29 +115,49 @@ export async function describeHandler(
   const now = new Date().toISOString();
   const rawResponseSize = Buffer.byteLength(result.text, "utf8");
 
-  return {
-    patch: {
-      // Free-text caption mirror — legacy clients still read `description`.
-      description: vision.caption,
-      description_meta: {
-        provider: provider.name,
-        model,
-        prompt_version: DESCRIBE_PROMPT_VERSION,
-        generated_at: now,
-        cost_usd: result.cost_usd,
-        ...result.provider_info,
-      },
-      // Structured vision subdoc — the new canonical source.
-      vision,
-      vision_meta: {
-        provider: provider.name,
-        model,
-        prompt_version: DESCRIBE_PROMPT_VERSION,
-        generated_at: now,
-        raw_response_size: rawResponseSize,
-      },
+  const patch: Record<string, unknown> = {
+    // Free-text caption mirror — legacy clients still read `description`.
+    description: vision.caption,
+    description_meta: {
+      provider: provider.name,
+      model,
+      prompt_version: DESCRIBE_PROMPT_VERSION,
+      generated_at: now,
+      cost_usd: result.cost_usd,
+      ...result.provider_info,
+    },
+    // Structured vision subdoc — the new canonical source.
+    vision,
+    vision_meta: {
+      provider: provider.name,
+      model,
+      prompt_version: DESCRIBE_PROMPT_VERSION,
+      generated_at: now,
+      raw_response_size: rawResponseSize,
     },
   };
+
+  // OCR mirror: the structured vision pass extracts visible text as part
+  // of captioning, so we populate ocr_text from vision.text_visible.
+  // Precedence: don't clobber a Tesseract result. An operator who opts
+  // into the Tesseract stage wants the per-word bboxes it provides; the
+  // VLM doesn't emit bboxes. We only write OCR fields when the existing
+  // ocr_meta is missing OR was itself written by the qwen2.5-vl path.
+  const existingOcr = (image as unknown as { ocr_meta?: { engine?: string } | null }).ocr_meta;
+  const tesseractOwnsOcr =
+    existingOcr != null && existingOcr.engine === "tesseract";
+  if (!tesseractOwnsOcr) {
+    patch.ocr_text = vision.text_visible ?? "";
+    patch.ocr_meta = {
+      engine: "qwen2.5-vl",
+      engine_version: model,
+      generated_at: now,
+      // qwen2.5-vl has no per-token confidence the way Tesseract does.
+      mean_confidence: null,
+    };
+  }
+
+  return { patch };
 }
 
 export default defineStage({
