@@ -136,6 +136,12 @@ final class RemoteCatalogTests: XCTestCase {
         XCTAssertEqual(resp.size, 12345)
     }
 
+    func testDecodeMakeDirResponse() throws {
+        let json = #"{"abs_path":"/library/2026/Adam/04-02"}"#.data(using: .utf8)!
+        let resp = try Self.fractionalISODecoder().decode(MakeDirResponse.self, from: json)
+        XCTAssertEqual(resp.absPath, "/library/2026/Adam/04-02")
+    }
+
     /// Regression: `JSONDecoder.DateDecodingStrategy.iso8601` does NOT
     /// parse fractional seconds. The server's `Date.toISOString()`
     /// always emits them. RemoteCatalog uses a custom strategy that
