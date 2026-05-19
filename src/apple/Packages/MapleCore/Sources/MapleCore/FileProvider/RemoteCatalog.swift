@@ -655,6 +655,21 @@ public actor RemoteCatalog {
         return fmt.date(from: raw)
     }
 
+    /// Percent-encode a relative path for the `X-Maple-Target-Path`
+    /// header. `.urlPathAllowed` keeps `/` (we want directory
+    /// separators preserved) but encodes spaces, non-ASCII, and `%`
+    /// itself so server-side `decodeURIComponent` round-trips
+    /// cleanly. Throws rather than silently sending unencoded data on
+    /// the (extremely rare) failure path — the server would reject
+    /// malformed input with a 400 and the caller has no way to
+    /// recover.
+    static func encodeTargetPath(_ path: String) throws -> String {
+        guard let encoded = path.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) else {
+            throw URLError(.badURL)
+        }
+        return encoded
+    }
+
     // MARK: - Phase 3: uploads + trash + restore
 
     /// Upload a file to the given folder. Streams `fileURL` via
@@ -669,8 +684,7 @@ public actor RemoteCatalog {
         var req = URLRequest(url: server.appending(path: "/api/folders/\(folderID)/upload"))
         req.httpMethod = "POST"
         req.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
-        let encoded = targetRelativePath.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? targetRelativePath
-        req.setValue(encoded, forHTTPHeaderField: "X-Maple-Target-Path")
+        req.setValue(try Self.encodeTargetPath(targetRelativePath), forHTTPHeaderField: "X-Maple-Target-Path")
         if let mtime {
             req.setValue(String(Int(mtime.timeIntervalSince1970)), forHTTPHeaderField: "X-Maple-File-Mtime")
         }
@@ -705,8 +719,7 @@ public actor RemoteCatalog {
     ) async throws -> MakeDirResponse {
         var req = URLRequest(url: server.appending(path: "/api/folders/\(folderID)/mkdir"))
         req.httpMethod = "POST"
-        let encoded = targetRelativePath.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? targetRelativePath
-        req.setValue(encoded, forHTTPHeaderField: "X-Maple-Target-Path")
+        req.setValue(try Self.encodeTargetPath(targetRelativePath), forHTTPHeaderField: "X-Maple-Target-Path")
         let (data, resp) = try await http.data(for: req)
         let status = (resp as? HTTPURLResponse)?.statusCode ?? -1
         guard status == 201 else { throw URLError(.badServerResponse) }

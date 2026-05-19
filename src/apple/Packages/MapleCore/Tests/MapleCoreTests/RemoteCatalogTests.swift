@@ -142,6 +142,28 @@ final class RemoteCatalogTests: XCTestCase {
         XCTAssertEqual(resp.absPath, "/library/2026/Adam/04-02")
     }
 
+    /// Locks in the X-Maple-Target-Path encoding contract shared by
+    /// `uploadFile` and `makeDir`. Server-side `decodeURIComponent`
+    /// must round-trip every case below.
+    func testEncodeTargetPathRoundTrips() throws {
+        let cases: [(input: String, encoded: String)] = [
+            ("test_0017.dng", "test_0017.dng"),
+            ("2026/Adam/04-02", "2026/Adam/04-02"),                      // separators preserved
+            ("Adam's Photos/x.dng", "Adam's%20Photos/x.dng"),            // spaces encoded
+            ("café/x.dng", "caf%C3%A9/x.dng"),                            // UTF-8
+            ("100%/foo.dng", "100%25/foo.dng"),                          // `%` encoded — round-trips through decodeURIComponent
+            ("a+b/c&d.dng", "a+b/c&d.dng"),                              // sub-delims left alone (decodeURIComponent passes them through)
+        ]
+        for c in cases {
+            let actual = try RemoteCatalog.encodeTargetPath(c.input)
+            XCTAssertEqual(actual, c.encoded, "encode mismatch for \(c.input)")
+            // Verify the decoded round-trip matches the input — this
+            // is what the server does with `decodeURIComponent`.
+            let decoded = actual.removingPercentEncoding
+            XCTAssertEqual(decoded, c.input, "round-trip mismatch for \(c.input)")
+        }
+    }
+
     /// Regression: `JSONDecoder.DateDecodingStrategy.iso8601` does NOT
     /// parse fractional seconds. The server's `Date.toISOString()`
     /// always emits them. RemoteCatalog uses a custom strategy that
