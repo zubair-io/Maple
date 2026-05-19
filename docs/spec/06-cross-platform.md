@@ -382,7 +382,7 @@ A change is mergeable only if:
 
 1. Rust unit tests pass: `cd src/raw-pipeline && cargo test -p raw-core --lib`.
 2. Pixel parity harness passes: `src/scripts/test_color_pipeline.sh`.
-3. Swift unit tests pass: `xcodebuild test -scheme Maple -destination 'platform=macOS'`.
+3. Swift unit tests pass: `xcodebuild test -scheme "Maple Exposure" -destination 'platform=macOS'`.
 4. Web unit tests pass: `bun test` in `src/web`.
 5. XMP round-trip tests pass on Swift, TS, and cross-platform.
 6. End-to-end web test passes: `bun src/scripts/test-dcp-flow.js`.

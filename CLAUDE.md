@@ -94,10 +94,10 @@ This needs Rust + cbindgen + the iOS/macOS Rust targets (`rustup target add aarc
 ```bash
 # macOS build
 cd src/apple
-xcodebuild -project Maple.xcodeproj -scheme Maple -destination 'platform=macOS' build
+xcodebuild -project Maple.xcodeproj -scheme "Maple Exposure" -destination 'platform=macOS' build
 
 # iOS simulator (pick any installed arm64 simulator; iPhone 17 Pro / iPhone 16 Pro work)
-xcodebuild -project Maple.xcodeproj -scheme Maple \
+xcodebuild -project Maple.xcodeproj -scheme "Maple Exposure" \
            -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build
 
 # Unit tests (runs inside the local package — Xcode test target is a stub)
@@ -124,7 +124,7 @@ Run locally:
 ```bash
 xcodebuild test \
   -project src/apple/Maple.xcodeproj \
-  -scheme Maple \
+  -scheme "Maple Exposure" \
   -destination 'platform=macOS' \
   -only-testing:MapleUITests \
   MAPLE_UITEST_FIXTURE_ROOT="$PWD/test-fixtures/raws"
@@ -158,7 +158,7 @@ Run:
 ```bash
 xcodebuild test \
   -project src/apple/Maple.xcodeproj \
-  -scheme Maple \
+  -scheme "Maple Exposure" \
   -destination 'platform=macOS' \
   -only-testing:MapleUITests/SliderMatrixUITests
 ```
