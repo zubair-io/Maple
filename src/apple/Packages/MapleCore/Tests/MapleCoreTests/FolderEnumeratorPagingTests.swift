@@ -62,9 +62,11 @@ final class FolderEnumeratorPagingTests: XCTestCase {
     let success = await observer.waitUntilFinished(timeoutSeconds: 5)
     XCTAssertTrue(success, "enumeration did not finish in time")
     XCTAssertNil(observer.error)
-    // Three didEnumerate calls (one per page), total 8 items.
+    // Three didEnumerate calls (one per page). First page also carries
+    // the injected `.maple/` synthetic directory (issue #102), so the
+    // first batch is one larger than the raw image count.
     XCTAssertEqual(observer.batches.count, 3)
-    XCTAssertEqual(observer.batches.map(\.count), [3, 3, 2])
+    XCTAssertEqual(observer.batches.map(\.count), [3 + 1, 3, 2])
   }
 }
 
