@@ -136,6 +136,23 @@ final class FileProviderSettingsModel {
         let response = await panel.begin()
         guard response == .OK, let chosen = panel.url else { return }
 
+        // The user can navigate away from the pre-pointed mount inside
+        // NSOpenPanel and pick a completely unrelated folder. Persisting
+        // that as the FP-mount bookmark would silently lie ("Synced ✓"
+        // for a directory the FP extension never touches). Accept the
+        // exact mount URL or any subdirectory of it; reject anything
+        // else with a user-visible alert.
+        guard Self.isURL(chosen, withinMount: mountURL) else {
+            let alert = NSAlert()
+            alert.messageText = "Wrong folder"
+            alert.informativeText = "Please select the synced folder Maple opened for you (\(mountURL.lastPathComponent))."
+            alert.alertStyle = .warning
+            alert.addButton(withTitle: "OK")
+            alert.runModal()
+            statusMessage = "Grant cancelled — selected folder is outside the synced mount."
+            return
+        }
+
         do {
             let bookmark = try chosen.bookmarkData(
                 options: .withSecurityScope,
@@ -148,6 +165,17 @@ final class FileProviderSettingsModel {
         } catch {
             statusMessage = "Bookmark failed: \(error.localizedDescription)"
         }
+    }
+
+    /// Returns true when `candidate` is the same directory as `mount`
+    /// or a descendant of it. Both URLs are resolved/standardised first
+    /// to compare without symlink or `..` noise.
+    static func isURL(_ candidate: URL, withinMount mount: URL) -> Bool {
+        let cPath = candidate.resolvingSymlinksInPath().standardizedFileURL.path
+        let mPath = mount.resolvingSymlinksInPath().standardizedFileURL.path
+        if cPath == mPath { return true }
+        let prefix = mPath.hasSuffix("/") ? mPath : mPath + "/"
+        return cPath.hasPrefix(prefix)
     }
 
     /// Clear a previously-granted bookmark. The user can re-grant later
