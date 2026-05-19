@@ -185,6 +185,7 @@ const WORKER_STAGE_NAMES = [
   "hash",
   "exif",
   "thumb",
+  "preview",
   "face",
   "describe",
   "geocode",
