@@ -1064,15 +1064,15 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
         // root.path e.g. "/srv/photos/Library"
         // -> relative = "2026/Adam/04-02/IMG.jpg"
         // -> parent   = "2026/Adam/04-02"
-        let rootWithSlash = root.path.hasSuffix("/") ? root.path : root.path + "/"
-        guard meta.absPath.hasPrefix(rootWithSlash) else {
+        // `FileProviderMount.relativePath` owns the prefix-strip shape
+        // so this helper and the app's mount-path resolver agree.
+        guard let relative = FileProviderMount.relativePath(under: root.path, of: meta.absPath) else {
             // absPath doesn't fall under the resolved root — likely a
             // server bug. The library root itself is always valid.
             let rootIdent = FileProviderIdentifier.folder(folderID: meta.folderID,
                                                            relativePath: "")
             return NSFileProviderItemIdentifier(rootIdent.rawValue)
         }
-        let relative = String(meta.absPath.dropFirst(rootWithSlash.count))
         let parentRelative = (relative as NSString).deletingLastPathComponent
         let parentID = FileProviderIdentifier.folder(folderID: meta.folderID,
                                                        relativePath: parentRelative)
