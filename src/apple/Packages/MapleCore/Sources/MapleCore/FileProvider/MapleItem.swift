@@ -266,6 +266,81 @@ public final class MapleItem: NSObject, NSFileProviderItem {
         self.filename = resolvedFilename
     }
 
+    /// Synthetic `.maple/` directory surfaced under every enumerable
+    /// folder. The server hides this dir from `/api/fs/dir` (dotdir
+    /// filter); the FP extension synthesizes it client-side so the
+    /// app's future Folder-View consumer (#101) can read the pre-baked
+    /// thumbnails through the FP mount without an extra API call.
+    ///
+    /// Finder still hides the entry from human users because the name
+    /// starts with `.`, so user-visible listings are unaffected.
+    public init(mapleDir folderID: String,
+                parentRelativePath: String,
+                parentIdentifier: NSFileProviderItemIdentifier) {
+        self.identifier = .mapleDir(folderID: folderID, parentRelativePath: parentRelativePath)
+        self.displayName = ".maple"
+        self.isDirectory = true
+        self.size = nil
+        self.modified = nil
+        self.utType = .folder
+        // Read-only. No uploads, no nested writes — the cache is
+        // server-owned. `.allowsContentEnumerating` is required for
+        // the OS to follow through to the `.maple/thumbs/` enumerator.
+        self.writeCapabilities = [.allowsReading, .allowsContentEnumerating]
+        self.itemIdentifier = NSFileProviderItemIdentifier(self.identifier.rawValue)
+        self.parentItemIdentifier = parentIdentifier
+        self.filename = ".maple"
+    }
+
+    /// Synthetic `.maple/thumbs/` directory — the only child of a
+    /// `.mapleDir`. Children are one `.thumb(assetID:)` per indexed
+    /// image in `parentRelativePath`, named with the server's
+    /// `sha256_prefix16(basename).jpg` convention.
+    public init(mapleThumbsDir folderID: String,
+                parentRelativePath: String,
+                parentIdentifier: NSFileProviderItemIdentifier) {
+        self.identifier = .mapleThumbsDir(folderID: folderID, parentRelativePath: parentRelativePath)
+        self.displayName = "thumbs"
+        self.isDirectory = true
+        self.size = nil
+        self.modified = nil
+        self.utType = .folder
+        self.writeCapabilities = [.allowsReading, .allowsContentEnumerating]
+        self.itemIdentifier = NSFileProviderItemIdentifier(self.identifier.rawValue)
+        self.parentItemIdentifier = parentIdentifier
+        self.filename = "thumbs"
+    }
+
+    /// Pre-rendered thumbnail JPEG. `displayFilename` is the server's
+    /// on-disk name (`<sha256_prefix16(basename)>.jpg`), derived by the
+    /// enumerator from the paired RAW's filename. Identifier carries
+    /// only the assetID — the OS reaches `fetchContents` with the
+    /// `.thumb(assetID:)` shape and the extension hits
+    /// `GET /api/assets/<id>/thumb` for the bytes.
+    ///
+    /// `size` and `modified` are left nil: the server doesn't surface
+    /// thumb dimensions on directory listings, and we don't pre-fetch
+    /// per-thumb stats during enumeration (one HEAD per asset would
+    /// blow the enumeration budget). The OS materializes on demand and
+    /// fills in the real size once bytes are written.
+    public init(thumbForAsset assetID: String,
+                displayFilename: String,
+                parentIdentifier: NSFileProviderItemIdentifier) {
+        self.identifier = .thumb(assetID: assetID)
+        self.displayName = displayFilename
+        self.isDirectory = false
+        self.size = nil
+        self.modified = nil
+        self.utType = UTType(filenameExtension: "jpg") ?? .jpeg
+        // Read-only — `.maple/thumbs/` is a derived cache. Deletes
+        // here would leak through to the server-side cache and the
+        // next enumeration would just regenerate the entry.
+        self.writeCapabilities = [.allowsReading]
+        self.itemIdentifier = NSFileProviderItemIdentifier(self.identifier.rawValue)
+        self.parentItemIdentifier = parentIdentifier
+        self.filename = displayFilename
+    }
+
     public init(sidecar: SidecarChild, parentImageBase: String, parentIdentifier: NSFileProviderItemIdentifier) {
         let canonicalName = "\(parentImageBase).xmp"
         let isCanonical = sidecar.name.caseInsensitiveCompare(canonicalName) == .orderedSame
