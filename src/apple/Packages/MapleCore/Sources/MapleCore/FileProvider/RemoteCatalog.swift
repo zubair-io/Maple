@@ -199,6 +199,18 @@ public enum UploadOutcome: Equatable, Sendable {
     case unsupported
 }
 
+public struct MakeDirResponse: Codable, Equatable, Sendable {
+    public let absPath: String
+
+    public init(absPath: String) {
+        self.absPath = absPath
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case absPath = "abs_path"
+    }
+}
+
 public enum XMPWriteResult: Equatable, Sendable {
     /// Write succeeded; the response's Last-Modified header is parsed
     /// into this Date and reflects the new on-disk mtime.
@@ -676,6 +688,29 @@ public actor RemoteCatalog {
         if status == 409 { return .conflict }
         if status == 415 { return .unsupported }
         throw URLError(.badServerResponse)
+    }
+
+    /// Create a subdirectory under a library root. `targetRelativePath`
+    /// is sent percent-encoded in the `X-Maple-Target-Path` header and
+    /// validated server-side the same way uploads are (no leading `/`,
+    /// no `..`/`.` components, no leading-dot segments). Idempotent —
+    /// `mkdir -p` doesn't error if the directory already exists.
+    ///
+    /// Called from the File Provider extension when the OS asks to
+    /// create a folder (Finder "New Folder", or the folder-create that
+    /// precedes a drag-in of a folder full of files).
+    public func makeDir(
+        folderID: String,
+        targetRelativePath: String
+    ) async throws -> MakeDirResponse {
+        var req = URLRequest(url: server.appending(path: "/api/folders/\(folderID)/mkdir"))
+        req.httpMethod = "POST"
+        let encoded = targetRelativePath.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? targetRelativePath
+        req.setValue(encoded, forHTTPHeaderField: "X-Maple-Target-Path")
+        let (data, resp) = try await http.data(for: req)
+        let status = (resp as? HTTPURLResponse)?.statusCode ?? -1
+        guard status == 201 else { throw URLError(.badServerResponse) }
+        return try decoder.decode(MakeDirResponse.self, from: data)
     }
 
     /// DELETE /api/assets/<id>. 204 = success; everything else throws.
