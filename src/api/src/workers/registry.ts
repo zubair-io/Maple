@@ -63,6 +63,11 @@ class StageRegistry {
     this.lastErrors.set(name, message);
   }
 
+  /** Clear a previously-recorded error after the stage recovers. */
+  clearError(name: string): void {
+    this.lastErrors.delete(name);
+  }
+
   has(name: string): boolean {
     return this.entries.has(name);
   }

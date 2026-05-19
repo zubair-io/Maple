@@ -122,7 +122,9 @@ describe("GET /api/workers/status — counts", () => {
     ]);
 
     // Register a fake hash stage in the in-process registry so the route's
-    // status loop knows what targetVersion to count against.
+    // status loop knows what targetVersion to count against. Wrapped in
+    // try/finally so a thrown assertion below can't leak the registration
+    // into later route tests (the registry is a process-wide singleton).
     const { Elysia } = await import("elysia");
     const { workerRoutes } = await import("../src/workers/routes.ts");
     const { stageRegistry } = await import("../src/workers/registry.ts");
@@ -136,26 +138,29 @@ describe("GET /api/workers/status — counts", () => {
       resume: async () => {},
     });
 
-    // Force the route's getDb() to point at TEST_DB.
-    process.env.MAPLE_MONGO_DB = TEST_DB;
-    await closeDb();
-    await getDb();
+    try {
+      // Force the route's getDb() to point at TEST_DB.
+      process.env.MAPLE_MONGO_DB = TEST_DB;
+      await closeDb();
+      await getDb();
 
-    const app = new Elysia().use(workerRoutes());
-    const res = await app.handle(
-      new Request("http://localhost/api/workers/status"),
-    );
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as {
-      stages: Array<{ name: string; pending: number; dead: number }>;
-    };
-    const hash = body.stages.find((s) => s.name === "hash");
-    expect(hash).toBeDefined();
-    expect(hash!.pending).toBe(3);
-    expect(hash!.dead).toBe(1);
-
-    // Tear down the fake registration so it doesn't leak into other tests.
-    stageRegistry.unregister("hash");
+      const app = new Elysia().use(workerRoutes());
+      const res = await app.handle(
+        new Request("http://localhost/api/workers/status"),
+      );
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        stages: Array<{ name: string; pending: number; dead: number }>;
+      };
+      const hash = body.stages.find((s) => s.name === "hash");
+      expect(hash).toBeDefined();
+      expect(hash!.pending).toBe(3);
+      expect(hash!.dead).toBe(1);
+    } finally {
+      // Tear down the fake registration so it doesn't leak into other tests
+      // even if an assertion above threw.
+      stageRegistry.unregister("hash");
+    }
   });
 
   it("uses an index plan (no COLLSCAN) for the dead-count query", async () => {

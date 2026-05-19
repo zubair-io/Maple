@@ -454,12 +454,20 @@ export async function runStage(stage: StageConfig): Promise<RunStageHandle> {
         throughput,
       );
       consecutiveErrors = 0;
+      // Surface a clean recovery via /api/workers/status — without this the
+      // last poll-loop error would linger as `lastError` indefinitely.
+      stageRegistry.clearError(stage.name);
     } catch (err) {
       consecutiveErrors++;
       const idx = Math.min(consecutiveErrors - 1, BACKOFF_MS.length - 1);
       delay = BACKOFF_MS[idx]!;
+      const msg = err instanceof Error ? err.message : String(err);
+      // Publish into the registry so DB/claim-query failures show up on the
+      // status route instead of being a silent log-only event with the stage
+      // still reported as healthy.
+      stageRegistry.recordError(stage.name, msg);
       log.error(
-        { err: err instanceof Error ? err.message : err, retryInMs: delay },
+        { err: msg, retryInMs: delay },
         `${stage.name} poll tick error`,
       );
     }
