@@ -1270,7 +1270,7 @@ struct AppShell: View {
             return FileProviderMount.localURL(
                 forServerPath: libraryPath,
                 rootPath: folder.path,
-                rootLabel: folder.label,
+                rootLabel: folder.displayName,
                 mountURL: mountURL
             )
         }

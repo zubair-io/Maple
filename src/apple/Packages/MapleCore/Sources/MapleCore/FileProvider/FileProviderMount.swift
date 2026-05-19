@@ -137,7 +137,21 @@ public struct FileProviderMount {
         let trimmedRoot = rootPath.hasSuffix("/") && rootPath.count > 1
             ? String(rootPath.dropLast())
             : rootPath
-        let rootURL = mountURL.appendingPathComponent(rootLabel, isDirectory: true)
+        // `rootLabel` can legitimately be empty — `CloudFolder.label` is a
+        // server-controlled string and `CloudFolder.displayName` already
+        // documents the empty case by falling back to the path's last
+        // segment. Mirror that here so the helper is correct even if a
+        // caller passes `folder.label` directly. Empty + root == "/" is the
+        // one unrecoverable case (multi-library at the literal FS root would
+        // be ambiguous) — return nil rather than collapse onto mountURL.
+        let effectiveLabel = rootLabel.isEmpty
+            ? (trimmedRoot as NSString).lastPathComponent
+            : rootLabel
+        // `("/" as NSString).lastPathComponent` is `"/"` itself, not empty —
+        // filter that case explicitly so root == "/" + empty label doesn't
+        // produce a bogus `mountURL/` URL.
+        guard !effectiveLabel.isEmpty, effectiveLabel != "/" else { return nil }
+        let rootURL = mountURL.appendingPathComponent(effectiveLabel, isDirectory: true)
         if trimmedServer == trimmedRoot {
             return rootURL
         }

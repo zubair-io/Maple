@@ -310,4 +310,53 @@ final class FileProviderMountTests: XCTestCase {
             mountURL: mount
         ))
     }
+
+    /// PR #110 review (Copilot): `CloudFolder.label` is allowed to be empty.
+    /// When it is, the helper must NOT collapse onto bare `mountURL` (which
+    /// would silently merge multi-library servers into one directory) —
+    /// derive the subdirectory from `rootPath`'s last segment instead,
+    /// matching the `CloudFolder.displayName` fallback contract.
+    func testLocalURLDerivesSubdirFromRootPathWhenLabelIsEmpty() {
+        let mount = URL(fileURLWithPath: "/Users/u/Library/CloudStorage/Maple-Server")
+        let url = FileProviderMount.localURL(
+            forServerPath: "/srv/photos/Library/2026",
+            rootPath: "/srv/photos/Library",
+            rootLabel: "",
+            mountURL: mount
+        )
+        XCTAssertEqual(
+            url?.path,
+            "/Users/u/Library/CloudStorage/Maple-Server/Library/2026"
+        )
+    }
+
+    /// Companion to the deepest-fallback test: when caller passes an empty
+    /// label AND the server path equals the root, derived label still
+    /// applies (no path translation, just label resolution).
+    func testLocalURLDerivesSubdirFromRootPathWhenLabelIsEmptyAndServerEqualsRoot() {
+        let mount = URL(fileURLWithPath: "/Users/u/Library/CloudStorage/Maple-Server")
+        let url = FileProviderMount.localURL(
+            forServerPath: "/srv/photos/Library",
+            rootPath: "/srv/photos/Library",
+            rootLabel: "",
+            mountURL: mount
+        )
+        XCTAssertEqual(
+            url?.path,
+            "/Users/u/Library/CloudStorage/Maple-Server/Library"
+        )
+    }
+
+    /// Empty label + filesystem-root path is unrecoverable — multi-library
+    /// at `/` would have no way to disambiguate. The helper returns nil
+    /// rather than collapsing onto the bare mount URL.
+    func testLocalURLReturnsNilWhenLabelEmptyAndRootIsFilesystemRoot() {
+        let mount = URL(fileURLWithPath: "/Users/u/Library/CloudStorage/Maple-Server")
+        XCTAssertNil(FileProviderMount.localURL(
+            forServerPath: "/Library",
+            rootPath: "/",
+            rootLabel: "",
+            mountURL: mount
+        ))
+    }
 }
