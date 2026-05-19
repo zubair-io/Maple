@@ -3,7 +3,8 @@
 Status: draft
 Owner: zubair
 Date: 2026-05-19
-Related issues: (parent tracking issue + sub-issues, link below once filed)
+Tracking issue: [#144](https://github.com/zubair-io/Maple/issues/144)
+Sub-issues: [#145](https://github.com/zubair-io/Maple/issues/145) · [#146](https://github.com/zubair-io/Maple/issues/146) · [#147](https://github.com/zubair-io/Maple/issues/147) · [#148](https://github.com/zubair-io/Maple/issues/148) · [#149](https://github.com/zubair-io/Maple/issues/149) · [#150](https://github.com/zubair-io/Maple/issues/150) · [#151](https://github.com/zubair-io/Maple/issues/151) · [#152](https://github.com/zubair-io/Maple/issues/152) · [#153](https://github.com/zubair-io/Maple/issues/153)
 
 ## Summary
 
