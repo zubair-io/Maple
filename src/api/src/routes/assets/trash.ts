@@ -19,41 +19,45 @@
  *
  * Mounted into `assetsRoutes` (see ./index.ts) which provides the
  * `/api/assets` prefix.
+ *
+ * Mongo access lives in `src/db/assets.repo.ts`.
  */
 
 import { Elysia, t } from "elysia";
-import { ObjectId } from "mongodb";
 import * as path from "node:path";
 import { stat, unlink } from "node:fs/promises";
-import { assetsCollection, foldersCollection } from "../../db/client.ts";
+import { foldersCollection } from "../../db/client.ts";
 import { listPairedSidecars } from "../../fs/xmp.ts";
 import { moveToTrash, moveOutOfTrash } from "../../fs/trash.ts";
-import { type Place } from "../../db/schema.ts";
 import { composeSearchBlob } from "../../enrichment/search-blob.ts";
 import { recordAndPublishAssetChange } from "../../db/changes.repo.ts";
 import { meilisearchClient } from "../../enrichment/meilisearch-client.ts";
 import { assetsLog } from "./_shared.ts";
+import {
+  findCoreInfoById,
+  hardDelete,
+  markSoftDeleted,
+  parseAssetId,
+  restoreFromTrash,
+} from "../../db/assets.repo.ts";
 
 export const trashRoutes = new Elysia()
   .delete("/:id", async ({ params, set }) => {
-    let id: ObjectId;
-    try { id = new ObjectId(params.id); }
-    catch { set.status = 400; return { error: "Invalid asset id" }; }
+    const id = parseAssetId(params.id);
+    if (!id) { set.status = 400; return { error: "Invalid asset id" }; }
 
-    const coll = await assetsCollection();
-    const doc = await coll.findOne({ _id: id });
-    if (!doc) { set.status = 404; return { error: "Asset not found" }; }
+    const info = await findCoreInfoById(id);
+    if (!info) { set.status = 404; return { error: "Asset not found" }; }
 
     // Already trashed → permanent purge.
-    const docAny = doc as unknown as Record<string, unknown>;
-    if (docAny.deleted_at) {
-      const absPath = doc.abs_path;
+    if (info.deleted_at) {
+      const absPath = info.abs_path;
       try { await unlink(absPath); } catch { /* file may already be gone */ }
       const sidecars = await listPairedSidecars(absPath);
       for (const sidecar of sidecars) {
         try { await unlink(sidecar); } catch {}
       }
-      await coll.deleteOne({ _id: id });
+      await hardDelete(id);
       // The doc was already tombstoned in Meilisearch by the prior
       // soft-delete (`tombstone` sets `deletedAt`, which the search filter
       // excludes). Meilisearch has no per-asset delete-document path here
@@ -65,7 +69,7 @@ export const trashRoutes = new Elysia()
       await recordAndPublishAssetChange({
         kind: "delete",
         asset_id: id,
-        folder_id: doc.folder_id,
+        folder_id: info.folder_id,
         abs_path: absPath,
       }).catch(() => {});
       return;
@@ -73,40 +77,36 @@ export const trashRoutes = new Elysia()
 
     // Locate the owning folder root.
     const folders = await foldersCollection();
-    const folder = await folders.findOne({ _id: doc.folder_id });
+    const folder = await folders.findOne({ _id: info.folder_id });
     if (!folder) {
       set.status = 500;
       return { error: "Asset's folder is missing — refusing to trash" };
     }
 
-    const result = await moveToTrash(doc.abs_path, folder.path);
+    const result = await moveToTrash(info.abs_path, folder.path);
     if (result.kind !== "ok") {
       set.status = 500;
       return { error: result.error };
     }
 
-    const originalAbsPath = doc.abs_path;
-    await coll.updateOne(
-      { _id: id },
-      { $set: {
-          abs_path: result.newAbsPath,
-          deleted_at: new Date().toISOString(),
-          original_path: originalAbsPath,
-        } },
-    );
+    const originalAbsPath = info.abs_path;
+    await markSoftDeleted({
+      id,
+      newAbsPath: result.newAbsPath,
+      originalAbsPath,
+    });
 
     // Best-effort Meilisearch tombstone — mirrors the indexer's
     // `softDelete()` pattern (src/api/src/indexer/images.repo.ts). The
     // search route's `deletedAt IS NULL` filter excludes the row from
     // results. Mongo is canonical; a Meilisearch failure here must NOT
     // roll back the soft-delete or change the 204 response.
-    const mapleIdForTombstone = (docAny as { maple_id?: unknown }).maple_id;
-    if (typeof mapleIdForTombstone === "string" && mapleIdForTombstone.length > 0) {
+    if (info.maple_id) {
       try {
-        await meilisearchClient().tombstone(mapleIdForTombstone);
+        await meilisearchClient().tombstone(info.maple_id);
       } catch (err) {
         assetsLog.warn(
-          { assetId: id.toHexString(), mapleId: mapleIdForTombstone, err: err instanceof Error ? err.message : String(err) },
+          { assetId: id.toHexString(), mapleId: info.maple_id, err: err instanceof Error ? err.message : String(err) },
           "meilisearch tombstone on trash failed — Mongo is canonical, search will exclude via deleted_at filter",
         );
       }
@@ -117,7 +117,7 @@ export const trashRoutes = new Elysia()
     await recordAndPublishAssetChange({
       kind: "delete",
       asset_id: id,
-      folder_id: doc.folder_id,
+      folder_id: info.folder_id,
       abs_path: originalAbsPath,
     }).catch(() => {});
     return;
@@ -126,18 +126,15 @@ export const trashRoutes = new Elysia()
   .post(
     "/:id/restore",
     async ({ params, body, set }) => {
-      let id: ObjectId;
-      try { id = new ObjectId(params.id); }
-      catch { set.status = 400; return { error: "Invalid asset id" }; }
+      const id = parseAssetId(params.id);
+      if (!id) { set.status = 400; return { error: "Invalid asset id" }; }
 
-      const coll = await assetsCollection();
-      const doc = await coll.findOne({ _id: id });
-      if (!doc) { set.status = 404; return { error: "Asset not found" }; }
-      const docAny = doc as unknown as Record<string, unknown>;
-      if (!docAny.deleted_at) { set.status = 409; return { error: "Asset is not trashed" }; }
+      const info = await findCoreInfoById(id);
+      if (!info) { set.status = 404; return { error: "Asset not found" }; }
+      if (!info.deleted_at) { set.status = 409; return { error: "Asset is not trashed" }; }
 
       const folders = await foldersCollection();
-      const folder = await folders.findOne({ _id: doc.folder_id });
+      const folder = await folders.findOne({ _id: info.folder_id });
       if (!folder) { set.status = 500; return { error: "Asset's folder is missing" }; }
 
       // Cross-library restore guard. Phase 3 only restores into the
@@ -149,11 +146,11 @@ export const trashRoutes = new Elysia()
       // folder_id; reject the request if it doesn't match.
       const targetFolderID = (body as { target_folder_id?: string } | null)?.target_folder_id;
       if (typeof targetFolderID === "string" && targetFolderID.length > 0) {
-        if (targetFolderID !== doc.folder_id.toHexString()) {
+        if (targetFolderID !== info.folder_id.toHexString()) {
           set.status = 400;
           return {
             error: "Cross-library restore is not supported",
-            asset_folder_id: doc.folder_id.toHexString(),
+            asset_folder_id: info.folder_id.toHexString(),
             target_folder_id: targetFolderID,
           };
         }
@@ -170,15 +167,14 @@ export const trashRoutes = new Elysia()
         }
         targetAbs = path.join(folder.path, targetRel);
       } else {
-        const orig = docAny.original_path;
-        if (typeof orig !== "string" || orig.length === 0) {
+        if (!info.original_path) {
           set.status = 500;
           return { error: "Asset has no original_path; supply target_relative_path" };
         }
-        targetAbs = orig;
+        targetAbs = info.original_path;
       }
 
-      const result = await moveOutOfTrash(doc.abs_path, targetAbs);
+      const result = await moveOutOfTrash(info.abs_path, targetAbs);
       if (result.kind !== "ok") {
         set.status = 500;
         return { error: result.error };
@@ -190,45 +186,25 @@ export const trashRoutes = new Elysia()
       // index would still reserve the OLD filename, blocking re-upload
       // with the same basename even though the file is at a new path.
       const restoredFilename = path.basename(result.newAbsPath);
-      let restoredSize = doc.size;
-      // `AssetDoc.mtime` is epoch-ms (number) per db/schema.ts. Persisting an
-      // ISO string here breaks the assets-list serialiser which does
-      // `Math.floor(r.mtime / 1000)` to hand seconds to the Swift client —
-      // a string would yield NaN, and the Swift consumer would see `null`.
-      let restoredMtime = Date.now();
+      let restoredSize = info.size;
+      let restoredMtimeIso = new Date().toISOString();
       try {
         const st = await stat(result.newAbsPath);
         restoredSize = st.size;
-        restoredMtime = st.mtimeMs;
+        restoredMtimeIso = new Date(st.mtimeMs).toISOString();
       } catch (err) {
         assetsLog.warn(
           { absPath: result.newAbsPath, err: err instanceof Error ? err.message : String(err) },
           "restore: stat of new path failed — using prior doc values",
         );
       }
-      // Watcher race: between `moveOutOfTrash` and our update, the
-      // discover watcher may have observed the file at its new path
-      // and upserted a *new* asset row keyed on `abs_path`. That row
-      // reserves the `{folder_id, filename}` unique slot, so the
-      // updateOne below would collide. Delete the watcher's transient
-      // row (any doc at the new abs_path that isn't our `_id`) before
-      // updating. The watcher's row carries no enrichment / no maple_id
-      // — it's safe to drop in favour of the asset we're restoring.
-      await coll.deleteOne({
-        abs_path: result.newAbsPath,
-        _id: { $ne: id },
+      await restoreFromTrash({
+        id,
+        newAbsPath: result.newAbsPath,
+        filename: restoredFilename,
+        size: restoredSize,
+        mtimeIso: restoredMtimeIso,
       });
-      await coll.updateOne(
-        { _id: id },
-        { $set: {
-            abs_path: result.newAbsPath,
-            filename: restoredFilename,
-            size: restoredSize,
-            mtime: restoredMtime,
-            deleted_at: null,
-            original_path: null,
-          } },
-      );
 
       // Best-effort Meilisearch re-index — symmetric with the tombstone
       // on DELETE. Resurrects the row by upserting with `deletedAt: null`
@@ -237,25 +213,24 @@ export const trashRoutes = new Elysia()
       // missing enrichment (rows that never finished the meili stage)
       // just upserts an empty `searchBlob` — the meili stage will
       // backfill content on its next pass.
-      const mapleIdForRestore = (docAny as { maple_id?: unknown }).maple_id;
-      if (typeof mapleIdForRestore === "string" && mapleIdForRestore.length > 0) {
-        const placeForBlob = (docAny.place ?? null) as Place | null;
-        const description = typeof docAny.description === "string" ? docAny.description : null;
-        const ocrText = typeof docAny.ocr_text === "string" ? docAny.ocr_text : null;
-        const exif = docAny.exif as { captured_at?: string | null } | null | undefined;
+      if (info.maple_id) {
         try {
           await meilisearchClient().upsert({
-            id: mapleIdForRestore,
-            searchBlob: composeSearchBlob({ place: placeForBlob, description, ocrText }),
-            description,
-            ocrText,
-            folderId: doc.folder_id.toHexString(),
-            capturedAt: exif?.captured_at ?? null,
+            id: info.maple_id,
+            searchBlob: composeSearchBlob({
+              place: info.place,
+              description: info.description,
+              ocrText: info.ocr_text,
+            }),
+            description: info.description,
+            ocrText: info.ocr_text,
+            folderId: info.folder_id.toHexString(),
+            capturedAt: info.exif?.captured_at ?? null,
             deletedAt: null,
           });
         } catch (err) {
           assetsLog.warn(
-            { assetId: id.toHexString(), mapleId: mapleIdForRestore, err: err instanceof Error ? err.message : String(err) },
+            { assetId: id.toHexString(), mapleId: info.maple_id, err: err instanceof Error ? err.message : String(err) },
             "meilisearch re-index on restore failed — Mongo restored OK, search will lag until next meili stage pass",
           );
         }
@@ -267,7 +242,7 @@ export const trashRoutes = new Elysia()
       await recordAndPublishAssetChange({
         kind: "restore",
         asset_id: id,
-        folder_id: doc.folder_id,
+        folder_id: info.folder_id,
         abs_path: result.newAbsPath,
       }).catch(() => {});
       // `size` and `mtime` are included so the File Provider extension
@@ -285,7 +260,7 @@ export const trashRoutes = new Elysia()
         abs_path: result.newAbsPath,
         filename: restoredFilename,
         size: restoredSize,
-        mtime: new Date(restoredMtime).toISOString(),
+        mtime: restoredMtimeIso,
       };
     },
     {
