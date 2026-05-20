@@ -261,6 +261,15 @@ export async function ensureStageIndexes(db: Db): Promise<void> {
   }
 }
 
+/** `$set` payload used by every "reset describe stage dead-letters" migration.
+ * Brings a dead-lettered row back to the un-attempted state so the next
+ * poll-tick of the describe stage picks it up. */
+const RESET_DESCRIBE_DEAD_SET = {
+  "stages.describe.dead": false,
+  "stages.describe.attempts": 0,
+  "stages.describe.last_error": null,
+} as const;
+
 /**
  * Ensure all required indexes exist. Safe to call multiple times (idempotent).
  * Call this once at startup after a successful DB connection.
@@ -344,13 +353,7 @@ export async function ensureIndexes(): Promise<void> {
             $regex: "vision-parse\\[wrong-type:(is_screenshot|text_visible)\\]",
           },
         },
-        {
-          $set: {
-            "stages.describe.dead": false,
-            "stages.describe.attempts": 0,
-            "stages.describe.last_error": null,
-          },
-        },
+        { $set: RESET_DESCRIBE_DEAD_SET },
       );
       await recordMigration(
         db,
@@ -393,13 +396,7 @@ export async function ensureIndexes(): Promise<void> {
               `vision-parse\\[(bad-enum:(${enumFields})|wrong-type:(${nullableFields}))\\]`,
           },
         },
-        {
-          $set: {
-            "stages.describe.dead": false,
-            "stages.describe.attempts": 0,
-            "stages.describe.last_error": null,
-          },
-        },
+        { $set: RESET_DESCRIBE_DEAD_SET },
       );
       await recordMigration(
         db,
