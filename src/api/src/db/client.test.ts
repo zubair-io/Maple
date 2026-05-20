@@ -200,6 +200,71 @@ describe("ensureIndexes — text-index introspection (Fix 3)", () => {
   });
 });
 
+describe("ensureIndexes — (folder_id, filename) non-unique index", () => {
+  it("creates folder_id_1_filename_1 without unique / partialFilterExpression on a fresh DB", async () => {
+    if (!mongoReachable) return;
+    const { closeDb, ensureIndexes } = await import("./client.ts");
+    await closeDb();
+    // Drop the index in case a prior test in this run created it.
+    await db!.collection("assets").dropIndex("folder_id_1_filename_1").catch(() => undefined);
+    await ensureIndexes();
+    const indexes = await db!.collection("assets").indexes();
+    const idx = indexes.find((i) => i.name === "folder_id_1_filename_1");
+    expect(idx).toBeDefined();
+    expect(idx!.key).toEqual({ folder_id: 1, filename: 1 });
+    expect(idx!.unique).toBeUndefined();
+    expect(idx!.partialFilterExpression).toBeUndefined();
+  });
+
+  it("migrates an old unique partial-filter index to non-unique on boot", async () => {
+    if (!mongoReachable) return;
+    const { closeDb, ensureIndexes } = await import("./client.ts");
+    await closeDb();
+    // Recreate the pre-migration spec: unique + partialFilterExpression on
+    // deleted_at: null. Drop first in case a previous test left the
+    // non-unique spec — createIndex would otherwise reject as
+    // IndexOptionsConflict.
+    await db!.collection("assets").dropIndex("folder_id_1_filename_1").catch(() => undefined);
+    await db!.collection("assets").createIndex(
+      { folder_id: 1, filename: 1 },
+      { unique: true, partialFilterExpression: { deleted_at: null } },
+    );
+    const before = await db!.collection("assets").indexes();
+    const oldIdx = before.find((i) => i.name === "folder_id_1_filename_1");
+    expect(oldIdx!.unique).toBe(true);
+    expect(oldIdx!.partialFilterExpression).toEqual({ deleted_at: null });
+
+    await ensureIndexes();
+
+    const after = await db!.collection("assets").indexes();
+    const newIdx = after.find((i) => i.name === "folder_id_1_filename_1");
+    expect(newIdx).toBeDefined();
+    expect(newIdx!.key).toEqual({ folder_id: 1, filename: 1 });
+    expect(newIdx!.unique).toBeUndefined();
+    expect(newIdx!.partialFilterExpression).toBeUndefined();
+
+    // The whole point: two live docs sharing (folder_id, filename) must now
+    // insert cleanly. Pre-migration this threw E11000.
+    const base = {
+      folder_id: "fA",
+      abs_path: "/a",
+      size: 1,
+      mtime: 0,
+      rating: 0,
+      flag: 0,
+      color_label: "",
+      indexed_at: "2026-05-20T00:00:00Z",
+      deleted_at: null,
+    };
+    await db!.collection("assets").insertOne({ ...base, filename: "IMG_1234.jpg", abs_path: "/a1" });
+    await db!.collection("assets").insertOne({ ...base, filename: "IMG_1234.jpg", abs_path: "/a2" });
+    const count = await db!
+      .collection("assets")
+      .countDocuments({ folder_id: "fA", filename: "IMG_1234.jpg" });
+    expect(count).toBe(2);
+  });
+});
+
 describe("ensureIndexes — maple_id index (Fix 4)", () => {
   it("creates a unique partial-filter index on maple_id (excludes null skeleton rows)", async () => {
     if (!mongoReachable) return;
