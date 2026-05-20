@@ -1,0 +1,210 @@
+/**
+ * 1280-px preview generation for the VLM describe / OCR pipeline.
+ *
+ * Sibling of `thumbnailer.ts`. The 512-px thumb is too small for reliable
+ * caption / OCR on a 24-MP photo, so the describe stage consumes a
+ * separate, larger artefact written here.
+ *
+ * Cache layout (see `fs/xmp.ts:cachePathFor`):
+ *   <folder>/.maple/previews/<basename_no_ext>_1280.jpg
+ *
+ * For RAW files: extracts the embedded preview JPEG via the existing FFI
+ * worker pool at maxPx=1280. If the embedded preview is smaller than
+ * 1280 the FFI hands back whatever the camera embedded — acceptable for
+ * the VLM, which gracefully handles smaller inputs.
+ *
+ * For non-RAW files: same sharp + heic-convert pipeline as the thumb path.
+ *
+ * If libraw_ffi is unavailable (Linux without the .so), RAW previews are
+ * logged as deferred and skipped — the rest of the pipeline still
+ * advances; the describe stage will see no preview on disk and short-
+ * circuit cleanly via its ENOENT path.
+ */
+
+import * as path from "node:path";
+import * as fs from "node:fs/promises";
+import { cachePathFor } from "../fs/xmp.ts";
+import { ffiPool } from "../ffi/ffi-pool.ts";
+import { renderImageThumbToFile, SHARP_EXTENSIONS } from "../thumbs/render.ts";
+import { applyExifOrientationInPlace } from "../thumbs/apply-orientation.ts";
+import { child as childLogger } from "../log.ts";
+
+const log = childLogger("previewer");
+
+const RAW_EXTS = new Set([
+  ".dng",
+  ".cr2",
+  ".cr3",
+  ".nef",
+  ".arw",
+  ".raf",
+  ".orf",
+  ".rw2",
+  ".pef",
+  ".srw",
+  ".x3f",
+  ".3fr",
+  ".mef",
+  ".erf",
+  ".mrw",
+]);
+
+/** Long-edge target in pixels. Picked to balance VLM accuracy against
+ * decode + inference cost — qwen2.5-vl handles up to 4 MP natively but
+ * 1280 is the empirical sweet spot for caption quality on 24-MP source
+ * photos at the cost of ~10 s/image on phoebe. */
+export const PREVIEW_LONG_EDGE_PX = 1280;
+
+/** Size key embedded in the cache filename. Stable so the GC sweep and
+ * cache-invalidation paths can address the file deterministically. */
+export const PREVIEW_SIZE_KEY = "1280";
+
+let _rendered = 0;
+let _cached = 0;
+let _failed = 0;
+
+export async function generatePreview(absPath: string): Promise<void> {
+  const ext = path.extname(absPath).toLowerCase();
+  const extNoDot = ext.startsWith(".") ? ext.slice(1) : ext;
+  const previewPath = cachePathFor(absPath, "previews", PREVIEW_SIZE_KEY);
+
+  try {
+    await fs.mkdir(path.dirname(previewPath), { recursive: true });
+  } catch (e) {
+    _failed++;
+    log.warn(
+      { previewPath, err: e instanceof Error ? e.message : e },
+      "mkdir failed",
+    );
+    logTotals();
+    return;
+  }
+
+  // Stale-check: if the cached preview's mtime is >= the source's, reuse it.
+  // Matches the thumb-stage convention so a rerun is cheap.
+  try {
+    const [previewStat, srcStat] = await Promise.all([
+      fs.stat(previewPath),
+      fs.stat(absPath),
+    ]);
+    if (previewStat.size > 0 && previewStat.mtimeMs >= srcStat.mtimeMs) {
+      _cached++;
+      logTotals();
+      return;
+    }
+  } catch {
+    // missing or source vanished — proceed (downstream stages will skip if needed)
+  }
+
+  let ok = false;
+  if (RAW_EXTS.has(ext)) {
+    ok = await renderRawPreviewToFile(absPath, previewPath);
+  } else if (SHARP_EXTENSIONS.has(extNoDot)) {
+    ok = await renderBitmapPreviewToFile(absPath, previewPath, extNoDot);
+  } else {
+    // Unknown format — copy as-is so the describe stage has something to
+    // open. Same last-resort behaviour as the thumb path.
+    ok = await copyImageAsPreview(absPath, previewPath);
+  }
+
+  if (ok) {
+    _rendered++;
+  } else {
+    _failed++;
+    log.warn({ absPath }, "failed");
+  }
+  logTotals();
+}
+
+/** Resolve where this asset's 1280-px preview lives on disk. Pure path
+ * math — does not stat or guarantee the file exists. */
+export function resolvePreviewPath(absPath: string): string {
+  return cachePathFor(absPath, "previews", PREVIEW_SIZE_KEY);
+}
+
+function logTotals(): void {
+  const total = _rendered + _cached + _failed;
+  if (total > 0 && total % 500 === 0) {
+    log.info(
+      { rendered: _rendered, cached: _cached, failed: _failed },
+      "totals",
+    );
+  }
+}
+
+async function renderRawPreviewToFile(
+  rawPath: string,
+  previewPath: string,
+): Promise<boolean> {
+  const pool = ffiPool();
+  if (!pool.available()) {
+    log.warn(
+      "raw-ffi not available — RAW preview generation deferred. Build the native/libraw_ffi.* (dylib on macOS, .so on Linux) with src/api/scripts/build-raw-ffi.sh.",
+    );
+    return false;
+  }
+  let ok = false;
+  try {
+    // quality 85 (vs 82 for thumbs) — preview is consumed by a VLM, not the
+    // browser cache, so extra fidelity outweighs the few-KB size delta.
+    ok = await pool.renderThumbnailJpegToFile(
+      rawPath,
+      previewPath,
+      PREVIEW_LONG_EDGE_PX,
+      85,
+    );
+  } catch (e) {
+    log.warn(
+      { rawPath, err: e instanceof Error ? e.message : e },
+      "FFI call threw",
+    );
+    return false;
+  }
+  if (!ok) return false;
+  try {
+    await applyExifOrientationInPlace(previewPath);
+  } catch (e) {
+    log.warn(
+      { rawPath, err: e instanceof Error ? e.message : e },
+      "orientation post-process failed; preview left unrotated",
+    );
+  }
+  return true;
+}
+
+async function renderBitmapPreviewToFile(
+  srcPath: string,
+  previewPath: string,
+  ext: string,
+): Promise<boolean> {
+  try {
+    return await renderImageThumbToFile(
+      srcPath,
+      previewPath,
+      PREVIEW_LONG_EDGE_PX,
+      ext,
+    );
+  } catch (e) {
+    log.warn(
+      { srcPath, err: e instanceof Error ? e.message : e },
+      "sharp render failed",
+    );
+    return false;
+  }
+}
+
+async function copyImageAsPreview(
+  srcPath: string,
+  previewPath: string,
+): Promise<boolean> {
+  try {
+    await fs.copyFile(srcPath, previewPath);
+    return true;
+  } catch (e) {
+    log.warn(
+      { srcPath, err: e instanceof Error ? e.message : e },
+      "copy fallback failed",
+    );
+    return false;
+  }
+}

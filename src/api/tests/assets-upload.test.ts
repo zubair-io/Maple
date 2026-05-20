@@ -103,7 +103,7 @@ describe("POST /api/folders/:id/upload", () => {
     expect((doc as Record<string, unknown>).stages).toBeDefined();
     // Every stage must be initialised pending so controllers pick it up.
     const stages = (doc as Record<string, unknown>).stages as Record<string, { version: number; processed_at: null }>;
-    for (const stage of ["hash", "exif", "thumb", "face", "ocr", "describe", "geocode", "meili"]) {
+    for (const stage of ["hash", "exif", "thumb", "preview", "face", "describe", "geocode", "meili"]) {
       expect(stages[stage]).toBeDefined();
       expect(stages[stage].version).toBe(0);
       expect(stages[stage].processed_at).toBeNull();

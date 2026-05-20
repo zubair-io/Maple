@@ -8,7 +8,6 @@
  * PUT /api/assets/:id/xmp                   — write XMP sidecar (atomic)
  * PUT /api/assets/:id/place                 — manual override of reverse-geocoded place
  * PUT /api/assets/:id/description           — manual override of LLM caption
- * PUT /api/assets/:id/ocr                   — manual override of OCR text
  * POST /api/assets/:id/enrichment/requeue   — bump per-stage version + clear done_at
  *
  * The three PUT-override routes write directly to the corresponding asset
@@ -47,7 +46,7 @@ const assetsLog = childLogger("routes:assets");
 /** Whitelisted enrichment stage names for the requeue route. Anything else
  * is rejected with 400 so a client can't poke a Mongo path that doesn't
  * belong to the enrichment subdoc. */
-const ENRICHMENT_STAGES = ["geocode", "face", "describe", "ocr"] as const;
+const ENRICHMENT_STAGES = ["geocode", "face", "describe"] as const;
 type EnrichmentStageName = (typeof ENRICHMENT_STAGES)[number];
 
 function isEnrichmentStage(s: string): s is EnrichmentStageName {
@@ -72,11 +71,11 @@ export const assetsRoutes = new Elysia({ prefix: "/api/assets" })
       return { error: "Asset not found" };
     }
 
-    // `description_meta` and `ocr_meta` aren't typed in the canonical
-    // `AssetDoc` (they were added by the describe / OCR workers after the
-    // schema froze), so we cast through `Record<string, unknown>` for the
-    // read-side projection. The shape is stable — see describe-worker.ts
-    // (writes `description_meta`) and ocr-worker.ts (writes `ocr_meta`).
+    // `description_meta` isn't typed in the canonical `AssetDoc` (it was
+    // added by the describe stage after the schema froze), so we cast
+    // through `Record<string, unknown>` for the read-side projection. The
+    // shape is stable — see workers/stages/describe.ts, which writes both
+    // `description_meta` and `ocr_meta` from the same VLM pass.
     const rawDoc = doc as unknown as Record<string, unknown>;
     return {
       id: doc._id.toHexString(),
@@ -97,6 +96,13 @@ export const assetsRoutes = new Elysia({ prefix: "/api/assets" })
       description_meta: rawDoc.description_meta ?? null,
       ocr_text: doc.ocr_text ?? null,
       ocr_meta: doc.ocr_meta ?? null,
+      // Structured vision metadata from the qwen2.5-vl describe stage.
+      // Both are null until the stage runs on the asset.
+      vision: doc.vision ?? null,
+      vision_meta: doc.vision_meta ?? null,
+      // Top-level mirror of vision.is_screenshot — seeded by the exif
+      // stage heuristic, overwritten by the describe stage's VLM verdict.
+      is_screenshot: doc.is_screenshot ?? null,
       enrichment: normaliseEnrichment(doc.enrichment),
     };
   })
@@ -745,52 +751,6 @@ export const assetsRoutes = new Elysia({ prefix: "/api/assets" })
           $set: {
             description: text,
             search_blob: searchBlobUpdateExpression({ description: text }),
-          },
-        },
-      ]);
-
-      set.status = 204;
-      await recordAndPublishAssetChange({
-        kind: "update",
-        asset_id: id,
-        folder_id: doc.folder_id,
-        abs_path: doc.abs_path,
-      }).catch(() => {});
-      return;
-    },
-    {
-      body: t.Object({
-        text: t.Union([t.Null(), t.String()]),
-      }),
-    }
-  )
-
-  // Manual OCR override
-  .put(
-    "/:id/ocr",
-    async ({ params, body, set }) => {
-      let id: ObjectId;
-      try {
-        id = new ObjectId(params.id);
-      } catch {
-        set.status = 400;
-        return { error: "Invalid asset id" };
-      }
-
-      const coll = await assetsCollection();
-      const doc = await coll.findOne({ _id: id });
-      if (!doc) {
-        set.status = 404;
-        return { error: "Asset not found" };
-      }
-
-      const text = (body as { text: string | null } | null)?.text ?? null;
-
-      await coll.updateOne({ _id: id }, [
-        {
-          $set: {
-            ocr_text: text,
-            search_blob: searchBlobUpdateExpression({ ocrText: text }),
           },
         },
       ]);
