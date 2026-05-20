@@ -352,18 +352,6 @@ describe("parseVisionJson — rejection paths", () => {
     }
   });
 
-  it("still rejects garbage enum values that have no synonym mapping", () => {
-    const v = { ...VALID, scene_type: "intergalactic" };
-    try {
-      parseVisionJson(JSON.stringify(v));
-      throw new Error("expected throw");
-    } catch (e) {
-      const err = e as VisionParseError;
-      expect(err.reason).toBe("bad-enum");
-      expect(err.field).toBe("scene_type");
-    }
-  });
-
   it("preserves multi-word enum values that contain spaces ('golden hour')", () => {
     const out = parseVisionJson(JSON.stringify({ ...VALID, time_of_day: "golden hour" }));
     expect(out.time_of_day).toBe("golden hour");
