@@ -829,3 +829,41 @@ private struct DisclosureRow<Content: View>: View {
         }
     }
 }
+
+// MARK: - Previews
+//
+// Issue #139 — the full sidebar. Many callback dependencies, but they're
+// all closures so a `{ _ in }` stub each makes the preview compile and
+// the layout render against the empty cloud-registry / no-saved-folders
+// state. PhotoKit authorization is read on `.task` and will likely be
+// `.notDetermined` in the preview sandbox.
+
+private struct _LibrarySidebarPreviewWrapper: View {
+  @State private var selection: LibrarySelection = .none
+
+  var body: some View {
+    LibrarySidebar(
+      selection: $selection,
+      onAddFolder: {},
+      onPickFolder: { _ in },
+      onRemoveFolder: { _ in },
+      onPickAncestor: { _, _ in },
+      onPickPhotosFilter: { _ in },
+      onRequestPhotosAccess: {},
+      onAddSMB: {},
+      onPickSMB: { _ in },
+      onAddCloudServer: {},
+      onPickCloudLibrary: { _, _, _ in },
+      onListCloudDir: { _, _ in nil },
+      cloudCurrentPath: nil,
+      onSignOutCloudServer: { _ in },
+      onRemoveCloudServer: { _ in },
+      onLoadCloudFolders: { _ in [] }
+    )
+    .frame(width: 280, height: 700)
+  }
+}
+
+#Preview("Default") {
+  _LibrarySidebarPreviewWrapper()
+}

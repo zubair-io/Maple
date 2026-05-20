@@ -28,6 +28,20 @@ public actor AuthenticatedHTTPClient {
     self.onSignOut = onSignOut
   }
 
+  /// Sample client for SwiftUI `#Preview` blocks. Points at an unreachable
+  /// example URL with a no-op token provider; any network call fails fast,
+  /// which is the intended behaviour for previews. Issue #139.
+  public static func preview(
+    server: URL = URL(string: "https://preview.maple.invalid")!
+  ) -> AuthenticatedHTTPClient {
+    AuthenticatedHTTPClient(
+      server: server,
+      urlSession: .shared,
+      tokensProvider: { nil },
+      onSignOut: { }
+    )
+  }
+
   public func data(for request: URLRequest) async throws -> (Data, URLResponse) {
     Self.logRequest(request, attempt: 1)
     let (data, resp) = try await dataOnce(request: inject(request, tokens: tokensProvider()))

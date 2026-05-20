@@ -1618,3 +1618,17 @@ private struct DetailPanelWidth: ViewModifier {
     }
 }
 
+// MARK: - Previews
+//
+// Issue #139 — root composition view. The default initialiser supplies
+// a no-op session resolver that constructs preview AuthSessions on
+// demand; the empty BrowseViewModel state drives the no-source layout.
+// The full three-column split is the load-bearing case to surface.
+
+#Preview("Default") {
+    AppShell(sessionFor: { server in
+        AuthSession.preview(state: .signedOut, server: server)
+    })
+    .frame(width: 1100, height: 720)
+}
+

@@ -261,6 +261,39 @@ public final class CloudTimelineViewModel {
     generation &+= 1
     return generation
   }
+
+  // MARK: - Preview
+
+  public enum PreviewState: Sendable {
+    case empty
+    case loading
+    case loaded
+  }
+
+  /// Sample timeline VM for SwiftUI `#Preview` blocks. Builds against
+  /// preview clients pointed at an unreachable URL, then mutates the
+  /// published state directly to stage the requested case. Issue #139.
+  public static func preview(_ state: PreviewState = .loaded) -> CloudTimelineViewModel {
+    let server = URL(string: "https://preview.maple.invalid")!
+    let vm = CloudTimelineViewModel(
+      server: server,
+      libraryID: "preview-library",
+      searchClient: CloudSearchClient.preview(server: server)
+    )
+    switch state {
+    case .empty:
+      break
+    case .loading:
+      vm.isLoadingBuckets = true
+    case .loaded:
+      vm.buckets = [
+        TimelineBucket(year: 2024, month: 6, count: 84),
+        TimelineBucket(year: 2024, month: 5, count: 51),
+        TimelineBucket(year: 2024, month: 4, count: 22),
+      ]
+    }
+    return vm
+  }
 }
 
 // MARK: - AsyncSemaphore

@@ -78,3 +78,12 @@ struct QRScannerView: View {
     errorText = "That doesn't look like a Maple invite link."
   }
 }
+
+// MARK: - Previews
+//
+// Issue #139 — paste-the-string flow. No external dependencies, so the
+// preview is just the default empty editor.
+
+#Preview("Default") {
+    QRScannerView()
+}

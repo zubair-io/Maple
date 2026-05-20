@@ -85,3 +85,14 @@ struct ExportPanel: View {
         }
     }
 }
+
+// MARK: - Previews
+//
+// Issue #139 — Export sheet against a stub EditSession. Real export is
+// gated behind the user pressing the toolbar button, which would fail
+// because the preview asset has no bytes — that's intentional, the
+// preview is for layout/state coverage only.
+
+#Preview("Default") {
+    ExportPanel(session: EditSession.preview())
+}

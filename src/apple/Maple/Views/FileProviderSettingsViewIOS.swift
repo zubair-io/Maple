@@ -89,4 +89,13 @@ struct FileProviderSettingsViewIOS: View {
         .padding(.vertical, 4)
     }
 }
+
+// MARK: - Previews
+//
+// Issue #139 — iOS-only File Provider settings. Empty registry on a
+// clean preview env exercises the "No Maple servers paired" branch.
+
+#Preview("Default — no servers") {
+    FileProviderSettingsViewIOS()
+}
 #endif

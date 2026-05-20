@@ -434,3 +434,46 @@ struct CloudTimelineMergedCell: View {
     }
   }
 }
+
+// MARK: - Previews
+//
+// Issue #139 — cloud timeline view. Driven by `CloudTimelineViewModel.preview()`
+// so we can stage empty / loading / loaded month buckets. Thumb client +
+// cache point at preview factories; any HTTP call fails fast and the
+// cells render their placeholder squares.
+
+#Preview("Loaded — months") {
+    CloudTimelineView(
+      vm: CloudTimelineViewModel.preview(.loaded),
+      thumbClient: CloudThumbClient.preview(),
+      thumbCache: CloudThumbCache.preview(),
+      displayMode: .fill,
+      onSelectAsset: { _ in },
+      onSelectLocalAsset: { _ in }
+    )
+    .frame(width: 720, height: 540)
+}
+
+#Preview("Empty (no months)") {
+    CloudTimelineView(
+      vm: CloudTimelineViewModel.preview(.empty),
+      thumbClient: CloudThumbClient.preview(),
+      thumbCache: CloudThumbCache.preview(),
+      displayMode: .fill,
+      onSelectAsset: { _ in },
+      onSelectLocalAsset: { _ in }
+    )
+    .frame(width: 720, height: 540)
+}
+
+#Preview("Loading") {
+    CloudTimelineView(
+      vm: CloudTimelineViewModel.preview(.loading),
+      thumbClient: CloudThumbClient.preview(),
+      thumbCache: CloudThumbCache.preview(),
+      displayMode: .fill,
+      onSelectAsset: { _ in },
+      onSelectLocalAsset: { _ in }
+    )
+    .frame(width: 720, height: 540)
+}

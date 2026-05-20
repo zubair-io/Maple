@@ -180,3 +180,17 @@ import AppKit
 typealias PlatformImage = NSImage
 private func platformImageView(_ image: NSImage) -> Image { Image(nsImage: image) }
 #endif
+
+// MARK: - Previews
+//
+// Issue #139 — backup progress panel. Reads from `EngineHost.shared.progress`,
+// which on a cold preview is empty (no engine running) — that exercises the
+// "No photos queued" empty layout. Pause/Resume buttons are wired but the
+// engine doesn't actually start in a preview because the settings file is
+// absent.
+
+#Preview("Default — no backup running") {
+    BackupStatusPanel()
+        .padding()
+        .frame(width: 360)
+}

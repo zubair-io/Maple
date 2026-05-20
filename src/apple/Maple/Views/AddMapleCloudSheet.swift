@@ -140,3 +140,26 @@ struct AddMapleCloudSheet: View {
     }
   }
 }
+
+// MARK: - Previews
+//
+// Issue #139 — sign-in sheet. The sheet builds its own VM internally; for
+// preview purposes only the `prefilledDomain` knob is observable. To
+// preview authenticating / error panels in isolation, see the
+// AddMapleCloudViewModel.preview(...) factory in MapleCore.
+
+#Preview("Default — empty domain") {
+    AddMapleCloudSheet(
+        prefilledDomain: "",
+        onDismiss: {},
+        onSignedIn: { _, _, _ in }
+    )
+}
+
+#Preview("Prefilled domain") {
+    AddMapleCloudSheet(
+        prefilledDomain: "myserver.example.com",
+        onDismiss: {},
+        onSignedIn: { _, _, _ in }
+    )
+}

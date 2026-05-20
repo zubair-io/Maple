@@ -280,3 +280,20 @@ private struct BackupPathPreview: View {
     .padding(.vertical, 2)
   }
 }
+
+// MARK: - Previews
+//
+// Issue #139 — backup settings. Internal state is all `@State`-local;
+// no factory injection needed. The Form renders against whatever
+// `BackupSettings.load()` returns (likely `.defaults` in a clean
+// preview env).
+
+#Preview("Default") {
+    BackupSettingsView()
+        .frame(width: 480, height: 700)
+}
+
+#Preview("Path preview only") {
+    BackupPathPreview(libraryName: "MyLibrary", rootFolder: "iPhone")
+        .padding()
+}
