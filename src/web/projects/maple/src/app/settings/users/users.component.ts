@@ -1,17 +1,22 @@
 // UsersComponent — `/settings/users` (auth + owner-gated).
 //
-// Owner-only screen for inviting members. Lets the owner:
-//  - issue an invite (email -> 8-char code)
-//  - see pending invites with metadata
-//  - rescind an unused invite
-//
-// The most recently issued invite is rendered with a copyable URL so the
-// owner can share it; we link out to a QR encoder for convenience but do
-// not bundle a QR library here.
+// Two sections: registered members (rendered out of the AuthService user
+// list when present, otherwise the signed-in user only) and invite codes.
+// Owners can issue invites and rescind unconsumed ones. The fresh-invite
+// card surfaces the share URL + QR for quick handoff.
 
-import { Component, OnInit, inject, signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  OnInit,
+  computed,
+  inject,
+  signal,
+} from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { AuthService } from '@maple-common';
+import { SettingsShellComponent } from '../settings-shell.component';
+import { SettingsIconComponent } from '../settings-icon.component';
 
 interface Invite {
   code: string;
@@ -28,20 +33,24 @@ interface FreshInvite {
 }
 
 @Component({
-  standalone: true,
   selector: 'maple-users',
-  imports: [FormsModule],
+  standalone: true,
+  imports: [FormsModule, SettingsShellComponent, SettingsIconComponent],
   templateUrl: './users.component.html',
   styleUrl: './users.component.scss',
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class UsersComponent implements OnInit {
-  private auth = inject(AuthService);
+  protected auth = inject(AuthService);
 
-  email = '';
-  invites = signal<Invite[]>([]);
-  freshInvite = signal<FreshInvite | null>(null);
-  busy = signal(false);
-  error = signal<string | null>(null);
+  protected email = '';
+  protected readonly invites = signal<Invite[]>([]);
+  protected readonly freshInvite = signal<FreshInvite | null>(null);
+  protected readonly busy = signal(false);
+  protected readonly error = signal<string | null>(null);
+  protected readonly showInviteForm = signal(false);
+
+  protected readonly currentUser = computed(() => this.auth.user());
 
   async ngOnInit(): Promise<void> {
     await this.refresh();
@@ -54,6 +63,10 @@ export class UsersComponent implements OnInit {
     } catch (e: unknown) {
       this.error.set(e instanceof Error ? e.message : String(e));
     }
+  }
+
+  openInvite(): void {
+    this.showInviteForm.set(true);
   }
 
   async createInvite(): Promise<void> {
@@ -70,6 +83,7 @@ export class UsersComponent implements OnInit {
         expires_at: r.expires_at,
       });
       this.email = '';
+      this.showInviteForm.set(false);
       await this.refresh();
     } catch (e: unknown) {
       this.error.set(e instanceof Error ? e.message : String(e));
@@ -93,13 +107,27 @@ export class UsersComponent implements OnInit {
     }
   }
 
+  copyCode(code: string): void {
+    if (typeof navigator !== 'undefined' && 'clipboard' in navigator) {
+      void navigator.clipboard.writeText(code);
+    }
+  }
+
   qrSrc(payload: FreshInvite): string {
-    // Encode {url, code, email} as a JSON QR payload via a public encoder.
     const data = JSON.stringify({
       url: payload.url,
       code: payload.code,
       email: payload.email,
     });
     return `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(data)}`;
+  }
+
+  avatarColor(email: string): string {
+    let hash = 0;
+    for (let i = 0; i < email.length; i++) {
+      hash = (hash * 31 + email.charCodeAt(i)) | 0;
+    }
+    const hue = Math.abs(hash) % 360;
+    return `hsl(${hue}, 30%, 35%)`;
   }
 }

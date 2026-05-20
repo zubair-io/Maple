@@ -1,0 +1,158 @@
+// Palette + typography for the redesigned Settings surfaces. Scoped here
+// instead of bleeding into global tokens — the rest of the app keeps its
+// existing colours, only the Settings area adopts the spec's darker bg
+// and slightly elevated surface ramp.
+
+:host {
+  --s-bg:        #0d0c0b;
+  --s-surface:   #1c1917;
+  --s-surface2:  #262524;
+  --s-surface3:  #2e2c2a;
+  --s-hover:     #3a3633;
+  --s-border:    #3a3633;
+  --s-border-hi: #4d4744;
+  --s-text:      #f5f4f2;
+  --s-text-mid:  #d6d3d1;
+  --s-text-muted:#a8a29e;
+  --s-text-dim:  #78706a;
+  --s-accent:    #c4493a;
+  --s-accent-bg: rgba(196, 73, 58, 0.12);
+  --s-accent-bg2:rgba(196, 73, 58, 0.15);
+  --s-ok:        #4ade80;
+  --s-warn:      #fbbf24;
+  --s-err:       #f87171;
+  --s-paused:    #a8a29e;
+
+  --s-font:  -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', sans-serif;
+  --s-mono:  'JetBrains Mono', 'SF Mono', ui-monospace, Menlo, monospace;
+
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.settings-shell {
+  display: flex;
+  width: 100%;
+  height: 100vh;
+  min-height: 100vh;
+  background: var(--s-bg);
+  color: var(--s-text);
+  font-family: var(--s-font);
+}
+
+.sidebar {
+  width: 240px;
+  flex-shrink: 0;
+  border-right: 0.5px solid var(--s-border);
+  padding: 24px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  box-sizing: border-box;
+}
+
+.back-link {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px 18px;
+  color: var(--s-text-muted);
+  font-size: 12px;
+  text-decoration: none;
+  cursor: pointer;
+
+  &:hover {
+    color: var(--s-text);
+  }
+}
+
+.section-label {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--s-text-dim);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  padding: 6px 10px 4px;
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  color: var(--s-text);
+  text-decoration: none;
+  cursor: pointer;
+  transition: background 120ms;
+  background: transparent;
+
+  &:hover {
+    background: rgba(255, 255, 255, 0.03);
+  }
+
+  &.is-active {
+    background: var(--s-accent-bg);
+    color: var(--s-accent);
+
+    .nav-label { font-weight: 500; }
+
+    .owner-chip {
+      background: rgba(196, 73, 58, 0.18);
+      color: var(--s-accent);
+    }
+  }
+}
+
+.nav-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.nav-label {
+  font-size: 13px;
+  letter-spacing: 0.1px;
+}
+
+.nav-sub {
+  font-size: 10.5px;
+  color: var(--s-text-dim);
+  margin-top: 2px;
+}
+
+.owner-chip {
+  font-family: var(--s-mono);
+  font-size: 9px;
+  letter-spacing: 0.5px;
+  padding: 2px 5px;
+  border-radius: 3px;
+  background: var(--s-surface2);
+  color: var(--s-text-dim);
+}
+
+.sidebar-spacer {
+  flex: 1;
+}
+
+.footer {
+  padding: 10px 10px 4px;
+  font-family: var(--s-mono);
+  font-size: 10.5px;
+  color: var(--s-text-dim);
+  letter-spacing: 0.3px;
+
+  .footer-email {
+    margin-top: 2px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+.page {
+  flex: 1;
+  min-width: 0;
+  height: 100vh;
+  overflow-y: auto;
+}

@@ -25,12 +25,10 @@ export const routes: Routes = [
   { path: '', redirectTo: 'browse', pathMatch: 'full' },
   { path: 'browse', canActivate: [authGuard], component: BrowseShellComponent },
   { path: 'edit/:id', canActivate: [authGuard], component: EditorShellComponent },
-  {
-    path: 'settings',
-    canActivate: [authGuard],
-    loadComponent: () =>
-      import('./settings/settings-index.component').then((m) => m.SettingsIndexComponent),
-  },
+  // `/settings` → Workers for owners, Account for everyone else. The card-
+  // grid landing was replaced by the sidebar shell in v0.2; non-owners
+  // can't reach Workers, so they land on Account instead.
+  { path: 'settings', redirectTo: 'settings/workers', pathMatch: 'full' },
   {
     path: 'settings/account',
     canActivate: [authGuard],
@@ -43,14 +41,10 @@ export const routes: Routes = [
     loadComponent: () =>
       import('./settings/users/users.component').then((m) => m.UsersComponent),
   },
-  {
-    path: 'settings/enrichment',
-    canActivate: [authGuard],
-    loadComponent: () =>
-      import('./settings/enrichment/enrichment.component').then(
-        (m) => m.EnrichmentComponent,
-      ),
-  },
+  // Enrichment was folded into Workers. The redirect preserves any
+  // existing bookmarks; the `face`/`describe`/`geocode` fragment opens
+  // the matching row in the new combined view.
+  { path: 'settings/enrichment', redirectTo: 'settings/workers', pathMatch: 'full' },
   {
     path: 'settings/workers',
     canActivate: [authGuard],

@@ -1,15 +1,24 @@
 // AccountComponent — `/settings/account` (auth-gated).
 //
-// Lets the signed-in user manage their own passkeys (add another device,
-// delete an existing credential) and sign out. The credentials list is
-// fetched directly from `/api/auth/me` since AuthService only exposes the
-// `user` signal — see Task C5 notes.
+// Surface for the signed-in user's identity and their registered passkeys.
+// Lists credentials inline (each with a delete affordance), and exposes
+// "Sign out" / "Sign out everywhere" actions. Wrapped in the SettingsShell
+// so the sidebar nav is consistent across every settings surface.
 
-import { Component, OnInit, inject, signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  OnInit,
+  computed,
+  inject,
+  signal,
+} from '@angular/core';
 import { Router } from '@angular/router';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 import { AuthService } from '@maple-common';
+import { SettingsShellComponent } from '../settings-shell.component';
+import { SettingsIconComponent } from '../settings-icon.component';
 
 interface Credential {
   id: string;
@@ -19,20 +28,24 @@ interface Credential {
 }
 
 @Component({
-  standalone: true,
   selector: 'maple-account',
-  imports: [],
+  standalone: true,
+  imports: [SettingsShellComponent, SettingsIconComponent],
   templateUrl: './account.component.html',
   styleUrl: './account.component.scss',
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class AccountComponent implements OnInit {
   protected auth = inject(AuthService);
   private router = inject(Router);
   private http = inject(HttpClient);
 
-  credentials = signal<Credential[]>([]);
-  busy = signal(false);
-  error = signal<string | null>(null);
+  protected readonly credentials = signal<Credential[]>([]);
+  protected readonly busy = signal(false);
+  protected readonly error = signal<string | null>(null);
+
+  protected readonly user = computed(() => this.auth.user());
+  protected readonly isOwner = computed(() => this.auth.user()?.role === 'owner');
 
   async ngOnInit(): Promise<void> {
     await this.refresh();
@@ -41,9 +54,7 @@ export class AccountComponent implements OnInit {
   private async refresh(): Promise<void> {
     try {
       const r = await firstValueFrom(
-        this.http.get<{ user: unknown; credentials: Credential[] }>(
-          '/api/auth/me',
-        ),
+        this.http.get<{ user: unknown; credentials: Credential[] }>('/api/auth/me'),
       );
       this.credentials.set(r.credentials ?? []);
     } catch (e: unknown) {
@@ -71,7 +82,6 @@ export class AccountComponent implements OnInit {
       await this.auth.deleteCredential(id);
       await this.refresh();
     } catch (e: unknown) {
-      // Server refuses deletion of the last credential — surface the error.
       this.error.set(e instanceof Error ? e.message : String(e));
     } finally {
       this.busy.set(false);

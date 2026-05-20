@@ -1,0 +1,42 @@
+<div class="settings-shell">
+  <aside class="sidebar">
+    <a routerLink="/browse" class="back-link">
+      <maple-settings-icon name="back" [size]="14"/>
+      <span>Back to Browse</span>
+    </a>
+
+    <div class="section-label">Settings</div>
+
+    @for (it of items(); track it.id) {
+      <a
+        [routerLink]="it.link"
+        class="nav-item"
+        [class.is-active]="section() === it.id"
+      >
+        <maple-settings-icon [name]="it.icon" [size]="15"/>
+        <div class="nav-text">
+          <div class="nav-label">{{ it.label }}</div>
+          @if (it.sub) {
+            <div class="nav-sub">{{ it.sub }}</div>
+          }
+        </div>
+        @if (it.ownerOnly) {
+          <span class="owner-chip">OWNER</span>
+        }
+      </a>
+    }
+
+    <div class="sidebar-spacer"></div>
+
+    <div class="footer">
+      <div>maple · v0.4.2</div>
+      @if (userEmail()) {
+        <div class="footer-email">{{ userEmail() }}</div>
+      }
+    </div>
+  </aside>
+
+  <div class="page">
+    <ng-content/>
+  </div>
+</div>
