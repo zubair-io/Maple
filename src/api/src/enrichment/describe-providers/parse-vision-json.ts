@@ -156,6 +156,51 @@ function asStringArray(v: unknown): string[] | null {
   return out;
 }
 
+/** Sentinel returned by `coerce*` helpers to signal "this input couldn't be
+ * normalised". Distinct from a legitimate null/false result so the caller
+ * can throw a `VisionParseError` only when the input was actually invalid. */
+const COERCE_FAIL = Symbol("coerce-fail");
+
+/** qwen2.5-vl regularly returns is_screenshot as a string ("false"), a
+ * number (0/1), or omits it. Coerce the common variants — anything truly
+ * unparseable returns COERCE_FAIL so the caller dead-letters the row.
+ * Missing / null / undefined defaults to `false`: an outdoor scene with
+ * no `is_screenshot` field is overwhelmingly likely to be a real photo. */
+function coerceIsScreenshot(v: unknown): boolean | typeof COERCE_FAIL {
+  if (typeof v === "boolean") return v;
+  if (v === null || v === undefined) return false;
+  if (typeof v === "number") {
+    if (v === 0) return false;
+    if (v === 1) return true;
+    return COERCE_FAIL;
+  }
+  if (typeof v === "string") {
+    const norm = v.trim().toLowerCase();
+    if (norm === "true" || norm === "yes" || norm === "1") return true;
+    if (norm === "false" || norm === "no" || norm === "0" || norm === "") return false;
+    return COERCE_FAIL;
+  }
+  return COERCE_FAIL;
+}
+
+/** text_visible is often returned as a string array when multiple text
+ * regions are visible (signs + a license plate). Join with newlines —
+ * downstream consumers treat the field as opaque multi-line text. Empty
+ * array, empty string, null, and undefined all collapse to null. */
+function coerceTextVisible(v: unknown): string | null | typeof COERCE_FAIL {
+  if (v === null || v === undefined) return null;
+  if (typeof v === "string") return v.length === 0 ? null : v;
+  if (Array.isArray(v)) {
+    const parts: string[] = [];
+    for (const x of v) {
+      if (typeof x !== "string") return COERCE_FAIL;
+      if (x.length > 0) parts.push(x);
+    }
+    return parts.length === 0 ? null : parts.join("\n");
+  }
+  return COERCE_FAIL;
+}
+
 /** Strip a fence wrapper if present and return the JSON body the parser
  * would consume. Exposed so callers (the describe stage) can compute
  * `raw_response_size` against the same string the parser saw, rather
@@ -304,15 +349,16 @@ export function parseVisionJson(raw: string): VisionDoc {
     );
   }
 
-  const text_visible = obj.text_visible === null ? null : asString(obj.text_visible);
-  if (text_visible === null && obj.text_visible !== null) {
+  const text_visible_raw = coerceTextVisible(obj.text_visible);
+  if (text_visible_raw === COERCE_FAIL) {
     throw new VisionParseError(
       "wrong-type",
-      "expected string | null",
+      "expected string | null | string[]",
       raw,
       "text_visible",
     );
   }
+  const text_visible = text_visible_raw;
 
   const notable_objects = asStringArray(obj.notable_objects);
   if (notable_objects === null) {
@@ -350,15 +396,16 @@ export function parseVisionJson(raw: string): VisionDoc {
     );
   }
 
-  if (typeof obj.is_screenshot !== "boolean") {
+  const is_screenshot_raw = coerceIsScreenshot(obj.is_screenshot);
+  if (is_screenshot_raw === COERCE_FAIL) {
     throw new VisionParseError(
       "wrong-type",
-      "expected boolean",
+      "expected boolean (or coercible string / number)",
       raw,
       "is_screenshot",
     );
   }
-  const is_screenshot = obj.is_screenshot;
+  const is_screenshot = is_screenshot_raw;
 
   return {
     caption,
