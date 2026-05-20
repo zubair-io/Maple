@@ -33,7 +33,7 @@ import {
   statSync,
 } from "node:fs";
 import { writeFile } from "node:fs/promises";
-import { homedir } from "node:os";
+import { availableParallelism, homedir } from "node:os";
 import { join, dirname } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -250,9 +250,35 @@ export async function loadFaceModels(
         null,
     });
     const ort = await loadOnnxRuntime();
-    log.info({ retinaPath, mfnPath }, "loading ONNX face models");
-    const retinaFace = await ort.InferenceSession.create(retinaPath);
-    const mobileFaceNet = await ort.InferenceSession.create(mfnPath);
+    // Constrain ORT thread pools. Without explicit thread counts, the native
+    // binding sizes its intra-op pool to the host's logical CPU count and
+    // tries to pin each thread to a distinct CPU via pthread_setaffinity_np.
+    // In a container whose cgroup cpuset is narrower than the host (the
+    // common case for 64–128-core hosts running Docker), most of those pins
+    // fail with EINVAL and ORT spams stderr — one ERROR line per thread per
+    // session — before the load even completes. The face stage runs with
+    // `concurrency: 1` (workers/stages/face.ts), so a small pool is plenty.
+    const sessionOptions = {
+      intraOpNumThreads: Number(
+        process.env.MAPLE_FACE_ORT_INTRA_OP_THREADS ??
+          Math.min(4, availableParallelism()),
+      ),
+      interOpNumThreads: Number(
+        process.env.MAPLE_FACE_ORT_INTER_OP_THREADS ?? 1,
+      ),
+    };
+    log.info(
+      { retinaPath, mfnPath, sessionOptions },
+      "loading ONNX face models",
+    );
+    const retinaFace = await ort.InferenceSession.create(
+      retinaPath,
+      sessionOptions,
+    );
+    const mobileFaceNet = await ort.InferenceSession.create(
+      mfnPath,
+      sessionOptions,
+    );
     singleton = {
       retinaFace,
       mobileFaceNet,
@@ -329,7 +355,15 @@ async function ensureModelFile(opts: EnsureFileOpts): Promise<string> {
  * boot (and tests can run) without the package installed — only the
  * face worker hitting the real model-load path needs it. */
 async function loadOnnxRuntime(): Promise<{
-  InferenceSession: { create(path: string): Promise<OnnxSessionLike> };
+  InferenceSession: {
+    create(
+      path: string,
+      options?: {
+        intraOpNumThreads?: number;
+        interOpNumThreads?: number;
+      },
+    ): Promise<OnnxSessionLike>;
+  };
   Tensor: OnnxTensorConstructor;
 }> {
   try {
