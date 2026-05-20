@@ -16,9 +16,9 @@
  * stages need it.
  */
 import { generatePreview, resolvePreviewPath } from "../../indexer/previewer.ts";
-import { defineStage } from "../runtime/define-stage.ts";
+import { defineStage, runStage, type RunStageHandle } from "../run-stage.ts";
 
-export default defineStage({
+const previewStage = defineStage({
   name: "preview",
   targetVersion: 1,
   dependsOn: ["thumb"],
@@ -41,3 +41,9 @@ export default defineStage({
     };
   },
 });
+
+export default previewStage;
+
+export async function startPreviewStage(): Promise<RunStageHandle> {
+  return runStage(previewStage);
+}

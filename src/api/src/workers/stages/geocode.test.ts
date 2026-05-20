@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { ObjectId } from "mongodb";
-import type { ImageDoc } from "../runtime/define-stage.ts";
+import type { ImageDoc } from "../run-stage.ts";
 import { CoordinateCache } from "../../enrichment/coordinate-cache.ts";
 import { NominatimClient, NominatimError } from "../../enrichment/nominatim-client.ts";
 

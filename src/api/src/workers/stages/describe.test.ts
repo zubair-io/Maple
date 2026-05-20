@@ -3,7 +3,7 @@ import { mkdirSync, writeFileSync, mkdtempSync, rmSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { ObjectId } from "mongodb";
-import type { ImageDoc } from "../runtime/define-stage.ts";
+import type { ImageDoc } from "../run-stage.ts";
 import {
   RemoteError,
   type DescribeProvider,

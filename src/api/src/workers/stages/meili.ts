@@ -17,12 +17,8 @@
  * rather than spinning forever on an un-fixable invariant violation.
  */
 
-import type {
-  ImageDoc,
-  StageContext,
-  StageResult,
-} from "../runtime/define-stage.ts";
-import { defineStage } from "../runtime/define-stage.ts";
+import type { ImageDoc, StageContext, StageResult } from "../run-stage.ts";
+import { defineStage, runStage, type RunStageHandle } from "../run-stage.ts";
 import {
   meilisearchClient,
   type MeilisearchClient,
@@ -95,7 +91,7 @@ export async function meiliHandler(
   return { patch: { search_blob: blob } };
 }
 
-export default defineStage({
+const meiliStage = defineStage({
   name: "meili",
   // v2: introduced a mean-confidence gate on `ocr_text` (removed with the
   // legacy OCR stage). Bumping forced a re-index against the cleaned value.
@@ -129,3 +125,9 @@ export default defineStage({
   },
   handler: meiliHandler,
 });
+
+export default meiliStage;
+
+export async function startMeiliStage(): Promise<RunStageHandle> {
+  return runStage(meiliStage);
+}
