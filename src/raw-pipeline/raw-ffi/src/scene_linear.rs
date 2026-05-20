@@ -284,8 +284,9 @@ pub unsafe extern "C" fn maple_render_bytes_scene_linear_sized(
 
 /// Tile scene-linear render — same fp16 RGBA output struct as the sized
 /// variant, but renders only the source-pixel rectangle
-/// `(src_x, src_y, src_w, src_h)`. Pads internally by 35 px to satisfy
-/// the development chain's stencil radii (clarity is the binding
+/// `(src_x, src_y, src_w, src_h)`. Pads internally by
+/// `raw_core::pipeline::tile::TILE_OVERLAP_PX` to satisfy the
+/// development chain's stencil radii (clarity is the binding
 /// constraint), then trims to the inner rect, downsamples to
 /// `(out_w, out_h)`, orients, and packs to fp16 RGBA.
 ///
@@ -293,9 +294,11 @@ pub unsafe extern "C" fn maple_render_bytes_scene_linear_sized(
 /// plus:
 ///   - 9:  `src_w/src_h/out_w/out_h == 0` — bad tile geometry.
 ///   - 10: `model.dehaze != 0` — tile path is not supported (radius 67
-///          exceeds the 35 px overlap pad). Caller should fall back to
+///          exceeds the overlap pad). Caller should fall back to
 ///          fit-zoom rendering.
 ///   - 11: `out_w > src_w || out_h > src_h` — tile path is downscale-only.
+///   - 12: `(out_w, out_h)` aspect does not match `(src_w, src_h)` —
+///          tile path requires matching aspect.
 ///
 /// Plan 3 — see docs/superpowers/plans/2026-04-25-deep-zoom-tile-rendering.md
 /// Task 2 and docs/tickets/06-viewport-sized-rust-ffi-preview.md M4.
@@ -366,6 +369,7 @@ pub unsafe extern "C" fn maple_render_file_scene_linear_tile(
                 set_last_error(msg.clone());
                 if msg.contains("dehaze") { return 10; }
                 if msg.contains("upscale") || msg.contains("downscale-only") { return 11; }
+                if msg.contains("matching aspect") { return 12; }
                 return 8;
             }
         };
@@ -446,6 +450,7 @@ pub unsafe extern "C" fn maple_render_bytes_scene_linear_tile(
                 set_last_error(msg.clone());
                 if msg.contains("dehaze") { return 10; }
                 if msg.contains("upscale") || msg.contains("downscale-only") { return 11; }
+                if msg.contains("matching aspect") { return 12; }
                 return 8;
             }
         };
