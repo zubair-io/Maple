@@ -8,8 +8,14 @@
 //! cost <2ms at viewport size and runs here so Rust is the single
 //! source of truth for those algorithms.
 //!
-//! Caller-provided buffers; this entry doesn't allocate. Input and
-//! output are both packed fp16 RGBA (8 bytes/pixel),
+//! Caller-provided input and output buffers. Note: the FFI entry itself
+//! is a thin shim, but `raw_core::pipeline::apply_scene_linear_chain`
+//! currently returns an owned `Vec<u16>` that we `copy_from_slice` into
+//! `out_ptr` — so there is one intermediate heap allocation of
+//! `8 * width * height` bytes per call. Removing it requires refactoring
+//! the raw-core entry to write into a caller-provided slice and is
+//! tracked separately. Input and output are both packed fp16 RGBA
+//! (8 bytes/pixel),
 //! `extendedLinearITUR_2020` scene-linear, straight alpha. Output is
 //! post-AgX (display-linear Rec.2020) when `skip_agx == 0`, scene-linear
 //! when non-zero. The `skip_agx` flag exists for the non-RAW path:
@@ -55,7 +61,10 @@ pub struct MapleAdjustmentParams {
 ///
 /// `in_ptr` and `out_ptr` MUST point to buffers of size
 /// `8 * width * height` bytes (= `4 * width * height` fp16 lanes). The
-/// caller owns both buffers; this entry doesn't allocate or free.
+/// caller owns both buffers. This entry does not free anything, but does
+/// perform one intermediate heap allocation of the same size as the output
+/// buffer (the wrapped `raw_core` entry returns an owned `Vec<u16>` which
+/// is then copied into `out_ptr`).
 /// `out_ptr` may alias `in_ptr` only if the caller is willing to lose the
 /// input on error — current implementation copies the result at the end
 /// so partial in-place is safe but partial-write semantics are undefined
@@ -82,13 +91,28 @@ pub unsafe extern "C" fn maple_apply_scene_linear_chain(
         ));
         return 2;
     }
-    let lanes = (width as usize)
-        .saturating_mul(height as usize)
-        .saturating_mul(4);
-    if lanes == 0 {
-        set_last_error("apply_scene_linear_chain: pixel-count overflow".into());
-        return 3;
-    }
+    // checked_mul (not saturating_mul) — on overflow we want to bail with
+    // an error rc, not return usize::MAX and feed that to from_raw_parts
+    // (UB). Width and height are u32 so on a 64-bit usize the product
+    // can't overflow today (max ~2^64 vs 2^32 * 2^32 * 4 ≈ 2^66 — but
+    // checked_mul is correct under any future widening too).
+    let lanes = match (width as usize)
+        .checked_mul(height as usize)
+        .and_then(|p| p.checked_mul(4))
+    {
+        Some(n) if n > 0 => n,
+        Some(_) => {
+            set_last_error("apply_scene_linear_chain: zero-lane buffer".into());
+            return 3;
+        }
+        None => {
+            set_last_error(format!(
+                "apply_scene_linear_chain: pixel-count overflow width={} height={}",
+                width, height
+            ));
+            return 3;
+        }
+    };
     let p = &*params;
 
     // Build an AdjustmentModel from the C-ABI params. Fields the chain
