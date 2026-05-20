@@ -42,6 +42,22 @@ describe("POST /api/folders/:id/upload", () => {
     db = mongo!.db(TEST_DB);
     await db.dropDatabase();
 
+    // Force the index build to complete BEFORE the test body runs. The boot
+    // IIFE in src/index.ts kicks off `ensureIndexes()` in the background, but
+    // a parallel test file's `closeDb()` (e.g. enrichment-route.test.ts:58)
+    // can close the client mid-build and leave the unique
+    // `(folder_id, filename)` index unbuilt. The concurrent-uploads test
+    // below depends on that constraint, so we run it explicitly + serially
+    // here. `ensureIndexes` reaches into auxiliary collections (users,
+    // credentials, ...) that prod populates via app code — pre-create them
+    // here so `createIndex` doesn't see `ns not found`. Pattern mirrors
+    // src/db/client.test.ts.
+    for (const name of ["users", "credentials", "invites", "refresh_tokens", "challenges"]) {
+      await db.createCollection(name).catch(() => undefined);
+    }
+    const { ensureIndexes } = await import("../src/db/client.ts");
+    await ensureIndexes();
+
     tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "maple-fp3-upload-"));
     realTmpRoot = await fs.realpath(tmpRoot);
     process.env.MAPLE_ROOTS = realTmpRoot;

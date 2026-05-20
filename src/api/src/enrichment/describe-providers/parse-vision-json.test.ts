@@ -148,26 +148,50 @@ describe("parseVisionJson — rejection paths", () => {
     }
   });
 
-  it("rejects when is_screenshot is missing", () => {
+  it("defaults is_screenshot to false when missing (qwen2.5-vl omits it on outdoor scenes)", () => {
     const v = { ...VALID } as Partial<typeof VALID>;
     delete v.is_screenshot;
-    try {
-      parseVisionJson(JSON.stringify(v));
-    } catch (e) {
-      const err = e as VisionParseError;
-      expect(err.reason).toBe("wrong-type");
-      expect(err.field).toBe("is_screenshot");
+    const out = parseVisionJson(JSON.stringify(v));
+    expect(out.is_screenshot).toBe(false);
+  });
+
+  it("coerces is_screenshot string variants to boolean", () => {
+    for (const [raw, expected] of [
+      ["false", false],
+      ["False", false],
+      ["FALSE", false],
+      ["no", false],
+      ["0", false],
+      ["", false],
+      ["true", true],
+      ["True", true],
+      ["yes", true],
+      ["1", true],
+    ] as const) {
+      const out = parseVisionJson(JSON.stringify({ ...VALID, is_screenshot: raw }));
+      expect(out.is_screenshot).toBe(expected);
     }
   });
 
-  it("rejects when is_screenshot is a string (e.g. \"false\") instead of a boolean", () => {
-    const v = { ...VALID, is_screenshot: "false" };
-    try {
-      parseVisionJson(JSON.stringify(v));
-    } catch (e) {
-      const err = e as VisionParseError;
-      expect(err.reason).toBe("wrong-type");
-      expect(err.field).toBe("is_screenshot");
+  it("coerces is_screenshot numeric variants to boolean", () => {
+    expect(parseVisionJson(JSON.stringify({ ...VALID, is_screenshot: 0 })).is_screenshot).toBe(false);
+    expect(parseVisionJson(JSON.stringify({ ...VALID, is_screenshot: 1 })).is_screenshot).toBe(true);
+  });
+
+  it("treats null/undefined is_screenshot as false", () => {
+    expect(parseVisionJson(JSON.stringify({ ...VALID, is_screenshot: null })).is_screenshot).toBe(false);
+  });
+
+  it("rejects is_screenshot values that can't be coerced (object, array, garbage string)", () => {
+    for (const v of [{ ...VALID, is_screenshot: {} }, { ...VALID, is_screenshot: [] }, { ...VALID, is_screenshot: "maybe" }]) {
+      try {
+        parseVisionJson(JSON.stringify(v));
+        throw new Error("expected throw");
+      } catch (e) {
+        const err = e as VisionParseError;
+        expect(err.reason).toBe("wrong-type");
+        expect(err.field).toBe("is_screenshot");
+      }
     }
   });
 
@@ -175,6 +199,30 @@ describe("parseVisionJson — rejection paths", () => {
     const v = { ...VALID, is_screenshot: true };
     const out = parseVisionJson(JSON.stringify(v));
     expect(out.is_screenshot).toBe(true);
+  });
+
+  it("joins text_visible string[] into a newline-separated string", () => {
+    const v = { ...VALID, text_visible: ["STOP", "SLOW", "ONE WAY"] };
+    const out = parseVisionJson(JSON.stringify(v));
+    expect(out.text_visible).toBe("STOP\nSLOW\nONE WAY");
+  });
+
+  it("collapses empty / all-empty text_visible array to null", () => {
+    expect(parseVisionJson(JSON.stringify({ ...VALID, text_visible: [] })).text_visible).toBeNull();
+    expect(parseVisionJson(JSON.stringify({ ...VALID, text_visible: ["", ""] })).text_visible).toBeNull();
+    expect(parseVisionJson(JSON.stringify({ ...VALID, text_visible: "" })).text_visible).toBeNull();
+  });
+
+  it("rejects text_visible when array contains non-strings", () => {
+    const v = { ...VALID, text_visible: ["STOP", 42] };
+    try {
+      parseVisionJson(JSON.stringify(v));
+      throw new Error("expected throw");
+    } catch (e) {
+      const err = e as VisionParseError;
+      expect(err.reason).toBe("wrong-type");
+      expect(err.field).toBe("text_visible");
+    }
   });
 
   it("includes a truncated snippet in the error for triage", () => {
