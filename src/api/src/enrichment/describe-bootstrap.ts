@@ -25,8 +25,13 @@ import {
   resolveEnrichmentConfig,
   type ResolvedEnrichmentConfig,
 } from "./enrichment-config.repo.ts";
+import { resetDescribeDeps } from "../workers/stages/describe.ts";
 
 const log = childLogger("describe");
+
+/** Fixed model — must match `FIXED_DESCRIBE_MODEL` in
+ * `workers/stages/describe.ts`. Logged at boot for operator visibility. */
+const LOCKED_MODEL = "qwen2.5-vl:7b";
 
 /**
  * Lifecycle hook called at boot. In Plan 3+ the stage-controller runtime
@@ -40,12 +45,24 @@ export async function startDescribeWorker(): Promise<never[]> {
 }
 
 /**
- * Re-apply settings after the operator changes them via the UI.
- * Runs the provider health check and logs any misconfiguration.
+ * Re-apply settings after the operator changes them via the UI. Invalidates
+ * the stage handler's cached deps so a URL change takes effect on the next
+ * claim, then health-checks Ollama at the new URL.
+ *
+ * Provider and model are locked — the stage handler ignores
+ * `describe_provider` / `describe_model` / `describe_system_prompt`, so this
+ * bootstrap does too. Logging the locked model rather than the resolved
+ * field avoids misleading operators who still have stale paid-provider
+ * values in their pre-#157 config row.
  */
 export async function applyDescribeConfig(
   resolved: ResolvedEnrichmentConfig,
 ): Promise<void> {
+  // Invalidate any cached provider in the stage handler so the URL change
+  // takes effect without a restart. Safe to call unconditionally — the
+  // next claim will lazily re-resolve.
+  resetDescribeDeps();
+
   if (!resolved.describe_worker_enabled) {
     log.info("describe worker disabled (describe_worker_enabled=false)");
     return;
@@ -53,13 +70,13 @@ export async function applyDescribeConfig(
 
   let provider;
   try {
-    provider = getDescribeProvider(resolved.describe_provider, {
+    provider = getDescribeProvider("ollama", {
       url: resolved.describe_provider_url,
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     log.error(
-      { err: msg, provider: resolved.describe_provider },
+      { err: msg },
       "describe provider misconfigured (fix via /settings/enrichment)",
     );
     return;
@@ -67,7 +84,7 @@ export async function applyDescribeConfig(
 
   try {
     log.info(
-      { provider: provider.name, model: resolved.describe_model },
+      { provider: provider.name, model: LOCKED_MODEL },
       "checking describe-provider health",
     );
     await provider.health();
