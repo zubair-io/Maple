@@ -370,7 +370,7 @@ Same worker shape as geocode (§3). What changes:
 **Describe worker.**
 - Claim query: `{ "preview.ready": true, "enrichment.describe.doneAt": null, ... }`.
 - `process()`: read the 1280-px preview JPEG (see `src/api/src/workers/stages/preview.ts`), call Ollama with the structured-JSON prompt `DEFAULT_DESCRIBE_VISION_PROMPT` (`src/api/src/enrichment/enrichment-config.repo.ts`), parse strictly with `parseVisionJson`, then write `description` (caption mirror), `description_meta`, the structured `vision` subdoc, and `vision_meta`.
-- Default provider: Ollama with `qwen2.5-vl:7b`. Anthropic / OpenAI / Gemini providers remain wired but are off by default.
+- Default provider: Ollama with `qwen2.5vl:7b`. Anthropic / OpenAI / Gemini providers remain wired but are off by default.
 - `dependsOn: ["preview"]`. `targetVersion: 2`. `pausedOnFirstBoot: true`.
 - Pool size: 1 (single-slot on the 24 GB VLM host). Network-bound providers can raise this.
 - Lease: 10 min.
@@ -402,7 +402,7 @@ The full shape lives in `src/api/src/db/schema.ts` (search for `VisionDoc` / `Vi
 | `shot_type` | `action` \| `static` \| `candid` \| `posed` \| `architectural` \| `nature` \| `event`. |
 | `indoor_outdoor` | `indoor` \| `outdoor`. |
 
-`vision_meta` carries the provenance: `provider` (`ollama` \| `anthropic` \| `openai` \| `gemini`), `model` (e.g. `qwen2.5-vl:7b`), `prompt_version`, `generated_at`, `raw_response_size` (bytes of the model's raw JSON response — helps spot truncation).
+`vision_meta` carries the provenance: `provider` (`ollama` \| `anthropic` \| `openai` \| `gemini`), `model` (e.g. `qwen2.5vl:7b`), `prompt_version`, `generated_at`, `raw_response_size` (bytes of the model's raw JSON response — helps spot truncation).
 
 **Preview dependency.** The describe stage reads the 1280-px JPEG written by the new `preview` stage (between `thumb` and `describe`; `dependsOn: ["thumb"]`; output at `<folder>/.maple/previews/<basename>_1280.jpg`). The 512-px thumb is too small for reliable captions or OCR on a 24 MP photo; the preview is sized to give the VLM enough resolution without blowing the VRAM budget. See `src/api/src/workers/stages/preview.ts` and `src/api/src/indexer/previewer.ts`.
 

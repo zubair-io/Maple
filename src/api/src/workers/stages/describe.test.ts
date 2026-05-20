@@ -98,7 +98,7 @@ describe("describeHandler — happy path", () => {
     setDescribeDepsForTests({
       provider,
       systemPrompt: "structured vision prompt",
-      model: "qwen2.5-vl:7b",
+      model: "qwen2.5vl:7b",
     });
 
     const result = await describeHandler(doc, fakeCtx);
@@ -116,7 +116,7 @@ describe("describeHandler — happy path", () => {
     // description_meta keeps its existing shape + provider_info spread.
     const meta = patch.description_meta as Record<string, unknown>;
     expect(meta.provider).toBe("ollama");
-    expect(meta.model).toBe("qwen2.5-vl:7b");
+    expect(meta.model).toBe("qwen2.5vl:7b");
     expect(meta.prompt_version).toBe(DESCRIBE_PROMPT_VERSION);
     expect(typeof meta.generated_at).toBe("string");
     expect(meta.eval_count).toBe("30");
@@ -124,7 +124,7 @@ describe("describeHandler — happy path", () => {
     // vision_meta carries the same provenance plus raw_response_size.
     const vmeta = patch.vision_meta as Record<string, unknown>;
     expect(vmeta.provider).toBe("ollama");
-    expect(vmeta.model).toBe("qwen2.5-vl:7b");
+    expect(vmeta.model).toBe("qwen2.5vl:7b");
     expect(vmeta.prompt_version).toBe(DESCRIBE_PROMPT_VERSION);
     expect(typeof vmeta.raw_response_size).toBe("number");
     expect((vmeta.raw_response_size as number) > 0).toBe(true);
@@ -146,7 +146,7 @@ describe("describeHandler — happy path", () => {
     setDescribeDepsForTests({
       provider,
       systemPrompt: "p",
-      model: "qwen2.5-vl:7b",
+      model: "qwen2.5vl:7b",
     });
 
     const result = await describeHandler(doc, fakeCtx);
@@ -167,7 +167,7 @@ describe("describeHandler — happy path", () => {
     setDescribeDepsForTests({
       provider,
       systemPrompt: "p",
-      model: "qwen2.5-vl:7b",
+      model: "qwen2.5vl:7b",
     });
     const result = await describeHandler(doc, fakeCtx);
     const patch = (result as { patch: Record<string, unknown> }).patch;
@@ -188,7 +188,7 @@ describe("describeHandler — parse failure", () => {
     setDescribeDepsForTests({
       provider,
       systemPrompt: "p",
-      model: "qwen2.5-vl:7b",
+      model: "qwen2.5vl:7b",
     });
     await expect(describeHandler(doc, fakeCtx)).rejects.toThrow("vision-parse");
   });
@@ -207,7 +207,7 @@ describe("describeHandler — parse failure", () => {
     setDescribeDepsForTests({
       provider,
       systemPrompt: "p",
-      model: "qwen2.5-vl:7b",
+      model: "qwen2.5vl:7b",
     });
     await expect(describeHandler(doc, fakeCtx)).rejects.toThrow(/subjects/);
   });
@@ -226,7 +226,7 @@ describe("describeHandler — preview missing", () => {
     setDescribeDepsForTests({
       provider,
       systemPrompt: "p",
-      model: "qwen2.5-vl:7b",
+      model: "qwen2.5vl:7b",
     });
     const result = await describeHandler(doc, fakeCtx);
     expect("skip" in result).toBe(true);
@@ -243,7 +243,7 @@ describe("describeHandler — provider errors", () => {
     setDescribeDepsForTests({
       provider,
       systemPrompt: "p",
-      model: "qwen2.5-vl:7b",
+      model: "qwen2.5vl:7b",
     });
     await expect(describeHandler(doc, fakeCtx)).rejects.toThrow("503");
   });
@@ -256,7 +256,7 @@ describe("describeHandler — provider errors", () => {
     setDescribeDepsForTests({
       provider,
       systemPrompt: "p",
-      model: "qwen2.5-vl:7b",
+      model: "qwen2.5vl:7b",
     });
     await expect(describeHandler(doc, fakeCtx)).rejects.toThrow("401");
   });
@@ -277,14 +277,14 @@ describe("describeHandler — OCR mirror from vision.text_visible", () => {
     setDescribeDepsForTests({
       provider,
       systemPrompt: "p",
-      model: "qwen2.5-vl:7b",
+      model: "qwen2.5vl:7b",
     });
     const result = await describeHandler(doc, fakeCtx);
     const patch = (result as { patch: Record<string, unknown> }).patch;
     expect(patch.ocr_text).toBe("STOP");
     const ocrMeta = patch.ocr_meta as { engine: string; engine_version: string };
     expect(ocrMeta.engine).toBe("qwen2.5-vl");
-    expect(ocrMeta.engine_version).toBe("qwen2.5-vl:7b");
+    expect(ocrMeta.engine_version).toBe("qwen2.5vl:7b");
   });
 
   it("writes ocr_text as empty string when vision.text_visible is null", async () => {
@@ -300,7 +300,7 @@ describe("describeHandler — OCR mirror from vision.text_visible", () => {
     setDescribeDepsForTests({
       provider,
       systemPrompt: "p",
-      model: "qwen2.5-vl:7b",
+      model: "qwen2.5vl:7b",
     });
     const result = await describeHandler(doc, fakeCtx);
     const patch = (result as { patch: Record<string, unknown> }).patch;
@@ -314,7 +314,7 @@ describe("describeHandler — OCR mirror from vision.text_visible", () => {
     // Prior ocr_meta of any shape on the doc is ignored — vision always wins.
     (doc as unknown as Record<string, unknown>).ocr_meta = {
       engine: "qwen2.5-vl",
-      engine_version: "qwen2.5-vl:7b",
+      engine_version: "qwen2.5vl:7b",
       generated_at: "2026-05-01T00:00:00.000Z",
       mean_confidence: null,
     };
@@ -327,7 +327,7 @@ describe("describeHandler — OCR mirror from vision.text_visible", () => {
     setDescribeDepsForTests({
       provider,
       systemPrompt: "p",
-      model: "qwen2.5-vl:7b",
+      model: "qwen2.5vl:7b",
     });
     const result = await describeHandler(doc, fakeCtx);
     const patch = (result as { patch: Record<string, unknown> }).patch;
@@ -351,7 +351,7 @@ describe("describeHandler — provider_info extras", () => {
     setDescribeDepsForTests({
       provider,
       systemPrompt: "p",
-      model: "qwen2.5-vl:7b",
+      model: "qwen2.5vl:7b",
     });
     const result = await describeHandler(doc, fakeCtx);
     const meta = (result as { patch: { description_meta: Record<string, unknown> } })
