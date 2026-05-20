@@ -52,6 +52,54 @@
   box-sizing: border-box;
 }
 
+// Tablet: keep sidebar but narrower (icon + label only, no subtitle).
+@media (max-width: 1023px) {
+  .sidebar {
+    width: 196px;
+    padding: 20px 10px;
+  }
+  .nav-sub { display: none; }
+}
+
+// Mobile: collapse sidebar to a horizontal top bar. The body still doesn't
+// scroll (html, body are `overflow: hidden` globally) — the .page div
+// remains the scroll container, the sidebar sits above it as a fixed
+// horizontal strip that itself scrolls horizontally when nav items
+// don't fit.
+@media (max-width: 767px) {
+  .settings-shell {
+    flex-direction: column;
+  }
+  .sidebar {
+    width: 100%;
+    flex-direction: row;
+    align-items: center;
+    overflow-x: auto;
+    overflow-y: hidden;
+    flex-shrink: 0;
+    padding: 10px 12px;
+    border-right: none;
+    border-bottom: 0.5px solid var(--s-border);
+    gap: 4px;
+    background: var(--s-bg);
+  }
+  .back-link {
+    padding: 6px 8px;
+    flex-shrink: 0;
+  }
+  .section-label { display: none; }
+  .nav-item {
+    padding: 6px 10px;
+    flex-shrink: 0;
+
+    .nav-label { font-size: 12.5px; }
+  }
+  .owner-chip { display: none; }
+  .sidebar-spacer { display: none; }
+  .footer { display: none; }
+  .page { min-width: 0; }
+}
+
 .back-link {
   display: flex;
   align-items: center;
@@ -153,6 +201,6 @@
 .page {
   flex: 1;
   min-width: 0;
-  height: 100vh;
+  min-height: 0;
   overflow-y: auto;
 }

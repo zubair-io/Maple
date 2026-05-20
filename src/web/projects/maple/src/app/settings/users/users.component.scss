@@ -230,3 +230,45 @@
   font-size: 12.5px;
   margin: 0;
 }
+
+@media (max-width: 1023px) {
+  .member-row {
+    grid-template-columns: minmax(0, 1fr) 80px 100px 100px 50px;
+  }
+  .invite-row {
+    grid-template-columns: minmax(0, 1fr) 160px 80px 140px 70px;
+  }
+}
+
+@media (max-width: 767px) {
+  .users-body { padding: 16px; gap: 22px; }
+
+  .invite-form {
+    flex-direction: column;
+    button { width: 100%; }
+  }
+  .fresh-invite .fresh-row {
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+  }
+
+  // Stack the member + invite rows vertically; each row becomes a card.
+  .member-row, .invite-row {
+    grid-template-columns: 1fr;
+    grid-auto-rows: auto;
+    gap: 4px;
+    padding: 12px 14px;
+  }
+  .member-row .who { gap: 8px; }
+  .role-chip { justify-self: start; }
+  .invite-row .invite-code,
+  .invite-row .dim,
+  .invite-row .actions-cell {
+    text-align: left !important;
+    justify-self: start;
+  }
+  .invite-row .actions-cell button {
+    padding-left: 0;
+  }
+}
