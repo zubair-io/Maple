@@ -276,140 +276,136 @@ async function start(): Promise<void> {
     );
   }
 
-  // Connect to MongoDB in the background — don't block server start.
-  getDb()
-    .then(ensureIndexes)
-    .then(() => log.info("DB ready"))
-    .then(async () => {
-      // Bridge cross-process change emissions: workers spawned by the
-      // supervisor live in child processes whose in-process bus is
-      // invisible to SSE clients connected here. The tailer polls
-      // `asset_changes` and republishes new rows to the parent bus so
-      // every SSE subscriber sees them. It is also the sole source of
-      // the bus's persisted high-watermark (see ChangeBus comments).
-      try {
-        await getChangeFeedTailer().start();
-      } catch (err) {
-        log.error(
-          { err },
-          "change feed tailer failed to start",
-        );
-      }
-    })
-    .then(async () => {
-      // Auto-start the in-process stage runners unless explicitly disabled
-      // (`MAPLE_INDEXER_AUTOSTART=0`).
-      if (process.env.MAPLE_INDEXER_AUTOSTART === "0") {
-        log.info("Indexer autostart disabled (MAPLE_INDEXER_AUTOSTART=0)");
-        return;
-      }
+  // Boot sequence runs in the background — don't block server start.
+  // Each phase is isolated: a failure (e.g. an IndexOptionsConflict during
+  // ensureIndexes, or a dup-key during a unique-index build) is logged
+  // and the next phase still runs. Only the DB connection itself is
+  // hard-required; without it, downstream phases are skipped.
+  void (async () => {
+    try {
+      await getDb();
+    } catch (err) {
+      log.warn(
+        { err },
+        "MongoDB not available — server continues, DB-bound routes will 503",
+      );
+      return;
+    }
+
+    try {
+      await ensureIndexes();
+      log.info("DB ready");
+    } catch (err) {
+      log.error(
+        { err },
+        "ensureIndexes failed — continuing without all indexes; affected routes may be slower until resolved",
+      );
+    }
+
+    try {
+      // Republishes `asset_changes` rows onto the in-process bus so SSE
+      // clients see worker-emitted changes.
+      await getChangeFeedTailer().start();
+    } catch (err) {
+      log.error(
+        { err },
+        "change feed tailer failed to start",
+      );
+    }
+
+    // Auto-start the in-process stage runners unless explicitly disabled.
+    if (process.env.MAPLE_INDEXER_AUTOSTART === "0") {
+      log.info("Indexer autostart disabled (MAPLE_INDEXER_AUTOSTART=0)");
+    } else {
       try {
         await startAllStages();
         log.info(stageRegistry.statuses(), "Worker stages running");
-      } catch (e) {
+      } catch (err) {
         log.warn(
-          { err: e },
+          { err },
           "Worker stages failed to start",
         );
       }
 
-      // Resolve discover roots: one entry per registered folder. The
-      // file-system watcher runs in-process and feeds new docs into the
-      // stage runners via the same Mongo collection.
       try {
         const foldersColl = await foldersCollection();
-        const folders = await foldersColl.find({}, { projection: { path: 1 } }).toArray();
+        const folders = await foldersColl
+          .find({}, { projection: { path: 1 } })
+          .toArray();
         const discoverRoots = folders.map((f) => f.path).filter(Boolean);
         if (discoverRoots.length > 0) {
           _discoverHandle = await startDiscover({ roots: discoverRoots });
         }
-      } catch (e) {
-        log.warn(
-          { err: e },
-          "Discover failed to start",
-        );
-      }
-    })
-    .then(() =>
-      // Slow-tier enrichment workers run in-process. The boot path
-      // health-checks the configured Nominatim instance once. A failure no
-      // longer exits the process — the operator can fix the URL via the
-      // /settings/enrichment UI without a restart. The error is logged so
-      // headless deployments still see it.
-      startGeocodeWorker().catch((err) => {
-        log.error(
-          { err },
-          "geocode worker failed to start; fix via /settings/enrichment",
-        );
-      }),
-    )
-    .then(() =>
-      // Phase 5: face worker. Default off. When enabled, model load can
-      // fail silently (file missing + no download URL) — the worker stays
-      // dormant in that case so the API stays up. Operator recovers via
-      // /settings/enrichment.
-      startFaceWorker().catch((err) => {
-        log.error(
-          { err },
-          "face worker failed to start; fix via /settings/enrichment",
-        );
-      }),
-    )
-    .then(() =>
-      // Phase 6: describe worker (vision-LLM caption generator). Local
-      // Ollama by default — no API key needed. Health check at boot;
-      // failures are logged and the operator can fix via
-      // /settings/enrichment without a restart.
-      startDescribeWorker().catch((err) => {
-        log.error(
-          { err },
-          "describe worker failed to start; fix via /settings/enrichment",
-        );
-      }),
-    )
-    .then(async () => {
-      // Phase 7: Meilisearch sidecar. `health()` returns false when the
-      // URL is unset OR when the service is unreachable. We warn-and-
-      // continue in either case — the search route falls back to Mongo
-      // `$text` so the API stays up. `ensureIndex()` is idempotent.
-      const meili = meilisearchClient();
-      if (!meili.isConfigured()) {
-        log.info("MAPLE_MEILISEARCH_URL unset — Meilisearch sidecar disabled");
-        return;
-      }
-      const healthy = await meili.health();
-      if (!healthy) {
-        log.warn(
-          "Meilisearch health check failed; search will fall back to Mongo $text until the service is reachable",
-        );
-        return;
-      }
-      try {
-        await meili.ensureIndex();
-        log.info("Meilisearch sidecar ready");
       } catch (err) {
         log.warn(
           { err },
-          "Meilisearch ensureIndex failed; search will fall back to Mongo $text",
+          "Discover failed to start",
         );
       }
-    })
-    .then(() => {
-      // JobRunner — sibling subsystem to the indexer pipeline for
-      // user-triggered long-running work (export, batch reprocess). See
-      // `docs/workers-architecture.md` §9, §11. Reuses the FFI pool for
-      // heavy lifting; one in-flight job per process is enough for v1.
-      startJobRunner();
-    })
-    .catch((err) => {
+    }
+
+    // Slow-tier enrichment workers run in-process. Each one's failure is
+    // isolated — the operator recovers via /settings/enrichment without a
+    // restart.
+    try {
+      await startGeocodeWorker();
+    } catch (err) {
+      log.error(
+        { err },
+        "geocode worker failed to start; fix via /settings/enrichment",
+      );
+    }
+
+    try {
+      await startFaceWorker();
+    } catch (err) {
+      log.error(
+        { err },
+        "face worker failed to start; fix via /settings/enrichment",
+      );
+    }
+
+    try {
+      await startDescribeWorker();
+    } catch (err) {
+      log.error(
+        { err },
+        "describe worker failed to start; fix via /settings/enrichment",
+      );
+    }
+
+    try {
+      // Meilisearch sidecar. Search falls back to Mongo $text when
+      // unconfigured / unreachable / index build fails.
+      const meili = meilisearchClient();
+      if (!meili.isConfigured()) {
+        log.info("MAPLE_MEILISEARCH_URL unset — Meilisearch sidecar disabled");
+      } else if (!(await meili.health())) {
+        log.warn(
+          "Meilisearch health check failed; search will fall back to Mongo $text until the service is reachable",
+        );
+      } else {
+        await meili.ensureIndex();
+        log.info("Meilisearch sidecar ready");
+      }
+    } catch (err) {
       log.warn(
         { err },
-        "MongoDB not available",
+        "Meilisearch boot failed; search will fall back to Mongo $text",
       );
+    }
+
+    try {
+      // JobRunner — sibling subsystem to the indexer pipeline for
+      // user-triggered long-running work (export, batch reprocess).
+      startJobRunner();
+    } catch (err) {
       log.warn(
-        "Server continues without DB. API routes that need DB will return 503.",
+        { err },
+        "JobRunner failed to start",
       );
-    });
+    }
+  })();
 
   const app = buildApp();
   app.listen(PORT);
