@@ -374,18 +374,23 @@ export async function ensureIndexes(): Promise<void> {
 
   // Reset describe-stage dead rows whose dead-letter reason was an enum
   // mismatch or a null-value rejection now handled by the tolerant
-  // synonym maps + null-defaults. Covers the rest of the parse-error
-  // patterns observed in production: bad-enum on every constrained
-  // field, and wrong-type on subjects/colors/notable_objects/time_of_day
-  // (which qwen returns as null on featureless images). One-shot.
+  // synonym maps + null-defaults. Covers the parse-error patterns this
+  // PR specifically fixes — `bad-enum` on the seven constrained fields,
+  // and `wrong-type` on the three array fields + the enum fields qwen
+  // returns null for on featureless images. The closing `\]` keeps the
+  // match anchored to the exact bracketed-reason form so unrelated
+  // failure modes (e.g. `bad-enum:future_field`) don't get reset by
+  // mistake. One-shot.
   if (!(await migrationApplied(db, "reset-describe-dead-vision-parse-2026-05-21"))) {
     try {
+      const enumFields = "scene_type|time_of_day|lighting|weather|composition|shot_type|indoor_outdoor";
+      const nullableFields = "subjects|colors|notable_objects|time_of_day|scene_type|lighting|weather|mood|composition|shot_type|indoor_outdoor";
       const res = await db.collection("assets").updateMany(
         {
           "stages.describe.dead": true,
           "stages.describe.last_error": {
             $regex:
-              "vision-parse\\[(bad-enum|wrong-type:(subjects|colors|notable_objects|time_of_day|scene_type|lighting|weather|mood|composition|shot_type|indoor_outdoor))\\b",
+              `vision-parse\\[(bad-enum:(${enumFields})|wrong-type:(${nullableFields}))\\]`,
           },
         },
         {

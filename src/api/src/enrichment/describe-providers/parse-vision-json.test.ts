@@ -330,6 +330,28 @@ describe("parseVisionJson — rejection paths", () => {
     expect(out.indoor_outdoor).toBe("outdoor");
   });
 
+  it("preserves the reason taxonomy: non-string enum input is wrong-type, unmapped string is bad-enum", () => {
+    // Non-string for an enum field → wrong-type (the model gave us the
+    // wrong shape entirely, not just a bad value).
+    try {
+      parseVisionJson(JSON.stringify({ ...VALID, scene_type: 42 }));
+      throw new Error("expected throw");
+    } catch (e) {
+      const err = e as VisionParseError;
+      expect(err.reason).toBe("wrong-type");
+      expect(err.field).toBe("scene_type");
+    }
+    // String that isn't in allowed and has no synonym → bad-enum.
+    try {
+      parseVisionJson(JSON.stringify({ ...VALID, scene_type: "intergalactic" }));
+      throw new Error("expected throw");
+    } catch (e) {
+      const err = e as VisionParseError;
+      expect(err.reason).toBe("bad-enum");
+      expect(err.field).toBe("scene_type");
+    }
+  });
+
   it("still rejects garbage enum values that have no synonym mapping", () => {
     const v = { ...VALID, scene_type: "intergalactic" };
     try {
