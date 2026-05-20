@@ -149,5 +149,11 @@ export const backupSidecarRoutes = new Elysia().post(
   {
     params: t.Object({ libraryId: t.String() }),
     body: t.Any(),
+    // Force raw-byte parsing regardless of incoming Content-Type. iOS clients
+    // post the XMP with `Content-Type: application/xml`, whose char-at-12 is
+    // 'x' — colliding with `application/x-www-form-urlencoded` in Elysia's
+    // fast switch (compose.mjs:438-444), which would hand the handler a
+    // URLSearchParams-parsed object instead of an ArrayBuffer.
+    parse: "arrayBuffer",
   },
 );

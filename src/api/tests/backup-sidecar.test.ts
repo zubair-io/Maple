@@ -78,6 +78,25 @@ describe("POST /api/libraries/:id/backup/sidecar", () => {
     expect(onDisk).toBe(xmp);
   });
 
+  test("Content-Type: application/xml — body must arrive as raw bytes", async () => {
+    // iOS UploadClient sends `Content-Type: application/xml` for sidecars.
+    // Elysia's content-type-driven body parser must not coerce the XMP into
+    // a parsed URLSearchParams-style object; the route handler expects raw
+    // bytes. Regression test for sidecar uploads silently failing in prod.
+    const xmp = `<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description maple:favorite="False"/></rdf:RDF></x:xmpmeta>`;
+    const res = await app.handle(
+      sidecarRequest(xmp, {
+        "Content-Type": "application/xml",
+        "X-Maple-Device-Id": deviceId,
+        "X-Maple-Phasset-Id": phid,
+        "X-Maple-Target-Rel-Path": targetRelPath,
+      }),
+    );
+    expect(res.status).toBe(200);
+    const onDisk = await fs.readFile(path.join(tmpLib, `${targetRelPath}.xmp`), "utf8");
+    expect(onDisk).toBe(xmp);
+  });
+
   test("second write — overwrites existing sidecar atomically", async () => {
     const xmp1 = `<x:xmpmeta>v1</x:xmpmeta>`;
     const xmp2 = `<x:xmpmeta>v2</x:xmpmeta>`;
