@@ -58,7 +58,6 @@ export * from './lib/shells/editor-shell/editor-shell.component';
 export * from './lib/components/folder-tree/folder-tree.component';
 export * from './lib/components/asset-grid/asset-grid.component';
 export * from './lib/components/asset-thumb/asset-thumb.component';
-export * from './lib/components/browse-detail-panel/browse-detail-panel.component';
 export * from './lib/components/drop-zone/drop-zone.component';
 export * from './lib/components/image-canvas/image-canvas.service';
 export * from './lib/components/image-canvas/image-canvas.component';
