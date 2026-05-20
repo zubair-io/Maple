@@ -37,11 +37,16 @@ export class WorkerConfigDialogComponent implements OnInit {
 
   /** The stage this dialog is editing. */
   readonly stage = input.required<StageStatus>();
-  /** Persisted config snapshot taken when the dialog opens. The parent polls
-   * status every ~2s and re-emits a fresh config object each tick; we
-   * deliberately ignore those mid-dialog updates so the operator's in-progress
-   * edits aren't wiped out from under them. (Dialog is destroyed/recreated on
-   * every open, so the next open re-snapshots the latest values.) */
+  /** Live config signal. Read once in `ngOnInit` to initialize the form —
+   * subsequent polled updates do NOT re-sync the form, so the operator's
+   * in-progress edits aren't wiped out by the parent's 2 s status poll.
+   * (Dialog is destroyed/recreated on every open, so the next open
+   * re-reads the latest values.)
+   *
+   * Other reads — currently just the `paused` / `last_seen_target_version`
+   * fallback in `save()` for non-form fields — intentionally see the live
+   * value, since those fields are not user-edited and we want the freshest
+   * polled values when echoing the config back to the parent. */
   readonly config = input.required<WorkerConfig>();
 
   /** Fires with the returned config on a successful PATCH. */
