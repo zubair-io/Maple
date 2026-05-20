@@ -585,7 +585,7 @@ public actor ImageEditPipeline {
         // pipeline's algorithmic decisions verbatim, which closes the
         // drift between Apple and Rust on every cheap stage.
         //
-        // WB contract (paired with `strip_apple_gpu_stages` in raw-ffi):
+        // WB contract (paired with `RawCoreBridge.stripAppleGPUStages`):
         //
         //   1. The FFI scene-linear decode FORCES `temperature=6500,
         //      tint=0`, so the Rust `white_balance::apply` early-exits.
