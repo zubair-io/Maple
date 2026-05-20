@@ -23,15 +23,16 @@ import {
 import {
   loadEnrichmentConfig,
   resolveEnrichmentConfig,
+  QWEN_VL_OLLAMA_TAG,
   type ResolvedEnrichmentConfig,
 } from "./enrichment-config.repo.ts";
 import { resetDescribeDeps } from "../workers/stages/describe.ts";
 
 const log = childLogger("describe");
 
-/** Fixed model — must match `FIXED_DESCRIBE_MODEL` in
- * `workers/stages/describe.ts`. Logged at boot for operator visibility. */
-const LOCKED_MODEL = "qwen2.5-vl:7b";
+/** Logged at boot for operator visibility. Single source of truth for
+ * the Ollama tag lives in `enrichment-config.repo.ts`. */
+const LOCKED_MODEL = QWEN_VL_OLLAMA_TAG;
 
 /**
  * Lifecycle hook called at boot. In Plan 3+ the stage-controller runtime

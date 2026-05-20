@@ -357,7 +357,7 @@ describe("GET /api/assets/:id (extended payload)", () => {
           ocr_text: "hello",
           ocr_meta: {
             engine: "qwen2.5-vl",
-            engine_version: "qwen2.5-vl:7b",
+            engine_version: "qwen2.5vl:7b",
             generated_at: new Date().toISOString(),
             mean_confidence: null,
           },

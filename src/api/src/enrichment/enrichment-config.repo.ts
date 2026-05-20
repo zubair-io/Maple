@@ -40,13 +40,25 @@ export const MAX_NOMINATIM_RATE_LIMIT_PER_SEC = 100;
  * Self Hosted deploy working out of the box without an API key. */
 export const DEFAULT_DESCRIBE_PROVIDER: DescribeProviderName = "ollama";
 export const DEFAULT_DESCRIBE_OLLAMA_URL = "http://localhost:11434";
+
+/**
+ * Ollama library tag for the locked vision model. The hyphen between "5"
+ * and "vl" is intentionally absent — that matches Ollama's published name
+ * (`ollama pull qwen2.5vl:7b`). Earlier code used the HuggingFace form
+ * `qwen2.5-vl:7b`, which Ollama 404s on. Single source of truth so the
+ * stage handler, the bootstrap health check, and the UI copy can't drift.
+ *
+ * `ocr_meta.engine` (a Maple-internal discriminator) is unrelated and stays
+ * `"qwen2.5-vl"` — changing that would invalidate every existing DB row.
+ */
+export const QWEN_VL_OLLAMA_TAG = "qwen2.5vl:7b";
+
 export const DEFAULT_DESCRIBE_MODELS: Record<DescribeProviderName, string> = {
-  // Default to qwen2.5-vl:7b — produces structured JSON matching the
-  // DEFAULT_DESCRIBE_VISION_PROMPT schema below. The previous "llava:latest"
-  // default produced free-text captions and is no longer compatible with
-  // the parser; operators staying on llava must also override
-  // describe_system_prompt back to the legacy DEFAULT_DESCRIBE_SYSTEM_PROMPT.
-  ollama: "qwen2.5-vl:7b",
+  // Default to the Ollama qwen2.5-VL 7B tag. Produces structured JSON
+  // matching DEFAULT_DESCRIBE_VISION_PROMPT below. The previous
+  // "llava:latest" default produced free-text captions incompatible with
+  // the parser, and the earlier `qwen2.5-vl:7b` form was a 404 on Ollama.
+  ollama: QWEN_VL_OLLAMA_TAG,
   anthropic: "claude-haiku-4-5",
   openai: "gpt-4o-mini",
   gemini: "gemini-flash",

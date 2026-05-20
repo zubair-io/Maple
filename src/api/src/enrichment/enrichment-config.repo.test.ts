@@ -12,10 +12,26 @@ import {
 } from "bun:test";
 import { MongoClient, type Db } from "mongodb";
 import {
+  DEFAULT_DESCRIBE_MODELS,
+  QWEN_VL_OLLAMA_TAG,
   loadEnrichmentConfig,
   resolveEnrichmentConfig,
   saveEnrichmentConfig,
 } from "./enrichment-config.repo.ts";
+
+describe("QWEN_VL_OLLAMA_TAG — pinned literal", () => {
+  // Hyphen vs no-hyphen burned us once (PR #182 follow-up): the Qwen team
+  // names it `qwen2.5-vl` but Ollama's library publishes it as
+  // `qwen2.5vl` (no hyphen between "5" and "vl"). Pinning the literal so
+  // a future rename to the HuggingFace form 404s in CI instead of in prod.
+  it("matches Ollama's library tag exactly", () => {
+    expect(QWEN_VL_OLLAMA_TAG).toBe("qwen2.5vl:7b");
+  });
+
+  it("is the default for the Ollama provider", () => {
+    expect(DEFAULT_DESCRIBE_MODELS.ollama).toBe(QWEN_VL_OLLAMA_TAG);
+  });
+});
 
 const TEST_DB = `maple_test_enrichment_cfg_${process.pid}`;
 process.env.MAPLE_MONGO_DB = TEST_DB;
