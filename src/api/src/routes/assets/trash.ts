@@ -191,11 +191,15 @@ export const trashRoutes = new Elysia()
       // with the same basename even though the file is at a new path.
       const restoredFilename = path.basename(result.newAbsPath);
       let restoredSize = doc.size;
-      let restoredMtimeIso = new Date().toISOString();
+      // `AssetDoc.mtime` is epoch-ms (number) per db/schema.ts. Persisting an
+      // ISO string here breaks the assets-list serialiser which does
+      // `Math.floor(r.mtime / 1000)` to hand seconds to the Swift client —
+      // a string would yield NaN, and the Swift consumer would see `null`.
+      let restoredMtime = Date.now();
       try {
         const st = await stat(result.newAbsPath);
         restoredSize = st.size;
-        restoredMtimeIso = new Date(st.mtimeMs).toISOString();
+        restoredMtime = st.mtimeMs;
       } catch (err) {
         assetsLog.warn(
           { absPath: result.newAbsPath, err: err instanceof Error ? err.message : String(err) },
@@ -220,7 +224,7 @@ export const trashRoutes = new Elysia()
             abs_path: result.newAbsPath,
             filename: restoredFilename,
             size: restoredSize,
-            mtime: restoredMtimeIso,
+            mtime: restoredMtime,
             deleted_at: null,
             original_path: null,
           } },
@@ -275,7 +279,7 @@ export const trashRoutes = new Elysia()
         abs_path: result.newAbsPath,
         filename: restoredFilename,
         size: restoredSize,
-        mtime: restoredMtimeIso,
+        mtime: restoredMtime,
       };
     },
     {

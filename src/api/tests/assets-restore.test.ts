@@ -171,7 +171,7 @@ describe("POST /api/assets/:id/restore", () => {
 
     const res = await app.handle(jsonReq(`http://localhost/api/assets/${assetId.toHexString()}/restore`, {}));
     expect(res.status).toBe(200);
-    const body = await res.json() as { abs_path: string; filename: string; size: number; mtime: string };
+    const body = await res.json() as { abs_path: string; filename: string; size: number; mtime: number };
     expect(body.abs_path).toBe(path.join(path.dirname(originalPath), "IMG_R3.restored.ARW"));
     expect(await fs.readFile(originalPath, "utf-8")).toBe("occupier");
     expect(await fs.readFile(body.abs_path, "utf-8")).toBe("raw");
@@ -179,13 +179,43 @@ describe("POST /api/assets/:id/restore", () => {
     // Provider extension doesn't need to stat the server-side path.
     expect(body.filename).toBe("IMG_R3.restored.ARW");
     expect(body.size).toBe(3); // "raw"
-    expect(body.mtime).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
+    // mtime is epoch-ms (number) per AssetDoc.mtime — see schema.ts:196.
+    // The assets-list serialiser does `Math.floor(r.mtime / 1000)` to hand
+    // seconds to the Swift client, so a string here would yield NaN.
+    expect(typeof body.mtime).toBe("number");
+    expect(Number.isFinite(body.mtime)).toBe(true);
     // Doc must carry the renamed filename so the unique
     // {folder_id, filename} index no longer reserves the OLD basename
     // (otherwise a fresh upload at the original name would 409).
     const doc = await db!.collection("assets").findOne({ _id: assetId }) as Record<string, unknown>;
     expect(doc.filename).toBe("IMG_R3.restored.ARW");
     expect(doc.size).toBe(3);
+    expect(typeof doc.mtime).toBe("number");
+  });
+
+  // Regression for #166: a restored asset's mtime must round-trip through
+  // the assets-list serialiser (`Math.floor(r.mtime / 1000)`) without
+  // producing NaN. Previously the restore handler wrote an ISO string
+  // here, which broke the Swift client's contentModificationDate.
+  test("restored mtime is a number and round-trips through assets-list /1000", async () => {
+    if (!mongoReachable) return;
+    const { app } = await import("../src/index.ts");
+    const { assetId } = await trashedAsset("IMG_R166.ARW");
+
+    const res = await app.handle(jsonReq(`http://localhost/api/assets/${assetId.toHexString()}/restore`, {}));
+    expect(res.status).toBe(200);
+    const body = await res.json() as { mtime: unknown };
+    expect(typeof body.mtime).toBe("number");
+    expect(Number.isFinite(body.mtime as number)).toBe(true);
+
+    const doc = await db!.collection("assets").findOne({ _id: assetId }) as Record<string, unknown>;
+    expect(typeof doc.mtime).toBe("number");
+    expect(Number.isFinite(doc.mtime as number)).toBe(true);
+    // Mirror the assets-list.ts serialiser: must yield a finite integer,
+    // not NaN.
+    const mtimeSeconds = Math.floor((doc.mtime as number) / 1000);
+    expect(Number.isNaN(mtimeSeconds)).toBe(false);
+    expect(Number.isFinite(mtimeSeconds)).toBe(true);
   });
 
   // Cat A3: cross-library restore must be rejected. The server's file
