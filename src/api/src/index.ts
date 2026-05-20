@@ -27,6 +27,14 @@
  *                        route uses the Mongo $text fallback only. See
  *                        `docs/operations/meilisearch.md`.
  *   MAPLE_MEILISEARCH_API_KEY — bearer key for the Meilisearch instance.
+ *   MAPLE_FACE_ORT_INTRA_OP_THREADS — intra-op thread count passed to
+ *                        onnxruntime-node when creating the face InferenceSession
+ *                        instances. Defaults to `min(4, availableParallelism())`.
+ *                        Set explicitly to suppress the host-CPU-count default,
+ *                        which spams `pthread_setaffinity_np failed` errors in
+ *                        cgroup-restricted containers.
+ *   MAPLE_FACE_ORT_INTER_OP_THREADS — inter-op thread count for the same.
+ *                        Defaults to 1 (sequential execution mode).
  */
 
 import { Elysia } from "elysia";
