@@ -218,12 +218,29 @@ export const xmpRoutes = new Elysia()
     return;
   });
 
+/**
+ * Escape a string for safe inclusion inside an XML attribute value.
+ *
+ * Filenames come from the indexed filesystem and may contain `& < > " '`,
+ * any of which would break well-formedness or — for `"` and `<` — allow
+ * attribute-breaking / element-injection into the `rdf:about` attribute
+ * (see #168). Map all five XML special characters to their entities.
+ */
+export function xmlAttrEscape(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
+}
+
 /** Minimal empty XMP document for an asset that has no sidecar yet. */
-function emptyXmp(filename: string): string {
+export function emptyXmp(filename: string): string {
   return `<?xml version="1.0" encoding="UTF-8"?>
 <x:xmpmeta xmlns:x="adobe:ns:meta/">
   <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
-    <rdf:Description rdf:about="${filename}"
+    <rdf:Description rdf:about="${xmlAttrEscape(filename)}"
       xmlns:xmp="http://ns.adobe.com/xap/1.0/"
       xmlns:maple="https://maple.app/xmp/1.0/"
       xmp:Rating="0"
