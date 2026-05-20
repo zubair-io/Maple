@@ -35,6 +35,14 @@ import type { AssetDoc, Place } from "../db/schema.ts";
 const searchLog = childLogger("search");
 
 const COLOR_LABELS = new Set(["", "red", "yellow", "green", "blue", "purple"]);
+const SCENE_TYPES = new Set([
+  "indoor",
+  "outdoor",
+  "aerial",
+  "macro",
+  "studio",
+  "mixed",
+]);
 const FLAG_BY_NAME: Record<string, -1 | 0 | 1> = {
   pick: 1,
   none: 0,
@@ -109,6 +117,16 @@ interface SearchQuery {
   ext?: string;
   pathPrefix?: string;
   hasCapturedAt?: string;
+  /** Closed-union from `vision.scene_type` (indoor / outdoor / aerial / …). */
+  sceneType?: string;
+  /** Open-vocab `vision.activity` exact match. */
+  activity?: string;
+  /** Comma-separated `vision.subjects` — OR within the field (any match
+   * wins), AND against other top-level filters. */
+  subjects?: string;
+  /** Screenshot filter. `"true"` shows only screenshots, `"false"` shows
+   * only photographs, omitted shows everything. */
+  isScreenshot?: string;
   page?: string;
   limit?: string;
   sort?: string;
@@ -268,6 +286,45 @@ export function buildFilter(
     (filter as Record<string, unknown>).abs_path = {
       $regex: "^" + escapeRegex(q.pathPrefix),
     };
+  }
+
+  // Vision scene_type — closed union, exact match.
+  if (q.sceneType !== undefined && q.sceneType !== "") {
+    if (!SCENE_TYPES.has(q.sceneType)) {
+      return { error: `Invalid sceneType: ${q.sceneType}` };
+    }
+    (filter as Record<string, unknown>)["vision.scene_type"] = q.sceneType;
+  }
+
+  // Vision activity — open vocab, exact match. Trim only; do not regex
+  // because the FE picks from the facet endpoint's exact values.
+  if (q.activity && q.activity.trim().length > 0) {
+    (filter as Record<string, unknown>)["vision.activity"] = q.activity.trim();
+  }
+
+  // Vision subjects — comma-separated. Mongo array-contains semantics make
+  // `{ "vision.subjects": { $in: [...] } }` an OR within the field. Combined
+  // with the other top-level filters via Mongo's implicit AND.
+  if (q.subjects && q.subjects.trim().length > 0) {
+    const subjects = q.subjects
+      .split(",")
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0);
+    if (subjects.length > 0) {
+      (filter as Record<string, unknown>)["vision.subjects"] = {
+        $in: subjects,
+      };
+    }
+  }
+
+  // Screenshot filter. Boolean stringified as "true" / "false"; anything
+  // else (omitted, empty, "any") leaves both kinds in the result set.
+  if (q.isScreenshot === "true") {
+    (filter as Record<string, unknown>).is_screenshot = true;
+  } else if (q.isScreenshot === "false") {
+    // `$ne: true` rather than `false` so rows where is_screenshot was
+    // never written (pre-#175 indexes) still appear under "Photos only".
+    (filter as Record<string, unknown>).is_screenshot = { $ne: true };
   }
 
   // Extensions: comma-separated, alphanumeric only.
@@ -440,6 +497,10 @@ const SearchQueryT = t.Object({
   ext: t.Optional(t.String()),
   pathPrefix: t.Optional(t.String()),
   hasCapturedAt: t.Optional(t.String()),
+  sceneType: t.Optional(t.String()),
+  activity: t.Optional(t.String()),
+  subjects: t.Optional(t.String()),
+  isScreenshot: t.Optional(t.String()),
   page: t.Optional(t.String()),
   limit: t.Optional(t.String()),
   sort: t.Optional(t.String()),
@@ -491,7 +552,12 @@ export const searchRoutes = new Elysia({ prefix: "/api/search" })
             limit,
           });
           if (meiliResult.ids.length === 0) {
-            return { total: meiliResult.estimatedTotal, page, limit, results: [] };
+            return {
+              total: meiliResult.estimatedTotal,
+              page,
+              limit,
+              results: [],
+            };
           }
           // Fetch full asset summaries for the Meilisearch ids. Strip
           // `$text` from the filter — Meilisearch already did the text
@@ -578,78 +644,145 @@ export const searchRoutes = new Elysia({ prefix: "/api/search" })
       const coll = await assetsCollection();
       const finalFilter = applyLiveFilter(filter);
 
-      const [total, cameraAgg, lensAgg, extAgg, isoAgg, capAgg] =
-        await Promise.all([
-          coll.countDocuments(finalFilter),
-          coll
-            .aggregate([
-              { $match: finalFilter },
-              {
-                $group: {
-                  _id: {
-                    make: "$exif.camera_make",
-                    model: "$exif.camera_model",
+      const [
+        total,
+        cameraAgg,
+        lensAgg,
+        extAgg,
+        isoAgg,
+        capAgg,
+        sceneAgg,
+        activityAgg,
+        subjectsAgg,
+        screenshotAgg,
+      ] = await Promise.all([
+        coll.countDocuments(finalFilter),
+        coll
+          .aggregate([
+            { $match: finalFilter },
+            {
+              $group: {
+                _id: {
+                  make: "$exif.camera_make",
+                  model: "$exif.camera_model",
+                },
+                count: { $sum: 1 },
+              },
+            },
+            { $sort: { count: -1 } },
+            { $limit: 50 },
+          ])
+          .toArray(),
+        coll
+          .aggregate([
+            { $match: finalFilter },
+            { $group: { _id: "$exif.lens", count: { $sum: 1 } } },
+            { $sort: { count: -1 } },
+            { $limit: 50 },
+          ])
+          .toArray(),
+        // Extensions: derive in Mongo via $split + $arrayElemAt — simpler
+        // than $regexFindAll and works on every supported server version.
+        coll
+          .aggregate([
+            { $match: finalFilter },
+            {
+              $project: {
+                ext: {
+                  $toLower: {
+                    $arrayElemAt: [{ $split: ["$filename", "."] }, -1],
                   },
-                  count: { $sum: 1 },
                 },
               },
-              { $sort: { count: -1 } },
-              { $limit: 50 },
-            ])
-            .toArray(),
-          coll
-            .aggregate([
-              { $match: finalFilter },
-              { $group: { _id: "$exif.lens", count: { $sum: 1 } } },
-              { $sort: { count: -1 } },
-              { $limit: 50 },
-            ])
-            .toArray(),
-          // Extensions: derive in Mongo via $split + $arrayElemAt — simpler
-          // than $regexFindAll and works on every supported server version.
-          coll
-            .aggregate([
-              { $match: finalFilter },
-              {
-                $project: {
-                  ext: {
-                    $toLower: {
-                      $arrayElemAt: [{ $split: ["$filename", "."] }, -1],
+            },
+            { $match: { ext: { $nin: [null, ""] } } },
+            { $group: { _id: "$ext", count: { $sum: 1 } } },
+            { $sort: { count: -1 } },
+            { $limit: 50 },
+          ])
+          .toArray(),
+        coll
+          .aggregate([
+            { $match: finalFilter },
+            {
+              $group: {
+                _id: null,
+                min: { $min: "$exif.iso" },
+                max: { $max: "$exif.iso" },
+              },
+            },
+          ])
+          .toArray(),
+        coll
+          .aggregate([
+            { $match: finalFilter },
+            {
+              $group: {
+                _id: null,
+                from: { $min: "$exif.captured_at" },
+                to: { $max: "$exif.captured_at" },
+              },
+            },
+          ])
+          .toArray(),
+        // Vision scene_type — scalar field, group directly.
+        coll
+          .aggregate([
+            { $match: finalFilter },
+            { $match: { "vision.scene_type": { $nin: [null, ""] } } },
+            { $group: { _id: "$vision.scene_type", count: { $sum: 1 } } },
+            { $sort: { count: -1 } },
+            { $limit: 20 },
+          ])
+          .toArray(),
+        // Vision activity — scalar nullable field.
+        coll
+          .aggregate([
+            { $match: finalFilter },
+            { $match: { "vision.activity": { $nin: [null, ""] } } },
+            { $group: { _id: "$vision.activity", count: { $sum: 1 } } },
+            { $sort: { count: -1 } },
+            { $limit: 50 },
+          ])
+          .toArray(),
+        // Vision subjects — array field; $unwind before $group so each
+        // element gets its own bucket.
+        coll
+          .aggregate([
+            { $match: finalFilter },
+            { $unwind: "$vision.subjects" },
+            { $match: { "vision.subjects": { $nin: [null, ""] } } },
+            { $group: { _id: "$vision.subjects", count: { $sum: 1 } } },
+            { $sort: { count: -1 } },
+            { $limit: 50 },
+          ])
+          .toArray(),
+        // Screenshot tri-state: true / false / unknown (field absent on
+        // legacy rows). Group on a $cond so the bucket key normalises.
+        coll
+          .aggregate([
+            { $match: finalFilter },
+            {
+              $project: {
+                bucket: {
+                  $cond: [
+                    { $eq: ["$is_screenshot", true] },
+                    "true",
+                    {
+                      $cond: [
+                        { $eq: ["$is_screenshot", false] },
+                        "false",
+                        "unknown",
+                      ],
                     },
-                  },
+                  ],
                 },
               },
-              { $match: { ext: { $nin: [null, ""] } } },
-              { $group: { _id: "$ext", count: { $sum: 1 } } },
-              { $sort: { count: -1 } },
-              { $limit: 50 },
-            ])
-            .toArray(),
-          coll
-            .aggregate([
-              { $match: finalFilter },
-              {
-                $group: {
-                  _id: null,
-                  min: { $min: "$exif.iso" },
-                  max: { $max: "$exif.iso" },
-                },
-              },
-            ])
-            .toArray(),
-          coll
-            .aggregate([
-              { $match: finalFilter },
-              {
-                $group: {
-                  _id: null,
-                  from: { $min: "$exif.captured_at" },
-                  to: { $max: "$exif.captured_at" },
-                },
-              },
-            ])
-            .toArray(),
-        ]);
+            },
+            { $group: { _id: "$bucket", count: { $sum: 1 } } },
+          ])
+          .toArray(),
+      ]);
 
       const cameras = cameraAgg.map((r) => ({
         make: r._id.make ?? null,
@@ -678,7 +811,37 @@ export const searchRoutes = new Elysia({ prefix: "/api/search" })
           ? { from: capRow.from as string, to: capRow.to as string }
           : null;
 
-      return { total, cameras, lenses, extensions, iso_range, capture_range };
+      const scene_types = sceneAgg
+        .filter((r) => typeof r._id === "string" && r._id.length > 0)
+        .map((r) => ({ value: r._id as string, count: r.count as number }));
+      const activities = activityAgg
+        .filter((r) => typeof r._id === "string" && r._id.length > 0)
+        .map((r) => ({ value: r._id as string, count: r.count as number }));
+      const subjects = subjectsAgg
+        .filter((r) => typeof r._id === "string" && r._id.length > 0)
+        .map((r) => ({ value: r._id as string, count: r.count as number }));
+
+      const is_screenshot = {
+        true:
+          (screenshotAgg.find((r) => r._id === "true")?.count as number | undefined) ?? 0,
+        false:
+          (screenshotAgg.find((r) => r._id === "false")?.count as number | undefined) ?? 0,
+        unknown:
+          (screenshotAgg.find((r) => r._id === "unknown")?.count as number | undefined) ?? 0,
+      };
+
+      return {
+        total,
+        cameras,
+        lenses,
+        extensions,
+        iso_range,
+        capture_range,
+        scene_types,
+        activities,
+        subjects,
+        is_screenshot,
+      };
     },
     { query: SearchQueryT },
   )
@@ -810,6 +973,10 @@ function makeBucketsCacheKey(q: SearchQuery): string {
     color: q.color ?? null,
     ext: q.ext ?? null,
     hasCapturedAt: q.hasCapturedAt ?? null,
+    sceneType: q.sceneType ?? null,
+    activity: q.activity ?? null,
+    subjects: q.subjects ?? null,
+    isScreenshot: q.isScreenshot ?? null,
   });
 }
 

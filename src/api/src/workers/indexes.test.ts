@@ -40,7 +40,7 @@ function makeDbStub(): { db: Db; getIndexes: (collName: string) => IndexSpec[] }
   };
 }
 
-const STAGE_NAMES = ["hash", "exif", "thumb", "face", "ocr", "describe", "geocode", "meili"];
+const STAGE_NAMES = ["hash", "exif", "thumb", "preview", "face", "describe", "geocode", "meili"];
 
 describe("ensureStageIndexes", () => {
   it("creates a version index for each known stage (no partial filter)", async () => {

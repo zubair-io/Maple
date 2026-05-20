@@ -11,11 +11,41 @@
  * dependsOn: ["hash"]   — needs sha1_head on the doc (written by hash).
  */
 import * as fs from "node:fs/promises";
+import * as path from "node:path";
 import { readExif } from "../../indexer/exif.ts";
 import { deriveId } from "../../indexer/id.ts";
 import { defineStage, runStage, type RunStageHandle } from "../run-stage.ts";
 
 const SHA1_HEAD_BYTES = 64 * 1024;
+
+/** Filename patterns that almost always indicate a screenshot.
+ *
+ *   iOS:     "Screenshot 2026-05-19 at 10.04.32.png"
+ *   macOS:   "Screen Shot 2024-12-01 at 1.23.45 PM.png"
+ *   Android: "Screenshot_20240601_102030.png" / "Screenshot_2024-06-01.png"
+ *
+ * Anchored to start-of-name so a file someone explicitly named
+ * "my-screenshot-of-X.png" doesn't get auto-categorised.
+ */
+const SCREENSHOT_FILENAME_RE = /^(Screenshot[\s_-]|Screen[\s]Shot[\s])/i;
+
+/** Heuristic screenshot detection from filename + EXIF. Conservative
+ * — only fires when the camera_make is empty AND the filename matches
+ * a known screenshot pattern. False positives are worse than false
+ * negatives because the describe stage will correct false negatives on
+ * its next pass but a false positive sticks in the "Photos" view until
+ * the operator manually clears it.
+ *
+ * The describe stage overwrites this with the qwen2.5-vl verdict once
+ * it runs, which handles cropped screenshots and photos-of-screens. */
+export function isLikelyScreenshot(
+  filename: string,
+  cameraMake: string | null | undefined,
+): boolean {
+  if (cameraMake && cameraMake.trim().length > 0) return false;
+  const base = path.basename(filename);
+  return SCREENSHOT_FILENAME_RE.test(base);
+}
 
 async function readHead(absPath: string): Promise<Uint8Array> {
   const fd = await fs.open(absPath, "r");
@@ -53,7 +83,11 @@ const exifStage = defineStage({
 
     const exif = await readExif(absPath);
 
-    const patch: Record<string, unknown> = { exif };
+    const patch: Record<string, unknown> = {
+      exif,
+      // Heuristic screenshot seed — describe stage refines this later.
+      is_screenshot: isLikelyScreenshot(absPath, exif?.camera_make ?? null),
+    };
 
     // Upgrade maple_id to primary form if capturedAt is available.
     if (exif?.captured_at) {

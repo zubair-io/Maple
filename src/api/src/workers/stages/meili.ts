@@ -19,7 +19,10 @@
 
 import type { ImageDoc, StageContext, StageResult } from "../run-stage.ts";
 import { defineStage, runStage, type RunStageHandle } from "../run-stage.ts";
-import { meilisearchClient, type MeilisearchClient } from "../../enrichment/meilisearch-client.ts";
+import {
+  meilisearchClient,
+  type MeilisearchClient,
+} from "../../enrichment/meilisearch-client.ts";
 import { composeSearchBlob } from "../../enrichment/search-blob.ts";
 
 let _client: MeilisearchClient | null = null;
@@ -29,7 +32,9 @@ function getClient(): MeilisearchClient {
 }
 
 /** Test-only setter. Call with `null` to reset between tests. */
-export function setMeilisearchClientForTests(client: MeilisearchClient | null): void {
+export function setMeilisearchClientForTests(
+  client: MeilisearchClient | null,
+): void {
   _client = client;
 }
 
@@ -42,11 +47,29 @@ export async function meiliHandler(
     return { skip: "no-maple-id" };
   }
 
+  // Vision signals from the qwen2.5-vl describe stage — see schema.ts
+  // §VisionDoc. Optional: `vision` is null on assets that haven't been
+  // through the describe stage yet (paused on first boot, paid provider
+  // without a key, etc.) — the blob simply omits them in that case.
+  const vision =
+    (
+      image as unknown as {
+        vision?: import("../../db/schema.ts").VisionDoc | null;
+      }
+    ).vision ?? null;
+
   const blob = composeSearchBlob({
     place: image.place,
     description: image.description,
     ocrText: (image as unknown as { ocr_text?: string }).ocr_text ?? null,
+    visionSubjects: vision?.subjects ?? null,
+    visionSetting: vision?.setting ?? null,
+    visionActivity: vision?.activity ?? null,
+    visionNotableObjects: vision?.notable_objects ?? null,
   });
+
+  const isScreenshot =
+    (image as unknown as { is_screenshot?: boolean }).is_screenshot ?? null;
 
   const client = getClient();
   if (client.isConfigured()) {
@@ -58,6 +81,10 @@ export async function meiliHandler(
       folderId: image.folder_id.toHexString(),
       capturedAt: image.exif?.captured_at ?? null,
       deletedAt: null,
+      visionSceneType: vision?.scene_type ?? null,
+      visionActivity: vision?.activity ?? null,
+      visionSubjects: vision?.subjects ?? null,
+      isScreenshot,
     });
   }
 
@@ -66,11 +93,23 @@ export async function meiliHandler(
 
 const meiliStage = defineStage({
   name: "meili",
-  // v2: ocr v2 introduces a mean-confidence gate that blanks `ocr_text` on
-  // textureless photos. Without bumping meili too, the search index keeps
-  // the pre-gate (poisoned) text for rows already meili'd at v1. Bumping
-  // here forces a re-index against the cleaned ocr_text.
-  targetVersion: 2,
+  // v2: introduced a mean-confidence gate on `ocr_text` (removed with the
+  // legacy OCR stage). Bumping forced a re-index against the cleaned value.
+  //
+  // v3: search_blob now folds in the structured vision fields
+  // (subjects / setting / activity / notable_objects) from the qwen2.5-vl
+  // describe stage. Bumping invalidates v2 rows so the index picks up the
+  // new tokens.
+  //
+  // v4: the Meilisearch document now carries discrete `visionSceneType` /
+  // `visionActivity` / `visionSubjects` fields (filterable attributes) for
+  // the browse-facets UI. Bumping forces re-index so v3 rows learn the
+  // new attribute shape.
+  //
+  // v5: adds `isScreenshot` to the Meilisearch document + filterable
+  // attributes for the photos-vs-screenshots filter. Bumping invalidates
+  // v4 rows so the index picks up the new field.
+  targetVersion: 5,
   // Only depends on always-on stages. When optional stages (face/ocr/describe/geocode)
   // run later, meili won't automatically re-process to incorporate their outputs.
   // Operator must bump meili.targetVersion or trigger a manual reset to refresh.

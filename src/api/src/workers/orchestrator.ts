@@ -22,8 +22,8 @@ import { stageRegistry } from "./registry.ts";
 import { startHashStage } from "./stages/hash.ts";
 import { startExifStage } from "./stages/exif.ts";
 import { startThumbStage } from "./stages/thumb.ts";
+import { startPreviewStage } from "./stages/preview.ts";
 import { startFaceStage } from "./stages/face.ts";
-import { startOcrStage } from "./stages/ocr.ts";
 import { startDescribeStage } from "./stages/describe.ts";
 import { startGeocodeStage } from "./stages/geocode.ts";
 import { startMeiliStage } from "./stages/meili.ts";
@@ -34,8 +34,8 @@ const STAGE_STARTERS: ReadonlyArray<readonly [string, () => Promise<RunStageHand
   ["hash", startHashStage],
   ["exif", startExifStage],
   ["thumb", startThumbStage],
+  ["preview", startPreviewStage],
   ["face", startFaceStage],
-  ["ocr", startOcrStage],
   ["describe", startDescribeStage],
   ["geocode", startGeocodeStage],
   ["meili", startMeiliStage],

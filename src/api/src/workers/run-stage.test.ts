@@ -213,6 +213,11 @@ describe("bootConfig", () => {
   });
 
   it("backfills missing integer fields from defaults on partial docs", async () => {
+    // Reproduces the production bug: a PATCH /api/workers/face/config landing
+    // before the child's first bootConfig writes a doc with $setOnInsert
+    // limited to `name`. The doc is missing the integer fields the poll
+    // loop needs. Without the merge, the next limit() call throws
+    // `Operation "limit" requires an integer` on every tick.
     const coll = makeConfigMock();
     await (coll as unknown as { updateOne: Function }).updateOne(
       { name: "hash" },

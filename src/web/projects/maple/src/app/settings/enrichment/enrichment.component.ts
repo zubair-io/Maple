@@ -77,8 +77,6 @@ export class EnrichmentComponent implements OnInit {
   readonly faceRetinafaceSha = signal<string>('');
   readonly faceMobilefacenetUrl = signal<string>('');
   readonly faceMobilefacenetSha = signal<string>('');
-  // ── OCR worker (Phase 8) ──────────────────────────────────────────
-  readonly ocrEnabled = signal<boolean>(false);
 
   readonly loadError = signal<string | null>(null);
   readonly saveError = signal<string | null>(null);
@@ -113,7 +111,6 @@ export class EnrichmentComponent implements OnInit {
         this.faceRetinafaceSha.set(cfg.face_retinaface_sha256 ?? '');
         this.faceMobilefacenetUrl.set(cfg.face_mobilefacenet_url ?? '');
         this.faceMobilefacenetSha.set(cfg.face_mobilefacenet_sha256 ?? '');
-        this.ocrEnabled.set(cfg.ocr_worker_enabled);
       },
       error: (err) => {
         this.loadError.set(this.errorMessage(err));
@@ -284,7 +281,6 @@ export class EnrichmentComponent implements OnInit {
       face_mobilefacenet_sha256: this.faceMobilefacenetSha().trim().length > 0
         ? this.faceMobilefacenetSha().trim()
         : null,
-      ocr_worker_enabled: this.ocrEnabled(),
     };
     this.saveError.set(null);
     this.saveStatus.set('saving');
@@ -307,7 +303,6 @@ export class EnrichmentComponent implements OnInit {
         this.faceRetinafaceSha.set(cfg.face_retinaface_sha256 ?? '');
         this.faceMobilefacenetUrl.set(cfg.face_mobilefacenet_url ?? '');
         this.faceMobilefacenetSha.set(cfg.face_mobilefacenet_sha256 ?? '');
-        this.ocrEnabled.set(cfg.ocr_worker_enabled);
         this.saveStatus.set('success');
         // Clear the success indicator after a moment so the page stays clean.
         setTimeout(() => {

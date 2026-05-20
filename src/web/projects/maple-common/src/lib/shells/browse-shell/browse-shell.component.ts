@@ -13,7 +13,6 @@ import { Router, RouterLink } from '@angular/router';
 import { LibraryStateService } from '../../state/library-state.service';
 import { FolderTreeComponent } from '../../components/folder-tree/folder-tree.component';
 import { AssetGridComponent } from '../../components/asset-grid/asset-grid.component';
-import { BrowseDetailPanelComponent } from '../../components/browse-detail-panel/browse-detail-panel.component';
 import { DropZoneComponent } from '../../components/drop-zone/drop-zone.component';
 import { LoadingBannerComponent } from '../../components/loading-banner/loading-banner.component';
 import { ErrorBannerComponent } from '../../components/error-banner/error-banner.component';
@@ -30,7 +29,6 @@ import { TimelineViewComponent } from '../../components/timeline-view/timeline-v
     RouterLink,
     FolderTreeComponent,
     AssetGridComponent,
-    BrowseDetailPanelComponent,
     DropZoneComponent,
     LoadingBannerComponent,
     ErrorBannerComponent,
@@ -151,13 +149,6 @@ export class BrowseShellComponent implements OnInit {
     // ⌘⌥S / Ctrl+Alt+S — toggle sidebar
     if ((e.metaKey || e.ctrlKey) && e.altKey && (e.key === 's' || e.key === 'S')) {
       this.state.toggleSidebar();
-      e.preventDefault();
-      return;
-    }
-
-    // ⌘⌥D / Ctrl+Alt+D — toggle inspector
-    if ((e.metaKey || e.ctrlKey) && e.altKey && (e.key === 'd' || e.key === 'D')) {
-      this.state.toggleInspector();
       e.preventDefault();
       return;
     }

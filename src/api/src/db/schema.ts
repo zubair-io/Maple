@@ -70,6 +70,120 @@ export interface AssetExif {
   gps: { lat: number; lng: number } | null;
 }
 
+/**
+ * Structured photo-vision metadata emitted by the qwen2.5-vl describe stage.
+ *
+ * One JSON object per asset, produced by a single VLM pass over the 1280-px
+ * preview. The fields are independently queryable so the UI can filter by
+ * subject, scene, activity, etc. without first having to read free-text
+ * captions.
+ *
+ * Versioned by `vision_meta.{model, prompt_version}`: bumping either causes
+ * the runtime to invalidate stale rows and re-run the stage.
+ *
+ * Spec: `docs/superpowers/specs/2026-05-19-qwen-vision-ocr-design.md`.
+ */
+export interface VisionDoc {
+  /** 1–2 sentence caption focused on searchable content. Mirrors the
+   * top-level `description` field; kept here so the structured doc is
+   * self-contained. */
+  caption: string;
+  /** Categorical subject types: "person", "child", "adult", "dog", "cat",
+   * "building", "vehicle", "landscape", "food", "plant", … Open vocabulary,
+   * but the prompt guides the model toward common values. */
+  subjects: string[];
+  scene_type:
+    | "indoor"
+    | "outdoor"
+    | "aerial"
+    | "macro"
+    | "studio"
+    | "mixed";
+  /** Specific environment, e.g. "kitchen", "beach", "sports field".
+   * Free-text but constrained by the prompt's examples. `null` when the
+   * model cannot identify the setting. */
+  setting: string | null;
+  /** What is happening, e.g. "lacrosse", "cooking", "hiking". `null` for
+   * a static scene with no action. */
+  activity: string | null;
+  time_of_day:
+    | "morning"
+    | "midday"
+    | "afternoon"
+    | "golden hour"
+    | "evening"
+    | "night"
+    | "unknown";
+  lighting:
+    | "natural"
+    | "artificial"
+    | "mixed"
+    | "low-light"
+    | "backlit"
+    | "flash";
+  weather:
+    | "clear"
+    | "cloudy"
+    | "rainy"
+    | "snowy"
+    | "foggy"
+    | "indoor"
+    | "unknown";
+  /** 1–3 words describing atmosphere. */
+  mood: string;
+  /** Dominant colors, max 5. */
+  colors: string[];
+  composition:
+    | "wide shot"
+    | "close-up"
+    | "portrait"
+    | "landscape"
+    | "aerial"
+    | "macro"
+    | "candid";
+  /** Any readable text in the image. `null` when there is none. The
+   * describe stage mirrors this value into `ocr_text` and stamps
+   * `ocr_meta.engine = "qwen2.5-vl"` on every run. */
+  text_visible: string | null;
+  /** Distinctive objects, max 8. */
+  notable_objects: string[];
+  shot_type:
+    | "action"
+    | "static"
+    | "candid"
+    | "posed"
+    | "architectural"
+    | "nature"
+    | "event";
+  indoor_outdoor: "indoor" | "outdoor";
+  /** True when the image is a screenshot of a phone/computer/app UI
+   * rather than a photograph. Canonical signal — the top-level
+   * `AssetDoc.is_screenshot` mirrors this once the describe stage has
+   * run, overwriting whatever the exif stage's filename heuristic
+   * guessed first. */
+  is_screenshot: boolean;
+}
+
+/**
+ * Provenance for the `vision` subdoc.
+ *
+ * `prompt_version` is the lever used to invalidate stale rows when the
+ * prompt copy changes — bump it in `workers/stages/describe.ts` and the
+ * runtime will reprocess.
+ */
+export interface VisionMeta {
+  /** Describe provider that produced this row. */
+  provider: "ollama" | "anthropic" | "openai" | "gemini";
+  /** Concrete model tag, e.g. "qwen2.5-vl:7b". */
+  model: string;
+  /** Bumped whenever the system prompt changes. */
+  prompt_version: number;
+  generated_at: string;
+  /** Bytes of the raw model response, post-fence-strip. Helps spot
+   * truncation when triaging dead-letter rows. */
+  raw_response_size: number;
+}
+
 export interface AssetDoc {
   folder_id: ObjectId;
   /** Filename only (no directory). */
@@ -105,26 +219,41 @@ export interface AssetDoc {
   place?: Place | null;
   /** Face detections (Phase 5 face worker output). `[]` until the worker has run. */
   faces?: AssetFaceDoc[];
-  /** LLM-generated caption (Phase 6 describe worker output). `null` until run. */
+  /** LLM-generated caption (Phase 6 describe worker output). `null` until run.
+   * Free-text mirror of `vision.caption` once the structured vision stage has
+   * run — duplicated so legacy clients reading `description` still work. */
   description?: string | null;
-  /** Recognised text extracted from the thumbnail by the OCR worker.
-   * `null` until the worker has run; empty string when nothing was found
-   * OR when the mean engine confidence was below the persistence threshold
-   * (see `MAPLE_OCR_MIN_CONFIDENCE` in the OCR stage). */
+  /** True when this asset is a screenshot (phone/computer/app UI capture)
+   * rather than a photograph. Set by the exif stage as a fast heuristic
+   * (no camera_make + filename matches `Screenshot…` / `Screen Shot…`)
+   * and then overwritten by the describe stage with the qwen2.5-vl
+   * verdict, which handles cropped screenshots and photos-of-screens
+   * the heuristic can't. Mirrors `vision.is_screenshot` once describe
+   * has run; until then, the heuristic value stands. */
+  is_screenshot?: boolean;
+  /** Structured photo-vision metadata from the qwen2.5-vl describe stage.
+   * `null` until the stage has run on this asset. See `VisionDoc`. */
+  vision?: VisionDoc | null;
+  /** Provenance of the `vision` subdoc. Carries the model + prompt version
+   * so a config change automatically invalidates stale rows. */
+  vision_meta?: VisionMeta | null;
+  /** Recognised text extracted from the asset's preview, mirrored by the
+   * describe stage from `vision.text_visible`. `null` until the describe
+   * stage has run on this asset; empty string when the model saw no text. */
   ocr_text?: string | null;
-  /** Per-word OCR output. Persisted regardless of the confidence threshold
-   * so the threshold can be re-tuned without re-running the engine. `null`
-   * until the worker has run; `[]` when nothing was detected. */
-  ocr_words?: OcrWord[] | null;
-  /** Provenance of the OCR run. `engine_version` is stamped for human
-   * traceability only — reruns are gated by the stage's numeric
-   * `targetVersion` (see `workers/stages/ocr.ts`), not by this string. */
+  /** Provenance of the OCR mirror. The describe stage is the sole writer
+   * and always stamps `engine: "qwen2.5-vl"`. The `"tesseract"` literal
+   * remains in the union because production installs that were indexed
+   * before #158 still carry rows with `engine: "tesseract"` until the
+   * describe stage re-runs them; the API returns those values verbatim
+   * (no read-side rewrite) so the wire contract must allow both. */
   ocr_meta?: {
-    engine: "tesseract";
+    engine: "qwen2.5-vl" | "tesseract";
     engine_version: string;
     generated_at: string;
-    /** Overall mean confidence as reported by the engine, 0–100. `null`
-     * for legacy rows written before per-word capture landed. */
+    /** Always `null` for the qwen2.5-vl path — the VLM has no per-token
+     * confidence the way a classic OCR engine does. Legacy Tesseract
+     * rows carry the engine's reported 0-100 mean confidence. */
     mean_confidence: number | null;
   } | null;
   /** Synthesised text-index target. Concatenation of `place.search_blob`,
@@ -232,9 +361,6 @@ export interface Enrichment {
   geocode: EnrichmentStageState;
   face: EnrichmentStageState;
   describe: EnrichmentStageState;
-  /** OCR worker bookkeeping (Phase 8). Pending on every fresh skeleton
-   * row; flipped to done by `OcrWorker.complete()`. */
-  ocr: EnrichmentStageState;
 }
 
 // ---------------------------------------------------------------------------
@@ -309,10 +435,8 @@ export interface GeocodeCacheDoc {
 // ---------------------------------------------------------------------------
 
 /** Axis-aligned bounding box. Coordinate space is set by the producer
- * and documented at the use site — face detector emits normalised
- * `[0,1]` proportions, the OCR engine emits pixels relative to the
- * input thumbnail. Both share this shape because the arithmetic is
- * identical; consumers must respect the documented units. */
+ * and documented at the use site — the face detector emits normalised
+ * `[0,1]` proportions. Consumers must respect the documented units. */
 export interface Bbox {
   x: number;
   y: number;
@@ -334,22 +458,6 @@ export interface AssetFaceDoc {
    * person panel. `person_id` is forced to `null` on hide — the two
    * are written together by `hideFace`. */
   hidden?: boolean;
-}
-
-// ---------------------------------------------------------------------------
-// OCR word — written by the Phase 6 OCR worker alongside `ocr_text`. Lets
-// the search layer (and any future filtering) re-score on confidence
-// without re-running the engine. Bounding boxes are in pixel coordinates
-// relative to the thumbnail the engine was given.
-// ---------------------------------------------------------------------------
-
-export interface OcrWord {
-  text: string;
-  /** Engine-reported confidence, 0–100. */
-  confidence: number;
-  /** Pixel coordinates relative to the OCR'd thumbnail. Distinct from
-   * `AssetFaceDoc.bbox`, which is normalised proportions. */
-  bbox: Bbox;
 }
 
 // ---------------------------------------------------------------------------
@@ -422,7 +530,6 @@ export function pendingEnrichment(): Enrichment {
     geocode: pendingStageState(),
     face: pendingStageState(),
     describe: pendingStageState(),
-    ocr: pendingStageState(),
   };
 }
 
@@ -439,7 +546,6 @@ export function normaliseEnrichment(
     geocode: { ...pendingStageState(), ...(raw?.geocode ?? {}) },
     face: { ...pendingStageState(), ...(raw?.face ?? {}) },
     describe: { ...pendingStageState(), ...(raw?.describe ?? {}) },
-    ocr: { ...pendingStageState(), ...(raw?.ocr ?? {}) },
   };
 }
 
