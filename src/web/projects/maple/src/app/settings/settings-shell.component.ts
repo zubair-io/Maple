@@ -1,11 +1,11 @@
-// SettingsShellComponent — left sidebar + right pane layout shared by every
-// Settings surface (Account, Workers, People, Users). Replaces the previous
-// card-grid landing page; per the v0.2 spec, Settings is one window and the
-// sidebar item determines which page is rendered on the right.
+// SettingsShellComponent — left sidebar + right pane layout shared by the
+// Settings surfaces (Account, Workers, Users). Replaces the previous
+// card-grid landing page; per the v0.2 spec, Settings is one window and
+// the sidebar item determines which page is rendered on the right.
 //
-// People deep-links (e.g. `/people/:id`) still work because the sidebar's
-// "People" entry routes to `/people`, which mounts this same shell at its
-// top level — clicking another sidebar item navigates out via routerLink.
+// The "People" sidebar entry routes to the existing `/people` page, which
+// is NOT yet wrapped in this shell — clicking it exits the settings shell.
+// Bringing People into the shell is a tracked follow-up.
 
 import {
   ChangeDetectionStrategy,

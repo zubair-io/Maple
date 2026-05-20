@@ -1,9 +1,10 @@
 // UsersComponent — `/settings/users` (auth + owner-gated).
 //
-// Two sections: registered members (rendered out of the AuthService user
-// list when present, otherwise the signed-in user only) and invite codes.
-// Owners can issue invites and rescind unconsumed ones. The fresh-invite
-// card surfaces the share URL + QR for quick handoff.
+// Two sections: a Members row for the signed-in user (AuthService only
+// exposes the current `user` signal — there's no server endpoint for a
+// full member roster yet) and Invite codes. Owners can issue invites and
+// rescind unconsumed ones. The fresh-invite card surfaces the share URL +
+// QR for quick handoff.
 
 import {
   ChangeDetectionStrategy,

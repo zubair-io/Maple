@@ -90,7 +90,6 @@ interface EnrichmentForm {
   // Describe
   describe_provider_url: string;
   describe_model: string;
-  describe_preview_size: string;
   // Geocode
   nominatim_url: string;
   nominatim_rate_limit_per_sec: string;
@@ -280,15 +279,9 @@ export class WorkersComponent implements OnInit, OnDestroy {
   /** Lazy: seed form values the first time a row expands. */
   private ensureForm(stage: StageStatus): void {
     if (!this.runtimeForms()[stage.name]) {
-      const cfg = stage.config ?? { concurrency: 1, pollIntervalMs: 1000, batchSize: 10, maxAttempts: 5 };
       this.runtimeForms.update((cur) => ({
         ...cur,
-        [stage.name]: {
-          concurrency: String(cfg.concurrency),
-          pollIntervalMs: String(cfg.pollIntervalMs),
-          batchSize: String(cfg.batchSize),
-          maxAttempts: String(cfg.maxAttempts),
-        },
+        [stage.name]: this.blankRuntime(stage),
       }));
     }
     const meta = STAGE_META[stage.name];
@@ -299,7 +292,6 @@ export class WorkersComponent implements OnInit, OnDestroy {
         [stage.name]: {
           describe_provider_url: ec?.describe_provider_url ?? '',
           describe_model: ec?.describe_model ?? 'qwen2.5vl:7b',
-          describe_preview_size: '1280',
           nominatim_url: ec?.nominatim_url ?? '',
           nominatim_rate_limit_per_sec: String(ec?.nominatim_rate_limit_per_sec ?? 10),
           face_model_dir: ec?.face_model_dir ?? '',
@@ -330,11 +322,12 @@ export class WorkersComponent implements OnInit, OnDestroy {
   saveStage(stage: StageStatus): void {
     const form = this.runtimeForms()[stage.name];
     if (!form) return;
+    const d = WorkersComponent.DEFAULT_RUNTIME;
     const patch: Partial<WorkerConfig> = {
-      concurrency: this.parseInt(form.concurrency, 1, 32, 2),
-      pollIntervalMs: this.parseInt(form.pollIntervalMs, 100, 60_000, 1000),
-      batchSize: this.parseInt(form.batchSize, 1, 100, 5),
-      maxAttempts: this.parseInt(form.maxAttempts, 1, 20, 5),
+      concurrency: this.parseInt(form.concurrency, 1, 32, d.concurrency),
+      pollIntervalMs: this.parseInt(form.pollIntervalMs, 100, 60_000, d.pollIntervalMs),
+      batchSize: this.parseInt(form.batchSize, 1, 100, d.batchSize),
+      maxAttempts: this.parseInt(form.maxAttempts, 1, 20, d.maxAttempts),
     };
     this.saveStates.update((cur) => ({ ...cur, [stage.name]: 'saving' }));
     this.saveErrors.update((cur) => ({ ...cur, [stage.name]: null }));
@@ -374,9 +367,15 @@ export class WorkersComponent implements OnInit, OnDestroy {
   ): void {
     const form = this.enrichmentForms()[stage.name];
     if (!form) { onOk(); return; }
+    // The save endpoint is whole-config PUT — any field we omit OR set to
+    // null gets cleared server-side. Seed the body from the latest server
+    // config so editing the describe row doesn't accidentally wipe the
+    // Nominatim URL (or vice versa). Then mutate only the fields owned by
+    // the row the user is saving.
+    const current = this.enrichmentConfig();
     const body: Parameters<BunApiBackendService['saveEnrichmentConfig']>[0] = {
-      nominatim_url: null,
-      geocode_worker_enabled: this.enrichmentConfig()?.geocode_worker_enabled ?? true,
+      nominatim_url: current?.nominatim_url ?? null,
+      geocode_worker_enabled: current?.geocode_worker_enabled ?? true,
     };
     if (kind === 'describe') {
       body.describe_provider_url = form.describe_provider_url.trim() || null;
@@ -423,13 +422,26 @@ export class WorkersComponent implements OnInit, OnDestroy {
     });
   }
 
+  // Single source of truth for runtime-form defaults. Used by both
+  // ensureForm() (lazy seeding when a row first expands) and blankRuntime()
+  // (used by setRuntime() when a per-field write happens before the row's
+  // form was seeded). Keep these in sync with the min/max hints in the
+  // template — server-side validation is still authoritative.
+  private static readonly DEFAULT_RUNTIME = Object.freeze({
+    concurrency: 2,
+    pollIntervalMs: 1000,
+    batchSize: 5,
+    maxAttempts: 5,
+  });
+
   private blankRuntime(stage: StageStatus): RuntimeForm {
+    const d = WorkersComponent.DEFAULT_RUNTIME;
     const cfg = stage.config;
     return {
-      concurrency: String(cfg?.concurrency ?? 2),
-      pollIntervalMs: String(cfg?.pollIntervalMs ?? 1000),
-      batchSize: String(cfg?.batchSize ?? 5),
-      maxAttempts: String(cfg?.maxAttempts ?? 5),
+      concurrency: String(cfg?.concurrency ?? d.concurrency),
+      pollIntervalMs: String(cfg?.pollIntervalMs ?? d.pollIntervalMs),
+      batchSize: String(cfg?.batchSize ?? d.batchSize),
+      maxAttempts: String(cfg?.maxAttempts ?? d.maxAttempts),
     };
   }
   private blankEnrichment(): EnrichmentForm {
@@ -437,7 +449,6 @@ export class WorkersComponent implements OnInit, OnDestroy {
     return {
       describe_provider_url: ec?.describe_provider_url ?? '',
       describe_model: ec?.describe_model ?? 'qwen2.5vl:7b',
-      describe_preview_size: '1280',
       nominatim_url: ec?.nominatim_url ?? '',
       nominatim_rate_limit_per_sec: String(ec?.nominatim_rate_limit_per_sec ?? 10),
       face_model_dir: ec?.face_model_dir ?? '',

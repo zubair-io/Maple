@@ -1,9 +1,9 @@
 // AccountComponent — `/settings/account` (auth-gated).
 //
 // Surface for the signed-in user's identity and their registered passkeys.
-// Lists credentials inline (each with a delete affordance), and exposes
-// "Sign out" / "Sign out everywhere" actions. Wrapped in the SettingsShell
-// so the sidebar nav is consistent across every settings surface.
+// Lists credentials inline (each with a delete affordance) and exposes a
+// "Sign out" action. Wrapped in the SettingsShell so the sidebar nav is
+// consistent across every settings surface.
 
 import {
   ChangeDetectionStrategy,

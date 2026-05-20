@@ -25,9 +25,10 @@ export const routes: Routes = [
   { path: '', redirectTo: 'browse', pathMatch: 'full' },
   { path: 'browse', canActivate: [authGuard], component: BrowseShellComponent },
   { path: 'edit/:id', canActivate: [authGuard], component: EditorShellComponent },
-  // `/settings` → Workers for owners, Account for everyone else. The card-
-  // grid landing was replaced by the sidebar shell in v0.2; non-owners
-  // can't reach Workers, so they land on Account instead.
+  // `/settings` lands on Workers. The card-grid landing was replaced by
+  // the sidebar shell in v0.2. Non-owners hit authGuard inside
+  // settings/workers and bounce; making the redirect role-aware (Account
+  // for non-owners) is tracked as a follow-up.
   { path: 'settings', redirectTo: 'settings/workers', pathMatch: 'full' },
   {
     path: 'settings/account',
@@ -41,9 +42,10 @@ export const routes: Routes = [
     loadComponent: () =>
       import('./settings/users/users.component').then((m) => m.UsersComponent),
   },
-  // Enrichment was folded into Workers. The redirect preserves any
-  // existing bookmarks; the `face`/`describe`/`geocode` fragment opens
-  // the matching row in the new combined view.
+  // Enrichment was folded into Workers; the redirect preserves any
+  // existing bookmarks. Fragment-driven row expansion is not implemented
+  // yet — bookmarks like `/settings/workers#describe` land on the page
+  // without auto-opening the row.
   { path: 'settings/enrichment', redirectTo: 'settings/workers', pathMatch: 'full' },
   {
     path: 'settings/workers',

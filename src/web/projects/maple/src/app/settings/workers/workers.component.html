@@ -192,19 +192,6 @@
                               </div>
                             </div>
                           </div>
-                          <div class="field">
-                            <div class="field-label">Preview size</div>
-                            <div class="num-input">
-                              <input
-                                type="number"
-                                min="256" max="2048"
-                                [value]="enrichmentValue(s, 'describe_preview_size')"
-                                (input)="setEnrichment(s, 'describe_preview_size', $any($event.target).value)"
-                              />
-                              <span class="num-suffix">px</span>
-                            </div>
-                            <div class="field-hint">Long edge of the image sent to the LLM.</div>
-                          </div>
                         </div>
                       }
 
