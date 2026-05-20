@@ -173,16 +173,89 @@ describe("POST /api/folders/:id/upload", () => {
     expect(res.status).toBe(404);
   });
 
-  test("409 when target file already exists", async () => {
+  // Duplicate upload: the file at the target path is moved to
+  // `.maple/trash/<rel>` (preserving the prior copy for restore) and
+  // the new bytes land at the original path. Returns 201, not 409 —
+  // the File Provider treats a re-drop as an idempotent replace.
+  test("duplicate upload: existing file moves to trash, new bytes land at target", async () => {
     if (!mongoReachable) return;
     const { app } = await import("../src/index.ts");
-    const dest = path.join(realTmpRoot, "exists.ARW");
+    const dest = path.join(realTmpRoot, "dup.ARW");
+    // Seed both the file and a live asset doc, mirroring real state.
     await fs.writeFile(dest, "old");
+    const priorId = new ObjectId();
+    await db!.collection("assets").insertOne({
+      _id: priorId,
+      folder_id: folderId,
+      filename: "dup.ARW",
+      abs_path: dest,
+      size: 3, mtime: Date.now(),
+      sha1_head: "deadbeef",
+      indexed_at: new Date().toISOString(),
+      deleted_at: null,
+    } as never);
+
     const res = await app.handle(upload(Buffer.from("new"), {
-      "X-Maple-Target-Path": "exists.ARW",
+      "X-Maple-Target-Path": "dup.ARW",
     }));
-    expect(res.status).toBe(409);
-    expect(await fs.readFile(dest, "utf-8")).toBe("old");
+    expect(res.status).toBe(201);
+    expect(await fs.readFile(dest, "utf-8")).toBe("new");
+
+    // Prior file is in trash, prior doc soft-deleted.
+    const trashPath = path.join(realTmpRoot, ".maple", "trash", "dup.ARW");
+    expect(await fs.readFile(trashPath, "utf-8")).toBe("old");
+    const priorDoc = await db!.collection("assets").findOne({ _id: priorId }) as Record<string, unknown> | null;
+    expect(priorDoc).toBeTruthy();
+    expect(priorDoc!.deleted_at).toBeTruthy();
+    expect(priorDoc!.abs_path).toBe(trashPath);
+    expect(priorDoc!.original_path).toBe(dest);
+
+    // A fresh live doc was inserted for the new bytes.
+    const newDoc = await db!.collection("assets").findOne({ abs_path: dest, deleted_at: null }) as Record<string, unknown> | null;
+    expect(newDoc).toBeTruthy();
+    expect(newDoc!._id).not.toEqual(priorId);
+  });
+
+  // Duplicate upload with byte-identical content: nothing to recover,
+  // so the trash entry is purged after the new write lands.
+  test("duplicate upload with identical content purges the redundant trash entry", async () => {
+    if (!mongoReachable) return;
+    const { app } = await import("../src/index.ts");
+    const dest = path.join(realTmpRoot, "same.ARW");
+    const bytes = Buffer.alloc(128, 0xab);
+    await fs.writeFile(dest, bytes);
+    // Pre-compute the sha1 of the first 64 KB (the file is only 128 B,
+    // so that's the whole file) to match what the upload route hashes.
+    const { sha1 } = await import("@noble/hashes/legacy.js");
+    const digest = sha1(new Uint8Array(bytes));
+    let hex = "";
+    for (let i = 0; i < digest.length; i++) hex += digest[i]!.toString(16).padStart(2, "0");
+    const priorId = new ObjectId();
+    await db!.collection("assets").insertOne({
+      _id: priorId,
+      folder_id: folderId,
+      filename: "same.ARW",
+      abs_path: dest,
+      size: bytes.byteLength,
+      mtime: Date.now(),
+      sha1_head: hex,
+      indexed_at: new Date().toISOString(),
+      deleted_at: null,
+    } as never);
+
+    const res = await app.handle(upload(bytes, {
+      "X-Maple-Target-Path": "same.ARW",
+    }));
+    expect(res.status).toBe(201);
+
+    // The trash directory should NOT contain a copy — same content was
+    // detected via sha1_head + size, so the moved-aside file was unlinked
+    // and the soft-deleted doc removed.
+    const trashDir = path.join(realTmpRoot, ".maple", "trash");
+    const trashEntries = await fs.readdir(trashDir).catch(() => [] as string[]);
+    expect(trashEntries).toEqual([]);
+    const priorDoc = await db!.collection("assets").findOne({ _id: priorId });
+    expect(priorDoc).toBeNull();
   });
 
   // Regression: Cat B — the prior `type: "arrayBuffer"` config made
@@ -274,46 +347,39 @@ describe("POST /api/folders/:id/upload", () => {
     expect(live).toBeTruthy();
   });
 
-  // Regression: the previous implementation used a stat-then-rename pattern
-  // that left a TOCTOU window — two concurrent uploads to the same target
-  // both saw `stat` ENOENT, both wrote distinct tmps, and the second
-  // `rename` silently overwrote the first. Two asset docs ended up
-  // pointing at the same `abs_path`. The fix uses `open(target, "wx")`
-  // (O_EXCL) to atomically claim the target before writing — second
-  // claimant gets EEXIST → 409.
-  test("concurrent uploads to the same target: one 201, one 409, one file, one asset doc", async () => {
+  // Concurrent uploads to the same target: both succeed (201) — the
+  // trash-on-duplicate behaviour means there is no exclusive claim
+  // anymore. The route streams each body to a unique `.upload-<uuid>`
+  // tmp, then atomically renames into place, so the file on disk
+  // always matches one of the two complete payloads (never a torn
+  // mixture). No tmp files are left behind.
+  test("concurrent uploads to the same target: both 201, one intact file, no orphan tmps", async () => {
     if (!mongoReachable) return;
     const { app } = await import("../src/index.ts");
     const targetRel = "race/IMG_RACE.ARW";
     const dest = path.join(realTmpRoot, targetRel);
 
-    // Issue both requests as close to simultaneously as possible. The
-    // claim happens early in the handler (before the async writeFile),
-    // so even with cooperative scheduling one of them must lose the race.
     const [resA, resB] = await Promise.all([
       app.handle(upload(Buffer.alloc(32, 1), { "X-Maple-Target-Path": targetRel })),
       app.handle(upload(Buffer.alloc(32, 2), { "X-Maple-Target-Path": targetRel })),
     ]);
 
-    const statuses = [resA.status, resB.status].sort();
-    expect(statuses).toEqual([201, 409]);
-
-    // Exactly one asset doc, exactly one file on disk.
-    const winner = resA.status === 201 ? resA : resB;
-    const winnerBody = await winner.json() as { asset_id: string; abs_path: string; size: number };
-    expect(winnerBody.abs_path).toBe(dest);
-    expect(winnerBody.size).toBe(32);
+    expect(resA.status).toBe(201);
+    expect(resB.status).toBe(201);
 
     const onDisk = await fs.readFile(dest);
     expect(onDisk.byteLength).toBe(32);
+    // Every byte must equal a single payload's fill byte (1 or 2) —
+    // never a torn mixture.
+    const fill = onDisk[0];
+    expect(fill === 1 || fill === 2).toBe(true);
+    expect(onDisk.every((b) => b === fill)).toBe(true);
 
-    const docs = await db!.collection("assets").find({ abs_path: dest }).toArray();
-    expect(docs.length).toBe(1);
-    expect(docs[0]!._id.toHexString()).toBe(winnerBody.asset_id);
-
-    // The loser must not have left a tmp file or partial state in the dir.
     const dirEntries = await fs.readdir(path.dirname(dest));
     const tmps = dirEntries.filter((n) => n.startsWith(".upload-"));
     expect(tmps).toEqual([]);
+
+    const liveDocs = await db!.collection("assets").find({ abs_path: dest, deleted_at: null }).toArray();
+    expect(liveDocs.length).toBe(1);
   });
 });

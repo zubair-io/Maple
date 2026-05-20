@@ -195,7 +195,6 @@ public struct RestoreResponse: Codable, Equatable, Sendable {
 
 public enum UploadOutcome: Equatable, Sendable {
     case ok(UploadResponse)
-    case conflict
     case unsupported
 }
 
@@ -674,7 +673,10 @@ public actor RemoteCatalog {
 
     /// Upload a file to the given folder. Streams `fileURL` via
     /// `URLSession.upload(for:fromFile:)`. Returns `.ok` on 201,
-    /// `.conflict` on 409, `.unsupported` on 415; throws on anything else.
+    /// `.unsupported` on 415; throws on anything else. A duplicate upload
+    /// (file already at the target path) is handled server-side by
+    /// moving the prior file to trash and returning 201, so the client
+    /// never sees a conflict status.
     public func uploadFile(
         folderID: String,
         targetRelativePath: String,
@@ -699,7 +701,6 @@ public actor RemoteCatalog {
         if status == 201 {
             return .ok(try decoder.decode(UploadResponse.self, from: data))
         }
-        if status == 409 { return .conflict }
         if status == 415 { return .unsupported }
         throw URLError(.badServerResponse)
     }
