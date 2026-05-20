@@ -299,6 +299,7 @@ If a new feature adds allocation inside the render loop, it does not ship. If it
 - **Prefer Angular library projects** in `projects/maple-common` for cross-cutting code (used by both Hosted and Self Hosted deployments of the same Angular shell).
 - **No mocks for the sidecar layer in tests.** Round-trip against real `.xmp` files in a temp directory. XMP is the contract; mocks let bugs through.
 - **Bundle ID:** `app.justmaple.aperture` (tests append `.Tests` / `.UITests`).
+- **Every PR closes a ticket.** Before starting work, ensure a GitHub issue exists for it — if not, open one (`gh issue create`) and add it to the right Project board (Files for FP work, KTLO for hygiene/bugs/refactors). Every PR description must include a `Closes #N` (or `Fixes #N`) line so the ticket auto-closes on merge. No drive-by PRs without a ticket.
 
 ## Notes
 
