@@ -466,8 +466,11 @@ export async function runStage(stage: StageConfig): Promise<RunStageHandle> {
       // status route instead of being a silent log-only event with the stage
       // still reported as healthy.
       stageRegistry.recordError(stage.name, msg);
+      // Pass the raw Error to pino so its serializer preserves the stack
+      // and any structured driver fields (MongoDB error codes etc.) —
+      // restores the contract established by #25.
       log.error(
-        { err: msg, retryInMs: delay },
+        { err, retryInMs: delay },
         `${stage.name} poll tick error`,
       );
     }

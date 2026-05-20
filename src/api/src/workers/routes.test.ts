@@ -5,6 +5,7 @@ import { stageRegistry } from "./registry.ts";
 
 describe("GET /api/workers/status", () => {
   it("returns an empty stages array when the registry has no stages", async () => {
+    stageRegistry._resetForTests();
     const app = new Elysia().use(workerRoutes());
 
     const res = await app.handle(
@@ -15,6 +16,48 @@ describe("GET /api/workers/status", () => {
     expect(body).toHaveProperty("stages");
     expect(Array.isArray(body.stages)).toBe(true);
     expect(body.stages).toHaveLength(0);
+  });
+
+  // Regression test for PR #164 review issue 1: a stage whose bootConfig
+  // is still mid-retry must still surface in `/status` so operators can
+  // see (and recover) the failure via the UI. Pre-registration ensures
+  // every stage the orchestrator plans to start is visible from the very
+  // first /status call, even before any stage has booted.
+  it("surfaces pre-registered stages as 'stopped' even when none have booted", async () => {
+    stageRegistry._resetForTests();
+    const names = [
+      "hash", "exif", "thumb", "preview",
+      "face", "describe", "geocode", "meili",
+    ];
+    for (const n of names) stageRegistry.preregister(n, 1);
+    const app = new Elysia().use(workerRoutes());
+    const res = await app.handle(
+      new Request("http://localhost/api/workers/status"),
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    const stageNames = (body.stages as Array<{ name: string; status: string }>).map((s) => s.name).sort();
+    expect(stageNames).toEqual(names.sort());
+    for (const s of body.stages) {
+      expect(s.status).toBe("stopped");
+    }
+  });
+
+  it("surfaces a pre-registered stage as 'error' once recordError fires", async () => {
+    stageRegistry._resetForTests();
+    stageRegistry.preregister("face", 1);
+    stageRegistry.recordError("face", "ONNX model not found");
+    const app = new Elysia().use(workerRoutes());
+    const res = await app.handle(
+      new Request("http://localhost/api/workers/status"),
+    );
+    const body = await res.json();
+    const face = (body.stages as Array<{ name: string; status: string; lastError: string | null }>).find(
+      (s) => s.name === "face",
+    );
+    expect(face).toBeDefined();
+    expect(face!.status).toBe("error");
+    expect(face!.lastError).toBe("ONNX model not found");
   });
 });
 

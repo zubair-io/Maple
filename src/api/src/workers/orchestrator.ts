@@ -19,6 +19,7 @@
 import { child as childLogger } from "../log.ts";
 import type { RunStageHandle } from "./run-stage.ts";
 import { stageRegistry } from "./registry.ts";
+import { stageManifest } from "./stages/manifest.ts";
 import { startHashStage } from "./stages/hash.ts";
 import { startExifStage } from "./stages/exif.ts";
 import { startThumbStage } from "./stages/thumb.ts";
@@ -65,13 +66,18 @@ async function attemptStart(
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    // Record into the registry so /api/workers/status surfaces the failure
-    // even though no live entry exists yet for this stage.
+    // Record into the registry so /api/workers/status surfaces the failure.
+    // The stage was pre-registered at boot, so even the very first failed
+    // attempt shows up as a `status: "error"` row instead of going missing.
     stageRegistry.recordError(name, msg);
     const idx = Math.min(attempt, RETRY_BACKOFF_MS.length - 1);
     const delay = RETRY_BACKOFF_MS[idx]!;
+    // Pass the raw `err` to pino so its standard serializer expands the
+    // Error object (stack trace + driver-specific fields like MongoDB's
+    // error codes survive). Restores the fix from #25 — a stringified
+    // `err.message` strips structured fields that triage relies on.
     log.error(
-      { stage: name, err: msg, attempt, retryInMs: delay },
+      { stage: name, err, attempt, retryInMs: delay },
       `${name} stage failed to start — retrying`,
     );
     const timer = setTimeout(() => {
@@ -85,8 +91,17 @@ async function attemptStart(
 /**
  * Boot every stage runner in parallel. A failing stage logs and is scheduled
  * for a bounded retry in the background; the other stages still come up.
+ *
+ * Pre-registers all stages with the registry first so `GET /api/workers/status`
+ * always returns the full set of 8 entries — even when a stage's `bootConfig()`
+ * is still mid-retry. Otherwise a slow-booting stage (Mongo blip, ONNX model
+ * missing) silently vanishes from the API surface until it succeeds, which
+ * regresses the old multi-process supervisor's contract.
  */
 export async function startAllStages(): Promise<void> {
+  for (const stage of stageManifest) {
+    stageRegistry.preregister(stage.name, stage.targetVersion);
+  }
   await Promise.all(
     STAGE_STARTERS.map(([name, starter]) => attemptStart(name, starter, 0)),
   );
@@ -108,8 +123,9 @@ export async function stopAllStages(): Promise<void> {
       try {
         await handle.stop();
       } catch (err) {
+        // Pass raw `err` so pino's serializer expands Error fields.
         log.warn(
-          { stage: name, err: err instanceof Error ? err.message : err },
+          { stage: name, err },
           `${name} stage stop() raised`,
         );
       }

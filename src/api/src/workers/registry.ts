@@ -48,6 +48,26 @@ export interface StageStatusSnapshot {
 class StageRegistry {
   private readonly entries = new Map<string, StageRegistryEntry>();
   private readonly lastErrors = new Map<string, string>();
+  /**
+   * Stages the orchestrator expects to start. Populated by `preregister()`
+   * at boot, before any stage's `runStage()` is invoked. `statuses()`
+   * unions this with `entries` so a stage whose `bootConfig()` is still
+   * retrying (or has permanently failed) surfaces as a "stopped" / "error"
+   * row instead of being absent from `GET /api/workers/status` and the
+   * WS bridge. Matches the old multi-process supervisor's behaviour where
+   * `addStage()` registered every stage immediately with `status: "stopped"`.
+   */
+  private readonly known = new Map<string, { targetVersion: number }>();
+
+  /**
+   * Declare a stage the orchestrator plans to start so `statuses()` reports
+   * it even before its first successful `runStage()`. Safe to call multiple
+   * times — updates `targetVersion` and leaves any existing live entry /
+   * recorded error untouched.
+   */
+  preregister(name: string, targetVersion: number): void {
+    this.known.set(name, { targetVersion });
+  }
 
   register(name: string, entry: StageRegistryEntry): void {
     this.entries.set(name, entry);
@@ -78,6 +98,20 @@ class StageRegistry {
 
   statuses(): Record<string, StageStatusSnapshot> {
     const out: Record<string, StageStatusSnapshot> = {};
+    // First emit any pre-registered stage whose live entry hasn't arrived
+    // yet — these are stages the orchestrator declared at boot but whose
+    // `runStage()` either hasn't completed or failed and is mid-retry.
+    for (const [name, { targetVersion }] of this.known) {
+      if (this.entries.has(name)) continue;
+      const lastError = this.lastErrors.get(name) ?? null;
+      out[name] = {
+        status: lastError !== null ? "error" : "stopped",
+        inFlight: 0,
+        throughput: 0,
+        targetVersion,
+        lastError,
+      };
+    }
     for (const [name, entry] of this.entries) {
       out[name] = {
         status: entry.getPaused() ? "paused" : "running",
@@ -110,6 +144,17 @@ class StageRegistry {
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : String(err) };
     }
+  }
+
+  /**
+   * Test-only: wipe all state. The registry is a process-level singleton,
+   * so unit tests that exercise its mutators need a way to start clean
+   * between cases. Production code never calls this.
+   */
+  _resetForTests(): void {
+    this.entries.clear();
+    this.lastErrors.clear();
+    this.known.clear();
   }
 
   async notifyConfigChanged(name: string): Promise<{ ok: boolean; error?: string }> {

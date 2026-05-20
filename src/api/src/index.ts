@@ -145,11 +145,13 @@ export function buildApp(_opts: { stageNames?: string[] } = {}): Elysia {
       const msg = error instanceof Error ? error.message : String(error);
       const isDbErr = msg.includes("[db]") || msg.includes("MongoDB");
 
+      // Pass the raw `error` to pino so its serializer preserves the
+      // stack + structured driver fields (e.g. MongoDB error codes).
       log.error(
         {
           method: request.method,
           path: new URL(request.url).pathname,
-          err: msg,
+          err: error,
         },
         "request error",
       );
@@ -289,7 +291,7 @@ async function start(): Promise<void> {
         await getChangeFeedTailer().start();
       } catch (err) {
         log.error(
-          { err: err instanceof Error ? err.message : err },
+          { err },
           "change feed tailer failed to start",
         );
       }
@@ -306,7 +308,7 @@ async function start(): Promise<void> {
         log.info(stageRegistry.statuses(), "Worker stages running");
       } catch (e) {
         log.warn(
-          { err: e instanceof Error ? e.message : e },
+          { err: e },
           "Worker stages failed to start",
         );
       }
@@ -323,7 +325,7 @@ async function start(): Promise<void> {
         }
       } catch (e) {
         log.warn(
-          { err: e instanceof Error ? e.message : e },
+          { err: e },
           "Discover failed to start",
         );
       }
@@ -336,7 +338,7 @@ async function start(): Promise<void> {
       // headless deployments still see it.
       startGeocodeWorker().catch((err) => {
         log.error(
-          { err: err instanceof Error ? err.message : err },
+          { err },
           "geocode worker failed to start; fix via /settings/enrichment",
         );
       }),
@@ -348,7 +350,7 @@ async function start(): Promise<void> {
       // /settings/enrichment.
       startFaceWorker().catch((err) => {
         log.error(
-          { err: err instanceof Error ? err.message : err },
+          { err },
           "face worker failed to start; fix via /settings/enrichment",
         );
       }),
@@ -360,7 +362,7 @@ async function start(): Promise<void> {
       // /settings/enrichment without a restart.
       startDescribeWorker().catch((err) => {
         log.error(
-          { err: err instanceof Error ? err.message : err },
+          { err },
           "describe worker failed to start; fix via /settings/enrichment",
         );
       }),
@@ -387,7 +389,7 @@ async function start(): Promise<void> {
         log.info("Meilisearch sidecar ready");
       } catch (err) {
         log.warn(
-          { err: err instanceof Error ? err.message : err },
+          { err },
           "Meilisearch ensureIndex failed; search will fall back to Mongo $text",
         );
       }
@@ -401,7 +403,7 @@ async function start(): Promise<void> {
     })
     .catch((err) => {
       log.warn(
-        { err: err instanceof Error ? err.message : err },
+        { err },
         "MongoDB not available",
       );
       log.warn(
@@ -426,14 +428,14 @@ async function shutdown(signal: string): Promise<void> {
     getChangeFeedTailer().stop();
   } catch (e) {
     log.warn(
-      { err: e instanceof Error ? e.message : e },
+      { err: e },
       "error stopping change feed tailer",
     );
   }
   // Stop the trash-gc loop next so its daily timer doesn't fire mid-shutdown.
   try { _trashGcHandle?.stop(); _trashGcHandle = null; }
   catch (e) {
-    log.warn({ err: e instanceof Error ? e.message : e }, "error stopping trash-gc");
+    log.warn({ err: e }, "error stopping trash-gc");
   }
   // Stop the file-system watcher so it stops producing new docs while we drain.
   try {
@@ -441,7 +443,7 @@ async function shutdown(signal: string): Promise<void> {
     _discoverHandle = null;
   } catch (e) {
     log.warn(
-      { err: e instanceof Error ? e.message : e },
+      { err: e },
       "error stopping discover",
     );
   }
@@ -451,7 +453,7 @@ async function shutdown(signal: string): Promise<void> {
     await stopAllStages();
   } catch (e) {
     log.warn(
-      { err: e instanceof Error ? e.message : e },
+      { err: e },
       "error stopping worker stages",
     );
   }
@@ -459,7 +461,7 @@ async function shutdown(signal: string): Promise<void> {
     await stopGeocodeWorker();
   } catch (e) {
     log.warn(
-      { err: e instanceof Error ? e.message : e },
+      { err: e },
       "error stopping geocode worker",
     );
   }
@@ -467,7 +469,7 @@ async function shutdown(signal: string): Promise<void> {
     await stopFaceWorker();
   } catch (e) {
     log.warn(
-      { err: e instanceof Error ? e.message : e },
+      { err: e },
       "error stopping face worker",
     );
   }
@@ -475,7 +477,7 @@ async function shutdown(signal: string): Promise<void> {
     await stopDescribeWorker();
   } catch (e) {
     log.warn(
-      { err: e instanceof Error ? e.message : e },
+      { err: e },
       "error stopping describe worker",
     );
   }
@@ -483,7 +485,7 @@ async function shutdown(signal: string): Promise<void> {
     await stopJobRunner();
   } catch (e) {
     log.warn(
-      { err: e instanceof Error ? e.message : e },
+      { err: e },
       "error stopping job runner",
     );
   }
@@ -497,13 +499,13 @@ async function shutdown(signal: string): Promise<void> {
 
 process.on("SIGTERM", () => {
   shutdown("SIGTERM").catch((e) => {
-    log.error({ err: e instanceof Error ? e.message : e }, "shutdown error");
+    log.error({ err: e }, "shutdown error");
     process.exit(1);
   });
 });
 process.on("SIGINT", () => {
   shutdown("SIGINT").catch((e) => {
-    log.error({ err: e instanceof Error ? e.message : e }, "shutdown error");
+    log.error({ err: e }, "shutdown error");
     process.exit(1);
   });
 });
