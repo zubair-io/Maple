@@ -1,10 +1,11 @@
-// AppShell.swift — Three-column NavigationSplitView (Mac/iPad) +
+// AppShell.swift — NavigationSplitView (Mac/iPad) +
 // TabView single-column collapse (iPhone).
 //
 // Layout ported from docs/photo_app_mockup_v2.html:
 //   • LibrarySidebar   — Folders / Photos Library / Connections tree
 //   • BrowseGrid       — lazy thumbnail grid with empty-state + error banner
-//   • DetailPanel      — always visible (tabs stay, sliders disable without a session)
+//   • DetailPanel      — third column only in Full-image mode; Browse drops
+//                        the panel entirely so the grid takes the full width
 //
 // Toolbar: search icon (leading, placeholder), dynamic "Library — <name>"
 // title, Export button (trailing). ⌘O still opens the fileImporter;
@@ -92,9 +93,11 @@ struct AppShell: View {
 
     #if os(iOS)
     /// Whether the Info detail-panel sheet is up on iPhone. The macOS /
-    /// iPad shell shows DetailPanel as a permanent right-hand column;
-    /// iPhone surfaces the same panel via a trailing-toolbar button
-    /// → modal sheet so the main content can stay full-width.
+    /// iPad shell shows DetailPanel as a right-hand column in Full-image
+    /// mode; iPhone surfaces the same panel via a trailing-toolbar button
+    /// → modal sheet so the main content can stay full-width. The button
+    /// (and therefore this sheet) is only reachable in Full-image mode —
+    /// Browse drops the panel entirely.
     @State private var iPhoneInfoSheet: Bool = false
 
     /// iPhone drawer state — Notion-Mail-style left-side overlay menu.
@@ -257,117 +260,146 @@ struct AppShell: View {
 
     // MARK: - Mac / iPad (NavigationSplitView)
 
+    @ViewBuilder
     private var macShell: some View {
-        NavigationSplitView(columnVisibility: $columnVisibility) {
-            LibrarySidebar(
-                selection: $librarySelection,
-                onAddFolder: { showFilePicker = true },
-                onPickFolder: { folder in openSavedFolder(folder) },
-                onRemoveFolder: { folder in SavedFolderStore.remove(path: folder.path) },
-                onPickAncestor: { url, bookmark in
-                    openSubFolder(url: url, rootBookmark: bookmark)
-                },
-                onPickPhotosFilter: { filter in loadPhotos(filter: filter) },
-                onRequestPhotosAccess: { requestPhotosAccess() },
-                onAddSMB: { showSMBSheet = true },
-                onPickSMB: { share in connectSavedSMB(share) },
-                onAddCloudServer: {
-                    addCloudSheetTarget = .fresh
-                },
-                onPickCloudLibrary: { serverID, folderID, libraryPath in
-                    loadCloudLibrary(serverID: serverID, folderID: folderID, libraryPath: libraryPath)
-                },
-                onListCloudDir: { url, absPath in
-                    await listCloudDirFor(server: url, absPath: absPath)
-                },
-                cloudCurrentPath: cloudCurrentPath,
-                onSignOutCloudServer: { url in
-                    Task { @MainActor in
-                        // Sign out keeps the server in the sidebar but
-                        // invalidates its tokens. The user can sign back
-                        // in by clicking the row (which falls through to
-                        // the prefilled AddMapleCloudSheet via the no-
-                        // credentials path in loadCloudLibrary).
-                        let session = sessionFor(url)
-                        await session.signOut()
-                    }
-                },
-                onRemoveCloudServer: { url in
-                    Task { @MainActor in
-                        // Remove drops tokens AND the registry entry.
-                        let session = sessionFor(url)
-                        await session.signOut()
-                        CloudServerRegistry.shared.remove(url)
-                    }
-                },
-                onLoadCloudFolders: { url in
-                    await loadCloudFoldersFor(url)
-                }
-            )
-            .navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 280)
-        } content: {
-            // The center column switches between the explorer grid (browse
-            // mode) and the full-image editor (fullImage mode). Per the
-            // mockup, these are two different center views — not a
-            // side-by-side. Double-click on a thumbnail flips the mode.
-            Group {
-                switch mode {
-                case .browse:
-                    if let vm = cloudTimelineVM,
-                       let thumbClient = cloudTimelineThumbClient,
-                       let thumbCache = cloudTimelineThumbCache {
-                        CloudTimelineView(
-                            vm: vm,
-                            thumbClient: thumbClient,
-                            thumbCache: thumbCache,
-                            displayMode: browseDisplayMode,
-                            onSelectAsset: { asset in openCloudAsset(asset, server: vm.server) },
-                            onSelectLocalAsset: { ref in openLocalPhotoKitAsset(ref) }
-                        )
-                    } else {
-                        BrowseGrid(
-                            vm: browseVM,
-                            sessions: $sessions,
-                            displayMode: $browseDisplayMode,
-                            onGrantPhotosAccess: { grantPhotosAccessAndLoad() },
-                            onNavigateFolder: { url in navigateFolder(url) },
-                            onOpenEditor: { asset in openEditor(for: asset) },
-                            onPrimeSession: { asset in ensureSession(for: asset) }
-                        )
-                    }
-                case .fullImage:
-                    if let session = selectedSession {
-                        FullImageView(session: session)
-                    } else {
-                        // Fallback — if the session vanished while editing,
-                        // drop back to browse.
-                        Color.clear.onAppear { mode = .browse }
-                    }
-                }
+        // In Browse mode the detail panel is suppressed entirely — the
+        // explorer grid takes the full content area. In Full-image mode
+        // the panel comes back as the third column for Develop + Info.
+        // We switch the NavigationSplitView column count rather than
+        // collapsing the detail to zero width, because SwiftUI still
+        // reserves space for an empty detail column.
+        Group {
+            if mode == .fullImage {
+                macShellFullImage
+            } else {
+                macShellBrowse
             }
-            .navigationSplitViewColumnWidth(min: 300, ideal: 520)
-            .navigationTitle(mode == .fullImage
-                             ? (selectedSession?.asset.displayName ?? "Image")
-                             : "Library — \(libraryTitle)")
-            .toolbar { browseToolbar }
-        } detail: {
-            // Detail panel is always in the right column per the mockup.
-            // Sliders are disabled when no session is selected; Info tab
-            // is the default when entering the app.
-            //
-            // `isFullImage` drives Ticket 12 bugs 4/5/8: the panel auto-flips
-            // to Develop on entry, back to Info on exit, and hides the
-            // Develop segment entirely while the user is in Browse mode.
-            // Width: iPad expands the column toward `max` (~half the screen
-            // when balanced), so DetailPanelWidth tightens the range there
-            // to just fit the slider rail. macOS keeps the original range.
-            DetailPanel(session: selectedSession, isFullImage: mode == .fullImage)
-                .modifier(DetailPanelWidth())
         }
-        .navigationSplitViewStyle(.balanced)
         .sheet(isPresented: $showSettings) {
             SettingsView()
                 .frame(minWidth: 520, minHeight: 460)
+        }
+    }
+
+    private var macShellFullImage: some View {
+        NavigationSplitView(columnVisibility: $columnVisibility) {
+            librarySidebarView
+                .navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 280)
+        } content: {
+            centerColumnView
+                .navigationSplitViewColumnWidth(min: 300, ideal: 520)
+                .navigationTitle(selectedSession?.asset.displayName ?? "Image")
+                .toolbar { browseToolbar }
+        } detail: {
+            // `isFullImage` drives Ticket 12 bugs 4/5/8: the panel auto-flips
+            // to Develop on entry, back to Info on exit. Width: iPad expands
+            // the column toward `max` (~half the screen when balanced), so
+            // DetailPanelWidth tightens the range there to just fit the
+            // slider rail. macOS keeps the original range.
+            DetailPanel(session: selectedSession, isFullImage: true)
+                .modifier(DetailPanelWidth())
+        }
+        .navigationSplitViewStyle(.balanced)
+    }
+
+    private var macShellBrowse: some View {
+        NavigationSplitView(columnVisibility: $columnVisibility) {
+            librarySidebarView
+                .navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 280)
+        } detail: {
+            centerColumnView
+                .navigationTitle("Library — \(libraryTitle)")
+                .toolbar { browseToolbar }
+        }
+        .navigationSplitViewStyle(.balanced)
+    }
+
+    private var librarySidebarView: some View {
+        LibrarySidebar(
+            selection: $librarySelection,
+            onAddFolder: { showFilePicker = true },
+            onPickFolder: { folder in openSavedFolder(folder) },
+            onRemoveFolder: { folder in SavedFolderStore.remove(path: folder.path) },
+            onPickAncestor: { url, bookmark in
+                openSubFolder(url: url, rootBookmark: bookmark)
+            },
+            onPickPhotosFilter: { filter in loadPhotos(filter: filter) },
+            onRequestPhotosAccess: { requestPhotosAccess() },
+            onAddSMB: { showSMBSheet = true },
+            onPickSMB: { share in connectSavedSMB(share) },
+            onAddCloudServer: {
+                addCloudSheetTarget = .fresh
+            },
+            onPickCloudLibrary: { serverID, folderID, libraryPath in
+                loadCloudLibrary(serverID: serverID, folderID: folderID, libraryPath: libraryPath)
+            },
+            onListCloudDir: { url, absPath in
+                await listCloudDirFor(server: url, absPath: absPath)
+            },
+            cloudCurrentPath: cloudCurrentPath,
+            onSignOutCloudServer: { url in
+                Task { @MainActor in
+                    // Sign out keeps the server in the sidebar but
+                    // invalidates its tokens. The user can sign back
+                    // in by clicking the row (which falls through to
+                    // the prefilled AddMapleCloudSheet via the no-
+                    // credentials path in loadCloudLibrary).
+                    let session = sessionFor(url)
+                    await session.signOut()
+                }
+            },
+            onRemoveCloudServer: { url in
+                Task { @MainActor in
+                    // Remove drops tokens AND the registry entry.
+                    let session = sessionFor(url)
+                    await session.signOut()
+                    CloudServerRegistry.shared.remove(url)
+                }
+            },
+            onLoadCloudFolders: { url in
+                await loadCloudFoldersFor(url)
+            }
+        )
+    }
+
+    @ViewBuilder
+    private var centerColumnView: some View {
+        // The center column switches between the explorer grid (browse
+        // mode) and the full-image editor (fullImage mode). Per the
+        // mockup, these are two different center views — not a
+        // side-by-side. Double-click on a thumbnail flips the mode.
+        switch mode {
+        case .browse:
+            if let vm = cloudTimelineVM,
+               let thumbClient = cloudTimelineThumbClient,
+               let thumbCache = cloudTimelineThumbCache {
+                CloudTimelineView(
+                    vm: vm,
+                    thumbClient: thumbClient,
+                    thumbCache: thumbCache,
+                    displayMode: browseDisplayMode,
+                    onSelectAsset: { asset in openCloudAsset(asset, server: vm.server) },
+                    onSelectLocalAsset: { ref in openLocalPhotoKitAsset(ref) }
+                )
+            } else {
+                BrowseGrid(
+                    vm: browseVM,
+                    sessions: $sessions,
+                    displayMode: $browseDisplayMode,
+                    onGrantPhotosAccess: { grantPhotosAccessAndLoad() },
+                    onNavigateFolder: { url in navigateFolder(url) },
+                    onOpenEditor: { asset in openEditor(for: asset) },
+                    onPrimeSession: { asset in ensureSession(for: asset) }
+                )
+            }
+        case .fullImage:
+            if let session = selectedSession {
+                FullImageView(session: session)
+            } else {
+                // Fallback — if the session vanished while editing,
+                // drop back to browse.
+                Color.clear.onAppear { mode = .browse }
+            }
         }
     }
 
@@ -662,11 +694,16 @@ struct AppShell: View {
                 }
             }
             browseToolbar
-            ToolbarItem(placement: .topBarTrailing) {
-                Button { iPhoneInfoSheet = true } label: {
-                    Image(systemName: "info.circle")
+            // Info button reaches the DetailPanel sheet; only meaningful
+            // in Full-image mode (the panel is suppressed entirely in
+            // Browse — sidecar info belongs to the editor view).
+            if mode == .fullImage {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button { iPhoneInfoSheet = true } label: {
+                        Image(systemName: "info.circle")
+                    }
+                    .accessibilityLabel("Info")
                 }
-                .accessibilityLabel("Info")
             }
             // Settings gear is provided by `browseToolbar` — don't duplicate
             // it here, or two buttons share the same accessibilityIdentifier
