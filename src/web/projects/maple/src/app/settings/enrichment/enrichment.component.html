@@ -542,45 +542,6 @@
     </div>
   </section>
 
-  <!-- OCR card (Phase 8) ────────────────────────────────────────────────── -->
-  <section class="mb-4 rounded-lg border border-border bg-surface p-5">
-    <h3 class="mt-0 mb-2 text-[14px] font-semibold">OCR</h3>
-    <p class="mt-0 mb-5 text-[12px] leading-relaxed text-text-muted">
-      Recognises text inside thumbnails (signs, screenshots, labels) via
-      tesseract.js. Output flows into the unified search blob alongside
-      place + caption.
-    </p>
-    <div class="mb-1">
-      <label class="flex cursor-pointer items-start gap-2.5">
-        <input
-          type="checkbox"
-          class="mt-0.5 h-4 w-4 cursor-pointer accent-primary"
-          [checked]="ocrEnabled()"
-          (change)="ocrEnabled.set($any($event.target).checked)"
-        />
-        <span class="flex flex-col">
-          <span class="flex items-center gap-2">
-            <span class="text-[13px] font-medium">Enable OCR worker</span>
-            @if (serverConfig(); as cfg) {
-              @let s = sourceLabel(cfg.source.ocr_worker_enabled);
-              <span
-                class="rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide"
-                [class.bg-primary-dim]="s.tone === 'saved'"
-                [class.text-primary]="s.tone === 'saved'"
-                [class.bg-surface-hover]="s.tone === 'env'"
-                [class.text-text-muted]="s.tone !== 'saved'"
-              >{{ s.text }}</span>
-            }
-          </span>
-          <span class="text-[11px] text-text-muted">
-            CPU-bound; first run downloads the tesseract traineddata for the
-            configured language(s) (~10 MB each).
-          </span>
-        </span>
-      </label>
-    </div>
-  </section>
-
   @if (saveError(); as e) {
     <div class="mb-3 rounded-md bg-error-bg px-3.5 py-2.5 text-[13px] text-error-text">
       Save failed: {{ e }}

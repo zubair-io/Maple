@@ -368,13 +368,56 @@ Same worker shape as geocode (§3). What changes:
 - Lease: 30 min.
 
 **Describe worker.**
-- Claim query: `{ "thumb.ready": true, "enrichment.describe.doneAt": null, ... }`.
-- `process()`: open the thumbnail, send to your LLM provider, store the caption as `asset.description`.
-- Pool size: 4-8 (network-bound, but rate-limited by API key).
+- Claim query: `{ "preview.ready": true, "enrichment.describe.doneAt": null, ... }`.
+- `process()`: read the 1280-px preview JPEG (see `src/api/src/workers/stages/preview.ts`), call Ollama with the structured-JSON prompt `DEFAULT_DESCRIBE_VISION_PROMPT` (`src/api/src/enrichment/enrichment-config.repo.ts`), parse strictly with `parseVisionJson`, then write `description` (caption mirror), `description_meta`, the structured `vision` subdoc, and `vision_meta`.
+- Default provider: Ollama with `qwen2.5-vl:7b`. Anthropic / OpenAI / Gemini providers remain wired but are off by default.
+- `dependsOn: ["preview"]`. `targetVersion: 2`. `pausedOnFirstBoot: true`.
+- Pool size: 1 (single-slot on the 24 GB VLM host). Network-bound providers can raise this.
 - Lease: 10 min.
-- Budget concern: every describe call costs money. Add a per-day cap that pauses the worker when crossed.
+- Failure path: malformed model output throws `VisionParseError`; the runtime stamps the error and dead-letters at `maxAttempts`. No silent skips.
 
 Both workers slot in without touching the geocode worker, the fast pipeline, or each other.
+
+### 6.1 Vision (structured)
+
+The describe stage emits a structured `VisionDoc` subdoc on the asset alongside the legacy free-text `description`. The structured fields are what enable faceted filters ("outdoor sports", "drone photos with readable text") and richer search-blob composition without needing a vector DB.
+
+The full shape lives in `src/api/src/db/schema.ts` (search for `VisionDoc` / `VisionMeta`). Summary:
+
+| Field | Meaning |
+|-------|---------|
+| `caption` | 1–2 sentence search-oriented description. Mirrored to top-level `description`. |
+| `subjects[]` | Categorical subject types: `person`, `child`, `adult`, `dog`, `bird`, `vehicle`, `building`, … |
+| `scene_type` | `indoor` \| `outdoor` \| `aerial` \| `macro` \| `studio` \| `mixed`. |
+| `setting` | Specific environment (`kitchen`, `beach`, `forest`, …) or `null`. |
+| `activity` | What is happening, or `null` for a static scene. |
+| `time_of_day` | `morning` \| `midday` \| `afternoon` \| `golden hour` \| `evening` \| `night` \| `unknown`. |
+| `lighting` | `natural` \| `artificial` \| `mixed` \| `low-light` \| `backlit` \| `flash`. |
+| `weather` | `clear` \| `cloudy` \| `rainy` \| `snowy` \| `foggy` \| `indoor` \| `unknown`. |
+| `mood` | 1–3 words. |
+| `colors[]` | Dominant colors, max 5. |
+| `composition` | `wide shot` \| `close-up` \| `portrait` \| `landscape` \| `aerial` \| `macro` \| `candid`. |
+| `text_visible` | Any readable text in the image, or `null`. Always mirrored into `ocr_text` by the describe stage. |
+| `notable_objects[]` | Distinctive objects, max 8. |
+| `shot_type` | `action` \| `static` \| `candid` \| `posed` \| `architectural` \| `nature` \| `event`. |
+| `indoor_outdoor` | `indoor` \| `outdoor`. |
+
+`vision_meta` carries the provenance: `provider` (`ollama` \| `anthropic` \| `openai` \| `gemini`), `model` (e.g. `qwen2.5-vl:7b`), `prompt_version`, `generated_at`, `raw_response_size` (bytes of the model's raw JSON response — helps spot truncation).
+
+**Preview dependency.** The describe stage reads the 1280-px JPEG written by the new `preview` stage (between `thumb` and `describe`; `dependsOn: ["thumb"]`; output at `<folder>/.maple/previews/<basename>_1280.jpg`). The 512-px thumb is too small for reliable captions or OCR on a 24 MP photo; the preview is sized to give the VLM enough resolution without blowing the VRAM budget. See `src/api/src/workers/stages/preview.ts` and `src/api/src/indexer/previewer.ts`.
+
+**Re-running on prompt or model swaps.** Two knobs drive invalidation:
+
+- `prompt_version` (on `description_meta` / `vision_meta`). Bump the constant in `enrichment-config.repo.ts`; the runtime treats any asset whose stored `prompt_version` is below the current value as pending.
+- Stage `targetVersion` on `describe`. Bumping it in `defineStage` re-queues every asset for the stage.
+
+Either knob causes existing assets to re-run the describe stage on their own. No backfill script, no admin route — the per-asset bookkeeping in `enrichment.<stage>` does the work.
+
+**OCR.** `ocr_text` is populated from `vision.text_visible` by the describe stage on every pass; `ocr_meta.engine === "qwen2.5-vl"` always. There is no separate OCR worker — the parallel Tesseract stage was removed in #158 because nothing consumed its per-word bboxes.
+
+**`search_blob` fan-in.** `composeSearchBlob` in `src/api/src/enrichment/search-blob.ts` folds `vision.subjects`, `vision.setting`, `vision.activity`, and `vision.notable_objects` into the per-asset search blob. The `meili` stage threads them through, so existing typo-tolerant text search benefits without any new infrastructure. Meili `targetVersion` was bumped to invalidate prior index entries.
+
+**Database-only.** Vision data is never written to the XMP sidecar — see `docs/xmp-canonical-format.md` § "What does not live in XMP" for the rationale.
 
 ## 7. Operations
 

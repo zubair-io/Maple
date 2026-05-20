@@ -72,10 +72,6 @@ import {
   stopGeocodeWorker,
 } from "./enrichment/bootstrap.ts";
 import {
-  startOcrWorker,
-  stopOcrWorker,
-} from "./enrichment/ocr-bootstrap.ts";
-import {
   startFaceWorker,
   stopFaceWorker,
 } from "./enrichment/face-bootstrap.ts";
@@ -411,17 +407,6 @@ async function start(): Promise<void> {
       // heavy lifting; one in-flight job per process is enough for v1.
       startJobRunner();
     })
-    .then(() =>
-      // Phase 8: OCR worker. Off by default — operator opts in via
-      // `MAPLE_OCR_WORKER_ENABLED=true` or the settings UI. Lazy
-      // tesseract bring-up means this is cheap at boot when disabled.
-      startOcrWorker().catch((err) => {
-        log.error(
-          { err: err instanceof Error ? err.message : err },
-          "OCR worker failed to start; toggle via /settings/enrichment",
-        );
-      }),
-    )
     .catch((err) => {
       log.warn(
         { err: err instanceof Error ? err.message : err },
@@ -501,14 +486,6 @@ async function shutdown(signal: string): Promise<void> {
     log.warn(
       { err: e instanceof Error ? e.message : e },
       "error stopping describe worker",
-    );
-  }
-  try {
-    await stopOcrWorker();
-  } catch (e) {
-    log.warn(
-      { err: e instanceof Error ? e.message : e },
-      "error stopping OCR worker",
     );
   }
   try {
