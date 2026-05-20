@@ -65,23 +65,38 @@ interface DescribeDeps {
 
 let _deps: DescribeDeps | null = null;
 
+/** Fixed model. The structured-JSON parser only accepts qwen2.5-vl's
+ * output shape, so allowing operator overrides would silently dead-letter
+ * every row. Operators can still point at a remote Ollama via the URL
+ * config, but provider/model/prompt are locked. */
+const FIXED_DESCRIBE_MODEL = "qwen2.5-vl:7b";
+
 async function getDeps(): Promise<DescribeDeps> {
   if (_deps) return _deps;
   const dbConfig = await loadEnrichmentConfig();
   const cfg = resolveEnrichmentConfig(dbConfig);
-  const provider = getDescribeProvider(cfg.describe_provider, {
+  // Provider is locked to Ollama; only the URL is configurable so the
+  // operator can run the model on a remote box. Stale `describe_provider`
+  // / `describe_model` / `describe_system_prompt` values in the DB row are
+  // ignored — kept on the type only so older config docs don't error on
+  // parse.
+  const provider = getDescribeProvider("ollama", {
     url: cfg.describe_provider_url,
   });
   _deps = {
     provider,
-    // Default to the structured-JSON prompt. An operator override (set via
-    // `MAPLE_DESCRIBE_SYSTEM_PROMPT` or the settings UI) still wins — they
-    // are responsible for keeping the override's output JSON-shaped, or
-    // every row will dead-letter through the parser.
-    systemPrompt: cfg.describe_system_prompt ?? DEFAULT_DESCRIBE_VISION_PROMPT,
-    model: cfg.describe_model,
+    systemPrompt: DEFAULT_DESCRIBE_VISION_PROMPT,
+    model: FIXED_DESCRIBE_MODEL,
   };
   return _deps;
+}
+
+/** Invalidate the module-level deps cache so the next `getDeps()` call
+ * re-reads `describe_provider_url` from the persisted config. Wired into
+ * `applyDescribeConfig` so an operator changing the URL in
+ * `/settings/enrichment` takes effect without restarting the process. */
+export function resetDescribeDeps(): void {
+  _deps = null;
 }
 
 /** Test-only setter. Call with `null` to reset between tests. */
