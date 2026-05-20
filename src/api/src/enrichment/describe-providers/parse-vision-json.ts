@@ -309,10 +309,6 @@ function coerceEnum(
   if (allowed.has(norm)) return norm;
   const mapped = synonyms[norm];
   if (mapped !== undefined && allowed.has(mapped)) return mapped;
-  // Also accept the raw (pre-normalised) string if it happens to be in
-  // the allowed set with original case — covers values like
-  // "golden hour" where the enum value itself contains a space.
-  if (allowed.has(v)) return v;
   return COERCE_FAIL;
 }
 
@@ -493,8 +489,8 @@ export function parseVisionJson(raw: string): VisionDoc {
     ALLOWED_COMPOSITION,
   );
 
-  const text_visible_raw = coerceTextVisible(obj.text_visible);
-  if (text_visible_raw === COERCE_FAIL) {
+  const text_visible = coerceTextVisible(obj.text_visible);
+  if (text_visible === COERCE_FAIL) {
     throw new VisionParseError(
       "wrong-type",
       "expected string | null | string[]",
@@ -502,7 +498,6 @@ export function parseVisionJson(raw: string): VisionDoc {
       "text_visible",
     );
   }
-  const text_visible = text_visible_raw;
 
   const notable_objects = asStringArrayOrEmpty(obj.notable_objects);
   if (notable_objects === null) {
@@ -530,8 +525,8 @@ export function parseVisionJson(raw: string): VisionDoc {
     ALLOWED_INDOOR_OUTDOOR,
   );
 
-  const is_screenshot_raw = coerceIsScreenshot(obj.is_screenshot);
-  if (is_screenshot_raw === COERCE_FAIL) {
+  const is_screenshot = coerceIsScreenshot(obj.is_screenshot);
+  if (is_screenshot === COERCE_FAIL) {
     throw new VisionParseError(
       "wrong-type",
       "expected boolean (or coercible string / number)",
@@ -539,7 +534,6 @@ export function parseVisionJson(raw: string): VisionDoc {
       "is_screenshot",
     );
   }
-  const is_screenshot = is_screenshot_raw;
 
   return {
     caption,
