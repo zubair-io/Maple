@@ -8,7 +8,7 @@ The product bar is: color quality that a working photographer will trust, and a 
 
 Three-column shell (sources tree / image grid / detail inspector) on desktop and tablet, single-column on phone. Two modes — **Browse** (grid) and **Full image** (large preview with filmstrip). Every edit is non-destructive and persists to **XMP sidecars** — originals are never touched.
 
-The full feature spec is in `docs/feature-spec.md`. The UI contract is in `docs/ui-spec.md`. The interactive layout reference is `docs/mockup.html`. These are the source of truth, not this file.
+The full feature spec is in `docs/feature-spec.md`. The UI contract is in `docs/ui-spec.md`. The interactive layout reference is `docs/mockup.html`. These are the source of truth, not this file. For the engineering contract (file-size budget, commit rules, tooling), see `CONTRIBUTING.md`.
 
 ## Load-bearing principles
 
