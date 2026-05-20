@@ -21,7 +21,8 @@ export type MigrationId =
   | "exif-captured-year-month-backfill"
   | "place-search-blob-backfill"
   | "asset-search-blob-backfill"
-  | "reset-describe-dead-vision-parse-2026-05-20";
+  | "reset-describe-dead-vision-parse-2026-05-20"
+  | "reset-describe-dead-vision-parse-2026-05-21";
 
 interface MigrationDoc {
   _id: MigrationId;

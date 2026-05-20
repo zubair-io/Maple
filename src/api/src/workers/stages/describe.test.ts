@@ -198,7 +198,11 @@ describe("describeHandler — parse failure", () => {
     seedPreview(absPath);
     const doc = fakeDoc(absPath);
     const broken = { ...VALID_VISION } as Partial<typeof VALID_VISION>;
-    delete broken.subjects;
+    // `caption` is the canonical strictly-required field — array-of-feature
+    // fields (subjects/colors/notable_objects) and the enum fields are
+    // tolerantly defaulted now when null/missing, so they no longer cover
+    // "missing required field" rejection.
+    delete broken.caption;
     const provider = mockProvider({
       text: JSON.stringify(broken),
       cost_usd: 0,
@@ -209,7 +213,7 @@ describe("describeHandler — parse failure", () => {
       systemPrompt: "p",
       model: "qwen2.5vl:7b",
     });
-    await expect(describeHandler(doc, fakeCtx)).rejects.toThrow(/subjects/);
+    await expect(describeHandler(doc, fakeCtx)).rejects.toThrow(/caption/);
   });
 });
 
