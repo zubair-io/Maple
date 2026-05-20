@@ -186,7 +186,13 @@ const describeStage = defineStage({
   // the 1280-px preview, populates `vision` + `vision_meta`. v1 produced
   // free-text descriptions from `llava` against the 512-px thumb — bumping
   // the version invalidates those rows so they re-run with the new chain.
-  targetVersion: 2,
+  //
+  // v3: adds the `is_screenshot` boolean to the prompt + parser + writes
+  // it to `vision.is_screenshot` and the top-level `is_screenshot` mirror.
+  // The runtime gates re-runs on this number (not on
+  // `DESCRIBE_VISION_PROMPT_VERSION`), so bumping it forces every v2 row
+  // to re-run and pick up the new field.
+  targetVersion: 3,
   dependsOn: ["preview"],
   defaults: {
     concurrency: 2,
