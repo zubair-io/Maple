@@ -19,7 +19,7 @@ import {
 } from "./index.ts";
 
 const DEFAULT_BASE_URL = "http://localhost:11434";
-// qwen2.5-vl:7b on a 24 GB GPU is 8–12s typical per image, but can spike
+// qwen2.5vl:7b on a 24 GB GPU is 8–12s typical per image, but can spike
 // to 30–60s under cold-load or when the model is paged in. 120s leaves
 // headroom without masking a genuinely hung backend.
 const DEFAULT_TIMEOUT_MS = 120_000;

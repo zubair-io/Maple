@@ -174,7 +174,7 @@ export interface VisionDoc {
 export interface VisionMeta {
   /** Describe provider that produced this row. */
   provider: "ollama" | "anthropic" | "openai" | "gemini";
-  /** Concrete model tag, e.g. "qwen2.5-vl:7b". */
+  /** Concrete model tag, e.g. "qwen2.5vl:7b". */
   model: string;
   /** Bumped whenever the system prompt changes. */
   prompt_version: number;
