@@ -121,6 +121,27 @@ export function defaultModelDir(): string {
   return process.env.MAPLE_MODEL_DIR ?? join(homedir(), ".maple", "models");
 }
 
+/** Parse an env-var thread-count override. Returns `fallback` if `raw` is
+ * unset, not a finite positive integer, or otherwise invalid. ORT silently
+ * reverts to its host-CPU-count default on `0` / `NaN` / negative values
+ * (which is the exact misbehaviour this module fixes), so reject those
+ * here and log loud so operator misconfigs surface. */
+export function resolveOrtThreadCount(
+  raw: string | undefined,
+  fallback: number,
+): number {
+  if (raw === undefined) return fallback;
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < 1) {
+    log.warn(
+      { raw, fallback },
+      "invalid ORT thread-count env value; falling back to default",
+    );
+    return fallback;
+  }
+  return n;
+}
+
 /** File name used for each model under the model dir. Operator can drop a
  * file at `<modelDir>/<basename>` to skip the download path entirely. */
 export const RETINAFACE_BASENAME = "retinaface.onnx";
@@ -259,12 +280,13 @@ export async function loadFaceModels(
     // session — before the load even completes. The face stage runs with
     // `concurrency: 1` (workers/stages/face.ts), so a small pool is plenty.
     const sessionOptions = {
-      intraOpNumThreads: Number(
-        process.env.MAPLE_FACE_ORT_INTRA_OP_THREADS ??
-          Math.min(4, availableParallelism()),
+      intraOpNumThreads: resolveOrtThreadCount(
+        process.env.MAPLE_FACE_ORT_INTRA_OP_THREADS,
+        Math.min(4, availableParallelism()),
       ),
-      interOpNumThreads: Number(
-        process.env.MAPLE_FACE_ORT_INTER_OP_THREADS ?? 1,
+      interOpNumThreads: resolveOrtThreadCount(
+        process.env.MAPLE_FACE_ORT_INTER_OP_THREADS,
+        1,
       ),
     };
     log.info(
@@ -351,10 +373,7 @@ async function ensureModelFile(opts: EnsureFileOpts): Promise<string> {
   return target;
 }
 
-/** Lazy-import `onnxruntime-node`. Kept dynamic so the API process can
- * boot (and tests can run) without the package installed — only the
- * face worker hitting the real model-load path needs it. */
-async function loadOnnxRuntime(): Promise<{
+interface OnnxRuntimeModule {
   InferenceSession: {
     create(
       path: string,
@@ -365,14 +384,16 @@ async function loadOnnxRuntime(): Promise<{
     ): Promise<OnnxSessionLike>;
   };
   Tensor: OnnxTensorConstructor;
-}> {
+}
+
+/** Lazy-import `onnxruntime-node`. Kept dynamic so the API process can
+ * boot (and tests can run) without the package installed — only the
+ * face worker hitting the real model-load path needs it. */
+async function loadOnnxRuntime(): Promise<OnnxRuntimeModule> {
   try {
     // Lazy-imported so the typecheck doesn't require the dep on machines
     // where the face worker isn't enabled. Bun resolves this at call time.
-    const mod = (await import("onnxruntime-node")) as unknown as {
-      InferenceSession: { create(path: string): Promise<OnnxSessionLike> };
-      Tensor: OnnxTensorConstructor;
-    };
+    const mod = (await import("onnxruntime-node")) as unknown as OnnxRuntimeModule;
     return mod;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
