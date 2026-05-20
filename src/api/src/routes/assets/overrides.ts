@@ -3,7 +3,6 @@
  *
  *   PUT /api/assets/:id/place        — manual override of reverse-geocoded place
  *   PUT /api/assets/:id/description  — manual override of LLM caption
- *   PUT /api/assets/:id/ocr          — manual override of OCR text
  *
  * Each route writes the field directly and recomputes `search_blob`
  * atomically using the same aggregation expression each worker's
@@ -104,52 +103,6 @@ export const overrideRoutes = new Elysia()
           $set: {
             description: text,
             search_blob: searchBlobUpdateExpression({ description: text }),
-          },
-        },
-      ]);
-
-      set.status = 204;
-      await recordAndPublishAssetChange({
-        kind: "update",
-        asset_id: id,
-        folder_id: doc.folder_id,
-        abs_path: doc.abs_path,
-      }).catch(() => {});
-      return;
-    },
-    {
-      body: t.Object({
-        text: t.Union([t.Null(), t.String()]),
-      }),
-    }
-  )
-
-  // Manual OCR override
-  .put(
-    "/:id/ocr",
-    async ({ params, body, set }) => {
-      let id: ObjectId;
-      try {
-        id = new ObjectId(params.id);
-      } catch {
-        set.status = 400;
-        return { error: "Invalid asset id" };
-      }
-
-      const coll = await assetsCollection();
-      const doc = await coll.findOne({ _id: id });
-      if (!doc) {
-        set.status = 404;
-        return { error: "Asset not found" };
-      }
-
-      const text = (body as { text: string | null } | null)?.text ?? null;
-
-      await coll.updateOne({ _id: id }, [
-        {
-          $set: {
-            ocr_text: text,
-            search_blob: searchBlobUpdateExpression({ ocrText: text }),
           },
         },
       ]);

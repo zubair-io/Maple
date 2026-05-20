@@ -18,8 +18,13 @@
  */
 
 import { Elysia, t } from "elysia";
-import { supervisorState } from "../workers/supervisor.ts";
+import { stageRegistry } from "../workers/registry.ts";
 import { verifyAccessToken } from "../auth/tokens.ts";
+
+/** Snapshot of all live stage statuses, keyed by stage name. */
+function supervisorState(): ReturnType<typeof stageRegistry.statuses> {
+  return stageRegistry.statuses();
+}
 
 function jwtSecret(): string {
   const s = process.env.MAPLE_JWT_SECRET;
@@ -87,22 +92,21 @@ async function fetchStatus(): Promise<ChildStatus | null> {
     }
 
     const stateValues = Object.values(state);
-    const allQuiescent = stateValues.length > 0 &&
-      stateValues.every((s) => s.status === "stopped" || s.status === "error");
+    const allPaused = stateValues.length > 0 &&
+      stateValues.every((s) => s.status === "paused");
 
     const status: ChildStatus = {
-      paused: allQuiescent && !anyRunning,
+      paused: allPaused,
       pools,
       channels,
       stages: stagesOut,
-      started: anyRunning || stateValues.some(
-        (s) => s.status === "starting" || s.status === "restarting",
-      ),
+      // In-process: a stage is either registered (running/paused) or absent.
+      // "started" mirrors the legacy meaning of "the indexer is up".
+      started: stateValues.length > 0,
     };
 
-    // Return null (slow-poll) only when the supervisor has no registered
-    // stages at all — not when they're stopped/errored, since the UI still
-    // needs the shape to render correctly.
+    // Return null (slow-poll) only when no stages are registered at all —
+    // the UI still needs the shape to render correctly while stages are paused.
     if (stateValues.length === 0) return null;
 
     return status;

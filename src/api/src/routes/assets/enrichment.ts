@@ -18,7 +18,7 @@ import { normaliseEnrichment } from "../../db/schema.ts";
 /** Whitelisted enrichment stage names for the requeue route. Anything else
  * is rejected with 400 so a client can't poke a Mongo path that doesn't
  * belong to the enrichment subdoc. */
-const ENRICHMENT_STAGES = ["geocode", "face", "describe", "ocr"] as const;
+const ENRICHMENT_STAGES = ["geocode", "face", "describe"] as const;
 type EnrichmentStageName = (typeof ENRICHMENT_STAGES)[number];
 
 function isEnrichmentStage(s: string): s is EnrichmentStageName {

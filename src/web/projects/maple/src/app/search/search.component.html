@@ -1,7 +1,11 @@
 <div class="flex h-screen w-screen flex-col overflow-hidden bg-bg text-text-main">
   <!-- Top bar -->
-  <header class="flex h-12 flex-shrink-0 items-center gap-2 border-b-[0.5px] border-border bg-surface px-4">
-    <div class="flex h-[30px] max-w-[480px] flex-1 items-center gap-2 rounded-md border-[0.5px] border-border bg-input-bg px-2.5">
+  <header
+    class="flex h-12 flex-shrink-0 items-center gap-2 border-b-[0.5px] border-border bg-surface px-4"
+  >
+    <div
+      class="flex h-[30px] max-w-[480px] flex-1 items-center gap-2 rounded-md border-[0.5px] border-border bg-input-bg px-2.5"
+    >
       <maple-icon name="search" [size]="14" color="var(--color-text-muted)" />
       <input
         type="text"
@@ -55,10 +59,14 @@
 
   <div class="flex min-h-0 flex-1">
     <!-- Filter sidebar -->
-    <aside class="w-[260px] flex-shrink-0 overflow-y-auto border-r-[0.5px] border-border bg-sidebar px-3.5 py-4">
+    <aside
+      class="w-[260px] flex-shrink-0 overflow-y-auto border-r-[0.5px] border-border bg-sidebar px-3.5 py-4"
+    >
       <!-- Date range -->
       <section class="mb-[18px]">
-        <h3 class="mb-2 mt-0 text-[11px] font-semibold uppercase tracking-[0.05em] text-text-muted">Date range</h3>
+        <h3 class="mb-2 mt-0 text-[11px] font-semibold uppercase tracking-[0.05em] text-text-muted">
+          Date range
+        </h3>
         <div class="flex gap-1.5">
           <input
             type="date"
@@ -80,23 +88,31 @@
             type="button"
             class="h-[22px] flex-auto cursor-pointer rounded border-[0.5px] border-border bg-input-bg px-2 text-[11px] text-text-muted transition-[background,color] duration-[120ms] hover:bg-surface-hover hover:text-text-main"
             (click)="preset('last7')"
-          >Last 7 days</button>
+          >
+            Last 7 days
+          </button>
           <button
             type="button"
             class="h-[22px] flex-auto cursor-pointer rounded border-[0.5px] border-border bg-input-bg px-2 text-[11px] text-text-muted transition-[background,color] duration-[120ms] hover:bg-surface-hover hover:text-text-main"
             (click)="preset('last30')"
-          >Last 30 days</button>
+          >
+            Last 30 days
+          </button>
           <button
             type="button"
             class="h-[22px] flex-auto cursor-pointer rounded border-[0.5px] border-border bg-input-bg px-2 text-[11px] text-text-muted transition-[background,color] duration-[120ms] hover:bg-surface-hover hover:text-text-main"
             (click)="preset('thisYear')"
-          >This year</button>
+          >
+            This year
+          </button>
         </div>
       </section>
 
       <!-- Camera -->
       <section class="mb-[18px]">
-        <h3 class="mb-2 mt-0 text-[11px] font-semibold uppercase tracking-[0.05em] text-text-muted">Camera</h3>
+        <h3 class="mb-2 mt-0 text-[11px] font-semibold uppercase tracking-[0.05em] text-text-muted">
+          Camera
+        </h3>
         <select
           class="h-7 w-full cursor-pointer rounded-[5px] border-[0.5px] border-border bg-input-bg px-2 text-[12px] text-text-main outline-0"
           aria-label="Camera"
@@ -106,9 +122,7 @@
           <option value="">Any</option>
           @if (facets(); as f) {
             @for (c of f.cameras; track $index) {
-              <option [value]="cameraLabel(c)">
-                {{ cameraLabel(c) }} ({{ c.count }})
-              </option>
+              <option [value]="cameraLabel(c)">{{ cameraLabel(c) }} ({{ c.count }})</option>
             }
           }
         </select>
@@ -116,7 +130,9 @@
 
       <!-- Lens -->
       <section class="mb-[18px]">
-        <h3 class="mb-2 mt-0 text-[11px] font-semibold uppercase tracking-[0.05em] text-text-muted">Lens</h3>
+        <h3 class="mb-2 mt-0 text-[11px] font-semibold uppercase tracking-[0.05em] text-text-muted">
+          Lens
+        </h3>
         <select
           class="h-7 w-full cursor-pointer rounded-[5px] border-[0.5px] border-border bg-input-bg px-2 text-[12px] text-text-main outline-0"
           aria-label="Lens"
@@ -126,17 +142,104 @@
           <option value="">Any</option>
           @if (facets(); as f) {
             @for (l of f.lenses; track $index) {
-              <option [value]="l.value || ''">
-                {{ l.value || 'Unknown' }} ({{ l.count }})
-              </option>
+              <option [value]="l.value || ''">{{ l.value || 'Unknown' }} ({{ l.count }})</option>
             }
           }
         </select>
       </section>
 
+      <!-- Scene type -->
+      <section class="mb-[18px]">
+        <h3 class="mb-2 mt-0 text-[11px] font-semibold uppercase tracking-[0.05em] text-text-muted">
+          Scene type
+        </h3>
+        <select
+          class="h-7 w-full cursor-pointer rounded-[5px] border-[0.5px] border-border bg-input-bg px-2 text-[12px] text-text-main outline-0"
+          aria-label="Scene type"
+          [value]="sceneType()"
+          (change)="setSceneType($any($event.target).value)"
+        >
+          @for (s of sceneTypeOptions; track s.value) {
+            <option [value]="s.value">
+              @if (s.value === '') {
+                {{ s.label }}
+              } @else {
+                {{ s.label
+                }}{{ sceneTypeCount(s.value) !== null ? ' (' + sceneTypeCount(s.value) + ')' : '' }}
+              }
+            </option>
+          }
+        </select>
+      </section>
+
+      <!-- Activity -->
+      <section class="mb-[18px]">
+        <h3 class="mb-2 mt-0 text-[11px] font-semibold uppercase tracking-[0.05em] text-text-muted">
+          Activity
+        </h3>
+        <select
+          class="h-7 w-full cursor-pointer rounded-[5px] border-[0.5px] border-border bg-input-bg px-2 text-[12px] text-text-main outline-0"
+          aria-label="Activity"
+          [value]="activity()"
+          (change)="setActivity($any($event.target).value)"
+        >
+          <option value="">Any</option>
+          @if (facets(); as f) {
+            @for (a of f.activities; track trackFacetValue($index, a)) {
+              <option [value]="a.value">{{ a.value }} ({{ a.count }})</option>
+            }
+          }
+        </select>
+      </section>
+
+      <!-- Subjects -->
+      @if (facets()?.subjects?.length) {
+        <section class="mb-[18px]">
+          <h3
+            class="mb-2 mt-0 text-[11px] font-semibold uppercase tracking-[0.05em] text-text-muted"
+          >
+            Subjects
+          </h3>
+          <ul class="m-0 max-h-[180px] list-none overflow-y-auto p-0">
+            @for (s of facets()!.subjects; track trackFacetValue($index, s)) {
+              <li>
+                <label class="flex cursor-pointer items-center gap-2 py-1 text-[12px]">
+                  <input
+                    type="checkbox"
+                    [checked]="subjectsSelected().has(s.value)"
+                    (change)="toggleSubject(s.value)"
+                  />
+                  <span class="flex-1 text-text-main">{{ s.value }}</span>
+                  <span class="text-[11px] text-text-muted">{{ s.count }}</span>
+                </label>
+              </li>
+            }
+          </ul>
+        </section>
+      }
+
+      <!-- Screenshot tri-state -->
+      <section class="mb-[18px]">
+        <h3 class="mb-2 mt-0 text-[11px] font-semibold uppercase tracking-[0.05em] text-text-muted">
+          Type
+        </h3>
+        <select
+          class="h-8 w-full rounded border border-border bg-surface-alt px-2 text-[12px] text-text-main"
+          [value]="isScreenshot()"
+          (change)="setIsScreenshot($any($event.target).value)"
+          aria-label="Photos or screenshots"
+        >
+          <option value="">Any{{ facets()?.is_screenshot ? ' (' + (facets()!.is_screenshot.true + facets()!.is_screenshot.false + facets()!.is_screenshot.unknown) + ')' : '' }}</option>
+          <option value="false">Photos only{{ facets()?.is_screenshot ? ' (' + facets()!.is_screenshot.false + ')' : '' }}</option>
+          <option value="true">Screenshots only{{ facets()?.is_screenshot ? ' (' + facets()!.is_screenshot.true + ')' : '' }}</option>
+        </select>
+      </section>
+
       <!-- ISO -->
       <section class="mb-[18px]">
-        <h3 class="mb-2 mt-0 text-[11px] font-semibold uppercase tracking-[0.05em] text-text-muted">ISO</h3>
+        <h3 class="mb-2 mt-0 text-[11px] font-semibold uppercase tracking-[0.05em] text-text-muted">
+          ISO
+        </h3>
         <div class="flex gap-1.5">
           <input
             type="number"
@@ -159,7 +262,9 @@
 
       <!-- Aperture -->
       <section class="mb-[18px]">
-        <h3 class="mb-2 mt-0 text-[11px] font-semibold uppercase tracking-[0.05em] text-text-muted">Aperture (f/)</h3>
+        <h3 class="mb-2 mt-0 text-[11px] font-semibold uppercase tracking-[0.05em] text-text-muted">
+          Aperture (f/)
+        </h3>
         <div class="flex gap-1.5">
           <input
             type="number"
@@ -182,7 +287,9 @@
 
       <!-- Focal length -->
       <section class="mb-[18px]">
-        <h3 class="mb-2 mt-0 text-[11px] font-semibold uppercase tracking-[0.05em] text-text-muted">Focal length (mm)</h3>
+        <h3 class="mb-2 mt-0 text-[11px] font-semibold uppercase tracking-[0.05em] text-text-muted">
+          Focal length (mm)
+        </h3>
         <div class="flex gap-1.5">
           <input
             type="number"
@@ -205,7 +312,9 @@
 
       <!-- Rating -->
       <section class="mb-[18px]">
-        <h3 class="mb-2 mt-0 text-[11px] font-semibold uppercase tracking-[0.05em] text-text-muted">Rating ≥</h3>
+        <h3 class="mb-2 mt-0 text-[11px] font-semibold uppercase tracking-[0.05em] text-text-muted">
+          Rating ≥
+        </h3>
         <div class="flex gap-0.5">
           @for (n of stars; track n) {
             <button
@@ -226,7 +335,9 @@
 
       <!-- Flag -->
       <section class="mb-[18px]">
-        <h3 class="mb-2 mt-0 text-[11px] font-semibold uppercase tracking-[0.05em] text-text-muted">Flag</h3>
+        <h3 class="mb-2 mt-0 text-[11px] font-semibold uppercase tracking-[0.05em] text-text-muted">
+          Flag
+        </h3>
         <div class="flex flex-wrap gap-1">
           <button
             type="button"
@@ -293,7 +404,9 @@
 
       <!-- Color label -->
       <section class="mb-[18px]">
-        <h3 class="mb-2 mt-0 text-[11px] font-semibold uppercase tracking-[0.05em] text-text-muted">Color label</h3>
+        <h3 class="mb-2 mt-0 text-[11px] font-semibold uppercase tracking-[0.05em] text-text-muted">
+          Color label
+        </h3>
         <div class="flex flex-wrap gap-1.5">
           @for (c of colorOptions; track c.value) {
             <button
@@ -318,7 +431,11 @@
       <!-- Extension -->
       @if (facets()?.extensions?.length) {
         <section class="mb-[18px]">
-          <h3 class="mb-2 mt-0 text-[11px] font-semibold uppercase tracking-[0.05em] text-text-muted">Extension</h3>
+          <h3
+            class="mb-2 mt-0 text-[11px] font-semibold uppercase tracking-[0.05em] text-text-muted"
+          >
+            Extension
+          </h3>
           <ul class="m-0 max-h-[180px] list-none overflow-y-auto p-0">
             @for (e of facets()!.extensions; track trackExt($index, e)) {
               <li>
@@ -341,13 +458,17 @@
     <!-- Results -->
     <main class="min-w-0 flex-1 overflow-y-auto p-4">
       @if (error(); as e) {
-        <div class="mb-3 flex items-center gap-3 rounded-md bg-error-bg px-3.5 py-2.5 text-[12px] text-error-text">
+        <div
+          class="mb-3 flex items-center gap-3 rounded-md bg-error-bg px-3.5 py-2.5 text-[12px] text-error-text"
+        >
           <span>{{ e }}</span>
           <button
             type="button"
             class="ml-auto cursor-pointer rounded border-[0.5px] border-current bg-transparent px-2.5 py-1 text-[11px] text-current"
             (click)="retry()"
-          >Retry</button>
+          >
+            Retry
+          </button>
         </div>
       }
 
@@ -359,7 +480,9 @@
               type="button"
               class="mt-3 h-7 cursor-pointer rounded-[5px] border-[0.5px] border-border bg-input-bg px-3.5 text-[12px] text-text-main hover:bg-surface-hover"
               (click)="clearAll()"
-            >Clear all filters</button>
+            >
+              Clear all filters
+            </button>
           }
         </div>
       }
@@ -374,12 +497,20 @@
           >
             <div class="relative aspect-[3/2] overflow-hidden rounded bg-image-canvas">
               @if (r.thumbUrl) {
-                <img class="block h-full w-full object-cover" [src]="r.thumbUrl" [alt]="r.filename" loading="lazy" decoding="async" />
+                <img
+                  class="block h-full w-full object-cover"
+                  [src]="r.thumbUrl"
+                  [alt]="r.filename"
+                  loading="lazy"
+                  decoding="async"
+                />
               } @else if (r.thumbLoading) {
                 <div class="skeleton h-full w-full"></div>
               }
               @if (r.rating > 0) {
-                <div class="absolute bottom-1 right-1 flex gap-px rounded-[3px] bg-black/55 px-1 py-0.5">
+                <div
+                  class="absolute bottom-1 right-1 flex gap-px rounded-[3px] bg-black/55 px-1 py-0.5"
+                >
                   @for (s of stars; track s) {
                     <maple-icon
                       [name]="s <= r.rating ? 'star-filled' : 'star'"
@@ -391,7 +522,9 @@
               }
             </div>
             <div class="flex flex-col gap-0.5 px-1 pb-0.5">
-              <span class="overflow-hidden text-ellipsis whitespace-nowrap text-[12px]">{{ r.filename }}</span>
+              <span class="overflow-hidden text-ellipsis whitespace-nowrap text-[12px]">{{
+                r.filename
+              }}</span>
               @if (r.captured_at) {
                 <span class="text-[11px] text-text-muted">{{ r.captured_at | slice: 0 : 10 }}</span>
               }

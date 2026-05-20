@@ -1,11 +1,10 @@
 /**
- * Smoke test: supervisor + hash + exif + thumb + discover.
+ * Smoke test: in-process stage runners + hash + exif + thumb + discover.
  *
  * Drops a JPEG into a temp dir, waits up to 30 s for all three pipeline
  * stages to complete, then asserts stage versions on the image doc.
  *
- * Requires a running MongoDB (skips if unreachable) and the Plan 1
- * supervisor + runtime to be implemented.
+ * Requires a running MongoDB (skips if unreachable).
  */
 import { describe, expect, it, afterAll } from "bun:test";
 import { mkdtemp, writeFile, rm } from "node:fs/promises";
@@ -18,10 +17,12 @@ const POLL_INTERVAL_MS = 500;
 
 describe("workers smoke test", () => {
   let dir: string;
-  let supervisorHandle: { stop: () => Promise<void> } | null = null;
+  let stageHandles: Array<{ stop: () => Promise<void> }> = [];
+  let discoverHandle: { stop: () => Promise<void> } | null = null;
 
   afterAll(async () => {
-    if (supervisorHandle) await supervisorHandle.stop();
+    if (discoverHandle) await discoverHandle.stop();
+    await Promise.all(stageHandles.map((h) => h.stop().catch(() => {})));
     if (dir) await rm(dir, { recursive: true, force: true });
   });
 
@@ -46,12 +47,18 @@ describe("workers smoke test", () => {
       const { assetsCollection } = await import("../db/client.ts");
       const folderId = new ObjectId().toHexString();
 
-      // Import the Plan 1 supervisor and start it.
-      const { startSupervisor } = await import("./supervisor.ts");
-      supervisorHandle = await startSupervisor({
-        stages: ["hash", "exif", "thumb"],
-        discover: { folderId, roots: [dir] },
-      });
+      // Start only the three stages this smoke test needs, and the discover
+      // watcher pointed at the temp dir.
+      const { startHashStage } = await import("./stages/hash.ts");
+      const { startExifStage } = await import("./stages/exif.ts");
+      const { startThumbStage } = await import("./stages/thumb.ts");
+      const { startDiscover } = await import("./discover/index.ts");
+      stageHandles = await Promise.all([
+        startHashStage(),
+        startExifStage(),
+        startThumbStage(),
+      ]);
+      discoverHandle = await startDiscover({ roots: [dir] });
 
       // Read each stage's current target version rather than hardcoding —
       // the smoke test should track bumps (e.g. exif v1 → v2 for the GPS
@@ -104,7 +111,6 @@ describe("workers smoke test", () => {
 
       // The Plan 3 stages should still be at version 0 (untouched).
       expect(stages.face?.version).toBe(0);
-      expect(stages.ocr?.version).toBe(0);
 
       // Clean up.
       await assetsColl.deleteOne({ abs_path: file });

@@ -24,10 +24,6 @@ function makeDbStub(): { db: Db; getIndexes: (collName: string) => IndexSpec[] }
         // The production code swallows IndexNotFound, so this is fine.
       },
       async indexes() {
-        // Mirror the real driver's shape: flatten options into each entry so
-        // callers can read `name` / `partialFilterExpression` off the top
-        // level. ensureStageIndexes uses this to decide whether the old
-        // partial-filter version index needs dropping.
         return (collIndexes.get(name) ?? []).map((i) => ({
           key: i.key,
           ...i.options,
@@ -44,31 +40,28 @@ function makeDbStub(): { db: Db; getIndexes: (collName: string) => IndexSpec[] }
   };
 }
 
-const STAGE_NAMES = ["hash", "exif", "thumb", "face", "ocr", "describe", "geocode", "meili"];
+const STAGE_NAMES = ["hash", "exif", "thumb", "preview", "face", "describe", "geocode", "meili"];
 
 describe("ensureStageIndexes", () => {
   it("creates a version index for each known stage (no partial filter)", async () => {
     const { db, getIndexes } = makeDbStub();
-    const { ensureStageIndexes } = await import("../../db/client.ts");
+    const { ensureStageIndexes } = await import("../db/client.ts");
     await ensureStageIndexes(db);
     const indexes = getIndexes("assets");
     for (const name of STAGE_NAMES) {
-      // Verify the stage_<name>_version index exists and covers the version field.
       const found = indexes.find(
         (idx) =>
           idx.key[`stages.${name}.version`] === 1 &&
           idx.options["name"] === `stage_${name}_version`,
       );
       expect(found).toBeDefined();
-      // No partial filter — the index covers all docs so both dead=false and
-      // dead=missing (fresh assets) hit the index on claim queries.
       expect(found?.options["partialFilterExpression"]).toBeUndefined();
     }
   });
 
   it("is idempotent — calling twice does not throw", async () => {
     const { db } = makeDbStub();
-    const { ensureStageIndexes } = await import("../../db/client.ts");
+    const { ensureStageIndexes } = await import("../db/client.ts");
     await ensureStageIndexes(db);
     await expect(ensureStageIndexes(db)).resolves.toBeUndefined();
   });

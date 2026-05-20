@@ -36,11 +36,11 @@ export const metadataRoutes = new Elysia()
       return { error: "Asset not found" };
     }
 
-    // `description_meta` and `ocr_meta` aren't typed in the canonical
-    // `AssetDoc` (they were added by the describe / OCR workers after the
-    // schema froze), so we cast through `Record<string, unknown>` for the
-    // read-side projection. The shape is stable — see describe-worker.ts
-    // (writes `description_meta`) and ocr-worker.ts (writes `ocr_meta`).
+    // `description_meta` isn't typed in the canonical `AssetDoc` (it was
+    // added by the describe stage after the schema froze), so we cast
+    // through `Record<string, unknown>` for the read-side projection. The
+    // shape is stable — see workers/stages/describe.ts, which writes both
+    // `description_meta` and `ocr_meta` from the same VLM pass.
     const rawDoc = doc as unknown as Record<string, unknown>;
     return {
       id: doc._id.toHexString(),
@@ -61,6 +61,13 @@ export const metadataRoutes = new Elysia()
       description_meta: rawDoc.description_meta ?? null,
       ocr_text: doc.ocr_text ?? null,
       ocr_meta: doc.ocr_meta ?? null,
+      // Structured vision metadata from the qwen2.5-vl describe stage.
+      // Both are null until the stage runs on the asset.
+      vision: doc.vision ?? null,
+      vision_meta: doc.vision_meta ?? null,
+      // Top-level mirror of vision.is_screenshot — seeded by the exif
+      // stage heuristic, overwritten by the describe stage's VLM verdict.
+      is_screenshot: doc.is_screenshot ?? null,
       enrichment: normaliseEnrichment(doc.enrichment),
     };
   })

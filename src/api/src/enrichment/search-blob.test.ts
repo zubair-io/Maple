@@ -91,6 +91,52 @@ describe("composeSearchBlob", () => {
     });
     expect(out).toBe("hello world");
   });
+
+  it("folds in vision subjects / setting / activity / notable_objects", () => {
+    const out = composeSearchBlob({
+      description: "A child sprinting across a green field.",
+      visionSubjects: ["person", "child", "athlete"],
+      visionSetting: "sports field",
+      visionActivity: "lacrosse",
+      visionNotableObjects: ["lacrosse stick", "helmet"],
+    });
+    const tokens = new Set(out.split(" "));
+    // Multi-word strings tokenise per-word.
+    expect(tokens.has("sports")).toBe(true);
+    expect(tokens.has("field")).toBe(true);
+    expect(tokens.has("lacrosse")).toBe(true);
+    expect(tokens.has("stick")).toBe(true);
+    expect(tokens.has("helmet")).toBe(true);
+    expect(tokens.has("child")).toBe(true);
+    expect(tokens.has("athlete")).toBe(true);
+  });
+
+  it("vision arrays of length 0 contribute no tokens", () => {
+    const out = composeSearchBlob({
+      description: "Two cats on a windowsill",
+      visionSubjects: [],
+      visionNotableObjects: [],
+      visionSetting: null,
+      visionActivity: null,
+    });
+    expect(out.split(" ").sort()).toEqual([
+      "a",
+      "cats",
+      "on",
+      "two",
+      "windowsill",
+    ]);
+  });
+
+  it("dedup applies across description + vision sources", () => {
+    // "lacrosse" appears in both description and vision.activity.
+    const out = composeSearchBlob({
+      description: "lacrosse game on the field",
+      visionActivity: "lacrosse",
+      visionSubjects: ["athlete"],
+    });
+    expect(out.split(" ").filter((t) => t === "lacrosse").length).toBe(1);
+  });
 });
 
 describe("searchBlobUpdateExpression", () => {

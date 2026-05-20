@@ -3,7 +3,7 @@
  *
  * The discover producer imports this to build the `stages` skeleton on every
  * new image doc. The supervisor passes it to the runtime when spawning stage
- * children. Plan 3 adds face / ocr / describe / geocode / meili here; no
+ * children. Plan 3 adds face / describe / geocode / meili here; no
  * other file needs to change.
  *
  * Order is cosmetic — the runtime enforces dependency ordering via each
@@ -13,8 +13,8 @@
 import hashStage from "./hash.ts";
 import exifStage from "./exif.ts";
 import thumbStage from "./thumb.ts";
+import previewStage from "./preview.ts";
 import faceStage from "./face.ts";
-import ocrStage from "./ocr.ts";
 import describeStage from "./describe.ts";
 import geocodeStage from "./geocode.ts";
 import meiliStage from "./meili.ts";
@@ -23,8 +23,8 @@ export const stageManifest = [
   hashStage,
   exifStage,
   thumbStage,
+  previewStage,
   faceStage,
-  ocrStage,
   describeStage,
   geocodeStage,
   meiliStage,
@@ -34,8 +34,8 @@ export const ALL_STAGE_NAMES = [
   "hash",
   "exif",
   "thumb",
+  "preview",
   "face",
-  "ocr",
   "describe",
   "geocode",
   "meili",

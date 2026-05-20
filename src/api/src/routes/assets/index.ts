@@ -21,7 +21,6 @@
  *   POST   /api/assets/:id/restore                — restore from trash
  *   PUT    /api/assets/:id/place                  — manual place override
  *   PUT    /api/assets/:id/description            — manual caption override
- *   PUT    /api/assets/:id/ocr                    — manual OCR override
  *   POST   /api/assets/:id/enrichment/requeue     — per-stage requeue
  */
 

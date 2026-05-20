@@ -14,8 +14,8 @@
  * (Task 5) owns the Meilisearch write once all enrichment stages have run.
  */
 
-import type { ImageDoc, StageContext, StageResult } from "../runtime/define-stage.ts";
-import { defineStage } from "../runtime/define-stage.ts";
+import type { ImageDoc, StageContext, StageResult } from "../run-stage.ts";
+import { defineStage, runStage, type RunStageHandle } from "../run-stage.ts";
 import { CoordinateCache } from "../../enrichment/coordinate-cache.ts";
 import { NominatimClient } from "../../enrichment/nominatim-client.ts";
 import { parseNominatimResponse } from "../../enrichment/place-parser.ts";
@@ -72,7 +72,7 @@ export async function geocodeHandler(
   return { patch: { place } };
 }
 
-export default defineStage({
+const geocodeStage = defineStage({
   name: "geocode",
   // v2: exif v2 corrects western-hemisphere longitude sign — bump so docs
   // already geocoded with the wrong-sign coords re-run against the fixed gps.
@@ -91,3 +91,9 @@ export default defineStage({
   },
   handler: geocodeHandler,
 });
+
+export default geocodeStage;
+
+export async function startGeocodeStage(): Promise<RunStageHandle> {
+  return runStage(geocodeStage);
+}
