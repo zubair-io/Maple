@@ -729,7 +729,7 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
         // contentType check goes BEFORE the extension-based routing
         // because the OS, not the filename, decides whether the
         // template is a directory.
-        if itemTemplate.contentType.conforms(to: .folder) {
+        if itemTemplate.contentType?.conforms(to: .folder) == true {
             return createFolderItem(basedOn: itemTemplate, catalog: catalog, completionHandler: completionHandler)
         }
 
