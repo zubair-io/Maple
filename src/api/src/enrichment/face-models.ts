@@ -33,7 +33,7 @@ import {
   statSync,
 } from "node:fs";
 import { writeFile } from "node:fs/promises";
-import { homedir } from "node:os";
+import { availableParallelism, homedir } from "node:os";
 import { join, dirname } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -119,6 +119,27 @@ export function setFaceModelLoaderForTests(
  * for tests / non-standard installs. */
 export function defaultModelDir(): string {
   return process.env.MAPLE_MODEL_DIR ?? join(homedir(), ".maple", "models");
+}
+
+/** Parse an env-var thread-count override. Returns `fallback` if `raw` is
+ * unset, not a finite positive integer, or otherwise invalid. ORT silently
+ * reverts to its host-CPU-count default on `0` / `NaN` / negative values
+ * (which is the exact misbehaviour this module fixes), so reject those
+ * here and log loud so operator misconfigs surface. */
+export function resolveOrtThreadCount(
+  raw: string | undefined,
+  fallback: number,
+): number {
+  if (raw === undefined) return fallback;
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < 1) {
+    log.warn(
+      { raw, fallback },
+      "invalid ORT thread-count env value; falling back to default",
+    );
+    return fallback;
+  }
+  return n;
 }
 
 /** File name used for each model under the model dir. Operator can drop a
@@ -250,9 +271,36 @@ export async function loadFaceModels(
         null,
     });
     const ort = await loadOnnxRuntime();
-    log.info({ retinaPath, mfnPath }, "loading ONNX face models");
-    const retinaFace = await ort.InferenceSession.create(retinaPath);
-    const mobileFaceNet = await ort.InferenceSession.create(mfnPath);
+    // Constrain ORT thread pools. Without explicit thread counts, the native
+    // binding sizes its intra-op pool to the host's logical CPU count and
+    // tries to pin each thread to a distinct CPU via pthread_setaffinity_np.
+    // In a container whose cgroup cpuset is narrower than the host (the
+    // common case for 64–128-core hosts running Docker), most of those pins
+    // fail with EINVAL and ORT spams stderr — one ERROR line per thread per
+    // session — before the load even completes. The face stage runs with
+    // `concurrency: 1` (workers/stages/face.ts), so a small pool is plenty.
+    const sessionOptions = {
+      intraOpNumThreads: resolveOrtThreadCount(
+        process.env.MAPLE_FACE_ORT_INTRA_OP_THREADS,
+        Math.min(4, availableParallelism()),
+      ),
+      interOpNumThreads: resolveOrtThreadCount(
+        process.env.MAPLE_FACE_ORT_INTER_OP_THREADS,
+        1,
+      ),
+    };
+    log.info(
+      { retinaPath, mfnPath, sessionOptions },
+      "loading ONNX face models",
+    );
+    const retinaFace = await ort.InferenceSession.create(
+      retinaPath,
+      sessionOptions,
+    );
+    const mobileFaceNet = await ort.InferenceSession.create(
+      mfnPath,
+      sessionOptions,
+    );
     singleton = {
       retinaFace,
       mobileFaceNet,
@@ -325,20 +373,27 @@ async function ensureModelFile(opts: EnsureFileOpts): Promise<string> {
   return target;
 }
 
+interface OnnxRuntimeModule {
+  InferenceSession: {
+    create(
+      path: string,
+      options?: {
+        intraOpNumThreads?: number;
+        interOpNumThreads?: number;
+      },
+    ): Promise<OnnxSessionLike>;
+  };
+  Tensor: OnnxTensorConstructor;
+}
+
 /** Lazy-import `onnxruntime-node`. Kept dynamic so the API process can
  * boot (and tests can run) without the package installed — only the
  * face worker hitting the real model-load path needs it. */
-async function loadOnnxRuntime(): Promise<{
-  InferenceSession: { create(path: string): Promise<OnnxSessionLike> };
-  Tensor: OnnxTensorConstructor;
-}> {
+async function loadOnnxRuntime(): Promise<OnnxRuntimeModule> {
   try {
     // Lazy-imported so the typecheck doesn't require the dep on machines
     // where the face worker isn't enabled. Bun resolves this at call time.
-    const mod = (await import("onnxruntime-node")) as unknown as {
-      InferenceSession: { create(path: string): Promise<OnnxSessionLike> };
-      Tensor: OnnxTensorConstructor;
-    };
+    const mod = (await import("onnxruntime-node")) as unknown as OnnxRuntimeModule;
     return mod;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
