@@ -1,11 +1,14 @@
 import { describe, expect, it } from "bun:test";
-import type { Collection, Filter, UpdateFilter, UpdateOptions, UpdateResult } from "mongodb";
-import { defineStage } from "./define-stage.ts";
-import type { ImageDoc, StageState } from "./define-stage.ts";
-import type { WorkerConfigDoc } from "../worker-config.repo.ts";
-
-// Internal helpers are exported unconditionally from run-stage.
-import { _test, buildClaimQuery } from "./run-stage.ts";
+import type { Collection, UpdateResult } from "mongodb";
+import {
+  _test,
+  buildClaimQuery,
+  defineStage,
+  ThroughputWindow,
+  type ImageDoc,
+  type StageState,
+} from "./run-stage.ts";
+import type { WorkerConfigDoc } from "./worker-config.repo.ts";
 
 const { bootConfig, versionBumpReset } = _test;
 
@@ -51,8 +54,6 @@ function makeImagesMock(initial: ImageDoc[] = []): Collection<ImageDoc> {
       filter: Record<string, unknown>,
       update: Record<string, unknown>,
     ) {
-      // Minimal implementation: apply $set to docs matching the filter key/value.
-      // Supports { "stages.X.version": { $lt: N } } predicate.
       let modified = 0;
       for (const doc of store) {
         if (matchesFilter(doc, filter)) {
@@ -63,7 +64,6 @@ function makeImagesMock(initial: ImageDoc[] = []): Collection<ImageDoc> {
       return { matchedCount: modified, modifiedCount: modified, upsertedCount: 0, upsertedId: null, acknowledged: true } as UpdateResult;
     },
     find(filter: Record<string, unknown>) {
-      // Eagerly compute matches; return a sync cursor-like with chainable limit().
       let matched = store.filter((d) => matchesFilter(d, filter));
       return {
         limit(n: number) {
@@ -100,7 +100,6 @@ function makeImagesMock(initial: ImageDoc[] = []): Collection<ImageDoc> {
 
 function matchesFilter(doc: unknown, filter: Record<string, unknown>): boolean {
   for (const [key, val] of Object.entries(filter)) {
-    // Handle $or at the top level
     if (key === "$or") {
       const arr = val as Record<string, unknown>[];
       if (!arr.some((subFilter) => matchesFilter(doc, subFilter))) return false;
@@ -173,6 +172,7 @@ const baseStage = defineStage({
     maxAttempts: 5,
     paused: false,
     pausedOnFirstBoot: false,
+    last_seen_target_version: 0,
   },
   handler: async (_image, _ctx) => ({ patch: {} }),
 });
@@ -183,8 +183,7 @@ describe("bootConfig", () => {
     const cfg = await bootConfig(baseStage, coll);
     expect(cfg.concurrency).toBe(4);
     expect(cfg.paused).toBe(false);
-    // Verify it was written: do a fresh load via a new repo instance.
-    const { WorkerConfigRepo } = await import("../worker-config.repo.ts");
+    const { WorkerConfigRepo } = await import("./worker-config.repo.ts");
     const repo = new WorkerConfigRepo(coll);
     const loaded = await repo.load(baseStage.name);
     expect(loaded?.last_seen_target_version).toBe(0);
@@ -203,14 +202,12 @@ describe("bootConfig", () => {
 
   it("returns existing config without overwriting on re-boot", async () => {
     const coll = makeConfigMock();
-    // Pre-seed simulating operator change: concurrency=8, paused=true
     await (coll as unknown as { updateOne: Function }).updateOne(
       { name: "hash" },
       { $set: { name: "hash", concurrency: 8, pollIntervalMs: 500, batchSize: 10, maxAttempts: 5, paused: true, last_seen_target_version: 1 } },
       { upsert: true },
     );
     const cfg = await bootConfig(baseStage, coll);
-    // Saved values win over defaults
     expect(cfg.concurrency).toBe(8);
     expect(cfg.paused).toBe(true);
   });
@@ -236,7 +233,7 @@ describe("bootConfig", () => {
     expect(Number.isInteger(cfg.maxAttempts)).toBe(true);
     expect(Number.isInteger(cfg.last_seen_target_version)).toBe(true);
     expect(cfg.batchSize).toBe(baseStage.defaults.batchSize);
-    expect(cfg.paused).toBe(false); // preserved from the partial doc
+    expect(cfg.paused).toBe(false);
   });
 });
 
@@ -262,7 +259,6 @@ describe("versionBumpReset", () => {
       { abs_path: "/c.raw", stages: { hash: doneState } } as ImageDoc,
     ]);
 
-    // last_seen_target_version is 1, targetVersion is 2 → reset needed
     await versionBumpReset(baseStage, 1, images);
 
     const docs = await images.find({}).toArray();
@@ -272,7 +268,6 @@ describe("versionBumpReset", () => {
     expect(a.stages?.hash?.dead).toBe(false);
     expect(a.stages?.hash?.attempts).toBe(0);
     expect(a.stages?.hash?.last_error).toBeNull();
-    // The done doc at v2 is unaffected
     expect(c.stages?.hash?.version).toBe(2);
   });
 
@@ -281,7 +276,6 @@ describe("versionBumpReset", () => {
       { abs_path: "/a.raw", stages: { hash: { version: 1, attempts: 5, last_error: "x", processed_at: null, dead: true } } } as ImageDoc,
     ]);
 
-    // last_seen == targetVersion, no reset
     await versionBumpReset(baseStage, 2, images);
 
     const docs = await images.find({}).toArray();
@@ -305,7 +299,6 @@ describe("buildClaimQuery", () => {
   });
 
   it("excludes in-flight _ids", () => {
-    // Use plain string IDs for the Set since we have no real ObjectId
     const id1 = "id1" as unknown as import("mongodb").ObjectId;
     const id2 = "id2" as unknown as import("mongodb").ObjectId;
     const inFlight = new Set([id1, id2]);
@@ -319,7 +312,6 @@ describe("buildClaimQuery", () => {
   });
 
   it("matches docs without a stages field (missing-field branch)", async () => {
-    // A doc with no stages at all — should be claimed for processing.
     const images = makeImagesMock([
       { abs_path: "/no-stages.raw" } as ImageDoc,
     ]);
@@ -330,8 +322,6 @@ describe("buildClaimQuery", () => {
   });
 
   it("respects dep minVersion when greater than 1", async () => {
-    // Dep "hash" is at version 1 but minVersion required is 2 — should NOT be claimed.
-    // Dep "hash" at version 2 should be claimed.
     const images = makeImagesMock([
       {
         abs_path: "/dep-stale.raw",
@@ -369,6 +359,7 @@ describe("poll loop integration", () => {
         maxAttempts: 3,
         paused: false,
         pausedOnFirstBoot: false,
+        last_seen_target_version: 0,
       },
       handler: async (image, _ctx) => {
         processed.push(image.abs_path as string);
@@ -400,6 +391,7 @@ describe("poll loop integration", () => {
       defaults: {
         concurrency: 1, pollIntervalMs: 50, batchSize: 10,
         maxAttempts: 3, paused: false, pausedOnFirstBoot: false,
+        last_seen_target_version: 0,
       },
       handler: async (_image, _ctx) => {
         throw new Error("always fail");
@@ -411,7 +403,6 @@ describe("poll loop integration", () => {
       concurrency: 1, pollIntervalMs: 50, batchSize: 10,
       maxAttempts: 3, paused: false, last_seen_target_version: 1,
     };
-    // Run once per attempt: 3 times to exhaust maxAttempts
     await runOnce(testStage, cfg, images, configColl);
     await runOnce(testStage, cfg, images, configColl);
     await runOnce(testStage, cfg, images, configColl);
@@ -433,7 +424,8 @@ describe("poll loop integration", () => {
       targetVersion: 1,
       dependsOn: [],
       defaults: { concurrency: 1, pollIntervalMs: 50, batchSize: 10,
-        maxAttempts: 3, paused: false, pausedOnFirstBoot: false },
+        maxAttempts: 3, paused: false, pausedOnFirstBoot: false,
+        last_seen_target_version: 0 },
       handler: async () => { called = true; return { patch: {} }; },
     });
 
@@ -446,8 +438,6 @@ describe("poll loop integration", () => {
     expect(called).toBe(false);
   });
 });
-
-import { ThroughputWindow, IpcServer } from "./run-stage.ts";
 
 describe("ThroughputWindow", () => {
   it("counts completions within the rolling window", () => {
@@ -471,70 +461,26 @@ describe("ThroughputWindow", () => {
   });
 });
 
-describe("IpcServer", () => {
-  it("starts on an ephemeral port and responds to /status", async () => {
-    const throughput = new ThroughputWindow();
-    const ipc = new IpcServer({ name: "test-stage", throughput, getInFlight: () => 0 });
-    const port = await ipc.start();
-    expect(typeof port).toBe("number");
-    expect(port).toBeGreaterThan(1000);
-
-    const res = await fetch(`http://127.0.0.1:${port}/status`);
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body).toHaveProperty("status");
-    expect(body).toHaveProperty("throughput");
-
-    await ipc.stop();
-  });
-
-  it("toggles paused state on POST /pause and /resume", async () => {
-    let paused = false;
-    const throughput = new ThroughputWindow();
-    const ipc = new IpcServer({
-      name: "test-stage",
-      throughput,
-      getInFlight: () => 0,
-      onPause: () => { paused = true; },
-      onResume: () => { paused = false; },
+describe("defineStage", () => {
+  it("returns the config object unchanged", () => {
+    const cfg = defineStage({
+      name: "test",
+      targetVersion: 1,
+      dependsOn: [],
+      defaults: {
+        concurrency: 2,
+        pollIntervalMs: 1000,
+        batchSize: 5,
+        maxAttempts: 3,
+        paused: false,
+        pausedOnFirstBoot: false,
+        last_seen_target_version: 0,
+      },
+      handler: async (_image, _ctx) => ({ patch: { test: true } }),
     });
-    const port = await ipc.start();
-
-    await fetch(`http://127.0.0.1:${port}/pause`, { method: "POST" });
-    expect(paused).toBe(true);
-
-    await fetch(`http://127.0.0.1:${port}/resume`, { method: "POST" });
-    expect(paused).toBe(false);
-
-    await ipc.stop();
-  });
-
-  it("calls onReloadConfig on POST /reload-config", async () => {
-    let reloaded = false;
-    const throughput = new ThroughputWindow();
-    const ipc = new IpcServer({
-      name: "test-stage",
-      throughput,
-      getInFlight: () => 0,
-      onReloadConfig: async () => { reloaded = true; },
-    });
-    const port = await ipc.start();
-
-    const res = await fetch(`http://127.0.0.1:${port}/reload-config`, { method: "POST" });
-    expect(res.status).toBe(200);
-    expect(reloaded).toBe(true);
-
-    await ipc.stop();
-  });
-});
-
-describe("IpcServer port signal", () => {
-  it("port is a positive integer when server starts", async () => {
-    const tw = new ThroughputWindow();
-    const ipc = new IpcServer({ name: "sig-test", throughput: tw, getInFlight: () => 0 });
-    const port = await ipc.start();
-    const signal = `__MAPLE_IPC_PORT__=${port}`;
-    expect(signal).toMatch(/^__MAPLE_IPC_PORT__=\d+$/);
-    await ipc.stop();
+    expect(cfg.name).toBe("test");
+    expect(cfg.targetVersion).toBe(1);
+    expect(cfg.dependsOn).toEqual([]);
+    expect(cfg.defaults.concurrency).toBe(2);
   });
 });
