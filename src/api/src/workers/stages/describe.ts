@@ -2,7 +2,7 @@
  * Describe (caption + structured vision) stage.
  *
  * Calls a vision LLM via the describe-provider abstraction (default:
- * Ollama serving qwen2.5-vl:7b) against the 1280-px preview produced
+ * Ollama serving qwen2.5vl:7b) against the 1280-px preview produced
  * by the preview stage, parses the structured-JSON response into a
  * typed `VisionDoc`, and writes:
  *
@@ -42,6 +42,7 @@ import {
   resolveEnrichmentConfig,
   DEFAULT_DESCRIBE_VISION_PROMPT,
   DESCRIBE_VISION_PROMPT_VERSION,
+  QWEN_VL_OLLAMA_TAG,
 } from "../../enrichment/enrichment-config.repo.ts";
 import {
   parseVisionJson,
@@ -65,11 +66,13 @@ interface DescribeDeps {
 
 let _deps: DescribeDeps | null = null;
 
-/** Fixed model. The structured-JSON parser only accepts qwen2.5-vl's
- * output shape, so allowing operator overrides would silently dead-letter
- * every row. Operators can still point at a remote Ollama via the URL
- * config, but provider/model/prompt are locked. */
-const FIXED_DESCRIBE_MODEL = "qwen2.5-vl:7b";
+/** Fixed model — sourced from the single shared constant so the stage,
+ * the bootstrap health-check, and the UI copy can't drift. The
+ * structured-JSON parser only accepts qwen2.5-VL's output shape, so
+ * allowing operator overrides would silently dead-letter every row.
+ * Operators can still point at a remote Ollama via the URL config, but
+ * provider/model/prompt are locked. */
+const FIXED_DESCRIBE_MODEL = QWEN_VL_OLLAMA_TAG;
 
 async function getDeps(): Promise<DescribeDeps> {
   if (_deps) return _deps;
