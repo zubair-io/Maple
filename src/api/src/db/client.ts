@@ -372,6 +372,47 @@ export async function ensureIndexes(): Promise<void> {
     }
   }
 
+  // Reset describe-stage dead rows whose dead-letter reason was an enum
+  // mismatch or a null-value rejection now handled by the tolerant
+  // synonym maps + null-defaults. Covers the rest of the parse-error
+  // patterns observed in production: bad-enum on every constrained
+  // field, and wrong-type on subjects/colors/notable_objects/time_of_day
+  // (which qwen returns as null on featureless images). One-shot.
+  if (!(await migrationApplied(db, "reset-describe-dead-vision-parse-2026-05-21"))) {
+    try {
+      const res = await db.collection("assets").updateMany(
+        {
+          "stages.describe.dead": true,
+          "stages.describe.last_error": {
+            $regex:
+              "vision-parse\\[(bad-enum|wrong-type:(subjects|colors|notable_objects|time_of_day|scene_type|lighting|weather|mood|composition|shot_type|indoor_outdoor))\\b",
+          },
+        },
+        {
+          $set: {
+            "stages.describe.dead": false,
+            "stages.describe.attempts": 0,
+            "stages.describe.last_error": null,
+          },
+        },
+      );
+      await recordMigration(
+        db,
+        "reset-describe-dead-vision-parse-2026-05-21",
+        res.modifiedCount,
+      );
+      log.info(
+        { rows: res.modifiedCount },
+        "reset describe-stage dead rows with enum / null parse-error reasons",
+      );
+    } catch (err) {
+      log.warn(
+        { err: err instanceof Error ? err.message : err },
+        "describe enum-dead-reset migration skipped",
+      );
+    }
+  }
+
   // folders: path is unique
   await db.collection("folders").createIndex({ path: 1 }, { unique: true });
 

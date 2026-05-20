@@ -156,6 +156,15 @@ function asStringArray(v: unknown): string[] | null {
   return out;
 }
 
+/** Same as `asStringArray`, but `null`/`undefined` collapse to `[]`. qwen2.5-vl
+ * returns `null` for these fields on featureless images (black/empty
+ * frames) — treating that as "no subjects/colors/objects detected" is
+ * more useful than dead-lettering the row. */
+function asStringArrayOrEmpty(v: unknown): string[] | null {
+  if (v === null || v === undefined) return [];
+  return asStringArray(v);
+}
+
 /** Sentinel returned by `coerce*` helpers to signal "this input couldn't be
  * normalised". Distinct from a legitimate null/false result so the caller
  * can throw a `VisionParseError` only when the input was actually invalid. */
@@ -180,6 +189,123 @@ function coerceIsScreenshot(v: unknown): boolean | typeof COERCE_FAIL {
     if (norm === "false" || norm === "no" || norm === "0" || norm === "") return false;
     return COERCE_FAIL;
   }
+  return COERCE_FAIL;
+}
+
+/** Per-enum synonym maps. qwen2.5-vl regularly emits values that are
+ * semantically equivalent to one of the allowed enum values but not
+ * literally in the set — e.g. "partly cloudy" for `weather`, "day" for
+ * `time_of_day`, "static" for `scene_type` (confused with `shot_type`).
+ * Mapping these to their nearest allowed value is more useful than
+ * dead-lettering the row. Keys are lowercased before lookup. */
+const SCENE_TYPE_SYNONYMS: Record<string, string> = {
+  // qwen sometimes confuses scene_type with shot_type and emits "static".
+  static: "mixed",
+};
+const TIME_OF_DAY_SYNONYMS: Record<string, string> = {
+  day: "midday",
+  daytime: "midday",
+  daylight: "midday",
+  noon: "midday",
+  dawn: "morning",
+  sunrise: "morning",
+  "early morning": "morning",
+  "late morning": "midday",
+  "early afternoon": "afternoon",
+  "late afternoon": "afternoon",
+  dusk: "evening",
+  twilight: "evening",
+  sunset: "golden hour",
+  "late evening": "night",
+  midnight: "night",
+  "late night": "night",
+};
+const LIGHTING_SYNONYMS: Record<string, string> = {
+  ambient: "natural",
+  daylight: "natural",
+  sunlight: "natural",
+  dark: "low-light",
+  dim: "low-light",
+  "dimly lit": "low-light",
+  unknown: "natural",
+};
+const WEATHER_SYNONYMS: Record<string, string> = {
+  "partly cloudy": "cloudy",
+  "partly sunny": "cloudy",
+  "mostly cloudy": "cloudy",
+  overcast: "cloudy",
+  sunny: "clear",
+  "clear sky": "clear",
+  "clear skies": "clear",
+  rain: "rainy",
+  snow: "snowy",
+  fog: "foggy",
+  misty: "foggy",
+  haze: "foggy",
+  hazy: "foggy",
+};
+const COMPOSITION_SYNONYMS: Record<string, string> = {
+  panorama: "wide shot",
+  panoramic: "wide shot",
+  closeup: "close-up",
+  "macro shot": "macro",
+  "aerial shot": "aerial",
+};
+const SHOT_TYPE_SYNONYMS: Record<string, string> = {
+  motion: "action",
+  dynamic: "action",
+  still: "static",
+  scenic: "nature",
+  natural: "nature",
+};
+const INDOOR_OUTDOOR_SYNONYMS: Record<string, string> = {
+  // qwen returns "unknown" for ambiguous frames. Real photos are
+  // overwhelmingly outdoor in our corpus — bias toward outdoor.
+  unknown: "outdoor",
+  mixed: "outdoor",
+  both: "outdoor",
+  outside: "outdoor",
+  inside: "indoor",
+};
+
+/** Per-enum default for null/undefined/missing inputs. Picked to match
+ * the value qwen2.5-vl would most likely have emitted had it classified
+ * the field — biased toward the "unknown" / least-informative legal
+ * value rather than an arbitrary positive class. */
+const ENUM_DEFAULTS = {
+  scene_type: "mixed",
+  time_of_day: "unknown", // already in the enum
+  lighting: "natural",
+  weather: "unknown", // already in the enum
+  composition: "candid",
+  shot_type: "static",
+  indoor_outdoor: "outdoor",
+} as const;
+
+/** Coerce a value to a member of `allowed`. Resolution order:
+ *   1. null/undefined → `defaultValue` (must itself be in `allowed`).
+ *   2. exact string match (post trim + lowercase).
+ *   3. synonym map lookup (post trim + lowercase).
+ *   4. otherwise COERCE_FAIL.
+ *
+ * The trim+lowercase normalisation is intentional — qwen2.5-vl
+ * sometimes emits trailing whitespace or capitalisation drift. */
+function coerceEnum(
+  v: unknown,
+  allowed: Set<string>,
+  synonyms: Record<string, string>,
+  defaultValue: string,
+): string | typeof COERCE_FAIL {
+  if (v === null || v === undefined) return defaultValue;
+  if (typeof v !== "string") return COERCE_FAIL;
+  const norm = v.trim().toLowerCase();
+  if (allowed.has(norm)) return norm;
+  const mapped = synonyms[norm];
+  if (mapped !== undefined && allowed.has(mapped)) return mapped;
+  // Also accept the raw (pre-normalised) string if it happens to be in
+  // the allowed set with original case — covers values like
+  // "golden hour" where the enum value itself contains a space.
+  if (typeof v === "string" && allowed.has(v)) return v;
   return COERCE_FAIL;
 }
 
@@ -249,23 +375,26 @@ export function parseVisionJson(raw: string): VisionDoc {
     );
   }
 
-  const subjects = asStringArray(obj.subjects);
+  const subjects = asStringArrayOrEmpty(obj.subjects);
   if (subjects === null) {
-    throw new VisionParseError("wrong-type", "expected string[]", raw, "subjects");
+    throw new VisionParseError("wrong-type", "expected string[] | null", raw, "subjects");
   }
 
-  const scene_type = asString(obj.scene_type);
-  if (scene_type === null) {
-    throw new VisionParseError("wrong-type", "expected string", raw, "scene_type");
-  }
-  if (!ALLOWED_SCENE_TYPE.has(scene_type)) {
+  const scene_type_raw = coerceEnum(
+    obj.scene_type,
+    ALLOWED_SCENE_TYPE,
+    SCENE_TYPE_SYNONYMS,
+    ENUM_DEFAULTS.scene_type,
+  );
+  if (scene_type_raw === COERCE_FAIL) {
     throw new VisionParseError(
       "bad-enum",
-      `got "${scene_type}"; allowed: ${[...ALLOWED_SCENE_TYPE].join(" | ")}`,
+      `got ${JSON.stringify(obj.scene_type)}; allowed: ${[...ALLOWED_SCENE_TYPE].join(" | ")}`,
       raw,
       "scene_type",
     );
   }
+  const scene_type = scene_type_raw;
 
   const setting = obj.setting === null ? null : asString(obj.setting);
   if (setting === null && obj.setting !== null) {
@@ -287,67 +416,81 @@ export function parseVisionJson(raw: string): VisionDoc {
     );
   }
 
-  const time_of_day = asString(obj.time_of_day);
-  if (time_of_day === null) {
-    throw new VisionParseError("wrong-type", "expected string", raw, "time_of_day");
-  }
-  if (!ALLOWED_TIME_OF_DAY.has(time_of_day)) {
+  const time_of_day_raw = coerceEnum(
+    obj.time_of_day,
+    ALLOWED_TIME_OF_DAY,
+    TIME_OF_DAY_SYNONYMS,
+    ENUM_DEFAULTS.time_of_day,
+  );
+  if (time_of_day_raw === COERCE_FAIL) {
     throw new VisionParseError(
       "bad-enum",
-      `got "${time_of_day}"; allowed: ${[...ALLOWED_TIME_OF_DAY].join(" | ")}`,
+      `got ${JSON.stringify(obj.time_of_day)}; allowed: ${[...ALLOWED_TIME_OF_DAY].join(" | ")}`,
       raw,
       "time_of_day",
     );
   }
+  const time_of_day = time_of_day_raw;
 
-  const lighting = asString(obj.lighting);
-  if (lighting === null) {
-    throw new VisionParseError("wrong-type", "expected string", raw, "lighting");
-  }
-  if (!ALLOWED_LIGHTING.has(lighting)) {
+  const lighting_raw = coerceEnum(
+    obj.lighting,
+    ALLOWED_LIGHTING,
+    LIGHTING_SYNONYMS,
+    ENUM_DEFAULTS.lighting,
+  );
+  if (lighting_raw === COERCE_FAIL) {
     throw new VisionParseError(
       "bad-enum",
-      `got "${lighting}"; allowed: ${[...ALLOWED_LIGHTING].join(" | ")}`,
+      `got ${JSON.stringify(obj.lighting)}; allowed: ${[...ALLOWED_LIGHTING].join(" | ")}`,
       raw,
       "lighting",
     );
   }
+  const lighting = lighting_raw;
 
-  const weather = asString(obj.weather);
-  if (weather === null) {
-    throw new VisionParseError("wrong-type", "expected string", raw, "weather");
-  }
-  if (!ALLOWED_WEATHER.has(weather)) {
+  const weather_raw = coerceEnum(
+    obj.weather,
+    ALLOWED_WEATHER,
+    WEATHER_SYNONYMS,
+    ENUM_DEFAULTS.weather,
+  );
+  if (weather_raw === COERCE_FAIL) {
     throw new VisionParseError(
       "bad-enum",
-      `got "${weather}"; allowed: ${[...ALLOWED_WEATHER].join(" | ")}`,
+      `got ${JSON.stringify(obj.weather)}; allowed: ${[...ALLOWED_WEATHER].join(" | ")}`,
       raw,
       "weather",
     );
   }
+  const weather = weather_raw;
 
-  const mood = asString(obj.mood);
+  // mood is unconstrained free text. Accept null → "neutral" (qwen
+  // emits null on featureless images).
+  const mood = obj.mood === null || obj.mood === undefined ? "neutral" : asString(obj.mood);
   if (mood === null) {
-    throw new VisionParseError("wrong-type", "expected string", raw, "mood");
+    throw new VisionParseError("wrong-type", "expected string | null", raw, "mood");
   }
 
-  const colors = asStringArray(obj.colors);
+  const colors = asStringArrayOrEmpty(obj.colors);
   if (colors === null) {
-    throw new VisionParseError("wrong-type", "expected string[]", raw, "colors");
+    throw new VisionParseError("wrong-type", "expected string[] | null", raw, "colors");
   }
 
-  const composition = asString(obj.composition);
-  if (composition === null) {
-    throw new VisionParseError("wrong-type", "expected string", raw, "composition");
-  }
-  if (!ALLOWED_COMPOSITION.has(composition)) {
+  const composition_raw = coerceEnum(
+    obj.composition,
+    ALLOWED_COMPOSITION,
+    COMPOSITION_SYNONYMS,
+    ENUM_DEFAULTS.composition,
+  );
+  if (composition_raw === COERCE_FAIL) {
     throw new VisionParseError(
       "bad-enum",
-      `got "${composition}"; allowed: ${[...ALLOWED_COMPOSITION].join(" | ")}`,
+      `got ${JSON.stringify(obj.composition)}; allowed: ${[...ALLOWED_COMPOSITION].join(" | ")}`,
       raw,
       "composition",
     );
   }
+  const composition = composition_raw;
 
   const text_visible_raw = coerceTextVisible(obj.text_visible);
   if (text_visible_raw === COERCE_FAIL) {
@@ -360,41 +503,47 @@ export function parseVisionJson(raw: string): VisionDoc {
   }
   const text_visible = text_visible_raw;
 
-  const notable_objects = asStringArray(obj.notable_objects);
+  const notable_objects = asStringArrayOrEmpty(obj.notable_objects);
   if (notable_objects === null) {
     throw new VisionParseError(
       "wrong-type",
-      "expected string[]",
+      "expected string[] | null",
       raw,
       "notable_objects",
     );
   }
 
-  const shot_type = asString(obj.shot_type);
-  if (shot_type === null) {
-    throw new VisionParseError("wrong-type", "expected string", raw, "shot_type");
-  }
-  if (!ALLOWED_SHOT_TYPE.has(shot_type)) {
+  const shot_type_raw = coerceEnum(
+    obj.shot_type,
+    ALLOWED_SHOT_TYPE,
+    SHOT_TYPE_SYNONYMS,
+    ENUM_DEFAULTS.shot_type,
+  );
+  if (shot_type_raw === COERCE_FAIL) {
     throw new VisionParseError(
       "bad-enum",
-      `got "${shot_type}"; allowed: ${[...ALLOWED_SHOT_TYPE].join(" | ")}`,
+      `got ${JSON.stringify(obj.shot_type)}; allowed: ${[...ALLOWED_SHOT_TYPE].join(" | ")}`,
       raw,
       "shot_type",
     );
   }
+  const shot_type = shot_type_raw;
 
-  const indoor_outdoor = asString(obj.indoor_outdoor);
-  if (indoor_outdoor === null) {
-    throw new VisionParseError("wrong-type", "expected string", raw, "indoor_outdoor");
-  }
-  if (!ALLOWED_INDOOR_OUTDOOR.has(indoor_outdoor)) {
+  const indoor_outdoor_raw = coerceEnum(
+    obj.indoor_outdoor,
+    ALLOWED_INDOOR_OUTDOOR,
+    INDOOR_OUTDOOR_SYNONYMS,
+    ENUM_DEFAULTS.indoor_outdoor,
+  );
+  if (indoor_outdoor_raw === COERCE_FAIL) {
     throw new VisionParseError(
       "bad-enum",
-      `got "${indoor_outdoor}"; allowed: ${[...ALLOWED_INDOOR_OUTDOOR].join(" | ")}`,
+      `got ${JSON.stringify(obj.indoor_outdoor)}; allowed: ${[...ALLOWED_INDOOR_OUTDOOR].join(" | ")}`,
       raw,
       "indoor_outdoor",
     );
   }
+  const indoor_outdoor = indoor_outdoor_raw;
 
   const is_screenshot_raw = coerceIsScreenshot(obj.is_screenshot);
   if (is_screenshot_raw === COERCE_FAIL) {

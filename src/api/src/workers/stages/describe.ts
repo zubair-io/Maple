@@ -195,7 +195,15 @@ const describeStage = defineStage({
   // The runtime gates re-runs on this number (not on
   // `DESCRIBE_VISION_PROMPT_VERSION`), so bumping it forces every v2 row
   // to re-run and pick up the new field.
-  targetVersion: 3,
+  //
+  // v4: tolerant enum coercion (synonym maps + null-defaults) for
+  // scene_type / time_of_day / lighting / weather / composition /
+  // shot_type / indoor_outdoor, plus `null → []` for subjects / colors /
+  // notable_objects. v3 rows whose enum value qwen drifted on
+  // (e.g. "partly cloudy", "day") would have parsed OK at write-time
+  // but were dead-lettered at re-run; bumping forces every v3 row to
+  // re-attempt with the relaxed parser.
+  targetVersion: 4,
   dependsOn: ["preview"],
   defaults: {
     concurrency: 2,
