@@ -61,7 +61,7 @@
         <button
           type="button"
           class="cursor-pointer rounded-md border border-border bg-surface px-3 py-1.5 text-[12px] font-semibold text-text-main hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-60"
-          [disabled]="testStatus().kind === 'testing'"
+          [disabled]="testStatus().kind === 'testing' || !url().trim()"
           (click)="testConnection()"
         >
           @switch (testStatus().kind) {
@@ -71,8 +71,8 @@
         </button>
       </div>
       <p class="mt-1.5 text-[11px] text-text-muted">
-        Empty disables geocoding. The server health-checks the URL on save
-        and rejects unreachable values.
+        Empty disables geocoding. When the worker is enabled, the server
+        health-checks the URL on save and rejects unreachable values.
       </p>
       @switch (testStatus().kind) {
         @case ('ok') {

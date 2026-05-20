@@ -91,6 +91,14 @@ async function getDeps(): Promise<DescribeDeps> {
   return _deps;
 }
 
+/** Invalidate the module-level deps cache so the next `getDeps()` call
+ * re-reads `describe_provider_url` from the persisted config. Wired into
+ * `applyDescribeConfig` so an operator changing the URL in
+ * `/settings/enrichment` takes effect without restarting the process. */
+export function resetDescribeDeps(): void {
+  _deps = null;
+}
+
 /** Test-only setter. Call with `null` to reset between tests. */
 export function setDescribeDepsForTests(deps: DescribeDeps | null): void {
   _deps = deps;
