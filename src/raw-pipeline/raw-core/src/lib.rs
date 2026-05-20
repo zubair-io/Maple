@@ -41,8 +41,13 @@ pub mod test_support;
 #[cfg(feature = "stage-dump")]
 pub mod stage_dump;
 
+pub mod types;
+pub use types::{
+    AdjustmentModel, FieldKind, FieldSpec, HighlightRecoveryMode, WhiteBalancePreset,
+    ADJUSTMENT_SCHEMA,
+};
+
 pub mod xmp;
-pub use xmp::AdjustmentModel;
 
 pub mod pipeline;
 pub use pipeline::render_from_raw;
