@@ -65,7 +65,7 @@ enum GridDisplayMode {
 
 struct BrowseGrid: View {
     /// Injected from `AppShell`. `BrowseViewModel` is `@Observable`, so we
-    /// receive the instance directly — no `@ObservedObject` wrapper.
+    /// receive the instance directly — no observed-object wrapper needed.
     let vm: BrowseViewModel
     @Binding var sessions: [AssetRef.ID: EditSession]
     /// How image cells render their thumbnails. Owned by the parent shell so
