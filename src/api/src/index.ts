@@ -506,4 +506,12 @@ process.on("SIGINT", () => {
   });
 });
 
-start();
+// Only kick off the boot sequence when this module is run as the process
+// entry point — `bun src/index.ts`. Importing the module (tests reaching
+// for `app` / `buildApp` / route handlers) must not trigger the background
+// boot, otherwise its `ensureIndexes()` races with the test harness's
+// `closeDb()` calls and randomly skips index builds downstream tests rely
+// on. Bun sets `import.meta.main = true` for the entry module.
+if ((import.meta as { main?: boolean }).main) {
+  start();
+}
