@@ -1,15 +1,40 @@
-<div class="mx-auto max-w-[800px] px-8 pt-6 pb-12">
-  <header class="mb-6 flex items-center gap-4">
+<!-- Sticky header — back link + title + Save button + transient saved feedback.
+     The "Saved ✓" indicator only appears for ~2.5s after a successful save
+     (via saveStatus auto-clear in the component). -->
+<div class="sticky top-0 z-10 border-b border-border bg-bg">
+  <div class="mx-auto flex max-w-[800px] items-center gap-4 px-8 py-3">
     <a class="text-[12px] text-text-muted no-underline hover:text-text-main hover:underline" routerLink="/settings">&larr; Settings</a>
-    <h2 class="m-0 flex-1 text-[22px] font-semibold tracking-[-0.01em]">Enrichment</h2>
-  </header>
+    <h2 class="m-0 flex-1 text-[18px] font-semibold tracking-[-0.01em]">Enrichment</h2>
+    @if (saveStatus() === 'success') {
+      <span class="text-[12px] text-primary">Saved &check;</span>
+    }
+    <button
+      type="button"
+      class="cursor-pointer rounded-md border border-transparent bg-primary px-4 py-1.5 text-[12px] font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60 hover:opacity-90"
+      [disabled]="saveStatus() === 'saving'"
+      (click)="save()"
+    >
+      @switch (saveStatus()) {
+        @case ('saving') { Saving… }
+        @default { Save changes }
+      }
+    </button>
+  </div>
+</div>
 
+<div class="mx-auto max-w-[800px] px-8 pt-6 pb-12">
   @if (loadError(); as e) {
     <div class="mb-4 rounded-md bg-error-bg px-3.5 py-2.5 text-[13px] text-error-text">
       Failed to load: {{ e }}
     </div>
   }
+  @if (saveError(); as e) {
+    <div class="mb-4 rounded-md bg-error-bg px-3.5 py-2.5 text-[13px] text-error-text">
+      Save failed: {{ e }}
+    </div>
+  }
 
+  <!-- Geocode worker ──────────────────────────────────────────────── -->
   <section class="mb-4 rounded-lg border border-border bg-surface p-5">
     <h3 class="mt-0 mb-2 text-[14px] font-semibold">Geocode worker</h3>
     <p class="mt-0 mb-5 text-[12px] leading-relaxed text-text-muted">
@@ -18,21 +43,9 @@
       lat/lon cache.
     </p>
 
-    <!-- Nominatim URL ────────────────────────────────────────────────── -->
+    <!-- Nominatim URL -->
     <div class="mb-5">
-      <div class="mb-1.5 flex items-baseline justify-between gap-2">
-        <label for="nominatim-url" class="text-[12px] font-semibold">Nominatim URL</label>
-        @if (serverConfig(); as cfg) {
-          @let s = sourceLabel(cfg.source.nominatim_url);
-          <span
-            class="rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide"
-            [class.bg-primary-dim]="s.tone === 'saved'"
-            [class.text-primary]="s.tone === 'saved'"
-            [class.bg-surface-hover]="s.tone === 'env'"
-            [class.text-text-muted]="s.tone !== 'saved'"
-          >{{ s.text }}</span>
-        }
-      </div>
+      <label for="nominatim-url" class="mb-1.5 block text-[12px] font-semibold">Nominatim URL</label>
       <div class="flex gap-2">
         <input
           id="nominatim-url"
@@ -48,7 +61,7 @@
         <button
           type="button"
           class="cursor-pointer rounded-md border border-border bg-surface px-3 py-1.5 text-[12px] font-semibold text-text-main hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-60"
-          [disabled]="testStatus().kind === 'testing' || url().trim().length === 0"
+          [disabled]="testStatus().kind === 'testing'"
           (click)="testConnection()"
         >
           @switch (testStatus().kind) {
@@ -58,26 +71,25 @@
         </button>
       </div>
       <p class="mt-1.5 text-[11px] text-text-muted">
-        Empty value disables geocoding. Worker is skipped at boot when this is
-        unset; see <code class="font-mono">docs/indexer-enrichment.md</code> §4.1.
+        Empty disables geocoding. The server health-checks the URL on save
+        and rejects unreachable values.
       </p>
-
       @switch (testStatus().kind) {
         @case ('ok') {
           <div class="mt-2 rounded-md bg-primary-dim px-3 py-2 text-[12px] text-primary">
-            ✓ Reached <span class="font-mono">{{ $any(testStatus()).url }}/status</span>
+            &check; Reached <span class="font-mono">{{ $any(testStatus()).url }}</span>
           </div>
         }
         @case ('error') {
           <div class="mt-2 rounded-md bg-error-bg px-3 py-2 text-[12px] text-error-text">
-            ✗ {{ $any(testStatus()).message }}
+            &cross; {{ $any(testStatus()).message }}
           </div>
         }
       }
     </div>
 
-    <!-- Enabled toggle ──────────────────────────────────────────────── -->
-    <div class="mb-1">
+    <!-- Enabled toggle -->
+    <div>
       <label class="flex cursor-pointer items-start gap-2.5">
         <input
           type="checkbox"
@@ -86,19 +98,7 @@
           (change)="enabled.set($any($event.target).checked)"
         />
         <span class="flex flex-col">
-          <span class="flex items-center gap-2">
-            <span class="text-[13px] font-medium">Enable geocode worker</span>
-            @if (serverConfig(); as cfg) {
-              @let s = sourceLabel(cfg.source.geocode_worker_enabled);
-              <span
-                class="rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide"
-                [class.bg-primary-dim]="s.tone === 'saved'"
-                [class.text-primary]="s.tone === 'saved'"
-                [class.bg-surface-hover]="s.tone === 'env'"
-                [class.text-text-muted]="s.tone !== 'saved'"
-              >{{ s.text }}</span>
-            }
-          </span>
+          <span class="text-[13px] font-medium">Enable geocode worker</span>
           <span class="text-[11px] text-text-muted">
             When off, the loop sleeps and no claims are made. Toggling on
             requires a reachable Nominatim URL above.
@@ -107,21 +107,9 @@
       </label>
     </div>
 
-    <!-- Rate limit ───────────────────────────────────────────────────── -->
+    <!-- Rate limit -->
     <div class="mt-5">
-      <div class="mb-1.5 flex items-baseline justify-between gap-2">
-        <label for="nominatim-rate" class="text-[12px] font-semibold">Rate limit</label>
-        @if (serverConfig(); as cfg) {
-          @let s = sourceLabel(cfg.source.nominatim_rate_limit_per_sec);
-          <span
-            class="rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide"
-            [class.bg-primary-dim]="s.tone === 'saved'"
-            [class.text-primary]="s.tone === 'saved'"
-            [class.bg-surface-hover]="s.tone === 'env'"
-            [class.text-text-muted]="s.tone !== 'saved'"
-          >{{ s.text }}</span>
-        }
-      </div>
+      <label for="nominatim-rate" class="mb-1.5 block text-[12px] font-semibold">Rate limit</label>
       <div class="flex items-baseline gap-2">
         <input
           id="nominatim-rate"
@@ -145,47 +133,21 @@
     </div>
   </section>
 
-  <!-- Describe worker (Phase 6) ────────────────────────────────────── -->
+  <!-- Describe worker — qwen2.5-vl via Ollama. Model + prompt are locked
+       server-side (the parser only accepts qwen2.5-vl's structured-JSON
+       output), so this surface is just the URL + enable toggle. -->
   <section class="mb-4 rounded-lg border border-border bg-surface p-5">
     <h3 class="mt-0 mb-2 text-[14px] font-semibold">Describe worker</h3>
     <p class="mt-0 mb-5 text-[12px] leading-relaxed text-text-muted">
-      Vision-LLM caption generator. Local Ollama by default (free, no key).
-      Switch to Anthropic / OpenAI / Gemini for higher-quality captions —
-      they bill per call and respect the daily cap below.
+      Local vision-LLM via Ollama. Runs <code class="font-mono">qwen2.5-vl:7b</code>
+      against the 1280-px preview cache and produces a structured caption
+      plus the OCR text for each asset.
     </p>
 
-    <!-- Provider dropdown ─────────────────────────────────────────── -->
+    <!-- Ollama URL -->
     <div class="mb-5">
-      <div class="mb-1.5 flex items-baseline justify-between gap-2">
-        <label for="describe-provider" class="text-[12px] font-semibold">Provider</label>
-        @if (serverConfig(); as cfg) {
-          @let s = sourceLabel(cfg.source.describe_provider);
-          <span
-            class="rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide"
-            [class.bg-primary-dim]="s.tone === 'saved'"
-            [class.text-primary]="s.tone === 'saved'"
-            [class.bg-surface-hover]="s.tone === 'env'"
-            [class.text-text-muted]="s.tone !== 'saved'"
-          >{{ s.text }}</span>
-        }
-      </div>
-      <select
-        id="describe-provider"
-        class="w-full rounded-md border border-border bg-bg px-2.5 py-1.5 text-[12px] text-text-main outline-none focus:border-primary"
-        [value]="describeProvider()"
-        (change)="describeProvider.set($any($event.target).value)"
-      >
-        <option value="ollama">Ollama (local, free)</option>
-        <option value="anthropic">Anthropic Claude</option>
-        <option value="openai">OpenAI</option>
-        <option value="gemini">Google Gemini</option>
-      </select>
-    </div>
-
-    <!-- Ollama URL — only when provider is Ollama ─────────────────── -->
-    @if (showsDescribeUrl()) {
-      <div class="mb-5">
-        <label for="describe-url" class="mb-1.5 block text-[12px] font-semibold">Ollama URL</label>
+      <label for="describe-url" class="mb-1.5 block text-[12px] font-semibold">Ollama URL</label>
+      <div class="flex gap-2">
         <input
           id="describe-url"
           type="url"
@@ -193,84 +155,9 @@
           placeholder="http://localhost:11434"
           autocomplete="off"
           spellcheck="false"
-          class="w-full rounded-md border border-border bg-bg px-2.5 py-1.5 font-mono text-[12px] text-text-main outline-none focus:border-primary"
+          class="min-w-0 flex-1 rounded-md border border-border bg-bg px-2.5 py-1.5 font-mono text-[12px] text-text-main outline-none focus:border-primary"
           [value]="describeUrl()"
           (input)="describeUrl.set($any($event.target).value)"
-        />
-        <p class="mt-1.5 text-[11px] text-text-muted">
-          Empty uses the default <code class="font-mono">http://localhost:11434</code>.
-        </p>
-      </div>
-    }
-
-    <!-- API key — only for paid providers ─────────────────────────── -->
-    @if (needsDescribeApiKey()) {
-      <div class="mb-5">
-        <label for="describe-api-key" class="mb-1.5 block text-[12px] font-semibold">API key</label>
-        <input
-          id="describe-api-key"
-          type="password"
-          autocomplete="off"
-          spellcheck="false"
-          placeholder="sk-..."
-          class="w-full rounded-md border border-border bg-bg px-2.5 py-1.5 font-mono text-[12px] text-text-main outline-none focus:border-primary"
-          [value]="describeApiKey()"
-          (input)="describeApiKey.set($any($event.target).value)"
-        />
-        <p class="mt-1.5 text-[11px] text-text-muted">
-          Write-only — server never echoes the saved value back. Empty uses
-          the env-var fallback (<code class="font-mono">MAPLE_&lt;PROVIDER&gt;_API_KEY</code>).
-        </p>
-      </div>
-    }
-
-    <!-- Model name ────────────────────────────────────────────────── -->
-    <div class="mb-5">
-      <label for="describe-model" class="mb-1.5 block text-[12px] font-semibold">Model</label>
-      <input
-        id="describe-model"
-        type="text"
-        autocomplete="off"
-        spellcheck="false"
-        placeholder="llava:latest"
-        class="w-full rounded-md border border-border bg-bg px-2.5 py-1.5 font-mono text-[12px] text-text-main outline-none focus:border-primary"
-        [value]="describeModel()"
-        (input)="describeModel.set($any($event.target).value)"
-      />
-      <p class="mt-1.5 text-[11px] text-text-muted">
-        Empty uses the provider's default. For Ollama, must be a model the
-        local server has pulled.
-      </p>
-    </div>
-
-    <!-- System prompt ─────────────────────────────────────────────── -->
-    <div class="mb-5">
-      <label for="describe-prompt" class="mb-1.5 block text-[12px] font-semibold">System prompt</label>
-      <textarea
-        id="describe-prompt"
-        rows="3"
-        spellcheck="false"
-        class="w-full rounded-md border border-border bg-bg px-2.5 py-1.5 text-[12px] text-text-main outline-none focus:border-primary"
-        [value]="describePrompt()"
-        (input)="describePrompt.set($any($event.target).value)"
-      ></textarea>
-    </div>
-
-    <!-- Daily cap + test button ───────────────────────────────────── -->
-    <div class="mb-5">
-      <label for="describe-cap" class="mb-1.5 block text-[12px] font-semibold">Daily cap (USD)</label>
-      <div class="flex gap-2">
-        <input
-          id="describe-cap"
-          type="number"
-          inputmode="decimal"
-          step="0.5"
-          min="0.5"
-          max="1000"
-          placeholder="5"
-          class="w-32 min-w-0 rounded-md border border-border bg-bg px-2.5 py-1.5 font-mono text-[12px] text-text-main outline-none focus:border-primary"
-          [value]="describeCap()"
-          (input)="describeCap.set($any($event.target).value)"
         />
         <button
           type="button"
@@ -285,25 +172,24 @@
         </button>
       </div>
       <p class="mt-1.5 text-[11px] text-text-muted">
-        Worker pauses for the rest of the UTC day once spend hits this cap.
-        Range (0, 1000]. Ollama is always 0 USD per call.
+        Empty uses the default <code class="font-mono">http://localhost:11434</code>.
+        Point at a remote Ollama if the model lives on a different machine.
       </p>
-
       @switch (describeTestStatus().kind) {
         @case ('ok') {
           <div class="mt-2 rounded-md bg-primary-dim px-3 py-2 text-[12px] text-primary">
-            ✓ Reached <span class="font-mono">{{ $any(describeTestStatus()).url }}</span>
+            &check; Reached <span class="font-mono">{{ $any(describeTestStatus()).url }}</span>
           </div>
         }
         @case ('error') {
           <div class="mt-2 rounded-md bg-error-bg px-3 py-2 text-[12px] text-error-text">
-            ✗ {{ $any(describeTestStatus()).message }}
+            &cross; {{ $any(describeTestStatus()).message }}
           </div>
         }
       }
     </div>
 
-    <!-- Enabled toggle ────────────────────────────────────────────── -->
+    <!-- Enable toggle -->
     <div>
       <label class="flex cursor-pointer items-start gap-2.5">
         <input
@@ -313,29 +199,18 @@
           (change)="describeEnabled.set($any($event.target).checked)"
         />
         <span class="flex flex-col">
-          <span class="flex items-center gap-2">
-            <span class="text-[13px] font-medium">Enable describe worker</span>
-            @if (serverConfig(); as cfg) {
-              @let s = sourceLabel(cfg.source.describe_worker_enabled);
-              <span
-                class="rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide"
-                [class.bg-primary-dim]="s.tone === 'saved'"
-                [class.text-primary]="s.tone === 'saved'"
-                [class.bg-surface-hover]="s.tone === 'env'"
-                [class.text-text-muted]="s.tone !== 'saved'"
-              >{{ s.text }}</span>
-            }
-          </span>
+          <span class="text-[13px] font-medium">Enable describe worker</span>
           <span class="text-[11px] text-text-muted">
             When off, the loop sleeps and no claims are made. Toggling on
-            requires a reachable provider above.
+            requires a reachable Ollama URL above with the
+            <code class="font-mono">qwen2.5-vl:7b</code> model pulled.
           </span>
         </span>
       </label>
     </div>
   </section>
 
-  <!-- Face detection card (Phase 5) ────────────────────────────────────── -->
+  <!-- Face detection ──────────────────────────────────────────────── -->
   <section class="mb-4 rounded-lg border border-border bg-surface p-5">
     <h3 class="mt-0 mb-2 text-[14px] font-semibold">Face detection</h3>
     <p class="mt-0 mb-5 text-[12px] leading-relaxed text-text-muted">
@@ -345,13 +220,13 @@
       the worker fetches them on first boot.
     </p>
 
-    <!-- Live status: model files + loader state ────────────────────── -->
+    <!-- Live status: model files + loader state -->
     @if (serverConfig(); as cfg) {
       @if (cfg.face_models; as fm) {
         @switch (fm.status) {
           @case ('loaded') {
             <div class="mb-4 rounded-md bg-primary-dim px-3 py-2 text-[12px] text-primary">
-              <span class="font-semibold">✓ Models loaded.</span>
+              <span class="font-semibold">&check; Models loaded.</span>
               retinaface.onnx · {{ formatBytes(fm.retinaface.bytes) }} ·
               mobilefacenet.onnx · {{ formatBytes(fm.mobilefacenet.bytes) }}
               <span class="ml-1 font-mono text-[10px] text-text-muted" [title]="fm.retinaface.path">
@@ -368,7 +243,7 @@
           }
           @case ('error') {
             <div class="mb-4 rounded-md bg-error-bg px-3 py-2.5 text-[12px] text-error-text">
-              <strong class="font-semibold">✗ Load failed:</strong>
+              <strong class="font-semibold">&cross; Load failed:</strong>
               {{ fm.error_detail || cfg.face_worker_dormant_reason || 'unknown error' }}
             </div>
           }
@@ -391,7 +266,6 @@
           }
         }
       } @else if (cfg.face_worker_enabled && cfg.face_worker_dormant_reason) {
-        <!-- Backward-compat for older API responses without face_models -->
         <div class="mb-4 rounded-md bg-error-bg px-3 py-2.5 text-[12px] text-error-text">
           <strong class="font-semibold">Models missing.</strong>
           {{ cfg.face_worker_dormant_reason }}
@@ -399,7 +273,7 @@
       }
     }
 
-    <!-- Enable toggle ─────────────────────────────────────────────────── -->
+    <!-- Enable toggle -->
     <div class="mb-5">
       <label class="flex cursor-pointer items-start gap-2.5">
         <input
@@ -409,19 +283,7 @@
           (change)="faceEnabled.set($any($event.target).checked)"
         />
         <span class="flex flex-col">
-          <span class="flex items-center gap-2">
-            <span class="text-[13px] font-medium">Enable face worker</span>
-            @if (serverConfig(); as cfg) {
-              @let s = sourceLabel(cfg.source.face_worker_enabled);
-              <span
-                class="rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide"
-                [class.bg-primary-dim]="s.tone === 'saved'"
-                [class.text-primary]="s.tone === 'saved'"
-                [class.bg-surface-hover]="s.tone === 'env'"
-                [class.text-text-muted]="s.tone !== 'saved'"
-              >{{ s.text }}</span>
-            }
-          </span>
+          <span class="text-[13px] font-medium">Enable face worker</span>
           <span class="text-[11px] text-text-muted">
             When off, the loop sleeps and no claims are made.
           </span>
@@ -429,21 +291,9 @@
       </label>
     </div>
 
-    <!-- Model directory ───────────────────────────────────────────────── -->
+    <!-- Model directory -->
     <div class="mb-5">
-      <div class="mb-1.5 flex items-baseline justify-between gap-2">
-        <label for="face-model-dir" class="text-[12px] font-semibold">Model directory</label>
-        @if (serverConfig(); as cfg) {
-          @let s = sourceLabel(cfg.source.face_model_dir);
-          <span
-            class="rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide"
-            [class.bg-primary-dim]="s.tone === 'saved'"
-            [class.text-primary]="s.tone === 'saved'"
-            [class.bg-surface-hover]="s.tone === 'env'"
-            [class.text-text-muted]="s.tone !== 'saved'"
-          >{{ s.text }}</span>
-        }
-      </div>
+      <label for="face-model-dir" class="mb-1.5 block text-[12px] font-semibold">Model directory</label>
       <input
         id="face-model-dir"
         type="text"
@@ -461,21 +311,9 @@
       </p>
     </div>
 
-    <!-- RetinaFace download ───────────────────────────────────────────── -->
+    <!-- RetinaFace download -->
     <div class="mb-5">
-      <div class="mb-1.5 flex items-baseline justify-between gap-2">
-        <label for="face-retina-url" class="text-[12px] font-semibold">RetinaFace download URL</label>
-        @if (serverConfig(); as cfg) {
-          @let s = sourceLabel(cfg.source.face_retinaface_url);
-          <span
-            class="rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide"
-            [class.bg-primary-dim]="s.tone === 'saved'"
-            [class.text-primary]="s.tone === 'saved'"
-            [class.bg-surface-hover]="s.tone === 'env'"
-            [class.text-text-muted]="s.tone !== 'saved'"
-          >{{ s.text }}</span>
-        }
-      </div>
+      <label for="face-retina-url" class="mb-1.5 block text-[12px] font-semibold">RetinaFace download URL</label>
       <input
         id="face-retina-url"
         type="url"
@@ -503,21 +341,9 @@
       </p>
     </div>
 
-    <!-- MobileFaceNet download ────────────────────────────────────────── -->
+    <!-- MobileFaceNet download -->
     <div>
-      <div class="mb-1.5 flex items-baseline justify-between gap-2">
-        <label for="face-mfn-url" class="text-[12px] font-semibold">MobileFaceNet download URL</label>
-        @if (serverConfig(); as cfg) {
-          @let s = sourceLabel(cfg.source.face_mobilefacenet_url);
-          <span
-            class="rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide"
-            [class.bg-primary-dim]="s.tone === 'saved'"
-            [class.text-primary]="s.tone === 'saved'"
-            [class.bg-surface-hover]="s.tone === 'env'"
-            [class.text-text-muted]="s.tone !== 'saved'"
-          >{{ s.text }}</span>
-        }
-      </div>
+      <label for="face-mfn-url" class="mb-1.5 block text-[12px] font-semibold">MobileFaceNet download URL</label>
       <input
         id="face-mfn-url"
         type="url"
@@ -541,27 +367,4 @@
       />
     </div>
   </section>
-
-  @if (saveError(); as e) {
-    <div class="mb-3 rounded-md bg-error-bg px-3.5 py-2.5 text-[13px] text-error-text">
-      Save failed: {{ e }}
-    </div>
-  }
-
-  <div class="flex items-center justify-end gap-3">
-    @if (saveStatus() === 'success') {
-      <span class="text-[12px] text-primary">Saved.</span>
-    }
-    <button
-      type="button"
-      class="cursor-pointer rounded-md border border-transparent bg-primary px-4 py-2 text-[13px] font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60 hover:opacity-90"
-      [disabled]="saveStatus() === 'saving'"
-      (click)="save()"
-    >
-      @switch (saveStatus()) {
-        @case ('saving') { Saving… }
-        @default { Save changes }
-      }
-    </button>
-  </div>
 </div>
