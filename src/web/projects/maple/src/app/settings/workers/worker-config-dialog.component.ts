@@ -10,7 +10,7 @@ import {
   ChangeDetectionStrategy,
   Component,
   HostListener,
-  effect,
+  OnInit,
   inject,
   input,
   output,
@@ -31,13 +31,22 @@ import {
   styleUrl: './worker-config-dialog.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class WorkerConfigDialogComponent {
+export class WorkerConfigDialogComponent implements OnInit {
   private readonly api = inject(WorkersApiService);
   private readonly fb = inject(FormBuilder);
 
-  /** The stage this dialog is editing. Re-syncs form values when it changes. */
+  /** The stage this dialog is editing. */
   readonly stage = input.required<StageStatus>();
-  /** Current persisted config from the last status poll. */
+  /** Live config signal. Read once in `ngOnInit` to initialize the form —
+   * subsequent polled updates do NOT re-sync the form, so the operator's
+   * in-progress edits aren't wiped out by the parent's 2 s status poll.
+   * (Dialog is destroyed/recreated on every open, so the next open
+   * re-reads the latest values.)
+   *
+   * Other reads — currently just the `paused` / `last_seen_target_version`
+   * fallback in `save()` for non-form fields — intentionally see the live
+   * value, since those fields are not user-edited and we want the freshest
+   * polled values when echoing the config back to the parent. */
   readonly config = input.required<WorkerConfig>();
 
   /** Fires with the returned config on a successful PATCH. */
@@ -55,16 +64,13 @@ export class WorkerConfigDialogComponent {
   readonly saveError = signal<string | null>(null);
   readonly saving = signal(false);
 
-  constructor() {
-    // Re-sync form whenever the config input signal changes.
-    effect(() => {
-      const c = this.config();
-      this.form.setValue({
-        concurrency:    c.concurrency,
-        pollIntervalMs: c.pollIntervalMs,
-        batchSize:      c.batchSize,
-        maxAttempts:    c.maxAttempts,
-      });
+  ngOnInit(): void {
+    const c = this.config();
+    this.form.setValue({
+      concurrency:    c.concurrency,
+      pollIntervalMs: c.pollIntervalMs,
+      batchSize:      c.batchSize,
+      maxAttempts:    c.maxAttempts,
     });
   }
 
