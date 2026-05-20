@@ -1,9 +1,9 @@
 // DetailPanel.swift — Right-side panel with Info + Develop tabs.
 //
-// Per mockup (docs/photo_app_mockup_v2.html, lines ~49-71), the panel is
-// always part of the layout — the sliders simply disable when no session is
-// active. Passing a nil session preserves the tab bar + section headers so
-// switching back in is instant.
+// Only mounted when the app is in Full-image mode. Browse mode drops the
+// detail column entirely (AppShell renders a 2-column NavigationSplitView).
+// Sliders disable when no session is active so opening the editor from a
+// cold session doesn't jump the layout while the sidecar loads.
 //
 // Mirrors the React prototype's DetailPanel from src/web. Develop tab exposes
 // all AdjustmentModel sliders; Info tab shows EXIF.

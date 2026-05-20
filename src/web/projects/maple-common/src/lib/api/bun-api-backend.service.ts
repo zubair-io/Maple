@@ -49,9 +49,7 @@ export interface ApiAssetPage {
 /** Axis-aligned bounding box. Coordinate space is set by the producer
  * and documented at the use site — face bboxes are normalised `[0,1]`
  * proportions of the source image (used as CSS percentages by the crop
- * helper), OCR word bboxes are pixels relative to the thumbnail. The
- * shape is the same so the arithmetic is shared; consumers must respect
- * the documented units. */
+ * helper). Consumers must respect the documented units. */
 export interface Bbox {
   x: number;
   y: number;
@@ -116,21 +114,24 @@ export interface ApiEnrichmentStageState {
   dead_letter_at: string | null;
 }
 
-export type ApiEnrichmentStage = 'geocode' | 'face' | 'describe' | 'ocr';
+export type ApiEnrichmentStage = 'geocode' | 'face' | 'describe';
 
 export interface ApiEnrichment {
   geocode: ApiEnrichmentStageState;
   face: ApiEnrichmentStageState;
   describe: ApiEnrichmentStageState;
-  ocr: ApiEnrichmentStageState;
 }
 
 export interface ApiOcrMeta {
-  engine: string;
+  /** The describe stage is the sole writer and stamps `'qwen2.5-vl'`. The
+   * `'tesseract'` literal remains because pre-#158 installs still have
+   * rows tagged that way until the describe stage re-runs them — the API
+   * returns the value verbatim (no read-side rewrite). */
+  engine: 'qwen2.5-vl' | 'tesseract';
   engine_version: string;
   generated_at: string;
-  /** Overall mean confidence reported by the engine, 0–100. `null` for
-   * legacy rows written before per-word capture landed. */
+  /** `null` for the qwen2.5-vl path. Legacy Tesseract rows carry the
+   * engine's reported 0-100 mean confidence. */
   mean_confidence?: number | null;
 }
 
@@ -141,6 +142,60 @@ export interface ApiDescriptionMeta {
   generated_at?: string;
   prompt_version?: number;
   [key: string]: unknown;
+}
+
+/**
+ * Structured vision metadata from the qwen2.5-vl describe stage.
+ * Mirrors `VisionDoc` in `src/api/src/db/schema.ts`. `null` until the
+ * stage has run on the asset.
+ */
+export interface ApiVision {
+  caption: string;
+  subjects: string[];
+  scene_type: 'indoor' | 'outdoor' | 'aerial' | 'macro' | 'studio' | 'mixed';
+  setting: string | null;
+  activity: string | null;
+  time_of_day:
+    | 'morning'
+    | 'midday'
+    | 'afternoon'
+    | 'golden hour'
+    | 'evening'
+    | 'night'
+    | 'unknown';
+  lighting: 'natural' | 'artificial' | 'mixed' | 'low-light' | 'backlit' | 'flash';
+  weather: 'clear' | 'cloudy' | 'rainy' | 'snowy' | 'foggy' | 'indoor' | 'unknown';
+  mood: string;
+  colors: string[];
+  composition:
+    | 'wide shot'
+    | 'close-up'
+    | 'portrait'
+    | 'landscape'
+    | 'aerial'
+    | 'macro'
+    | 'candid';
+  text_visible: string | null;
+  notable_objects: string[];
+  shot_type:
+    | 'action'
+    | 'static'
+    | 'candid'
+    | 'posed'
+    | 'architectural'
+    | 'nature'
+    | 'event';
+  indoor_outdoor: 'indoor' | 'outdoor';
+  /** True when the image is a screenshot rather than a photograph. */
+  is_screenshot: boolean;
+}
+
+export interface ApiVisionMeta {
+  provider: 'ollama' | 'anthropic' | 'openai' | 'gemini';
+  model: string;
+  prompt_version: number;
+  generated_at: string;
+  raw_response_size: number;
 }
 
 export interface ApiAssetDetail {
@@ -160,6 +215,13 @@ export interface ApiAssetDetail {
   description_meta: ApiDescriptionMeta | null;
   ocr_text: string | null;
   ocr_meta: ApiOcrMeta | null;
+  /** Structured vision data from the qwen2.5-vl describe stage. */
+  vision: ApiVision | null;
+  vision_meta: ApiVisionMeta | null;
+  /** Top-level mirror of `vision.is_screenshot` — seeded by the exif
+   * stage heuristic, overwritten by the describe stage's VLM verdict.
+   * `null` for legacy rows indexed before #175. */
+  is_screenshot: boolean | null;
   enrichment: ApiEnrichment;
 }
 
@@ -227,7 +289,7 @@ export class BunApiBackendService {
   }
 
   /** Detail-pane payload — same `/api/assets/:id` route, but typed to surface
-   * the enrichment outputs (place, faces, description, ocr) the info-pane
+   * the enrichment outputs (place, faces, description, vision) the info-pane
    * needs. Snake_case fields pass through untouched. */
   getAssetDetails(assetId: string): Observable<ApiAssetDetail> {
     return this.http.get<ApiAssetDetail>(`${this.base}/assets/${assetId}`);
@@ -250,14 +312,6 @@ export class BunApiBackendService {
     text: string | null,
   ): Observable<void> {
     return this.http.put<void>(`${this.base}/assets/${assetId}/description`, { text });
-  }
-
-  /** Manually override the OCR text. Pass `null` to clear. */
-  setAssetOcrOverride(
-    assetId: string,
-    text: string | null,
-  ): Observable<void> {
-    return this.http.put<void>(`${this.base}/assets/${assetId}/ocr`, { text });
   }
 
   /** Reset a per-stage enrichment state so the worker re-runs on its next
@@ -355,8 +409,6 @@ export class BunApiBackendService {
       face_retinaface_sha256?: string | null;
       face_mobilefacenet_url?: string | null;
       face_mobilefacenet_sha256?: string | null;
-      // ── OCR worker (Phase 8) ──────────────────────────────────────
-      ocr_worker_enabled?: boolean | null;
     },
   ): Observable<EnrichmentConfigResponse> {
     return this.http.put<EnrichmentConfigResponse>(`${this.base}/enrichment/config`, body);
@@ -516,8 +568,6 @@ export interface EnrichmentConfigResponse {
   face_retinaface_sha256: string | null;
   face_mobilefacenet_url: string | null;
   face_mobilefacenet_sha256: string | null;
-  /** Phase 8 OCR worker. Default false until the operator opts in. */
-  ocr_worker_enabled: boolean;
   /** Set when face worker is enabled but the model files are missing — UI
    * surfaces this as an actionable banner. Optional for backward compat. */
   face_worker_dormant_reason?: string | null;
@@ -547,7 +597,6 @@ export interface EnrichmentConfigResponse {
     face_retinaface_sha256: 'db' | 'env' | 'unset';
     face_mobilefacenet_url: 'db' | 'env' | 'unset';
     face_mobilefacenet_sha256: 'db' | 'env' | 'unset';
-    ocr_worker_enabled: 'db' | 'env' | 'default';
   };
 }
 

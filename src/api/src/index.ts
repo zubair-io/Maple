@@ -58,23 +58,14 @@ import { requireAuth } from "./auth/middleware.ts";
 import { staticUiPlugin } from "./routes/static_ui.ts";
 import { getDb, ensureIndexes, closeDb, foldersCollection } from "./db/client.ts";
 import { startTrashGc, type TrashGcHandle } from "./workers/trash-gc.ts";
-import {
-  Supervisor,
-  startSupervisor,
-  stopSupervisor,
-  supervisorState,
-  setSupervisorSingleton,
-} from "./workers/supervisor.ts";
-import { ALL_STAGE_NAMES } from "./workers/stages/manifest.ts";
+import { startAllStages, stopAllStages } from "./workers/orchestrator.ts";
+import { stageRegistry } from "./workers/registry.ts";
+import { startDiscover, type DiscoverHandle } from "./workers/discover/index.ts";
 import { workerRoutes } from "./workers/routes.ts";
 import {
   startGeocodeWorker,
   stopGeocodeWorker,
 } from "./enrichment/bootstrap.ts";
-import {
-  startOcrWorker,
-  stopOcrWorker,
-} from "./enrichment/ocr-bootstrap.ts";
 import {
   startFaceWorker,
   stopFaceWorker,
@@ -119,14 +110,7 @@ function ensureJwtSecret(): void {
 // Build the Elysia app
 // ---------------------------------------------------------------------------
 
-export function buildApp(opts: { stageNames?: string[] } = {}): Elysia & { supervisor: Supervisor } {
-  const supervisor = new Supervisor(opts.stageNames ?? []);
-
-  // Register as the module singleton immediately so that all supervisor
-  // convenience helpers (supervisorState, pauseSupervisor, etc.) used by
-  // indexerRoutes and eventsRoutes share the same instance (Issue 2 fix).
-  setSupervisorSingleton(supervisor);
-
+export function buildApp(_opts: { stageNames?: string[] } = {}): Elysia {
   const app = new Elysia()
     // CORS + cross-origin isolation headers for every response.
     //
@@ -161,11 +145,13 @@ export function buildApp(opts: { stageNames?: string[] } = {}): Elysia & { super
       const msg = error instanceof Error ? error.message : String(error);
       const isDbErr = msg.includes("[db]") || msg.includes("MongoDB");
 
+      // Pass the raw `error` to pino so its serializer preserves the
+      // stack + structured driver fields (e.g. MongoDB error codes).
       log.error(
         {
           method: request.method,
           path: new URL(request.url).pathname,
-          err: msg,
+          err: error,
         },
         "request error",
       );
@@ -243,7 +229,7 @@ export function buildApp(opts: { stageNames?: string[] } = {}): Elysia & { super
         .use(meilisearchBackfillRoutes)
         .use(peopleRoutes)
         .use(changesRoutes)
-        .use(workerRoutes(supervisor)),
+        .use(workerRoutes()),
     )
 
     // Static UI (catch-all — must be last so specific API routes match first).
@@ -251,15 +237,12 @@ export function buildApp(opts: { stageNames?: string[] } = {}): Elysia & { super
     // SPA itself walks the user through sign-in via /api/auth/* calls.
     .use(staticUiPlugin);
 
-  // Attach the supervisor so the shutdown handler can call stopAll().
-  (app as unknown as Record<string, unknown>)["supervisor"] = supervisor;
-  return app as unknown as Elysia & { supervisor: Supervisor };
+  return app;
 }
 
 /**
  * Singleton app instance used by tests that import `{ app }` directly.
- * Constructed with an empty stage list so the supervisor doesn't try to
- * spawn worker processes during test runs.
+ * Stages are started by `start()` below — never during a test-driven import.
  */
 export const app = buildApp({ stageNames: [] });
 
@@ -269,6 +252,7 @@ export const app = buildApp({ stageNames: [] });
 
 /** Background handles whose lifecycle is owned by start()/shutdown(). */
 let _trashGcHandle: TrashGcHandle | null = null;
+let _discoverHandle: DiscoverHandle | null = null;
 
 async function start(): Promise<void> {
   ensureJwtSecret();
@@ -292,163 +276,143 @@ async function start(): Promise<void> {
     );
   }
 
-  // Connect to MongoDB in the background — don't block server start.
-  getDb()
-    .then(ensureIndexes)
-    .then(() => log.info("DB ready"))
-    .then(async () => {
-      // Bridge cross-process change emissions: workers spawned by the
-      // supervisor live in child processes whose in-process bus is
-      // invisible to SSE clients connected here. The tailer polls
-      // `asset_changes` and republishes new rows to the parent bus so
-      // every SSE subscriber sees them. It is also the sole source of
-      // the bus's persisted high-watermark (see ChangeBus comments).
-      try {
-        await getChangeFeedTailer().start();
-      } catch (err) {
-        log.error(
-          { err: err instanceof Error ? err.message : err },
-          "change feed tailer failed to start",
-        );
-      }
-    })
-    .then(async () => {
-      // Auto-start the worker supervisor unless explicitly disabled
-      // (`MAPLE_INDEXER_AUTOSTART=0`).
-      if (process.env.MAPLE_INDEXER_AUTOSTART === "0") {
-        log.info("Indexer autostart disabled (MAPLE_INDEXER_AUTOSTART=0)");
-        return;
-      }
-      // Resolve discover roots: one entry per registered folder.
-      const foldersColl = await foldersCollection();
-      const folders = await foldersColl.find({}, { projection: { path: 1 } }).toArray();
-      const discoverRoots = folders.map((f) => f.path).filter(Boolean);
+  // Boot sequence runs in the background — don't block server start.
+  // Each phase is isolated: a failure (e.g. an IndexOptionsConflict during
+  // ensureIndexes, or a dup-key during a unique-index build) is logged
+  // and the next phase still runs. Only the DB connection itself is
+  // hard-required; without it, downstream phases are skipped.
+  void (async () => {
+    try {
+      await getDb();
+    } catch (err) {
+      log.warn(
+        { err },
+        "MongoDB not available — server continues, DB-bound routes will 503",
+      );
+      return;
+    }
 
-      startSupervisor({
-        stages: [...ALL_STAGE_NAMES],
-        discover: discoverRoots.length > 0
-          ? { roots: discoverRoots }
-          : undefined,
-      })
-        .then(() =>
-          log.info(supervisorState(), "Worker supervisor running"),
-        )
-        .catch((e) =>
-          log.warn(
-            { err: e instanceof Error ? e.message : e },
-            "Worker supervisor failed to start",
-          ),
+    try {
+      await ensureIndexes();
+      log.info("DB ready");
+    } catch (err) {
+      log.error(
+        { err },
+        "ensureIndexes failed — continuing without all indexes; affected routes may be slower until resolved",
+      );
+    }
+
+    try {
+      // Republishes `asset_changes` rows onto the in-process bus so SSE
+      // clients see worker-emitted changes.
+      await getChangeFeedTailer().start();
+    } catch (err) {
+      log.error(
+        { err },
+        "change feed tailer failed to start",
+      );
+    }
+
+    // Auto-start the in-process stage runners unless explicitly disabled.
+    if (process.env.MAPLE_INDEXER_AUTOSTART === "0") {
+      log.info("Indexer autostart disabled (MAPLE_INDEXER_AUTOSTART=0)");
+    } else {
+      try {
+        await startAllStages();
+        log.info(stageRegistry.statuses(), "Worker stages running");
+      } catch (err) {
+        log.warn(
+          { err },
+          "Worker stages failed to start",
         );
-    })
-    .then(() =>
-      // Slow-tier enrichment workers run in-process. The boot path
-      // health-checks the configured Nominatim instance once. A failure no
-      // longer exits the process — the operator can fix the URL via the
-      // /settings/enrichment UI without a restart. The error is logged so
-      // headless deployments still see it.
-      startGeocodeWorker().catch((err) => {
-        log.error(
-          { err: err instanceof Error ? err.message : err },
-          "geocode worker failed to start; fix via /settings/enrichment",
+      }
+
+      try {
+        const foldersColl = await foldersCollection();
+        const folders = await foldersColl
+          .find({}, { projection: { path: 1 } })
+          .toArray();
+        const discoverRoots = folders.map((f) => f.path).filter(Boolean);
+        if (discoverRoots.length > 0) {
+          _discoverHandle = await startDiscover({ roots: discoverRoots });
+        }
+      } catch (err) {
+        log.warn(
+          { err },
+          "Discover failed to start",
         );
-      }),
-    )
-    .then(() =>
-      // Phase 5: face worker. Default off. When enabled, model load can
-      // fail silently (file missing + no download URL) — the worker stays
-      // dormant in that case so the API stays up. Operator recovers via
-      // /settings/enrichment.
-      startFaceWorker().catch((err) => {
-        log.error(
-          { err: err instanceof Error ? err.message : err },
-          "face worker failed to start; fix via /settings/enrichment",
-        );
-      }),
-    )
-    .then(() =>
-      // Phase 6: describe worker (vision-LLM caption generator). Local
-      // Ollama by default — no API key needed. Health check at boot;
-      // failures are logged and the operator can fix via
-      // /settings/enrichment without a restart.
-      startDescribeWorker().catch((err) => {
-        log.error(
-          { err: err instanceof Error ? err.message : err },
-          "describe worker failed to start; fix via /settings/enrichment",
-        );
-      }),
-    )
-    .then(async () => {
-      // Phase 7: Meilisearch sidecar. `health()` returns false when the
-      // URL is unset OR when the service is unreachable. We warn-and-
-      // continue in either case — the search route falls back to Mongo
-      // `$text` so the API stays up. `ensureIndex()` is idempotent.
+      }
+    }
+
+    // Slow-tier enrichment workers run in-process. Each one's failure is
+    // isolated — the operator recovers via /settings/enrichment without a
+    // restart.
+    try {
+      await startGeocodeWorker();
+    } catch (err) {
+      log.error(
+        { err },
+        "geocode worker failed to start; fix via /settings/enrichment",
+      );
+    }
+
+    try {
+      await startFaceWorker();
+    } catch (err) {
+      log.error(
+        { err },
+        "face worker failed to start; fix via /settings/enrichment",
+      );
+    }
+
+    try {
+      await startDescribeWorker();
+    } catch (err) {
+      log.error(
+        { err },
+        "describe worker failed to start; fix via /settings/enrichment",
+      );
+    }
+
+    try {
+      // Meilisearch sidecar. Search falls back to Mongo $text when
+      // unconfigured / unreachable / index build fails.
       const meili = meilisearchClient();
       if (!meili.isConfigured()) {
         log.info("MAPLE_MEILISEARCH_URL unset — Meilisearch sidecar disabled");
-        return;
-      }
-      const healthy = await meili.health();
-      if (!healthy) {
+      } else if (!(await meili.health())) {
         log.warn(
           "Meilisearch health check failed; search will fall back to Mongo $text until the service is reachable",
         );
-        return;
-      }
-      try {
+      } else {
         await meili.ensureIndex();
         log.info("Meilisearch sidecar ready");
-      } catch (err) {
-        log.warn(
-          { err: err instanceof Error ? err.message : err },
-          "Meilisearch ensureIndex failed; search will fall back to Mongo $text",
-        );
       }
-    })
-    .then(() => {
+    } catch (err) {
+      log.warn(
+        { err },
+        "Meilisearch boot failed; search will fall back to Mongo $text",
+      );
+    }
+
+    try {
       // JobRunner — sibling subsystem to the indexer pipeline for
-      // user-triggered long-running work (export, batch reprocess). See
-      // `docs/workers-architecture.md` §9, §11. Reuses the FFI pool for
-      // heavy lifting; one in-flight job per process is enough for v1.
+      // user-triggered long-running work (export, batch reprocess).
       startJobRunner();
-    })
-    .then(() =>
-      // Phase 8: OCR worker. Off by default — operator opts in via
-      // `MAPLE_OCR_WORKER_ENABLED=true` or the settings UI. Lazy
-      // tesseract bring-up means this is cheap at boot when disabled.
-      startOcrWorker().catch((err) => {
-        log.error(
-          { err: err instanceof Error ? err.message : err },
-          "OCR worker failed to start; toggle via /settings/enrichment",
-        );
-      }),
-    )
-    .catch((err) => {
+    } catch (err) {
       log.warn(
-        { err: err instanceof Error ? err.message : err },
-        "MongoDB not available",
+        { err },
+        "JobRunner failed to start",
       );
-      log.warn(
-        "Server continues without DB. API routes that need DB will return 503.",
-      );
-    });
+    }
+  })();
 
   const app = buildApp();
   app.listen(PORT);
   // Phase 3 trash-gc — fire once at boot, then once a day. The handle's
   // stop() is invoked during shutdown so a clean exit cancels the timer.
   _trashGcHandle = startTrashGc({});
-  // Keep supervisor reference for graceful shutdown.
-  const supervisor = (app as unknown as Record<string, unknown>)["supervisor"] as Supervisor;
-  // Register a one-time SIGTERM/SIGINT hook to stop stage children.
-  const stopStageSupervisor = () =>
-    supervisor?.stopAll().catch((e: unknown) => {
-      log.warn(
-        { err: e instanceof Error ? e.message : e },
-        "error stopping stage supervisor",
-      );
-    });
-  process.once("SIGTERM", stopStageSupervisor);
-  process.once("SIGINT", stopStageSupervisor);
+  // shutdown() handles stage drain via stopAllStages(); no separate hook needed.
 }
 
 // Graceful shutdown.
@@ -460,30 +424,40 @@ async function shutdown(signal: string): Promise<void> {
     getChangeFeedTailer().stop();
   } catch (e) {
     log.warn(
-      { err: e instanceof Error ? e.message : e },
+      { err: e },
       "error stopping change feed tailer",
     );
   }
   // Stop the trash-gc loop next so its daily timer doesn't fire mid-shutdown.
   try { _trashGcHandle?.stop(); _trashGcHandle = null; }
   catch (e) {
-    log.warn({ err: e instanceof Error ? e.message : e }, "error stopping trash-gc");
+    log.warn({ err: e }, "error stopping trash-gc");
   }
-  // Stop the worker supervisor so stage children get a chance to finish
-  // in-flight work before the process exits.
+  // Stop the file-system watcher so it stops producing new docs while we drain.
   try {
-    await stopSupervisor();
+    await _discoverHandle?.stop();
+    _discoverHandle = null;
   } catch (e) {
     log.warn(
-      { err: e instanceof Error ? e.message : e },
-      "error stopping worker supervisor",
+      { err: e },
+      "error stopping discover",
+    );
+  }
+  // Stop the in-process stage runners so any in-flight handler can drain
+  // before the process exits.
+  try {
+    await stopAllStages();
+  } catch (e) {
+    log.warn(
+      { err: e },
+      "error stopping worker stages",
     );
   }
   try {
     await stopGeocodeWorker();
   } catch (e) {
     log.warn(
-      { err: e instanceof Error ? e.message : e },
+      { err: e },
       "error stopping geocode worker",
     );
   }
@@ -491,7 +465,7 @@ async function shutdown(signal: string): Promise<void> {
     await stopFaceWorker();
   } catch (e) {
     log.warn(
-      { err: e instanceof Error ? e.message : e },
+      { err: e },
       "error stopping face worker",
     );
   }
@@ -499,23 +473,15 @@ async function shutdown(signal: string): Promise<void> {
     await stopDescribeWorker();
   } catch (e) {
     log.warn(
-      { err: e instanceof Error ? e.message : e },
+      { err: e },
       "error stopping describe worker",
-    );
-  }
-  try {
-    await stopOcrWorker();
-  } catch (e) {
-    log.warn(
-      { err: e instanceof Error ? e.message : e },
-      "error stopping OCR worker",
     );
   }
   try {
     await stopJobRunner();
   } catch (e) {
     log.warn(
-      { err: e instanceof Error ? e.message : e },
+      { err: e },
       "error stopping job runner",
     );
   }
@@ -529,15 +495,23 @@ async function shutdown(signal: string): Promise<void> {
 
 process.on("SIGTERM", () => {
   shutdown("SIGTERM").catch((e) => {
-    log.error({ err: e instanceof Error ? e.message : e }, "shutdown error");
+    log.error({ err: e }, "shutdown error");
     process.exit(1);
   });
 });
 process.on("SIGINT", () => {
   shutdown("SIGINT").catch((e) => {
-    log.error({ err: e instanceof Error ? e.message : e }, "shutdown error");
+    log.error({ err: e }, "shutdown error");
     process.exit(1);
   });
 });
 
-start();
+// Only kick off the boot sequence when this module is run as the process
+// entry point — `bun src/index.ts`. Importing the module (tests reaching
+// for `app` / `buildApp` / route handlers) must not trigger the background
+// boot, otherwise its `ensureIndexes()` races with the test harness's
+// `closeDb()` calls and randomly skips index builds downstream tests rely
+// on. Bun sets `import.meta.main = true` for the entry module.
+if ((import.meta as { main?: boolean }).main) {
+  start();
+}

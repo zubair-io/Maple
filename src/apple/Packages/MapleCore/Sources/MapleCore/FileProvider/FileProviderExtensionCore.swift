@@ -722,6 +722,17 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
             completionHandler(nil, [], false, notAuthenticatedError())
             return Progress()
         }
+        // Folder creation. Finder fires this for "New Folder" in the FP
+        // mount and for the folder-create that precedes a drag-in of a
+        // folder full of files (the OS recursively walks the source,
+        // creating each subdirectory before the files inside it). The
+        // contentType check goes BEFORE the extension-based routing
+        // because the OS, not the filename, decides whether the
+        // template is a directory.
+        if itemTemplate.contentType?.conforms(to: .folder) == true {
+            return createFolderItem(basedOn: itemTemplate, catalog: catalog, completionHandler: completionHandler)
+        }
+
         let filename = itemTemplate.filename
         let dot = filename.lastIndex(of: ".")
         let ext = dot.map { String(filename[filename.index(after: $0)...]).lowercased() } ?? ""
@@ -739,6 +750,60 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
         completionHandler(nil, [], false,
             NSError(domain: NSCocoaErrorDomain, code: NSFeatureUnsupportedError))
         return Progress()
+    }
+
+    /// Create a subdirectory inside a library root (or a deeper folder
+    /// thereof). Delegates the actual `mkdir` to the server and
+    /// synthesizes a `MapleItem` for the new folder. Without this branch,
+    /// Finder's folder-create returned featureUnsupported and the entire
+    /// drag-in of a folder containing files aborted before any child
+    /// upload was attempted.
+    private func createFolderItem(basedOn itemTemplate: NSFileProviderItem,
+                                  catalog: RemoteCatalog,
+                                  completionHandler: @escaping (NSFileProviderItem?, NSFileProviderItemFields, Bool, Error?) -> Void) -> Progress {
+        let parentID = itemTemplate.parentItemIdentifier
+        let parsed: FileProviderIdentifier
+        do { parsed = try FileProviderIdentifier(rawValue: parentID.rawValue) }
+        catch {
+            completionHandler(nil, [], false,
+                NSError(domain: NSFileProviderErrorDomain,
+                        code: NSFileProviderError.noSuchItem.rawValue))
+            return Progress()
+        }
+        // Folders can only be created inside a library root or one of
+        // its subdirectories. Trash containers, root container,
+        // synthetic `.maple/` paths all reject.
+        guard case .folder(let folderID, let parentRelative) = parsed else {
+            completionHandler(nil, [], false,
+                NSError(domain: NSCocoaErrorDomain, code: NSFeatureUnsupportedError))
+            return Progress()
+        }
+        let filename = itemTemplate.filename
+        let targetRel = parentRelative.isEmpty ? filename : "\(parentRelative)/\(filename)"
+        let progress = Progress(totalUnitCount: 1)
+        Task {
+            defer { progress.completedUnitCount = 1 }
+            do {
+                self.log.notice("mkdir folderID=\(folderID, privacy: .public) target=\(targetRel, privacy: .private)")
+                let resp = try await catalog.makeDir(folderID: folderID, targetRelativePath: targetRel)
+                // Server doesn't return an mtime — synthesize `now`. The
+                // OS will reconcile against the real mtime on the next
+                // parent enumeration (signalled below).
+                let dir = DirChild(name: filename, path: resp.absPath, mtime: Date())
+                let item = MapleItem(
+                    subdirectory: dir,
+                    parentFolderID: folderID,
+                    parentRelativePath: parentRelative,
+                    parentIdentifier: parentID
+                )
+                completionHandler(item, [], false, nil)
+                await self.signalEnumeratorReload(parent: parentID)
+            } catch {
+                self.log.error("mkdir failed: \(error.localizedDescription, privacy: .public)")
+                completionHandler(nil, [], false, error)
+            }
+        }
+        return progress
     }
 
     /// XMP sidecar create — preserved from Phase 2.
@@ -874,10 +939,6 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                                     code: NSFileProviderError.noSuchItem.rawValue))
                     }
                     await self.signalEnumeratorReload(parent: parentID)
-                case .conflict:
-                    completionHandler(nil, [], false,
-                        NSError(domain: NSFileProviderErrorDomain,
-                                code: NSFileProviderError.filenameCollision.rawValue))
                 case .unsupported:
                     completionHandler(nil, [], false,
                         NSError(domain: NSCocoaErrorDomain, code: NSFileWriteUnknownError))
@@ -981,6 +1042,29 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                 }
             }
             return progress
+        }
+
+        // Asset, but not a restore: accept benign metadata-only edits
+        // silently. After fetchContents materialises a RAW, the OS often
+        // surfaces a modifyItem call carrying `.lastUsedDate`,
+        // `.extendedAttributes` (quarantine, Spotlight metadata), Finder
+        // `.tagData`, or `.favoriteRank` — none of which the Maple server
+        // tracks. Returning featureUnsupported here makes Finder badge
+        // every freshly-opened RAW with a persistent "upload error". Echo
+        // the input item back instead so the OS records the local
+        // metadata change without re-trying.
+        //
+        // Genuine in-place edits (changedFields ⊇ `.contents`), renames
+        // (`.filename`), and moves (`.parentItemIdentifier`) still fall
+        // through to featureUnsupported — those operations would silently
+        // drop user work if accepted, so a clear error is correct.
+        if case .asset = parsed {
+            let unsupportedAssetFields: NSFileProviderItemFields =
+                [.contents, .filename, .parentItemIdentifier]
+            if changedFields.intersection(unsupportedAssetFields).isEmpty {
+                completionHandler(item, [], false, nil)
+                return Progress()
+            }
         }
 
         guard case .sidecar(let assetID, let conflictBasename) = parsed,

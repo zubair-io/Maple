@@ -65,8 +65,6 @@ const ConfigBody = t.Object({
   face_retinaface_sha256: t.Optional(t.Union([t.String(), t.Null()])),
   face_mobilefacenet_url: t.Optional(t.Union([t.String(), t.Null()])),
   face_mobilefacenet_sha256: t.Optional(t.Union([t.String(), t.Null()])),
-  // ── OCR worker (Phase 8) ───────────────────────────────────────────
-  ocr_worker_enabled: t.Optional(t.Union([t.Boolean(), t.Null()])),
 });
 
 const TestBody = t.Object({
@@ -243,9 +241,6 @@ export const enrichmentRoutes = new Elysia({ prefix: "/api/enrichment" })
           : {}),
         ...(body.face_worker_enabled !== undefined
           ? { face_worker_enabled: body.face_worker_enabled }
-          : {}),
-        ...(body.ocr_worker_enabled !== undefined
-          ? { ocr_worker_enabled: body.ocr_worker_enabled }
           : {}),
       });
 

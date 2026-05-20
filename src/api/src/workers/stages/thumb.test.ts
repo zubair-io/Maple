@@ -17,7 +17,6 @@ function makeDoc(absPath: string, exif: Record<string, unknown> | null = null) {
       exif:     { version: 1, attempts: 0, last_error: null, processed_at: new Date().toISOString(), dead: false },
       thumb:    { version: 0, attempts: 0, last_error: null, processed_at: null, dead: false },
       face:     { version: 0, attempts: 0, last_error: null, processed_at: null, dead: false },
-      ocr:      { version: 0, attempts: 0, last_error: null, processed_at: null, dead: false },
       describe: { version: 0, attempts: 0, last_error: null, processed_at: null, dead: false },
       geocode:  { version: 0, attempts: 0, last_error: null, processed_at: null, dead: false },
       meili:    { version: 0, attempts: 0, last_error: null, processed_at: null, dead: false },

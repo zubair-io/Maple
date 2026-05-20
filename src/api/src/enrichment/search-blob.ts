@@ -30,10 +30,19 @@ export interface ComposeSearchBlobInput {
   description?: string | null;
   /** OCR-extracted text from the thumbnail (Phase 8). */
   ocrText?: string | null;
+  /** Structured vision-subjects (e.g. ["person", "child", "athlete"]).
+   * Optional — older callers and tests can keep passing nothing. */
+  visionSubjects?: string[] | null;
+  /** Structured setting (e.g. "sports field", "kitchen"). */
+  visionSetting?: string | null;
+  /** Structured activity (e.g. "lacrosse", "hiking"). */
+  visionActivity?: string | null;
+  /** Structured notable objects (e.g. ["lacrosse stick", "cleats"]). */
+  visionNotableObjects?: string[] | null;
 }
 
-/** Pure: build the unified blob from the three sources. Returns `""` when
- * every source is empty so callers can store an unconditional value. */
+/** Pure: build the unified blob from the contributing sources. Returns `""`
+ * when every source is empty so callers can store an unconditional value. */
 export function composeSearchBlob(input: ComposeSearchBlobInput): string {
   const tokens = new Set<string>();
   const add = (raw: string | null | undefined): void => {
@@ -49,6 +58,15 @@ export function composeSearchBlob(input: ComposeSearchBlobInput): string {
   add(input.place?.search_blob);
   add(input.description);
   add(input.ocrText);
+
+  // Structured vision signals. Each is a small dictionary contribution
+  // that makes facet-like queries hit ("show outdoor sports") without
+  // needing a separate facet index. Arrays go through `add()` per
+  // element so multi-word strings still tokenise.
+  for (const s of input.visionSubjects ?? []) add(s);
+  add(input.visionSetting);
+  add(input.visionActivity);
+  for (const o of input.visionNotableObjects ?? []) add(o);
 
   return [...tokens].sort().join(" ");
 }
