@@ -4,7 +4,7 @@
 //
 // Self-Hosted extension: when the focused asset has a known API id (Self
 // Hosted backend), this component fetches the per-asset enrichment payload
-// (place, description, OCR text, faces) from the Bun API and surfaces four
+// (place, description, vision, faces) from the Bun API and surfaces four
 // editable sections at the bottom of the pane. Each section supports a
 // manual override (PUT) and a re-X button (POST requeue). After a requeue,
 // the component polls the asset every 2s for 30s to pick up the new value.
@@ -114,8 +114,6 @@ export class InfoTabComponent implements OnDestroy {
   readonly placeDraft = signal('');
   readonly descriptionEditing = signal(false);
   readonly descriptionDraft = signal('');
-  readonly ocrEditing = signal(false);
-  readonly ocrDraft = signal('');
 
   /** API id of the asset currently fetched. Recomputed from the focused
    * asset's local id via `state.apiIdFor`. */
@@ -165,7 +163,7 @@ export class InfoTabComponent implements OnDestroy {
       next: (status) => {
         const next: Partial<Record<ApiEnrichmentStage, boolean>> = {};
         for (const s of status.stages) {
-          if (s.name === 'geocode' || s.name === 'describe' || s.name === 'ocr' || s.name === 'face') {
+          if (s.name === 'geocode' || s.name === 'describe' || s.name === 'face') {
             // Trust `config.paused` first; fall back to the `status` string
             // which the API also exposes as "paused" when the config flag
             // is set on a running child.
@@ -287,7 +285,6 @@ export class InfoTabComponent implements OnDestroy {
       'geocode',
       'face',
       'describe',
-      'ocr',
     ];
     for (const s of stages) {
       const sa = a.enrichment[s];
@@ -400,34 +397,9 @@ export class InfoTabComponent implements OnDestroy {
       });
   }
 
-  startOcrEdit(d: ApiAssetDetail): void {
-    this.ocrDraft.set(d.ocr_text ?? '');
-    this.ocrEditing.set(true);
-  }
-  cancelOcrEdit(): void {
-    this.ocrEditing.set(false);
-    this.ocrDraft.set('');
-  }
-  saveOcrEdit(d: ApiAssetDetail): void {
-    const text = this.ocrDraft();
-    this.clearStageFeedback('ocr');
-    this.api
-      .setAssetOcrOverride(d.id, text.length > 0 ? text : null)
-      .subscribe({
-        next: () => {
-          this.ocrEditing.set(false);
-          this.refetchAfterMutation();
-        },
-        error: () => {
-          this.setStageError('ocr', 'Failed to save — try again.');
-        },
-      });
-  }
-
   private cancelAllEdits(): void {
     this.cancelPlaceEdit();
     this.cancelDescriptionEdit();
-    this.cancelOcrEdit();
   }
 
   /** Refetch the detail once after a manual override (no polling — the

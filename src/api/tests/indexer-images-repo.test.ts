@@ -143,15 +143,6 @@ describe("upsertByMapleId — skeleton schema", () => {
         version: null,
         dead_letter_at: null,
       },
-      ocr: {
-        done_at: null,
-        locked_by: null,
-        lease_expires_at: null,
-        attempts: 0,
-        last_error: null,
-        version: null,
-        dead_letter_at: null,
-      },
     });
 
     // Browse defaults are seeded too.

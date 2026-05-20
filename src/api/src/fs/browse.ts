@@ -219,7 +219,7 @@ export interface ImageChild extends DirChild {
    * Mongo `_id` of the matching asset doc, hex-encoded. Set when this file
    * has been indexed; `undefined` when the indexer hasn't seen it yet. The
    * client uses this to call `/api/assets/:id` for the enriched detail
-   * payload (place, faces, description, ocr) — FS-walk assets have no other
+   * payload (place, faces, description, vision) — FS-walk assets have no other
    * route back to the asset doc since their local id is `fs:${abs_path}`.
    */
   id?: string;

@@ -19,7 +19,10 @@ import {
 } from "./index.ts";
 
 const DEFAULT_BASE_URL = "http://localhost:11434";
-const DEFAULT_TIMEOUT_MS = 60_000; // local CPU/GPU; 5s is too tight
+// qwen2.5-vl:7b on a 24 GB GPU is 8–12s typical per image, but can spike
+// to 30–60s under cold-load or when the model is paged in. 120s leaves
+// headroom without masking a genuinely hung backend.
+const DEFAULT_TIMEOUT_MS = 120_000;
 
 export interface OllamaProviderConfig {
   /** Base URL, e.g. `http://localhost:11434`. Defaults to localhost when
