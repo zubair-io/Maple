@@ -42,6 +42,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { randomBytes } from "node:crypto";
 import { child as childLogger } from "./log.ts";
+import { requestContext } from "./middleware/request-context.ts";
 import { healthRoutes } from "./routes/health.ts";
 import { foldersRoutes } from "./routes/folders.ts";
 import { assetsRoutes } from "./routes/assets.ts";
@@ -120,6 +121,12 @@ function ensureJwtSecret(): void {
 
 export function buildApp(_opts: { stageNames?: string[] } = {}): Elysia {
   const app = new Elysia()
+    // Request-id + uniform error envelope. Mounted first so its onRequest
+    // / derive / onError / mapResponse hooks see every downstream request
+    // (including the authedApi sub-tree and the staticUiPlugin catch-all).
+    // See `middleware/request-context.ts` for envelope shape + status→code
+    // mapping. Issue #133.
+    .use(requestContext)
     // CORS + cross-origin isolation headers for every response.
     //
     // T10: COOP: same-origin + COEP: require-corp are required so the hosted
@@ -148,42 +155,8 @@ export function buildApp(_opts: { stageNames?: string[] } = {}): Elysia {
       return;
     })
 
-    // Error handler
-    .onError(({ error, set, request }) => {
-      const msg = error instanceof Error ? error.message : String(error);
-      const isDbErr = msg.includes("[db]") || msg.includes("MongoDB");
-
-      // Pass the raw `error` to pino so its serializer preserves the
-      // stack + structured driver fields (e.g. MongoDB error codes).
-      log.error(
-        {
-          method: request.method,
-          path: new URL(request.url).pathname,
-          err: error,
-        },
-        "request error",
-      );
-
-      if (isDbErr) {
-        set.status = 503;
-        return {
-          error: "Database unavailable",
-          detail: msg,
-          tip: "Start MongoDB with: docker compose up -d mongo",
-        };
-      }
-
-      // Preserve status codes set by middleware (e.g. requireAuth sets 401
-      // before throwing). Only fall back to 500 for errors with no explicit
-      // status — otherwise an auth rejection surfaces to the client as a
-      // generic 500 and the SPA can't react to it.
-      const preset = typeof set.status === "number" ? set.status : 0;
-      if (preset >= 400 && preset < 600) {
-        return { error: msg };
-      }
-      set.status = 500;
-      return { error: "Internal server error", detail: msg };
-    })
+    // Error handler is registered by `requestContext` above (it owns the
+    // envelope shape + request-id plumbing). See `middleware/request-context.ts`.
 
     // Public API routes (no bearer required) — health + the session-bootstrap
     // half of /api/auth (login/register/refresh/logout). The /api/auth/me +
