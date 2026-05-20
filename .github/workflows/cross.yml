@@ -1,0 +1,151 @@
+# .github/workflows/cross.yml
+#
+# Cross-cutting CI that runs on every PR and push to `main`. Per #114.
+#
+# Four jobs:
+#   * format-check          — Prettier --check on the tracked source tree.
+#   * file-budget           — bash tools/check-file-budget.sh (LOC ceiling).
+#   * allowlist-shrinks-only — PR-only; fails if tools/budget-allowlist.txt grew.
+#   * gitleaks              — installed direct from GitHub releases; full-history scan.
+#
+# Per-subsystem workflows (rust / swift / web / api) land **with** the first
+# refactor commit of each subsystem, not preemptively — see #114.
+
+name: cross
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Cancel in-progress runs on non-main refs (PRs, feature branches). Pushes to
+# main always run to completion so the protected-branch signal stays accurate.
+concurrency:
+  group: cross-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  format-check:
+    name: format-check (prettier)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      # Prettier lives in src/web's devDependencies. Install there, then run
+      # against the whole repo using src/web/.prettierrc as the config root.
+      - name: Install web devDeps (provides prettier)
+        working-directory: src/web
+        run: bun install --frozen-lockfile
+
+      - name: Prettier --check
+        run: |
+          ./src/web/node_modules/.bin/prettier --check \
+            --config src/web/.prettierrc \
+            --ignore-path .gitignore \
+            "**/*.{ts,tsx,js,jsx,html,scss,css,json,yaml,yml,md,graphql}"
+
+  file-budget:
+    name: file-budget (400 soft / 600 hard LOC)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The script + allowlist land in #205. Until that merges, skip-pass so
+      # cross.yml stays green on main. Once #205 lands the guard is a no-op.
+      - name: Check budget script presence
+        id: probe
+        run: |
+          if [ -x tools/check-file-budget.sh ] && [ -f tools/budget-allowlist.txt ]; then
+            echo "have_script=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "have_script=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::tools/check-file-budget.sh not present yet (waiting on #205) — skipping."
+          fi
+
+      - name: Run file-budget
+        if: steps.probe.outputs.have_script == 'true'
+        run: bash tools/check-file-budget.sh
+
+  allowlist-shrinks-only:
+    name: allowlist-shrinks-only
+    # Only meaningful on PRs — needs a merge base to diff against.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Need history back to the merge base of the PR.
+          fetch-depth: 0
+
+      - name: Probe allowlist
+        id: probe
+        run: |
+          if [ -f tools/budget-allowlist.txt ]; then
+            echo "have_allowlist=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "have_allowlist=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::tools/budget-allowlist.txt not present yet (waiting on #205) — skipping."
+          fi
+
+      - name: Compare allowlist length against merge base
+        if: steps.probe.outputs.have_allowlist == 'true'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+
+          # Count non-comment, non-blank lines on the PR head.
+          count_entries() {
+            grep -Ev '^\s*(#|$)' "$1" | wc -l | tr -d ' '
+          }
+
+          head_count="$(count_entries tools/budget-allowlist.txt)"
+
+          if git cat-file -e "${BASE_SHA}:tools/budget-allowlist.txt" 2>/dev/null; then
+            tmp="$(mktemp)"
+            git show "${BASE_SHA}:tools/budget-allowlist.txt" > "$tmp"
+            base_count="$(count_entries "$tmp")"
+            rm -f "$tmp"
+          else
+            # File didn't exist on base — anything but empty is a grow.
+            base_count=0
+          fi
+
+          echo "base entries: ${base_count}"
+          echo "head entries: ${head_count}"
+
+          if [ "$head_count" -gt "$base_count" ]; then
+            echo "::error::budget-allowlist.txt grew from ${base_count} to ${head_count} entries — file-size budget allowlist is append-forbidden. Split the offending file instead of allowlisting it."
+            exit 1
+          fi
+
+          echo "OK — allowlist did not grow (shrinks allowed)."
+
+  gitleaks:
+    name: gitleaks (full history)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history so the scan covers every commit, not just HEAD.
+          fetch-depth: 0
+
+      # Install direct from GitHub releases — the official gitleaks-action
+      # requires a paid license key for orgs, so we don't use it.
+      - name: Install gitleaks
+        env:
+          GITLEAKS_VERSION: "8.21.2"
+        run: |
+          set -euo pipefail
+          curl -fsSL -o /tmp/gitleaks.tar.gz \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          tar -xzf /tmp/gitleaks.tar.gz -C /tmp gitleaks
+          sudo install -m 0755 /tmp/gitleaks /usr/local/bin/gitleaks
+          gitleaks version
+
+      - name: gitleaks detect
+        run: gitleaks detect --no-banner --redact --source .
