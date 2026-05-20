@@ -3,7 +3,7 @@ import { mkdirSync, writeFileSync, mkdtempSync, rmSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { ObjectId } from "mongodb";
-import type { ImageDoc, StageContext } from "../runtime/define-stage.ts";
+import type { ImageDoc, StageContext } from "../run-stage.ts";
 import type { AssetFaceDoc } from "../../db/schema.ts";
 import type { DetectedFace, FaceDetector } from "../../enrichment/face-detector.ts";
 import {
@@ -55,7 +55,7 @@ function fakeDoc(overrides: Partial<ImageDoc> & { abs_path: string }): ImageDoc 
     faces: [],
     description: null,
     place: null,
-    stages: {} as Record<string, import("../runtime/define-stage.ts").StageState>,
+    stages: {} as Record<string, import("../run-stage.ts").StageState>,
     ...overrides,
   } as ImageDoc;
 }

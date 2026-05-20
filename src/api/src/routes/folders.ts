@@ -12,17 +12,79 @@ import { readdir, open, rename, stat, unlink, mkdir, utimes } from "node:fs/prom
 import type { Dirent } from "node:fs";
 import * as nodePath from "node:path";
 import { randomUUID } from "node:crypto";
+import { sha1 } from "@noble/hashes/legacy.js";
 import { foldersCollection, assetsCollection } from "../db/client.ts";
 import { recordAndPublishAssetChange } from "../db/changes.repo.ts";
 import { validateRoot } from "../fs/root.ts";
 import { RAW_EXTENSIONS } from "../fs/browse.ts";
 import { SHARP_EXTENSIONS } from "../thumbs/render.ts";
+import { moveToTrash } from "../fs/trash.ts";
+import { listPairedSidecars } from "../fs/xmp.ts";
 import { child as childLogger } from "../log.ts";
 import { computeBodyETag, ifNoneMatchEqual } from "../runtime/http-etag.ts";
 import { handleEvent } from "../workers/discover/index.ts";
 import { stageManifest, blankStagesSkeleton } from "../workers/stages/manifest.ts";
 
+// Mirror of the hash stage's prefix-SHA-1: first 64 KB. Reused here so a
+// duplicate upload whose content is byte-identical to the file being
+// replaced can drop the trash entry instead of leaving a redundant copy.
+const SHA1_HEAD_BYTES = 64 * 1024;
+async function sha1HeadHex(absPath: string): Promise<string> {
+  const fd = await open(absPath, "r");
+  try {
+    const buf = new Uint8Array(SHA1_HEAD_BYTES);
+    const { bytesRead } = await fd.read(buf, 0, buf.length, 0);
+    const digest = sha1(buf.subarray(0, bytesRead));
+    let s = "";
+    for (let i = 0; i < digest.length; i++) s += digest[i]!.toString(16).padStart(2, "0");
+    return s;
+  } finally {
+    await fd.close();
+  }
+}
+
 const log = childLogger("folders");
+
+/**
+ * Decode + validate the `X-Maple-Target-Path` header shared by
+ * `/upload` and `/mkdir`. Returns a discriminated result — callers
+ * set `set.status` to the embedded status on failure and return the
+ * embedded body. Validation rules:
+ *   - header must be present and non-empty
+ *   - percent-decoding must not throw (no `%ZZ`)
+ *   - path must be relative (no leading `/`)
+ *   - no empty paths after splitting on `/`
+ *   - no `..` or `.` components
+ *   - no leading-dot components (blocks writes into `.maple/`)
+ */
+function decodeAndValidateTargetPath(
+  headers: Record<string, string | undefined>,
+): { ok: true; target: string; parts: string[] }
+| { ok: false; status: number; error: string } {
+  const raw = headers["x-maple-target-path"];
+  if (typeof raw !== "string" || raw.length === 0) {
+    return { ok: false, status: 400, error: "Missing X-Maple-Target-Path" };
+  }
+  let target: string;
+  try { target = decodeURIComponent(raw); }
+  catch { return { ok: false, status: 400, error: "Invalid X-Maple-Target-Path encoding" }; }
+  if (target.startsWith("/")) {
+    return { ok: false, status: 400, error: "Path must be relative" };
+  }
+  const parts = target.split("/").filter((p) => p.length > 0);
+  if (parts.length === 0) {
+    return { ok: false, status: 400, error: "Empty target path" };
+  }
+  for (const part of parts) {
+    if (part === ".." || part === ".") {
+      return { ok: false, status: 400, error: "Path traversal not allowed" };
+    }
+    if (part.startsWith(".")) {
+      return { ok: false, status: 400, error: "Hidden path components not allowed" };
+    }
+  }
+  return { ok: true, target, parts };
+}
 
 export const foldersRoutes = new Elysia({ prefix: "/api/folders" })
   // List all folders. Body-hash ETag + If-None-Match short-circuit so the
@@ -234,25 +296,9 @@ export const foldersRoutes = new Elysia({ prefix: "/api/folders" })
       const folder = await folders.findOne({ _id: folderId });
       if (!folder) { set.status = 404; return { error: "Folder not found" }; }
 
-      const targetHeader = headers["x-maple-target-path"];
-      if (typeof targetHeader !== "string" || targetHeader.length === 0) {
-        set.status = 400; return { error: "Missing X-Maple-Target-Path" };
-      }
-      // `decodeURIComponent` throws `URIError` on malformed percent
-      // escapes (e.g. `%ZZ`). The header is client input; surface a 400
-      // instead of letting the global handler return 500.
-      let target: string;
-      try { target = decodeURIComponent(targetHeader); }
-      catch { set.status = 400; return { error: "Invalid X-Maple-Target-Path encoding" }; }
-      // Path validation: no leading /, no .. component, no leading-dot component
-      // (the latter would let a caller write into .maple/).
-      if (target.startsWith("/")) { set.status = 400; return { error: "Path must be relative" }; }
-      const parts = target.split("/").filter((p) => p.length > 0);
-      if (parts.length === 0) { set.status = 400; return { error: "Empty target path" }; }
-      for (const part of parts) {
-        if (part === ".." || part === ".") { set.status = 400; return { error: "Path traversal not allowed" }; }
-        if (part.startsWith(".")) { set.status = 400; return { error: "Hidden path components not allowed" }; }
-      }
+      const validated = decodeAndValidateTargetPath(headers);
+      if (!validated.ok) { set.status = validated.status; return { error: validated.error }; }
+      const { target, parts } = validated;
       const filename = parts[parts.length - 1]!;
       const dot = filename.lastIndexOf(".");
       const ext = dot >= 0 ? filename.slice(dot + 1).toLowerCase() : "";
@@ -267,43 +313,16 @@ export const foldersRoutes = new Elysia({ prefix: "/api/folders" })
       const dir = nodePath.dirname(absPath);
       await mkdir(dir, { recursive: true });
 
-      // Atomically claim the target with O_EXCL (`open(..., "wx")`) so
-      // two concurrent uploads to the same target can't both pass an
-      // existence check and race to overwrite each other. The earlier
-      // stat-then-rename pattern had a TOCTOU window where both writers
-      // saw "free" and the second silently won. EEXIST → 409.
-      //
-      // We still tmp+rename the actual bytes for crash-safety: claim the
-      // target as a 0-byte placeholder, then write to a tmp file, then
-      // rename(tmp, target). The rename atomically replaces the
-      // placeholder; either we see the fully-written file or we see the
-      // empty placeholder (which the next attempt will collide on, which
-      // is the correct semantics — a partially-failed upload doesn't
-      // leak a half-written file under the user's intended path).
-      let claimed = false;
-      try {
-        const claimFh = await open(absPath, "wx");
-        await claimFh.close();
-        claimed = true;
-      } catch (err) {
-        const code = (err as { code?: string }).code;
-        if (code === "EEXIST") {
-          set.status = 409;
-          return { error: "file exists", abs_path: absPath };
-        }
-        set.status = 500;
-        return { error: `Upload claim failed: ${err instanceof Error ? err.message : String(err)}` };
-      }
-
+      // Stream the new body to a tmp file. Streaming keeps RSS bounded
+      // regardless of upload size (unlike a buffered `fh.writeFile`
+      // over an `ArrayBuffer` body). The atomic rename(tmp, target)
+      // happens AFTER any existing file at the target has been moved
+      // to trash, so a duplicate upload never destroys the prior copy.
+      const assets = await assetsCollection();
       const tmp = nodePath.join(dir, `.upload-${randomUUID()}`);
       try {
-        // Stream the request body chunk-by-chunk to the tmp file via
-        // Bun's FileSink (writer). This is genuinely streaming — RSS
-        // stays bounded regardless of upload size — unlike a buffered
-        // `fh.writeFile(bytes)` over an `ArrayBuffer` body.
         const stream = request.body as ReadableStream<Uint8Array> | null;
         if (stream === null) {
-          // Empty body — touch the file to keep the tmp+rename invariant.
           const fh = await open(tmp, "w");
           await fh.close();
         } else {
@@ -324,16 +343,82 @@ export const foldersRoutes = new Elysia({ prefix: "/api/folders" })
             await sink.end();
           }
         }
+      } catch (err) {
+        try { await unlink(tmp); } catch {}
+        set.status = 500;
+        return { error: `Upload write failed: ${err instanceof Error ? err.message : String(err)}` };
+      }
+
+      // If a file already lives at the target, move it to trash (RAW +
+      // paired sidecars, with `.N` collision suffix) before the rename
+      // overwrites it. Tracks the trashed doc's id + prefix-hash + size
+      // so the post-write step can purge the trash entry when the new
+      // upload is byte-identical to what we just moved aside.
+      //
+      // Concurrent-upload race: another request to the same target may
+      // move the file between our `stat` and our `moveToTrash`. If
+      // `moveToTrash` fails AND the file is now gone, treat it as
+      // benign (the peer handled the trash + doc update); otherwise
+      // surface the error.
+      type Trashed = { docId: ObjectId; newAbsPath: string; sha1_head?: string; size?: number };
+      let trashed: Trashed | undefined;
+      try {
+        await stat(absPath);
+        const existing = await assets.findOne({ abs_path: absPath, deleted_at: null });
+        const moved = await moveToTrash(absPath, folder.path);
+        if (moved.kind === "ok") {
+          if (existing) {
+            const existingFields = existing as { sha1_head?: string; size?: number };
+            await assets.updateOne(
+              { _id: existing._id },
+              { $set: {
+                  abs_path: moved.newAbsPath,
+                  deleted_at: new Date().toISOString(),
+                  original_path: absPath,
+                } },
+            );
+            trashed = {
+              docId: existing._id as ObjectId,
+              newAbsPath: moved.newAbsPath,
+              sha1_head: existingFields.sha1_head,
+              size: existingFields.size,
+            };
+            // Mirror the DELETE route: emit a delete change so consumers
+            // (e.g. WorkingSetEnumerator, which removes items only on
+            // `.delete`) drop the pre-existing asset. The subsequent
+            // `create` for the new bytes still publishes below.
+            await recordAndPublishAssetChange({
+              kind: "delete",
+              asset_id: existing._id as ObjectId,
+              folder_id: folderId,
+              abs_path: absPath,
+            }).catch(() => {});
+          }
+        } else {
+          let stillThere = false;
+          try { await stat(absPath); stillThere = true; } catch {}
+          if (stillThere) {
+            try { await unlink(tmp); } catch {}
+            set.status = 500;
+            return { error: `Upload trash failed: ${moved.error}` };
+          }
+          // Benign race — peer moved the file, peer owns its trash + doc
+          // update. We proceed to rename our tmp into place.
+        }
+      } catch (err) {
+        if ((err as { code?: string }).code !== "ENOENT") {
+          try { await unlink(tmp); } catch {}
+          set.status = 500;
+          return { error: `Upload pre-trash failed: ${err instanceof Error ? err.message : String(err)}` };
+        }
+      }
+
+      try {
         await rename(tmp, absPath);
       } catch (err) {
         try { await unlink(tmp); } catch {}
-        // Release the claim so a retry isn't blocked on a 0-byte
-        // placeholder we just orphaned.
-        if (claimed) {
-          try { await unlink(absPath); } catch {}
-        }
         set.status = 500;
-        return { error: `Upload write failed: ${err instanceof Error ? err.message : String(err)}` };
+        return { error: `Upload rename failed: ${err instanceof Error ? err.message : String(err)}` };
       }
 
       const st = await stat(absPath);
@@ -343,7 +428,30 @@ export const foldersRoutes = new Elysia({ prefix: "/api/folders" })
         try { await utimes(absPath, epoch, epoch); } catch {}
       }
 
-      const assets = await assetsCollection();
+      // If the file we just trashed had the same prefix-hash and size
+      // as the new upload, the trash entry would be a redundant copy
+      // of the freshly-written file — discard it (RAW + any paired
+      // sidecars that `moveToTrash` relocated alongside).
+      if (trashed && typeof trashed.sha1_head === "string" && typeof trashed.size === "number") {
+        try {
+          const newHead = await sha1HeadHex(absPath);
+          if (newHead === trashed.sha1_head && st.size === trashed.size) {
+            const sidecars = await listPairedSidecars(trashed.newAbsPath);
+            try { await unlink(trashed.newAbsPath); } catch {}
+            for (const sidecar of sidecars) {
+              try { await unlink(sidecar); } catch {}
+            }
+            await assets.deleteOne({ _id: trashed.docId });
+            trashed = undefined;
+          }
+        } catch (err) {
+          log.warn(
+            { absPath, err: err instanceof Error ? err.message : String(err) },
+            "duplicate-upload identical-content check failed — leaving trash entry in place",
+          );
+        }
+      }
+
       const nowIso = new Date().toISOString();
       // Upsert by `abs_path` to race-safely cooperate with the discover
       // watcher. If the watcher's chokidar tick observed the just-
@@ -421,6 +529,42 @@ export const foldersRoutes = new Elysia({ prefix: "/api/folders" })
       // body untouched.
       parse: "none",
     }
+  )
+
+  // Create a subdirectory under a library root. Target path in the
+  // `X-Maple-Target-Path` header (URL-encoded), same validation rules
+  // as the upload route. Idempotent — `mkdir -p` doesn't fail when the
+  // target already exists.
+  //
+  // The File Provider extension calls this when the user creates a new
+  // folder in Finder, or drags a folder of files in (the OS triggers a
+  // folder createItem first, then per-file createItems against the new
+  // folder as parent). Without an explicit mkdir hook the folder
+  // createItem fell into featureUnsupported and the whole drag aborted
+  // before any child file got a chance to upload.
+  .post(
+    "/:id/mkdir",
+    async ({ params, headers, set }) => {
+      let folderId: ObjectId;
+      try { folderId = new ObjectId(params.id); }
+      catch { set.status = 400; return { error: "Invalid folder id" }; }
+
+      const folders = await foldersCollection();
+      const folder = await folders.findOne({ _id: folderId });
+      if (!folder) { set.status = 404; return { error: "Folder not found" }; }
+
+      const validated = decodeAndValidateTargetPath(headers);
+      if (!validated.ok) { set.status = validated.status; return { error: validated.error }; }
+      const absPath = nodePath.join(folder.path, validated.target);
+      try {
+        await mkdir(absPath, { recursive: true });
+      } catch (err) {
+        set.status = 500;
+        return { error: `mkdir failed: ${err instanceof Error ? err.message : String(err)}` };
+      }
+      set.status = 201;
+      return { abs_path: absPath };
+    },
   )
 
   // Paged list of trashed assets for one library, newest-first.

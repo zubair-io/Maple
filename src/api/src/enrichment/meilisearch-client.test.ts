@@ -44,10 +44,7 @@ function makeFakeFetch(opts: FakeFetchOpts = {}): {
   // The `typeof fetch` declaration in @types/bun (and lib.dom) requires a
   // `preconnect` static method that we don't need; cast through `unknown`
   // so the test fake satisfies the structural call signature.
-  const fetchImpl = (async (
-    input: RequestInfo | URL,
-    init?: RequestInit,
-  ) => {
+  const fetchImpl = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input.toString();
     const method = init?.method ?? "GET";
     const headers: Record<string, string> = {};
@@ -219,7 +216,14 @@ describe("Meilisearch client — happy path with mocked fetch", () => {
       // (place metadata, LLM caption, OCR'd text). Order is the
       // weighting order Meilisearch applies.
       searchableAttributes: ["searchBlob", "description", "ocrText"],
-      filterableAttributes: ["folderId", "deletedAt"],
+      filterableAttributes: [
+        "folderId",
+        "deletedAt",
+        "visionSceneType",
+        "visionActivity",
+        "visionSubjects",
+        "isScreenshot",
+      ],
       sortableAttributes: ["capturedAt"],
     });
   });
@@ -373,7 +377,9 @@ describe("Meilisearch client — happy path with mocked fetch", () => {
       url: "http://meili.local:7700",
       fetchImpl,
     });
-    await expect(client.search("Albany")).rejects.toThrow(/meilisearch search failed/);
+    await expect(client.search("Albany")).rejects.toThrow(
+      /meilisearch search failed/,
+    );
   });
 
   it("search() throws on 5xx so the route can fall back", async () => {
@@ -391,7 +397,9 @@ describe("Meilisearch client — happy path with mocked fetch", () => {
       url: "http://meili.local:7700",
       fetchImpl,
     });
-    await expect(client.search("Albany")).rejects.toThrow(/meilisearch search failed/);
+    await expect(client.search("Albany")).rejects.toThrow(
+      /meilisearch search failed/,
+    );
   });
 
   it("search() scrubs non-hex chars from folderId before injecting", async () => {

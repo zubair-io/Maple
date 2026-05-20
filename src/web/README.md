@@ -43,7 +43,7 @@ Hosted-vs-Self-Hosted backend selection is an injection token in `maple-common`
 All UI components and domain logic live here and are tree-shaken into the `maple` bundle:
 
 - **Shells**: `BrowseShellComponent`, `EditorShellComponent`
-- **Browse components**: `FolderTreeComponent`, `AssetGridComponent`, `BrowseDetailPanelComponent`, `DropZoneComponent`
+- **Browse components**: `FolderTreeComponent`, `AssetGridComponent`, `DropZoneComponent`
 - **Editor components**: `FilmstripComponent`, `ImageCanvasComponent`, `EditorDetailPanelComponent`, `ImageCanvasService`
 - **Develop panel**: `ToneSectionComponent`, `WhiteBalanceSectionComponent`, `PresenceSectionComponent`, `SharpeningSectionComponent`, `NoiseSectionComponent`, `EditorSliderComponent`, `WbPresetPillsComponent`
 - **Scopes**: `HistogramComponent`, `WaveformComponent`, `ParadeComponent`, `VectorscopeComponent`, `ScopesContainerComponent`

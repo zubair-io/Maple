@@ -37,6 +37,15 @@ export const COLOR_LABELS = new Set([
   "purple",
 ]);
 
+export const SCENE_TYPES = new Set([
+  "indoor",
+  "outdoor",
+  "aerial",
+  "macro",
+  "studio",
+  "mixed",
+]);
+
 export const FLAG_BY_NAME: Record<string, -1 | 0 | 1> = {
   pick: 1,
   none: 0,
@@ -105,6 +114,16 @@ export interface SearchQuery {
   ext?: string;
   pathPrefix?: string;
   hasCapturedAt?: string;
+  /** Closed-union from `vision.scene_type` (indoor / outdoor / aerial / …). */
+  sceneType?: string;
+  /** Open-vocab `vision.activity` exact match. */
+  activity?: string;
+  /** Comma-separated `vision.subjects` — OR within the field (any match
+   * wins), AND against other top-level filters. */
+  subjects?: string;
+  /** Screenshot filter. `"true"` shows only screenshots, `"false"` shows
+   * only photographs, omitted shows everything. */
+  isScreenshot?: string;
   page?: string;
   limit?: string;
   sort?: string;
@@ -130,6 +149,10 @@ export const SearchQueryT = t.Object({
   ext: t.Optional(t.String()),
   pathPrefix: t.Optional(t.String()),
   hasCapturedAt: t.Optional(t.String()),
+  sceneType: t.Optional(t.String()),
+  activity: t.Optional(t.String()),
+  subjects: t.Optional(t.String()),
+  isScreenshot: t.Optional(t.String()),
   page: t.Optional(t.String()),
   limit: t.Optional(t.String()),
   sort: t.Optional(t.String()),
@@ -290,6 +313,45 @@ export function buildFilter(
     (filter as Record<string, unknown>).abs_path = {
       $regex: "^" + escapeRegex(q.pathPrefix),
     };
+  }
+
+  // Vision scene_type — closed union, exact match.
+  if (q.sceneType !== undefined && q.sceneType !== "") {
+    if (!SCENE_TYPES.has(q.sceneType)) {
+      return { error: `Invalid sceneType: ${q.sceneType}` };
+    }
+    (filter as Record<string, unknown>)["vision.scene_type"] = q.sceneType;
+  }
+
+  // Vision activity — open vocab, exact match. Trim only; do not regex
+  // because the FE picks from the facet endpoint's exact values.
+  if (q.activity && q.activity.trim().length > 0) {
+    (filter as Record<string, unknown>)["vision.activity"] = q.activity.trim();
+  }
+
+  // Vision subjects — comma-separated. Mongo array-contains semantics make
+  // `{ "vision.subjects": { $in: [...] } }` an OR within the field. Combined
+  // with the other top-level filters via Mongo's implicit AND.
+  if (q.subjects && q.subjects.trim().length > 0) {
+    const subjects = q.subjects
+      .split(",")
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0);
+    if (subjects.length > 0) {
+      (filter as Record<string, unknown>)["vision.subjects"] = {
+        $in: subjects,
+      };
+    }
+  }
+
+  // Screenshot filter. Boolean stringified as "true" / "false"; anything
+  // else (omitted, empty, "any") leaves both kinds in the result set.
+  if (q.isScreenshot === "true") {
+    (filter as Record<string, unknown>).is_screenshot = true;
+  } else if (q.isScreenshot === "false") {
+    // `$ne: true` rather than `false` so rows where is_screenshot was
+    // never written (pre-#175 indexes) still appear under "Photos only".
+    (filter as Record<string, unknown>).is_screenshot = { $ne: true };
   }
 
   // Extensions: comma-separated, alphanumeric only.

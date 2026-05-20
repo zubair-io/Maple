@@ -62,6 +62,10 @@ function makeBucketsCacheKey(q: SearchQuery): string {
     color: q.color ?? null,
     ext: q.ext ?? null,
     hasCapturedAt: q.hasCapturedAt ?? null,
+    sceneType: q.sceneType ?? null,
+    activity: q.activity ?? null,
+    subjects: q.subjects ?? null,
+    isScreenshot: q.isScreenshot ?? null,
   });
 }
 

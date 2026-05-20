@@ -1,6 +1,6 @@
 /**
  * Tests for the manual-override + requeue routes added on top of
- * /api/assets/:id (PUT place / description / ocr, POST enrichment/requeue).
+ * /api/assets/:id (PUT place / description, POST enrichment/requeue).
  *
  * Real Mongo. Skip-passes if Mongo is unreachable. Mirrors the
  * search-route.test.ts setup: bare-Elysia `app.handle`, per-pid DB name,
@@ -276,63 +276,6 @@ describe("PUT /api/assets/:id/description", () => {
   });
 });
 
-describe("PUT /api/assets/:id/ocr", () => {
-  it("saves ocr_text + recomputes search_blob", async () => {
-    if (!mongoReachable) return;
-    const r = await put(`/api/assets/${assetId.toHexString()}/ocr`, {
-      text: "OPEN 24 HOURS",
-    });
-    expect(r.status).toBe(204);
-    const doc = await db!
-      .collection("assets")
-      .findOne({ _id: assetId });
-    expect(doc!.ocr_text).toBe("OPEN 24 HOURS");
-    expect(doc!.search_blob).toBe("24 hours open");
-  });
-
-  it("ocr text contributes alongside place + description", async () => {
-    if (!mongoReachable) return;
-    // Seed both other fields first.
-    await db!.collection("assets").updateOne(
-      { _id: assetId },
-      [
-        {
-          $set: {
-            place: {
-              source: "nominatim",
-              geocoder_version: 1,
-              geocoded_at: new Date().toISOString(),
-              lat: 0,
-              lon: 0,
-              display_name: "Test",
-              address: {},
-              pois: [],
-              rollups: { locality: null, region: null, country_code: null },
-              search_blob: "berlin",
-            },
-            description: "a sign",
-            search_blob: searchBlobUpdateExpression({
-              placeSearchBlob: "berlin",
-              description: "a sign",
-            }),
-          },
-        },
-      ],
-    );
-    const r = await put(`/api/assets/${assetId.toHexString()}/ocr`, {
-      text: "WELCOME",
-    });
-    expect(r.status).toBe(204);
-    const doc = await db!
-      .collection("assets")
-      .findOne({ _id: assetId });
-    expect(doc!.ocr_text).toBe("WELCOME");
-    // Tokens from place ("berlin") + description ("a", "sign") + ocr
-    // ("welcome") in sorted order.
-    expect(doc!.search_blob).toBe("a berlin sign welcome");
-  });
-});
-
 describe("POST /api/assets/:id/enrichment/requeue", () => {
   it("400 on unknown stage", async () => {
     if (!mongoReachable) return;
@@ -383,7 +326,7 @@ describe("POST /api/assets/:id/enrichment/requeue", () => {
 
   it("works for every stage in the whitelist", async () => {
     if (!mongoReachable) return;
-    for (const stage of ["geocode", "face", "describe", "ocr"]) {
+    for (const stage of ["geocode", "face", "describe"]) {
       const r = await post(
         `/api/assets/${assetId.toHexString()}/enrichment/requeue`,
         { stage },
@@ -413,9 +356,10 @@ describe("GET /api/assets/:id (extended payload)", () => {
         $set: {
           ocr_text: "hello",
           ocr_meta: {
-            engine: "tesseract",
-            engine_version: "5.0",
+            engine: "qwen2.5-vl",
+            engine_version: "qwen2.5vl:7b",
             generated_at: new Date().toISOString(),
+            mean_confidence: null,
           },
         },
       },
@@ -429,6 +373,6 @@ describe("GET /api/assets/:id (extended payload)", () => {
       ocr_meta: { engine: string } | null;
     };
     expect(body.ocr_text).toBe("hello");
-    expect(body.ocr_meta!.engine).toBe("tesseract");
+    expect(body.ocr_meta!.engine).toBe("qwen2.5-vl");
   });
 });

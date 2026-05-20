@@ -72,8 +72,8 @@ describe("ensureStageIndexes — dead partial index", () => {
       "hash",
       "exif",
       "thumb",
+      "preview",
       "face",
-      "ocr",
       "describe",
       "geocode",
       "meili",
@@ -121,39 +121,46 @@ describe("GET /api/workers/status — counts", () => {
       { stages: { hash: { version: 1, dead: true } } },
     ]);
 
-    // Build a supervisor stub that reports the hash stage with targetVersion = tv.
+    // Register a fake hash stage in the in-process registry so the route's
+    // status loop knows what targetVersion to count against. Wrapped in
+    // try/finally so a thrown assertion below can't leak the registration
+    // into later route tests (the registry is a process-wide singleton).
     const { Elysia } = await import("elysia");
     const { workerRoutes } = await import("../src/workers/routes.ts");
-    const sup = {
-      refreshLiveStatus: async () => {},
-      statuses: () => ({
-        hash: {
-          status: "running",
-          inFlight: 0,
-          throughput: 0,
-          lastError: null,
-          targetVersion: tv,
-        },
-      }),
-    } as unknown as import("../src/workers/supervisor.ts").Supervisor;
+    const { stageRegistry } = await import("../src/workers/registry.ts");
+    stageRegistry.register("hash", {
+      targetVersion: tv,
+      getInFlight: () => 0,
+      getThroughput: () => 0,
+      getPaused: () => false,
+      reloadConfig: async () => {},
+      pause: async () => {},
+      resume: async () => {},
+    });
 
-    // Force the route's getDb() to point at TEST_DB.
-    process.env.MAPLE_MONGO_DB = TEST_DB;
-    await closeDb();
-    await getDb();
+    try {
+      // Force the route's getDb() to point at TEST_DB.
+      process.env.MAPLE_MONGO_DB = TEST_DB;
+      await closeDb();
+      await getDb();
 
-    const app = new Elysia().use(workerRoutes(sup));
-    const res = await app.handle(
-      new Request("http://localhost/api/workers/status"),
-    );
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as {
-      stages: Array<{ name: string; pending: number; dead: number }>;
-    };
-    const hash = body.stages.find((s) => s.name === "hash");
-    expect(hash).toBeDefined();
-    expect(hash!.pending).toBe(3);
-    expect(hash!.dead).toBe(1);
+      const app = new Elysia().use(workerRoutes());
+      const res = await app.handle(
+        new Request("http://localhost/api/workers/status"),
+      );
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        stages: Array<{ name: string; pending: number; dead: number }>;
+      };
+      const hash = body.stages.find((s) => s.name === "hash");
+      expect(hash).toBeDefined();
+      expect(hash!.pending).toBe(3);
+      expect(hash!.dead).toBe(1);
+    } finally {
+      // Tear down the fake registration so it doesn't leak into other tests
+      // even if an assertion above threw.
+      stageRegistry.unregister("hash");
+    }
   });
 
   it("uses an index plan (no COLLSCAN) for the dead-count query", async () => {

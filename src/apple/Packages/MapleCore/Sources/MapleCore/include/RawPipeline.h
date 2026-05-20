@@ -3,6 +3,10 @@
 #include <stdint.h>
 #include <stdlib.h>
 
+/**
+ * Output buffer for the legacy 8-bit sRGB RGB renders
+ * (`maple_render_file`, `maple_render_bytes`).
+ */
 typedef struct MapleImageBuffer {
   /**
    * Pointer to heap-allocated RGB u8 buffer. Free via `maple_free_buffer`.
@@ -113,6 +117,157 @@ typedef struct MapleAdjustmentParams {
 } MapleAdjustmentParams;
 
 /**
+ * Free a buffer populated by `maple_render_file` or `maple_render_bytes`.
+ */
+void maple_free_buffer(struct MapleImageBuffer *buffer);
+
+/**
+ * Free a buffer populated by `maple_render_thumbnail_jpeg`.
+ */
+void maple_free_byte_buffer(struct MapleByteBuffer *buffer);
+
+/**
+ * Free a buffer populated by `maple_render_*_scene_linear`.
+ */
+void maple_free_scene_linear_buffer(struct MapleSceneLinearBuffer *buffer);
+
+/**
+ * Returns the most recent error message for the current thread, or null.
+ * The returned pointer remains valid until the next FFI call on this thread.
+ */
+const char *maple_last_error(void);
+
+/**
+ * Open a RAW + optional XMP sidecar into an opaque handle suitable for
+ * repeated tile rendering. The handle owns the rawler-decoded mosaic
+ * and the parsed AdjustmentModel; subsequent calls to
+ * `maple_render_handle_scene_linear_tile` skip both.
+ *
+ * `xmp_path` may be null — in that case `AdjustmentModel::default()`
+ * is stored in the handle.
+ *
+ * Returns 0 on success and writes the handle pointer into
+ * `*handle_out`. Non-zero on error (call `maple_last_error` for the
+ * message). The output handle pointer is always written: it is null
+ * on error and non-null on success.
+ *
+ * The caller must eventually free the handle via
+ * `maple_close_raw_handle`. Failing to do so leaks the underlying
+ * `RawImage` (~30-300 MB depending on sensor resolution).
+ */
+int32_t maple_open_raw_handle(const char *raw_path,
+                              const char *xmp_path,
+                              struct MapleRawHandle **handle_out);
+
+/**
+ * Bytes-variant of `maple_open_raw_handle`. Decodes from an in-memory
+ * RAW byte slice (PhotoKit / network-source codepaths). `hint_ext` is
+ * the extension without the leading dot (e.g. `"dng"`); pass null or
+ * empty for content-sniff fallback.
+ */
+int32_t maple_open_raw_handle_bytes(const uint8_t *raw_bytes,
+                                    uintptr_t raw_len,
+                                    const char *hint_ext,
+                                    const char *xmp_path,
+                                    struct MapleRawHandle **handle_out);
+
+/**
+ * Render a tile from a previously opened raw handle. Same arguments
+ * and error codes as `maple_render_file_scene_linear_tile` minus the
+ * path / xmp handling — the handle already carries the decoded
+ * `RawImage` and parsed `AdjustmentModel`.
+ *
+ * Error codes:
+ *   - 1: null pointer argument
+ *   - 9: bad tile geometry (src_w/src_h/out_w/out_h == 0)
+ *   - 10: dehaze active in the handle's model — tile path unsafe
+ *   - 11: upscale attempt (out > src) — tile path is downscale-only
+ *   - 8: any other error from the core tile renderer
+ */
+int32_t maple_render_handle_scene_linear_tile(const struct MapleRawHandle *handle,
+                                              uint32_t src_x,
+                                              uint32_t src_y,
+                                              uint32_t src_w,
+                                              uint32_t src_h,
+                                              uint32_t out_w,
+                                              uint32_t out_h,
+                                              int32_t quality_preview,
+                                              struct MapleSceneLinearBuffer *out);
+
+/**
+ * Free a `MapleRawHandle` and its inner `RawImage` + `AdjustmentModel`.
+ * No-op when `handle` is null. Apple's `MapleRawHandleBox.deinit` calls
+ * this on cache eviction or asset switch.
+ */
+void maple_close_raw_handle(struct MapleRawHandle *handle);
+
+/**
+ * Compute BLAKE3 hex of arbitrary bytes. Output buffer must be at least 64
+ * bytes (BLAKE3 is 256-bit → 64 hex chars). No null terminator — the caller
+ * knows the length is exactly 64.
+ *
+ * Returns 0 on success, -1 on null pointers, -2 on zero-length input.
+ */
+int32_t maple_blake3_hex(const uint8_t *bytes_ptr, uintptr_t bytes_len, uint8_t *out_hex);
+
+/**
+ * Compute the spec-form **primary** maple_id over a file's leading bytes.
+ * Output is the 32-character lowercase hex of the 16-byte tagged id
+ * (`0x01 || BLAKE3(SHA1(head) || captured_at || serial || u64_le(shutter))[..15]`).
+ *
+ * Only the first `SHA1_HEAD_BYTES` (= 64 KB) of `head_ptr` feed `sha1Head`;
+ * callers may safely pass exactly the first 64 KB rather than the whole
+ * file. `captured_at_ptr` is hashed verbatim (UTF-8 bytes; the server's
+ * indexer normalises the EXIF date to ISO 8601 before hashing — the device
+ * must match that string byte-for-byte for dedup to fire).
+ *
+ * `serial_ptr` may be null (or `serial_len == 0`) — absent serial is
+ * hashed as empty bytes, matching `MapleId::primary(_, _, None, _)`.
+ *
+ * `shutter_count == 0` is hashed as `0u64_le`, identical to
+ * `MapleId::primary(_, _, _, None)`. The spec documents that a real
+ * shutter-count of 0 collides with "absent" — this is by design.
+ *
+ * `out_hex` must point to at least 32 writable bytes. No null terminator.
+ *
+ * Returns:
+ *   0  success
+ *  -1  null pointer for `head_ptr`, `captured_at_ptr`, or `out_hex`
+ *  -2  `head_len == 0`, `captured_at_len == 0`, OR `captured_at_ptr`
+ *       does not decode as valid UTF-8 (the hash hashes its UTF-8 byte
+ *       view, so non-UTF-8 input is rejected up front rather than hashed)
+ */
+int32_t maple_id_primary(const uint8_t *head_ptr,
+                         uintptr_t head_len,
+                         const uint8_t *captured_at_ptr,
+                         uintptr_t captured_at_len,
+                         const uint8_t *serial_ptr,
+                         uintptr_t serial_len,
+                         uint64_t shutter_count,
+                         uint8_t *out_hex);
+
+/**
+ * Compute the spec-form **fallback** maple_id over a file's full bytes.
+ * Output is the 32-character lowercase hex of the 16-byte tagged id
+ * (`0x02 || BLAKE3(SHA1(all_bytes) || u64_le(filesize))[..15]`).
+ *
+ * `filesize` is typically `bytes_len` but is passed separately so callers
+ * streaming or aliasing buffers can pass the canonical file size
+ * independently (matches the spec formula).
+ *
+ * `out_hex` must point to at least 32 writable bytes. No null terminator.
+ *
+ * Returns:
+ *   0  success
+ *  -1  null pointer for `bytes_ptr` or `out_hex`
+ *  -2  `bytes_len == 0`
+ */
+int32_t maple_id_fallback(const uint8_t *bytes_ptr,
+                          uintptr_t bytes_len,
+                          uint64_t filesize,
+                          uint8_t *out_hex);
+
+/**
  * Render a RAW+XMP to an sRGB 8-bit RGB buffer. Returns 0 on success, non-zero
  * on error (call `maple_last_error` for a description). `xmp_path` may be null,
  * in which case AdjustmentModel::default() is used.
@@ -150,70 +305,6 @@ int32_t maple_render_bytes(const uint8_t *raw_bytes,
                            const char *xmp_path,
                            int32_t quality_preview,
                            struct MapleImageBuffer *out);
-
-/**
- * Free a buffer populated by `maple_render_file` or `maple_render_bytes`.
- */
-void maple_free_buffer(struct MapleImageBuffer *buffer);
-
-/**
- * Extract an embedded JPEG preview / thumbnail from `raw_path`, downsample
- * to `max_px` on the long edge if necessary, then JPEG-encode the result.
- *
- * Avoids the full decode → pipeline → downsample chain entirely:
- * every modern RAW container (DNG, CR3, ARW, NEF, RAF, ORF, RW2, …) embeds
- * a multi-MP JPEG preview that's exactly what we want for a grid tile.
- * Reading that takes a few MB and milliseconds; running the pipeline takes
- * gigabytes and seconds, and on Bun 1.3.12 the `with_large_stack` worker-
- * thread cleanup races against `bun:ffi` and segfaults on subsequent calls
- * after async I/O. This path stays on the calling thread end-to-end and
- * uses bounded memory (preview JPEG → decoded RGB → resized RGB → re-encoded
- * JPEG; ~tens of MB peak on a 100MP DNG).
- *
- * Strategy: try `preview_image` first (largest embedded), fall back to
- * `thumbnail_image` (smaller embedded). If neither exists, return an error
- * — the caller may decide to fall through to a full pipeline render.
- *
- * Returns 0 on success; sets `out` to a `MapleByteBuffer` the caller must
- * free via `maple_free_byte_buffer`. Non-zero on error.
- *
- * `quality` is JPEG quality in [1, 100]. Spec-pinned default is 82; pass 0
- * to use the default.
- */
-int32_t maple_render_thumbnail_jpeg(const char *raw_path,
-                                    uint32_t max_px,
-                                    uint8_t quality,
-                                    struct MapleByteBuffer *out);
-
-/**
- * Free a buffer populated by `maple_render_thumbnail_jpeg`.
- */
-void maple_free_byte_buffer(struct MapleByteBuffer *buffer);
-
-/**
- * File-output variant of `maple_render_thumbnail_jpeg`. Rust writes the
- * resulting JPEG directly to `out_path` (atomic via .tmp + rename), so no
- * Rust-allocated memory crosses the FFI boundary as a buffer.
- *
- * Why this exists: Bun 1.3.x's `bun:ffi` `toBuffer(ptr, 0, len)` returns a
- * Node Buffer backed by external memory. When the Buffer becomes unreachable
- * JSC's GC sweep tries to free the underlying ArrayBuffer using its own
- * allocator, but the memory was allocated by Rust's `Box::into_raw` (and
- * already freed by `maple_free_byte_buffer`). The double-free segfaults the
- * process during a future GC cycle, sometimes minutes after the FFI call —
- * a use-after-free that's hard to repro in tests but reliably happens under
- * real browse load.
- *
- * File-output sidesteps the issue: Rust owns its allocations end-to-end and
- * JS just reads the resulting file. The cost is one extra fs read, which is
- * negligible (the route writes-through to the same cache file anyway).
- *
- * Returns 0 on success; non-zero on error (call `maple_last_error`).
- */
-int32_t maple_render_thumbnail_jpeg_to_file(const char *raw_path,
-                                            const char *out_path,
-                                            uint32_t max_px,
-                                            uint8_t quality);
 
 /**
  * Render a RAW+XMP to a scene-linear Rec.2020 fp16 RGBA buffer. Returns
@@ -325,81 +416,6 @@ int32_t maple_render_bytes_scene_linear_tile(const uint8_t *raw_bytes,
                                              struct MapleSceneLinearBuffer *out);
 
 /**
- * Free a buffer populated by `maple_render_*_scene_linear`.
- */
-void maple_free_scene_linear_buffer(struct MapleSceneLinearBuffer *buffer);
-
-/**
- * Open a RAW + optional XMP sidecar into an opaque handle suitable for
- * repeated tile rendering. The handle owns the rawler-decoded mosaic
- * and the parsed AdjustmentModel; subsequent calls to
- * `maple_render_handle_scene_linear_tile` skip both.
- *
- * `xmp_path` may be null — in that case `AdjustmentModel::default()`
- * is stored in the handle.
- *
- * Returns 0 on success and writes the handle pointer into
- * `*handle_out`. Non-zero on error (call `maple_last_error` for the
- * message). The output handle pointer is always written: it is null
- * on error and non-null on success.
- *
- * The caller must eventually free the handle via
- * `maple_close_raw_handle`. Failing to do so leaks the underlying
- * `RawImage` (~30-300 MB depending on sensor resolution).
- */
-int32_t maple_open_raw_handle(const char *raw_path,
-                              const char *xmp_path,
-                              struct MapleRawHandle **handle_out);
-
-/**
- * Bytes-variant of `maple_open_raw_handle`. Decodes from an in-memory
- * RAW byte slice (PhotoKit / network-source codepaths). `hint_ext` is
- * the extension without the leading dot (e.g. `"dng"`); pass null or
- * empty for content-sniff fallback.
- */
-int32_t maple_open_raw_handle_bytes(const uint8_t *raw_bytes,
-                                    uintptr_t raw_len,
-                                    const char *hint_ext,
-                                    const char *xmp_path,
-                                    struct MapleRawHandle **handle_out);
-
-/**
- * Render a tile from a previously opened raw handle. Same arguments
- * and error codes as `maple_render_file_scene_linear_tile` minus the
- * path / xmp handling — the handle already carries the decoded
- * `RawImage` and parsed `AdjustmentModel`.
- *
- * Error codes:
- *   - 1: null pointer argument
- *   - 9: bad tile geometry (src_w/src_h/out_w/out_h == 0)
- *   - 10: dehaze active in the handle's model — tile path unsafe
- *   - 11: upscale attempt (out > src) — tile path is downscale-only
- *   - 8: any other error from the core tile renderer
- */
-int32_t maple_render_handle_scene_linear_tile(const struct MapleRawHandle *handle,
-                                              uint32_t src_x,
-                                              uint32_t src_y,
-                                              uint32_t src_w,
-                                              uint32_t src_h,
-                                              uint32_t out_w,
-                                              uint32_t out_h,
-                                              int32_t quality_preview,
-                                              struct MapleSceneLinearBuffer *out);
-
-/**
- * Free a `MapleRawHandle` and its inner `RawImage` + `AdjustmentModel`.
- * No-op when `handle` is null. Apple's `MapleRawHandleBox.deinit` calls
- * this on cache eviction or asset switch.
- */
-void maple_close_raw_handle(struct MapleRawHandle *handle);
-
-/**
- * Returns the most recent error message for the current thread, or null.
- * The returned pointer remains valid until the next FFI call on this thread.
- */
-const char *maple_last_error(void);
-
-/**
  * Run the cheap-stage scene-linear chain over a caller-provided fp16 RGBA
  * buffer. Returns 0 on success, non-zero on error (call `maple_last_error`).
  *
@@ -421,67 +437,41 @@ int32_t maple_apply_scene_linear_chain(const uint16_t *in_ptr,
                                        uint16_t *out_ptr);
 
 /**
- * Compute BLAKE3 hex of arbitrary bytes. Output buffer must be at least 64
- * bytes (BLAKE3 is 256-bit → 64 hex chars). No null terminator — the caller
- * knows the length is exactly 64.
+ * Extract an embedded JPEG preview / thumbnail from `raw_path`, downsample
+ * to `max_px` on the long edge if necessary, then JPEG-encode the result.
  *
- * Returns 0 on success, -1 on null pointers, -2 on zero-length input.
+ * Returns 0 on success; sets `out` to a `MapleByteBuffer` the caller must
+ * free via `maple_free_byte_buffer`. Non-zero on error.
+ *
+ * `quality` is JPEG quality in [1, 100]. Spec-pinned default is 82; pass 0
+ * to use the default.
  */
-int32_t maple_blake3_hex(const uint8_t *bytes_ptr, uintptr_t bytes_len, uint8_t *out_hex);
+int32_t maple_render_thumbnail_jpeg(const char *raw_path,
+                                    uint32_t max_px,
+                                    uint8_t quality,
+                                    struct MapleByteBuffer *out);
 
 /**
- * Compute the spec-form **primary** maple_id over a file's leading bytes.
- * Output is the 32-character lowercase hex of the 16-byte tagged id
- * (`0x01 || BLAKE3(SHA1(head) || captured_at || serial || u64_le(shutter))[..15]`).
+ * File-output variant of `maple_render_thumbnail_jpeg`. Rust writes the
+ * resulting JPEG directly to `out_path` (atomic via .tmp + rename), so no
+ * Rust-allocated memory crosses the FFI boundary as a buffer.
  *
- * Only the first `SHA1_HEAD_BYTES` (= 64 KB) of `head_ptr` feed `sha1Head`;
- * callers may safely pass exactly the first 64 KB rather than the whole
- * file. `captured_at_ptr` is hashed verbatim (UTF-8 bytes; the server's
- * indexer normalises the EXIF date to ISO 8601 before hashing — the device
- * must match that string byte-for-byte for dedup to fire).
+ * Why this exists: Bun 1.3.x's `bun:ffi` `toBuffer(ptr, 0, len)` returns a
+ * Node Buffer backed by external memory. When the Buffer becomes unreachable
+ * JSC's GC sweep tries to free the underlying ArrayBuffer using its own
+ * allocator, but the memory was allocated by Rust's `Box::into_raw` (and
+ * already freed by `maple_free_byte_buffer`). The double-free segfaults the
+ * process during a future GC cycle, sometimes minutes after the FFI call —
+ * a use-after-free that's hard to repro in tests but reliably happens under
+ * real browse load.
  *
- * `serial_ptr` may be null (or `serial_len == 0`) — absent serial is
- * hashed as empty bytes, matching `MapleId::primary(_, _, None, _)`.
+ * File-output sidesteps the issue: Rust owns its allocations end-to-end and
+ * JS just reads the resulting file. The cost is one extra fs read, which is
+ * negligible (the route writes-through to the same cache file anyway).
  *
- * `shutter_count == 0` is hashed as `0u64_le`, identical to
- * `MapleId::primary(_, _, _, None)`. The spec documents that a real
- * shutter-count of 0 collides with "absent" — this is by design.
- *
- * `out_hex` must point to at least 32 writable bytes. No null terminator.
- *
- * Returns:
- *   0  success
- *  -1  null pointer for `head_ptr`, `captured_at_ptr`, or `out_hex`
- *  -2  `head_len == 0`, `captured_at_len == 0`, OR `captured_at_ptr`
- *       does not decode as valid UTF-8 (the hash hashes its UTF-8 byte
- *       view, so non-UTF-8 input is rejected up front rather than hashed)
+ * Returns 0 on success; non-zero on error (call `maple_last_error`).
  */
-int32_t maple_id_primary(const uint8_t *head_ptr,
-                         uintptr_t head_len,
-                         const uint8_t *captured_at_ptr,
-                         uintptr_t captured_at_len,
-                         const uint8_t *serial_ptr,
-                         uintptr_t serial_len,
-                         uint64_t shutter_count,
-                         uint8_t *out_hex);
-
-/**
- * Compute the spec-form **fallback** maple_id over a file's full bytes.
- * Output is the 32-character lowercase hex of the 16-byte tagged id
- * (`0x02 || BLAKE3(SHA1(all_bytes) || u64_le(filesize))[..15]`).
- *
- * `filesize` is typically `bytes_len` but is passed separately so callers
- * streaming or aliasing buffers can pass the canonical file size
- * independently (matches the spec formula).
- *
- * `out_hex` must point to at least 32 writable bytes. No null terminator.
- *
- * Returns:
- *   0  success
- *  -1  null pointer for `bytes_ptr` or `out_hex`
- *  -2  `bytes_len == 0`
- */
-int32_t maple_id_fallback(const uint8_t *bytes_ptr,
-                          uintptr_t bytes_len,
-                          uint64_t filesize,
-                          uint8_t *out_hex);
+int32_t maple_render_thumbnail_jpeg_to_file(const char *raw_path,
+                                            const char *out_path,
+                                            uint32_t max_px,
+                                            uint8_t quality);

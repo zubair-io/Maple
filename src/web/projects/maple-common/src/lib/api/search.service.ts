@@ -11,6 +11,7 @@ import { API_BASE_URL } from './api-base-url.token';
 export type SearchSort = 'captured_desc' | 'captured_asc' | 'name' | 'rating';
 export type SearchFlag = 'pick' | 'reject' | 'none';
 export type SearchColor = '' | 'red' | 'yellow' | 'green' | 'blue' | 'purple';
+export type SearchSceneType = '' | 'indoor' | 'outdoor' | 'aerial' | 'macro' | 'studio' | 'mixed';
 
 /** Query params for /api/search and /api/search/facets. All optional. */
 export interface SearchParams {
@@ -43,6 +44,16 @@ export interface SearchParams {
   pathPrefix?: string;
   /** When true, only matches assets with a non-null `exif.captured_at`. */
   hasCapturedAt?: boolean;
+  /** Vision scene_type (closed union). */
+  sceneType?: SearchSceneType;
+  /** Vision activity (open vocab, exact match). */
+  activity?: string;
+  /** Multi-select subject tags. Sent as a comma-separated `subjects`
+   * param — Mongo does OR within the field, AND against other filters. */
+  subjects?: string[];
+  /** Tri-state screenshot filter: `true` → screenshots only, `false` →
+   * photographs only, `undefined` → both. */
+  isScreenshot?: boolean;
 }
 
 /** Single hit returned by /api/search. */
@@ -82,6 +93,17 @@ export interface SearchFacets {
   extensions: Array<{ value: string; count: number }>;
   iso_range: { min: number; max: number } | null;
   capture_range: { from: string; to: string } | null;
+  /** Counts per `vision.scene_type` value. Closed-union, so the FE renders
+   * known options (indoor/outdoor/aerial/macro/studio/mixed); values not
+   * present in this list have zero matches in the current filter scope. */
+  scene_types: Array<{ value: string; count: number }>;
+  /** Counts per `vision.activity` value (open vocab). */
+  activities: Array<{ value: string; count: number }>;
+  /** Counts per `vision.subjects` element (array field, unwound). */
+  subjects: Array<{ value: string; count: number }>;
+  /** Tri-state screenshot bucket counts. `unknown` covers legacy rows
+   * indexed before #175 where the field wasn't written. */
+  is_screenshot: { true: number; false: number; unknown: number };
 }
 
 /** One year/month aggregation row from /api/search/buckets. */
@@ -128,6 +150,12 @@ function paramsFrom(p: SearchParams): HttpParams {
   set('sort', p.sort);
   set('pathPrefix', p.pathPrefix);
   if (p.hasCapturedAt !== undefined) set('hasCapturedAt', p.hasCapturedAt ? 'true' : 'false');
+  set('sceneType', p.sceneType);
+  set('activity', p.activity);
+  if (p.subjects && p.subjects.length > 0) {
+    set('subjects', p.subjects.join(','));
+  }
+  if (p.isScreenshot !== undefined) set('isScreenshot', p.isScreenshot ? 'true' : 'false');
   return h;
 }
 

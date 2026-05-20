@@ -164,13 +164,18 @@ public struct PipelineRenderer: Sendable {
         xmpPath: URL? = nil,
         quality: Quality = .full
     ) throws -> MapleSceneLinearImageData {
-        try rawPath.withPathCString { rawCStr in
-            if let xmpPath {
-                return try xmpPath.withPathCString { xmpCStr in
-                    try _renderSceneLinear(rawCStr: rawCStr, xmpCStr: xmpCStr, quality: quality)
+        // Apple-GPU strip lives in Swift (ticket #124). The temp XMP
+        // carries only the fields the Rust decode should bake; the
+        // Metal chain re-applies the rest at the slider tick.
+        try RawCoreBridge.withStrippedXMP(xmpPath) { strippedXMP in
+            try rawPath.withPathCString { rawCStr in
+                if let strippedXMP {
+                    return try strippedXMP.withPathCString { xmpCStr in
+                        try _renderSceneLinear(rawCStr: rawCStr, xmpCStr: xmpCStr, quality: quality)
+                    }
+                } else {
+                    return try _renderSceneLinear(rawCStr: rawCStr, xmpCStr: nil, quality: quality)
                 }
-            } else {
-                return try _renderSceneLinear(rawCStr: rawCStr, xmpCStr: nil, quality: quality)
             }
         }
     }
@@ -184,20 +189,22 @@ public struct PipelineRenderer: Sendable {
         guard let hintCStr = hint.cString(using: .utf8) else {
             throw PipelineError.hintEncodingError(hint)
         }
-        return try rawBytes.withUnsafeBytes { (buf: UnsafeRawBufferPointer) in
-            let base = buf.baseAddress?.assumingMemoryBound(to: UInt8.self)
-            if let xmpPath {
-                return try xmpPath.withPathCString { xmpCStr in
-                    try _renderSceneLinearBytes(
+        return try RawCoreBridge.withStrippedXMP(xmpPath) { strippedXMP in
+            try rawBytes.withUnsafeBytes { (buf: UnsafeRawBufferPointer) in
+                let base = buf.baseAddress?.assumingMemoryBound(to: UInt8.self)
+                if let strippedXMP {
+                    return try strippedXMP.withPathCString { xmpCStr in
+                        try _renderSceneLinearBytes(
+                            ptr: base, len: buf.count,
+                            hintCStr: hintCStr, xmpCStr: xmpCStr, quality: quality
+                        )
+                    }
+                } else {
+                    return try _renderSceneLinearBytes(
                         ptr: base, len: buf.count,
-                        hintCStr: hintCStr, xmpCStr: xmpCStr, quality: quality
+                        hintCStr: hintCStr, xmpCStr: nil, quality: quality
                     )
                 }
-            } else {
-                return try _renderSceneLinearBytes(
-                    ptr: base, len: buf.count,
-                    hintCStr: hintCStr, xmpCStr: nil, quality: quality
-                )
             }
         }
     }
@@ -216,19 +223,21 @@ public struct PipelineRenderer: Sendable {
         quality: Quality = .preview,
         maxLongEdge: UInt32
     ) throws -> MapleSceneLinearImageData {
-        try rawPath.withPathCString { rawCStr in
-            if let xmpPath {
-                return try xmpPath.withPathCString { xmpCStr in
-                    try _renderSceneLinearSized(
-                        rawCStr: rawCStr, xmpCStr: xmpCStr,
+        try RawCoreBridge.withStrippedXMP(xmpPath) { strippedXMP in
+            try rawPath.withPathCString { rawCStr in
+                if let strippedXMP {
+                    return try strippedXMP.withPathCString { xmpCStr in
+                        try _renderSceneLinearSized(
+                            rawCStr: rawCStr, xmpCStr: xmpCStr,
+                            quality: quality, maxLongEdge: maxLongEdge
+                        )
+                    }
+                } else {
+                    return try _renderSceneLinearSized(
+                        rawCStr: rawCStr, xmpCStr: nil,
                         quality: quality, maxLongEdge: maxLongEdge
                     )
                 }
-            } else {
-                return try _renderSceneLinearSized(
-                    rawCStr: rawCStr, xmpCStr: nil,
-                    quality: quality, maxLongEdge: maxLongEdge
-                )
             }
         }
     }
@@ -243,20 +252,22 @@ public struct PipelineRenderer: Sendable {
         guard let hintCStr = hint.cString(using: .utf8) else {
             throw PipelineError.hintEncodingError(hint)
         }
-        return try rawBytes.withUnsafeBytes { (buf: UnsafeRawBufferPointer) in
-            let base = buf.baseAddress?.assumingMemoryBound(to: UInt8.self)
-            if let xmpPath {
-                return try xmpPath.withPathCString { xmpCStr in
-                    try _renderSceneLinearSizedBytes(
+        return try RawCoreBridge.withStrippedXMP(xmpPath) { strippedXMP in
+            try rawBytes.withUnsafeBytes { (buf: UnsafeRawBufferPointer) in
+                let base = buf.baseAddress?.assumingMemoryBound(to: UInt8.self)
+                if let strippedXMP {
+                    return try strippedXMP.withPathCString { xmpCStr in
+                        try _renderSceneLinearSizedBytes(
+                            ptr: base, len: buf.count, hintCStr: hintCStr,
+                            xmpCStr: xmpCStr, quality: quality, maxLongEdge: maxLongEdge
+                        )
+                    }
+                } else {
+                    return try _renderSceneLinearSizedBytes(
                         ptr: base, len: buf.count, hintCStr: hintCStr,
-                        xmpCStr: xmpCStr, quality: quality, maxLongEdge: maxLongEdge
+                        xmpCStr: nil, quality: quality, maxLongEdge: maxLongEdge
                     )
                 }
-            } else {
-                return try _renderSceneLinearSizedBytes(
-                    ptr: base, len: buf.count, hintCStr: hintCStr,
-                    xmpCStr: nil, quality: quality, maxLongEdge: maxLongEdge
-                )
             }
         }
     }
@@ -512,13 +523,18 @@ public struct PipelineRenderer: Sendable {
         rawPath: URL,
         xmpPath: URL? = nil
     ) throws -> MapleRawHandle {
-        try rawPath.withPathCString { rawCStr in
-            if let xmpPath {
-                return try xmpPath.withPathCString { xmpCStr in
-                    try _openRawHandle(rawCStr: rawCStr, xmpCStr: xmpCStr)
+        // The handle caches the parsed model, so the strip cost is paid
+        // once per open — every subsequent tile render reuses the
+        // already-stripped state.
+        try RawCoreBridge.withStrippedXMP(xmpPath) { strippedXMP in
+            try rawPath.withPathCString { rawCStr in
+                if let strippedXMP {
+                    return try strippedXMP.withPathCString { xmpCStr in
+                        try _openRawHandle(rawCStr: rawCStr, xmpCStr: xmpCStr)
+                    }
+                } else {
+                    return try _openRawHandle(rawCStr: rawCStr, xmpCStr: nil)
                 }
-            } else {
-                return try _openRawHandle(rawCStr: rawCStr, xmpCStr: nil)
             }
         }
     }
@@ -534,20 +550,22 @@ public struct PipelineRenderer: Sendable {
         guard let hintCStr = hint.cString(using: .utf8) else {
             throw PipelineError.hintEncodingError(hint)
         }
-        return try rawBytes.withUnsafeBytes { (buf: UnsafeRawBufferPointer) in
-            let base = buf.baseAddress?.assumingMemoryBound(to: UInt8.self)
-            if let xmpPath {
-                return try xmpPath.withPathCString { xmpCStr in
-                    try _openRawHandleBytes(
+        return try RawCoreBridge.withStrippedXMP(xmpPath) { strippedXMP in
+            try rawBytes.withUnsafeBytes { (buf: UnsafeRawBufferPointer) in
+                let base = buf.baseAddress?.assumingMemoryBound(to: UInt8.self)
+                if let strippedXMP {
+                    return try strippedXMP.withPathCString { xmpCStr in
+                        try _openRawHandleBytes(
+                            ptr: base, len: buf.count,
+                            hintCStr: hintCStr, xmpCStr: xmpCStr
+                        )
+                    }
+                } else {
+                    return try _openRawHandleBytes(
                         ptr: base, len: buf.count,
-                        hintCStr: hintCStr, xmpCStr: xmpCStr
+                        hintCStr: hintCStr, xmpCStr: nil
                     )
                 }
-            } else {
-                return try _openRawHandleBytes(
-                    ptr: base, len: buf.count,
-                    hintCStr: hintCStr, xmpCStr: nil
-                )
             }
         }
     }
@@ -612,21 +630,23 @@ public struct PipelineRenderer: Sendable {
         outW: UInt32, outH: UInt32,
         quality: Quality = .full
     ) throws -> MapleSceneLinearImageData {
-        try rawPath.withPathCString { rawCStr in
-            if let xmpPath {
-                return try xmpPath.withPathCString { xmpCStr in
-                    try _renderFileTile(
-                        rawCStr: rawCStr, xmpCStr: xmpCStr,
+        try RawCoreBridge.withStrippedXMP(xmpPath) { strippedXMP in
+            try rawPath.withPathCString { rawCStr in
+                if let strippedXMP {
+                    return try strippedXMP.withPathCString { xmpCStr in
+                        try _renderFileTile(
+                            rawCStr: rawCStr, xmpCStr: xmpCStr,
+                            srcX: srcX, srcY: srcY, srcW: srcW, srcH: srcH,
+                            outW: outW, outH: outH, quality: quality
+                        )
+                    }
+                } else {
+                    return try _renderFileTile(
+                        rawCStr: rawCStr, xmpCStr: nil,
                         srcX: srcX, srcY: srcY, srcW: srcW, srcH: srcH,
                         outW: outW, outH: outH, quality: quality
                     )
                 }
-            } else {
-                return try _renderFileTile(
-                    rawCStr: rawCStr, xmpCStr: nil,
-                    srcX: srcX, srcY: srcY, srcW: srcW, srcH: srcH,
-                    outW: outW, outH: outH, quality: quality
-                )
             }
         }
     }
@@ -644,24 +664,26 @@ public struct PipelineRenderer: Sendable {
         guard let hintCStr = hint.cString(using: .utf8) else {
             throw PipelineError.hintEncodingError(hint)
         }
-        return try rawBytes.withUnsafeBytes { (buf: UnsafeRawBufferPointer) in
-            let base = buf.baseAddress?.assumingMemoryBound(to: UInt8.self)
-            if let xmpPath {
-                return try xmpPath.withPathCString { xmpCStr in
-                    try _renderBytesTile(
+        return try RawCoreBridge.withStrippedXMP(xmpPath) { strippedXMP in
+            try rawBytes.withUnsafeBytes { (buf: UnsafeRawBufferPointer) in
+                let base = buf.baseAddress?.assumingMemoryBound(to: UInt8.self)
+                if let strippedXMP {
+                    return try strippedXMP.withPathCString { xmpCStr in
+                        try _renderBytesTile(
+                            ptr: base, len: buf.count,
+                            hintCStr: hintCStr, xmpCStr: xmpCStr,
+                            srcX: srcX, srcY: srcY, srcW: srcW, srcH: srcH,
+                            outW: outW, outH: outH, quality: quality
+                        )
+                    }
+                } else {
+                    return try _renderBytesTile(
                         ptr: base, len: buf.count,
-                        hintCStr: hintCStr, xmpCStr: xmpCStr,
+                        hintCStr: hintCStr, xmpCStr: nil,
                         srcX: srcX, srcY: srcY, srcW: srcW, srcH: srcH,
                         outW: outW, outH: outH, quality: quality
                     )
                 }
-            } else {
-                return try _renderBytesTile(
-                    ptr: base, len: buf.count,
-                    hintCStr: hintCStr, xmpCStr: nil,
-                    srcX: srcX, srcY: srcY, srcW: srcW, srcH: srcH,
-                    outW: outW, outH: outH, quality: quality
-                )
             }
         }
     }
