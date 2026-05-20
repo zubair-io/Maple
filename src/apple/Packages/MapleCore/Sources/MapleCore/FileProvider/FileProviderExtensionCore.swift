@@ -939,10 +939,6 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                                     code: NSFileProviderError.noSuchItem.rawValue))
                     }
                     await self.signalEnumeratorReload(parent: parentID)
-                case .conflict:
-                    completionHandler(nil, [], false,
-                        NSError(domain: NSFileProviderErrorDomain,
-                                code: NSFileProviderError.filenameCollision.rawValue))
                 case .unsupported:
                     completionHandler(nil, [], false,
                         NSError(domain: NSCocoaErrorDomain, code: NSFileWriteUnknownError))
