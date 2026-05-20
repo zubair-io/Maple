@@ -38,6 +38,7 @@
  */
 
 import { Elysia } from "elysia";
+import { swagger } from "@elysiajs/swagger";
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { randomBytes } from "node:crypto";
@@ -238,6 +239,30 @@ export function buildApp(_opts: { stageNames?: string[] } = {}): Elysia {
         .use(peopleRoutes)
         .use(changesRoutes)
         .use(workerRoutes()),
+    )
+
+    // OpenAPI spec + Scalar docs UI. Source-of-truth for HTTP DTOs that
+    // web + apple clients codegen from (issue #131). Mounted outside the
+    // requireAuth sub-app so the spec is reachable without a bearer — the
+    // schema itself is not sensitive and clients fetching it for codegen
+    // run unauthenticated. Routes show up with full schemas where the
+    // owner has declared TypeBox `t.Object(...)` on the route definition,
+    // and as `any`-typed bodies otherwise; tightening schemas is a
+    // per-route follow-up.
+    .use(
+      swagger({
+        // Scalar UI at /docs (human-readable), spec JSON at /openapi.json.
+        path: "/docs",
+        specPath: "/openapi.json",
+        documentation: {
+          info: {
+            title: "Maple API",
+            version: "0.1.0",
+            description:
+              "Maple Self Hosted HTTP API. See https://github.com/zubair-io/_Maple/issues/131.",
+          },
+        },
+      }),
     )
 
     // Static UI (catch-all — must be last so specific API routes match first).
