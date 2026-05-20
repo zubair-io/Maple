@@ -23,8 +23,8 @@
 
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
-import type { ImageDoc, StageContext, StageResult } from "../runtime/define-stage.ts";
-import { defineStage } from "../runtime/define-stage.ts";
+import type { ImageDoc, StageContext, StageResult } from "../run-stage.ts";
+import { defineStage, runStage, type RunStageHandle } from "../run-stage.ts";
 import { cachePathFor } from "../../fs/xmp.ts";
 import {
   defaultFaceDetector,
@@ -86,7 +86,7 @@ function detectionToDoc(det: DetectedFace, embedding: Float32Array): AssetFaceDo
   };
 }
 
-export default defineStage({
+const faceStage = defineStage({
   name: "face",
   targetVersion: 1,
   dependsOn: ["thumb"],
@@ -101,3 +101,9 @@ export default defineStage({
   },
   handler: faceHandler,
 });
+
+export default faceStage;
+
+export async function startFaceStage(): Promise<RunStageHandle> {
+  return runStage(faceStage);
+}

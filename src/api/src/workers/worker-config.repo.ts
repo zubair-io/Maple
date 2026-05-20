@@ -3,15 +3,15 @@
  *
  * One document per stage. Fields mirror WorkerConfig plus a `name` key.
  *
- * Config changes are NOT propagated here. The supervisor's IPC channel is the
- * canonical change signal: PATCH /api/workers/:name/config writes to Mongo via
- * this repo for persistence, then calls supervisor.notifyConfigChanged(name),
- * which POSTs reload-config to the child's IPC server. The child re-reads its
- * config from Mongo and applies the new values live.
+ * Config changes are NOT propagated here. PATCH /api/workers/:name/config
+ * writes to Mongo via this repo, then calls
+ * `stageRegistry.notifyConfigChanged(name)` (see `./registry.ts`) which
+ * triggers an in-process re-read inside the running poll loop — same
+ * process, no IPC.
  */
 
 import type { Collection } from "mongodb";
-import type { WorkerConfig } from "./runtime/define-stage.ts";
+import type { WorkerConfig } from "./run-stage.ts";
 
 export interface WorkerConfigDoc extends WorkerConfig {
   /** Stage name — the unique key for this collection. */

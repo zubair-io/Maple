@@ -14,7 +14,7 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { readExif } from "../../indexer/exif.ts";
 import { deriveId } from "../../indexer/id.ts";
-import { defineStage } from "../runtime/define-stage.ts";
+import { defineStage, runStage, type RunStageHandle } from "../run-stage.ts";
 
 const SHA1_HEAD_BYTES = 64 * 1024;
 
@@ -58,7 +58,7 @@ async function readHead(absPath: string): Promise<Uint8Array> {
   }
 }
 
-export default defineStage({
+const exifStage = defineStage({
   name: "exif",
   // v2: GPS hemisphere refs added to the exifr pick list — earlier indexes
   // wrote western-hemisphere longitudes as positive. Bumping forces re-extract.
@@ -104,3 +104,9 @@ export default defineStage({
     return { patch };
   },
 });
+
+export default exifStage;
+
+export async function startExifStage(): Promise<RunStageHandle> {
+  return runStage(exifStage);
+}

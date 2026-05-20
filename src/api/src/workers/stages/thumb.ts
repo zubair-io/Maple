@@ -13,9 +13,9 @@
  */
 import { generateThumb } from "../../indexer/thumbnailer.ts";
 import { resolveThumbPath } from "../../fs/xmp.ts";
-import { defineStage } from "../runtime/define-stage.ts";
+import { defineStage, runStage, type RunStageHandle } from "../run-stage.ts";
 
-export default defineStage({
+const thumbStage = defineStage({
   name: "thumb",
   targetVersion: 1,
   dependsOn: ["hash", "exif"],
@@ -41,3 +41,9 @@ export default defineStage({
     };
   },
 });
+
+export default thumbStage;
+
+export async function startThumbStage(): Promise<RunStageHandle> {
+  return runStage(thumbStage);
+}
