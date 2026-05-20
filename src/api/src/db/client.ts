@@ -330,6 +330,48 @@ export async function ensureIndexes(): Promise<void> {
     }
   }
 
+  // Reset describe-stage dead rows whose dead-letter reason was a vision
+  // parser type mismatch on `is_screenshot` or `text_visible` — both were
+  // tightened-then-relaxed by the tolerant-vision-parser change. The
+  // parser now coerces the variants qwen2.5-vl actually emits, so these
+  // rows can be re-attempted. One-shot, gated on `migrations`.
+  if (!(await migrationApplied(db, "reset-describe-dead-vision-parse-2026-05-20"))) {
+    try {
+      const res = await db.collection("assets").updateMany(
+        {
+          "stages.describe.dead": true,
+          "stages.describe.last_error": {
+            $regex: "vision-parse\\[wrong-type:(is_screenshot|text_visible)\\]",
+          },
+        },
+        {
+          $set: {
+            "stages.describe.dead": false,
+            "stages.describe.attempts": 0,
+            "stages.describe.last_error": null,
+          },
+        },
+      );
+      await recordMigration(
+        db,
+        "reset-describe-dead-vision-parse-2026-05-20",
+        res.modifiedCount,
+      );
+      log.info(
+        { rows: res.modifiedCount },
+        "reset describe-stage dead rows with parse-error reasons",
+      );
+    } catch (err) {
+      // Log + continue. Operators can also click "Retry dead" in the
+      // Workers settings UI to recover. Not recording on failure leaves
+      // the migration eligible for next boot.
+      log.warn(
+        { err: err instanceof Error ? err.message : err },
+        "describe dead-reset migration skipped",
+      );
+    }
+  }
+
   // folders: path is unique
   await db.collection("folders").createIndex({ path: 1 }, { unique: true });
 
