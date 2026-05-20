@@ -19,6 +19,7 @@ import { validateRoot } from "../fs/root.ts";
 import { RAW_EXTENSIONS } from "../fs/browse.ts";
 import { SHARP_EXTENSIONS } from "../thumbs/render.ts";
 import { moveToTrash } from "../fs/trash.ts";
+import { listPairedSidecars } from "../fs/xmp.ts";
 import { child as childLogger } from "../log.ts";
 import { computeBodyETag, ifNoneMatchEqual } from "../runtime/http-etag.ts";
 import { handleEvent } from "../workers/discover/index.ts";
@@ -353,33 +354,56 @@ export const foldersRoutes = new Elysia({ prefix: "/api/folders" })
       // overwrites it. Tracks the trashed doc's id + prefix-hash + size
       // so the post-write step can purge the trash entry when the new
       // upload is byte-identical to what we just moved aside.
+      //
+      // Concurrent-upload race: another request to the same target may
+      // move the file between our `stat` and our `moveToTrash`. If
+      // `moveToTrash` fails AND the file is now gone, treat it as
+      // benign (the peer handled the trash + doc update); otherwise
+      // surface the error.
       type Trashed = { docId: ObjectId; newAbsPath: string; sha1_head?: string; size?: number };
       let trashed: Trashed | undefined;
       try {
         await stat(absPath);
         const existing = await assets.findOne({ abs_path: absPath, deleted_at: null });
         const moved = await moveToTrash(absPath, folder.path);
-        if (moved.kind !== "ok") {
-          try { await unlink(tmp); } catch {}
-          set.status = 500;
-          return { error: `Upload trash failed: ${moved.error}` };
-        }
-        if (existing) {
-          const existingFields = existing as { sha1_head?: string; size?: number };
-          await assets.updateOne(
-            { _id: existing._id },
-            { $set: {
-                abs_path: moved.newAbsPath,
-                deleted_at: new Date().toISOString(),
-                original_path: absPath,
-              } },
-          );
-          trashed = {
-            docId: existing._id as ObjectId,
-            newAbsPath: moved.newAbsPath,
-            sha1_head: existingFields.sha1_head,
-            size: existingFields.size,
-          };
+        if (moved.kind === "ok") {
+          if (existing) {
+            const existingFields = existing as { sha1_head?: string; size?: number };
+            await assets.updateOne(
+              { _id: existing._id },
+              { $set: {
+                  abs_path: moved.newAbsPath,
+                  deleted_at: new Date().toISOString(),
+                  original_path: absPath,
+                } },
+            );
+            trashed = {
+              docId: existing._id as ObjectId,
+              newAbsPath: moved.newAbsPath,
+              sha1_head: existingFields.sha1_head,
+              size: existingFields.size,
+            };
+            // Mirror the DELETE route: emit a delete change so consumers
+            // (e.g. WorkingSetEnumerator, which removes items only on
+            // `.delete`) drop the pre-existing asset. The subsequent
+            // `create` for the new bytes still publishes below.
+            await recordAndPublishAssetChange({
+              kind: "delete",
+              asset_id: existing._id as ObjectId,
+              folder_id: folderId,
+              abs_path: absPath,
+            }).catch(() => {});
+          }
+        } else {
+          let stillThere = false;
+          try { await stat(absPath); stillThere = true; } catch {}
+          if (stillThere) {
+            try { await unlink(tmp); } catch {}
+            set.status = 500;
+            return { error: `Upload trash failed: ${moved.error}` };
+          }
+          // Benign race — peer moved the file, peer owns its trash + doc
+          // update. We proceed to rename our tmp into place.
         }
       } catch (err) {
         if ((err as { code?: string }).code !== "ENOENT") {
@@ -406,12 +430,17 @@ export const foldersRoutes = new Elysia({ prefix: "/api/folders" })
 
       // If the file we just trashed had the same prefix-hash and size
       // as the new upload, the trash entry would be a redundant copy
-      // of the freshly-written file — discard it.
+      // of the freshly-written file — discard it (RAW + any paired
+      // sidecars that `moveToTrash` relocated alongside).
       if (trashed && typeof trashed.sha1_head === "string" && typeof trashed.size === "number") {
         try {
           const newHead = await sha1HeadHex(absPath);
           if (newHead === trashed.sha1_head && st.size === trashed.size) {
+            const sidecars = await listPairedSidecars(trashed.newAbsPath);
             try { await unlink(trashed.newAbsPath); } catch {}
+            for (const sidecar of sidecars) {
+              try { await unlink(sidecar); } catch {}
+            }
             await assets.deleteOne({ _id: trashed.docId });
             trashed = undefined;
           }
