@@ -21,6 +21,7 @@ import {
   loadFaceModels,
   setFaceModelLoaderForTests,
   defaultModelDir,
+  resolveOrtThreadCount,
   RETINAFACE_BASENAME,
   MOBILEFACENET_BASENAME,
   type FaceModels,
@@ -87,6 +88,35 @@ beforeEach(() => {
 afterEach(() => {
   restoreEnv();
   setFaceModelLoaderForTests(null);
+});
+
+describe("resolveOrtThreadCount", () => {
+  it("returns the fallback when env is unset", () => {
+    expect(resolveOrtThreadCount(undefined, 4)).toBe(4);
+  });
+
+  it("parses a valid positive integer string", () => {
+    expect(resolveOrtThreadCount("2", 4)).toBe(2);
+    expect(resolveOrtThreadCount("1", 4)).toBe(1);
+    expect(resolveOrtThreadCount("16", 4)).toBe(16);
+  });
+
+  it("rejects 0 — would re-enable ORT's host-CPU default", () => {
+    expect(resolveOrtThreadCount("0", 4)).toBe(4);
+  });
+
+  it("rejects negative values", () => {
+    expect(resolveOrtThreadCount("-1", 4)).toBe(4);
+  });
+
+  it("rejects non-numeric / NaN-coercing input", () => {
+    expect(resolveOrtThreadCount("abc", 4)).toBe(4);
+    expect(resolveOrtThreadCount("", 4)).toBe(4);
+  });
+
+  it("rejects non-integer values", () => {
+    expect(resolveOrtThreadCount("1.5", 4)).toBe(4);
+  });
 });
 
 describe("defaultModelDir", () => {
