@@ -248,12 +248,14 @@ describe("POST /api/folders/:id/upload", () => {
     }));
     expect(res.status).toBe(201);
 
-    // The trash directory should NOT contain a copy — same content was
-    // detected via sha1_head + size, so the moved-aside file was unlinked
-    // and the soft-deleted doc removed.
+    // No trash artifact for THIS upload — same content was detected via
+    // sha1_head + size, so the moved-aside file was unlinked and the
+    // soft-deleted doc removed. (Filter by stem because the shared
+    // tmpRoot accumulates trash from other tests in this suite.)
     const trashDir = path.join(realTmpRoot, ".maple", "trash");
     const trashEntries = await fs.readdir(trashDir).catch(() => [] as string[]);
-    expect(trashEntries).toEqual([]);
+    const sameEntries = trashEntries.filter((n) => n.startsWith("same"));
+    expect(sameEntries).toEqual([]);
     const priorDoc = await db!.collection("assets").findOne({ _id: priorId });
     expect(priorDoc).toBeNull();
   });
