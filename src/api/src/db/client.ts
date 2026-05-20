@@ -372,6 +372,52 @@ export async function ensureIndexes(): Promise<void> {
     }
   }
 
+  // Reset describe-stage dead rows whose dead-letter reason was an enum
+  // mismatch or a null-value rejection now handled by the tolerant
+  // synonym maps + null-defaults. Covers the parse-error patterns this
+  // PR specifically fixes — `bad-enum` on the seven constrained fields,
+  // and `wrong-type` on the three array fields + the enum fields qwen
+  // returns null for on featureless images. The closing `\]` keeps the
+  // match anchored to the exact bracketed-reason form so unrelated
+  // failure modes (e.g. `bad-enum:future_field`) don't get reset by
+  // mistake. One-shot.
+  if (!(await migrationApplied(db, "reset-describe-dead-vision-parse-2026-05-21"))) {
+    try {
+      const enumFields = "scene_type|time_of_day|lighting|weather|composition|shot_type|indoor_outdoor";
+      const nullableFields = "subjects|colors|notable_objects|time_of_day|scene_type|lighting|weather|mood|composition|shot_type|indoor_outdoor";
+      const res = await db.collection("assets").updateMany(
+        {
+          "stages.describe.dead": true,
+          "stages.describe.last_error": {
+            $regex:
+              `vision-parse\\[(bad-enum:(${enumFields})|wrong-type:(${nullableFields}))\\]`,
+          },
+        },
+        {
+          $set: {
+            "stages.describe.dead": false,
+            "stages.describe.attempts": 0,
+            "stages.describe.last_error": null,
+          },
+        },
+      );
+      await recordMigration(
+        db,
+        "reset-describe-dead-vision-parse-2026-05-21",
+        res.modifiedCount,
+      );
+      log.info(
+        { rows: res.modifiedCount },
+        "reset describe-stage dead rows with enum / null parse-error reasons",
+      );
+    } catch (err) {
+      log.warn(
+        { err: err instanceof Error ? err.message : err },
+        "describe enum-dead-reset migration skipped",
+      );
+    }
+  }
+
   // folders: path is unique
   await db.collection("folders").createIndex({ path: 1 }, { unique: true });
 

@@ -241,6 +241,138 @@ describe("parseVisionJson — rejection paths", () => {
     const polluted = `Here is the JSON:\n${JSON.stringify(VALID)}\nHope this helps!`;
     expect(() => parseVisionJson(polluted)).toThrow(VisionParseError);
   });
+
+  it("collapses subjects/colors/notable_objects = null to []", () => {
+    const v = { ...VALID, subjects: null, colors: null, notable_objects: null };
+    const out = parseVisionJson(JSON.stringify(v));
+    expect(out.subjects).toEqual([]);
+    expect(out.colors).toEqual([]);
+    expect(out.notable_objects).toEqual([]);
+  });
+
+  it("still rejects array-shaped fields where contents aren't strings", () => {
+    for (const field of ["subjects", "colors", "notable_objects"] as const) {
+      const v = { ...VALID, [field]: ["ok", 42] };
+      try {
+        parseVisionJson(JSON.stringify(v));
+        throw new Error("expected throw");
+      } catch (e) {
+        const err = e as VisionParseError;
+        expect(err.reason).toBe("wrong-type");
+        expect(err.field).toBe(field);
+      }
+    }
+  });
+
+  it("coerces weather synonyms to allowed values", () => {
+    for (const [raw, expected] of [
+      ["partly cloudy", "cloudy"],
+      ["Partly Cloudy", "cloudy"],
+      ["mostly cloudy", "cloudy"],
+      ["overcast", "cloudy"],
+      ["sunny", "clear"],
+      ["clear sky", "clear"],
+      ["rain", "rainy"],
+      ["snow", "snowy"],
+      ["fog", "foggy"],
+      ["haze", "foggy"],
+    ] as const) {
+      const out = parseVisionJson(JSON.stringify({ ...VALID, weather: raw }));
+      expect(out.weather).toBe(expected);
+    }
+  });
+
+  it("coerces time_of_day synonyms", () => {
+    for (const [raw, expected] of [
+      ["day", "midday"],
+      ["daytime", "midday"],
+      ["noon", "midday"],
+      ["dusk", "evening"],
+      ["dawn", "morning"],
+      ["sunset", "golden hour"],
+      ["midnight", "night"],
+    ] as const) {
+      const out = parseVisionJson(JSON.stringify({ ...VALID, time_of_day: raw }));
+      expect(out.time_of_day).toBe(expected);
+    }
+  });
+
+  it("coerces scene_type synonyms (static → mixed when qwen confuses it with shot_type)", () => {
+    const out = parseVisionJson(JSON.stringify({ ...VALID, scene_type: "static" }));
+    expect(out.scene_type).toBe("mixed");
+  });
+
+  it("coerces indoor_outdoor=unknown to outdoor (majority case)", () => {
+    const out = parseVisionJson(JSON.stringify({ ...VALID, indoor_outdoor: "unknown" }));
+    expect(out.indoor_outdoor).toBe("outdoor");
+  });
+
+  it("defaults nullable enum fields when qwen returns null on featureless images", () => {
+    const v = {
+      ...VALID,
+      scene_type: null,
+      time_of_day: null,
+      lighting: null,
+      weather: null,
+      mood: null,
+      composition: null,
+      shot_type: null,
+      indoor_outdoor: null,
+    };
+    const out = parseVisionJson(JSON.stringify(v));
+    expect(out.scene_type).toBe("mixed");
+    expect(out.time_of_day).toBe("unknown");
+    expect(out.lighting).toBe("natural");
+    expect(out.weather).toBe("unknown");
+    expect(out.mood).toBe("neutral");
+    expect(out.composition).toBe("candid");
+    expect(out.shot_type).toBe("static");
+    expect(out.indoor_outdoor).toBe("outdoor");
+  });
+
+  it("preserves the reason taxonomy: non-string enum input is wrong-type, unmapped string is bad-enum", () => {
+    // Non-string for an enum field → wrong-type (the model gave us the
+    // wrong shape entirely, not just a bad value).
+    try {
+      parseVisionJson(JSON.stringify({ ...VALID, scene_type: 42 }));
+      throw new Error("expected throw");
+    } catch (e) {
+      const err = e as VisionParseError;
+      expect(err.reason).toBe("wrong-type");
+      expect(err.field).toBe("scene_type");
+    }
+    // String that isn't in allowed and has no synonym → bad-enum.
+    try {
+      parseVisionJson(JSON.stringify({ ...VALID, scene_type: "intergalactic" }));
+      throw new Error("expected throw");
+    } catch (e) {
+      const err = e as VisionParseError;
+      expect(err.reason).toBe("bad-enum");
+      expect(err.field).toBe("scene_type");
+    }
+  });
+
+  it("still rejects garbage enum values that have no synonym mapping", () => {
+    const v = { ...VALID, scene_type: "intergalactic" };
+    try {
+      parseVisionJson(JSON.stringify(v));
+      throw new Error("expected throw");
+    } catch (e) {
+      const err = e as VisionParseError;
+      expect(err.reason).toBe("bad-enum");
+      expect(err.field).toBe("scene_type");
+    }
+  });
+
+  it("preserves multi-word enum values that contain spaces ('golden hour')", () => {
+    const out = parseVisionJson(JSON.stringify({ ...VALID, time_of_day: "golden hour" }));
+    expect(out.time_of_day).toBe("golden hour");
+  });
+
+  it("trims + lowercases enum strings before lookup", () => {
+    const out = parseVisionJson(JSON.stringify({ ...VALID, weather: "  CLEAR  " }));
+    expect(out.weather).toBe("clear");
+  });
 });
 
 describe("prompt ↔ parser cross-check", () => {
