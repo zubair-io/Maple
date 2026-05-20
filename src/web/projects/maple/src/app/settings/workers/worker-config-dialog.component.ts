@@ -10,7 +10,7 @@ import {
   ChangeDetectionStrategy,
   Component,
   HostListener,
-  effect,
+  OnInit,
   inject,
   input,
   output,
@@ -31,13 +31,17 @@ import {
   styleUrl: './worker-config-dialog.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class WorkerConfigDialogComponent {
+export class WorkerConfigDialogComponent implements OnInit {
   private readonly api = inject(WorkersApiService);
   private readonly fb = inject(FormBuilder);
 
-  /** The stage this dialog is editing. Re-syncs form values when it changes. */
+  /** The stage this dialog is editing. */
   readonly stage = input.required<StageStatus>();
-  /** Current persisted config from the last status poll. */
+  /** Persisted config snapshot taken when the dialog opens. The parent polls
+   * status every ~2s and re-emits a fresh config object each tick; we
+   * deliberately ignore those mid-dialog updates so the operator's in-progress
+   * edits aren't wiped out from under them. (Dialog is destroyed/recreated on
+   * every open, so the next open re-snapshots the latest values.) */
   readonly config = input.required<WorkerConfig>();
 
   /** Fires with the returned config on a successful PATCH. */
@@ -55,16 +59,13 @@ export class WorkerConfigDialogComponent {
   readonly saveError = signal<string | null>(null);
   readonly saving = signal(false);
 
-  constructor() {
-    // Re-sync form whenever the config input signal changes.
-    effect(() => {
-      const c = this.config();
-      this.form.setValue({
-        concurrency:    c.concurrency,
-        pollIntervalMs: c.pollIntervalMs,
-        batchSize:      c.batchSize,
-        maxAttempts:    c.maxAttempts,
-      });
+  ngOnInit(): void {
+    const c = this.config();
+    this.form.setValue({
+      concurrency:    c.concurrency,
+      pollIntervalMs: c.pollIntervalMs,
+      batchSize:      c.batchSize,
+      maxAttempts:    c.maxAttempts,
     });
   }
 

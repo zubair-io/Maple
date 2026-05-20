@@ -120,4 +120,24 @@ describe('WorkerConfigDialogComponent', () => {
     component.onEscape();
     expect(cancelled).toBe(true);
   });
+
+  it('preserves in-progress form edits when the config input changes (polling)', () => {
+    // User starts editing while the dialog is open.
+    component.form.controls['concurrency'].setValue(16);
+    expect(component.form.controls['concurrency'].value).toBe(16);
+
+    // Parent re-polls and emits a fresh config object (new identity, same
+    // persisted values). The dialog must NOT overwrite the user's edit.
+    fixture.componentRef.setInput('config', {
+      concurrency: 4,
+      pollIntervalMs: 1000,
+      batchSize: 10,
+      maxAttempts: 5,
+      paused: false,
+      last_seen_target_version: 1,
+    });
+    fixture.detectChanges();
+
+    expect(component.form.controls['concurrency'].value).toBe(16);
+  });
 });
