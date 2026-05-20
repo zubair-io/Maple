@@ -333,22 +333,22 @@ export async function ensureIndexes(): Promise<void> {
   // folders: path is unique
   await db.collection("folders").createIndex({ path: 1 }, { unique: true });
 
-  // assets: unique per (folder_id, filename) BUT only for live rows.
-  // Soft-deleted assets keep their original `filename`; if the unique
-  // index applied to them too, the user could not re-upload a file with
-  // the same name as a trashed asset (core trash/restore workflow).
-  // Scope it via partialFilterExpression so trashed rows are exempt.
+  // assets: non-unique compound index on (folder_id, filename) for query
+  // performance only. The uniqueness constraint was dropped — same-filename
+  // collisions are legitimate (e.g. two devices uploading IMG_1234.jpg via
+  // backup-ingest, or any re-upload whose content hashed to a different
+  // `maple_id`). Content-level dedup happens via the unique `maple_id_1`
+  // index; on-disk path collisions are guarded by the backup-ingest route.
   //
-  // Migration: the index that existed before this partial filter has
-  // the default name `folder_id_1_filename_1` with no
-  // partialFilterExpression. Drop it before re-creating with the new
-  // spec; createIndex would otherwise reject as IndexOptionsConflict.
-  // The introspect-and-drop pattern mirrors `ensureStageIndexes` above.
-  // On a fresh DB the `assets` collection doesn't exist yet — calling
+  // Migration: any pre-existing `folder_id_1_filename_1` carries the old
+  // `unique: true` spec. Drop it before recreating with the new spec so
+  // `createIndex` doesn't reject as `IndexOptionsConflict`. The
+  // introspect-and-drop pattern mirrors `ensureStageIndexes` above. On a
+  // fresh DB the `assets` collection doesn't exist yet — calling
   // `.indexes()` on a missing namespace throws `NamespaceNotFound`
-  // (Mongo error 26). The migration check is a no-op in that case
-  // anyway (no pre-existing index to drop), so swallow the error.
-  let assetIndexes: { name?: unknown; partialFilterExpression?: unknown }[] = [];
+  // (Mongo error 26). The migration check is a no-op in that case anyway
+  // (no pre-existing index to drop), so swallow the error.
+  let assetIndexes: { name?: unknown; unique?: unknown; partialFilterExpression?: unknown }[] = [];
   try {
     assetIndexes = (await db.collection("assets").indexes()) as typeof assetIndexes;
   } catch (err) {
@@ -358,7 +358,8 @@ export async function ensureIndexes(): Promise<void> {
   const existingFolderFilenameIdx = assetIndexes.find(
     (i) =>
       (i.name as string) === "folder_id_1_filename_1" &&
-      !(i as { partialFilterExpression?: unknown }).partialFilterExpression,
+      ((i as { unique?: unknown }).unique === true ||
+        (i as { partialFilterExpression?: unknown }).partialFilterExpression),
   );
   if (existingFolderFilenameIdx) {
     try {
@@ -367,13 +368,7 @@ export async function ensureIndexes(): Promise<void> {
       // IndexNotFound is fine — another process may have already dropped.
     }
   }
-  await db.collection("assets").createIndex(
-    { folder_id: 1, filename: 1 },
-    {
-      unique: true,
-      partialFilterExpression: { deleted_at: null },
-    },
-  );
+  await db.collection("assets").createIndex({ folder_id: 1, filename: 1 });
   await db.collection("assets").createIndex({ mtime: 1 }, { sparse: true });
   await db.collection("assets").createIndex({ folder_id: 1 });
 
