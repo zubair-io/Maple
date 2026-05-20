@@ -24,6 +24,47 @@ import { stageManifest, blankStagesSkeleton } from "../workers/stages/manifest.t
 
 const log = childLogger("folders");
 
+/**
+ * Decode + validate the `X-Maple-Target-Path` header shared by
+ * `/upload` and `/mkdir`. Returns a discriminated result — callers
+ * set `set.status` to the embedded status on failure and return the
+ * embedded body. Validation rules:
+ *   - header must be present and non-empty
+ *   - percent-decoding must not throw (no `%ZZ`)
+ *   - path must be relative (no leading `/`)
+ *   - no empty paths after splitting on `/`
+ *   - no `..` or `.` components
+ *   - no leading-dot components (blocks writes into `.maple/`)
+ */
+function decodeAndValidateTargetPath(
+  headers: Record<string, string | undefined>,
+): { ok: true; target: string; parts: string[] }
+| { ok: false; status: number; error: string } {
+  const raw = headers["x-maple-target-path"];
+  if (typeof raw !== "string" || raw.length === 0) {
+    return { ok: false, status: 400, error: "Missing X-Maple-Target-Path" };
+  }
+  let target: string;
+  try { target = decodeURIComponent(raw); }
+  catch { return { ok: false, status: 400, error: "Invalid X-Maple-Target-Path encoding" }; }
+  if (target.startsWith("/")) {
+    return { ok: false, status: 400, error: "Path must be relative" };
+  }
+  const parts = target.split("/").filter((p) => p.length > 0);
+  if (parts.length === 0) {
+    return { ok: false, status: 400, error: "Empty target path" };
+  }
+  for (const part of parts) {
+    if (part === ".." || part === ".") {
+      return { ok: false, status: 400, error: "Path traversal not allowed" };
+    }
+    if (part.startsWith(".")) {
+      return { ok: false, status: 400, error: "Hidden path components not allowed" };
+    }
+  }
+  return { ok: true, target, parts };
+}
+
 export const foldersRoutes = new Elysia({ prefix: "/api/folders" })
   // List all folders. Body-hash ETag + If-None-Match short-circuit so the
   // File Provider extension can revalidate cheaply on cold Finder open.
@@ -234,25 +275,9 @@ export const foldersRoutes = new Elysia({ prefix: "/api/folders" })
       const folder = await folders.findOne({ _id: folderId });
       if (!folder) { set.status = 404; return { error: "Folder not found" }; }
 
-      const targetHeader = headers["x-maple-target-path"];
-      if (typeof targetHeader !== "string" || targetHeader.length === 0) {
-        set.status = 400; return { error: "Missing X-Maple-Target-Path" };
-      }
-      // `decodeURIComponent` throws `URIError` on malformed percent
-      // escapes (e.g. `%ZZ`). The header is client input; surface a 400
-      // instead of letting the global handler return 500.
-      let target: string;
-      try { target = decodeURIComponent(targetHeader); }
-      catch { set.status = 400; return { error: "Invalid X-Maple-Target-Path encoding" }; }
-      // Path validation: no leading /, no .. component, no leading-dot component
-      // (the latter would let a caller write into .maple/).
-      if (target.startsWith("/")) { set.status = 400; return { error: "Path must be relative" }; }
-      const parts = target.split("/").filter((p) => p.length > 0);
-      if (parts.length === 0) { set.status = 400; return { error: "Empty target path" }; }
-      for (const part of parts) {
-        if (part === ".." || part === ".") { set.status = 400; return { error: "Path traversal not allowed" }; }
-        if (part.startsWith(".")) { set.status = 400; return { error: "Hidden path components not allowed" }; }
-      }
+      const validated = decodeAndValidateTargetPath(headers);
+      if (!validated.ok) { set.status = validated.status; return { error: validated.error }; }
+      const { target, parts } = validated;
       const filename = parts[parts.length - 1]!;
       const dot = filename.lastIndexOf(".");
       const ext = dot >= 0 ? filename.slice(dot + 1).toLowerCase() : "";
@@ -421,6 +446,42 @@ export const foldersRoutes = new Elysia({ prefix: "/api/folders" })
       // body untouched.
       parse: "none",
     }
+  )
+
+  // Create a subdirectory under a library root. Target path in the
+  // `X-Maple-Target-Path` header (URL-encoded), same validation rules
+  // as the upload route. Idempotent — `mkdir -p` doesn't fail when the
+  // target already exists.
+  //
+  // The File Provider extension calls this when the user creates a new
+  // folder in Finder, or drags a folder of files in (the OS triggers a
+  // folder createItem first, then per-file createItems against the new
+  // folder as parent). Without an explicit mkdir hook the folder
+  // createItem fell into featureUnsupported and the whole drag aborted
+  // before any child file got a chance to upload.
+  .post(
+    "/:id/mkdir",
+    async ({ params, headers, set }) => {
+      let folderId: ObjectId;
+      try { folderId = new ObjectId(params.id); }
+      catch { set.status = 400; return { error: "Invalid folder id" }; }
+
+      const folders = await foldersCollection();
+      const folder = await folders.findOne({ _id: folderId });
+      if (!folder) { set.status = 404; return { error: "Folder not found" }; }
+
+      const validated = decodeAndValidateTargetPath(headers);
+      if (!validated.ok) { set.status = validated.status; return { error: validated.error }; }
+      const absPath = nodePath.join(folder.path, validated.target);
+      try {
+        await mkdir(absPath, { recursive: true });
+      } catch (err) {
+        set.status = 500;
+        return { error: `mkdir failed: ${err instanceof Error ? err.message : String(err)}` };
+      }
+      set.status = 201;
+      return { abs_path: absPath };
+    },
   )
 
   // Paged list of trashed assets for one library, newest-first.
