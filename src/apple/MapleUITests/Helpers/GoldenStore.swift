@@ -7,7 +7,7 @@
 // CIEDE2000 port at Helpers/CIEDE2000.swift. Re-record by deleting
 // the PNG.
 //
-// See docs/superpowers/plans/2026-04-25-xcuitest-visual-harness.md.
+// See .archived-plans/plans/2026-04-25-xcuitest-visual-harness.md.
 
 import XCTest
 import CoreGraphics

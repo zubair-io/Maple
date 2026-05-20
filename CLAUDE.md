@@ -78,7 +78,7 @@ docs/
 - **Adding an Angular component?** Read `docs/best-practices.md` § "Angular". TL;DR: standalone, signals, `input()`/`output()`, separate `.ts`/`.html`/`.scss` files, observables at the service layer, view models in components.
 - **Adding a Swift view?** Read `docs/best-practices.md` § "Swift". TL;DR: `@Observable`, actor-isolated I/O, generation-counter guards for async state.
 - **Touching the XMP schema?** Read `docs/sidecar-schema.md`. Schema changes are versioned; passthrough XML preserves unknown fields byte-for-byte.
-- **Touching the describe stage?** Read `docs/superpowers/specs/2026-05-19-qwen-vision-ocr-design.md` first — it covers the structured `VisionDoc`, the preview-stage dependency, and the no-XMP-for-derived-data invariant. See the 2026-05-19 update at the end: qwen2.5-vl is the sole OCR source; the parallel Tesseract stage was removed in #158.
+- **Touching the describe stage?** Read `.archived-plans/specs/2026-05-19-qwen-vision-ocr-design.md` first — it covers the structured `VisionDoc`, the preview-stage dependency, and the no-XMP-for-derived-data invariant. See the 2026-05-19 update at the end: qwen2.5-vl is the sole OCR source; the parallel Tesseract stage was removed in #158.
 
 ## Build & test — Apple
 
@@ -148,7 +148,7 @@ python3 src/scripts/compare_images.py \
   > src/apple/MapleUITests/Goldens/.calibration/expected.json
 ```
 
-Brief: `docs/superpowers/specs/2026-04-25-xcuitest-visual-harness-brief.md`. Plan: `docs/superpowers/plans/2026-04-25-xcuitest-visual-harness.md`.
+Brief: `.archived-plans/specs/2026-04-25-xcuitest-visual-harness-brief.md`. Plan: `.archived-plans/plans/2026-04-25-xcuitest-visual-harness.md`.
 
 ### Slider-matrix harness
 

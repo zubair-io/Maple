@@ -3,7 +3,7 @@
 **Status:** Draft v0.3 (tightened against current `raw-core`, `raw-ffi`, `raw-wasm`, `MapleCore`, and the verifier harness)
 **Owner:** Zubair
 **Targets:** new crate `pano-core` in the existing `raw-pipeline/` workspace → WASM bundle delivered into `web/projects/editor/src/assets/raw-wasm/`, and `RawPipeline.xcframework` consumed by the `RawPipeline` and `MapleCore` Swift packages (macOS / iPadOS / iOS / visionOS).
-**Phase:** Phase 4 — Advanced Editing (see `photo-app-feature-spec.md` § "Phase 4" and `docs/product-status.md`). Phases 1–2 are complete; Phase 3 (Color Engine) is the current gate. This spec is executable once Phase A of `docs/maple-maple-pipeline-rewrite-tdd-v2.md` and Phase 3's color work land.
+**Phase:** Phase 4 — Advanced Editing (see `docs/product-status.md` and `docs/spec/12-maple-apps-spec.md`). Phases 1–2 are complete; Phase 3 (Color Engine) is the current gate. This spec is executable once Phase A of `docs/maple-maple-pipeline-rewrite-tdd-v2.md` and Phase 3's color work land.
 
 ---
 
@@ -306,7 +306,7 @@ A Swift-side facade in `MapleCore.Panorama` can short-circuit to Apple framework
 - `MPSImageLaplacianPyramid` for blending
 - `vImage` for resampling
 
-This is the approach currently named in `photo-app-feature-spec.md` § "Panorama stitching pipeline." **This spec supersedes that prescription** — the feature-spec path becomes the _Quick preset_, and the Rust-core path becomes the _Quality preset_ and the default on DNG. The feature-spec entry should be updated to reflect the dual-preset model when this spec is accepted (tracked in Open Question #7).
+This is the Vision + Metal + vImage approach named in the historical Phase 4 feature draft (removed in #128). **This spec supersedes that prescription** — the Vision + Metal + vImage path becomes the _Quick preset_, and the Rust-core path becomes the _Quality preset_ and the default on DNG.
 
 DNG input or the Quality preset always goes through the Rust core.
 
@@ -570,7 +570,7 @@ Steps P1–P5 define the shippable Phase 4 MVP. Steps P6–P7 are ongoing qualit
 4. **Threading in WASM.** SharedArrayBuffer requires COOP/COEP — breaks some iframe embeddings. Acceptable for the editor; document for external callers.
 5. **DNG write-out of a stitched panorama.** Stitched images are no longer sensor-native. Default to "no" and close unless a concrete use case shows up.
 6. **UDIS++ licensing.** Research license. Personal-use only; gated behind `ml-udis` opt-in; never default.
-7. **Feature-spec reconciliation.** `photo-app-feature-spec.md` § "Panorama stitching pipeline" currently prescribes Vision + Metal + vImage. If this spec is accepted, that section updates to describe the Quick vs. Quality preset split (Vision fast path + Rust core default).
+7. **Feature-spec reconciliation.** The historical Phase 4 feature draft (removed in #128) prescribed Vision + Metal + vImage for panorama. This spec replaces that with the Quick vs. Quality preset split (Vision fast path + Rust core default); no follow-up edit is needed since the legacy draft no longer exists.
 8. **`papp:` panorama source-list schema.** Needs a concrete definition in `docs/xmp-canonical-format.md` before Step P5 — fields under discussion: source paths (absolute vs. bookmark-relative), XMP hash pin, per-frame focal length and EV, alignment cache (homography matrix, BA residuals), output dimensions, projection, preset (Quick/Quality). Block P5 on this.
 9. **Seam-finding library.** Spec prescribes `pathfinding`; `rs-graph` is an alternative. Validate `pathfinding`'s max-flow perf on 120 MP overlap graphs in P1; fall back to a vendored Boykov–Kolmogorov port if it's the bottleneck.
 10. **`ImageEditPipeline.renderToData` color-space extension.** Not panorama-specific — also unblocks wide-gamut TIFF export from the regular adjustment pipeline. Whoever lands Phase 3 (Color Engine) is the natural owner; pano coordinates with that work rather than forking it. If Phase 3 doesn't ship the extension, P5 adds it inline.

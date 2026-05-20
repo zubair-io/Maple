@@ -16,7 +16,7 @@ The product bar — the thing we will be measured on, the thing that decides whe
 1. **Professional color quality.** A scene-referred, linear-Rec.2020-D65 pipeline whose color a working photographer can trust on the first edit, gated by an objective ΔE₀₀ harness against ACR-rendered references on every change.
 2. **Performance that disappears.** A slider tick must produce a new preview inside a single 60Hz frame (16ms) on a 100MP RAW. Nothing ships that breaks the budget.
 
-This document is the source-of-truth product brief for Maple as a whole. Detailed feature behavior lives in `docs/photo-app-feature-spec.md`. Detailed UI behavior lives in `docs/photo-app-ui-spec.md`. Architectural detail lives in `docs/architecture.md`. This PRD ties them together around what we are building, who it serves, and how we know it worked.
+This document is the source-of-truth product brief for Maple as a whole. Detailed feature and UI behavior lives in `docs/spec/12-maple-apps-spec.md` (which supersedes the earlier feature/UI spec drafts removed in #128). Architectural detail lives in `docs/architecture.md`. This PRD ties them together around what we are building, who it serves, and how we know it worked.
 
 ---
 
@@ -165,7 +165,7 @@ Specifically:
 
 ### P0 — Must have for GA
 
-- **Three-column shell** — sources tree, image grid, detail inspector — on desktop and tablet; single-column adaptive layout on phone. Two modes: Browse and Full image. Per `docs/photo-app-ui-spec.md`.
+- **Three-column shell** — sources tree, image grid, detail inspector — on desktop and tablet; single-column adaptive layout on phone. Two modes: Browse and Full image. Per `docs/spec/07-ui-architecture.md` and `docs/spec/12-maple-apps-spec.md` § 09.
 - **Non-destructive editing via XMP sidecars.** Unknown XMP fields preserved byte-for-byte through round-trips. Schema versioned. Verified by round-trip tests against real `.xmp` files (no mocks).
 - **Scene-referred pipeline.** Linear Rec.2020 D65 f32 working space, single view transform at the end, exposure as linear multiply.
 - **Color parity harness** running on every merge. Mean ΔE₀₀ ≤ 5 on public reference fixtures at GA.
@@ -193,7 +193,7 @@ Specifically:
 - Multi-image edits / sync-settings (the adjustment-version key must support copy/paste of edit graphs).
 - Print module.
 - Plugin / extension API (don't block this with private types in the public surface).
-- Stacking, panorama merge, HDR merge (`docs/coral-maple-panorama-spec.md` already drafted).
+- Stacking, panorama merge, HDR merge (panorama design in `docs/tickets/04-maple-panorama-spec.md`).
 - Catalog/library mode for users who do want a catalog (opt-in, layered on top of the filesystem-native default).
 
 ---
@@ -276,7 +276,7 @@ Phasing rule for any feature: cannot ship behind a flag if it regresses either p
 - **Color is hard, and "neutral" is a moving target across cameras.** Mitigation: lock ground truth to ACR for v1, document the choice, give power users a calibration knob in v1.1.
 - **Perf budgets are easy to set and hard to defend over a 12-month feature roadmap.** Mitigation: budgets are CI-enforced and ratchet down; every feature gets a budget cell; profiling, not vibes.
 - **Two-platform UI (SwiftUI + Angular) doubles surface area.** Mitigation: shared Rust core absorbs the hard-to-port logic; everything platform-specific is genuinely platform-idiomatic and small.
-- **Web RAW decode is ambitious.** Mitigation: the Rust → WASM path is already shipping; the FFI split (`docs/superpowers/specs/2026-04-25-plan-3-web-ffi-split-brief.md`) is the active work.
+- **Web RAW decode is ambitious.** Mitigation: the Rust → WASM path is already shipping; the FFI split (`.archived-plans/specs/2026-04-25-plan-3-web-ffi-split-brief.md`) is the active work.
 - **iPad and phone editing has historically been a graveyard.** Mitigation: ship browse + light edit on iPad first, validate the touch model, then layer the heavy edits with the same core.
 - **"Pro photographers don't change tools" is partly true.** Mitigation: target the actively-frustrated cohort, not the satisfied one. The pitch is "your edits are yours, the color is right, the slider doesn't lag" — concrete, not aspirational.
 - **Anti-Adobe positioning could become anti-Adobe-only positioning.** Mitigation: keep the marketing about photographers, not about competitors. The product wins on its own terms or it doesn't win.
@@ -312,14 +312,14 @@ When a feature request lands that fits one of these buckets, the answer is "note
 
 ### B. References
 
-- `docs/photo-app-feature-spec.md` — feature behavior, source of truth.
-- `docs/photo-app-ui-spec.md` — UI behavior, source of truth.
+- `docs/spec/12-maple-apps-spec.md` — Maple apps architecture, source of truth for what each surface (Hosted / Self Hosted / Native) does. Supersedes the earlier feature/UI spec drafts removed in #128.
+- `docs/spec/07-ui-architecture.md` — UI state model, interaction loops, visual design tokens.
 - `docs/architecture.md` — system design, scene-linear chain, parity gates.
 - `docs/caching.md` — five-cache design.
 - `docs/best-practices.md` — Angular and Swift coding standards.
 - `docs/sidecar-schema.md` — XMP schema versioning.
 - `docs/spec/05-performance.md` — performance invariants.
-- `docs/superpowers/plans/2026-04-24-post-phase1-roadmap.md` — current execution roadmap.
+- `.archived-plans/plans/2026-04-24-post-phase1-roadmap.md` — current execution roadmap.
 - `docs/maple-paper.md` — color-science writeup in flight.
 
 ---

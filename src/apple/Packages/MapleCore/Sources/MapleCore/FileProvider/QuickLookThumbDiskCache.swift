@@ -3,7 +3,7 @@
 // Disk cache for Quick Look thumb bytes, keyed by (assetID, etag) and
 // persisted under the App Group container so it survives QL extension
 // restarts. Phase 6 item 4 of the file-provider sweep
-// (`docs/superpowers/specs/2026-05-17-file-provider-phase6-design.md`).
+// (`.archived-plans/specs/2026-05-17-file-provider-phase6-design.md`).
 //
 // The QL extension is short-lived — every spacebar press in a fresh
 // session re-fetches the thumb from the server. The in-memory ETag

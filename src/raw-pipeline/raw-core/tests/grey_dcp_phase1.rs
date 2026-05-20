@@ -1,6 +1,6 @@
 //! Phase 1 DCP coverage — single-patch synthetic with real Hasselblad
 //! ColorMatrix1+2, optional ForwardMatrix, hand-crafted ProfileToneCurve.
-//! See spec docs/superpowers/specs/2026-04-29-grey-card-dcp-coverage-design.md.
+//! See spec .archived-plans/specs/2026-04-29-grey-card-dcp-coverage-design.md.
 
 #![cfg(feature = "test-support")]
 

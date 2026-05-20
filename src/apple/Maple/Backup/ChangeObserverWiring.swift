@@ -15,7 +15,7 @@
 // settings-screen tap freezes the UI until enumeration finishes, which
 // looks indistinguishable from a broken button.
 //
-// Spec: docs/superpowers/specs/2026-05-09-photokit-backup-design.md §10.
+// Spec: .archived-plans/specs/2026-05-09-photokit-backup-design.md §10.
 
 import Foundation
 import Photos

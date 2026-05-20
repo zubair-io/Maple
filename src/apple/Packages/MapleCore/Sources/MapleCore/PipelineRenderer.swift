@@ -158,7 +158,7 @@ public struct PipelineRenderer: Sendable {
     /// transform (AgX) + gamut convert (Rec.2020 → sRGB) downstream.
     ///
     /// Plan 1 wire — see
-    /// docs/superpowers/plans/2026-04-24-ffi-split-plan-1.md.
+    /// .archived-plans/plans/2026-04-24-ffi-split-plan-1.md.
     public static func renderSceneLinear(
         rawPath: URL,
         xmpPath: URL? = nil,
@@ -923,7 +923,7 @@ extension PipelineRenderer {
 /// `maple_open_raw_handle` returns, so concurrent reads from multiple
 /// threads are safe.
 ///
-/// Cross-link: docs/superpowers/plans/2026-04-25-deep-zoom-tile-rendering.md
+/// Cross-link: .archived-plans/plans/2026-04-25-deep-zoom-tile-rendering.md
 /// Task 4. The C ABI is in
 /// src/apple/Frameworks/RawPipeline.xcframework/.../Headers/RawPipeline.h.
 public final class MapleRawHandle: @unchecked Sendable {

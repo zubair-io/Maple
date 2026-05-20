@@ -7,7 +7,7 @@
 // BLAKE3 for all maple_id computation). Replaces the CryptoKit SHA-256
 // stop-gap that was in PhotoKitAssetReader while the FFI symbol was missing.
 //
-// Spec: docs/superpowers/specs/2026-05-09-photokit-backup-design.md §16.
+// Spec: .archived-plans/specs/2026-05-09-photokit-backup-design.md §16.
 
 import Foundation
 import RawPipeline

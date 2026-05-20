@@ -16,7 +16,7 @@
 // rasterises through `CIImageView.createCGImage`.
 //
 // Cross-links:
-//   docs/superpowers/plans/2026-04-25-xcuitest-visual-harness.md
+//   .archived-plans/plans/2026-04-25-xcuitest-visual-harness.md
 //   src/apple/MapleUITests/Helpers/GoldenStore.swift  (sister copy)
 //   src/apple/MapleUITests/Helpers/CIEDE2000.swift    (sister copy)
 

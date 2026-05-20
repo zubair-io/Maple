@@ -15,7 +15,7 @@
  *
  * Response 400 on missing device_id or invalid library id.
  *
- * Spec: docs/superpowers/specs/2026-05-09-photokit-backup-design.md §20.
+ * Spec: .archived-plans/specs/2026-05-09-photokit-backup-design.md §20.
  */
 import { Elysia, t } from "elysia";
 import { ObjectId } from "mongodb";

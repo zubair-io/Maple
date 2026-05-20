@@ -86,7 +86,7 @@ export const DEFAULT_DESCRIBE_SYSTEM_PROMPT =
  * - Return `null` rather than fabricating values — easier to dead-letter
  *   parse failures than to detect hallucinated content.
  *
- * Spec: `docs/superpowers/specs/2026-05-19-qwen-vision-ocr-design.md`
+ * Spec: `.archived-plans/specs/2026-05-19-qwen-vision-ocr-design.md`
  * §Prompt. Wired into the describe handler by ticket #149 alongside
  * the model swap; that commit also bumps `DESCRIBE_PROMPT_VERSION`.
  */

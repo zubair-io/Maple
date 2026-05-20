@@ -155,5 +155,5 @@ camera-RGB buffer.
   also exited cache effects from the upstream pipeline.
 - **Decode floor:** the user's `ffi_rawler_decode = 2.34 s` is the rawler decode
   floor — separate ticket
-  (`docs/superpowers/plans/2026-04-24-sub-second-raw-decode.md`). On this
+  (`.archived-plans/plans/2026-04-24-sub-second-raw-decode.md`). On this
   machine `decode_bytes = 388 ms` so it's not the binding floor here.

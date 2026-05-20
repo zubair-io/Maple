@@ -1,5 +1,5 @@
 // LibrarySidebar.swift — Left panel. Ports the mockup's tree-style layout
-// (docs/photo_app_mockup_v2.html, lines ~82-189):
+// (docs/mockup.html, lines ~82-189):
 //
 //   Folders (+ button)                 ← SavedFolderStore-backed LRU
 //     empty:  "No local folders" / "Add one"

@@ -5,7 +5,7 @@
 # synthesised in-memory — no test-fixtures/raws/ needed — so this script
 # never skip-passes.
 #
-# Spec: docs/superpowers/specs/2026-04-28-grey-card-adjustment-tests-design.md
+# Spec: .archived-plans/specs/2026-04-28-grey-card-adjustment-tests-design.md
 
 set -euo pipefail
 cd "$(dirname "$0")/../raw-pipeline"

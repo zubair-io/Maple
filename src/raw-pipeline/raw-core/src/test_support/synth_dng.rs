@@ -43,7 +43,7 @@ const PHOTOMETRIC_CFA: u16 = 32803;
 const CALIBRATION_ILLUMINANT_D65: u16 = 21;
 
 /// Synthesised Bayer DNG with a flat scene-linear neutral patch. See spec
-/// `docs/superpowers/specs/2026-04-28-synthetic-grey-dng-design.md`.
+/// `.archived-plans/specs/2026-04-28-synthetic-grey-dng-design.md`.
 #[derive(Clone, Debug)]
 pub struct SyntheticGreyDng {
     /// Scene-linear neutral target after black subtract + WB. Range 0.0-1.0.

@@ -1,6 +1,6 @@
 // SceneLinearPipelineTests.swift — Plan 1 verification spikes + integration
 // tests for the scene-linear FFI split path. See
-// docs/superpowers/plans/2026-04-24-ffi-split-plan-1.md.
+// .archived-plans/plans/2026-04-24-ffi-split-plan-1.md.
 //
 // Scope of this file (Spike 1.1, Task 1):
 //   - testSpikeCILanczosPreservesExtendedRangeFp16Rec2020
@@ -59,7 +59,7 @@
 //
 // Plan 2 wires WB → tone → vibrance → saturation → AgX into processSceneLinear,
 // then threads xmpPath through decodeSceneLinear. See
-// docs/superpowers/plans/2026-04-25-plan-2-dev-chain-metal-kernels.md.
+// .archived-plans/plans/2026-04-25-plan-2-dev-chain-metal-kernels.md.
 //
 // Plan 2 M1 milestone gate (Task 4 — Tasks 2 + 3 wired SceneToneControls
 // and SceneVibrance into processSceneLinear):
@@ -206,7 +206,7 @@
 //
 // Plan 2 v2 wires SceneClarity + SceneTexture into processSceneLinear,
 // each backed by a shared SeparableGaussianBlur compute kernel. See
-// docs/superpowers/plans/2026-04-25-plan-2-v2-shared-blur-clarity-texture.md.
+// .archived-plans/plans/2026-04-25-plan-2-v2-shared-blur-clarity-texture.md.
 //
 // Plan 2 v2 M2 milestone gate (Task 7, recorded after wiring SceneClarity
 // + SceneTexture into processSceneLinear in Tasks 5 + 6):
@@ -230,7 +230,7 @@
 //
 // Plan 2 v2 v2 wires SceneNRLuminance + SceneNRColor into processSceneLinear,
 // both backed by the same shared SeparableGaussianBlur compute kernel. See
-// docs/superpowers/plans/2026-04-25-plan-2-v2-nr-luminance-color.md.
+// .archived-plans/plans/2026-04-25-plan-2-v2-nr-luminance-color.md.
 //
 // Plan 2 v2 v2 M3 milestone gate (Task 7, recorded after wiring
 // SceneNRLuminance + SceneNRColor into processSceneLinear in Task 6):
@@ -304,7 +304,7 @@
 // blurs each + optional overdrive blur = up to 7 blur passes per
 // slider tick) plus five small CIColorKernel/CIKernel functions
 // (rlRatio, rlMultiply, sharpenLuminance, sharpenEdgeMix,
-// sharpenOverdrive). See docs/superpowers/plans/
+// sharpenOverdrive). See .archived-plans/plans/
 // 2026-04-25-plan-2-v2-sharpen.md.
 //
 // Plan 2 v2 v3 M4 milestone gate (Task 7, recorded after wiring

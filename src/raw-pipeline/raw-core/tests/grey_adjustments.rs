@@ -1,6 +1,6 @@
 //! Closed-form + relational adjustment-validation tests on the synthetic
 //! grey DNG. See spec
-//! `docs/superpowers/specs/2026-04-28-grey-card-adjustment-tests-design.md`.
+//! `.archived-plans/specs/2026-04-28-grey-card-adjustment-tests-design.md`.
 
 #![cfg(feature = "test-support")]
 

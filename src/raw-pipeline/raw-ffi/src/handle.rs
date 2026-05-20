@@ -1,7 +1,7 @@
 //! Opaque handle for cached rawler-decoded `RawImage` + parsed XMP.
 //!
 //! Plan 3 (Ticket 06 M4) — see
-//! docs/superpowers/plans/2026-04-25-deep-zoom-tile-rendering.md Task 3.
+//! .archived-plans/plans/2026-04-25-deep-zoom-tile-rendering.md Task 3.
 //!
 //! The handle keeps the decoded `RawImage` plus the parsed
 //! `AdjustmentModel` alive across multiple tile renders so a 100 MP

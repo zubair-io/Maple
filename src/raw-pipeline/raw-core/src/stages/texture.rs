@@ -27,7 +27,7 @@ const LUMA_FLOOR: f32 = 1e-6;
 /// differences asymmetrically on coloured edges, surfacing as
 /// magenta/cyan halos around fine detail. See Bug B in Ticket 11 /
 /// 11-Bugs.md and the investigation spec at
-/// docs/superpowers/specs/2026-04-26-blacks-clarity-bug-investigation.md.
+/// .archived-plans/specs/2026-04-26-blacks-clarity-bug-investigation.md.
 pub fn apply(img: &mut Image, texture: f32) {
     img.assert_space(ColorSpace::SceneLinearRec2020);
     if texture.abs() < 1e-3 { return; }

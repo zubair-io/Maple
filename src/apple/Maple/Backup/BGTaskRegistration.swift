@@ -8,7 +8,7 @@
 // On macOS this file is compiled out — the LaunchAgent (MapleBackupAgent)
 // covers background execution there.
 //
-// Spec: docs/superpowers/specs/2026-05-09-photokit-backup-design.md §13, §15.
+// Spec: .archived-plans/specs/2026-05-09-photokit-backup-design.md §13, §15.
 
 import Foundation
 import MapleCore

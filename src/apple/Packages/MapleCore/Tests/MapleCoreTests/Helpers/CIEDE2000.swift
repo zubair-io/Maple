@@ -16,7 +16,7 @@
 // alpha is ignored (same as the Python reference, which drops alpha via
 // `Image.convert("RGB")`).
 //
-// See docs/superpowers/plans/2026-04-25-xcuitest-visual-harness.md
+// See .archived-plans/plans/2026-04-25-xcuitest-visual-harness.md
 // Task 4 for the cross-validation procedure.
 
 import Foundation

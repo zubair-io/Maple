@@ -6,7 +6,7 @@
 //   2. By MapleApp (Phase 3 Task 3.1 — EngineHost).
 //   3. By MapleBackupAgent (Phase 3 Task 3.10 — macOS LaunchAgent).
 //
-// Spec: docs/superpowers/specs/2026-05-09-photokit-backup-design.md.
+// Spec: .archived-plans/specs/2026-05-09-photokit-backup-design.md.
 
 import PackageDescription
 

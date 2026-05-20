@@ -1,6 +1,6 @@
 # Spike 1.3 — FFI decode baseline (Plan 1)
 
-Plan: `docs/superpowers/plans/2026-04-24-ffi-split-plan-1.md` Task 1 → Spike 1.3.
+Plan: `.archived-plans/plans/2026-04-24-ffi-split-plan-1.md` Task 1 → Spike 1.3.
 
 This is the locked baseline + reproducible measurement procedure for the
 half-res Preview cold-open hard-stop. Plan 1 Task 5 Step 5.7 fails the spike

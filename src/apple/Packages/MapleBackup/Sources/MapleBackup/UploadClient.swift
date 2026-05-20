@@ -8,7 +8,7 @@
 // actively uploading the same iCloud photo — caller should back off and
 // requeue without burning a retry slot.
 //
-// Spec: docs/superpowers/specs/2026-05-09-photokit-backup-design.md §13.
+// Spec: .archived-plans/specs/2026-05-09-photokit-backup-design.md §13.
 // Server contract: src/api/src/routes/backup-ingest.ts (PR #27).
 
 import Foundation
