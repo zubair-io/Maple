@@ -71,7 +71,7 @@ public actor UploadClient {
 
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
-        req.setValue("application/xml", forHTTPHeaderField: "Content-Type")
+        req.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
         req.setValue(deviceId, forHTTPHeaderField: "X-Maple-Device-Id")
         req.setValue(phassetLocalId, forHTTPHeaderField: "X-Maple-Phasset-Id")
         req.setValue(targetRelPath, forHTTPHeaderField: "X-Maple-Target-Rel-Path")
