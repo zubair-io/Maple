@@ -1,0 +1,361 @@
+<maple-settings-shell section="people">
+  @if (toast(); as t) {
+    <div
+      class="toast"
+      [class.toast-success]="t.tone === 'success'"
+      [class.toast-error]="t.tone === 'error'"
+    >
+      {{ t.text }}
+    </div>
+  }
+  @if (loadError(); as e) {
+    <div class="toast toast-error">Failed to load: {{ e }}</div>
+  }
+
+  @if (selected(); as detail) {
+    <!-- ── Detail view ───────────────────────────────────────────────── -->
+    <div class="detail-head">
+      <button type="button" class="back-link" (click)="closeDetail()">
+        <maple-settings-icon name="back" [size]="13" color="#a8a29e" />
+        <span>People</span>
+      </button>
+
+      <div class="detail-identity">
+        <div class="detail-avatar">
+          @if (detailCoverUrl(detail); as url) {
+            @if (detail.coverBbox; as bbox) {
+              <img
+                [src]="url"
+                [style.transform]="faceCropTransform(bbox)"
+                style="transform-origin: 0 0"
+                alt=""
+                decoding="async"
+              />
+            } @else {
+              <img class="cover-fill" [src]="url" alt="" decoding="async" />
+            }
+          } @else {
+            <span class="detail-avatar-fallback">{{ detail.name.slice(0, 1).toUpperCase() }}</span>
+          }
+        </div>
+
+        <div class="detail-titles">
+          @if (editingId() === detail.id) {
+            <input
+              class="name-input"
+              type="text"
+              [value]="draftName()"
+              [attr.list]="'people-name-suggestions-detail-' + detail.id"
+              (input)="draftName.set($any($event.target).value)"
+              (keydown.enter)="commitEdit(detail.id); $event.preventDefault()"
+              (keydown.escape)="cancelEdit(); $event.preventDefault()"
+              (blur)="commitEdit(detail.id)"
+              autofocus
+            />
+            <datalist [id]="'people-name-suggestions-detail-' + detail.id">
+              @for (other of namedPeople(); track other.id) {
+                @if (other.id !== detail.id) {
+                  <option [value]="other.name"></option>
+                }
+              }
+            </datalist>
+          } @else {
+            <button
+              type="button"
+              class="name-button"
+              [class.is-auto-named]="isSelectedAutoNamed()"
+              [title]="'Click to rename ' + detail.name"
+              (click)="startEdit(detail)"
+            >
+              {{ detail.name }}
+              <maple-settings-icon
+                [name]="isSelectedAutoNamed() ? 'plus' : 'edit'"
+                [size]="14"
+                color="#78706a"
+              />
+            </button>
+          }
+          @if (isSelectedAutoNamed()) {
+            <span class="unnamed-chip">UNNAMED</span>
+          }
+          <div class="detail-meta">
+            <span
+              >{{ detail.faces.length }} matched face{{
+                detail.faces.length === 1 ? '' : 's'
+              }}</span
+            >
+            @if (detail.faces.length > 0) {
+              <span class="meta-sep">·</span>
+              <span
+                >avg <span class="meta-strong">{{ averageConfidence() }}%</span> detector
+                confidence</span
+              >
+            }
+          </div>
+        </div>
+
+        <div class="detail-actions">
+          <button type="button" class="btn-ghost" (click)="triggerMerge()">
+            <maple-settings-icon name="merge" [size]="12" />
+            Merge into…
+          </button>
+          <button type="button" class="btn-ghost danger" (click)="deleteSelectedCluster()">
+            Delete cluster
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Filter bar -->
+    <div class="filter-bar">
+      <div class="threshold">
+        <span class="threshold-label">Min detector confidence</span>
+        <input
+          type="range"
+          min="50"
+          max="98"
+          step="1"
+          [value]="threshold()"
+          (input)="threshold.set(+$any($event.target).value)"
+        />
+        <span class="threshold-val">{{ threshold() }}%</span>
+      </div>
+
+      <div class="filter-spacer"></div>
+
+      <span class="visible-count">
+        {{ visibleFaces().length }} shown
+        @if (hiddenFaceCount() > 0) {
+          <span class="below-threshold"> · {{ hiddenFaceCount() }} below threshold</span>
+        }
+      </span>
+
+      @if (visibleFaces().length > 0) {
+        <button type="button" class="link-action" (click)="selectAllVisible()">Select all</button>
+      }
+    </div>
+
+    <!-- Face grid -->
+    <div class="face-grid-wrap">
+      @if (selectedLoading()) {
+        <p class="empty-msg">Loading…</p>
+      } @else if (detail.faces.length === 0) {
+        <p class="empty-msg">No faces assigned yet.</p>
+      } @else if (visibleFaces().length === 0) {
+        <p class="empty-msg">
+          All {{ detail.faces.length }} face{{ detail.faces.length === 1 ? '' : 's' }} fall below
+          the current confidence threshold.
+        </p>
+      } @else {
+        <div class="face-grid">
+          @for (f of visibleFaces(); track faceKey(f)) {
+            <button
+              type="button"
+              class="face-cell"
+              [class.is-selected]="isFaceSelected(f)"
+              [attr.aria-pressed]="isFaceSelected(f)"
+              [attr.aria-label]="
+                'Face from ' +
+                f.absPath +
+                ' (' +
+                (f.confidence * 100 | number: '1.0-0') +
+                '% detector confidence)'
+              "
+              (mouseenter)="hoveredFace.set(faceKey(f))"
+              (mouseleave)="hoveredFace.set(null)"
+              (focus)="hoveredFace.set(faceKey(f))"
+              (blur)="hoveredFace.set(null)"
+              (click)="toggleFaceSelection(f)"
+              [title]="f.absPath"
+            >
+              <span class="face-thumb">
+                @if (faceThumbUrl(f); as url) {
+                  <img
+                    [src]="url"
+                    [style.transform]="faceCropTransform(f.bbox)"
+                    style="transform-origin: 0 0"
+                    alt=""
+                    loading="lazy"
+                    decoding="async"
+                  />
+                }
+                <span class="confidence-badge">{{ f.confidence * 100 | number: '1.0-0' }}%</span>
+                @if (isFaceSelected(f) || hoveredFace() === faceKey(f)) {
+                  <span class="select-check" [class.is-selected]="isFaceSelected(f)">
+                    @if (isFaceSelected(f)) {
+                      <maple-settings-icon
+                        name="check"
+                        [size]="11"
+                        color="#ffffff"
+                        [stroke]="2.4"
+                      />
+                    }
+                  </span>
+                }
+                @if (f.confidence < 0.7) {
+                  <span class="low-confidence-bar"></span>
+                }
+              </span>
+            </button>
+          }
+        </div>
+      }
+
+      @if (selectedFaces().size > 0) {
+        <div class="bulk-toolbar-wrap">
+          <div class="bulk-toolbar">
+            <span class="bulk-count">{{ selectedFaces().size }} selected</span>
+            <div class="bulk-sep"></div>
+
+            <!-- Move-to-person dropdown — uses a native <select> for
+                 accessibility/keyboard. The dropdown trigger looks like
+                 a toolbar button until clicked. -->
+            <label class="bulk-btn">
+              <maple-settings-icon name="merge" [size]="13" color="#f5f4f2" />
+              <span>Move to person…</span>
+              <select
+                class="bulk-select"
+                [disabled]="bulkBusy() > 0"
+                (change)="bulkMoveTo($any($event.target).value); $any($event.target).value = ''"
+              >
+                <option value="">…</option>
+                @for (other of sortedPeople(); track other.id) {
+                  @if (other.id !== detail.id) {
+                    <option [value]="other.id">{{ other.name }}</option>
+                  }
+                }
+              </select>
+            </label>
+
+            <button
+              type="button"
+              class="bulk-btn"
+              [disabled]="bulkBusy() > 0"
+              (click)="bulkUnassign()"
+            >
+              <maple-settings-icon name="x" [size]="13" color="#f5f4f2" />
+              Unassign
+            </button>
+            <button type="button" class="bulk-btn" [disabled]="bulkBusy() > 0" (click)="bulkHide()">
+              <maple-settings-icon name="eye" [size]="13" color="#f5f4f2" />
+              Hide
+            </button>
+            <div class="bulk-sep"></div>
+            <button type="button" class="bulk-btn mute" (click)="clearSelection()">
+              <maple-settings-icon name="x" [size]="13" color="#a8a29e" />
+              Cancel
+            </button>
+          </div>
+        </div>
+      }
+    </div>
+  } @else if (selectedRouteId()) {
+    <!-- ── Detail chrome while the GET /api/people/:id is in flight ──── -->
+    <!-- Deep-links and list→detail navigation land here for one frame    -->
+    <!-- before `selected()` populates; rendering the list view briefly   -->
+    <!-- would be a flash of wrong content.                                -->
+    <div class="detail-head">
+      <button type="button" class="back-link" (click)="closeDetail()">
+        <maple-settings-icon name="back" [size]="13" color="#a8a29e" />
+        <span>People</span>
+      </button>
+    </div>
+    <div class="face-grid-wrap">
+      <p class="empty-msg">Loading…</p>
+    </div>
+  } @else {
+    <!-- ── List view ─────────────────────────────────────────────────── -->
+    <header class="page-header">
+      <div class="titles">
+        <h1>People</h1>
+        <p>
+          Face clusters from the face worker. Name a cluster to merge new faces into it
+          automatically; un-named clusters keep accreting until you do.
+        </p>
+      </div>
+      <div class="actions">
+        <a class="btn-ghost" routerLink="/settings/workers">Worker settings</a>
+        <button
+          type="button"
+          class="btn-primary"
+          [disabled]="clusteringBusy()"
+          (click)="runClustering()"
+        >
+          <maple-settings-icon name="sparkle" [size]="13" color="#ffffff" />
+          {{ clusteringBusy() ? 'Clustering…' : 'Run clustering' }}
+        </button>
+      </div>
+    </header>
+
+    <div class="people-body">
+      @if (hasPeople()) {
+        <div class="stats-line">
+          {{ peopleStats().named }} named · {{ peopleStats().unnamed }} unnamed ·
+          {{ peopleStats().faces | number }} face{{ peopleStats().faces === 1 ? '' : 's' }}
+        </div>
+      }
+
+      @if (!hasPeople()) {
+        <div class="empty-card">
+          <h3>No people yet.</h3>
+          <p>
+            Run clustering to group detected faces. Faces come from the face worker — make sure it's
+            enabled under
+            <a routerLink="/settings/workers">Worker settings</a>.
+          </p>
+        </div>
+      } @else {
+        <div class="people-grid">
+          @for (p of sortedPeople(); track p.id) {
+            <article
+              class="person-card"
+              (click)="selectPerson(p.id)"
+              (mapleVisibleOnce)="ensureCoverThumb(p)"
+              tabindex="0"
+              role="button"
+              (keydown.enter)="selectPerson(p.id); $event.preventDefault()"
+              (keydown.space)="selectPerson(p.id); $event.preventDefault()"
+            >
+              <div class="person-thumb">
+                @if (coverThumbUrl(p); as url) {
+                  @if (p.coverBbox; as bbox) {
+                    <img
+                      [src]="url"
+                      [style.transform]="faceCropTransform(bbox)"
+                      style="transform-origin: 0 0"
+                      alt=""
+                      loading="lazy"
+                      decoding="async"
+                    />
+                  } @else {
+                    <img class="cover-fill" [src]="url" alt="" loading="lazy" decoding="async" />
+                  }
+                } @else {
+                  <span class="person-thumb-fallback">{{ p.name.slice(0, 1).toUpperCase() }}</span>
+                }
+              </div>
+              <div class="person-meta">
+                <div class="person-name" [class.is-auto-named]="isAutoName(p.name)">
+                  {{ p.name }}
+                </div>
+                <div class="person-stats">
+                  <span class="person-faces"
+                    >{{ p.faceCount }} face{{ p.faceCount === 1 ? '' : 's' }}</span
+                  >
+                  <button
+                    type="button"
+                    class="card-delete"
+                    [title]="'Delete ' + p.name"
+                    (click)="$event.stopPropagation(); deletePerson(p)"
+                  >
+                    Delete
+                  </button>
+                </div>
+              </div>
+            </article>
+          }
+        </div>
+      }
+    </div>
+  }
+</maple-settings-shell>
