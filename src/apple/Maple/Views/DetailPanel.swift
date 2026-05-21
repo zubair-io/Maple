@@ -284,11 +284,11 @@ private struct ActiveDevelopTab: View {
                 // → orange (warm source / warm render at high CCT). Default
                 // 6500 K = D65, neutral. Mirrors ACR's slider visual.
                 AdjustSlider("Temperature", value: $session.model.temperature,
-                             range: 2000...12000, format: "%.0f K",
+                             range: AdjustmentModel.temperatureRange, format: "%.0f K",
                              colors: [.blue, .orange], defaultValue: 6500)
                 // Tint: green (positive shift) → magenta (negative shift).
                 // ACR convention is signed −100..+100 with 0 neutral.
-                AdjustSlider("Tint", value: $session.model.tint, range: -100...100,
+                AdjustSlider("Tint", value: $session.model.tint, range: AdjustmentModel.tintRange,
                              colors: [.green, .pink])
                 if let cct = session.asShotCCT, let tint = session.asShotTint {
                     HStack {
@@ -310,21 +310,21 @@ private struct ActiveDevelopTab: View {
             CollapsibleSection(title: "Basic") {
                 // Exposure crosses through neutral mid-gray; full range
                 // black → gray → white reads as a luminance ramp.
-                AdjustSlider("Exposure",   value: $session.model.exposure,   range: -4...4,
+                AdjustSlider("Exposure",   value: $session.model.exposure,   range: AdjustmentModel.exposureRange,
                              format: "%.2f EV",
                              colors: [.black, .gray, .white])
                 // Contrast/Highlights/Whites: neutral → bright (pulling
                 // the high end up). Shadows/Blacks: dark → mid-dark
                 // (pulling the low end down).
-                AdjustSlider("Contrast",   value: $session.model.contrast,   range: -100...100,
+                AdjustSlider("Contrast",   value: $session.model.contrast,   range: AdjustmentModel.contrastRange,
                              colors: [.gray, .white])
-                AdjustSlider("Highlights", value: $session.model.highlights, range: -100...100,
+                AdjustSlider("Highlights", value: $session.model.highlights, range: AdjustmentModel.highlightsRange,
                              colors: [.gray, .white])
-                AdjustSlider("Shadows",    value: $session.model.shadows,    range: -100...100,
+                AdjustSlider("Shadows",    value: $session.model.shadows,    range: AdjustmentModel.shadowsRange,
                              colors: [Color(hex: "#333333"), .gray])
-                AdjustSlider("Whites",     value: $session.model.whites,     range: -100...100,
+                AdjustSlider("Whites",     value: $session.model.whites,     range: AdjustmentModel.whitesRange,
                              colors: [.gray, .white])
-                AdjustSlider("Blacks",     value: $session.model.blacks,     range: -100...100,
+                AdjustSlider("Blacks",     value: $session.model.blacks,     range: AdjustmentModel.blacksRange,
                              colors: [.black, .gray])
             }
             Divider().overlay(MapleTokens.border)
@@ -335,15 +335,15 @@ private struct ActiveDevelopTab: View {
                 // / Texture are luminance-contrast operations, gray →
                 // white. Dehaze cleans the haze tone (purple-gray) into
                 // clean white.
-                AdjustSlider("Vibrance",   value: $session.model.vibrance,   range: -100...100,
+                AdjustSlider("Vibrance",   value: $session.model.vibrance,   range: AdjustmentModel.vibranceRange,
                              colors: [.gray, Color(hex: "#FF6B6B")])
-                AdjustSlider("Saturation", value: $session.model.saturation, range: -100...100,
+                AdjustSlider("Saturation", value: $session.model.saturation, range: AdjustmentModel.saturationRange,
                              colors: [.gray, Color(hex: "#FF4444")])
-                AdjustSlider("Clarity",    value: $session.model.clarity,    range: -100...100,
+                AdjustSlider("Clarity",    value: $session.model.clarity,    range: AdjustmentModel.clarityRange,
                              colors: [.gray, .white])
-                AdjustSlider("Texture",    value: $session.model.texture,    range: -100...100,
+                AdjustSlider("Texture",    value: $session.model.texture,    range: AdjustmentModel.textureRange,
                              colors: [.gray, .white])
-                AdjustSlider("Dehaze",     value: $session.model.dehaze,     range: -100...100,
+                AdjustSlider("Dehaze",     value: $session.model.dehaze,     range: AdjustmentModel.dehazeRange,
                              colors: [Color(hex: "#8888AA"), .white])
             }
             Divider().overlay(MapleTokens.border)
@@ -352,14 +352,14 @@ private struct ActiveDevelopTab: View {
                 // as "more processing." Radius default 1.0 mirrors ACR's
                 // raw-file capture-sharpening default (after the recent
                 // f4e3ef7 commit dropped the ill-advised default of 5).
-                AdjustSlider("Sharpen",    value: $session.model.sharpenAmount,  range: 0...150,
+                AdjustSlider("Sharpen",    value: $session.model.sharpenAmount,  range: AdjustmentModel.sharpenAmountRange,
                              colors: [.gray, .white])
-                AdjustSlider("Radius",     value: $session.model.sharpenRadius,  range: 0.5...3,
+                AdjustSlider("Radius",     value: $session.model.sharpenRadius,  range: AdjustmentModel.sharpenRadiusRange,
                              format: "%.1f",
                              colors: [.gray, .white], defaultValue: 1.0)
-                AdjustSlider("NR Lum",     value: $session.model.nrLuminance,    range: 0...100,
+                AdjustSlider("NR Lum",     value: $session.model.nrLuminance,    range: AdjustmentModel.nrLuminanceRange,
                              colors: [.gray, .white])
-                AdjustSlider("NR Color",   value: $session.model.nrColor,        range: 0...100,
+                AdjustSlider("NR Color",   value: $session.model.nrColor,        range: AdjustmentModel.nrColorRange,
                              colors: [.gray, .white], defaultValue: 25)
             }
         }
@@ -395,48 +395,48 @@ private struct DisabledDevelopTab: View {
             // weight are identical when no session is loaded — the panel
             // doesn't jump between states.
             CollapsibleSection(title: "White Balance") {
-                AdjustSlider("Temperature", value: $temp, range: 2000...12000, format: "%.0f K",
+                AdjustSlider("Temperature", value: $temp, range: AdjustmentModel.temperatureRange, format: "%.0f K",
                              colors: [.blue, .orange], defaultValue: 6500)
-                AdjustSlider("Tint", value: $z, range: -100...100,
+                AdjustSlider("Tint", value: $z, range: AdjustmentModel.tintRange,
                              colors: [.green, .pink])
             }
             Divider().overlay(MapleTokens.border)
             CollapsibleSection(title: "Basic") {
-                AdjustSlider("Exposure",   value: $z, range: -4...4, format: "%.2f EV",
+                AdjustSlider("Exposure",   value: $z, range: AdjustmentModel.exposureRange, format: "%.2f EV",
                              colors: [.black, .gray, .white])
-                AdjustSlider("Contrast",   value: $z, range: -100...100,
+                AdjustSlider("Contrast",   value: $z, range: AdjustmentModel.contrastRange,
                              colors: [.gray, .white])
-                AdjustSlider("Highlights", value: $z, range: -100...100,
+                AdjustSlider("Highlights", value: $z, range: AdjustmentModel.highlightsRange,
                              colors: [.gray, .white])
-                AdjustSlider("Shadows",    value: $z, range: -100...100,
+                AdjustSlider("Shadows",    value: $z, range: AdjustmentModel.shadowsRange,
                              colors: [Color(hex: "#333333"), .gray])
-                AdjustSlider("Whites",     value: $z, range: -100...100,
+                AdjustSlider("Whites",     value: $z, range: AdjustmentModel.whitesRange,
                              colors: [.gray, .white])
-                AdjustSlider("Blacks",     value: $z, range: -100...100,
+                AdjustSlider("Blacks",     value: $z, range: AdjustmentModel.blacksRange,
                              colors: [.black, .gray])
             }
             Divider().overlay(MapleTokens.border)
             CollapsibleSection(title: "Presence") {
-                AdjustSlider("Vibrance",   value: $z, range: -100...100,
+                AdjustSlider("Vibrance",   value: $z, range: AdjustmentModel.vibranceRange,
                              colors: [.gray, Color(hex: "#FF6B6B")])
-                AdjustSlider("Saturation", value: $z, range: -100...100,
+                AdjustSlider("Saturation", value: $z, range: AdjustmentModel.saturationRange,
                              colors: [.gray, Color(hex: "#FF4444")])
-                AdjustSlider("Clarity",    value: $z, range: -100...100,
+                AdjustSlider("Clarity",    value: $z, range: AdjustmentModel.clarityRange,
                              colors: [.gray, .white])
-                AdjustSlider("Texture",    value: $z, range: -100...100,
+                AdjustSlider("Texture",    value: $z, range: AdjustmentModel.textureRange,
                              colors: [.gray, .white])
-                AdjustSlider("Dehaze",     value: $z, range: -100...100,
+                AdjustSlider("Dehaze",     value: $z, range: AdjustmentModel.dehazeRange,
                              colors: [Color(hex: "#8888AA"), .white])
             }
             Divider().overlay(MapleTokens.border)
             CollapsibleSection(title: "Detail") {
-                AdjustSlider("Sharpen",    value: $z, range: 0...150,
+                AdjustSlider("Sharpen",    value: $z, range: AdjustmentModel.sharpenAmountRange,
                              colors: [.gray, .white])
-                AdjustSlider("Radius",     value: $z, range: 0.5...3, format: "%.1f",
+                AdjustSlider("Radius",     value: $z, range: AdjustmentModel.sharpenRadiusRange, format: "%.1f",
                              colors: [.gray, .white], defaultValue: 1.0)
-                AdjustSlider("NR Lum",     value: $z, range: 0...100,
+                AdjustSlider("NR Lum",     value: $z, range: AdjustmentModel.nrLuminanceRange,
                              colors: [.gray, .white])
-                AdjustSlider("NR Color",   value: $z, range: 0...100,
+                AdjustSlider("NR Color",   value: $z, range: AdjustmentModel.nrColorRange,
                              colors: [.gray, .white], defaultValue: 25)
             }
         }
