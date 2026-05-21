@@ -46,7 +46,6 @@ src/api/src/fs/browse.ts                                                        
 src/api/tests/search/buckets.test.ts                                              # 842  — search bucket integration tests
 src/api/tests/search-place-route.test.ts                                          # 664  — search-by-place tests
 src/api/tests/enrichment-dead-letter.test.ts                                      # 623  — enrichment dead-letter tests
-src/api/src/db/migrations.test.ts                                                 # 765  — content-addressed assets migration tests; split per migration step (refs #134, #250)
 src/api/src/workers/discover/discover.test.ts                                     # 696  — discover producer tests; split per discover concern (refs #134, #251)
 src/api/tests/backup-ingest.test.ts                                               # 628  — backup-ingest route tests; split per scenario (refs #134, #252)
 src/api/src/workers/discover/index.ts                                             # 622  — discover producer; split per dispatch/scheduling/observation seam (refs #134, #253)
