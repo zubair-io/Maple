@@ -17,6 +17,9 @@
  * dependsOn: []   — first stage in the graph; no prerequisites.
  */
 import { hashFileForId } from '../../indexer/id.ts';
+import { assetAbsPath } from '../../indexer/images.repo.ts';
+import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
+import type { ImageDoc, StageResult } from '../run-stage.ts';
 import { defineStage, runStage, type RunStageHandle } from '../run-stage.ts';
 
 const hashStage = defineStage({
@@ -32,7 +35,7 @@ const hashStage = defineStage({
     pausedOnFirstBoot: false,
     last_seen_target_version: 0,
   },
-  handler: async (image) => {
+  handler: async (image: ImageDoc): Promise<StageResult> => {
     // PR 2: discover writes maple_id + sha1_head + size + mtime inline at
     // insert time, and pre-bumps stages.hash.version to the target so this
     // stage is skipped on the next claim poll. Legacy rows (maple_id is
@@ -45,7 +48,16 @@ const hashStage = defineStage({
     if (image.maple_id && image.sha1_head && image.size && image.mtime) {
       return { patch: {} };
     }
-    const absPath = image.abs_path as string;
+    let libs: ReadonlyMap<string, string>;
+    try {
+      libs = await loadLibraryRoots();
+    } catch {
+      libs = new Map();
+    }
+    const absPath = assetAbsPath(image, libs) ?? (image.abs_path as string | undefined);
+    if (!absPath) {
+      return { skip: 'no-resolvable-location' };
+    }
     const { maple_id, sha1_head, size, mtime } = await hashFileForId(absPath);
     return {
       patch: { sha1_head, size, mtime, maple_id },

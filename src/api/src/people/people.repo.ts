@@ -12,26 +12,14 @@
  * No `any`. snake_case Mongo fields. Logging via the shared child logger.
  */
 
-import {
-  ObjectId,
-  type Collection,
-  type WithId,
-  type Filter,
-} from "mongodb";
-import {
-  assetsCollection,
-  peopleCollection,
-} from "../db/client.ts";
-import type {
-  AssetDoc,
-  AssetFaceDoc,
-  Bbox,
-  PersonDoc,
-  PersonWithId,
-} from "../db/schema.ts";
-import { child as childLogger } from "../log.ts";
+import { ObjectId, type Collection, type WithId, type Filter } from 'mongodb';
+import { assetsCollection, peopleCollection } from '../db/client.ts';
+import type { AssetDoc, AssetFaceDoc, Bbox, PersonDoc, PersonWithId } from '../db/schema.ts';
+import { assetAbsPath } from '../indexer/images.repo.ts';
+import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
+import { child as childLogger } from '../log.ts';
 
-const log = childLogger("people:repo");
+const log = childLogger('people:repo');
 
 /** Result of `renamePerson`. When a collision triggers a merge the
  * `mergedFrom` field reports the orphan id (the row whose faces were
@@ -90,10 +78,9 @@ async function findByNameCI(
   coll: Collection<PersonDoc>,
   name: string,
 ): Promise<PersonWithId | null> {
-  return coll.findOne(
-    { name, merged_into: null } as Filter<PersonDoc>,
-    { collation: { locale: "en", strength: 2 } },
-  );
+  return coll.findOne({ name, merged_into: null } as Filter<PersonDoc>, {
+    collation: { locale: 'en', strength: 2 },
+  });
 }
 
 function nowIso(): string {
@@ -114,7 +101,7 @@ function nowIso(): string {
 export async function createPerson(name: string): Promise<PersonWithId> {
   const trimmed = name.trim();
   if (trimmed.length === 0) {
-    throw new Error("name must not be empty");
+    throw new Error('name must not be empty');
   }
   const coll = await peopleCollection();
   const existing = await findByNameCI(coll, trimmed);
@@ -127,7 +114,7 @@ export async function createPerson(name: string): Promise<PersonWithId> {
   };
   try {
     const result = await coll.insertOne(doc as PersonDoc);
-    log.info({ id: result.insertedId.toHexString(), name: trimmed }, "created person");
+    log.info({ id: result.insertedId.toHexString(), name: trimmed }, 'created person');
     return { ...doc, _id: result.insertedId } as PersonWithId;
   } catch (err) {
     // Race: another caller inserted the same name between our findOne and
@@ -149,13 +136,10 @@ export async function createPerson(name: string): Promise<PersonWithId> {
  * (smaller) `_id` wins. This makes the operation deterministic regardless
  * of which side of the rename the operator triggered.
  */
-export async function renamePerson(
-  id: ObjectId,
-  name: string,
-): Promise<RenameResult> {
+export async function renamePerson(id: ObjectId, name: string): Promise<RenameResult> {
   const trimmed = name.trim();
   if (trimmed.length === 0) {
-    throw new Error("name must not be empty");
+    throw new Error('name must not be empty');
   }
   const coll = await peopleCollection();
   const subject = await coll.findOne({ _id: id });
@@ -166,23 +150,17 @@ export async function renamePerson(
     throw new Error(`person already merged: ${id.toHexString()}`);
   }
   // Name unchanged (case-insensitive) — bump updated_at and return.
-  if (subject.name.localeCompare(trimmed, "en", { sensitivity: "accent" }) === 0) {
+  if (subject.name.localeCompare(trimmed, 'en', { sensitivity: 'accent' }) === 0) {
     if (subject.name === trimmed) {
       return { survivor: subject as PersonWithId };
     }
-    await coll.updateOne(
-      { _id: id },
-      { $set: { name: trimmed, updated_at: nowIso() } },
-    );
+    await coll.updateOne({ _id: id }, { $set: { name: trimmed, updated_at: nowIso() } });
     return { survivor: { ...subject, name: trimmed } as PersonWithId };
   }
   const collision = await findByNameCI(coll, trimmed);
   if (!collision) {
     // No collision — straightforward rename.
-    await coll.updateOne(
-      { _id: id },
-      { $set: { name: trimmed, updated_at: nowIso() } },
-    );
+    await coll.updateOne({ _id: id }, { $set: { name: trimmed, updated_at: nowIso() } });
     return {
       survivor: { ...subject, name: trimmed } as PersonWithId,
     };
@@ -190,33 +168,25 @@ export async function renamePerson(
   if (collision._id.equals(id)) {
     // Pointing at ourselves (case-only rename hit the same row). Same as
     // the "name unchanged" branch.
-    await coll.updateOne(
-      { _id: id },
-      { $set: { name: trimmed, updated_at: nowIso() } },
-    );
+    await coll.updateOne({ _id: id }, { $set: { name: trimmed, updated_at: nowIso() } });
     return { survivor: { ...subject, name: trimmed } as PersonWithId };
   }
   // Collision — merge. Older _id wins.
-  const survivor =
-    subject._id.toString() < collision._id.toString() ? subject : collision;
+  const survivor = subject._id.toString() < collision._id.toString() ? subject : collision;
   const orphan = survivor._id.equals(subject._id) ? collision : subject;
   await mergeInto(survivor._id, orphan._id, trimmed);
   // The survivor's stored name should match `trimmed`; both incoming
   // names matched it case-insensitively. We canonicalise to the
   // operator-supplied spelling.
   const fresh = await coll.findOne({ _id: survivor._id });
-  if (!fresh) throw new Error("survivor disappeared mid-merge");
+  if (!fresh) throw new Error('survivor disappeared mid-merge');
   return { survivor: fresh as PersonWithId, mergedFrom: orphan._id };
 }
 
 /** Internal merge helper: repoint `asset.faces[].person_id` from `orphan`
  * to `survivor`, then mark the orphan as `merged_into = survivor`. The
  * survivor's name is canonicalised to `name` (operator spelling). */
-async function mergeInto(
-  survivor: ObjectId,
-  orphan: ObjectId,
-  name: string,
-): Promise<void> {
+async function mergeInto(survivor: ObjectId, orphan: ObjectId, name: string): Promise<void> {
   const survivorHex = survivor.toHexString();
   const orphanHex = orphan.toHexString();
   const assets = await assetsCollection();
@@ -225,12 +195,12 @@ async function mergeInto(
   // arrayFilters lets us update every matching element in one pass per
   // asset doc.
   const repoint = await assets.updateMany(
-    { "faces.person_id": orphanHex },
+    { 'faces.person_id': orphanHex },
     {
-      $set: { "faces.$[face].person_id": survivorHex },
+      $set: { 'faces.$[face].person_id': survivorHex },
     },
     {
-      arrayFilters: [{ "face.person_id": orphanHex }],
+      arrayFilters: [{ 'face.person_id': orphanHex }],
     },
   );
   // Mark the orphan as merged. Keep its name for audit (the partial unique
@@ -258,7 +228,7 @@ async function mergeInto(
       orphan: orphanHex,
       faces_repointed: repoint.modifiedCount,
     },
-    "merged person",
+    'merged person',
   );
 }
 
@@ -268,14 +238,12 @@ async function mergeInto(
  *
  * Sorted by `name` ascending under the case-insensitive collation.
  */
-export async function listPeople(
-  options: ListPeopleOptions = {},
-): Promise<PersonWithCount[]> {
+export async function listPeople(options: ListPeopleOptions = {}): Promise<PersonWithCount[]> {
   const { withCounts = true } = options;
   const coll = await peopleCollection();
   const people = await coll
     .find({ merged_into: null } as Filter<PersonDoc>)
-    .collation({ locale: "en", strength: 2 })
+    .collation({ locale: 'en', strength: 2 })
     .sort({ name: 1 })
     .toArray();
   if (people.length === 0) return [];
@@ -301,9 +269,7 @@ export async function listPeople(
  * `_id`-indexed `find({ _id: { $in: [...] } })` against `assets`; returns a
  * `personHex → absPath` map. People whose `cover_asset_id` is null/missing
  * or whose asset doc was deleted simply don't appear in the map. */
-async function coverAbsPathByPerson(
-  people: WithId<PersonDoc>[],
-): Promise<Map<string, string>> {
+async function coverAbsPathByPerson(people: WithId<PersonDoc>[]): Promise<Map<string, string>> {
   const out = new Map<string, string>();
   // Key by lowercase hex (`oid.toHexString()`) on both sides — Mongo
   // accepts mixed-case hex in `cover_asset_id` strings, but `_id`s round-
@@ -323,13 +289,14 @@ async function coverAbsPathByPerson(
   const assets = await assetsCollection();
   const cursor = assets.find(
     { _id: { $in: coverObjectIds } },
-    { projection: { abs_path: 1 } },
+    { projection: { abs_path: 1, fileinfo: 1, folder_id: 1 } },
   );
+  const libs = await loadLibraryRoots();
   for await (const row of cursor) {
     const personHex = personByCover.get(row._id.toHexString());
-    if (personHex && typeof row.abs_path === "string") {
-      out.set(personHex, row.abs_path);
-    }
+    if (!personHex) continue;
+    const resolved = assetAbsPath(row, libs);
+    if (resolved) out.set(personHex, resolved);
   }
   return out;
 }
@@ -352,18 +319,18 @@ async function faceCountByPerson(): Promise<Map<string, number>> {
   const assets = await assetsCollection();
   const cursor = assets.aggregate<{ _id: string; count: number }>([
     { $match: { faces: { $exists: true, $ne: [] } } },
-    { $unwind: "$faces" },
+    { $unwind: '$faces' },
     {
       $match: {
-        "faces.person_id": { $ne: null },
-        "faces.hidden": { $ne: true },
+        'faces.person_id': { $ne: null },
+        'faces.hidden': { $ne: true },
       },
     },
-    { $group: { _id: "$faces.person_id", count: { $sum: 1 } } },
+    { $group: { _id: '$faces.person_id', count: { $sum: 1 } } },
   ]);
   const out = new Map<string, number>();
   for await (const row of cursor) {
-    if (typeof row._id === "string") out.set(row._id, row.count);
+    if (typeof row._id === 'string') out.set(row._id, row.count);
   }
   return out;
 }
@@ -386,37 +353,42 @@ export async function getPerson(
   const cursor = assets.aggregate<{
     _id: ObjectId;
     abs_path: string;
+    fileinfo?: AssetDoc['fileinfo'];
+    folder_id?: ObjectId;
     face_index: number;
     bbox: Bbox;
     confidence: number;
     captured_at: string | null;
   }>([
-    { $match: { "faces.person_id": personHex } },
+    { $match: { 'faces.person_id': personHex } },
     {
-      $unwind: { path: "$faces", includeArrayIndex: "face_index" },
+      $unwind: { path: '$faces', includeArrayIndex: 'face_index' },
     },
-    { $match: { "faces.person_id": personHex } },
+    { $match: { 'faces.person_id': personHex } },
     // Drop hidden faces — the operator marked them as not-tracked, so
     // they should not appear in any person panel.
-    { $match: { "faces.hidden": { $ne: true } } },
+    { $match: { 'faces.hidden': { $ne: true } } },
     {
       $project: {
         abs_path: 1,
+        fileinfo: 1,
+        folder_id: 1,
         face_index: 1,
-        bbox: "$faces.bbox",
-        confidence: "$faces.confidence",
-        captured_at: { $ifNull: ["$exif.captured_at", null] },
+        bbox: '$faces.bbox',
+        confidence: '$faces.confidence',
+        captured_at: { $ifNull: ['$exif.captured_at', null] },
       },
     },
     { $sort: { captured_at: -1, _id: 1 } },
     { $limit: faceLimit },
   ]);
+  const libs = await loadLibraryRoots();
   const faces: PersonDetailFace[] = [];
   for await (const row of cursor) {
     faces.push({
       asset_id: row._id.toHexString(),
       face_index: row.face_index,
-      abs_path: row.abs_path,
+      abs_path: assetAbsPath(row, libs) ?? row.abs_path,
       bbox: row.bbox,
       confidence: row.confidence,
     });
@@ -445,16 +417,11 @@ export async function assignFaceToPerson(
   // Use the positional path with the index baked in. We can't use $set with
   // a literal index on an array element if the path doesn't exist; verify
   // first.
-  const asset = await assets.findOne(
-    { _id: assetId },
-    { projection: { faces: 1 } },
-  );
+  const asset = await assets.findOne({ _id: assetId }, { projection: { faces: 1 } });
   if (!asset) throw new Error(`asset not found: ${assetId.toHexString()}`);
   const faces = (asset.faces ?? []) as AssetFaceDoc[];
   if (faceIndex >= faces.length) {
-    throw new Error(
-      `face index out of range: ${faceIndex} (asset has ${faces.length} faces)`,
-    );
+    throw new Error(`face index out of range: ${faceIndex} (asset has ${faces.length} faces)`);
   }
   await assets.updateOne(
     { _id: assetId },
@@ -472,24 +439,16 @@ export async function assignFaceToPerson(
  *
  * Idempotent — calling on an already-hidden face is a no-op.
  */
-export async function hideFace(
-  assetId: ObjectId,
-  faceIndex: number,
-): Promise<void> {
+export async function hideFace(assetId: ObjectId, faceIndex: number): Promise<void> {
   if (!Number.isInteger(faceIndex) || faceIndex < 0) {
     throw new Error(`invalid face index: ${faceIndex}`);
   }
   const assets = await assetsCollection();
-  const asset = await assets.findOne(
-    { _id: assetId },
-    { projection: { faces: 1 } },
-  );
+  const asset = await assets.findOne({ _id: assetId }, { projection: { faces: 1 } });
   if (!asset) throw new Error(`asset not found: ${assetId.toHexString()}`);
   const faces = (asset.faces ?? []) as AssetFaceDoc[];
   if (faceIndex >= faces.length) {
-    throw new Error(
-      `face index out of range: ${faceIndex} (asset has ${faces.length} faces)`,
-    );
+    throw new Error(`face index out of range: ${faceIndex} (asset has ${faces.length} faces)`);
   }
   await assets.updateOne(
     { _id: assetId },
@@ -511,13 +470,13 @@ export async function deletePerson(id: ObjectId): Promise<void> {
   const personHex = id.toHexString();
   const assets = await assetsCollection();
   await assets.updateMany(
-    { "faces.person_id": personHex },
-    { $set: { "faces.$[face].person_id": null } },
-    { arrayFilters: [{ "face.person_id": personHex }] },
+    { 'faces.person_id': personHex },
+    { $set: { 'faces.$[face].person_id': null } },
+    { arrayFilters: [{ 'face.person_id': personHex }] },
   );
   const coll = await peopleCollection();
   await coll.deleteOne({ _id: id });
-  log.info({ id: personHex }, "deleted person");
+  log.info({ id: personHex }, 'deleted person');
 }
 
 /**

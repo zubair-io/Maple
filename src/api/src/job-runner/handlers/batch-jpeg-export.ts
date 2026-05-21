@@ -19,12 +19,14 @@
  * `docs/workers-architecture.md` §11 ("Reuse the FFI pool").
  */
 
-import { mkdir } from "node:fs/promises";
-import { basename, join } from "node:path";
-import { ObjectId } from "mongodb";
-import { assetsCollection } from "../../db/client.ts";
-import { ffiPool } from "../../ffi/ffi-pool.ts";
-import type { JobHandler, JobHandlerContext, JobHandlerResult } from "./index.ts";
+import { mkdir } from 'node:fs/promises';
+import { basename, join } from 'node:path';
+import { ObjectId } from 'mongodb';
+import { assetsCollection } from '../../db/client.ts';
+import { ffiPool } from '../../ffi/ffi-pool.ts';
+import { assetAbsPath } from '../../indexer/images.repo.ts';
+import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
+import type { JobHandler, JobHandlerContext, JobHandlerResult } from './index.ts';
 
 const DEFAULT_MAX_PX = 4096; // long-edge cap; matches the largest preview tier
 const MIN_QUALITY = 1;
@@ -47,20 +49,16 @@ interface BatchJpegExportResult {
 
 function parsePayload(raw: Record<string, unknown>): BatchJpegExportPayload {
   const ids = raw.assetIds;
-  if (!Array.isArray(ids) || ids.some((x) => typeof x !== "string")) {
-    throw new Error(
-      "batch_jpeg_export: payload.assetIds must be string[]",
-    );
+  if (!Array.isArray(ids) || ids.some((x) => typeof x !== 'string')) {
+    throw new Error('batch_jpeg_export: payload.assetIds must be string[]');
   }
   const outputDir = raw.outputDir;
-  if (typeof outputDir !== "string" || outputDir.length === 0) {
-    throw new Error(
-      "batch_jpeg_export: payload.outputDir must be a non-empty string",
-    );
+  if (typeof outputDir !== 'string' || outputDir.length === 0) {
+    throw new Error('batch_jpeg_export: payload.outputDir must be a non-empty string');
   }
-  const qRaw = typeof raw.quality === "number" ? raw.quality : DEFAULT_QUALITY;
+  const qRaw = typeof raw.quality === 'number' ? raw.quality : DEFAULT_QUALITY;
   const quality = Math.max(MIN_QUALITY, Math.min(MAX_QUALITY, Math.floor(qRaw)));
-  const maxPxRaw = typeof raw.maxPx === "number" ? raw.maxPx : DEFAULT_MAX_PX;
+  const maxPxRaw = typeof raw.maxPx === 'number' ? raw.maxPx : DEFAULT_MAX_PX;
   const maxPx = Math.max(64, Math.floor(maxPxRaw));
   return { assetIds: ids as string[], outputDir, quality, maxPx };
 }
@@ -68,7 +66,7 @@ function parsePayload(raw: Record<string, unknown>): BatchJpegExportPayload {
 /** Replace the source extension with `.jpg`; falls back to `<stem>.jpg`. */
 function jpgFilename(absPath: string): string {
   const base = basename(absPath);
-  const dot = base.lastIndexOf(".");
+  const dot = base.lastIndexOf('.');
   const stem = dot > 0 ? base.slice(0, dot) : base;
   return `${stem}.jpg`;
 }
@@ -93,12 +91,13 @@ export const batchJpegExportHandler: JobHandler = {
 
     const coll = await assetsCollection();
     const pool = ffiPool();
+    const libs = await loadLibraryRoots();
 
     for (let i = 0; i < assetIds.length; i++) {
       // Cancellation gate — runs before each asset so a request mid-batch
       // takes effect without abandoning a render mid-flight.
       if (await ctx.shouldCancel()) {
-        return { kind: "cancelled", result: result as unknown as Record<string, unknown> };
+        return { kind: 'cancelled', result: result as unknown as Record<string, unknown> };
       }
 
       const idHex = assetIds[i];
@@ -108,9 +107,13 @@ export const batchJpegExportHandler: JobHandler = {
         }
         const doc = await coll.findOne({ _id: new ObjectId(idHex) });
         if (!doc) throw new Error(`asset not found: ${idHex}`);
-        const outPath = join(outputDir, jpgFilename(doc.abs_path));
+        const srcPath = assetAbsPath(doc, libs);
+        if (!srcPath) {
+          throw new Error(`asset has no resolvable location: ${idHex}`);
+        }
+        const outPath = join(outputDir, jpgFilename(srcPath));
         const ok = await pool.renderThumbnailJpegToFile(
-          doc.abs_path,
+          srcPath,
           outPath,
           maxPx ?? DEFAULT_MAX_PX,
           quality ?? DEFAULT_QUALITY,
@@ -120,7 +123,7 @@ export const batchJpegExportHandler: JobHandler = {
           result.outputPaths.push(outPath);
         } else {
           result.failedCount += 1;
-          result.failures.push({ assetId: idHex, error: "render returned false" });
+          result.failures.push({ assetId: idHex, error: 'render returned false' });
         }
       } catch (err) {
         result.failedCount += 1;
@@ -133,6 +136,6 @@ export const batchJpegExportHandler: JobHandler = {
       await ctx.reportProgress(i + 1, total);
     }
 
-    return { kind: "done", result: result as unknown as Record<string, unknown> };
+    return { kind: 'done', result: result as unknown as Record<string, unknown> };
   },
 };
