@@ -1276,6 +1276,7 @@ dependencies = [
  "image",
  "raw-core",
  "rawler",
+ "tempfile",
  "thiserror",
 ]
 
