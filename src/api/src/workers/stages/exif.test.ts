@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeAll, afterAll } from 'bun:test';
+import { describe, expect, it, beforeAll, afterAll, mock } from 'bun:test';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -140,6 +140,47 @@ describe('exif handler', () => {
     const result = await exifStage.handler(doc as never, {} as never);
     const { patch } = result as { patch: Record<string, unknown> };
     expect(patch.is_screenshot).toBe(false);
+  });
+
+  it('propagates loadLibraryRoots errors instead of skip-passing on transient DB faults', async () => {
+    // Regression: an earlier version of the handler swallowed
+    // loadLibraryRoots() errors and fell through to assetAbsPath() with an
+    // empty libs map, which returned null and caused a `skip:
+    // no-resolvable-location`. Because the stage runner writes
+    // `version = targetVersion` on skip, the row would never be re-claimed
+    // even after the DB recovered — silently dropping the work. The fix
+    // (let loadLibraryRoots throw) hands the error to the runner's
+    // retry/backoff path so the next tick re-tries the row.
+    //
+    // Capture every export from the real module into a plain object so the
+    // restore-via-remock at the end gives back identical bindings. Passing
+    // the Module namespace directly leaks the mocked `loadLibraryRoots`
+    // into the spread copy and keeps subsequent describe.test.ts /
+    // face.test.ts files broken.
+    const realModule = await import('../../indexer/libraries.cache.ts');
+    const restored = {
+      loadLibraryRoots: realModule.loadLibraryRoots,
+      invalidateLibraryRoots: realModule.invalidateLibraryRoots,
+      setLibraryRootsForTests: realModule.setLibraryRootsForTests,
+    };
+    try {
+      mock.module('../../indexer/libraries.cache.ts', () => ({
+        ...restored,
+        loadLibraryRoots: async () => {
+          throw new Error('simulated transient mongo failure');
+        },
+      }));
+      // Fresh import so the handler picks up the mocked binding — bun:test
+      // rewires the ESM binding for the duration of the test, mirroring the
+      // cache-gc.test.ts pattern.
+      const { default: freshExifStage } = await import('./exif.ts');
+      const doc = makeDoc(path.join(dir, 'does-not-matter.jpg'), libraryId, dir);
+      await expect(freshExifStage.handler(doc as never, {} as never)).rejects.toThrow(
+        'simulated transient mongo failure',
+      );
+    } finally {
+      mock.module('../../indexer/libraries.cache.ts', () => restored);
+    }
   });
 });
 

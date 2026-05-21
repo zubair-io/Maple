@@ -39,15 +39,15 @@ const thumbStage = defineStage({
     last_seen_target_version: 0,
   },
   handler: async (image): Promise<StageResult> => {
-    // loadLibraryRoots() reads the folders collection. A transient DB hiccup
-    // must not break thumb generation — fall back to an empty libraries map
-    // and let the next tick retry once the DB is reachable.
-    let libs: ReadonlyMap<string, string>;
-    try {
-      libs = await loadLibraryRoots();
-    } catch {
-      libs = new Map();
-    }
+    // Let `loadLibraryRoots()` errors propagate — a transient DB hiccup
+    // would otherwise yield an empty libs map, which would make
+    // `assetAbsPath` return null and trip the no-resolvable-location skip
+    // below. That skip writes `version = targetVersion` (see run-stage.ts),
+    // permanently marking the stage done. By throwing, the runner's
+    // retry/backoff path handles the transient case. Reserve `skip` for
+    // the genuine case: libraries loaded fine, but the asset has no
+    // fileinfo[0] or its library is unregistered.
+    const libs = await loadLibraryRoots();
     const thumbPath = resolveThumbPathForAsset(image as never, libs);
     const absPath = assetAbsPath(image as never, libs);
     if (!thumbPath || !absPath) {

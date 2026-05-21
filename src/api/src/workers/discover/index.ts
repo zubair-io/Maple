@@ -301,14 +301,12 @@ export async function handleEvent(
     );
   }
 
-  // Top-level fields refreshed on every dedup hit. abs_path is kept in sync
-  // with the most-recent location so legacy abs_path-keyed lookups in
-  // remove/rename handlers still work during the migration window
-  // (PR 5/7 moves those to fileinfo-only lookups).
+  // Top-level fields refreshed on every dedup hit. Legacy `abs_path` /
+  // `filename` / `folder_id` were dropped by the
+  // drop-abs-path-2026-05-21 migration; location lives entirely in
+  // `fileinfo[]` now, and the per-entry add/clear-deleted updates
+  // alongside this $set keep the row's location accurate.
   const dedupSet = {
-    abs_path: absPath,
-    filename,
-    folder_id: folderId,
     indexed_at: now,
     deleted_at: null,
     mtime: hashed.mtime,

@@ -116,6 +116,13 @@ export const trashRoutes = new Elysia()
       return { error: result.error };
     }
 
+    // Identify the fileinfo entry that backs `absPathResolved`. Mirrors
+    // `resolvePrimary` in assets.transform.ts — first live entry, else the
+    // first entry on the array. Passing it as `source` tells the repo to
+    // rewrite ONLY that entry instead of clobbering the whole array; when
+    // the asset has multiple `fileinfo[]` (deduped across libraries) we
+    // must preserve the non-trashed locations.
+    const sourceEntry = (info.fileinfo ?? []).find((e) => !e.deleted_at) ?? info.fileinfo?.[0];
     const originalAbsPath = absPathResolved;
     await markSoftDeleted({
       id,
@@ -123,6 +130,13 @@ export const trashRoutes = new Elysia()
       libraryId: info.folder_id,
       newAbsPath: result.newAbsPath,
       originalAbsPath,
+      source: sourceEntry
+        ? {
+            libraryId: sourceEntry.library_id,
+            path: sourceEntry.path,
+            filename: sourceEntry.filename,
+          }
+        : undefined,
     });
 
     // Best-effort Meilisearch tombstone — mirrors the indexer's
@@ -269,6 +283,11 @@ export const trashRoutes = new Elysia()
           'restore: stat of new path failed — using prior doc values',
         );
       }
+      // Identify the trashed fileinfo entry — the asset is in trash so its
+      // primary entry is the one we just moved. Same logic as the delete
+      // branch above; passing `source` rewrites that single entry rather
+      // than clobbering any sibling locations.
+      const restoreSource = (info.fileinfo ?? []).find((e) => !e.deleted_at) ?? info.fileinfo?.[0];
       await restoreFromTrash({
         id,
         libraryRoot: folder.path,
@@ -276,6 +295,13 @@ export const trashRoutes = new Elysia()
         newAbsPath: result.newAbsPath,
         size: restoredSize,
         mtimeMs: restoredMtimeMs,
+        source: restoreSource
+          ? {
+              libraryId: restoreSource.library_id,
+              path: restoreSource.path,
+              filename: restoreSource.filename,
+            }
+          : undefined,
       });
 
       // Best-effort Meilisearch re-index — symmetric with the tombstone

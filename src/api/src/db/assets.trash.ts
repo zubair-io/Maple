@@ -39,18 +39,33 @@ function relSplit(libraryRoot: string, absPath: string): { path: string; filenam
 }
 
 /**
- * Mark a live asset as soft-deleted and rewrite its primary fileinfo entry
- * to point at the trash destination. `originalAbsPath` is preserved in
- * `original_path` so the restore workflow can put the file back.
+ * Mark a live asset as soft-deleted and rewrite the matching fileinfo
+ * entry to point at the trash destination. `originalAbsPath` is preserved
+ * in `original_path` so the restore workflow can put the file back.
+ *
+ * The trash trigger is per-location: one fileinfo entry moves to trash,
+ * not the whole asset. When an asset has multiple `fileinfo[]` records
+ * (e.g. deduped across libraries), preserve the other entries in place.
+ * `source` identifies which entry was moved — typically the primary
+ * `fileinfo[0]`, which the trash route resolved before calling
+ * `moveToTrash`. Falls back to overwriting `fileinfo[0]` only when no
+ * `source` is given, matching the historical single-entry contract.
  */
 export async function markSoftDeleted(args: {
   id: ObjectId;
   /** The library root that owns this asset. Required so we can compute
-   * `(fileinfo[0].path, fileinfo[0].filename)` relative to it. */
+   * `(path, filename)` for the trashed entry relative to it. */
   libraryRoot: string;
   libraryId: ObjectId;
   newAbsPath: string;
   originalAbsPath: string;
+  /**
+   * Identity of the fileinfo entry that was moved to trash. Required for
+   * assets with multiple locations — without it we'd clobber the
+   * non-trashed entries. When omitted, the function updates `fileinfo[0]`
+   * via a positional fallback to preserve backwards compatibility.
+   */
+  source?: { libraryId: ObjectId; path: string; filename: string };
   dbOverride?: Db;
 }): Promise<UpdateResult> {
   const c = await coll(args.dbOverride);
@@ -60,18 +75,44 @@ export async function markSoftDeleted(args: {
       `markSoftDeleted: newAbsPath ${args.newAbsPath} is outside libraryRoot ${args.libraryRoot}`,
     );
   }
+  const newEntry = {
+    path: split.path,
+    filename: split.filename,
+    library_id: args.libraryId,
+    deleted_at: null,
+  };
+  if (args.source) {
+    // Surgical update: rewrite only the matching fileinfo entry. Falls
+    // back to fileinfo[0] if no entry matches (e.g. caller passed a
+    // stale source).
+    return c.updateOne(
+      { _id: args.id },
+      {
+        $set: {
+          'fileinfo.$[entry]': newEntry,
+          deleted_at: new Date().toISOString(),
+          original_path: args.originalAbsPath,
+        },
+      },
+      {
+        arrayFilters: [
+          {
+            'entry.library_id': args.source.libraryId,
+            'entry.path': args.source.path,
+            'entry.filename': args.source.filename,
+          },
+        ],
+      },
+    );
+  }
+  // Legacy contract — no source supplied → overwrite the array with a
+  // single entry. Kept so call sites that don't yet know the source can
+  // still soft-delete single-location assets.
   return c.updateOne(
     { _id: args.id },
     {
       $set: {
-        fileinfo: [
-          {
-            path: split.path,
-            filename: split.filename,
-            library_id: args.libraryId,
-            deleted_at: null,
-          },
-        ],
+        fileinfo: [newEntry],
         deleted_at: new Date().toISOString(),
         original_path: args.originalAbsPath,
       },
@@ -108,6 +149,13 @@ export async function restoreFromTrash(args: {
    * repo only stores epoch-ms.
    */
   mtimeMs: number;
+  /**
+   * Identity of the trashed fileinfo entry that's being restored. Same
+   * semantics as `markSoftDeleted.source` — required when the asset has
+   * multiple fileinfo entries; omitted forms still work for single-entry
+   * assets (legacy contract).
+   */
+  source?: { libraryId: ObjectId; path: string; filename: string };
   dbOverride?: Db;
 }): Promise<UpdateResult> {
   const c = await coll(args.dbOverride);
@@ -131,18 +179,40 @@ export async function restoreFromTrash(args: {
       },
     },
   });
+  const newEntry = {
+    path: split.path,
+    filename: split.filename,
+    library_id: args.libraryId,
+    deleted_at: null,
+  };
+  if (args.source) {
+    return c.updateOne(
+      { _id: args.id },
+      {
+        $set: {
+          'fileinfo.$[entry]': newEntry,
+          size: args.size,
+          mtime: args.mtimeMs,
+          deleted_at: null,
+          original_path: null,
+        },
+      },
+      {
+        arrayFilters: [
+          {
+            'entry.library_id': args.source.libraryId,
+            'entry.path': args.source.path,
+            'entry.filename': args.source.filename,
+          },
+        ],
+      },
+    );
+  }
   return c.updateOne(
     { _id: args.id },
     {
       $set: {
-        fileinfo: [
-          {
-            path: split.path,
-            filename: split.filename,
-            library_id: args.libraryId,
-            deleted_at: null,
-          },
-        ],
+        fileinfo: [newEntry],
         size: args.size,
         mtime: args.mtimeMs,
         deleted_at: null,

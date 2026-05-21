@@ -46,12 +46,16 @@ export async function faceHandler(image: ImageDoc, _ctx: StageContext): Promise<
   // Content-addressed thumb path. The legacy basename-keyed fallback was
   // retired in the drop-abs-path-2026-05-21 migration; rows without
   // `fileinfo` are skipped.
-  let libs: ReadonlyMap<string, string>;
-  try {
-    libs = await loadLibraryRoots();
-  } catch {
-    libs = new Map();
-  }
+  //
+  // Let `loadLibraryRoots()` errors propagate — a transient DB hiccup would
+  // otherwise yield an empty libs map, which would make
+  // `resolveThumbPathForAsset` return null and trip the no-resolvable-
+  // location skip below. That skip writes `version = targetVersion`
+  // (see run-stage.ts), permanently marking the stage done. By throwing,
+  // the runner's retry/backoff path handles the transient case. Reserve
+  // `skip` for the genuine case: libraries loaded fine, but the asset has
+  // no fileinfo[0] or its library is unregistered.
+  const libs = await loadLibraryRoots();
   const thumbPath = resolveThumbPathForAsset(image as never, libs);
   if (!thumbPath) {
     return { skip: 'no-resolvable-location' };
