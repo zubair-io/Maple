@@ -4,6 +4,10 @@
 
 import SwiftUI
 
+#if os(iOS)
+import UIKit
+#endif
+
 // MARK: - Detail panel width
 
 /// Platform-scoped column width for the detail pane.
