@@ -22,7 +22,8 @@ import CoreImage
 // MARK: - EditSession
 
 /// Per-image editing session. Observed by SwiftUI via the `@Observable` macro;
-/// use `@State` / `@Bindable` in views, not `@ObservedObject`.
+/// bind from views via `@State` / `@Bindable` (Observation framework — no
+/// legacy observed-object wrapper).
 @MainActor
 @Observable
 public final class EditSession {
