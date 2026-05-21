@@ -470,8 +470,8 @@ describe('assets.repo', () => {
       // Regression for #166: mtime must be a number (epoch-ms), not an
       // ISO string. The assets-list serialiser does `Math.floor(r.mtime
       // / 1000)`; a string would yield NaN.
-      expect(typeof (rows[0] as { mtime: unknown }).mtime).toBe('number');
-      expect((rows[0] as { mtime: number }).mtime).toBe(restoredMtimeMs);
+      expect(typeof (rows[0] as unknown as { mtime: unknown }).mtime).toBe('number');
+      expect((rows[0] as unknown as { mtime: number }).mtime).toBe(restoredMtimeMs);
     });
   });
 });

@@ -56,15 +56,38 @@ export async function tryConnect(): Promise<MongoClient | null> {
 }
 
 export interface Seed {
-  abs_path: string;
-  filename: string;
+  /** Content-addressed location record. After the
+   * drop-abs-path-2026-05-21 migration this is the only on-disk pointer
+   * persisted on AssetDoc — `projectAsset` reads filename / folder_id
+   * from `fileinfo[0]` and resolves `abs_path` via the libraries cache.
+   *
+   * Optional on this test-fixture shape: legacy buckets / list tests
+   * still describe rows in `{ folder_id, abs_path, filename }` form
+   * because their assertions key off those wire fields. The
+   * `materializeSeeds` helper converts those into the right
+   * `fileinfo[]` shape before insertMany. Tests authored after the
+   * migration should set `fileinfo` directly. */
+  fileinfo?: Array<{
+    library_id: ObjectId;
+    path: string;
+    filename: string;
+    deleted_at: string | null;
+  }>;
+  /** Legacy convenience field — kept on the test fixture shape so
+   * pre-PR-7 fixtures don't need rewriting. Translated to `fileinfo[]`
+   * by `materializeSeeds` before the insertMany. NOT persisted on
+   * production AssetDocs. */
+  folder_id?: ObjectId;
+  /** Legacy convenience field — see `folder_id`. */
+  abs_path?: string;
+  /** Legacy convenience field — see `folder_id`. */
+  filename?: string;
   size: number;
   mtime: number;
   rating: number;
   flag: -1 | 0 | 1;
   color_label: string;
   indexed_at: string;
-  folder_id: ObjectId;
   exif?: {
     captured_at: string | null;
     camera_make: string | null;
@@ -80,6 +103,28 @@ export interface Seed {
 }
 
 /**
+ * Translate a list of `Seed` rows into the post-PR-7 persisted shape:
+ * each row gets a `fileinfo[]` derived from legacy `{folder_id,
+ * abs_path, filename}` when those are present, OR keeps the explicit
+ * `fileinfo` the test already provided.
+ *
+ * Callers should run this once before `insertMany`. Drops the legacy
+ * fields off the output so the inserted docs match the production
+ * schema (`abs_path`, `folder_id`, `filename` no longer exist on
+ * AssetDoc post drop-abs-path-2026-05-21).
+ */
+export function materializeSeeds(seeds: Seed[]): Array<Omit<Seed, 'folder_id' | 'abs_path' | 'filename'>> {
+  return seeds.map((s) => {
+    const { folder_id, abs_path, filename, ...rest } = s;
+    let fileinfo = s.fileinfo;
+    if (!fileinfo && folder_id && abs_path && filename) {
+      fileinfo = [legacyToFileinfo(folder_id, abs_path, filename)];
+    }
+    return { ...rest, fileinfo: fileinfo ?? [] };
+  });
+}
+
+/**
  * The 5-row base seed shared by the list, facets, and buckets suites.
  * Counts: 4 live + 1 soft-deleted; covers all three EXIF cameras + a
  * row with no EXIF + a row with a regex-friendly filename.
@@ -87,9 +132,9 @@ export interface Seed {
 export function baseSeeds(folderA: ObjectId, folderB: ObjectId): Seed[] {
   return [
     {
-      folder_id: folderA,
-      abs_path: "/lib-a/dji-mavic3pro-100mp.dng",
-      filename: "dji-mavic3pro-100mp.dng",
+      fileinfo: [
+        { library_id: folderA, path: "", filename: "dji-mavic3pro-100mp.dng", deleted_at: null },
+      ],
       size: 1024,
       mtime: Date.now(),
       rating: 5,
@@ -109,9 +154,9 @@ export function baseSeeds(folderA: ObjectId, folderB: ObjectId): Seed[] {
       },
     },
     {
-      folder_id: folderA,
-      abs_path: "/lib-a/sunset.cr3",
-      filename: "sunset.cr3",
+      fileinfo: [
+        { library_id: folderA, path: "", filename: "sunset.cr3", deleted_at: null },
+      ],
       size: 2048,
       mtime: Date.now() - 1000,
       rating: 3,
@@ -131,9 +176,9 @@ export function baseSeeds(folderA: ObjectId, folderB: ObjectId): Seed[] {
       },
     },
     {
-      folder_id: folderB,
-      abs_path: "/lib-b/sony.arw",
-      filename: "sony.arw",
+      fileinfo: [
+        { library_id: folderB, path: "", filename: "sony.arw", deleted_at: null },
+      ],
       size: 4096,
       mtime: Date.now() - 2000,
       rating: 4,
@@ -153,9 +198,9 @@ export function baseSeeds(folderA: ObjectId, folderB: ObjectId): Seed[] {
       },
     },
     {
-      folder_id: folderB,
-      abs_path: "/lib-b/no-exif.jpg",
-      filename: "no-exif.jpg",
+      fileinfo: [
+        { library_id: folderB, path: "", filename: "no-exif.jpg", deleted_at: null },
+      ],
       size: 512,
       mtime: Date.now() - 3000,
       rating: 0,
@@ -166,9 +211,9 @@ export function baseSeeds(folderA: ObjectId, folderB: ObjectId): Seed[] {
     },
     {
       // Soft-deleted row — must NOT appear in search results.
-      folder_id: folderB,
-      abs_path: "/lib-b/deleted.dng",
-      filename: "deleted.dng",
+      fileinfo: [
+        { library_id: folderB, path: "", filename: "deleted.dng", deleted_at: null },
+      ],
       size: 256,
       mtime: Date.now() - 4000,
       rating: 0,
@@ -179,6 +224,70 @@ export function baseSeeds(folderA: ObjectId, folderB: ObjectId): Seed[] {
       deleted_at: new Date().toISOString(),
     },
   ];
+}
+
+/**
+ * Seed the `folders` collection so the search-project's
+ * `assetAbsPath(fileinfo, libraries)` call resolves library roots
+ * instead of returning empty strings. The roots line up with the
+ * legacy `/lib-a` / `/lib-b` paths from earlier fixtures so wire-shape
+ * assertions stay the same after the migration.
+ */
+export async function seedFolders(
+  db: Db,
+  folderA: ObjectId,
+  folderB: ObjectId,
+): Promise<void> {
+  await db.collection("folders").insertMany([
+    {
+      _id: folderA,
+      path: "/lib-a",
+      label: "lib-a",
+      last_scan: null,
+      file_count: 0,
+      created_at: new Date().toISOString(),
+    },
+    {
+      _id: folderB,
+      path: "/lib-b",
+      label: "lib-b",
+      last_scan: null,
+      file_count: 0,
+      created_at: new Date().toISOString(),
+    },
+  ] as never);
+  // Invalidate the process-wide library cache so the search route picks
+  // up the just-seeded roots on the next request.
+  const { invalidateLibraryRoots } = await import(
+    "../../src/indexer/libraries.cache.ts"
+  );
+  invalidateLibraryRoots();
+}
+
+/**
+ * Translate a legacy `{ folder_id, abs_path, filename }` seed triple
+ * into the post-PR-7 fileinfo entry shape. Used by tests that were
+ * authored against the pre-migration schema and still describe paths
+ * as absolute strings — we keep the readable fixtures but rewrite the
+ * shape at insert time so queries hit `fileinfo.*` paths correctly.
+ *
+ * `path` is computed as the directory portion of `abs_path` MINUS its
+ * leading slash (so `/A/B/2.dng` becomes `path: "A/B"`). This matches
+ * the convention used by `discover/index.ts` when it writes new rows.
+ */
+export function legacyToFileinfo(
+  folderId: ObjectId,
+  absPath: string,
+  filename: string,
+  deletedAt: string | null = null,
+): { library_id: ObjectId; path: string; filename: string; deleted_at: string | null } {
+  // Strip filename + its leading slash off the abs_path; what's left is
+  // the directory portion. Drop the leading slash to align with the
+  // server's relative-path convention.
+  const lastSlash = absPath.lastIndexOf("/");
+  const dir = lastSlash > 0 ? absPath.slice(0, lastSlash) : "";
+  const relDir = dir.replace(/^\/+/, "");
+  return { library_id: folderId, path: relDir, filename, deleted_at: deletedAt };
 }
 
 /**

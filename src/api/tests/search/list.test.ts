@@ -17,6 +17,7 @@ import { MongoClient, ObjectId } from "mongodb";
 import {
   baseSeeds,
   fmtAuth,
+  seedFolders,
   tryConnect,
 } from "./_setup.ts";
 
@@ -41,6 +42,7 @@ beforeAll(async () => {
   }
   const db = mongo!.db(TEST_DB);
   await db.dropDatabase();
+  await seedFolders(db, folderA, folderB);
   await db.collection("assets").insertMany(baseSeeds(folderA, folderB));
 
   // Reset the singleton DB connection — earlier tests in the suite may have
@@ -305,10 +307,27 @@ describe("/api/search", () => {
     // mirrors what backup-ingest writes when the device had iCloud Photos on.
     const db = mongo!.db(TEST_DB);
     const folderID = new ObjectId();
+    await db.collection("folders").insertOne({
+      _id: folderID,
+      path: "/lib-c",
+      label: "lib-c",
+      last_scan: null,
+      file_count: 0,
+      created_at: new Date().toISOString(),
+    } as never);
+    const { invalidateLibraryRoots } = await import(
+      "../../src/indexer/libraries.cache.ts"
+    );
+    invalidateLibraryRoots();
     await db.collection("assets").insertOne({
-      folder_id: folderID,
-      abs_path: "/lib-c/with-phasset-links.heic",
-      filename: "with-phasset-links.heic",
+      fileinfo: [
+        {
+          library_id: folderID,
+          path: "",
+          filename: "with-phasset-links.heic",
+          deleted_at: null,
+        },
+      ],
       size: 128,
       mtime: Date.now(),
       rating: 0,

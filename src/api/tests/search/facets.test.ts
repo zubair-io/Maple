@@ -14,7 +14,7 @@ import {
 } from "bun:test";
 import { Elysia } from "elysia";
 import { MongoClient, ObjectId } from "mongodb";
-import { baseSeeds, fmtAuth, tryConnect } from "./_setup.ts";
+import { baseSeeds, fmtAuth, seedFolders, tryConnect } from "./_setup.ts";
 
 const TEST_DB = `maple_test_search_facets_${process.pid}`;
 const PRIOR_MONGO_DB = process.env.MAPLE_MONGO_DB;
@@ -34,6 +34,7 @@ beforeAll(async () => {
   }
   const db = mongo!.db(TEST_DB);
   await db.dropDatabase();
+  await seedFolders(db, folderA, folderB);
   await db.collection("assets").insertMany(baseSeeds(folderA, folderB));
 
   const { closeDb } = await import("../../src/db/client.ts");
