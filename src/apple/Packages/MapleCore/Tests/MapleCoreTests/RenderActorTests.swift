@@ -28,7 +28,7 @@ final class RenderActorTests: XCTestCase {
     }
 
     @MainActor
-    func testEditSessionExposesRenderActor() {
+    func testEditSessionExposesRenderActor() async {
         // EditSession constructs the actor in `init` so slice 2 / 3 can
         // route callers through it without touching the call sites here.
         let asset = AssetRef(
@@ -39,10 +39,11 @@ final class RenderActorTests: XCTestCase {
             bytesProvider: { Data() }
         )
         let session = EditSession(asset: asset)
-        // `renderActor` is package-internal — the type-checker requiring
-        // a hop confirms it's an actor reference, not a placeholder.
+        // Hop onto the actor to confirm the exposed reference is reachable
+        // across the isolation boundary — a plain assignment doesn't prove
+        // anything about actor semantics, but an `await` call does.
         let ref: RenderActor = session.renderActor
-        _ = ref
+        await ref.assertIsolation()
     }
 
     func testRenderPreviewSurfacesPipelineFailedOnUnreadableAsset() async {

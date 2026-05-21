@@ -50,8 +50,19 @@ public actor RenderActor {
     /// pipeline's preview-quality resolution.
     ///
     /// Throws `RenderError.pipelineFailed` if decode returns nil (unreadable
-    /// asset, FFI error, non-RAW path with no bytes). Callers that need
-    /// cancellation should wrap the call in a `Task` and cancel that.
+    /// asset, FFI error, non-RAW path with no bytes). Throws
+    /// `CancellationError` if the calling task is cancelled before decode
+    /// or process steps — cancellation propagates through structured
+    /// concurrency, so callers that need to abort should cancel the Task
+    /// that invoked `renderPreview`.
+    ///
+    /// Slice 1 deliberately passes `asShot: nil, decodedAtModel: nil` into
+    /// `processSceneLinear`. EditSession's render path threads real values
+    /// for WB-delta semantics and sidecar baseline handling; this scaffold
+    /// skips both because slice 1 owns no decoded-image cache and no
+    /// sidecar state. Slice 2 (decoded-image cache move) is the natural
+    /// home for `decodedAtModel`; sidecar baseline / `asShot` plumbing
+    /// follows when the scheduler migrates in slice 3.
     public func renderPreview(
         asset: AssetRef,
         model: AdjustmentModel
@@ -60,17 +71,21 @@ public actor RenderActor {
         // dispatch in `EditSession+Decode.renderForExport` so slice 1 stays
         // semantically equivalent to what callers get today.
         if !asset.isRaw {
+            try Task.checkCancellation()
             guard let decoded = await pipeline.decodeSceneLinearNonRaw(
                 asset: asset, targetSize: nil
             ) else {
                 throw RenderError.pipelineFailed
             }
-            let pipelineRef = pipeline
-            return await Task.detached(priority: .userInitiated) {
-                pipelineRef.processSceneLinearNonRaw(
-                    decoded: decoded, model: model, targetSize: nil
-                )
-            }.value
+            try Task.checkCancellation()
+            // `processSceneLinearNonRaw` is `nonisolated` + synchronous —
+            // calling it directly runs the kernel chain on the actor's
+            // executor, serialised behind other `renderPreview` calls.
+            // This preserves cooperative cancellation (we just checked)
+            // which `Task.detached` would have severed.
+            return pipeline.processSceneLinearNonRaw(
+                decoded: decoded, model: model, targetSize: nil
+            )
         }
 
         // RAW path: forward the sidecar URL (if any) so highlight_recovery
@@ -82,20 +97,22 @@ public actor RenderActor {
             else { return nil }
             return url
         }()
+        try Task.checkCancellation()
         guard let decoded = await pipeline.decodeSceneLinear(
             asset: asset, quality: .preview, xmpPath: sidecar
         ) else {
             throw RenderError.pipelineFailed
         }
-        let pipelineRef = pipeline
-        return await Task.detached(priority: .userInitiated) {
-            pipelineRef.processSceneLinear(
-                decoded: decoded,
-                model: model,
-                targetSize: nil,
-                asShot: nil,
-                decodedAtModel: nil
-            )
-        }.value
+        try Task.checkCancellation()
+        // Slice 1 intentionally passes `asShot: nil, decodedAtModel: nil`
+        // — see the doc-comment above for the rationale and the slice
+        // where each gets threaded through.
+        return pipeline.processSceneLinear(
+            decoded: decoded,
+            model: model,
+            targetSize: nil,
+            asShot: nil,
+            decodedAtModel: nil
+        )
     }
 }
