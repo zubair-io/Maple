@@ -1,12 +1,15 @@
 // AppShellMacLayout.swift — Mac/iPad NavigationSplitView layout, lifted
 // out of AppShell.swift as part of the multi-PR split tracked in #123
-// (slice 4).
+// (slice 4). The BrowseGrid / CloudTimelineView / FullImageView switch
+// was further extracted to `AppShellCenterColumn` in slice 5 (so the
+// iPhone NavigationStack and the Mac NavigationSplitView share one
+// definition).
 //
 // What's in here:
 //   • `AppShellMacLayout` — the top-level `macShell` switch (Browse vs
 //     Full-image) plus the two flavours of `NavigationSplitView`
-//     (`macShellFullImage`, `macShellBrowse`) and the `centerColumnView`
-//     that decides between BrowseGrid / CloudTimelineView / FullImageView.
+//     (`fullImage`, `browse`). The center column itself lives in
+//     `AppShellCenterColumn.swift`.
 //
 // State surface (kept deliberately small): the layout struct receives a
 // pre-built sidebar (`AppShellSidebar`) plus the small set of bindings
@@ -96,43 +99,23 @@ struct AppShellMacLayout<SidebarContent: View, ToolbarContentT: ToolbarContent>:
         .navigationSplitViewStyle(.balanced)
     }
 
-    @ViewBuilder
-    private var centerColumn: some View {
-        // The center column switches between the explorer grid (browse
-        // mode) and the full-image editor (fullImage mode). Per the
-        // mockup, these are two different center views — not a
-        // side-by-side. Double-click on a thumbnail flips the mode.
-        if isFullImage {
-            if let session = selectedSession {
-                FullImageView(session: session)
-            } else {
-                // Fallback — if the session vanished while editing,
-                // drop back to browse.
-                Color.clear.onAppear { onFullImageFallback() }
-            }
-        } else {
-            if let vm = cloudTimelineVM,
-               let thumbClient = cloudTimelineThumbClient,
-               let thumbCache = cloudTimelineThumbCache {
-                CloudTimelineView(
-                    vm: vm,
-                    thumbClient: thumbClient,
-                    thumbCache: thumbCache,
-                    displayMode: browseDisplayMode,
-                    onSelectAsset: { asset in onSelectCloudAsset(asset, vm.server) },
-                    onSelectLocalAsset: onSelectLocalAsset
-                )
-            } else {
-                BrowseGrid(
-                    vm: browseVM,
-                    sessions: $sessions,
-                    displayMode: $browseDisplayMode,
-                    onGrantPhotosAccess: onGrantPhotosAccess,
-                    onNavigateFolder: onNavigateFolder,
-                    onOpenEditor: onOpenEditor,
-                    onPrimeSession: onPrimeSession
-                )
-            }
-        }
+    private var centerColumn: AppShellCenterColumn {
+        AppShellCenterColumn(
+            isFullImage: isFullImage,
+            selectedSession: selectedSession,
+            cloudTimelineVM: cloudTimelineVM,
+            cloudTimelineThumbClient: cloudTimelineThumbClient,
+            cloudTimelineThumbCache: cloudTimelineThumbCache,
+            browseDisplayMode: $browseDisplayMode,
+            browseVM: browseVM,
+            sessions: $sessions,
+            onSelectCloudAsset: onSelectCloudAsset,
+            onSelectLocalAsset: onSelectLocalAsset,
+            onGrantPhotosAccess: onGrantPhotosAccess,
+            onNavigateFolder: onNavigateFolder,
+            onOpenEditor: onOpenEditor,
+            onPrimeSession: onPrimeSession,
+            onFullImageFallback: onFullImageFallback
+        )
     }
 }

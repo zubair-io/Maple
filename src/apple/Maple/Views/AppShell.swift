@@ -388,39 +388,23 @@ struct AppShell: View {
 
     @ViewBuilder
     private var iPhoneMain: some View {
-        Group {
-            switch mode {
-            case .browse:
-                if let vm = cloudTimelineVM,
-                   let thumbClient = cloudTimelineThumbClient,
-                   let thumbCache = cloudTimelineThumbCache {
-                    CloudTimelineView(
-                        vm: vm,
-                        thumbClient: thumbClient,
-                        thumbCache: thumbCache,
-                        displayMode: browseDisplayMode,
-                        onSelectAsset: { asset in openCloudAsset(asset, server: vm.server) },
-                        onSelectLocalAsset: { ref in openLocalPhotoKitAsset(ref) }
-                    )
-                } else {
-                    BrowseGrid(
-                        vm: browseVM,
-                        sessions: $sessions,
-                        displayMode: $browseDisplayMode,
-                        onGrantPhotosAccess: { grantPhotosAccessAndLoad() },
-                        onNavigateFolder: { url in navigateFolder(url) },
-                        onOpenEditor: { asset in openEditor(for: asset) },
-                        onPrimeSession: { asset in ensureSession(for: asset) }
-                    )
-                }
-            case .fullImage:
-                if let session = selectedSession {
-                    FullImageView(session: session)
-                } else {
-                    Color.clear.onAppear { mode = .browse }
-                }
-            }
-        }
+        AppShellCenterColumn(
+            isFullImage: mode == .fullImage,
+            selectedSession: selectedSession,
+            cloudTimelineVM: cloudTimelineVM,
+            cloudTimelineThumbClient: cloudTimelineThumbClient,
+            cloudTimelineThumbCache: cloudTimelineThumbCache,
+            browseDisplayMode: $browseDisplayMode,
+            browseVM: browseVM,
+            sessions: $sessions,
+            onSelectCloudAsset: { asset, server in openCloudAsset(asset, server: server) },
+            onSelectLocalAsset: { ref in openLocalPhotoKitAsset(ref) },
+            onGrantPhotosAccess: { grantPhotosAccessAndLoad() },
+            onNavigateFolder: { url in navigateFolder(url) },
+            onOpenEditor: { asset in openEditor(for: asset) },
+            onPrimeSession: { asset in ensureSession(for: asset) },
+            onFullImageFallback: { mode = .browse }
+        )
         .navigationTitle(mode == .fullImage
                          ? (selectedSession?.asset.displayName ?? "Image")
                          : libraryTitle)
