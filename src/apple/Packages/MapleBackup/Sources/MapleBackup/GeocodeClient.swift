@@ -11,7 +11,7 @@
 //
 // Network errors propagate — the caller (BackupEngine) handles retry.
 //
-// Spec: docs/superpowers/specs/2026-05-09-photokit-backup-design.md §9, §20.
+// Spec: .archived-plans/specs/2026-05-09-photokit-backup-design.md §9, §20.
 
 import Foundation
 

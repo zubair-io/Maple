@@ -14,7 +14,7 @@
  * snippet of the raw response in its message. The runtime then stamps
  * the message into `stages.describe.last_error` automatically.
  *
- * Spec: `docs/superpowers/specs/2026-05-19-qwen-vision-ocr-design.md`
+ * Spec: `.archived-plans/specs/2026-05-19-qwen-vision-ocr-design.md`
  * §Failure modes.
  */
 

@@ -22,7 +22,7 @@
 // `#if canImport(Photos)` for SPM testability on platforms without the
 // framework — on those platforms every method is a no-op.
 //
-// Spec: docs/superpowers/specs/2026-05-09-photokit-backup-design.md §12.
+// Spec: .archived-plans/specs/2026-05-09-photokit-backup-design.md §12.
 
 import Foundation
 import OSLog

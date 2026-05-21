@@ -541,7 +541,7 @@ struct AdjustSlider: View {
 
     /// Stable accessibility identifier derived from `label` — lowercased,
     /// spaces collapsed to dashes. "NR Lum" → `slider-nr-lum`. See
-    /// docs/superpowers/plans/2026-04-25-xcuitest-visual-harness.md.
+    /// .archived-plans/plans/2026-04-25-xcuitest-visual-harness.md.
     private var accessibilityID: String {
         let slug = label
             .lowercased()

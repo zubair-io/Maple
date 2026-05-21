@@ -1,5 +1,5 @@
 //! Pipeline neutrality + flatness invariants on synthetic grey DNGs.
-//! See `docs/superpowers/specs/2026-04-28-synthetic-grey-dng-design.md`.
+//! See `.archived-plans/specs/2026-04-28-synthetic-grey-dng-design.md`.
 
 #![cfg(feature = "test-support")]
 

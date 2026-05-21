@@ -165,7 +165,7 @@ pub fn apply_with_plt_and_ptc(
 /// the blue reading out of Rec.2020, and the AgX clamp lost ~0.295 of
 /// blue brightness in the final output.
 ///
-/// Per `docs/superpowers/plans/2026-04-27-clipping-and-artifacts.md`
+/// Per `.archived-plans/plans/2026-04-27-clipping-and-artifacts.md`
 /// Phase 4 (negative-channel handling after DCP).
 #[inline]
 fn soft_floor(p: [f32; 3]) -> [f32; 3] {

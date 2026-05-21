@@ -7,7 +7,7 @@
 // server's upload_sessions collection uses. deviceId is the stable per-install
 // UUID from DeviceIdentity; phassetLocalId is Apple's PHAsset.localIdentifier.
 //
-// Spec: docs/superpowers/specs/2026-05-09-photokit-backup-design.md §16, §17.
+// Spec: .archived-plans/specs/2026-05-09-photokit-backup-design.md §16, §17.
 
 import Foundation
 

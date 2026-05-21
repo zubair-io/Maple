@@ -15,11 +15,11 @@ The Apple ↔ WebGL parity reference fixture under `Tests/MapleCoreTests/ Fixtur
 
 Pick (b) if the parity test still passes; it's a no-op. Pick (a) onlyif the test now fails.
 
-Plan: `docs/superpowers/plans/2026-04-25-plan-3-m2-webgl-shaders.md`.
+Plan: `.archived-plans/plans/2026-04-25-plan-3-m2-webgl-shaders.md`.
 
 ### B — Plan 3 M3 — Angular canvas wiring
 
-Plan ready at `docs/superpowers/plans/2026-04-25-plan-3-m3-angular- wiring.md`. Gated on (A) being green. Wires the WebGL2 pipeline classinto the `image-canvas.component.ts` so the web hosted UI stops usingthe legacy `render_bytes` path and instead renders scene-linear viathe WebGL shader chain. ~1–2 days.
+Plan ready at `.archived-plans/plans/2026-04-25-plan-3-m3-angular-wiring.md`. Gated on (A) being green. Wires the WebGL2 pipeline classinto the `image-canvas.component.ts` so the web hosted UI stops usingthe legacy `render_bytes` path and instead renders scene-linear viathe WebGL shader chain. ~1–2 days.
 
 ### C — Visual-diff Task 7 — slider-state matrix
 
@@ -86,7 +86,7 @@ day. Touchpoint: `ImageMetadataReader.swift`, `EditSession.swift:752`.
 ## Cross-links
 
 - Ticket 09 (color harness re-anchoring) — sibling
-- Plan 3 M2 / M3 plans in `docs/superpowers/plans/`
+- Plan 3 M2 / M3 plans in `.archived-plans/plans/`
 - Plan 2 v2 plans (sharpen, NR, dehaze)
 - `pipeline.rs:108-113` — pending HSM/BE/PLT bundle
 

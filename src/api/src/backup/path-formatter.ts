@@ -11,7 +11,7 @@
  * `/` in the location is replaced with `_` to keep the result a single
  * directory level. An empty / whitespace-only location is treated as null.
  *
- * Spec: docs/superpowers/specs/2026-05-09-photokit-backup-design.md §9.
+ * Spec: .archived-plans/specs/2026-05-09-photokit-backup-design.md §9.
  */
 
 /** Reject filenames that could escape the library root. Allow only a basename

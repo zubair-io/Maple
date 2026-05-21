@@ -23,7 +23,7 @@
  * received < CROSS_DEVICE_BUSY_WINDOW_MS ago). If the first is stale, it's
  * marked abandoned and the second takes over.
  *
- * Spec: docs/superpowers/specs/2026-05-09-photokit-backup-design.md §16, §20.
+ * Spec: .archived-plans/specs/2026-05-09-photokit-backup-design.md §16, §20.
  */
 import { ObjectId } from "mongodb";
 import { uploadSessionsCollection } from "../db/client.ts";

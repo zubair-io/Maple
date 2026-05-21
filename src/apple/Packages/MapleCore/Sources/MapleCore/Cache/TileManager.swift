@@ -25,7 +25,7 @@
 // let the caller upscale.
 //
 // Cross-link:
-//   docs/superpowers/plans/2026-04-25-deep-zoom-tile-rendering.md Task 6.
+//   .archived-plans/plans/2026-04-25-deep-zoom-tile-rendering.md Task 6.
 
 import Foundation
 import CoreImage

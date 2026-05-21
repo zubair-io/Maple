@@ -6,7 +6,7 @@
 # never skip-passes. Always runs, always asserts. The strictest pipeline
 # regression net we have.
 #
-# Spec: docs/superpowers/specs/2026-04-28-synthetic-grey-dng-design.md
+# Spec: .archived-plans/specs/2026-04-28-synthetic-grey-dng-design.md
 
 set -euo pipefail
 cd "$(dirname "$0")/../raw-pipeline"

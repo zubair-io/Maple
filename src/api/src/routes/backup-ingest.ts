@@ -19,7 +19,7 @@
  *         handled silently — the session is reset in place rather than
  *         returning 409.
  *
- * Spec: docs/superpowers/specs/2026-05-09-photokit-backup-design.md §20.
+ * Spec: .archived-plans/specs/2026-05-09-photokit-backup-design.md §20.
  */
 import { Elysia, t } from "elysia";
 import { ObjectId } from "mongodb";

@@ -33,4 +33,4 @@ swift run MapleApp  # opens a window on macOS with "Maple / MapleCore 0.1.0 — 
 
 ## Implementation plan
 
-See `docs/superpowers/plans/2026-04-22-slice-10c-maple-native.md`.
+See `.archived-plans/plans/2026-04-22-slice-10c-maple-native.md`.

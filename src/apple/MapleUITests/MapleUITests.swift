@@ -1,6 +1,6 @@
 // MapleUITests.swift — visual-regression harness entry point.
 //
-// Per Task 5 of docs/superpowers/plans/2026-04-25-xcuitest-visual-harness.md
+// Per Task 5 of .archived-plans/plans/2026-04-25-xcuitest-visual-harness.md
 // this single test launches Maple with a fixture, waits for the refine
 // pass, screenshots the canvas, and compares against a committed
 // golden via the Swift CIEDE2000 port at Helpers/CIEDE2000.swift.

@@ -2,7 +2,7 @@
 // compile them. Each shader source lives in a sibling .ts file
 // (template-literal-shipped) — see vertex.ts for the rationale.
 //
-// Plan 3 M2.1 — see docs/superpowers/plans/2026-04-25-plan-3-m2-webgl-shaders.md.
+// Plan 3 M2.1 — see .archived-plans/plans/2026-04-25-plan-3-m2-webgl-shaders.md.
 
 import { VERTEX_SHADER_SOURCE } from './vertex';
 import { WHITE_BALANCE_FRAGMENT_SOURCE } from './white-balance';

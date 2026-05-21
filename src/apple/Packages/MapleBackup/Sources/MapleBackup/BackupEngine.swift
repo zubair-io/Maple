@@ -20,7 +20,7 @@
 // the task is marked .failedRetry. Retry tasks are tracked in `retryTasks`
 // so stop() can cancel them cleanly.
 //
-// Spec: docs/superpowers/specs/2026-05-09-photokit-backup-design.md §13, §15, §17.
+// Spec: .archived-plans/specs/2026-05-09-photokit-backup-design.md §13, §15, §17.
 
 import Foundation
 

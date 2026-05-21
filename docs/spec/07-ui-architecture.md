@@ -1,6 +1,6 @@
 # 07 — UI Architecture
 
-The state model, undo/redo semantics, interaction loops. This document is about the shape of the editing experience — what the user sees, what happens when they drag a slider, how one image transitions to the next — not the visual design. For visual design tokens see [`photo-app-ui-spec.md`](../photo-app-ui-spec.md).
+The state model, undo/redo semantics, interaction loops. This document is about the shape of the editing experience — what the user sees, what happens when they drag a slider, how one image transitions to the next — not the visual design. For visual design tokens see `src/web/projects/maple-common/src/lib/tokens.scss` (CSS custom properties — `--mpl-*`) and the companion `tokens.ts` (typed mirrors).
 
 The data types that flow through the UI are in [`01-data-model.md`](./01-data-model.md); what happens to pixels when the UI asks for a render is in [`02-pipeline.md`](./02-pipeline.md).
 
@@ -50,7 +50,7 @@ All shells implement two modes: **Browse** (grid) and **Full Image** (large prev
 
 ## Three-column layout contract
 
-The layout invariants from [`photo-app-ui-spec.md`](../photo-app-ui-spec.md) that this doc enforces:
+The layout invariants from `docs/maple-prd.md` (visual design appendix) that this doc enforces:
 
 1. **Left panel** is vertically scrollable. Never more than one scroll region.
 2. **Center panel** fills. No horizontal scroll in Browse (grid reflows); no scroll at all in Full Image (the image fills).
@@ -254,7 +254,7 @@ Sections (Phase 3):
 - Vectorscope.
 - False-color toggle.
 
-Rendered at `#141210` background — deeper than the rest of the chrome — so RGB waveform colors are legible. See [`photo-app-ui-spec.md`](../photo-app-ui-spec.md) for tokens.
+Rendered at `#141210` background — deeper than the rest of the chrome — so RGB waveform colors are legible. See `docs/maple-prd.md` (visual design appendix) for tokens.
 
 ---
 
@@ -443,5 +443,5 @@ Partially built; full audit pending (Phase 5).
 - **The pipeline the UI drives.** See [`02-pipeline.md`](./02-pipeline.md).
 - **The types the UI manipulates.** See [`01-data-model.md`](./01-data-model.md).
 - **What happens when a slider is debounced to sidecar.** See [`08-io.md`](./08-io.md).
-- **Where design tokens come from.** See [`photo-app-ui-spec.md`](../photo-app-ui-spec.md).
+- **Where design tokens come from.** See `docs/maple-prd.md` (visual design appendix).
 - **The exact zoom math.** See [`zoom.md`](../zoom.md).

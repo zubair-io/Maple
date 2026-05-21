@@ -10,7 +10,7 @@
 // and state store so settings changes (different library, different server)
 // take effect cleanly.
 //
-// Spec: docs/superpowers/specs/2026-05-09-photokit-backup-design.md §15.
+// Spec: .archived-plans/specs/2026-05-09-photokit-backup-design.md §15.
 
 import Foundation
 import OSLog

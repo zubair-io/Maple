@@ -10,7 +10,7 @@
 // is also stored in AppSupportSidecarStore for not-yet-uploaded edits
 // (spec §11).
 //
-// Spec: docs/superpowers/specs/2026-05-09-photokit-backup-design.md §8.
+// Spec: .archived-plans/specs/2026-05-09-photokit-backup-design.md §8.
 
 import Foundation
 

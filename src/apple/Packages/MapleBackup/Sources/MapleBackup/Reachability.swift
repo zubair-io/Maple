@@ -12,7 +12,7 @@
 // a connected device, which would incorrectly defer the first upload
 // task until the first async path-update callback fires (~100ms later).
 //
-// Spec: docs/superpowers/specs/2026-05-09-photokit-backup-design.md §13.
+// Spec: .archived-plans/specs/2026-05-09-photokit-backup-design.md §13.
 
 import Foundation
 import Network
