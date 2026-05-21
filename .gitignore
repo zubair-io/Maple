@@ -38,6 +38,9 @@ libraw_ffi.a
 # Node / Bun
 node_modules/
 .bun/
+
+# Storybook static build output
+src/web/storybook-static/
 dist/
 .next/
 npm-debug.log
