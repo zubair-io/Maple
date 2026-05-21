@@ -17,6 +17,7 @@ import { resolveThumbPath } from "../../fs/xmp.ts";
 import { safeReadFile } from "../../fs/root.ts";
 import { normaliseEnrichment } from "../../db/schema.ts";
 import { ifNoneMatchEqual } from "../../runtime/http-etag.ts";
+import { buildContentDispositionAttachment } from "../../runtime/http-content-disposition.ts";
 
 export const metadataRoutes = new Elysia()
   // Single asset metadata
@@ -96,7 +97,10 @@ export const metadataRoutes = new Elysia()
     }
 
     set.headers["Content-Type"] = "application/octet-stream";
-    set.headers["Content-Disposition"] = `attachment; filename="${doc.filename}"`;
+    // RFC 6266 / RFC 5987 — quoted-string ASCII fallback + percent-encoded
+    // UTF-8 form. Guards against header injection from filenames that
+    // contain `"`, CR/LF, NUL, or non-ASCII bytes. See #167.
+    set.headers["Content-Disposition"] = buildContentDispositionAttachment(doc.filename);
     set.headers["Content-Length"] = String(result.data!.byteLength);
     return result.data;
   })
