@@ -1532,92 +1532,6 @@ struct AppShell: View {
     }
 }
 
-// MARK: - SMB sheet
-
-struct SMBPickerSheet: View {
-    let onConnect: (SMBSource.Credentials) -> Void
-    let onCancel: () -> Void
-
-    @State private var host = ""
-    @State private var share = ""
-    @State private var username = ""
-    @State private var password = ""
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Connect to SMB Share")
-                .font(.title3).bold()
-            Form {
-                TextField("Host (e.g. nas.local)", text: $host)
-                TextField("Share name",           text: $share)
-                TextField("Username",             text: $username)
-                SecureField("Password",           text: $password)
-            }
-            HStack {
-                Spacer()
-                Button("Cancel", action: onCancel)
-                    .keyboardShortcut(.cancelAction)
-                Button("Connect") {
-                    onConnect(SMBSource.Credentials(
-                        host: host, share: share,
-                        username: username, password: password
-                    ))
-                }
-                .keyboardShortcut(.defaultAction)
-                .disabled(host.isEmpty || share.isEmpty)
-            }
-        }
-        .padding(20)
-        .frame(minWidth: 380)
-    }
-}
-
-// MARK: - AddMapleCloud sheet target
-
-/// Backing value for `.sheet(item:)` so dismissal automatically resets to
-/// `nil`. Two cases mirror the two entry points: a fresh "+" tap and a
-/// click on a saved server whose tokens were cleared.
-enum AddCloudSheetTarget: Identifiable, Equatable {
-    case fresh
-    case prefilled(String)
-
-    var id: String {
-        switch self {
-        case .fresh: return ""
-        case .prefilled(let host): return host
-        }
-    }
-
-    var prefill: String {
-        switch self {
-        case .fresh: return ""
-        case .prefilled(let host): return host
-        }
-    }
-}
-
-// MARK: - Detail panel width
-
-/// Platform-scoped column width for the detail pane.
-/// - macOS: 240/280/360 — generous, matches the mockup width.
-/// - iPad: 240/260/280 — tightened because `NavigationSplitView` on iPad
-///   pulls the column toward `max` and ignores `ideal`. Without this clamp
-///   the detail pane eats roughly half the screen on a 12.9" iPad in
-///   landscape, leaving the slider rail floating in whitespace.
-private struct DetailPanelWidth: ViewModifier {
-    func body(content: Content) -> some View {
-        #if os(iOS)
-        if UIDevice.current.userInterfaceIdiom == .pad {
-            content.navigationSplitViewColumnWidth(min: 240, ideal: 260, max: 280)
-        } else {
-            content.navigationSplitViewColumnWidth(min: 240, ideal: 280, max: 360)
-        }
-        #else
-        content.navigationSplitViewColumnWidth(min: 240, ideal: 280, max: 360)
-        #endif
-    }
-}
-
 // MARK: - Previews
 //
 // Issue #139 — root composition view. The default initialiser supplies
@@ -1631,4 +1545,3 @@ private struct DetailPanelWidth: ViewModifier {
     })
     .frame(width: 1100, height: 720)
 }
-
