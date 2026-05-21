@@ -10,7 +10,9 @@ import { readdir, realpath, stat } from 'node:fs/promises';
 import * as path from 'node:path';
 import type { OpResult } from './root.ts';
 import { assetsCollection, foldersCollection } from '../db/client.ts';
-import type { AssetExif } from '../db/schema.ts';
+import { assetAbsPath } from '../indexer/images.repo.ts';
+import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
+import type { AssetExif, FileInfo } from '../db/schema.ts';
 import { SHARP_EXTENSIONS } from '../thumbs/render.ts';
 import { child as childLogger } from '../log.ts';
 
@@ -406,14 +408,23 @@ export async function listDirContents(
     if (allImageBases.size > 0) {
       try {
         const coll = await assetsCollection();
+        // Query by filename via fileinfo[]. The legacy `abs_path` field was
+        // retired in the drop-abs-path-2026-05-21 migration; we resolve each
+        // hit's on-disk path from `assetAbsPath(doc, libs)` and match against
+        // the candidate paths in code.
+        const libs = await loadLibraryRoots().catch(() => new Map<string, string>());
+        const filenames = new Set<string>();
+        for (const [, p] of allImageBases) filenames.add(p.split('/').pop()!);
         const cursor = coll.find(
-          { abs_path: { $in: Array.from(allImageBases.values()) } },
-          { projection: { _id: 1, abs_path: 1 } },
+          { 'fileinfo.filename': { $in: Array.from(filenames) } },
+          { projection: { _id: 1, fileinfo: 1 } },
         );
         const pathToBase = new Map<string, string>();
         for (const [b, p] of allImageBases) pathToBase.set(p, b);
         for await (const doc of cursor) {
-          const b = pathToBase.get(doc.abs_path);
+          const resolved = assetAbsPath(doc as unknown as { fileinfo?: FileInfo[] }, libs);
+          if (!resolved) continue;
+          const b = pathToBase.get(resolved);
           if (b) globalImageBaseToAsset.set(b, doc._id.toHexString());
         }
       } catch (err) {
@@ -487,12 +498,16 @@ export async function listDirContents(
   if (images.length > 0) {
     try {
       const coll = await assetsCollection();
+      const libs = await loadLibraryRoots().catch(() => new Map<string, string>());
+      const imageFilenames = new Set(images.map((i) => i.path.split('/').pop()!));
       const cursor = coll.find(
-        { abs_path: { $in: images.map((i) => i.path) } },
-        { projection: { _id: 1, abs_path: 1, exif: 1, deleted_at: 1 } },
+        { 'fileinfo.filename': { $in: Array.from(imageFilenames) } },
+        { projection: { _id: 1, fileinfo: 1, exif: 1, deleted_at: 1 } },
       );
       const byPath = new Map<string, { id: string; exif: AssetExif | null | undefined }>();
       for await (const doc of cursor) {
+        const resolved = assetAbsPath(doc as unknown as { fileinfo?: FileInfo[] }, libs);
+        if (!resolved) continue;
         const raw = doc as unknown as Record<string, unknown>;
         // Files whose asset doc is soft-deleted must not appear under their
         // pre-trash directory listing — the file has either moved to
@@ -500,11 +515,11 @@ export async function listDirContents(
         // (watcher); either way, hiding it from /api/fs/dir matches what
         // the user expects after a delete.
         if (raw.deleted_at != null) {
-          trashedPaths.add(doc.abs_path);
+          trashedPaths.add(resolved);
           continue;
         }
-        byPath.set(doc.abs_path, { id: doc._id.toHexString(), exif: doc.exif });
-        indexedPaths.add(doc.abs_path);
+        byPath.set(resolved, { id: doc._id.toHexString(), exif: doc.exif });
+        indexedPaths.add(resolved);
       }
       for (const img of images) {
         const hit = byPath.get(img.path);

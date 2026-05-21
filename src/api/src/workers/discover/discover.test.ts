@@ -107,31 +107,30 @@ describe('discover producer', () => {
 
     // The doc should now be in the assets collection.
     const coll = await assetsCollection();
-    const doc = await coll.findOne({ abs_path: file });
+    const filename = path.basename(file);
+    const raw = await coll.findOne({
+      fileinfo: { $elemMatch: { library_id: folderId, filename } },
+    });
+    const doc = raw as unknown as { stages?: Record<string, unknown> } | null;
 
     expect(doc).not.toBeNull();
     expect(doc!.stages).toBeDefined();
 
     // Every stage name from the manifest must be present in the skeleton.
-    // Exception: after PR 2 of the content-addressing migration discover
-    // hashes inline at insert time, so `stages.hash.version` is already
-    // set to its target (1) — no post-insert hash stage pass needed.
-    // Other stages start at 0.
+    // The legacy `hash` stage was retired in the drop-abs-path-2026-05-21
+    // migration once discover began writing maple_id + sha1_head inline at
+    // insert; the manifest now starts with exif.
     for (const name of ALL_STAGE_NAMES) {
       const entry = (doc!.stages as Record<string, unknown>)[name] as Record<string, unknown>;
       expect(entry).toBeDefined();
-      if (name === 'hash') {
-        expect(entry.version).toBe(1);
-      } else {
-        expect(entry.version).toBe(0);
-      }
+      expect(entry.version).toBe(0);
       expect(entry.dead).toBe(false);
       expect(entry.last_error).toBeNull();
     }
 
     // Clean up: remove the test folder and asset rows.
     await foldersColl.deleteOne({ _id: folderId });
-    await coll.deleteOne({ abs_path: file });
+    await coll.deleteOne({ fileinfo: { $elemMatch: { library_id: folderId, filename } } } as never);
   });
 
   it('soft-deletes a doc when a removed event is received', async () => {
@@ -146,8 +145,10 @@ describe('discover producer', () => {
 
     const foldersColl = await foldersCollection();
     const folderResult = await foldersColl.insertOne({
-      abs_path: tempDir,
-      name: path.basename(tempDir),
+      path: tempDir,
+      label: path.basename(tempDir),
+      last_scan: null,
+      file_count: 0,
       created_at: new Date().toISOString(),
     } as never);
     const folderId = folderResult.insertedId;
@@ -155,18 +156,22 @@ describe('discover producer', () => {
     // Insert via created event first.
     await handleEvent({ kind: 'created', absPath: file }, folderId, tempDir);
     const coll = await assetsCollection();
-    const before = await coll.findOne({ abs_path: file });
+    const filename = path.basename(file);
+    const filter = {
+      fileinfo: { $elemMatch: { library_id: folderId, filename } },
+    } as never;
+    const before = await coll.findOne(filter);
     expect(before).not.toBeNull();
     expect((before as Record<string, unknown>).deleted_at).toBeNull();
 
     // Now fire the removed event.
     await handleEvent({ kind: 'removed', absPath: file }, folderId, tempDir);
-    const after = await coll.findOne({ abs_path: file });
+    const after = await coll.findOne(filter);
     expect(after).not.toBeNull();
     expect((after as Record<string, unknown>).deleted_at).not.toBeNull();
 
     // Clean up.
-    await coll.deleteOne({ abs_path: file });
+    await coll.deleteOne(filter);
     await foldersColl.deleteOne({ _id: folderId });
     await rm(tempDir, { recursive: true, force: true });
   });
@@ -190,22 +195,25 @@ describe('discover producer', () => {
     const folderId = folderResult.insertedId;
     const coll = await assetsCollection();
 
-    // First discover — inserts with skeleton (hash.version=1 after PR 2
-    // since discover hashes inline; other stages start at 0).
+    // First discover — inserts with skeleton (all stages start at 0).
     await handleEvent({ kind: 'created', absPath: file }, folderId, tempDir);
-    // Simulate exif/thumb stages completing: bump stages.hash.version to 1
-    // explicitly (no-op now but documents the intent of the test).
-    await coll.updateOne({ abs_path: file }, { $set: { 'stages.hash.version': 1 } });
+    // Simulate a stage completing by bumping exif.version to 1.
+    const filename = path.basename(file);
+    const matchFilter = {
+      fileinfo: { $elemMatch: { library_id: folderId, filename } },
+    } as never;
+    await coll.updateOne(matchFilter, { $set: { 'stages.exif.version': 1 } });
 
-    // Re-discover (modified event) — must not reset hash back to 0.
+    // Re-discover (modified event) — must not reset exif back to 0.
     await handleEvent({ kind: 'modified', absPath: file }, folderId, tempDir);
-    const doc = await coll.findOne({ abs_path: file });
+    const raw = await coll.findOne(matchFilter);
+    const doc = raw as unknown as { stages?: Record<string, { version: number }> } | null;
     expect(doc).not.toBeNull();
     const stages = doc!.stages as Record<string, { version: number }>;
-    expect(stages.hash.version).toBe(1); // preserved by $setOnInsert
+    expect(stages.exif.version).toBe(1); // preserved by $setOnInsert
 
     // Clean up.
-    await coll.deleteOne({ abs_path: file });
+    await coll.deleteOne(matchFilter);
     await foldersColl.deleteOne({ _id: folderId });
     await rm(tempDir, { recursive: true, force: true });
   });
@@ -302,13 +310,26 @@ describe('discover producer', () => {
     await handleEvent({ kind: 'created', absPath: file2024 }, folderId, root);
     await handleEvent({ kind: 'created', absPath: file2025 }, folderId, root);
 
-    const docs = await coll.find({ filename: 'IMG_0001.DNG' }).toArray();
+    const docs = await coll
+      .find({
+        fileinfo: { $elemMatch: { library_id: folderId, filename: 'IMG_0001.DNG' } },
+      } as never)
+      .toArray();
     expect(docs.length).toBe(2);
-    const paths = docs.map((d) => (d as Record<string, unknown>).abs_path as string).sort();
-    expect(paths).toEqual([file2024, file2025].sort());
+    const paths = docs
+      .map(
+        (d) =>
+          (d.fileinfo?.[0]?.path === ''
+            ? d.fileinfo[0]!.filename
+            : `${d.fileinfo?.[0]?.path}/${d.fileinfo?.[0]?.filename}`) as string,
+      )
+      .sort();
+    expect(paths).toEqual(['2024/IMG_0001.DNG', '2025/IMG_0001.DNG'].sort());
 
     // Clean up.
-    await coll.deleteMany({ filename: 'IMG_0001.DNG' });
+    await coll.deleteMany({
+      fileinfo: { $elemMatch: { library_id: folderId, filename: 'IMG_0001.DNG' } },
+    } as never);
     await foldersColl.deleteOne({ _id: folderId });
     await rm(root, { recursive: true, force: true });
   });
@@ -339,12 +360,14 @@ describe('discover producer', () => {
     await handleEvent({ kind: 'created', absPath: file }, folderId, root);
 
     const coll = await assetsCollection();
-    const doc = await coll.findOne({ abs_path: file });
+    const doc = await coll.findOne({
+      fileinfo: { $elemMatch: { library_id: folderId, filename: 'IMG_001.dng' } },
+    } as never);
     expect(doc).not.toBeNull();
     expect(doc!.fileinfo).toHaveLength(1);
-    expect(doc!.fileinfo![0].path).toBe('vacation/2024');
-    expect(doc!.fileinfo![0].filename).toBe('IMG_001.dng');
-    expect(doc!.fileinfo![0].library_id.equals(folderId)).toBe(true);
+    expect(doc!.fileinfo![0]!.path).toBe(path.join('vacation', '2024'));
+    expect(doc!.fileinfo![0]!.filename).toBe('IMG_001.dng');
+    expect(doc!.fileinfo![0]!.library_id.equals(folderId)).toBe(true);
 
     await coll.deleteOne({ _id: doc!._id });
     await foldersColl.deleteOne({ _id: folderId });
@@ -374,10 +397,12 @@ describe('discover producer', () => {
     await handleEvent({ kind: 'created', absPath: file }, folderId, root);
 
     const coll = await assetsCollection();
-    const doc = await coll.findOne({ abs_path: file });
+    const doc = await coll.findOne({
+      fileinfo: { $elemMatch: { library_id: folderId, filename: 'top.jpg' } },
+    } as never);
     expect(doc).not.toBeNull();
-    expect(doc!.fileinfo![0].path).toBe('');
-    expect(doc!.fileinfo![0].filename).toBe('top.jpg');
+    expect(doc!.fileinfo![0]!.path).toBe('');
+    expect(doc!.fileinfo![0]!.filename).toBe('top.jpg');
 
     await coll.deleteOne({ _id: doc!._id });
     await foldersColl.deleteOne({ _id: folderId });
@@ -415,11 +440,13 @@ describe('discover producer', () => {
     await handleEvent({ kind: 'renamed', absPath: after, fromPath: before }, folderId, root);
 
     const coll = await assetsCollection();
-    const doc = await coll.findOne({ abs_path: after });
+    const doc = await coll.findOne({
+      fileinfo: { $elemMatch: { library_id: folderId, path: 'b', filename: 'x.dng' } },
+    } as never);
     expect(doc).not.toBeNull();
     expect(doc!.fileinfo).toHaveLength(1);
-    expect(doc!.fileinfo![0].path).toBe('b');
-    expect(doc!.fileinfo![0].filename).toBe('x.dng');
+    expect(doc!.fileinfo![0]!.path).toBe('b');
+    expect(doc!.fileinfo![0]!.filename).toBe('x.dng');
 
     await coll.deleteOne({ _id: doc!._id });
     await foldersColl.deleteOne({ _id: folderId });

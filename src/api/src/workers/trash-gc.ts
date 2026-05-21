@@ -51,7 +51,7 @@ export async function runTrashGcOnce(opts: TrashGcOptions = {}): Promise<TrashGc
   // written (`deleted_at: null` on every fresh skeleton row).
   const cursor = coll.find(
     { deleted_at: { $type: 'string', $lt: cutoffIso, $ne: null } },
-    { projection: { _id: 1, abs_path: 1, fileinfo: 1, folder_id: 1 } },
+    { projection: { _id: 1, fileinfo: 1 } },
   );
   let libs: ReadonlyMap<string, string>;
   try {

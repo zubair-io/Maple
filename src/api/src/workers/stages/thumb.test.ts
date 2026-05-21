@@ -28,21 +28,30 @@ async function tryConnect(): Promise<MongoClient | null> {
   }
 }
 
-function makeDoc(absPath: string, exif: Record<string, unknown> | null = null) {
+function makeDoc(
+  absPath: string,
+  libraryId: import('mongodb').ObjectId,
+  libraryRoot: string,
+  exif: Record<string, unknown> | null = null,
+  mapleIdOverride?: string,
+) {
+  // Compute fileinfo[0] from the absPath relative to the library root.
+  const relDir = path.relative(libraryRoot, path.dirname(absPath));
+  const filename = path.basename(absPath);
   return {
     _id: '000000000000000000000003' as unknown as import('mongodb').ObjectId,
-    abs_path: absPath,
+    fileinfo: [
+      {
+        path: relDir === '.' || relDir === '' ? '' : relDir.split(path.sep).join('/'),
+        filename,
+        library_id: libraryId,
+        deleted_at: null,
+      },
+    ],
     sha1_head: 'c'.repeat(40),
-    maple_id: 'd'.repeat(32),
+    maple_id: mapleIdOverride ?? 'd'.repeat(32),
     exif,
     stages: {
-      hash: {
-        version: 1,
-        attempts: 0,
-        last_error: null,
-        processed_at: new Date().toISOString(),
-        dead: false,
-      },
       exif: {
         version: 1,
         attempts: 0,
@@ -61,11 +70,17 @@ function makeDoc(absPath: string, exif: Record<string, unknown> | null = null) {
 
 describe('thumb handler — bitmap path', () => {
   let dir: string;
+  let libraryId: import('mongodb').ObjectId;
   beforeAll(async () => {
     dir = await mkdtemp(path.join(os.tmpdir(), 'thumb-stage-'));
+    libraryId = new ObjectId();
+    const { setLibraryRootsForTests } = await import('../../indexer/libraries.cache.ts');
+    setLibraryRootsForTests(new Map([[libraryId.toHexString(), dir]]));
   });
   afterAll(async () => {
     await rm(dir, { recursive: true, force: true });
+    const { setLibraryRootsForTests } = await import('../../indexer/libraries.cache.ts');
+    setLibraryRootsForTests(null);
   });
 
   it('generates a thumb for a JPEG and returns thumb_path in the patch', async () => {
@@ -77,7 +92,7 @@ describe('thumb handler — bitmap path', () => {
       .toBuffer();
     await writeFile(file, buf);
 
-    const doc = makeDoc(file);
+    const doc = makeDoc(file, libraryId, dir);
     const result = await thumbStage.handler(doc as never, {} as never);
 
     expect('patch' in result).toBe(true);
@@ -100,7 +115,7 @@ describe('thumb handler — bitmap path', () => {
       .toBuffer();
     await writeFile(file, buf);
 
-    const doc = makeDoc(file);
+    const doc = makeDoc(file, libraryId, dir, null, 'e'.repeat(32));
     const result = await thumbStage.handler(doc as never, {} as never);
     const { patch } = result as { patch: Record<string, unknown> };
     const meta = await sharp(patch.thumb_path as string).metadata();
@@ -126,12 +141,24 @@ describe('thumb handler — bitmap path', () => {
 
     if (!dngExists) return; // soft pass: no fixture
 
-    const doc = makeDoc(dng);
+    // RAW lives outside the test library — stage a second library that
+    // claims its directory.
+    const rawLibraryId = new ObjectId();
+    const { setLibraryRootsForTests } = await import('../../indexer/libraries.cache.ts');
+    setLibraryRootsForTests(
+      new Map([
+        [libraryId.toHexString(), dir],
+        [rawLibraryId.toHexString(), path.dirname(dng)],
+      ]),
+    );
+    const doc = makeDoc(dng, rawLibraryId, path.dirname(dng), null, 'f'.repeat(32));
     // Must not throw.
     const result = await thumbStage.handler(doc as never, {} as never);
     expect('patch' in result).toBe(true);
     const { patch } = result as { patch: Record<string, unknown> };
     expect(typeof patch.thumb_path).toBe('string');
+    // Restore the single-library cache for subsequent tests.
+    setLibraryRootsForTests(new Map([[libraryId.toHexString(), dir]]));
   });
 });
 
@@ -201,9 +228,12 @@ describe('thumb handler — content-addressed cache path', () => {
 
     const mapleId = 'e'.repeat(32);
     const doc = {
-      ...makeDoc(file),
-      maple_id: mapleId,
-      fileinfo: [{ path: 'vacation', filename: 'IMG_001.jpg', library_id: libId }],
+      ...makeDoc(file, libId, dir, null, mapleId),
+      // Override to point fileinfo[0] at the vacation subdir explicitly so
+      // the content-addressed thumb path lives there.
+      fileinfo: [
+        { path: 'vacation', filename: 'IMG_001.jpg', library_id: libId, deleted_at: null },
+      ],
     };
 
     const result = await thumbStage.handler(doc as never, {} as never);

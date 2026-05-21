@@ -5,8 +5,9 @@
  * importing the full Elysia app.
  */
 
-import type { ObjectId } from "mongodb";
-import type { AssetDoc, Place } from "../../db/schema.ts";
+import type { ObjectId } from 'mongodb';
+import type { AssetDoc, Place } from '../../db/schema.ts';
+import { assetAbsPath, assetPrimaryFileInfo } from '../../indexer/images.repo.ts';
 
 export interface SearchResultPHLink {
   phasset_local_id: string;
@@ -45,21 +46,28 @@ export interface SearchResult {
   phasset_links?: SearchResultPHLink[];
 }
 
-export function projectAsset(d: AssetDoc & { _id: ObjectId }): SearchResult {
+export function projectAsset(
+  d: AssetDoc & { _id: ObjectId },
+  libraries: ReadonlyMap<string, string>,
+): SearchResult {
   const exif = d.exif ?? null;
   const camera =
     exif && (exif.camera_make !== null || exif.camera_model !== null)
       ? { make: exif.camera_make, model: exif.camera_model }
       : null;
+  const primary = assetPrimaryFileInfo(d);
+  const absPath = assetAbsPath(d, libraries) ?? '';
+  const folderId = primary?.library_id.toHexString() ?? '';
+  const filename = primary?.filename ?? '';
   const result: SearchResult = {
     // The editor's id format is `fs:<absPath>` (matches Hosted's
     // browser-FS-Access keys); keeping the same shape here lets the FE
     // route a search hit straight into the editor.
-    id: `fs:${d.abs_path}`,
+    id: `fs:${absPath}`,
     _id: d._id.toHexString(),
-    folder_id: d.folder_id.toHexString(),
-    abs_path: d.abs_path,
-    filename: d.filename,
+    folder_id: folderId,
+    abs_path: absPath,
+    filename,
     size: d.size,
     mtime: d.mtime,
     captured_at: exif?.captured_at ?? null,

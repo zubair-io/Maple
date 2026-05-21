@@ -1,21 +1,23 @@
-import { describe, test, expect, beforeAll, afterAll } from "bun:test";
-import * as fs from "node:fs/promises";
-import * as os from "node:os";
-import * as path from "node:path";
-import { MongoClient, ObjectId, type Db } from "mongodb";
-import { signAccessToken } from "../src/auth/tokens.ts";
+import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
+import * as fs from 'node:fs/promises';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import { MongoClient, ObjectId, type Db } from 'mongodb';
+import { signAccessToken } from '../src/auth/tokens.ts';
 
 // JWT bootstrap MUST run before any module that touches `requireAuth`.
-process.env.MAPLE_JWT_SECRET = "x".repeat(32);
-const BEARER = "Bearer " + signAccessToken(
-  { sub: "00000000000000000000000a", email: "tester@maple.local", role: "owner" },
-  process.env.MAPLE_JWT_SECRET!,
-);
+process.env.MAPLE_JWT_SECRET = 'x'.repeat(32);
+const BEARER =
+  'Bearer ' +
+  signAccessToken(
+    { sub: '00000000000000000000000a', email: 'tester@maple.local', role: 'owner' },
+    process.env.MAPLE_JWT_SECRET!,
+  );
 
 const TEST_DB = `maple_test_fp3_upload_${process.pid}`;
 const PRIOR_MONGO_DB = process.env.MAPLE_MONGO_DB;
 const PRIOR_MAPLE_ROOTS = process.env.MAPLE_ROOTS;
-const MONGO_URI = process.env.MAPLE_MONGO_URI ?? "mongodb://localhost:27017";
+const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
 
 let mongo: MongoClient | null = null;
 let mongoReachable = false;
@@ -26,13 +28,21 @@ let folderId: ObjectId;
 
 async function tryConnect(): Promise<MongoClient | null> {
   const c = new MongoClient(MONGO_URI, { serverSelectionTimeoutMS: 1500, connectTimeoutMS: 1500 });
-  try { await c.connect(); await c.db("admin").command({ ping: 1 }); return c; }
-  catch { try { await c.close(); } catch {}; return null; }
+  try {
+    await c.connect();
+    await c.db('admin').command({ ping: 1 });
+    return c;
+  } catch {
+    try {
+      await c.close();
+    } catch {}
+    return null;
+  }
 }
 
-describe("POST /api/folders/:id/upload", () => {
+describe('POST /api/folders/:id/upload', () => {
   beforeAll(async () => {
-    const { closeDb } = await import("../src/db/client.ts");
+    const { closeDb } = await import('../src/db/client.ts');
     await closeDb();
     process.env.MAPLE_MONGO_DB = TEST_DB;
     mongo = await tryConnect();
@@ -52,20 +62,23 @@ describe("POST /api/folders/:id/upload", () => {
     // credentials, ...) that prod populates via app code — pre-create them
     // here so `createIndex` doesn't see `ns not found`. Pattern mirrors
     // src/db/client.test.ts.
-    for (const name of ["users", "credentials", "invites", "refresh_tokens", "challenges"]) {
+    for (const name of ['users', 'credentials', 'invites', 'refresh_tokens', 'challenges']) {
       await db.createCollection(name).catch(() => undefined);
     }
-    const { ensureIndexes } = await import("../src/db/client.ts");
+    const { ensureIndexes } = await import('../src/db/client.ts');
     await ensureIndexes();
 
-    tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "maple-fp3-upload-"));
+    tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'maple-fp3-upload-'));
     realTmpRoot = await fs.realpath(tmpRoot);
     process.env.MAPLE_ROOTS = realTmpRoot;
 
     folderId = new ObjectId();
-    await db.collection("folders").insertOne({
-      _id: folderId, path: realTmpRoot, label: "test",
-      created_at: new Date().toISOString(), file_count: 0,
+    await db.collection('folders').insertOne({
+      _id: folderId,
+      path: realTmpRoot,
+      label: 'test',
+      created_at: new Date().toISOString(),
+      file_count: 0,
     } as never);
   });
 
@@ -75,10 +88,12 @@ describe("POST /api/folders/:id/upload", () => {
     // connection stays open against TEST_DB and leaks into later
     // test files. Restore the prior env var. Pattern mirrors
     // assets-xmp-delete.test.ts.
-    const { closeDb } = await import("../src/db/client.ts");
+    const { closeDb } = await import('../src/db/client.ts');
     await closeDb();
     if (mongo) {
-      try { await mongo.db(TEST_DB).dropDatabase(); } catch {}
+      try {
+        await mongo.db(TEST_DB).dropDatabase();
+      } catch {}
       await mongo.close();
     }
     if (tmpRoot) await fs.rm(tmpRoot, { recursive: true, force: true });
@@ -90,102 +105,139 @@ describe("POST /api/folders/:id/upload", () => {
 
   function upload(body: Buffer, headers: Record<string, string>): Request {
     return new Request(`http://localhost/api/folders/${folderId.toHexString()}/upload`, {
-      method: "POST",
-      headers: { "Content-Type": "application/octet-stream", "Content-Length": String(body.byteLength), Authorization: BEARER, ...headers },
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/octet-stream',
+        'Content-Length': String(body.byteLength),
+        Authorization: BEARER,
+        ...headers,
+      },
       body,
     });
   }
 
-  test("happy path: ARW upload writes file + inserts asset doc with stages skeleton", async () => {
+  test('happy path: ARW upload writes file + inserts asset doc with stages skeleton', async () => {
     if (!mongoReachable) return;
-    const { app } = await import("../src/index.ts");
+    const { app } = await import('../src/index.ts');
     const bytes = Buffer.alloc(64, 7);
-    const res = await app.handle(upload(bytes, {
-      "X-Maple-Target-Path": "2024/IMG_42.ARW",
-    }));
+    const res = await app.handle(
+      upload(bytes, {
+        'X-Maple-Target-Path': '2024/IMG_42.ARW',
+      }),
+    );
     expect(res.status).toBe(201);
-    const body = await res.json() as { asset_id: string; abs_path: string; size: number; mtime: string };
+    const body = (await res.json()) as {
+      asset_id: string;
+      abs_path: string;
+      size: number;
+      mtime: string;
+    };
     expect(body.size).toBe(64);
-    expect(body.abs_path).toBe(path.join(realTmpRoot, "2024", "IMG_42.ARW"));
+    expect(body.abs_path).toBe(path.join(realTmpRoot, '2024', 'IMG_42.ARW'));
     // mtime must be ISO-8601 (Swift Date decoder expects this format).
-    expect(typeof body.mtime).toBe("string");
+    expect(typeof body.mtime).toBe('string');
     expect(body.mtime).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
     const onDisk = await fs.readFile(body.abs_path);
     expect(onDisk.byteLength).toBe(64);
 
-    const doc = await db!.collection("assets").findOne({ _id: new ObjectId(body.asset_id) });
+    const doc = await db!.collection('assets').findOne({ _id: new ObjectId(body.asset_id) });
     expect(doc).toBeTruthy();
     expect((doc as Record<string, unknown>).deleted_at).toBeNull();
     expect((doc as Record<string, unknown>).stages).toBeDefined();
     // Every stage must be initialised pending so controllers pick it up.
-    const stages = (doc as Record<string, unknown>).stages as Record<string, { version: number; processed_at: null }>;
-    for (const stage of ["hash", "exif", "thumb", "preview", "face", "describe", "geocode", "meili"]) {
+    // Post drop-abs-path-2026-05-21: the `hash` stage is retired —
+    // discover now hashes inline, so the stages skeleton no longer
+    // includes it (see PR 2 + PR 7).
+    const stages = (doc as Record<string, unknown>).stages as Record<
+      string,
+      { version: number; processed_at: null }
+    >;
+    for (const stage of ['exif', 'thumb', 'preview', 'face', 'describe', 'geocode', 'meili']) {
       expect(stages[stage]).toBeDefined();
       expect(stages[stage].version).toBe(0);
       expect(stages[stage].processed_at).toBeNull();
     }
   });
 
-  test("415 on unsupported extension; no file on disk, no asset doc", async () => {
+  test('415 on unsupported extension; no file on disk, no asset doc', async () => {
     if (!mongoReachable) return;
-    const { app } = await import("../src/index.ts");
-    const res = await app.handle(upload(Buffer.from("hello"), {
-      "X-Maple-Target-Path": "notes.txt",
-    }));
+    const { app } = await import('../src/index.ts');
+    const res = await app.handle(
+      upload(Buffer.from('hello'), {
+        'X-Maple-Target-Path': 'notes.txt',
+      }),
+    );
     expect(res.status).toBe(415);
-    await expect(fs.stat(path.join(realTmpRoot, "notes.txt"))).rejects.toThrow();
-    const doc = await db!.collection("assets").findOne({ abs_path: path.join(realTmpRoot, "notes.txt") });
+    await expect(fs.stat(path.join(realTmpRoot, 'notes.txt'))).rejects.toThrow();
+    const doc = await db!
+      .collection('assets')
+      .findOne({ abs_path: path.join(realTmpRoot, 'notes.txt') });
     expect(doc).toBeNull();
   });
 
-  test("400 on path-escape attempt", async () => {
+  test('400 on path-escape attempt', async () => {
     if (!mongoReachable) return;
-    const { app } = await import("../src/index.ts");
-    const res = await app.handle(upload(Buffer.from("x"), {
-      "X-Maple-Target-Path": "../../etc/IMG.ARW",
-    }));
+    const { app } = await import('../src/index.ts');
+    const res = await app.handle(
+      upload(Buffer.from('x'), {
+        'X-Maple-Target-Path': '../../etc/IMG.ARW',
+      }),
+    );
     expect(res.status).toBe(400);
   });
 
-  test("400 on malformed percent-escape in X-Maple-Target-Path", async () => {
+  test('400 on malformed percent-escape in X-Maple-Target-Path', async () => {
     if (!mongoReachable) return;
-    const { app } = await import("../src/index.ts");
+    const { app } = await import('../src/index.ts');
     // `%ZZ` is not a valid percent escape; decodeURIComponent throws
     // URIError. The route must surface 400 instead of falling through
     // to the global 500 handler.
-    const res = await app.handle(upload(Buffer.from("x"), {
-      "X-Maple-Target-Path": "broken%ZZ.ARW",
-    }));
+    const res = await app.handle(
+      upload(Buffer.from('x'), {
+        'X-Maple-Target-Path': 'broken%ZZ.ARW',
+      }),
+    );
     expect(res.status).toBe(400);
   });
 
-  test("400 on absolute path", async () => {
+  test('400 on absolute path', async () => {
     if (!mongoReachable) return;
-    const { app } = await import("../src/index.ts");
-    const res = await app.handle(upload(Buffer.from("x"), {
-      "X-Maple-Target-Path": "/etc/IMG.ARW",
-    }));
+    const { app } = await import('../src/index.ts');
+    const res = await app.handle(
+      upload(Buffer.from('x'), {
+        'X-Maple-Target-Path': '/etc/IMG.ARW',
+      }),
+    );
     expect(res.status).toBe(400);
   });
 
-  test("400 on leading-dot path component (would land in .maple/)", async () => {
+  test('400 on leading-dot path component (would land in .maple/)', async () => {
     if (!mongoReachable) return;
-    const { app } = await import("../src/index.ts");
-    const res = await app.handle(upload(Buffer.from("x"), {
-      "X-Maple-Target-Path": ".maple/IMG.ARW",
-    }));
+    const { app } = await import('../src/index.ts');
+    const res = await app.handle(
+      upload(Buffer.from('x'), {
+        'X-Maple-Target-Path': '.maple/IMG.ARW',
+      }),
+    );
     expect(res.status).toBe(400);
   });
 
-  test("404 on unknown folder id", async () => {
+  test('404 on unknown folder id', async () => {
     if (!mongoReachable) return;
-    const { app } = await import("../src/index.ts");
+    const { app } = await import('../src/index.ts');
     const otherId = new ObjectId().toHexString();
-    const res = await app.handle(new Request(`http://localhost/api/folders/${otherId}/upload`, {
-      method: "POST",
-      headers: { "Content-Type": "application/octet-stream", "Content-Length": "1", "X-Maple-Target-Path": "x.ARW", Authorization: BEARER },
-      body: Buffer.from("x"),
-    }));
+    const res = await app.handle(
+      new Request(`http://localhost/api/folders/${otherId}/upload`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/octet-stream',
+          'Content-Length': '1',
+          'X-Maple-Target-Path': 'x.ARW',
+          Authorization: BEARER,
+        },
+        body: Buffer.from('x'),
+      }),
+    );
     expect(res.status).toBe(404);
   });
 
@@ -193,65 +245,72 @@ describe("POST /api/folders/:id/upload", () => {
   // `.maple/trash/<rel>` (preserving the prior copy for restore) and
   // the new bytes land at the original path. Returns 201, not 409 —
   // the File Provider treats a re-drop as an idempotent replace.
-  test("duplicate upload: existing file moves to trash, new bytes land at target", async () => {
+  test('duplicate upload: existing file moves to trash, new bytes land at target', async () => {
     if (!mongoReachable) return;
-    const { app } = await import("../src/index.ts");
-    const dest = path.join(realTmpRoot, "dup.ARW");
+    const { app } = await import('../src/index.ts');
+    const dest = path.join(realTmpRoot, 'dup.ARW');
     // Seed both the file and a live asset doc, mirroring real state.
-    await fs.writeFile(dest, "old");
+    // Post drop-abs-path-2026-05-21: on-disk pointer is `fileinfo[]`.
+    await fs.writeFile(dest, 'old');
     const priorId = new ObjectId();
-    await db!.collection("assets").insertOne({
+    await db!.collection('assets').insertOne({
       _id: priorId,
-      folder_id: folderId,
-      filename: "dup.ARW",
-      abs_path: dest,
-      size: 3, mtime: Date.now(),
-      sha1_head: "deadbeef",
+      fileinfo: [{ library_id: folderId, path: '', filename: 'dup.ARW', deleted_at: null }],
+      size: 3,
+      mtime: Date.now(),
+      sha1_head: 'deadbeef',
       indexed_at: new Date().toISOString(),
       deleted_at: null,
     } as never);
 
-    const res = await app.handle(upload(Buffer.from("new"), {
-      "X-Maple-Target-Path": "dup.ARW",
-    }));
+    const res = await app.handle(
+      upload(Buffer.from('new'), {
+        'X-Maple-Target-Path': 'dup.ARW',
+      }),
+    );
     expect(res.status).toBe(201);
-    expect(await fs.readFile(dest, "utf-8")).toBe("new");
+    expect(await fs.readFile(dest, 'utf-8')).toBe('new');
 
     // Prior file is in trash, prior doc soft-deleted.
-    const trashPath = path.join(realTmpRoot, ".maple", "trash", "dup.ARW");
-    expect(await fs.readFile(trashPath, "utf-8")).toBe("old");
-    const priorDoc = await db!.collection("assets").findOne({ _id: priorId }) as Record<string, unknown> | null;
+    const trashPath = path.join(realTmpRoot, '.maple', 'trash', 'dup.ARW');
+    expect(await fs.readFile(trashPath, 'utf-8')).toBe('old');
+    const priorDoc = (await db!.collection('assets').findOne({ _id: priorId })) as Record<
+      string,
+      unknown
+    > | null;
     expect(priorDoc).toBeTruthy();
     expect(priorDoc!.deleted_at).toBeTruthy();
-    expect(priorDoc!.abs_path).toBe(trashPath);
+    const pfi = (priorDoc!.fileinfo as Array<{ path: string; filename: string }>)[0]!;
+    expect(path.join(realTmpRoot, pfi.path, pfi.filename)).toBe(trashPath);
     expect(priorDoc!.original_path).toBe(dest);
 
     // A fresh live doc was inserted for the new bytes.
-    const newDoc = await db!.collection("assets").findOne({ abs_path: dest, deleted_at: null }) as Record<string, unknown> | null;
+    const newDoc = (await db!.collection('assets').findOne({
+      fileinfo: { $elemMatch: { library_id: folderId, path: '', filename: 'dup.ARW' } },
+      deleted_at: null,
+    })) as Record<string, unknown> | null;
     expect(newDoc).toBeTruthy();
     expect(newDoc!._id).not.toEqual(priorId);
   });
 
   // Duplicate upload with byte-identical content: nothing to recover,
   // so the trash entry is purged after the new write lands.
-  test("duplicate upload with identical content purges the redundant trash entry", async () => {
+  test('duplicate upload with identical content purges the redundant trash entry', async () => {
     if (!mongoReachable) return;
-    const { app } = await import("../src/index.ts");
-    const dest = path.join(realTmpRoot, "same.ARW");
+    const { app } = await import('../src/index.ts');
+    const dest = path.join(realTmpRoot, 'same.ARW');
     const bytes = Buffer.alloc(128, 0xab);
     await fs.writeFile(dest, bytes);
     // Pre-compute the sha1 of the first 64 KB (the file is only 128 B,
     // so that's the whole file) to match what the upload route hashes.
-    const { sha1 } = await import("@noble/hashes/legacy.js");
+    const { sha1 } = await import('@noble/hashes/legacy.js');
     const digest = sha1(new Uint8Array(bytes));
-    let hex = "";
-    for (let i = 0; i < digest.length; i++) hex += digest[i]!.toString(16).padStart(2, "0");
+    let hex = '';
+    for (let i = 0; i < digest.length; i++) hex += digest[i]!.toString(16).padStart(2, '0');
     const priorId = new ObjectId();
-    await db!.collection("assets").insertOne({
+    await db!.collection('assets').insertOne({
       _id: priorId,
-      folder_id: folderId,
-      filename: "same.ARW",
-      abs_path: dest,
+      fileinfo: [{ library_id: folderId, path: '', filename: 'same.ARW', deleted_at: null }],
       size: bytes.byteLength,
       mtime: Date.now(),
       sha1_head: hex,
@@ -259,20 +318,22 @@ describe("POST /api/folders/:id/upload", () => {
       deleted_at: null,
     } as never);
 
-    const res = await app.handle(upload(bytes, {
-      "X-Maple-Target-Path": "same.ARW",
-    }));
+    const res = await app.handle(
+      upload(bytes, {
+        'X-Maple-Target-Path': 'same.ARW',
+      }),
+    );
     expect(res.status).toBe(201);
 
     // No trash artifact for THIS upload — same content was detected via
     // sha1_head + size, so the moved-aside file was unlinked and the
     // soft-deleted doc removed. (Filter by stem because the shared
     // tmpRoot accumulates trash from other tests in this suite.)
-    const trashDir = path.join(realTmpRoot, ".maple", "trash");
+    const trashDir = path.join(realTmpRoot, '.maple', 'trash');
     const trashEntries = await fs.readdir(trashDir).catch(() => [] as string[]);
-    const sameEntries = trashEntries.filter((n) => n.startsWith("same"));
+    const sameEntries = trashEntries.filter((n) => n.startsWith('same'));
     expect(sameEntries).toEqual([]);
-    const priorDoc = await db!.collection("assets").findOne({ _id: priorId });
+    const priorDoc = await db!.collection('assets').findOne({ _id: priorId });
     expect(priorDoc).toBeNull();
   });
 
@@ -283,9 +344,9 @@ describe("POST /api/folders/:id/upload", () => {
   // ~100 MB body verifies the route doesn't fail on a payload size
   // that would be obviously inefficient if buffered; the byte-for-byte
   // comparison rules out streaming corruption.
-  test("streaming upload: 100MB body lands intact on disk", async () => {
+  test('streaming upload: 100MB body lands intact on disk', async () => {
     if (!mongoReachable) return;
-    const { app } = await import("../src/index.ts");
+    const { app } = await import('../src/index.ts');
     const SIZE = 100 * 1024 * 1024; // 100 MB
     // Don't allocate a single 100MB Buffer — that would defeat the
     // streaming test on the *test* side. Build a ReadableStream that
@@ -296,7 +357,10 @@ describe("POST /api/folders/:id/upload", () => {
       pull(controller) {
         // @ts-ignore: ad-hoc counter on the stream's underlying source
         const n = (this._n ??= 0);
-        if (n >= chunks) { controller.close(); return; }
+        if (n >= chunks) {
+          controller.close();
+          return;
+        }
         const chunk = new Uint8Array(CHUNK);
         // Fill with the chunk index so corruption shows up visibly.
         chunk.fill(n & 0xff);
@@ -305,23 +369,25 @@ describe("POST /api/folders/:id/upload", () => {
         this._n = n + 1;
       },
     });
-    const res = await app.handle(new Request(`http://localhost/api/folders/${folderId.toHexString()}/upload`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/octet-stream",
-        "Content-Length": String(SIZE),
-        "X-Maple-Target-Path": "BIG.ARW",
-        Authorization: BEARER,
-      },
-      body: stream,
-      // @ts-ignore — Bun's fetch supports duplex; Node typings don't.
-      duplex: "half",
-    }));
+    const res = await app.handle(
+      new Request(`http://localhost/api/folders/${folderId.toHexString()}/upload`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/octet-stream',
+          'Content-Length': String(SIZE),
+          'X-Maple-Target-Path': 'BIG.ARW',
+          Authorization: BEARER,
+        },
+        body: stream,
+        // @ts-ignore — Bun's fetch supports duplex; Node typings don't.
+        duplex: 'half',
+      }),
+    );
     expect(res.status).toBe(201);
-    const body = await res.json() as { abs_path: string; size: number };
+    const body = (await res.json()) as { abs_path: string; size: number };
     expect(body.size).toBe(SIZE);
     // Spot-check first + last chunk: every byte in chunk n equals n & 0xff.
-    const fh = await fs.open(body.abs_path, "r");
+    const fh = await fs.open(body.abs_path, 'r');
     try {
       const buf = Buffer.alloc(16);
       await fh.read(buf, 0, 16, 0);
@@ -339,27 +405,41 @@ describe("POST /api/folders/:id/upload", () => {
   // unique index reserved the trashed row's filename, so re-uploading
   // `A.jpg` after trashing the original failed with 409. The fix makes
   // the unique index partial (`deleted_at: null`).
-  test("re-upload after soft-delete with the same filename succeeds", async () => {
+  test('re-upload after soft-delete with the same filename succeeds', async () => {
     if (!mongoReachable) return;
-    const { app } = await import("../src/index.ts");
+    const { app } = await import('../src/index.ts');
     // Seed: a previously-soft-deleted asset under the upload's intended name.
-    await db!.collection("assets").insertOne({
+    // Post drop-abs-path-2026-05-21: persisted via `fileinfo[]` at the
+    // trash location, with `original_path` capturing where to restore it.
+    await db!.collection('assets').insertOne({
       _id: new ObjectId(),
-      folder_id: folderId,
-      filename: "REUSE.ARW",
-      abs_path: path.join(realTmpRoot, ".maple", "trash", "REUSE.ARW"),
-      size: 1, mtime: Date.now(),
+      fileinfo: [
+        { library_id: folderId, path: '.maple/trash', filename: 'REUSE.ARW', deleted_at: null },
+      ],
+      size: 1,
+      mtime: Date.now(),
       indexed_at: new Date().toISOString(),
       deleted_at: new Date().toISOString(),
-      original_path: path.join(realTmpRoot, "REUSE.ARW"),
+      original_path: path.join(realTmpRoot, 'REUSE.ARW'),
     } as never);
 
-    const res = await app.handle(upload(Buffer.alloc(4, 9), {
-      "X-Maple-Target-Path": "REUSE.ARW",
-    }));
+    const res = await app.handle(
+      upload(Buffer.alloc(4, 9), {
+        'X-Maple-Target-Path': 'REUSE.ARW',
+      }),
+    );
     expect(res.status).toBe(201);
-    // Both rows now exist — the trashed one and the new live one.
-    const all = await db!.collection("assets").find({ folder_id: folderId, filename: "REUSE.ARW" }).toArray();
+    // Both rows now exist — the trashed one and the new live one. After
+    // PR 7 the filename lives on each row's fileinfo entries so we
+    // scope by `fileinfo.filename` instead of the dropped top-level
+    // pair.
+    const all = await db!
+      .collection('assets')
+      .find({
+        'fileinfo.library_id': folderId,
+        'fileinfo.filename': 'REUSE.ARW',
+      })
+      .toArray();
     expect(all.length).toBe(2);
     const live = all.find((d) => (d as Record<string, unknown>).deleted_at === null);
     expect(live).toBeTruthy();
@@ -371,15 +451,15 @@ describe("POST /api/folders/:id/upload", () => {
   // tmp, then atomically renames into place, so the file on disk
   // always matches one of the two complete payloads (never a torn
   // mixture). No tmp files are left behind.
-  test("concurrent uploads to the same target: both 201, one intact file, no orphan tmps", async () => {
+  test('concurrent uploads to the same target: both 201, one intact file, no orphan tmps', async () => {
     if (!mongoReachable) return;
-    const { app } = await import("../src/index.ts");
-    const targetRel = "race/IMG_RACE.ARW";
+    const { app } = await import('../src/index.ts');
+    const targetRel = 'race/IMG_RACE.ARW';
     const dest = path.join(realTmpRoot, targetRel);
 
     const [resA, resB] = await Promise.all([
-      app.handle(upload(Buffer.alloc(32, 1), { "X-Maple-Target-Path": targetRel })),
-      app.handle(upload(Buffer.alloc(32, 2), { "X-Maple-Target-Path": targetRel })),
+      app.handle(upload(Buffer.alloc(32, 1), { 'X-Maple-Target-Path': targetRel })),
+      app.handle(upload(Buffer.alloc(32, 2), { 'X-Maple-Target-Path': targetRel })),
     ]);
 
     expect(resA.status).toBe(201);
@@ -394,10 +474,22 @@ describe("POST /api/folders/:id/upload", () => {
     expect(onDisk.every((b) => b === fill)).toBe(true);
 
     const dirEntries = await fs.readdir(path.dirname(dest));
-    const tmps = dirEntries.filter((n) => n.startsWith(".upload-"));
+    const tmps = dirEntries.filter((n) => n.startsWith('.upload-'));
     expect(tmps).toEqual([]);
 
-    const liveDocs = await db!.collection("assets").find({ abs_path: dest, deleted_at: null }).toArray();
+    // Post drop-abs-path-2026-05-21: the unique live row is queried via
+    // its `fileinfo[]` entry — `(library_id, path, filename)` mirrors
+    // the resolution path the routes take.
+    const relDir = path.relative(realTmpRoot, path.dirname(dest));
+    const liveDocs = await db!
+      .collection('assets')
+      .find({
+        fileinfo: {
+          $elemMatch: { library_id: folderId, path: relDir, filename: path.basename(dest) },
+        },
+        deleted_at: null,
+      })
+      .toArray();
     expect(liveDocs.length).toBe(1);
   });
 });

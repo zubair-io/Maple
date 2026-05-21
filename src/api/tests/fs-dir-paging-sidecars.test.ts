@@ -12,22 +12,16 @@
  * Real Mongo; skip-passes if MongoDB is unreachable.
  */
 
-import {
-  describe,
-  it,
-  expect,
-  beforeAll,
-  afterAll,
-} from "bun:test";
-import * as path from "node:path";
-import * as os from "node:os";
-import * as fs from "node:fs/promises";
-import { MongoClient, ObjectId, type Db } from "mongodb";
-import { pendingEnrichment } from "../src/db/schema.ts";
+import { describe, it, expect, beforeAll, afterAll } from 'bun:test';
+import * as path from 'node:path';
+import * as os from 'node:os';
+import * as fs from 'node:fs/promises';
+import { MongoClient, ObjectId, type Db } from 'mongodb';
+import { pendingEnrichment } from '../src/db/schema.ts';
 
 const TEST_DB = `maple_test_fs_dir_paging_sidecars_${process.pid}`;
 const PRIOR_MONGO_DB = process.env.MAPLE_MONGO_DB;
-const MONGO_URI = process.env.MAPLE_MONGO_URI ?? "mongodb://localhost:27017";
+const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
 
 // Small N so we can use limit=1 (forces every sidecar onto a page whose
 // images[] is empty) without making the test run hundreds of requests.
@@ -47,7 +41,7 @@ async function tryConnect(): Promise<MongoClient | null> {
   });
   try {
     await c.connect();
-    await c.db("admin").command({ ping: 1 });
+    await c.db('admin').command({ ping: 1 });
     return c;
   } catch {
     try {
@@ -57,16 +51,13 @@ async function tryConnect(): Promise<MongoClient | null> {
   }
 }
 
-describe("GET /api/fs/dir — paged sidecar pairing across page boundaries", () => {
+describe('GET /api/fs/dir — paged sidecar pairing across page boundaries', () => {
   beforeAll(async () => {
     process.env.MAPLE_MONGO_DB = TEST_DB;
     mongo = await tryConnect();
     mongoReachable = mongo !== null;
     if (!mongoReachable) {
-      console.log(
-        "[fs-dir-paging-sidecars.test] skipping: MongoDB unreachable at",
-        MONGO_URI,
-      );
+      console.log('[fs-dir-paging-sidecars.test] skipping: MongoDB unreachable at', MONGO_URI);
       return;
     }
 
@@ -74,50 +65,59 @@ describe("GET /api/fs/dir — paged sidecar pairing across page boundaries", () 
     await db.dropDatabase();
 
     // Reset the singleton so the route's assetsCollection() reads the test DB.
-    const { closeDb } = await import("../src/db/client.ts");
+    const { closeDb } = await import('../src/db/client.ts');
     await closeDb();
 
-    tmpRoot = await fs.mkdtemp(
-      path.join(os.tmpdir(), "maple-fp-paging-sidecars-"),
-    );
+    tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'maple-fp-paging-sidecars-'));
     realTmpRoot = await fs.realpath(tmpRoot);
     process.env.MAPLE_ROOTS = realTmpRoot;
 
     // Write N RAW files plus N matching XMP sidecars; index every RAW
     // in Mongo so the route sees a paired asset for each sidecar.
+    // Post drop-abs-path-2026-05-21: assets carry `fileinfo[]` and the
+    // browse listing resolves the absolute path via the libraries
+    // cache, so the seeded folder must match `realTmpRoot`.
     assetIDsByBase = new Map<string, string>();
     const folderId = new ObjectId();
+    await db.collection('folders').insertOne({
+      _id: folderId,
+      path: realTmpRoot,
+      label: 'paging-test',
+      last_scan: null,
+      file_count: 0,
+      created_at: new Date().toISOString(),
+    } as never);
+    const { invalidateLibraryRoots } = await import('../src/indexer/libraries.cache.ts');
+    invalidateLibraryRoots();
     const docs: Array<Record<string, unknown>> = [];
     for (let i = 0; i < N; i++) {
-      const base = `IMG_${String(i).padStart(4, "0")}`;
+      const base = `IMG_${String(i).padStart(4, '0')}`;
       const rawName = `${base}.ARW`;
       const xmpName = `${base}.xmp`;
       const rawPath = path.join(realTmpRoot, rawName);
       const xmpPath = path.join(realTmpRoot, xmpName);
       await fs.writeFile(rawPath, new Uint8Array([0xff, 0xd8, 0xff]));
-      await fs.writeFile(xmpPath, "<x:xmpmeta/>");
+      await fs.writeFile(xmpPath, '<x:xmpmeta/>');
       const id = new ObjectId();
       assetIDsByBase.set(base, id.toHexString());
       docs.push({
         _id: id,
-        folder_id: folderId,
-        filename: rawName,
-        abs_path: rawPath,
+        fileinfo: [{ library_id: folderId, path: '', filename: rawName, deleted_at: null }],
         size: 3,
         mtime: Date.now(),
         rating: 0,
         flag: 0,
-        color_label: "",
+        color_label: '',
         indexed_at: new Date().toISOString(),
         enrichment: pendingEnrichment(),
         place: null,
         faces: [],
         description: null,
         ocr_text: null,
-        search_blob: "",
+        search_blob: '',
       });
     }
-    await db.collection("assets").insertMany(docs as never);
+    await db.collection('assets').insertMany(docs as never);
   });
 
   afterAll(async () => {
@@ -136,16 +136,16 @@ describe("GET /api/fs/dir — paged sidecar pairing across page boundaries", () 
       } catch {}
     }
     try {
-      const { closeDb } = await import("../src/db/client.ts");
+      const { closeDb } = await import('../src/db/client.ts');
       await closeDb();
     } catch {}
     if (PRIOR_MONGO_DB === undefined) delete process.env.MAPLE_MONGO_DB;
     else process.env.MAPLE_MONGO_DB = PRIOR_MONGO_DB;
   });
 
-  it("every sidecar across paged responses resolves its asset_id", async () => {
+  it('every sidecar across paged responses resolves its asset_id', async () => {
     if (!mongoReachable) return;
-    const { fsRoutes } = await import("../src/routes/fs.ts");
+    const { fsRoutes } = await import('../src/routes/fs.ts');
 
     // localeCompare interleaves names: IMG_0000.ARW < IMG_0000.xmp <
     // IMG_0001.ARW < IMG_0001.xmp < … so any limit ≥ 2 keeps each
@@ -160,9 +160,9 @@ describe("GET /api/fs/dir — paged sidecar pairing across page boundaries", () 
     do {
       const qs = new URLSearchParams({
         path: realTmpRoot,
-        limit: "1",
+        limit: '1',
       });
-      if (cursor) qs.set("cursor", cursor);
+      if (cursor) qs.set('cursor', cursor);
       const url = `http://localhost/api/fs/dir?${qs.toString()}`;
       const res = await fsRoutes.handle(new Request(url));
       expect(res.status).toBe(200);
@@ -190,7 +190,7 @@ describe("GET /api/fs/dir — paged sidecar pairing across page boundaries", () 
     expect(pageCount).toBe(2 * N);
     expect(seen.size).toBe(N);
     for (let i = 0; i < N; i++) {
-      const base = `IMG_${String(i).padStart(4, "0")}`;
+      const base = `IMG_${String(i).padStart(4, '0')}`;
       const expected = assetIDsByBase.get(base);
       expect(expected).toBeDefined();
       const got = seen.get(`${base}.xmp`);

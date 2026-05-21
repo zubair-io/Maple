@@ -98,7 +98,7 @@ export async function listEnrichmentDeadLetter(input: {
     const stageState = d.enrichment?.[input.stage];
     return {
       asset_id: d._id.toHexString(),
-      abs_path: assetAbsPath(d, libs) ?? d.abs_path ?? null,
+      abs_path: assetAbsPath(d, libs),
       last_error: stageState?.last_error ?? null,
       attempts: stageState?.attempts ?? 0,
       // Filter guarantees dead_letter_at is non-null; fall back to "" so

@@ -29,3 +29,12 @@ export async function loadLibraryRoots(): Promise<ReadonlyMap<string, string>> {
 export function invalidateLibraryRoots(): void {
   cached = null;
 }
+
+/**
+ * Test-only: stuff the cache with a fixed map so handler-level tests can
+ * exercise the content-addressed cache-path resolution without a Mongo
+ * instance. Pass `null` to revert to the lazy-load behaviour.
+ */
+export function setLibraryRootsForTests(map: ReadonlyMap<string, string> | null): void {
+  cached = map;
+}

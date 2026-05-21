@@ -193,15 +193,14 @@ public struct AssetListEntry: Codable, Sendable, Equatable {
     public let id: String
     public let folderID: String
     public let filename: String
-    /// Deprecated: prefer composing the path via
-    /// `assetAbsPath(fileInfo:legacyAbsPath:libraries:)`. Retained on the
-    /// wire during the content-addressing migration; drops once every
-    /// server is on the new indexer.
+    /// Resolved absolute filesystem path. After the
+    /// drop-abs-path-2026-05-21 migration the server composes this value
+    /// from `fileinfo[0]` and the registered library root at response
+    /// time; clients can use it directly without re-resolving.
     public let absPath: String
-    /// Canonical on-disk locations. Optional during the additive phase of
-    /// the content-addressing migration — pre-backfill rows from older
-    /// servers may omit it; pass through `assetAbsPath` which falls back
-    /// to `absPath`.
+    /// Canonical on-disk locations. Optional only because soft-deleted
+    /// rows pre-dating the backfill may omit it — for live rows the
+    /// server always populates this field alongside `absPath`.
     public let fileInfo: [FileInfo]?
     /// Last-modified time in epoch seconds. The server stores
     /// `AssetDoc.mtime` in milliseconds (from `stat.mtimeMs`) but the
@@ -251,15 +250,14 @@ public struct AssetMetadata: Codable, Sendable, Equatable {
     public let id: String
     public let folderID: String
     public let filename: String
-    /// Deprecated: prefer composing the path via
-    /// `assetAbsPath(fileInfo:legacyAbsPath:libraries:)`. Retained on the
-    /// wire during the content-addressing migration; drops once every
-    /// server is on the new indexer.
+    /// Resolved absolute filesystem path. After the
+    /// drop-abs-path-2026-05-21 migration the server composes this value
+    /// from `fileinfo[0]` and the registered library root at response
+    /// time; clients can use it directly without re-resolving.
     public let absPath: String
-    /// Canonical on-disk locations. Optional during the additive phase of
-    /// the content-addressing migration — pre-backfill rows from older
-    /// servers may omit it; pass through `assetAbsPath` which falls back
-    /// to `absPath`.
+    /// Canonical on-disk locations. Optional only because soft-deleted
+    /// rows pre-dating the backfill may omit it — for live rows the
+    /// server always populates this field alongside `absPath`.
     public let fileInfo: [FileInfo]?
     public let size: Int64
     /// Epoch MILLISECONDS. Server emits `stat.mtimeMs` which is a
