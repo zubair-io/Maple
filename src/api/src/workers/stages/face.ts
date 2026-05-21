@@ -21,31 +21,41 @@
  * contract.
  */
 
-import { existsSync } from "node:fs";
-import { readFile } from "node:fs/promises";
-import type { ImageDoc, StageContext, StageResult } from "../run-stage.ts";
-import { defineStage, runStage, type RunStageHandle } from "../run-stage.ts";
-import { cachePathFor } from "../../fs/xmp.ts";
+import { existsSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
+import type { ImageDoc, StageContext, StageResult } from '../run-stage.ts';
+import { defineStage, runStage, type RunStageHandle } from '../run-stage.ts';
+import { cachePathFor, resolveThumbPathForAsset } from '../../fs/xmp.ts';
+import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
 import {
   defaultFaceDetector,
   ThumbDecodeError,
   type DetectedFace,
-} from "../../enrichment/face-detector.ts";
-import type { AssetFaceDoc } from "../../db/schema.ts";
+} from '../../enrichment/face-detector.ts';
+import type { AssetFaceDoc } from '../../db/schema.ts';
 
-export const THUMB_MISSING_REASON = "thumb-missing";
+export const THUMB_MISSING_REASON = 'thumb-missing';
 /** Cached thumbnail exists on disk but `sharp`/libvips can't decode it
  * (e.g. "VipsJpeg: Invalid SOS parameters"). Non-retryable — the thumb
  * regen would produce the same bytes. Skip-passes so the stage version
  * advances and we stop hammering bad inputs. */
-export const THUMB_UNDECODABLE_REASON = "thumb-undecodable";
+export const THUMB_UNDECODABLE_REASON = 'thumb-undecodable';
 
-export async function faceHandler(
-  image: ImageDoc,
-  _ctx: StageContext,
-): Promise<StageResult> {
+export async function faceHandler(image: ImageDoc, _ctx: StageContext): Promise<StageResult> {
   const detector = defaultFaceDetector();
-  const thumbPath = cachePathFor(image.abs_path as string, "thumbs");
+  // Prefer the content-addressed thumb path when the row has maple_id +
+  // fileinfo[0]; fall back to the legacy basename-keyed cache path for
+  // unmigrated rows. A DB hiccup loading library roots falls through to
+  // the legacy path with an empty map.
+  let libs: ReadonlyMap<string, string>;
+  try {
+    libs = await loadLibraryRoots();
+  } catch {
+    libs = new Map();
+  }
+  const thumbPath =
+    resolveThumbPathForAsset(image as never, libs) ??
+    cachePathFor(image.abs_path as string, 'thumbs');
   if (!existsSync(thumbPath)) {
     return { skip: `${THUMB_MISSING_REASON}: ${thumbPath}` };
   }
@@ -87,9 +97,9 @@ function detectionToDoc(det: DetectedFace, embedding: Float32Array): AssetFaceDo
 }
 
 const faceStage = defineStage({
-  name: "face",
+  name: 'face',
   targetVersion: 1,
-  dependsOn: ["thumb"],
+  dependsOn: ['thumb'],
   defaults: {
     concurrency: 1,
     pollIntervalMs: 1000,

@@ -23,7 +23,9 @@ import { listPairedSidecars } from '../fs/xmp.ts';
 import { child as childLogger } from '../log.ts';
 import { computeBodyETag, ifNoneMatchEqual } from '../runtime/http-etag.ts';
 import { handleEvent } from '../workers/discover/index.ts';
-import { invalidateLibraryRoots } from '../indexer/libraries.cache.ts';
+import { invalidateLibraryRoots, loadLibraryRoots } from '../indexer/libraries.cache.ts';
+import { assetAbsPath } from '../indexer/images.repo.ts';
+import type { AssetDoc } from '../db/schema.ts';
 import { stageManifest, blankStagesSkeleton } from '../workers/stages/manifest.ts';
 
 // Mirror of the hash stage's prefix-SHA-1: first 64 KB. Reused here so a
@@ -689,22 +691,20 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
           : null;
 
       const rootPrefix = folder.path.endsWith('/') ? folder.path : folder.path + '/';
+      const libs = await loadLibraryRoots();
       return {
         items: pageDocs.map((d) => {
-          const doc = d as unknown as {
-            _id: ObjectId;
-            filename: string;
-            abs_path: string;
-            size: number;
+          const doc = d as unknown as AssetDoc & {
             mtime: number | string;
             deleted_at: string;
             original_path: string;
           };
           const orig = doc.original_path;
           const originalRel = orig.startsWith(rootPrefix) ? orig.slice(rootPrefix.length) : orig;
-          const trashRel = doc.abs_path.startsWith(rootPrefix)
-            ? doc.abs_path.slice(rootPrefix.length)
-            : doc.abs_path;
+          const absPath = assetAbsPath(doc, libs) ?? doc.abs_path;
+          const trashRel = absPath.startsWith(rootPrefix)
+            ? absPath.slice(rootPrefix.length)
+            : absPath;
           // `doc.mtime` is stored as `fs.stat().mtimeMs` (a number) by
           // the discover watcher, but may legacy-back as an ISO string
           // from earlier rows. Always emit ISO-8601 over the wire so the
