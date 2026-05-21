@@ -10,16 +10,14 @@
  * the first read after invalidation. There is no TTL — clients that need
  * fresh data after mutating folders must call `invalidateLibraryRoots()`.
  */
-import { foldersCollection } from "../db/client.ts";
+import { foldersCollection } from '../db/client.ts';
 
 let cached: ReadonlyMap<string, string> | null = null;
 
 export async function loadLibraryRoots(): Promise<ReadonlyMap<string, string>> {
   if (cached) return cached;
   const coll = await foldersCollection();
-  const docs = await coll
-    .find({}, { projection: { path: 1 } })
-    .toArray();
+  const docs = await coll.find({}, { projection: { path: 1 } }).toArray();
   const map = new Map<string, string>();
   for (const d of docs) {
     map.set(d._id.toHexString(), d.path);

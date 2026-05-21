@@ -334,20 +334,19 @@ export const backupIngestRoutes = new Elysia().post(
     // FileInfo.path is documented as POSIX-separated; normalize sep
     // here so a host with `\` as path.sep doesn't store backslashes.
     const relDirRaw = path.dirname(resolvedTargetRelPath);
-    const relDir =
-      relDirRaw === '.' || relDirRaw === ''
-        ? ''
-        : relDirRaw.split(path.sep).join('/');
+    const relDir = relDirRaw === '.' || relDirRaw === '' ? '' : relDirRaw.split(path.sep).join('/');
     await a.insertOne({
       _id: new ObjectId(),
       folder_id: libraryId,
       filename,
       abs_path: finalPath,
-      fileinfo: [{
-        path: relDir,
-        filename,
-        library_id: libraryId,
-      }],
+      fileinfo: [
+        {
+          path: relDir,
+          filename,
+          library_id: libraryId,
+        },
+      ],
       size: totalBytes,
       mtime: Date.now(),
       rating: 0,

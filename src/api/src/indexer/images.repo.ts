@@ -4,10 +4,10 @@
  * while remaining compatible with the existing `AssetDoc` shape.
  */
 
-import * as path from "node:path";
-import type { Collection, ObjectId, UpdateResult } from "mongodb";
-import { assetsCollection } from "../db/client.ts";
-import { meilisearchClient } from "../enrichment/meilisearch-client.ts";
+import * as path from 'node:path';
+import type { Collection, ObjectId, UpdateResult } from 'mongodb';
+import { assetsCollection } from '../db/client.ts';
+import { meilisearchClient } from '../enrichment/meilisearch-client.ts';
 import {
   pendingEnrichment,
   type AssetDoc,
@@ -16,7 +16,7 @@ import {
   type Enrichment,
   type FileInfo,
   type Place,
-} from "../db/schema.ts";
+} from '../db/schema.ts';
 
 /**
  * Persisted face-detection result. Re-exported from the schema so existing
@@ -74,9 +74,7 @@ export async function coll(): Promise<Collection<IndexerAssetDoc>> {
  * After PR 6 of the migration this is the only place that knows the entry
  * is at index 0; callers should not depend on the index itself.
  */
-export function assetPrimaryFileInfo(
-  asset: Pick<AssetDoc, "fileinfo">,
-): FileInfo | null {
+export function assetPrimaryFileInfo(asset: Pick<AssetDoc, 'fileinfo'>): FileInfo | null {
   const list = asset.fileinfo;
   if (!list || list.length === 0) return null;
   for (const entry of list) {
@@ -207,7 +205,7 @@ export async function upsertByMapleId(input: UpsertInput): Promise<UpdateResult>
         filename: input.filename,
         rating: 0,
         flag: 0,
-        color_label: "",
+        color_label: '',
         enrichment: pendingEnrichment(),
         place: null,
         faces: [] as AssetFace[],
@@ -215,7 +213,7 @@ export async function upsertByMapleId(input: UpsertInput): Promise<UpdateResult>
         ai_tags: [] as string[],
       },
     },
-    { upsert: true }
+    { upsert: true },
   );
 }
 
@@ -242,16 +240,10 @@ export async function softDelete(absPath: string): Promise<void> {
   // Skipping when the row doesn't exist or pre-dates the maple_id field
   // (Phase 1 introduced it; older rows simply aren't in Meilisearch
   // either, so a no-op is correct).
-  const existing = await c.findOne(
-    { abs_path: absPath },
-    { projection: { maple_id: 1 } },
-  );
-  await c.updateOne(
-    { abs_path: absPath },
-    { $set: { deleted_at: new Date().toISOString() } }
-  );
+  const existing = await c.findOne({ abs_path: absPath }, { projection: { maple_id: 1 } });
+  await c.updateOne({ abs_path: absPath }, { $set: { deleted_at: new Date().toISOString() } });
   const mapleId = existing?.maple_id;
-  if (typeof mapleId === "string" && mapleId.length > 0) {
+  if (typeof mapleId === 'string' && mapleId.length > 0) {
     try {
       await meilisearchClient().tombstone(mapleId);
     } catch {
@@ -265,7 +257,7 @@ export async function softDelete(absPath: string): Promise<void> {
 export async function updatePath(
   mapleId: string,
   absPath: string,
-  filename: string
+  filename: string,
 ): Promise<void> {
   const c = await coll();
   await c.updateOne(
@@ -277,7 +269,7 @@ export async function updatePath(
         deleted_at: null,
         indexed_at: new Date().toISOString(),
       },
-    }
+    },
   );
 }
 

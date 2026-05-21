@@ -128,16 +128,15 @@ export async function backfillFileinfo(db: Db): Promise<BackfillFileinfoResult> 
     .toArray();
   const folderMap = new Map<string, string>();
   for (const f of folders) {
-    folderMap.set(
-      (f._id as { toHexString: () => string }).toHexString(),
-      f.path as string,
-    );
+    folderMap.set((f._id as { toHexString: () => string }).toHexString(), f.path as string);
   }
 
-  const cursor = db.collection('assets').find(
-    { fileinfo: { $exists: false }, abs_path: { $exists: true } },
-    { projection: { _id: 1, folder_id: 1, filename: 1, abs_path: 1 } },
-  );
+  const cursor = db
+    .collection('assets')
+    .find(
+      { fileinfo: { $exists: false }, abs_path: { $exists: true } },
+      { projection: { _id: 1, folder_id: 1, filename: 1, abs_path: 1 } },
+    );
 
   let scanned = 0;
   let updated = 0;

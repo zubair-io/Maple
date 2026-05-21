@@ -8,7 +8,7 @@
  *   - users, credentials, invites, refresh_tokens, challenges : auth (Phase A)
  */
 
-import type { ObjectId, WithId } from "mongodb";
+import type { ObjectId, WithId } from 'mongodb';
 
 // ---------------------------------------------------------------------------
 // Folder
@@ -92,13 +92,7 @@ export interface VisionDoc {
    * "building", "vehicle", "landscape", "food", "plant", … Open vocabulary,
    * but the prompt guides the model toward common values. */
   subjects: string[];
-  scene_type:
-    | "indoor"
-    | "outdoor"
-    | "aerial"
-    | "macro"
-    | "studio"
-    | "mixed";
+  scene_type: 'indoor' | 'outdoor' | 'aerial' | 'macro' | 'studio' | 'mixed';
   /** Specific environment, e.g. "kitchen", "beach", "sports field".
    * Free-text but constrained by the prompt's examples. `null` when the
    * model cannot identify the setting. */
@@ -106,56 +100,22 @@ export interface VisionDoc {
   /** What is happening, e.g. "lacrosse", "cooking", "hiking". `null` for
    * a static scene with no action. */
   activity: string | null;
-  time_of_day:
-    | "morning"
-    | "midday"
-    | "afternoon"
-    | "golden hour"
-    | "evening"
-    | "night"
-    | "unknown";
-  lighting:
-    | "natural"
-    | "artificial"
-    | "mixed"
-    | "low-light"
-    | "backlit"
-    | "flash";
-  weather:
-    | "clear"
-    | "cloudy"
-    | "rainy"
-    | "snowy"
-    | "foggy"
-    | "indoor"
-    | "unknown";
+  time_of_day: 'morning' | 'midday' | 'afternoon' | 'golden hour' | 'evening' | 'night' | 'unknown';
+  lighting: 'natural' | 'artificial' | 'mixed' | 'low-light' | 'backlit' | 'flash';
+  weather: 'clear' | 'cloudy' | 'rainy' | 'snowy' | 'foggy' | 'indoor' | 'unknown';
   /** 1–3 words describing atmosphere. */
   mood: string;
   /** Dominant colors, max 5. */
   colors: string[];
-  composition:
-    | "wide shot"
-    | "close-up"
-    | "portrait"
-    | "landscape"
-    | "aerial"
-    | "macro"
-    | "candid";
+  composition: 'wide shot' | 'close-up' | 'portrait' | 'landscape' | 'aerial' | 'macro' | 'candid';
   /** Any readable text in the image. `null` when there is none. The
    * describe stage mirrors this value into `ocr_text` and stamps
    * `ocr_meta.engine = "qwen2.5-vl"` on every run. */
   text_visible: string | null;
   /** Distinctive objects, max 8. */
   notable_objects: string[];
-  shot_type:
-    | "action"
-    | "static"
-    | "candid"
-    | "posed"
-    | "architectural"
-    | "nature"
-    | "event";
-  indoor_outdoor: "indoor" | "outdoor";
+  shot_type: 'action' | 'static' | 'candid' | 'posed' | 'architectural' | 'nature' | 'event';
+  indoor_outdoor: 'indoor' | 'outdoor';
   /** True when the image is a screenshot of a phone/computer/app UI
    * rather than a photograph. Canonical signal — the top-level
    * `AssetDoc.is_screenshot` mirrors this once the describe stage has
@@ -173,7 +133,7 @@ export interface VisionDoc {
  */
 export interface VisionMeta {
   /** Describe provider that produced this row. */
-  provider: "ollama" | "anthropic" | "openai" | "gemini";
+  provider: 'ollama' | 'anthropic' | 'openai' | 'gemini';
   /** Concrete model tag, e.g. "qwen2.5vl:7b". */
   model: string;
   /** Bumped whenever the system prompt changes. */
@@ -309,7 +269,7 @@ export interface AssetDoc {
    * describe stage re-runs them; the API returns those values verbatim
    * (no read-side rewrite) so the wire contract must allow both. */
   ocr_meta?: {
-    engine: "qwen2.5-vl" | "tesseract";
+    engine: 'qwen2.5-vl' | 'tesseract';
     engine_version: string;
     generated_at: string;
     /** Always `null` for the qwen2.5-vl path — the VLM has no per-token
@@ -383,7 +343,7 @@ export interface StageHandlerDoc {
   /** Stage name. Today only "ai" is honoured. */
   stage: string;
   /** Implementation kind. */
-  impl: "builtin" | "http";
+  impl: 'builtin' | 'http';
   /** Required when impl === "http". POSTed the contract input. */
   url?: string;
   /** Override transport timeout. Defaults to 30 000 ms when absent. */
@@ -463,7 +423,7 @@ export interface PlaceRollups {
 }
 
 export interface Place {
-  source: "nominatim";
+  source: 'nominatim';
   geocoder_version: number;
   geocoded_at: string;
   lat: number;
@@ -600,9 +560,7 @@ export function pendingEnrichment(): Enrichment {
  * the same pending shape that the writer uses on insert, so old rows look
  * indistinguishable from freshly-skeletoned ones.
  */
-export function normaliseEnrichment(
-  raw: Partial<Enrichment> | undefined | null,
-): Enrichment {
+export function normaliseEnrichment(raw: Partial<Enrichment> | undefined | null): Enrichment {
   return {
     geocode: { ...pendingStageState(), ...(raw?.geocode ?? {}) },
     face: { ...pendingStageState(), ...(raw?.face ?? {}) },
@@ -614,14 +572,14 @@ export function normaliseEnrichment(
 // Indexer queue task
 // ---------------------------------------------------------------------------
 
-export type TaskKind = "scan_folder" | "gen_thumb" | "extract_exif";
+export type TaskKind = 'scan_folder' | 'gen_thumb' | 'extract_exif';
 
 export interface IndexerTaskDoc {
   kind: TaskKind;
   /** Payload varies by task kind. */
   payload: Record<string, unknown>;
   /** Lifecycle: pending → processing → done | failed. */
-  status: "pending" | "processing" | "done" | "failed";
+  status: 'pending' | 'processing' | 'done' | 'failed';
   /** Error message when status === "failed". */
   error: string | null;
   created_at: string;
@@ -640,17 +598,12 @@ export type IndexerTaskWithId = WithId<IndexerTaskDoc>;
 
 /** Job kinds the runner knows how to dispatch. Add new kinds by extending
  * this union and registering a handler in `job-runner/handlers/index.ts`. */
-export type JobKind = "batch_jpeg_export";
+export type JobKind = 'batch_jpeg_export';
 
 /** Lifecycle: queued → running → (done | failed | cancelled).
  * `cancelled` is set when a running job observes `cancel_requested` between
  * progress steps and exits cleanly. */
-export type JobStatus =
-  | "queued"
-  | "running"
-  | "done"
-  | "failed"
-  | "cancelled";
+export type JobStatus = 'queued' | 'running' | 'done' | 'failed' | 'cancelled';
 
 export interface JobDoc {
   kind: JobKind;
@@ -682,7 +635,7 @@ export type JobWithId = WithId<JobDoc>;
 // User
 // ---------------------------------------------------------------------------
 
-export type UserRole = "owner" | "member";
+export type UserRole = 'owner' | 'member';
 
 export interface UserDoc {
   email: string; // unique, lowercased
@@ -740,7 +693,7 @@ export type RefreshTokenWithId = WithId<RefreshTokenDoc>;
 // WebAuthn challenge (5-min TTL)
 // ---------------------------------------------------------------------------
 
-export type ChallengePurpose = "register" | "authenticate" | "add_credential";
+export type ChallengePurpose = 'register' | 'authenticate' | 'add_credential';
 
 export interface ChallengeDoc {
   challenge: string; // base64url
@@ -787,7 +740,7 @@ export interface UploadSessionDoc {
   received_bytes: number;
   chunk_size: number;
   /** Sessions older than 7d in "open" get GC'd by the TTL monitor. */
-  state: "open" | "completed" | "abandoned";
+  state: 'open' | 'completed' | 'abandoned';
   /** TTL — Date (not string) so the Mongo TTL monitor can prune abandoned sessions older than 7d. */
   created_at: Date;
   /** Bumped on every chunk; same TTL semantics as `created_at`. */
@@ -823,7 +776,7 @@ export type BackupSessionWithId = WithId<BackupSessionDoc>;
 // Asset change feed (Phase 5b — File Provider push channel)
 // ---------------------------------------------------------------------------
 
-export type AssetChangeKind = "create" | "update" | "delete" | "restore";
+export type AssetChangeKind = 'create' | 'update' | 'delete' | 'restore';
 
 export interface AssetChangeDoc {
   /** Monotonically increasing per insert. Allocated via the

@@ -121,9 +121,7 @@ describe('loadLibraryRoots', () => {
 
   test('invalidate forces a re-read', async () => {
     if (!mongoReachable) return;
-    const { loadLibraryRoots, invalidateLibraryRoots } = await import(
-      './libraries.cache.ts'
-    );
+    const { loadLibraryRoots, invalidateLibraryRoots } = await import('./libraries.cache.ts');
     const { foldersCollection } = await import('../db/client.ts');
     const f = await foldersCollection();
     await f.insertOne({

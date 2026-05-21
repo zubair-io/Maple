@@ -18,16 +18,22 @@
  * On modify: re-issues the upsert so mtime is refreshed; $setOnInsert guards
  *            against clobbering existing stage progress.
  */
-import * as path from "node:path";
-import * as fsNode from "node:fs/promises";
-import { ObjectId } from "mongodb";
-import { Watcher, type WatchEvent } from "../../indexer/watcher.ts";
-import { blankStagesSkeleton } from "../stages/manifest.ts";
-import { child } from "../../log.ts";
-import { assetsCollection, foldersCollection, getDb, ensureIndexes, closeDb } from "../../db/client.ts";
-import { recordAndPublishAssetChange } from "../../db/changes.repo.ts";
+import * as path from 'node:path';
+import * as fsNode from 'node:fs/promises';
+import { ObjectId } from 'mongodb';
+import { Watcher, type WatchEvent } from '../../indexer/watcher.ts';
+import { blankStagesSkeleton } from '../stages/manifest.ts';
+import { child } from '../../log.ts';
+import {
+  assetsCollection,
+  foldersCollection,
+  getDb,
+  ensureIndexes,
+  closeDb,
+} from '../../db/client.ts';
+import { recordAndPublishAssetChange } from '../../db/changes.repo.ts';
 
-const log = child("discover");
+const log = child('discover');
 
 export interface DiscoverOptions {
   /** Absolute paths to watch. One path per registered folder root. */
@@ -43,9 +49,27 @@ export interface DiscoverHandle {
 }
 
 const SUPPORTED_EXTS = new Set([
-  ".dng", ".cr2", ".cr3", ".nef", ".arw", ".raf", ".orf", ".rw2",
-  ".pef", ".srw", ".x3f", ".3fr", ".mef", ".erf", ".mrw",
-  ".jpg", ".jpeg", ".tif", ".tiff", ".heic", ".heif",
+  '.dng',
+  '.cr2',
+  '.cr3',
+  '.nef',
+  '.arw',
+  '.raf',
+  '.orf',
+  '.rw2',
+  '.pef',
+  '.srw',
+  '.x3f',
+  '.3fr',
+  '.mef',
+  '.erf',
+  '.mrw',
+  '.jpg',
+  '.jpeg',
+  '.tif',
+  '.tiff',
+  '.heic',
+  '.heif',
 ]);
 
 /**
@@ -105,10 +129,7 @@ export async function handleEvent(
       { abs_path: absPath },
       { projection: { _id: 1, folder_id: 1 } },
     );
-    await coll.updateOne(
-      { abs_path: absPath },
-      { $set: { deleted_at: new Date().toISOString() } },
-    );
+    await coll.updateOne({ abs_path: absPath }, { $set: { deleted_at: new Date().toISOString() } });
     log.info({ absPath }, 'soft-deleted');
     if (existing) {
       await recordAndPublishAssetChange({
@@ -135,10 +156,7 @@ export async function handleEvent(
     // in place so `fileinfo.length` stays the same.
     const entry = buildFileinfoEntry(libraryRoot, absPath, folderId);
     if (!entry) {
-      log.warn(
-        { libraryRoot, absPath },
-        'rename target escapes library root — skipping',
-      );
+      log.warn({ libraryRoot, absPath }, 'rename target escapes library root — skipping');
       return;
     }
     const newFileinfo = [entry, ...(before.fileinfo ?? []).slice(1)];
@@ -182,10 +200,7 @@ export async function handleEvent(
   // live asset has length ≥ 1).
   const fileinfoEntry = buildFileinfoEntry(libraryRoot, absPath, folderId);
   if (!fileinfoEntry) {
-    log.warn(
-      { libraryRoot, absPath },
-      'event absPath escapes library root — skipping insert',
-    );
+    log.warn({ libraryRoot, absPath }, 'event absPath escapes library root — skipping insert');
     return;
   }
   const filename = path.basename(absPath);
@@ -267,9 +282,10 @@ export async function startDiscover(opts: DiscoverOptions): Promise<DiscoverHand
   const include = opts.include ?? SUPPORTED_EXTS;
 
   const foldersColl = await foldersCollection();
-  const folderDocs = (await foldersColl
-    .find({}, { projection: { path: 1 } })
-    .toArray()) as Array<{ _id: ObjectId; path: string }>;
+  const folderDocs = (await foldersColl.find({}, { projection: { path: 1 } }).toArray()) as Array<{
+    _id: ObjectId;
+    path: string;
+  }>;
 
   const watcher = new Watcher({
     roots: opts.roots,
@@ -307,33 +323,31 @@ export async function startDiscover(opts: DiscoverOptions): Promise<DiscoverHand
 async function main(): Promise<void> {
   const [, , ...roots] = process.argv;
   if (roots.length === 0) {
-    process.stderr.write(
-      "Usage: bun src/api/src/workers/discover/index.ts <root1> [<root2>...]\n",
-    );
+    process.stderr.write('Usage: bun src/api/src/workers/discover/index.ts <root1> [<root2>...]\n');
     process.exit(1);
   }
 
   await getDb().then(() => ensureIndexes());
 
   const handle = await startDiscover({ roots });
-  log.info({ roots }, "discover started");
+  log.info({ roots }, 'discover started');
 
   async function shutdown(): Promise<void> {
-    log.info("shutting down discover");
+    log.info('shutting down discover');
     await handle.stop();
     await closeDb();
     process.exit(0);
   }
 
-  process.on("SIGTERM", () => {
+  process.on('SIGTERM', () => {
     shutdown().catch((e) => {
-      log.error({ err: e instanceof Error ? e.message : e }, "shutdown error");
+      log.error({ err: e instanceof Error ? e.message : e }, 'shutdown error');
       process.exit(1);
     });
   });
-  process.on("SIGINT", () => {
+  process.on('SIGINT', () => {
     shutdown().catch((e) => {
-      log.error({ err: e instanceof Error ? e.message : e }, "shutdown error");
+      log.error({ err: e instanceof Error ? e.message : e }, 'shutdown error');
       process.exit(1);
     });
   });
@@ -342,9 +356,7 @@ async function main(): Promise<void> {
 // Only run main when executed directly, not when imported by tests.
 if (import.meta.main) {
   main().catch((e) => {
-    process.stderr.write(
-      `[discover] fatal: ${e instanceof Error ? e.message : e}\n`,
-    );
+    process.stderr.write(`[discover] fatal: ${e instanceof Error ? e.message : e}\n`);
     process.exit(1);
   });
 }

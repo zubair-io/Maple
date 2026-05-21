@@ -6,48 +6,61 @@
 // and a system-directory denylist that hides /proc, /etc, /usr, /app, ... at
 // the filesystem root unless `showAll` is true.
 
-import { readdir, realpath, stat } from "node:fs/promises";
-import * as path from "node:path";
-import type { OpResult } from "./root.ts";
-import { assetsCollection, foldersCollection } from "../db/client.ts";
-import type { AssetExif } from "../db/schema.ts";
-import { SHARP_EXTENSIONS } from "../thumbs/render.ts";
-import { child as childLogger } from "../log.ts";
+import { readdir, realpath, stat } from 'node:fs/promises';
+import * as path from 'node:path';
+import type { OpResult } from './root.ts';
+import { assetsCollection, foldersCollection } from '../db/client.ts';
+import type { AssetExif } from '../db/schema.ts';
+import { SHARP_EXTENSIONS } from '../thumbs/render.ts';
+import { child as childLogger } from '../log.ts';
 
-const log = childLogger("fs/browse");
+const log = childLogger('fs/browse');
 
 export interface DirEntry {
   name: string;
-  path: string;       // absolute, symlink-resolved
+  path: string; // absolute, symlink-resolved
   hasChildren: boolean;
 }
 
 export interface DirListing {
-  path: string;       // absolute, symlink-resolved
+  path: string; // absolute, symlink-resolved
   parent: string | null;
   entries: DirEntry[];
 }
 
 /** Linux/macOS directory names hidden at the filesystem root unless showAll=1. */
 export const SYSTEM_DIRS = new Set<string>([
-  "proc", "sys", "dev", "run", "boot",
-  "bin", "sbin", "lib", "lib32", "lib64",
-  "usr", "etc", "var", "tmp",
-  "root", "opt", "srv",
-  "private",  // macOS
-  "app",      // container working dir
-  "node_modules",
+  'proc',
+  'sys',
+  'dev',
+  'run',
+  'boot',
+  'bin',
+  'sbin',
+  'lib',
+  'lib32',
+  'lib64',
+  'usr',
+  'etc',
+  'var',
+  'tmp',
+  'root',
+  'opt',
+  'srv',
+  'private', // macOS
+  'app', // container working dir
+  'node_modules',
 ]);
 
 export async function browseRoots(): Promise<string[]> {
   const env = process.env.MAPLE_ROOTS;
-  if (!env || env.trim() === "") return ["/"];
+  if (!env || env.trim() === '') return ['/'];
   // Strip trailing slash unless the entry IS just "/" — `"/".replace(/\/$/, "")`
   // collapses to "" and then filter(Boolean) drops it, leaving an empty roots
   // list for `MAPLE_ROOTS=/`. Preserve "/" explicitly.
   const raw = env
-    .split(":")
-    .map((p) => (p === "/" ? "/" : p.replace(/\/$/, "")))
+    .split(':')
+    .map((p) => (p === '/' ? '/' : p.replace(/\/$/, '')))
     .filter(Boolean);
   // Resolve symlinks in each root so the jail check works on macOS where
   // /var → /private/var (and the realpath of reqPath will be /private/var/…).
@@ -64,55 +77,58 @@ export async function browseRoots(): Promise<string[]> {
 }
 
 export function isUnderRoot(absPath: string, root: string): boolean {
-  const r = root.replace(/\/$/, "") || "/";
-  if (r === "/") return true;
-  return absPath === r || absPath.startsWith(r + "/");
+  const r = root.replace(/\/$/, '') || '/';
+  if (r === '/') return true;
+  return absPath === r || absPath.startsWith(r + '/');
 }
 
-export async function listDir(
-  reqPath: string,
-  showAll: boolean,
-): Promise<OpResult<DirListing>> {
+export async function listDir(reqPath: string, showAll: boolean): Promise<OpResult<DirListing>> {
   if (!path.isAbsolute(reqPath)) {
-    return { ok: false, error: "Path must be absolute." };
+    return { ok: false, error: 'Path must be absolute.' };
   }
 
   let real: string;
   try {
     real = await realpath(reqPath);
   } catch (err) {
-    return { ok: false, error: `Cannot access "${reqPath}": ${err instanceof Error ? err.message : String(err)}` };
+    return {
+      ok: false,
+      error: `Cannot access "${reqPath}": ${err instanceof Error ? err.message : String(err)}`,
+    };
   }
 
   const roots = await browseRoots();
   if (!roots.some((r) => isUnderRoot(real, r))) {
     return {
       ok: false,
-      error: `Path "${real}" is outside MAPLE_ROOTS [${roots.join(", ")}]`,
+      error: `Path "${real}" is outside MAPLE_ROOTS [${roots.join(', ')}]`,
     };
   }
 
   let rawEntries: { name: string }[];
   try {
-    rawEntries = await readdir(real, { withFileTypes: false }).then(
-      (names) => names.map((n) => ({ name: n })),
+    rawEntries = await readdir(real, { withFileTypes: false }).then((names) =>
+      names.map((n) => ({ name: n })),
     );
   } catch (err) {
-    return { ok: false, error: `Cannot list "${real}": ${err instanceof Error ? err.message : String(err)}` };
+    return {
+      ok: false,
+      error: `Cannot list "${real}": ${err instanceof Error ? err.message : String(err)}`,
+    };
   }
 
-  const atRoot = real === "/";
+  const atRoot = real === '/';
 
   // Pre-filter by name (hidden files, system dirs at root) before the
   // per-entry async work so we skip obviously unwanted entries cheaply.
   const candidates = rawEntries
-    .filter((e) => !e.name.startsWith("."))
+    .filter((e) => !e.name.startsWith('.'))
     .filter((e) => showAll || !atRoot || !SYSTEM_DIRS.has(e.name))
     .sort((a, b) => a.name.localeCompare(b.name));
 
   const out: DirEntry[] = [];
   for (const e of candidates) {
-    const childCandidate = real === "/" ? "/" + e.name : `${real}/${e.name}`;
+    const childCandidate = real === '/' ? '/' + e.name : `${real}/${e.name}`;
 
     // Issue 1 fix: re-resolve the child's realpath and re-check the jail to
     // prevent symlink-swap attacks between parent readdir and child access.
@@ -145,7 +161,7 @@ export async function listDir(
     try {
       const sub = await readdir(childReal, { withFileTypes: true });
       hasChildren = sub.some(
-        (s) => !s.name.startsWith(".") && (s.isDirectory() || s.isSymbolicLink()),
+        (s) => !s.name.startsWith('.') && (s.isDirectory() || s.isSymbolicLink()),
       );
     } catch {
       // Permission denied / unreadable — show but mark childless.
@@ -158,7 +174,7 @@ export async function listDir(
   // Issue 3 fix: return realpath form consistently for DirListing.path,
   // DirListing.parent, and entries[].path so the picker UI never sees a
   // path-style flip (e.g. /var vs /private/var on macOS) mid-navigation.
-  const isRoot = real === "/";
+  const isRoot = real === '/';
   return {
     ok: true,
     data: {
@@ -178,16 +194,22 @@ export async function listDir(
  * Used by `/api/fs/raw` (byte stream into WASM decode) and the thumb endpoint
  * to choose between the libraw FFI and the sharp/heic-convert path. */
 export const RAW_EXTENSIONS = new Set<string>([
-  "cr2", "cr3", "nef", "arw", "dng", "raf", "orf", "rw2", "pef", "srw",
+  'cr2',
+  'cr3',
+  'nef',
+  'arw',
+  'dng',
+  'raf',
+  'orf',
+  'rw2',
+  'pef',
+  'srw',
 ]);
 
 /** All image extensions surfaced by the directory listing. Union of RAWs
  * (decoded via FFI) and bitmap formats (decoded via sharp/heic-convert).
  * Kept in sync with the thumb endpoint's extension gate. */
-const IMAGE_EXTENSIONS = new Set<string>([
-  ...RAW_EXTENSIONS,
-  ...SHARP_EXTENSIONS,
-]);
+const IMAGE_EXTENSIONS = new Set<string>([...RAW_EXTENSIONS, ...SHARP_EXTENSIONS]);
 
 /**
  * Match a sidecar filename and return its canonical base (no .xmp).
@@ -208,13 +230,13 @@ export function canonicalBaseFromSidecarFilename(filename: string): string | nul
 
 export interface DirChild {
   name: string;
-  path: string;       // absolute, symlink-resolved
-  mtime: string;      // ISO-8601
+  path: string; // absolute, symlink-resolved
+  mtime: string; // ISO-8601
 }
 
 export interface ImageChild extends DirChild {
-  size: number;       // bytes
-  ext: string;        // lowercase, no dot
+  size: number; // bytes
+  ext: string; // lowercase, no dot
   /**
    * Mongo `_id` of the matching asset doc, hex-encoded. Set when this file
    * has been indexed; `undefined` when the indexer hasn't seen it yet. The
@@ -234,9 +256,9 @@ export interface ImageChild extends DirChild {
 
 export interface SidecarChild {
   name: string;
-  path: string;       // absolute, symlink-resolved
-  mtime: string;      // ISO-8601
-  size: number;       // bytes
+  path: string; // absolute, symlink-resolved
+  mtime: string; // ISO-8601
+  size: number; // bytes
   /**
    * Hex Mongo `_id` of the asset this XMP is paired to. Always set —
    * sidecars without a matching indexed asset are dropped from the
@@ -268,19 +290,20 @@ export interface ListDirOptions {
 const CURSOR_MAX_OFFSET = 1_000_000;
 
 export function encodeCursor(offset: number): string {
-  return Buffer.from(JSON.stringify({ offset })).toString("base64url");
+  return Buffer.from(JSON.stringify({ offset })).toString('base64url');
 }
 
 export function decodeCursor(s: string): number {
   let obj: unknown;
   try {
-    obj = JSON.parse(Buffer.from(s, "base64url").toString("utf8"));
+    obj = JSON.parse(Buffer.from(s, 'base64url').toString('utf8'));
   } catch {
     throw new Error(`malformed cursor: ${s}`);
   }
   if (
-    typeof obj !== "object" || obj === null ||
-    typeof (obj as { offset?: unknown }).offset !== "number"
+    typeof obj !== 'object' ||
+    obj === null ||
+    typeof (obj as { offset?: unknown }).offset !== 'number'
   ) {
     throw new Error(`malformed cursor: ${s}`);
   }
@@ -306,7 +329,7 @@ export async function listDirContents(
   opts: ListDirOptions = {},
 ): Promise<OpResult<DirContents>> {
   if (!path.isAbsolute(reqPath)) {
-    return { ok: false, error: "Path must be absolute." };
+    return { ok: false, error: 'Path must be absolute.' };
   }
 
   let real: string;
@@ -323,7 +346,7 @@ export async function listDirContents(
   if (!roots.some((r) => isUnderRoot(real, r))) {
     return {
       ok: false,
-      error: `Path "${real}" is outside MAPLE_ROOTS [${roots.join(", ")}]`,
+      error: `Path "${real}" is outside MAPLE_ROOTS [${roots.join(', ')}]`,
     };
   }
 
@@ -337,9 +360,7 @@ export async function listDirContents(
     };
   }
 
-  const visible = names.filter((n) => !n.startsWith(".")).sort((a, b) =>
-    a.localeCompare(b),
-  );
+  const visible = names.filter((n) => !n.startsWith('.')).sort((a, b) => a.localeCompare(b));
 
   // Paging window. cursor === undefined AND limit === undefined keeps
   // the historical single-shot behaviour (no slicing, no next_cursor).
@@ -353,13 +374,9 @@ export async function listDirContents(
       return { ok: false, error: e instanceof Error ? e.message : String(e) };
     }
   }
-  const limit = pagedMode
-    ? Math.max(1, Math.min(2000, opts.limit ?? 500))
-    : visible.length;
+  const limit = pagedMode ? Math.max(1, Math.min(2000, opts.limit ?? 500)) : visible.length;
   const slice = pagedMode ? visible.slice(offset, offset + limit) : visible;
-  const nextOffset = pagedMode && offset + limit < visible.length
-    ? offset + limit
-    : null;
+  const nextOffset = pagedMode && offset + limit < visible.length ? offset + limit : null;
 
   // ── Cross-page sidecar pairing (issue #6 of PR #66 review) ─────────
   // Sidecars are paired to images by canonical filename base. When the
@@ -378,12 +395,12 @@ export async function listDirContents(
   if (pagedMode) {
     const allImageBases = new Map<string, string>(); // base → candidate abs_path
     for (const name of visible) {
-      const dot = name.lastIndexOf(".");
+      const dot = name.lastIndexOf('.');
       if (dot < 0) continue;
       const ext = name.slice(dot + 1).toLowerCase();
       if (!IMAGE_EXTENSIONS.has(ext)) continue;
       const base = name.slice(0, dot);
-      const candidate = real === "/" ? "/" + name : `${real}/${name}`;
+      const candidate = real === '/' ? '/' + name : `${real}/${name}`;
       allImageBases.set(base, candidate);
     }
     if (allImageBases.size > 0) {
@@ -403,7 +420,7 @@ export async function listDirContents(
         // Best-effort — same posture as the EXIF enrichment below.
         log.error(
           { real, err: err instanceof Error ? err.message : err },
-          "global image-base lookup failed",
+          'global image-base lookup failed',
         );
       }
     }
@@ -415,10 +432,10 @@ export async function listDirContents(
   // `Omit<…, "assetID">` was a no-op typo that left `sidecarRaw`
   // effectively typed as `SidecarChild[]`, making the literal pushed
   // below (without `asset_id`) invalid under strict TS.
-  const sidecarRaw: Array<Omit<SidecarChild, "asset_id">> = [];
+  const sidecarRaw: Array<Omit<SidecarChild, 'asset_id'>> = [];
 
   for (const name of slice) {
-    const childCandidate = real === "/" ? "/" + name : `${real}/${name}`;
+    const childCandidate = real === '/' ? '/' + name : `${real}/${name}`;
 
     // Re-resolve realpath and re-check the jail (symlink-swap defence).
     let childReal: string;
@@ -439,7 +456,7 @@ export async function listDirContents(
     if (st.isDirectory()) {
       dirs.push({ name, path: childReal, mtime: st.mtime.toISOString() });
     } else if (st.isFile()) {
-      const dot = name.lastIndexOf(".");
+      const dot = name.lastIndexOf('.');
       if (dot < 0) continue;
       const ext = name.slice(dot + 1).toLowerCase();
       if (IMAGE_EXTENSIONS.has(ext)) {
@@ -450,7 +467,7 @@ export async function listDirContents(
           mtime: st.mtime.toISOString(),
           ext,
         });
-      } else if (ext === "xmp") {
+      } else if (ext === 'xmp') {
         sidecarRaw.push({
           name,
           path: childReal,
@@ -498,10 +515,7 @@ export async function listDirContents(
       }
     } catch (err) {
       // EXIF enrichment is best-effort — a DB hiccup shouldn't break browse.
-      log.error(
-        { real, err: err instanceof Error ? err.message : err },
-        "exif lookup failed",
-      );
+      log.error({ real, err: err instanceof Error ? err.message : err }, 'exif lookup failed');
     }
   }
   // Drop trashed-on-disk files so they don't appear in the listing.
@@ -520,7 +534,7 @@ export async function listDirContents(
   const imageBaseToAsset = new Map<string, string>(globalImageBaseToAsset);
   for (const img of images) {
     if (!img.id) continue;
-    const dot = img.name.lastIndexOf(".");
+    const dot = img.name.lastIndexOf('.');
     const base = dot >= 0 ? img.name.slice(0, dot) : img.name;
     imageBaseToAsset.set(base, img.id);
   }
@@ -540,20 +554,18 @@ export async function listDirContents(
   // waste the FFI worker pool. Best-effort: a missing folder ancestor
   // or a down indexer child both quietly no-op.
   if (images.length > 0) {
-    const unindexed = images
-      .filter((i) => !indexedPaths.has(i.path))
-      .map((i) => i.path);
+    const unindexed = images.filter((i) => !indexedPaths.has(i.path)).map((i) => i.path);
     if (unindexed.length > 0) {
       void enqueueBrowseIndex(real, unindexed).catch((err) =>
         log.warn(
           { real, err: err instanceof Error ? err.message : err },
-          "enqueue browse index failed",
+          'enqueue browse index failed',
         ),
       );
     }
   }
 
-  const isRoot = real === "/";
+  const isRoot = real === '/';
   return {
     ok: true,
     data: {
@@ -577,9 +589,7 @@ export async function listDirContents(
  * The returned `root` is passed straight through to `handleEvent` so the
  * discover producer doesn't pay a second Mongo round-trip per file.
  */
-async function findOwningFolder(
-  absPath: string,
-): Promise<{ id: string; root: string } | null> {
+async function findOwningFolder(absPath: string): Promise<{ id: string; root: string } | null> {
   const coll = await foldersCollection();
   const folders = await coll.find({}).toArray();
   let best: { id: string; root: string } | null = null;
@@ -607,10 +617,7 @@ async function findOwningFolder(
  * yet), the path is skipped silently — it will be picked up once the folder is
  * registered and discover starts watching it.
  */
-async function enqueueBrowseIndex(
-  dirPath: string,
-  paths: string[],
-): Promise<void> {
+async function enqueueBrowseIndex(dirPath: string, paths: string[]): Promise<void> {
   const { handleEvent } = await import('../workers/discover/index.ts');
   const { ObjectId } = await import('mongodb');
 
@@ -633,8 +640,5 @@ async function enqueueBrowseIndex(
     );
   }
 
-  log.debug(
-    { dirPath, count: paths.length, folderId: folder.id },
-    'enqueueBrowseIndex: fired',
-  );
+  log.debug({ dirPath, count: paths.length, folderId: folder.id }, 'enqueueBrowseIndex: fired');
 }

@@ -819,10 +819,7 @@ export async function ensureIndexes(): Promise<void> {
       );
     } catch (err) {
       // Do NOT record on failure so the next boot retries.
-      log.warn(
-        { err: err instanceof Error ? err.message : err },
-        'fileinfo backfill skipped',
-      );
+      log.warn({ err: err instanceof Error ? err.message : err }, 'fileinfo backfill skipped');
     }
   }
 
