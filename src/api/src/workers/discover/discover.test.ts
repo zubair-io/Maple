@@ -310,4 +310,117 @@ describe("discover producer", () => {
     await rm(dir2024, { recursive: true, force: true });
     await rm(dir2025, { recursive: true, force: true });
   });
+
+  it("writes fileinfo[0] with path-relative-to-library on insert", async () => {
+    if (!mongoReachable) return;
+
+    const { handleEvent } = await import("./index.ts");
+    const { assetsCollection, foldersCollection } = await import("../../db/client.ts");
+
+    const root = await mkdtemp(path.join(os.tmpdir(), "discover-fi-"));
+    const sub = path.join(root, "vacation", "2024");
+    const { mkdir } = await import("node:fs/promises");
+    await mkdir(sub, { recursive: true });
+    const file = path.join(sub, "IMG_001.dng");
+    await writeFile(file, Buffer.alloc(100, 0xdd));
+
+    const foldersColl = await foldersCollection();
+    const folderResult = await foldersColl.insertOne({
+      path: root,
+      label: path.basename(root),
+      last_scan: null,
+      file_count: 0,
+      created_at: new Date().toISOString(),
+    } as never);
+    const folderId = folderResult.insertedId;
+
+    await handleEvent({ kind: "created", absPath: file }, folderId);
+
+    const coll = await assetsCollection();
+    const doc = await coll.findOne({ abs_path: file });
+    expect(doc).not.toBeNull();
+    expect(doc!.fileinfo).toHaveLength(1);
+    expect(doc!.fileinfo![0].path).toBe(path.join("vacation", "2024"));
+    expect(doc!.fileinfo![0].filename).toBe("IMG_001.dng");
+    expect(doc!.fileinfo![0].library_id.equals(folderId)).toBe(true);
+
+    await coll.deleteOne({ _id: doc!._id });
+    await foldersColl.deleteOne({ _id: folderId });
+    await rm(root, { recursive: true, force: true });
+  });
+
+  it("fileinfo[0].path is '' for files at the library root", async () => {
+    if (!mongoReachable) return;
+
+    const { handleEvent } = await import("./index.ts");
+    const { assetsCollection, foldersCollection } = await import("../../db/client.ts");
+
+    const root = await mkdtemp(path.join(os.tmpdir(), "discover-fi-root-"));
+    const file = path.join(root, "top.jpg");
+    await writeFile(file, Buffer.alloc(50, 0xee));
+
+    const foldersColl = await foldersCollection();
+    const folderResult = await foldersColl.insertOne({
+      path: root,
+      label: path.basename(root),
+      last_scan: null,
+      file_count: 0,
+      created_at: new Date().toISOString(),
+    } as never);
+    const folderId = folderResult.insertedId;
+
+    await handleEvent({ kind: "created", absPath: file }, folderId);
+
+    const coll = await assetsCollection();
+    const doc = await coll.findOne({ abs_path: file });
+    expect(doc).not.toBeNull();
+    expect(doc!.fileinfo![0].path).toBe("");
+    expect(doc!.fileinfo![0].filename).toBe("top.jpg");
+
+    await coll.deleteOne({ _id: doc!._id });
+    await foldersColl.deleteOne({ _id: folderId });
+    await rm(root, { recursive: true, force: true });
+  });
+
+  it("rename updates fileinfo[0] (still one entry — rename is not a new location)", async () => {
+    if (!mongoReachable) return;
+
+    const { handleEvent } = await import("./index.ts");
+    const { assetsCollection, foldersCollection } = await import("../../db/client.ts");
+
+    const root = await mkdtemp(path.join(os.tmpdir(), "discover-fi-rename-"));
+    const { mkdir, rename: fsRename } = await import("node:fs/promises");
+    const dirA = path.join(root, "a");
+    const dirB = path.join(root, "b");
+    await mkdir(dirA, { recursive: true });
+    await mkdir(dirB, { recursive: true });
+    const before = path.join(dirA, "x.dng");
+    const after = path.join(dirB, "x.dng");
+    await writeFile(before, Buffer.alloc(50, 0xff));
+
+    const foldersColl = await foldersCollection();
+    const folderResult = await foldersColl.insertOne({
+      path: root,
+      label: path.basename(root),
+      last_scan: null,
+      file_count: 0,
+      created_at: new Date().toISOString(),
+    } as never);
+    const folderId = folderResult.insertedId;
+
+    await handleEvent({ kind: "created", absPath: before }, folderId);
+    await fsRename(before, after);
+    await handleEvent({ kind: "renamed", absPath: after, fromPath: before }, folderId);
+
+    const coll = await assetsCollection();
+    const doc = await coll.findOne({ abs_path: after });
+    expect(doc).not.toBeNull();
+    expect(doc!.fileinfo).toHaveLength(1);
+    expect(doc!.fileinfo![0].path).toBe("b");
+    expect(doc!.fileinfo![0].filename).toBe("x.dng");
+
+    await coll.deleteOne({ _id: doc!._id });
+    await foldersColl.deleteOne({ _id: folderId });
+    await rm(root, { recursive: true, force: true });
+  });
 });

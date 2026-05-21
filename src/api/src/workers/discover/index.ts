@@ -83,30 +83,50 @@ export async function handleEvent(event: WatchEvent, folderId: ObjectId): Promis
   if (kind === "renamed" && fromPath) {
     const before = await coll.findOne(
       { abs_path: fromPath },
-      { projection: { _id: 1 } },
+      { projection: { _id: 1, fileinfo: 1 } },
     );
-    await coll.updateOne(
-      { abs_path: fromPath },
-      {
-        $set: {
-          abs_path: absPath,
-          filename: path.basename(absPath),
-          indexed_at: new Date().toISOString(),
-          deleted_at: null,
-        },
-      },
-    );
-    log.info({ from: fromPath, to: absPath }, "renamed");
-    if (before) {
-      // Renames keep the same _id but change the path — surface as an
-      // `update` so File Provider clients pick up the new filename.
-      await recordAndPublishAssetChange({
-        kind: "update",
-        asset_id: before._id,
-        folder_id: folderId,
-        abs_path: absPath,
-      });
+    if (!before) {
+      log.warn({ fromPath, absPath }, "renamed event but no existing row — skipping");
+      return;
     }
+
+    // Compute the new fileinfo[0] for the rename target. A rename is not
+    // a new location — we overwrite the primary entry in place so the
+    // array length stays the same.
+    const fld = await (await foldersCollection()).findOne(
+      { _id: folderId },
+      { projection: { path: 1 } },
+    );
+    const libraryRoot = fld?.path;
+    let newFileinfo = before.fileinfo;
+    if (libraryRoot) {
+      const relDir = path.relative(libraryRoot, path.dirname(absPath));
+      const entry = {
+        path: relDir === "" || relDir === "." ? "" : relDir,
+        filename: path.basename(absPath),
+        library_id: folderId,
+      };
+      newFileinfo = [entry, ...(before.fileinfo ?? []).slice(1)];
+    }
+
+    const renameUpdate: Record<string, unknown> = {
+      abs_path: absPath,
+      filename: path.basename(absPath),
+      indexed_at: new Date().toISOString(),
+      deleted_at: null,
+    };
+    if (newFileinfo) renameUpdate.fileinfo = newFileinfo;
+
+    await coll.updateOne({ abs_path: fromPath }, { $set: renameUpdate });
+    log.info({ from: fromPath, to: absPath }, "renamed");
+    // Renames keep the same _id but change the path — surface as an
+    // `update` so File Provider clients pick up the new filename.
+    await recordAndPublishAssetChange({
+      kind: "update",
+      asset_id: before._id,
+      folder_id: folderId,
+      abs_path: absPath,
+    });
     return;
   }
 
@@ -119,6 +139,42 @@ export async function handleEvent(event: WatchEvent, folderId: ObjectId): Promis
     return;
   }
 
+  // Resolve the library root so we can record a fileinfo[0] entry with
+  // the directory relative to the library. We re-fetch the folder doc
+  // each event because the discover worker may run in a child process
+  // that doesn't share state with the API; the folders collection is
+  // the source of truth.
+  const fld = await (await foldersCollection()).findOne(
+    { _id: folderId },
+    { projection: { path: 1 } },
+  );
+  const filename = path.basename(absPath);
+  let fileinfoEntry:
+    | { path: string; filename: string; library_id: ObjectId }
+    | null = null;
+  if (fld?.path) {
+    const relDir = path.relative(fld.path, path.dirname(absPath));
+    fileinfoEntry = {
+      path: relDir === "" || relDir === "." ? "" : relDir,
+      filename,
+      library_id: folderId,
+    };
+  }
+
+  const setOnInsert: Record<string, unknown> = {
+    abs_path: absPath,
+    folder_id: folderId,
+    filename,
+    rating: 0,
+    flag: 0,
+    color_label: "",
+    exif: null,
+    maple_id: null,
+    sha1_head: null,
+    stages: blankStagesSkeleton(),
+  };
+  if (fileinfoEntry) setOnInsert.fileinfo = [fileinfoEntry];
+
   const now = new Date().toISOString();
   const res = await coll.findOneAndUpdate(
     { abs_path: absPath },
@@ -129,18 +185,7 @@ export async function handleEvent(event: WatchEvent, folderId: ObjectId): Promis
         indexed_at: now,
         deleted_at: null,
       },
-      $setOnInsert: {
-        abs_path: absPath,
-        folder_id: folderId,
-        filename: path.basename(absPath),
-        rating: 0,
-        flag: 0,
-        color_label: "",
-        exif: null,
-        maple_id: null,
-        sha1_head: null,
-        stages: blankStagesSkeleton(),
-      },
+      $setOnInsert: setOnInsert,
     },
     { upsert: true, returnDocument: "after" },
   );
