@@ -14,6 +14,10 @@
 //   - BunApiBackendService.getEnrichmentConfig() supplies the domain
 //     config for describe/geocode/face stages plus the live face-model
 //     loader banner.
+//
+// All pure logic (stage metadata, grouping, summarisation, formatting,
+// form defaults, error normalisation, clamped int parsing) lives in
+// `./workers.vm.ts`. This file owns DI, signal wiring, and side effects.
 
 import {
   ChangeDetectionStrategy,
@@ -32,76 +36,32 @@ import {
   type EnrichmentConfigResponse,
   WorkersApiService,
   type StageStatus,
-  type WorkerConfig,
   type WorkersStatusResponse,
 } from '@maple-common';
 import { SettingsShellComponent } from '../settings-shell.component';
-import { SettingsIconComponent, type SettingsIconName } from '../settings-icon.component';
-
-const POLL_MS = 2_000;
-const ERROR_POLL_MS = 5_000;
-
-type StageGroup = 'Ingest' | 'Enrich' | 'Index';
-type EnrichmentKind = 'describe' | 'geocode' | 'face';
-
-interface StageMeta {
-  readonly id: string;
-  readonly group: StageGroup;
-  readonly icon: SettingsIconName;
-  readonly description: string;
-  readonly enrichment: EnrichmentKind | null;
-}
-
-// Visual grouping + descriptions for each stage. Stages the server
-// reports but we don't recognise still render at the bottom of "Ingest"
-// with a default description, so an added worker shows up without code
-// changes.
-const STAGE_META: Record<string, StageMeta> = {
-  hash:     { id: 'hash',     group: 'Ingest', icon: 'hash',   enrichment: null,
-              description: 'Computes content hash for each new asset; deduplicates on ingest.' },
-  exif:     { id: 'exif',     group: 'Ingest', icon: 'exif',   enrichment: null,
-              description: 'Extracts EXIF/XMP metadata: camera, lens, exposure, GPS, dates.' },
-  thumb:    { id: 'thumb',    group: 'Ingest', icon: 'thumb',  enrichment: null,
-              description: 'Generates 256-px grid thumbnails and stores them in the thumb cache.' },
-  preview:  { id: 'preview',  group: 'Ingest', icon: 'image',  enrichment: null,
-              description: 'Builds 1280-px preview cache used by the editor and enrichment LLM.' },
-  describe: { id: 'describe', group: 'Enrich', icon: 'sparkle', enrichment: 'describe',
-              description: 'Local vision-LLM via Ollama. Runs a multimodal model against the preview cache and produces a structured caption plus OCR text.' },
-  geocode:  { id: 'geocode',  group: 'Enrich', icon: 'globe',  enrichment: 'geocode',
-              description: 'Reverse-geocodes EXIF GPS coordinates against a self-hosted Nominatim instance.' },
-  face:     { id: 'face',     group: 'Enrich', icon: 'face',   enrichment: 'face',
-              description: 'Detects faces in cached thumbnails using RetinaFace + MobileFaceNet (ONNX).' },
-  meili:    { id: 'meili',    group: 'Index',  icon: 'search', enrichment: null,
-              description: 'Pushes enriched assets to Meilisearch so they show up in the library search.' },
-};
-
-/** Per-stage form state for the runtime knobs in the expanded panel.
- * Lazily populated when a row is first expanded so unsaved values
- * survive a poll without flickering. */
-interface RuntimeForm {
-  concurrency: string;
-  pollIntervalMs: string;
-  batchSize: string;
-  maxAttempts: string;
-}
-
-/** Per-stage form state for the enrichment domain config. */
-interface EnrichmentForm {
-  // Describe
-  describe_provider_url: string;
-  describe_model: string;
-  // Geocode
-  nominatim_url: string;
-  nominatim_rate_limit_per_sec: string;
-  // Face
-  face_model_dir: string;
-  face_retinaface_url: string;
-  face_retinaface_sha256: string;
-  face_mobilefacenet_url: string;
-  face_mobilefacenet_sha256: string;
-}
-
-type SaveState = 'idle' | 'saving' | 'success' | 'error';
+import { SettingsIconComponent } from '../settings-icon.component';
+import {
+  ERROR_POLL_MS,
+  POLL_MS,
+  STAGE_META,
+  blankEnrichment,
+  blankRuntime,
+  errorMessage,
+  formatBytes,
+  groupStagesByPipeline,
+  runtimeFormToPatch,
+  stageMeta,
+  statusDotColor,
+  statusLabel,
+  summarizeStages,
+  throughputLabel,
+  type EnrichmentForm,
+  type EnrichmentKind,
+  type RuntimeForm,
+  type SaveState,
+  type StageGroup,
+  type StageMeta,
+} from './workers.vm';
 
 @Component({
   selector: 'maple-workers-settings',
@@ -135,28 +95,12 @@ export class WorkersComponent implements OnInit, OnDestroy {
 
   protected readonly stages = computed<StageStatus[]>(() => this.status()?.stages ?? []);
 
-  /** Stages grouped + sorted in pipeline order. Stages we don't know
-   * about land in Ingest at the end. */
-  protected readonly groupedStages = computed<readonly { group: StageGroup; rows: StageStatus[] }[]>(() => {
-    const order: StageGroup[] = ['Ingest', 'Enrich', 'Index'];
-    const stages = this.stages();
-    const groups: Record<StageGroup, StageStatus[]> = { Ingest: [], Enrich: [], Index: [] };
-    for (const s of stages) {
-      const g = STAGE_META[s.name]?.group ?? 'Ingest';
-      groups[g].push(s);
-    }
-    return order.map((g) => ({ group: g, rows: groups[g] }));
-  });
+  /** Stages grouped + sorted in pipeline order. */
+  protected readonly groupedStages = computed<readonly { group: StageGroup; rows: StageStatus[] }[]>(
+    () => groupStagesByPipeline(this.stages()),
+  );
 
-  protected readonly summary = computed(() => {
-    const stages = this.stages();
-    return {
-      running: stages.filter((s) => s.status === 'running').length,
-      paused: stages.filter((s) => s.status === 'paused').length,
-      dead: stages.reduce((acc, s) => acc + s.dead, 0),
-      pending: stages.reduce((acc, s) => acc + s.pending, 0),
-    };
-  });
+  protected readonly summary = computed(() => summarizeStages(this.stages()));
 
   private pollSub: Subscription | null = null;
   private pollTimer: ReturnType<typeof setTimeout> | null = null;
@@ -190,7 +134,7 @@ export class WorkersComponent implements OnInit, OnDestroy {
         this.scheduleNextPoll(POLL_MS);
       },
       error: (err) => {
-        this.error.set(this.errorMessage(err) ?? 'Failed to load worker status.');
+        this.error.set(errorMessage(err) ?? 'Failed to load worker status.');
         this.scheduleNextPoll(ERROR_POLL_MS);
       },
     });
@@ -244,7 +188,7 @@ export class WorkersComponent implements OnInit, OnDestroy {
       this.testStates.update((cur) => ({ ...cur, [stage.name]: { kind: 'ok' } }));
     const finishErr = (err: unknown) =>
       this.testStates.update((cur) => ({
-        ...cur, [stage.name]: { kind: 'error', message: this.errorMessage(err) },
+        ...cur, [stage.name]: { kind: 'error', message: errorMessage(err) },
       }));
 
     if (meta.enrichment === 'geocode') {
@@ -281,25 +225,14 @@ export class WorkersComponent implements OnInit, OnDestroy {
     if (!this.runtimeForms()[stage.name]) {
       this.runtimeForms.update((cur) => ({
         ...cur,
-        [stage.name]: this.blankRuntime(stage),
+        [stage.name]: blankRuntime(stage),
       }));
     }
     const meta = STAGE_META[stage.name];
     if (meta?.enrichment && !this.enrichmentForms()[stage.name]) {
-      const ec = this.enrichmentConfig();
       this.enrichmentForms.update((cur) => ({
         ...cur,
-        [stage.name]: {
-          describe_provider_url: ec?.describe_provider_url ?? '',
-          describe_model: ec?.describe_model ?? 'qwen2.5vl:7b',
-          nominatim_url: ec?.nominatim_url ?? '',
-          nominatim_rate_limit_per_sec: String(ec?.nominatim_rate_limit_per_sec ?? 10),
-          face_model_dir: ec?.face_model_dir ?? '',
-          face_retinaface_url: ec?.face_retinaface_url ?? '',
-          face_retinaface_sha256: ec?.face_retinaface_sha256 ?? '',
-          face_mobilefacenet_url: ec?.face_mobilefacenet_url ?? '',
-          face_mobilefacenet_sha256: ec?.face_mobilefacenet_sha256 ?? '',
-        },
+        [stage.name]: blankEnrichment(this.enrichmentConfig()),
       }));
     }
   }
@@ -322,13 +255,7 @@ export class WorkersComponent implements OnInit, OnDestroy {
   saveStage(stage: StageStatus): void {
     const form = this.runtimeForms()[stage.name];
     if (!form) return;
-    const d = WorkersComponent.DEFAULT_RUNTIME;
-    const patch: Partial<WorkerConfig> = {
-      concurrency: this.parseInt(form.concurrency, 1, 32, d.concurrency),
-      pollIntervalMs: this.parseInt(form.pollIntervalMs, 100, 60_000, d.pollIntervalMs),
-      batchSize: this.parseInt(form.batchSize, 1, 100, d.batchSize),
-      maxAttempts: this.parseInt(form.maxAttempts, 1, 20, d.maxAttempts),
-    };
+    const patch = runtimeFormToPatch(form);
     this.saveStates.update((cur) => ({ ...cur, [stage.name]: 'saving' }));
     this.saveErrors.update((cur) => ({ ...cur, [stage.name]: null }));
 
@@ -343,7 +270,7 @@ export class WorkersComponent implements OnInit, OnDestroy {
     };
     const finishErr = (err: unknown) => {
       this.saveStates.update((cur) => ({ ...cur, [stage.name]: 'error' }));
-      this.saveErrors.update((cur) => ({ ...cur, [stage.name]: this.errorMessage(err) }));
+      this.saveErrors.update((cur) => ({ ...cur, [stage.name]: errorMessage(err) }));
     };
 
     this.api.patchConfig(stage.name, patch).subscribe({
@@ -408,7 +335,7 @@ export class WorkersComponent implements OnInit, OnDestroy {
   }
   setRuntime(stage: StageStatus, field: keyof RuntimeForm, value: string): void {
     this.runtimeForms.update((cur) => {
-      const cur1 = cur[stage.name] ?? this.blankRuntime(stage);
+      const cur1 = cur[stage.name] ?? blankRuntime(stage);
       return { ...cur, [stage.name]: { ...cur1, [field]: value } };
     });
   }
@@ -417,81 +344,21 @@ export class WorkersComponent implements OnInit, OnDestroy {
   }
   setEnrichment(stage: StageStatus, field: keyof EnrichmentForm, value: string): void {
     this.enrichmentForms.update((cur) => {
-      const cur1 = cur[stage.name] ?? this.blankEnrichment();
+      const cur1 = cur[stage.name] ?? blankEnrichment(this.enrichmentConfig());
       return { ...cur, [stage.name]: { ...cur1, [field]: value } };
     });
   }
 
-  // Single source of truth for runtime-form defaults. Used by both
-  // ensureForm() (lazy seeding when a row first expands) and blankRuntime()
-  // (used by setRuntime() when a per-field write happens before the row's
-  // form was seeded). Keep these in sync with the min/max hints in the
-  // template — server-side validation is still authoritative.
-  private static readonly DEFAULT_RUNTIME = Object.freeze({
-    concurrency: 2,
-    pollIntervalMs: 1000,
-    batchSize: 5,
-    maxAttempts: 5,
-  });
-
-  private blankRuntime(stage: StageStatus): RuntimeForm {
-    const d = WorkersComponent.DEFAULT_RUNTIME;
-    const cfg = stage.config;
-    return {
-      concurrency: String(cfg?.concurrency ?? d.concurrency),
-      pollIntervalMs: String(cfg?.pollIntervalMs ?? d.pollIntervalMs),
-      batchSize: String(cfg?.batchSize ?? d.batchSize),
-      maxAttempts: String(cfg?.maxAttempts ?? d.maxAttempts),
-    };
-  }
-  private blankEnrichment(): EnrichmentForm {
-    const ec = this.enrichmentConfig();
-    return {
-      describe_provider_url: ec?.describe_provider_url ?? '',
-      describe_model: ec?.describe_model ?? 'qwen2.5vl:7b',
-      nominatim_url: ec?.nominatim_url ?? '',
-      nominatim_rate_limit_per_sec: String(ec?.nominatim_rate_limit_per_sec ?? 10),
-      face_model_dir: ec?.face_model_dir ?? '',
-      face_retinaface_url: ec?.face_retinaface_url ?? '',
-      face_retinaface_sha256: ec?.face_retinaface_sha256 ?? '',
-      face_mobilefacenet_url: ec?.face_mobilefacenet_url ?? '',
-      face_mobilefacenet_sha256: ec?.face_mobilefacenet_sha256 ?? '',
-    };
-  }
-
-  // ── Display helpers ─────────────────────────────────────────────────────
+  // ── Display helpers (thin re-exports so the template keeps reading
+  //    `meta(s)` / `statusLabel(s)` / etc.). ────────────────────────────
 
   meta(stage: StageStatus): StageMeta {
-    return STAGE_META[stage.name] ?? {
-      id: stage.name, group: 'Ingest', icon: 'pipe', description: '', enrichment: null,
-    };
+    return stageMeta(stage.name);
   }
-
-  statusLabel(s: StageStatus): string {
-    switch (s.status) {
-      case 'running':    return 'Running';
-      case 'paused':     return 'Paused';
-      case 'error':      return 'Error';
-      case 'starting':   return 'Starting';
-      case 'restarting': return 'Restarting';
-      case 'stopped':    return 'Stopped';
-    }
-  }
-
-  statusDotColor(s: StageStatus): string {
-    switch (s.status) {
-      case 'running':    return '#4ade80';
-      case 'paused':
-      case 'starting':
-      case 'restarting':
-      case 'stopped':    return '#a8a29e';
-      case 'error':      return '#f87171';
-    }
-  }
-
-  throughputLabel(s: StageStatus): string {
-    return s.throughput > 0 ? `${s.throughput}` : '—';
-  }
+  statusLabel = statusLabel;
+  statusDotColor = statusDotColor;
+  throughputLabel = throughputLabel;
+  formatBytes = formatBytes;
 
   saveState(s: StageStatus): SaveState {
     return this.saveStates()[s.name] ?? 'idle';
@@ -505,36 +372,5 @@ export class WorkersComponent implements OnInit, OnDestroy {
       if (!cur) return cur;
       return { stages: cur.stages.map((s) => s.name === name ? { ...s, status } : s) };
     });
-  }
-
-  private parseInt(value: string, min: number, max: number, fallback: number): number {
-    const n = Number.parseInt(value, 10);
-    if (!Number.isFinite(n)) return fallback;
-    return Math.min(max, Math.max(min, n));
-  }
-
-  private errorMessage(err: unknown): string {
-    if (err && typeof err === 'object' && 'error' in err) {
-      const inner = (err as { error?: unknown }).error;
-      if (inner && typeof inner === 'object' && 'error' in inner) {
-        return String((inner as { error: unknown }).error);
-      }
-      if (typeof inner === 'string') return inner;
-    }
-    if (err instanceof Error) return err.message;
-    return String(err);
-  }
-
-  /** Format a byte count compactly: 13478912 → "12.9 MB". */
-  formatBytes(bytes: number | undefined | null): string {
-    if (!bytes || bytes <= 0) return '0 B';
-    const units = ['B', 'KB', 'MB', 'GB'];
-    let v = bytes;
-    let i = 0;
-    while (v >= 1024 && i < units.length - 1) {
-      v /= 1024;
-      i++;
-    }
-    return `${v.toFixed(v < 10 ? 1 : 0)} ${units[i]}`;
   }
 }
