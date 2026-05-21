@@ -171,7 +171,7 @@ describe("POST /api/assets/:id/restore", () => {
 
     const res = await app.handle(jsonReq(`http://localhost/api/assets/${assetId.toHexString()}/restore`, {}));
     expect(res.status).toBe(200);
-    const body = await res.json() as { abs_path: string; filename: string; size: number; mtime: number };
+    const body = await res.json() as { abs_path: string; filename: string; size: number; mtime: string };
     expect(body.abs_path).toBe(path.join(path.dirname(originalPath), "IMG_R3.restored.ARW"));
     expect(await fs.readFile(originalPath, "utf-8")).toBe("occupier");
     expect(await fs.readFile(body.abs_path, "utf-8")).toBe("raw");
@@ -179,25 +179,29 @@ describe("POST /api/assets/:id/restore", () => {
     // Provider extension doesn't need to stat the server-side path.
     expect(body.filename).toBe("IMG_R3.restored.ARW");
     expect(body.size).toBe(3); // "raw"
-    // mtime is epoch-ms (number) per AssetDoc.mtime — see schema.ts:196.
-    // The assets-list serialiser does `Math.floor(r.mtime / 1000)` to hand
-    // seconds to the Swift client, so a string here would yield NaN.
-    expect(typeof body.mtime).toBe("number");
-    expect(Number.isFinite(body.mtime)).toBe(true);
+    // Wire contract: `mtime` is an ISO-8601 string so the Swift
+    // `RestoreResponse.mtime: Date` decoder (RemoteCatalog.swift) accepts
+    // it. The DB column stays epoch-ms — see assertion below.
+    expect(typeof body.mtime).toBe("string");
+    expect(Number.isFinite(Date.parse(body.mtime))).toBe(true);
     // Doc must carry the renamed filename so the unique
     // {folder_id, filename} index no longer reserves the OLD basename
     // (otherwise a fresh upload at the original name would 409).
     const doc = await db!.collection("assets").findOne({ _id: assetId }) as Record<string, unknown>;
     expect(doc.filename).toBe("IMG_R3.restored.ARW");
     expect(doc.size).toBe(3);
+    // DB stays epoch-ms (number) — only the wire response is ISO.
     expect(typeof doc.mtime).toBe("number");
   });
 
-  // Regression for #166: a restored asset's mtime must round-trip through
-  // the assets-list serialiser (`Math.floor(r.mtime / 1000)`) without
-  // producing NaN. Previously the restore handler wrote an ISO string
-  // here, which broke the Swift client's contentModificationDate.
-  test("restored mtime is a number and round-trips through assets-list /1000", async () => {
+  // Regression for #166: a restored asset's mtime must persist as a
+  // number in Mongo so the assets-list serialiser (`Math.floor(r.mtime
+  // / 1000)`) doesn't yield NaN, AND must surface as an ISO-8601 string
+  // on the restore wire so the Swift `RestoreResponse.mtime: Date`
+  // decoder accepts it. Previously the restore handler wrote an ISO
+  // string into the DB, which broke the Swift client's
+  // contentModificationDate downstream via GET /api/assets.
+  test("restored mtime is ISO on wire, number in DB, finite seconds via GET /api/assets", async () => {
     if (!mongoReachable) return;
     const { app } = await import("../src/index.ts");
     const { assetId } = await trashedAsset("IMG_R166.ARW");
@@ -205,17 +209,27 @@ describe("POST /api/assets/:id/restore", () => {
     const res = await app.handle(jsonReq(`http://localhost/api/assets/${assetId.toHexString()}/restore`, {}));
     expect(res.status).toBe(200);
     const body = await res.json() as { mtime: unknown };
-    expect(typeof body.mtime).toBe("number");
-    expect(Number.isFinite(body.mtime as number)).toBe(true);
+    // Wire: ISO-8601 string (Swift decoder expects Date).
+    expect(typeof body.mtime).toBe("string");
+    expect(Number.isFinite(Date.parse(body.mtime as string))).toBe(true);
 
+    // DB: epoch-ms number.
     const doc = await db!.collection("assets").findOne({ _id: assetId }) as Record<string, unknown>;
     expect(typeof doc.mtime).toBe("number");
     expect(Number.isFinite(doc.mtime as number)).toBe(true);
-    // Mirror the assets-list.ts serialiser: must yield a finite integer,
-    // not NaN.
-    const mtimeSeconds = Math.floor((doc.mtime as number) / 1000);
-    expect(Number.isNaN(mtimeSeconds)).toBe(false);
-    expect(Number.isFinite(mtimeSeconds)).toBe(true);
+
+    // Round-trip through GET /api/assets: must yield a finite integer in
+    // seconds for the restored asset (not NaN).
+    const listRes = await app.handle(new Request(`http://localhost/api/assets?limit=20000`, {
+      headers: { Authorization: BEARER },
+    }));
+    expect(listRes.status).toBe(200);
+    const listBody = await listRes.json() as { assets: Array<{ id: string; mtime: number }> };
+    const restored = listBody.assets.find((a) => a.id === assetId.toHexString());
+    expect(restored).toBeTruthy();
+    expect(typeof restored!.mtime).toBe("number");
+    expect(Number.isNaN(restored!.mtime)).toBe(false);
+    expect(Number.isFinite(restored!.mtime)).toBe(true);
   });
 
   // Cat A3: cross-library restore must be rejected. The server's file

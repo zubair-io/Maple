@@ -274,12 +274,18 @@ export const trashRoutes = new Elysia()
       // can synthesise the restored item's metadata directly from the
       // response rather than statting `abs_path` (which is the SERVER's
       // path, not the client's, and would fail/return zeros on the Mac).
+      //
+      // Wire contract: `mtime` is serialised as an ISO-8601 string with
+      // fractional seconds so the Swift `RestoreResponse.mtime: Date`
+      // decoder (see RemoteCatalog.swift) accepts it. The DB column
+      // remains epoch-ms (number) per AssetDoc.mtime — this is purely a
+      // response-time transform.
       return {
         asset_id: id.toHexString(),
         abs_path: result.newAbsPath,
         filename: restoredFilename,
         size: restoredSize,
-        mtime: restoredMtime,
+        mtime: new Date(restoredMtime).toISOString(),
       };
     },
     {
