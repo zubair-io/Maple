@@ -4,10 +4,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { app } from '../src/index.ts';
 import { assetsCollection } from '../src/db/client.ts';
-import {
-  makeIngestRequest,
-  setupBackupIngestSuite,
-} from './backup-ingest-helpers.ts';
+import { makeIngestRequest, setupBackupIngestSuite } from './backup-ingest-helpers.ts';
 
 // Cloud-id persistence + advanced dedup slice of the
 // `POST /api/libraries/:id/backup/ingest` suite. The happy paths live in
