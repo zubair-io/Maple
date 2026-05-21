@@ -1,0 +1,233 @@
+# .github/workflows/cross.yml
+#
+# Cross-cutting CI that runs on every PR and push to `main`. Per #114.
+#
+# Four jobs:
+#   * format-check          — Prettier --check on the tracked source tree.
+#   * file-budget           — bash tools/check-file-budget.sh (LOC ceiling).
+#   * allowlist-shrinks-only — PR-only; fails if tools/budget-allowlist.txt grew.
+#   * gitleaks              — installed direct from GitHub releases; full-history scan.
+#
+# Per-subsystem workflows (rust / swift / web / api) land **with** the first
+# refactor commit of each subsystem, not preemptively — see #114.
+
+name: cross
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Cancel in-progress runs on non-main refs (PRs, feature branches). Pushes to
+# main always run to completion so the protected-branch signal stays accurate.
+concurrency:
+  group: cross-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  format-check:
+    name: format-check (prettier)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Need history back to the merge base (PR) or previous push SHA so
+          # we can diff to compute the changed-files list. Cheap on GH runners.
+          fetch-depth: 0
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      # Scope prettier to files changed in this push / PR. The gate's purpose
+      # is "don't regress formatting in new code" — whole-repo reformat is a
+      # separate concern, tracked elsewhere.
+      - name: Compute changed files
+        id: changed
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          BEFORE_SHA: ${{ github.event.before }}
+          AFTER_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            # checkout@v4 above used fetch-depth: 0, so all history is local.
+            # The explicit fetch makes sure refs/remotes/origin/<base> exists
+            # (checkout fetches commits, not always named branch refs).
+            git fetch --no-tags origin "+refs/heads/${BASE_REF}:refs/remotes/origin/${BASE_REF}"
+            MERGE_BASE="$(git merge-base "origin/${BASE_REF}" HEAD)"
+            git diff --name-only --diff-filter=ACMR "${MERGE_BASE}" HEAD > /tmp/changed.txt
+          else
+            # push to main: format only files touched in that push. Fall back
+            # to HEAD~1..HEAD if `before` is unavailable (e.g. force-push,
+            # branch-create, or initial commit where `before` is all-zeros).
+            if [ -n "${BEFORE_SHA}" ] && [ "${BEFORE_SHA}" != "0000000000000000000000000000000000000000" ] \
+              && git cat-file -e "${BEFORE_SHA}" 2>/dev/null; then
+              git diff --name-only --diff-filter=ACMR "${BEFORE_SHA}" "${AFTER_SHA}" > /tmp/changed.txt
+            else
+              git diff --name-only --diff-filter=ACMR HEAD~1 HEAD > /tmp/changed.txt
+            fi
+          fi
+          # Filter to prettier-eligible extensions.
+          grep -E '\.(ts|tsx|js|jsx|json|html|scss|css|md|yml|yaml)$' /tmp/changed.txt > /tmp/changed-pretty.txt || true
+          # Exclude paths governed by other tooling / vendored.
+          grep -v -E '^(test-fixtures/|node_modules/|.*/node_modules/|.*/dist/)' /tmp/changed-pretty.txt > /tmp/check.txt || true
+          count="$(wc -l < /tmp/check.txt | tr -d ' ')"
+          echo "count=${count}" >> "$GITHUB_OUTPUT"
+          echo "files to check (${count}):"
+          cat /tmp/check.txt || true
+
+      - name: Install web devDeps (provides prettier)
+        if: steps.changed.outputs.count != '0'
+        working-directory: src/web
+        run: bun install --frozen-lockfile
+
+      - name: Prettier --check (changed files only)
+        if: steps.changed.outputs.count != '0'
+        run: |
+          xargs -a /tmp/check.txt ./src/web/node_modules/.bin/prettier --check \
+            --config src/web/.prettierrc
+
+  file-budget:
+    name: file-budget (400 soft / 600 hard LOC)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The script + allowlist land in #205. Until that merges, skip-pass so
+      # cross.yml stays green on main. Once #205 lands the guard is a no-op.
+      - name: Check budget script presence
+        id: probe
+        run: |
+          # Probe with -f (file exists) rather than -x (executable). The script
+          # is invoked via `bash tools/check-file-budget.sh` below, so it only
+          # needs to be readable. Requiring +x here meant a file committed
+          # without the executable bit would silently skip the job forever.
+          if [ -f tools/check-file-budget.sh ] && [ -f tools/budget-allowlist.txt ]; then
+            echo "have_script=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "have_script=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::tools/check-file-budget.sh not present yet (waiting on #205) — skipping."
+          fi
+
+      - name: Run file-budget
+        if: steps.probe.outputs.have_script == 'true'
+        run: bash tools/check-file-budget.sh
+
+  allowlist-shrinks-only:
+    name: allowlist-shrinks-only
+    # Only meaningful on PRs — needs a merge base to diff against.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Need history back to the merge base of the PR.
+          fetch-depth: 0
+
+      - name: Probe allowlist
+        id: probe
+        run: |
+          if [ -f tools/budget-allowlist.txt ]; then
+            echo "have_allowlist=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "have_allowlist=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::tools/budget-allowlist.txt not present yet (waiting on #205) — skipping."
+          fi
+
+      - name: Compute merge base
+        if: steps.probe.outputs.have_allowlist == 'true'
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          set -euo pipefail
+          # Fetch the base branch tip so `git merge-base` can find the true
+          # fork point. checkout@v4 with fetch-depth: 0 fetches all branches'
+          # commits, but not always the named ref — be explicit.
+          git fetch --no-tags --depth=0 origin "+refs/heads/${BASE_REF}:refs/remotes/origin/${BASE_REF}"
+          merge_base="$(git merge-base "origin/${BASE_REF}" HEAD)"
+          echo "MERGE_BASE=${merge_base}" >> "$GITHUB_ENV"
+          echo "merge base: ${merge_base}"
+
+      - name: Compare allowlist length against merge base
+        if: steps.probe.outputs.have_allowlist == 'true'
+        run: |
+          set -euo pipefail
+
+          # Count non-comment, non-blank lines on the PR head.
+          count_entries() {
+            grep -Ev '^\s*(#|$)' "$1" | wc -l | tr -d ' '
+          }
+
+          head_count="$(count_entries tools/budget-allowlist.txt)"
+
+          # Diff against the actual PR fork point, not `base.sha` (the base
+          # tip at event time). If the base branch's allowlist shrinks after
+          # the PR branched, `base.sha` would make any unchanged PR look like
+          # it grew the file.
+          if git cat-file -e "${MERGE_BASE}:tools/budget-allowlist.txt" 2>/dev/null; then
+            tmp="$(mktemp)"
+            git show "${MERGE_BASE}:tools/budget-allowlist.txt" > "$tmp"
+            base_count="$(count_entries "$tmp")"
+            rm -f "$tmp"
+          else
+            # File didn't exist at merge base — anything but empty is a grow.
+            base_count=0
+          fi
+
+          echo "base entries (at merge-base): ${base_count}"
+          echo "head entries: ${head_count}"
+
+          if [ "$head_count" -gt "$base_count" ]; then
+            echo "::error::budget-allowlist.txt grew from ${base_count} to ${head_count} entries — file-size budget allowlist is append-forbidden. Split the offending file instead of allowlisting it."
+            exit 1
+          fi
+
+          echo "OK — allowlist did not grow (shrinks allowed)."
+
+  gitleaks:
+    name: gitleaks (full history)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history so the scan covers every commit, not just HEAD.
+          fetch-depth: 0
+
+      # Install direct from GitHub releases — the official gitleaks-action
+      # requires a paid license key for orgs, so we don't use it.
+      #
+      # Both the version and the tarball SHA-256 are pinned. The hash is
+      # verified locally before extraction, so a malicious upstream tag
+      # rewrite (or a MITM on the release CDN) can't slip a tampered
+      # binary in. To bump: download the new release's
+      # gitleaks_<version>_checksums.txt, copy the linux_x64 SHA, update
+      # both env vars in lockstep.
+      - name: Install gitleaks
+        env:
+          GITLEAKS_VERSION: '8.21.2'
+          GITLEAKS_LINUX_X64_SHA256: '5bc41815076e6ed6ef8fbecc9d9b75bcae31f39029ceb55da08086315316e3ba'
+        run: |
+          set -euo pipefail
+          tarball="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          base_url="https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}"
+
+          curl -fsSL -o "/tmp/${tarball}" "${base_url}/${tarball}"
+          curl -fsSL -o /tmp/gitleaks_checksums.txt \
+            "${base_url}/gitleaks_${GITLEAKS_VERSION}_checksums.txt"
+
+          # 1. Verify the tarball against the upstream checksums file
+          #    (defends against tarball corruption / partial CDN swap).
+          ( cd /tmp && grep " ${tarball}\$" gitleaks_checksums.txt | sha256sum -c - )
+
+          # 2. Verify the tarball against the SHA we pinned in this
+          #    workflow (defends against an upstream tag rewrite that
+          #    re-publishes both the tarball *and* the checksums file).
+          echo "${GITLEAKS_LINUX_X64_SHA256}  /tmp/${tarball}" | sha256sum -c -
+
+          tar -xzf "/tmp/${tarball}" -C /tmp gitleaks
+          sudo install -m 0755 /tmp/gitleaks /usr/local/bin/gitleaks
+          gitleaks version
+
+      - name: gitleaks detect
+        run: gitleaks detect --no-banner --redact --source .
