@@ -82,7 +82,7 @@ afterAll(async () => {
 
 const KNOWN_ID = 'a'.repeat(32);
 const OTHER_ID = 'b'.repeat(32);
-const LEGACY_KEY = '0123456789abcdef'; // sha256_prefix16 — 16 hex
+const LEGACY_KEY = '0123456789abcdef'; // gitleaks:allow sha256_prefix16 — 16 hex
 
 async function mkTree(): Promise<string> {
   const root = await mkdtemp(path.join(os.tmpdir(), 'cache-gc-'));
