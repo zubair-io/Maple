@@ -41,6 +41,10 @@ export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 if ! command -v rustup >/dev/null 2>&1; then
     echo "==> brew install rustup-init"
     brew install rustup-init
+    # The `rustup` formula (alias: rustup-init) is keg-only because it
+    # conflicts with `rust`, so brew does not symlink `rustup-init` into
+    # /opt/homebrew/bin. Add the keg's bin to PATH so the next line resolves.
+    export PATH="$(brew --prefix rustup)/bin:$PATH"
     echo "==> rustup-init"
     rustup-init -y --default-toolchain stable --profile minimal --no-modify-path
 fi
