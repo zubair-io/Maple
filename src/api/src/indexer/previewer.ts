@@ -122,8 +122,16 @@ export async function generatePreview(
   logTotals();
 }
 
-/** Resolve where this asset's 1280-px preview lives on disk. Pure path
- * math — does not stat or guarantee the file exists. */
+/**
+ * Resolve where this asset's 1280-px preview lives on disk. Pure path
+ * math — does not stat or guarantee the file exists.
+ *
+ * @deprecated Legacy absPath-keyed resolver. Callers must migrate to
+ * `cachePathForAsset(asset, libraries, 'previews', '1280')` from `fs/xmp.ts`,
+ * which composes the path from `(library_root, fileinfo[0].path, maple_id)`.
+ * Scheduled for removal in plan-PR-6 of the content-addressing migration,
+ * once the legacy basename-hash fallback retires.
+ */
 export function resolvePreviewPath(absPath: string): string {
   return cachePathFor(absPath, 'previews', PREVIEW_SIZE_KEY);
 }

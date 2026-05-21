@@ -76,7 +76,14 @@ describe('resolveThumbPathForAsset', () => {
   test('returns null when fileinfo is empty or absent', () => {
     const result = resolveThumbPathForAsset(makeAsset({ noFileinfo: true }), libs());
     expect(result).toBeNull();
-    const result2 = resolveThumbPathForAsset({ maple_id: MAPLE_ID, fileinfo: [] } as never, libs());
+    // Explicit empty-fileinfo case: `fileinfo[]` exists on the doc but is
+    // an empty array (post-PR-6 invariant violation we still want to handle).
+    // Typed via the same shape `makeAsset` returns so no cast is needed.
+    const emptyFileinfo: {
+      maple_id: string;
+      fileinfo: { path: string; filename: string; library_id: ObjectId }[];
+    } = { maple_id: MAPLE_ID, fileinfo: [] };
+    const result2 = resolveThumbPathForAsset(emptyFileinfo, libs());
     expect(result2).toBeNull();
   });
 });
