@@ -5,7 +5,7 @@
 // MapleBackup module as the app; same BackupSettings persisted by the
 // app's settings panel.
 //
-// Spec: docs/superpowers/specs/2026-05-09-photokit-backup-design.md §15.
+// Spec: .archived-plans/specs/2026-05-09-photokit-backup-design.md §15.
 
 import Foundation
 import MapleBackup

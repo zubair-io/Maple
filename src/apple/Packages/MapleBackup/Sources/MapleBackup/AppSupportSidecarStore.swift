@@ -9,7 +9,7 @@
 // the sidecar is copied to the cloud library as a normal `<file>.xmp`
 // next to the asset, then the local row is deleted.
 //
-// Spec: docs/superpowers/specs/2026-05-09-photokit-backup-design.md §11.
+// Spec: .archived-plans/specs/2026-05-09-photokit-backup-design.md §11.
 
 import Foundation
 

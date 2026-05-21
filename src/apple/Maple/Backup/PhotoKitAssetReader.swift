@@ -11,7 +11,7 @@
 // area minimal — push pure logic into PayloadAssembler / PathFormatter where
 // it can be tested.
 //
-// Spec: docs/superpowers/specs/2026-05-09-photokit-backup-design.md §8.
+// Spec: .archived-plans/specs/2026-05-09-photokit-backup-design.md §8.
 
 import Foundation
 import Photos

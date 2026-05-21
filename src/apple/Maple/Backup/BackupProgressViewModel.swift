@@ -13,7 +13,7 @@
 // localIdentifiers are exposed via `inFlight` / `recentCompleted`); this VM
 // stays PhotoKit-free so it's easy to drive from previews.
 //
-// Spec: docs/superpowers/specs/2026-05-09-photokit-backup-design.md §7, §21.
+// Spec: .archived-plans/specs/2026-05-09-photokit-backup-design.md §7, §21.
 
 import Foundation
 import MapleBackup

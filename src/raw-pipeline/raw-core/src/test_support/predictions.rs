@@ -1,7 +1,7 @@
 //! Closed-form predictors for scene-linear adjustments. Mirror the math
 //! in `crate::stages::scene_tone_controls::apply` exactly so each
 //! predictor + production-code pair drifts together. See spec
-//! `docs/superpowers/specs/2026-04-28-grey-card-adjustment-tests-design.md`.
+//! `.archived-plans/specs/2026-04-28-grey-card-adjustment-tests-design.md`.
 
 fn smoothstep(e0: f32, e1: f32, x: f32) -> f32 {
     let t = ((x - e0) / (e1 - e0)).clamp(0.0, 1.0);

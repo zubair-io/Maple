@@ -204,7 +204,7 @@ fn lookup(make: &str, model: &str) -> Option<f32> {
     // tools/calibration/derive_baseline_exposure.py: for each fixture body,
     // sweep MAPLE_BE_OVERRIDE values, pick the EV that minimizes per-channel
     // bias magnitude vs the ACR baseline reference. See
-    // docs/superpowers/specs/2026-04-30-color-convergence-design.md for
+    // .archived-plans/specs/2026-04-30-color-convergence-design.md for
     // methodology rationale (why bias rather than mean ΔE; why per-body
     // rather than global; why ACR as a calibration signal rather than a
     // CI-gate target).

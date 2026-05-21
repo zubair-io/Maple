@@ -16,7 +16,7 @@
 // Filename is validated: rejects empty, `.`, `..`, leading dot, any `/` or
 // `\`, and >255 chars. Throws PathFormatterError.unsafeFilename otherwise.
 //
-// Spec: docs/superpowers/specs/2026-05-09-photokit-backup-design.md §9.
+// Spec: .archived-plans/specs/2026-05-09-photokit-backup-design.md §9.
 
 import Foundation
 

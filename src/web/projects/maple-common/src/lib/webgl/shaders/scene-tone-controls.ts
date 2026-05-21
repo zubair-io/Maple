@@ -73,7 +73,7 @@ void main() {
     // just-positive (typically R in skin) the result is R-only —
     // pink/magenta speckle on what should be a uniform crush.
     // See Bug A in Ticket 11 / 11-Bugs.md and the investigation spec
-    // at docs/superpowers/specs/2026-04-26-blacks-clarity-bug-investigation.md.
+    // at .archived-plans/specs/2026-04-26-blacks-clarity-bug-investigation.md.
     //
     // Post-fix: floor each channel at 0 immediately after the shift.
     // Mirrors raw-core/src/stages/scene_tone_controls.rs:80 and

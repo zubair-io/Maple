@@ -11,7 +11,7 @@
 // already fetched from their sources. Cell ordering is capture-date
 // descending.
 //
-// Spec: docs/superpowers/specs/2026-05-09-photokit-backup-design.md §12.
+// Spec: .archived-plans/specs/2026-05-09-photokit-backup-design.md §12.
 
 import Foundation
 

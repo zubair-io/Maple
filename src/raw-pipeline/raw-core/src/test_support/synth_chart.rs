@@ -1,5 +1,5 @@
 //! Macbeth-style 24-patch color-chart synthetic DNG. See spec
-//! docs/superpowers/specs/2026-04-29-grey-card-dcp-coverage-design.md.
+//! .archived-plans/specs/2026-04-29-grey-card-dcp-coverage-design.md.
 
 use crate::image::{CfaPattern, Image};
 use crate::test_support::colorchecker::COLORCHECKER_REC2020;

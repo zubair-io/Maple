@@ -3,7 +3,7 @@
 **Status:** Draft
 **Owner:** Zubair
 **Last updated:** 2026-04-27
-**Related:** `docs/maple-prd.md`, `docs/photo-app-feature-spec.md`, `docs/photo-app-ui-spec.md`
+**Related:** `docs/maple-prd.md`, `docs/spec/12-maple-apps-spec.md`, `docs/spec/07-ui-architecture.md`
 
 ---
 

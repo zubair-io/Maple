@@ -6,7 +6,7 @@
  * successful or failed upload so the device can render "X% done from this
  * device" without scanning the assets collection.
  *
- * Spec: docs/superpowers/specs/2026-05-09-photokit-backup-design.md §19.
+ * Spec: .archived-plans/specs/2026-05-09-photokit-backup-design.md §19.
  */
 
 import type { ObjectId } from "mongodb";

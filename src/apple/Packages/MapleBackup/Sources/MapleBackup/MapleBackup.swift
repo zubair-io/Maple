@@ -20,7 +20,7 @@
 //   - GeocodeClient — wraps GET /api/geocode/reverse.
 //   - DeviceIdentity — stable UUID per device-and-install.
 //
-// Spec: docs/superpowers/specs/2026-05-09-photokit-backup-design.md.
+// Spec: .archived-plans/specs/2026-05-09-photokit-backup-design.md.
 
 public enum MapleBackup {
     public static let version = "0.1.0"

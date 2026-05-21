@@ -20,7 +20,7 @@
 // streams off disk. Once the decode lands, the actor stores the
 // resulting `MapleRawHandle` in `current` and returns it.
 //
-// Cross-link: docs/superpowers/plans/2026-04-25-deep-zoom-tile-rendering.md
+// Cross-link: .archived-plans/plans/2026-04-25-deep-zoom-tile-rendering.md
 // Task 5.
 
 import Foundation

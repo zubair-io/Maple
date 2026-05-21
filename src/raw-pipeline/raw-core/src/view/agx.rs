@@ -98,7 +98,7 @@ const REC2020_LUM_B: f32 = 0.0593;
 /// that pure-color saturated highlights otherwise produce (red→pink,
 /// blue→magenta, green→yellow-lime).
 ///
-/// Per `docs/superpowers/plans/2026-04-27-clipping-and-artifacts.md`
+/// Per `.archived-plans/plans/2026-04-27-clipping-and-artifacts.md`
 /// Phase 1, "AgX pre-formation rolloff". Sobotka's AgX 1.x Open Domain
 /// rolloff with the simpler max-channel compression metric (vs. the full
 /// Blender 4.x 3D-compression form, which would require a separate

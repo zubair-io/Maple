@@ -38,7 +38,7 @@ struct MapleApp: App {
         // into Full-image mode so the harness skips picker / folder
         // navigation. Spike A (2026-04-25) confirmed env vars survive
         // the macOS sandbox. See
-        // docs/superpowers/plans/2026-04-25-xcuitest-visual-harness.md.
+        // .archived-plans/plans/2026-04-25-xcuitest-visual-harness.md.
         if let fixture = ProcessInfo.processInfo.environment["MAPLE_UITEST_FIXTURE"],
            !fixture.isEmpty {
             let root = ProcessInfo.processInfo.environment["MAPLE_UITEST_FIXTURE_ROOT"]

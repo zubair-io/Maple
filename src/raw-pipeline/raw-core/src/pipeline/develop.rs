@@ -94,7 +94,7 @@ pub fn develop_scene_linear_from_raw_with_quality(
     // DCP. Re-enabled in Phase 1.2 of the color-convergence work after the
     // per-body BaselineExposure table was populated in Phase 1.1 (which
     // satisfied the prerequisite that originally deferred this step). See
-    // docs/superpowers/specs/2026-04-30-color-convergence-design.md.
+    // .archived-plans/specs/2026-04-30-color-convergence-design.md.
     //
     // Skipped for 8-bit lossy LinearRaw DNGs (Adobe DNG Converter's
     // perceptually-encoded output) where WB stays baked through the linearize
@@ -170,7 +170,7 @@ pub fn develop_scene_linear_from_raw_with_quality(
 /// development chain on the smaller buffer. Saves ~8× on every
 /// post-demosaic stage when the source is 100 MP and the viewport is
 /// ~3 MP. See ticket 06 § Recommended Milestones / Milestone 3 and
-/// docs/superpowers/specs/2026-04-25-ticket-06-m3-earlier-downsample-brief.md.
+/// .archived-plans/specs/2026-04-25-ticket-06-m3-earlier-downsample-brief.md.
 ///
 /// Per-stage profile labels are prefixed `sized_` so MAPLE_PROFILE=1
 /// traces don't collide with the full-res `develop_…` labels — same

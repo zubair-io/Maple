@@ -18,7 +18,7 @@
 // Skips when src/apple/MapleUITests/Fixtures/synthetic/grey-l018-rggb.dng
 // is missing (bootstrap step from Task 1 of the plan not run).
 //
-// Spec: docs/superpowers/specs/2026-04-28-grey-card-adjustment-tests-design.md
+// Spec: .archived-plans/specs/2026-04-28-grey-card-adjustment-tests-design.md
 
 import XCTest
 import AppKit

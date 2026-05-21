@@ -7,7 +7,7 @@
 // Lives in MapleCore (not MapleBackup) so consumers can load it without
 // depending on the engine module.
 //
-// Spec: docs/superpowers/specs/2026-05-09-photokit-backup-design.md §7.
+// Spec: .archived-plans/specs/2026-05-09-photokit-backup-design.md §7.
 
 import Foundation
 

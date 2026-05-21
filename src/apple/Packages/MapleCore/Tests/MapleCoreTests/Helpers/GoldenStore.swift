@@ -17,7 +17,7 @@
 //   3. `<repoRoot>/src/apple/MapleUITests/Goldens` (walk from #filePath)
 //   4. CWD-relative candidates (legacy XCUITest layout)
 //
-// See docs/superpowers/plans/2026-04-25-xcuitest-visual-harness.md.
+// See .archived-plans/plans/2026-04-25-xcuitest-visual-harness.md.
 
 import XCTest
 import CoreGraphics

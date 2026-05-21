@@ -38,7 +38,7 @@ const LUMA_FLOOR: f32 = 1e-6;
 /// to saturated magenta (0.79, 0.00, 0.63). ACR's clarity is luma-only
 /// for exactly this reason. See Bug B in Ticket 11 / 11-Bugs.md and the
 /// investigation spec at
-/// docs/superpowers/specs/2026-04-26-blacks-clarity-bug-investigation.md.
+/// .archived-plans/specs/2026-04-26-blacks-clarity-bug-investigation.md.
 ///
 /// Multiplying the original RGB by a single scalar (the luma boost ratio)
 /// preserves R:G:B ratios exactly — chromaticity is unchanged and only
