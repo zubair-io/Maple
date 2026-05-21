@@ -7,10 +7,12 @@ import { Injectable, computed, inject, signal } from '@angular/core';
 import { Asset, AssetId } from '../models/asset';
 import { SidebarEntry } from '../models/folder';
 import { LibraryStore } from './library-store.service';
+import { BrowsePreferencesService } from './browse-preferences.service';
 
 @Injectable({ providedIn: 'root' })
 export class LibrarySelection {
   private readonly store = inject(LibraryStore);
+  private readonly prefs = inject(BrowsePreferencesService);
 
   // ── Selection ──────────────────────────────────────────────────────────────
   readonly selectedSourceId = signal<string>('');
@@ -43,7 +45,7 @@ export class LibrarySelection {
     const sid = this.selectedSourceId();
     let list = this.store.assets().filter((a) => a.folderId === sid);
 
-    const f = this.store.filter();
+    const f = this.prefs.filter();
     if (f === 'picks') list = list.filter((a) => a.flag === 'pick');
     if (f === '4stars') list = list.filter((a) => a.rating >= 4);
 
@@ -54,7 +56,7 @@ export class LibrarySelection {
       list = list.filter((a) => a.filename.toLowerCase().includes(q));
     }
 
-    if (this.store.sort() === 'name') {
+    if (this.prefs.sort() === 'name') {
       list = [...list].sort((a, b) => a.filename.localeCompare(b.filename));
     }
 
