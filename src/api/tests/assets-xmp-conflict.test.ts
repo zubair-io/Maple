@@ -83,11 +83,28 @@ describe("PUT /api/assets/:id/xmp — conflict copies", () => {
 
     const now = new Date().toISOString();
     assetId = new ObjectId();
+    // Post drop-abs-path-2026-05-21: seed the folder + fileinfo so the
+    // route's `findCoreInfoById` / `assetAbsPath` chain resolves
+    // `rawPath` from the library root + primary fileinfo entry. The
+    // legacy `{ folder_id, abs_path, filename }` triple no longer
+    // matters to the route.
+    const libraryId = new ObjectId();
+    await db.collection("folders").insertOne({
+      _id: libraryId,
+      path: realTmpRoot,
+      label: "test",
+      created_at: now,
+      file_count: 0,
+    } as never);
+    const { invalidateLibraryRoots } = await import(
+      "../src/indexer/libraries.cache.ts",
+    );
+    invalidateLibraryRoots();
     await db.collection("assets").insertOne({
       _id: assetId,
-      folder_id: new ObjectId(),
-      filename: "IMG_1.ARW",
-      abs_path: rawPath,
+      fileinfo: [
+        { library_id: libraryId, path: "", filename: "IMG_1.ARW", deleted_at: null },
+      ],
       size: 3,
       mtime: now,
       indexed_at: now,

@@ -118,8 +118,11 @@ describe("POST /api/folders/:id/upload", () => {
     expect((doc as Record<string, unknown>).deleted_at).toBeNull();
     expect((doc as Record<string, unknown>).stages).toBeDefined();
     // Every stage must be initialised pending so controllers pick it up.
+    // Post drop-abs-path-2026-05-21: the `hash` stage is retired —
+    // discover now hashes inline, so the stages skeleton no longer
+    // includes it (see PR 2 + PR 7).
     const stages = (doc as Record<string, unknown>).stages as Record<string, { version: number; processed_at: null }>;
-    for (const stage of ["hash", "exif", "thumb", "preview", "face", "describe", "geocode", "meili"]) {
+    for (const stage of ["exif", "thumb", "preview", "face", "describe", "geocode", "meili"]) {
       expect(stages[stage]).toBeDefined();
       expect(stages[stage].version).toBe(0);
       expect(stages[stage].processed_at).toBeNull();
@@ -198,13 +201,14 @@ describe("POST /api/folders/:id/upload", () => {
     const { app } = await import("../src/index.ts");
     const dest = path.join(realTmpRoot, "dup.ARW");
     // Seed both the file and a live asset doc, mirroring real state.
+    // Post drop-abs-path-2026-05-21: on-disk pointer is `fileinfo[]`.
     await fs.writeFile(dest, "old");
     const priorId = new ObjectId();
     await db!.collection("assets").insertOne({
       _id: priorId,
-      folder_id: folderId,
-      filename: "dup.ARW",
-      abs_path: dest,
+      fileinfo: [
+        { library_id: folderId, path: "", filename: "dup.ARW", deleted_at: null },
+      ],
       size: 3, mtime: Date.now(),
       sha1_head: "deadbeef",
       indexed_at: new Date().toISOString(),
@@ -223,11 +227,15 @@ describe("POST /api/folders/:id/upload", () => {
     const priorDoc = await db!.collection("assets").findOne({ _id: priorId }) as Record<string, unknown> | null;
     expect(priorDoc).toBeTruthy();
     expect(priorDoc!.deleted_at).toBeTruthy();
-    expect(priorDoc!.abs_path).toBe(trashPath);
+    const pfi = (priorDoc!.fileinfo as Array<{ path: string; filename: string }>)[0]!;
+    expect(path.join(realTmpRoot, pfi.path, pfi.filename)).toBe(trashPath);
     expect(priorDoc!.original_path).toBe(dest);
 
     // A fresh live doc was inserted for the new bytes.
-    const newDoc = await db!.collection("assets").findOne({ abs_path: dest, deleted_at: null }) as Record<string, unknown> | null;
+    const newDoc = await db!.collection("assets").findOne({
+      fileinfo: { $elemMatch: { library_id: folderId, path: "", filename: "dup.ARW" } },
+      deleted_at: null,
+    }) as Record<string, unknown> | null;
     expect(newDoc).toBeTruthy();
     expect(newDoc!._id).not.toEqual(priorId);
   });
@@ -249,9 +257,9 @@ describe("POST /api/folders/:id/upload", () => {
     const priorId = new ObjectId();
     await db!.collection("assets").insertOne({
       _id: priorId,
-      folder_id: folderId,
-      filename: "same.ARW",
-      abs_path: dest,
+      fileinfo: [
+        { library_id: folderId, path: "", filename: "same.ARW", deleted_at: null },
+      ],
       size: bytes.byteLength,
       mtime: Date.now(),
       sha1_head: hex,
@@ -343,11 +351,13 @@ describe("POST /api/folders/:id/upload", () => {
     if (!mongoReachable) return;
     const { app } = await import("../src/index.ts");
     // Seed: a previously-soft-deleted asset under the upload's intended name.
+    // Post drop-abs-path-2026-05-21: persisted via `fileinfo[]` at the
+    // trash location, with `original_path` capturing where to restore it.
     await db!.collection("assets").insertOne({
       _id: new ObjectId(),
-      folder_id: folderId,
-      filename: "REUSE.ARW",
-      abs_path: path.join(realTmpRoot, ".maple", "trash", "REUSE.ARW"),
+      fileinfo: [
+        { library_id: folderId, path: ".maple/trash", filename: "REUSE.ARW", deleted_at: null },
+      ],
       size: 1, mtime: Date.now(),
       indexed_at: new Date().toISOString(),
       deleted_at: new Date().toISOString(),
@@ -358,8 +368,14 @@ describe("POST /api/folders/:id/upload", () => {
       "X-Maple-Target-Path": "REUSE.ARW",
     }));
     expect(res.status).toBe(201);
-    // Both rows now exist — the trashed one and the new live one.
-    const all = await db!.collection("assets").find({ folder_id: folderId, filename: "REUSE.ARW" }).toArray();
+    // Both rows now exist — the trashed one and the new live one. After
+    // PR 7 the filename lives on each row's fileinfo entries so we
+    // scope by `fileinfo.filename` instead of the dropped top-level
+    // pair.
+    const all = await db!.collection("assets").find({
+      "fileinfo.library_id": folderId,
+      "fileinfo.filename": "REUSE.ARW",
+    }).toArray();
     expect(all.length).toBe(2);
     const live = all.find((d) => (d as Record<string, unknown>).deleted_at === null);
     expect(live).toBeTruthy();
@@ -397,7 +413,14 @@ describe("POST /api/folders/:id/upload", () => {
     const tmps = dirEntries.filter((n) => n.startsWith(".upload-"));
     expect(tmps).toEqual([]);
 
-    const liveDocs = await db!.collection("assets").find({ abs_path: dest, deleted_at: null }).toArray();
+    // Post drop-abs-path-2026-05-21: the unique live row is queried via
+    // its `fileinfo[]` entry — `(library_id, path, filename)` mirrors
+    // the resolution path the routes take.
+    const relDir = path.relative(realTmpRoot, path.dirname(dest));
+    const liveDocs = await db!.collection("assets").find({
+      fileinfo: { $elemMatch: { library_id: folderId, path: relDir, filename: path.basename(dest) } },
+      deleted_at: null,
+    }).toArray();
     expect(liveDocs.length).toBe(1);
   });
 });

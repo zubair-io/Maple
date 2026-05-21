@@ -41,11 +41,20 @@ async function makeAsset(filename: string, content: Buffer, opts?: { mapleId?: s
   await fs.writeFile(absPath, content);
   const assetId = new ObjectId();
   const mapleId = opts?.mapleId ?? null;
+  // Post drop-abs-path-2026-05-21: persisted location is `fileinfo[]`
+  // with the library-relative directory and filename; the route
+  // resolves the absolute path via the libraries cache (seeded in
+  // beforeAll).
   const doc: Record<string, unknown> = {
     _id: assetId,
-    folder_id: folderId,
-    filename,
-    abs_path: absPath,
+    fileinfo: [
+      {
+        library_id: folderId,
+        path: path.relative(realTmpRoot, path.dirname(absPath)),
+        filename,
+        deleted_at: null,
+      },
+    ],
     size: content.byteLength,
     mtime: Date.now(),
     indexed_at: new Date().toISOString(),
@@ -99,6 +108,10 @@ describe("DELETE /api/assets/:id (trash + permanent purge)", () => {
       _id: folderId, path: realTmpRoot, label: "test",
       created_at: new Date().toISOString(), file_count: 0,
     } as never);
+    const { invalidateLibraryRoots } = await import(
+      "../src/indexer/libraries.cache.ts",
+    );
+    invalidateLibraryRoots();
   });
 
   afterAll(async () => {
@@ -154,7 +167,11 @@ describe("DELETE /api/assets/:id (trash + permanent purge)", () => {
     const doc = await db!.collection("assets").findOne({ _id: assetId }) as Record<string, unknown>;
     expect(doc.deleted_at).toBeTruthy();
     expect(doc.original_path).toBe(absPath);
-    expect(doc.abs_path).toBe(trashRaw);
+    // Post drop-abs-path-2026-05-21 the new on-disk location is on
+    // `fileinfo[0]`; reconstruct the resolved abs_path from the library
+    // root + relDir + filename and compare against the trash target.
+    const fi0 = (doc.fileinfo as Array<{ path: string; filename: string }>)[0]!;
+    expect(path.join(realTmpRoot, fi0.path, fi0.filename)).toBe(trashRaw);
   });
 
   test("DELETE on already-trashed asset permanently purges file + doc", async () => {
@@ -166,7 +183,9 @@ describe("DELETE /api/assets/:id (trash + permanent purge)", () => {
     }));
 
     const trashed = await db!.collection("assets").findOne({ _id: assetId }) as Record<string, unknown>;
-    const trashRaw = trashed.abs_path as string;
+    // Post drop-abs-path-2026-05-21: resolve abs_path from fileinfo[0].
+    const tfi = (trashed.fileinfo as Array<{ path: string; filename: string }>)[0]!;
+    const trashRaw = path.join(realTmpRoot, tfi.path, tfi.filename);
     await fs.stat(trashRaw);
 
     const res = await app.handle(new Request(`http://localhost/api/assets/${assetId.toHexString()}`, {

@@ -43,11 +43,20 @@ async function trashedAsset(filename: string, opts?: { mapleId?: string; descrip
   await fs.writeFile(trashPath, "raw");
   const assetId = new ObjectId();
   const mapleId = opts?.mapleId ?? null;
+  // Post drop-abs-path-2026-05-21: the canonical on-disk pointer is
+  // `fileinfo[0]`. For a trashed row the entry points at the trash
+  // subdirectory under the library root — the route's `assetAbsPath`
+  // composes that back into the absolute path the test asserts on.
   const doc: Record<string, unknown> = {
     _id: assetId,
-    folder_id: folderId,
-    filename,
-    abs_path: trashPath,
+    fileinfo: [
+      {
+        library_id: folderId,
+        path: path.relative(realTmpRoot, path.dirname(trashPath)),
+        filename,
+        deleted_at: null,
+      },
+    ],
     size: 3,
     mtime: Date.now(),
     indexed_at: new Date().toISOString(),
@@ -108,6 +117,13 @@ describe("POST /api/assets/:id/restore", () => {
       _id: folderId, path: realTmpRoot, label: "test",
       created_at: new Date().toISOString(), file_count: 0,
     } as never);
+    // Invalidate the process-wide library cache so the route's
+    // `loadLibraryRoots` picks up the just-seeded folder rather than
+    // stale entries from a sibling test suite.
+    const { invalidateLibraryRoots } = await import(
+      "../src/indexer/libraries.cache.ts",
+    );
+    invalidateLibraryRoots();
   });
 
   afterAll(async () => {
@@ -147,7 +163,12 @@ describe("POST /api/assets/:id/restore", () => {
     const doc = await db!.collection("assets").findOne({ _id: assetId }) as Record<string, unknown>;
     expect(doc.deleted_at).toBeNull();
     expect(doc.original_path).toBeNull();
-    expect(doc.abs_path).toBe(originalPath);
+    // Post drop-abs-path-2026-05-21 the canonical path is composed
+    // from `fileinfo[0]` (library root + relDir + filename); assert on
+    // that shape rather than the dropped top-level `abs_path`.
+    const fi0 = (doc.fileinfo as Array<{ path: string; filename: string }>)[0]!;
+    const composedAbs = path.join(realTmpRoot, fi0.path, fi0.filename);
+    expect(composedAbs).toBe(originalPath);
   });
 
   test("restores to body-supplied target_relative_path", async () => {
@@ -185,11 +206,13 @@ describe("POST /api/assets/:id/restore", () => {
     expect(typeof body.mtime).toBe("string");
     expect(body.mtime).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
     expect(Number.isFinite(Date.parse(body.mtime))).toBe(true);
-    // Doc must carry the renamed filename so the unique
-    // {folder_id, filename} index no longer reserves the OLD basename
-    // (otherwise a fresh upload at the original name would 409).
+    // Doc must carry the renamed filename so future re-uploads at the
+    // OLD basename don't collide on the maple_id-based content-addressed
+    // path. Post drop-abs-path-2026-05-21 the filename lives on
+    // `fileinfo[0].filename`, not the dropped top-level `filename`.
     const doc = await db!.collection("assets").findOne({ _id: assetId }) as Record<string, unknown>;
-    expect(doc.filename).toBe("IMG_R3.restored.ARW");
+    const fi0 = (doc.fileinfo as Array<{ filename: string }>)[0]!;
+    expect(fi0.filename).toBe("IMG_R3.restored.ARW");
     expect(doc.size).toBe(3);
     // DB stays epoch-ms (number) — only the wire response is ISO.
     expect(typeof doc.mtime).toBe("number");
@@ -271,12 +294,21 @@ describe("POST /api/assets/:id/restore", () => {
     const { app } = await import("../src/index.ts");
     const { assetId, originalPath } = await trashedAsset("IMG_WATCHER.ARW");
     // Simulate the watcher: insert a transient row at the restore target.
+    // Post drop-abs-path-2026-05-21 the watcher writes `fileinfo[]`
+    // only — the route's restoreFromTrash matches the ghost via
+    // `(library_id, path, filename)` on the primary entry.
     const ghostId = new ObjectId();
+    const relDir = path.relative(realTmpRoot, path.dirname(originalPath));
     await db!.collection("assets").insertOne({
       _id: ghostId,
-      folder_id: folderId,
-      filename: "IMG_WATCHER.ARW",
-      abs_path: originalPath,
+      fileinfo: [
+        {
+          library_id: folderId,
+          path: relDir,
+          filename: "IMG_WATCHER.ARW",
+          deleted_at: null,
+        },
+      ],
       size: 99,
       mtime: Date.now(),
       indexed_at: new Date().toISOString(),
@@ -290,7 +322,8 @@ describe("POST /api/assets/:id/restore", () => {
     expect(ghost).toBeNull();
     const restored = await db!.collection("assets").findOne({ _id: assetId }) as Record<string, unknown>;
     expect(restored.deleted_at).toBeNull();
-    expect(restored.abs_path).toBe(originalPath);
+    const restoredFi = (restored.fileinfo as Array<{ path: string; filename: string }>)[0]!;
+    expect(path.join(realTmpRoot, restoredFi.path, restoredFi.filename)).toBe(originalPath);
   });
 
   test("409 when asset is not trashed", async () => {
@@ -368,7 +401,11 @@ describe("POST /api/assets/:id/restore", () => {
     const doc = await db!.collection("assets").findOne({ _id: assetId }) as Record<string, unknown>;
     expect(doc.deleted_at).toBeNull();
     expect(doc.original_path).toBeNull();
-    expect(doc.abs_path).toBe(originalPath);
+    // Post drop-abs-path-2026-05-21 the doc carries fileinfo[] not the
+    // top-level abs_path; compose the resolved path back from the
+    // primary fileinfo entry + library root.
+    const fi0 = (doc.fileinfo as Array<{ path: string; filename: string }>)[0]!;
+    expect(path.join(realTmpRoot, fi0.path, fi0.filename)).toBe(originalPath);
     await fs.stat(originalPath);
   });
 
