@@ -4,6 +4,7 @@
  * while remaining compatible with the existing `AssetDoc` shape.
  */
 
+import * as path from "node:path";
 import type { Collection, ObjectId, UpdateResult } from "mongodb";
 import { assetsCollection } from "../db/client.ts";
 import { meilisearchClient } from "../enrichment/meilisearch-client.ts";
@@ -13,6 +14,7 @@ import {
   type AssetExif,
   type AssetFaceDoc,
   type Enrichment,
+  type FileInfo,
   type Place,
 } from "../db/schema.ts";
 
@@ -54,6 +56,76 @@ export type IndexerAssetDoc = AssetDoc & IndexerAssetFields;
 export async function coll(): Promise<Collection<IndexerAssetDoc>> {
   const c = await assetsCollection();
   return c as unknown as Collection<IndexerAssetDoc>;
+}
+
+// ---------------------------------------------------------------------------
+// Location helpers (content-addressing migration)
+//
+// `fileinfo[]` is the canonical location record; `abs_path` is retained as a
+// denormalized convenience field during the migration. These helpers prefer
+// `fileinfo[0]` and fall back to the legacy field, so callers can be swept
+// from `image.abs_path` to `assetAbsPath(image, libraries)` incrementally.
+// ---------------------------------------------------------------------------
+
+/**
+ * First live `fileinfo` entry, or `null` when the array is missing or every
+ * entry is marked `deleted_at`. "Live" means `deleted_at` is null or absent.
+ *
+ * After PR 6 of the migration this is the only place that knows the entry
+ * is at index 0; callers should not depend on the index itself.
+ */
+export function assetPrimaryFileInfo(
+  asset: Pick<AssetDoc, "fileinfo">,
+): FileInfo | null {
+  const list = asset.fileinfo;
+  if (!list || list.length === 0) return null;
+  for (const entry of list) {
+    if (!entry.deleted_at) return entry;
+  }
+  return null;
+}
+
+/**
+ * Library root absolute path for this asset's primary location, looked up
+ * in the supplied `libraries` map (`hex(_id) → root path`).
+ *
+ * Order of resolution:
+ *   1. `fileinfo[0].library_id → libraries map`
+ *   2. `path.dirname(abs_path)` (legacy fallback during migration)
+ * Returns `null` when neither source resolves.
+ */
+export function assetLibraryPath(
+  asset: Pick<AssetDoc, "fileinfo" | "abs_path">,
+  libraries: ReadonlyMap<string, string>,
+): string | null {
+  const primary = assetPrimaryFileInfo(asset);
+  if (primary) {
+    const root = libraries.get(primary.library_id.toHexString());
+    if (root) return root;
+  }
+  if (asset.abs_path) return path.dirname(asset.abs_path);
+  return null;
+}
+
+/**
+ * Resolve the absolute filesystem path of the asset's primary location.
+ *
+ * Composed from `(library root, fileinfo[0].path, fileinfo[0].filename)`.
+ * Falls back to the legacy `abs_path` field for unmigrated rows or when
+ * the primary entry's `library_id` is not present in `libraries`.
+ * Returns `null` when no source resolves.
+ */
+export function assetAbsPath(
+  asset: Pick<AssetDoc, "fileinfo" | "abs_path">,
+  libraries: ReadonlyMap<string, string>,
+): string | null {
+  const primary = assetPrimaryFileInfo(asset);
+  if (primary) {
+    const root = libraries.get(primary.library_id.toHexString());
+    if (root) return path.join(root, primary.path, primary.filename);
+  }
+  if (asset.abs_path) return asset.abs_path;
+  return null;
 }
 
 export interface UpsertInput {
