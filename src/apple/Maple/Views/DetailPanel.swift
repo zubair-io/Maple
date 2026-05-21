@@ -31,6 +31,10 @@ struct DetailPanel: View {
     /// Flips automatically on `isFullImage` transitions (see `.onChange` below).
     @State private var selectedTab: PanelTab = .info
 
+    /// Nested in `DetailPanel` rather than file-scoped, but exposed by the
+    /// outer type's namespace so `DetailPanelVM.tabForFullImage` (in
+    /// `DetailPanel+VM.swift`) can return `DetailPanel.PanelTab` without
+    /// leaking SwiftUI types.
     enum PanelTab { case info, develop }
 
     var body: some View {
@@ -68,7 +72,7 @@ struct DetailPanel: View {
         // so the user can still pick the other tab manually inside that mode
         // without us snapping it back.
         .onChange(of: isFullImage) { _, nowFullImage in
-            selectedTab = nowFullImage ? .develop : .info
+            selectedTab = DetailPanelVM.tabForFullImage(nowFullImage)
         }
     }
 }
@@ -114,17 +118,15 @@ struct InfoTab: View {
         VStack(alignment: .leading, spacing: MapleTokens.Spacing.sectionGap) {
             VStack(alignment: .leading, spacing: 6) {
                 SectionHeader("File")
-                InfoRow("Name", session?.asset.primaryURL?.lastPathComponent
-                             ?? session?.asset.displayName
-                             ?? "—")
+                InfoRow("Name", DetailPanelVM.nameDisplay(for: session?.asset))
             }
 
-            if let cct = session?.asShotCCT {
+            if let tempText = DetailPanelVM.formatAsShotCCT(session?.asShotCCT) {
                 VStack(alignment: .leading, spacing: 6) {
                     SectionHeader("As Shot")
-                    InfoRow("Temp", String(format: "%.0f K", cct))
-                    if let t = session?.asShotTint {
-                        InfoRow("Tint", String(format: "%.0f", t))
+                    InfoRow("Temp", tempText)
+                    if let tintText = DetailPanelVM.formatAsShotTint(session?.asShotTint) {
+                        InfoRow("Tint", tintText)
                     }
                 }
             }
@@ -132,7 +134,7 @@ struct InfoTab: View {
             // Full EXIF dump grouped by section. Sections render in the order
             // the reader produced them (Image → Camera → Exposure → GPS →
             // File) — see `ImageMetadataReader.exifEntries` for ordering.
-            ForEach(exifSections, id: \.self) { section in
+            ForEach(DetailPanelVM.exifSections(from: exif), id: \.self) { section in
                 VStack(alignment: .leading, spacing: 6) {
                     SectionHeader(section)
                     ForEach(exif.filter { $0.section == section }) { entry in
@@ -173,49 +175,17 @@ struct InfoTab: View {
         }
     }
 
-    /// Distinct sections in the order they first appear in `exif`. Avoids
-    /// hard-coding section names so adding a new section in the reader
-    /// surfaces it automatically.
-    private var exifSections: [String] {
-        var seen: [String] = []
-        for entry in exif where !seen.contains(entry.section) {
-            seen.append(entry.section)
-        }
-        return seen
-    }
-
-    /// Off-main read so a slow filesystem (NAS / external drive / iCloud
-    /// re-fetch) doesn't lock the UI. PhotoKit / Self-Hosted assets pull
-    /// bytes through `bytesProvider` — that's already async. Either way the
-    /// final write back into `exif` happens on the main actor.
+    /// Off-main EXIF read. Delegates to `DetailPanelVM.loadExif` for the
+    /// actual bytes pull; this method only handles the @State write and the
+    /// post-await identity check (the user may have switched assets while
+    /// bytes were fetching).
     private func loadExif() async {
         guard let session else {
             exif = []
             return
         }
         let asset = session.asset
-        let entries: [ImageMetadataReader.ExifEntry]
-        if let url = asset.primaryURL {
-            entries = await Task.detached(priority: .userInitiated) {
-                ImageMetadataReader.readExifProperties(from: url)
-            }.value
-        } else if let provider = asset.bytesProvider {
-            // Sourceless asset (PhotoKit, Self-Hosted). The provider call
-            // can be expensive (network fetch) — keep it off main.
-            let displayPath = asset.displayName
-            entries = await Task.detached(priority: .userInitiated) { () -> [ImageMetadataReader.ExifEntry] in
-                guard let data = try? await provider() else { return [] }
-                return ImageMetadataReader.readExifProperties(
-                    from: data,
-                    byteCount: data.count,
-                    displayPath: displayPath
-                )
-            }.value
-        } else {
-            entries = []
-        }
-        // Re-check identity after the await — the user may have switched
-        // assets while bytes were fetching.
+        let entries = await DetailPanelVM.loadExif(for: asset)
         guard session.asset.id == asset.id else { return }
         exif = entries
     }
@@ -539,14 +509,10 @@ struct AdjustSlider: View {
         self.defaultValue = defaultValue
     }
 
-    /// Stable accessibility identifier derived from `label` — lowercased,
-    /// spaces collapsed to dashes. "NR Lum" → `slider-nr-lum`. See
-    /// .archived-plans/plans/2026-04-25-xcuitest-visual-harness.md.
+    /// Stable accessibility identifier derived from `label`. Delegates to
+    /// `DetailPanelVM.sliderAccessibilityID` so the slug rule is unit-testable.
     private var accessibilityID: String {
-        let slug = label
-            .lowercased()
-            .replacingOccurrences(of: " ", with: "-")
-        return "slider-\(slug)"
+        DetailPanelVM.sliderAccessibilityID(for: label)
     }
 
     var body: some View {
