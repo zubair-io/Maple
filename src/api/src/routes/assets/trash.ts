@@ -191,11 +191,15 @@ export const trashRoutes = new Elysia()
       // with the same basename even though the file is at a new path.
       const restoredFilename = path.basename(result.newAbsPath);
       let restoredSize = doc.size;
-      let restoredMtimeIso = new Date().toISOString();
+      // `AssetDoc.mtime` is epoch-ms (number) per db/schema.ts. Persisting an
+      // ISO string here breaks the assets-list serialiser which does
+      // `Math.floor(r.mtime / 1000)` to hand seconds to the Swift client —
+      // a string would yield NaN, and the Swift consumer would see `null`.
+      let restoredMtime = Date.now();
       try {
         const st = await stat(result.newAbsPath);
         restoredSize = st.size;
-        restoredMtimeIso = new Date(st.mtimeMs).toISOString();
+        restoredMtime = st.mtimeMs;
       } catch (err) {
         assetsLog.warn(
           { absPath: result.newAbsPath, err: err instanceof Error ? err.message : String(err) },
@@ -220,7 +224,7 @@ export const trashRoutes = new Elysia()
             abs_path: result.newAbsPath,
             filename: restoredFilename,
             size: restoredSize,
-            mtime: restoredMtimeIso,
+            mtime: restoredMtime,
             deleted_at: null,
             original_path: null,
           } },
@@ -270,12 +274,18 @@ export const trashRoutes = new Elysia()
       // can synthesise the restored item's metadata directly from the
       // response rather than statting `abs_path` (which is the SERVER's
       // path, not the client's, and would fail/return zeros on the Mac).
+      //
+      // Wire contract: `mtime` is serialised as an ISO-8601 string with
+      // fractional seconds so the Swift `RestoreResponse.mtime: Date`
+      // decoder (see RemoteCatalog.swift) accepts it. The DB column
+      // remains epoch-ms (number) per AssetDoc.mtime — this is purely a
+      // response-time transform.
       return {
         asset_id: id.toHexString(),
         abs_path: result.newAbsPath,
         filename: restoredFilename,
         size: restoredSize,
-        mtime: restoredMtimeIso,
+        mtime: new Date(restoredMtime).toISOString(),
       };
     },
     {
