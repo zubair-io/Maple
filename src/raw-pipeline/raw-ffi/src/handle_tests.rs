@@ -178,6 +178,30 @@ fn raw_handle_upscale_returns_rc11() {
     unsafe { maple_close_raw_handle(handle) };
 }
 
+/// Render handle rejects mismatched aspect (out aspect ≠ src aspect)
+/// with rc=12. Fixture-gated.
+#[test]
+fn raw_handle_mismatched_aspect_returns_rc12() {
+    let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../test-fixtures/raws/test_0002.dng");
+    if !path.exists() { return; }
+    let raw_cstr = CString::new(path.to_str().unwrap()).unwrap();
+    let mut handle: *mut MapleRawHandle = std::ptr::null_mut();
+    let rc = unsafe {
+        maple_open_raw_handle(raw_cstr.as_ptr(), std::ptr::null(), &mut handle)
+    };
+    assert_eq!(rc, 0);
+    let mut buf = empty_buf();
+    // src 512×512 (1:1), out 512×256 (2:1) — strict mismatch.
+    let rc = unsafe {
+        maple_render_handle_scene_linear_tile(
+            handle, 1024, 1024, 512, 512, 512, 256, 0, &mut buf,
+        )
+    };
+    assert_eq!(rc, 12, "mismatched aspect must rc=12, got {}", rc);
+    unsafe { maple_close_raw_handle(handle) };
+}
+
 /// Bytes-variant open + render + close round-trip. Fixture-gated.
 #[test]
 fn raw_handle_bytes_round_trip() {
