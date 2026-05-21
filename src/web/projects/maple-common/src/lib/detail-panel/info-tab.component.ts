@@ -8,6 +8,10 @@
 // editable sections at the bottom of the pane. Each section supports a
 // manual override (PUT) and a re-X button (POST requeue). After a requeue,
 // the component polls the asset every 2s for 30s to pick up the new value.
+//
+// Pure formatters / derivations / constants live in `./info-tab.vm.ts` —
+// see issue #190 for the co-located `*.vm.ts` pattern this is the first
+// adopter of.
 
 import {
   ChangeDetectionStrategy,
@@ -37,19 +41,24 @@ import {
   EnrichmentStatusBadgeComponent,
   EnrichmentStageStatus,
 } from './enrichment-status-badge.component';
-
-const COLOR_LABELS: { name: ColorLabel; hex: string }[] = [
-  { name: 'red', hex: '#e74c3c' },
-  { name: 'orange', hex: '#e9873f' },
-  { name: 'yellow', hex: '#e9b93f' },
-  { name: 'green', hex: '#4ade80' },
-  { name: 'blue', hex: '#6aa0d4' },
-];
-
-/** How long the post-requeue refresh poll runs before giving up. */
-const REFRESH_TIMEOUT_MS = 30_000;
-/** Poll interval inside the refresh window. */
-const REFRESH_POLL_MS = 2_000;
+import {
+  COLOR_LABELS,
+  STAR_INDICES,
+  HISTORY,
+  REFRESH_TIMEOUT_MS,
+  REFRESH_POLL_MS,
+  WORKERS_SETTINGS_URL,
+  ext as vmExt,
+  xmpName as vmXmpName,
+  formatSize as vmFormatSize,
+  formatDate as vmFormatDate,
+  formatRollups as vmFormatRollups,
+  showPlaceSection as vmShowPlaceSection,
+  taggedFaces as vmTaggedFaces,
+  untaggedFaceCount as vmUntaggedFaceCount,
+  detailChanged as vmDetailChanged,
+  stageStatus as vmStageStatus,
+} from './info-tab.vm';
 
 @Component({
   selector: 'maple-info-tab',
@@ -70,20 +79,18 @@ export class InfoTabComponent implements OnDestroy {
   private readonly backend = inject(LIBRARY_BACKEND);
   private readonly injector = inject(Injector);
 
-  readonly STAR_INDICES = [1, 2, 3, 4, 5];
+  // Re-exported pure constants for template binding. The values live in
+  // `info-tab.vm.ts`; the component just surfaces them.
+  readonly STAR_INDICES = STAR_INDICES;
   readonly COLOR_LABELS = COLOR_LABELS;
-  readonly HISTORY = [
-    { label: 'Original import', time: 'Import' },
-    { label: 'Basic tone', time: '3d ago' },
-    { label: 'Warm grade', time: '2h ago' },
-  ];
+  readonly HISTORY = HISTORY;
 
   // ── Self-Hosted enrichment state ──────────────────────────────────────
   readonly selfHosted = this.backend === 'self-hosted';
 
   /** Deep link for "Worker paused" badges and stale-after-requeue hints.
    * The workers admin page already exists at this route. */
-  readonly WORKERS_SETTINGS_URL = '/settings/workers';
+  readonly WORKERS_SETTINGS_URL = WORKERS_SETTINGS_URL;
 
   /** The last-fetched detail for the currently-focused asset. Cleared
    * whenever the focused asset changes. */
@@ -250,7 +257,7 @@ export class InfoTabComponent implements OnDestroy {
       this.api.getAssetDetails(id).subscribe({
         next: (d) => {
           this.detail.set(d);
-          if (this.detailChanged(this.refreshBaseline, d)) {
+          if (vmDetailChanged(this.refreshBaseline, d)) {
             this.stopRefreshLoop();
           }
         },
@@ -273,57 +280,51 @@ export class InfoTabComponent implements OnDestroy {
     this.refreshDeadline = 0;
   }
 
-  /** True when something in the enrichment subdoc moved between the two
-   * snapshots — a worker run flipped `done_at`, bumped `version`, cleared
-   * an error, etc. */
-  private detailChanged(
-    a: ApiAssetDetail | null,
-    b: ApiAssetDetail | null,
-  ): boolean {
-    if (!a || !b) return true;
-    const stages: ApiEnrichmentStage[] = [
-      'geocode',
-      'face',
-      'describe',
-    ];
-    for (const s of stages) {
-      const sa = a.enrichment[s];
-      const sb = b.enrichment[s];
-      if (sa.done_at !== sb.done_at) return true;
-      if (sa.version !== sb.version) return true;
-      if (sa.dead_letter_at !== sb.dead_letter_at) return true;
-    }
-    return false;
-  }
-
-  // ── Helpers ───────────────────────────────────────────────────────────
+  // ── Template helpers — thin delegators to ./info-tab.vm.ts ────────────
+  // Kept as instance methods because the existing template binds to them
+  // (e.g. `formatSize(asset.size)`). Migrating the template to a single
+  // `vm()` computed is a follow-up slice — see #190.
 
   showPlaceSection(d: ApiAssetDetail): boolean {
-    // Hide once geocoded as no-place (worker ran, found nothing). The
-    // worker writes `place: null` AND sets `done_at` non-null in that
-    // case; pending rows have `done_at: null`.
-    if (d.place === null && d.enrichment.geocode.done_at !== null) {
-      return false;
-    }
-    return true;
+    return vmShowPlaceSection(d);
   }
 
-  formatRollups(rollups: { locality: string | null; region: string | null }): string {
-    const parts = [rollups.locality, rollups.region].filter(
-      (v): v is string => !!v,
-    );
-    if (parts.length === 0) return '(no rollup)';
-    return parts.join(', ');
+  formatRollups(rollups: {
+    locality: string | null;
+    region: string | null;
+  }): string {
+    return vmFormatRollups(rollups);
   }
 
   taggedFaces(d: ApiAssetDetail): { person_id: string }[] {
-    return d.faces
-      .filter((f) => f.person_id !== null)
-      .map((f) => ({ person_id: f.person_id! }));
+    return vmTaggedFaces(d);
   }
 
   untaggedFaceCount(d: ApiAssetDetail): number {
-    return d.faces.filter((f) => f.person_id === null).length;
+    return vmUntaggedFaceCount(d);
+  }
+
+  ext(filename: string): string {
+    return vmExt(filename);
+  }
+
+  xmpName(filename: string): string {
+    return vmXmpName(filename);
+  }
+
+  formatSize(bytes: number | undefined): string {
+    return vmFormatSize(bytes);
+  }
+
+  formatDate(iso: string | undefined): string {
+    return vmFormatDate(iso);
+  }
+
+  stageStatus(
+    stage: ApiEnrichmentStage,
+    s: ApiEnrichmentStageState,
+  ): EnrichmentStageStatus {
+    return vmStageStatus(s, this.workerPaused()[stage] === true);
   }
 
   // ── Edit-mode toggles ─────────────────────────────────────────────────
@@ -445,36 +446,6 @@ export class InfoTabComponent implements OnDestroy {
     });
   }
 
-  // ── Existing helpers ──────────────────────────────────────────────────
-
-  ext(filename: string): string {
-    return filename.split('.').pop() ?? '';
-  }
-
-  xmpName(filename: string): string {
-    return filename.replace(/\.[^.]+$/, '.xmp');
-  }
-
-  formatSize(bytes: number | undefined): string {
-    if (bytes == null) return '—';
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-    if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-    return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
-  }
-
-  formatDate(iso: string | undefined): string {
-    if (!iso) return '—';
-    const d = new Date(iso);
-    if (Number.isNaN(d.getTime())) return iso;
-    const yyyy = d.getFullYear();
-    const mm = String(d.getMonth() + 1).padStart(2, '0');
-    const dd = String(d.getDate()).padStart(2, '0');
-    const hh = String(d.getHours()).padStart(2, '0');
-    const mi = String(d.getMinutes()).padStart(2, '0');
-    return `${yyyy}-${mm}-${dd} ${hh}:${mi}`;
-  }
-
   toggleFlag(asset: Asset, flag: Flag): void {
     const next: Flag = asset.flag === flag ? 'unflagged' : flag;
     this.state.setFlag(asset.id, next);
@@ -489,55 +460,4 @@ export class InfoTabComponent implements OnDestroy {
     const next: ColorLabel = asset.colorLabel === label ? null : label;
     this.state.setColorLabel(asset.id, next);
   }
-
-  // ── Enrichment status derivation ──────────────────────────────────────
-
-  /** Decide what badge to show for a stage row. The DTO carries enough
-   * fields to pin down every state — we layer the worker-pause cache on
-   * top so a paused-on-first-boot stage reads as "Worker paused" instead
-   * of an indefinite "Pending". Priority order matches the table in the
-   * plan: failed > skipped > complete > paused > running > pending. */
-  stageStatus(
-    stage: ApiEnrichmentStage,
-    s: ApiEnrichmentStageState,
-  ): EnrichmentStageStatus {
-    if (s.dead_letter_at) {
-      return { kind: 'failed', label: 'Failed', tooltip: s.last_error ?? undefined };
-    }
-    // A "skip: …" last_error means the worker decided not to process the
-    // asset — done_at is also set in that case (the supervisor stamps
-    // both fields in the skip path).
-    if (s.last_error?.startsWith('skip: ')) {
-      const reason = s.last_error.slice('skip: '.length);
-      return { kind: 'skipped', label: this.skipReasonLabel(reason), tooltip: s.last_error };
-    }
-    if (s.done_at !== null) {
-      // Complete — no badge needed.
-      return { kind: 'complete', label: '' };
-    }
-    if (this.workerPaused()[stage]) {
-      return { kind: 'paused', label: 'Worker paused' };
-    }
-    // Treat a live lease as "Running…"; otherwise the row is queued for
-    // the next supervisor tick.
-    if (s.locked_by && s.lease_expires_at) {
-      const expires = Date.parse(s.lease_expires_at);
-      if (Number.isFinite(expires) && expires > Date.now()) {
-        return { kind: 'running', label: 'Running…' };
-      }
-    }
-    return { kind: 'pending', label: 'Pending' };
-  }
-
-  /** Human label for a `skip: …` reason. Falls back to a generic
-   * "Skipped" with the raw reason in the tooltip so we don't lose info
-   * for skip cases the workers may add later. */
-  private skipReasonLabel(reason: string): string {
-    if (reason === 'no-gps') return 'No GPS';
-    if (reason === 'image-missing') return 'No thumbnail';
-    if (reason.startsWith('thumb-missing')) return 'No thumbnail';
-    if (reason.startsWith('thumb-undecodable')) return 'Thumbnail unreadable';
-    return 'Skipped';
-  }
-
 }
