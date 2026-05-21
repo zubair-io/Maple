@@ -235,7 +235,11 @@ describe("listEnrichmentDeadLetter", () => {
     expect(newest.last_error).toBe("Nominatim timeout");
     expect(newest.attempts).toBe(5);
     expect(newest.dead_letter_at).toBe("2026-05-08T00:00:00.000Z");
-    expect(newest.abs_path.startsWith("/lib/")).toBe(true);
+    // Post drop-abs-path-2026-05-21: `abs_path` is `string | null`
+    // (resolved server-side, null when fileinfo can't be matched to a
+    // library). This seed has fileinfo + a folder, so it should resolve.
+    expect(newest.abs_path).not.toBeNull();
+    expect(newest.abs_path!.startsWith("/lib/")).toBe(true);
   });
 
   it("respects the limit parameter", async () => {
