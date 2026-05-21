@@ -14,17 +14,19 @@
  * own collection. The two surfaces never overlap.
  */
 
-import type { ObjectId } from "mongodb";
-import { assetsCollection } from "../db/client.ts";
+import type { ObjectId } from 'mongodb';
+import { assetsCollection } from '../db/client.ts';
+import { assetAbsPath } from '../indexer/images.repo.ts';
+import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
 
 /**
  * Stages that participate in the slow-tier enrichment loop. Mirrors
  * `Enrichment` in `db/schema.ts` — keep these in sync. New stages added
  * to the asset schema must be added here too.
  */
-export type EnrichmentStage = "geocode" | "face" | "describe";
+export type EnrichmentStage = 'geocode' | 'face' | 'describe';
 
-const STAGES: readonly EnrichmentStage[] = ["geocode", "face", "describe"];
+const STAGES: readonly EnrichmentStage[] = ['geocode', 'face', 'describe'];
 
 /** Type-guard for runtime input (e.g. query strings). */
 export function isEnrichmentStage(s: string): s is EnrichmentStage {
@@ -69,7 +71,7 @@ export async function listEnrichmentDeadLetter(input: {
 }): Promise<EnrichmentDeadLetterRow[]> {
   const limit = Math.min(MAX_LIMIT, Math.max(1, input.limit ?? DEFAULT_LIMIT));
   const coll = await assetsCollection();
-  const dlField = field(input.stage, "dead_letter_at");
+  const dlField = field(input.stage, 'dead_letter_at');
   const cursor = coll
     .find(
       { [dlField]: { $ne: null } },
@@ -77,6 +79,8 @@ export async function listEnrichmentDeadLetter(input: {
         projection: {
           _id: 1,
           abs_path: 1,
+          fileinfo: 1,
+          folder_id: 1,
           [`enrichment.${input.stage}`]: 1,
         },
       },
@@ -85,17 +89,18 @@ export async function listEnrichmentDeadLetter(input: {
     .limit(limit);
 
   const docs = await cursor.toArray();
+  const libs = await loadLibraryRoots();
   return docs.map((d) => {
     const stageState = d.enrichment?.[input.stage];
     return {
       asset_id: d._id.toHexString(),
-      abs_path: d.abs_path,
+      abs_path: assetAbsPath(d, libs) ?? d.abs_path,
       last_error: stageState?.last_error ?? null,
       attempts: stageState?.attempts ?? 0,
       // Filter guarantees dead_letter_at is non-null; fall back to "" so
       // the type stays a string and downstream JSON encoding doesn't have
       // to think about it.
-      dead_letter_at: stageState?.dead_letter_at ?? "",
+      dead_letter_at: stageState?.dead_letter_at ?? '',
     };
   });
 }
@@ -111,8 +116,8 @@ export async function groupEnrichmentDeadLetter(input: {
   stage: EnrichmentStage;
 }): Promise<EnrichmentDeadLetterGroup[]> {
   const coll = await assetsCollection();
-  const dlField = field(input.stage, "dead_letter_at");
-  const errField = field(input.stage, "last_error");
+  const dlField = field(input.stage, 'dead_letter_at');
+  const errField = field(input.stage, 'last_error');
 
   const pipeline = [
     { $match: { [dlField]: { $ne: null } } },
@@ -121,31 +126,29 @@ export async function groupEnrichmentDeadLetter(input: {
         // `$ifNull` so rows with `last_error: null` collapse into a single
         // bucket rather than crashing the $substrCP.
         errorClass: {
-          $substrCP: [{ $ifNull: [`$${errField}`, ""] }, 0, ERROR_CLASS_LEN],
+          $substrCP: [{ $ifNull: [`$${errField}`, ''] }, 0, ERROR_CLASS_LEN],
         },
         deadLetterAt: `$${dlField}`,
       },
     },
     {
       $group: {
-        _id: "$errorClass",
+        _id: '$errorClass',
         count: { $sum: 1 },
-        latestTs: { $max: "$deadLetterAt" },
+        latestTs: { $max: '$deadLetterAt' },
       },
     },
     {
       $project: {
         _id: 0,
-        errorClass: "$_id",
+        errorClass: '$_id',
         count: 1,
         latestTs: 1,
       },
     },
     { $sort: { count: -1, latestTs: -1 } },
   ];
-  return coll
-    .aggregate<EnrichmentDeadLetterGroup>(pipeline)
-    .toArray();
+  return coll.aggregate<EnrichmentDeadLetterGroup>(pipeline).toArray();
 }
 
 /**
@@ -164,7 +167,7 @@ export async function resetEnrichmentDeadLetter(input: {
   assetId?: string;
 }): Promise<{ resetCount: number }> {
   const coll = await assetsCollection();
-  const dlField = field(input.stage, "dead_letter_at");
+  const dlField = field(input.stage, 'dead_letter_at');
 
   // Always include the dead-letter filter — even when `assetId` is given,
   // we don't want to zero out an asset that isn't actually dead-lettered
@@ -175,7 +178,7 @@ export async function resetEnrichmentDeadLetter(input: {
     try {
       // Lazy import to avoid pulling ObjectId into the public surface; the
       // route layer passes us a hex string.
-      const { ObjectId } = await import("mongodb");
+      const { ObjectId } = await import('mongodb');
       oid = new ObjectId(input.assetId);
     } catch {
       // Bad hex: nothing matches.
@@ -187,8 +190,8 @@ export async function resetEnrichmentDeadLetter(input: {
   const update = {
     $set: {
       [dlField]: null,
-      [field(input.stage, "last_error")]: null,
-      [field(input.stage, "attempts")]: 0,
+      [field(input.stage, 'last_error')]: null,
+      [field(input.stage, 'attempts')]: 0,
     },
   };
 
