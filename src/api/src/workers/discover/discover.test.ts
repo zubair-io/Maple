@@ -113,10 +113,18 @@ describe('discover producer', () => {
     expect(doc!.stages).toBeDefined();
 
     // Every stage name from the manifest must be present in the skeleton.
+    // Exception: after PR 2 of the content-addressing migration discover
+    // hashes inline at insert time, so `stages.hash.version` is already
+    // set to its target (1) — no post-insert hash stage pass needed.
+    // Other stages start at 0.
     for (const name of ALL_STAGE_NAMES) {
       const entry = (doc!.stages as Record<string, unknown>)[name] as Record<string, unknown>;
       expect(entry).toBeDefined();
-      expect(entry.version).toBe(0);
+      if (name === 'hash') {
+        expect(entry.version).toBe(1);
+      } else {
+        expect(entry.version).toBe(0);
+      }
       expect(entry.dead).toBe(false);
       expect(entry.last_error).toBeNull();
     }
@@ -182,9 +190,11 @@ describe('discover producer', () => {
     const folderId = folderResult.insertedId;
     const coll = await assetsCollection();
 
-    // First discover — inserts with skeleton (all version: 0).
+    // First discover — inserts with skeleton (hash.version=1 after PR 2
+    // since discover hashes inline; other stages start at 0).
     await handleEvent({ kind: 'created', absPath: file }, folderId, tempDir);
-    // Simulate hash stage completing: bump stages.hash.version to 1.
+    // Simulate exif/thumb stages completing: bump stages.hash.version to 1
+    // explicitly (no-op now but documents the intent of the test).
     await coll.updateOne({ abs_path: file }, { $set: { 'stages.hash.version': 1 } });
 
     // Re-discover (modified event) — must not reset hash back to 0.
@@ -412,6 +422,131 @@ describe('discover producer', () => {
     expect(doc!.fileinfo![0].filename).toBe('x.dng');
 
     await coll.deleteOne({ _id: doc!._id });
+    await foldersColl.deleteOne({ _id: folderId });
+    await rm(root, { recursive: true, force: true });
+  });
+
+  // ─── PR 2: hash on discover + dedup by maple_id ─────────────────────────
+
+  it('dedups two files with identical content into one row with two fileinfo entries', async () => {
+    if (!mongoReachable) return;
+
+    const { handleEvent } = await import('./index.ts');
+    const { assetsCollection, foldersCollection } = await import('../../db/client.ts');
+    const { mkdir } = await import('node:fs/promises');
+
+    const root = await mkdtemp(path.join(os.tmpdir(), 'discover-dedup-'));
+    const dirA = path.join(root, 'a');
+    const dirB = path.join(root, 'b');
+    await mkdir(dirA, { recursive: true });
+    await mkdir(dirB, { recursive: true });
+    const fileA = path.join(dirA, 'IMG.dng');
+    const fileB = path.join(dirB, 'IMG.dng');
+    // Byte-identical content → same maple_id.
+    const bytes = Buffer.alloc(70 * 1024, 0xab);
+    await writeFile(fileA, bytes);
+    await writeFile(fileB, bytes);
+
+    const foldersColl = await foldersCollection();
+    const folderResult = await foldersColl.insertOne({
+      path: root,
+      label: 'dedup-test',
+      last_scan: null,
+      file_count: 0,
+      created_at: new Date().toISOString(),
+    } as never);
+    const folderId = folderResult.insertedId;
+    const coll = await assetsCollection();
+    // Wipe any previous run's row at this maple_id.
+    const { hashFileForId } = await import('../../indexer/id.ts');
+    const { maple_id } = await hashFileForId(fileA);
+    await coll.deleteMany({ maple_id });
+
+    await handleEvent({ kind: 'created', absPath: fileA }, folderId, root);
+    await handleEvent({ kind: 'created', absPath: fileB }, folderId, root);
+
+    const rows = await coll.find({ maple_id }).toArray();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.fileinfo).toHaveLength(2);
+    const entries = (rows[0]!.fileinfo ?? []).map((e: any) => `${e.path}/${e.filename}`).sort();
+    expect(entries).toEqual(['a/IMG.dng', 'b/IMG.dng']);
+    expect(rows[0]!.maple_id).toMatch(/^[0-9a-f]{32}$/);
+
+    await coll.deleteMany({ maple_id });
+    await foldersColl.deleteOne({ _id: folderId });
+    await rm(root, { recursive: true, force: true });
+  });
+
+  it('re-discovering the same path is idempotent — no duplicate fileinfo entries', async () => {
+    if (!mongoReachable) return;
+
+    const { handleEvent } = await import('./index.ts');
+    const { assetsCollection, foldersCollection } = await import('../../db/client.ts');
+
+    const root = await mkdtemp(path.join(os.tmpdir(), 'discover-idem-'));
+    const file = path.join(root, 'x.jpg');
+    await writeFile(file, Buffer.alloc(80 * 1024, 0xcd));
+
+    const foldersColl = await foldersCollection();
+    const folderResult = await foldersColl.insertOne({
+      path: root,
+      label: 'idem-test',
+      last_scan: null,
+      file_count: 0,
+      created_at: new Date().toISOString(),
+    } as never);
+    const folderId = folderResult.insertedId;
+    const coll = await assetsCollection();
+    const { hashFileForId } = await import('../../indexer/id.ts');
+    const { maple_id } = await hashFileForId(file);
+    await coll.deleteMany({ maple_id });
+
+    // Two events for the same (library, path) — modify after create.
+    await handleEvent({ kind: 'created', absPath: file }, folderId, root);
+    await handleEvent({ kind: 'modified', absPath: file }, folderId, root);
+
+    const rows = await coll.find({ maple_id }).toArray();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.fileinfo).toHaveLength(1);
+
+    await coll.deleteMany({ maple_id });
+    await foldersColl.deleteOne({ _id: folderId });
+    await rm(root, { recursive: true, force: true });
+  });
+
+  it('insert path populates maple_id directly (no post-insert hash stage needed)', async () => {
+    if (!mongoReachable) return;
+
+    const { handleEvent } = await import('./index.ts');
+    const { assetsCollection, foldersCollection } = await import('../../db/client.ts');
+
+    const root = await mkdtemp(path.join(os.tmpdir(), 'discover-mid-'));
+    const file = path.join(root, 'y.jpg');
+    await writeFile(file, Buffer.alloc(50 * 1024, 0xef));
+
+    const foldersColl = await foldersCollection();
+    const folderResult = await foldersColl.insertOne({
+      path: root,
+      label: 'maple-id-test',
+      last_scan: null,
+      file_count: 0,
+      created_at: new Date().toISOString(),
+    } as never);
+    const folderId = folderResult.insertedId;
+    const coll = await assetsCollection();
+    const { hashFileForId } = await import('../../indexer/id.ts');
+    const expected = await hashFileForId(file);
+    await coll.deleteMany({ maple_id: expected.maple_id });
+
+    await handleEvent({ kind: 'created', absPath: file }, folderId, root);
+
+    const doc = await coll.findOne({ maple_id: expected.maple_id });
+    expect(doc).not.toBeNull();
+    expect(doc!.maple_id).toBe(expected.maple_id);
+    expect((doc as any).sha1_head).toBe(expected.sha1_head);
+    expect(doc!.size).toBe(expected.size);
+
+    await coll.deleteMany({ maple_id: expected.maple_id });
     await foldersColl.deleteOne({ _id: folderId });
     await rm(root, { recursive: true, force: true });
   });

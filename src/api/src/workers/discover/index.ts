@@ -32,6 +32,7 @@ import {
   closeDb,
 } from '../../db/client.ts';
 import { recordAndPublishAssetChange } from '../../db/changes.repo.ts';
+import { hashFileForId } from '../../indexer/id.ts';
 
 const log = child('discover');
 
@@ -194,19 +195,17 @@ export async function handleEvent(
     return;
   }
 
-  // created or modified — upsert with skeleton.
-  let stat: Awaited<ReturnType<typeof fsNode.stat>>;
-  try {
-    stat = await fsNode.stat(absPath);
-  } catch {
-    log.warn({ absPath }, 'stat failed after watch event — skipping');
-    return;
-  }
-
+  // created or modified — hash, then dedup by maple_id.
+  //
+  // PR 2: hashing moves from the post-insert `hash` stage to here so the
+  // unique `maple_id_1` index becomes the dedup gate. When two files have
+  // identical content the second event no longer inserts a new row — it
+  // $push's a fileinfo entry on the existing row.
+  //
   // Hard-skip when the file escapes the library root — we'd rather log a
   // warning and drop the event than insert a row without a valid fileinfo
-  // entry (which would violate the post-migration invariant that every
-  // live asset has length ≥ 1).
+  // entry (which would violate the invariant that every live asset has
+  // length ≥ 1).
   const fileinfoEntry = buildFileinfoEntry(libraryRoot, absPath, folderId);
   if (!fileinfoEntry) {
     log.warn({ libraryRoot, absPath }, 'event absPath escapes library root — skipping insert');
@@ -214,46 +213,162 @@ export async function handleEvent(
   }
   const filename = path.basename(absPath);
 
-  const setOnInsert: Record<string, unknown> = {
-    abs_path: absPath,
-    folder_id: folderId,
-    filename,
-    fileinfo: [fileinfoEntry],
-    rating: 0,
-    flag: 0,
-    color_label: '',
-    exif: null,
-    maple_id: null,
-    sha1_head: null,
-    stages: blankStagesSkeleton(),
-  };
-
+  let hashed: Awaited<ReturnType<typeof hashFileForId>>;
+  try {
+    hashed = await hashFileForId(absPath);
+  } catch (err) {
+    // hashFileForId opens + reads + stats the file. ENOENT here means the
+    // file was unlinked between the watcher fire and our read; treat like
+    // a stat failure (skip the event, watcher will fire again on next
+    // poll if the file reappears).
+    log.warn(
+      { absPath, err: err instanceof Error ? err.message : err },
+      'hash failed after watch event — skipping',
+    );
+    return;
+  }
   const now = new Date().toISOString();
-  const res = await coll.findOneAndUpdate(
-    { abs_path: absPath },
-    {
-      $set: {
-        size: stat.size,
-        mtime: stat.mtimeMs,
-        indexed_at: now,
-        deleted_at: null,
-      },
-      $setOnInsert: setOnInsert,
-    },
-    { upsert: true, returnDocument: 'after' },
+
+  // Find any existing row for this content. We project narrowly so the
+  // doc body stays small even on libraries with many assets.
+  const existing = await coll.findOne(
+    { maple_id: hashed.maple_id },
+    { projection: { _id: 1, fileinfo: 1 } },
   );
-  log.info({ absPath, kind }, 'upserted');
-  // Emit a change feed entry. `created` events become a "create" kind
-  // for File Provider clients; `modified` becomes "update".
-  const assetId = (res as unknown as { _id?: ObjectId } | null)?._id ?? null;
-  if (assetId) {
+
+  if (existing) {
+    // Same content — record the new location if it's not already on the
+    // row, refresh timestamps. We DO NOT touch any user-edited fields
+    // (rating, flag, color_label, sidecar mirror, …) on a dedup hit.
+    const list = (existing.fileinfo ?? []) as Array<{
+      path: string;
+      filename: string;
+      library_id: ObjectId;
+      deleted_at?: string | null;
+    }>;
+    const dupIdx = list.findIndex(
+      (e) =>
+        e.library_id.equals(fileinfoEntry.library_id) &&
+        e.path === fileinfoEntry.path &&
+        e.filename === fileinfoEntry.filename,
+    );
+    if (dupIdx === -1) {
+      await coll.updateOne(
+        { _id: existing._id },
+        {
+          $push: { fileinfo: fileinfoEntry as never },
+          $set: {
+            indexed_at: now,
+            deleted_at: null,
+            mtime: hashed.mtime,
+            size: hashed.size,
+          },
+        },
+      );
+      log.info({ absPath, maple_id: hashed.maple_id, dedup: 'append' }, 'deduped — new location');
+    } else {
+      // Already-known location: clear any per-entry deleted_at on a
+      // re-discover, refresh top-level timestamps.
+      await coll.updateOne(
+        { _id: existing._id },
+        {
+          $set: {
+            indexed_at: now,
+            deleted_at: null,
+            mtime: hashed.mtime,
+            size: hashed.size,
+            [`fileinfo.${dupIdx}.deleted_at`]: null,
+          },
+        },
+      );
+      log.debug({ absPath, maple_id: hashed.maple_id, dedup: 'noop' }, 'idempotent re-discover');
+    }
     await recordAndPublishAssetChange({
       kind: kind === 'created' ? 'create' : 'update',
-      asset_id: assetId,
+      asset_id: existing._id,
       folder_id: folderId,
       abs_path: absPath,
     });
+    return;
   }
+
+  // No existing row for this content — insert. The hash stage's post-
+  // insert work has already happened (sha1_head + maple_id are in
+  // `hashed`); we mark `stages.hash.version` to its target so the stage
+  // runner skips this row on its next poll.
+  const stagesSkeleton = blankStagesSkeleton() as Record<string, { version: number }>;
+  if (stagesSkeleton.hash) stagesSkeleton.hash.version = 1;
+
+  const insertedId = new ObjectId();
+  try {
+    await coll.insertOne({
+      _id: insertedId,
+      abs_path: absPath,
+      folder_id: folderId,
+      filename,
+      fileinfo: [fileinfoEntry],
+      rating: 0,
+      flag: 0,
+      color_label: '',
+      exif: null,
+      maple_id: hashed.maple_id,
+      sha1_head: hashed.sha1_head,
+      size: hashed.size,
+      mtime: hashed.mtime,
+      indexed_at: now,
+      deleted_at: null,
+      stages: stagesSkeleton,
+    } as never);
+  } catch (err) {
+    // E11000 means another worker raced us to insert this maple_id
+    // between our findOne and insertOne. Fall back to the append path.
+    const code = (err as { code?: number } | null)?.code;
+    if (code === 11000) {
+      const winner = await coll.findOne(
+        { maple_id: hashed.maple_id },
+        { projection: { _id: 1, fileinfo: 1 } },
+      );
+      if (winner) {
+        const list = (winner.fileinfo ?? []) as Array<{
+          path: string;
+          filename: string;
+          library_id: ObjectId;
+        }>;
+        const dupIdx = list.findIndex(
+          (e) =>
+            e.library_id.equals(fileinfoEntry.library_id) &&
+            e.path === fileinfoEntry.path &&
+            e.filename === fileinfoEntry.filename,
+        );
+        if (dupIdx === -1) {
+          await coll.updateOne(
+            { _id: winner._id },
+            { $push: { fileinfo: fileinfoEntry as never } },
+          );
+        }
+        await recordAndPublishAssetChange({
+          kind: kind === 'created' ? 'create' : 'update',
+          asset_id: winner._id,
+          folder_id: folderId,
+          abs_path: absPath,
+        });
+        log.info(
+          { absPath, maple_id: hashed.maple_id, dedup: 'race-loser' },
+          'race lost — appended to winner',
+        );
+        return;
+      }
+    }
+    throw err;
+  }
+
+  log.info({ absPath, kind, maple_id: hashed.maple_id }, 'inserted');
+  await recordAndPublishAssetChange({
+    kind: kind === 'created' ? 'create' : 'update',
+    asset_id: insertedId,
+    folder_id: folderId,
+    abs_path: absPath,
+  });
 }
 
 /**
