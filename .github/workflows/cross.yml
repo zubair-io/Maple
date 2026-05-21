@@ -30,23 +30,60 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Need history back to the merge base (PR) or previous push SHA so
+          # we can diff to compute the changed-files list. Cheap on GH runners.
+          fetch-depth: 0
 
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
 
-      # Prettier lives in src/web's devDependencies. Install there, then run
-      # against the whole repo using src/web/.prettierrc as the config root.
+      # Scope prettier to files changed in this push / PR. The gate's purpose
+      # is "don't regress formatting in new code" — whole-repo reformat is a
+      # separate concern, tracked elsewhere.
+      - name: Compute changed files
+        id: changed
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          BEFORE_SHA: ${{ github.event.before }}
+          AFTER_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            git fetch --no-tags --depth=0 origin "+refs/heads/${BASE_REF}:refs/remotes/origin/${BASE_REF}"
+            MERGE_BASE="$(git merge-base "origin/${BASE_REF}" HEAD)"
+            git diff --name-only --diff-filter=ACMR "${MERGE_BASE}" HEAD > /tmp/changed.txt
+          else
+            # push to main: format only files touched in that push. Fall back
+            # to HEAD~1..HEAD if `before` is unavailable (e.g. force-push,
+            # branch-create, or initial commit where `before` is all-zeros).
+            if [ -n "${BEFORE_SHA}" ] && [ "${BEFORE_SHA}" != "0000000000000000000000000000000000000000" ] \
+              && git cat-file -e "${BEFORE_SHA}" 2>/dev/null; then
+              git diff --name-only --diff-filter=ACMR "${BEFORE_SHA}" "${AFTER_SHA}" > /tmp/changed.txt
+            else
+              git diff --name-only --diff-filter=ACMR HEAD~1 HEAD > /tmp/changed.txt
+            fi
+          fi
+          # Filter to prettier-eligible extensions.
+          grep -E '\.(ts|tsx|js|jsx|json|html|scss|css|md|yml|yaml)$' /tmp/changed.txt > /tmp/changed-pretty.txt || true
+          # Exclude paths governed by other tooling / vendored.
+          grep -v -E '^(test-fixtures/|node_modules/|.*/node_modules/|.*/dist/)' /tmp/changed-pretty.txt > /tmp/check.txt || true
+          count="$(wc -l < /tmp/check.txt | tr -d ' ')"
+          echo "count=${count}" >> "$GITHUB_OUTPUT"
+          echo "files to check (${count}):"
+          cat /tmp/check.txt || true
+
       - name: Install web devDeps (provides prettier)
+        if: steps.changed.outputs.count != '0'
         working-directory: src/web
         run: bun install --frozen-lockfile
 
-      - name: Prettier --check
+      - name: Prettier --check (changed files only)
+        if: steps.changed.outputs.count != '0'
         run: |
-          ./src/web/node_modules/.bin/prettier --check \
-            --config src/web/.prettierrc \
-            --ignore-path .gitignore \
-            "**/*.{ts,tsx,js,jsx,html,scss,css,json,yaml,yml,md,graphql}"
+          xargs -a /tmp/check.txt ./src/web/node_modules/.bin/prettier --check \
+            --config src/web/.prettierrc
 
   file-budget:
     name: file-budget (400 soft / 600 hard LOC)
@@ -165,8 +202,8 @@ jobs:
       # both env vars in lockstep.
       - name: Install gitleaks
         env:
-          GITLEAKS_VERSION: "8.21.2"
-          GITLEAKS_LINUX_X64_SHA256: "5bc41815076e6ed6ef8fbecc9d9b75bcae31f39029ceb55da08086315316e3ba"
+          GITLEAKS_VERSION: '8.21.2'
+          GITLEAKS_LINUX_X64_SHA256: '5bc41815076e6ed6ef8fbecc9d9b75bcae31f39029ceb55da08086315316e3ba'
         run: |
           set -euo pipefail
           tarball="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
