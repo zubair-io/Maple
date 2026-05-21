@@ -292,8 +292,8 @@ export const backupIngestRoutes = new Elysia().post(
       if (!alreadyLinked) {
         await a.updateOne({ _id: existing._id }, { $push: { phasset_links: link } });
       }
-      // Delete tmp file — the canonical copy at existing.abs_path is the
-      // authoritative location; we don't need a second copy on disk.
+      // Delete tmp file — the canonical copy lives under the existing
+      // row's primary fileinfo entry; we don't need a second copy on disk.
       try {
         await fs.unlink(tmpFile);
       } catch {
@@ -308,7 +308,18 @@ export const backupIngestRoutes = new Elysia().post(
       });
       log.debug({ phid, mapleId, dedup: true }, 'ingest complete (dedup)');
       set.status = 200;
-      return { maple_id: mapleId, target_rel_path: path.relative(folder.path, existing.abs_path) };
+      // Reconstruct the existing row's target rel path from fileinfo[0]
+      // so the device knows where the canonical copy lives (used to
+      // route subsequent change-feed updates).
+      const existingPrimary =
+        (existing.fileinfo ?? []).find((e: any) => !e.deleted_at) ?? existing.fileinfo?.[0];
+      const existingRel =
+        existingPrimary && existingPrimary.path !== undefined
+          ? existingPrimary.path === ''
+            ? existingPrimary.filename
+            : `${existingPrimary.path}/${existingPrimary.filename}`
+          : '';
+      return { maple_id: mapleId, target_rel_path: existingRel };
     }
 
     // 2. No existing row — move tmp into the final destination.
@@ -337,14 +348,12 @@ export const backupIngestRoutes = new Elysia().post(
     const relDir = relDirRaw === '.' || relDirRaw === '' ? '' : relDirRaw.split(path.sep).join('/');
     await a.insertOne({
       _id: new ObjectId(),
-      folder_id: libraryId,
-      filename,
-      abs_path: finalPath,
       fileinfo: [
         {
           path: relDir,
           filename,
           library_id: libraryId,
+          deleted_at: null,
         },
       ],
       size: totalBytes,

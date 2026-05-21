@@ -13,21 +13,22 @@
  *     `resolveThumbPath(absPath)`. Legacy rows survive until the upcoming GC
  *     sweep retires their orphans.
  *
- * dependsOn: ["hash", "exif"]
- *   — thumb needs EXIF orientation to produce an upright image; hash must
- *     have run first so abs_path is confirmed reachable and maple_id is set
- *     (which the new cache key depends on).
+ * dependsOn: ["exif"]
+ *   — thumb needs EXIF orientation to produce an upright image. The legacy
+ *     `hash` predecessor was retired in the drop-abs-path-2026-05-21
+ *     migration; discover writes sha1_head + maple_id inline at insert so
+ *     the new cache-key dependency is satisfied before this stage runs.
  */
 import { generateThumb } from '../../indexer/thumbnailer.ts';
-import { resolveThumbPath, resolveThumbPathForAsset } from '../../fs/xmp.ts';
+import { resolveThumbPathForAsset } from '../../fs/xmp.ts';
 import { assetAbsPath } from '../../indexer/images.repo.ts';
 import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
-import { defineStage, runStage, type RunStageHandle } from '../run-stage.ts';
+import { defineStage, runStage, type RunStageHandle, type StageResult } from '../run-stage.ts';
 
 const thumbStage = defineStage({
   name: 'thumb',
   targetVersion: 1,
-  dependsOn: ['hash', 'exif'],
+  dependsOn: ['exif'],
   defaults: {
     concurrency: 2,
     batchSize: 5,
@@ -37,27 +38,21 @@ const thumbStage = defineStage({
     pausedOnFirstBoot: false,
     last_seen_target_version: 0,
   },
-  handler: async (image) => {
-    // loadLibraryRoots() reads the folders collection. A transient DB hiccup
-    // (or a test environment without Mongo) must not break thumb generation —
-    // fall back to the legacy basename-keyed path with an empty libraries map
-    // and let the next boot's cache-gc retire any orphan it produced.
-    let libs: ReadonlyMap<string, string>;
-    try {
-      libs = await loadLibraryRoots();
-    } catch {
-      libs = new Map();
-    }
+  handler: async (image): Promise<StageResult> => {
+    // Let `loadLibraryRoots()` errors propagate — a transient DB hiccup
+    // would otherwise yield an empty libs map, which would make
+    // `assetAbsPath` return null and trip the no-resolvable-location skip
+    // below. That skip writes `version = targetVersion` (see run-stage.ts),
+    // permanently marking the stage done. By throwing, the runner's
+    // retry/backoff path handles the transient case. Reserve `skip` for
+    // the genuine case: libraries loaded fine, but the asset has no
+    // fileinfo[0] or its library is unregistered.
+    const libs = await loadLibraryRoots();
     const thumbPath = resolveThumbPathForAsset(image as never, libs);
-    if (!thumbPath) {
-      // Fall back to legacy basename-keyed path so legacy rows (without
-      // maple_id or fileinfo) still get a thumb. The cache-gc sweep retires
-      // their orphans once the row is backfilled.
-      const legacyAbs = image.abs_path as string;
-      await generateThumb(legacyAbs);
-      return { patch: { thumb_path: resolveThumbPath(legacyAbs) } };
+    const absPath = assetAbsPath(image as never, libs);
+    if (!thumbPath || !absPath) {
+      return { skip: 'no-resolvable-location' };
     }
-    const absPath = assetAbsPath(image as never, libs) ?? (image.abs_path as string);
     await generateThumb(absPath, thumbPath);
     return { patch: { thumb_path: thumbPath } };
   },

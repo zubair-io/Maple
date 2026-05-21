@@ -1,42 +1,56 @@
-import { describe, expect, it, beforeAll, afterAll } from "bun:test";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import * as os from "node:os";
-import * as path from "node:path";
-import exifStage, { isLikelyScreenshot } from "./exif.ts";
-import { EXIF_PICK_TAGS } from "../../indexer/exif.ts";
+import { describe, expect, it, beforeAll, afterAll, mock } from 'bun:test';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import { ObjectId } from 'mongodb';
+import exifStage, { isLikelyScreenshot } from './exif.ts';
+import { EXIF_PICK_TAGS } from '../../indexer/exif.ts';
 
-function makeDoc(absPath: string) {
+function makeDoc(absPath: string, libraryId: ObjectId, libraryRoot: string) {
+  const relDir = path.relative(libraryRoot, path.dirname(absPath));
   return {
-    _id: "000000000000000000000002" as unknown as import("mongodb").ObjectId,
-    abs_path: absPath,
-    sha1_head: "a".repeat(40), // pretend hash stage already ran
-    maple_id: "b".repeat(32),
+    _id: '000000000000000000000002' as unknown as ObjectId,
+    fileinfo: [
+      {
+        path: relDir === '.' || relDir === '' ? '' : relDir.split(path.sep).join('/'),
+        filename: path.basename(absPath),
+        library_id: libraryId,
+        deleted_at: null,
+      },
+    ],
+    sha1_head: 'a'.repeat(40),
+    maple_id: 'b'.repeat(32),
     stages: {
-      hash:     { version: 1, attempts: 0, last_error: null, processed_at: new Date().toISOString(), dead: false },
-      exif:     { version: 0, attempts: 0, last_error: null, processed_at: null, dead: false },
-      thumb:    { version: 0, attempts: 0, last_error: null, processed_at: null, dead: false },
-      face:     { version: 0, attempts: 0, last_error: null, processed_at: null, dead: false },
+      exif: { version: 0, attempts: 0, last_error: null, processed_at: null, dead: false },
+      thumb: { version: 0, attempts: 0, last_error: null, processed_at: null, dead: false },
+      face: { version: 0, attempts: 0, last_error: null, processed_at: null, dead: false },
       describe: { version: 0, attempts: 0, last_error: null, processed_at: null, dead: false },
-      geocode:  { version: 0, attempts: 0, last_error: null, processed_at: null, dead: false },
-      meili:    { version: 0, attempts: 0, last_error: null, processed_at: null, dead: false },
+      geocode: { version: 0, attempts: 0, last_error: null, processed_at: null, dead: false },
+      meili: { version: 0, attempts: 0, last_error: null, processed_at: null, dead: false },
     },
   };
 }
 
-describe("exif handler", () => {
+describe('exif handler', () => {
   let dir: string;
+  let libraryId: ObjectId;
   beforeAll(async () => {
-    dir = await mkdtemp(path.join(os.tmpdir(), "exif-stage-"));
+    dir = await mkdtemp(path.join(os.tmpdir(), 'exif-stage-'));
+    libraryId = new ObjectId();
+    const { setLibraryRootsForTests } = await import('../../indexer/libraries.cache.ts');
+    setLibraryRootsForTests(new Map([[libraryId.toHexString(), dir]]));
   });
   afterAll(async () => {
     await rm(dir, { recursive: true, force: true });
+    const { setLibraryRootsForTests } = await import('../../indexer/libraries.cache.ts');
+    setLibraryRootsForTests(null);
   });
 
-  it("returns a patch with an exif key for a file without EXIF", async () => {
+  it('returns a patch with an exif key for a file without EXIF', async () => {
     // A raw JPEG with no metadata — exifr returns null; handler must still
     // return a patch (with exif: null) so the runtime can mark the stage done.
-    const file = path.join(dir, "no-exif.jpg");
-    const { default: sharp } = await import("sharp");
+    const file = path.join(dir, 'no-exif.jpg');
+    const { default: sharp } = await import('sharp');
     const buf = await sharp({
       create: { width: 4, height: 4, channels: 3, background: { r: 0, g: 0, b: 0 } },
     })
@@ -44,32 +58,43 @@ describe("exif handler", () => {
       .toBuffer();
     await writeFile(file, buf);
 
-    const doc = makeDoc(file);
+    const doc = makeDoc(file, libraryId, dir);
     const result = await exifStage.handler(doc as never, {} as never);
 
-    expect("patch" in result).toBe(true);
+    expect('patch' in result).toBe(true);
     const { patch } = result as { patch: Record<string, unknown> };
     // exif may be null (no EXIF data) — that is a valid and expected value.
-    expect("exif" in patch).toBe(true);
+    expect('exif' in patch).toBe(true);
   });
 
-  it("patch.exif contains camera_make when a DNG fixture is present", async () => {
-    const dng = path.resolve(process.cwd(), "../../test-fixtures/raws/test_0017.dng");
+  it('patch.exif contains camera_make when a DNG fixture is present', async () => {
+    const dng = path.resolve(process.cwd(), '../../test-fixtures/raws/test_0017.dng');
     try {
-      await import("node:fs/promises").then((f) => f.stat(dng));
+      await import('node:fs/promises').then((f) => f.stat(dng));
     } catch {
       return; // fixture absent — soft pass on CI
     }
-    const doc = makeDoc(dng);
+    // DNG lives outside the test library — extend the cache so its
+    // directory is also a registered library root.
+    const rawLibraryId = new ObjectId();
+    const { setLibraryRootsForTests } = await import('../../indexer/libraries.cache.ts');
+    setLibraryRootsForTests(
+      new Map([
+        [libraryId.toHexString(), dir],
+        [rawLibraryId.toHexString(), path.dirname(dng)],
+      ]),
+    );
+    const doc = makeDoc(dng, rawLibraryId, path.dirname(dng));
     const result = await exifStage.handler(doc as never, {} as never);
     const { patch } = result as { patch: Record<string, unknown> };
     const exif = patch.exif as Record<string, unknown> | null;
     expect(exif).not.toBeNull();
-    expect(typeof exif?.camera_make).toBe("string");
+    expect(typeof exif?.camera_make).toBe('string');
+    setLibraryRootsForTests(new Map([[libraryId.toHexString(), dir]]));
   });
 
-  it("throws when the file does not exist", async () => {
-    const doc = makeDoc(path.join(dir, "ghost.jpg"));
+  it('throws when the file does not exist', async () => {
+    const doc = makeDoc(path.join(dir, 'ghost.jpg'), libraryId, dir);
     await expect(exifStage.handler(doc as never, {} as never)).rejects.toThrow();
   });
 
@@ -78,80 +103,117 @@ describe("exif handler", () => {
   // sees direction=undefined and never negates — every western/southern
   // coordinate comes out positive. Removing these from the pick list
   // silently breaks every photo south of the equator or west of Greenwich.
-  it("picks GPS hemisphere refs so exifr applies coordinate sign", () => {
-    expect(EXIF_PICK_TAGS).toContain("GPSLatitudeRef");
-    expect(EXIF_PICK_TAGS).toContain("GPSLongitudeRef");
+  it('picks GPS hemisphere refs so exifr applies coordinate sign', () => {
+    expect(EXIF_PICK_TAGS).toContain('GPSLatitudeRef');
+    expect(EXIF_PICK_TAGS).toContain('GPSLongitudeRef');
   });
 
-  it("exif stage targetVersion is at least 2 (post-GPS-sign-fix)", () => {
+  it('exif stage targetVersion is at least 2 (post-GPS-sign-fix)', () => {
     expect(exifStage.targetVersion).toBeGreaterThanOrEqual(2);
   });
 
-  it("flags is_screenshot for a no-EXIF iOS-style filename", async () => {
-    const file = path.join(dir, "Screenshot 2026-05-19 at 10.04.32.png");
-    const { default: sharp } = await import("sharp");
+  it('flags is_screenshot for a no-EXIF iOS-style filename', async () => {
+    const file = path.join(dir, 'Screenshot 2026-05-19 at 10.04.32.png');
+    const { default: sharp } = await import('sharp');
     const buf = await sharp({
       create: { width: 8, height: 16, channels: 3, background: { r: 0, g: 0, b: 0 } },
     })
       .png()
       .toBuffer();
     await writeFile(file, buf);
-    const doc = makeDoc(file);
+    const doc = makeDoc(file, libraryId, dir);
     const result = await exifStage.handler(doc as never, {} as never);
     const { patch } = result as { patch: Record<string, unknown> };
     expect(patch.is_screenshot).toBe(true);
   });
 
-  it("does NOT flag is_screenshot for a regular JPEG without EXIF", async () => {
-    const file = path.join(dir, "vacation.jpg");
-    const { default: sharp } = await import("sharp");
+  it('does NOT flag is_screenshot for a regular JPEG without EXIF', async () => {
+    const file = path.join(dir, 'vacation.jpg');
+    const { default: sharp } = await import('sharp');
     const buf = await sharp({
       create: { width: 4, height: 4, channels: 3, background: { r: 0, g: 0, b: 0 } },
     })
       .jpeg()
       .toBuffer();
     await writeFile(file, buf);
-    const doc = makeDoc(file);
+    const doc = makeDoc(file, libraryId, dir);
     const result = await exifStage.handler(doc as never, {} as never);
     const { patch } = result as { patch: Record<string, unknown> };
     expect(patch.is_screenshot).toBe(false);
   });
+
+  it('propagates loadLibraryRoots errors instead of skip-passing on transient DB faults', async () => {
+    // Regression: an earlier version of the handler swallowed
+    // loadLibraryRoots() errors and fell through to assetAbsPath() with an
+    // empty libs map, which returned null and caused a `skip:
+    // no-resolvable-location`. Because the stage runner writes
+    // `version = targetVersion` on skip, the row would never be re-claimed
+    // even after the DB recovered — silently dropping the work. The fix
+    // (let loadLibraryRoots throw) hands the error to the runner's
+    // retry/backoff path so the next tick re-tries the row.
+    //
+    // Capture every export from the real module into a plain object so the
+    // restore-via-remock at the end gives back identical bindings. Passing
+    // the Module namespace directly leaks the mocked `loadLibraryRoots`
+    // into the spread copy and keeps subsequent describe.test.ts /
+    // face.test.ts files broken.
+    const realModule = await import('../../indexer/libraries.cache.ts');
+    const restored = {
+      loadLibraryRoots: realModule.loadLibraryRoots,
+      invalidateLibraryRoots: realModule.invalidateLibraryRoots,
+      setLibraryRootsForTests: realModule.setLibraryRootsForTests,
+    };
+    try {
+      mock.module('../../indexer/libraries.cache.ts', () => ({
+        ...restored,
+        loadLibraryRoots: async () => {
+          throw new Error('simulated transient mongo failure');
+        },
+      }));
+      // Fresh import so the handler picks up the mocked binding — bun:test
+      // rewires the ESM binding for the duration of the test, mirroring the
+      // cache-gc.test.ts pattern.
+      const { default: freshExifStage } = await import('./exif.ts');
+      const doc = makeDoc(path.join(dir, 'does-not-matter.jpg'), libraryId, dir);
+      await expect(freshExifStage.handler(doc as never, {} as never)).rejects.toThrow(
+        'simulated transient mongo failure',
+      );
+    } finally {
+      mock.module('../../indexer/libraries.cache.ts', () => restored);
+    }
+  });
 });
 
-describe("isLikelyScreenshot — heuristic", () => {
-  it("matches iOS screenshot filenames", () => {
-    expect(isLikelyScreenshot("Screenshot 2026-05-19 at 10.04.32.png", null)).toBe(true);
-    expect(isLikelyScreenshot("Screenshot 2024-12-01.png", "")).toBe(true);
+describe('isLikelyScreenshot — heuristic', () => {
+  it('matches iOS screenshot filenames', () => {
+    expect(isLikelyScreenshot('Screenshot 2026-05-19 at 10.04.32.png', null)).toBe(true);
+    expect(isLikelyScreenshot('Screenshot 2024-12-01.png', '')).toBe(true);
   });
 
-  it("matches macOS Screen Shot filenames", () => {
-    expect(isLikelyScreenshot("Screen Shot 2024-12-01 at 1.23.45 PM.png", null)).toBe(true);
+  it('matches macOS Screen Shot filenames', () => {
+    expect(isLikelyScreenshot('Screen Shot 2024-12-01 at 1.23.45 PM.png', null)).toBe(true);
   });
 
-  it("matches Android screenshot filenames", () => {
-    expect(isLikelyScreenshot("Screenshot_20240601_102030.png", null)).toBe(true);
-    expect(isLikelyScreenshot("Screenshot_2024-06-01.png", undefined)).toBe(true);
+  it('matches Android screenshot filenames', () => {
+    expect(isLikelyScreenshot('Screenshot_20240601_102030.png', null)).toBe(true);
+    expect(isLikelyScreenshot('Screenshot_2024-06-01.png', undefined)).toBe(true);
   });
 
-  it("does not match when a camera_make is present", () => {
+  it('does not match when a camera_make is present', () => {
     // Pathological filename but the camera tag wins — these are e.g. renamed
     // photos imported from a phone.
-    expect(isLikelyScreenshot("Screenshot 2024-01-01.png", "Apple")).toBe(false);
+    expect(isLikelyScreenshot('Screenshot 2024-01-01.png', 'Apple')).toBe(false);
   });
 
-  it("does not match generic photo filenames", () => {
-    expect(isLikelyScreenshot("IMG_0042.JPG", null)).toBe(false);
-    expect(isLikelyScreenshot("DSC_1234.NEF", null)).toBe(false);
-    expect(isLikelyScreenshot("vacation.jpg", null)).toBe(false);
-    expect(isLikelyScreenshot("my-screenshot-of-X.png", null)).toBe(false);
+  it('does not match generic photo filenames', () => {
+    expect(isLikelyScreenshot('IMG_0042.JPG', null)).toBe(false);
+    expect(isLikelyScreenshot('DSC_1234.NEF', null)).toBe(false);
+    expect(isLikelyScreenshot('vacation.jpg', null)).toBe(false);
+    expect(isLikelyScreenshot('my-screenshot-of-X.png', null)).toBe(false);
   });
 
-  it("handles absolute paths by checking only the basename", () => {
-    expect(
-      isLikelyScreenshot("/Users/foo/Pictures/Screenshot 2026-05-19.png", null),
-    ).toBe(true);
-    expect(
-      isLikelyScreenshot("/Users/foo/Screenshots/IMG_0042.JPG", null),
-    ).toBe(false);
+  it('handles absolute paths by checking only the basename', () => {
+    expect(isLikelyScreenshot('/Users/foo/Pictures/Screenshot 2026-05-19.png', null)).toBe(true);
+    expect(isLikelyScreenshot('/Users/foo/Screenshots/IMG_0042.JPG', null)).toBe(false);
   });
 });

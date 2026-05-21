@@ -83,6 +83,8 @@ export function assetAbsPath(
         : `${rootPrefix}/${dir}/${primary.filename}`;
     }
   }
+  // Fall back to the client-synthesised fs-walk path (NOT a wire field —
+  // see the docstring on `Asset.absPath`).
   if (asset.absPath) return asset.absPath;
   return null;
 }

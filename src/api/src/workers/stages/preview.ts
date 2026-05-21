@@ -24,7 +24,7 @@ import { generatePreview, resolvePreviewPath, PREVIEW_SIZE_KEY } from '../../ind
 import { cachePathForAsset } from '../../fs/xmp.ts';
 import { assetAbsPath } from '../../indexer/images.repo.ts';
 import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
-import { defineStage, runStage, type RunStageHandle } from '../run-stage.ts';
+import { defineStage, runStage, type RunStageHandle, type StageResult } from '../run-stage.ts';
 
 const previewStage = defineStage({
   name: 'preview',
@@ -39,24 +39,21 @@ const previewStage = defineStage({
     pausedOnFirstBoot: false,
     last_seen_target_version: 0,
   },
-  handler: async (image) => {
-    // loadLibraryRoots() reads the folders collection. A transient DB hiccup
-    // (or a test environment without Mongo) must not break preview generation
-    // — fall back to the legacy basename-keyed path and let cache-gc retire
-    // any orphan on the next boot once the row is backfilled.
-    let libs: ReadonlyMap<string, string>;
-    try {
-      libs = await loadLibraryRoots();
-    } catch {
-      libs = new Map();
-    }
+  handler: async (image): Promise<StageResult> => {
+    // Let `loadLibraryRoots()` errors propagate — a transient DB hiccup
+    // would otherwise yield an empty libs map, which would make
+    // `assetAbsPath` return null and trip the no-resolvable-location skip
+    // below. That skip writes `version = targetVersion` (see run-stage.ts),
+    // permanently marking the stage done. By throwing, the runner's
+    // retry/backoff path handles the transient case. Reserve `skip` for
+    // the genuine case: libraries loaded fine, but the asset has no
+    // fileinfo[0] or its library is unregistered.
+    const libs = await loadLibraryRoots();
     const previewPath = cachePathForAsset(image as never, libs, 'previews', PREVIEW_SIZE_KEY);
-    if (!previewPath) {
-      const legacyAbs = image.abs_path as string;
-      await generatePreview(legacyAbs);
-      return { patch: { preview_path: resolvePreviewPath(legacyAbs) } };
+    const absPath = assetAbsPath(image as never, libs);
+    if (!previewPath || !absPath) {
+      return { skip: 'no-resolvable-location' };
     }
-    const absPath = assetAbsPath(image as never, libs) ?? (image.abs_path as string);
     await generatePreview(absPath, previewPath);
     return { patch: { preview_path: previewPath } };
   },

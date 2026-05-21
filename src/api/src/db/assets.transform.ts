@@ -20,6 +20,7 @@
  *     conflate the two.
  */
 
+import * as path from 'node:path';
 import { type ObjectId } from 'mongodb';
 import {
   normaliseEnrichment,
@@ -33,6 +34,37 @@ import {
   type VisionDoc,
   type VisionMeta,
 } from './schema.ts';
+
+/**
+ * Resolve the canonical wire fields for an asset's primary location from
+ * its `fileinfo` array and the supplied libraries map. Returns nulls when
+ * the asset has no live fileinfo entry or its library is no longer
+ * registered — the transforms surface those as empty strings on the wire
+ * (existing contract) and the resolved string when present.
+ */
+function resolvePrimary(
+  fileinfo: FileInfo[] | undefined,
+  libraries: ReadonlyMap<string, string>,
+): {
+  folder_id: ObjectId | null;
+  filename: string;
+  abs_path: string;
+  fileinfo: FileInfo[] | undefined;
+} {
+  if (!fileinfo || fileinfo.length === 0) {
+    return { folder_id: null, filename: '', abs_path: '', fileinfo };
+  }
+  const primary = fileinfo.find((e) => !e.deleted_at) ?? fileinfo[0]!;
+  const root = libraries.get(primary.library_id.toHexString()) ?? '';
+  const segments = primary.path === '' ? [] : primary.path.split('/');
+  const abs_path = root ? path.join(root, ...segments, primary.filename) : '';
+  return {
+    folder_id: primary.library_id,
+    filename: primary.filename,
+    abs_path,
+    fileinfo,
+  };
+}
 
 // ---------------------------------------------------------------------------
 // DTO shapes returned over the wire.
@@ -50,9 +82,14 @@ import {
  */
 export interface AssetDetailDto {
   id: string;
+  /** Resolved hex of `fileinfo[0].library_id`. Empty string when the
+   * primary entry's library is no longer registered — clients should
+   * prefer the raw `fileinfo[]` for routing. */
   folder_id: string;
   filename: string;
   abs_path: string;
+  /** Canonical location records — populated by discover / backup-ingest. */
+  fileinfo?: FileInfo[];
   size: number;
   /** Epoch milliseconds (same unit the document stores). The list
    * endpoint at `/api/assets` returns seconds and uses its own DTO. */
@@ -81,9 +118,12 @@ export interface AssetDetailDto {
  */
 export interface AssetListItemDto {
   id: string;
+  /** Resolved hex of `fileinfo[0].library_id`. */
   folder_id: string;
   filename: string;
   abs_path: string;
+  /** Canonical location records — populated by discover / backup-ingest. */
+  fileinfo?: FileInfo[];
   /** Epoch seconds (NOT milliseconds — Swift's
    * `Date(timeIntervalSince1970:)` expects seconds). */
   mtime: number;
@@ -93,23 +133,26 @@ export interface AssetListItemDto {
 
 /** Minimal shape used by routes that need to drive FS / change-feed
  * side effects (xmp, trash, overrides) but don't ship the full DTO to
- * the client. Keeps callers from holding a raw Mongo document. */
+ * the client. Keeps callers from holding a raw Mongo document.
+ *
+ * `folder_id` / `filename` / `abs_path` are RESOLVED at transform time
+ * from `fileinfo[0]` + the libraries map. They are `null` / `""` when
+ * the primary entry's library is no longer registered; callers MUST
+ * tolerate that (skip / 404 / log) — the underlying `fileinfo` array
+ * is retained on this shape for any caller that needs to inspect the
+ * raw locations. */
 export interface AssetCoreInfo {
   id: ObjectId;
-  folder_id: ObjectId;
+  /** Resolved library id (`fileinfo[0].library_id`). Null when the
+   * asset has no live `fileinfo` entry. */
+  folder_id: ObjectId | null;
   filename: string;
   abs_path: string;
-  /** Canonical location records — populated by discover / backup-ingest.
-   * Carried alongside `abs_path` during the content-addressing migration
-   * so route handlers can resolve the on-disk path via
-   * `assetAbsPath(info, libraries)`. Absent on legacy rows that the
-   * backfill hasn't reached yet; `assetAbsPath` falls back to `abs_path`
-   * in that case. */
+  /** Canonical location records — populated by discover / backup-ingest. */
   fileinfo?: FileInfo[];
   size: number;
   mtime: number;
-  /** Used by trash / Meilisearch tombstone paths. Null when the hash
-   * stage hasn't run on this asset yet. */
+  /** Used by trash / Meilisearch tombstone paths. */
   maple_id: string | null;
   deleted_at: string | null;
   original_path: string | null;
@@ -124,17 +167,22 @@ export interface AssetCoreInfo {
 // Transform layer (the single BSON → DTO boundary for the assets repo).
 // ---------------------------------------------------------------------------
 
-export function toDetailDto(doc: AssetWithId): AssetDetailDto {
+export function toDetailDto(
+  doc: AssetWithId,
+  libraries: ReadonlyMap<string, string>,
+): AssetDetailDto {
   // `description_meta` is not typed on `AssetDoc` (the describe stage
   // added it after the schema froze). Read through `Record<string,
   // unknown>` so we don't drop the field on the wire — same pattern the
   // pre-refactor `routes/assets/metadata.ts` used inline.
   const rawDoc = doc as unknown as Record<string, unknown>;
+  const resolved = resolvePrimary(doc.fileinfo, libraries);
   return {
     id: doc._id.toHexString(),
-    folder_id: doc.folder_id.toHexString(),
-    filename: doc.filename,
-    abs_path: doc.abs_path,
+    folder_id: resolved.folder_id ? resolved.folder_id.toHexString() : '',
+    filename: resolved.filename,
+    abs_path: resolved.abs_path,
+    fileinfo: resolved.fileinfo,
     size: doc.size,
     mtime: doc.mtime,
     rating: doc.rating,
@@ -154,12 +202,17 @@ export function toDetailDto(doc: AssetWithId): AssetDetailDto {
   };
 }
 
-export function toListItemDto(doc: AssetWithId): AssetListItemDto {
+export function toListItemDto(
+  doc: AssetWithId,
+  libraries: ReadonlyMap<string, string>,
+): AssetListItemDto {
+  const resolved = resolvePrimary(doc.fileinfo, libraries);
   return {
     id: doc._id.toHexString(),
-    folder_id: doc.folder_id.toHexString(),
-    filename: doc.filename,
-    abs_path: doc.abs_path,
+    folder_id: resolved.folder_id ? resolved.folder_id.toHexString() : '',
+    filename: resolved.filename,
+    abs_path: resolved.abs_path,
+    fileinfo: resolved.fileinfo,
     // `AssetDoc.mtime` is epoch ms (from `stat.mtimeMs`). The list
     // endpoint reports seconds so the Swift File Provider's
     // `Date(timeIntervalSince1970:)` round-trips into a sensible date.
@@ -169,15 +222,19 @@ export function toListItemDto(doc: AssetWithId): AssetListItemDto {
   };
 }
 
-export function toCoreInfo(doc: AssetWithId): AssetCoreInfo {
+export function toCoreInfo(
+  doc: AssetWithId,
+  libraries: ReadonlyMap<string, string>,
+): AssetCoreInfo {
   const rawDoc = doc as unknown as Record<string, unknown>;
   const mapleId = rawDoc.maple_id;
   const originalPath = rawDoc.original_path;
+  const resolved = resolvePrimary(doc.fileinfo, libraries);
   return {
     id: doc._id,
-    folder_id: doc.folder_id,
-    filename: doc.filename,
-    abs_path: doc.abs_path,
+    folder_id: resolved.folder_id,
+    filename: resolved.filename,
+    abs_path: resolved.abs_path,
     fileinfo: doc.fileinfo,
     size: doc.size,
     mtime: doc.mtime,

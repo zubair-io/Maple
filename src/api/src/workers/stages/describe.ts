@@ -32,7 +32,7 @@
 import { readFile } from 'node:fs/promises';
 import type { ImageDoc, StageContext, StageResult } from '../run-stage.ts';
 import { defineStage, runStage, type RunStageHandle } from '../run-stage.ts';
-import { cachePathFor, cachePathForAsset } from '../../fs/xmp.ts';
+import { cachePathForAsset } from '../../fs/xmp.ts';
 import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
 import {
   type DescribeProvider,
@@ -117,18 +117,23 @@ export async function describeHandler(image: ImageDoc, _ctx: StageContext): Prom
   // its absence means either the preview stage hasn't run yet (DAG bug)
   // or the source asset has gone missing.
   //
-  // Prefer the content-addressed preview path when the row has maple_id +
-  // fileinfo[0]; fall back to the legacy basename-keyed cache path for
-  // unmigrated rows.
-  let libs: ReadonlyMap<string, string>;
-  try {
-    libs = await loadLibraryRoots();
-  } catch {
-    libs = new Map();
+  // Content-addressed preview path. The legacy `abs_path` field was
+  // retired in the drop-abs-path-2026-05-21 migration; rows without
+  // `fileinfo` are skipped.
+  //
+  // Let `loadLibraryRoots()` errors propagate — a transient DB hiccup would
+  // otherwise yield an empty libs map, which would make `cachePathForAsset`
+  // return null and trip the no-resolvable-location skip below. That skip
+  // writes `version = targetVersion` (see run-stage.ts), permanently
+  // marking the stage done. By throwing, the runner's retry/backoff path
+  // handles the transient case. Reserve `skip` for the genuine case:
+  // libraries loaded fine, but the asset has no fileinfo[0] or its library
+  // is unregistered.
+  const libs = await loadLibraryRoots();
+  const previewPath = cachePathForAsset(image as never, libs, 'previews', PREVIEW_SIZE_KEY);
+  if (!previewPath) {
+    return { skip: 'no-resolvable-location' };
   }
-  const previewPath =
-    cachePathForAsset(image as never, libs, 'previews', PREVIEW_SIZE_KEY) ??
-    cachePathFor(image.abs_path as string, 'previews', PREVIEW_SIZE_KEY);
   let jpegBytes: Buffer;
   try {
     jpegBytes = await readFile(previewPath);

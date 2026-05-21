@@ -49,22 +49,24 @@ export interface Asset {
 
   /**
    * Canonical on-disk locations for content-addressed Self-Hosted assets.
-   * Populated by the server's discover watcher and backup-ingest. Prefer
-   * reading the resolved path through `assetAbsPath(asset, libraries)` over
-   * the deprecated `absPath` field.
+   * Populated by the server's discover watcher and backup-ingest. Resolve
+   * the on-disk path via `assetAbsPath(asset, libraries)` from
+   * `lib/state/library-store.service.ts`.
    */
   fileinfo?: FileInfo[];
 
   /**
-   * @deprecated Read `fileinfo[0]` (via `assetAbsPath`) instead. Retained
-   * during the content-addressing migration as a fallback for legacy rows
-   * that pre-date the schema; removed once every server is on the new
-   * indexer.
+   * Client-synthesised absolute path for Self-Hosted *fs-walk* browse mode
+   * (NOT from the wire). The fs-walk path lets the editor mount on a
+   * deep-link `/edit/fs:<absPath>` without first navigating via Browse;
+   * `hydrateSelfHostedFsAsset` populates it from the route id, and
+   * `_applyFsListing` sets it from `FsDirListing` entries (also a path,
+   * not a content-addressed location).
    *
-   * Absolute filesystem path (Self-Hosted "browse by walking the
-   * filesystem" path only — undefined for Hosted/imported assets). Used as
-   * the cache key for /api/fs/thumb fetches and to identify the file on
-   * disk for byte loads.
+   * NOT to be confused with the retired server-side `abs_path` field; the
+   * wire contract uses `fileinfo[]` exclusively for content-addressed
+   * assets. This field stays on the client model because the fs-walk
+   * browse mode is orthogonal to the content-addressing migration.
    */
   absPath?: string;
 
