@@ -1,40 +1,26 @@
 /**
- * Hash stage — reads the first 64 KB of the source file, computes SHA-1,
- * stats the file, and derives the maple:id in fallback form (tag 0x02).
+ * Hash stage — derives sha1_head, size, mtime, and the maple:id (fallback form).
+ *
+ * After PR 2 of the content-addressing migration the discover watcher already
+ * hashes inline at insert time and pre-bumps `stages.hash.version` to its
+ * target, so this stage is a no-op for newly-discovered rows. The handler
+ * stays in the manifest to handle two pre-existing populations:
+ *
+ *   - Legacy skeleton rows inserted by an older discover that wrote
+ *     `maple_id: null` — those still need a backfill pass.
+ *   - Rows whose `stages.hash.version` was reset to zero (e.g. by the
+ *     folder-rescan route).
  *
  * The primary form (tag 0x01, needs EXIF capturedAt + camera serial) is
  * finalised by the exif stage after `readExif` populates those fields.
- * That upgrade is a $set on the existing row; downstream stages key on
- * `abs_path`, not `maple_id`, so the late finalisation is safe.
  *
  * dependsOn: []   — first stage in the graph; no prerequisites.
  */
-import * as fs from "node:fs/promises";
-import { sha1 } from "@noble/hashes/legacy.js";
-import { deriveId } from "../../indexer/id.ts";
-import { defineStage, runStage, type RunStageHandle } from "../run-stage.ts";
-
-const SHA1_HEAD_BYTES = 64 * 1024;
-
-function toHex(bytes: Uint8Array): string {
-  let s = "";
-  for (let i = 0; i < bytes.length; i++) s += bytes[i]!.toString(16).padStart(2, "0");
-  return s;
-}
-
-async function readHead(absPath: string): Promise<Uint8Array> {
-  const fd = await fs.open(absPath, "r");
-  try {
-    const buf = new Uint8Array(SHA1_HEAD_BYTES);
-    const { bytesRead } = await fd.read(buf, 0, buf.length, 0);
-    return buf.subarray(0, bytesRead);
-  } finally {
-    await fd.close();
-  }
-}
+import { hashFileForId } from '../../indexer/id.ts';
+import { defineStage, runStage, type RunStageHandle } from '../run-stage.ts';
 
 const hashStage = defineStage({
-  name: "hash",
+  name: 'hash',
   targetVersion: 1,
   dependsOn: [],
   defaults: {
@@ -47,26 +33,17 @@ const hashStage = defineStage({
     last_seen_target_version: 0,
   },
   handler: async (image) => {
+    // PR 2: discover writes maple_id + sha1_head + size + mtime inline at
+    // insert time, and pre-bumps stages.hash.version to the target so this
+    // stage is skipped on the next claim poll. Legacy rows (maple_id is
+    // null/absent) still flow through here.
+    if (image.maple_id) {
+      return { patch: {} };
+    }
     const absPath = image.abs_path as string;
-    const [head, stat] = await Promise.all([readHead(absPath), fs.stat(absPath)]);
-    const sha1HeadHex = toHex(sha1(head));
-    // Derive fallback-form id now; the exif stage will upgrade to primary if
-    // capturedAt is available.
-    // NOTE: deriveId(head, null, null, null) calls fallback(head, head.length)
-    // internally, using the head buffer length (≤ 64 KB) as the filesize
-    // substitute. This is intentional — the real stat.size is stored in the
-    // patch for display purposes, but the id derivation uses head.length for
-    // byte-for-byte parity with the Rust fallback form. The exif stage
-    // upgrades to primary form (which uses sha1(head)||capturedAt) when
-    // capturedAt is present, superseding this fallback.
-    const id = deriveId(head, null, null, null);
+    const { maple_id, sha1_head, size, mtime } = await hashFileForId(absPath);
     return {
-      patch: {
-        sha1_head: sha1HeadHex,
-        size: stat.size,
-        mtime: stat.mtimeMs,
-        maple_id: id.hex,
-      },
+      patch: { sha1_head, size, mtime, maple_id },
     };
   },
 });

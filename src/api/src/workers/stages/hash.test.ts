@@ -72,4 +72,20 @@ describe("hash handler", () => {
     const doc = makeDoc(path.join(dir, "no-such-file.jpg"));
     await expect(hashStage.handler(doc as never, {} as never)).rejects.toThrow();
   });
+
+  it("short-circuits with an empty patch when maple_id is already populated", async () => {
+    // PR 2: discover writes maple_id inline at insert time and pre-bumps
+    // stages.hash.version to the target. If the stage runner ever claims
+    // such a row anyway (e.g. a folder-rescan zeroes the version), the
+    // handler should detect maple_id is set and return an empty patch
+    // — no file open, no re-hash.
+    const doc = {
+      ...makeDoc(path.join(dir, "not-actually-opened.jpg")),
+      maple_id: "0123456789abcdef" + "0123456789abcdef",
+    };
+    const result = await hashStage.handler(doc as never, {} as never);
+    expect("patch" in result).toBe(true);
+    const { patch } = result as { patch: Record<string, unknown> };
+    expect(patch).toEqual({});
+  });
 });
