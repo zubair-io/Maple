@@ -189,10 +189,19 @@ export interface VisionMeta {
  * places (same content backed up from two devices, or a copy under a
  * different folder); each location is one entry here.
  *
- * `path` is the directory relative to the library root, slash-separated,
- * no leading slash, no trailing slash. `""` means the file sits at the
- * library root. Matches the existing `apple_rendered_path` and File
- * Provider `relative_path` conventions.
+ * `path` is the directory relative to the library root, **POSIX-separated**
+ * (`/` always — never `\`), no leading slash, no trailing slash. `""` means
+ * the file sits at the library root. Matches the existing
+ * `apple_rendered_path` and File Provider `relative_path` conventions.
+ *
+ * Writers must normalize `path.sep` → `/` before storing. The API runs on
+ * Linux/macOS in production (where `path.sep === '/'` so the normalization
+ * is a no-op), but enforcing POSIX in storage keeps the wire contract
+ * portable for clients on every host.
+ *
+ * Readers MUST split on `/` (not `path.sep`) when reconstructing an
+ * absolute path, then re-join with the platform separator via
+ * `path.join`. The `assetAbsPath` helper does this; prefer it.
  *
  * Cache-path resolution uses `fileinfo[0]` as the canonical entry: thumbs
  * and previews live under `<library_root>/<fileinfo[0].path>/.maple/...`,
@@ -206,8 +215,9 @@ export interface VisionMeta {
  * when every entry has `deleted_at` set.
  */
 export interface FileInfo {
-  /** Directory relative to the library root, e.g. "vacation/2024".
-   * Empty string for files at the library root. */
+  /** Directory relative to the library root, POSIX-separated.
+   * Examples: `"vacation/2024"`, `""` (file at library root). Never
+   * contains `\` even on Windows hosts — writers normalize. */
   path: string;
   /** File name with extension, e.g. "IMG_001.dng". */
   filename: string;
