@@ -8,16 +8,19 @@
 //                            callbacks fanned out (file: AppShellSidebar.swift)
 //   • AppShellMacLayout    — Mac/iPad NavigationSplitView, Browse +
 //                            Full-image variants  (file: AppShellMacLayout.swift)
-//   • AppShellIPhoneDrawer — iPhone overlay drawer + gestures
-//                            (file: AppShellIPhoneDrawer.swift, #if os(iOS))
+//   • AppShellIPhoneShell  — iPhone overlay drawer + center column + Info /
+//                            Settings sheets (file: AppShellIPhoneShell.swift,
+//                            #if os(iOS); wraps AppShellIPhoneDrawer)
 //
 // Action methods live in sibling extensions (slice 3):
 //   • AppShell+FolderActions   — local folder source + sandbox scope
 //   • AppShell+CloudActions    — Maple Cloud library + thumbnail wiring
 //   • AppShell+PhotoKitActions — PhotoKit + SMB
+//   • AppShell+UITestFixture   — UITest cold-start fast path (slice 6, #if DEBUG)
 //
 // Toolbar content is its own struct (slice 2):
-//   • AppShellToolbar.swift
+//   • AppShellToolbar.swift     — shared Browse/Full-image content
+//   • AppShellIPhoneToolbar.swift — iPhone-only hamburger + Info (slice 6, #if os(iOS))
 //
 // Keyboard shortcuts per spec § 09:
 //   Stars 1-5, P/X/U flags — handled in BrowseGrid
@@ -230,25 +233,12 @@ struct AppShell: View {
             }
         }
         .task {
+            // UITest harness fast path lives in AppShell+UITestFixture
+            // (#if DEBUG). Returns true if a fixture URL was consumed —
+            // we then skip restoreLastSource() so the harness gets a
+            // known empty starting state.
             #if DEBUG
-            // UITest harness fast path: if the launch env stashed a
-            // fixture URL on `MapleApp.uitestFixtureURL`, seed the grid
-            // with that single asset and flip directly into Full-image
-            // mode so the test can wait on `canvas-render-ready`. Skips
-            // restoreLastSource() entirely — the harness wants a known
-            // empty starting state. See
-            // .archived-plans/plans/2026-04-25-xcuitest-visual-harness.md.
-            if let fixtureURL = MapleApp.uitestFixtureURL {
-                browseVM.loadSingleAsset(url: fixtureURL)
-                if let asset = browseVM.assets.first {
-                    let session = EditSession(asset: asset)
-                    sessions[asset.id] = session
-                    await session.loadSidecar()
-                    browseVM.selectedID = asset.id
-                    mode = .fullImage
-                }
-                return
-            }
+            if await loadUITestFixtureIfPresent() { return }
             #endif
             // Restore last-used source on cold start.
             await restoreLastSource()
@@ -341,62 +331,26 @@ struct AppShell: View {
     // MARK: - iPhone
 
     #if os(iOS)
-    /// iPhone shell. Browse is the base layer; the LibrarySidebar slides
-    /// in from the left as an overlay drawer (Notion-Mail-style),
-    /// summoned via the leading hamburger button OR a left-edge swipe.
-    /// Dismiss via tap-outside (dim overlay), drag-back, or selecting a
-    /// row. Info detail still uses .sheet with detents — same as before.
-    /// Edit is a mode swap (FullImageView replaces BrowseGrid in the
-    /// base layer); the drawer is unreachable from the viewer (open
-    /// question 5 in the design doc) so gestures stay unambiguous.
+    /// iPhone shell — overlay drawer wrapping the center column, plus the
+    /// Info + Settings sheets. Composed in `AppShellIPhoneShell.swift`
+    /// alongside the iPhone-only toolbar items in `AppShellIPhoneToolbar`.
+    @ViewBuilder
     private var adaptiveShell: some View {
-        AppShellIPhoneDrawer(
+        AppShellIPhoneShell(
             isDrawerOpen: $isDrawerOpen,
             mode: mode,
-            mainContent: {
-                NavigationStack {
-                    iPhoneMain
-                }
-                .accentColor(MapleTokens.primary)
-            },
-            sidebarContent: {
-                // Drawer-stay-open by design: the user wants to drill down a
-                // cloud folder tree and toggle expand/collapse without the
-                // drawer collapsing on every selection. Selection still updates
-                // the underlying browse grid; the user closes the drawer
-                // manually via tap-on-dim or drag-back when ready to look at it.
-                sharedSidebar
-            }
-        )
-        .sheet(isPresented: $iPhoneInfoSheet) {
-            NavigationStack {
-                DetailPanel(session: selectedSession, isFullImage: mode == .fullImage)
-                    .navigationTitle("Info")
-                    .toolbar {
-                        ToolbarItem(placement: .topBarTrailing) {
-                            Button("Done") { iPhoneInfoSheet = false }
-                        }
-                    }
-            }
-            .presentationDetents([.medium, .large])
-        }
-        .sheet(isPresented: $showSettings) {
-            SettingsView()
-                .presentationDetents([.large])
-        }
-    }
-
-    @ViewBuilder
-    private var iPhoneMain: some View {
-        AppShellCenterColumn(
-            isFullImage: mode == .fullImage,
             selectedSession: selectedSession,
+            libraryTitle: libraryTitle,
+            iPhoneInfoSheet: $iPhoneInfoSheet,
+            showSettings: $showSettings,
             cloudTimelineVM: cloudTimelineVM,
             cloudTimelineThumbClient: cloudTimelineThumbClient,
             cloudTimelineThumbCache: cloudTimelineThumbCache,
             browseDisplayMode: $browseDisplayMode,
             browseVM: browseVM,
             sessions: $sessions,
+            sidebar: { sharedSidebar },
+            toolbarContent: { browseToolbarContent },
             onSelectCloudAsset: { asset, server in openCloudAsset(asset, server: server) },
             onSelectLocalAsset: { ref in openLocalPhotoKitAsset(ref) },
             onGrantPhotosAccess: { grantPhotosAccessAndLoad() },
@@ -405,44 +359,6 @@ struct AppShell: View {
             onPrimeSession: { asset in ensureSession(for: asset) },
             onFullImageFallback: { mode = .browse }
         )
-        .navigationTitle(mode == .fullImage
-                         ? (selectedSession?.asset.displayName ?? "Image")
-                         : libraryTitle)
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            // Hamburger only meaningful in browse mode (per open
-            // question 5: drawer unreachable from viewer). Writes the
-            // drawer's snapped-open state directly — the drawer's
-            // internal animation handles the slide.
-            if mode == .browse {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button {
-                        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
-                            isDrawerOpen = true
-                        }
-                    } label: {
-                        Image(systemName: "line.3.horizontal")
-                            .font(.system(size: 17, weight: .semibold))
-                    }
-                    .accessibilityLabel("Library")
-                }
-            }
-            browseToolbarContent
-            // Info button reaches the DetailPanel sheet; only meaningful
-            // in Full-image mode (the panel is suppressed entirely in
-            // Browse — sidecar info belongs to the editor view).
-            if mode == .fullImage {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button { iPhoneInfoSheet = true } label: {
-                        Image(systemName: "info.circle")
-                    }
-                    .accessibilityLabel("Info")
-                }
-            }
-            // Settings gear is provided by `browseToolbar` — don't duplicate
-            // it here, or two buttons share the same accessibilityIdentifier
-            // and UI-test lookups become ambiguous.
-        }
     }
     #endif
 
