@@ -19,7 +19,6 @@
  *            against clobbering existing stage progress.
  */
 import * as path from 'node:path';
-import * as fsNode from 'node:fs/promises';
 import { ObjectId } from 'mongodb';
 import { Watcher, type WatchEvent } from '../../indexer/watcher.ts';
 import { blankStagesSkeleton } from '../stages/manifest.ts';
@@ -229,6 +228,66 @@ export async function handleEvent(
   }
   const now = new Date().toISOString();
 
+  // Modified-file new-content guard: a file at an existing (library, path,
+  // filename) location may have been modified to NEW content. The maple_id
+  // lookup below won't see this — it'll miss (new content) and try to insert
+  // a new row, leaving the OLD row's fileinfo still pointing at this path
+  // with the old maple_id. Mark that fileinfo entry deleted first so the
+  // old row stops claiming the location.
+  //
+  // The `maple_id !== hashed.maple_id` guard is what keeps the idempotent
+  // re-discover case unaffected: same content at same path hits this lookup
+  // but skips the mark-deleted branch.
+  const staleAtPath = await coll.findOne(
+    {
+      fileinfo: {
+        $elemMatch: {
+          library_id: fileinfoEntry.library_id,
+          path: fileinfoEntry.path,
+          filename: fileinfoEntry.filename,
+        },
+      },
+    },
+    { projection: { _id: 1, maple_id: 1 } },
+  );
+  if (staleAtPath && staleAtPath.maple_id !== hashed.maple_id) {
+    await coll.updateOne(
+      { _id: staleAtPath._id },
+      {
+        $set: {
+          'fileinfo.$[entry].deleted_at': now,
+        },
+      },
+      {
+        arrayFilters: [
+          {
+            'entry.library_id': fileinfoEntry.library_id,
+            'entry.path': fileinfoEntry.path,
+            'entry.filename': fileinfoEntry.filename,
+          },
+        ],
+      },
+    );
+    log.info(
+      { absPath, old_maple_id: staleAtPath.maple_id, new_maple_id: hashed.maple_id },
+      'file content changed — marked old fileinfo entry deleted',
+    );
+  }
+
+  // Top-level fields refreshed on every dedup hit. abs_path is kept in sync
+  // with the most-recent location so legacy abs_path-keyed lookups in
+  // remove/rename handlers still work during the migration window
+  // (PR 5/7 moves those to fileinfo-only lookups).
+  const dedupSet = {
+    abs_path: absPath,
+    filename,
+    folder_id: folderId,
+    indexed_at: now,
+    deleted_at: null,
+    mtime: hashed.mtime,
+    size: hashed.size,
+  };
+
   // Find any existing row for this content. We project narrowly so the
   // doc body stays small even on libraries with many assets.
   const existing = await coll.findOne(
@@ -253,32 +312,52 @@ export async function handleEvent(
         e.filename === fileinfoEntry.filename,
     );
     if (dupIdx === -1) {
+      // Conditional $push: only append if no entry already matches
+      // (library_id, path, filename). A concurrent worker may have seen
+      // dupIdx === -1 against the same stale read and raced ahead of us;
+      // the $not/$elemMatch filter makes us a no-op in that case. We
+      // ignore modifiedCount === 0 silently — the winning worker has
+      // already done the work.
       await coll.updateOne(
-        { _id: existing._id },
+        {
+          _id: existing._id,
+          fileinfo: {
+            $not: {
+              $elemMatch: {
+                library_id: fileinfoEntry.library_id,
+                path: fileinfoEntry.path,
+                filename: fileinfoEntry.filename,
+              },
+            },
+          },
+        },
         {
           $push: { fileinfo: fileinfoEntry as never },
-          $set: {
-            indexed_at: now,
-            deleted_at: null,
-            mtime: hashed.mtime,
-            size: hashed.size,
-          },
+          $set: dedupSet,
         },
       );
       log.info({ absPath, maple_id: hashed.maple_id, dedup: 'append' }, 'deduped — new location');
     } else {
       // Already-known location: clear any per-entry deleted_at on a
-      // re-discover, refresh top-level timestamps.
+      // re-discover, refresh top-level timestamps. Use arrayFilters
+      // (not a positional index) — a concurrent $push from another
+      // worker can shift indices between our findOne and updateOne.
       await coll.updateOne(
         { _id: existing._id },
         {
           $set: {
-            indexed_at: now,
-            deleted_at: null,
-            mtime: hashed.mtime,
-            size: hashed.size,
-            [`fileinfo.${dupIdx}.deleted_at`]: null,
+            ...dedupSet,
+            'fileinfo.$[entry].deleted_at': null,
           },
+        },
+        {
+          arrayFilters: [
+            {
+              'entry.library_id': fileinfoEntry.library_id,
+              'entry.path': fileinfoEntry.path,
+              'entry.filename': fileinfoEntry.filename,
+            },
+          ],
         },
       );
       log.debug({ absPath, maple_id: hashed.maple_id, dedup: 'noop' }, 'idempotent re-discover');
@@ -321,7 +400,8 @@ export async function handleEvent(
     } as never);
   } catch (err) {
     // E11000 means another worker raced us to insert this maple_id
-    // between our findOne and insertOne. Fall back to the append path.
+    // between our findOne and insertOne. Fall back to the append path —
+    // mirror the main dedup branch so timestamps + abs_path refresh.
     const code = (err as { code?: number } | null)?.code;
     if (code === 11000) {
       const winner = await coll.findOne(
@@ -341,9 +421,44 @@ export async function handleEvent(
             e.filename === fileinfoEntry.filename,
         );
         if (dupIdx === -1) {
+          // Same conditional $push pattern as the main dedup-append
+          // branch — silent fallthrough on modifiedCount === 0.
+          await coll.updateOne(
+            {
+              _id: winner._id,
+              fileinfo: {
+                $not: {
+                  $elemMatch: {
+                    library_id: fileinfoEntry.library_id,
+                    path: fileinfoEntry.path,
+                    filename: fileinfoEntry.filename,
+                  },
+                },
+              },
+            },
+            {
+              $push: { fileinfo: fileinfoEntry as never },
+              $set: dedupSet,
+            },
+          );
+        } else {
           await coll.updateOne(
             { _id: winner._id },
-            { $push: { fileinfo: fileinfoEntry as never } },
+            {
+              $set: {
+                ...dedupSet,
+                'fileinfo.$[entry].deleted_at': null,
+              },
+            },
+            {
+              arrayFilters: [
+                {
+                  'entry.library_id': fileinfoEntry.library_id,
+                  'entry.path': fileinfoEntry.path,
+                  'entry.filename': fileinfoEntry.filename,
+                },
+              ],
+            },
           );
         }
         await recordAndPublishAssetChange({

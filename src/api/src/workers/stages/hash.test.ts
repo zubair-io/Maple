@@ -73,19 +73,50 @@ describe('hash handler', () => {
     await expect(hashStage.handler(doc as never, {} as never)).rejects.toThrow();
   });
 
-  it('short-circuits with an empty patch when maple_id is already populated', async () => {
-    // PR 2: discover writes maple_id inline at insert time and pre-bumps
-    // stages.hash.version to the target. If the stage runner ever claims
-    // such a row anyway (e.g. a folder-rescan zeroes the version), the
-    // handler should detect maple_id is set and return an empty patch
-    // — no file open, no re-hash.
+  it('short-circuits with an empty patch when all hash fields are populated', async () => {
+    // PR 2: discover writes maple_id + sha1_head + size + mtime inline at
+    // insert time and pre-bumps stages.hash.version to the target. If the
+    // stage runner ever claims such a row anyway (e.g. a folder-rescan
+    // zeroes the version), the handler should detect every field is set
+    // and return an empty patch — no file open, no re-hash.
     const doc = {
       ...makeDoc(path.join(dir, 'not-actually-opened.jpg')),
       maple_id: '0123456789abcdef' + '0123456789abcdef',
+      sha1_head: 'a'.repeat(40),
+      size: 1024,
+      mtime: 1700000000000,
     };
     const result = await hashStage.handler(doc as never, {} as never);
     expect('patch' in result).toBe(true);
     const { patch } = result as { patch: Record<string, unknown> };
     expect(patch).toEqual({});
+  });
+
+  it('re-runs the full hash when maple_id is set but sha1_head is missing', async () => {
+    // Legacy backup-ingest rows had maple_id populated but never wrote
+    // sha1_head (it landed pre-PR 2 hashing). The old short-circuit
+    // marked stages.hash.version complete on these rows without actually
+    // computing sha1_head/size/mtime, silently breaking downstream stages
+    // that read those fields. The handler must detect the missing field
+    // and re-derive everything.
+    const file = path.join(dir, 'partial-fields.jpg');
+    const content = Buffer.alloc(2048, 0x55);
+    await writeFile(file, content);
+
+    const doc = {
+      ...makeDoc(file),
+      // maple_id present from backup-ingest, sha1_head absent.
+      maple_id: '0123456789abcdef' + '0123456789abcdef',
+      // size + mtime also absent — they came from the legacy hash stage.
+    };
+    const result = await hashStage.handler(doc as never, {} as never);
+    expect('patch' in result).toBe(true);
+    const { patch } = result as { patch: Record<string, unknown> };
+    expect(typeof patch.sha1_head).toBe('string');
+    expect((patch.sha1_head as string).length).toBe(40);
+    expect(typeof patch.maple_id).toBe('string');
+    expect((patch.maple_id as string).length).toBe(32);
+    expect(patch.size as number).toBe(2048);
+    expect(typeof patch.mtime).toBe('number');
   });
 });

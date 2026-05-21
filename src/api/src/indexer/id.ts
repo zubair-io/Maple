@@ -136,21 +136,22 @@ export async function hashFileForId(absPath: string): Promise<{
   size: number;
   mtime: number;
 }> {
+  // Open once, read head AND stat off the same fd. If the path is replaced
+  // between read and stat (rename / atomic swap), `fs.stat(absPath)` would
+  // return fields from a different inode than the bytes we hashed; `fd.stat`
+  // is inode-stable for the lifetime of the descriptor.
   const fd = await fs.open(absPath, 'r');
   let head: Uint8Array;
+  let stat: Awaited<ReturnType<typeof fd.stat>>;
   try {
     const buf = new Uint8Array(SHA1_HEAD_BYTES);
     const { bytesRead } = await fd.read(buf, 0, buf.length, 0);
     head = buf.subarray(0, bytesRead);
+    stat = await fd.stat();
   } finally {
     await fd.close();
   }
-  const stat = await fs.stat(absPath);
-  const sha1HeadBytes = sha1(head);
-  let sha1_head = '';
-  for (let i = 0; i < sha1HeadBytes.length; i++) {
-    sha1_head += sha1HeadBytes[i]!.toString(16).padStart(2, '0');
-  }
+  const sha1_head = toHex(sha1(head));
   const id = deriveId(head, null, null, null);
   return { maple_id: id.hex, sha1_head, size: stat.size, mtime: stat.mtimeMs };
 }

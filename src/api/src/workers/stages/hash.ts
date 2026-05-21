@@ -37,7 +37,12 @@ const hashStage = defineStage({
     // insert time, and pre-bumps stages.hash.version to the target so this
     // stage is skipped on the next claim poll. Legacy rows (maple_id is
     // null/absent) still flow through here.
-    if (image.maple_id) {
+    //
+    // Short-circuit only when ALL four fields are populated. A row inserted
+    // by an older backup-ingest (which wrote maple_id but not sha1_head)
+    // would otherwise mark `stages.hash.version` complete without ever
+    // computing sha1_head/size/mtime — silently breaking the stage contract.
+    if (image.maple_id && image.sha1_head && image.size && image.mtime) {
       return { patch: {} };
     }
     const absPath = image.abs_path as string;
