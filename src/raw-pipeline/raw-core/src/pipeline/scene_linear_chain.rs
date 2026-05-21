@@ -79,25 +79,29 @@ pub fn apply_scene_linear_chain(
     };
     use crate::view::agx;
 
-    let pixel_count = (width as usize) * (height as usize);
-    if in_fp16_rgba.len() != pixel_count * 4 {
+    let pixel_count = (width as usize)
+        .checked_mul(height as usize)
+        .ok_or_else(|| {
+            crate::error::Error::Pipeline(format!(
+                "apply_scene_linear_chain: pixel count overflow: {}x{}",
+                width, height
+            ))
+        })?;
+    let expected_len = pixel_count.checked_mul(4).ok_or_else(|| {
+        crate::error::Error::Pipeline(format!(
+            "apply_scene_linear_chain: expected input length overflow (RGBA 4-lane multiplier): {}x{}",
+            width, height
+        ))
+    })?;
+    if in_fp16_rgba.len() != expected_len {
         return Err(crate::error::Error::Pipeline(format!(
             "apply_scene_linear_chain: input length {} != width({}) * height({}) * 4 = {}",
             in_fp16_rgba.len(),
             width,
             height,
-            pixel_count * 4
+            expected_len
         )));
     }
-
-    // Debug: surface the model's WB / exposure params so we can see what
-    // the Apple shell is passing in. Goes to stderr alongside MAPLE_PROFILE
-    // timings. Comment out once the magenta-cast investigation closes.
-    eprintln!(
-        "[raw-core] apply_scene_linear_chain MODEL: temp={:.0} tint={:.1} exposure={:.2} contrast={:.0} dec_temp={:.0} dec_tint={:.1} skip_agx={}",
-        model.temperature, model.tint, model.exposure, model.contrast,
-        decoded_temp, decoded_tint, skip_agx,
-    );
 
     // Decode fp16 RGBA -> Image (Vec<[f32; 3]>, alpha discarded).
     let mut img = stage("ffi_chain_unpack_fp16", || {
@@ -236,5 +240,29 @@ mod tests {
         let bogus_input = vec![0u16; 10];
         let r = apply_scene_linear_chain(&bogus_input, 4, 4, &model, 6500.0, 0.0, false);
         assert!(r.is_err(), "size mismatch must error");
+    }
+
+    /// Defense-in-depth: `width * height` and the subsequent `* 4` are both
+    /// computed with `checked_mul`, so a width/height pair whose RGBA byte
+    /// length overflows `usize` on 64-bit returns a Pipeline error rather
+    /// than wrapping to a nonsense buffer size. Pre-existing bug surfaced by
+    /// Copilot review on #159.
+    #[test]
+    fn apply_scene_linear_chain_rgba_length_overflow_errors() {
+        let model = AdjustmentModel::default();
+        // u32::MAX * u32::MAX as u128 is 0xFFFFFFFE00000001 — this fits in
+        // usize on 64-bit (usize::MAX = 0xFFFFFFFFFFFFFFFF). The reliable
+        // overflow happens on the next step: `pixel_count * 4` for the RGBA
+        // byte length, which the impl also guards with checked_mul.
+        let r = apply_scene_linear_chain(&[], u32::MAX, u32::MAX, &model, 6500.0, 0.0, false);
+        match r {
+            Err(crate::error::Error::Pipeline(msg)) => {
+                assert!(
+                    msg.contains("overflow"),
+                    "expected overflow message, got: {msg}"
+                );
+            }
+            other => panic!("expected Pipeline overflow error, got: {other:?}"),
+        }
     }
 }
