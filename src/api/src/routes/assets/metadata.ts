@@ -7,90 +7,54 @@
  *
  * Mounted into `assetsRoutes` (see ./index.ts) which provides the
  * `/api/assets` prefix.
+ *
+ * Mongo access lives in `src/db/assets.repo.ts`.
  */
 
 import { Elysia, t } from "elysia";
-import { ObjectId } from "mongodb";
 import { stat } from "node:fs/promises";
-import { assetsCollection } from "../../db/client.ts";
 import { resolveThumbPath } from "../../fs/xmp.ts";
 import { safeReadFile } from "../../fs/root.ts";
-import { normaliseEnrichment } from "../../db/schema.ts";
 import { ifNoneMatchEqual } from "../../runtime/http-etag.ts";
 import { buildContentDispositionAttachment } from "../../runtime/http-content-disposition.ts";
+import {
+  findCoreInfoById,
+  findDetailById,
+  parseAssetId,
+} from "../../db/assets.repo.ts";
 
 export const metadataRoutes = new Elysia()
   // Single asset metadata
   .get("/:id", async ({ params, set }) => {
-    let id: ObjectId;
-    try {
-      id = new ObjectId(params.id);
-    } catch {
+    const id = parseAssetId(params.id);
+    if (!id) {
       set.status = 400;
       return { error: "Invalid asset id" };
     }
 
-    const coll = await assetsCollection();
-    const doc = await coll.findOne({ _id: id });
-    if (!doc) {
+    const dto = await findDetailById(id);
+    if (!dto) {
       set.status = 404;
       return { error: "Asset not found" };
     }
-
-    // `description_meta` isn't typed in the canonical `AssetDoc` (it was
-    // added by the describe stage after the schema froze), so we cast
-    // through `Record<string, unknown>` for the read-side projection. The
-    // shape is stable — see workers/stages/describe.ts, which writes both
-    // `description_meta` and `ocr_meta` from the same VLM pass.
-    const rawDoc = doc as unknown as Record<string, unknown>;
-    return {
-      id: doc._id.toHexString(),
-      folder_id: doc.folder_id.toHexString(),
-      filename: doc.filename,
-      abs_path: doc.abs_path,
-      size: doc.size,
-      mtime: doc.mtime,
-      rating: doc.rating,
-      flag: doc.flag,
-      color_label: doc.color_label,
-      indexed_at: doc.indexed_at,
-      // Phase 1 enrichment outputs — null/empty for rows that pre-date the
-      // skeleton schema or whose workers have not yet run.
-      place: doc.place ?? null,
-      faces: doc.faces ?? [],
-      description: doc.description ?? null,
-      description_meta: rawDoc.description_meta ?? null,
-      ocr_text: doc.ocr_text ?? null,
-      ocr_meta: doc.ocr_meta ?? null,
-      // Structured vision metadata from the qwen2.5-vl describe stage.
-      // Both are null until the stage runs on the asset.
-      vision: doc.vision ?? null,
-      vision_meta: doc.vision_meta ?? null,
-      // Top-level mirror of vision.is_screenshot — seeded by the exif
-      // stage heuristic, overwritten by the describe stage's VLM verdict.
-      is_screenshot: doc.is_screenshot ?? null,
-      enrichment: normaliseEnrichment(doc.enrichment),
-    };
+    return dto;
   })
 
   // Stream raw bytes
   .get("/:id/raw", async ({ params, set }) => {
-    let id: ObjectId;
-    try {
-      id = new ObjectId(params.id);
-    } catch {
+    const id = parseAssetId(params.id);
+    if (!id) {
       set.status = 400;
       return { error: "Invalid asset id" };
     }
 
-    const coll = await assetsCollection();
-    const doc = await coll.findOne({ _id: id });
-    if (!doc) {
+    const info = await findCoreInfoById(id);
+    if (!info) {
       set.status = 404;
       return { error: "Asset not found" };
     }
 
-    const result = await safeReadFile(doc.abs_path);
+    const result = await safeReadFile(info.abs_path);
     if (!result.ok) {
       set.status = 403;
       return { error: result.error };
@@ -100,7 +64,7 @@ export const metadataRoutes = new Elysia()
     // RFC 6266 / RFC 5987 — quoted-string ASCII fallback + percent-encoded
     // UTF-8 form. Guards against header injection from filenames that
     // contain `"`, CR/LF, NUL, or non-ASCII bytes. See #167.
-    set.headers["Content-Disposition"] = buildContentDispositionAttachment(doc.filename);
+    set.headers["Content-Disposition"] = buildContentDispositionAttachment(info.filename);
     set.headers["Content-Length"] = String(result.data!.byteLength);
     return result.data;
   })
@@ -109,24 +73,21 @@ export const metadataRoutes = new Elysia()
   .get(
     "/:id/thumb",
     async ({ params, headers, set }) => {
-      let id: ObjectId;
-      try {
-        id = new ObjectId(params.id);
-      } catch {
+      const id = parseAssetId(params.id);
+      if (!id) {
         set.status = 400;
         return { error: "Invalid asset id" };
       }
 
-      const coll = await assetsCollection();
-      const doc = await coll.findOne({ _id: id });
-      if (!doc) {
+      const info = await findCoreInfoById(id);
+      if (!info) {
         set.status = 404;
         return { error: "Asset not found" };
       }
 
       // Single per-file thumb (size param is render-target advisory only;
       // the cache key no longer includes size — see fs/xmp.ts).
-      const thumbPath = resolveThumbPath(doc.abs_path);
+      const thumbPath = resolveThumbPath(info.abs_path);
 
       // Stat the thumb FIRST so a 304-bound request never pays the
       // body-read cost. The previous shape (read then stat) defeated

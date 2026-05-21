@@ -11,23 +11,19 @@
  * Mounted as its own Elysia plugin (sibling to assetsRoutes) so the bare
  * `GET /api/assets` doesn't collide with the `GET /api/assets/:id` route
  * defined in assets.ts.
+ *
+ * Mongo access lives in `src/db/assets.repo.ts` — this route is
+ * validation + repo dispatch only.
  */
 
 import { Elysia, t } from "elysia";
-import type { Filter } from "mongodb";
-import { assetsCollection } from "../db/client.ts";
-import type { AssetDoc } from "../db/schema.ts";
+import { findListItems, type ListFilter } from "../db/assets.repo.ts";
 
 export const assetsListRoutes = new Elysia({ prefix: "/api/assets" }).get(
   "/",
   async ({ query, set }) => {
-    // M: exclude soft-deleted rows. Mirrors the convention used by
-    // `images.repo.ts` and the search route — the discover worker
-    // writes `deleted_at: null` on every fresh skeleton row, and flips
-    // it to a timestamp on removed events. Without this filter the
-    // working-set seeding would surface ghosts of removed files.
-    const filter: Filter<AssetDoc> = { deleted_at: null } as Filter<AssetDoc>;
-    if (query.has_xmp === "1") filter.has_xmp = true;
+    const filter: ListFilter = { liveOnly: true };
+    if (query.has_xmp === "1") filter.hasXmp = true;
     if (query.rating_gte !== undefined) {
       // L: reject non-integer rating_gte rather than silently broaden
       // the result set. Garbage input was previously dropped and the
@@ -37,7 +33,7 @@ export const assetsListRoutes = new Elysia({ prefix: "/api/assets" }).get(
         set.status = 400;
         return { error: "rating_gte must be an integer" };
       }
-      filter.rating = { $gte: v };
+      filter.ratingGte = v;
     }
     if (query.captured_after !== undefined) {
       const d = new Date(query.captured_after);
@@ -45,35 +41,25 @@ export const assetsListRoutes = new Elysia({ prefix: "/api/assets" }).get(
         set.status = 400;
         return { error: "captured_after must be an ISO 8601 date" };
       }
-      // exif.captured_at is stored as an ISO 8601 string in the asset doc;
-      // lexicographic comparison matches chronological comparison for
-      // well-formed ISO strings.
-      (filter as Filter<AssetDoc>)["exif.captured_at"] = {
-        $gt: d.toISOString(),
-      } as never;
+      filter.capturedAfterIso = d.toISOString();
     }
-    const limit = Math.min(
-      Math.max(Number.parseInt(query.limit ?? "1000", 10), 1),
-      20000
-    );
-    const coll = await assetsCollection();
-    const rows = await coll.find(filter).limit(limit).toArray();
-    return {
-      assets: rows.map((r) => ({
-        id: r._id.toHexString(),
-        folder_id: r.folder_id.toHexString(),
-        filename: r.filename,
-        abs_path: r.abs_path,
-        // G: `AssetDoc.mtime` is epoch milliseconds (set from
-        // `stat.mtimeMs` in discover/index.ts). The Swift consumer
-        // builds the value via `Date(timeIntervalSince1970:)`, which
-        // expects seconds. Return seconds here so the client-side
-        // contentModificationDate doesn't land in the year 55,000.
-        mtime: Math.floor(r.mtime / 1000),
-        rating: r.rating,
-        has_xmp: r.has_xmp ?? false,
-      })),
-    };
+    // Validate `limit` here rather than letting `Number.parseInt` pass
+    // `NaN` through to the repo's `Math.min(Math.max(NaN, 1), 20000)`
+    // (which propagates NaN, then turns into an unbounded find). Reject
+    // garbage with 400; the repo still clamps as a defensive backstop.
+    let limit: number;
+    if (query.limit === undefined) {
+      limit = 1000;
+    } else {
+      const parsed = Number.parseInt(query.limit, 10);
+      if (!Number.isFinite(parsed) || parsed < 1) {
+        set.status = 400;
+        return { error: "limit must be a positive integer" };
+      }
+      limit = parsed;
+    }
+    const assets = await findListItems(filter, limit);
+    return { assets };
   },
   {
     query: t.Object({

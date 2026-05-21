@@ -8,12 +8,16 @@
  *
  * Mounted into `assetsRoutes` (see ./index.ts) which provides the
  * `/api/assets` prefix.
+ *
+ * Mongo access lives in `src/db/assets.repo.ts`.
  */
 
 import { Elysia, t } from "elysia";
-import { ObjectId } from "mongodb";
-import { assetsCollection } from "../../db/client.ts";
-import { normaliseEnrichment } from "../../db/schema.ts";
+import type { Enrichment } from "../../db/schema.ts";
+import {
+  parseAssetId,
+  requeueEnrichmentStage,
+} from "../../db/assets.repo.ts";
 
 /** Whitelisted enrichment stage names for the requeue route. Anything else
  * is rejected with 400 so a client can't poke a Mongo path that doesn't
@@ -29,10 +33,8 @@ export const enrichmentRoutes = new Elysia()
   .post(
     "/:id/enrichment/requeue",
     async ({ params, body, set }) => {
-      let id: ObjectId;
-      try {
-        id = new ObjectId(params.id);
-      } catch {
+      const id = parseAssetId(params.id);
+      if (!id) {
         set.status = 400;
         return { error: "Invalid asset id" };
       }
@@ -45,38 +47,13 @@ export const enrichmentRoutes = new Elysia()
         };
       }
 
-      const coll = await assetsCollection();
-      const doc = await coll.findOne({ _id: id });
-      if (!doc) {
+      const result = await requeueEnrichmentStage(id, stage as keyof Enrichment);
+      if (!result) {
         set.status = 404;
         return { error: "Asset not found" };
       }
 
-      const currentVersion =
-        normaliseEnrichment(doc.enrichment)[stage].version ?? 0;
-      const nextVersion = currentVersion + 1;
-
-      const result = await coll.updateOne(
-        { _id: id },
-        {
-          $set: {
-            [`enrichment.${stage}.done_at`]: null,
-            [`enrichment.${stage}.version`]: nextVersion,
-            [`enrichment.${stage}.attempts`]: 0,
-            [`enrichment.${stage}.last_error`]: null,
-            [`enrichment.${stage}.dead_letter_at`]: null,
-            [`enrichment.${stage}.locked_by`]: null,
-            [`enrichment.${stage}.lease_expires_at`]: null,
-          },
-        }
-      );
-
-      if (result.matchedCount === 0) {
-        set.status = 404;
-        return { error: "Asset not found" };
-      }
-
-      return { stage, version: nextVersion };
+      return { stage, version: result.version };
     },
     {
       body: t.Object({
