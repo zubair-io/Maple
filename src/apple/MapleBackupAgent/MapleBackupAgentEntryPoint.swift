@@ -1,9 +1,13 @@
-// src/apple/MapleBackupAgent/main.swift
+// src/apple/MapleBackupAgent/MapleBackupAgentEntryPoint.swift
 //
 // MapleBackupAgent — macOS LaunchAgent binary that runs the PhotoKit
 // backup engine without requiring the main Maple app to be open. Same
 // MapleBackup module as the app; same BackupSettings persisted by the
 // app's settings panel.
+//
+// File is named *EntryPoint.swift rather than main.swift because @main is
+// mutually exclusive with the top-level-code mode the Swift compiler enters
+// when it sees a file called main.swift.
 //
 // Spec: .archived-plans/specs/2026-05-09-photokit-backup-design.md §15.
 
