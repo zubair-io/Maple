@@ -63,12 +63,12 @@ const MAPLE_ID_RE = /^[0-9a-f]{32}(?:_[a-z0-9]+)?$/;
 
 export async function sweepOrphanedCaches(libraryRoot: string): Promise<SweepResult> {
   // Build the set of known maple_ids once (one query per library). Projection
-  // keeps the working set tight even on 100k-asset libraries.
+  // keeps the working set tight even on 100k-asset libraries; iterating the
+  // cursor avoids materialising the full result array as an intermediate.
   const coll = await assetsCollection();
   const known = new Set<string>();
-  for (const doc of await coll
-    .find({ maple_id: { $type: 'string' } }, { projection: { maple_id: 1 } })
-    .toArray()) {
+  const cursor = coll.find({ maple_id: { $type: 'string' } }, { projection: { maple_id: 1 } });
+  for await (const doc of cursor) {
     if (typeof doc.maple_id === 'string') known.add(doc.maple_id);
   }
 
@@ -150,6 +150,16 @@ export async function sweepOrphanedCaches(libraryRoot: string): Promise<SweepRes
       return true;
     } catch (err) {
       const errno = (err as { code?: string } | null)?.code ?? 'UNKNOWN';
+      if (errno === 'ENOENT') {
+        // Race: file vanished between readdir/stat and unlink (another
+        // process, or a stage cleaning up its own artefact). The desired
+        // state — file gone — is achieved, so don't count this toward the
+        // failure threshold and don't log noise. Reset the streak just like
+        // the success path so a real EACCES burst stays isolated.
+        recentFailCount = 0;
+        recentFailErrno = null;
+        return false;
+      }
       if (errno === recentFailErrno) {
         recentFailCount += 1;
       } else {

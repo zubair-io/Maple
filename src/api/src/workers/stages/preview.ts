@@ -20,11 +20,10 @@
  * Not `pausedOnFirstBoot` — this is purely local file IO, free, and downstream
  * stages need it.
  */
-import { generatePreview, resolvePreviewPath } from '../../indexer/previewer.ts';
+import { generatePreview, resolvePreviewPath, PREVIEW_SIZE_KEY } from '../../indexer/previewer.ts';
 import { cachePathForAsset } from '../../fs/xmp.ts';
 import { assetAbsPath } from '../../indexer/images.repo.ts';
 import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
-import { PREVIEW_SIZE_KEY } from '../../indexer/previewer.ts';
 import { defineStage, runStage, type RunStageHandle } from '../run-stage.ts';
 
 const previewStage = defineStage({

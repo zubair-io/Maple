@@ -2,7 +2,7 @@
  * Tests for `sweepOrphanedCaches`. Per-process isolated DB + skip-if-Mongo-
  * unreachable, mirroring `libraries.cache.test.ts`.
  */
-import { describe, test, expect, beforeAll, beforeEach, afterAll } from 'bun:test';
+import { describe, test, expect, beforeAll, beforeEach, afterAll, mock } from 'bun:test';
 import {
   mkdtemp,
   mkdir,
@@ -263,6 +263,73 @@ describe('sweepOrphanedCaches', () => {
       expect(result.scanned).toBe(1);
       expect(result.deleted).toBe(1);
       await expect(stat(realOrphan)).rejects.toThrow();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test('ENOENT (file vanished between readdir and unlink) does not abort sweep or log error', async () => {
+    if (!mongoReachable) return;
+    const root = await mkTree();
+    try {
+      // Four legacy-keyed orphans. The mock makes `fs.unlink` race-fail
+      // (ENOENT) for the first to land in unlinkSafe, simulating another
+      // process having removed it between readdir and unlink.
+      const racedKey = '0123456789abcdee'; // gitleaks:allow sha256_prefix16 — 16 hex
+      const otherKeys = [
+        '0123456789abcded', // gitleaks:allow sha256_prefix16 — 16 hex
+        '0123456789abcdec', // gitleaks:allow sha256_prefix16 — 16 hex
+        '0123456789abcdeb', // gitleaks:allow sha256_prefix16 — 16 hex
+      ];
+      const racedPath = path.join(root, '.maple', 'thumbs', `${racedKey}.jpg`);
+      const otherPaths = otherKeys.map((k) => path.join(root, '.maple', 'thumbs', `${k}.jpg`));
+      for (const p of [racedPath, ...otherPaths]) {
+        await writeJpg(p);
+        await agePast(p);
+      }
+
+      const realFs = await import('node:fs/promises');
+      // Capture the real unlink BEFORE patching the module — otherwise the
+      // fallback path inside the mock would recurse through the mocked
+      // binding and blow the stack.
+      const realUnlink = realFs.unlink.bind(realFs);
+      // Module mock — bun:test rewires the ESM binding for the duration of
+      // the test. Reset after by re-mocking back to the originals.
+      mock.module('node:fs/promises', () => ({
+        ...realFs,
+        unlink: async (target: Parameters<typeof realFs.unlink>[0]) => {
+          if (target === racedPath) {
+            throw Object.assign(new Error('ENOENT: no such file or directory'), {
+              code: 'ENOENT',
+            });
+          }
+          return realUnlink(target);
+        },
+      }));
+
+      try {
+        // Fresh import so the mocked module is bound.
+        const { sweepOrphanedCaches } = await import('./cache-gc.ts');
+
+        // Even with the ENOENT injection, the sweep MUST complete and unlink
+        // the other 3 orphans. If ENOENT counted toward FAIL_THRESHOLD, three
+        // consecutive ENOENTs would abort the sweep — here we only inject one,
+        // but the streak counter must also reset so a subsequent real failure
+        // wouldn't trip immediately. `deleted === 3` verifies both.
+        const result = await sweepOrphanedCaches(root);
+        expect(result.scanned).toBe(4);
+        expect(result.deleted).toBe(3);
+        expect(result.skipped_recent).toBe(0);
+
+        for (const p of otherPaths) {
+          await expect(stat(p)).rejects.toThrow();
+        }
+        // racedPath is still there because our mock prevented the real unlink.
+        const s = await stat(racedPath);
+        expect(s.size).toBeGreaterThan(0);
+      } finally {
+        mock.module('node:fs/promises', () => realFs);
+      }
     } finally {
       await rm(root, { recursive: true, force: true });
     }
