@@ -1,19 +1,10 @@
 // SettingsShellComponent — left sidebar + right pane layout shared by the
-// Settings surfaces (Account, Workers, Users). Replaces the previous
-// card-grid landing page; per the v0.2 spec, Settings is one window and
-// the sidebar item determines which page is rendered on the right.
-//
-// The "People" sidebar entry routes to the existing `/people` page, which
-// is NOT yet wrapped in this shell — clicking it exits the settings shell.
-// Bringing People into the shell is a tracked follow-up.
+// Settings surfaces (Account, Workers, People, Users). Replaces the
+// previous card-grid landing page; per the v0.2 spec, Settings is one
+// window and the sidebar item determines which page is rendered on the
+// right.
 
-import {
-  ChangeDetectionStrategy,
-  Component,
-  computed,
-  inject,
-  input,
-} from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, input } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { AuthService } from '@maple-common';
 import { SettingsIconComponent, type SettingsIconName } from './settings-icon.component';
@@ -30,10 +21,17 @@ interface NavItem {
 }
 
 const ITEMS: readonly NavItem[] = [
-  { id: 'account', label: 'Account', icon: 'user',   link: '/settings/account', ownerOnly: false },
-  { id: 'workers', label: 'Workers', icon: 'pipe',   link: '/settings/workers', ownerOnly: true, sub: 'Pipeline + enrichment' },
-  { id: 'people',  label: 'People',  icon: 'people', link: '/people',           ownerOnly: true },
-  { id: 'users',   label: 'Users',   icon: 'key',    link: '/settings/users',   ownerOnly: true },
+  { id: 'account', label: 'Account', icon: 'user', link: '/settings/account', ownerOnly: false },
+  {
+    id: 'workers',
+    label: 'Workers',
+    icon: 'pipe',
+    link: '/settings/workers',
+    ownerOnly: true,
+    sub: 'Pipeline + enrichment',
+  },
+  { id: 'people', label: 'People', icon: 'people', link: '/settings/people', ownerOnly: true },
+  { id: 'users', label: 'Users', icon: 'key', link: '/settings/users', ownerOnly: true },
 ];
 
 @Component({

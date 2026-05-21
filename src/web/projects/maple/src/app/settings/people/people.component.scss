@@ -1,0 +1,625 @@
+@use '../settings-chrome' as chrome;
+
+:host {
+  @include chrome.settings-vars;
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+:host {
+  @include chrome.settings-atoms;
+}
+
+// ── Toast ───────────────────────────────────────────────────────────
+
+.toast {
+  position: fixed;
+  top: 16px;
+  right: 24px;
+  z-index: 30;
+  padding: 8px 14px;
+  border-radius: 6px;
+  font-size: 12.5px;
+  letter-spacing: 0.1px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+
+  &.toast-success {
+    background: var(--s-ok-bg);
+    color: var(--s-ok);
+    border: 0.5px solid rgba(74, 222, 128, 0.4);
+  }
+  &.toast-error {
+    background: rgba(248, 113, 113, 0.14);
+    color: var(--s-err);
+    border: 0.5px solid rgba(248, 113, 113, 0.4);
+  }
+}
+
+// ── List view ───────────────────────────────────────────────────────
+
+.people-body {
+  padding: 24px 36px;
+}
+
+.stats-line {
+  font-family: var(--s-mono);
+  font-size: 11px;
+  color: var(--s-text-muted);
+  margin-bottom: 18px;
+  letter-spacing: 0.1px;
+}
+
+.empty-card {
+  border: 1px dashed var(--s-border);
+  background: var(--s-surface);
+  border-radius: 8px;
+  padding: 36px;
+  text-align: center;
+
+  h3 {
+    margin: 0 0 8px;
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--s-text);
+  }
+  p {
+    margin: 0;
+    font-size: 13px;
+    color: var(--s-text-muted);
+
+    a {
+      color: var(--s-accent);
+      text-decoration: none;
+    }
+    a:hover {
+      text-decoration: underline;
+    }
+  }
+}
+
+.people-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.person-card {
+  background: var(--s-surface);
+  border: 0.5px solid var(--s-border);
+  border-radius: 6px;
+  overflow: hidden;
+  cursor: pointer;
+  transition:
+    border-color 120ms,
+    transform 120ms;
+  text-decoration: none;
+
+  &:hover,
+  &:focus-visible {
+    border-color: var(--s-border-hi);
+    outline: none;
+  }
+}
+
+.person-thumb {
+  position: relative;
+  aspect-ratio: 1 / 1;
+  background: var(--s-surface2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+
+  img {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+  .cover-fill {
+    inset: 0;
+  }
+}
+
+.person-thumb-fallback {
+  font-size: 28px;
+  color: var(--s-text-dim);
+}
+
+.person-meta {
+  padding: 10px 12px;
+}
+
+.person-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--s-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+
+  &.is-auto-named {
+    color: var(--s-text-mid);
+    font-weight: 400;
+  }
+}
+
+.person-stats {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 4px;
+}
+
+.person-faces {
+  font-family: var(--s-mono);
+  font-size: 11px;
+  color: var(--s-text-muted);
+}
+
+.card-delete {
+  background: transparent;
+  border: none;
+  font-family: var(--s-font);
+  font-size: 11px;
+  color: var(--s-text-dim);
+  cursor: pointer;
+  padding: 0;
+
+  &:hover {
+    color: var(--s-err);
+  }
+}
+
+// ── Detail view: header ────────────────────────────────────────────
+
+.detail-head {
+  padding: 24px 36px 18px;
+  border-bottom: 0.5px solid var(--s-border);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.back-link {
+  // Native `<button>` so keyboard activation (Enter + Space) is free; the
+  // resets below strip the default button chrome so it reads as a link.
+  background: transparent;
+  border: none;
+  padding: 0;
+  font-family: inherit;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--s-text-muted);
+  font-size: 12.5px;
+  align-self: flex-start;
+  cursor: pointer;
+  text-decoration: none;
+
+  &:hover {
+    color: var(--s-text);
+  }
+}
+
+.detail-identity {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.detail-avatar {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: var(--s-surface2);
+  border: 0.5px solid var(--s-border);
+  flex-shrink: 0;
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  img {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+  .cover-fill {
+    inset: 0;
+  }
+}
+
+.detail-avatar-fallback {
+  font-size: 22px;
+  color: var(--s-text-dim);
+}
+
+.detail-titles {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.name-button,
+.name-input {
+  font-family: var(--s-font);
+  font-size: 26px;
+  font-weight: 600;
+  letter-spacing: -0.4px;
+  color: var(--s-text);
+  background: transparent;
+  border: none;
+  padding: 0;
+  text-align: left;
+}
+
+.name-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: text;
+
+  &.is-auto-named {
+    color: var(--s-text-mid);
+  }
+  &:hover {
+    color: var(--s-accent);
+  }
+}
+
+.name-input {
+  outline: 1.5px solid var(--s-accent);
+  outline-offset: 2px;
+  border-radius: 3px;
+  padding: 0 4px;
+  background: var(--s-bg);
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.unnamed-chip {
+  font-family: var(--s-mono);
+  font-size: 9px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  background: var(--s-surface2);
+  color: var(--s-text-dim);
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  align-self: flex-start;
+}
+
+.detail-meta {
+  font-family: var(--s-mono);
+  font-size: 11.5px;
+  color: var(--s-text-muted);
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-top: 2px;
+}
+.meta-sep {
+  color: var(--s-text-dim);
+}
+.meta-strong {
+  color: var(--s-text);
+}
+
+.detail-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+  margin-left: auto;
+  flex-wrap: wrap;
+}
+
+// ── Detail view: filter bar (sticky) ────────────────────────────────
+
+.filter-bar {
+  padding: 14px 36px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  border-bottom: 0.5px solid var(--s-border);
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--s-bg);
+  flex-wrap: wrap;
+}
+
+.threshold {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+
+  input[type='range'] {
+    accent-color: var(--s-accent);
+    width: 140px;
+    height: 4px;
+  }
+
+  .threshold-label {
+    font-family: var(--s-font);
+    font-size: 12px;
+    color: var(--s-text-muted);
+  }
+
+  .threshold-val {
+    font-family: var(--s-mono);
+    font-size: 12px;
+    color: var(--s-text);
+    font-variant-numeric: tabular-nums;
+    width: 36px;
+  }
+}
+
+.filter-spacer {
+  flex: 1;
+}
+
+.visible-count {
+  font-family: var(--s-mono);
+  font-size: 11px;
+  color: var(--s-text-muted);
+
+  .below-threshold {
+    color: var(--s-text-dim);
+  }
+}
+
+.link-action {
+  background: transparent;
+  border: none;
+  font-family: var(--s-font);
+  font-size: 12px;
+  color: var(--s-text-muted);
+  cursor: pointer;
+  padding: 0;
+
+  &:hover {
+    color: var(--s-text);
+  }
+}
+
+// ── Detail view: face grid ─────────────────────────────────────────
+
+.face-grid-wrap {
+  padding: 20px 36px 120px;
+  position: relative;
+}
+
+.empty-msg {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--s-text-muted);
+}
+
+.face-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
+  gap: 8px;
+}
+
+.face-cell {
+  // Native <button> so keyboard activation (Enter + Space) is free and
+  // the cell is reachable via Tab; resets below strip the default chrome
+  // so it reads as a card.
+  display: block;
+  padding: 0;
+  font-family: inherit;
+  appearance: none;
+  -webkit-appearance: none;
+  text-align: left;
+
+  position: relative;
+  cursor: pointer;
+  border-radius: 6px;
+  overflow: hidden;
+  border: 1.5px solid transparent;
+  background: var(--s-surface2);
+
+  &.is-selected {
+    border-color: var(--s-accent);
+  }
+
+  // Visible keyboard focus — accent ring at 2px offset matches the rest
+  // of the Settings surfaces (see styles.scss global reset).
+  &:focus-visible {
+    outline: 1.5px solid var(--s-accent);
+    outline-offset: 1px;
+  }
+}
+
+.face-thumb {
+  display: block;
+  aspect-ratio: 1 / 1;
+  background: var(--s-surface2);
+  position: relative;
+  overflow: hidden;
+
+  img {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+}
+
+.confidence-badge {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(13, 12, 11, 0.78);
+  font-family: var(--s-mono);
+  font-size: 10px;
+  color: var(--s-text);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.2px;
+  backdrop-filter: blur(4px);
+  pointer-events: none;
+}
+
+.select-check {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: rgba(13, 12, 11, 0.55);
+  border: 1.5px solid #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(4px);
+
+  &.is-selected {
+    background: var(--s-accent);
+    border-color: var(--s-accent);
+  }
+}
+
+.low-confidence-bar {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: var(--s-warn);
+}
+
+// ── Detail view: floating bulk toolbar ─────────────────────────────
+
+.bulk-toolbar-wrap {
+  position: fixed;
+  // Stay centred under the visible page area (right of the sidebar).
+  // --s-sidebar-width is exposed by settings-chrome and tracks the
+  // shell's responsive collapse — no need to duplicate the breakpoints.
+  left: var(--s-sidebar-width);
+  right: 0;
+  bottom: 24px;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+  z-index: 10;
+}
+
+// Mobile: the sidebar becomes a horizontal top bar (width: 100%), so
+// --s-sidebar-width is 0 and the toolbar spans the full viewport.
+@media (max-width: 767px) {
+  .bulk-toolbar-wrap {
+    bottom: 12px;
+  }
+}
+
+.bulk-toolbar {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 10px;
+  background: var(--s-surface);
+  border: 0.5px solid var(--s-border-hi);
+  border-radius: 10px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+  max-width: calc(100% - 24px);
+  flex-wrap: wrap;
+}
+
+.bulk-count {
+  font-family: var(--s-font);
+  font-size: 12.5px;
+  color: var(--s-text);
+  font-weight: 500;
+  padding: 0 10px 0 6px;
+  white-space: nowrap;
+}
+
+.bulk-sep {
+  width: 0.5px;
+  height: 18px;
+  background: var(--s-border);
+}
+
+.bulk-btn {
+  position: relative; // anchor for the overlay <select>
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 5px;
+  background: transparent;
+  border: none;
+  color: var(--s-text);
+  font-family: var(--s-font);
+  font-size: 12.5px;
+  cursor: pointer;
+
+  &:hover {
+    background: var(--s-surface2);
+  }
+  &:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+  &.mute {
+    color: var(--s-text-muted);
+  }
+}
+
+// Overlay <select> covers the move-to-person button so it acts as the
+// click target. Transparent so the styled label below shows through;
+// the native dropdown opens on click for accessible keyboard support.
+.bulk-select {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: inherit;
+}
+
+// ── Mobile tweaks ──────────────────────────────────────────────────
+
+@media (max-width: 767px) {
+  .people-body {
+    padding: 16px;
+  }
+  .detail-head {
+    padding: 16px 16px 12px;
+  }
+  .filter-bar {
+    padding: 12px 16px;
+    gap: 12px;
+  }
+  .face-grid-wrap {
+    padding: 16px 16px 120px;
+  }
+  .detail-actions {
+    margin-left: 0;
+    width: 100%;
+  }
+  .people-grid {
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  }
+}

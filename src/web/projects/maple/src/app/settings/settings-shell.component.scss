@@ -21,7 +21,9 @@
 }
 
 .sidebar {
-  width: 240px;
+  // Pixel width comes from --s-sidebar-width (settings-chrome.scss) so
+  // page-content rules can stay in sync without duplicating the value.
+  width: var(--s-sidebar-width);
   flex-shrink: 0;
   border-right: 0.5px solid var(--s-border);
   padding: 24px 14px;
@@ -32,12 +34,15 @@
 }
 
 // Tablet: keep sidebar but narrower (icon + label only, no subtitle).
+// The pixel width itself rides on the --s-sidebar-width tablet breakpoint
+// in settings-chrome.scss; here we just tighten the padding + hide subs.
 @media (max-width: 1023px) {
   .sidebar {
-    width: 196px;
     padding: 20px 10px;
   }
-  .nav-sub { display: none; }
+  .nav-sub {
+    display: none;
+  }
 }
 
 // Mobile: collapse sidebar to a horizontal top bar. The body still doesn't
@@ -66,17 +71,29 @@
     padding: 6px 8px;
     flex-shrink: 0;
   }
-  .section-label { display: none; }
+  .section-label {
+    display: none;
+  }
   .nav-item {
     padding: 6px 10px;
     flex-shrink: 0;
 
-    .nav-label { font-size: 12.5px; }
+    .nav-label {
+      font-size: 12.5px;
+    }
   }
-  .owner-chip { display: none; }
-  .sidebar-spacer { display: none; }
-  .footer { display: none; }
-  .page { min-width: 0; }
+  .owner-chip {
+    display: none;
+  }
+  .sidebar-spacer {
+    display: none;
+  }
+  .footer {
+    display: none;
+  }
+  .page {
+    min-width: 0;
+  }
 }
 
 .back-link {
@@ -123,7 +140,9 @@
     background: var(--s-accent-bg);
     color: var(--s-accent);
 
-    .nav-label { font-weight: 500; }
+    .nav-label {
+      font-weight: 500;
+    }
 
     .owner-chip {
       background: rgba(196, 73, 58, 0.18);

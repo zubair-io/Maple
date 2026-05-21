@@ -11,13 +11,11 @@ import { authGuard } from '../../../maple-common/src/lib/auth/auth.guard';
 export const routes: Routes = [
   {
     path: 'sign-in',
-    loadComponent: () =>
-      import('./sign-in/sign-in.component').then((m) => m.SignInComponent),
+    loadComponent: () => import('./sign-in/sign-in.component').then((m) => m.SignInComponent),
   },
   {
     path: 'join',
-    loadComponent: () =>
-      import('./sign-in/join.component').then((m) => m.JoinComponent),
+    loadComponent: () => import('./sign-in/join.component').then((m) => m.JoinComponent),
   },
   // `/` redirects to `/browse`; the browse route's authGuard handles the
   // unauthenticated case. canActivate here is invalid — Angular runs
@@ -39,8 +37,7 @@ export const routes: Routes = [
   {
     path: 'settings/users',
     canActivate: [authGuard],
-    loadComponent: () =>
-      import('./settings/users/users.component').then((m) => m.UsersComponent),
+    loadComponent: () => import('./settings/users/users.component').then((m) => m.UsersComponent),
   },
   // Enrichment was folded into Workers; the redirect preserves any
   // existing bookmarks. Fragment-driven row expansion is not implemented
@@ -56,22 +53,28 @@ export const routes: Routes = [
   {
     path: 'search',
     canActivate: [authGuard],
-    loadComponent: () =>
-      import('./search/search.component').then((m) => m.SearchComponent),
+    loadComponent: () => import('./search/search.component').then((m) => m.SearchComponent),
   },
-  // People — face-cluster identities. Same gating as `/settings/users`.
-  // The `:id` variant deep-links into the detail panel.
+  // People — face-cluster identities. Lives inside the Settings shell;
+  // the `:id` variant deep-links into the detail view. The legacy
+  // `/people` and `/people/:id` URLs are client-side redirects (Angular
+  // router-level, not HTTP 301) to the new location so existing
+  // bookmarks and in-app links (e.g. info-tab face badges before the
+  // settings/people migration) still resolve. The SPA index.html catches
+  // either entrypoint and the router takes it from there.
   {
-    path: 'people',
+    path: 'settings/people',
     canActivate: [authGuard],
     loadComponent: () =>
-      import('./people/people.component').then((m) => m.PeopleComponent),
+      import('./settings/people/people.component').then((m) => m.PeopleComponent),
   },
   {
-    path: 'people/:id',
+    path: 'settings/people/:id',
     canActivate: [authGuard],
     loadComponent: () =>
-      import('./people/people.component').then((m) => m.PeopleComponent),
+      import('./settings/people/people.component').then((m) => m.PeopleComponent),
   },
+  { path: 'people', redirectTo: 'settings/people', pathMatch: 'full' },
+  { path: 'people/:id', redirectTo: 'settings/people/:id' },
   { path: '**', redirectTo: 'browse' },
 ];
