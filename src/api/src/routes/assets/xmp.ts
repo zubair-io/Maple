@@ -14,7 +14,30 @@
  * `/api/assets` prefix.
  *
  * Mongo access lives in `src/db/assets.repo.ts`.
+ *
+ * ## Deprecation (slice 3 of #193)
+ *
+ * Every response from this route carries the RFC 8594 deprecation
+ * signal pointing at the path-keyed successor `/api/xmp?path=…`:
+ *
+ *   Deprecation: true
+ *   Link: </api/xmp?path=...>; rel="successor-version"
+ *
+ * The web migration (slice 4) flips consumers; the old route gets
+ * removed in the follow-up. Do not add new callers.
  */
+
+const DEPRECATION_LINK = '</api/xmp?path=...>; rel="successor-version"';
+
+/** Stamp the deprecation signal onto an Elysia `set.headers` bag. */
+function markDeprecated(set: { headers: Record<string, unknown> }): void {
+  set.headers['Deprecation'] = 'true';
+  // If something upstream already added a Link header, append rather
+  // than clobber. RFC 8288 allows comma-separated link values.
+  const existing = set.headers['Link'];
+  set.headers['Link'] =
+    typeof existing === 'string' ? `${existing}, ${DEPRECATION_LINK}` : DEPRECATION_LINK;
+}
 
 import { Elysia, t } from 'elysia';
 import {
@@ -33,6 +56,7 @@ import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
 export const xmpRoutes = new Elysia()
   // Read XMP sidecar
   .get('/:id/xmp', async ({ params, query, set }) => {
+    markDeprecated(set);
     const id = parseAssetId(params.id);
     if (!id) {
       set.status = 400;
@@ -91,6 +115,7 @@ export const xmpRoutes = new Elysia()
   .put(
     '/:id/xmp',
     async ({ params, body, headers, query, set }) => {
+      markDeprecated(set);
       const id = parseAssetId(params.id);
       if (!id) {
         set.status = 400;
@@ -187,6 +212,7 @@ export const xmpRoutes = new Elysia()
 
   // Delete XMP sidecar (idempotent).
   .delete('/:id/xmp', async ({ params, query, set }) => {
+    markDeprecated(set);
     const id = parseAssetId(params.id);
     if (!id) {
       set.status = 400;

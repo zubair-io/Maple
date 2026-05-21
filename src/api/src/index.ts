@@ -47,6 +47,7 @@ import { requestContext } from './middleware/request-context.ts';
 import { healthRoutes } from './routes/health.ts';
 import { foldersRoutes } from './routes/folders.ts';
 import { assetsRoutes } from './routes/assets.ts';
+import { xmpPathRoutes } from './routes/xmp.ts';
 import { eventsRoutes } from './routes/events.ts';
 import { authRoutes } from './routes/auth.ts';
 import { fsRoutes } from './routes/fs.ts';
@@ -193,6 +194,7 @@ export function buildApp(_opts: { stageNames?: string[] } = {}): Elysia {
         // endpoint matches before the `:id`-prefixed routes shadow it.
         .use(assetsListRoutes)
         .use(assetsRoutes)
+        .use(xmpPathRoutes)
         .use(fsRoutes)
         .use(fsThumbsRoutes)
         .use(searchRoutes)
