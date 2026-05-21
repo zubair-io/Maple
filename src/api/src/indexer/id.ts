@@ -21,7 +21,7 @@ export const TAG_FALLBACK = 0x02;
 /** Number of leading bytes that feed sha1Head. */
 export const SHA1_HEAD_BYTES = 64 * 1024;
 
-export type IdKind = "primary" | "fallback";
+export type IdKind = 'primary' | 'fallback';
 
 export interface MapleId {
   readonly bytes: Uint8Array;
@@ -32,7 +32,7 @@ export interface MapleId {
 function toLeU64(n: bigint | number): Uint8Array {
   const out = new Uint8Array(8);
   const view = new DataView(out.buffer);
-  const big = typeof n === "bigint" ? n : BigInt(n);
+  const big = typeof n === 'bigint' ? n : BigInt(n);
   view.setBigUint64(0, big, true);
   return out;
 }
@@ -50,9 +50,9 @@ function concat(parts: Uint8Array[]): Uint8Array {
 }
 
 function toHex(bytes: Uint8Array): string {
-  let s = "";
+  let s = '';
   for (let i = 0; i < bytes.length; i++) {
-    s += bytes[i]!.toString(16).padStart(2, "0");
+    s += bytes[i]!.toString(16).padStart(2, '0');
   }
   return s;
 }
@@ -64,7 +64,7 @@ function makeId(tag: number, digest: Uint8Array): MapleId {
   return {
     bytes: out,
     hex: toHex(out),
-    kind: tag === TAG_PRIMARY ? "primary" : "fallback",
+    kind: tag === TAG_PRIMARY ? 'primary' : 'fallback',
   };
 }
 
@@ -76,14 +76,13 @@ export function primary(
   bytes: Uint8Array,
   captureDateTimeOriginal: string,
   cameraSerial: string | null,
-  shutterCount: bigint | number | null
+  shutterCount: bigint | number | null,
 ): MapleId {
   const headLen = Math.min(bytes.length, SHA1_HEAD_BYTES);
   const sha1Head = sha1(bytes.subarray(0, headLen));
 
   const ts = new TextEncoder().encode(captureDateTimeOriginal);
-  const serial =
-    cameraSerial !== null ? new TextEncoder().encode(cameraSerial) : new Uint8Array(0);
+  const serial = cameraSerial !== null ? new TextEncoder().encode(cameraSerial) : new Uint8Array(0);
   const count = toLeU64(shutterCount ?? 0);
 
   const digest = blake3(concat([sha1Head, ts, serial, count]));
@@ -108,7 +107,7 @@ export function deriveId(
   bytes: Uint8Array,
   capturedAt: string | null,
   cameraSerial: string | null,
-  shutterCount: bigint | number | null
+  shutterCount: bigint | number | null,
 ): MapleId {
   return capturedAt !== null
     ? primary(bytes, capturedAt, cameraSerial, shutterCount)
@@ -172,6 +171,6 @@ export function fromHex(hex: string): MapleId {
   return {
     bytes: out,
     hex: hex.toLowerCase(),
-    kind: out[0] === TAG_PRIMARY ? "primary" : "fallback",
+    kind: out[0] === TAG_PRIMARY ? 'primary' : 'fallback',
   };
 }
