@@ -21,32 +21,32 @@
  * circuit cleanly via its ENOENT path.
  */
 
-import * as path from "node:path";
-import * as fs from "node:fs/promises";
-import { cachePathFor } from "../fs/xmp.ts";
-import { ffiPool } from "../ffi/ffi-pool.ts";
-import { renderImageThumbToFile, SHARP_EXTENSIONS } from "../thumbs/render.ts";
-import { applyExifOrientationInPlace } from "../thumbs/apply-orientation.ts";
-import { child as childLogger } from "../log.ts";
+import * as path from 'node:path';
+import * as fs from 'node:fs/promises';
+import { cachePathFor } from '../fs/xmp.ts';
+import { ffiPool } from '../ffi/ffi-pool.ts';
+import { renderImageThumbToFile, SHARP_EXTENSIONS } from '../thumbs/render.ts';
+import { applyExifOrientationInPlace } from '../thumbs/apply-orientation.ts';
+import { child as childLogger } from '../log.ts';
 
-const log = childLogger("previewer");
+const log = childLogger('previewer');
 
 const RAW_EXTS = new Set([
-  ".dng",
-  ".cr2",
-  ".cr3",
-  ".nef",
-  ".arw",
-  ".raf",
-  ".orf",
-  ".rw2",
-  ".pef",
-  ".srw",
-  ".x3f",
-  ".3fr",
-  ".mef",
-  ".erf",
-  ".mrw",
+  '.dng',
+  '.cr2',
+  '.cr3',
+  '.nef',
+  '.arw',
+  '.raf',
+  '.orf',
+  '.rw2',
+  '.pef',
+  '.srw',
+  '.x3f',
+  '.3fr',
+  '.mef',
+  '.erf',
+  '.mrw',
 ]);
 
 /** Long-edge target in pixels. Picked to balance VLM accuracy against
@@ -57,25 +57,34 @@ export const PREVIEW_LONG_EDGE_PX = 1280;
 
 /** Size key embedded in the cache filename. Stable so the GC sweep and
  * cache-invalidation paths can address the file deterministically. */
-export const PREVIEW_SIZE_KEY = "1280";
+export const PREVIEW_SIZE_KEY = '1280';
 
 let _rendered = 0;
 let _cached = 0;
 let _failed = 0;
 
-export async function generatePreview(absPath: string): Promise<void> {
+/**
+ * Generate (or refresh) the 1280-px preview JPEG for an asset.
+ *
+ * `previewPathOverride` lets the caller supply a content-addressed cache path
+ * (e.g. `<lib>/<fileinfo[0].path>/.maple/previews/<maple_id>_1280.jpg`)
+ * instead of the legacy basename-keyed `cachePathFor(absPath, "previews",
+ * "1280")`. When undefined the legacy path is used, preserving behaviour for
+ * callers that haven't been swept to the new resolver yet.
+ */
+export async function generatePreview(
+  absPath: string,
+  previewPathOverride?: string,
+): Promise<void> {
   const ext = path.extname(absPath).toLowerCase();
-  const extNoDot = ext.startsWith(".") ? ext.slice(1) : ext;
-  const previewPath = cachePathFor(absPath, "previews", PREVIEW_SIZE_KEY);
+  const extNoDot = ext.startsWith('.') ? ext.slice(1) : ext;
+  const previewPath = previewPathOverride ?? cachePathFor(absPath, 'previews', PREVIEW_SIZE_KEY);
 
   try {
     await fs.mkdir(path.dirname(previewPath), { recursive: true });
   } catch (e) {
     _failed++;
-    log.warn(
-      { previewPath, err: e instanceof Error ? e.message : e },
-      "mkdir failed",
-    );
+    log.warn({ previewPath, err: e instanceof Error ? e.message : e }, 'mkdir failed');
     logTotals();
     return;
   }
@@ -83,10 +92,7 @@ export async function generatePreview(absPath: string): Promise<void> {
   // Stale-check: if the cached preview's mtime is >= the source's, reuse it.
   // Matches the thumb-stage convention so a rerun is cheap.
   try {
-    const [previewStat, srcStat] = await Promise.all([
-      fs.stat(previewPath),
-      fs.stat(absPath),
-    ]);
+    const [previewStat, srcStat] = await Promise.all([fs.stat(previewPath), fs.stat(absPath)]);
     if (previewStat.size > 0 && previewStat.mtimeMs >= srcStat.mtimeMs) {
       _cached++;
       logTotals();
@@ -111,7 +117,7 @@ export async function generatePreview(absPath: string): Promise<void> {
     _rendered++;
   } else {
     _failed++;
-    log.warn({ absPath }, "failed");
+    log.warn({ absPath }, 'failed');
   }
   logTotals();
 }
@@ -119,27 +125,21 @@ export async function generatePreview(absPath: string): Promise<void> {
 /** Resolve where this asset's 1280-px preview lives on disk. Pure path
  * math — does not stat or guarantee the file exists. */
 export function resolvePreviewPath(absPath: string): string {
-  return cachePathFor(absPath, "previews", PREVIEW_SIZE_KEY);
+  return cachePathFor(absPath, 'previews', PREVIEW_SIZE_KEY);
 }
 
 function logTotals(): void {
   const total = _rendered + _cached + _failed;
   if (total > 0 && total % 500 === 0) {
-    log.info(
-      { rendered: _rendered, cached: _cached, failed: _failed },
-      "totals",
-    );
+    log.info({ rendered: _rendered, cached: _cached, failed: _failed }, 'totals');
   }
 }
 
-async function renderRawPreviewToFile(
-  rawPath: string,
-  previewPath: string,
-): Promise<boolean> {
+async function renderRawPreviewToFile(rawPath: string, previewPath: string): Promise<boolean> {
   const pool = ffiPool();
   if (!pool.available()) {
     log.warn(
-      "raw-ffi not available — RAW preview generation deferred. Build the native/libraw_ffi.* (dylib on macOS, .so on Linux) with src/api/scripts/build-raw-ffi.sh.",
+      'raw-ffi not available — RAW preview generation deferred. Build the native/libraw_ffi.* (dylib on macOS, .so on Linux) with src/api/scripts/build-raw-ffi.sh.',
     );
     return false;
   }
@@ -147,17 +147,9 @@ async function renderRawPreviewToFile(
   try {
     // quality 85 (vs 82 for thumbs) — preview is consumed by a VLM, not the
     // browser cache, so extra fidelity outweighs the few-KB size delta.
-    ok = await pool.renderThumbnailJpegToFile(
-      rawPath,
-      previewPath,
-      PREVIEW_LONG_EDGE_PX,
-      85,
-    );
+    ok = await pool.renderThumbnailJpegToFile(rawPath, previewPath, PREVIEW_LONG_EDGE_PX, 85);
   } catch (e) {
-    log.warn(
-      { rawPath, err: e instanceof Error ? e.message : e },
-      "FFI call threw",
-    );
+    log.warn({ rawPath, err: e instanceof Error ? e.message : e }, 'FFI call threw');
     return false;
   }
   if (!ok) return false;
@@ -166,7 +158,7 @@ async function renderRawPreviewToFile(
   } catch (e) {
     log.warn(
       { rawPath, err: e instanceof Error ? e.message : e },
-      "orientation post-process failed; preview left unrotated",
+      'orientation post-process failed; preview left unrotated',
     );
   }
   return true;
@@ -178,33 +170,19 @@ async function renderBitmapPreviewToFile(
   ext: string,
 ): Promise<boolean> {
   try {
-    return await renderImageThumbToFile(
-      srcPath,
-      previewPath,
-      PREVIEW_LONG_EDGE_PX,
-      ext,
-    );
+    return await renderImageThumbToFile(srcPath, previewPath, PREVIEW_LONG_EDGE_PX, ext);
   } catch (e) {
-    log.warn(
-      { srcPath, err: e instanceof Error ? e.message : e },
-      "sharp render failed",
-    );
+    log.warn({ srcPath, err: e instanceof Error ? e.message : e }, 'sharp render failed');
     return false;
   }
 }
 
-async function copyImageAsPreview(
-  srcPath: string,
-  previewPath: string,
-): Promise<boolean> {
+async function copyImageAsPreview(srcPath: string, previewPath: string): Promise<boolean> {
   try {
     await fs.copyFile(srcPath, previewPath);
     return true;
   } catch (e) {
-    log.warn(
-      { srcPath, err: e instanceof Error ? e.message : e },
-      "copy fallback failed",
-    );
+    log.warn({ srcPath, err: e instanceof Error ? e.message : e }, 'copy fallback failed');
     return false;
   }
 }
