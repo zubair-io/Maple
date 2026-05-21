@@ -10,13 +10,8 @@
 #   * `test_color_pipeline.sh`   — end-to-end ΔE gate vs ACR references.
 #   * `stage_diff.py`            — cross-trace ΔE between two stage dirs.
 #
-# This script is a DIAGNOSTIC, not a quality gate — `stage_stats.py` always
-# exits 0 regardless of what it finds, and so does this script when the
-# pipeline runs cleanly. It DOES exit non-zero on toolchain failures:
-# cargo build failure, render failure, or zero EXR dumps emitted (which
-# usually means the binary wasn't built with `--features stage-dump`).
-# A missing FIXTURE skip-passes with exit 0. Use the JSON output for
-# downstream pass/fail gates as they get built out.
+# This script is a DIAGNOSTIC, not a gate — exits 0 unless the build itself
+# fails. Use the JSON output for downstream gates as they get built out.
 #
 # Tracks #260 (per-stage EXR dumps + diagnostics).
 #
