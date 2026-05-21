@@ -155,36 +155,15 @@ export interface ApiVision {
   scene_type: 'indoor' | 'outdoor' | 'aerial' | 'macro' | 'studio' | 'mixed';
   setting: string | null;
   activity: string | null;
-  time_of_day:
-    | 'morning'
-    | 'midday'
-    | 'afternoon'
-    | 'golden hour'
-    | 'evening'
-    | 'night'
-    | 'unknown';
+  time_of_day: 'morning' | 'midday' | 'afternoon' | 'golden hour' | 'evening' | 'night' | 'unknown';
   lighting: 'natural' | 'artificial' | 'mixed' | 'low-light' | 'backlit' | 'flash';
   weather: 'clear' | 'cloudy' | 'rainy' | 'snowy' | 'foggy' | 'indoor' | 'unknown';
   mood: string;
   colors: string[];
-  composition:
-    | 'wide shot'
-    | 'close-up'
-    | 'portrait'
-    | 'landscape'
-    | 'aerial'
-    | 'macro'
-    | 'candid';
+  composition: 'wide shot' | 'close-up' | 'portrait' | 'landscape' | 'aerial' | 'macro' | 'candid';
   text_visible: string | null;
   notable_objects: string[];
-  shot_type:
-    | 'action'
-    | 'static'
-    | 'candid'
-    | 'posed'
-    | 'architectural'
-    | 'nature'
-    | 'event';
+  shot_type: 'action' | 'static' | 'candid' | 'posed' | 'architectural' | 'nature' | 'event';
   indoor_outdoor: 'indoor' | 'outdoor';
   /** True when the image is a screenshot rather than a photograph. */
   is_screenshot: boolean;
@@ -299,18 +278,12 @@ export class BunApiBackendService {
    * override; the next worker run will repopulate. Server recomputes
    * `search_blob` atomically using the same expression the geocode worker
    * uses. */
-  setAssetPlaceOverride(
-    assetId: string,
-    place: ApiPlace | null,
-  ): Observable<void> {
+  setAssetPlaceOverride(assetId: string, place: ApiPlace | null): Observable<void> {
     return this.http.put<void>(`${this.base}/assets/${assetId}/place`, { place });
   }
 
   /** Manually override the LLM caption. Pass `null` to clear. */
-  setAssetDescriptionOverride(
-    assetId: string,
-    text: string | null,
-  ): Observable<void> {
+  setAssetDescriptionOverride(assetId: string, text: string | null): Observable<void> {
     return this.http.put<void>(`${this.base}/assets/${assetId}/description`, { text });
   }
 
@@ -321,10 +294,9 @@ export class BunApiBackendService {
     assetId: string,
     stage: ApiEnrichmentStage,
   ): Observable<ApiRequeueResponse> {
-    return this.http.post<ApiRequeueResponse>(
-      `${this.base}/assets/${assetId}/enrichment/requeue`,
-      { stage },
-    );
+    return this.http.post<ApiRequeueResponse>(`${this.base}/assets/${assetId}/enrichment/requeue`, {
+      stage,
+    });
   }
 
   /** Aggregate worker status (one entry per stage). The detail panel uses
@@ -348,14 +320,32 @@ export class BunApiBackendService {
     });
   }
 
-  getXmp(assetId: string): Observable<string> {
-    return this.http.get(`${this.base}/assets/${assetId}/xmp`, { responseType: 'text' });
+  /**
+   * Read the XMP sidecar that lives next to `path` on the server's filesystem.
+   *
+   * Path-keyed (NOT asset-id-keyed) — see slice 4 of #193 for why. The path
+   * goes through `encodeURIComponent` because absolute paths legitimately
+   * contain `/`, spaces, and other URL-meaningful characters.
+   */
+  getXmp(path: string): Observable<string> {
+    return this.http.get(`${this.base}/xmp?path=${encodeURIComponent(path)}`, {
+      responseType: 'text',
+    });
   }
 
-  putXmp(assetId: string, xml: string): Observable<void> {
-    return this.http.put<void>(`${this.base}/assets/${assetId}/xmp`, xml, {
+  /**
+   * Write the XMP sidecar that lives next to `path`. See {@link getXmp} for
+   * the path-keyed rationale.
+   */
+  putXmp(path: string, xml: string): Observable<void> {
+    return this.http.post<void>(`${this.base}/xmp?path=${encodeURIComponent(path)}`, xml, {
       headers: { 'Content-Type': 'application/xml' },
     });
+  }
+
+  /** Delete the XMP sidecar at `path`. */
+  deleteXmp(path: string): Observable<void> {
+    return this.http.delete<void>(`${this.base}/xmp?path=${encodeURIComponent(path)}`);
   }
 
   /** Force a re-scan of one library folder. Resets every stage's version to 0
@@ -364,10 +354,13 @@ export class BunApiBackendService {
   rescanFolder(
     folderId: string,
   ): Observable<{ ok: boolean; folderId: string; path: string; reset: number; error?: string }> {
-    return this.http.post<{ ok: boolean; folderId: string; path: string; reset: number; error?: string }>(
-      `${this.base}/folders/${encodeURIComponent(folderId)}/rescan`,
-      {},
-    );
+    return this.http.post<{
+      ok: boolean;
+      folderId: string;
+      path: string;
+      reset: number;
+      error?: string;
+    }>(`${this.base}/folders/${encodeURIComponent(folderId)}/rescan`, {});
   }
 
   // -------------------------------------------------------------------------
@@ -388,29 +381,27 @@ export class BunApiBackendService {
    * `nominatim_rate_limit_per_sec` is optional: omit it to leave the
    * existing value alone, send a number to set, or send `null` to clear
    * back to the env-or-default fallback. */
-  saveEnrichmentConfig(
-    body: {
-      nominatim_url: string | null;
-      geocode_worker_enabled: boolean;
-      nominatim_rate_limit_per_sec?: number | null;
-      // ── Describe worker (Phase 6) ────────────────────────────────
-      describe_worker_enabled?: boolean | null;
-      describe_provider?: DescribeProviderName | null;
-      describe_model?: string | null;
-      describe_system_prompt?: string | null;
-      describe_daily_cap_usd?: number | null;
-      describe_provider_url?: string | null;
-      // ── Face worker (Phase 5) ─────────────────────────────────────
-      face_worker_enabled?: boolean | null;
-      // ── Face model paths (Phase 5) ────────────────────────────────
-      /** `null` clears the override back to env / built-in default. */
-      face_model_dir?: string | null;
-      face_retinaface_url?: string | null;
-      face_retinaface_sha256?: string | null;
-      face_mobilefacenet_url?: string | null;
-      face_mobilefacenet_sha256?: string | null;
-    },
-  ): Observable<EnrichmentConfigResponse> {
+  saveEnrichmentConfig(body: {
+    nominatim_url: string | null;
+    geocode_worker_enabled: boolean;
+    nominatim_rate_limit_per_sec?: number | null;
+    // ── Describe worker (Phase 6) ────────────────────────────────
+    describe_worker_enabled?: boolean | null;
+    describe_provider?: DescribeProviderName | null;
+    describe_model?: string | null;
+    describe_system_prompt?: string | null;
+    describe_daily_cap_usd?: number | null;
+    describe_provider_url?: string | null;
+    // ── Face worker (Phase 5) ─────────────────────────────────────
+    face_worker_enabled?: boolean | null;
+    // ── Face model paths (Phase 5) ────────────────────────────────
+    /** `null` clears the override back to env / built-in default. */
+    face_model_dir?: string | null;
+    face_retinaface_url?: string | null;
+    face_retinaface_sha256?: string | null;
+    face_mobilefacenet_url?: string | null;
+    face_mobilefacenet_sha256?: string | null;
+  }): Observable<EnrichmentConfigResponse> {
     return this.http.put<EnrichmentConfigResponse>(`${this.base}/enrichment/config`, body);
   }
 
@@ -425,14 +416,12 @@ export class BunApiBackendService {
   /** Health-check a describe provider without saving. The `api_key` field
    * is write-only — pass it for paid providers when the user is testing
    * a freshly-typed key; the server never echoes it back. */
-  testDescribeProvider(
-    body: {
-      provider: DescribeProviderName;
-      url?: string | null;
-      model?: string | null;
-      api_key?: string | null;
-    },
-  ): Observable<EnrichmentTestDescribeResponse> {
+  testDescribeProvider(body: {
+    provider: DescribeProviderName;
+    url?: string | null;
+    model?: string | null;
+    api_key?: string | null;
+  }): Observable<EnrichmentTestDescribeResponse> {
     return this.http.post<EnrichmentTestDescribeResponse>(
       `${this.base}/enrichment/test-describe`,
       body,
@@ -490,15 +479,13 @@ export class BunApiBackendService {
 
   /** Returns the survivor + the orphan id when a merge happened. */
   renamePerson(id: string, name: string): Observable<ApiRenameResult> {
-    return this.http
-      .put<ApiRenameResultRaw>(`${this.base}/people/${id}`, { name })
-      .pipe(
-        map((r) => ({
-          id: r.id,
-          name: r.name,
-          mergedFrom: r.merged_from ?? null,
-        })),
-      );
+    return this.http.put<ApiRenameResultRaw>(`${this.base}/people/${id}`, { name }).pipe(
+      map((r) => ({
+        id: r.id,
+        name: r.name,
+        mergedFrom: r.merged_from ?? null,
+      })),
+    );
   }
 
   assignFaceToPerson(
@@ -525,15 +512,13 @@ export class BunApiBackendService {
 
   /** Synchronous online clustering. Returns counts. */
   runClustering(): Observable<ApiClusterResult> {
-    return this.http
-      .post<ApiClusterResultRaw>(`${this.base}/people/cluster`, {})
-      .pipe(
-        map((r) => ({
-          assigned: r.assigned,
-          newPeople: r.new_people,
-          scanned: r.scanned,
-        })),
-      );
+    return this.http.post<ApiClusterResultRaw>(`${this.base}/people/cluster`, {}).pipe(
+      map((r) => ({
+        assigned: r.assigned,
+        newPeople: r.new_people,
+        scanned: r.scanned,
+      })),
+    );
   }
 
   deletePerson(id: string): Observable<void> {
