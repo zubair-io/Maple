@@ -144,6 +144,13 @@ public final class EditSession {
     // MARK: Internals (shared across EditSession+* extensions)
 
     @ObservationIgnored let pipeline: ImageEditPipeline
+
+    /// Per-session render actor (issue #194 slice 1). Constructed here so
+    /// future slices have a stable handoff point, but no caller is routed
+    /// through it yet — slice 1 is a pure scaffold. Slice 2 moves the
+    /// decoded-image cache + `sharedDecode` / `coalescedRefineDecode`
+    /// behind this boundary; slice 3 moves the two-phase scheduler.
+    @ObservationIgnored let renderActor: RenderActor
     /// File-backed sidecar store. `nil` for sourceless assets (PhotoKit, self-
     /// hosted API) where sidecar persistence goes through the source's
     /// `writeXMP` API instead.
@@ -351,7 +358,9 @@ public final class EditSession {
         self.model = model
         self.originalModel = model
         self.culling = culling
-        self.pipeline = ImageEditPipeline()
+        let pipeline = ImageEditPipeline()
+        self.pipeline = pipeline
+        self.renderActor = RenderActor(pipeline: pipeline)
         if let url = asset.primaryURL {
             // Local-file asset — write to the .xmp sidecar next to the RAW.
             self.sidecarStore = XMPSidecarStore(rawURL: url)
