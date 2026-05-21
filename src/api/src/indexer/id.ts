@@ -9,8 +9,9 @@
  * Output: 16 bytes, hex-encoded lowercase (32 chars).
  */
 
-import { blake3 } from "@noble/hashes/blake3.js";
-import { sha1 } from "@noble/hashes/legacy.js";
+import * as fs from 'node:fs/promises';
+import { blake3 } from '@noble/hashes/blake3.js';
+import { sha1 } from '@noble/hashes/legacy.js';
 
 /** First byte of a primary-form id. */
 export const TAG_PRIMARY = 0x01;
@@ -112,6 +113,47 @@ export function deriveId(
   return capturedAt !== null
     ? primary(bytes, capturedAt, cameraSerial, shutterCount)
     : fallback(bytes, bytes.length);
+}
+
+/**
+ * Disk-side helper: read the first 64 KB of a file, stat it, and produce
+ * the fields the discover watcher needs to insert an asset row with
+ * `maple_id` populated.
+ *
+ * Returned shape mirrors what the legacy `hash` worker stage wrote to the
+ * doc — `(maple_id, sha1_head, size, mtime)` — so callers can stop running
+ * the post-insert hash stage entirely. The id is in **fallback form**
+ * (tag `0x02`): the exif stage upgrades it to primary form once
+ * `captured_at` is available.
+ *
+ * Byte-for-byte parity with the previous hash-stage handler is enforced by
+ * `id.test.ts` — same head slice (≤ 64 KB), same `deriveId(head, null,
+ * null, null)` call. Changing this shape requires bumping the hash
+ * stage's `targetVersion` so legacy rows re-derive.
+ */
+export async function hashFileForId(absPath: string): Promise<{
+  maple_id: string;
+  sha1_head: string;
+  size: number;
+  mtime: number;
+}> {
+  const fd = await fs.open(absPath, 'r');
+  let head: Uint8Array;
+  try {
+    const buf = new Uint8Array(SHA1_HEAD_BYTES);
+    const { bytesRead } = await fd.read(buf, 0, buf.length, 0);
+    head = buf.subarray(0, bytesRead);
+  } finally {
+    await fd.close();
+  }
+  const stat = await fs.stat(absPath);
+  const sha1HeadBytes = sha1(head);
+  let sha1_head = '';
+  for (let i = 0; i < sha1HeadBytes.length; i++) {
+    sha1_head += sha1HeadBytes[i]!.toString(16).padStart(2, '0');
+  }
+  const id = deriveId(head, null, null, null);
+  return { maple_id: id.hex, sha1_head, size: stat.size, mtime: stat.mtimeMs };
 }
 
 /** Parse a 32-char hex id back into bytes. */
