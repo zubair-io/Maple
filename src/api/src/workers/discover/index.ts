@@ -10,10 +10,10 @@
  *
  * The discover child is NOT a stage controller — it does not use `defineStage`
  * or `runStage`. It owns only the insert side: on a new or modified file it
- * upserts the image doc with the skeleton, letting hash/exif/thumb controllers
+ * upserts the image doc with the skeleton, letting exif/thumb controllers
  * pick it up naturally on their next poll tick.
  *
- * On rename: updates abs_path + filename only, preserves stage progress.
+ * On rename: rewrites `fileinfo[0]`, preserves stage progress.
  * On remove: soft-deletes (sets deleted_at).
  * On modify: re-issues the upsert so mtime is refreshed; $setOnInsert guards
  *            against clobbering existing stage progress.
@@ -125,17 +125,28 @@ export async function handleEvent(
     // Read the asset ID before the soft-delete so the change event can
     // carry it. Soft-deletes preserve the row, so this never races with
     // a delete-then-readd.
-    const existing = await coll.findOne(
-      { abs_path: absPath },
-      { projection: { _id: 1, folder_id: 1 } },
-    );
-    await coll.updateOne({ abs_path: absPath }, { $set: { deleted_at: new Date().toISOString() } });
+    const removed = buildFileinfoEntry(libraryRoot, absPath, folderId);
+    if (!removed) {
+      log.warn({ libraryRoot, absPath }, 'removed event escapes library root — skipping');
+      return;
+    }
+    const matchFilter = {
+      fileinfo: {
+        $elemMatch: {
+          library_id: folderId,
+          path: removed.path,
+          filename: removed.filename,
+        },
+      },
+    };
+    const existing = await coll.findOne(matchFilter, { projection: { _id: 1 } });
+    await coll.updateOne(matchFilter, { $set: { deleted_at: new Date().toISOString() } });
     log.info({ absPath }, 'soft-deleted');
     if (existing) {
       await recordAndPublishAssetChange({
         kind: 'delete',
         asset_id: existing._id,
-        folder_id: existing.folder_id ?? folderId,
+        folder_id: folderId,
         abs_path: absPath,
       });
     }
@@ -143,8 +154,21 @@ export async function handleEvent(
   }
 
   if (kind === 'renamed' && fromPath) {
+    const fromEntry = buildFileinfoEntry(libraryRoot, fromPath, folderId);
+    if (!fromEntry) {
+      log.warn({ libraryRoot, fromPath }, 'rename source escapes library root — skipping');
+      return;
+    }
     const before = await coll.findOne(
-      { abs_path: fromPath },
+      {
+        fileinfo: {
+          $elemMatch: {
+            library_id: folderId,
+            path: fromEntry.path,
+            filename: fromEntry.filename,
+          },
+        },
+      },
       { projection: { _id: 1, fileinfo: 1 } },
     );
     if (!before) {
@@ -152,30 +176,34 @@ export async function handleEvent(
       return;
     }
 
-    // A rename is not a new location — we overwrite the primary entry
+    // A rename is not a new location — we overwrite the matching entry
     // in place so `fileinfo.length` stays the same.
     const entry = buildFileinfoEntry(libraryRoot, absPath, folderId);
     if (!entry) {
       log.warn({ libraryRoot, absPath }, 'rename target escapes library root — skipping');
       return;
     }
-    const newFileinfo = [entry, ...(before.fileinfo ?? []).slice(1)];
+    const list = (before.fileinfo ?? []) as Array<{
+      path: string;
+      filename: string;
+      library_id: ObjectId;
+      deleted_at?: string | null;
+    }>;
+    const matchIdx = list.findIndex(
+      (e) =>
+        e.library_id.equals(folderId) &&
+        e.path === fromEntry.path &&
+        e.filename === fromEntry.filename,
+    );
+    const newFileinfo =
+      matchIdx === -1
+        ? [entry, ...list]
+        : list.map((e, i) => (i === matchIdx ? { ...entry, deleted_at: null } : e));
 
     await coll.updateOne(
-      { abs_path: fromPath },
+      { _id: before._id },
       {
         $set: {
-          abs_path: absPath,
-          // Watcher renames may cross library roots — the discover
-          // supervisor invokes `handleEvent` with `folderId` set to
-          // the NEW library that owns `absPath`, but the legacy
-          // `folder_id` field on the row still points at the OLD
-          // library if we don't update it. PR 7 removes `folder_id`
-          // entirely; until then, keep it in sync so per-folder
-          // queries (e.g. `GET /api/folders/:id/assets`) don't list
-          // a renamed file under its previous library.
-          folder_id: folderId,
-          filename: path.basename(absPath),
           fileinfo: newFileinfo,
           indexed_at: new Date().toISOString(),
           deleted_at: null,
@@ -210,7 +238,6 @@ export async function handleEvent(
     log.warn({ libraryRoot, absPath }, 'event absPath escapes library root — skipping insert');
     return;
   }
-  const filename = path.basename(absPath);
 
   let hashed: Awaited<ReturnType<typeof hashFileForId>>;
   try {
@@ -381,10 +408,7 @@ export async function handleEvent(
   try {
     await coll.insertOne({
       _id: insertedId,
-      abs_path: absPath,
-      folder_id: folderId,
-      filename,
-      fileinfo: [fileinfoEntry],
+      fileinfo: [{ ...fileinfoEntry, deleted_at: null }],
       rating: 0,
       flag: 0,
       color_label: '',

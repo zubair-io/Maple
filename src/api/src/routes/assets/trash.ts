@@ -96,7 +96,13 @@ export const trashRoutes = new Elysia()
       return;
     }
 
-    // Locate the owning folder root.
+    // Locate the owning folder root. `info.folder_id` resolves from the
+    // asset's primary fileinfo entry — null when the asset has no live
+    // location at all.
+    if (!info.folder_id) {
+      set.status = 500;
+      return { error: 'Asset has no resolvable library — refusing to trash' };
+    }
     const folders = await foldersCollection();
     const folder = await folders.findOne({ _id: info.folder_id });
     if (!folder) {
@@ -113,6 +119,8 @@ export const trashRoutes = new Elysia()
     const originalAbsPath = absPathResolved;
     await markSoftDeleted({
       id,
+      libraryRoot: folder.path,
+      libraryId: info.folder_id,
       newAbsPath: result.newAbsPath,
       originalAbsPath,
     });
@@ -174,12 +182,17 @@ export const trashRoutes = new Elysia()
         return { error: 'Asset has no resolvable location' };
       }
 
+      if (!info.folder_id) {
+        set.status = 500;
+        return { error: 'Asset has no resolvable library' };
+      }
       const folders = await foldersCollection();
       const folder = await folders.findOne({ _id: info.folder_id });
       if (!folder) {
         set.status = 500;
         return { error: "Asset's folder is missing" };
       }
+      const assetFolderId = info.folder_id;
 
       // Cross-library restore guard. Phase 3 only restores into the
       // SAME library the asset belongs to; dragging from Library A's
@@ -190,11 +203,11 @@ export const trashRoutes = new Elysia()
       // folder_id; reject the request if it doesn't match.
       const targetFolderID = (body as { target_folder_id?: string } | null)?.target_folder_id;
       if (typeof targetFolderID === 'string' && targetFolderID.length > 0) {
-        if (targetFolderID !== info.folder_id.toHexString()) {
+        if (targetFolderID !== assetFolderId.toHexString()) {
           set.status = 400;
           return {
             error: 'Cross-library restore is not supported',
-            asset_folder_id: info.folder_id.toHexString(),
+            asset_folder_id: assetFolderId.toHexString(),
             target_folder_id: targetFolderID,
           };
         }
@@ -258,8 +271,9 @@ export const trashRoutes = new Elysia()
       }
       await restoreFromTrash({
         id,
+        libraryRoot: folder.path,
+        libraryId: assetFolderId,
         newAbsPath: result.newAbsPath,
-        filename: restoredFilename,
         size: restoredSize,
         mtimeMs: restoredMtimeMs,
       });
@@ -282,7 +296,7 @@ export const trashRoutes = new Elysia()
             }),
             description: info.description,
             ocrText: info.ocr_text,
-            folderId: info.folder_id.toHexString(),
+            folderId: assetFolderId.toHexString(),
             capturedAt: info.exif?.captured_at ?? null,
             deletedAt: null,
           });

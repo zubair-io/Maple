@@ -80,17 +80,17 @@ const exifStage = defineStage({
     last_seen_target_version: 0,
   },
   handler: async (image: ImageDoc): Promise<StageResult> => {
-    // Resolve via assetAbsPath when the row has fileinfo[0]; fall back to the
-    // legacy abs_path field otherwise. When neither is present, short-circuit
-    // with a skip so the row doesn't burn retries on `fs.stat(undefined)` —
-    // skip writes the stage state without incrementing attempts.
+    // Resolve via assetAbsPath. When fileinfo is missing or the library
+    // can't be resolved, short-circuit with a skip so the row doesn't
+    // burn retries — skip writes the stage state without incrementing
+    // attempts.
     let libs: ReadonlyMap<string, string>;
     try {
       libs = await loadLibraryRoots();
     } catch {
       libs = new Map();
     }
-    const absPath = assetAbsPath(image, libs) ?? (image.abs_path as string | undefined);
+    const absPath = assetAbsPath(image, libs);
     if (!absPath) {
       return { skip: 'no-resolvable-location' };
     }

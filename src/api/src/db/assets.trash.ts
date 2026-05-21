@@ -7,41 +7,71 @@
  * the collection directly while keeping the FS / Meilisearch /
  * change-feed orchestration in the route (the repo doesn't take a
  * Meilisearch dependency).
+ *
+ * Post drop-abs-path-2026-05-21 migration: the canonical location of
+ * an asset lives in `fileinfo[0]`. Trash workflows rewrite that entry
+ * in place and record the original absolute path in `original_path`
+ * so restore can put the file back where it was.
  */
 
-import {
-  type ObjectId,
-  type Db,
-  type UpdateResult,
-  type DeleteResult,
-  type Collection,
-} from "mongodb";
-import { assetsCollection } from "./client.ts";
-import { type AssetDoc } from "./schema.ts";
+import * as path from 'node:path';
+import { ObjectId, type Db, type UpdateResult, type DeleteResult, type Collection } from 'mongodb';
+import { assetsCollection } from './client.ts';
+import { type AssetDoc } from './schema.ts';
 
 async function coll(dbOverride?: Db): Promise<Collection<AssetDoc>> {
-  if (dbOverride) return dbOverride.collection<AssetDoc>("assets");
+  if (dbOverride) return dbOverride.collection<AssetDoc>('assets');
   return assetsCollection();
 }
 
 /**
- * Mark a live asset as soft-deleted and record its pre-trash path.
- * `newAbsPath` is where the FS layer just moved the file; `originalAbsPath`
- * is the location it had before the move. The route writes both; on
- * restore we read `original_path` back out.
+ * Convert an absolute path to a `(path, filename)` pair relative to the
+ * supplied library root. Returns null when the path doesn't fall under
+ * the root — the caller MUST handle that defensively. POSIX-normalises
+ * the directory component so the stored value obeys the FileInfo
+ * docstring contract on every host.
+ */
+function relSplit(libraryRoot: string, absPath: string): { path: string; filename: string } | null {
+  const relDir = path.relative(libraryRoot, path.dirname(absPath));
+  if (relDir.startsWith('..') || path.isAbsolute(relDir)) return null;
+  const normalised = relDir === '' || relDir === '.' ? '' : relDir.split(path.sep).join('/');
+  return { path: normalised, filename: path.basename(absPath) };
+}
+
+/**
+ * Mark a live asset as soft-deleted and rewrite its primary fileinfo entry
+ * to point at the trash destination. `originalAbsPath` is preserved in
+ * `original_path` so the restore workflow can put the file back.
  */
 export async function markSoftDeleted(args: {
   id: ObjectId;
+  /** The library root that owns this asset. Required so we can compute
+   * `(fileinfo[0].path, fileinfo[0].filename)` relative to it. */
+  libraryRoot: string;
+  libraryId: ObjectId;
   newAbsPath: string;
   originalAbsPath: string;
   dbOverride?: Db;
 }): Promise<UpdateResult> {
   const c = await coll(args.dbOverride);
+  const split = relSplit(args.libraryRoot, args.newAbsPath);
+  if (!split) {
+    throw new Error(
+      `markSoftDeleted: newAbsPath ${args.newAbsPath} is outside libraryRoot ${args.libraryRoot}`,
+    );
+  }
   return c.updateOne(
     { _id: args.id },
     {
       $set: {
-        abs_path: args.newAbsPath,
+        fileinfo: [
+          {
+            path: split.path,
+            filename: split.filename,
+            library_id: args.libraryId,
+            deleted_at: null,
+          },
+        ],
         deleted_at: new Date().toISOString(),
         original_path: args.originalAbsPath,
       },
@@ -51,10 +81,7 @@ export async function markSoftDeleted(args: {
 
 /** Permanent purge: drop the doc. Called after the FS layer has
  * removed the file + sidecars. */
-export async function hardDelete(
-  id: ObjectId,
-  dbOverride?: Db,
-): Promise<DeleteResult> {
+export async function hardDelete(id: ObjectId, dbOverride?: Db): Promise<DeleteResult> {
   const c = await coll(dbOverride);
   return c.deleteOne({ _id: id });
 }
@@ -64,14 +91,13 @@ export async function hardDelete(
  * (if any), then update the canonical row to point at its new location.
  *
  * The watcher-race delete is bundled in here so the workflow is atomic
- * at the repo layer — splitting it would put two Mongo ops in the route
- * with a Mongo verb in between (the trash route already had this
- * pattern; moving it intact preserves behaviour).
+ * at the repo layer.
  */
 export async function restoreFromTrash(args: {
   id: ObjectId;
+  libraryRoot: string;
+  libraryId: ObjectId;
   newAbsPath: string;
-  filename: string;
   size: number;
   /**
    * Epoch-ms (typically `stat.mtimeMs`). `AssetDoc.mtime` is typed
@@ -79,27 +105,44 @@ export async function restoreFromTrash(args: {
    * 1000)` — writing an ISO string here NaNs out downstream. The wire
    * response's ISO representation is the route handler's concern (so
    * the Swift File Provider client's Date decoder accepts it); the
-   * repo only stores epoch-ms. Fixes #166 regression.
+   * repo only stores epoch-ms.
    */
   mtimeMs: number;
   dbOverride?: Db;
 }): Promise<UpdateResult> {
   const c = await coll(args.dbOverride);
+  const split = relSplit(args.libraryRoot, args.newAbsPath);
+  if (!split) {
+    throw new Error(
+      `restoreFromTrash: newAbsPath ${args.newAbsPath} is outside libraryRoot ${args.libraryRoot}`,
+    );
+  }
   // Watcher race: between the FS move and this update, the discover
-  // watcher may have observed the file at its new abs_path and inserted
-  // a transient row keyed on (folder_id, filename). That row reserves
-  // the unique slot and would block the updateOne below — delete any
-  // doc at the new abs_path that isn't ours.
+  // watcher may have observed the file at its restore location and
+  // inserted a transient row. Delete any other doc that matches
+  // `(library_id, path, filename)` so this update can adopt the slot.
   await c.deleteOne({
-    abs_path: args.newAbsPath,
     _id: { $ne: args.id },
+    fileinfo: {
+      $elemMatch: {
+        library_id: args.libraryId,
+        path: split.path,
+        filename: split.filename,
+      },
+    },
   });
   return c.updateOne(
     { _id: args.id },
     {
       $set: {
-        abs_path: args.newAbsPath,
-        filename: args.filename,
+        fileinfo: [
+          {
+            path: split.path,
+            filename: split.filename,
+            library_id: args.libraryId,
+            deleted_at: null,
+          },
+        ],
         size: args.size,
         mtime: args.mtimeMs,
         deleted_at: null,

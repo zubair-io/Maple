@@ -32,7 +32,7 @@
 import { readFile } from 'node:fs/promises';
 import type { ImageDoc, StageContext, StageResult } from '../run-stage.ts';
 import { defineStage, runStage, type RunStageHandle } from '../run-stage.ts';
-import { cachePathFor, cachePathForAsset } from '../../fs/xmp.ts';
+import { cachePathForAsset } from '../../fs/xmp.ts';
 import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
 import {
   type DescribeProvider,
@@ -117,18 +117,19 @@ export async function describeHandler(image: ImageDoc, _ctx: StageContext): Prom
   // its absence means either the preview stage hasn't run yet (DAG bug)
   // or the source asset has gone missing.
   //
-  // Prefer the content-addressed preview path when the row has maple_id +
-  // fileinfo[0]; fall back to the legacy basename-keyed cache path for
-  // unmigrated rows.
+  // Content-addressed preview path. The legacy `abs_path` field was
+  // retired in the drop-abs-path-2026-05-21 migration; rows without
+  // `fileinfo` are skipped.
   let libs: ReadonlyMap<string, string>;
   try {
     libs = await loadLibraryRoots();
   } catch {
     libs = new Map();
   }
-  const previewPath =
-    cachePathForAsset(image as never, libs, 'previews', PREVIEW_SIZE_KEY) ??
-    cachePathFor(image.abs_path as string, 'previews', PREVIEW_SIZE_KEY);
+  const previewPath = cachePathForAsset(image as never, libs, 'previews', PREVIEW_SIZE_KEY);
+  if (!previewPath) {
+    return { skip: 'no-resolvable-location' };
+  }
   let jpegBytes: Buffer;
   try {
     jpegBytes = await readFile(previewPath);

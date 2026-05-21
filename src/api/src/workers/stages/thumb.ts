@@ -20,10 +20,10 @@
  *     the new cache-key dependency is satisfied before this stage runs.
  */
 import { generateThumb } from '../../indexer/thumbnailer.ts';
-import { resolveThumbPath, resolveThumbPathForAsset } from '../../fs/xmp.ts';
+import { resolveThumbPathForAsset } from '../../fs/xmp.ts';
 import { assetAbsPath } from '../../indexer/images.repo.ts';
 import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
-import { defineStage, runStage, type RunStageHandle } from '../run-stage.ts';
+import { defineStage, runStage, type RunStageHandle, type StageResult } from '../run-stage.ts';
 
 const thumbStage = defineStage({
   name: 'thumb',
@@ -38,11 +38,10 @@ const thumbStage = defineStage({
     pausedOnFirstBoot: false,
     last_seen_target_version: 0,
   },
-  handler: async (image) => {
+  handler: async (image): Promise<StageResult> => {
     // loadLibraryRoots() reads the folders collection. A transient DB hiccup
-    // (or a test environment without Mongo) must not break thumb generation —
-    // fall back to the legacy basename-keyed path with an empty libraries map
-    // and let the next boot's cache-gc retire any orphan it produced.
+    // must not break thumb generation — fall back to an empty libraries map
+    // and let the next tick retry once the DB is reachable.
     let libs: ReadonlyMap<string, string>;
     try {
       libs = await loadLibraryRoots();
@@ -50,15 +49,10 @@ const thumbStage = defineStage({
       libs = new Map();
     }
     const thumbPath = resolveThumbPathForAsset(image as never, libs);
-    if (!thumbPath) {
-      // Fall back to legacy basename-keyed path so legacy rows (without
-      // maple_id or fileinfo) still get a thumb. The cache-gc sweep retires
-      // their orphans once the row is backfilled.
-      const legacyAbs = image.abs_path as string;
-      await generateThumb(legacyAbs);
-      return { patch: { thumb_path: resolveThumbPath(legacyAbs) } };
+    const absPath = assetAbsPath(image as never, libs);
+    if (!thumbPath || !absPath) {
+      return { skip: 'no-resolvable-location' };
     }
-    const absPath = assetAbsPath(image as never, libs) ?? (image.abs_path as string);
     await generateThumb(absPath, thumbPath);
     return { patch: { thumb_path: thumbPath } };
   },

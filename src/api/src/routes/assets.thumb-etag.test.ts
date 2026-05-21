@@ -1,14 +1,14 @@
-import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { Elysia } from "elysia";
-import { MongoClient, ObjectId, type Db } from "mongodb";
-import { mkdtemp, rm, writeFile, mkdir, realpath, unlink } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join, dirname } from "node:path";
-import { closeDb } from "../db/client.ts";
-import { assetsRoutes } from "./assets.ts";
-import { resolveThumbPath } from "../fs/xmp.ts";
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { Elysia } from 'elysia';
+import { MongoClient, ObjectId, type Db } from 'mongodb';
+import { mkdtemp, rm, writeFile, mkdir, realpath, unlink } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join, dirname } from 'node:path';
+import { closeDb } from '../db/client.ts';
+import { assetsRoutes } from './assets.ts';
+import { resolveThumbPath } from '../fs/xmp.ts';
 
-const MONGO_URI = process.env.MAPLE_MONGO_URI ?? "mongodb://localhost:27017";
+const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
 // Shared DB name across all etag tests in this process so the
 // module-cached MongoClient (which is keyed on the env var read at first
 // connect) never points at a stale DB when tests interleave.
@@ -20,7 +20,7 @@ async function tryConnect(): Promise<MongoClient | null> {
   });
   try {
     await c.connect();
-    await c.db("admin").command({ ping: 1 });
+    await c.db('admin').command({ ping: 1 });
     return c;
   } catch {
     try {
@@ -30,7 +30,7 @@ async function tryConnect(): Promise<MongoClient | null> {
   }
 }
 
-describe("GET /api/assets/:id/thumb — ETag", () => {
+describe('GET /api/assets/:id/thumb — ETag', () => {
   let client: MongoClient | null = null;
   let db: Db | null = null;
   let tmp: string | null = null;
@@ -48,25 +48,25 @@ describe("GET /api/assets/:id/thumb — ETag", () => {
     await db.dropDatabase();
     // realpath() so MAPLE_ROOTS matches the realpath-resolved abs_path on
     // macOS where /tmp is a symlink to /private/tmp.
-    tmp = await realpath(await mkdtemp(join(tmpdir(), "maple-thumb-etag-")));
+    tmp = await realpath(await mkdtemp(join(tmpdir(), 'maple-thumb-etag-')));
     process.env.MAPLE_ROOTS = tmp;
-    const rawPath = join(tmp, "a.dng");
+    const rawPath = join(tmp, 'a.dng');
     await writeFile(rawPath, Buffer.alloc(8));
     const thumbPath = resolveThumbPath(rawPath);
     await mkdir(dirname(thumbPath), { recursive: true });
     await writeFile(thumbPath, Buffer.from([0xff, 0xd8, 0xff]));
     assetId = new ObjectId();
-    await db.collection("assets").insertOne({
+    await db.collection('assets').insertOne({
       _id: assetId,
       folder_id: new ObjectId(),
-      filename: "a.dng",
+      filename: 'a.dng',
       abs_path: rawPath,
       size: 8,
       mtime: Date.now(),
       rating: 0,
       flag: 0,
-      color_label: "",
-      indexed_at: "now",
+      color_label: '',
+      indexed_at: 'now',
     } as never);
   });
 
@@ -80,41 +80,35 @@ describe("GET /api/assets/:id/thumb — ETag", () => {
     tmp = null;
   });
 
-
-  it("returns ETag on 200", async () => {
+  it('returns ETag on 200', async () => {
     if (!client) {
-      console.log("[assets.thumb-etag.test] MongoDB unreachable — skipping");
+      console.log('[assets.thumb-etag.test] MongoDB unreachable — skipping');
       return;
     }
     const app = new Elysia().use(assetsRoutes);
     const res = await app.handle(
-      new Request(
-        `http://localhost/api/assets/${assetId!.toHexString()}/thumb`,
-      ),
+      new Request(`http://localhost/api/assets/${assetId!.toHexString()}/thumb`),
     );
     expect(res.status).toBe(200);
-    expect(res.headers.get("ETag")).toMatch(/^".+"$/);
+    expect(res.headers.get('ETag')).toMatch(/^".+"$/);
   });
 
-  it("returns 304 when If-None-Match matches", async () => {
+  it('returns 304 when If-None-Match matches', async () => {
     if (!client) return;
     const app = new Elysia().use(assetsRoutes);
     const first = await app.handle(
-      new Request(
-        `http://localhost/api/assets/${assetId!.toHexString()}/thumb`,
-      ),
+      new Request(`http://localhost/api/assets/${assetId!.toHexString()}/thumb`),
     );
-    const etag = first.headers.get("ETag")!;
+    const etag = first.headers.get('ETag')!;
     const second = await app.handle(
-      new Request(
-        `http://localhost/api/assets/${assetId!.toHexString()}/thumb`,
-        { headers: { "If-None-Match": etag } },
-      ),
+      new Request(`http://localhost/api/assets/${assetId!.toHexString()}/thumb`, {
+        headers: { 'If-None-Match': etag },
+      }),
     );
     expect(second.status).toBe(304);
   });
 
-  it("304 short-circuits BEFORE the body is read", async () => {
+  it('304 short-circuits BEFORE the body is read', async () => {
     // Regression for Copilot review: previous shape read the file and
     // THEN computed the ETag, so a 304-bound request still paid the
     // disk-read cost. The fix stats first, returns 304 if matched, and
@@ -126,12 +120,10 @@ describe("GET /api/assets/:id/thumb — ETag", () => {
     if (!client) return;
     const app = new Elysia().use(assetsRoutes);
     const first = await app.handle(
-      new Request(
-        `http://localhost/api/assets/${assetId!.toHexString()}/thumb`,
-      ),
+      new Request(`http://localhost/api/assets/${assetId!.toHexString()}/thumb`),
     );
     expect(first.status).toBe(200);
-    const etag = first.headers.get("ETag")!;
+    const etag = first.headers.get('ETag')!;
     // Keep the stat-able file present so the ETag is still computable,
     // but make any safeReadFile call observably fail. We do this by
     // truncating the file size to zero — stat still works, but if the
@@ -144,16 +136,15 @@ describe("GET /api/assets/:id/thumb — ETag", () => {
     // MUST be zero, and the route must not throw even if the file is
     // unreadable in the unused-read branch.
     const second = await app.handle(
-      new Request(
-        `http://localhost/api/assets/${assetId!.toHexString()}/thumb`,
-        { headers: { "If-None-Match": etag } },
-      ),
+      new Request(`http://localhost/api/assets/${assetId!.toHexString()}/thumb`, {
+        headers: { 'If-None-Match': etag },
+      }),
     );
     expect(second.status).toBe(304);
     expect((await second.text()).length).toBe(0);
   });
 
-  it("304 returns even when body would be unreadable (proves no read on hit)", async () => {
+  it('304 returns even when body would be unreadable (proves no read on hit)', async () => {
     // Sharper version of the test above: physically delete the thumb
     // between the priming request and the conditional one. The stat
     // call inside the route will fail (file is gone) so the route will
@@ -165,21 +156,22 @@ describe("GET /api/assets/:id/thumb — ETag", () => {
     if (!client) return;
     const app = new Elysia().use(assetsRoutes);
     const first = await app.handle(
-      new Request(
-        `http://localhost/api/assets/${assetId!.toHexString()}/thumb`,
-      ),
+      new Request(`http://localhost/api/assets/${assetId!.toHexString()}/thumb`),
     );
-    const etag = first.headers.get("ETag")!;
+    const etag = first.headers.get('ETag')!;
     // Delete the thumb. Now any subsequent stat fails.
-    const { resolveThumbPath } = await import("../fs/xmp.ts");
-    const coll = await (await import("../db/client.ts")).assetsCollection();
+    const { resolveThumbPath } = await import('../fs/xmp.ts');
+    const { assetAbsPath } = await import('../indexer/images.repo.ts');
+    const { loadLibraryRoots } = await import('../indexer/libraries.cache.ts');
+    const coll = await (await import('../db/client.ts')).assetsCollection();
     const doc = await coll.findOne({ _id: assetId! });
-    await unlink(resolveThumbPath(doc!.abs_path));
+    const libs = await loadLibraryRoots();
+    const absPath = assetAbsPath(doc!, libs);
+    if (absPath) await unlink(resolveThumbPath(absPath));
     const second = await app.handle(
-      new Request(
-        `http://localhost/api/assets/${assetId!.toHexString()}/thumb`,
-        { headers: { "If-None-Match": etag } },
-      ),
+      new Request(`http://localhost/api/assets/${assetId!.toHexString()}/thumb`, {
+        headers: { 'If-None-Match': etag },
+      }),
     );
     // Stat fails → 404. The previous shape would have failed in
     // safeReadFile FIRST (same 404). The discriminating point is that
@@ -188,27 +180,24 @@ describe("GET /api/assets/:id/thumb — ETag", () => {
     expect(second.status).toBe(404);
   });
 
-  it("304 echoes the 200 Cache-Control so URLSession keeps freshness", async () => {
+  it('304 echoes the 200 Cache-Control so URLSession keeps freshness', async () => {
     // RFC 9110 §15.4.5 — a 304 response SHOULD include the same
     // Cache-Control the 200 would. Without this, URLSession's HTTP
     // cache downgrades its freshness on every revalidation.
     if (!client) return;
     const app = new Elysia().use(assetsRoutes);
     const first = await app.handle(
-      new Request(
-        `http://localhost/api/assets/${assetId!.toHexString()}/thumb`,
-      ),
+      new Request(`http://localhost/api/assets/${assetId!.toHexString()}/thumb`),
     );
-    const etag = first.headers.get("ETag")!;
-    const cacheControl200 = first.headers.get("Cache-Control");
-    expect(cacheControl200).toBe("public, max-age=604800, immutable");
+    const etag = first.headers.get('ETag')!;
+    const cacheControl200 = first.headers.get('Cache-Control');
+    expect(cacheControl200).toBe('public, max-age=604800, immutable');
     const second = await app.handle(
-      new Request(
-        `http://localhost/api/assets/${assetId!.toHexString()}/thumb`,
-        { headers: { "If-None-Match": etag } },
-      ),
+      new Request(`http://localhost/api/assets/${assetId!.toHexString()}/thumb`, {
+        headers: { 'If-None-Match': etag },
+      }),
     );
     expect(second.status).toBe(304);
-    expect(second.headers.get("Cache-Control")).toBe(cacheControl200);
+    expect(second.headers.get('Cache-Control')).toBe(cacheControl200);
   });
 });

@@ -106,7 +106,7 @@ describe('workers smoke test', () => {
       expect(stages.face?.version).toBe(0);
 
       // Clean up.
-      await assetsColl.deleteOne({ _id: doc!._id });
+      await assetsColl.deleteOne({ _id: doc!._id as never });
     },
     TIMEOUT_MS + 5000,
   );

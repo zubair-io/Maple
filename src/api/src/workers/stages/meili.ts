@@ -17,13 +17,11 @@
  * rather than spinning forever on an un-fixable invariant violation.
  */
 
-import type { ImageDoc, StageContext, StageResult } from "../run-stage.ts";
-import { defineStage, runStage, type RunStageHandle } from "../run-stage.ts";
-import {
-  meilisearchClient,
-  type MeilisearchClient,
-} from "../../enrichment/meilisearch-client.ts";
-import { composeSearchBlob } from "../../enrichment/search-blob.ts";
+import type { ImageDoc, StageContext, StageResult } from '../run-stage.ts';
+import { defineStage, runStage, type RunStageHandle } from '../run-stage.ts';
+import { meilisearchClient, type MeilisearchClient } from '../../enrichment/meilisearch-client.ts';
+import { composeSearchBlob } from '../../enrichment/search-blob.ts';
+import { assetPrimaryFileInfo } from '../../indexer/images.repo.ts';
 
 let _client: MeilisearchClient | null = null;
 function getClient(): MeilisearchClient {
@@ -32,19 +30,14 @@ function getClient(): MeilisearchClient {
 }
 
 /** Test-only setter. Call with `null` to reset between tests. */
-export function setMeilisearchClientForTests(
-  client: MeilisearchClient | null,
-): void {
+export function setMeilisearchClientForTests(client: MeilisearchClient | null): void {
   _client = client;
 }
 
-export async function meiliHandler(
-  image: ImageDoc,
-  _ctx: StageContext,
-): Promise<StageResult> {
-  const mapleId = (image as unknown as { maple_id?: string }).maple_id ?? "";
+export async function meiliHandler(image: ImageDoc, _ctx: StageContext): Promise<StageResult> {
+  const mapleId = (image as unknown as { maple_id?: string }).maple_id ?? '';
   if (mapleId.length === 0) {
-    return { skip: "no-maple-id" };
+    return { skip: 'no-maple-id' };
   }
 
   // Vision signals from the qwen2.5-vl describe stage — see schema.ts
@@ -54,7 +47,7 @@ export async function meiliHandler(
   const vision =
     (
       image as unknown as {
-        vision?: import("../../db/schema.ts").VisionDoc | null;
+        vision?: import('../../db/schema.ts').VisionDoc | null;
       }
     ).vision ?? null;
 
@@ -68,17 +61,23 @@ export async function meiliHandler(
     visionNotableObjects: vision?.notable_objects ?? null,
   });
 
-  const isScreenshot =
-    (image as unknown as { is_screenshot?: boolean }).is_screenshot ?? null;
+  const isScreenshot = (image as unknown as { is_screenshot?: boolean }).is_screenshot ?? null;
 
   const client = getClient();
   if (client.isConfigured()) {
+    // Resolve folder id (== library id) from the primary fileinfo entry.
+    // Skip the Meili upsert if the row has no live fileinfo — the document
+    // can't be filtered by folder without it.
+    const primary = assetPrimaryFileInfo(image as never);
+    if (!primary) {
+      return { skip: 'no-resolvable-location' };
+    }
     await client.upsertOrThrow({
       id: mapleId,
       searchBlob: blob,
       description: image.description ?? null,
       ocrText: (image as unknown as { ocr_text?: string }).ocr_text ?? null,
-      folderId: image.folder_id.toHexString(),
+      folderId: primary.library_id.toHexString(),
       capturedAt: image.exif?.captured_at ?? null,
       deletedAt: null,
       visionSceneType: vision?.scene_type ?? null,
@@ -92,7 +91,7 @@ export async function meiliHandler(
 }
 
 const meiliStage = defineStage({
-  name: "meili",
+  name: 'meili',
   // v2: introduced a mean-confidence gate on `ocr_text` (removed with the
   // legacy OCR stage). Bumping forced a re-index against the cleaned value.
   //
@@ -113,7 +112,7 @@ const meiliStage = defineStage({
   // Only depends on always-on stages. When optional stages (face/ocr/describe/geocode)
   // run later, meili won't automatically re-process to incorporate their outputs.
   // Operator must bump meili.targetVersion or trigger a manual reset to refresh.
-  dependsOn: ["exif", "thumb"],
+  dependsOn: ['exif', 'thumb'],
   defaults: {
     concurrency: 2,
     pollIntervalMs: 1000,

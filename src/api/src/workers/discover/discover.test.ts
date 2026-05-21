@@ -107,7 +107,11 @@ describe('discover producer', () => {
 
     // The doc should now be in the assets collection.
     const coll = await assetsCollection();
-    const doc = await coll.findOne({ abs_path: file });
+    const filename = path.basename(file);
+    const raw = await coll.findOne({
+      fileinfo: { $elemMatch: { library_id: folderId, filename } },
+    });
+    const doc = raw as unknown as { stages?: Record<string, unknown> } | null;
 
     expect(doc).not.toBeNull();
     expect(doc!.stages).toBeDefined();
@@ -126,7 +130,7 @@ describe('discover producer', () => {
 
     // Clean up: remove the test folder and asset rows.
     await foldersColl.deleteOne({ _id: folderId });
-    await coll.deleteOne({ abs_path: file });
+    await coll.deleteOne({ fileinfo: { $elemMatch: { library_id: folderId, filename } } } as never);
   });
 
   it('soft-deletes a doc when a removed event is received', async () => {
@@ -188,17 +192,22 @@ describe('discover producer', () => {
     // First discover — inserts with skeleton (all stages start at 0).
     await handleEvent({ kind: 'created', absPath: file }, folderId, tempDir);
     // Simulate a stage completing by bumping exif.version to 1.
-    await coll.updateOne({ abs_path: file }, { $set: { 'stages.exif.version': 1 } });
+    const filename = path.basename(file);
+    const matchFilter = {
+      fileinfo: { $elemMatch: { library_id: folderId, filename } },
+    } as never;
+    await coll.updateOne(matchFilter, { $set: { 'stages.exif.version': 1 } });
 
     // Re-discover (modified event) — must not reset exif back to 0.
     await handleEvent({ kind: 'modified', absPath: file }, folderId, tempDir);
-    const doc = await coll.findOne({ abs_path: file });
+    const raw = await coll.findOne(matchFilter);
+    const doc = raw as unknown as { stages?: Record<string, { version: number }> } | null;
     expect(doc).not.toBeNull();
     const stages = doc!.stages as Record<string, { version: number }>;
     expect(stages.exif.version).toBe(1); // preserved by $setOnInsert
 
     // Clean up.
-    await coll.deleteOne({ abs_path: file });
+    await coll.deleteOne(matchFilter);
     await foldersColl.deleteOne({ _id: folderId });
     await rm(tempDir, { recursive: true, force: true });
   });
