@@ -18,7 +18,9 @@
 // **#191 inventory of former store fields and their new homes:**
 //   - thumbSize, sort, filter, sidebarVisible, inspectorVisible, activeTab,
 //     viewMode, sectionOpen, folderOpen
-//       → moved to BrowsePreferencesService (this file, this PR).
+//       → extracted in this PR into BrowsePreferencesService
+//         (`browse-preferences.service.ts`). Callers read them via the
+//         LibraryStateService facade, which re-exports each signal.
 //   - searchQuery, pickerVisible, adminVisible, backendLoading,
 //     backendError, backendEmpty, rescanStatus, rescanError
 //       → still on this store; planned to collapse into component / fetcher
@@ -36,17 +38,15 @@ import { LIBRARY_BACKEND } from '../api/library-backend.token';
 import { ApiFolder } from '../api/bun-api-backend.service';
 import { MapleFolderHandle } from '../folder-access/folder-access.types';
 import { MapleIndex } from '../maple-cache/maple-cache.types';
-import { BrowsePreferencesService } from './browse-preferences.service';
 
 @Injectable({ providedIn: 'root' })
 export class LibraryStore {
   /** Which backend is in use. Consumers read this to branch data-source paths. */
   readonly backend = inject(LIBRARY_BACKEND);
 
-  /** Persisted UI prefs live here — extracted in #191. Library-state facade
-   * still re-exports the individual signals so external consumers don't need
-   * to migrate in this PR. */
-  readonly prefs = inject(BrowsePreferencesService);
+  // BrowsePreferencesService is consumed directly by LibraryStateService
+  // (the facade) and the components that need it — there is no store-level
+  // consumer of the prefs, so this class does not inject it.
 
   // ── Self-Hosted bootstrap state ────────────────────────────────────────────
   /** True while listFolders / listAssets is in flight (Self-Hosted only). */

@@ -1,4 +1,4 @@
-// Browse preferences — the 9 user-facing UI prefs backed by localStorage.
+// Browse preferences — the 9 user-facing UI prefs surfaced as signals.
 //
 // Lifted out of `library-store.service.ts` (ticket #191) so the data store
 // only holds network/persistence-backed library data. These signals own:
@@ -12,15 +12,25 @@
 //   - sectionOpen         (sidebar section expand map)
 //   - folderOpen          (sidebar folder expand map)
 //
-// All nine are persisted to `localStorage` under the legacy `cm.*` keys so
-// existing users keep their preferences across the refactor. The store is
-// the source of truth; signals are a sync layer.
+// Each pref is seeded from `localStorage` (legacy `cm.*` keys, preserved
+// across the refactor so existing users keep their preferences). The
+// signals are the authoritative in-memory copy; write-back to localStorage
+// lives in three places depending on the field:
+//
+//   * sidebar/inspector/section/folder/viewMode → explicit `setX` /
+//     `toggleX` methods on this service write localStorage on each call.
+//   * thumbSize/sort/filter → write-back lives in the components that own
+//     those controls (`asset-grid.component.ts`) — they call
+//     `localStorage.setItem('cm.<key>', …)` alongside `signal.set(…)`.
+//   * activeTab → callers do `state.activeTab.set('develop')` directly, so
+//     this service mirrors updates to `cm.tab` via an Angular `effect()`
+//     (see constructor) without requiring a setter wrapper.
 //
 // Ephemeral UI state (search query, modal-open flags, fetch-lifecycle
 // banners) does NOT belong here — those move to component signals or the
 // fetcher in follow-up tickets.
 
-import { Injectable, signal } from '@angular/core';
+import { Injectable, effect, signal } from '@angular/core';
 
 export type SortKey = 'date' | 'name';
 export type CullFilter = 'all' | 'picks' | '4stars';
@@ -53,6 +63,24 @@ export class BrowsePreferencesService {
 
   // ── Active detail tab ─────────────────────────────────────────────────────
   readonly activeTab = signal<DetailTab>(this._loadOrDefault('cm.tab', 'info') as DetailTab);
+
+  constructor() {
+    // Persist activeTab on every change. Other prefs in this service write
+    // localStorage from explicit setter methods (toggleSidebar, setViewMode,
+    // …); activeTab is updated by callers via `state.activeTab.set(…)`
+    // directly, so an `effect()` is the natural sync point. Field readers
+    // get the seeded value from the signal init above; this effect fires
+    // once on creation (writing back the seeded value, a no-op in the
+    // common case) and on every subsequent `.set()`.
+    effect(() => {
+      const v = this.activeTab();
+      try {
+        localStorage.setItem('cm.tab', JSON.stringify(v));
+      } catch {
+        /* noop */
+      }
+    });
+  }
 
   // ── Browse-shell view mode (Folder vs Timeline) ──────────────────────────
   readonly viewMode = signal<BrowseViewMode>(
