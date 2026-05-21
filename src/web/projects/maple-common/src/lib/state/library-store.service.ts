@@ -18,11 +18,17 @@
 // **#191 inventory of former store fields and their new homes:**
 //   - thumbSize, sort, filter, sidebarVisible, inspectorVisible, activeTab,
 //     viewMode, sectionOpen, folderOpen
-//       → extracted in this PR into BrowsePreferencesService
+//       → extracted into BrowsePreferencesService (slice 1, PR #216)
 //         (`browse-preferences.service.ts`). Callers read them via the
 //         LibraryStateService facade, which re-exports each signal.
-//   - searchQuery, pickerVisible, adminVisible, backendLoading,
-//     backendError, backendEmpty, rescanStatus, rescanError
+//   - searchQuery
+//       → extracted in this PR into LibrarySelection
+//         (`library-selection.service.ts`). The toolbar search input is
+//         conceptually part of the selection-state group (`selectedAssetIds`,
+//         `focusedAssetId`, `selectedSourceId` already live there). Re-exported
+//         via the facade so consumers keep working unchanged.
+//   - pickerVisible, adminVisible, backendLoading, backendError, backendEmpty,
+//     rescanStatus, rescanError
 //       → still on this store; planned to collapse into component / fetcher
 //         signals in follow-up PRs per the issue brief.
 
@@ -168,11 +174,6 @@ export class LibraryStore {
   // ── Current folder handle ─────────────────────────────────────────────────
   /** The folder the user most recently opened via openFolder(). */
   readonly currentFolder = signal<MapleFolderHandle | null>(null);
-
-  // ── In-grid search query (filename substring filter) ──────────────────────
-  // Ephemeral — does NOT persist. Slated to move to BrowseShell component
-  // signal in a follow-up PR per the #191 brief.
-  readonly searchQuery = signal<string>('');
 
   // ── Adjustment models (per-asset develop settings) ────────────────────────
   readonly adjustmentModels = signal<Map<AssetId, AdjustmentModel>>(new Map());
