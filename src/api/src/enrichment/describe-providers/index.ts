@@ -22,16 +22,12 @@
  * Spec: `docs/indexer-enrichment.md` §6 + §8.
  */
 
-import { OllamaProvider } from "./ollama.ts";
-import { AnthropicProvider } from "./anthropic.ts";
-import { OpenAIProvider } from "./openai.ts";
-import { GeminiProvider } from "./gemini.ts";
+import { OllamaProvider } from './ollama.ts';
+import { AnthropicProvider } from './anthropic.ts';
+import { OpenAIProvider } from './openai.ts';
+import { GeminiProvider } from './gemini.ts';
 
-export type DescribeProviderName =
-  | "ollama"
-  | "anthropic"
-  | "openai"
-  | "gemini";
+export type DescribeProviderName = 'ollama' | 'anthropic' | 'openai' | 'gemini';
 
 export interface DescribeOptions {
   /** Caption-generation prompt. Sent verbatim — worker resolves the
@@ -39,6 +35,14 @@ export interface DescribeOptions {
   systemPrompt: string;
   /** Model id, e.g. `"llava:latest"` or `"claude-haiku-4-5"`. */
   model: string;
+  /** Optional JSON Schema for structured-output constraint. Currently only
+   * the Ollama provider reads this (forwarded to `/api/generate`'s `format`
+   * parameter, which Ollama 0.5+ uses to constrain decoding). Anthropic,
+   * OpenAI, and Gemini ignore the field today — each platform's structured-
+   * output primitive (`response_format: json_schema`, `response_schema`,
+   * tool-call schema) would need a separate wiring pass. The parser's
+   * defensive coercions remain the only guard for those providers. */
+  format?: unknown;
 }
 
 export interface DescribeResult {
@@ -84,7 +88,7 @@ export class RemoteError extends Error {
   readonly status?: number;
   constructor(message: string, retryable: boolean, status?: number) {
     super(message);
-    this.name = "RemoteError";
+    this.name = 'RemoteError';
     this.retryable = retryable;
     this.status = status;
   }
@@ -114,27 +118,27 @@ export function getDescribeProvider(
   opts: ProviderFactoryOptions = {},
 ): DescribeProvider {
   switch (name) {
-    case "ollama":
+    case 'ollama':
       return new OllamaProvider({
         baseUrl: opts.url ?? null,
         fetchImpl: opts.fetchImpl,
         requestTimeoutMs: opts.requestTimeoutMs,
       });
-    case "anthropic":
+    case 'anthropic':
       return new AnthropicProvider({
-        apiKey: resolveKey("anthropic", opts.apiKey),
+        apiKey: resolveKey('anthropic', opts.apiKey),
         fetchImpl: opts.fetchImpl,
         requestTimeoutMs: opts.requestTimeoutMs,
       });
-    case "openai":
+    case 'openai':
       return new OpenAIProvider({
-        apiKey: resolveKey("openai", opts.apiKey),
+        apiKey: resolveKey('openai', opts.apiKey),
         fetchImpl: opts.fetchImpl,
         requestTimeoutMs: opts.requestTimeoutMs,
       });
-    case "gemini":
+    case 'gemini':
       return new GeminiProvider({
-        apiKey: resolveKey("gemini", opts.apiKey),
+        apiKey: resolveKey('gemini', opts.apiKey),
         fetchImpl: opts.fetchImpl,
         requestTimeoutMs: opts.requestTimeoutMs,
       });
@@ -149,15 +153,12 @@ export function getDescribeProvider(
  * Throws synchronously if neither source has a value — this is the
  * fail-fast for paid-provider misconfiguration. */
 function resolveKey(
-  name: Exclude<DescribeProviderName, "ollama">,
+  name: Exclude<DescribeProviderName, 'ollama'>,
   explicit: string | null | undefined,
 ): string {
   if (explicit && explicit.length > 0) return explicit;
   const envName = `MAPLE_${name.toUpperCase()}_API_KEY`;
   const fromEnv = process.env[envName];
   if (fromEnv && fromEnv.length > 0) return fromEnv;
-  throw new RemoteError(
-    `${name} provider selected but ${envName} is unset`,
-    false,
-  );
+  throw new RemoteError(`${name} provider selected but ${envName} is unset`, false);
 }

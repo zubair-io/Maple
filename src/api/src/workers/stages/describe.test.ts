@@ -1,34 +1,35 @@
-import { describe, it, expect, beforeEach, afterEach } from "bun:test";
-import { mkdirSync, writeFileSync, mkdtempSync, rmSync } from "node:fs";
-import { join, dirname } from "node:path";
-import { tmpdir } from "node:os";
-import { ObjectId } from "mongodb";
-import type { ImageDoc } from "../run-stage.ts";
+import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
+import { mkdirSync, writeFileSync, mkdtempSync, rmSync } from 'node:fs';
+import { join, dirname } from 'node:path';
+import { tmpdir } from 'node:os';
+import { ObjectId } from 'mongodb';
+import type { ImageDoc } from '../run-stage.ts';
 import {
   RemoteError,
   type DescribeProvider,
   type DescribeResult,
-} from "../../enrichment/describe-providers/index.ts";
-import { cachePathFor } from "../../fs/xmp.ts";
+} from '../../enrichment/describe-providers/index.ts';
+import { cachePathFor } from '../../fs/xmp.ts';
 
-import { describeHandler, setDescribeDepsForTests, DESCRIBE_PROMPT_VERSION } from "./describe.ts";
+import { describeHandler, setDescribeDepsForTests, DESCRIBE_PROMPT_VERSION } from './describe.ts';
+import { VISION_DOC_JSON_SCHEMA } from '../../enrichment/describe-providers/parse-vision-json.ts';
 
 const VALID_VISION = {
-  caption: "A red bicycle leaning against a brick wall.",
-  subjects: ["vehicle"],
-  scene_type: "outdoor",
-  setting: "alleyway",
+  caption: 'A red bicycle leaning against a brick wall.',
+  subjects: ['vehicle'],
+  scene_type: 'outdoor',
+  setting: 'alleyway',
   activity: null,
-  time_of_day: "afternoon",
-  lighting: "natural",
-  weather: "clear",
-  mood: "calm",
-  colors: ["red", "brown", "grey"],
-  composition: "close-up",
+  time_of_day: 'afternoon',
+  lighting: 'natural',
+  weather: 'clear',
+  mood: 'calm',
+  colors: ['red', 'brown', 'grey'],
+  composition: 'close-up',
   text_visible: null,
-  notable_objects: ["bicycle", "brick wall"],
-  shot_type: "static",
-  indoor_outdoor: "outdoor",
+  notable_objects: ['bicycle', 'brick wall'],
+  shot_type: 'static',
+  indoor_outdoor: 'outdoor',
   is_screenshot: false,
 };
 
@@ -36,20 +37,26 @@ function fakeDoc(absPath: string): ImageDoc {
   return {
     _id: new ObjectId(),
     folder_id: new ObjectId(),
-    filename: "test.dng",
+    filename: 'test.dng',
     abs_path: absPath,
     size: 1,
     mtime: 1,
     rating: 0,
     flag: 0,
-    color_label: "",
+    color_label: '',
     indexed_at: new Date().toISOString(),
     exif: {
-      captured_at: "2024-06-01T12:00:00.000Z",
+      captured_at: '2024-06-01T12:00:00.000Z',
       captured_year: 2024,
       captured_month: 6,
-      camera_make: null, camera_model: null, lens: null,
-      iso: null, aperture: null, shutter: null, focal_length: null, gps: null,
+      camera_make: null,
+      camera_model: null,
+      lens: null,
+      iso: null,
+      aperture: null,
+      shutter: null,
+      focal_length: null,
+      gps: null,
     },
     faces: [],
     description: null,
@@ -60,7 +67,7 @@ function fakeDoc(absPath: string): ImageDoc {
 
 function mockProvider(result: DescribeResult | Error): DescribeProvider {
   return {
-    name: "ollama",
+    name: 'ollama',
     async describe(_bytes, _opts): Promise<DescribeResult> {
       if (result instanceof Error) throw result;
       return result;
@@ -70,7 +77,9 @@ function mockProvider(result: DescribeResult | Error): DescribeProvider {
 }
 
 let tmpRoot: string;
-beforeEach(() => { tmpRoot = mkdtempSync(join(tmpdir(), "maple-describe-stage-")); });
+beforeEach(() => {
+  tmpRoot = mkdtempSync(join(tmpdir(), 'maple-describe-stage-'));
+});
 afterEach(() => {
   rmSync(tmpRoot, { recursive: true, force: true });
   setDescribeDepsForTests(null);
@@ -78,27 +87,27 @@ afterEach(() => {
 
 /** Seed a fake 1280-px preview at the path the describe stage will read. */
 function seedPreview(absPath: string): void {
-  const previewPath = cachePathFor(absPath, "previews", "1280");
+  const previewPath = cachePathFor(absPath, 'previews', '1280');
   mkdirSync(dirname(previewPath), { recursive: true });
   writeFileSync(previewPath, Buffer.from([0xff, 0xd8, 0xff, 0xd9]));
 }
 
 const fakeCtx = {} as never;
 
-describe("describeHandler — happy path", () => {
-  it("returns patch with description, description_meta, vision, vision_meta", async () => {
-    const absPath = join(tmpRoot, "img.dng");
+describe('describeHandler — happy path', () => {
+  it('returns patch with description, description_meta, vision, vision_meta', async () => {
+    const absPath = join(tmpRoot, 'img.dng');
     seedPreview(absPath);
     const doc = fakeDoc(absPath);
     const provider = mockProvider({
       text: JSON.stringify(VALID_VISION),
       cost_usd: 0.0, // qwen2.5-vl runs locally; no spend
-      provider_info: { eval_count: "30" },
+      provider_info: { eval_count: '30' },
     });
     setDescribeDepsForTests({
       provider,
-      systemPrompt: "structured vision prompt",
-      model: "qwen2.5vl:7b",
+      systemPrompt: 'structured vision prompt',
+      model: 'qwen2.5vl:7b',
     });
 
     const result = await describeHandler(doc, fakeCtx);
@@ -110,31 +119,61 @@ describe("describeHandler — happy path", () => {
     // Structured vision subdoc round-trips.
     const vision = patch.vision as typeof VALID_VISION;
     expect(vision.subjects).toEqual(VALID_VISION.subjects);
-    expect(vision.scene_type).toBe("outdoor");
+    expect(vision.scene_type).toBe('outdoor');
     expect(vision.notable_objects).toEqual(VALID_VISION.notable_objects);
 
     // description_meta keeps its existing shape + provider_info spread.
     const meta = patch.description_meta as Record<string, unknown>;
-    expect(meta.provider).toBe("ollama");
-    expect(meta.model).toBe("qwen2.5vl:7b");
+    expect(meta.provider).toBe('ollama');
+    expect(meta.model).toBe('qwen2.5vl:7b');
     expect(meta.prompt_version).toBe(DESCRIBE_PROMPT_VERSION);
-    expect(typeof meta.generated_at).toBe("string");
-    expect(meta.eval_count).toBe("30");
+    expect(typeof meta.generated_at).toBe('string');
+    expect(meta.eval_count).toBe('30');
 
     // vision_meta carries the same provenance plus raw_response_size.
     const vmeta = patch.vision_meta as Record<string, unknown>;
-    expect(vmeta.provider).toBe("ollama");
-    expect(vmeta.model).toBe("qwen2.5vl:7b");
+    expect(vmeta.provider).toBe('ollama');
+    expect(vmeta.model).toBe('qwen2.5vl:7b');
     expect(vmeta.prompt_version).toBe(DESCRIBE_PROMPT_VERSION);
-    expect(typeof vmeta.raw_response_size).toBe("number");
+    expect(typeof vmeta.raw_response_size).toBe('number');
     expect((vmeta.raw_response_size as number) > 0).toBe(true);
 
     // Top-level is_screenshot mirror — overwrites the exif heuristic.
     expect(patch.is_screenshot).toBe(false);
   });
 
-  it("writes is_screenshot: true at the top level when the VLM flags it", async () => {
-    const absPath = join(tmpRoot, "screenshot.png");
+  it('threads VISION_DOC_JSON_SCHEMA through to the provider as `format`', async () => {
+    const absPath = join(tmpRoot, 'img.dng');
+    seedPreview(absPath);
+    const doc = fakeDoc(absPath);
+    let capturedFormat: unknown = undefined;
+    const provider: DescribeProvider = {
+      name: 'ollama',
+      async describe(_bytes, opts): Promise<DescribeResult> {
+        capturedFormat = opts.format;
+        return {
+          text: JSON.stringify(VALID_VISION),
+          cost_usd: 0,
+          provider_info: {},
+        };
+      },
+      async health(): Promise<void> {},
+    };
+    setDescribeDepsForTests({
+      provider,
+      systemPrompt: 'p',
+      model: 'qwen2.5vl:7b',
+    });
+    await describeHandler(doc, fakeCtx);
+    // Identity, not deep equality — the stage should pass the exported
+    // schema constant verbatim, not a copy. Catches accidental rebuilds
+    // (a `JSON.parse(JSON.stringify(...))` round-trip would drop the
+    // `as const` typing and silently allow drift).
+    expect(capturedFormat).toBe(VISION_DOC_JSON_SCHEMA);
+  });
+
+  it('writes is_screenshot: true at the top level when the VLM flags it', async () => {
+    const absPath = join(tmpRoot, 'screenshot.png');
     seedPreview(absPath);
     const doc = fakeDoc(absPath);
     const vision = { ...VALID_VISION, is_screenshot: true };
@@ -145,8 +184,8 @@ describe("describeHandler — happy path", () => {
     });
     setDescribeDepsForTests({
       provider,
-      systemPrompt: "p",
-      model: "qwen2.5vl:7b",
+      systemPrompt: 'p',
+      model: 'qwen2.5vl:7b',
     });
 
     const result = await describeHandler(doc, fakeCtx);
@@ -155,19 +194,19 @@ describe("describeHandler — happy path", () => {
     expect((patch.vision as { is_screenshot: boolean }).is_screenshot).toBe(true);
   });
 
-  it("forgives a markdown-fence-wrapped model response", async () => {
-    const absPath = join(tmpRoot, "fenced.dng");
+  it('forgives a markdown-fence-wrapped model response', async () => {
+    const absPath = join(tmpRoot, 'fenced.dng');
     seedPreview(absPath);
     const doc = fakeDoc(absPath);
     const provider = mockProvider({
-      text: "```json\n" + JSON.stringify(VALID_VISION) + "\n```",
+      text: '```json\n' + JSON.stringify(VALID_VISION) + '\n```',
       cost_usd: 0,
       provider_info: {},
     });
     setDescribeDepsForTests({
       provider,
-      systemPrompt: "p",
-      model: "qwen2.5vl:7b",
+      systemPrompt: 'p',
+      model: 'qwen2.5vl:7b',
     });
     const result = await describeHandler(doc, fakeCtx);
     const patch = (result as { patch: Record<string, unknown> }).patch;
@@ -175,26 +214,26 @@ describe("describeHandler — happy path", () => {
   });
 });
 
-describe("describeHandler — parse failure", () => {
-  it("throws on prose-only model output (runtime auto-dead-letters)", async () => {
-    const absPath = join(tmpRoot, "prose.dng");
+describe('describeHandler — parse failure', () => {
+  it('throws on prose-only model output (runtime auto-dead-letters)', async () => {
+    const absPath = join(tmpRoot, 'prose.dng');
     seedPreview(absPath);
     const doc = fakeDoc(absPath);
     const provider = mockProvider({
-      text: "Sorry, I cannot help with that.",
+      text: 'Sorry, I cannot help with that.',
       cost_usd: 0,
       provider_info: {},
     });
     setDescribeDepsForTests({
       provider,
-      systemPrompt: "p",
-      model: "qwen2.5vl:7b",
+      systemPrompt: 'p',
+      model: 'qwen2.5vl:7b',
     });
-    await expect(describeHandler(doc, fakeCtx)).rejects.toThrow("vision-parse");
+    await expect(describeHandler(doc, fakeCtx)).rejects.toThrow('vision-parse');
   });
 
-  it("throws on JSON with a missing required field", async () => {
-    const absPath = join(tmpRoot, "incomplete.dng");
+  it('throws on JSON with a missing required field', async () => {
+    const absPath = join(tmpRoot, 'incomplete.dng');
     seedPreview(absPath);
     const doc = fakeDoc(absPath);
     const broken = { ...VALID_VISION } as Partial<typeof VALID_VISION>;
@@ -210,16 +249,16 @@ describe("describeHandler — parse failure", () => {
     });
     setDescribeDepsForTests({
       provider,
-      systemPrompt: "p",
-      model: "qwen2.5vl:7b",
+      systemPrompt: 'p',
+      model: 'qwen2.5vl:7b',
     });
     await expect(describeHandler(doc, fakeCtx)).rejects.toThrow(/caption/);
   });
 });
 
-describe("describeHandler — preview missing", () => {
+describe('describeHandler — preview missing', () => {
   it("returns { skip: 'preview-missing' } when the 1280-px preview is absent", async () => {
-    const absPath = join(tmpRoot, "no-preview.dng");
+    const absPath = join(tmpRoot, 'no-preview.dng');
     // No seedPreview call — the file doesn't exist.
     const doc = fakeDoc(absPath);
     const provider = mockProvider({
@@ -229,50 +268,50 @@ describe("describeHandler — preview missing", () => {
     });
     setDescribeDepsForTests({
       provider,
-      systemPrompt: "p",
-      model: "qwen2.5vl:7b",
+      systemPrompt: 'p',
+      model: 'qwen2.5vl:7b',
     });
     const result = await describeHandler(doc, fakeCtx);
-    expect("skip" in result).toBe(true);
-    expect((result as { skip: string }).skip).toBe("preview-missing");
+    expect('skip' in result).toBe(true);
+    expect((result as { skip: string }).skip).toBe('preview-missing');
   });
 });
 
-describe("describeHandler — provider errors", () => {
-  it("a retryable RemoteError propagates", async () => {
-    const absPath = join(tmpRoot, "img2.dng");
+describe('describeHandler — provider errors', () => {
+  it('a retryable RemoteError propagates', async () => {
+    const absPath = join(tmpRoot, 'img2.dng');
     seedPreview(absPath);
     const doc = fakeDoc(absPath);
-    const provider = mockProvider(new RemoteError("Provider 5xx: 503", true, 503));
+    const provider = mockProvider(new RemoteError('Provider 5xx: 503', true, 503));
     setDescribeDepsForTests({
       provider,
-      systemPrompt: "p",
-      model: "qwen2.5vl:7b",
+      systemPrompt: 'p',
+      model: 'qwen2.5vl:7b',
     });
-    await expect(describeHandler(doc, fakeCtx)).rejects.toThrow("503");
+    await expect(describeHandler(doc, fakeCtx)).rejects.toThrow('503');
   });
 
-  it("a non-retryable RemoteError propagates", async () => {
-    const absPath = join(tmpRoot, "img3.dng");
+  it('a non-retryable RemoteError propagates', async () => {
+    const absPath = join(tmpRoot, 'img3.dng');
     seedPreview(absPath);
     const doc = fakeDoc(absPath);
-    const provider = mockProvider(new RemoteError("Provider 4xx: 401", false, 401));
+    const provider = mockProvider(new RemoteError('Provider 4xx: 401', false, 401));
     setDescribeDepsForTests({
       provider,
-      systemPrompt: "p",
-      model: "qwen2.5vl:7b",
+      systemPrompt: 'p',
+      model: 'qwen2.5vl:7b',
     });
-    await expect(describeHandler(doc, fakeCtx)).rejects.toThrow("401");
+    await expect(describeHandler(doc, fakeCtx)).rejects.toThrow('401');
   });
 });
 
-describe("describeHandler — OCR mirror from vision.text_visible", () => {
-  it("writes ocr_text + ocr_meta when the asset has no prior ocr_meta", async () => {
-    const absPath = join(tmpRoot, "ocr-fresh.dng");
+describe('describeHandler — OCR mirror from vision.text_visible', () => {
+  it('writes ocr_text + ocr_meta when the asset has no prior ocr_meta', async () => {
+    const absPath = join(tmpRoot, 'ocr-fresh.dng');
     seedPreview(absPath);
     const doc = fakeDoc(absPath);
     // No ocr_meta on the doc — describe should populate it.
-    const vision = { ...VALID_VISION, text_visible: "STOP" };
+    const vision = { ...VALID_VISION, text_visible: 'STOP' };
     const provider = mockProvider({
       text: JSON.stringify(vision),
       cost_usd: 0,
@@ -280,19 +319,19 @@ describe("describeHandler — OCR mirror from vision.text_visible", () => {
     });
     setDescribeDepsForTests({
       provider,
-      systemPrompt: "p",
-      model: "qwen2.5vl:7b",
+      systemPrompt: 'p',
+      model: 'qwen2.5vl:7b',
     });
     const result = await describeHandler(doc, fakeCtx);
     const patch = (result as { patch: Record<string, unknown> }).patch;
-    expect(patch.ocr_text).toBe("STOP");
+    expect(patch.ocr_text).toBe('STOP');
     const ocrMeta = patch.ocr_meta as { engine: string; engine_version: string };
-    expect(ocrMeta.engine).toBe("qwen2.5-vl");
-    expect(ocrMeta.engine_version).toBe("qwen2.5vl:7b");
+    expect(ocrMeta.engine).toBe('qwen2.5-vl');
+    expect(ocrMeta.engine_version).toBe('qwen2.5vl:7b');
   });
 
-  it("writes ocr_text as empty string when vision.text_visible is null", async () => {
-    const absPath = join(tmpRoot, "ocr-null.dng");
+  it('writes ocr_text as empty string when vision.text_visible is null', async () => {
+    const absPath = join(tmpRoot, 'ocr-null.dng');
     seedPreview(absPath);
     const doc = fakeDoc(absPath);
     const vision = { ...VALID_VISION, text_visible: null };
@@ -303,26 +342,26 @@ describe("describeHandler — OCR mirror from vision.text_visible", () => {
     });
     setDescribeDepsForTests({
       provider,
-      systemPrompt: "p",
-      model: "qwen2.5vl:7b",
+      systemPrompt: 'p',
+      model: 'qwen2.5vl:7b',
     });
     const result = await describeHandler(doc, fakeCtx);
     const patch = (result as { patch: Record<string, unknown> }).patch;
-    expect(patch.ocr_text).toBe("");
+    expect(patch.ocr_text).toBe('');
   });
 
   it("unconditionally writes ocr_text + ocr_meta on refresh (vision wins; engine is the literal 'qwen2.5-vl')", async () => {
-    const absPath = join(tmpRoot, "ocr-refresh.dng");
+    const absPath = join(tmpRoot, 'ocr-refresh.dng');
     seedPreview(absPath);
     const doc = fakeDoc(absPath);
     // Prior ocr_meta of any shape on the doc is ignored — vision always wins.
     (doc as unknown as Record<string, unknown>).ocr_meta = {
-      engine: "qwen2.5-vl",
-      engine_version: "qwen2.5vl:7b",
-      generated_at: "2026-05-01T00:00:00.000Z",
+      engine: 'qwen2.5-vl',
+      engine_version: 'qwen2.5vl:7b',
+      generated_at: '2026-05-01T00:00:00.000Z',
       mean_confidence: null,
     };
-    const vision = { ...VALID_VISION, text_visible: "FRESH READ" };
+    const vision = { ...VALID_VISION, text_visible: 'FRESH READ' };
     const provider = mockProvider({
       text: JSON.stringify(vision),
       cost_usd: 0,
@@ -330,38 +369,38 @@ describe("describeHandler — OCR mirror from vision.text_visible", () => {
     });
     setDescribeDepsForTests({
       provider,
-      systemPrompt: "p",
-      model: "qwen2.5vl:7b",
+      systemPrompt: 'p',
+      model: 'qwen2.5vl:7b',
     });
     const result = await describeHandler(doc, fakeCtx);
     const patch = (result as { patch: Record<string, unknown> }).patch;
-    expect(patch.ocr_text).toBe("FRESH READ");
-    const ocrMeta = patch.ocr_meta as { engine: "qwen2.5-vl" };
+    expect(patch.ocr_text).toBe('FRESH READ');
+    const ocrMeta = patch.ocr_meta as { engine: 'qwen2.5-vl' };
     // Engine is the single literal — no union with other engines exists.
-    expect(ocrMeta.engine).toBe("qwen2.5-vl");
+    expect(ocrMeta.engine).toBe('qwen2.5-vl');
   });
 });
 
-describe("describeHandler — provider_info extras", () => {
-  it("spreads provider_info into description_meta", async () => {
-    const absPath = join(tmpRoot, "img4.dng");
+describe('describeHandler — provider_info extras', () => {
+  it('spreads provider_info into description_meta', async () => {
+    const absPath = join(tmpRoot, 'img4.dng');
     seedPreview(absPath);
     const doc = fakeDoc(absPath);
     const provider = mockProvider({
       text: JSON.stringify(VALID_VISION),
       cost_usd: 0.04,
-      provider_info: { input_tokens: "120", output_tokens: "20" },
+      provider_info: { input_tokens: '120', output_tokens: '20' },
     });
     setDescribeDepsForTests({
       provider,
-      systemPrompt: "p",
-      model: "qwen2.5vl:7b",
+      systemPrompt: 'p',
+      model: 'qwen2.5vl:7b',
     });
     const result = await describeHandler(doc, fakeCtx);
-    const meta = (result as { patch: { description_meta: Record<string, unknown> } })
-      .patch.description_meta;
-    expect(meta.input_tokens).toBe("120");
-    expect(meta.output_tokens).toBe("20");
+    const meta = (result as { patch: { description_meta: Record<string, unknown> } }).patch
+      .description_meta;
+    expect(meta.input_tokens).toBe('120');
+    expect(meta.output_tokens).toBe('20');
     expect(meta.cost_usd).toBe(0.04);
   });
 });
