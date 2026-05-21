@@ -51,7 +51,10 @@ jobs:
         run: |
           set -euo pipefail
           if [ "${{ github.event_name }}" = "pull_request" ]; then
-            git fetch --no-tags --depth=0 origin "+refs/heads/${BASE_REF}:refs/remotes/origin/${BASE_REF}"
+            # checkout@v4 above used fetch-depth: 0, so all history is local.
+            # The explicit fetch makes sure refs/remotes/origin/<base> exists
+            # (checkout fetches commits, not always named branch refs).
+            git fetch --no-tags origin "+refs/heads/${BASE_REF}:refs/remotes/origin/${BASE_REF}"
             MERGE_BASE="$(git merge-base "origin/${BASE_REF}" HEAD)"
             git diff --name-only --diff-filter=ACMR "${MERGE_BASE}" HEAD > /tmp/changed.txt
           else
