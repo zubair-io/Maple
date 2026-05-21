@@ -92,6 +92,8 @@ GET  /api/fs/list?path=<abs>&showAll=0|1   — list subdirectories under <abs> (
 GET  /                              — Angular SPA (SPA fallback for all non-API routes)
 ```
 
+The full machine-readable contract is available at `GET /openapi.json` when running `bun run dev` in `src/api/` (issue #131). A human-readable Scalar UI for the same spec is served at `GET /docs`. Both endpoints are unauthenticated so client codegen tooling can fetch the spec without a bearer token.
+
 ## Development mode (UI hot-reload)
 
 One command starts MongoDB, the Bun API in proxy-to-`ng serve` mode, and the
