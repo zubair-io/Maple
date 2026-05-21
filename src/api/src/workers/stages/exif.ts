@@ -16,6 +16,7 @@ import { readExif } from '../../indexer/exif.ts';
 import { deriveId } from '../../indexer/id.ts';
 import { assetAbsPath } from '../../indexer/images.repo.ts';
 import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
+import type { ImageDoc, StageResult } from '../run-stage.ts';
 import { defineStage, runStage, type RunStageHandle } from '../run-stage.ts';
 
 const SHA1_HEAD_BYTES = 64 * 1024;
@@ -75,18 +76,21 @@ const exifStage = defineStage({
     paused: false,
     last_seen_target_version: 0,
   },
-  handler: async (image) => {
+  handler: async (image: ImageDoc): Promise<StageResult> => {
     // Resolve via assetAbsPath when the row has fileinfo[0]; fall back to the
-    // legacy abs_path field otherwise. Treat unresolvable rows like missing
-    // files — fs.stat below will throw and the stage's normal retry/dead
-    // bookkeeping handles it.
+    // legacy abs_path field otherwise. When neither is present, short-circuit
+    // with a skip so the row doesn't burn retries on `fs.stat(undefined)` —
+    // skip writes the stage state without incrementing attempts.
     let libs: ReadonlyMap<string, string>;
     try {
       libs = await loadLibraryRoots();
     } catch {
       libs = new Map();
     }
-    const absPath = assetAbsPath(image as never, libs) ?? (image.abs_path as string);
+    const absPath = assetAbsPath(image, libs) ?? (image.abs_path as string | undefined);
+    if (!absPath) {
+      return { skip: 'no-resolvable-location' };
+    }
 
     // Stat the file first — throws ENOENT when it doesn't exist, satisfying
     // the "throws when the file does not exist" test contract before we even

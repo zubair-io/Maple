@@ -33,10 +33,14 @@ export function isEnrichmentStage(s: string): s is EnrichmentStage {
   return (STAGES as readonly string[]).includes(s);
 }
 
-/** One row of `listEnrichmentDeadLetter` output. */
+/** One row of `listEnrichmentDeadLetter` output.
+ *
+ * `abs_path` is nullable because legacy-incomplete rows (no `fileinfo[0]` and
+ * no `abs_path`) resolve to `null` via `assetAbsPath` — they still appear in
+ * the triage UI so an operator can clear them. */
 export interface EnrichmentDeadLetterRow {
   asset_id: string;
-  abs_path: string;
+  abs_path: string | null;
   last_error: string | null;
   attempts: number;
   dead_letter_at: string;
@@ -94,7 +98,7 @@ export async function listEnrichmentDeadLetter(input: {
     const stageState = d.enrichment?.[input.stage];
     return {
       asset_id: d._id.toHexString(),
-      abs_path: assetAbsPath(d, libs) ?? d.abs_path,
+      abs_path: assetAbsPath(d, libs) ?? d.abs_path ?? null,
       last_error: stageState?.last_error ?? null,
       attempts: stageState?.attempts ?? 0,
       // Filter guarantees dead_letter_at is non-null; fall back to "" so

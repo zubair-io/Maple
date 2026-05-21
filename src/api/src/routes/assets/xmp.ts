@@ -133,7 +133,7 @@ export const xmpRoutes = new Elysia()
           kind: 'update',
           asset_id: id,
           folder_id: info.folder_id,
-          abs_path: info.abs_path,
+          abs_path: absPath,
         }).catch(() => {});
         return;
       }
@@ -175,7 +175,7 @@ export const xmpRoutes = new Elysia()
         kind: 'update',
         asset_id: id,
         folder_id: info.folder_id,
-        abs_path: info.abs_path,
+        abs_path: absPath,
       }).catch(() => {});
       return;
     },
@@ -224,7 +224,7 @@ export const xmpRoutes = new Elysia()
       kind: 'update',
       asset_id: id,
       folder_id: info.folder_id,
-      abs_path: info.abs_path,
+      abs_path: absPath,
     }).catch(() => {});
     return;
   });

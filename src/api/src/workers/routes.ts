@@ -156,7 +156,7 @@ export function workerRoutes(): Elysia {
           const stage = doc.stages?.[params.name];
           return {
             id: String(doc._id),
-            abs_path: assetAbsPath(doc as never, libs) ?? doc.abs_path ?? null,
+            abs_path: assetAbsPath(doc, libs) ?? doc.abs_path ?? null,
             last_error: stage?.last_error ?? null,
             attempts: stage?.attempts ?? 0,
             processed_at: stage?.processed_at ? new Date(stage.processed_at).toISOString() : null,
