@@ -1,0 +1,290 @@
+// Tests for the pure VM module behind `workers.component.ts`.
+//
+// Lives next to the component per the `*.vm.ts` co-location pattern
+// (#190). These tests pull plain functions, build minimal fixtures, and
+// assert behaviour without spinning up TestBed — that's the whole point
+// of the split.
+
+import { describe, it, expect } from 'vitest';
+import type { EnrichmentConfigResponse, StageStatus, WorkerConfig } from '@maple-common';
+import {
+  DEFAULT_RUNTIME,
+  ERROR_POLL_MS,
+  POLL_MS,
+  STAGE_META,
+  blankEnrichment,
+  blankRuntime,
+  errorMessage,
+  formatBytes,
+  groupStagesByPipeline,
+  parseClampedInt,
+  runtimeFormToPatch,
+  stageMeta,
+  statusDotColor,
+  statusLabel,
+  summarizeStages,
+  throughputLabel,
+} from './workers.vm';
+
+// ── Fixture builders ───────────────────────────────────────────────────────
+
+function workerConfig(overrides: Partial<WorkerConfig> = {}): WorkerConfig {
+  return {
+    concurrency: 4,
+    pollIntervalMs: 1000,
+    batchSize: 10,
+    maxAttempts: 5,
+    paused: false,
+    last_seen_target_version: 1,
+    ...overrides,
+  };
+}
+
+function stage(overrides: Partial<StageStatus> = {}): StageStatus {
+  return {
+    name: 'hash',
+    status: 'running',
+    inFlight: 0,
+    configured: 4,
+    pending: 0,
+    dead: 0,
+    throughput: 0,
+    lastError: null,
+    config: workerConfig(),
+    batchSize: 10,
+    ...overrides,
+  };
+}
+
+// ── Polling cadence ────────────────────────────────────────────────────────
+
+describe('polling cadence constants', () => {
+  it('exports the operator-visible cadences', () => {
+    expect(POLL_MS).toBe(2_000);
+    expect(ERROR_POLL_MS).toBe(5_000);
+  });
+});
+
+// ── stageMeta ───────────────────────────────────────────────────────────────
+
+describe('stageMeta', () => {
+  it('returns the canonical metadata for a known stage', () => {
+    const m = stageMeta('describe');
+    expect(m.group).toBe('Enrich');
+    expect(m.enrichment).toBe('describe');
+    expect(m.icon).toBe('sparkle');
+  });
+
+  it('falls back to Ingest/pipe for unknown stages so a new worker still renders', () => {
+    const m = stageMeta('experiment-99');
+    expect(m.group).toBe('Ingest');
+    expect(m.icon).toBe('pipe');
+    expect(m.enrichment).toBeNull();
+    expect(m.description).toBe('');
+  });
+
+  it('STAGE_META exposes Ingest/Enrich/Index buckets', () => {
+    expect(STAGE_META['hash'].group).toBe('Ingest');
+    expect(STAGE_META['face'].group).toBe('Enrich');
+    expect(STAGE_META['meili'].group).toBe('Index');
+  });
+});
+
+// ── parseClampedInt ─────────────────────────────────────────────────────────
+
+describe('parseClampedInt', () => {
+  it('parses an in-range int through', () => {
+    expect(parseClampedInt('7', 1, 32, 2)).toBe(7);
+  });
+
+  it('clamps below the minimum', () => {
+    expect(parseClampedInt('0', 1, 32, 2)).toBe(1);
+  });
+
+  it('clamps above the maximum', () => {
+    expect(parseClampedInt('99', 1, 32, 2)).toBe(32);
+  });
+
+  it('falls back when the value is not numeric', () => {
+    expect(parseClampedInt('abc', 1, 32, 2)).toBe(2);
+    expect(parseClampedInt('', 1, 32, 2)).toBe(2);
+  });
+});
+
+// ── runtimeFormToPatch ──────────────────────────────────────────────────────
+
+describe('runtimeFormToPatch', () => {
+  it('produces a WorkerConfig patch with each knob clamped to its range', () => {
+    const patch = runtimeFormToPatch({
+      concurrency: '99', // > 32 → 32
+      pollIntervalMs: '50', // < 100 → 100
+      batchSize: '7',
+      maxAttempts: 'oops',
+    });
+    expect(patch).toEqual({
+      concurrency: 32,
+      pollIntervalMs: 100,
+      batchSize: 7,
+      maxAttempts: DEFAULT_RUNTIME.maxAttempts,
+    });
+  });
+});
+
+// ── blankRuntime / blankEnrichment ──────────────────────────────────────────
+
+describe('blankRuntime', () => {
+  it('seeds from the stage config when present', () => {
+    const form = blankRuntime(stage({ config: workerConfig({ concurrency: 12 }) }));
+    expect(form.concurrency).toBe('12');
+    expect(form.pollIntervalMs).toBe('1000');
+  });
+
+  it('falls back to DEFAULT_RUNTIME when config is null', () => {
+    const form = blankRuntime(stage({ config: null }));
+    expect(form.concurrency).toBe(String(DEFAULT_RUNTIME.concurrency));
+    expect(form.maxAttempts).toBe(String(DEFAULT_RUNTIME.maxAttempts));
+  });
+});
+
+describe('blankEnrichment', () => {
+  it('uses server values when the snapshot is populated', () => {
+    const ec: EnrichmentConfigResponse = {
+      nominatim_url: 'http://nom.local',
+      geocode_worker_enabled: true,
+      nominatim_rate_limit_per_sec: 4,
+      describe_worker_enabled: true,
+      describe_provider: 'ollama',
+      describe_provider_url: 'http://ollama.local',
+      describe_model: 'qwen2.5vl:7b',
+      describe_system_prompt: '',
+      describe_daily_cap_usd: 0,
+      face_worker_enabled: false,
+      face_model_dir: '/tmp/models',
+      face_retinaface_url: null,
+      face_retinaface_sha256: null,
+      face_mobilefacenet_url: null,
+      face_mobilefacenet_sha256: null,
+      source: {} as EnrichmentConfigResponse['source'],
+    };
+    const form = blankEnrichment(ec);
+    expect(form.nominatim_url).toBe('http://nom.local');
+    expect(form.nominatim_rate_limit_per_sec).toBe('4');
+    expect(form.describe_model).toBe('qwen2.5vl:7b');
+    expect(form.face_model_dir).toBe('/tmp/models');
+  });
+
+  it('falls back to safe defaults when snapshot is null', () => {
+    const form = blankEnrichment(null);
+    expect(form.describe_model).toBe('qwen2.5vl:7b');
+    expect(form.nominatim_rate_limit_per_sec).toBe('10');
+    expect(form.nominatim_url).toBe('');
+  });
+});
+
+// ── Grouping / summary ──────────────────────────────────────────────────────
+
+describe('groupStagesByPipeline', () => {
+  it('buckets stages into Ingest / Enrich / Index in pipeline order', () => {
+    const grouped = groupStagesByPipeline([
+      stage({ name: 'meili' }),
+      stage({ name: 'hash' }),
+      stage({ name: 'face' }),
+      stage({ name: 'exif' }),
+    ]);
+    expect(grouped.map((g) => g.group)).toEqual(['Ingest', 'Enrich', 'Index']);
+    const [ingest, enrich, index] = grouped;
+    expect(ingest.rows.map((r) => r.name)).toEqual(['hash', 'exif']);
+    expect(enrich.rows.map((r) => r.name)).toEqual(['face']);
+    expect(index.rows.map((r) => r.name)).toEqual(['meili']);
+  });
+
+  it('routes unknown stages into Ingest', () => {
+    const grouped = groupStagesByPipeline([stage({ name: 'experiment-99' })]);
+    expect(grouped[0].rows.map((r) => r.name)).toEqual(['experiment-99']);
+    expect(grouped[1].rows).toHaveLength(0);
+  });
+});
+
+describe('summarizeStages', () => {
+  it('counts running/paused and sums dead/pending', () => {
+    const sum = summarizeStages([
+      stage({ status: 'running', pending: 100, dead: 0 }),
+      stage({ status: 'running', pending: 50, dead: 2 }),
+      stage({ status: 'paused', pending: 0, dead: 1 }),
+      stage({ status: 'error', pending: 10, dead: 0 }),
+    ]);
+    expect(sum).toEqual({ running: 2, paused: 1, dead: 3, pending: 160 });
+  });
+
+  it('returns zeros when no stages are reported', () => {
+    expect(summarizeStages([])).toEqual({ running: 0, paused: 0, dead: 0, pending: 0 });
+  });
+});
+
+// ── Display helpers ─────────────────────────────────────────────────────────
+
+describe('statusLabel', () => {
+  it('labels each status value', () => {
+    expect(statusLabel(stage({ status: 'running' }))).toBe('Running');
+    expect(statusLabel(stage({ status: 'paused' }))).toBe('Paused');
+    expect(statusLabel(stage({ status: 'error' }))).toBe('Error');
+    expect(statusLabel(stage({ status: 'starting' }))).toBe('Starting');
+    expect(statusLabel(stage({ status: 'restarting' }))).toBe('Restarting');
+    expect(statusLabel(stage({ status: 'stopped' }))).toBe('Stopped');
+  });
+});
+
+describe('statusDotColor', () => {
+  it('greens running, greys paused/transitional, reds error', () => {
+    expect(statusDotColor(stage({ status: 'running' }))).toBe('#4ade80');
+    expect(statusDotColor(stage({ status: 'paused' }))).toBe('#a8a29e');
+    expect(statusDotColor(stage({ status: 'starting' }))).toBe('#a8a29e');
+    expect(statusDotColor(stage({ status: 'error' }))).toBe('#f87171');
+  });
+});
+
+describe('throughputLabel', () => {
+  it('shows the rate when > 0', () => {
+    expect(throughputLabel(stage({ throughput: 18 }))).toBe('18');
+  });
+  it('shows an em-dash at zero', () => {
+    expect(throughputLabel(stage({ throughput: 0 }))).toBe('—');
+  });
+});
+
+describe('formatBytes', () => {
+  it('formats small / mid / large counts', () => {
+    expect(formatBytes(0)).toBe('0 B');
+    expect(formatBytes(null)).toBe('0 B');
+    expect(formatBytes(undefined)).toBe('0 B');
+    expect(formatBytes(512)).toBe('512 B');
+    expect(formatBytes(2_048)).toBe('2.0 KB');
+    // ≥ 10 in chosen unit drops the decimal.
+    expect(formatBytes(13_478_912)).toBe('13 MB');
+    expect(formatBytes(20 * 1024 * 1024)).toBe('20 MB');
+    // < 10 in chosen unit keeps one decimal.
+    expect(formatBytes(8 * 1024 * 1024)).toBe('8.0 MB');
+    expect(formatBytes(2 * 1024 * 1024 * 1024)).toBe('2.0 GB');
+  });
+});
+
+// ── errorMessage ────────────────────────────────────────────────────────────
+
+describe('errorMessage', () => {
+  it('reads the inner Bun-shaped `{ error: { error: "…" } }` payload', () => {
+    expect(errorMessage({ error: { error: 'boom' } })).toBe('boom');
+  });
+
+  it('reads a string `.error` field', () => {
+    expect(errorMessage({ error: 'plain' })).toBe('plain');
+  });
+
+  it('reads Error.message', () => {
+    expect(errorMessage(new Error('nope'))).toBe('nope');
+  });
+
+  it('falls back to String(err) for unknown shapes', () => {
+    expect(errorMessage(42)).toBe('42');
+    expect(errorMessage('raw string')).toBe('raw string');
+  });
+});
