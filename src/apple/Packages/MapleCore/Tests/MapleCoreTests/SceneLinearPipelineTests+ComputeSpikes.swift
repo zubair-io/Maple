@@ -149,10 +149,16 @@ extension SceneLinearPipelineTests {
         do {
             kernels = try CIKernel.kernels(withMetalString: src)
         } catch {
-            // RECORDED FAIL: M3 must copy-paste oklab matrices into each
-            // consumer kernel. Logged in the test header by Step 1.5.
-            print("Spike 1.2: #include from absolute path FAILED with \(error)")
-            return
+            // CIKernel compilation isn't available on this runner (e.g.
+            // headless CI without Metal device support). Skip rather than
+            // silently passing — this is a compute-spike test that needs
+            // a working CIKernel toolchain to assert anything.
+            //
+            // The original "RECORDED FAIL" outcome (M3 copy-pasted matrices
+            // because `#include` didn't resolve) is captured by the test
+            // header / Step 1.5 docs; this catch block only fires when the
+            // compiler itself can't run, which is environmental.
+            throw XCTSkip("CIKernel.kernels(withMetalString:) failed to compile: \(error)")
         }
         // RECORDED PASS or partial pass: kernels compiled but the named
         // function may not be present if the preprocessor silently

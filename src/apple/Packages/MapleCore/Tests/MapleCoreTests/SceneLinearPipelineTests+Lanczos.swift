@@ -99,9 +99,13 @@ extension SceneLinearPipelineTests {
         let bpr = cg.bytesPerRow
         func sampleRGB(at x: Int, y: Int) -> (Float, Float, Float) {
             let off = y * bpr + x * 4 * 2
-            let r = Self.float16BitsToFloat32(bytes.load(fromByteOffset: off + 0, as: UInt16.self))
-            let g = Self.float16BitsToFloat32(bytes.load(fromByteOffset: off + 2, as: UInt16.self))
-            let b = Self.float16BitsToFloat32(bytes.load(fromByteOffset: off + 4, as: UInt16.self))
+            // `CFDataGetBytePtr` doesn't guarantee 2-byte alignment, so
+            // `load(fromByteOffset:as:UInt16.self)` would trap on a
+            // misaligned base. `loadUnaligned` reads byte-by-byte under
+            // the hood — safe for any alignment.
+            let r = Self.float16BitsToFloat32(bytes.loadUnaligned(fromByteOffset: off + 0, as: UInt16.self))
+            let g = Self.float16BitsToFloat32(bytes.loadUnaligned(fromByteOffset: off + 2, as: UInt16.self))
+            let b = Self.float16BitsToFloat32(bytes.loadUnaligned(fromByteOffset: off + 4, as: UInt16.self))
             return (r, g, b)
         }
         let topLeft = sampleRGB(at: 4, y: 4)

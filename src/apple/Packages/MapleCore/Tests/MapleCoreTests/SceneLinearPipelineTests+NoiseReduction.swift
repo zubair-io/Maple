@@ -81,11 +81,17 @@ extension SceneLinearPipelineTests {
             }
         }
 
-        // Chroma alternation should be reduced — measured as the
-        // variance of (R - G) across the image. Rust unit test at
-        // noise_reduction.rs:111-118 only checks identity-at-zero;
-        // we additionally assert that NR color at amount=100 reduces
-        // chroma alternation by at least 50% relative to the input.
+        // Chroma alternation should be reduced — measured as the mean
+        // absolute value of (R - G) across the image. Rust unit test at
+        // noise_reduction.rs:111-118 only checks identity-at-zero; we
+        // additionally assert that NR color at amount=100 reduces mean
+        // |R - G| strictly below the input. Empirically the 8×8
+        // alternating pattern + amount=100 lands around a ~25% reduction
+        // (input 0.20 → output ~0.15), well short of 50%, so the
+        // assertion is a monotonic "did NR do something" check rather
+        // than a strength threshold. Tightening it would require either
+        // a larger image (the kernel's effective radius is comparable to
+        // this image) or a stronger amount knob.
         var inputDiffs: [Float] = []
         var outputDiffs: [Float] = []
         for i in 0..<(w * h) {
@@ -95,7 +101,7 @@ extension SceneLinearPipelineTests {
         let inputAbsAvg = inputDiffs.map { abs($0) }.reduce(0, +) / Float(inputDiffs.count)
         let outputAbsAvg = outputDiffs.map { abs($0) }.reduce(0, +) / Float(outputDiffs.count)
         XCTAssertLessThan(outputAbsAvg, inputAbsAvg,
-            "NR color at amount=100 should reduce chroma alternation; in=\(inputAbsAvg) out=\(outputAbsAvg)")
+            "NR color at amount=100 should reduce mean |R-G|; in=\(inputAbsAvg) out=\(outputAbsAvg)")
     }
 
     func testM3bSwiftScalarApplyColorZeroIsIdentity() async throws {
