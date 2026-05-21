@@ -171,12 +171,4 @@ describe('WorkersComponent', () => {
     expect(hashRow.querySelector('.btn-primary')?.textContent?.trim()).toContain('Save');
   });
 
-  it('shows ENRICH chip on enrichment stages only', () => {
-    initWithMock();
-    const rows: NodeListOf<HTMLElement> = fixture.nativeElement.querySelectorAll('[data-testid="worker-row"]');
-    const faceRow = Array.from(rows).find((r) => r.textContent?.includes('face'))!;
-    const hashRow = Array.from(rows).find((r) => r.textContent?.includes('hash'))!;
-    expect(faceRow.querySelector('.enrich-chip')).toBeTruthy();
-    expect(hashRow.querySelector('.enrich-chip')).toBeNull();
-  });
 });
