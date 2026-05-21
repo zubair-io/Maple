@@ -58,6 +58,9 @@ export * from './lib/state/store';
 export * from './lib/xmp/sidecar-idb-cache';
 export * from './lib/xmp/sidecar.store';
 
+// #193 slice 2: first reactive consumer of SidecarStore.
+export * from './lib/components/editor-sidecar-status-badge/editor-sidecar-status-badge.component';
+
 // P7: Unified SPA shells + all components (moved from browse + editor apps)
 export * from './lib/shells/browse-shell/browse-shell.component';
 export * from './lib/shells/editor-shell/editor-shell.component';
