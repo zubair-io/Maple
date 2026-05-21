@@ -39,6 +39,57 @@ import { ApiFolder } from '../api/bun-api-backend.service';
 import { MapleFolderHandle } from '../folder-access/folder-access.types';
 import { MapleIndex } from '../maple-cache/maple-cache.types';
 
+// ─── Location helpers (content-addressing migration) ───────────────────────
+//
+// Mirror of `assetAbsPath` from `src/api/src/indexer/images.repo.ts`. Prefers
+// the new `fileinfo[]` array (PR 1 of the migration) and falls back to the
+// legacy `absPath` field while the server is mid-migration. After the server
+// drops `abs_path` from the wire DTO, the fallback becomes a hard `null`
+// signal that the asset is unresolvable on this client.
+//
+// `libraries` is keyed by hex ObjectId of the registered library →
+// absolute library root path. Callers derive it from
+// `LibraryStore.registeredFolders`; see `librariesById` below.
+
+/**
+ * Resolve the absolute filesystem path for an asset's primary on-disk
+ * location, composed from the library root plus the relative directory and
+ * filename in `fileinfo[0]`.
+ *
+ * Returns `null` when neither source resolves — usually means the registered
+ * library that owns the file is not loaded (e.g. server hasn't sent
+ * `/api/folders` yet) or the asset has neither `fileinfo` nor `absPath`.
+ */
+export function assetAbsPath(
+  asset: Pick<Asset, 'fileinfo' | 'absPath'>,
+  libraries: ReadonlyMap<string, string>,
+): string | null {
+  const primary = (asset.fileinfo ?? []).find((entry) => !entry.deleted_at);
+  if (primary) {
+    const root = libraries.get(primary.library_id);
+    if (root) {
+      // FileInfo.path is POSIX-separated by contract. Web is always POSIX
+      // so we can join with `/` without re-splitting.
+      return primary.path === ''
+        ? `${root}/${primary.filename}`
+        : `${root}/${primary.path}/${primary.filename}`;
+    }
+  }
+  if (asset.absPath) return asset.absPath;
+  return null;
+}
+
+/**
+ * Build a `hex(library_id) → root path` map from a list of registered
+ * libraries. Pass `store.registeredFolders()` at the call site so the
+ * result is reactive when used inside a `computed`.
+ */
+export function buildLibrariesById(folders: readonly ApiFolder[]): ReadonlyMap<string, string> {
+  const map = new Map<string, string>();
+  for (const f of folders) map.set(f.id, f.path);
+  return map;
+}
+
 @Injectable({ providedIn: 'root' })
 export class LibraryStore {
   /** Which backend is in use. Consumers read this to branch data-source paths. */
@@ -57,6 +108,12 @@ export class LibraryStore {
   readonly backendEmpty = signal<boolean>(false);
   /** Latest server-side registered libraries. */
   readonly registeredFolders = signal<ApiFolder[]>([]);
+  /**
+   * Reactive `hex(library_id) → absolute root path` map derived from
+   * `registeredFolders`. Pass to `assetAbsPath(asset, libraries)` to
+   * resolve content-addressed assets via `fileinfo[0]`.
+   */
+  readonly librariesById = computed(() => buildLibrariesById(this.registeredFolders()));
   /** Transient state for the "Rescan" button on the toolbar. */
   readonly rescanStatus = signal<'idle' | 'running' | 'done' | 'error'>('idle');
   readonly rescanError = signal<string | null>(null);
