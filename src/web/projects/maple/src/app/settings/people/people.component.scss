@@ -414,6 +414,16 @@
 }
 
 .face-cell {
+  // Native <button> so keyboard activation (Enter + Space) is free and
+  // the cell is reachable via Tab; resets below strip the default chrome
+  // so it reads as a card.
+  display: block;
+  padding: 0;
+  font-family: inherit;
+  appearance: none;
+  -webkit-appearance: none;
+  text-align: left;
+
   position: relative;
   cursor: pointer;
   border-radius: 6px;
@@ -424,9 +434,17 @@
   &.is-selected {
     border-color: var(--s-accent);
   }
+
+  // Visible keyboard focus — accent ring at 2px offset matches the rest
+  // of the Settings surfaces (see styles.scss global reset).
+  &:focus-visible {
+    outline: 1.5px solid var(--s-accent);
+    outline-offset: 1px;
+  }
 }
 
 .face-thumb {
+  display: block;
   aspect-ratio: 1 / 1;
   background: var(--s-surface2);
   position: relative;

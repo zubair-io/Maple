@@ -149,15 +149,26 @@
       } @else {
         <div class="face-grid">
           @for (f of visibleFaces(); track faceKey(f)) {
-            <div
+            <button
+              type="button"
               class="face-cell"
               [class.is-selected]="isFaceSelected(f)"
+              [attr.aria-pressed]="isFaceSelected(f)"
+              [attr.aria-label]="
+                'Face from ' +
+                f.absPath +
+                ' (' +
+                (f.confidence * 100 | number: '1.0-0') +
+                '% detector confidence)'
+              "
               (mouseenter)="hoveredFace.set(faceKey(f))"
               (mouseleave)="hoveredFace.set(null)"
+              (focus)="hoveredFace.set(faceKey(f))"
+              (blur)="hoveredFace.set(null)"
               (click)="toggleFaceSelection(f)"
               [title]="f.absPath"
             >
-              <div class="face-thumb">
+              <span class="face-thumb">
                 @if (faceThumbUrl(f); as url) {
                   <img
                     [src]="url"
@@ -184,8 +195,8 @@
                 @if (f.confidence < 0.7) {
                   <span class="low-confidence-bar"></span>
                 }
-              </div>
-            </div>
+              </span>
+            </button>
           }
         </div>
       }
@@ -237,6 +248,20 @@
           </div>
         </div>
       }
+    </div>
+  } @else if (selectedRouteId()) {
+    <!-- ── Detail chrome while the GET /api/people/:id is in flight ──── -->
+    <!-- Deep-links and list→detail navigation land here for one frame    -->
+    <!-- before `selected()` populates; rendering the list view briefly   -->
+    <!-- would be a flash of wrong content.                                -->
+    <div class="detail-head">
+      <button type="button" class="back-link" (click)="closeDetail()">
+        <maple-settings-icon name="back" [size]="13" color="#a8a29e" />
+        <span>People</span>
+      </button>
+    </div>
+    <div class="face-grid-wrap">
+      <p class="empty-msg">Loading…</p>
     </div>
   } @else {
     <!-- ── List view ─────────────────────────────────────────────────── -->

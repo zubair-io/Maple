@@ -7,12 +7,12 @@
 // selection toolbar) that replaces the list view entirely. When null, the
 // list view (page header + stats line + card grid) renders.
 //
-// The route `/settings/people/:id` deep-links into the detail view; the
-// paramMap subscription owns the GET /api/people/:id fetch so click
-// handlers only navigate (single source of truth for "which person is
-// open"). `_lastFetchedId` is a race guard for the click-then-paramMap
-// double-fire — the previous (selected().id) check fired before the HTTP
-// response landed.
+// The route `/settings/people/:id` deep-links into the detail view. URL
+// is the single source of truth: a `selectedRouteId` computed signal
+// reads paramMap, and a constructor-time effect fires GET /api/people/:id
+// whenever the id changes. Computed signals dedupe by equality, so
+// duplicate paramMap emissions for the same id don't re-fetch. Click
+// handlers only navigate.
 //
 // Renaming a person to a name that already exists triggers a SERVER-SIDE
 // merge — the response includes `mergedFrom` so the UI can show the
@@ -30,12 +30,12 @@ import {
   ChangeDetectionStrategy,
   Component,
   OnDestroy,
-  OnInit,
   computed,
   effect,
   inject,
   signal,
 } from '@angular/core';
+import { toSignal } from '@angular/core/rxjs-interop';
 import { DecimalPipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
@@ -75,7 +75,7 @@ interface Toast {
   styleUrl: './people.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class PeopleComponent implements OnInit, OnDestroy {
+export class PeopleComponent implements OnDestroy {
   private readonly api = inject(BunApiBackendService);
   private readonly fsBrowse = inject(FilesystemBrowseService);
   private readonly route = inject(ActivatedRoute);
@@ -194,25 +194,35 @@ export class PeopleComponent implements OnInit, OnDestroy {
    * lifecycle / cache-key rules. Created once per component instance. */
   private readonly thumbs = new ThumbBlobCache(this.api, this.fsBrowse);
 
-  ngOnInit(): void {
+  /** Route paramMap as a signal — `toSignal` registers a teardown against
+   * the component's DestroyRef, so no manual unsubscribe is needed. */
+  private readonly routeParamMap = toSignal(this.route.paramMap, {
+    initialValue: this.route.snapshot.paramMap,
+  });
+
+  /** The `:id` segment from the URL, or `null` for `/settings/people`.
+   * Computed (reference-stable on equal values) so the detail-fetch
+   * effect only fires on actual id changes — replaces the imperative
+   * `_lastFetchedId` race guard the previous subscribe() needed. */
+  readonly selectedRouteId = computed(() => this.routeParamMap().get('id'));
+
+  constructor() {
     this.refresh();
-    this.route.paramMap.subscribe((params) => {
-      const id = params.get('id');
+
+    // URL → detail fetch. `selectedRouteId` is a computed signal so
+    // duplicate paramMap emissions for the same id don't re-fire this.
+    // The effect is owned by the component's DestroyRef, so teardown
+    // runs automatically on destroy.
+    effect(() => {
+      const id = this.selectedRouteId();
       if (id) {
-        if (this._lastFetchedId === id) return;
-        this._lastFetchedId = id;
         this.openDetail(id);
       } else {
-        this._lastFetchedId = null;
         this.selected.set(null);
         this.selectedFaces.set(new Set());
       }
     });
-  }
 
-  private _lastFetchedId: string | null = null;
-
-  constructor() {
     // Detail-panel face thumbs prefetch eagerly — the visible-faces grid
     // can be large (up to ~60 visible cells), so paying the network cost
     // up-front keeps scroll snappy. Cover thumbs in the LIST grid are
@@ -262,12 +272,15 @@ export class PeopleComponent implements OnInit, OnDestroy {
     });
   }
 
+  /** Re-fetch the open detail after a server-side mutation. If `id`
+   * matches the current URL, the route signal won't fire the
+   * detail-fetch effect (computed signals dedupe on equality), so call
+   * openDetail() directly. Otherwise navigate; the effect picks it up. */
   private refetchDetail(id: string): void {
-    this._lastFetchedId = null;
-    this.selectPerson(id);
-    if (this.selected()?.id === id) {
-      this._lastFetchedId = id;
+    if (this.selectedRouteId() === id) {
       this.openDetail(id);
+    } else {
+      this.selectPerson(id);
     }
   }
 
