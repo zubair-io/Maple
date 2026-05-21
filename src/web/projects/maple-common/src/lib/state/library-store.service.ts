@@ -22,15 +22,21 @@
 //         (`browse-preferences.service.ts`). Callers read them via the
 //         LibraryStateService facade, which re-exports each signal.
 //   - searchQuery
-//       → extracted in this PR into LibrarySelection
-//         (`library-selection.service.ts`). The toolbar search input is
-//         conceptually part of the selection-state group (`selectedAssetIds`,
-//         `focusedAssetId`, `selectedSourceId` already live there). Re-exported
-//         via the facade so consumers keep working unchanged.
-//   - pickerVisible, adminVisible, backendLoading, backendError, backendEmpty,
-//     rescanStatus, rescanError
-//       → still on this store; planned to collapse into component / fetcher
-//         signals in follow-up PRs per the issue brief.
+//       → extracted into LibrarySelection (`library-selection.service.ts`,
+//         slice 2, PR #289). The toolbar search input is conceptually part
+//         of the selection-state group (`selectedAssetIds`, `focusedAssetId`,
+//         `selectedSourceId` already live there). Re-exported via the facade
+//         so consumers keep working unchanged.
+//   - backendLoading, backendError, backendEmpty, rescanStatus, rescanError
+//       → extracted in this PR into LibraryStatusService
+//         (`library-status.service.ts`, slice 3). Async-lifecycle signals
+//         for Self-Hosted bootstrap + rescan flows. `LibraryFetch` (the
+//         only writer) now injects the status service directly; the
+//         facade re-exports each signal so component consumers are
+//         unchanged.
+//   - pickerVisible, adminVisible
+//       → still on this store; pure UI visibility flags, planned to move
+//         to shell-component signals in a follow-up PR.
 
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { Asset, AssetId, Flag, ColorLabel } from '../models/asset';
@@ -116,12 +122,10 @@ export class LibraryStore {
   // consumer of the prefs, so this class does not inject it.
 
   // ── Self-Hosted bootstrap state ────────────────────────────────────────────
-  /** True while listFolders / listAssets is in flight (Self-Hosted only). */
-  readonly backendLoading = signal<boolean>(false);
-  /** Last backend error message, cleared on successful load. */
-  readonly backendError = signal<string | null>(null);
-  /** True when the API returned zero folders (index not configured yet). */
-  readonly backendEmpty = signal<boolean>(false);
+  // Note: the five async-lifecycle signals (backendLoading, backendError,
+  // backendEmpty, rescanStatus, rescanError) moved to
+  // `LibraryStatusService` in slice 3 of #191. The facade still
+  // re-exports them so component consumers are unchanged.
   /** Latest server-side registered libraries. */
   readonly registeredFolders = signal<ApiFolder[]>([]);
   /**
@@ -130,9 +134,6 @@ export class LibraryStore {
    * resolve content-addressed assets via `fileinfo[0]`.
    */
   readonly librariesById = computed(() => buildLibrariesById(this.registeredFolders()));
-  /** Transient state for the "Rescan" button on the toolbar. */
-  readonly rescanStatus = signal<'idle' | 'running' | 'done' | 'error'>('idle');
-  readonly rescanError = signal<string | null>(null);
 
   /** True while the library-picker modal is open. */
   readonly pickerVisible = signal(false);
