@@ -11,24 +11,23 @@
 //! radius 40 (3-pass box = exactly 39 px effective tail) is the binding
 //! stage. Dehaze (radius 67 px) doesn't fit and is errored at the entry.
 //! See [`TILE_OVERLAP_PX`] and [`render_scene_linear_tile_from_raw_with_quality`].
+//!
+//! Submodules (split for the file-size budget, #114):
+//! * [`region`]  — pad/clamp/crop/trim geometry helpers.
+//! * [`develop`] — the stripped-down develop chain run on the padded crop.
 
-use crate::{
-    color::dcp,
-    demosaic,
-    error::Result,
-    image::RawImage,
-    linearize,
-    stages::{
-        clarity, highlight_recovery, noise_reduction, saturation, scene_tone_controls, sharpen,
-        texture, vibrance, white_balance,
-    },
-    xmp::AdjustmentModel,
-};
+mod develop;
+mod region;
+
+use crate::{error::Result, image::RawImage, linearize, xmp::AdjustmentModel};
 
 use super::{
     downsample::downsample_image_area, fp16::f32_to_f16_bits, orient::apply_orientation_f32_rgba,
     stage, RenderQuality,
 };
+
+use develop::develop_scene_linear_from_padded_mosaic;
+use region::{pad_and_clamp_mosaic_rect, trim_image_to_inner};
 
 /// Tile-overlap pad in source pixels per edge. Picked to satisfy
 /// clarity at radius 40 (3-pass box reach is exactly
@@ -59,159 +58,6 @@ const _: () = assert!(
     (TILE_OVERLAP_PX as usize) >= CLARITY_TAIL_PX,
     "TILE_OVERLAP_PX must cover the 3-pass clarity box reach; bump it when CLARITY_RADIUS grows.",
 );
-
-/// Pad a `(src_x, src_y, src_w, src_h)` source-pixel rect by `pad` pixels on
-/// each edge, clamp to `(0..mosaic_w, 0..mosaic_h)`, and round the resulting
-/// rect's start corners DOWN to the nearest even multiple to preserve
-/// Bayer phase for `demosaic::half_res` and `cfa.color_at`. End corners
-/// round UP within bounds so the inner rect is fully covered. Returns the
-/// padded rect `(x, y, w, h)` plus the `(left_pad, top_pad)` actually
-/// applied — the trim step at the end of the tile entry uses these to
-/// compute the inner-image-relative crop after the development chain runs
-/// on the padded buffer.
-fn pad_and_clamp_mosaic_rect(
-    src_x: u32, src_y: u32, src_w: u32, src_h: u32,
-    pad: u32, mosaic_w: u32, mosaic_h: u32,
-) -> ((u32, u32, u32, u32), (u32, u32)) {
-    let pre_x = src_x.saturating_sub(pad);
-    let pre_y = src_y.saturating_sub(pad);
-    let pre_x_end = (src_x.saturating_add(src_w).saturating_add(pad)).min(mosaic_w);
-    let pre_y_end = (src_y.saturating_add(src_h).saturating_add(pad)).min(mosaic_h);
-    // Round start corners DOWN to even (Bayer phase). End corners round UP
-    // within bounds so the inner rect remains fully covered.
-    let x = pre_x & !1u32;
-    let y = pre_y & !1u32;
-    let x_end_aligned = ((pre_x_end + 1) & !1u32).min(mosaic_w);
-    let y_end_aligned = ((pre_y_end + 1) & !1u32).min(mosaic_h);
-    let w = x_end_aligned.saturating_sub(x);
-    let h = y_end_aligned.saturating_sub(y);
-    let left_pad = src_x.saturating_sub(x);
-    let top_pad = src_y.saturating_sub(y);
-    ((x, y, w, h), (left_pad, top_pad))
-}
-
-/// Crop a `CameraNativeMosaic` `Image` to a sub-rectangle. Returns a fresh
-/// mosaic `Image` at the cropped dimensions; the CFA pattern is preserved
-/// because `(x, y)` are guaranteed even (see `pad_and_clamp_mosaic_rect`).
-#[allow(dead_code)] // kept for diagnostic / future use; the live tile path linearises directly to the crop
-fn crop_mosaic_to_padded_rect(
-    mosaic: &crate::image::Image, rect: (u32, u32, u32, u32),
-) -> crate::image::Image {
-    use crate::image::ColorSpace;
-    let (cx, cy, cw, ch) = rect;
-    mosaic.assert_space(ColorSpace::CameraNativeMosaic);
-    let mut out = crate::image::Image::new(cw, ch, ColorSpace::CameraNativeMosaic);
-    let sw = mosaic.width as usize;
-    for y in 0..(ch as usize) {
-        let src_off = ((cy as usize) + y) * sw + (cx as usize);
-        let dst_off = y * (cw as usize);
-        out.pixels[dst_off..dst_off + cw as usize]
-            .copy_from_slice(&mosaic.pixels[src_off..src_off + cw as usize]);
-    }
-    out
-}
-
-/// Trim an `Image` to its inner `(left_pad, top_pad, inner_w, inner_h)` rect.
-/// Used after the development chain runs on the padded crop — we discard
-/// the overlap region and keep only the requested source-pixel area.
-/// Note: this runs in fp32 RGB, AFTER `nr_color` and BEFORE downsampling.
-fn trim_image_to_inner(
-    img: &crate::image::Image,
-    left_pad: u32, top_pad: u32,
-    inner_w: u32, inner_h: u32,
-) -> crate::image::Image {
-    let space = img.space;
-    let mut out = crate::image::Image::new(inner_w, inner_h, space);
-    let sw = img.width as usize;
-    for y in 0..(inner_h as usize) {
-        let src_off = ((top_pad as usize) + y) * sw + (left_pad as usize);
-        let dst_off = y * (inner_w as usize);
-        out.pixels[dst_off..dst_off + inner_w as usize]
-            .copy_from_slice(&img.pixels[src_off..src_off + inner_w as usize]);
-    }
-    out
-}
-
-/// Run the development chain from a pre-cropped `CameraNativeMosaic`
-/// `Image` (as produced by `linearize::sensor_linearize` + a manual
-/// `crop_mosaic_to_padded_rect`). Used by the tile path so the linearize
-/// + crop pair runs once on the full mosaic and the develop chain runs
-/// on a small padded-crop. Mirrors `develop_scene_linear_from_raw_with_quality`
-/// but without the leading `linearize` call and **without** dehaze (the
-/// tile entry errors before this fn runs when `model.dehaze != 0`).
-fn develop_scene_linear_from_padded_mosaic(
-    mosaic: &crate::image::Image,
-    raw: &RawImage,
-    model: &AdjustmentModel,
-    quality: RenderQuality,
-) -> Result<crate::image::Image> {
-    if raw.cfa == crate::image::CfaPattern::LinearRgb {
-        return Err(crate::error::Error::Pipeline(
-            "tile path does not support LinearRaw DNGs; use the full-image render entry instead. See ticket #07."
-                .into()
-        ));
-    }
-    mosaic.assert_space(crate::image::ColorSpace::CameraNativeMosaic);
-    let mut camera_rgb = stage("tile_demosaic", || match quality {
-        RenderQuality::Preview => demosaic::half_res(mosaic, raw.cfa),
-        #[cfg(feature = "high-quality-demosaic")]
-        RenderQuality::Full => demosaic::hamilton_adams(mosaic, raw.cfa),
-        #[cfg(not(feature = "high-quality-demosaic"))]
-        RenderQuality::Full => demosaic::bilinear(mosaic, raw.cfa),
-        RenderQuality::Amaze => demosaic::amaze(mosaic, raw.cfa),
-    });
-    if raw.baseline_exposure.abs() > 1e-4 {
-        stage("tile_baseline_exposure", || {
-            let be_gain = raw.baseline_exposure.exp2();
-            for p in &mut camera_rgb.pixels {
-                p[0] *= be_gain;
-                p[1] *= be_gain;
-                p[2] *= be_gain;
-            }
-        });
-    }
-
-    // WB pre-gain: matches the unsized + sized variants (Phase 1.2 contract).
-    // The DCP profile downstream runs with `wb_already_baked = true` for
-    // Bayer paths, expecting input camera RGB to have been divided by
-    // AsShotNeutral. Skip would have been required for 8-bit lossy LinearRaw
-    // but this entire function rejects LinearRaw at the top, so the only
-    // path here is Bayer — always pre-gain.
-    stage("tile_white_balance::apply_pre_gain", || {
-        white_balance::apply_pre_gain(&mut camera_rgb, raw.as_shot_neutral)
-    });
-    stage("tile_highlight_recovery", || highlight_recovery::apply(&mut camera_rgb, model.highlight_recovery));
-    let profile = stage("tile_dcp_profile_for", || dcp::profile_for(raw))?;
-    let mut scene = stage("tile_dcp_apply", || dcp::apply_with_plt_and_ptc(
-        &camera_rgb, &profile, raw.plt.as_ref(), raw.profile_tone_curve.as_ref(),
-    ))?;
-    if let Some(pgtm) = raw.profile_gain_table_map.as_ref() {
-        stage("tile_profile_gain_table_map", || {
-            crate::color::profile_gain_table_map::apply(&mut scene, pgtm)
-        });
-    }
-    // NOTE: auto_exposure intentionally omitted on the tile path. A tile is
-    // a sub-region of the image, so its histogram is not representative of
-    // the whole scene — running AE here would give a different gain per
-    // tile, producing visible discontinuities at tile borders. Wiring AE
-    // into the tile path correctly requires precomputing the EV from the
-    // full image once and threading it through. Today the tile path will
-    // render slightly darker than the full-image path (by whatever EV the
-    // full path's AE picked); this is a known follow-up. The same
-    // architectural reason already excludes dehaze from this path.
-    stage("tile_white_balance", || white_balance::apply(&mut scene, model.temperature, model.tint));
-    stage("tile_scene_tone_controls", || scene_tone_controls::apply(&mut scene, model));
-    stage("tile_vibrance", || vibrance::apply(&mut scene, model.vibrance));
-    stage("tile_saturation", || saturation::apply(&mut scene, model.saturation));
-    stage("tile_clarity", || clarity::apply(&mut scene, model.clarity));
-    stage("tile_texture", || texture::apply(&mut scene, model.texture));
-    // dehaze intentionally omitted — the tile entry asserts dehaze == 0
-    // before this function runs (radius 67 px > TILE_OVERLAP_PX overlap pad).
-    stage("tile_sharpen", || sharpen::apply(&mut scene, model.sharpen_amount, model.sharpen_radius, model.sharpen_detail, model.sharpen_masking));
-    stage("tile_nr_luminance", || noise_reduction::apply_luminance(&mut scene, model.nr_luminance));
-    stage("tile_nr_color", || noise_reduction::apply_color(&mut scene, model.nr_color));
-    Ok(scene)
-}
 
 /// Render a tile of the developed scene-linear Rec.2020 fp16 RGBA image.
 ///
@@ -470,119 +316,6 @@ mod tests {
             RenderQuality::Full,
         );
         assert!(r_h.is_err(), "out_h > src_h must error");
-    }
-
-    /// `pad_and_clamp_mosaic_rect` rounds the start corners DOWN to even
-    /// multiples (Bayer-phase preservation for `demosaic::half_res`).
-    #[test]
-    fn pad_and_clamp_mosaic_rect_rounds_start_to_even() {
-        // Odd start coords with plenty of room — pad pulls back to even.
-        let ((x, y, _w, _h), (lp, tp)) = pad_and_clamp_mosaic_rect(
-            1025, 1025, 512, 512, 35, 8000, 8000,
-        );
-        assert_eq!(x & 1, 0, "x must be even, got {}", x);
-        assert_eq!(y & 1, 0, "y must be even, got {}", y);
-        // 1025 - 35 = 990, already even → x = 990. left_pad = 1025 - 990 = 35.
-        assert_eq!(x, 990);
-        assert_eq!(y, 990);
-        assert_eq!(lp, 35);
-        assert_eq!(tp, 35);
-
-        // Even start coords with plenty of room — pad lands on even
-        // already, no further snap.
-        let ((x2, y2, _w2, _h2), (lp2, tp2)) = pad_and_clamp_mosaic_rect(
-            1024, 1024, 512, 512, 35, 8000, 8000,
-        );
-        // 1024 - 35 = 989, snap down to 988. left_pad = 1024 - 988 = 36.
-        assert_eq!(x2 & 1, 0);
-        assert_eq!(y2 & 1, 0);
-        assert_eq!(x2, 988);
-        assert_eq!(y2, 988);
-        assert_eq!(lp2, 36);
-        assert_eq!(tp2, 36);
-    }
-
-    /// `pad_and_clamp_mosaic_rect` clamps to image bounds rather than
-    /// overshooting. Tests the four edge cases: top-left corner, top-right
-    /// corner, bottom-right corner, and a tile bigger than the mosaic.
-    #[test]
-    fn pad_and_clamp_mosaic_rect_clamps_to_image_bounds() {
-        // Top-left corner: src starts at (0, 0). Pre-pad goes to (-35, -35)
-        // saturating to 0. Even-snap leaves (0, 0). left_pad = top_pad = 0.
-        let ((x, y, w, h), (lp, tp)) = pad_and_clamp_mosaic_rect(
-            0, 0, 512, 512, 35, 4000, 4000,
-        );
-        assert_eq!(x, 0);
-        assert_eq!(y, 0);
-        assert_eq!(lp, 0, "left_pad must be 0 at left edge");
-        assert_eq!(tp, 0, "top_pad must be 0 at top edge");
-        // Right edge: 512 + 35 = 547, +1 = 548, masked to 548 (even). Within bounds.
-        assert_eq!(w, 548);
-        assert_eq!(h, 548);
-
-        // Bottom-right corner: src ends exactly at the image boundary.
-        // The padded right edge clamps to mosaic_w; no overshoot.
-        let mosaic_w = 4000u32;
-        let mosaic_h = 4000u32;
-        let ((x2, y2, w2, h2), _) = pad_and_clamp_mosaic_rect(
-            mosaic_w - 512, mosaic_h - 512, 512, 512, 35, mosaic_w, mosaic_h,
-        );
-        assert!(x2 + w2 <= mosaic_w, "x+w overshoots mosaic width: {}+{} > {}",
-            x2, w2, mosaic_w);
-        assert!(y2 + h2 <= mosaic_h, "y+h overshoots mosaic height: {}+{} > {}",
-            y2, h2, mosaic_h);
-
-        // Tile larger than image: src_w > mosaic_w. Result still inside
-        // bounds (no overshoot), even-aligned, non-zero size.
-        let ((x3, y3, w3, h3), _) = pad_and_clamp_mosaic_rect(
-            0, 0, 10000, 10000, 35, 1024, 1024,
-        );
-        assert_eq!(x3, 0);
-        assert_eq!(y3, 0);
-        assert!(x3 + w3 <= 1024);
-        assert!(y3 + h3 <= 1024);
-        assert!(w3 > 0 && h3 > 0);
-    }
-
-    /// Tile-stencil reachability test: with `src` placed well inside the
-    /// mosaic and `pad = TILE_OVERLAP_PX`, every pixel within `pad` of
-    /// the inner rect must lie inside the padded crop. This is the
-    /// geometric check that the clarity stencil (effective tail 39 px at
-    /// `CLARITY_RADIUS = 40`) sits inside the trimmed region's overlap —
-    /// equivalently, no clarity sample at the inner-rect boundary
-    /// reaches outside the mosaic crop unless the src is itself clipped
-    /// by the image edge.
-    #[test]
-    fn pad_and_clamp_mosaic_rect_overlap_covers_clarity_stencil() {
-        let mosaic_w = 8000u32;
-        let mosaic_h = 8000u32;
-        let (src_x, src_y, src_w, src_h) = (1024u32, 1024u32, 512u32, 512u32);
-        let pad = TILE_OVERLAP_PX;
-        let ((x, y, w, h), (lp, tp)) = pad_and_clamp_mosaic_rect(
-            src_x, src_y, src_w, src_h, pad, mosaic_w, mosaic_h,
-        );
-        // Inner src rect is at (lp, tp) inside the cropped mosaic.
-        // The padded crop must extend at least `pad` pixels on every side
-        // of the inner rect (this is the geometric invariant — when not
-        // clipped by the mosaic boundary).
-        assert!(lp >= pad, "left overlap {} < pad {}", lp, pad);
-        assert!(tp >= pad, "top overlap {} < pad {}", tp, pad);
-        let right_overlap = w.saturating_sub(lp + src_w);
-        let bottom_overlap = h.saturating_sub(tp + src_h);
-        assert!(right_overlap >= pad,
-            "right overlap {} < pad {}", right_overlap, pad);
-        assert!(bottom_overlap >= pad,
-            "bottom overlap {} < pad {}", bottom_overlap, pad);
-        // Padded crop sits inside the mosaic — does not overshoot.
-        assert!(x + w <= mosaic_w, "padded crop overshoots width");
-        assert!(y + h <= mosaic_h, "padded crop overshoots height");
-        // Locks the binding stencil: clarity at radius 40 has a 3-pass
-        // box reach of exactly `3 * (40 / 3) = 39` px per side. The
-        // const assertion at module scope pins `TILE_OVERLAP_PX` to
-        // this value; check the runtime relation here too.
-        let clarity_reach = 3 * (crate::stages::clarity::CLARITY_RADIUS / 3).max(1);
-        assert!((pad as usize) >= clarity_reach,
-            "TILE_OVERLAP_PX {} must cover clarity tail {}", pad, clarity_reach);
     }
 
     /// Tile entry: renders a 512×512 source-pixel rectangle out of the
