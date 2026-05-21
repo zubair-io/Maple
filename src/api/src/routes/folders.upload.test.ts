@@ -130,6 +130,31 @@ describe('POST /api/folders/:id/upload → asset_changes emit', () => {
     expect((asset!.fileinfo![0].library_id as ObjectId).toHexString()).toBe(folderId.toHexString());
   });
 
+  it('rejects X-Maple-Target-Path containing backslashes with 400', async () => {
+    if (!mongo || !db || !folderId) return;
+    const app = new Elysia().use(foldersRoutes);
+    const fileBytes = new Uint8Array([0x49, 0x49, 0x2a, 0x00]);
+    // Percent-encode the backslashes so the raw header bytes are still
+    // valid HTTP; `decodeURIComponent` will turn them back into `\`
+    // and the validator must reject. Without encoding, fetch/Bun may
+    // mangle backslashes in the header itself.
+    const target = encodeURIComponent('vacation\\2024\\file.dng');
+    const url = `http://localhost/api/folders/${folderId.toHexString()}/upload`;
+    const res = await app.handle(
+      new Request(url, {
+        method: 'POST',
+        headers: {
+          'X-Maple-Target-Path': target,
+          'Content-Type': 'application/octet-stream',
+        },
+        body: fileBytes,
+      }),
+    );
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toMatch(/[Bb]ackslash/);
+  });
+
   it('uploads to a subdirectory record fileinfo[0].path correctly', async () => {
     if (!mongo || !db || !folderId) return;
     const app = new Elysia().use(foldersRoutes);

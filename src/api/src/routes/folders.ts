@@ -71,6 +71,16 @@ function decodeAndValidateTargetPath(
   } catch {
     return { ok: false, status: 400, error: 'Invalid X-Maple-Target-Path encoding' };
   }
+  // Reject backslashes outright: the rest of the validator splits on
+  // `/` only, so a Windows-style separator would smuggle path
+  // components through as a single "filename" string and the resolved
+  // `absPath` (via `nodePath.join`) would disagree with the `parts`
+  // breakdown on any non-POSIX host. FileInfo.path is POSIX-only by
+  // contract, so refusing backslashes here keeps the writer side
+  // honest. Mirrors the discover watcher's POSIX-normalization invariant.
+  if (target.includes('\\')) {
+    return { ok: false, status: 400, error: 'Backslashes not allowed in target path' };
+  }
   if (target.startsWith('/')) {
     return { ok: false, status: 400, error: 'Path must be relative' };
   }

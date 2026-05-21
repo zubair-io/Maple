@@ -166,6 +166,15 @@ export async function handleEvent(
       {
         $set: {
           abs_path: absPath,
+          // Watcher renames may cross library roots — the discover
+          // supervisor invokes `handleEvent` with `folderId` set to
+          // the NEW library that owns `absPath`, but the legacy
+          // `folder_id` field on the row still points at the OLD
+          // library if we don't update it. PR 7 removes `folder_id`
+          // entirely; until then, keep it in sync so per-folder
+          // queries (e.g. `GET /api/folders/:id/assets`) don't list
+          // a renamed file under its previous library.
+          folder_id: folderId,
           filename: path.basename(absPath),
           fileinfo: newFileinfo,
           indexed_at: new Date().toISOString(),

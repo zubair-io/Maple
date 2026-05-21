@@ -332,7 +332,7 @@ describe('discover producer', () => {
     const doc = await coll.findOne({ abs_path: file });
     expect(doc).not.toBeNull();
     expect(doc!.fileinfo).toHaveLength(1);
-    expect(doc!.fileinfo![0].path).toBe(path.join('vacation', '2024'));
+    expect(doc!.fileinfo![0].path).toBe('vacation/2024');
     expect(doc!.fileinfo![0].filename).toBe('IMG_001.dng');
     expect(doc!.fileinfo![0].library_id.equals(folderId)).toBe(true);
 
