@@ -12,6 +12,7 @@ use super::{
         develop_scene_linear_from_raw_with_quality,
         develop_scene_linear_sized_from_raw_with_quality,
     },
+    dump_after,
     fp16::f32_to_f16_bits,
     orient::apply_orientation_f32_rgba,
     stage, RenderQuality,
@@ -43,7 +44,9 @@ pub fn render_from_raw_with_quality(
 ) -> Result<(u32, u32, Vec<u8>)> {
     let mut scene = develop_scene_linear_from_raw_with_quality(raw, model, quality)?;
     stage("agx", || agx::apply(&mut scene, model.contrast));
+    dump_after("16_agx", &scene);
     stage("rec2020_to_srgb", || encode::rec2020_to_srgb(&mut scene));
+    dump_after("17_post_srgb_encode", &scene);
     let bytes = stage("quantize_u8", || encode::quantize_u8(&mut scene));
     // Apply EXIF orientation last — rotating/flipping sRGB u8 is cheap and
     // keeps every upstream stage indifferent to sensor-vs-display framing.
