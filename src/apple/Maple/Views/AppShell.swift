@@ -289,7 +289,7 @@ struct AppShell: View {
             centerColumnView
                 .navigationSplitViewColumnWidth(min: 300, ideal: 520)
                 .navigationTitle(selectedSession?.asset.displayName ?? "Image")
-                .toolbar { browseToolbar }
+                .toolbar { browseToolbarContent }
         } detail: {
             // `isFullImage` drives Ticket 12 bugs 4/5/8: the panel auto-flips
             // to Develop on entry, back to Info on exit. Width: iPad expands
@@ -309,7 +309,7 @@ struct AppShell: View {
         } detail: {
             centerColumnView
                 .navigationTitle("Library — \(libraryTitle)")
-                .toolbar { browseToolbar }
+                .toolbar { browseToolbarContent }
         }
         .navigationSplitViewStyle(.balanced)
     }
@@ -693,7 +693,7 @@ struct AppShell: View {
                     .accessibilityLabel("Library")
                 }
             }
-            browseToolbar
+            browseToolbarContent
             // Info button reaches the DetailPanel sheet; only meaningful
             // in Full-image mode (the panel is suppressed entirely in
             // Browse — sidecar info belongs to the editor view).
@@ -714,78 +714,21 @@ struct AppShell: View {
 
     // MARK: - Toolbar
 
+    /// Wires `AppShell` state into `AppShellToolbar` (defined in
+    /// `AppShellToolbar.swift`). Kept as a small computed property so each
+    /// call site can write `.toolbar { browseToolbarContent }` without
+    /// repeating the parameter list.
     @ToolbarContentBuilder
-    private var browseToolbar: some ToolbarContent {
-        // Toolbar items at `.navigation` placement land on the LEADING edge
-        // of the title bar — right of the sidebar-toggle button, left of
-        // the navigationTitle. When the sidebar is closed the placement
-        // collapses to "right after the menu/sidebar button, before the
-        // image name." Per UX request: back/share/zoom controls live in
-        // the header next to the menu button rather than at the trailing
-        // edge after the title.
-        ToolbarItem(placement: .navigation) {
-            if mode == .fullImage {
-                Button("Back", systemImage: "chevron.left") {
-                    mode = .browse
-                }
-                .keyboardShortcut(.escape, modifiers: [])
-                .accessibilityLabel("Back to Library")
-            } else {
-                // TODO(UI-search): wire library search.
-                Button {
-                    // no-op
-                } label: {
-                    Image(systemName: "magnifyingglass")
-                        .foregroundStyle(MapleTokens.textMuted)
-                }
-                .accessibilityLabel("Search")
-            }
-        }
-        // Grid fill/fit toggle — only relevant in browse mode. Persists for
-        // the session via @State on AppShell. The button shows the OPPOSITE
-        // icon as the action target (see `GridDisplayMode.toggleIconName`).
-        // Placement .navigation per the same UX rule as the rest of
-        // browseToolbar — header controls cluster on the leading edge,
-        // right of the sidebar-toggle button.
-        if mode == .browse {
-            ToolbarItem(placement: .navigation) {
-                Button {
-                    browseDisplayMode = browseDisplayMode.toggled
-                } label: {
-                    Image(systemName: browseDisplayMode.toggleIconName)
-                        .foregroundStyle(MapleTokens.textMuted)
-                }
-                .accessibilityLabel(browseDisplayMode.toggleAccessibilityLabel)
-                .accessibilityIdentifier("browse-grid-display-mode-toggle")
-            }
-        }
-        ToolbarItem(placement: .navigation) {
-            Button("Export", systemImage: "square.and.arrow.up") {
-                showExport = true
-            }
-            .disabled(selectedSession == nil)
-            .keyboardShortcut("e", modifiers: .command)
-        }
-        // ⌘O still works even though the button has moved into the sidebar.
-        ToolbarItem(placement: .automatic) {
-            Button("Open Folder", systemImage: "folder.badge.plus") {
-                showFilePicker = true
-            }
-            .keyboardShortcut("o", modifiers: .command)
-            // Hide from the visible toolbar — keyboard shortcut only.
-            .hidden()
-            .accessibilityHidden(true)
-        }
-        ToolbarItem(placement: .automatic) {
-            Button("Settings", systemImage: "gear") {
-                showSettings = true
-            }
-            .accessibilityLabel("Settings")
-            .accessibilityIdentifier("settings-button")
-            #if os(macOS)
-            .keyboardShortcut(",", modifiers: .command)
-            #endif
-        }
+    private var browseToolbarContent: some ToolbarContent {
+        AppShellToolbar(
+            isFullImage: mode == .fullImage,
+            hasSelection: selectedSession != nil,
+            browseDisplayMode: $browseDisplayMode,
+            onBack: { mode = .browse },
+            onExport: { showExport = true },
+            onOpenFolder: { showFilePicker = true },
+            onSettings: { showSettings = true }
+        )
     }
 
     // MARK: - Empty / placeholder views
