@@ -87,6 +87,11 @@ describe('POST /api/libraries/:id/backup/ingest', () => {
     const doc = await a.findOne({ 'phasset_links.phasset_local_id': phid });
     expect(doc).toBeTruthy();
     expect(doc?.phasset_links?.[0].device_id).toBe(deviceId);
+
+    // fileinfo[0] mirrors the target_rel_path split into (dir, filename, lib).
+    expect(doc?.fileinfo).toHaveLength(1);
+    expect(doc?.fileinfo?.[0].path).toBe("2024/Tokyo/03-15");
+    expect(doc?.fileinfo?.[0].filename).toBe("IMG_0420.HEIC");
   });
 
   test('resume across two chunks', async () => {
