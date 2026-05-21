@@ -76,12 +76,21 @@ export class OllamaProvider implements DescribeProvider {
     opts: DescribeOptions,
   ): Promise<DescribeResult> {
     const url = `${this.baseUrl}/api/generate`;
-    const body = JSON.stringify({
+    // Ollama 0.5+ accepts a JSON Schema in `format` and constrains the
+    // model's output to it at decode time — eliminates the `bad-enum`,
+    // `not-json`, and missing-field failure modes the parser used to
+    // dead-letter on. Older Ollama versions ignore the field, so the
+    // parser's defensive synonym maps stay relevant for those deploys.
+    const requestPayload: Record<string, unknown> = {
       model: opts.model,
       prompt: opts.systemPrompt,
       images: [jpegBytes.toString("base64")],
       stream: false,
-    });
+    };
+    if (opts.format !== undefined) {
+      requestPayload.format = opts.format;
+    }
+    const body = JSON.stringify(requestPayload);
     const res = await this.timedFetch(url, {
       method: "POST",
       headers: { "content-type": "application/json" },

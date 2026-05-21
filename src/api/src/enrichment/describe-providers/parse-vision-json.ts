@@ -256,6 +256,15 @@ const COMPOSITION_SYNONYMS: Record<string, string> = {
   closeup: "close-up",
   "macro shot": "macro",
   "aerial shot": "aerial",
+  // qwen sometimes confuses composition with shot_type and emits one of
+  // the shot_type enum values here. Map the non-overlapping ones to the
+  // closest composition; "candid" already overlaps both enums.
+  action: "candid",
+  static: "candid",
+  posed: "portrait",
+  architectural: "wide shot",
+  nature: "landscape",
+  event: "candid",
 };
 const SHOT_TYPE_SYNONYMS: Record<string, string> = {
   motion: "action",
@@ -371,6 +380,64 @@ function coerceTextVisible(v: unknown): string | null | typeof COERCE_FAIL {
 export function strippedRawFor(raw: string): string {
   return stripFences(raw.trim()).trim();
 }
+
+/**
+ * JSON Schema passed to Ollama's `format` parameter so the model's output
+ * is constrained at decode time. With this in place the model literally
+ * cannot:
+ *   - emit a string outside the allowed enum (the `bad-enum:*` failure mode)
+ *   - drop a required field (the `wrong-type:caption` missing-field mode)
+ *   - return malformed JSON (the `not-json` mode)
+ *
+ * The synonym maps and null-defaults in `coerceEnum` stay as defense in
+ * depth — they handle older Ollama versions (< 0.5 don't honour `format`),
+ * future provider swaps, and the rare case where the grammar engine emits
+ * a token that doesn't match the schema in some edge case.
+ *
+ * Built from the same `ALLOWED_*` sets the parser uses so the schema and
+ * the validator can never drift. `null` is included on the nullable enum
+ * fields because the prompt asks the model to return null on featureless
+ * images; the parser maps null to the field's default.
+ */
+export const VISION_DOC_JSON_SCHEMA = {
+  type: "object",
+  properties: {
+    caption: { type: "string", minLength: 1 },
+    subjects: { type: ["array", "null"], items: { type: "string" } },
+    scene_type: { type: ["string", "null"], enum: [...ALLOWED_SCENE_TYPE, null] },
+    setting: { type: ["string", "null"] },
+    activity: { type: ["string", "null"] },
+    time_of_day: { type: ["string", "null"], enum: [...ALLOWED_TIME_OF_DAY, null] },
+    lighting: { type: ["string", "null"], enum: [...ALLOWED_LIGHTING, null] },
+    weather: { type: ["string", "null"], enum: [...ALLOWED_WEATHER, null] },
+    mood: { type: ["string", "null"] },
+    colors: { type: ["array", "null"], items: { type: "string" } },
+    composition: { type: ["string", "null"], enum: [...ALLOWED_COMPOSITION, null] },
+    text_visible: { type: ["string", "null"] },
+    notable_objects: { type: ["array", "null"], items: { type: "string" } },
+    shot_type: { type: ["string", "null"], enum: [...ALLOWED_SHOT_TYPE, null] },
+    indoor_outdoor: { type: ["string", "null"], enum: [...ALLOWED_INDOOR_OUTDOOR, null] },
+    is_screenshot: { type: "boolean" },
+  },
+  required: [
+    "caption",
+    "subjects",
+    "scene_type",
+    "setting",
+    "activity",
+    "time_of_day",
+    "lighting",
+    "weather",
+    "mood",
+    "colors",
+    "composition",
+    "text_visible",
+    "notable_objects",
+    "shot_type",
+    "indoor_outdoor",
+    "is_screenshot",
+  ],
+} as const;
 
 /** Parse a model response into a typed `VisionDoc`. Throws
  * `VisionParseError` on any deviation from the schema. */

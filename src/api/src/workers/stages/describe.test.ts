@@ -12,6 +12,7 @@ import {
 import { cachePathFor } from "../../fs/xmp.ts";
 
 import { describeHandler, setDescribeDepsForTests, DESCRIBE_PROMPT_VERSION } from "./describe.ts";
+import { VISION_DOC_JSON_SCHEMA } from "../../enrichment/describe-providers/parse-vision-json.ts";
 
 const VALID_VISION = {
   caption: "A red bicycle leaning against a brick wall.",
@@ -131,6 +132,36 @@ describe("describeHandler — happy path", () => {
 
     // Top-level is_screenshot mirror — overwrites the exif heuristic.
     expect(patch.is_screenshot).toBe(false);
+  });
+
+  it("threads VISION_DOC_JSON_SCHEMA through to the provider as `format`", async () => {
+    const absPath = join(tmpRoot, "img.dng");
+    seedPreview(absPath);
+    const doc = fakeDoc(absPath);
+    let capturedFormat: unknown = undefined;
+    const provider: DescribeProvider = {
+      name: "ollama",
+      async describe(_bytes, opts): Promise<DescribeResult> {
+        capturedFormat = opts.format;
+        return {
+          text: JSON.stringify(VALID_VISION),
+          cost_usd: 0,
+          provider_info: {},
+        };
+      },
+      async health(): Promise<void> {},
+    };
+    setDescribeDepsForTests({
+      provider,
+      systemPrompt: "p",
+      model: "qwen2.5vl:7b",
+    });
+    await describeHandler(doc, fakeCtx);
+    // Identity, not deep equality — the stage should pass the exported
+    // schema constant verbatim, not a copy. Catches accidental rebuilds
+    // (a `JSON.parse(JSON.stringify(...))` round-trip would drop the
+    // `as const` typing and silently allow drift).
+    expect(capturedFormat).toBe(VISION_DOC_JSON_SCHEMA);
   });
 
   it("writes is_screenshot: true at the top level when the VLM flags it", async () => {

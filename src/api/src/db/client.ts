@@ -415,6 +415,42 @@ export async function ensureIndexes(): Promise<void> {
     }
   }
 
+  // Reset describe-stage dead rows whose dead-letter reason was ANY vision
+  // parse failure. The Ollama provider now sends a JSON Schema via the
+  // `format` parameter, which constrains decoding so the model cannot emit
+  // out-of-enum values, drop required fields, or produce malformed JSON
+  // — every prior vision-parse[*] error class is structurally impossible
+  // on Ollama 0.5+. Re-attempting these rows through the constrained path
+  // should clear the dead-letter backlog. Match is broad (any `vision-parse[`
+  // prefix) so the never-resolved `not-json` rows from #186 get picked up
+  // alongside the `bad-enum` / `wrong-type` patterns the previous migration
+  // covered. One-shot.
+  if (!(await migrationApplied(db, "reset-describe-dead-vision-parse-2026-05-22"))) {
+    try {
+      const res = await db.collection("assets").updateMany(
+        {
+          "stages.describe.dead": true,
+          "stages.describe.last_error": { $regex: "vision-parse\\[" },
+        },
+        { $set: RESET_DESCRIBE_DEAD_SET },
+      );
+      await recordMigration(
+        db,
+        "reset-describe-dead-vision-parse-2026-05-22",
+        res.modifiedCount,
+      );
+      log.info(
+        { rows: res.modifiedCount },
+        "reset describe-stage dead rows for constrained-decoding retry",
+      );
+    } catch (err) {
+      log.warn(
+        { err: err instanceof Error ? err.message : err },
+        "describe constrained-decoding dead-reset migration skipped",
+      );
+    }
+  }
+
   // folders: path is unique
   await db.collection("folders").createIndex({ path: 1 }, { unique: true });
 

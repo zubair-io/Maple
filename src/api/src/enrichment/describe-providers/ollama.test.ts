@@ -123,6 +123,31 @@ describe("OllamaProvider.describe — happy path", () => {
     expect(Array.isArray(body.images)).toBe(true);
     expect(body.images[0]).toBe(jpeg.toString("base64"));
     expect(body.stream).toBe(false);
+    // No `format` field when the caller doesn't supply one — back-compat
+    // with older Ollama versions and free-text describe calls.
+    expect("format" in body).toBe(false);
+  });
+
+  it("forwards a JSON Schema via the `format` field for structured output", async () => {
+    const { fetchImpl, calls } = mockFetch([
+      { status: 200, body: { response: "{}", done: true } },
+    ]);
+    const provider = new OllamaProvider({
+      baseUrl: "http://ollama.test",
+      fetchImpl,
+    });
+    const schema = {
+      type: "object",
+      properties: { caption: { type: "string" } },
+      required: ["caption"],
+    };
+    await provider.describe(Buffer.from([0xff, 0xd8]), {
+      systemPrompt: "p",
+      model: "qwen2.5vl:7b",
+      format: schema,
+    });
+    const body = JSON.parse(String(calls[0]!.init!.body));
+    expect(body.format).toEqual(schema);
   });
 });
 

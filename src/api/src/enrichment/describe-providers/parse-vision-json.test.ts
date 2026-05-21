@@ -302,6 +302,23 @@ describe("parseVisionJson — rejection paths", () => {
     expect(out.scene_type).toBe("mixed");
   });
 
+  it("coerces composition synonyms when qwen emits shot_type values in the composition field", () => {
+    for (const [raw, expected] of [
+      ["action", "candid"],
+      ["static", "candid"],
+      ["posed", "portrait"],
+      ["architectural", "wide shot"],
+      ["nature", "landscape"],
+      ["event", "candid"],
+      // pre-existing synonyms still work
+      ["panorama", "wide shot"],
+      ["closeup", "close-up"],
+    ] as const) {
+      const out = parseVisionJson(JSON.stringify({ ...VALID, composition: raw }));
+      expect(out.composition).toBe(expected);
+    }
+  });
+
   it("coerces indoor_outdoor=unknown to outdoor (majority case)", () => {
     const out = parseVisionJson(JSON.stringify({ ...VALID, indoor_outdoor: "unknown" }));
     expect(out.indoor_outdoor).toBe("outdoor");

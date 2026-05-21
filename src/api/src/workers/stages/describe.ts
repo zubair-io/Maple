@@ -47,6 +47,7 @@ import {
 import {
   parseVisionJson,
   strippedRawFor,
+  VISION_DOC_JSON_SCHEMA,
 } from "../../enrichment/describe-providers/parse-vision-json.ts";
 import { PREVIEW_SIZE_KEY } from "../../indexer/previewer.ts";
 
@@ -129,7 +130,16 @@ export async function describeHandler(
     throw err;
   }
 
-  const result = await provider.describe(jpegBytes, { systemPrompt, model });
+  const result = await provider.describe(jpegBytes, {
+    systemPrompt,
+    model,
+    // Constrain Ollama's output to the VisionDoc schema. Ollama 0.5+
+    // enforces this at decode time, so the model cannot emit out-of-enum
+    // values, drop required fields, or produce malformed JSON. The
+    // parse-vision-json synonym maps stay as defense in depth for older
+    // Ollama versions and edge cases.
+    format: VISION_DOC_JSON_SCHEMA,
+  });
 
   // Strict parse — throws VisionParseError on malformed output. The runtime
   // dead-letters the row after maxAttempts; operators triage via
