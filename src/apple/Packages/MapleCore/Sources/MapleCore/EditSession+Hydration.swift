@@ -130,7 +130,13 @@ extension EditSession {
         if let url = asset.primaryURL {
             seedNativeImageSizeFromMetadata(url)
         }
-        guard renderedPreview == nil || decodedForAssetID != asset.id else { return }
+        // `EditSession.asset` is `let`, so once a preview lands for this
+        // session it's guaranteed to be for `self.asset`. The decoded-
+        // image cache now lives on `renderActor` (issue #194 slice 2);
+        // the cheap MainActor check here is just "have we already
+        // published anything?". The hard "do we need a real decode?"
+        // check is the snapshot-fetch inside `openAssetPipelineAsync`.
+        guard renderedPreview == nil else { return }
         editSessionSignposter.emitEvent("open")
         // Sub-second open strategy: seed `decodedImage` from whatever's
         // fastest to get hold of (cache hit → embedded JPEG), then kick
@@ -158,18 +164,25 @@ extension EditSession {
     /// Rust). Each seed triggers a `_scheduleRender(.fast)` so the view
     /// upgrades as better sources land.
     func openAssetPipelineAsync() async {
-        let pipeline = self.pipeline
         let openedAsset = self.asset
 
         // Kick the background Rust decode early — it's the slowest,
-        // latency-hiding it behind the preview paths matters most. This
-        // task also writes `nativeImageSize` + `decodedImage` when it
-        // completes via `sharedDecode`'s tail.
+        // latency-hiding it behind the preview paths matters most. The
+        // actor writes its cache fields on completion via the
+        // `sharedDecode` tail; we re-kick the fast render so the
+        // scheduler picks up the new cache on its next snapshot.
+        let actor = self.renderActor
         let rustTask: Task<Void, Never> = Task { [weak self] in
+            _ = await actor.sharedDecode(
+                asset: openedAsset,
+                normalize: { [weak self] image, asset in
+                    guard let self else { return image }
+                    return await MainActor.run {
+                        self.decodedForNativeCanvas(image, asset: asset)
+                    }
+                }
+            )
             guard let self else { return }
-            _ = await self.sharedDecode(asset: openedAsset, pipeline: pipeline)
-            // Re-render against the Rust output when it lands (but only
-            // if we're still on the same asset).
             if self.asset.id == openedAsset.id {
                 self._scheduleRender(phase: .fast)
             }
@@ -306,20 +319,31 @@ extension EditSession {
     // MARK: - Preview seeds (cache + embedded JPEG)
 
     /// Returns true if a cached rendered preview was loaded and the
-    /// session state was updated (`decodedImage` / `renderedPreview`).
-    /// No-op + false when there's no cache hit or the asset switched.
+    /// session state was updated. Writes the decoded-image cache via
+    /// `renderActor.seedIfUnpopulated(...)` so the check+write is
+    /// atomic against the background Rust decode landing first (issue
+    /// #194 slice 2). When the actor refuses the seed (a better buffer
+    /// is already cached), `renderedPreview` is left alone.
     func seedFromCachedPreview(for asset: AssetRef) async -> Bool {
         guard let url = asset.primaryURL else { return false }
-        guard renderedPreview == nil, decodedForAssetID != asset.id else { return false }
+        guard renderedPreview == nil else { return false }
         let w = Int(max(previewSize.width, 1))
         let cached = await RenderedPreviewCache.shared
             .preview(for: url, screenWidth: w)
         guard let cached else { return false }
-        guard self.asset.id == asset.id, decodedForAssetID != asset.id else { return false }
+        guard self.asset.id == asset.id else { return false }
+        let normalized = decodedForNativeCanvas(cached, asset: asset)
+        let accepted = await renderActor.seedIfUnpopulated(
+            asset: asset,
+            decoded: normalized,
+            rawResolution: cached.extent.size
+        )
+        guard accepted else { return false }
+        // Only publish the lower-quality buffer to the canvas once the
+        // actor has accepted it — otherwise the Rust decode already
+        // wrote a better cache and we'd be downgrading the visible
+        // preview for no reason.
         renderedPreview = cached
-        decodedImage = decodedForNativeCanvas(cached, asset: asset)
-        decodedRawResolution = cached.extent.size
-        decodedForAssetID = asset.id
         editSessionLogger.debug(
             "cached preview seeded decode extent=\(cached.extent.width)x\(cached.extent.height)"
         )
@@ -327,12 +351,10 @@ extension EditSession {
     }
 
     /// Returns true if the embedded JPEG preview was loaded and seeded
-    /// into `decodedImage`. No-op + false when the asset has no
-    /// extractable preview, has already been Rust-decoded, or the asset
-    /// switched mid-await.
+    /// into the actor's decoded-image cache. Same atomicity contract as
+    /// `seedFromCachedPreview` above.
     func seedFromEmbeddedPreview(for asset: AssetRef) async -> Bool {
         guard let url = asset.primaryURL else { return false }
-        guard decodedForAssetID != asset.id else { return false }
         let scope = asset.scopeParentURL ?? url.deletingLastPathComponent()
         let ci: CIImage? = await Task.detached(priority: .userInitiated) { () -> CIImage? in
             let accessing = scope.startAccessingSecurityScopedResource()
@@ -340,11 +362,15 @@ extension EditSession {
             return EditSession.readEmbeddedPreview(from: url)
         }.value
         guard let ci else { return false }
-        guard self.asset.id == asset.id, decodedForAssetID != asset.id else { return false }
+        guard self.asset.id == asset.id else { return false }
+        let normalized = decodedForNativeCanvas(ci, asset: asset)
+        let accepted = await renderActor.seedIfUnpopulated(
+            asset: asset,
+            decoded: normalized,
+            rawResolution: ci.extent.size
+        )
+        guard accepted else { return false }
         renderedPreview = ci
-        decodedImage = decodedForNativeCanvas(ci, asset: asset)
-        decodedRawResolution = ci.extent.size
-        decodedForAssetID = asset.id
         editSessionSignposter.emitEvent("embedded paint")
         editSessionLogger.debug(
             "embedded preview seeded decode extent=\(ci.extent.width)x\(ci.extent.height)"
