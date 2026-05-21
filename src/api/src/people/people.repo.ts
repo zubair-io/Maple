@@ -287,10 +287,7 @@ async function coverAbsPathByPerson(people: WithId<PersonDoc>[]): Promise<Map<st
   }
   if (coverObjectIds.length === 0) return out;
   const assets = await assetsCollection();
-  const cursor = assets.find(
-    { _id: { $in: coverObjectIds } },
-    { projection: { abs_path: 1, fileinfo: 1, folder_id: 1 } },
-  );
+  const cursor = assets.find({ _id: { $in: coverObjectIds } }, { projection: { fileinfo: 1 } });
   const libs = await loadLibraryRoots();
   for await (const row of cursor) {
     const personHex = personByCover.get(row._id.toHexString());
@@ -352,9 +349,7 @@ export async function getPerson(
   // dropdown back at the right element.
   const cursor = assets.aggregate<{
     _id: ObjectId;
-    abs_path: string;
     fileinfo?: AssetDoc['fileinfo'];
-    folder_id?: ObjectId;
     face_index: number;
     bbox: Bbox;
     confidence: number;
@@ -370,9 +365,7 @@ export async function getPerson(
     { $match: { 'faces.hidden': { $ne: true } } },
     {
       $project: {
-        abs_path: 1,
         fileinfo: 1,
-        folder_id: 1,
         face_index: 1,
         bbox: '$faces.bbox',
         confidence: '$faces.confidence',
@@ -385,10 +378,12 @@ export async function getPerson(
   const libs = await loadLibraryRoots();
   const faces: PersonDetailFace[] = [];
   for await (const row of cursor) {
+    const abs = assetAbsPath(row, libs);
+    if (!abs) continue; // skip rows with no resolvable location
     faces.push({
       asset_id: row._id.toHexString(),
       face_index: row.face_index,
-      abs_path: assetAbsPath(row, libs) ?? row.abs_path,
+      abs_path: abs,
       bbox: row.bbox,
       confidence: row.confidence,
     });

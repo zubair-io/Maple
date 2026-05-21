@@ -16,30 +16,28 @@
  * status` would otherwise report the stage as permanently missing.
  */
 
-import { child as childLogger } from "../log.ts";
-import type { RunStageHandle } from "./run-stage.ts";
-import { stageRegistry } from "./registry.ts";
-import { stageManifest } from "./stages/manifest.ts";
-import { startHashStage } from "./stages/hash.ts";
-import { startExifStage } from "./stages/exif.ts";
-import { startThumbStage } from "./stages/thumb.ts";
-import { startPreviewStage } from "./stages/preview.ts";
-import { startFaceStage } from "./stages/face.ts";
-import { startDescribeStage } from "./stages/describe.ts";
-import { startGeocodeStage } from "./stages/geocode.ts";
-import { startMeiliStage } from "./stages/meili.ts";
+import { child as childLogger } from '../log.ts';
+import type { RunStageHandle } from './run-stage.ts';
+import { stageRegistry } from './registry.ts';
+import { stageManifest } from './stages/manifest.ts';
+import { startExifStage } from './stages/exif.ts';
+import { startThumbStage } from './stages/thumb.ts';
+import { startPreviewStage } from './stages/preview.ts';
+import { startFaceStage } from './stages/face.ts';
+import { startDescribeStage } from './stages/describe.ts';
+import { startGeocodeStage } from './stages/geocode.ts';
+import { startMeiliStage } from './stages/meili.ts';
 
-const log = childLogger("workers:orchestrator");
+const log = childLogger('workers:orchestrator');
 
 const STAGE_STARTERS: ReadonlyArray<readonly [string, () => Promise<RunStageHandle>]> = [
-  ["hash", startHashStage],
-  ["exif", startExifStage],
-  ["thumb", startThumbStage],
-  ["preview", startPreviewStage],
-  ["face", startFaceStage],
-  ["describe", startDescribeStage],
-  ["geocode", startGeocodeStage],
-  ["meili", startMeiliStage],
+  ['exif', startExifStage],
+  ['thumb', startThumbStage],
+  ['preview', startPreviewStage],
+  ['face', startFaceStage],
+  ['describe', startDescribeStage],
+  ['geocode', startGeocodeStage],
+  ['meili', startMeiliStage],
 ];
 
 const handles = new Map<string, RunStageHandle>();
@@ -102,9 +100,7 @@ export async function startAllStages(): Promise<void> {
   for (const stage of stageManifest) {
     stageRegistry.preregister(stage.name, stage.targetVersion);
   }
-  await Promise.all(
-    STAGE_STARTERS.map(([name, starter]) => attemptStart(name, starter, 0)),
-  );
+  await Promise.all(STAGE_STARTERS.map(([name, starter]) => attemptStart(name, starter, 0)));
 }
 
 /**
@@ -124,10 +120,7 @@ export async function stopAllStages(): Promise<void> {
         await handle.stop();
       } catch (err) {
         // Pass raw `err` so pino's serializer expands Error fields.
-        log.warn(
-          { stage: name, err },
-          `${name} stage stop() raised`,
-        );
+        log.warn({ stage: name, err }, `${name} stage stop() raised`);
       }
     }),
   );

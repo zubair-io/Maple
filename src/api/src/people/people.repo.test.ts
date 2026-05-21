@@ -4,20 +4,13 @@
  * directly (route tests live in `tests/people-route.test.ts`).
  */
 
-import {
-  describe,
-  it,
-  expect,
-  beforeAll,
-  beforeEach,
-  afterAll,
-} from "bun:test";
-import { MongoClient, ObjectId, type Db } from "mongodb";
-import type { AssetDoc, AssetFaceDoc, PersonDoc } from "../db/schema.ts";
+import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'bun:test';
+import { MongoClient, ObjectId, type Db } from 'mongodb';
+import type { AssetDoc, AssetFaceDoc, PersonDoc } from '../db/schema.ts';
 
 const TEST_DB = `maple_test_people_repo_${process.pid}`;
 process.env.MAPLE_MONGO_DB = TEST_DB;
-const MONGO_URI = process.env.MAPLE_MONGO_URI ?? "mongodb://localhost:27017";
+const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
 
 let mongo: MongoClient | null = null;
 let mongoReachable = false;
@@ -30,10 +23,12 @@ async function tryConnect(): Promise<MongoClient | null> {
   });
   try {
     await c.connect();
-    await c.db("admin").command({ ping: 1 });
+    await c.db('admin').command({ ping: 1 });
     return c;
   } catch {
-    try { await c.close(); } catch {}
+    try {
+      await c.close();
+    } catch {}
     return null;
   }
 }
@@ -42,7 +37,7 @@ beforeAll(async () => {
   mongo = await tryConnect();
   mongoReachable = mongo !== null;
   if (!mongoReachable) {
-    console.log("[people.repo.test] skipping: MongoDB unreachable");
+    console.log('[people.repo.test] skipping: MongoDB unreachable');
     return;
   }
   db = mongo!.db(TEST_DB);
@@ -52,24 +47,18 @@ beforeAll(async () => {
   // NamespaceNotFound rather than IndexNotFound, and the production
   // code path doesn't need to handle that because real deploys always
   // have these collections populated by the time ensureIndexes runs.
-  for (const name of [
-    "users",
-    "credentials",
-    "invites",
-    "refresh_tokens",
-    "challenges",
-  ]) {
+  for (const name of ['users', 'credentials', 'invites', 'refresh_tokens', 'challenges']) {
     await db.createCollection(name).catch(() => undefined);
   }
-  const { closeDb, ensureIndexes } = await import("../db/client.ts");
+  const { closeDb, ensureIndexes } = await import('../db/client.ts');
   await closeDb();
   await ensureIndexes();
 });
 
 beforeEach(async () => {
   if (!mongoReachable) return;
-  await db!.collection("people").deleteMany({});
-  await db!.collection("assets").deleteMany({});
+  await db!.collection('people').deleteMany({});
+  await db!.collection('assets').deleteMany({});
 });
 
 afterAll(async () => {
@@ -77,7 +66,7 @@ afterAll(async () => {
     await mongo.db(TEST_DB).dropDatabase();
     await mongo.close();
   }
-  const { closeDb } = await import("../db/client.ts");
+  const { closeDb } = await import('../db/client.ts');
   await closeDb();
 });
 
@@ -94,71 +83,80 @@ function makeEmbedding(dim: number, seed: number): number[] {
   return out;
 }
 
-async function insertAssetWithFaces(
-  faces: AssetFaceDoc[],
-): Promise<ObjectId> {
+async function insertAssetWithFaces(faces: AssetFaceDoc[]): Promise<ObjectId> {
+  // Seed a folder so coverAbsPath resolution can compose the wire abs_path.
+  const libraryId = makeFolderObjectId();
+  const libraryRoot = `/tmp/maple-test/${libraryId.toHexString()}`;
+  const filename = `${Math.random().toString(36).slice(2, 8)}.jpg`;
+  await db!.collection('folders').insertOne({
+    _id: libraryId,
+    path: libraryRoot,
+    label: 'people-test',
+    last_scan: null,
+    file_count: 0,
+    created_at: new Date().toISOString(),
+  } as never);
+  const { invalidateLibraryRoots } = await import('../indexer/libraries.cache.ts');
+  invalidateLibraryRoots();
   const doc: AssetDoc = {
-    folder_id: makeFolderObjectId(),
-    filename: `${Math.random().toString(36).slice(2, 8)}.jpg`,
-    abs_path: `/tmp/maple-test/${Math.random().toString(36).slice(2)}.jpg`,
+    fileinfo: [{ path: '', filename, library_id: libraryId, deleted_at: null }],
     size: 1024,
     mtime: Date.now(),
     rating: 0,
     flag: 0,
-    color_label: "",
+    color_label: '',
     indexed_at: new Date().toISOString(),
     faces,
   };
-  const res = await db!.collection("assets").insertOne(doc as AssetDoc);
+  const res = await db!.collection('assets').insertOne(doc as AssetDoc);
   return res.insertedId;
 }
 
-describe("people.repo — createPerson", () => {
-  it("creates a person with a fresh name", async () => {
+describe('people.repo — createPerson', () => {
+  it('creates a person with a fresh name', async () => {
     if (!mongoReachable) return;
-    const { createPerson } = await import("./people.repo.ts");
-    const p = await createPerson("Alice");
-    expect(p.name).toBe("Alice");
+    const { createPerson } = await import('./people.repo.ts');
+    const p = await createPerson('Alice');
+    expect(p.name).toBe('Alice');
     expect(p._id).toBeInstanceOf(ObjectId);
   });
 
-  it("dedupes case-insensitively (returns the existing row)", async () => {
+  it('dedupes case-insensitively (returns the existing row)', async () => {
     if (!mongoReachable) return;
-    const { createPerson } = await import("./people.repo.ts");
-    const a = await createPerson("Bob");
-    const b = await createPerson("BOB");
-    const c = await createPerson("bob");
+    const { createPerson } = await import('./people.repo.ts');
+    const a = await createPerson('Bob');
+    const b = await createPerson('BOB');
+    const c = await createPerson('bob');
     expect(b._id.toHexString()).toBe(a._id.toHexString());
     expect(c._id.toHexString()).toBe(a._id.toHexString());
-    const count = await db!.collection<PersonDoc>("people").countDocuments({
+    const count = await db!.collection<PersonDoc>('people').countDocuments({
       merged_into: null,
     });
     expect(count).toBe(1);
   });
 
-  it("rejects empty name", async () => {
+  it('rejects empty name', async () => {
     if (!mongoReachable) return;
-    const { createPerson } = await import("./people.repo.ts");
-    await expect(createPerson("   ")).rejects.toThrow(/empty/);
+    const { createPerson } = await import('./people.repo.ts');
+    await expect(createPerson('   ')).rejects.toThrow(/empty/);
   });
 });
 
-describe("people.repo — renamePerson", () => {
-  it("renames a person to a new unique name", async () => {
+describe('people.repo — renamePerson', () => {
+  it('renames a person to a new unique name', async () => {
     if (!mongoReachable) return;
-    const { createPerson, renamePerson } = await import("./people.repo.ts");
-    const p = await createPerson("Carol");
-    const result = await renamePerson(p._id, "Caroline");
-    expect(result.survivor.name).toBe("Caroline");
+    const { createPerson, renamePerson } = await import('./people.repo.ts');
+    const p = await createPerson('Carol');
+    const result = await renamePerson(p._id, 'Caroline');
+    expect(result.survivor.name).toBe('Caroline');
     expect(result.mergedFrom).toBeUndefined();
   });
 
-  it("merges on collision: face person_ids are repointed at survivor", async () => {
+  it('merges on collision: face person_ids are repointed at survivor', async () => {
     if (!mongoReachable) return;
-    const { createPerson, renamePerson, assignFaceToPerson } =
-      await import("./people.repo.ts");
-    const dave = await createPerson("Dave");
-    const david = await createPerson("David");
+    const { createPerson, renamePerson, assignFaceToPerson } = await import('./people.repo.ts');
+    const dave = await createPerson('Dave');
+    const david = await createPerson('David');
     const asset = await insertAssetWithFaces([
       {
         bbox: { x: 0, y: 0, w: 10, h: 10 },
@@ -169,156 +167,186 @@ describe("people.repo — renamePerson", () => {
     ]);
     await assignFaceToPerson(asset, 0, david._id);
     // Rename Dave to "David" — collision with the existing David row.
-    const result = await renamePerson(dave._id, "David");
+    const result = await renamePerson(dave._id, 'David');
     expect(result.mergedFrom).toBeDefined();
     // Survivor is the older _id (lexicographic min).
-    const expectedSurvivor =
-      dave._id.toString() < david._id.toString() ? dave._id : david._id;
+    const expectedSurvivor = dave._id.toString() < david._id.toString() ? dave._id : david._id;
     expect(result.survivor._id.toHexString()).toBe(expectedSurvivor.toHexString());
-    expect(result.survivor.name).toBe("David");
+    expect(result.survivor.name).toBe('David');
     // Face person_id was repointed to the survivor.
-    const faceAsset = await db!
-      .collection<AssetDoc>("assets")
-      .findOne({ _id: asset });
-    expect(faceAsset?.faces?.[0]?.person_id).toBe(
-      result.survivor._id.toHexString(),
-    );
+    const faceAsset = await db!.collection<AssetDoc>('assets').findOne({ _id: asset });
+    expect(faceAsset?.faces?.[0]?.person_id).toBe(result.survivor._id.toHexString());
     // Orphan is marked merged.
     const orphanId = result.mergedFrom!;
-    const orphan = await db!.collection<PersonDoc>("people").findOne({
+    const orphan = await db!.collection<PersonDoc>('people').findOne({
       _id: orphanId,
     });
-    expect(orphan?.merged_into?.toHexString()).toBe(
-      result.survivor._id.toHexString(),
-    );
+    expect(orphan?.merged_into?.toHexString()).toBe(result.survivor._id.toHexString());
   });
 
-  it("idempotent rename to same name (case-insensitive)", async () => {
+  it('idempotent rename to same name (case-insensitive)', async () => {
     if (!mongoReachable) return;
-    const { createPerson, renamePerson } = await import("./people.repo.ts");
-    const p = await createPerson("Eve");
-    const r = await renamePerson(p._id, "EVE");
-    expect(r.survivor.name).toBe("EVE");
+    const { createPerson, renamePerson } = await import('./people.repo.ts');
+    const p = await createPerson('Eve');
+    const r = await renamePerson(p._id, 'EVE');
+    expect(r.survivor.name).toBe('EVE');
     expect(r.mergedFrom).toBeUndefined();
   });
 });
 
-describe("people.repo — listPeople", () => {
-  it("returns face counts via aggregation, excludes merged people", async () => {
+describe('people.repo — listPeople', () => {
+  it('returns face counts via aggregation, excludes merged people', async () => {
     if (!mongoReachable) return;
     const { createPerson, renamePerson, listPeople, assignFaceToPerson } =
-      await import("./people.repo.ts");
-    const a = await createPerson("Anna");
-    const b = await createPerson("Beth");
-    const c = await createPerson("Cara");
+      await import('./people.repo.ts');
+    const a = await createPerson('Anna');
+    const b = await createPerson('Beth');
+    const c = await createPerson('Cara');
     const asset = await insertAssetWithFaces([
-      { bbox: { x: 0, y: 0, w: 10, h: 10 }, person_id: null, confidence: 0.9, embedding: makeEmbedding(512, 2) },
-      { bbox: { x: 11, y: 0, w: 10, h: 10 }, person_id: null, confidence: 0.9, embedding: makeEmbedding(512, 3) },
-      { bbox: { x: 22, y: 0, w: 10, h: 10 }, person_id: null, confidence: 0.9, embedding: makeEmbedding(512, 4) },
+      {
+        bbox: { x: 0, y: 0, w: 10, h: 10 },
+        person_id: null,
+        confidence: 0.9,
+        embedding: makeEmbedding(512, 2),
+      },
+      {
+        bbox: { x: 11, y: 0, w: 10, h: 10 },
+        person_id: null,
+        confidence: 0.9,
+        embedding: makeEmbedding(512, 3),
+      },
+      {
+        bbox: { x: 22, y: 0, w: 10, h: 10 },
+        person_id: null,
+        confidence: 0.9,
+        embedding: makeEmbedding(512, 4),
+      },
     ]);
     await assignFaceToPerson(asset, 0, a._id);
     await assignFaceToPerson(asset, 1, a._id);
     await assignFaceToPerson(asset, 2, b._id);
     // Merge c into a.
-    await renamePerson(c._id, "Anna");
+    await renamePerson(c._id, 'Anna');
     const list = await listPeople({ withCounts: true });
     // Only live people show up.
-    expect(list.map((r) => r.person.name).sort()).toEqual(["Anna", "Beth"]);
-    const anna = list.find((r) => r.person.name === "Anna");
-    const beth = list.find((r) => r.person.name === "Beth");
+    expect(list.map((r) => r.person.name).sort()).toEqual(['Anna', 'Beth']);
+    const anna = list.find((r) => r.person.name === 'Anna');
+    const beth = list.find((r) => r.person.name === 'Beth');
     expect(anna?.faceCount).toBe(2);
     expect(beth?.faceCount).toBe(1);
   });
 
-  it("populates coverAbsPath from the cover_asset_id → assets.abs_path join", async () => {
+  it('populates coverAbsPath from the cover_asset_id → assets.abs_path join', async () => {
     if (!mongoReachable) return;
-    const { createPerson, listPeople } = await import("./people.repo.ts");
+    const { createPerson, listPeople } = await import('./people.repo.ts');
     // Three people: one whose cover points at a real asset, one whose
     // cover points at a deleted asset (the doc was removed but the
     // people row still references it), one with no cover_asset_id at
     // all. The first should resolve, the other two stay null.
-    const live = await createPerson("Live");
-    const orphan = await createPerson("Orphan");
-    const noCover = await createPerson("NoCover");
+    const live = await createPerson('Live');
+    const orphan = await createPerson('Orphan');
+    const noCover = await createPerson('NoCover');
     const liveAsset = await insertAssetWithFaces([
-      { bbox: { x: 0, y: 0, w: 10, h: 10 }, person_id: null, confidence: 0.9, embedding: makeEmbedding(512, 8) },
+      {
+        bbox: { x: 0, y: 0, w: 10, h: 10 },
+        person_id: null,
+        confidence: 0.9,
+        embedding: makeEmbedding(512, 8),
+      },
     ]);
-    const livePath = (
-      await db!.collection<AssetDoc>("assets").findOne({ _id: liveAsset })
-    )?.abs_path;
-    expect(typeof livePath).toBe("string");
+    const liveAssetDoc = await db!.collection<AssetDoc>('assets').findOne({ _id: liveAsset });
+    // Compose the wire abs_path the way the route would: library root + filename.
+    const primary = liveAssetDoc?.fileinfo?.[0];
+    expect(primary).toBeDefined();
+    const folderDoc = await db!
+      .collection<{ path: string }>('folders')
+      .findOne({ _id: primary!.library_id });
+    const livePath = `${folderDoc!.path}/${primary!.filename}`;
+    expect(typeof livePath).toBe('string');
     // Set covers directly. Mixed-case hex on the orphan exercises the
     // safeObjectId normalisation in coverAbsPathByPerson.
     await db!
-      .collection<PersonDoc>("people")
+      .collection<PersonDoc>('people')
       .updateOne({ _id: live._id }, { $set: { cover_asset_id: liveAsset.toHexString() } });
-    await db!.collection<PersonDoc>("people").updateOne(
-      { _id: orphan._id },
-      { $set: { cover_asset_id: new ObjectId().toHexString().toUpperCase() } },
-    );
+    await db!
+      .collection<PersonDoc>('people')
+      .updateOne(
+        { _id: orphan._id },
+        { $set: { cover_asset_id: new ObjectId().toHexString().toUpperCase() } },
+      );
 
     const list = await listPeople({ withCounts: false });
     const byName = new Map(list.map((r) => [r.person.name, r]));
-    expect(byName.get("Live")?.coverAbsPath).toBe(livePath ?? null);
-    expect(byName.get("Orphan")?.coverAbsPath).toBeNull();
-    expect(byName.get("NoCover")?.coverAbsPath).toBeNull();
+    expect(byName.get('Live')?.coverAbsPath).toBe(livePath ?? null);
+    expect(byName.get('Orphan')?.coverAbsPath).toBeNull();
+    expect(byName.get('NoCover')?.coverAbsPath).toBeNull();
   });
 });
 
-describe("people.repo — assignFaceToPerson", () => {
-  it("sets person_id; null unassigns", async () => {
+describe('people.repo — assignFaceToPerson', () => {
+  it('sets person_id; null unassigns', async () => {
     if (!mongoReachable) return;
-    const { createPerson, assignFaceToPerson } =
-      await import("./people.repo.ts");
-    const p = await createPerson("Frank");
+    const { createPerson, assignFaceToPerson } = await import('./people.repo.ts');
+    const p = await createPerson('Frank');
     const asset = await insertAssetWithFaces([
-      { bbox: { x: 0, y: 0, w: 10, h: 10 }, person_id: null, confidence: 0.9, embedding: makeEmbedding(512, 5) },
+      {
+        bbox: { x: 0, y: 0, w: 10, h: 10 },
+        person_id: null,
+        confidence: 0.9,
+        embedding: makeEmbedding(512, 5),
+      },
     ]);
     await assignFaceToPerson(asset, 0, p._id);
-    let row = await db!.collection<AssetDoc>("assets").findOne({ _id: asset });
+    let row = await db!.collection<AssetDoc>('assets').findOne({ _id: asset });
     expect(row?.faces?.[0]?.person_id).toBe(p._id.toHexString());
     await assignFaceToPerson(asset, 0, null);
-    row = await db!.collection<AssetDoc>("assets").findOne({ _id: asset });
+    row = await db!.collection<AssetDoc>('assets').findOne({ _id: asset });
     expect(row?.faces?.[0]?.person_id).toBeNull();
   });
 
-  it("rejects out-of-range face index", async () => {
+  it('rejects out-of-range face index', async () => {
     if (!mongoReachable) return;
-    const { createPerson, assignFaceToPerson } =
-      await import("./people.repo.ts");
-    const p = await createPerson("Grace");
+    const { createPerson, assignFaceToPerson } = await import('./people.repo.ts');
+    const p = await createPerson('Grace');
     const asset = await insertAssetWithFaces([
-      { bbox: { x: 0, y: 0, w: 10, h: 10 }, person_id: null, confidence: 0.9, embedding: makeEmbedding(512, 6) },
+      {
+        bbox: { x: 0, y: 0, w: 10, h: 10 },
+        person_id: null,
+        confidence: 0.9,
+        embedding: makeEmbedding(512, 6),
+      },
     ]);
     await expect(assignFaceToPerson(asset, 5, p._id)).rejects.toThrow(/range/);
   });
 });
 
-describe("people.repo — deletePerson", () => {
-  it("re-points faces to null and removes the row", async () => {
+describe('people.repo — deletePerson', () => {
+  it('re-points faces to null and removes the row', async () => {
     if (!mongoReachable) return;
-    const { createPerson, assignFaceToPerson, deletePerson } =
-      await import("./people.repo.ts");
-    const p = await createPerson("Henry");
+    const { createPerson, assignFaceToPerson, deletePerson } = await import('./people.repo.ts');
+    const p = await createPerson('Henry');
     const asset = await insertAssetWithFaces([
-      { bbox: { x: 0, y: 0, w: 10, h: 10 }, person_id: null, confidence: 0.9, embedding: makeEmbedding(512, 7) },
+      {
+        bbox: { x: 0, y: 0, w: 10, h: 10 },
+        person_id: null,
+        confidence: 0.9,
+        embedding: makeEmbedding(512, 7),
+      },
     ]);
     await assignFaceToPerson(asset, 0, p._id);
     await deletePerson(p._id);
-    const row = await db!.collection<AssetDoc>("assets").findOne({ _id: asset });
+    const row = await db!.collection<AssetDoc>('assets').findOne({ _id: asset });
     expect(row?.faces?.[0]?.person_id).toBeNull();
-    const gone = await db!.collection<PersonDoc>("people").findOne({ _id: p._id });
+    const gone = await db!.collection<PersonDoc>('people').findOne({ _id: p._id });
     expect(gone).toBeNull();
   });
 });
 
-describe("people.repo — hideFace", () => {
-  it("sets hidden=true AND person_id=null in one write", async () => {
+describe('people.repo — hideFace', () => {
+  it('sets hidden=true AND person_id=null in one write', async () => {
     if (!mongoReachable) return;
-    const { createPerson, assignFaceToPerson, hideFace } = await import(
-      "./people.repo.ts"
-    );
-    const p = await createPerson("Ivan");
+    const { createPerson, assignFaceToPerson, hideFace } = await import('./people.repo.ts');
+    const p = await createPerson('Ivan');
     const asset = await insertAssetWithFaces([
       {
         bbox: { x: 0.1, y: 0.1, w: 0.2, h: 0.2 },
@@ -329,16 +357,14 @@ describe("people.repo — hideFace", () => {
     ]);
     await assignFaceToPerson(asset, 0, p._id);
     await hideFace(asset, 0);
-    const row = await db!
-      .collection<AssetDoc>("assets")
-      .findOne({ _id: asset });
+    const row = await db!.collection<AssetDoc>('assets').findOne({ _id: asset });
     expect(row?.faces?.[0]?.hidden).toBe(true);
     expect(row?.faces?.[0]?.person_id).toBeNull();
   });
 
-  it("rejects out-of-range face index", async () => {
+  it('rejects out-of-range face index', async () => {
     if (!mongoReachable) return;
-    const { hideFace } = await import("./people.repo.ts");
+    const { hideFace } = await import('./people.repo.ts');
     const asset = await insertAssetWithFaces([
       {
         bbox: { x: 0, y: 0, w: 0.1, h: 0.1 },
@@ -349,11 +375,11 @@ describe("people.repo — hideFace", () => {
     await expect(hideFace(asset, 4)).rejects.toThrow(/range/);
   });
 
-  it("hidden faces drop out of getPerson and faceCountByPerson", async () => {
+  it('hidden faces drop out of getPerson and faceCountByPerson', async () => {
     if (!mongoReachable) return;
     const { createPerson, assignFaceToPerson, hideFace, getPerson, listPeople } =
-      await import("./people.repo.ts");
-    const p = await createPerson("Jane");
+      await import('./people.repo.ts');
+    const p = await createPerson('Jane');
     // Two faces — one stays assigned, one gets hidden.
     const asset = await insertAssetWithFaces([
       {
@@ -375,13 +401,13 @@ describe("people.repo — hideFace", () => {
     const before = await getPerson(p._id);
     expect(before?.faces.length).toBe(2);
     const beforeList = await listPeople();
-    expect(beforeList.find((r) => r.person.name === "Jane")?.faceCount).toBe(2);
+    expect(beforeList.find((r) => r.person.name === 'Jane')?.faceCount).toBe(2);
     // Hide face index 0.
     await hideFace(asset, 0);
     const after = await getPerson(p._id);
     expect(after?.faces.length).toBe(1);
     expect(after?.faces[0]?.bbox.x).toBeCloseTo(0.3);
     const afterList = await listPeople();
-    expect(afterList.find((r) => r.person.name === "Jane")?.faceCount).toBe(1);
+    expect(afterList.find((r) => r.person.name === 'Jane')?.faceCount).toBe(1);
   });
 });

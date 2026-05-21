@@ -1,8 +1,10 @@
 /**
- * Smoke test: in-process stage runners + hash + exif + thumb + discover.
+ * Smoke test: in-process stage runners + exif + thumb + discover.
  *
- * Drops a JPEG into a temp dir, waits up to 30 s for all three pipeline
- * stages to complete, then asserts stage versions on the image doc.
+ * Drops a JPEG into a temp dir, waits up to 30 s for both pipeline stages to
+ * complete, then asserts stage versions on the image doc. The legacy `hash`
+ * stage was retired in the drop-abs-path-2026-05-21 migration once discover
+ * began writing maple_id + sha1_head inline at insert.
  *
  * Requires a running MongoDB (skips if unreachable).
  */
@@ -27,7 +29,7 @@ describe('workers smoke test', () => {
   });
 
   it(
-    'hash + exif + thumb all reach their target version after a file is dropped',
+    'exif + thumb both reach their target version after a file is dropped',
     async () => {
       // Connect to Mongo — skip if unavailable.
       let db: import('mongodb').Db;
@@ -47,19 +49,17 @@ describe('workers smoke test', () => {
       const { assetsCollection } = await import('../db/client.ts');
       const folderId = new ObjectId().toHexString();
 
-      // Start only the three stages this smoke test needs, and the discover
+      // Start only the two stages this smoke test needs, and the discover
       // watcher pointed at the temp dir.
-      const { startHashStage } = await import('./stages/hash.ts');
       const { startExifStage } = await import('./stages/exif.ts');
       const { startThumbStage } = await import('./stages/thumb.ts');
       const { startDiscover } = await import('./discover/index.ts');
-      stageHandles = await Promise.all([startHashStage(), startExifStage(), startThumbStage()]);
+      stageHandles = await Promise.all([startExifStage(), startThumbStage()]);
       discoverHandle = await startDiscover({ roots: [dir] });
 
       // Read each stage's current target version rather than hardcoding —
       // the smoke test should track bumps (e.g. exif v1 → v2 for the GPS
       // hemisphere-ref fix) without a parallel edit here.
-      const hashTarget = (await import('./stages/hash.ts')).default.targetVersion;
       const exifTarget = (await import('./stages/exif.ts')).default.targetVersion;
       const thumbTarget = (await import('./stages/thumb.ts')).default.targetVersion;
 
@@ -78,20 +78,18 @@ describe('workers smoke test', () => {
       const { handleEvent } = await import('./discover/index.ts');
       await handleEvent({ kind: 'created', absPath: file }, new ObjectId(folderId), dir);
 
-      // Poll until all three stages reach their target version or the deadline fires.
+      // Poll until both stages reach their target version or the deadline fires.
       const assetsColl = await assetsCollection();
       const deadline = Date.now() + TIMEOUT_MS;
       let doc: Record<string, unknown> | null = null;
 
       while (Date.now() < deadline) {
-        doc = (await assetsColl.findOne({ abs_path: file })) as Record<string, unknown> | null;
+        doc = (await assetsColl.findOne({
+          'fileinfo.filename': 'smoke.jpg',
+        })) as Record<string, unknown> | null;
         if (doc?.stages) {
           const stages = doc.stages as Record<string, { version: number }>;
-          if (
-            stages.hash?.version === hashTarget &&
-            stages.exif?.version === exifTarget &&
-            stages.thumb?.version === thumbTarget
-          ) {
+          if (stages.exif?.version === exifTarget && stages.thumb?.version === thumbTarget) {
             break;
           }
         }
@@ -101,7 +99,6 @@ describe('workers smoke test', () => {
       // Assertions.
       expect(doc).not.toBeNull();
       const stages = doc!.stages as Record<string, { version: number }>;
-      expect(stages.hash?.version).toBe(hashTarget);
       expect(stages.exif?.version).toBe(exifTarget);
       expect(stages.thumb?.version).toBe(thumbTarget);
 
@@ -109,7 +106,7 @@ describe('workers smoke test', () => {
       expect(stages.face?.version).toBe(0);
 
       // Clean up.
-      await assetsColl.deleteOne({ abs_path: file });
+      await assetsColl.deleteOne({ _id: doc!._id as never });
     },
     TIMEOUT_MS + 5000,
   );

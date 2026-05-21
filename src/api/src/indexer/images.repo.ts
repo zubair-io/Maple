@@ -61,18 +61,17 @@ export async function coll(): Promise<Collection<IndexerAssetDoc>> {
 // ---------------------------------------------------------------------------
 // Location helpers (content-addressing migration)
 //
-// `fileinfo[]` is the canonical location record; `abs_path` is retained as a
-// denormalized convenience field during the migration. These helpers prefer
-// `fileinfo[0]` and fall back to the legacy field, so callers can be swept
-// from `image.abs_path` to `assetAbsPath(image, libraries)` incrementally.
+// `fileinfo[]` is the canonical location record. After the
+// drop-abs-path-2026-05-21 migration the legacy `abs_path` / `folder_id` /
+// `filename` fallbacks were retired: these helpers consult fileinfo only.
 // ---------------------------------------------------------------------------
 
 /**
  * First live `fileinfo` entry, or `null` when the array is missing or every
  * entry is marked `deleted_at`. "Live" means `deleted_at` is null or absent.
  *
- * After PR 6 of the migration this is the only place that knows the entry
- * is at index 0; callers should not depend on the index itself.
+ * This is the only place that knows the entry is at index 0; callers should
+ * not depend on the index itself.
  */
 export function assetPrimaryFileInfo(asset: Pick<AssetDoc, 'fileinfo'>): FileInfo | null {
   const list = asset.fileinfo;
@@ -87,34 +86,18 @@ export function assetPrimaryFileInfo(asset: Pick<AssetDoc, 'fileinfo'>): FileInf
  * Library root absolute path for this asset's primary location, looked up
  * in the supplied `libraries` map (`hex(_id) → root path`).
  *
- * Order of resolution:
- *   1. `fileinfo[0].library_id → libraries map`
- *   2. legacy `folder_id → libraries map` (for unmigrated rows during the
- *      content-addressing migration)
- *
- * Returns `null` when neither source resolves to a registered library.
- *
- * NOTE: the earlier draft fell back to `path.dirname(abs_path)`, which
- * returns the file's containing directory — often a subdirectory of the
- * library root, not the root itself. That made the helper unsafe for
- * callers that rely on the result actually being a library root (cache
- * resolution, library-scoped operations). The correct legacy fallback is
- * `folder_id`, which is the registered library by definition.
+ * Returns `null` when the primary entry's `library_id` is not present in
+ * `libraries` (the registered folder has been removed) or when the asset
+ * has no live `fileinfo` entry at all.
  */
 export function assetLibraryPath(
-  asset: Pick<AssetDoc, 'fileinfo' | 'folder_id'>,
+  asset: Pick<AssetDoc, 'fileinfo'>,
   libraries: ReadonlyMap<string, string>,
 ): string | null {
   const primary = assetPrimaryFileInfo(asset);
-  if (primary) {
-    const root = libraries.get(primary.library_id.toHexString());
-    if (root) return root;
-  }
-  if (asset.folder_id) {
-    const root = libraries.get(asset.folder_id.toHexString());
-    if (root) return root;
-  }
-  return null;
+  if (!primary) return null;
+  const root = libraries.get(primary.library_id.toHexString());
+  return root ?? null;
 }
 
 /**
@@ -126,30 +109,28 @@ export function assetLibraryPath(
  * via `path.join`. On Linux/macOS (the production target) the split is a
  * no-op.
  *
- * Falls back to the legacy `abs_path` field for unmigrated rows or when
- * the primary entry's `library_id` is not present in `libraries`.
- * Returns `null` when no source resolves.
+ * Returns `null` when the primary entry's `library_id` is not present in
+ * `libraries` (the registered folder has been removed) or when the asset
+ * has no live `fileinfo` entry. Callers MUST handle the null and decide
+ * whether to 404, skip, or log.
  */
 export function assetAbsPath(
-  asset: Pick<AssetDoc, 'fileinfo' | 'abs_path'>,
+  asset: Pick<AssetDoc, 'fileinfo'>,
   libraries: ReadonlyMap<string, string>,
 ): string | null {
   const primary = assetPrimaryFileInfo(asset);
-  if (primary) {
-    const root = libraries.get(primary.library_id.toHexString());
-    if (root) {
-      const segments = primary.path === '' ? [] : primary.path.split('/');
-      return path.join(root, ...segments, primary.filename);
-    }
-  }
-  if (asset.abs_path) return asset.abs_path;
-  return null;
+  if (!primary) return null;
+  const root = libraries.get(primary.library_id.toHexString());
+  if (!root) return null;
+  const segments = primary.path === '' ? [] : primary.path.split('/');
+  return path.join(root, ...segments, primary.filename);
 }
 
 export interface UpsertInput {
-  folderId: ObjectId;
+  libraryId: ObjectId;
+  /** POSIX-style relative directory under the library root. `""` for root. */
+  relDir: string;
   filename: string;
-  absPath: string;
   size: number;
   mtime: number;
   mapleId: string;
@@ -166,28 +147,22 @@ export interface UpsertInput {
 /**
  * Skeleton upsert (Phase 1, `docs/indexer-enrichment.md` §1.1).
  *
- * `$set` carries only fast-tier fields the indexer is authoritative for
- * (size, mtime, sha1Head, mapleId, exif, abs_path). `$setOnInsert` seeds
- * enrichment state and outputs (`enrichment`, `place`, `faces`, `description`,
- * `ai_tags`) so a re-upsert from the watcher (e.g. mtime changed) cannot
- * clobber what a Phase 2+ worker has already written.
+ * Filters on `maple_id` (the new content-addressing identity) and seeds
+ * `fileinfo[0]` on first insert. Subsequent calls update the indexer-owned
+ * fast-tier fields (size, mtime, sha1_head, exif, indexed_at) without
+ * touching the fileinfo array — the discover watcher writes the array
+ * directly when it observes new locations or renames.
  *
- * The filter is on the unique index (folder_id, filename), not on maple_id:
- * the function name is historical. mapleId is a stable secondary identifier
- * derived from EXIF + file bytes, but the asset's *identity* in the
- * collection is its (folder_id, filename) pair. Filtering on maple_id meant
- * a re-scan that derived a slightly different mapleId would miss the existing
- * row and then collide on the unique index → E11000 spam.
+ * `$setOnInsert` seeds enrichment state and outputs so a re-upsert (e.g.
+ * mtime changed) cannot clobber what a worker has already written.
  */
 export async function upsertByMapleId(input: UpsertInput): Promise<UpdateResult> {
   const c = await coll();
   const now = new Date().toISOString();
   const setFields: Record<string, unknown> = {
-    abs_path: input.absPath,
     size: input.size,
     mtime: input.mtime,
     sha1_head: input.sha1Head,
-    maple_id: input.mapleId,
     indexed_at: now,
     deleted_at: null,
   };
@@ -197,12 +172,19 @@ export async function upsertByMapleId(input: UpsertInput): Promise<UpdateResult>
     setFields.exif = input.exif;
   }
   return c.updateOne(
-    { folder_id: input.folderId, filename: input.filename },
+    { maple_id: input.mapleId },
     {
       $set: setFields,
       $setOnInsert: {
-        folder_id: input.folderId,
-        filename: input.filename,
+        maple_id: input.mapleId,
+        fileinfo: [
+          {
+            path: input.relDir,
+            filename: input.filename,
+            library_id: input.libraryId,
+            deleted_at: null,
+          } as FileInfo,
+        ],
         rating: 0,
         flag: 0,
         color_label: '',
@@ -222,55 +204,29 @@ export async function findByMapleId(mapleId: string): Promise<IndexerAssetDoc | 
   return c.findOne({ maple_id: mapleId });
 }
 
-export async function findByAbsPath(absPath: string): Promise<IndexerAssetDoc | null> {
-  const c = await coll();
-  return c.findOne({ abs_path: absPath });
-}
-
-/** Soft-delete: mark deletedAt without removing the row. GC sweeps later.
+/** Soft-delete by maple_id. Marks `deleted_at` on the row without removing
+ * it; GC sweeps later.
  *
  * After the Mongo update, fire a best-effort tombstone into Meilisearch
  * (Phase 7). Failures must NOT propagate — Mongo is canonical, and the
  * search route's `applyLiveFilter` excludes soft-deleted rows from the
  * `$text` fallback regardless of whether the Meilisearch update succeeds.
  */
-export async function softDelete(absPath: string): Promise<void> {
+export async function softDelete(mapleId: string): Promise<void> {
+  // Defensive: an empty maple_id can't refer to a real row (the
+  // uniqueness contract from #244 makes maple_id mandatory on every
+  // live row); skip the Meili tombstone too so we don't pollute the
+  // index with empty-key writes. This matches the old "skip Meili
+  // when maple_id absent" branch the route used to take itself.
+  if (!mapleId) return;
   const c = await coll();
-  // Read the maple_id first so we can address the same row in Meilisearch.
-  // Skipping when the row doesn't exist or pre-dates the maple_id field
-  // (Phase 1 introduced it; older rows simply aren't in Meilisearch
-  // either, so a no-op is correct).
-  const existing = await c.findOne({ abs_path: absPath }, { projection: { maple_id: 1 } });
-  await c.updateOne({ abs_path: absPath }, { $set: { deleted_at: new Date().toISOString() } });
-  const mapleId = existing?.maple_id;
-  if (typeof mapleId === 'string' && mapleId.length > 0) {
-    try {
-      await meilisearchClient().tombstone(mapleId);
-    } catch {
-      // The client log-and-swallows on its own; this catch is just
-      // defensive against a programmer-error throw inside the client.
-    }
+  await c.updateOne({ maple_id: mapleId }, { $set: { deleted_at: new Date().toISOString() } });
+  try {
+    await meilisearchClient().tombstone(mapleId);
+  } catch {
+    // The client log-and-swallows on its own; this catch is just
+    // defensive against a programmer-error throw inside the client.
   }
-}
-
-/** After a rename, keep the maple:id but update the path + filename. */
-export async function updatePath(
-  mapleId: string,
-  absPath: string,
-  filename: string,
-): Promise<void> {
-  const c = await coll();
-  await c.updateOne(
-    { maple_id: mapleId },
-    {
-      $set: {
-        abs_path: absPath,
-        filename,
-        deleted_at: null,
-        indexed_at: new Date().toISOString(),
-      },
-    },
-  );
 }
 
 /** Assets soft-deleted before `olderThan` (ms epoch). Used by GC sweep. */

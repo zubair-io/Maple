@@ -96,7 +96,13 @@ export const trashRoutes = new Elysia()
       return;
     }
 
-    // Locate the owning folder root.
+    // Locate the owning folder root. `info.folder_id` resolves from the
+    // asset's primary fileinfo entry — null when the asset has no live
+    // location at all.
+    if (!info.folder_id) {
+      set.status = 500;
+      return { error: 'Asset has no resolvable library — refusing to trash' };
+    }
     const folders = await foldersCollection();
     const folder = await folders.findOne({ _id: info.folder_id });
     if (!folder) {
@@ -110,11 +116,27 @@ export const trashRoutes = new Elysia()
       return { error: result.error };
     }
 
+    // Identify the fileinfo entry that backs `absPathResolved`. Mirrors
+    // `resolvePrimary` in assets.transform.ts — first live entry, else the
+    // first entry on the array. Passing it as `source` tells the repo to
+    // rewrite ONLY that entry instead of clobbering the whole array; when
+    // the asset has multiple `fileinfo[]` (deduped across libraries) we
+    // must preserve the non-trashed locations.
+    const sourceEntry = (info.fileinfo ?? []).find((e) => !e.deleted_at) ?? info.fileinfo?.[0];
     const originalAbsPath = absPathResolved;
     await markSoftDeleted({
       id,
+      libraryRoot: folder.path,
+      libraryId: info.folder_id,
       newAbsPath: result.newAbsPath,
       originalAbsPath,
+      source: sourceEntry
+        ? {
+            libraryId: sourceEntry.library_id,
+            path: sourceEntry.path,
+            filename: sourceEntry.filename,
+          }
+        : undefined,
     });
 
     // Best-effort Meilisearch tombstone — mirrors the indexer's
@@ -174,12 +196,17 @@ export const trashRoutes = new Elysia()
         return { error: 'Asset has no resolvable location' };
       }
 
+      if (!info.folder_id) {
+        set.status = 500;
+        return { error: 'Asset has no resolvable library' };
+      }
       const folders = await foldersCollection();
       const folder = await folders.findOne({ _id: info.folder_id });
       if (!folder) {
         set.status = 500;
         return { error: "Asset's folder is missing" };
       }
+      const assetFolderId = info.folder_id;
 
       // Cross-library restore guard. Phase 3 only restores into the
       // SAME library the asset belongs to; dragging from Library A's
@@ -190,11 +217,11 @@ export const trashRoutes = new Elysia()
       // folder_id; reject the request if it doesn't match.
       const targetFolderID = (body as { target_folder_id?: string } | null)?.target_folder_id;
       if (typeof targetFolderID === 'string' && targetFolderID.length > 0) {
-        if (targetFolderID !== info.folder_id.toHexString()) {
+        if (targetFolderID !== assetFolderId.toHexString()) {
           set.status = 400;
           return {
             error: 'Cross-library restore is not supported',
-            asset_folder_id: info.folder_id.toHexString(),
+            asset_folder_id: assetFolderId.toHexString(),
             target_folder_id: targetFolderID,
           };
         }
@@ -256,12 +283,25 @@ export const trashRoutes = new Elysia()
           'restore: stat of new path failed — using prior doc values',
         );
       }
+      // Identify the trashed fileinfo entry — the asset is in trash so its
+      // primary entry is the one we just moved. Same logic as the delete
+      // branch above; passing `source` rewrites that single entry rather
+      // than clobbering any sibling locations.
+      const restoreSource = (info.fileinfo ?? []).find((e) => !e.deleted_at) ?? info.fileinfo?.[0];
       await restoreFromTrash({
         id,
+        libraryRoot: folder.path,
+        libraryId: assetFolderId,
         newAbsPath: result.newAbsPath,
-        filename: restoredFilename,
         size: restoredSize,
         mtimeMs: restoredMtimeMs,
+        source: restoreSource
+          ? {
+              libraryId: restoreSource.library_id,
+              path: restoreSource.path,
+              filename: restoreSource.filename,
+            }
+          : undefined,
       });
 
       // Best-effort Meilisearch re-index — symmetric with the tombstone
@@ -282,7 +322,7 @@ export const trashRoutes = new Elysia()
             }),
             description: info.description,
             ocrText: info.ocr_text,
-            folderId: info.folder_id.toHexString(),
+            folderId: assetFolderId.toHexString(),
             capturedAt: info.exif?.captured_at ?? null,
             deletedAt: null,
           });

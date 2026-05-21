@@ -10,17 +10,15 @@
  * stage's `dependsOn` array, not by position in this list.
  */
 
-import hashStage from "./hash.ts";
-import exifStage from "./exif.ts";
-import thumbStage from "./thumb.ts";
-import previewStage from "./preview.ts";
-import faceStage from "./face.ts";
-import describeStage from "./describe.ts";
-import geocodeStage from "./geocode.ts";
-import meiliStage from "./meili.ts";
+import exifStage from './exif.ts';
+import thumbStage from './thumb.ts';
+import previewStage from './preview.ts';
+import faceStage from './face.ts';
+import describeStage from './describe.ts';
+import geocodeStage from './geocode.ts';
+import meiliStage from './meili.ts';
 
 export const stageManifest = [
-  hashStage,
   exifStage,
   thumbStage,
   previewStage,
@@ -31,14 +29,13 @@ export const stageManifest = [
 ];
 
 export const ALL_STAGE_NAMES = [
-  "hash",
-  "exif",
-  "thumb",
-  "preview",
-  "face",
-  "describe",
-  "geocode",
-  "meili",
+  'exif',
+  'thumb',
+  'preview',
+  'face',
+  'describe',
+  'geocode',
+  'meili',
 ] as const;
 
 export type StageName = (typeof ALL_STAGE_NAMES)[number];

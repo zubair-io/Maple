@@ -189,26 +189,20 @@ export interface FileInfo {
 }
 
 export interface AssetDoc {
-  /** @deprecated Use `fileinfo[0].library_id`. Retained during the
-   * content-addressing migration so legacy code paths keep working;
-   * removed in PR 6 of the migration. */
-  folder_id: ObjectId;
-  /** @deprecated Use `fileinfo[0].filename`. Retained during the
-   * content-addressing migration; removed in PR 6. */
-  filename: string;
-  /** @deprecated Use `assetAbsPath(asset, libraries)` which composes from
-   * `fileinfo[0]`. Retained during the content-addressing migration;
-   * removed in PR 6. */
-  abs_path: string;
   /**
    * Known on-disk locations for this asset. Populated by the discover
    * watcher and backup-ingest. Length ≥ 1 for any live asset. Index 0
    * is the canonical entry used for cache-path resolution.
    *
-   * Optional only during the additive phase of the content-addressing
-   * migration (PRs 1–5); a boot-time backfill in `db/migrations.ts`
-   * populates `fileinfo[0]` for legacy rows from `(folder_id, filename,
-   * abs_path)`. After PR 6 the field is required.
+   * Required for every live row. The pre-PR-7 boot-time backfill at
+   * `db/migrations.ts` populated `fileinfo[0]` for legacy rows from the
+   * now-retired `(folder_id, filename, abs_path)` fields; the pre-flight
+   * gate in `client.ts` refuses to drop the legacy indexes until every
+   * live row carries this field.
+   *
+   * Still typed as optional because soft-deleted rows from before the
+   * backfill may exist (every entry with `deleted_at` set); readers
+   * MUST tolerate `undefined` and skip / 404 when the field is missing.
    */
   fileinfo?: FileInfo[];
   /** File size in bytes from stat. */

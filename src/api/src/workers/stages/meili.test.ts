@@ -1,29 +1,28 @@
-import { describe, it, expect, afterEach } from "bun:test";
-import { ObjectId } from "mongodb";
-import type { ImageDoc } from "../run-stage.ts";
+import { describe, it, expect, afterEach } from 'bun:test';
+import { ObjectId } from 'mongodb';
+import type { ImageDoc } from '../run-stage.ts';
 import type {
   MeilisearchClient,
   MeilisearchAssetDoc,
-} from "../../enrichment/meilisearch-client.ts";
+} from '../../enrichment/meilisearch-client.ts';
 
-import { meiliHandler, setMeilisearchClientForTests } from "./meili.ts";
+import { meiliHandler, setMeilisearchClientForTests } from './meili.ts';
 
 function fakeDoc(overrides: Partial<ImageDoc> = {}): ImageDoc {
+  const folderId = new ObjectId();
   return {
     _id: new ObjectId(),
-    folder_id: new ObjectId(),
-    filename: "test.dng",
-    abs_path: "/lib/test.dng",
+    fileinfo: [{ library_id: folderId, path: '', filename: 'test.dng', deleted_at: null }],
     // maple_id is an IndexerAssetFields extension; cast through unknown for test setup.
-    ...({ maple_id: "maple-abc-123" } as unknown as Partial<ImageDoc>),
+    ...({ maple_id: 'maple-abc-123' } as unknown as Partial<ImageDoc>),
     size: 1,
     mtime: 1,
     rating: 0,
     flag: 0,
-    color_label: "",
+    color_label: '',
     indexed_at: new Date().toISOString(),
     exif: {
-      captured_at: "2024-06-01T12:00:00.000Z",
+      captured_at: '2024-06-01T12:00:00.000Z',
       captured_year: 2024,
       captured_month: 6,
       camera_make: null,
@@ -36,20 +35,20 @@ function fakeDoc(overrides: Partial<ImageDoc> = {}): ImageDoc {
       gps: null,
     },
     faces: [],
-    description: "A red bicycle",
+    description: 'A red bicycle',
     // ocr_text is on AssetDoc; cast through unknown for test setup.
-    ...({ ocr_text: "BIKE SHOP" } as unknown as Partial<ImageDoc>),
+    ...({ ocr_text: 'BIKE SHOP' } as unknown as Partial<ImageDoc>),
     place: {
-      source: "nominatim",
+      source: 'nominatim',
       geocoder_version: 1,
-      geocoded_at: "2024-06-01T00:00:00.000Z",
+      geocoded_at: '2024-06-01T00:00:00.000Z',
       lat: 42.65,
       lon: -73.75,
-      display_name: "Albany",
+      display_name: 'Albany',
       address: {},
       pois: [],
-      rollups: { locality: "Albany", region: "NY", country_code: "us" },
-      search_blob: "albany ny",
+      rollups: { locality: 'Albany', region: 'NY', country_code: 'us' },
+      search_blob: 'albany ny',
     },
     stages: {},
     ...overrides,
@@ -83,10 +82,10 @@ function failingClient(): MeilisearchClient {
     health: async () => true,
     ensureIndex: async () => {},
     upsert: async () => {
-      throw new Error("simulated meili failure");
+      throw new Error('simulated meili failure');
     },
     upsertOrThrow: async () => {
-      throw new Error("simulated meili failure");
+      throw new Error('simulated meili failure');
     },
     tombstone: async () => {},
     search: async () => ({ ids: [], estimatedTotal: 0 }),
@@ -100,7 +99,7 @@ function unconfiguredClient(): MeilisearchClient {
     ensureIndex: async () => {},
     upsert: async () => {},
     upsertOrThrow: async () => {
-      throw new Error("meilisearch: not configured");
+      throw new Error('meilisearch: not configured');
     },
     tombstone: async () => {},
     search: async () => ({ ids: [], estimatedTotal: 0 }),
@@ -113,30 +112,30 @@ afterEach(() => {
   setMeilisearchClientForTests(null);
 });
 
-describe("meiliHandler — upsert payload shape", () => {
-  it("returns patch.search_blob and upserts with correct id, folderId, capturedAt, searchBlob, description, ocrText", async () => {
+describe('meiliHandler — upsert payload shape', () => {
+  it('returns patch.search_blob and upserts with correct id, folderId, capturedAt, searchBlob, description, ocrText', async () => {
     const { client, upserts } = capturingClient();
     setMeilisearchClientForTests(client);
     const doc = fakeDoc();
     const result = await meiliHandler(doc, fakeCtx);
     // Returns patch with search_blob for Mongo $text fallback.
     const patch = (result as { patch: { search_blob: string } }).patch;
-    expect(typeof patch.search_blob).toBe("string");
+    expect(typeof patch.search_blob).toBe('string');
     // Also upserted to Meilisearch.
     expect(upserts.length).toBe(1);
     const u = upserts[0]!;
-    expect(u.id).toBe("maple-abc-123");
-    expect(u.folderId).toBe(doc.folder_id.toHexString());
-    expect(u.capturedAt).toBe("2024-06-01T12:00:00.000Z");
+    expect(u.id).toBe('maple-abc-123');
+    expect(u.folderId).toBe(doc.fileinfo![0]!.library_id.toHexString());
+    expect(u.capturedAt).toBe('2024-06-01T12:00:00.000Z');
     expect(u.deletedAt).toBeNull();
-    expect(u.description).toBe("A red bicycle");
-    expect(u.ocrText).toBe("BIKE SHOP");
+    expect(u.description).toBe('A red bicycle');
+    expect(u.ocrText).toBe('BIKE SHOP');
     // Unified blob must include tokens from all three sources.
-    const tokens = u.searchBlob.split(" ");
-    expect(tokens).toContain("albany"); // place
-    expect(tokens).toContain("bicycle"); // description
-    expect(tokens).toContain("bike"); // OCR
-    expect(tokens).toContain("shop"); // OCR
+    const tokens = u.searchBlob.split(' ');
+    expect(tokens).toContain('albany'); // place
+    expect(tokens).toContain('bicycle'); // description
+    expect(tokens).toContain('bike'); // OCR
+    expect(tokens).toContain('shop'); // OCR
     // Blob is sorted + deduped.
     expect(tokens).toEqual([...tokens].sort());
     expect(new Set(tokens).size).toBe(tokens.length);
@@ -149,28 +148,28 @@ describe("meiliHandler — upsert payload shape", () => {
     expect(u.isScreenshot).toBeNull();
   });
 
-  it("fans vision.scene_type / activity / subjects into discrete upsert fields", async () => {
+  it('fans vision.scene_type / activity / subjects into discrete upsert fields', async () => {
     const { client, upserts } = capturingClient();
     setMeilisearchClientForTests(client);
     const doc = {
       ...fakeDoc(),
       ...({
         vision: {
-          caption: "kids playing lacrosse",
-          subjects: ["person", "child", "athlete"],
-          scene_type: "outdoor",
-          setting: "sports field",
-          activity: "lacrosse",
-          time_of_day: "afternoon",
-          lighting: "natural",
-          weather: "clear",
-          mood: "energetic",
-          colors: ["green", "white"],
-          composition: "wide shot",
+          caption: 'kids playing lacrosse',
+          subjects: ['person', 'child', 'athlete'],
+          scene_type: 'outdoor',
+          setting: 'sports field',
+          activity: 'lacrosse',
+          time_of_day: 'afternoon',
+          lighting: 'natural',
+          weather: 'clear',
+          mood: 'energetic',
+          colors: ['green', 'white'],
+          composition: 'wide shot',
           text_visible: null,
-          notable_objects: ["lacrosse stick"],
-          shot_type: "action",
-          indoor_outdoor: "outdoor",
+          notable_objects: ['lacrosse stick'],
+          shot_type: 'action',
+          indoor_outdoor: 'outdoor',
           is_screenshot: false,
         },
         is_screenshot: false,
@@ -179,13 +178,13 @@ describe("meiliHandler — upsert payload shape", () => {
     await meiliHandler(doc, fakeCtx);
     expect(upserts.length).toBe(1);
     const u = upserts[0]!;
-    expect(u.visionSceneType).toBe("outdoor");
-    expect(u.visionActivity).toBe("lacrosse");
-    expect(u.visionSubjects).toEqual(["person", "child", "athlete"]);
+    expect(u.visionSceneType).toBe('outdoor');
+    expect(u.visionActivity).toBe('lacrosse');
+    expect(u.visionSubjects).toEqual(['person', 'child', 'athlete']);
     expect(u.isScreenshot).toBe(false);
   });
 
-  it("forwards is_screenshot: true to the upsert payload", async () => {
+  it('forwards is_screenshot: true to the upsert payload', async () => {
     const { client, upserts } = capturingClient();
     setMeilisearchClientForTests(client);
     const doc = {
@@ -198,7 +197,7 @@ describe("meiliHandler — upsert payload shape", () => {
   });
 });
 
-describe("meiliHandler — no maple_id", () => {
+describe('meiliHandler — no maple_id', () => {
   it("returns { skip: 'no-maple-id' } and skips the upsert when maple_id is absent", async () => {
     const { client, upserts } = capturingClient();
     setMeilisearchClientForTests(client);
@@ -209,36 +208,34 @@ describe("meiliHandler — no maple_id", () => {
       ...({ maple_id: undefined } as unknown as Partial<ImageDoc>),
     } as ImageDoc;
     const result = await meiliHandler(doc, fakeCtx);
-    expect((result as { skip: string }).skip).toBe("no-maple-id");
+    expect((result as { skip: string }).skip).toBe('no-maple-id');
     expect(upserts.length).toBe(0);
   });
 });
 
-describe("meiliHandler — Meilisearch error tolerance", () => {
-  it("Meilisearch upsert failure results in handler throw so runtime retries", async () => {
+describe('meiliHandler — Meilisearch error tolerance', () => {
+  it('Meilisearch upsert failure results in handler throw so runtime retries', async () => {
     setMeilisearchClientForTests(failingClient());
     const doc = fakeDoc();
-    await expect(meiliHandler(doc, fakeCtx)).rejects.toThrow(
-      "simulated meili failure",
-    );
+    await expect(meiliHandler(doc, fakeCtx)).rejects.toThrow('simulated meili failure');
   });
 });
 
-describe("meiliHandler — unconfigured Meilisearch", () => {
-  it("still returns patch.search_blob even when Meilisearch is not configured", async () => {
+describe('meiliHandler — unconfigured Meilisearch', () => {
+  it('still returns patch.search_blob even when Meilisearch is not configured', async () => {
     setMeilisearchClientForTests(unconfiguredClient());
     const doc = fakeDoc();
     const result = await meiliHandler(doc, fakeCtx);
     const patch = (result as { patch: { search_blob: string } }).patch;
-    expect(typeof patch.search_blob).toBe("string");
+    expect(typeof patch.search_blob).toBe('string');
     // Blob includes tokens from all three sources.
-    const tokens = patch.search_blob.split(" ");
-    expect(tokens).toContain("albany");
+    const tokens = patch.search_blob.split(' ');
+    expect(tokens).toContain('albany');
   });
 });
 
-describe("meiliHandler — null enrichment fields", () => {
-  it("produces a valid (possibly empty) blob when description and ocr_text are null", async () => {
+describe('meiliHandler — null enrichment fields', () => {
+  it('produces a valid (possibly empty) blob when description and ocr_text are null', async () => {
     const { client, upserts } = capturingClient();
     setMeilisearchClientForTests(client);
     const doc = {
@@ -250,6 +247,6 @@ describe("meiliHandler — null enrichment fields", () => {
     expect(upserts.length).toBe(1);
     const blob = upserts[0]!.searchBlob;
     // Place tokens still contribute.
-    expect(blob.split(" ")).toContain("albany");
+    expect(blob.split(' ')).toContain('albany');
   });
 });
