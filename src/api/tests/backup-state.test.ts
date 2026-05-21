@@ -13,18 +13,31 @@ let tmpLib: string;
 beforeAll(async () => {
   tmpLib = await fs.mkdtemp(path.join(os.tmpdir(), "maple-state-test-"));
   await (await foldersCollection()).insertOne({ _id: libId, path: tmpLib, label: "state-test", created_at: new Date(), file_count: 0 } as any);
+  const { invalidateLibraryRoots } = await import(
+    "../src/indexer/libraries.cache.ts",
+  );
+  invalidateLibraryRoots();
   const a = await assetsCollection();
   await a.deleteMany({ "phasset_links.device_id": deviceId });
+  // Post drop-abs-path-2026-05-21: persisted on-disk pointer is on
+  // `fileinfo[]`. The backup-state route reads `fileinfo[]` to
+  // compose rel_path; library root resolution comes from the folder
+  // seeded above. Each asset's `fileinfo[0].filename` is its on-disk
+  // basename, and `path: ""` puts it at the library root.
   await a.insertMany([
     {
-      folder_id: libId, filename: "a.heic", abs_path: path.join(tmpLib, "a.heic"),
+      fileinfo: [
+        { library_id: libId, path: "", filename: "a.heic", deleted_at: null },
+      ],
       size: 1, mtime: 0, rating: 0, flag: 0, color_label: "",
       indexed_at: "2026-05-11T00:00:00Z",
       maple_id: "hash-a",
       phasset_links: [{ device_id: deviceId, phasset_local_id: "P1", first_seen: new Date("2026-05-10T00:00:00Z") }],
     },
     {
-      folder_id: libId, filename: "b.heic", abs_path: path.join(tmpLib, "b.heic"),
+      fileinfo: [
+        { library_id: libId, path: "", filename: "b.heic", deleted_at: null },
+      ],
       size: 1, mtime: 0, rating: 0, flag: 0, color_label: "",
       indexed_at: "2026-05-11T00:00:00Z",
       maple_id: "hash-b",

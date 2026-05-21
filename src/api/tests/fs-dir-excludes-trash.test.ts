@@ -47,6 +47,10 @@ describe("GET /api/fs/dir excludes trashed assets", () => {
       _id: folderId, path: realTmpRoot, label: "t",
       created_at: new Date().toISOString(), file_count: 0,
     } as never);
+    const { invalidateLibraryRoots } = await import(
+      "../src/indexer/libraries.cache.ts",
+    );
+    invalidateLibraryRoots();
   });
 
   afterAll(async () => {
@@ -72,9 +76,13 @@ describe("GET /api/fs/dir excludes trashed assets", () => {
     const ghost = path.join(realTmpRoot, "ghost.ARW");
     await fs.writeFile(live, "live");
     await fs.writeFile(ghost, "ghost");
+    // Post drop-abs-path-2026-05-21: persisted on-disk pointer is on
+    // `fileinfo[]`; the browse listing's trash-exclusion logic looks
+    // for trashed rows by their `fileinfo[]` entry rather than the
+    // dropped top-level `abs_path`.
     await db!.collection("assets").insertMany([
-      { _id: new ObjectId(), folder_id: folderId, filename: "live.ARW", abs_path: live, size: 4, mtime: Date.now(), indexed_at: new Date().toISOString(), deleted_at: null } as never,
-      { _id: new ObjectId(), folder_id: folderId, filename: "ghost.ARW", abs_path: ghost, size: 5, mtime: Date.now(), indexed_at: new Date().toISOString(), deleted_at: new Date().toISOString(), original_path: ghost } as never,
+      { _id: new ObjectId(), fileinfo: [{ library_id: folderId, path: "", filename: "live.ARW", deleted_at: null }], size: 4, mtime: Date.now(), indexed_at: new Date().toISOString(), deleted_at: null } as never,
+      { _id: new ObjectId(), fileinfo: [{ library_id: folderId, path: "", filename: "ghost.ARW", deleted_at: null }], size: 5, mtime: Date.now(), indexed_at: new Date().toISOString(), deleted_at: new Date().toISOString(), original_path: ghost } as never,
     ]);
 
     const { app } = await import("../src/index.ts");

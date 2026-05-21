@@ -88,13 +88,28 @@ describe("GET /api/fs/dir — sidecars[] pairing", () => {
     await fs.writeFile(numberedConflictXmpPath, "<x:xmpmeta/>");
     await fs.writeFile(orphanXmpPath, "<x:xmpmeta/>");
 
-    // Index the RAW — full shape matching the schema so insert doesn't fail.
+    // Index the RAW. Post drop-abs-path-2026-05-21: persisted location
+    // is `fileinfo[]`; the browse listing's `assetAbsPath` lookup needs
+    // a seeded folder so the resolved path matches rawPath.
+    const libraryId = new ObjectId();
+    await db.collection("folders").insertOne({
+      _id: libraryId,
+      path: realTmpRoot,
+      label: "fsdir-test",
+      last_scan: null,
+      file_count: 0,
+      created_at: new Date().toISOString(),
+    } as never);
+    const { invalidateLibraryRoots } = await import(
+      "../src/indexer/libraries.cache.ts",
+    );
+    invalidateLibraryRoots();
     assetId = new ObjectId();
     await db.collection("assets").insertOne({
       _id: assetId,
-      folder_id: new ObjectId(),
-      filename: "IMG_1.ARW",
-      abs_path: rawPath,
+      fileinfo: [
+        { library_id: libraryId, path: "", filename: "IMG_1.ARW", deleted_at: null },
+      ],
       size: 3,
       mtime: Date.now(),
       rating: 0,

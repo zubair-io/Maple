@@ -85,8 +85,23 @@ describe("GET /api/fs/dir — paged sidecar pairing across page boundaries", () 
 
     // Write N RAW files plus N matching XMP sidecars; index every RAW
     // in Mongo so the route sees a paired asset for each sidecar.
+    // Post drop-abs-path-2026-05-21: assets carry `fileinfo[]` and the
+    // browse listing resolves the absolute path via the libraries
+    // cache, so the seeded folder must match `realTmpRoot`.
     assetIDsByBase = new Map<string, string>();
     const folderId = new ObjectId();
+    await db.collection("folders").insertOne({
+      _id: folderId,
+      path: realTmpRoot,
+      label: "paging-test",
+      last_scan: null,
+      file_count: 0,
+      created_at: new Date().toISOString(),
+    } as never);
+    const { invalidateLibraryRoots } = await import(
+      "../src/indexer/libraries.cache.ts",
+    );
+    invalidateLibraryRoots();
     const docs: Array<Record<string, unknown>> = [];
     for (let i = 0; i < N; i++) {
       const base = `IMG_${String(i).padStart(4, "0")}`;
@@ -100,9 +115,9 @@ describe("GET /api/fs/dir — paged sidecar pairing across page boundaries", () 
       assetIDsByBase.set(base, id.toHexString());
       docs.push({
         _id: id,
-        folder_id: folderId,
-        filename: rawName,
-        abs_path: rawPath,
+        fileinfo: [
+          { library_id: folderId, path: "", filename: rawName, deleted_at: null },
+        ],
         size: 3,
         mtime: Date.now(),
         rating: 0,

@@ -213,6 +213,12 @@ export async function findByMapleId(mapleId: string): Promise<IndexerAssetDoc | 
  * `$text` fallback regardless of whether the Meilisearch update succeeds.
  */
 export async function softDelete(mapleId: string): Promise<void> {
+  // Defensive: an empty maple_id can't refer to a real row (the
+  // uniqueness contract from #244 makes maple_id mandatory on every
+  // live row); skip the Meili tombstone too so we don't pollute the
+  // index with empty-key writes. This matches the old "skip Meili
+  // when maple_id absent" branch the route used to take itself.
+  if (!mapleId) return;
   const c = await coll();
   await c.updateOne({ maple_id: mapleId }, { $set: { deleted_at: new Date().toISOString() } });
   try {

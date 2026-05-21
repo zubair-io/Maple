@@ -62,12 +62,26 @@ describe("trash-gc", () => {
     await fs.mkdir(path.dirname(old), { recursive: true });
     await fs.writeFile(old, "o"); await fs.writeFile(oldXmp, "ox"); await fs.writeFile(fresh, "f");
 
+    // Post drop-abs-path-2026-05-21: trash-gc resolves each row's
+    // abs_path via `assetAbsPath(fileinfo, libraries)`. Seed a real
+    // folder so the lookup hits, and write the seeds with `fileinfo[]`
+    // pointing at `.maple/trash` under the library root.
+    const libraryId = new ObjectId();
+    await db!.collection("folders").insertOne({
+      _id: libraryId, path: realTmpRoot, label: "test",
+      created_at: new Date().toISOString(), file_count: 0,
+    } as never);
+    const { invalidateLibraryRoots } = await import(
+      "../src/indexer/libraries.cache.ts",
+    );
+    invalidateLibraryRoots();
     const oldId = new ObjectId(); const freshId = new ObjectId(); const liveId = new ObjectId();
     const days = (n: number) => new Date(Date.now() - n * 86_400_000).toISOString();
+    const fi = (p: string, fn: string) => [{ library_id: libraryId, path: p, filename: fn, deleted_at: null }];
     await db!.collection("assets").insertMany([
-      { _id: oldId, folder_id: new ObjectId(), filename: "old.ARW", abs_path: old, size: 1, mtime: 0, indexed_at: days(60), deleted_at: days(31), original_path: "/x/old.ARW" } as never,
-      { _id: freshId, folder_id: new ObjectId(), filename: "fresh.ARW", abs_path: fresh, size: 1, mtime: 0, indexed_at: days(60), deleted_at: days(7), original_path: "/x/fresh.ARW" } as never,
-      { _id: liveId, folder_id: new ObjectId(), filename: "live.ARW", abs_path: path.join(realTmpRoot, "live.ARW"), size: 1, mtime: 0, indexed_at: days(1), deleted_at: null } as never,
+      { _id: oldId, fileinfo: fi(".maple/trash", "old.ARW"), size: 1, mtime: 0, indexed_at: days(60), deleted_at: days(31), original_path: "/x/old.ARW" } as never,
+      { _id: freshId, fileinfo: fi(".maple/trash", "fresh.ARW"), size: 1, mtime: 0, indexed_at: days(60), deleted_at: days(7), original_path: "/x/fresh.ARW" } as never,
+      { _id: liveId, fileinfo: fi("", "live.ARW"), size: 1, mtime: 0, indexed_at: days(1), deleted_at: null } as never,
     ]);
 
     const summary = await runTrashGcOnce({ retentionDays: 30 });

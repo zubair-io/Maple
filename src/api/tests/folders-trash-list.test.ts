@@ -47,7 +47,15 @@ describe("GET /api/folders/:id/trash", () => {
       _id: folderId, path: realTmpRoot, label: "t",
       created_at: new Date().toISOString(), file_count: 0,
     } as never);
-    // Three trashed assets at different times.
+    const { invalidateLibraryRoots } = await import(
+      "../src/indexer/libraries.cache.ts",
+    );
+    invalidateLibraryRoots();
+    // Three trashed assets at different times. Post
+    // drop-abs-path-2026-05-21 each row's on-disk pointer is
+    // `fileinfo[0]` (here pointing at `.maple/trash` under the library
+    // root); `original_path` retains the legacy ABSOLUTE path because
+    // the route still exposes it on the wire shape.
     const now = Date.now();
     for (let i = 0; i < 3; i++) {
       const filename = `T${i}.ARW`;
@@ -56,8 +64,10 @@ describe("GET /api/folders/:id/trash", () => {
       await fs.writeFile(trash, `r${i}`);
       await db.collection("assets").insertOne({
         _id: new ObjectId(),
-        folder_id: folderId,
-        filename, abs_path: trash, size: 2, mtime: now,
+        fileinfo: [
+          { library_id: folderId, path: ".maple/trash", filename, deleted_at: null },
+        ],
+        size: 2, mtime: now,
         indexed_at: new Date().toISOString(),
         deleted_at: new Date(now - i * 1000).toISOString(),
         original_path: path.join(realTmpRoot, filename),
@@ -66,9 +76,9 @@ describe("GET /api/folders/:id/trash", () => {
     // One vanished (watcher-removed) asset — deleted_at set, original_path absent.
     await db.collection("assets").insertOne({
       _id: new ObjectId(),
-      folder_id: folderId,
-      filename: "vanished.ARW",
-      abs_path: path.join(realTmpRoot, "vanished.ARW"),
+      fileinfo: [
+        { library_id: folderId, path: "", filename: "vanished.ARW", deleted_at: null },
+      ],
       size: 0, mtime: now, indexed_at: new Date().toISOString(),
       deleted_at: new Date().toISOString(),
     } as never);

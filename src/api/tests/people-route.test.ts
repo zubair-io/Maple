@@ -37,6 +37,10 @@ async function tryConnect(): Promise<MongoClient | null> {
   }
 }
 
+// Shared library so `getPerson`'s abs_path resolution finds a real
+// root — see comment on `insertAssetWithFaces`.
+const LIBRARY_ID = new ObjectId();
+
 beforeAll(async () => {
   mongo = await tryConnect();
   mongoReachable = mongo !== null;
@@ -49,9 +53,23 @@ beforeAll(async () => {
   for (const name of ['users', 'credentials', 'invites', 'refresh_tokens', 'challenges']) {
     await db.createCollection(name).catch(() => undefined);
   }
+  await db.collection('folders').insertOne({
+    _id: LIBRARY_ID,
+    path: '/lib',
+    label: 'lib',
+    last_scan: null,
+    file_count: 0,
+    created_at: new Date().toISOString(),
+  } as never);
   const { closeDb, ensureIndexes } = await import('../src/db/client.ts');
   await closeDb();
   await ensureIndexes();
+  // Invalidate the process-wide libraries cache so this suite sees the
+  // folder seeded above rather than reusing a sibling-suite entry.
+  const { invalidateLibraryRoots } = await import(
+    '../src/indexer/libraries.cache.ts',
+  );
+  invalidateLibraryRoots();
   const { peopleRoutes } = await import('../src/routes/people.ts');
   app = new Elysia().use(peopleRoutes);
 });
@@ -80,12 +98,16 @@ function nearAxis(axis: number, jitter: number): number[] {
 }
 
 async function insertAssetWithFaces(faces: AssetFaceDoc[]): Promise<ObjectId> {
+  // Use the shared LIBRARY_ID so `getPerson`'s `assetAbsPath` lookup
+  // resolves through the seeded folder — otherwise random per-row
+  // library_ids would not be in the libraries cache and `getPerson`
+  // would skip every face row (post drop-abs-path-2026-05-21).
   const doc: AssetDoc = {
     fileinfo: [
       {
         path: '',
         filename: `${Math.random().toString(36).slice(2, 8)}.jpg`,
-        library_id: new ObjectId(),
+        library_id: LIBRARY_ID,
         deleted_at: null,
       },
     ],

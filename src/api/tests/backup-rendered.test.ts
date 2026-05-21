@@ -18,6 +18,10 @@ beforeAll(async () => {
   tmpLib = await fs.mkdtemp(path.join(os.tmpdir(), "maple-rendered-test-"));
   const f = await foldersCollection();
   await f.insertOne({ _id: libId, path: tmpLib, label: "test", created_at: new Date(), file_count: 0 } as any);
+  const { invalidateLibraryRoots } = await import(
+    "../src/indexer/libraries.cache.ts",
+  );
+  invalidateLibraryRoots();
 
   // Pre-create an AssetDoc that simulates a prior ingest.
   const assetPath = path.join(tmpLib, originalRelPath);
@@ -26,11 +30,20 @@ beforeAll(async () => {
 
   const a = await assetsCollection();
   await a.deleteMany({ "phasset_links.device_id": deviceId });
+  // Post drop-abs-path-2026-05-21: persisted on-disk pointer is on
+  // `fileinfo[]`. The rendered route scopes its update by
+  // `{ 'fileinfo.library_id', maple_id }` so the seed must carry
+  // `fileinfo[].library_id` for the dedup match.
   await a.insertOne({
     _id: new ObjectId(),
-    folder_id: libId,
-    filename: "IMG_RENDERED.HEIC",
-    abs_path: assetPath,
+    fileinfo: [
+      {
+        library_id: libId,
+        path: path.dirname(originalRelPath),
+        filename: path.basename(originalRelPath),
+        deleted_at: null,
+      },
+    ],
     size: 64,
     mtime: Date.now(),
     rating: 0,

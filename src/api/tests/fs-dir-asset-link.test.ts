@@ -80,12 +80,30 @@ describe("GET /api/fs/dir — asset id link", () => {
     await fs.writeFile(indexedRawPath, "raw");
     await fs.writeFile(unindexedRawPath, "raw");
 
+    // Post drop-abs-path-2026-05-21: the browse listing's id-link
+    // logic queries by `fileinfo[].filename` + resolves abs_path via
+    // `assetAbsPath`. Seed the folder + write the asset with a
+    // matching fileinfo[] entry pointing into `tmpRoot`.
+    const libraryId = new ObjectId();
+    await db.collection("folders").insertOne({
+      _id: libraryId,
+      path: realTmpRoot,
+      label: "fsdir-link-test",
+      last_scan: null,
+      file_count: 0,
+      created_at: new Date().toISOString(),
+    } as never);
+    const { invalidateLibraryRoots } = await import(
+      "../src/indexer/libraries.cache.ts",
+    );
+    invalidateLibraryRoots();
+
     indexedAssetId = new ObjectId();
     await db.collection("assets").insertOne({
       _id: indexedAssetId,
-      folder_id: new ObjectId(),
-      filename: "indexed.dng",
-      abs_path: indexedRawPath,
+      fileinfo: [
+        { library_id: libraryId, path: "", filename: "indexed.dng", deleted_at: null },
+      ],
       size: 3,
       mtime: Date.now(),
       rating: 0,
