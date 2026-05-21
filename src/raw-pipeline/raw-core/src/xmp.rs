@@ -1,61 +1,15 @@
+//! XMP sidecar parser. The schema lives in [`crate::types`] — this module
+//! is responsible only for translating ACR-flavoured XMP attributes into an
+//! `AdjustmentModel` value.
+
 use crate::error::{Error, Result};
 use quick_xml::events::Event;
 use quick_xml::reader::Reader;
 
-/// Highlight reconstruction mode per spec § 3.3a. Default is `Off` — no
-/// reconstruction (slice-1/2/3 behavior). When non-default, highlights that
-/// would otherwise clip at the sensor white level get extended above 1.0 in
-/// camera-native RGB so AgX can render them on its shoulder.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum HighlightRecoveryMode {
-    Off,
-    Blend,
-    Luminance,
-}
-
-impl Default for HighlightRecoveryMode {
-    fn default() -> Self { Self::Off }
-}
-
-/// Slice 1+2+5 subset of `AdjustmentModel`. See spec § 01 for the full shape.
-#[derive(Clone, Debug, PartialEq)]
-pub struct AdjustmentModel {
-    pub temperature: f32, // 2000..12000, default 6500
-    pub tint: f32,        // -100..100, default 0
-    pub exposure: f32,    // -4..+4 EV, default 0
-    pub contrast: f32,    // -100..100, default 0 (routed to AgX slope per spec § 3.6a)
-    pub highlights: f32,  // -100..100, default 0
-    pub shadows: f32,     // -100..100, default 0
-    pub whites: f32,      // -100..100, default 0
-    pub blacks: f32,      // -100..100, default 0
-    pub vibrance: f32,    // -100..100, default 0 (spec § 3.7)
-    pub saturation: f32,  // -100..100, default 0
-    pub clarity: f32,     // -100..100, default 0 (unsharp radius 40 per spec § 3.8)
-    pub texture: f32,     // -100..100, default 0 (unsharp radius 3 per spec § 3.8)
-    pub sharpen_amount: f32,    // 0..150, default 0 (spec § 3.10; 0 = stage skipped, 100 = full RL, >100 overdrive)
-    pub sharpen_radius: f32,    // 0.5..3.0, default 0.5 (PSF Gaussian sigma)
-    pub sharpen_detail: f32,    // 0..100, default 25 (edge-attenuation strength)
-    pub sharpen_masking: f32,   // 0..100, default 0 (edge-mask threshold)
-    pub nr_luminance: f32,      // 0..100, default 0 (spec § 3.11)
-    pub nr_color: f32,          // 0..100, default 25 (default = ACR's default)
-    pub dehaze: f32,      // -100..100, default 0
-    pub highlight_recovery: HighlightRecoveryMode,
-}
-
-impl Default for AdjustmentModel {
-    fn default() -> Self {
-        Self {
-            temperature: 6500.0, tint: 0.0,
-            exposure: 0.0,
-            contrast: 0.0, highlights: 0.0, shadows: 0.0, whites: 0.0, blacks: 0.0,
-            vibrance: 0.0, saturation: 0.0, clarity: 0.0, texture: 0.0,
-            sharpen_amount: 0.0, sharpen_radius: 0.5, sharpen_detail: 25.0, sharpen_masking: 0.0,
-            nr_luminance: 0.0, nr_color: 25.0,
-            dehaze: 0.0,
-            highlight_recovery: HighlightRecoveryMode::Off,
-        }
-    }
-}
+// Re-export the canonical schema types so existing
+// `use raw_core::xmp::{AdjustmentModel, HighlightRecoveryMode}` paths keep
+// compiling. The single source of truth is `crate::types::adjustment`.
+pub use crate::types::adjustment::{AdjustmentModel, HighlightRecoveryMode};
 
 /// Parse an ACR XMP sidecar. Unknown fields are ignored; known fields that
 /// fail to parse numerically surface as an error.
