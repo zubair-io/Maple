@@ -163,7 +163,13 @@ public actor UploadClient {
                 offset = chunkEnd + 1
                 if let onProgress { await onProgress(offset, total) }
             case 200:
-                guard isFinal else { throw UploadError.badResponse }
+                // 200 on the final chunk is the normal success path. 200 on
+                // any earlier chunk means the server recognised this as a
+                // retry-after-completed and short-circuited (an earlier
+                // attempt finished ingest but a downstream step — sidecar /
+                // rendered / live — failed and re-enqueued the task). The
+                // body still carries the maple_id + target_rel_path the
+                // engine needs to proceed with sidecar/rendered uploads.
                 if let onProgress { await onProgress(total, total) }
                 struct Final: Decodable { let maple_id: String; let target_rel_path: String }
                 let body = try JSONDecoder().decode(Final.self, from: data)
@@ -252,7 +258,10 @@ public actor UploadClient {
                 offset = chunkEnd + 1
                 if let onProgress { await onProgress(offset, total) }
             case 200:
-                guard isFinal else { throw UploadError.badResponse }
+                // Same semantic as `upload(...)`: 200 on any chunk position
+                // means the rendered companion is already complete server-
+                // side. The body carries `{ target_rel_path }` but the
+                // caller discards the return value, so no parsing needed.
                 if let onProgress { await onProgress(total, total) }
                 return
             default:
