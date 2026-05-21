@@ -1,15 +1,23 @@
-// AppShell.swift — NavigationSplitView (Mac/iPad) +
-// TabView single-column collapse (iPhone).
+// AppShell.swift — root composition for the SwiftUI shell.
 //
-// Layout ported from docs/mockup.html:
-//   • LibrarySidebar   — Folders / Photos Library / Connections tree
-//   • BrowseGrid       — lazy thumbnail grid with empty-state + error banner
-//   • DetailPanel      — third column only in Full-image mode; Browse drops
-//                        the panel entirely so the grid takes the full width
+// This file is intentionally thin: it owns the cross-shell `@State`
+// (selection, sessions, sheet flags, …) and stitches together three
+// siblings that do the actual layout work:
 //
-// Toolbar: search icon (leading, placeholder), dynamic "Library — <name>"
-// title, Export button (trailing). ⌘O still opens the fileImporter;
-// Open Folder has moved into the sidebar section header's "+" button.
+//   • AppShellSidebar      — `LibrarySidebar` wrapper with all 13
+//                            callbacks fanned out (file: AppShellSidebar.swift)
+//   • AppShellMacLayout    — Mac/iPad NavigationSplitView, Browse +
+//                            Full-image variants  (file: AppShellMacLayout.swift)
+//   • AppShellIPhoneDrawer — iPhone overlay drawer + gestures
+//                            (file: AppShellIPhoneDrawer.swift, #if os(iOS))
+//
+// Action methods live in sibling extensions (slice 3):
+//   • AppShell+FolderActions   — local folder source + sandbox scope
+//   • AppShell+CloudActions    — Maple Cloud library + thumbnail wiring
+//   • AppShell+PhotoKitActions — PhotoKit + SMB
+//
+// Toolbar content is its own struct (slice 2):
+//   • AppShellToolbar.swift
 //
 // Keyboard shortcuts per spec § 09:
 //   Stars 1-5, P/X/U flags — handled in BrowseGrid
@@ -52,7 +60,7 @@ struct AppShell: View {
     // (`AppShell+FolderActions.swift` / `+CloudActions.swift` /
     // `+PhotoKitActions.swift`) can read and write them. The widened set
     // is the minimum required by those extensions — properties used only
-    // by `body` / drawer code stay `private`.
+    // by `body` / layout code stay `private`.
     @State var browseVM = BrowseViewModel()
     @State var sessions: [AssetRef.ID: EditSession] = [:]
     @State private var showExport = false
@@ -105,27 +113,11 @@ struct AppShell: View {
     /// Browse drops the panel entirely.
     @State private var iPhoneInfoSheet: Bool = false
 
-    /// iPhone drawer state — Notion-Mail-style left-side overlay menu.
-    /// `isDrawerOpen` is the snapped state (open / closed); `dragOffset`
-    /// is the in-flight finger translation that lets the drawer track
-    /// the user's finger during a swipe. We snap on gesture-end based
-    /// on translation distance OR velocity (whichever fires first), so
-    /// fast flicks open/close even with small visible travel.
+    /// iPhone drawer snapped state. `dragOffset` (the in-flight finger
+    /// translation) lives inside `AppShellIPhoneDrawer` as private
+    /// `@State` — only the snapped flag crosses the boundary, since the
+    /// hamburger button in `iPhoneMain` writes it directly.
     @State private var isDrawerOpen: Bool = false
-    @State private var dragOffset: CGFloat = 0
-
-    /// Honor the user's reduce-motion preference — swap the spring
-    /// slide for an instant snap when the system is set to that mode.
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    /// Drawer geometry. 280pt is wide enough to fit the longest folder
-    /// names in the LibrarySidebar tree without truncation, narrow
-    /// enough that ~70pt of the underlying browse grid still peeks
-    /// through on a 6.1" iPhone.
-    private static let drawerWidth: CGFloat = 280
-    /// Left-edge horizontal slab where the open-drawer drag gesture
-    /// activates. 20pt matches Apple's NavigationStack swipe-back zone.
-    private static let edgeActivationZone: CGFloat = 20
     #endif
 
     /// Set when the user selects a cloud library in Timeline view mode;
@@ -263,65 +255,47 @@ struct AppShell: View {
         }
     }
 
-    // MARK: - Mac / iPad (NavigationSplitView)
+    // MARK: - Mac / iPad
 
     @ViewBuilder
     private var macShell: some View {
-        // In Browse mode the detail panel is suppressed entirely — the
-        // explorer grid takes the full content area. In Full-image mode
-        // the panel comes back as the third column for Develop + Info.
-        // We switch the NavigationSplitView column count rather than
-        // collapsing the detail to zero width, because SwiftUI still
-        // reserves space for an empty detail column.
-        Group {
-            if mode == .fullImage {
-                macShellFullImage
-            } else {
-                macShellBrowse
-            }
-        }
+        AppShellMacLayout(
+            isFullImage: mode == .fullImage,
+            columnVisibility: $columnVisibility,
+            libraryTitle: libraryTitle,
+            selectedSession: selectedSession,
+            cloudTimelineVM: cloudTimelineVM,
+            cloudTimelineThumbClient: cloudTimelineThumbClient,
+            cloudTimelineThumbCache: cloudTimelineThumbCache,
+            browseDisplayMode: $browseDisplayMode,
+            browseVM: browseVM,
+            sessions: $sessions,
+            sidebar: { sharedSidebar },
+            toolbarContent: { browseToolbarContent },
+            onSelectCloudAsset: { asset, server in openCloudAsset(asset, server: server) },
+            onSelectLocalAsset: { ref in openLocalPhotoKitAsset(ref) },
+            onGrantPhotosAccess: { grantPhotosAccessAndLoad() },
+            onNavigateFolder: { url in navigateFolder(url) },
+            onOpenEditor: { asset in openEditor(for: asset) },
+            onPrimeSession: { asset in ensureSession(for: asset) },
+            onFullImageFallback: { mode = .browse }
+        )
         .sheet(isPresented: $showSettings) {
             SettingsView()
                 .frame(minWidth: 520, minHeight: 460)
         }
     }
 
-    private var macShellFullImage: some View {
-        NavigationSplitView(columnVisibility: $columnVisibility) {
-            librarySidebarView
-                .navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 280)
-        } content: {
-            centerColumnView
-                .navigationSplitViewColumnWidth(min: 300, ideal: 520)
-                .navigationTitle(selectedSession?.asset.displayName ?? "Image")
-                .toolbar { browseToolbarContent }
-        } detail: {
-            // `isFullImage` drives Ticket 12 bugs 4/5/8: the panel auto-flips
-            // to Develop on entry, back to Info on exit. Width: iPad expands
-            // the column toward `max` (~half the screen when balanced), so
-            // DetailPanelWidth tightens the range there to just fit the
-            // slider rail. macOS keeps the original range.
-            DetailPanel(session: selectedSession, isFullImage: true)
-                .modifier(DetailPanelWidth())
-        }
-        .navigationSplitViewStyle(.balanced)
-    }
-
-    private var macShellBrowse: some View {
-        NavigationSplitView(columnVisibility: $columnVisibility) {
-            librarySidebarView
-                .navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 280)
-        } detail: {
-            centerColumnView
-                .navigationTitle("Library — \(libraryTitle)")
-                .toolbar { browseToolbarContent }
-        }
-        .navigationSplitViewStyle(.balanced)
-    }
-
-    private var librarySidebarView: some View {
-        LibrarySidebar(
+    /// Shared between the Mac/iPad NavigationSplitView and the iPhone
+    /// drawer. Both shells fan the same 13 LibrarySidebar callbacks into
+    /// AppShell action methods — keeping this as one computed property
+    /// avoids the ~90-LOC duplicate that pre-slice-4 had between
+    /// `librarySidebarView` and `iPhoneSidebar`.
+    @ViewBuilder
+    private var sharedSidebar: some View {
+        AppShellSidebar(
             selection: $librarySelection,
+            cloudCurrentPath: cloudCurrentPath,
             onAddFolder: { showFilePicker = true },
             onPickFolder: { folder in openSavedFolder(folder) },
             onRemoveFolder: { folder in SavedFolderStore.remove(path: folder.path) },
@@ -332,16 +306,13 @@ struct AppShell: View {
             onRequestPhotosAccess: { requestPhotosAccess() },
             onAddSMB: { showSMBSheet = true },
             onPickSMB: { share in connectSavedSMB(share) },
-            onAddCloudServer: {
-                addCloudSheetTarget = .fresh
-            },
+            onAddCloudServer: { addCloudSheetTarget = .fresh },
             onPickCloudLibrary: { serverID, folderID, libraryPath in
                 loadCloudLibrary(serverID: serverID, folderID: folderID, libraryPath: libraryPath)
             },
             onListCloudDir: { url, absPath in
                 await listCloudDirFor(server: url, absPath: absPath)
             },
-            cloudCurrentPath: cloudCurrentPath,
             onSignOutCloudServer: { url in
                 Task { @MainActor in
                     // Sign out keeps the server in the sidebar but
@@ -367,48 +338,7 @@ struct AppShell: View {
         )
     }
 
-    @ViewBuilder
-    private var centerColumnView: some View {
-        // The center column switches between the explorer grid (browse
-        // mode) and the full-image editor (fullImage mode). Per the
-        // mockup, these are two different center views — not a
-        // side-by-side. Double-click on a thumbnail flips the mode.
-        switch mode {
-        case .browse:
-            if let vm = cloudTimelineVM,
-               let thumbClient = cloudTimelineThumbClient,
-               let thumbCache = cloudTimelineThumbCache {
-                CloudTimelineView(
-                    vm: vm,
-                    thumbClient: thumbClient,
-                    thumbCache: thumbCache,
-                    displayMode: browseDisplayMode,
-                    onSelectAsset: { asset in openCloudAsset(asset, server: vm.server) },
-                    onSelectLocalAsset: { ref in openLocalPhotoKitAsset(ref) }
-                )
-            } else {
-                BrowseGrid(
-                    vm: browseVM,
-                    sessions: $sessions,
-                    displayMode: $browseDisplayMode,
-                    onGrantPhotosAccess: { grantPhotosAccessAndLoad() },
-                    onNavigateFolder: { url in navigateFolder(url) },
-                    onOpenEditor: { asset in openEditor(for: asset) },
-                    onPrimeSession: { asset in ensureSession(for: asset) }
-                )
-            }
-        case .fullImage:
-            if let session = selectedSession {
-                FullImageView(session: session)
-            } else {
-                // Fallback — if the session vanished while editing,
-                // drop back to browse.
-                Color.clear.onAppear { mode = .browse }
-            }
-        }
-    }
-
-    // MARK: - iPhone (compact ZStack drawer)
+    // MARK: - iPhone
 
     #if os(iOS)
     /// iPhone shell. Browse is the base layer; the LibrarySidebar slides
@@ -420,55 +350,24 @@ struct AppShell: View {
     /// base layer); the drawer is unreachable from the viewer (open
     /// question 5 in the design doc) so gestures stay unambiguous.
     private var adaptiveShell: some View {
-        GeometryReader { _ in
-            ZStack(alignment: .leading) {
-                // Base — the actual content of the app. Wrapped in a
-                // NavigationStack so navigationTitle + toolbar work.
+        AppShellIPhoneDrawer(
+            isDrawerOpen: $isDrawerOpen,
+            mode: mode,
+            mainContent: {
                 NavigationStack {
                     iPhoneMain
                 }
                 .accentColor(MapleTokens.primary)
-                // Block taps to the base when the drawer is open so a
-                // mis-aimed tap behind the drawer doesn't trigger
-                // background actions.
-                .disabled(isDrawerOpen)
-
-                // Dim overlay — fades in proportional to drawer
-                // position. Tap to close. Hidden when drawer is closed
-                // so it doesn't intercept taps on the base layer.
-                if drawerProgress > 0.001 {
-                    Color.black
-                        .opacity(0.45 * drawerProgress)
-                        .ignoresSafeArea()
-                        .onTapGesture { closeDrawer() }
-                        .accessibilityHidden(true)
-                }
-
-                // The drawer itself. LibrarySidebar paints its own
-                // bg (MapleTokens.sidebar), so no extra background
-                // needed here.
-                iPhoneSidebar
-                    .frame(width: AppShell.drawerWidth)
-                    .frame(maxHeight: .infinity)
-                    .offset(x: drawerXOffset)
-                    .gesture(drawerCloseDragGesture)
+            },
+            sidebarContent: {
+                // Drawer-stay-open by design: the user wants to drill down a
+                // cloud folder tree and toggle expand/collapse without the
+                // drawer collapsing on every selection. Selection still updates
+                // the underlying browse grid; the user closes the drawer
+                // manually via tap-on-dim or drag-back when ready to look at it.
+                sharedSidebar
             }
-            // Edge-swipe to open. Only fires from the leftmost 20pt
-            // and only when the drawer is closed AND we're in browse
-            // mode — keeps gestures unambiguous w.r.t. the viewer's
-            // own swipe handling.
-            //
-            // `.simultaneousGesture` (NOT `.gesture`) so the recognizer
-            // doesn't pre-empt normal horizontal scrolls in child
-            // views (the grid, the FullImage filmstrip) when the drag
-            // starts outside the edge zone. The gesture's onChanged /
-            // onEnded already short-circuit when the start location is
-            // past `edgeActivationZone`, so attaching simultaneously
-            // means rejected drags fall through to whichever child
-            // gesture wants them.
-            .simultaneousGesture(edgeOpenDragGesture)
-        }
-        .ignoresSafeArea(.keyboard)
+        )
         .sheet(isPresented: $iPhoneInfoSheet) {
             NavigationStack {
                 DetailPanel(session: selectedSession, isFullImage: mode == .fullImage)
@@ -485,166 +384,6 @@ struct AppShell: View {
             SettingsView()
                 .presentationDetents([.large])
         }
-    }
-
-    // MARK: drawer math
-
-    /// X-translation applied to the drawer view. 0 = fully visible
-    /// against the left edge; -drawerWidth = fully off-screen. The
-    /// in-flight `dragOffset` is added on top of the snapped state,
-    /// clamped so the user can't drag past either end.
-    private var drawerXOffset: CGFloat {
-        if isDrawerOpen {
-            // Open — only allow leftward drag (negative). Right-drag
-            // is a no-op since the drawer is already fully visible.
-            return min(0, dragOffset)
-        } else {
-            // Closed — only allow rightward drag (positive), capped at
-            // drawerWidth so the open animation doesn't overshoot.
-            return -AppShell.drawerWidth + max(0, min(AppShell.drawerWidth, dragOffset))
-        }
-    }
-
-    /// 0 when the drawer is fully off-screen, 1 when fully visible.
-    /// Drives the dim-overlay opacity so the dim fades in/out smoothly
-    /// alongside the slide.
-    private var drawerProgress: CGFloat {
-        let visible = AppShell.drawerWidth + drawerXOffset
-        return max(0, min(1, visible / AppShell.drawerWidth))
-    }
-
-    // MARK: drawer gestures
-
-    /// Drag gesture on the drawer itself — used to drag the open
-    /// drawer back closed. Snaps closed if translation crosses 1/3
-    /// width OR velocity goes leftward fast (>300pt/s).
-    private var drawerCloseDragGesture: some Gesture {
-        DragGesture()
-            .onChanged { value in
-                guard isDrawerOpen else { return }
-                dragOffset = value.translation.width
-            }
-            .onEnded { value in
-                guard isDrawerOpen else {
-                    snapDragOffset()
-                    return
-                }
-                let translation = value.translation.width
-                let velocity = value.predictedEndTranslation.width
-                if translation < -AppShell.drawerWidth / 3 || velocity < -200 {
-                    closeDrawer()
-                } else {
-                    snapDragOffset()
-                }
-            }
-    }
-
-    /// Drag gesture on the root ZStack — opens the drawer when the
-    /// user starts dragging from the left edge. Confined to the leftmost
-    /// `edgeActivationZone` AND to browse mode so we don't conflict
-    /// with the viewer's own gestures or the grid's horizontal scroll.
-    private var edgeOpenDragGesture: some Gesture {
-        DragGesture(minimumDistance: 8)
-            .onChanged { value in
-                guard !isDrawerOpen,
-                      mode == .browse,
-                      value.startLocation.x < AppShell.edgeActivationZone else { return }
-                dragOffset = max(0, value.translation.width)
-            }
-            .onEnded { value in
-                guard !isDrawerOpen,
-                      mode == .browse,
-                      value.startLocation.x < AppShell.edgeActivationZone else {
-                    snapDragOffset()
-                    return
-                }
-                let translation = value.translation.width
-                let velocity = value.predictedEndTranslation.width
-                if translation > AppShell.drawerWidth / 3 || velocity > 200 {
-                    openDrawer()
-                } else {
-                    snapDragOffset()
-                }
-            }
-    }
-
-    // MARK: drawer actions
-
-    private func openDrawer() {
-        runAnimated {
-            isDrawerOpen = true
-            dragOffset = 0
-        }
-    }
-
-    private func closeDrawer() {
-        runAnimated {
-            isDrawerOpen = false
-            dragOffset = 0
-        }
-    }
-
-    /// Used after a drag-end that didn't cross the snap threshold —
-    /// returns the drawer to its pre-drag snapped state.
-    private func snapDragOffset() {
-        runAnimated { dragOffset = 0 }
-    }
-
-    /// Runs the closure inside a spring animation, OR instantly if the
-    /// user has reduce-motion enabled. The spring matches the timing
-    /// the design doc calls out (response 0.3 / damping 0.85).
-    private func runAnimated(_ work: () -> Void) {
-        if reduceMotion {
-            work()
-        } else {
-            withAnimation(.spring(response: 0.3, dampingFraction: 0.85), work)
-        }
-    }
-
-    @ViewBuilder
-    private var iPhoneSidebar: some View {
-        // Drawer-stay-open by design: the user wants to drill down a
-        // cloud folder tree and toggle expand/collapse without the
-        // drawer collapsing on every selection. Selection still updates
-        // the underlying browse grid; the user closes the drawer
-        // manually via tap-on-dim or drag-back when ready to look at it.
-        LibrarySidebar(
-            selection: $librarySelection,
-            onAddFolder: { showFilePicker = true },
-            onPickFolder: { folder in openSavedFolder(folder) },
-            onRemoveFolder: { folder in SavedFolderStore.remove(path: folder.path) },
-            onPickAncestor: { url, bookmark in
-                openSubFolder(url: url, rootBookmark: bookmark)
-            },
-            onPickPhotosFilter: { filter in loadPhotos(filter: filter) },
-            onRequestPhotosAccess: { requestPhotosAccess() },
-            onAddSMB: { showSMBSheet = true },
-            onPickSMB: { share in connectSavedSMB(share) },
-            onAddCloudServer: { addCloudSheetTarget = .fresh },
-            onPickCloudLibrary: { serverID, folderID, libraryPath in
-                loadCloudLibrary(serverID: serverID, folderID: folderID, libraryPath: libraryPath)
-            },
-            onListCloudDir: { url, absPath in
-                await listCloudDirFor(server: url, absPath: absPath)
-            },
-            cloudCurrentPath: cloudCurrentPath,
-            onSignOutCloudServer: { url in
-                Task { @MainActor in
-                    let session = sessionFor(url)
-                    await session.signOut()
-                }
-            },
-            onRemoveCloudServer: { url in
-                Task { @MainActor in
-                    let session = sessionFor(url)
-                    await session.signOut()
-                    CloudServerRegistry.shared.remove(url)
-                }
-            },
-            onLoadCloudFolders: { url in
-                await loadCloudFoldersFor(url)
-            }
-        )
     }
 
     @ViewBuilder
@@ -688,10 +427,16 @@ struct AppShell: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             // Hamburger only meaningful in browse mode (per open
-            // question 5: drawer unreachable from viewer).
+            // question 5: drawer unreachable from viewer). Writes the
+            // drawer's snapped-open state directly — the drawer's
+            // internal animation handles the slide.
             if mode == .browse {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button { openDrawer() } label: {
+                    Button {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                            isDrawerOpen = true
+                        }
+                    } label: {
                         Image(systemName: "line.3.horizontal")
                             .font(.system(size: 17, weight: .semibold))
                     }
@@ -735,26 +480,6 @@ struct AppShell: View {
             onSettings: { showSettings = true }
         )
     }
-
-    // MARK: - Empty / placeholder views
-
-    private var fullImagePlaceholder: some View {
-        VStack(spacing: 14) {
-            Image(systemName: "photo.on.rectangle.angled")
-                .font(.system(size: 48))
-                .foregroundStyle(MapleTokens.textMuted)
-            Text("No image selected")
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(MapleTokens.textMain)
-            Text("Pick a folder or a Photos library filter in the sidebar.")
-                .font(.system(size: 11))
-                .foregroundStyle(MapleTokens.textMuted)
-                .multilineTextAlignment(.center)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(MapleTokens.imageCanvas)
-    }
-
 }
 
 // MARK: - Previews
