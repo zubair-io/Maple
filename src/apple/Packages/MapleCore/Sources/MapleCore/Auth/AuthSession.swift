@@ -153,4 +153,35 @@ public final class AuthSession {
     hasCredentials = false
     await FileProviderDomainController().mirrorTokens(serverURL: server)
   }
+
+  // MARK: - Preview
+
+  public enum PreviewState: Sendable {
+    case signedOut
+    case signedInOwner
+    case signedInMember
+  }
+
+  /// Sample `AuthSession` for SwiftUI `#Preview` blocks. Constructs against
+  /// `AuthClient.preview()` so the underlying URL is non-routable; the
+  /// `user` / `hasCredentials` fields are then mutated directly to fake the
+  /// requested signed-in state without hitting the Keychain. Issue #139.
+  public static func preview(
+    state: PreviewState = .signedInOwner,
+    server: URL = URL(string: "https://preview.maple.invalid")!
+  ) -> AuthSession {
+    let session = AuthSession(server: server, client: AuthClient.preview(server: server))
+    switch state {
+    case .signedOut:
+      session.user = nil
+      session.hasCredentials = false
+    case .signedInOwner:
+      session.user = AuthUser(id: "preview-owner", email: "owner@example.com", role: "owner")
+      session.hasCredentials = true
+    case .signedInMember:
+      session.user = AuthUser(id: "preview-member", email: "member@example.com", role: "member")
+      session.hasCredentials = true
+    }
+    return session
+  }
 }

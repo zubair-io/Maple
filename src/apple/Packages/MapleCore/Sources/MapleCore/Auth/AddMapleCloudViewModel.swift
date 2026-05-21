@@ -91,4 +91,35 @@ public final class AddMapleCloudViewModel {
   public func cancel() {
     cancelled = true
   }
+
+  // MARK: - Preview
+
+  public enum PreviewState: Sendable {
+    case idle
+    case prefilled
+    case authenticating
+    case error
+  }
+
+  /// Sample `AddMapleCloudViewModel` for SwiftUI `#Preview` blocks.
+  /// Mutates `state` and `domainInput` directly to stage the requested
+  /// panel without driving the auth state machine. Issue #139.
+  public static func preview(_ state: PreviewState = .idle) -> AddMapleCloudViewModel {
+    let vm = AddMapleCloudViewModel()
+    switch state {
+    case .idle:
+      break
+    case .prefilled:
+      vm.domainInput = "myserver.example.com"
+    case .authenticating:
+      vm.domainInput = "myserver.example.com"
+      if let host = CloudHost.parse(vm.domainInput) {
+        vm.state = .authenticating(host)
+      }
+    case .error:
+      vm.state = .error(message: "Couldn't reach myserver.example.com.",
+                        recoverableTo: .idle)
+    }
+    return vm
+  }
 }

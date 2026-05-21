@@ -34,4 +34,16 @@ public actor CloudThumbClient {
     }
     return data
   }
+
+  /// Sample client for SwiftUI `#Preview` blocks. Points at an unreachable
+  /// example server so requests fail fast; cells fall back to placeholder
+  /// imagery, which is what the preview wants to show anyway. Issue #139.
+  public static func preview(
+    server: URL = URL(string: "https://preview.maple.invalid")!
+  ) -> CloudThumbClient {
+    CloudThumbClient(
+      server: server,
+      httpClient: AuthenticatedHTTPClient.preview(server: server)
+    )
+  }
 }

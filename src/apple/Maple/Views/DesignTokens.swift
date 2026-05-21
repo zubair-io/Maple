@@ -88,7 +88,7 @@ public struct MapleTokens {
     }
 }
 
-// MARK: - Color hex extension
+// MARK: - Color hex
 
 extension Color {
     init(hex: String) {
@@ -151,4 +151,48 @@ public struct FlagBadge: View {
         }
         .font(.system(size: 9))
     }
+}
+
+// MARK: - Previews
+//
+// Issue #139 — every renderable view in this file gets at least one
+// `#Preview` against stubs. StarView covers the 0..5 range; FlagBadge
+// covers all three CullFlag cases.
+
+#Preview("StarView — Default (3 of 5)") {
+    StarView(count: 3)
+        .padding()
+        .background(MapleTokens.bg)
+}
+
+#Preview("StarView — All states") {
+    VStack(alignment: .leading, spacing: 8) {
+        ForEach(0...5, id: \.self) { count in
+            HStack(spacing: 8) {
+                Text("\(count)")
+                    .frame(width: 16)
+                    .foregroundStyle(MapleTokens.textMuted)
+                StarView(count: count)
+            }
+        }
+    }
+    .padding()
+    .background(MapleTokens.bg)
+}
+
+#Preview("FlagBadge — Default (pick)") {
+    FlagBadge(flag: .pick)
+        .padding()
+        .background(MapleTokens.bg)
+}
+
+#Preview("FlagBadge — All states") {
+    HStack(spacing: 12) {
+        VStack(spacing: 6) { FlagBadge(flag: .pick); Text("pick").font(.caption2) }
+        VStack(spacing: 6) { FlagBadge(flag: .reject); Text("reject").font(.caption2) }
+        VStack(spacing: 6) { FlagBadge(flag: .none); Text("none").font(.caption2) }
+    }
+    .padding()
+    .background(MapleTokens.bg)
+    .preferredColorScheme(.dark)
 }

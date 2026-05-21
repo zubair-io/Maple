@@ -188,4 +188,15 @@ struct FileProviderSettingsView: View {
         }
     }
 }
+
+// MARK: - Previews
+//
+// Issue #139 — macOS-only File Provider settings. The view reads from
+// `CloudServerRegistry.shared`, which in a clean preview environment
+// has no servers paired — that exercises the empty-state branch.
+
+#Preview("Default — no servers") {
+    FileProviderSettingsView()
+        .frame(width: 480, height: 320)
+}
 #endif
