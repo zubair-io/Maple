@@ -213,7 +213,10 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
       const coll = await assetsCollection();
       const filter = { 'fileinfo.library_id': folderId };
       const [docs, total] = await Promise.all([
-        coll.find(filter).sort({ 'fileinfo.0.filename': 1 }).skip(skip).limit(limit).toArray(),
+        // Multikey path (no positional `.0.`) so the `fileinfo_filename_1`
+        // index satisfies the sort. See `routes/search/sort.ts` for the
+        // semantics note on multi-entry fileinfo arrays.
+        coll.find(filter).sort({ 'fileinfo.filename': 1 }).skip(skip).limit(limit).toArray(),
         coll.countDocuments(filter),
       ]);
 
