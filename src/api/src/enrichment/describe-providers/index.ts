@@ -39,12 +39,13 @@ export interface DescribeOptions {
   systemPrompt: string;
   /** Model id, e.g. `"llava:latest"` or `"claude-haiku-4-5"`. */
   model: string;
-  /** Optional JSON Schema for structured-output constraint. When set,
-   * providers that support grammar-constrained decoding (Ollama 0.5+,
-   * OpenAI `response_format: json_schema`, Gemini `response_schema`,
-   * Anthropic tool-call schema) constrain the model to emit JSON matching
-   * the schema. Providers that don't support it ignore the field and the
-   * downstream parser's defensive coercions still apply. */
+  /** Optional JSON Schema for structured-output constraint. Currently only
+   * the Ollama provider reads this (forwarded to `/api/generate`'s `format`
+   * parameter, which Ollama 0.5+ uses to constrain decoding). Anthropic,
+   * OpenAI, and Gemini ignore the field today — each platform's structured-
+   * output primitive (`response_format: json_schema`, `response_schema`,
+   * tool-call schema) would need a separate wiring pass. The parser's
+   * defensive coercions remain the only guard for those providers. */
   format?: unknown;
 }
 
