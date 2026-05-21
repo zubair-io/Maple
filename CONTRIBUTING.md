@@ -2,6 +2,8 @@
 
 A short engineering contract. The longer story lives in `CLAUDE.md`, `docs/feature-spec.md`, `docs/ui-spec.md`, and `docs/best-practices.md`.
 
+> **Doc paths assume PR #204 (the `docs/` rename sweep) has merged.** Before that lands, the live filenames on `main` are `docs/photo-app-feature-spec.md`, `docs/photo-app-ui-spec.md`, and `docs/photo-app-mockup.html`. This file uses the post-rename names so we don't need a follow-up doc edit.
+
 ## The load-bearing rules
 
 These are invariants. If you're about to violate one, stop and ask.

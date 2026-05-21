@@ -35,7 +35,9 @@ SOFT_LIMIT=400
 HARD_LIMIT=600
 
 usage() {
-  sed -n '2,32p' "$0" | sed 's/^# \{0,1\}//'
+  # Print the header comment block (lines 2..N until the first non-`#` line),
+  # stripping the leading `# ` so it reads as plain prose.
+  awk 'NR==1 {next} /^#/ {sub(/^# ?/, ""); print; next} {exit}' "$0"
   exit 0
 }
 
@@ -70,9 +72,15 @@ is_allowlisted() {
 }
 
 # Build the file list. If args given, use them (after filtering); otherwise scan.
+# Relative paths are resolved against the repo root so the script behaves the
+# same whether invoked from the repo root, a subdir, or by lefthook (which may
+# pass paths relative to the worktree top).
 collect_files() {
   if [[ $# -gt 0 ]]; then
     for f in "$@"; do
+      if [[ "$f" != /* && ! -f "$f" && -f "$REPO_ROOT/$f" ]]; then
+        f="$REPO_ROOT/$f"
+      fi
       [[ -f "$f" ]] || continue
       case "$f" in
         *.rs|*.swift|*.ts|*.tsx|*.js|*.py) printf '%s\n' "$f" ;;

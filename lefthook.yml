@@ -16,8 +16,9 @@ pre-commit:
       run: bash tools/check-file-budget.sh {staged_files}
 
     # --- Prettier (TS/JS/HTML/SCSS/CSS/JSON/YAML/MD). ---
-    # Honours src/web/.prettierrc. Uses npx so it works without a root install
-    # as long as prettier is on PATH or in a sub-project's node_modules.
+    # Honours src/web/.prettierrc. Resolves `prettier` from PATH first, then
+    # falls back to src/web/node_modules/.bin/prettier so it works without a
+    # root install. Soft-skips if neither is found.
     prettier:
       glob: "*.{ts,tsx,js,jsx,html,scss,css,json,yaml,yml,md,graphql}"
       run: |
