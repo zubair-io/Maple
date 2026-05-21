@@ -9,7 +9,7 @@
 import { MongoClient, type Db, type Collection, ServerApiVersion } from 'mongodb';
 import { child as childLogger } from '../log.ts';
 import { searchBlobUpdateExpression } from '../enrichment/search-blob.ts';
-import { migrationApplied, recordMigration } from './migrations.ts';
+import { backfillFileinfo, migrationApplied, recordMigration } from './migrations.ts';
 import type {
   FolderDoc,
   AssetDoc,
@@ -804,6 +804,27 @@ export async function ensureIndexes(): Promise<void> {
       },
     },
   );
+
+  // One-shot backfill: populate fileinfo[0] for legacy rows that pre-date
+  // the content-addressing migration. See `.archived-plans/plans/2026-05-20-
+  // content-addressed-assets.md` PR 1. Idempotent — gated by the migrations
+  // sentinel so subsequent boots short-circuit.
+  if (!(await migrationApplied(db, 'fileinfo-backfill-2026-05-20'))) {
+    try {
+      const res = await backfillFileinfo(db);
+      await recordMigration(db, 'fileinfo-backfill-2026-05-20', res.updated);
+      log.info(
+        { scanned: res.scanned, updated: res.updated, skipped: res.skipped },
+        'applied fileinfo backfill',
+      );
+    } catch (err) {
+      // Do NOT record on failure so the next boot retries.
+      log.warn(
+        { err: err instanceof Error ? err.message : err },
+        'fileinfo backfill skipped',
+      );
+    }
+  }
 
   // Faceted browse compound index — for "country → state → city"
   // drill-down aggregations against `place.rollups`. `docs/indexer-enrichment.md`

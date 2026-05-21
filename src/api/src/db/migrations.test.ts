@@ -66,6 +66,7 @@ beforeEach(async () => {
   if (!mongoReachable) return;
   await db!.collection("assets").deleteMany({});
   await db!.collection("migrations").deleteMany({});
+  await db!.collection("folders").deleteMany({});
 });
 
 afterAll(async () => {
@@ -227,5 +228,170 @@ describe("ensureIndexes — backfills don't re-run on second boot", () => {
     await ensureIndexes();
     const after = await db!.collection("assets").findOne({ filename: "z.jpg" });
     expect((after as { search_blob?: string } | null)?.search_blob).toBeUndefined();
+  });
+
+  describe("fileinfo backfill", () => {
+    it("populates fileinfo[0] from abs_path/folder_id/filename for legacy rows", async () => {
+      if (!mongoReachable) return;
+      const { closeDb, ensureIndexes } = await import("./client.ts");
+      const { ObjectId } = await import("mongodb");
+      await closeDb();
+
+      const folderId = new ObjectId();
+      await db!.collection("folders").insertOne({
+        _id: folderId,
+        path: "/lib",
+        label: "x",
+        last_scan: null,
+        file_count: 0,
+        created_at: "2026-05-20T00:00:00Z",
+      });
+      const assetId = new ObjectId();
+      await db!.collection("assets").insertOne({
+        _id: assetId,
+        folder_id: folderId,
+        filename: "IMG_001.dng",
+        abs_path: "/lib/vacation/2024/IMG_001.dng",
+        size: 1,
+        mtime: 1,
+        rating: 0,
+        flag: 0,
+        color_label: "",
+        indexed_at: "2026-05-20T00:00:00Z",
+      });
+
+      await ensureIndexes();
+
+      const after = await db!
+        .collection("assets")
+        .findOne({ _id: assetId });
+      expect(after?.fileinfo).toHaveLength(1);
+      expect(after?.fileinfo?.[0].path).toBe("vacation/2024");
+      expect(after?.fileinfo?.[0].filename).toBe("IMG_001.dng");
+      expect(
+        (after?.fileinfo?.[0].library_id as { equals: (o: unknown) => boolean })
+          .equals(folderId),
+      ).toBe(true);
+    });
+
+    it("skips rows that already have fileinfo populated", async () => {
+      if (!mongoReachable) return;
+      const { closeDb, ensureIndexes } = await import("./client.ts");
+      const { ObjectId } = await import("mongodb");
+      await closeDb();
+
+      const folderId = new ObjectId();
+      await db!.collection("folders").insertOne({
+        _id: folderId,
+        path: "/lib",
+        label: "x",
+        last_scan: null,
+        file_count: 0,
+        created_at: "2026-05-20T00:00:00Z",
+      });
+      const assetId = new ObjectId();
+      const preset = [
+        { path: "preset", filename: "IMG.dng", library_id: folderId },
+      ];
+      await db!.collection("assets").insertOne({
+        _id: assetId,
+        folder_id: folderId,
+        filename: "IMG.dng",
+        abs_path: "/lib/other/IMG.dng",
+        fileinfo: preset,
+        size: 1,
+        mtime: 1,
+        rating: 0,
+        flag: 0,
+        color_label: "",
+        indexed_at: "2026-05-20T00:00:00Z",
+      });
+
+      await ensureIndexes();
+
+      const after = await db!
+        .collection("assets")
+        .findOne({ _id: assetId });
+      expect(after?.fileinfo?.[0].path).toBe("preset");
+    });
+
+    it("handles files at the library root (path='')", async () => {
+      if (!mongoReachable) return;
+      const { closeDb, ensureIndexes } = await import("./client.ts");
+      const { ObjectId } = await import("mongodb");
+      await closeDb();
+
+      const folderId = new ObjectId();
+      await db!.collection("folders").insertOne({
+        _id: folderId,
+        path: "/lib",
+        label: "x",
+        last_scan: null,
+        file_count: 0,
+        created_at: "2026-05-20T00:00:00Z",
+      });
+      const assetId = new ObjectId();
+      await db!.collection("assets").insertOne({
+        _id: assetId,
+        folder_id: folderId,
+        filename: "root.dng",
+        abs_path: "/lib/root.dng",
+        size: 1,
+        mtime: 1,
+        rating: 0,
+        flag: 0,
+        color_label: "",
+        indexed_at: "2026-05-20T00:00:00Z",
+      });
+
+      await ensureIndexes();
+
+      const after = await db!
+        .collection("assets")
+        .findOne({ _id: assetId });
+      expect(after?.fileinfo?.[0].path).toBe("");
+      expect(after?.fileinfo?.[0].filename).toBe("root.dng");
+    });
+
+    it("is gated by the migrations sentinel (second boot skips)", async () => {
+      if (!mongoReachable) return;
+      const { closeDb, ensureIndexes } = await import("./client.ts");
+      const { migrationApplied } = await import("./migrations.ts");
+      const { ObjectId } = await import("mongodb");
+      await closeDb();
+
+      await ensureIndexes();
+      expect(await migrationApplied(db!, "fileinfo-backfill-2026-05-20")).toBe(true);
+
+      // Insert a legacy row AFTER the migration ran — it must stay unmigrated
+      // because the sentinel short-circuits the second boot.
+      const folderId = new ObjectId();
+      await db!.collection("folders").insertOne({
+        _id: folderId,
+        path: "/lib",
+        label: "x",
+        last_scan: null,
+        file_count: 0,
+        created_at: "2026-05-20T00:00:00Z",
+      });
+      const assetId = new ObjectId();
+      await db!.collection("assets").insertOne({
+        _id: assetId,
+        folder_id: folderId,
+        filename: "late.dng",
+        abs_path: "/lib/late.dng",
+        size: 1,
+        mtime: 1,
+        rating: 0,
+        flag: 0,
+        color_label: "",
+        indexed_at: "2026-05-20T00:00:00Z",
+      });
+
+      await ensureIndexes();
+
+      const after = await db!.collection("assets").findOne({ _id: assetId });
+      expect(after?.fileinfo).toBeUndefined();
+    });
   });
 });
