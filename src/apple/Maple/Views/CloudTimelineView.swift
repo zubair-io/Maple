@@ -48,6 +48,7 @@ struct CloudTimelineView: View {
         }
         ForEach(vm.buckets, id: \.bucketKey) { bucket in
           let bucketKey = CloudTimelineViewModel.BucketKey(year: bucket.year, month: bucket.month)
+          let sectionTaskID = CloudTimelineViewVM.bucketKey(year: bucket.year, month: bucket.month)
           CloudTimelineMonthSection(
             year: bucket.year,
             month: bucket.month,
@@ -75,10 +76,10 @@ struct CloudTimelineView: View {
           // reliably for newly-rendered sections (LazyVStack is fussy
           // with onAppear in the same way LazyVGrid is — see the cell
           // comment below).
-          .task(id: bucket.bucketKey) {
-            timelineLog.debug("section task fire \(bucket.bucketKey, privacy: .public) count=\(bucket.count, privacy: .public)")
+          .task(id: sectionTaskID) {
+            timelineLog.debug("section task fire \(sectionTaskID, privacy: .public) count=\(bucket.count, privacy: .public)")
             await vm.loadPage(year: bucket.year, month: bucket.month)
-            timelineLog.debug("section task done \(bucket.bucketKey, privacy: .public) assetsLoaded=\(vm.pagesByBucket[bucketKey]?.count ?? -1, privacy: .public)")
+            timelineLog.debug("section task done \(sectionTaskID, privacy: .public) assetsLoaded=\(vm.pagesByBucket[bucketKey]?.count ?? -1, privacy: .public)")
           }
         }
       }
@@ -91,8 +92,12 @@ struct CloudTimelineView: View {
 }
 
 extension TimelineBucket {
-  /// Stable identity for SwiftUI ForEach.
-  fileprivate var bucketKey: String { "\(year)-\(month)" }
+  /// Stable identity for SwiftUI ForEach. Delegates to the pure VM
+  /// helper so the same key shape powers both `ForEach(... id:)` and the
+  /// section's `.task(id:)`.
+  fileprivate var bucketKey: String {
+    CloudTimelineViewVM.bucketKey(year: year, month: month)
+  }
 }
 
 extension MergedTimelineCell {
@@ -124,12 +129,10 @@ struct CloudTimelineMonthSection: View {
   let onSelectAsset: (SearchAsset) -> Void
   let onSelectLocalAsset: (ImageRef) -> Void
 
-  private static let columnCount = 4
-
   /// The content to display is whichever of merged / raw is available.
+  /// Delegates to the pure VM helper so the predicate is unit-testable.
   private var hasContent: Bool {
-    if let merged = mergedCells { return !merged.isEmpty }
-    return !assets.isEmpty
+    CloudTimelineViewVM.hasContent(assets: assets, mergedCells: mergedCells)
   }
 
   var body: some View {
@@ -162,7 +165,7 @@ struct CloudTimelineMonthSection: View {
       if hasContent {
         LazyVGrid(
           columns: Array(repeating: GridItem(.flexible(), spacing: 6),
-                         count: Self.columnCount),
+                         count: CloudTimelineViewVM.columnCount),
           spacing: 6
         ) {
           // Prefer the merged view when the VM produced one. Otherwise
@@ -170,10 +173,9 @@ struct CloudTimelineMonthSection: View {
           if let merged = mergedCells {
             // abs_path → SearchAsset map so each merged cell can find its
             // cloud-side asset by id (cell.id is "fs:<abs_path>"). Built
-            // once per section render rather than per-cell.
-            let absPathToAsset: [String: SearchAsset] = Dictionary(
-              assets.map { ($0.abs_path, $0) },
-              uniquingKeysWith: { first, _ in first })
+            // once per section render rather than per-cell, via the pure
+            // VM helper.
+            let absPathToAsset = CloudTimelineViewVM.absPathMap(from: assets)
             ForEach(merged, id: \.renderID) { cell in
               CloudTimelineMergedCell(
                 cell: cell,
@@ -184,18 +186,18 @@ struct CloudTimelineMonthSection: View {
                 // Cloud-side cells route through the SearchAsset map so the
                 // editor opens via CloudSource. `.localOnly` cells aren't on
                 // the server yet — open the PhotoKit asset directly via the
-                // local identifier carried on the local ImageRef.
+                // local identifier carried on the local ImageRef. The
+                // routing decision is encoded as a pure switch in the VM.
                 onSelect: {
-                  switch cell {
-                  case .cloudOnly(let cloudRef), .synced(_, let cloudRef):
-                    let absPath = cloudRef.id.hasPrefix("fs:")
-                      ? String(cloudRef.id.dropFirst(3))
-                      : cloudRef.id
-                    if let asset = absPathToAsset[absPath] {
-                      onSelectAsset(asset)
-                    }
-                  case .localOnly(let local):
+                  switch CloudTimelineViewVM.selectionTarget(
+                    for: cell, absPathMap: absPathToAsset
+                  ) {
+                  case .cloud(let asset):
+                    onSelectAsset(asset)
+                  case .local(let local):
                     onSelectLocalAsset(local)
+                  case .none:
+                    break
                   }
                 }
               )
@@ -217,23 +219,12 @@ struct CloudTimelineMonthSection: View {
     }
   }
 
+  /// Human-readable section title — delegates to the pure VM helper so
+  /// the date-formatter cache lives in one place and the format is
+  /// unit-testable in isolation.
   private var monthLabel: String {
-    var c = DateComponents(); c.year = year; c.month = month; c.day = 1
-    if let d = Self.calendar.date(from: c) { return Self.monthFormatter.string(from: d) }
-    return "\(year)-\(String(format: "%02d", month))"
+    CloudTimelineViewVM.monthLabel(year: year, month: month)
   }
-
-  /// Process-wide cached formatter + calendar — `monthLabel` is hit
-  /// once per visible MonthSection per body recompute, which during a
-  /// Timeline scroll fires often. Allocating a fresh DateFormatter per
-  /// hit was showing up as measurable overhead during fast scrolls.
-  private static let monthFormatter: DateFormatter = {
-    let f = DateFormatter()
-    f.locale = Locale(identifier: "en_US_POSIX")
-    f.dateFormat = "MMMM yyyy"
-    return f
-  }()
-  private static let calendar = Calendar(identifier: .gregorian)
 }
 
 // MARK: - Cell
@@ -381,8 +372,9 @@ struct CloudTimelineMergedCell: View {
     case .synced(let local, _), .localOnly(let local):
       thumbData = await Self.fetchPhotoKitThumb(localID: local.id)
     case .cloudOnly(let cloud):
-      // Extract the abs_path from the "fs:<path>" id shape.
-      let absPath = cloud.id.hasPrefix("fs:") ? String(cloud.id.dropFirst(3)) : cloud.id
+      // Extract the abs_path from the "fs:<path>" id shape via the pure
+      // VM helper.
+      let absPath = CloudTimelineViewVM.absPath(fromCloudID: cloud.id)
       thumbData = await CloudTimelineCell.fetchThumbBytes(
         host: host, absPath: absPath, cache: thumbCache, client: thumbClient)
     }
