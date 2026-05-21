@@ -13,10 +13,11 @@
  *     `resolveThumbPath(absPath)`. Legacy rows survive until the upcoming GC
  *     sweep retires their orphans.
  *
- * dependsOn: ["hash", "exif"]
- *   — thumb needs EXIF orientation to produce an upright image; hash must
- *     have run first so abs_path is confirmed reachable and maple_id is set
- *     (which the new cache key depends on).
+ * dependsOn: ["exif"]
+ *   — thumb needs EXIF orientation to produce an upright image. The legacy
+ *     `hash` predecessor was retired in the drop-abs-path-2026-05-21
+ *     migration; discover writes sha1_head + maple_id inline at insert so
+ *     the new cache-key dependency is satisfied before this stage runs.
  */
 import { generateThumb } from '../../indexer/thumbnailer.ts';
 import { resolveThumbPath, resolveThumbPathForAsset } from '../../fs/xmp.ts';
@@ -27,7 +28,7 @@ import { defineStage, runStage, type RunStageHandle } from '../run-stage.ts';
 const thumbStage = defineStage({
   name: 'thumb',
   targetVersion: 1,
-  dependsOn: ['hash', 'exif'],
+  dependsOn: ['exif'],
   defaults: {
     concurrency: 2,
     batchSize: 5,

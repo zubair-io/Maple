@@ -113,18 +113,13 @@ describe('discover producer', () => {
     expect(doc!.stages).toBeDefined();
 
     // Every stage name from the manifest must be present in the skeleton.
-    // Exception: after PR 2 of the content-addressing migration discover
-    // hashes inline at insert time, so `stages.hash.version` is already
-    // set to its target (1) — no post-insert hash stage pass needed.
-    // Other stages start at 0.
+    // The legacy `hash` stage was retired in the drop-abs-path-2026-05-21
+    // migration once discover began writing maple_id + sha1_head inline at
+    // insert; the manifest now starts with exif.
     for (const name of ALL_STAGE_NAMES) {
       const entry = (doc!.stages as Record<string, unknown>)[name] as Record<string, unknown>;
       expect(entry).toBeDefined();
-      if (name === 'hash') {
-        expect(entry.version).toBe(1);
-      } else {
-        expect(entry.version).toBe(0);
-      }
+      expect(entry.version).toBe(0);
       expect(entry.dead).toBe(false);
       expect(entry.last_error).toBeNull();
     }
@@ -190,19 +185,17 @@ describe('discover producer', () => {
     const folderId = folderResult.insertedId;
     const coll = await assetsCollection();
 
-    // First discover — inserts with skeleton (hash.version=1 after PR 2
-    // since discover hashes inline; other stages start at 0).
+    // First discover — inserts with skeleton (all stages start at 0).
     await handleEvent({ kind: 'created', absPath: file }, folderId, tempDir);
-    // Simulate exif/thumb stages completing: bump stages.hash.version to 1
-    // explicitly (no-op now but documents the intent of the test).
-    await coll.updateOne({ abs_path: file }, { $set: { 'stages.hash.version': 1 } });
+    // Simulate a stage completing by bumping exif.version to 1.
+    await coll.updateOne({ abs_path: file }, { $set: { 'stages.exif.version': 1 } });
 
-    // Re-discover (modified event) — must not reset hash back to 0.
+    // Re-discover (modified event) — must not reset exif back to 0.
     await handleEvent({ kind: 'modified', absPath: file }, folderId, tempDir);
     const doc = await coll.findOne({ abs_path: file });
     expect(doc).not.toBeNull();
     const stages = doc!.stages as Record<string, { version: number }>;
-    expect(stages.hash.version).toBe(1); // preserved by $setOnInsert
+    expect(stages.exif.version).toBe(1); // preserved by $setOnInsert
 
     // Clean up.
     await coll.deleteOne({ abs_path: file });

@@ -371,12 +371,11 @@ export async function handleEvent(
     return;
   }
 
-  // No existing row for this content — insert. The hash stage's post-
-  // insert work has already happened (sha1_head + maple_id are in
-  // `hashed`); we mark `stages.hash.version` to its target so the stage
-  // runner skips this row on its next poll.
+  // No existing row for this content — insert. The discover watcher hashes
+  // inline (sha1_head + maple_id are in `hashed`) so no post-insert hash
+  // stage pass is needed. The legacy `hash` stage was retired in the
+  // drop-abs-path-2026-05-21 migration.
   const stagesSkeleton = blankStagesSkeleton() as Record<string, { version: number }>;
-  if (stagesSkeleton.hash) stagesSkeleton.hash.version = 1;
 
   const insertedId = new ObjectId();
   try {
