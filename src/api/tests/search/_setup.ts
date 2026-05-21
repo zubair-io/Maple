@@ -9,24 +9,24 @@
  * helpers, not a test module.
  */
 
-import { MongoClient, ObjectId } from "mongodb";
-import type { Db } from "mongodb";
-import { signAccessToken } from "../../src/auth/tokens.ts";
+import { MongoClient, ObjectId } from 'mongodb';
+import type { Db } from 'mongodb';
+import { signAccessToken } from '../../src/auth/tokens.ts';
 
 // JWT bootstrap MUST run before any module that touches `requireAuth`.
 // Each test file imports this module before any dynamic `searchRoutes`
 // import, so a single env-write here covers them all.
-process.env.MAPLE_JWT_SECRET = "x".repeat(32);
+process.env.MAPLE_JWT_SECRET = 'x'.repeat(32);
 
 const SECRET = process.env.MAPLE_JWT_SECRET!;
 
 export const BEARER =
-  "Bearer " +
+  'Bearer ' +
   signAccessToken(
     {
-      sub: "00000000000000000000000a",
-      email: "tester@maple.local",
-      role: "owner",
+      sub: '00000000000000000000000a',
+      email: 'tester@maple.local',
+      role: 'owner',
     },
     SECRET,
   );
@@ -35,8 +35,7 @@ export function fmtAuth(): Record<string, string> {
   return { Authorization: BEARER };
 }
 
-export const MONGO_URI =
-  process.env.MAPLE_MONGO_URI ?? "mongodb://localhost:27017";
+export const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
 
 export async function tryConnect(): Promise<MongoClient | null> {
   const c = new MongoClient(MONGO_URI, {
@@ -45,7 +44,7 @@ export async function tryConnect(): Promise<MongoClient | null> {
   });
   try {
     await c.connect();
-    await c.db("admin").command({ ping: 1 });
+    await c.db('admin').command({ ping: 1 });
     return c;
   } catch {
     try {
@@ -113,7 +112,9 @@ export interface Seed {
  * schema (`abs_path`, `folder_id`, `filename` no longer exist on
  * AssetDoc post drop-abs-path-2026-05-21).
  */
-export function materializeSeeds(seeds: Seed[]): Array<Omit<Seed, 'folder_id' | 'abs_path' | 'filename'>> {
+export function materializeSeeds(
+  seeds: Seed[],
+): Array<Omit<Seed, 'folder_id' | 'abs_path' | 'filename'>> {
   return seeds.map((s) => {
     const { folder_id, abs_path, filename, ...rest } = s;
     let fileinfo = s.fileinfo;
@@ -133,92 +134,84 @@ export function baseSeeds(folderA: ObjectId, folderB: ObjectId): Seed[] {
   return [
     {
       fileinfo: [
-        { library_id: folderA, path: "", filename: "dji-mavic3pro-100mp.dng", deleted_at: null },
+        { library_id: folderA, path: '', filename: 'dji-mavic3pro-100mp.dng', deleted_at: null },
       ],
       size: 1024,
       mtime: Date.now(),
       rating: 5,
       flag: 1,
-      color_label: "red",
+      color_label: 'red',
       indexed_at: new Date().toISOString(),
       exif: {
-        captured_at: "2024-06-01T12:00:00.000Z",
-        camera_make: "Hasselblad",
-        camera_model: "L3D-100c",
-        lens: "Hasselblad 24mm f/1.5",
+        captured_at: '2024-06-01T12:00:00.000Z',
+        camera_make: 'Hasselblad',
+        camera_model: 'L3D-100c',
+        lens: 'Hasselblad 24mm f/1.5',
         iso: 100,
         aperture: 2.8,
-        shutter: "1/250",
+        shutter: '1/250',
         focal_length: 24,
         gps: { lat: 52.5, lng: 13.4 },
       },
     },
     {
-      fileinfo: [
-        { library_id: folderA, path: "", filename: "sunset.cr3", deleted_at: null },
-      ],
+      fileinfo: [{ library_id: folderA, path: '', filename: 'sunset.cr3', deleted_at: null }],
       size: 2048,
       mtime: Date.now() - 1000,
       rating: 3,
       flag: 0,
-      color_label: "",
+      color_label: '',
       indexed_at: new Date().toISOString(),
       exif: {
-        captured_at: "2023-12-25T18:30:00.000Z",
-        camera_make: "Canon",
-        camera_model: "EOS R5",
-        lens: "RF 24-70mm f/2.8L IS USM",
+        captured_at: '2023-12-25T18:30:00.000Z',
+        camera_make: 'Canon',
+        camera_model: 'EOS R5',
+        lens: 'RF 24-70mm f/2.8L IS USM',
         iso: 800,
         aperture: 5.6,
-        shutter: "1/60",
+        shutter: '1/60',
         focal_length: 50,
         gps: null,
       },
     },
     {
-      fileinfo: [
-        { library_id: folderB, path: "", filename: "sony.arw", deleted_at: null },
-      ],
+      fileinfo: [{ library_id: folderB, path: '', filename: 'sony.arw', deleted_at: null }],
       size: 4096,
       mtime: Date.now() - 2000,
       rating: 4,
       flag: 1,
-      color_label: "green",
+      color_label: 'green',
       indexed_at: new Date().toISOString(),
       exif: {
-        captured_at: "2024-01-15T09:15:00.000Z",
-        camera_make: "Sony",
-        camera_model: "A7R V",
-        lens: "FE 70-200mm f/2.8 GM",
+        captured_at: '2024-01-15T09:15:00.000Z',
+        camera_make: 'Sony',
+        camera_model: 'A7R V',
+        lens: 'FE 70-200mm f/2.8 GM',
         iso: 1600,
         aperture: 4.0,
-        shutter: "1/1000",
+        shutter: '1/1000',
         focal_length: 200,
         gps: null,
       },
     },
     {
-      fileinfo: [
-        { library_id: folderB, path: "", filename: "no-exif.jpg", deleted_at: null },
-      ],
+      fileinfo: [{ library_id: folderB, path: '', filename: 'no-exif.jpg', deleted_at: null }],
       size: 512,
       mtime: Date.now() - 3000,
       rating: 0,
       flag: 0,
-      color_label: "",
+      color_label: '',
       indexed_at: new Date().toISOString(),
       exif: null,
     },
     {
       // Soft-deleted row — must NOT appear in search results.
-      fileinfo: [
-        { library_id: folderB, path: "", filename: "deleted.dng", deleted_at: null },
-      ],
+      fileinfo: [{ library_id: folderB, path: '', filename: 'deleted.dng', deleted_at: null }],
       size: 256,
       mtime: Date.now() - 4000,
       rating: 0,
       flag: 0,
-      color_label: "",
+      color_label: '',
       indexed_at: new Date().toISOString(),
       exif: null,
       deleted_at: new Date().toISOString(),
@@ -233,24 +226,20 @@ export function baseSeeds(folderA: ObjectId, folderB: ObjectId): Seed[] {
  * legacy `/lib-a` / `/lib-b` paths from earlier fixtures so wire-shape
  * assertions stay the same after the migration.
  */
-export async function seedFolders(
-  db: Db,
-  folderA: ObjectId,
-  folderB: ObjectId,
-): Promise<void> {
-  await db.collection("folders").insertMany([
+export async function seedFolders(db: Db, folderA: ObjectId, folderB: ObjectId): Promise<void> {
+  await db.collection('folders').insertMany([
     {
       _id: folderA,
-      path: "/lib-a",
-      label: "lib-a",
+      path: '/lib-a',
+      label: 'lib-a',
       last_scan: null,
       file_count: 0,
       created_at: new Date().toISOString(),
     },
     {
       _id: folderB,
-      path: "/lib-b",
-      label: "lib-b",
+      path: '/lib-b',
+      label: 'lib-b',
       last_scan: null,
       file_count: 0,
       created_at: new Date().toISOString(),
@@ -258,9 +247,7 @@ export async function seedFolders(
   ] as never);
   // Invalidate the process-wide library cache so the search route picks
   // up the just-seeded roots on the next request.
-  const { invalidateLibraryRoots } = await import(
-    "../../src/indexer/libraries.cache.ts"
-  );
+  const { invalidateLibraryRoots } = await import('../../src/indexer/libraries.cache.ts');
   invalidateLibraryRoots();
 }
 
@@ -284,9 +271,9 @@ export function legacyToFileinfo(
   // Strip filename + its leading slash off the abs_path; what's left is
   // the directory portion. Drop the leading slash to align with the
   // server's relative-path convention.
-  const lastSlash = absPath.lastIndexOf("/");
-  const dir = lastSlash > 0 ? absPath.slice(0, lastSlash) : "";
-  const relDir = dir.replace(/^\/+/, "");
+  const lastSlash = absPath.lastIndexOf('/');
+  const dir = lastSlash > 0 ? absPath.slice(0, lastSlash) : '';
+  const relDir = dir.replace(/^\/+/, '');
   return { library_id: folderId, path: relDir, filename, deleted_at: deletedAt };
 }
 
@@ -296,27 +283,27 @@ export function legacyToFileinfo(
  * here because the test bypasses the normal startup flow.
  */
 export async function backfillCapturedYearMonth(db: Db): Promise<void> {
-  await db.collection("assets").updateMany(
+  await db.collection('assets').updateMany(
     {
-      "exif.captured_at": { $ne: null, $exists: true },
-      "exif.captured_year": { $exists: false },
+      'exif.captured_at': { $ne: null, $exists: true },
+      'exif.captured_year': { $exists: false },
     },
     [
       {
         $set: {
-          "exif.captured_year": {
+          'exif.captured_year': {
             $year: {
               $dateFromString: {
-                dateString: "$exif.captured_at",
+                dateString: '$exif.captured_at',
                 onError: null,
                 onNull: null,
               },
             },
           },
-          "exif.captured_month": {
+          'exif.captured_month': {
             $month: {
               $dateFromString: {
-                dateString: "$exif.captured_at",
+                dateString: '$exif.captured_at',
                 onError: null,
                 onNull: null,
               },

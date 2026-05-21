@@ -66,9 +66,7 @@ beforeAll(async () => {
   await ensureIndexes();
   // Invalidate the process-wide libraries cache so this suite sees the
   // folder seeded above rather than reusing a sibling-suite entry.
-  const { invalidateLibraryRoots } = await import(
-    '../src/indexer/libraries.cache.ts',
-  );
+  const { invalidateLibraryRoots } = await import('../src/indexer/libraries.cache.ts');
   invalidateLibraryRoots();
   const { peopleRoutes } = await import('../src/routes/people.ts');
   app = new Elysia().use(peopleRoutes);

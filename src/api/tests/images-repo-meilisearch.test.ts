@@ -3,23 +3,16 @@
  * Mongo update and that a Meilisearch failure does NOT propagate.
  */
 
-import {
-  describe,
-  it,
-  expect,
-  beforeAll,
-  beforeEach,
-  afterAll,
-} from "bun:test";
-import { MongoClient, ObjectId, type Db } from "mongodb";
+import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'bun:test';
+import { MongoClient, ObjectId, type Db } from 'mongodb';
 import {
   setMeilisearchClientForTests,
   type MeilisearchClient,
-} from "../src/enrichment/meilisearch-client.ts";
+} from '../src/enrichment/meilisearch-client.ts';
 
 const TEST_DB = `maple_test_images_repo_meili_${process.pid}`;
 process.env.MAPLE_MONGO_DB = TEST_DB;
-const MONGO_URI = process.env.MAPLE_MONGO_URI ?? "mongodb://localhost:27017";
+const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
 
 let mongo: MongoClient | null = null;
 let mongoReachable = false;
@@ -32,10 +25,12 @@ async function tryConnect(): Promise<MongoClient | null> {
   });
   try {
     await c.connect();
-    await c.db("admin").command({ ping: 1 });
+    await c.db('admin').command({ ping: 1 });
     return c;
   } catch {
-    try { await c.close(); } catch {}
+    try {
+      await c.close();
+    } catch {}
     return null;
   }
 }
@@ -58,7 +53,7 @@ function makeCapturingMeili(): CapturedMeili {
       tombstone: async (id) => {
         if (c.failNext) {
           c.failNext = false;
-          throw new Error("simulated meili tombstone failure");
+          throw new Error('simulated meili tombstone failure');
         }
         tombstones.push(id);
       },
@@ -72,18 +67,18 @@ beforeAll(async () => {
   mongo = await tryConnect();
   mongoReachable = mongo !== null;
   if (!mongoReachable) {
-    console.log("[images-repo-meilisearch.test] skipping: MongoDB unreachable");
+    console.log('[images-repo-meilisearch.test] skipping: MongoDB unreachable');
     return;
   }
   db = mongo!.db(TEST_DB);
   await db.dropDatabase();
-  const { closeDb } = await import("../src/db/client.ts");
+  const { closeDb } = await import('../src/db/client.ts');
   await closeDb();
 });
 
 beforeEach(async () => {
   if (!mongoReachable) return;
-  await db!.collection("assets").deleteMany({});
+  await db!.collection('assets').deleteMany({});
   setMeilisearchClientForTests(null);
 });
 
@@ -92,13 +87,13 @@ afterAll(async () => {
     await mongo.db(TEST_DB).dropDatabase();
     await mongo.close();
   }
-  const { closeDb } = await import("../src/db/client.ts");
+  const { closeDb } = await import('../src/db/client.ts');
   await closeDb();
   setMeilisearchClientForTests(null);
 });
 
-describe("images.repo softDelete — Meilisearch tombstone", () => {
-  it("tombstones the maple_id when soft-deleting", async () => {
+describe('images.repo softDelete — Meilisearch tombstone', () => {
+  it('tombstones the maple_id when soft-deleting', async () => {
     if (!mongoReachable) return;
     const meili = makeCapturingMeili();
     setMeilisearchClientForTests(meili.client);
@@ -107,64 +102,58 @@ describe("images.repo softDelete — Meilisearch tombstone", () => {
     // Post drop-abs-path-2026-05-21: softDelete keys on `maple_id`
     // (the content-addressed primary lookup) and the persisted location
     // is `fileinfo[]`. The old abs_path-based call signature is gone.
-    await db!.collection("assets").insertOne({
-      fileinfo: [
-        { library_id: folder, path: "", filename: "tombstone.dng", deleted_at: null },
-      ],
-      maple_id: "maple-tombstone-1",
+    await db!.collection('assets').insertOne({
+      fileinfo: [{ library_id: folder, path: '', filename: 'tombstone.dng', deleted_at: null }],
+      maple_id: 'maple-tombstone-1',
       size: 1024,
       mtime: Date.now(),
       rating: 0,
       flag: 0,
-      color_label: "",
+      color_label: '',
       indexed_at: new Date().toISOString(),
       exif: null,
       deleted_at: null,
     });
 
-    const { softDelete } = await import("../src/indexer/images.repo.ts");
-    await softDelete("maple-tombstone-1");
+    const { softDelete } = await import('../src/indexer/images.repo.ts');
+    await softDelete('maple-tombstone-1');
 
-    expect(meili.tombstones).toEqual(["maple-tombstone-1"]);
-    const after = await db!
-      .collection("assets")
-      .findOne({ maple_id: "maple-tombstone-1" });
+    expect(meili.tombstones).toEqual(['maple-tombstone-1']);
+    const after = await db!.collection('assets').findOne({ maple_id: 'maple-tombstone-1' });
     expect(after?.deleted_at).not.toBeNull();
   });
 
-  it("Mongo soft-delete still succeeds when Meilisearch tombstone throws", async () => {
+  it('Mongo soft-delete still succeeds when Meilisearch tombstone throws', async () => {
     if (!mongoReachable) return;
     const meili = makeCapturingMeili();
     meili.failNext = true;
     setMeilisearchClientForTests(meili.client);
 
     const folder = new ObjectId();
-    await db!.collection("assets").insertOne({
+    await db!.collection('assets').insertOne({
       fileinfo: [
-        { library_id: folder, path: "", filename: "tombstone-fail.dng", deleted_at: null },
+        { library_id: folder, path: '', filename: 'tombstone-fail.dng', deleted_at: null },
       ],
-      maple_id: "maple-tombstone-2",
+      maple_id: 'maple-tombstone-2',
       size: 1024,
       mtime: Date.now(),
       rating: 0,
       flag: 0,
-      color_label: "",
+      color_label: '',
       indexed_at: new Date().toISOString(),
       exif: null,
       deleted_at: null,
     });
 
-    const { softDelete } = await import("../src/indexer/images.repo.ts");
+    const { softDelete } = await import('../src/indexer/images.repo.ts');
     // Must not throw.
-    await softDelete("maple-tombstone-2");
+    await softDelete('maple-tombstone-2');
 
-    const after = await db!
-      .collection("assets")
-      .findOne({ maple_id: "maple-tombstone-2" });
+    const after = await db!.collection('assets').findOne({ maple_id: 'maple-tombstone-2' });
     expect(after?.deleted_at).not.toBeNull();
   });
 
-  it("skips the Meilisearch tombstone when the row has no maple_id", async () => {
+  it('skips the Meilisearch tombstone when the row has no maple_id', async () => {
     if (!mongoReachable) return;
     const meili = makeCapturingMeili();
     setMeilisearchClientForTests(meili.client);
@@ -182,30 +171,30 @@ describe("images.repo softDelete — Meilisearch tombstone", () => {
     // `softDelete` early-returns on (defensive: empty maple_id never
     // matches a row, no Meili call).
     const folder = new ObjectId();
-    await db!.collection("assets").insertOne({
+    await db!.collection('assets').insertOne({
       fileinfo: [
-        { library_id: folder, path: "", filename: "legacy-tombstone.dng", deleted_at: null },
+        { library_id: folder, path: '', filename: 'legacy-tombstone.dng', deleted_at: null },
       ],
       // No maple_id — legacy row that pre-dates the content-addressing migration.
       size: 1024,
       mtime: Date.now(),
       rating: 0,
       flag: 0,
-      color_label: "",
+      color_label: '',
       indexed_at: new Date().toISOString(),
       exif: null,
       deleted_at: null,
     });
 
-    const { softDelete } = await import("../src/indexer/images.repo.ts");
+    const { softDelete } = await import('../src/indexer/images.repo.ts');
     // Passing an empty maple_id exercises the route's
     // skip-when-absent guard: no Mongo update, no Meili tombstone.
-    await softDelete("");
+    await softDelete('');
 
     expect(meili.tombstones).toEqual([]);
     const after = await db!
-      .collection("assets")
-      .findOne({ "fileinfo.filename": "legacy-tombstone.dng" });
+      .collection('assets')
+      .findOne({ 'fileinfo.filename': 'legacy-tombstone.dng' });
     expect(after?.deleted_at).toBeNull();
   });
 });

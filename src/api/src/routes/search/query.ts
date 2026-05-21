@@ -28,28 +28,14 @@
  *     (e.g. burst frames).
  */
 
-import { t } from "elysia";
-import { ObjectId } from "mongodb";
-import type { Filter } from "mongodb";
-import type { AssetDoc } from "../../db/schema.ts";
+import { t } from 'elysia';
+import { ObjectId } from 'mongodb';
+import type { Filter } from 'mongodb';
+import type { AssetDoc } from '../../db/schema.ts';
 
-export const COLOR_LABELS = new Set([
-  "",
-  "red",
-  "yellow",
-  "green",
-  "blue",
-  "purple",
-]);
+export const COLOR_LABELS = new Set(['', 'red', 'yellow', 'green', 'blue', 'purple']);
 
-export const SCENE_TYPES = new Set([
-  "indoor",
-  "outdoor",
-  "aerial",
-  "macro",
-  "studio",
-  "mixed",
-]);
+export const SCENE_TYPES = new Set(['indoor', 'outdoor', 'aerial', 'macro', 'studio', 'mixed']);
 
 export const FLAG_BY_NAME: Record<string, -1 | 0 | 1> = {
   pick: 1,
@@ -59,15 +45,10 @@ export const FLAG_BY_NAME: Record<string, -1 | 0 | 1> = {
 
 /** Escape a string for use inside a `$regex` pattern. */
 export function escapeRegex(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-export function clampInt(
-  value: string | undefined,
-  lo: number,
-  hi: number,
-  def: number,
-): number {
+export function clampInt(value: string | undefined, lo: number, hi: number, def: number): number {
   if (value === undefined) return def;
   const n = Number(value);
   if (!Number.isFinite(n)) return def;
@@ -75,7 +56,7 @@ export function clampInt(
 }
 
 export function asNumber(value: string | undefined): number | undefined {
-  if (value === undefined || value === "") return undefined;
+  if (value === undefined || value === '') return undefined;
   const n = Number(value);
   return Number.isFinite(n) ? n : undefined;
 }
@@ -170,9 +151,7 @@ export const SearchQueryT = t.Object({
  * libraryId, malformed extensions) — the caller should turn this into
  * a 400.
  */
-export function buildFilter(
-  q: SearchQuery,
-): Filter<AssetDoc> | { error: string } {
+export function buildFilter(q: SearchQuery): Filter<AssetDoc> | { error: string } {
   const filter: Filter<AssetDoc> = {};
 
   // Free-text q: case-insensitive substring on `fileinfo[].filename` and
@@ -184,8 +163,8 @@ export function buildFilter(
   if (q.q && q.q.trim().length > 0) {
     const pattern = escapeRegex(q.q.trim());
     (filter as Filter<AssetDoc> & { $or?: unknown[] }).$or = [
-      { "fileinfo.filename": { $regex: pattern, $options: "i" } },
-      { "fileinfo.path": { $regex: pattern, $options: "i" } },
+      { 'fileinfo.filename': { $regex: pattern, $options: 'i' } },
+      { 'fileinfo.path': { $regex: pattern, $options: 'i' } },
     ];
   }
 
@@ -210,28 +189,23 @@ export function buildFilter(
   // the requested library.
   if (q.libraryId) {
     if (!ObjectId.isValid(q.libraryId)) {
-      return { error: "Invalid libraryId" };
+      return { error: 'Invalid libraryId' };
     }
-    (filter as Record<string, unknown>)["fileinfo.library_id"] = new ObjectId(
-      q.libraryId,
-    );
+    (filter as Record<string, unknown>)['fileinfo.library_id'] = new ObjectId(q.libraryId);
   }
 
   // Camera substring across make + model.
   if (q.camera && q.camera.trim().length > 0) {
     const pattern = escapeRegex(q.camera.trim());
     const camOr = [
-      { "exif.camera_make": { $regex: pattern, $options: "i" } },
-      { "exif.camera_model": { $regex: pattern, $options: "i" } },
+      { 'exif.camera_make': { $regex: pattern, $options: 'i' } },
+      { 'exif.camera_model': { $regex: pattern, $options: 'i' } },
     ];
     if ((filter as { $or?: unknown[] }).$or) {
       // Combine prior $or (q) with this one via $and so both sets remain restrictive.
       const existing = (filter as { $or?: unknown[] }).$or!;
       delete (filter as { $or?: unknown[] }).$or;
-      (filter as { $and?: unknown[] }).$and = [
-        { $or: existing },
-        { $or: camOr },
-      ];
+      (filter as { $and?: unknown[] }).$and = [{ $or: existing }, { $or: camOr }];
     } else {
       (filter as { $or?: unknown[] }).$or = camOr;
     }
@@ -239,9 +213,9 @@ export function buildFilter(
 
   // Lens substring.
   if (q.lens && q.lens.trim().length > 0) {
-    (filter as Record<string, unknown>)["exif.lens"] = {
+    (filter as Record<string, unknown>)['exif.lens'] = {
       $regex: escapeRegex(q.lens.trim()),
-      $options: "i",
+      $options: 'i',
     };
   }
 
@@ -252,7 +226,7 @@ export function buildFilter(
     const range: Record<string, number> = {};
     if (isoMin !== undefined) range.$gte = isoMin;
     if (isoMax !== undefined) range.$lte = isoMax;
-    (filter as Record<string, unknown>)["exif.iso"] = range;
+    (filter as Record<string, unknown>)['exif.iso'] = range;
   }
 
   const apMin = asNumber(q.apertureMin);
@@ -261,7 +235,7 @@ export function buildFilter(
     const range: Record<string, number> = {};
     if (apMin !== undefined) range.$gte = apMin;
     if (apMax !== undefined) range.$lte = apMax;
-    (filter as Record<string, unknown>)["exif.aperture"] = range;
+    (filter as Record<string, unknown>)['exif.aperture'] = range;
   }
 
   const focMin = asNumber(q.focalMin);
@@ -270,7 +244,7 @@ export function buildFilter(
     const range: Record<string, number> = {};
     if (focMin !== undefined) range.$gte = focMin;
     if (focMax !== undefined) range.$lte = focMax;
-    (filter as Record<string, unknown>)["exif.focal_length"] = range;
+    (filter as Record<string, unknown>)['exif.focal_length'] = range;
   }
 
   // Date range — captured_at is an ISO 8601 string; lexicographic compares
@@ -288,12 +262,11 @@ export function buildFilter(
   // hasCapturedAt='true' requires an EXIF capture date to be present. We
   // merge into the same predicate object as the from/to range so we don't
   // accidentally clobber the date constraints when both are set.
-  if (q.hasCapturedAt === "true") {
+  if (q.hasCapturedAt === 'true') {
     capturedAtPredicate.$ne = null;
   }
   if (Object.keys(capturedAtPredicate).length > 0) {
-    (filter as Record<string, unknown>)["exif.captured_at"] =
-      capturedAtPredicate;
+    (filter as Record<string, unknown>)['exif.captured_at'] = capturedAtPredicate;
   }
 
   // Rating threshold (>= n).
@@ -303,7 +276,7 @@ export function buildFilter(
   }
 
   // Flag.
-  if (q.flag !== undefined && q.flag !== "") {
+  if (q.flag !== undefined && q.flag !== '') {
     const f = FLAG_BY_NAME[q.flag];
     if (f === undefined) return { error: `Invalid flag: ${q.flag}` };
     (filter as Record<string, unknown>).flag = f;
@@ -328,28 +301,28 @@ export function buildFilter(
   // wire semantics for callers that pass slash-anchored prefixes.
   if (q.pathPrefix && q.pathPrefix.length > 0) {
     if (q.pathPrefix.length > 1024) {
-      return { error: "pathPrefix too long" };
+      return { error: 'pathPrefix too long' };
     }
-    const stripped = q.pathPrefix.replace(/^\/+/, "").replace(/\/+$/, "");
+    const stripped = q.pathPrefix.replace(/^\/+/, '').replace(/\/+$/, '');
     if (stripped.length > 0) {
-      (filter as Record<string, unknown>)["fileinfo.path"] = {
-        $regex: "^" + escapeRegex(stripped) + "(\\/|$)",
+      (filter as Record<string, unknown>)['fileinfo.path'] = {
+        $regex: '^' + escapeRegex(stripped) + '(\\/|$)',
       };
     }
   }
 
   // Vision scene_type — closed union, exact match.
-  if (q.sceneType !== undefined && q.sceneType !== "") {
+  if (q.sceneType !== undefined && q.sceneType !== '') {
     if (!SCENE_TYPES.has(q.sceneType)) {
       return { error: `Invalid sceneType: ${q.sceneType}` };
     }
-    (filter as Record<string, unknown>)["vision.scene_type"] = q.sceneType;
+    (filter as Record<string, unknown>)['vision.scene_type'] = q.sceneType;
   }
 
   // Vision activity — open vocab, exact match. Trim only; do not regex
   // because the FE picks from the facet endpoint's exact values.
   if (q.activity && q.activity.trim().length > 0) {
-    (filter as Record<string, unknown>)["vision.activity"] = q.activity.trim();
+    (filter as Record<string, unknown>)['vision.activity'] = q.activity.trim();
   }
 
   // Vision subjects — comma-separated. Mongo array-contains semantics make
@@ -357,11 +330,11 @@ export function buildFilter(
   // with the other top-level filters via Mongo's implicit AND.
   if (q.subjects && q.subjects.trim().length > 0) {
     const subjects = q.subjects
-      .split(",")
+      .split(',')
       .map((s) => s.trim())
       .filter((s) => s.length > 0);
     if (subjects.length > 0) {
-      (filter as Record<string, unknown>)["vision.subjects"] = {
+      (filter as Record<string, unknown>)['vision.subjects'] = {
         $in: subjects,
       };
     }
@@ -369,9 +342,9 @@ export function buildFilter(
 
   // Screenshot filter. Boolean stringified as "true" / "false"; anything
   // else (omitted, empty, "any") leaves both kinds in the result set.
-  if (q.isScreenshot === "true") {
+  if (q.isScreenshot === 'true') {
     (filter as Record<string, unknown>).is_screenshot = true;
-  } else if (q.isScreenshot === "false") {
+  } else if (q.isScreenshot === 'false') {
     // `$ne: true` rather than `false` so rows where is_screenshot was
     // never written (pre-#175 indexes) still appear under "Photos only".
     (filter as Record<string, unknown>).is_screenshot = { $ne: true };
@@ -380,7 +353,7 @@ export function buildFilter(
   // Extensions: comma-separated, alphanumeric only.
   if (q.ext && q.ext.trim().length > 0) {
     const exts = q.ext
-      .split(",")
+      .split(',')
       .map((e) => e.trim().toLowerCase())
       .filter((e) => e.length > 0);
     for (const e of exts) {
@@ -393,9 +366,9 @@ export function buildFilter(
       // array-element semantics: an entry-level regex matches if ANY
       // fileinfo entry's filename satisfies it — same semantics as the
       // pre-migration top-level field scan.
-      (filter as Record<string, unknown>)["fileinfo.filename"] = {
-        $regex: `\\.(?:${exts.join("|")})$`,
-        $options: "i",
+      (filter as Record<string, unknown>)['fileinfo.filename'] = {
+        $regex: `\\.(?:${exts.join('|')})$`,
+        $options: 'i',
       };
     }
   }
@@ -419,14 +392,12 @@ export function buildFilter(
  * writes `deleted_at: null` on every skeleton row, so this is safe in
  * practice — we only filter out rows that were soft-deleted.
  */
-export function applyLiveFilter(
-  filter: Filter<AssetDoc>,
-): Filter<AssetDoc> {
-  const usesText = "$text" in (filter as Record<string, unknown>);
+export function applyLiveFilter(filter: Filter<AssetDoc>): Filter<AssetDoc> {
+  const usesText = '$text' in (filter as Record<string, unknown>);
   const liveClause: Record<string, unknown> = usesText
     ? {
         deleted_at: null,
-        search_blob: { $type: "string", $gt: "" },
+        search_blob: { $type: 'string', $gt: '' },
       }
     : { $or: [{ deleted_at: null }, { deleted_at: { $exists: false } }] };
   const keys = Object.keys(filter);

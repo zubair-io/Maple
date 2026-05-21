@@ -7,27 +7,15 @@
  * the geocode-worker + indexer-dead-letter integration tests.
  */
 
-import {
-  describe,
-  it,
-  expect,
-  beforeAll,
-  beforeEach,
-  afterAll,
-} from "bun:test";
-import { Elysia } from "elysia";
-import {
-  MongoClient,
-  ObjectId,
-  type Collection,
-  type Db,
-} from "mongodb";
-import type { AssetDoc, EnrichmentStageState } from "../src/db/schema.ts";
-import type { EnrichmentStage } from "../src/enrichment/dead-letter.repo.ts";
+import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'bun:test';
+import { Elysia } from 'elysia';
+import { MongoClient, ObjectId, type Collection, type Db } from 'mongodb';
+import type { AssetDoc, EnrichmentStageState } from '../src/db/schema.ts';
+import type { EnrichmentStage } from '../src/enrichment/dead-letter.repo.ts';
 
 const TEST_DB = `maple_test_enrichment_deadletter_${process.pid}`;
 process.env.MAPLE_MONGO_DB = TEST_DB;
-const MONGO_URI = process.env.MAPLE_MONGO_URI ?? "mongodb://localhost:27017";
+const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
 
 let mongo: MongoClient | null = null;
 let mongoReachable = false;
@@ -41,7 +29,7 @@ async function tryConnect(): Promise<MongoClient | null> {
   });
   try {
     await c.connect();
-    await c.db("admin").command({ ping: 1 });
+    await c.db('admin').command({ ping: 1 });
     return c;
   } catch {
     try {
@@ -63,38 +51,34 @@ beforeAll(async () => {
   mongo = await tryConnect();
   mongoReachable = mongo !== null;
   if (!mongoReachable) {
-    console.log("[enrichment-dead-letter.test] skipping: MongoDB unreachable");
+    console.log('[enrichment-dead-letter.test] skipping: MongoDB unreachable');
     return;
   }
   db = mongo!.db(TEST_DB);
   await db.dropDatabase();
-  await db.collection("folders").insertOne({
+  await db.collection('folders').insertOne({
     _id: LIBRARY_ID,
-    path: "/lib",
-    label: "lib",
+    path: '/lib',
+    label: 'lib',
     last_scan: null,
     file_count: 0,
     created_at: new Date().toISOString(),
   } as never);
   // Reset the singleton so getDb() reads MAPLE_MONGO_DB on next call.
-  const { closeDb } = await import("../src/db/client.ts");
+  const { closeDb } = await import('../src/db/client.ts');
   await closeDb();
   // Invalidate the process-wide library cache so `loadLibraryRoots`
   // re-reads the test DB rather than reusing sibling-suite entries.
-  const { invalidateLibraryRoots } = await import(
-    "../src/indexer/libraries.cache.ts"
-  );
+  const { invalidateLibraryRoots } = await import('../src/indexer/libraries.cache.ts');
   invalidateLibraryRoots();
   // Mount the routes WITHOUT requireAuth — mirrors enrichment-route.test.ts.
-  const { enrichmentAdminRoutes } = await import(
-    "../src/routes/enrichment-admin.ts"
-  );
+  const { enrichmentAdminRoutes } = await import('../src/routes/enrichment-admin.ts');
   app = new Elysia().use(enrichmentAdminRoutes);
 });
 
 beforeEach(async () => {
   if (!mongoReachable) return;
-  await db!.collection("assets").deleteMany({});
+  await db!.collection('assets').deleteMany({});
 });
 
 afterAll(async () => {
@@ -102,7 +86,7 @@ afterAll(async () => {
     await mongo.db(TEST_DB).dropDatabase();
     await mongo.close();
   }
-  const { closeDb } = await import("../src/db/client.ts");
+  const { closeDb } = await import('../src/db/client.ts');
   await closeDb();
 });
 
@@ -131,7 +115,7 @@ interface SeedOpts {
 }
 
 function assetsColl(): Collection<AssetDoc> {
-  return db!.collection<AssetDoc>("assets");
+  return db!.collection<AssetDoc>('assets');
 }
 
 async function seedAsset(opts: SeedOpts): Promise<ObjectId> {
@@ -163,7 +147,7 @@ async function seedAsset(opts: SeedOpts): Promise<ObjectId> {
     fileinfo: [
       {
         library_id: LIBRARY_ID,
-        path: "",
+        path: '',
         filename: `${_id.toHexString()}.dng`,
         deleted_at: null,
       },
@@ -172,7 +156,7 @@ async function seedAsset(opts: SeedOpts): Promise<ObjectId> {
     mtime: 1,
     rating: 0,
     flag: 0,
-    color_label: "",
+    color_label: '',
     indexed_at: new Date().toISOString(),
     exif: null,
     enrichment,
@@ -187,44 +171,42 @@ async function seedAsset(opts: SeedOpts): Promise<ObjectId> {
 // listEnrichmentDeadLetter
 // ---------------------------------------------------------------------------
 
-describe("listEnrichmentDeadLetter", () => {
-  it("filters by stage and sorts newest dead_letter_at first", async () => {
+describe('listEnrichmentDeadLetter', () => {
+  it('filters by stage and sorts newest dead_letter_at first', async () => {
     if (!mongoReachable) return;
-    const { listEnrichmentDeadLetter } = await import(
-      "../src/enrichment/dead-letter.repo.ts"
-    );
+    const { listEnrichmentDeadLetter } = await import('../src/enrichment/dead-letter.repo.ts');
     const idOldest = await seedAsset({
-      stage: "geocode",
-      deadLetterAt: "2026-05-01T00:00:00.000Z",
-      lastError: "Nominatim 503",
+      stage: 'geocode',
+      deadLetterAt: '2026-05-01T00:00:00.000Z',
+      lastError: 'Nominatim 503',
       attempts: 5,
     });
     const idNewest = await seedAsset({
-      stage: "geocode",
-      deadLetterAt: "2026-05-08T00:00:00.000Z",
-      lastError: "Nominatim timeout",
+      stage: 'geocode',
+      deadLetterAt: '2026-05-08T00:00:00.000Z',
+      lastError: 'Nominatim timeout',
       attempts: 5,
     });
     const idMiddle = await seedAsset({
-      stage: "geocode",
-      deadLetterAt: "2026-05-04T00:00:00.000Z",
-      lastError: "parse error",
+      stage: 'geocode',
+      deadLetterAt: '2026-05-04T00:00:00.000Z',
+      lastError: 'parse error',
       attempts: 5,
     });
     // A face-stage dead letter that should NOT appear in the geocode list.
     await seedAsset({
-      stage: "face",
-      deadLetterAt: "2026-05-09T00:00:00.000Z",
-      lastError: "face boom",
+      stage: 'face',
+      deadLetterAt: '2026-05-09T00:00:00.000Z',
+      lastError: 'face boom',
       attempts: 5,
     });
     // A pending (not dead-lettered) geocode row that should also be excluded.
     await seedAsset({
-      stage: "geocode",
+      stage: 'geocode',
       deadLetterAt: null,
     });
 
-    const rows = await listEnrichmentDeadLetter({ stage: "geocode" });
+    const rows = await listEnrichmentDeadLetter({ stage: 'geocode' });
     expect(rows).toHaveLength(3);
     expect(rows.map((r) => r.asset_id)).toEqual([
       idNewest.toHexString(),
@@ -232,33 +214,31 @@ describe("listEnrichmentDeadLetter", () => {
       idOldest.toHexString(),
     ]);
     const newest = rows[0]!;
-    expect(newest.last_error).toBe("Nominatim timeout");
+    expect(newest.last_error).toBe('Nominatim timeout');
     expect(newest.attempts).toBe(5);
-    expect(newest.dead_letter_at).toBe("2026-05-08T00:00:00.000Z");
+    expect(newest.dead_letter_at).toBe('2026-05-08T00:00:00.000Z');
     // Post drop-abs-path-2026-05-21: `abs_path` is `string | null`
     // (resolved server-side, null when fileinfo can't be matched to a
     // library). This seed has fileinfo + a folder, so it should resolve.
     expect(newest.abs_path).not.toBeNull();
-    expect(newest.abs_path!.startsWith("/lib/")).toBe(true);
+    expect(newest.abs_path!.startsWith('/lib/')).toBe(true);
   });
 
-  it("respects the limit parameter", async () => {
+  it('respects the limit parameter', async () => {
     if (!mongoReachable) return;
-    const { listEnrichmentDeadLetter } = await import(
-      "../src/enrichment/dead-letter.repo.ts"
-    );
+    const { listEnrichmentDeadLetter } = await import('../src/enrichment/dead-letter.repo.ts');
     for (let i = 0; i < 5; i++) {
       await seedAsset({
-        stage: "geocode",
+        stage: 'geocode',
         deadLetterAt: `2026-05-0${i + 1}T00:00:00.000Z`,
         lastError: `err ${i}`,
         attempts: 5,
       });
     }
-    const rows = await listEnrichmentDeadLetter({ stage: "geocode", limit: 2 });
+    const rows = await listEnrichmentDeadLetter({ stage: 'geocode', limit: 2 });
     expect(rows).toHaveLength(2);
-    expect(rows[0]!.dead_letter_at).toBe("2026-05-05T00:00:00.000Z");
-    expect(rows[1]!.dead_letter_at).toBe("2026-05-04T00:00:00.000Z");
+    expect(rows[0]!.dead_letter_at).toBe('2026-05-05T00:00:00.000Z');
+    expect(rows[1]!.dead_letter_at).toBe('2026-05-04T00:00:00.000Z');
   });
 });
 
@@ -266,78 +246,74 @@ describe("listEnrichmentDeadLetter", () => {
 // groupEnrichmentDeadLetter
 // ---------------------------------------------------------------------------
 
-describe("groupEnrichmentDeadLetter", () => {
-  it("clusters identical errors and returns count + latestTs", async () => {
+describe('groupEnrichmentDeadLetter', () => {
+  it('clusters identical errors and returns count + latestTs', async () => {
     if (!mongoReachable) return;
-    const { groupEnrichmentDeadLetter } = await import(
-      "../src/enrichment/dead-letter.repo.ts"
-    );
+    const { groupEnrichmentDeadLetter } = await import('../src/enrichment/dead-letter.repo.ts');
     await seedAsset({
-      stage: "geocode",
-      deadLetterAt: "2026-05-01T00:00:00.000Z",
-      lastError: "Nominatim 503",
+      stage: 'geocode',
+      deadLetterAt: '2026-05-01T00:00:00.000Z',
+      lastError: 'Nominatim 503',
       attempts: 5,
     });
     await seedAsset({
-      stage: "geocode",
-      deadLetterAt: "2026-05-08T00:00:00.000Z",
-      lastError: "Nominatim 503",
+      stage: 'geocode',
+      deadLetterAt: '2026-05-08T00:00:00.000Z',
+      lastError: 'Nominatim 503',
       attempts: 5,
     });
     await seedAsset({
-      stage: "geocode",
-      deadLetterAt: "2026-05-05T00:00:00.000Z",
-      lastError: "Nominatim 503",
+      stage: 'geocode',
+      deadLetterAt: '2026-05-05T00:00:00.000Z',
+      lastError: 'Nominatim 503',
       attempts: 5,
     });
     await seedAsset({
-      stage: "geocode",
-      deadLetterAt: "2026-05-09T00:00:00.000Z",
-      lastError: "parse error",
+      stage: 'geocode',
+      deadLetterAt: '2026-05-09T00:00:00.000Z',
+      lastError: 'parse error',
       attempts: 5,
     });
     // face-stage dead letter — must NOT appear when we group geocode.
     await seedAsset({
-      stage: "face",
-      deadLetterAt: "2026-05-09T00:00:00.000Z",
-      lastError: "Nominatim 503",
+      stage: 'face',
+      deadLetterAt: '2026-05-09T00:00:00.000Z',
+      lastError: 'Nominatim 503',
       attempts: 5,
     });
 
-    const groups = await groupEnrichmentDeadLetter({ stage: "geocode" });
+    const groups = await groupEnrichmentDeadLetter({ stage: 'geocode' });
     expect(groups).toHaveLength(2);
     const top = groups[0]!;
-    expect(top.errorClass).toBe("Nominatim 503");
+    expect(top.errorClass).toBe('Nominatim 503');
     expect(top.count).toBe(3);
-    expect(top.latestTs).toBe("2026-05-08T00:00:00.000Z");
+    expect(top.latestTs).toBe('2026-05-08T00:00:00.000Z');
     const second = groups[1]!;
-    expect(second.errorClass).toBe("parse error");
+    expect(second.errorClass).toBe('parse error');
     expect(second.count).toBe(1);
   });
 
-  it("truncates errorClass at 80 chars so long messages with the same head collapse", async () => {
+  it('truncates errorClass at 80 chars so long messages with the same head collapse', async () => {
     if (!mongoReachable) return;
-    const { groupEnrichmentDeadLetter } = await import(
-      "../src/enrichment/dead-letter.repo.ts"
-    );
-    const head = "Nominatim 503 - retry after backoff (";
+    const { groupEnrichmentDeadLetter } = await import('../src/enrichment/dead-letter.repo.ts');
+    const head = 'Nominatim 503 - retry after backoff (';
     expect(head.length).toBeLessThan(80);
-    const longA = head + "x".repeat(80) + "_unique_A";
-    const longB = head + "x".repeat(80) + "_unique_B";
+    const longA = head + 'x'.repeat(80) + '_unique_A';
+    const longB = head + 'x'.repeat(80) + '_unique_B';
     await seedAsset({
-      stage: "geocode",
-      deadLetterAt: "2026-05-01T00:00:00.000Z",
+      stage: 'geocode',
+      deadLetterAt: '2026-05-01T00:00:00.000Z',
       lastError: longA,
       attempts: 5,
     });
     await seedAsset({
-      stage: "geocode",
-      deadLetterAt: "2026-05-02T00:00:00.000Z",
+      stage: 'geocode',
+      deadLetterAt: '2026-05-02T00:00:00.000Z',
       lastError: longB,
       attempts: 5,
     });
 
-    const groups = await groupEnrichmentDeadLetter({ stage: "geocode" });
+    const groups = await groupEnrichmentDeadLetter({ stage: 'geocode' });
     expect(groups).toHaveLength(1);
     expect(groups[0]!.count).toBe(2);
     expect(groups[0]!.errorClass.length).toBe(80);
@@ -349,27 +325,25 @@ describe("groupEnrichmentDeadLetter", () => {
 // resetEnrichmentDeadLetter
 // ---------------------------------------------------------------------------
 
-describe("resetEnrichmentDeadLetter", () => {
-  it("targets one row when assetId is provided and clears dead_letter_at, last_error, attempts", async () => {
+describe('resetEnrichmentDeadLetter', () => {
+  it('targets one row when assetId is provided and clears dead_letter_at, last_error, attempts', async () => {
     if (!mongoReachable) return;
-    const { resetEnrichmentDeadLetter } = await import(
-      "../src/enrichment/dead-letter.repo.ts"
-    );
+    const { resetEnrichmentDeadLetter } = await import('../src/enrichment/dead-letter.repo.ts');
     const target = await seedAsset({
-      stage: "geocode",
-      deadLetterAt: "2026-05-01T00:00:00.000Z",
-      lastError: "Nominatim 503",
+      stage: 'geocode',
+      deadLetterAt: '2026-05-01T00:00:00.000Z',
+      lastError: 'Nominatim 503',
       attempts: 5,
     });
     const other = await seedAsset({
-      stage: "geocode",
-      deadLetterAt: "2026-05-02T00:00:00.000Z",
-      lastError: "parse error",
+      stage: 'geocode',
+      deadLetterAt: '2026-05-02T00:00:00.000Z',
+      lastError: 'parse error',
       attempts: 5,
     });
 
     const res = await resetEnrichmentDeadLetter({
-      stage: "geocode",
+      stage: 'geocode',
       assetId: target.toHexString(),
     });
     expect(res.resetCount).toBe(1);
@@ -380,33 +354,29 @@ describe("resetEnrichmentDeadLetter", () => {
     expect(targetDoc!.enrichment!.geocode.attempts).toBe(0);
 
     const otherDoc = await assetsColl().findOne({ _id: other });
-    expect(otherDoc!.enrichment!.geocode.dead_letter_at).toBe(
-      "2026-05-02T00:00:00.000Z",
-    );
+    expect(otherDoc!.enrichment!.geocode.dead_letter_at).toBe('2026-05-02T00:00:00.000Z');
     expect(otherDoc!.enrichment!.geocode.attempts).toBe(5);
   });
 
-  it("resets all dead-lettered rows for the stage when assetId is omitted", async () => {
+  it('resets all dead-lettered rows for the stage when assetId is omitted', async () => {
     if (!mongoReachable) return;
-    const { resetEnrichmentDeadLetter } = await import(
-      "../src/enrichment/dead-letter.repo.ts"
-    );
+    const { resetEnrichmentDeadLetter } = await import('../src/enrichment/dead-letter.repo.ts');
     const a = await seedAsset({
-      stage: "geocode",
-      deadLetterAt: "2026-05-01T00:00:00.000Z",
-      lastError: "err a",
+      stage: 'geocode',
+      deadLetterAt: '2026-05-01T00:00:00.000Z',
+      lastError: 'err a',
       attempts: 5,
     });
     const b = await seedAsset({
-      stage: "geocode",
-      deadLetterAt: "2026-05-02T00:00:00.000Z",
-      lastError: "err b",
+      stage: 'geocode',
+      deadLetterAt: '2026-05-02T00:00:00.000Z',
+      lastError: 'err b',
       attempts: 5,
     });
     // Pending (not dead-lettered) geocode row — must NOT be touched.
-    const pending = await seedAsset({ stage: "geocode", deadLetterAt: null });
+    const pending = await seedAsset({ stage: 'geocode', deadLetterAt: null });
 
-    const res = await resetEnrichmentDeadLetter({ stage: "geocode" });
+    const res = await resetEnrichmentDeadLetter({ stage: 'geocode' });
     expect(res.resetCount).toBe(2);
 
     const docA = await assetsColl().findOne({ _id: a });
@@ -423,17 +393,15 @@ describe("resetEnrichmentDeadLetter", () => {
 
   it("zeros attempts so the worker's retry budget is fresh", async () => {
     if (!mongoReachable) return;
-    const { resetEnrichmentDeadLetter } = await import(
-      "../src/enrichment/dead-letter.repo.ts"
-    );
+    const { resetEnrichmentDeadLetter } = await import('../src/enrichment/dead-letter.repo.ts');
     const id = await seedAsset({
-      stage: "geocode",
-      deadLetterAt: "2026-05-01T00:00:00.000Z",
-      lastError: "Nominatim 503",
+      stage: 'geocode',
+      deadLetterAt: '2026-05-01T00:00:00.000Z',
+      lastError: 'Nominatim 503',
       attempts: 5,
     });
     const res = await resetEnrichmentDeadLetter({
-      stage: "geocode",
+      stage: 'geocode',
       assetId: id.toHexString(),
     });
     expect(res.resetCount).toBe(1);
@@ -445,23 +413,21 @@ describe("resetEnrichmentDeadLetter", () => {
     expect(doc!.enrichment!.geocode.attempts).toBe(0);
   });
 
-  it("does not touch other stages on the same row", async () => {
+  it('does not touch other stages on the same row', async () => {
     if (!mongoReachable) return;
-    const { resetEnrichmentDeadLetter } = await import(
-      "../src/enrichment/dead-letter.repo.ts"
-    );
+    const { resetEnrichmentDeadLetter } = await import('../src/enrichment/dead-letter.repo.ts');
     const id = await seedAsset({
-      stage: "geocode",
-      deadLetterAt: "2026-05-01T00:00:00.000Z",
-      lastError: "geocode err",
+      stage: 'geocode',
+      deadLetterAt: '2026-05-01T00:00:00.000Z',
+      lastError: 'geocode err',
       attempts: 5,
-      alsoStage: "face",
-      alsoDeadLetterAt: "2026-05-02T00:00:00.000Z",
-      alsoLastError: "face err",
+      alsoStage: 'face',
+      alsoDeadLetterAt: '2026-05-02T00:00:00.000Z',
+      alsoLastError: 'face err',
       alsoAttempts: 5,
     });
     const res = await resetEnrichmentDeadLetter({
-      stage: "geocode",
+      stage: 'geocode',
       assetId: id.toHexString(),
     });
     expect(res.resetCount).toBe(1);
@@ -470,33 +436,27 @@ describe("resetEnrichmentDeadLetter", () => {
     expect(doc!.enrichment!.geocode.last_error).toBeNull();
     expect(doc!.enrichment!.geocode.attempts).toBe(0);
     // Face stage is intact.
-    expect(doc!.enrichment!.face.dead_letter_at).toBe(
-      "2026-05-02T00:00:00.000Z",
-    );
-    expect(doc!.enrichment!.face.last_error).toBe("face err");
+    expect(doc!.enrichment!.face.dead_letter_at).toBe('2026-05-02T00:00:00.000Z');
+    expect(doc!.enrichment!.face.last_error).toBe('face err');
     expect(doc!.enrichment!.face.attempts).toBe(5);
   });
 
-  it("returns resetCount: 0 for an unknown asset id", async () => {
+  it('returns resetCount: 0 for an unknown asset id', async () => {
     if (!mongoReachable) return;
-    const { resetEnrichmentDeadLetter } = await import(
-      "../src/enrichment/dead-letter.repo.ts"
-    );
+    const { resetEnrichmentDeadLetter } = await import('../src/enrichment/dead-letter.repo.ts');
     const res = await resetEnrichmentDeadLetter({
-      stage: "geocode",
+      stage: 'geocode',
       assetId: new ObjectId().toHexString(),
     });
     expect(res.resetCount).toBe(0);
   });
 
-  it("returns resetCount: 0 for a malformed asset id", async () => {
+  it('returns resetCount: 0 for a malformed asset id', async () => {
     if (!mongoReachable) return;
-    const { resetEnrichmentDeadLetter } = await import(
-      "../src/enrichment/dead-letter.repo.ts"
-    );
+    const { resetEnrichmentDeadLetter } = await import('../src/enrichment/dead-letter.repo.ts');
     const res = await resetEnrichmentDeadLetter({
-      stage: "geocode",
-      assetId: "not-a-valid-objectid",
+      stage: 'geocode',
+      assetId: 'not-a-valid-objectid',
     });
     expect(res.resetCount).toBe(0);
   });
@@ -520,8 +480,8 @@ async function post(
 ): Promise<{ status: number; body: unknown }> {
   const res = await app!.handle(
     new Request(`http://localhost${path}`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
       body: JSON.stringify(body),
     }),
   );
@@ -531,90 +491,88 @@ async function post(
   };
 }
 
-describe("GET /api/enrichment/dead-letter", () => {
-  it("returns rows newest-first for the stage", async () => {
+describe('GET /api/enrichment/dead-letter', () => {
+  it('returns rows newest-first for the stage', async () => {
     if (!mongoReachable) return;
     const idNewest = await seedAsset({
-      stage: "geocode",
-      deadLetterAt: "2026-05-08T00:00:00.000Z",
-      lastError: "Nominatim timeout",
+      stage: 'geocode',
+      deadLetterAt: '2026-05-08T00:00:00.000Z',
+      lastError: 'Nominatim timeout',
       attempts: 5,
     });
     await seedAsset({
-      stage: "geocode",
-      deadLetterAt: "2026-05-01T00:00:00.000Z",
-      lastError: "Nominatim 503",
+      stage: 'geocode',
+      deadLetterAt: '2026-05-01T00:00:00.000Z',
+      lastError: 'Nominatim 503',
       attempts: 5,
     });
-    const r = await get("/api/enrichment/dead-letter?stage=geocode&limit=10");
+    const r = await get('/api/enrichment/dead-letter?stage=geocode&limit=10');
     expect(r.status).toBe(200);
     const body = r.body as {
       rows: Array<{ asset_id: string; last_error: string }>;
     };
     expect(body.rows).toHaveLength(2);
     expect(body.rows[0]!.asset_id).toBe(idNewest.toHexString());
-    expect(body.rows[0]!.last_error).toBe("Nominatim timeout");
+    expect(body.rows[0]!.last_error).toBe('Nominatim timeout');
   });
 
-  it("rejects unknown stage with 400", async () => {
+  it('rejects unknown stage with 400', async () => {
     if (!mongoReachable) return;
-    const r = await get("/api/enrichment/dead-letter?stage=bogus");
+    const r = await get('/api/enrichment/dead-letter?stage=bogus');
     expect(r.status).toBe(400);
     expect((r.body as { error: string }).error).toMatch(/Invalid stage/);
   });
 });
 
-describe("GET /api/enrichment/dead-letter/groups", () => {
-  it("returns clustered groups for the stage", async () => {
+describe('GET /api/enrichment/dead-letter/groups', () => {
+  it('returns clustered groups for the stage', async () => {
     if (!mongoReachable) return;
     await seedAsset({
-      stage: "geocode",
-      deadLetterAt: "2026-05-01T00:00:00.000Z",
-      lastError: "Nominatim 503",
+      stage: 'geocode',
+      deadLetterAt: '2026-05-01T00:00:00.000Z',
+      lastError: 'Nominatim 503',
       attempts: 5,
     });
     await seedAsset({
-      stage: "geocode",
-      deadLetterAt: "2026-05-02T00:00:00.000Z",
-      lastError: "Nominatim 503",
+      stage: 'geocode',
+      deadLetterAt: '2026-05-02T00:00:00.000Z',
+      lastError: 'Nominatim 503',
       attempts: 5,
     });
     await seedAsset({
-      stage: "geocode",
-      deadLetterAt: "2026-05-03T00:00:00.000Z",
-      lastError: "Nominatim 503",
+      stage: 'geocode',
+      deadLetterAt: '2026-05-03T00:00:00.000Z',
+      lastError: 'Nominatim 503',
       attempts: 5,
     });
-    const r = await get(
-      "/api/enrichment/dead-letter/groups?stage=geocode",
-    );
+    const r = await get('/api/enrichment/dead-letter/groups?stage=geocode');
     expect(r.status).toBe(200);
     const body = r.body as {
       groups: Array<{ errorClass: string; count: number }>;
     };
     expect(body.groups).toHaveLength(1);
     expect(body.groups[0]!.count).toBe(3);
-    expect(body.groups[0]!.errorClass).toBe("Nominatim 503");
+    expect(body.groups[0]!.errorClass).toBe('Nominatim 503');
   });
 
-  it("rejects unknown stage with 400", async () => {
+  it('rejects unknown stage with 400', async () => {
     if (!mongoReachable) return;
-    const r = await get("/api/enrichment/dead-letter/groups?stage=bogus");
+    const r = await get('/api/enrichment/dead-letter/groups?stage=bogus');
     expect(r.status).toBe(400);
   });
 });
 
-describe("POST /api/enrichment/dead-letter/reset", () => {
-  it("resets one row when assetId is provided", async () => {
+describe('POST /api/enrichment/dead-letter/reset', () => {
+  it('resets one row when assetId is provided', async () => {
     if (!mongoReachable) return;
     const target = await seedAsset({
-      stage: "geocode",
-      deadLetterAt: "2026-05-01T00:00:00.000Z",
-      lastError: "Nominatim 503",
+      stage: 'geocode',
+      deadLetterAt: '2026-05-01T00:00:00.000Z',
+      lastError: 'Nominatim 503',
       attempts: 5,
     });
-    const r = await post("/api/enrichment/dead-letter/reset", {
-      stage: "geocode",
+    const r = await post('/api/enrichment/dead-letter/reset', {
+      stage: 'geocode',
       assetId: target.toHexString(),
     });
     expect(r.status).toBe(200);
@@ -624,31 +582,31 @@ describe("POST /api/enrichment/dead-letter/reset", () => {
     expect(doc!.enrichment!.geocode.attempts).toBe(0);
   });
 
-  it("resets all dead-lettered rows when assetId is omitted", async () => {
+  it('resets all dead-lettered rows when assetId is omitted', async () => {
     if (!mongoReachable) return;
     await seedAsset({
-      stage: "geocode",
-      deadLetterAt: "2026-05-01T00:00:00.000Z",
-      lastError: "err a",
+      stage: 'geocode',
+      deadLetterAt: '2026-05-01T00:00:00.000Z',
+      lastError: 'err a',
       attempts: 5,
     });
     await seedAsset({
-      stage: "geocode",
-      deadLetterAt: "2026-05-02T00:00:00.000Z",
-      lastError: "err b",
+      stage: 'geocode',
+      deadLetterAt: '2026-05-02T00:00:00.000Z',
+      lastError: 'err b',
       attempts: 5,
     });
-    const r = await post("/api/enrichment/dead-letter/reset", {
-      stage: "geocode",
+    const r = await post('/api/enrichment/dead-letter/reset', {
+      stage: 'geocode',
     });
     expect(r.status).toBe(200);
     expect((r.body as { resetCount: number }).resetCount).toBe(2);
   });
 
-  it("rejects unknown stage with 400", async () => {
+  it('rejects unknown stage with 400', async () => {
     if (!mongoReachable) return;
-    const r = await post("/api/enrichment/dead-letter/reset", {
-      stage: "bogus",
+    const r = await post('/api/enrichment/dead-letter/reset', {
+      stage: 'bogus',
     });
     expect(r.status).toBe(400);
   });

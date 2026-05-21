@@ -1,26 +1,28 @@
-import { describe, test, expect, beforeAll, afterAll, beforeEach } from "bun:test";
-import * as fs from "node:fs/promises";
-import * as os from "node:os";
-import * as path from "node:path";
-import { MongoClient, ObjectId, type Db } from "mongodb";
-import { pendingEnrichment } from "../src/db/schema.ts";
-import { signAccessToken } from "../src/auth/tokens.ts";
+import { describe, test, expect, beforeAll, afterAll, beforeEach } from 'bun:test';
+import * as fs from 'node:fs/promises';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import { MongoClient, ObjectId, type Db } from 'mongodb';
+import { pendingEnrichment } from '../src/db/schema.ts';
+import { signAccessToken } from '../src/auth/tokens.ts';
 import {
   setMeilisearchClientForTests,
   type MeilisearchClient,
   type MeilisearchAssetDoc,
-} from "../src/enrichment/meilisearch-client.ts";
+} from '../src/enrichment/meilisearch-client.ts';
 
-process.env.MAPLE_JWT_SECRET = "x".repeat(32);
-const BEARER = "Bearer " + signAccessToken(
-  { sub: "00000000000000000000000a", email: "tester@maple.local", role: "owner" },
-  process.env.MAPLE_JWT_SECRET!,
-);
+process.env.MAPLE_JWT_SECRET = 'x'.repeat(32);
+const BEARER =
+  'Bearer ' +
+  signAccessToken(
+    { sub: '00000000000000000000000a', email: 'tester@maple.local', role: 'owner' },
+    process.env.MAPLE_JWT_SECRET!,
+  );
 
 const TEST_DB = `maple_test_fp3_delete_${process.pid}`;
 const PRIOR_MONGO_DB = process.env.MAPLE_MONGO_DB;
 const PRIOR_MAPLE_ROOTS = process.env.MAPLE_ROOTS;
-const MONGO_URI = process.env.MAPLE_MONGO_URI ?? "mongodb://localhost:27017";
+const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
 
 let mongo: MongoClient | null = null;
 let mongoReachable = false;
@@ -31,12 +33,24 @@ let folderId: ObjectId;
 
 async function tryConnect(): Promise<MongoClient | null> {
   const c = new MongoClient(MONGO_URI, { serverSelectionTimeoutMS: 1500, connectTimeoutMS: 1500 });
-  try { await c.connect(); await c.db("admin").command({ ping: 1 }); return c; }
-  catch { try { await c.close(); } catch {}; return null; }
+  try {
+    await c.connect();
+    await c.db('admin').command({ ping: 1 });
+    return c;
+  } catch {
+    try {
+      await c.close();
+    } catch {}
+    return null;
+  }
 }
 
-async function makeAsset(filename: string, content: Buffer, opts?: { mapleId?: string }): Promise<{ assetId: ObjectId; absPath: string; mapleId: string | null }> {
-  const absPath = path.join(realTmpRoot, "2024", filename);
+async function makeAsset(
+  filename: string,
+  content: Buffer,
+  opts?: { mapleId?: string },
+): Promise<{ assetId: ObjectId; absPath: string; mapleId: string | null }> {
+  const absPath = path.join(realTmpRoot, '2024', filename);
   await fs.mkdir(path.dirname(absPath), { recursive: true });
   await fs.writeFile(absPath, content);
   const assetId = new ObjectId();
@@ -62,7 +76,7 @@ async function makeAsset(filename: string, content: Buffer, opts?: { mapleId?: s
     enrichment: pendingEnrichment(),
   };
   if (mapleId) doc.maple_id = mapleId;
-  await db!.collection("assets").insertOne(doc as never);
+  await db!.collection('assets').insertOne(doc as never);
   return { assetId, absPath, mapleId };
 }
 
@@ -80,16 +94,22 @@ function capturingMeili(): CapturingMeili {
     isConfigured: () => true,
     health: async () => true,
     ensureIndex: async () => {},
-    upsert: async (doc) => { upserts.push(doc); },
-    upsertOrThrow: async (doc) => { upserts.push(doc); },
-    tombstone: async (id) => { tombstones.push(id); },
+    upsert: async (doc) => {
+      upserts.push(doc);
+    },
+    upsertOrThrow: async (doc) => {
+      upserts.push(doc);
+    },
+    tombstone: async (id) => {
+      tombstones.push(id);
+    },
     search: async () => ({ ids: [], estimatedTotal: 0 }),
   };
 }
 
-describe("DELETE /api/assets/:id (trash + permanent purge)", () => {
+describe('DELETE /api/assets/:id (trash + permanent purge)', () => {
   beforeAll(async () => {
-    const { closeDb } = await import("../src/db/client.ts");
+    const { closeDb } = await import('../src/db/client.ts');
     await closeDb();
     process.env.MAPLE_MONGO_DB = TEST_DB;
     mongo = await tryConnect();
@@ -99,18 +119,19 @@ describe("DELETE /api/assets/:id (trash + permanent purge)", () => {
     db = mongo!.db(TEST_DB);
     await db.dropDatabase();
 
-    tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "maple-fp3-delete-"));
+    tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'maple-fp3-delete-'));
     realTmpRoot = await fs.realpath(tmpRoot);
     process.env.MAPLE_ROOTS = realTmpRoot;
 
     folderId = new ObjectId();
-    await db.collection("folders").insertOne({
-      _id: folderId, path: realTmpRoot, label: "test",
-      created_at: new Date().toISOString(), file_count: 0,
+    await db.collection('folders').insertOne({
+      _id: folderId,
+      path: realTmpRoot,
+      label: 'test',
+      created_at: new Date().toISOString(),
+      file_count: 0,
     } as never);
-    const { invalidateLibraryRoots } = await import(
-      "../src/indexer/libraries.cache.ts",
-    );
+    const { invalidateLibraryRoots } = await import('../src/indexer/libraries.cache.ts');
     invalidateLibraryRoots();
   });
 
@@ -118,10 +139,12 @@ describe("DELETE /api/assets/:id (trash + permanent purge)", () => {
     // Close the APP DB client first so it doesn't leak across tests
     // (the routes import the `getDb()` singleton). Pattern mirrors
     // assets-xmp-delete.test.ts.
-    const { closeDb } = await import("../src/db/client.ts");
+    const { closeDb } = await import('../src/db/client.ts');
     await closeDb();
     if (mongo) {
-      try { await mongo.db(TEST_DB).dropDatabase(); } catch {}
+      try {
+        await mongo.db(TEST_DB).dropDatabase();
+      } catch {}
       await mongo.close();
     }
     if (tmpRoot) await fs.rm(tmpRoot, { recursive: true, force: true });
@@ -138,33 +161,45 @@ describe("DELETE /api/assets/:id (trash + permanent purge)", () => {
     setMeilisearchClientForTests(null);
   });
 
-  test("moves RAW + sidecar to trash; sets deleted_at + original_path", async () => {
+  test('moves RAW + sidecar to trash; sets deleted_at + original_path', async () => {
     if (!mongoReachable) return;
-    const { app } = await import("../src/index.ts");
-    const { assetId, absPath } = await makeAsset("IMG_1.ARW", Buffer.from("raw"));
-    await fs.writeFile(absPath.replace(/\.ARW$/, ".xmp"), "canon");
-    await fs.writeFile(absPath.replace(/\.ARW$/, " (conflict from Mac).xmp"), "conflict");
+    const { app } = await import('../src/index.ts');
+    const { assetId, absPath } = await makeAsset('IMG_1.ARW', Buffer.from('raw'));
+    await fs.writeFile(absPath.replace(/\.ARW$/, '.xmp'), 'canon');
+    await fs.writeFile(absPath.replace(/\.ARW$/, ' (conflict from Mac).xmp'), 'conflict');
 
-    const res = await app.handle(new Request(`http://localhost/api/assets/${assetId.toHexString()}`, {
-      method: "DELETE", headers: { Authorization: BEARER },
-    }));
+    const res = await app.handle(
+      new Request(`http://localhost/api/assets/${assetId.toHexString()}`, {
+        method: 'DELETE',
+        headers: { Authorization: BEARER },
+      }),
+    );
     expect(res.status).toBe(204);
 
     // Files gone from original.
     await expect(fs.stat(absPath)).rejects.toThrow();
-    await expect(fs.stat(absPath.replace(/\.ARW$/, ".xmp"))).rejects.toThrow();
-    await expect(fs.stat(absPath.replace(/\.ARW$/, " (conflict from Mac).xmp"))).rejects.toThrow();
+    await expect(fs.stat(absPath.replace(/\.ARW$/, '.xmp'))).rejects.toThrow();
+    await expect(fs.stat(absPath.replace(/\.ARW$/, ' (conflict from Mac).xmp'))).rejects.toThrow();
 
     // Files present in trash, mirrored relative path.
-    const trashRaw = path.join(realTmpRoot, ".maple", "trash", "2024", "IMG_1.ARW");
-    const trashCanon = path.join(realTmpRoot, ".maple", "trash", "2024", "IMG_1.xmp");
-    const trashConflict = path.join(realTmpRoot, ".maple", "trash", "2024", "IMG_1 (conflict from Mac).xmp");
+    const trashRaw = path.join(realTmpRoot, '.maple', 'trash', '2024', 'IMG_1.ARW');
+    const trashCanon = path.join(realTmpRoot, '.maple', 'trash', '2024', 'IMG_1.xmp');
+    const trashConflict = path.join(
+      realTmpRoot,
+      '.maple',
+      'trash',
+      '2024',
+      'IMG_1 (conflict from Mac).xmp',
+    );
     await fs.stat(trashRaw);
     await fs.stat(trashCanon);
     await fs.stat(trashConflict);
 
     // Asset doc flipped.
-    const doc = await db!.collection("assets").findOne({ _id: assetId }) as Record<string, unknown>;
+    const doc = (await db!.collection('assets').findOne({ _id: assetId })) as Record<
+      string,
+      unknown
+    >;
     expect(doc.deleted_at).toBeTruthy();
     expect(doc.original_path).toBe(absPath);
     // Post drop-abs-path-2026-05-21 the new on-disk location is on
@@ -174,62 +209,77 @@ describe("DELETE /api/assets/:id (trash + permanent purge)", () => {
     expect(path.join(realTmpRoot, fi0.path, fi0.filename)).toBe(trashRaw);
   });
 
-  test("DELETE on already-trashed asset permanently purges file + doc", async () => {
+  test('DELETE on already-trashed asset permanently purges file + doc', async () => {
     if (!mongoReachable) return;
-    const { app } = await import("../src/index.ts");
-    const { assetId, absPath } = await makeAsset("IMG_2.ARW", Buffer.from("raw"));
-    await app.handle(new Request(`http://localhost/api/assets/${assetId.toHexString()}`, {
-      method: "DELETE", headers: { Authorization: BEARER },
-    }));
+    const { app } = await import('../src/index.ts');
+    const { assetId, absPath } = await makeAsset('IMG_2.ARW', Buffer.from('raw'));
+    await app.handle(
+      new Request(`http://localhost/api/assets/${assetId.toHexString()}`, {
+        method: 'DELETE',
+        headers: { Authorization: BEARER },
+      }),
+    );
 
-    const trashed = await db!.collection("assets").findOne({ _id: assetId }) as Record<string, unknown>;
+    const trashed = (await db!.collection('assets').findOne({ _id: assetId })) as Record<
+      string,
+      unknown
+    >;
     // Post drop-abs-path-2026-05-21: resolve abs_path from fileinfo[0].
     const tfi = (trashed.fileinfo as Array<{ path: string; filename: string }>)[0]!;
     const trashRaw = path.join(realTmpRoot, tfi.path, tfi.filename);
     await fs.stat(trashRaw);
 
-    const res = await app.handle(new Request(`http://localhost/api/assets/${assetId.toHexString()}`, {
-      method: "DELETE", headers: { Authorization: BEARER },
-    }));
+    const res = await app.handle(
+      new Request(`http://localhost/api/assets/${assetId.toHexString()}`, {
+        method: 'DELETE',
+        headers: { Authorization: BEARER },
+      }),
+    );
     expect(res.status).toBe(204);
 
     await expect(fs.stat(trashRaw)).rejects.toThrow();
-    const doc = await db!.collection("assets").findOne({ _id: assetId });
+    const doc = await db!.collection('assets').findOne({ _id: assetId });
     expect(doc).toBeNull();
     void absPath; // assertion is on the post-trash path
   });
 
-  test("soft-delete tombstones the asset in Meilisearch when maple_id is present", async () => {
+  test('soft-delete tombstones the asset in Meilisearch when maple_id is present', async () => {
     if (!mongoReachable) return;
     const meili = capturingMeili();
     setMeilisearchClientForTests(meili);
-    const { app } = await import("../src/index.ts");
-    const mapleId = "deadbeefdeadbeef";
-    const { assetId } = await makeAsset("IMG_meili1.ARW", Buffer.from("raw"), { mapleId });
+    const { app } = await import('../src/index.ts');
+    const mapleId = 'deadbeefdeadbeef';
+    const { assetId } = await makeAsset('IMG_meili1.ARW', Buffer.from('raw'), { mapleId });
 
-    const res = await app.handle(new Request(`http://localhost/api/assets/${assetId.toHexString()}`, {
-      method: "DELETE", headers: { Authorization: BEARER },
-    }));
+    const res = await app.handle(
+      new Request(`http://localhost/api/assets/${assetId.toHexString()}`, {
+        method: 'DELETE',
+        headers: { Authorization: BEARER },
+      }),
+    );
     expect(res.status).toBe(204);
     expect(meili.tombstones).toEqual([mapleId]);
     expect(meili.upserts).toEqual([]);
   });
 
-  test("soft-delete skips Meilisearch when maple_id is absent (legacy row)", async () => {
+  test('soft-delete skips Meilisearch when maple_id is absent (legacy row)', async () => {
     if (!mongoReachable) return;
     const meili = capturingMeili();
     setMeilisearchClientForTests(meili);
-    const { app } = await import("../src/index.ts");
-    const { assetId } = await makeAsset("IMG_meili2.ARW", Buffer.from("raw"));
+    const { app } = await import('../src/index.ts');
+    const { assetId } = await makeAsset('IMG_meili2.ARW', Buffer.from('raw'));
 
-    const res = await app.handle(new Request(`http://localhost/api/assets/${assetId.toHexString()}`, {
-      method: "DELETE", headers: { Authorization: BEARER },
-    }));
+    const res = await app.handle(
+      new Request(`http://localhost/api/assets/${assetId.toHexString()}`, {
+        method: 'DELETE',
+        headers: { Authorization: BEARER },
+      }),
+    );
     expect(res.status).toBe(204);
     expect(meili.tombstones).toEqual([]);
   });
 
-  test("soft-delete 204s even when Meilisearch throws", async () => {
+  test('soft-delete 204s even when Meilisearch throws', async () => {
     if (!mongoReachable) return;
     const failing: MeilisearchClient = {
       isConfigured: () => true,
@@ -237,30 +287,43 @@ describe("DELETE /api/assets/:id (trash + permanent purge)", () => {
       ensureIndex: async () => {},
       upsert: async () => {},
       upsertOrThrow: async () => {},
-      tombstone: async () => { throw new Error("meili boom"); },
+      tombstone: async () => {
+        throw new Error('meili boom');
+      },
       search: async () => ({ ids: [], estimatedTotal: 0 }),
     };
     setMeilisearchClientForTests(failing);
-    const { app } = await import("../src/index.ts");
-    const { assetId, absPath } = await makeAsset("IMG_meili3.ARW", Buffer.from("raw"), { mapleId: "abc123" });
+    const { app } = await import('../src/index.ts');
+    const { assetId, absPath } = await makeAsset('IMG_meili3.ARW', Buffer.from('raw'), {
+      mapleId: 'abc123',
+    });
 
-    const res = await app.handle(new Request(`http://localhost/api/assets/${assetId.toHexString()}`, {
-      method: "DELETE", headers: { Authorization: BEARER },
-    }));
+    const res = await app.handle(
+      new Request(`http://localhost/api/assets/${assetId.toHexString()}`, {
+        method: 'DELETE',
+        headers: { Authorization: BEARER },
+      }),
+    );
     expect(res.status).toBe(204);
     // Mongo state still flipped despite Meili failure.
-    const doc = await db!.collection("assets").findOne({ _id: assetId }) as Record<string, unknown>;
+    const doc = (await db!.collection('assets').findOne({ _id: assetId })) as Record<
+      string,
+      unknown
+    >;
     expect(doc.deleted_at).toBeTruthy();
     expect(doc.original_path).toBe(absPath);
   });
 
-  test("404 on unknown asset id", async () => {
+  test('404 on unknown asset id', async () => {
     if (!mongoReachable) return;
-    const { app } = await import("../src/index.ts");
+    const { app } = await import('../src/index.ts');
     const otherId = new ObjectId().toHexString();
-    const res = await app.handle(new Request(`http://localhost/api/assets/${otherId}`, {
-      method: "DELETE", headers: { Authorization: BEARER },
-    }));
+    const res = await app.handle(
+      new Request(`http://localhost/api/assets/${otherId}`, {
+        method: 'DELETE',
+        headers: { Authorization: BEARER },
+      }),
+    );
     expect(res.status).toBe(404);
   });
 });
