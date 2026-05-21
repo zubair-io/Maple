@@ -224,7 +224,7 @@ describe('POST /api/libraries/:id/backup/ingest — happy paths', () => {
     // folder directly, derive a spec-form id from its head, insert the
     // AssetDoc with that id.
     const indexerRelPath = 'indexed/IMG_INDEXED.HEIC';
-    const indexerAbsPath = path.join(tmpLib, indexerRelPath);
+    const indexerAbsPath = path.join(suite.handle.tmpLib, indexerRelPath);
     await fs.mkdir(path.dirname(indexerAbsPath), { recursive: true });
     const sharedBytes = Buffer.alloc(1024, 0xab);
     await fs.writeFile(indexerAbsPath, sharedBytes);
@@ -304,7 +304,7 @@ describe('POST /api/libraries/:id/backup/ingest — happy paths', () => {
       }
       return out;
     }
-    const allFiles = await walk(tmpLib);
+    const allFiles = await walk(suite.handle.tmpLib);
     const sharedNameMatches = allFiles.filter((p) => p.endsWith('IMG_INDEXED.HEIC'));
     expect(sharedNameMatches.length).toBe(1);
     expect(sharedNameMatches[0]).toBe(indexerAbsPath);
@@ -483,7 +483,7 @@ describe('POST /api/libraries/:id/backup/ingest — happy paths', () => {
     // Pre-create the file at the destination path before uploading
     const captureDate = '2024-07-04T12:00:00Z';
     const fname = 'IMG_COLLISION.HEIC';
-    const targetDir = path.join(tmpLib, '2024/07/04');
+    const targetDir = path.join(suite.handle.tmpLib, '2024/07/04');
     await fs.mkdir(targetDir, { recursive: true });
     const preExistingPath = path.join(targetDir, fname);
     await fs.writeFile(preExistingPath, Buffer.alloc(64, 0));
