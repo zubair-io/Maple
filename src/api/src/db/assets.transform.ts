@@ -20,7 +20,7 @@
  *     conflate the two.
  */
 
-import { type ObjectId } from "mongodb";
+import { type ObjectId } from 'mongodb';
 import {
   normaliseEnrichment,
   type AssetDoc,
@@ -28,10 +28,11 @@ import {
   type AssetFaceDoc,
   type AssetWithId,
   type Enrichment,
+  type FileInfo,
   type Place,
   type VisionDoc,
   type VisionMeta,
-} from "./schema.ts";
+} from './schema.ts';
 
 // ---------------------------------------------------------------------------
 // DTO shapes returned over the wire.
@@ -65,7 +66,7 @@ export interface AssetDetailDto {
   description: string | null;
   description_meta: unknown;
   ocr_text: string | null;
-  ocr_meta: AssetDoc["ocr_meta"] | null;
+  ocr_meta: AssetDoc['ocr_meta'] | null;
   vision: VisionDoc | null;
   vision_meta: VisionMeta | null;
   is_screenshot: boolean | null;
@@ -98,6 +99,13 @@ export interface AssetCoreInfo {
   folder_id: ObjectId;
   filename: string;
   abs_path: string;
+  /** Canonical location records — populated by discover / backup-ingest.
+   * Carried alongside `abs_path` during the content-addressing migration
+   * so route handlers can resolve the on-disk path via
+   * `assetAbsPath(info, libraries)`. Absent on legacy rows that the
+   * backfill hasn't reached yet; `assetAbsPath` falls back to `abs_path`
+   * in that case. */
+  fileinfo?: FileInfo[];
   size: number;
   mtime: number;
   /** Used by trash / Meilisearch tombstone paths. Null when the hash
@@ -170,14 +178,13 @@ export function toCoreInfo(doc: AssetWithId): AssetCoreInfo {
     folder_id: doc.folder_id,
     filename: doc.filename,
     abs_path: doc.abs_path,
+    fileinfo: doc.fileinfo,
     size: doc.size,
     mtime: doc.mtime,
-    maple_id: typeof mapleId === "string" && mapleId.length > 0 ? mapleId : null,
+    maple_id: typeof mapleId === 'string' && mapleId.length > 0 ? mapleId : null,
     deleted_at: doc.deleted_at ?? null,
     original_path:
-      typeof originalPath === "string" && originalPath.length > 0
-        ? originalPath
-        : null,
+      typeof originalPath === 'string' && originalPath.length > 0 ? originalPath : null,
     place: doc.place ?? null,
     description: doc.description ?? null,
     ocr_text: doc.ocr_text ?? null,
