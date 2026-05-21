@@ -85,6 +85,45 @@ describe("uploadSessions", () => {
     expect(r.session.state).toBe("completed");
   });
 
+  test("openOrResume reopens a completed session missing maple_id (corrupt row)", async () => {
+    // `maple_id` is typed optional on UploadSessionDoc. complete() always
+    // sets it under the normal flow, but a legacy/migration-inserted row
+    // could be `state: "completed"` without one. Short-circuiting then would
+    // return a 200 body the Swift client can't decode (maple_id is required
+    // on its response struct). Verify we treat the missing-id case as
+    // corrupt and reopen-in-place instead.
+    const c = await uploadSessionsCollection();
+    const corruptId = new ObjectId();
+    await c.insertOne({
+      _id: corruptId,
+      library_id: libraryId,
+      device_id: deviceId,
+      phasset_local_id: "corrupt-completed",
+      target_rel_path: "2024/Tokyo/IMG.heic",
+      total_bytes: 1024,
+      received_bytes: 1024,
+      chunk_size: 256,
+      state: "completed",
+      created_at: new Date(),
+      updated_at: new Date(),
+      // intentionally no maple_id
+    } as any);
+
+    const r = await uploadSessions.openOrResume({
+      libraryId,
+      deviceId,
+      phassetLocalId: "corrupt-completed",
+      totalBytes: 1024,
+      chunkSize: 256,
+      targetRelPath: "2024/Tokyo/IMG.heic",
+    });
+    expect(r.alreadyComplete).toBe(false);
+    expect(r.reset).toBe(true);
+    expect(r.session._id.equals(corruptId)).toBe(true);
+    expect(r.session.state).toBe("open");
+    expect(r.session.received_bytes).toBe(0);
+  });
+
   test("openOrResume reopens a completed session in place when total_bytes changes", async () => {
     // User edited the asset between attempts; total_bytes now differs from
     // the original completed upload. Reuse the row (unique resume-key index)

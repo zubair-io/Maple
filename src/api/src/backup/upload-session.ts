@@ -233,7 +233,16 @@ export const uploadSessions = {
       // the user editing an asset after the previous version was uploaded.
       const totalChanged = existing.total_bytes !== args.totalBytes;
       const pathChanged = existing.target_rel_path !== args.targetRelPath;
-      if (!totalChanged && !pathChanged) {
+      // `maple_id` is typed optional on UploadSessionDoc — `complete()` always
+      // sets it under the normal flow, but a corrupt/legacy/migration-inserted
+      // row could be `state: "completed"` without one. Short-circuiting in
+      // that case would return a 200 body the Swift client can't decode
+      // (`maple_id` is required on its response struct), kicking the engine
+      // back into the same retry loop this PR is meant to fix. Treat the
+      // missing-id case as corrupt and fall through to reopen-in-place so
+      // the client re-uploads from offset 0 and we recover a valid maple_id
+      // on the next final chunk.
+      if (!totalChanged && !pathChanged && existing.maple_id) {
         return { session: existing, reset: false, alreadyComplete: true };
       }
       const unsetFields: Record<string, ""> = { maple_id: "" };
