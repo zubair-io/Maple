@@ -132,10 +132,36 @@ describe("assetLibraryPath", () => {
     );
   });
 
-  test("falls back to dirname(abs_path) for legacy rows", () => {
+  test("falls back to folder_id lookup for legacy rows (NOT dirname(abs_path))", () => {
+    // The earlier draft returned `path.dirname(abs_path)` here — but that's
+    // the file's containing directory, not the library root. The correct
+    // legacy fallback is `folder_id`, which is the registered library by
+    // definition.
+    const libraries = new Map([[libId.toHexString(), "/lib"]]);
+    expect(assetLibraryPath(makeAsset({}), libraries)).toBe("/lib");
+  });
+
+  test("returns null when folder_id is unknown to the libraries map", () => {
     const libraries = new Map<string, string>();
-    expect(assetLibraryPath(makeAsset({}), libraries)).toBe(
-      "/lib/vacation/2024",
-    );
+    expect(assetLibraryPath(makeAsset({}), libraries)).toBeNull();
+  });
+});
+
+describe("FileInfo.path POSIX-separator portability (assetAbsPath)", () => {
+  test("splits stored POSIX `/` segments and joins via platform path.join", () => {
+    // FileInfo.path is documented as POSIX-style; assetAbsPath must re-split
+    // on `/` so a host that uses `\` as `path.sep` (Windows) gets a correct
+    // absolute path. On Linux/macOS the join is byte-identical.
+    const fi: FileInfo = {
+      path: "vacation/2024/sub",
+      filename: "IMG.dng",
+      library_id: libId,
+    };
+    const libraries = new Map([[libId.toHexString(), "/lib"]]);
+    const result = assetAbsPath(makeAsset({ fileinfo: [fi] }), libraries);
+    // path.posix.join is what we get on Linux/macOS hosts; the test pins the
+    // contract under Bun (Linux/macOS) and survives any non-POSIX host as
+    // long as the platform's `path.join` accepts the segments.
+    expect(result).toBe("/lib/vacation/2024/sub/IMG.dng");
   });
 });

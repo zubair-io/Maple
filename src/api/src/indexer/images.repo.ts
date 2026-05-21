@@ -91,11 +91,20 @@ export function assetPrimaryFileInfo(
  *
  * Order of resolution:
  *   1. `fileinfo[0].library_id → libraries map`
- *   2. `path.dirname(abs_path)` (legacy fallback during migration)
- * Returns `null` when neither source resolves.
+ *   2. legacy `folder_id → libraries map` (for unmigrated rows during the
+ *      content-addressing migration)
+ *
+ * Returns `null` when neither source resolves to a registered library.
+ *
+ * NOTE: the earlier draft fell back to `path.dirname(abs_path)`, which
+ * returns the file's containing directory — often a subdirectory of the
+ * library root, not the root itself. That made the helper unsafe for
+ * callers that rely on the result actually being a library root (cache
+ * resolution, library-scoped operations). The correct legacy fallback is
+ * `folder_id`, which is the registered library by definition.
  */
 export function assetLibraryPath(
-  asset: Pick<AssetDoc, "fileinfo" | "abs_path">,
+  asset: Pick<AssetDoc, 'fileinfo' | 'folder_id'>,
   libraries: ReadonlyMap<string, string>,
 ): string | null {
   const primary = assetPrimaryFileInfo(asset);
@@ -103,7 +112,10 @@ export function assetLibraryPath(
     const root = libraries.get(primary.library_id.toHexString());
     if (root) return root;
   }
-  if (asset.abs_path) return path.dirname(asset.abs_path);
+  if (asset.folder_id) {
+    const root = libraries.get(asset.folder_id.toHexString());
+    if (root) return root;
+  }
   return null;
 }
 
@@ -111,18 +123,26 @@ export function assetLibraryPath(
  * Resolve the absolute filesystem path of the asset's primary location.
  *
  * Composed from `(library root, fileinfo[0].path, fileinfo[0].filename)`.
+ * `fileinfo.path` is stored POSIX-style (`/` separators); we re-split on
+ * `/` so that on a Windows host the join uses platform-correct separators
+ * via `path.join`. On Linux/macOS (the production target) the split is a
+ * no-op.
+ *
  * Falls back to the legacy `abs_path` field for unmigrated rows or when
  * the primary entry's `library_id` is not present in `libraries`.
  * Returns `null` when no source resolves.
  */
 export function assetAbsPath(
-  asset: Pick<AssetDoc, "fileinfo" | "abs_path">,
+  asset: Pick<AssetDoc, 'fileinfo' | 'abs_path'>,
   libraries: ReadonlyMap<string, string>,
 ): string | null {
   const primary = assetPrimaryFileInfo(asset);
   if (primary) {
     const root = libraries.get(primary.library_id.toHexString());
-    if (root) return path.join(root, primary.path, primary.filename);
+    if (root) {
+      const segments = primary.path === '' ? [] : primary.path.split('/');
+      return path.join(root, ...segments, primary.filename);
+    }
   }
   if (asset.abs_path) return asset.abs_path;
   return null;
