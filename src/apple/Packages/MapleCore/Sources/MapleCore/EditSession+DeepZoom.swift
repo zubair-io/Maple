@@ -70,7 +70,8 @@ extension EditSession {
                 zoom: zoom,
                 totalSourceSize: nativeImageSize
             )
-            guard gen == renderGeneration, !Task.isCancelled else { return }
+            let live = await renderActor.currentGeneration()
+            guard gen == live, !Task.isCancelled else { return }
             if !composite.extent.isEmpty {
                 // Composite the tile-canvas OVER an upscaled version of
                 // the existing preview. Tiles cover the visible viewport;
