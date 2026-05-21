@@ -53,6 +53,11 @@ export * from './lib/xmp/xmp-fields';
 export * from './lib/xmp/xmp-serializer.service';
 export * from './lib/xmp/xmp-store.service';
 
+// #193 slice 1: canonical Store<T> shape + SidecarStore proof.
+export * from './lib/state/store';
+export * from './lib/xmp/sidecar-idb-cache';
+export * from './lib/xmp/sidecar.store';
+
 // P7: Unified SPA shells + all components (moved from browse + editor apps)
 export * from './lib/shells/browse-shell/browse-shell.component';
 export * from './lib/shells/editor-shell/editor-shell.component';
