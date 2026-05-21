@@ -1,51 +1,51 @@
-import { describe, expect, it } from "bun:test";
-import { parseVisionJson, VisionParseError } from "./parse-vision-json.ts";
+import { describe, expect, it } from 'bun:test';
+import { parseVisionJson, VisionParseError } from './parse-vision-json.ts';
 import {
   DEFAULT_DESCRIBE_VISION_PROMPT,
   DESCRIBE_VISION_PROMPT_VERSION,
-} from "../enrichment-config.repo.ts";
+} from '../enrichment-config.repo.ts';
 
 const VALID = {
-  caption: "A child in a white lacrosse uniform sprints across a green field.",
-  subjects: ["person", "child", "athlete"],
-  scene_type: "outdoor",
-  setting: "sports field",
-  activity: "lacrosse",
-  time_of_day: "afternoon",
-  lighting: "natural",
-  weather: "clear",
-  mood: "energetic",
-  colors: ["green", "white", "blue"],
-  composition: "wide shot",
+  caption: 'A child in a white lacrosse uniform sprints across a green field.',
+  subjects: ['person', 'child', 'athlete'],
+  scene_type: 'outdoor',
+  setting: 'sports field',
+  activity: 'lacrosse',
+  time_of_day: 'afternoon',
+  lighting: 'natural',
+  weather: 'clear',
+  mood: 'energetic',
+  colors: ['green', 'white', 'blue'],
+  composition: 'wide shot',
   text_visible: null,
-  notable_objects: ["lacrosse stick", "helmet", "cleats"],
-  shot_type: "action",
-  indoor_outdoor: "outdoor",
+  notable_objects: ['lacrosse stick', 'helmet', 'cleats'],
+  shot_type: 'action',
+  indoor_outdoor: 'outdoor',
   is_screenshot: false,
 };
 
-describe("parseVisionJson — happy paths", () => {
-  it("parses a fully-valid JSON object", () => {
+describe('parseVisionJson — happy paths', () => {
+  it('parses a fully-valid JSON object', () => {
     const out = parseVisionJson(JSON.stringify(VALID));
     expect(out.caption).toBe(VALID.caption);
     expect(out.subjects).toEqual(VALID.subjects);
-    expect(out.scene_type).toBe("outdoor");
+    expect(out.scene_type).toBe('outdoor');
     expect(out.text_visible).toBeNull();
   });
 
-  it("strips a leading/trailing ```json markdown fence", () => {
-    const wrapped = "```json\n" + JSON.stringify(VALID) + "\n```";
+  it('strips a leading/trailing ```json markdown fence', () => {
+    const wrapped = '```json\n' + JSON.stringify(VALID) + '\n```';
     const out = parseVisionJson(wrapped);
     expect(out.caption).toBe(VALID.caption);
   });
 
-  it("strips a plain ``` markdown fence (no language tag)", () => {
-    const wrapped = "```\n" + JSON.stringify(VALID) + "\n```";
+  it('strips a plain ``` markdown fence (no language tag)', () => {
+    const wrapped = '```\n' + JSON.stringify(VALID) + '\n```';
     const out = parseVisionJson(wrapped);
-    expect(out.activity).toBe("lacrosse");
+    expect(out.activity).toBe('lacrosse');
   });
 
-  it("accepts null for nullable fields (setting / activity / text_visible)", () => {
+  it('accepts null for nullable fields (setting / activity / text_visible)', () => {
     const v = { ...VALID, setting: null, activity: null, text_visible: null };
     const out = parseVisionJson(JSON.stringify(v));
     expect(out.setting).toBeNull();
@@ -53,196 +53,206 @@ describe("parseVisionJson — happy paths", () => {
     expect(out.text_visible).toBeNull();
   });
 
-  it("accepts a string for nullable fields when populated", () => {
-    const v = { ...VALID, text_visible: "GO TEAM" };
+  it('accepts a string for nullable fields when populated', () => {
+    const v = { ...VALID, text_visible: 'GO TEAM' };
     const out = parseVisionJson(JSON.stringify(v));
-    expect(out.text_visible).toBe("GO TEAM");
+    expect(out.text_visible).toBe('GO TEAM');
   });
 });
 
-describe("parseVisionJson — rejection paths", () => {
-  it("rejects empty input", () => {
-    expect(() => parseVisionJson("")).toThrow(VisionParseError);
+describe('parseVisionJson — rejection paths', () => {
+  it('rejects empty input', () => {
+    expect(() => parseVisionJson('')).toThrow(VisionParseError);
     try {
-      parseVisionJson("");
+      parseVisionJson('');
     } catch (e) {
-      expect((e as VisionParseError).reason).toBe("empty-response");
+      expect((e as VisionParseError).reason).toBe('empty-response');
     }
   });
 
-  it("rejects prose with no JSON object", () => {
-    expect(() => parseVisionJson("Sure, here is the JSON: { ... }")).toThrow(
-      VisionParseError,
-    );
+  it('rejects prose with no JSON object', () => {
+    expect(() => parseVisionJson('Sure, here is the JSON: { ... }')).toThrow(VisionParseError);
   });
 
-  it("rejects when the model returns an array instead of an object", () => {
+  it('rejects when the model returns an array instead of an object', () => {
     try {
-      parseVisionJson("[1, 2, 3]");
+      parseVisionJson('[1, 2, 3]');
     } catch (e) {
-      expect((e as VisionParseError).reason).toBe("not-object");
+      expect((e as VisionParseError).reason).toBe('not-object');
     }
   });
 
-  it("rejects a missing required field (caption)", () => {
+  it('rejects a missing required field (caption)', () => {
     const v = { ...VALID } as Partial<typeof VALID>;
     delete v.caption;
     try {
       parseVisionJson(JSON.stringify(v));
     } catch (e) {
       const err = e as VisionParseError;
-      expect(err.reason).toBe("wrong-type");
-      expect(err.field).toBe("caption");
+      expect(err.reason).toBe('wrong-type');
+      expect(err.field).toBe('caption');
     }
   });
 
-  it("rejects an empty caption string", () => {
-    const v = { ...VALID, caption: "   " };
+  it('rejects an empty caption string', () => {
+    const v = { ...VALID, caption: '   ' };
     try {
       parseVisionJson(JSON.stringify(v));
     } catch (e) {
       const err = e as VisionParseError;
-      expect(err.field).toBe("caption");
+      expect(err.field).toBe('caption');
     }
   });
 
   it("rejects a wrong-enum value (scene_type: 'underwater')", () => {
-    const v = { ...VALID, scene_type: "underwater" };
+    const v = { ...VALID, scene_type: 'underwater' };
     try {
       parseVisionJson(JSON.stringify(v));
     } catch (e) {
       const err = e as VisionParseError;
-      expect(err.reason).toBe("bad-enum");
-      expect(err.field).toBe("scene_type");
+      expect(err.reason).toBe('bad-enum');
+      expect(err.field).toBe('scene_type');
     }
   });
 
-  it("rejects subjects with a non-string entry", () => {
-    const v = { ...VALID, subjects: ["person", 7, "athlete"] };
+  it('rejects subjects with a non-string entry', () => {
+    const v = { ...VALID, subjects: ['person', 7, 'athlete'] };
     try {
       parseVisionJson(JSON.stringify(v));
     } catch (e) {
       const err = e as VisionParseError;
-      expect(err.reason).toBe("wrong-type");
-      expect(err.field).toBe("subjects");
+      expect(err.reason).toBe('wrong-type');
+      expect(err.field).toBe('subjects');
     }
   });
 
-  it("rejects non-array subjects", () => {
-    const v = { ...VALID, subjects: "person" };
+  it('rejects non-array subjects', () => {
+    const v = { ...VALID, subjects: 'person' };
     try {
       parseVisionJson(JSON.stringify(v));
     } catch (e) {
-      expect((e as VisionParseError).field).toBe("subjects");
+      expect((e as VisionParseError).field).toBe('subjects');
     }
   });
 
-  it("rejects wrong-type for nullable fields (setting: 42)", () => {
+  it('rejects wrong-type for nullable fields (setting: 42)', () => {
     const v = { ...VALID, setting: 42 };
     try {
       parseVisionJson(JSON.stringify(v));
     } catch (e) {
       const err = e as VisionParseError;
-      expect(err.reason).toBe("wrong-type");
-      expect(err.field).toBe("setting");
+      expect(err.reason).toBe('wrong-type');
+      expect(err.field).toBe('setting');
     }
   });
 
-  it("defaults is_screenshot to false when missing (qwen2.5-vl omits it on outdoor scenes)", () => {
+  it('defaults is_screenshot to false when missing (qwen2.5-vl omits it on outdoor scenes)', () => {
     const v = { ...VALID } as Partial<typeof VALID>;
     delete v.is_screenshot;
     const out = parseVisionJson(JSON.stringify(v));
     expect(out.is_screenshot).toBe(false);
   });
 
-  it("coerces is_screenshot string variants to boolean", () => {
+  it('coerces is_screenshot string variants to boolean', () => {
     for (const [raw, expected] of [
-      ["false", false],
-      ["False", false],
-      ["FALSE", false],
-      ["no", false],
-      ["0", false],
-      ["", false],
-      ["true", true],
-      ["True", true],
-      ["yes", true],
-      ["1", true],
+      ['false', false],
+      ['False', false],
+      ['FALSE', false],
+      ['no', false],
+      ['0', false],
+      ['', false],
+      ['true', true],
+      ['True', true],
+      ['yes', true],
+      ['1', true],
     ] as const) {
       const out = parseVisionJson(JSON.stringify({ ...VALID, is_screenshot: raw }));
       expect(out.is_screenshot).toBe(expected);
     }
   });
 
-  it("coerces is_screenshot numeric variants to boolean", () => {
-    expect(parseVisionJson(JSON.stringify({ ...VALID, is_screenshot: 0 })).is_screenshot).toBe(false);
-    expect(parseVisionJson(JSON.stringify({ ...VALID, is_screenshot: 1 })).is_screenshot).toBe(true);
+  it('coerces is_screenshot numeric variants to boolean', () => {
+    expect(parseVisionJson(JSON.stringify({ ...VALID, is_screenshot: 0 })).is_screenshot).toBe(
+      false,
+    );
+    expect(parseVisionJson(JSON.stringify({ ...VALID, is_screenshot: 1 })).is_screenshot).toBe(
+      true,
+    );
   });
 
-  it("treats null/undefined is_screenshot as false", () => {
-    expect(parseVisionJson(JSON.stringify({ ...VALID, is_screenshot: null })).is_screenshot).toBe(false);
+  it('treats null/undefined is_screenshot as false', () => {
+    expect(parseVisionJson(JSON.stringify({ ...VALID, is_screenshot: null })).is_screenshot).toBe(
+      false,
+    );
   });
 
   it("rejects is_screenshot values that can't be coerced (object, array, garbage string)", () => {
-    for (const v of [{ ...VALID, is_screenshot: {} }, { ...VALID, is_screenshot: [] }, { ...VALID, is_screenshot: "maybe" }]) {
+    for (const v of [
+      { ...VALID, is_screenshot: {} },
+      { ...VALID, is_screenshot: [] },
+      { ...VALID, is_screenshot: 'maybe' },
+    ]) {
       try {
         parseVisionJson(JSON.stringify(v));
-        throw new Error("expected throw");
+        throw new Error('expected throw');
       } catch (e) {
         const err = e as VisionParseError;
-        expect(err.reason).toBe("wrong-type");
-        expect(err.field).toBe("is_screenshot");
+        expect(err.reason).toBe('wrong-type');
+        expect(err.field).toBe('is_screenshot');
       }
     }
   });
 
-  it("accepts is_screenshot = true", () => {
+  it('accepts is_screenshot = true', () => {
     const v = { ...VALID, is_screenshot: true };
     const out = parseVisionJson(JSON.stringify(v));
     expect(out.is_screenshot).toBe(true);
   });
 
-  it("joins text_visible string[] into a newline-separated string", () => {
-    const v = { ...VALID, text_visible: ["STOP", "SLOW", "ONE WAY"] };
+  it('joins text_visible string[] into a newline-separated string', () => {
+    const v = { ...VALID, text_visible: ['STOP', 'SLOW', 'ONE WAY'] };
     const out = parseVisionJson(JSON.stringify(v));
-    expect(out.text_visible).toBe("STOP\nSLOW\nONE WAY");
+    expect(out.text_visible).toBe('STOP\nSLOW\nONE WAY');
   });
 
-  it("collapses empty / all-empty text_visible array to null", () => {
+  it('collapses empty / all-empty text_visible array to null', () => {
     expect(parseVisionJson(JSON.stringify({ ...VALID, text_visible: [] })).text_visible).toBeNull();
-    expect(parseVisionJson(JSON.stringify({ ...VALID, text_visible: ["", ""] })).text_visible).toBeNull();
-    expect(parseVisionJson(JSON.stringify({ ...VALID, text_visible: "" })).text_visible).toBeNull();
+    expect(
+      parseVisionJson(JSON.stringify({ ...VALID, text_visible: ['', ''] })).text_visible,
+    ).toBeNull();
+    expect(parseVisionJson(JSON.stringify({ ...VALID, text_visible: '' })).text_visible).toBeNull();
   });
 
-  it("rejects text_visible when array contains non-strings", () => {
-    const v = { ...VALID, text_visible: ["STOP", 42] };
+  it('rejects text_visible when array contains non-strings', () => {
+    const v = { ...VALID, text_visible: ['STOP', 42] };
     try {
       parseVisionJson(JSON.stringify(v));
-      throw new Error("expected throw");
+      throw new Error('expected throw');
     } catch (e) {
       const err = e as VisionParseError;
-      expect(err.reason).toBe("wrong-type");
-      expect(err.field).toBe("text_visible");
+      expect(err.reason).toBe('wrong-type');
+      expect(err.field).toBe('text_visible');
     }
   });
 
-  it("includes a truncated snippet in the error for triage", () => {
-    const big = "x".repeat(20_000); // > 8 KB cap
+  it('includes a truncated snippet in the error for triage', () => {
+    const big = 'x'.repeat(20_000); // > 8 KB cap
     try {
       parseVisionJson(big);
     } catch (e) {
       const err = e as VisionParseError;
       // 8192 bytes + "…[truncated]" suffix
       expect(err.snippet.length).toBeLessThanOrEqual(8 * 1024 + 32);
-      expect(err.snippet.endsWith("…[truncated]")).toBe(true);
+      expect(err.snippet.endsWith('…[truncated]')).toBe(true);
     }
   });
 
-  it("rejects when JSON parses but is wrapped in stray prose", () => {
+  it('rejects when JSON parses but is wrapped in stray prose', () => {
     const polluted = `Here is the JSON:\n${JSON.stringify(VALID)}\nHope this helps!`;
     expect(() => parseVisionJson(polluted)).toThrow(VisionParseError);
   });
 
-  it("collapses subjects/colors/notable_objects = null to []", () => {
+  it('collapses subjects/colors/notable_objects = null to []', () => {
     const v = { ...VALID, subjects: null, colors: null, notable_objects: null };
     const out = parseVisionJson(JSON.stringify(v));
     expect(out.subjects).toEqual([]);
@@ -251,63 +261,80 @@ describe("parseVisionJson — rejection paths", () => {
   });
 
   it("still rejects array-shaped fields where contents aren't strings", () => {
-    for (const field of ["subjects", "colors", "notable_objects"] as const) {
-      const v = { ...VALID, [field]: ["ok", 42] };
+    for (const field of ['subjects', 'colors', 'notable_objects'] as const) {
+      const v = { ...VALID, [field]: ['ok', 42] };
       try {
         parseVisionJson(JSON.stringify(v));
-        throw new Error("expected throw");
+        throw new Error('expected throw');
       } catch (e) {
         const err = e as VisionParseError;
-        expect(err.reason).toBe("wrong-type");
+        expect(err.reason).toBe('wrong-type');
         expect(err.field).toBe(field);
       }
     }
   });
 
-  it("coerces weather synonyms to allowed values", () => {
+  it('coerces weather synonyms to allowed values', () => {
     for (const [raw, expected] of [
-      ["partly cloudy", "cloudy"],
-      ["Partly Cloudy", "cloudy"],
-      ["mostly cloudy", "cloudy"],
-      ["overcast", "cloudy"],
-      ["sunny", "clear"],
-      ["clear sky", "clear"],
-      ["rain", "rainy"],
-      ["snow", "snowy"],
-      ["fog", "foggy"],
-      ["haze", "foggy"],
+      ['partly cloudy', 'cloudy'],
+      ['Partly Cloudy', 'cloudy'],
+      ['mostly cloudy', 'cloudy'],
+      ['overcast', 'cloudy'],
+      ['sunny', 'clear'],
+      ['clear sky', 'clear'],
+      ['rain', 'rainy'],
+      ['snow', 'snowy'],
+      ['fog', 'foggy'],
+      ['haze', 'foggy'],
     ] as const) {
       const out = parseVisionJson(JSON.stringify({ ...VALID, weather: raw }));
       expect(out.weather).toBe(expected);
     }
   });
 
-  it("coerces time_of_day synonyms", () => {
+  it('coerces time_of_day synonyms', () => {
     for (const [raw, expected] of [
-      ["day", "midday"],
-      ["daytime", "midday"],
-      ["noon", "midday"],
-      ["dusk", "evening"],
-      ["dawn", "morning"],
-      ["sunset", "golden hour"],
-      ["midnight", "night"],
+      ['day', 'midday'],
+      ['daytime', 'midday'],
+      ['noon', 'midday'],
+      ['dusk', 'evening'],
+      ['dawn', 'morning'],
+      ['sunset', 'golden hour'],
+      ['midnight', 'night'],
     ] as const) {
       const out = parseVisionJson(JSON.stringify({ ...VALID, time_of_day: raw }));
       expect(out.time_of_day).toBe(expected);
     }
   });
 
-  it("coerces scene_type synonyms (static → mixed when qwen confuses it with shot_type)", () => {
-    const out = parseVisionJson(JSON.stringify({ ...VALID, scene_type: "static" }));
-    expect(out.scene_type).toBe("mixed");
+  it('coerces scene_type synonyms (static → mixed when qwen confuses it with shot_type)', () => {
+    const out = parseVisionJson(JSON.stringify({ ...VALID, scene_type: 'static' }));
+    expect(out.scene_type).toBe('mixed');
   });
 
-  it("coerces indoor_outdoor=unknown to outdoor (majority case)", () => {
-    const out = parseVisionJson(JSON.stringify({ ...VALID, indoor_outdoor: "unknown" }));
-    expect(out.indoor_outdoor).toBe("outdoor");
+  it('coerces composition synonyms when qwen emits shot_type values in the composition field', () => {
+    for (const [raw, expected] of [
+      ['action', 'candid'],
+      ['static', 'candid'],
+      ['posed', 'portrait'],
+      ['architectural', 'wide shot'],
+      ['nature', 'landscape'],
+      ['event', 'candid'],
+      // pre-existing synonyms still work
+      ['panorama', 'wide shot'],
+      ['closeup', 'close-up'],
+    ] as const) {
+      const out = parseVisionJson(JSON.stringify({ ...VALID, composition: raw }));
+      expect(out.composition).toBe(expected);
+    }
   });
 
-  it("defaults nullable enum fields when qwen returns null on featureless images", () => {
+  it('coerces indoor_outdoor=unknown to outdoor (majority case)', () => {
+    const out = parseVisionJson(JSON.stringify({ ...VALID, indoor_outdoor: 'unknown' }));
+    expect(out.indoor_outdoor).toBe('outdoor');
+  });
+
+  it('defaults nullable enum fields when qwen returns null on featureless images', () => {
     const v = {
       ...VALID,
       scene_type: null,
@@ -320,67 +347,67 @@ describe("parseVisionJson — rejection paths", () => {
       indoor_outdoor: null,
     };
     const out = parseVisionJson(JSON.stringify(v));
-    expect(out.scene_type).toBe("mixed");
-    expect(out.time_of_day).toBe("unknown");
-    expect(out.lighting).toBe("natural");
-    expect(out.weather).toBe("unknown");
-    expect(out.mood).toBe("neutral");
-    expect(out.composition).toBe("candid");
-    expect(out.shot_type).toBe("static");
-    expect(out.indoor_outdoor).toBe("outdoor");
+    expect(out.scene_type).toBe('mixed');
+    expect(out.time_of_day).toBe('unknown');
+    expect(out.lighting).toBe('natural');
+    expect(out.weather).toBe('unknown');
+    expect(out.mood).toBe('neutral');
+    expect(out.composition).toBe('candid');
+    expect(out.shot_type).toBe('static');
+    expect(out.indoor_outdoor).toBe('outdoor');
   });
 
-  it("preserves the reason taxonomy: non-string enum input is wrong-type, unmapped string is bad-enum", () => {
+  it('preserves the reason taxonomy: non-string enum input is wrong-type, unmapped string is bad-enum', () => {
     // Non-string for an enum field → wrong-type (the model gave us the
     // wrong shape entirely, not just a bad value).
     try {
       parseVisionJson(JSON.stringify({ ...VALID, scene_type: 42 }));
-      throw new Error("expected throw");
+      throw new Error('expected throw');
     } catch (e) {
       const err = e as VisionParseError;
-      expect(err.reason).toBe("wrong-type");
-      expect(err.field).toBe("scene_type");
+      expect(err.reason).toBe('wrong-type');
+      expect(err.field).toBe('scene_type');
     }
     // String that isn't in allowed and has no synonym → bad-enum.
     try {
-      parseVisionJson(JSON.stringify({ ...VALID, scene_type: "intergalactic" }));
-      throw new Error("expected throw");
+      parseVisionJson(JSON.stringify({ ...VALID, scene_type: 'intergalactic' }));
+      throw new Error('expected throw');
     } catch (e) {
       const err = e as VisionParseError;
-      expect(err.reason).toBe("bad-enum");
-      expect(err.field).toBe("scene_type");
+      expect(err.reason).toBe('bad-enum');
+      expect(err.field).toBe('scene_type');
     }
   });
 
   it("preserves multi-word enum values that contain spaces ('golden hour')", () => {
-    const out = parseVisionJson(JSON.stringify({ ...VALID, time_of_day: "golden hour" }));
-    expect(out.time_of_day).toBe("golden hour");
+    const out = parseVisionJson(JSON.stringify({ ...VALID, time_of_day: 'golden hour' }));
+    expect(out.time_of_day).toBe('golden hour');
   });
 
-  it("trims + lowercases enum strings before lookup", () => {
-    const out = parseVisionJson(JSON.stringify({ ...VALID, weather: "  CLEAR  " }));
-    expect(out.weather).toBe("clear");
+  it('trims + lowercases enum strings before lookup', () => {
+    const out = parseVisionJson(JSON.stringify({ ...VALID, weather: '  CLEAR  ' }));
+    expect(out.weather).toBe('clear');
   });
 });
 
-describe("prompt ↔ parser cross-check", () => {
+describe('prompt ↔ parser cross-check', () => {
   const REQUIRED_KEYS = [
-    "caption",
-    "subjects",
-    "scene_type",
-    "setting",
-    "activity",
-    "time_of_day",
-    "lighting",
-    "weather",
-    "mood",
-    "colors",
-    "composition",
-    "text_visible",
-    "notable_objects",
-    "shot_type",
-    "indoor_outdoor",
-    "is_screenshot",
+    'caption',
+    'subjects',
+    'scene_type',
+    'setting',
+    'activity',
+    'time_of_day',
+    'lighting',
+    'weather',
+    'mood',
+    'colors',
+    'composition',
+    'text_visible',
+    'notable_objects',
+    'shot_type',
+    'indoor_outdoor',
+    'is_screenshot',
   ] as const;
 
   for (const key of REQUIRED_KEYS) {
@@ -391,29 +418,26 @@ describe("prompt ↔ parser cross-check", () => {
     });
   }
 
-  it("DESCRIBE_VISION_PROMPT_VERSION is 3 (post-is_screenshot)", () => {
+  it('DESCRIBE_VISION_PROMPT_VERSION is 3 (post-is_screenshot)', () => {
     expect(DESCRIBE_VISION_PROMPT_VERSION).toBe(3);
   });
 });
 
-describe("parseVisionJson — every enum is honoured", () => {
+describe('parseVisionJson — every enum is honoured', () => {
   const enumCases: ReadonlyArray<[keyof typeof VALID, readonly string[]]> = [
-    ["scene_type", ["indoor", "outdoor", "aerial", "macro", "studio", "mixed"]],
+    ['scene_type', ['indoor', 'outdoor', 'aerial', 'macro', 'studio', 'mixed']],
     [
-      "time_of_day",
-      ["morning", "midday", "afternoon", "golden hour", "evening", "night", "unknown"],
+      'time_of_day',
+      ['morning', 'midday', 'afternoon', 'golden hour', 'evening', 'night', 'unknown'],
     ],
-    ["lighting", ["natural", "artificial", "mixed", "low-light", "backlit", "flash"]],
-    ["weather", ["clear", "cloudy", "rainy", "snowy", "foggy", "indoor", "unknown"]],
+    ['lighting', ['natural', 'artificial', 'mixed', 'low-light', 'backlit', 'flash']],
+    ['weather', ['clear', 'cloudy', 'rainy', 'snowy', 'foggy', 'indoor', 'unknown']],
     [
-      "composition",
-      ["wide shot", "close-up", "portrait", "landscape", "aerial", "macro", "candid"],
+      'composition',
+      ['wide shot', 'close-up', 'portrait', 'landscape', 'aerial', 'macro', 'candid'],
     ],
-    [
-      "shot_type",
-      ["action", "static", "candid", "posed", "architectural", "nature", "event"],
-    ],
-    ["indoor_outdoor", ["indoor", "outdoor"]],
+    ['shot_type', ['action', 'static', 'candid', 'posed', 'architectural', 'nature', 'event']],
+    ['indoor_outdoor', ['indoor', 'outdoor']],
   ];
 
   for (const [field, allowed] of enumCases) {

@@ -29,26 +29,27 @@
  * Spec: `.archived-plans/specs/2026-05-19-qwen-vision-ocr-design.md`.
  */
 
-import { readFile } from "node:fs/promises";
-import type { ImageDoc, StageContext, StageResult } from "../run-stage.ts";
-import { defineStage, runStage, type RunStageHandle } from "../run-stage.ts";
-import { cachePathFor } from "../../fs/xmp.ts";
+import { readFile } from 'node:fs/promises';
+import type { ImageDoc, StageContext, StageResult } from '../run-stage.ts';
+import { defineStage, runStage, type RunStageHandle } from '../run-stage.ts';
+import { cachePathFor } from '../../fs/xmp.ts';
 import {
   type DescribeProvider,
   getDescribeProvider,
-} from "../../enrichment/describe-providers/index.ts";
+} from '../../enrichment/describe-providers/index.ts';
 import {
   loadEnrichmentConfig,
   resolveEnrichmentConfig,
   DEFAULT_DESCRIBE_VISION_PROMPT,
   DESCRIBE_VISION_PROMPT_VERSION,
   QWEN_VL_OLLAMA_TAG,
-} from "../../enrichment/enrichment-config.repo.ts";
+} from '../../enrichment/enrichment-config.repo.ts';
 import {
   parseVisionJson,
   strippedRawFor,
-} from "../../enrichment/describe-providers/parse-vision-json.ts";
-import { PREVIEW_SIZE_KEY } from "../../indexer/previewer.ts";
+  VISION_DOC_JSON_SCHEMA,
+} from '../../enrichment/describe-providers/parse-vision-json.ts';
+import { PREVIEW_SIZE_KEY } from '../../indexer/previewer.ts';
 
 /**
  * Prompt version stamped on both `description_meta.prompt_version` and
@@ -83,7 +84,7 @@ async function getDeps(): Promise<DescribeDeps> {
   // / `describe_model` / `describe_system_prompt` values in the DB row are
   // ignored — kept on the type only so older config docs don't error on
   // parse.
-  const provider = getDescribeProvider("ollama", {
+  const provider = getDescribeProvider('ollama', {
     url: cfg.describe_provider_url,
   });
   _deps = {
@@ -107,29 +108,35 @@ export function setDescribeDepsForTests(deps: DescribeDeps | null): void {
   _deps = deps;
 }
 
-export async function describeHandler(
-  image: ImageDoc,
-  _ctx: StageContext,
-): Promise<StageResult> {
+export async function describeHandler(image: ImageDoc, _ctx: StageContext): Promise<StageResult> {
   const { provider, systemPrompt, model } = await getDeps();
 
   // 1280-px preview — VLMs need more pixels than the 512-px thumb to read
   // signs and small subjects. The preview stage produces this artefact;
   // its absence means either the preview stage hasn't run yet (DAG bug)
   // or the source asset has gone missing.
-  const previewPath = cachePathFor(image.abs_path as string, "previews", PREVIEW_SIZE_KEY);
+  const previewPath = cachePathFor(image.abs_path as string, 'previews', PREVIEW_SIZE_KEY);
   let jpegBytes: Buffer;
   try {
     jpegBytes = await readFile(previewPath);
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code;
-    if (code === "ENOENT") {
-      return { skip: "preview-missing" };
+    if (code === 'ENOENT') {
+      return { skip: 'preview-missing' };
     }
     throw err;
   }
 
-  const result = await provider.describe(jpegBytes, { systemPrompt, model });
+  const result = await provider.describe(jpegBytes, {
+    systemPrompt,
+    model,
+    // Constrain Ollama's output to the VisionDoc schema. Ollama 0.5+
+    // enforces this at decode time, so the model cannot emit out-of-enum
+    // values, drop required fields, or produce malformed JSON. The
+    // parse-vision-json synonym maps stay as defense in depth for older
+    // Ollama versions and edge cases.
+    format: VISION_DOC_JSON_SCHEMA,
+  });
 
   // Strict parse — throws VisionParseError on malformed output. The runtime
   // dead-letters the row after maxAttempts; operators triage via
@@ -139,7 +146,7 @@ export async function describeHandler(
   const now = new Date().toISOString();
   // Measure post-fence-strip so the recorded size matches what the parser
   // actually consumed, per VisionMeta.raw_response_size contract.
-  const rawResponseSize = Buffer.byteLength(strippedRawFor(result.text), "utf8");
+  const rawResponseSize = Buffer.byteLength(strippedRawFor(result.text), 'utf8');
 
   const patch: Record<string, unknown> = {
     // Free-text caption mirror — legacy clients still read `description`.
@@ -171,9 +178,9 @@ export async function describeHandler(
   // OCR mirror: the structured vision pass extracts visible text as part
   // of captioning, so we populate ocr_text from vision.text_visible. qwen2.5-vl
   // is the sole OCR source; the engine field is always the literal "qwen2.5-vl".
-  patch.ocr_text = vision.text_visible ?? "";
+  patch.ocr_text = vision.text_visible ?? '';
   patch.ocr_meta = {
-    engine: "qwen2.5-vl",
+    engine: 'qwen2.5-vl',
     engine_version: model,
     generated_at: now,
     // qwen2.5-vl has no per-token confidence the way a classic OCR engine does.
@@ -184,7 +191,7 @@ export async function describeHandler(
 }
 
 const describeStage = defineStage({
-  name: "describe",
+  name: 'describe',
   // v2: structured JSON output via DEFAULT_DESCRIBE_VISION_PROMPT, reads
   // the 1280-px preview, populates `vision` + `vision_meta`. v1 produced
   // free-text descriptions from `llava` against the 512-px thumb — bumping
@@ -204,7 +211,7 @@ const describeStage = defineStage({
   // but were dead-lettered at re-run; bumping forces every v3 row to
   // re-attempt with the relaxed parser.
   targetVersion: 4,
-  dependsOn: ["preview"],
+  dependsOn: ['preview'],
   defaults: {
     concurrency: 2,
     pollIntervalMs: 1000,

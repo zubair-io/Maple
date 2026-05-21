@@ -6,15 +6,10 @@
  *   MAPLE_MONGO_DB   — database name (default: maple)
  */
 
-import {
-  MongoClient,
-  type Db,
-  type Collection,
-  ServerApiVersion,
-} from "mongodb";
-import { child as childLogger } from "../log.ts";
-import { searchBlobUpdateExpression } from "../enrichment/search-blob.ts";
-import { migrationApplied, recordMigration } from "./migrations.ts";
+import { MongoClient, type Db, type Collection, ServerApiVersion } from 'mongodb';
+import { child as childLogger } from '../log.ts';
+import { searchBlobUpdateExpression } from '../enrichment/search-blob.ts';
+import { migrationApplied, recordMigration } from './migrations.ts';
 import type {
   FolderDoc,
   AssetDoc,
@@ -32,10 +27,10 @@ import type {
   UploadSessionDoc,
   AssetChangeDoc,
   ServerStateDoc,
-} from "./schema.ts";
-import type { WorkerConfigDoc } from "../workers/worker-config.repo.ts";
+} from './schema.ts';
+import type { WorkerConfigDoc } from '../workers/worker-config.repo.ts';
 
-const log = childLogger("db");
+const log = childLogger('db');
 
 // Singleton client; created once on first call to getDb().
 let _client: MongoClient | null = null;
@@ -54,8 +49,8 @@ export async function getDb(): Promise<Db> {
   if (_db) return _db;
   if (_connectPromise) return _connectPromise;
 
-  const uri = process.env.MAPLE_MONGO_URI ?? "mongodb://localhost:27017";
-  const dbName = process.env.MAPLE_MONGO_DB ?? "maple";
+  const uri = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
+  const dbName = process.env.MAPLE_MONGO_DB ?? 'maple';
 
   _connectPromise = (async () => {
     const client = new MongoClient(uri, {
@@ -71,8 +66,8 @@ export async function getDb(): Promise<Db> {
     try {
       await client.connect();
       // Ping to verify the connection is live.
-      await client.db("admin").command({ ping: 1 });
-      log.info({ uri }, "connected to MongoDB");
+      await client.db('admin').command({ ping: 1 });
+      log.info({ uri }, 'connected to MongoDB');
       _client = client;
       _db = client.db(dbName);
       return _db;
@@ -96,100 +91,78 @@ export function isDbConnected(): boolean {
 
 /** Typed collection helpers. */
 export async function foldersCollection(): Promise<Collection<FolderDoc>> {
-  return (await getDb()).collection<FolderDoc>("folders");
+  return (await getDb()).collection<FolderDoc>('folders');
 }
 
 export async function assetsCollection(): Promise<Collection<AssetDoc>> {
-  return (await getDb()).collection<AssetDoc>("assets");
+  return (await getDb()).collection<AssetDoc>('assets');
 }
 
-export async function geocodeCacheCollection(): Promise<
-  Collection<GeocodeCacheDoc>
-> {
-  return (await getDb()).collection<GeocodeCacheDoc>("geocode_cache");
+export async function geocodeCacheCollection(): Promise<Collection<GeocodeCacheDoc>> {
+  return (await getDb()).collection<GeocodeCacheDoc>('geocode_cache');
 }
 
-export async function indexerQueueCollection(): Promise<
-  Collection<IndexerTaskDoc>
-> {
-  return (await getDb()).collection<IndexerTaskDoc>("indexer_queue");
+export async function indexerQueueCollection(): Promise<Collection<IndexerTaskDoc>> {
+  return (await getDb()).collection<IndexerTaskDoc>('indexer_queue');
 }
 
 export async function jobsCollection(): Promise<Collection<JobDoc>> {
-  return (await getDb()).collection<JobDoc>("jobs");
+  return (await getDb()).collection<JobDoc>('jobs');
 }
 
-export async function stageHandlersCollection(): Promise<
-  Collection<StageHandlerDoc>
-> {
-  return (await getDb()).collection<StageHandlerDoc>("stage_handlers");
+export async function stageHandlersCollection(): Promise<Collection<StageHandlerDoc>> {
+  return (await getDb()).collection<StageHandlerDoc>('stage_handlers');
 }
 
 export async function usersCollection(): Promise<Collection<UserDoc>> {
-  return (await getDb()).collection<UserDoc>("users");
+  return (await getDb()).collection<UserDoc>('users');
 }
-export async function credentialsCollection(): Promise<
-  Collection<CredentialDoc>
-> {
-  return (await getDb()).collection<CredentialDoc>("credentials");
+export async function credentialsCollection(): Promise<Collection<CredentialDoc>> {
+  return (await getDb()).collection<CredentialDoc>('credentials');
 }
 export async function invitesCollection(): Promise<Collection<InviteDoc>> {
-  return (await getDb()).collection<InviteDoc>("invites");
+  return (await getDb()).collection<InviteDoc>('invites');
 }
-export async function refreshTokensCollection(): Promise<
-  Collection<RefreshTokenDoc>
-> {
-  return (await getDb()).collection<RefreshTokenDoc>("refresh_tokens");
+export async function refreshTokensCollection(): Promise<Collection<RefreshTokenDoc>> {
+  return (await getDb()).collection<RefreshTokenDoc>('refresh_tokens');
 }
-export async function challengesCollection(): Promise<
-  Collection<ChallengeDoc>
-> {
-  return (await getDb()).collection<ChallengeDoc>("challenges");
+export async function challengesCollection(): Promise<Collection<ChallengeDoc>> {
+  return (await getDb()).collection<ChallengeDoc>('challenges');
 }
 export async function peopleCollection(): Promise<Collection<PersonDoc>> {
-  return (await getDb()).collection<PersonDoc>("people");
+  return (await getDb()).collection<PersonDoc>('people');
 }
 
-export async function workerConfigCollection(): Promise<
-  Collection<WorkerConfigDoc>
-> {
-  return (await getDb()).collection<WorkerConfigDoc>("worker_config");
+export async function workerConfigCollection(): Promise<Collection<WorkerConfigDoc>> {
+  return (await getDb()).collection<WorkerConfigDoc>('worker_config');
 }
 
-export async function backupSessionsCollection(): Promise<
-  Collection<BackupSessionDoc>
-> {
-  return (await getDb()).collection<BackupSessionDoc>("backup_sessions");
+export async function backupSessionsCollection(): Promise<Collection<BackupSessionDoc>> {
+  return (await getDb()).collection<BackupSessionDoc>('backup_sessions');
 }
 
-export async function uploadSessionsCollection(): Promise<
-  Collection<UploadSessionDoc>
-> {
-  return (await getDb()).collection<UploadSessionDoc>("upload_sessions");
+export async function uploadSessionsCollection(): Promise<Collection<UploadSessionDoc>> {
+  return (await getDb()).collection<UploadSessionDoc>('upload_sessions');
 }
 
-export async function assetChangesCollection(): Promise<
-  Collection<AssetChangeDoc>
-> {
-  return (await getDb()).collection<AssetChangeDoc>("asset_changes");
+export async function assetChangesCollection(): Promise<Collection<AssetChangeDoc>> {
+  return (await getDb()).collection<AssetChangeDoc>('asset_changes');
 }
 
-export async function serverStateCollection(): Promise<
-  Collection<ServerStateDoc>
-> {
-  return (await getDb()).collection<ServerStateDoc>("server_state");
+export async function serverStateCollection(): Promise<Collection<ServerStateDoc>> {
+  return (await getDb()).collection<ServerStateDoc>('server_state');
 }
 
 /** Stage names whose claim-query indexes are created at startup. */
 const WORKER_STAGE_NAMES = [
-  "hash",
-  "exif",
-  "thumb",
-  "preview",
-  "face",
-  "describe",
-  "geocode",
-  "meili",
+  'hash',
+  'exif',
+  'thumb',
+  'preview',
+  'face',
+  'describe',
+  'geocode',
+  'meili',
 ] as const;
 
 /**
@@ -219,10 +192,8 @@ export async function ensureStageIndexes(db: Db): Promise<void> {
   // One round-trip to read all existing index specs. We use this below to
   // decide whether any stage_<name>_version index needs to be dropped before
   // recreation (only when it still carries the old partialFilterExpression).
-  const existingIndexes = await db.collection("assets").indexes();
-  const indexByName = new Map(
-    existingIndexes.map((i) => [i.name as string, i]),
-  );
+  const existingIndexes = await db.collection('assets').indexes();
+  const indexByName = new Map(existingIndexes.map((i) => [i.name as string, i]));
 
   for (const name of WORKER_STAGE_NAMES) {
     const versionIndexName = `stage_${name}_version`;
@@ -234,24 +205,23 @@ export async function ensureStageIndexes(db: Db): Promise<void> {
       // excluded docs where `dead` is missing, which caused collection scans
       // for freshly-indexed assets. The unconstrained index fixes that.
       try {
-        await db.collection("assets").dropIndex(versionIndexName);
+        await db.collection('assets').dropIndex(versionIndexName);
       } catch {
         // IndexNotFound is fine — another process may have already dropped it.
       }
     }
     // createIndex is a fast no-op when the index already exists with identical
     // options, so we always call it regardless of whether we just dropped.
-    await db.collection("assets").createIndex(
-      { [`stages.${name}.version`]: 1 },
-      { name: versionIndexName },
-    );
+    await db
+      .collection('assets')
+      .createIndex({ [`stages.${name}.version`]: 1 }, { name: versionIndexName });
 
     // Tiny partial index on dead-lettered docs. Powers the dead-count branch
     // of GET /api/workers/status — countDocuments({ stages.<name>.dead: true })
     // becomes a count of index entries instead of a full collection scan.
     // The partial filter keeps the index size proportional to the (small)
     // set of dead docs, not the whole collection.
-    await db.collection("assets").createIndex(
+    await db.collection('assets').createIndex(
       { [`stages.${name}.dead`]: 1 },
       {
         name: `stage_${name}_dead`,
@@ -265,9 +235,9 @@ export async function ensureStageIndexes(db: Db): Promise<void> {
  * Brings a dead-lettered row back to the un-attempted state so the next
  * poll-tick of the describe stage picks it up. */
 const RESET_DESCRIBE_DEAD_SET = {
-  "stages.describe.dead": false,
-  "stages.describe.attempts": 0,
-  "stages.describe.last_error": null,
+  'stages.describe.dead': false,
+  'stages.describe.attempts': 0,
+  'stages.describe.last_error': null,
 } as const;
 
 /**
@@ -285,29 +255,29 @@ export async function ensureIndexes(): Promise<void> {
   // keys + docs = 3.6s / 1GB read in the user's library; see
   // mongod.log evidence in PR body). After the first successful boot
   // post-deploy this branch is skipped entirely.
-  if (!(await migrationApplied(db, "exif-captured-year-month-backfill"))) {
+  if (!(await migrationApplied(db, 'exif-captured-year-month-backfill'))) {
     try {
-      const res = await db.collection("assets").updateMany(
+      const res = await db.collection('assets').updateMany(
         {
-          "exif.captured_at": { $ne: null, $exists: true },
-          "exif.captured_year": { $exists: false },
+          'exif.captured_at': { $ne: null, $exists: true },
+          'exif.captured_year': { $exists: false },
         },
         [
           {
             $set: {
-              "exif.captured_year": {
+              'exif.captured_year': {
                 $year: {
                   $dateFromString: {
-                    dateString: "$exif.captured_at",
+                    dateString: '$exif.captured_at',
                     onError: null,
                     onNull: null,
                   },
                 },
               },
-              "exif.captured_month": {
+              'exif.captured_month': {
                 $month: {
                   $dateFromString: {
-                    dateString: "$exif.captured_at",
+                    dateString: '$exif.captured_at',
                     onError: null,
                     onNull: null,
                   },
@@ -317,15 +287,8 @@ export async function ensureIndexes(): Promise<void> {
           },
         ],
       );
-      await recordMigration(
-        db,
-        "exif-captured-year-month-backfill",
-        res.modifiedCount,
-      );
-      log.info(
-        { rows: res.modifiedCount },
-        "applied exif.captured_year/month backfill",
-      );
+      await recordMigration(db, 'exif-captured-year-month-backfill', res.modifiedCount);
+      log.info({ rows: res.modifiedCount }, 'applied exif.captured_year/month backfill');
     } catch (err) {
       // Log + continue — the index build below still works against rows
       // that have year/month from the indexer's per-file path, the perf
@@ -334,7 +297,7 @@ export async function ensureIndexes(): Promise<void> {
       // boot will retry, which is the right behaviour for transient errors.
       log.warn(
         { err: err instanceof Error ? err.message : err },
-        "captured_year/month backfill skipped",
+        'captured_year/month backfill skipped',
       );
     }
   }
@@ -344,25 +307,21 @@ export async function ensureIndexes(): Promise<void> {
   // tightened-then-relaxed by the tolerant-vision-parser change. The
   // parser now coerces the variants qwen2.5-vl actually emits, so these
   // rows can be re-attempted. One-shot, gated on `migrations`.
-  if (!(await migrationApplied(db, "reset-describe-dead-vision-parse-2026-05-20"))) {
+  if (!(await migrationApplied(db, 'reset-describe-dead-vision-parse-2026-05-20'))) {
     try {
-      const res = await db.collection("assets").updateMany(
+      const res = await db.collection('assets').updateMany(
         {
-          "stages.describe.dead": true,
-          "stages.describe.last_error": {
-            $regex: "vision-parse\\[wrong-type:(is_screenshot|text_visible)\\]",
+          'stages.describe.dead': true,
+          'stages.describe.last_error': {
+            $regex: 'vision-parse\\[wrong-type:(is_screenshot|text_visible)\\]',
           },
         },
         { $set: RESET_DESCRIBE_DEAD_SET },
       );
-      await recordMigration(
-        db,
-        "reset-describe-dead-vision-parse-2026-05-20",
-        res.modifiedCount,
-      );
+      await recordMigration(db, 'reset-describe-dead-vision-parse-2026-05-20', res.modifiedCount);
       log.info(
         { rows: res.modifiedCount },
-        "reset describe-stage dead rows with parse-error reasons",
+        'reset describe-stage dead rows with parse-error reasons',
       );
     } catch (err) {
       // Log + continue. Operators can also click "Retry dead" in the
@@ -370,7 +329,7 @@ export async function ensureIndexes(): Promise<void> {
       // the migration eligible for next boot.
       log.warn(
         { err: err instanceof Error ? err.message : err },
-        "describe dead-reset migration skipped",
+        'describe dead-reset migration skipped',
       );
     }
   }
@@ -384,39 +343,68 @@ export async function ensureIndexes(): Promise<void> {
   // match anchored to the exact bracketed-reason form so unrelated
   // failure modes (e.g. `bad-enum:future_field`) don't get reset by
   // mistake. One-shot.
-  if (!(await migrationApplied(db, "reset-describe-dead-vision-parse-2026-05-21"))) {
+  if (!(await migrationApplied(db, 'reset-describe-dead-vision-parse-2026-05-21'))) {
     try {
-      const enumFields = "scene_type|time_of_day|lighting|weather|composition|shot_type|indoor_outdoor";
-      const nullableFields = "subjects|colors|notable_objects|time_of_day|scene_type|lighting|weather|mood|composition|shot_type|indoor_outdoor";
-      const res = await db.collection("assets").updateMany(
+      const enumFields =
+        'scene_type|time_of_day|lighting|weather|composition|shot_type|indoor_outdoor';
+      const nullableFields =
+        'subjects|colors|notable_objects|time_of_day|scene_type|lighting|weather|mood|composition|shot_type|indoor_outdoor';
+      const res = await db.collection('assets').updateMany(
         {
-          "stages.describe.dead": true,
-          "stages.describe.last_error": {
-            $regex:
-              `vision-parse\\[(bad-enum:(${enumFields})|wrong-type:(${nullableFields}))\\]`,
+          'stages.describe.dead': true,
+          'stages.describe.last_error': {
+            $regex: `vision-parse\\[(bad-enum:(${enumFields})|wrong-type:(${nullableFields}))\\]`,
           },
         },
         { $set: RESET_DESCRIBE_DEAD_SET },
       );
-      await recordMigration(
-        db,
-        "reset-describe-dead-vision-parse-2026-05-21",
-        res.modifiedCount,
-      );
+      await recordMigration(db, 'reset-describe-dead-vision-parse-2026-05-21', res.modifiedCount);
       log.info(
         { rows: res.modifiedCount },
-        "reset describe-stage dead rows with enum / null parse-error reasons",
+        'reset describe-stage dead rows with enum / null parse-error reasons',
       );
     } catch (err) {
       log.warn(
         { err: err instanceof Error ? err.message : err },
-        "describe enum-dead-reset migration skipped",
+        'describe enum-dead-reset migration skipped',
+      );
+    }
+  }
+
+  // Reset describe-stage dead rows whose dead-letter reason was ANY vision
+  // parse failure. The Ollama provider now sends a JSON Schema via the
+  // `format` parameter, which constrains decoding so the model cannot emit
+  // out-of-enum values, drop required fields, or produce malformed JSON
+  // — every prior vision-parse[*] error class is structurally impossible
+  // on Ollama 0.5+. Re-attempting these rows through the constrained path
+  // should clear the dead-letter backlog. Match is broad (any `vision-parse[`
+  // prefix) so the never-resolved `not-json` rows from #186 get picked up
+  // alongside the `bad-enum` / `wrong-type` patterns the previous migration
+  // covered. One-shot.
+  if (!(await migrationApplied(db, 'reset-describe-dead-vision-parse-2026-05-22'))) {
+    try {
+      const res = await db.collection('assets').updateMany(
+        {
+          'stages.describe.dead': true,
+          'stages.describe.last_error': { $regex: 'vision-parse\\[' },
+        },
+        { $set: RESET_DESCRIBE_DEAD_SET },
+      );
+      await recordMigration(db, 'reset-describe-dead-vision-parse-2026-05-22', res.modifiedCount);
+      log.info(
+        { rows: res.modifiedCount },
+        'reset describe-stage dead rows for constrained-decoding retry',
+      );
+    } catch (err) {
+      log.warn(
+        { err: err instanceof Error ? err.message : err },
+        'describe constrained-decoding dead-reset migration skipped',
       );
     }
   }
 
   // folders: path is unique
-  await db.collection("folders").createIndex({ path: 1 }, { unique: true });
+  await db.collection('folders').createIndex({ path: 1 }, { unique: true });
 
   // assets: non-unique compound index on (folder_id, filename) for query
   // performance only. The uniqueness constraint was dropped — same-filename
@@ -435,27 +423,27 @@ export async function ensureIndexes(): Promise<void> {
   // (no pre-existing index to drop), so swallow the error.
   let assetIndexes: { name?: unknown; unique?: unknown; partialFilterExpression?: unknown }[] = [];
   try {
-    assetIndexes = (await db.collection("assets").indexes()) as typeof assetIndexes;
+    assetIndexes = (await db.collection('assets').indexes()) as typeof assetIndexes;
   } catch (err) {
     const code = (err as { code?: number } | null)?.code;
     if (code !== 26) throw err;
   }
   const existingFolderFilenameIdx = assetIndexes.find(
     (i) =>
-      (i.name as string) === "folder_id_1_filename_1" &&
+      (i.name as string) === 'folder_id_1_filename_1' &&
       ((i as { unique?: unknown }).unique === true ||
         (i as { partialFilterExpression?: unknown }).partialFilterExpression),
   );
   if (existingFolderFilenameIdx) {
     try {
-      await db.collection("assets").dropIndex("folder_id_1_filename_1");
+      await db.collection('assets').dropIndex('folder_id_1_filename_1');
     } catch {
       // IndexNotFound is fine — another process may have already dropped.
     }
   }
-  await db.collection("assets").createIndex({ folder_id: 1, filename: 1 });
-  await db.collection("assets").createIndex({ mtime: 1 }, { sparse: true });
-  await db.collection("assets").createIndex({ folder_id: 1 });
+  await db.collection('assets').createIndex({ folder_id: 1, filename: 1 });
+  await db.collection('assets').createIndex({ mtime: 1 }, { sparse: true });
+  await db.collection('assets').createIndex({ folder_id: 1 });
 
   // Trash-GC sweeper queries `{ deleted_at: { $lt: cutoffIso, $ne: null } }`
   // every interval (and once on boot). Without this index the find is a
@@ -467,11 +455,11 @@ export async function ensureIndexes(): Promise<void> {
   // the field), so `$exists: true` would index the entire collection.
   // `$type: "string"` narrows the index to actual ISO-string values, i.e.
   // the small set of trashed rows that the GC actually iterates.
-  await db.collection("assets").createIndex(
+  await db.collection('assets').createIndex(
     { deleted_at: 1 },
     {
-      name: "deleted_at_1",
-      partialFilterExpression: { deleted_at: { $type: "string" } },
+      name: 'deleted_at_1',
+      partialFilterExpression: { deleted_at: { $type: 'string' } },
     },
   );
 
@@ -481,37 +469,30 @@ export async function ensureIndexes(): Promise<void> {
   // to $regex (no $text) without a sequential scan when there are
   // alphanumeric ranges/wildcards involved. Sparse where the field is
   // optional so old rows without EXIF don't bloat the index.
+  await db.collection('assets').createIndex({ 'exif.captured_at': -1 }, { sparse: true });
   await db
-    .collection("assets")
-    .createIndex({ "exif.captured_at": -1 }, { sparse: true });
-  await db
-    .collection("assets")
-    .createIndex(
-      { "exif.camera_make": 1, "exif.camera_model": 1 },
-      { sparse: true },
-    );
-  await db
-    .collection("assets")
-    .createIndex({ "exif.lens": 1 }, { sparse: true });
+    .collection('assets')
+    .createIndex({ 'exif.camera_make': 1, 'exif.camera_model': 1 }, { sparse: true });
+  await db.collection('assets').createIndex({ 'exif.lens': 1 }, { sparse: true });
   // Anchored-prefix regex on abs_path is used by /api/search?pathPrefix=...
   // (Timeline view). Without this index, every prefix query is a coll scan.
-  await db.collection("assets").createIndex({ abs_path: 1 });
+  await db.collection('assets').createIndex({ abs_path: 1 });
   // Compound index for the timeline buckets endpoint. Lets Mongo answer
   // `match abs_path prefix → group by year+month` from the index alone
   // (no fetch of doc bodies). The partialFilterExpression scopes it to
   // live + timed rows, which is the only use case — keeps the index
   // small even on libraries with many soft-deleted or untimed assets.
-  await db.collection("assets").createIndex(
+  await db.collection('assets').createIndex(
     {
       abs_path: 1,
-      "exif.captured_year": -1,
-      "exif.captured_month": -1,
+      'exif.captured_year': -1,
+      'exif.captured_month': -1,
     },
     {
-      name: "abs_path_captured_year_month",
+      name: 'abs_path_captured_year_month',
       partialFilterExpression: {
         deleted_at: null,
-        "exif.captured_year": { $exists: true },
+        'exif.captured_year': { $exists: true },
       },
     },
   );
@@ -532,12 +513,12 @@ export async function ensureIndexes(): Promise<void> {
   // the second insert with E11000. `$type: "string"` narrows the index to
   // real hash values, which is exactly the set the unique constraint needs
   // to police.
-  await db.collection("assets").createIndex(
+  await db.collection('assets').createIndex(
     { maple_id: 1 },
     {
-      name: "maple_id_1",
+      name: 'maple_id_1',
       unique: true,
-      partialFilterExpression: { maple_id: { $type: "string" } },
+      partialFilterExpression: { maple_id: { $type: 'string' } },
     },
   );
 
@@ -547,10 +528,10 @@ export async function ensureIndexes(): Promise<void> {
   // collation-folds and falls back to a collection scan; Phase 3's text
   // index sits on `place.search_blob` (Mongo allows only ONE text index per
   // collection, and the place search is the user-visible surface).
-  await db.collection("assets").createIndex({ filename: 1 });
+  await db.collection('assets').createIndex({ filename: 1 });
 
   // indexer_queue: status for fast pending-task lookups
-  await db.collection("indexer_queue").createIndex({ status: 1 });
+  await db.collection('indexer_queue').createIndex({ status: 1 });
 
   // jobs (JobRunner) — claim filter is
   //   { status: "queued",
@@ -559,17 +540,11 @@ export async function ensureIndexes(): Promise<void> {
   // covers status + lease_expires_at; the kind/created_at index keeps the
   // list view stable when callers filter by kind.
   await db
-    .collection("jobs")
-    .createIndex(
-      { status: 1, lease_expires_at: 1 },
-      { name: "jobs_claim" },
-    );
+    .collection('jobs')
+    .createIndex({ status: 1, lease_expires_at: 1 }, { name: 'jobs_claim' });
   await db
-    .collection("jobs")
-    .createIndex(
-      { kind: 1, status: 1, created_at: -1 },
-      { name: "jobs_list" },
-    );
+    .collection('jobs')
+    .createIndex({ kind: 1, status: 1, created_at: -1 }, { name: 'jobs_list' });
 
   // Geocode worker — claim query is:
   //   { exif.gps.lat: $ne null, enrichment.geocode.done_at: null,
@@ -577,21 +552,21 @@ export async function ensureIndexes(): Promise<void> {
   // The compound index covers the equality + range portion; sort by
   // captured_at takes the existing exif.captured_at index.
   // `docs/indexer-enrichment.md` §3.1.
-  await db.collection("assets").createIndex(
+  await db.collection('assets').createIndex(
     {
-      "exif.gps.lat": 1,
-      "enrichment.geocode.done_at": 1,
-      "enrichment.geocode.locked_by": 1,
+      'exif.gps.lat': 1,
+      'enrichment.geocode.done_at': 1,
+      'enrichment.geocode.locked_by': 1,
     },
-    { name: "geocode_claim", sparse: true },
+    { name: 'geocode_claim', sparse: true },
   );
 
   // geocode_cache: documents are keyed by quantised lat/lon so the _id is
   // already a unique index. Add a covering index on geocoder_version so the
   // §7.3 versioned-rerun bulk update can find stale entries quickly.
   await db
-    .collection("geocode_cache")
-    .createIndex({ geocoder_version: 1 }, { name: "geocoder_version" });
+    .collection('geocode_cache')
+    .createIndex({ geocoder_version: 1 }, { name: 'geocoder_version' });
 
   // ── Phase 3: search ──────────────────────────────────────────────────
   // `docs/indexer-enrichment.md` §5.
@@ -611,20 +586,17 @@ export async function ensureIndexes(): Promise<void> {
   //
   // We scope to live + place-bearing rows so the update doesn't churn
   // every soft-deleted or never-geocoded asset.
-  if (!(await migrationApplied(db, "place-search-blob-backfill"))) {
+  if (!(await migrationApplied(db, 'place-search-blob-backfill'))) {
     try {
-      const res = await db.collection("assets").updateMany(
+      const res = await db.collection('assets').updateMany(
         {
           place: { $ne: null },
-          $or: [
-            { "place.search_blob": "" },
-            { "place.search_blob": { $exists: false } },
-          ],
+          $or: [{ 'place.search_blob': '' }, { 'place.search_blob': { $exists: false } }],
         },
         [
           {
             $set: {
-              "place.search_blob": {
+              'place.search_blob': {
                 $let: {
                   vars: {
                     // Address values, lowercased. Concat into one string and
@@ -633,29 +605,29 @@ export async function ensureIndexes(): Promise<void> {
                     addressTokens: {
                       $reduce: {
                         input: [
-                          "$place.address.house_number",
-                          "$place.address.road",
-                          "$place.address.neighbourhood",
-                          "$place.address.suburb",
-                          "$place.address.city",
-                          "$place.address.town",
-                          "$place.address.village",
-                          "$place.address.county",
-                          "$place.address.state",
-                          "$place.address.state_code",
-                          "$place.address.postcode",
-                          "$place.address.country",
-                          "$place.address.country_code",
+                          '$place.address.house_number',
+                          '$place.address.road',
+                          '$place.address.neighbourhood',
+                          '$place.address.suburb',
+                          '$place.address.city',
+                          '$place.address.town',
+                          '$place.address.village',
+                          '$place.address.county',
+                          '$place.address.state',
+                          '$place.address.state_code',
+                          '$place.address.postcode',
+                          '$place.address.country',
+                          '$place.address.country_code',
                         ],
                         initialValue: [] as string[],
                         in: {
                           $concatArrays: [
-                            "$$value",
+                            '$$value',
                             {
                               $cond: [
-                                { $ifNull: ["$$this", false] },
+                                { $ifNull: ['$$this', false] },
                                 {
-                                  $split: [{ $toLower: "$$this" }, " "],
+                                  $split: [{ $toLower: '$$this' }, ' '],
                                 },
                                 [],
                               ],
@@ -666,13 +638,13 @@ export async function ensureIndexes(): Promise<void> {
                     },
                     poiTokens: {
                       $reduce: {
-                        input: { $ifNull: ["$place.pois", []] },
+                        input: { $ifNull: ['$place.pois', []] },
                         initialValue: [] as string[],
                         in: {
                           $concatArrays: [
-                            "$$value",
-                            { $split: [{ $toLower: "$$this.name" }, " "] },
-                            { $split: [{ $toLower: "$$this.type" }, " "] },
+                            '$$value',
+                            { $split: [{ $toLower: '$$this.name' }, ' '] },
+                            { $split: [{ $toLower: '$$this.type' }, ' '] },
                           ],
                         },
                       },
@@ -688,23 +660,20 @@ export async function ensureIndexes(): Promise<void> {
                           input: {
                             $filter: {
                               input: {
-                                $setUnion: [
-                                  "$$addressTokens",
-                                  "$$poiTokens",
-                                ],
+                                $setUnion: ['$$addressTokens', '$$poiTokens'],
                               },
-                              cond: { $gt: [{ $strLenCP: "$$this" }, 0] },
+                              cond: { $gt: [{ $strLenCP: '$$this' }, 0] },
                             },
                           },
                           sortBy: 1,
                         },
                       },
-                      initialValue: "",
+                      initialValue: '',
                       in: {
                         $cond: [
-                          { $eq: ["$$value", ""] },
-                          "$$this",
-                          { $concat: ["$$value", " ", "$$this"] },
+                          { $eq: ['$$value', ''] },
+                          '$$this',
+                          { $concat: ['$$value', ' ', '$$this'] },
                         ],
                       },
                     },
@@ -715,11 +684,8 @@ export async function ensureIndexes(): Promise<void> {
           },
         ],
       );
-      await recordMigration(db, "place-search-blob-backfill", res.modifiedCount);
-      log.info(
-        { rows: res.modifiedCount },
-        "applied place.search_blob backfill",
-      );
+      await recordMigration(db, 'place-search-blob-backfill', res.modifiedCount);
+      log.info({ rows: res.modifiedCount }, 'applied place.search_blob backfill');
     } catch (err) {
       // Log + continue. The text index build below is independent — a
       // backfill failure means a few legacy rows stay un-indexed for the
@@ -728,7 +694,7 @@ export async function ensureIndexes(): Promise<void> {
       // boot will retry, which is the right behaviour for transient errors.
       log.warn(
         { err: err instanceof Error ? err.message : err },
-        "place.search_blob backfill skipped",
+        'place.search_blob backfill skipped',
       );
     }
   }
@@ -753,7 +719,7 @@ export async function ensureIndexes(): Promise<void> {
   // Re-read `assetIndexes` to capture indexes created since the earlier
   // snapshot above (e.g. the `folder_id_1_filename_1` rebuild).
   const assetIndexesPostFolderRebuild = await db
-    .collection("assets")
+    .collection('assets')
     .indexes()
     .catch((err: unknown) => {
       const code = (err as { code?: number } | null)?.code;
@@ -765,18 +731,12 @@ export async function ensureIndexes(): Promise<void> {
       .map((i) => i.name as string | undefined)
       .filter((n): n is string => n != null),
   );
-  for (const legacy of [
-    "filename_abs_path_text",
-    "place_search_blob_text",
-  ]) {
+  for (const legacy of ['filename_abs_path_text', 'place_search_blob_text']) {
     if (!presentLegacyTextIndexes.has(legacy)) continue;
     try {
-      await db.collection("assets").dropIndex(legacy);
+      await db.collection('assets').dropIndex(legacy);
     } catch (err) {
-      if (
-        !(err instanceof Error) ||
-        !/IndexNotFound|index not found/i.test(err.message)
-      ) {
+      if (!(err instanceof Error) || !/IndexNotFound|index not found/i.test(err.message)) {
         throw err;
       }
     }
@@ -792,21 +752,17 @@ export async function ensureIndexes(): Promise<void> {
   // and place.search_blob backfills above for the rationale. The
   // predicate alone doesn't prevent a full collection scan to confirm
   // "match zero" on subsequent boots.
-  if (!(await migrationApplied(db, "asset-search-blob-backfill"))) {
+  if (!(await migrationApplied(db, 'asset-search-blob-backfill'))) {
     try {
-      const res = await db.collection("assets").updateMany(
+      const res = await db.collection('assets').updateMany(
         {
-          $or: [
-            { search_blob: { $exists: false } },
-            { search_blob: "" },
-            { search_blob: null },
-          ],
+          $or: [{ search_blob: { $exists: false } }, { search_blob: '' }, { search_blob: null }],
           $and: [
             {
               $or: [
-                { "place.search_blob": { $exists: true, $ne: "" } },
-                { description: { $exists: true, $ne: null, $ne: "" } },
-                { ocr_text: { $exists: true, $ne: null, $ne: "" } },
+                { 'place.search_blob': { $exists: true, $ne: '' } },
+                { description: { $exists: true, $ne: null, $ne: '' } },
+                { ocr_text: { $exists: true, $ne: null, $ne: '' } },
               ],
             },
           ],
@@ -818,26 +774,23 @@ export async function ensureIndexes(): Promise<void> {
         // `ocr_text` directly off the live row.
         [{ $set: { search_blob: searchBlobUpdateExpression() } }],
       );
-      await recordMigration(db, "asset-search-blob-backfill", res.modifiedCount);
-      log.info(
-        { rows: res.modifiedCount },
-        "applied asset.search_blob backfill",
-      );
+      await recordMigration(db, 'asset-search-blob-backfill', res.modifiedCount);
+      log.info({ rows: res.modifiedCount }, 'applied asset.search_blob backfill');
     } catch (err) {
       // We intentionally do NOT record the migration on failure: the next
       // boot will retry, which is the right behaviour for transient errors.
       log.warn(
         { err: err instanceof Error ? err.message : err },
-        "asset.search_blob backfill skipped",
+        'asset.search_blob backfill skipped',
       );
     }
   }
 
-  await db.collection("assets").createIndex(
-    { search_blob: "text" },
+  await db.collection('assets').createIndex(
+    { search_blob: 'text' },
     {
-      name: "search_blob_text",
-      default_language: "english",
+      name: 'search_blob_text',
+      default_language: 'english',
       // Same partial-filter shape as the legacy `place_search_blob_text`
       // index: scoped to live rows with a non-empty unified blob so
       // libraries with many GPS-less assets don't bloat the index.
@@ -847,7 +800,7 @@ export async function ensureIndexes(): Promise<void> {
       // can satisfy via the index entries themselves.
       partialFilterExpression: {
         deleted_at: null,
-        search_blob: { $type: "string", $gt: "" },
+        search_blob: { $type: 'string', $gt: '' },
       },
     },
   );
@@ -855,31 +808,22 @@ export async function ensureIndexes(): Promise<void> {
   // Faceted browse compound index — for "country → state → city"
   // drill-down aggregations against `place.rollups`. `docs/indexer-enrichment.md`
   // §5.4. Sparse so assets without `place` don't bloat the index.
-  await db
-    .collection("assets")
-    .createIndex(
-      {
-        "place.rollups.country_code": 1,
-        "place.rollups.region": 1,
-        "place.rollups.locality": 1,
-      },
-      { name: "place_rollups", sparse: true },
-    );
+  await db.collection('assets').createIndex(
+    {
+      'place.rollups.country_code': 1,
+      'place.rollups.region': 1,
+      'place.rollups.locality': 1,
+    },
+    { name: 'place_rollups', sparse: true },
+  );
 
   const users = await usersCollection();
   try {
-    await users.dropIndex("email_1");
+    await users.dropIndex('email_1');
   } catch (err) {
-    if (
-      !(err instanceof Error) ||
-      !/IndexNotFound|index not found/i.test(err.message)
-    )
-      throw err;
+    if (!(err instanceof Error) || !/IndexNotFound|index not found/i.test(err.message)) throw err;
   }
-  await users.createIndex(
-    { email: 1 },
-    { unique: true, collation: { locale: "en", strength: 2 } },
-  );
+  await users.createIndex({ email: 1 }, { unique: true, collation: { locale: 'en', strength: 2 } });
 
   const creds = await credentialsCollection();
   await creds.createIndex({ credential_id: 1 }, { unique: true });
@@ -907,14 +851,14 @@ export async function ensureIndexes(): Promise<void> {
     { name: 1 },
     {
       unique: true,
-      collation: { locale: "en", strength: 2 },
+      collation: { locale: 'en', strength: 2 },
       partialFilterExpression: { merged_into: null },
-      name: "people_name_unique",
+      name: 'people_name_unique',
     },
   );
   // Speeds up `assignFaceToPerson` reverse lookups + the clustering job's
   // bulk centroid recompute.
-  await people.createIndex({ merged_into: 1 }, { name: "people_merged" });
+  await people.createIndex({ merged_into: 1 }, { name: 'people_merged' });
 
   // Multikey index on the asset face → person back-reference. Powers the
   // /api/people aggregation that counts faces per person ($unwind + $group)
@@ -922,41 +866,47 @@ export async function ensureIndexes(): Promise<void> {
   // tiles. Without it both run as collection scans, which is the bottleneck
   // on libraries with many faces.
   await db
-    .collection("assets")
-    .createIndex({ "faces.person_id": 1 }, { name: "assets_face_person_id" });
+    .collection('assets')
+    .createIndex({ 'faces.person_id': 1 }, { name: 'assets_face_person_id' });
 
   // worker_config: unique index on stage name (the natural key).
   await db
-    .collection("worker_config")
-    .createIndex({ name: 1 }, { unique: true, name: "worker_config_name" });
+    .collection('worker_config')
+    .createIndex({ name: 1 }, { unique: true, name: 'worker_config_name' });
 
   // backup_sessions: natural key — enforces upsert race-safety.
-  await db.collection("backup_sessions").createIndex(
-    { library_id: 1, device_id: 1 },
-    { unique: true, name: "backup_sessions_library_device" },
-  );
+  await db
+    .collection('backup_sessions')
+    .createIndex(
+      { library_id: 1, device_id: 1 },
+      { unique: true, name: 'backup_sessions_library_device' },
+    );
 
   // upload_sessions: resume key — unique per asset per device per library.
-  await db.collection("upload_sessions").createIndex(
-    { library_id: 1, device_id: 1, phasset_local_id: 1 },
-    { unique: true, name: "upload_sessions_resume_key" },
-  );
+  await db
+    .collection('upload_sessions')
+    .createIndex(
+      { library_id: 1, device_id: 1, phasset_local_id: 1 },
+      { unique: true, name: 'upload_sessions_resume_key' },
+    );
 
   // upload_sessions: TTL — abandoned uploads are swept by MongoDB after 7 days.
-  await db.collection("upload_sessions").createIndex(
-    { updated_at: 1 },
-    { name: "upload_sessions_ttl", expireAfterSeconds: 7 * 24 * 3600 },
-  );
+  await db
+    .collection('upload_sessions')
+    .createIndex(
+      { updated_at: 1 },
+      { name: 'upload_sessions_ttl', expireAfterSeconds: 7 * 24 * 3600 },
+    );
 
   // upload_sessions: cross-device conflict lookup. Partial index over only
   // "open" sessions with a phasset_cloud_id — openOrResume probes this to
   // detect another device actively uploading the same iCloud photo.
-  await db.collection("upload_sessions").createIndex(
+  await db.collection('upload_sessions').createIndex(
     { library_id: 1, phasset_cloud_id: 1 },
     {
-      name: "upload_sessions_cloud_id",
+      name: 'upload_sessions_cloud_id',
       partialFilterExpression: {
-        state: "open",
+        state: 'open',
         phasset_cloud_id: { $exists: true },
       },
     },
@@ -968,21 +918,18 @@ export async function ensureIndexes(): Promise<void> {
   // "all changes affecting this asset/folder" lookup that future
   // diagnostic tooling might want.
   await db
-    .collection("asset_changes")
-    .createIndex({ cursor: 1 }, { unique: true, name: "asset_changes_cursor" });
+    .collection('asset_changes')
+    .createIndex({ cursor: 1 }, { unique: true, name: 'asset_changes_cursor' });
   await db
-    .collection("asset_changes")
-    .createIndex({ asset_id: 1 }, { name: "asset_changes_asset" });
+    .collection('asset_changes')
+    .createIndex({ asset_id: 1 }, { name: 'asset_changes_asset' });
   await db
-    .collection("asset_changes")
-    .createIndex(
-      { folder_id: 1, cursor: 1 },
-      { name: "asset_changes_folder_cursor" },
-    );
+    .collection('asset_changes')
+    .createIndex({ folder_id: 1, cursor: 1 }, { name: 'asset_changes_folder_cursor' });
 
   await ensureStageIndexes(db);
 
-  log.info("indexes ensured");
+  log.info('indexes ensured');
 }
 
 /** Gracefully close the connection (call on server shutdown). */
@@ -992,6 +939,6 @@ export async function closeDb(): Promise<void> {
     _client = null;
     _db = null;
     _connectPromise = null;
-    log.info("connection closed");
+    log.info('connection closed');
   }
 }
