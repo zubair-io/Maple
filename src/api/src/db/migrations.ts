@@ -17,6 +17,9 @@
 
 import * as pathMod from 'node:path';
 import type { AnyBulkWriteOperation, Db, ObjectId } from 'mongodb';
+import { child as childLogger } from '../log.ts';
+
+const log = childLogger('db:migrations');
 
 export type MigrationId =
   | 'exif-captured-year-month-backfill'
@@ -236,22 +239,37 @@ interface FileInfoEntryShape {
 }
 
 export async function mergeDuplicateAssets(db: Db): Promise<MergeDuplicatesResult> {
-  const dupes = (await db
+  const dupes = await db
     .collection('assets')
-    .aggregate([
+    .aggregate<DupGroup>([
       { $match: { maple_id: { $type: 'string' } } },
       { $group: { _id: '$maple_id', ids: { $push: '$_id' }, count: { $sum: 1 } } },
       { $match: { count: { $gt: 1 } } },
     ])
-    .toArray()) as unknown as DupGroup[];
+    .toArray();
 
   let merged_groups = 0;
   let deleted_rows = 0;
 
   for (const group of dupes) {
+    // Projection: we only need the fields used by the survivor pick and the
+    // fileinfo union. Pulling whole docs would drag along `vision`,
+    // `search_blob`, etc. for every loser we're about to delete.
     const rows = await db
       .collection('assets')
-      .find({ _id: { $in: group.ids } })
+      .find(
+        { _id: { $in: group.ids } },
+        {
+          projection: {
+            _id: 1,
+            indexed_at: 1,
+            fileinfo: 1,
+            rating: 1,
+            flag: 1,
+            color_label: 1,
+          },
+        },
+      )
       .toArray();
     if (rows.length < 2) continue;
 
@@ -266,17 +284,33 @@ export async function mergeDuplicateAssets(db: Db): Promise<MergeDuplicatesResul
     const losers = rows.slice(1);
 
     // Union fileinfo across the group, de-duped by (library_id, path, filename).
-    const seen = new Set<string>();
-    const merged: FileInfoEntryShape[] = [];
+    // Key uses JSON.stringify so `|` (or any other separator) appearing inside
+    // `path` / `filename` can't cause collisions.
+    //
+    // When two entries share the key but one is live (`deleted_at` absent/null)
+    // and the other is tombstoned, prefer the live entry — otherwise the
+    // first-wins ordering could preserve a deleted entry for a path that's
+    // actually still on disk on another row.
+    const seen = new Map<string, FileInfoEntryShape>();
     for (const row of rows) {
       const list = (row.fileinfo ?? []) as FileInfoEntryShape[];
       for (const entry of list) {
-        const key = `${entry.library_id.toHexString()}|${entry.path}|${entry.filename}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        merged.push(entry);
+        const key = JSON.stringify([entry.library_id.toHexString(), entry.path, entry.filename]);
+        const existing = seen.get(key);
+        if (!existing) {
+          seen.set(key, entry);
+          continue;
+        }
+        const existingDead = existing.deleted_at != null;
+        const candidateDead = entry.deleted_at != null;
+        if (existingDead && !candidateDead) {
+          seen.set(key, entry);
+        }
+        // Otherwise (both live, both dead, or candidate dead while existing
+        // live) keep the existing entry — first-seen wins.
       }
     }
+    const merged = Array.from(seen.values());
 
     await db.collection('assets').updateOne({ _id: survivor._id }, { $set: { fileinfo: merged } });
     const del = await db
@@ -284,6 +318,15 @@ export async function mergeDuplicateAssets(db: Db): Promise<MergeDuplicatesResul
       .deleteMany({ _id: { $in: losers.map((l) => l._id) } });
     merged_groups += 1;
     deleted_rows += del.deletedCount ?? 0;
+    log.info(
+      {
+        maple_id: group._id,
+        survivor: survivor._id.toHexString(),
+        losers: losers.map((l) => l._id.toHexString()),
+        merged_locations: merged.length,
+      },
+      'merge-duplicate-assets: collapsed group',
+    );
   }
 
   return {

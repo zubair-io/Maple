@@ -598,6 +598,114 @@ describe("ensureIndexes — backfills don't re-run on second boot", () => {
       expect(merged!.fileinfo).toHaveLength(3);
     });
 
+    it("de-dup key tolerates '|' inside path/filename (JSON-encoded key)", async () => {
+      if (!mongoReachable) return;
+      const { mergeDuplicateAssets } = await import('./migrations.ts');
+      const { ObjectId } = await import('mongodb');
+      await dropMapleIdIndex();
+
+      const lib = new ObjectId();
+      const sharedId = '7'.repeat(32);
+      // Two distinct (path, filename) pairs that would collide under a naive
+      // `${path}|${filename}` key: 'a|b' + 'c' vs 'a' + 'b|c'. The JSON-encoded
+      // key keeps them separate, so the union must contain both entries.
+      await db!.collection('assets').insertMany([
+        {
+          _id: new ObjectId(),
+          folder_id: lib,
+          filename: 'c',
+          abs_path: '/lib/a|b/c',
+          fileinfo: [{ path: 'a|b', filename: 'c', library_id: lib }],
+          maple_id: sharedId,
+          size: 1,
+          mtime: 1,
+          rating: 0,
+          flag: 0,
+          color_label: '',
+          indexed_at: '2026-05-01T00:00:00Z',
+        },
+        {
+          _id: new ObjectId(),
+          folder_id: lib,
+          filename: 'b|c',
+          abs_path: '/lib/a/b|c',
+          fileinfo: [{ path: 'a', filename: 'b|c', library_id: lib }],
+          maple_id: sharedId,
+          size: 1,
+          mtime: 1,
+          rating: 0,
+          flag: 0,
+          color_label: '',
+          indexed_at: '2026-05-02T00:00:00Z',
+        },
+      ] as never);
+
+      await mergeDuplicateAssets(db!);
+      const survivor = await db!.collection('assets').findOne({ maple_id: sharedId });
+      expect(survivor).not.toBeNull();
+      expect(survivor!.fileinfo).toHaveLength(2);
+      const pairs = (survivor!.fileinfo ?? [])
+        .map((e: { path: string; filename: string }) => `${e.path}::${e.filename}`)
+        .sort();
+      expect(pairs).toEqual(['a::b|c', 'a|b::c']);
+    });
+
+    it('de-dup prefers live entry over tombstoned for same (lib, path, filename)', async () => {
+      if (!mongoReachable) return;
+      const { mergeDuplicateAssets } = await import('./migrations.ts');
+      const { ObjectId } = await import('mongodb');
+      await dropMapleIdIndex();
+
+      const lib = new ObjectId();
+      const sharedId = '8'.repeat(32);
+      // Same (lib, path, filename) across two rows: one tombstoned, the other
+      // live. The merged union must keep the live entry, not the tombstone.
+      await db!.collection('assets').insertMany([
+        {
+          _id: new ObjectId(),
+          folder_id: lib,
+          filename: 'q.dng',
+          abs_path: '/lib/here/q.dng',
+          fileinfo: [
+            {
+              path: 'here',
+              filename: 'q.dng',
+              library_id: lib,
+              deleted_at: '2026-05-01T00:00:00Z',
+            },
+          ],
+          maple_id: sharedId,
+          size: 1,
+          mtime: 1,
+          rating: 0,
+          flag: 0,
+          color_label: '',
+          indexed_at: '2026-05-01T00:00:00Z',
+        },
+        {
+          _id: new ObjectId(),
+          folder_id: lib,
+          filename: 'q.dng',
+          abs_path: '/lib/here/q.dng',
+          fileinfo: [{ path: 'here', filename: 'q.dng', library_id: lib, deleted_at: null }],
+          maple_id: sharedId,
+          size: 1,
+          mtime: 1,
+          rating: 0,
+          flag: 0,
+          color_label: '',
+          indexed_at: '2026-05-02T00:00:00Z',
+        },
+      ] as never);
+
+      await mergeDuplicateAssets(db!);
+      const survivor = await db!.collection('assets').findOne({ maple_id: sharedId });
+      expect(survivor).not.toBeNull();
+      expect(survivor!.fileinfo).toHaveLength(1);
+      const entry = (survivor!.fileinfo as Array<{ deleted_at?: string | null }>)[0]!;
+      expect(entry.deleted_at == null).toBe(true);
+    });
+
     it('runs in ensureIndexes BEFORE the unique-index creation', async () => {
       if (!mongoReachable) return;
       const { closeDb, ensureIndexes } = await import('./client.ts');

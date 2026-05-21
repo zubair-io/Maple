@@ -501,23 +501,30 @@ export async function ensureIndexes(): Promise<void> {
       },
     },
   );
-  // Heal pre-existing duplicate-maple_id rows BEFORE creating the unique
-  // partial index below — otherwise createIndex throws DuplicateKey and
-  // the boot aborts. The migration is idempotent + sentinel-gated, so
-  // subsequent boots short-circuit. See PR 3 (#233) for the design.
-  //
-  // The merge runs whether or not the sentinel is set on the FIRST boot
-  // post-deploy because we need a clean state for the index. After it
-  // records the sentinel, subsequent boots skip — and the index already
-  // exists from the previous boot.
+  // One-shot heal: collapse pre-existing rows sharing a maple_id into one
+  // with a union fileinfo[]. Gated by the migrations sentinel so this runs
+  // exactly once per database (subsequent boots short-circuit). MUST run
+  // BEFORE the unique-partial `maple_id_1` createIndex below — otherwise
+  // createIndex would throw DuplicateKey on deploys carrying pre-existing
+  // dupes and the boot would abort. See PR #234 / issue #233.
   if (!(await migrationApplied(db, 'merge-duplicate-assets-2026-05-21'))) {
     try {
       const res = await mergeDuplicateAssets(db);
       await recordMigration(db, 'merge-duplicate-assets-2026-05-21', res.deleted_rows);
       log.info(res, 'applied merge-duplicate-assets');
     } catch (err) {
-      // Do NOT record on failure so the next boot retries.
-      log.warn({ err: err instanceof Error ? err.message : err }, 'merge-duplicate-assets skipped');
+      // Do NOT record on failure so the next boot retries. Do NOT rethrow —
+      // the existing boot contract is "continue so the operator can SSH in".
+      // Log as error (not warn) with the full err object: a "skipped" message
+      // on a real failure makes the subsequent DuplicateKey from createIndex
+      // look unexplained.
+      log.error(
+        {
+          err:
+            err instanceof Error ? { message: err.message, stack: err.stack, name: err.name } : err,
+        },
+        'merge-duplicate-assets failed — unique maple_id_1 index creation may fail next',
+      );
     }
   }
 
