@@ -19,13 +19,10 @@
 //   ⌘\ sidebar toggle      — NavigationSplitView column visibility
 
 import SwiftUI
-import OSLog
 import MapleCore
 #if os(iOS)
 import UIKit
 #endif
-
-private let cloudHTTPLogger = Logger(subsystem: "app.justmaple.aperture", category: "Cloud.HTTP")
 
 // MARK: - AppShell
 
@@ -50,15 +47,21 @@ struct AppShell: View {
         AuthSession(server: server, client: AuthClient(server: server))
     }
 
-    @State private var browseVM = BrowseViewModel()
-    @State private var sessions: [AssetRef.ID: EditSession] = [:]
+    // NOTE: several `@State` properties below dropped `private` to
+    // default-internal so the sibling action extensions
+    // (`AppShell+FolderActions.swift` / `+CloudActions.swift` /
+    // `+PhotoKitActions.swift`) can read and write them. The widened set
+    // is the minimum required by those extensions — properties used only
+    // by `body` / drawer code stay `private`.
+    @State var browseVM = BrowseViewModel()
+    @State var sessions: [AssetRef.ID: EditSession] = [:]
     @State private var showExport = false
     @State private var showSettings = false
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var showFilePicker = false
 
     // Sidebar selection (single active row across the whole tree).
-    @State private var librarySelection: LibrarySelection = .none
+    @State var librarySelection: LibrarySelection = .none
 
     /// Absolute path inside the currently-open cloud library. Equal to
     /// the library's root path immediately after picking, then bumped
@@ -67,24 +70,26 @@ struct AppShell: View {
     /// cold start and (b) highlight the matching tree row. Persisted
     /// via `SourceSelection.cloudLibrary` so cold-start restores the
     /// deep path the user left off at.
-    @State private var cloudCurrentPath: String? = nil
+    @State var cloudCurrentPath: String? = nil
 
     // Sheet state.
-    @State private var showSMBSheet = false
+    @State var showSMBSheet = false
     /// Single AddMapleCloudSheet entry point. `nil` means hidden;
     /// `.fresh` means the user clicked "+"; `.prefilled(host)` means
     /// they tapped a saved server without restored tokens. Modeling
     /// presentation + payload as one optional eliminates the "what
     /// was the prefill last time?" hazard from a separate `@State`.
-    @State private var addCloudSheetTarget: AddCloudSheetTarget?
+    @State var addCloudSheetTarget: AddCloudSheetTarget?
 
     // Dynamic toolbar title — reflects the last-loaded source/filter.
-    @State private var libraryTitle: String = "All"
+    @State var libraryTitle: String = "All"
 
     // Browse vs Full-image editor mode. Default to browse; a double-click on
-    // an image cell flips this to .fullImage.
-    private enum Mode { case browse, fullImage }
-    @State private var mode: Mode = .browse
+    // an image cell flips this to .fullImage. `Mode` is internal (was
+    // `private`) so the action extensions can write `mode = .browse` /
+    // `mode = .fullImage` after a source load completes.
+    enum Mode { case browse, fullImage }
+    @State var mode: Mode = .browse
 
     // BrowseGrid layout — fill (cropped square cover) vs fit (letterboxed).
     // Session-scoped only; no UserDefaults persistence by design (see the
@@ -127,7 +132,7 @@ struct AppShell: View {
     /// when non-nil the center column renders CloudTimelineView instead
     /// of BrowseGrid. Cleared on every other selection so we don't ghost-
     /// render across mode changes.
-    @State private var cloudTimelineVM: CloudTimelineViewModel?
+    @State var cloudTimelineVM: CloudTimelineViewModel?
 
     /// Thumb client + cache for the active cloud timeline. Constructed
     /// once in `loadCloudLibrary` alongside `cloudTimelineVM` and reused
@@ -138,17 +143,17 @@ struct AppShell: View {
     /// fire `/api/auth/refresh`, all but one would fail (refresh tokens
     /// are single-use server-side), and the user would get force-signed
     /// out.
-    @State private var cloudTimelineThumbClient: CloudThumbClient?
-    @State private var cloudTimelineThumbCache: CloudThumbCache?
+    @State var cloudTimelineThumbClient: CloudThumbClient?
+    @State var cloudTimelineThumbCache: CloudThumbCache?
 
     /// Active CloudSource for the merged Photos+Cloud timeline. Non-nil when
     /// a PhotoKit filter is active AND BackupSettings.isConfigured. Cleared
     /// when the user switches to a non-PhotoKit source.
-    @State private var mergedCloudSource: CloudSource?
+    @State var mergedCloudSource: CloudSource?
 
     // The root bookmark for the currently-open folder tree — used to claim
     // security scope when the user clicks a sub-folder cell inside the grid.
-    @State private var currentRootBookmark: Data?
+    @State var currentRootBookmark: Data?
 
     // Active security scope for the current browse session. macOS sandbox
     // requires a scope-backed URL (resolved from a bookmark) to be "accessing"
@@ -157,7 +162,7 @@ struct AppShell: View {
     // library is on this folder. `claimScope(for:)` releases the previous
     // claim and establishes a new one; release happens implicitly when the
     // next claim comes in or when `releaseScope()` is called on app exit.
-    @State private var activeScopeURL: URL?
+    @State var activeScopeURL: URL?
 
     private var selectedSession: EditSession? {
         browseVM.selectedID.flatMap { sessions[$0] }
@@ -750,729 +755,6 @@ struct AppShell: View {
         .background(MapleTokens.imageCanvas)
     }
 
-    // MARK: - Folder flows
-
-    @MainActor
-    private func loadFolder(url: URL) {
-        // Cancel any in-flight thumbnail decodes from the previous folder so
-        // they don't keep burning CPU against files the user no longer sees.
-        Task.detached { await ThumbnailLoader.shared.cancelAll() }
-        // Configure folder-scoped caches so thumbnails land in the folder's
-        // .maple/ directory (matches Maple Hosted).
-        Task.detached {
-            await ThumbnailDiskCache.shared.configure(folderURL: url)
-            await RenderedPreviewCache.shared.configure(folderURL: url)
-            await DecodedBufferCache.shared.configure(folderURL: url)
-        }
-
-        // Claim scope on the picker URL FIRST, before any filesystem read.
-        // The URL from `.fileImporter` is scope-backed but sandboxed reads
-        // require `startAccessingSecurityScopedResource()` to be active at
-        // the moment the read happens — otherwise the sync listing below
-        // fails with `fileReadUnknown`, `loadError` pops the red banner,
-        // and yet the later `FilesystemSource.open` + `SavedFolderStore`
-        // upsert still succeed (because those paths re-claim scope on
-        // their own), so the folder ends up in the sidebar and usable —
-        // but the user just saw a spurious "can't open folder" error.
-        claimScope(for: url)
-
-        // `url` here came from `.fileImporter` which returns a scope-backed
-        // URL — propagate it to the VM so each synthesised AssetRef carries
-        // the scope reference through to the pipeline / loader.
-        browseVM.currentScopeRoot = url
-        browseVM.loadFolder(url: url)
-        librarySelection = .folder(path: url.path)
-        libraryTitle = url.lastPathComponent
-        mode = .browse
-
-        for asset in browseVM.assets where sessions[asset.id] == nil {
-            let session = EditSession(asset: asset)
-            sessions[asset.id] = session
-            Task { await session.loadSidecar() }
-        }
-        Task { @MainActor in
-            let fs = FilesystemSource()
-            do {
-                try await fs.open(folderURL: url)
-                if let data = await fs.persistableBookmark {
-                    currentRootBookmark = data
-                    SourceSelectionStore.save(.filesystem(bookmark: data))
-                    SavedFolderStore.upsert(SavedFolder(
-                        path: url.path,
-                        displayName: url.lastPathComponent,
-                        bookmark: data,
-                        lastOpened: Date()
-                    ))
-                }
-            } catch {
-                // Non-fatal — next launch simply lands on the empty state.
-            }
-        }
-    }
-
-    /// Single-click on a sub-folder cell in the explorer grid. Navigates into
-    /// the sub-folder using the currently-active root bookmark for security
-    /// scope.
-    @MainActor
-    private func navigateFolder(_ url: URL) {
-        // Cloud-library context: drill into the subfolder via /api/fs/dir
-        // instead of the filesystem-bookmark path. URL.path carries the
-        // server-side absolute path. We don't update LibrarySelection
-        // because the drilled-in path is browser state, not a sidebar
-        // selection — the user is still on the same library row.
-        if case .cloudLibrary(let serverID, let folderID) = librarySelection,
-           let source = browseVM.currentSource as? CloudSource {
-            cloudCurrentPath = url.path
-            // Persist the drilled-in path so cold start restores at the
-            // current depth (and the sidebar auto-expands the ancestor
-            // chain to match).
-            SourceSelectionStore.save(.cloudLibrary(serverID: serverID,
-                                                    folderID: folderID,
-                                                    libraryPath: url.path))
-            Task { @MainActor in
-                await browseVM.loadCloudDir(source, absPath: url.path)
-                libraryTitle = url.lastPathComponent
-            }
-            return
-        }
-
-        guard let bookmark = currentRootBookmark else {
-            // Fall back to a plain loadFolder — works for folders inside the
-            // user's security-scope, fails silently for sandboxed reads.
-            // Keep whatever scope root is already active.
-            Task.detached { await ThumbnailLoader.shared.cancelAll() }
-            browseVM.loadFolder(url: url)
-            librarySelection = .folder(path: url.path)
-            libraryTitle = url.lastPathComponent
-            return
-        }
-        openSubFolder(url: url, rootBookmark: bookmark)
-    }
-
-    /// Double-click on an image cell. Switches the center column to the
-    /// full-image editor with that asset as the active session.
-    @MainActor
-    private func openEditor(for asset: AssetRef) {
-        // Make sure the session exists (usually pre-created by primeSessions…).
-        if sessions[asset.id] == nil {
-            let session = EditSession(asset: asset)
-            sessions[asset.id] = session
-            Task { await session.loadSidecar() }
-        }
-        browseVM.selectedID = asset.id
-        mode = .fullImage
-    }
-
-    /// Open a sub-folder inside a previously-saved top-level folder. Uses the
-    /// root's bookmark to claim security scope (child URLs inherit it), loads
-    /// the sub-folder's immediate children into the grid, and marks the
-    /// sub-folder as the current library selection. Does NOT persist to
-    /// `SavedFolderStore` — only top-level folders live in the recent list.
-    @MainActor
-    private func openSubFolder(url: URL, rootBookmark: Data) {
-        librarySelection = .folder(path: url.path)
-        libraryTitle = url.lastPathComponent
-        currentRootBookmark = rootBookmark
-        mode = .browse
-        Task.detached { await ThumbnailLoader.shared.cancelAll() }
-        Task.detached {
-            await ThumbnailDiskCache.shared.configure(folderURL: url)
-            await RenderedPreviewCache.shared.configure(folderURL: url)
-            await DecodedBufferCache.shared.configure(folderURL: url)
-        }
-        Task { @MainActor in
-            // Claim security scope via the root's bookmark. Child URLs live
-            // inside the same scope on macOS, so a sandboxed read works.
-            var isStale = false
-            let rootURL: URL?
-            #if os(macOS)
-            rootURL = try? URL(
-                resolvingBookmarkData: rootBookmark,
-                options: .withSecurityScope,
-                relativeTo: nil,
-                bookmarkDataIsStale: &isStale
-            )
-            #else
-            rootURL = try? URL(
-                resolvingBookmarkData: rootBookmark,
-                options: [],
-                relativeTo: nil,
-                bookmarkDataIsStale: &isStale
-            )
-            #endif
-            // Hold scope open for the whole browse session — the URL must be
-            // bookmark-resolved (not built from `URL(fileURLWithPath:)`), so
-            // we claim on `rootURL`. Sub-folder URLs inherit the scope.
-            if let rootURL { claimScope(for: rootURL) }
-            // Propagate the scope-backed root to the VM so synthesised
-            // AssetRefs carry it (enables sandboxed Rust FFI reads).
-            browseVM.currentScopeRoot = rootURL
-            // Non-recursive walk of the sub-folder — the grid shows only
-            // RAWs directly inside it, matching Finder-style drill-down.
-            browseVM.loadFolder(url: url)
-        }
-    }
-
-    /// Re-open a folder the user previously picked, using its stored bookmark
-    /// so we don't retrigger the system picker.
-    @MainActor
-    private func openSavedFolder(_ folder: SavedFolder) {
-        librarySelection = .folder(path: folder.path)
-        libraryTitle = folder.displayName
-        currentRootBookmark = folder.bookmark
-        mode = .browse
-        Task.detached { await ThumbnailLoader.shared.cancelAll() }
-        // Resolve the bookmark, claim security scope, then run the native
-        // filesystem walker (which populates `subfolders` + `assets`). We
-        // deliberately avoid `loadSource(fs)` here — that path is for sources
-        // without a URL model (PhotoKit / SelfHosted) and doesn't surface
-        // sub-folders.
-        Task { @MainActor in
-            var isStale = false
-            let url: URL?
-            #if os(macOS)
-            url = try? URL(
-                resolvingBookmarkData: folder.bookmark,
-                options: .withSecurityScope,
-                relativeTo: nil,
-                bookmarkDataIsStale: &isStale
-            )
-            #else
-            url = try? URL(
-                resolvingBookmarkData: folder.bookmark,
-                options: [],
-                relativeTo: nil,
-                bookmarkDataIsStale: &isStale
-            )
-            #endif
-            guard let folderURL = url else {
-                browseVM.loadError = CocoaError(.fileReadNoPermission)
-                return
-            }
-            // Hold scope open for the whole browse session — detached render
-            // tasks (thumbnails, editor) need process-wide scope when they
-            // eventually call into Rust. The previous `defer { stop }` released
-            // before any of them ran, which is why Rust saw EPERM.
-            claimScope(for: folderURL)
-            // Scope-backed root for the VM so AssetRefs carry the token.
-            browseVM.currentScopeRoot = folderURL
-            await ThumbnailDiskCache.shared.configure(folderURL: folderURL)
-            await RenderedPreviewCache.shared.configure(folderURL: folderURL)
-            await DecodedBufferCache.shared.configure(folderURL: folderURL)
-            browseVM.loadFolder(url: folderURL)
-            SourceSelectionStore.save(.filesystem(bookmark: folder.bookmark))
-            SavedFolderStore.upsert(SavedFolder(
-                path: folder.path,
-                displayName: folder.displayName,
-                bookmark: folder.bookmark,
-                lastOpened: Date()
-            ))
-        }
-    }
-
-    // MARK: - PhotoKit
-
-    @MainActor
-    private func requestPhotosAccess() {
-        Task { @MainActor in
-            let status = await PhotoKitLibrary.requestAuthorization()
-            if status == .authorized || status == .limited {
-                loadPhotos(filter: .all)
-            }
-        }
-    }
-
-    @MainActor
-    private func loadPhotos(filter: PhotoKitFilter) {
-        librarySelection = .photosFilter(filter)
-        libraryTitle = filter.title
-        mode = .browse
-        currentRootBookmark = nil
-        // Selecting a Photos filter must not ambush the user with a permission
-        // dialog. If PhotoKit isn't authorised yet, put the grid into the
-        // "auth needed" empty state; the actual request happens when the user
-        // taps the grid's "Grant Access" button.
-        let status = PhotoKitLibrary.authorizationStatus()
-        guard status == .authorized || status == .limited else {
-            browseVM.setPhotosAuthNeeded()
-            return
-        }
-        // Clear the prior source's assets immediately so the user sees the
-        // grid flip to "Loading…" the moment they click a Photos filter,
-        // instead of staring at the previous folder's tiles while the
-        // PhotoKit fetch + enumeration runs in the background. Without this,
-        // a user clicking "All Photos" from a populated filesystem folder
-        // perceives the click as having done nothing for several seconds —
-        // particularly painful on libraries large enough to make
-        // `images()` enumeration take noticeable wall time.
-        browseVM.beginLoadingPhotosFilter()
-        Task { @MainActor in
-            do {
-                let source = try PhotoKitSource()
-                try await source.fetchAssets(for: filter)
-                // PhotoKit-library view is always single-source. The merged
-                // Photos+Cloud view belongs on the cloud-library timeline
-                // (where the user is browsing the backup destination), not
-                // here. Keep mergedCloudSource nil for consistency.
-                mergedCloudSource = nil
-                await browseVM.loadSource(source)
-                SourceSelectionStore.save(.photoKitFilter(filter))
-            } catch {
-                browseVM.loadError = error
-            }
-        }
-    }
-
-    /// Fired by the grid's empty-state "Grant Access" button. Requests
-    /// PhotoKit authorisation, then loads the currently-selected filter.
-    @MainActor
-    fileprivate func grantPhotosAccessAndLoad() {
-        Task { @MainActor in
-            let status = await PhotoKitLibrary.requestAuthorization()
-            guard status == .authorized || status == .limited else { return }
-            // User may have selected a filter before granting; fall back to .all.
-            let filter: PhotoKitFilter
-            if case .photosFilter(let f) = librarySelection { filter = f }
-            else { filter = .all }
-            loadPhotos(filter: filter)
-        }
-    }
-
-    // MARK: - SMB
-
-    @MainActor
-    private func connectSMB(credentials: SMBSource.Credentials) {
-        Task { @MainActor in
-            try? await SMBCredentialStore.shared.save(credentials)
-
-            let source = SMBSource()
-            do {
-                try await source.connect(credentials: credentials, remotePath: "/")
-                await browseVM.loadSource(source)
-                let share = SMBCredentialStore.SavedShare(
-                    host: credentials.host,
-                    share: credentials.share,
-                    username: credentials.username
-                )
-                SourceSelectionStore.save(.smb(share))
-                librarySelection = .smbShare(share)
-                libraryTitle = "\(credentials.host) / \(credentials.share)"
-                mode = .browse
-                currentRootBookmark = nil
-            } catch {
-                browseVM.loadError = error
-            }
-        }
-    }
-
-    @MainActor
-    private func connectSavedSMB(_ share: SMBCredentialStore.SavedShare) {
-        Task { @MainActor in
-            if let creds = await SMBCredentialStore.shared.credentials(for: share) {
-                connectSMB(credentials: creds)
-            } else {
-                // Keychain miss — re-prompt.
-                showSMBSheet = true
-            }
-        }
-    }
-
-    // MARK: - Maple Cloud
-
-    @MainActor
-    private func makeAuthenticatedHTTPClient(server: URL) -> AuthenticatedHTTPClient {
-        AuthenticatedHTTPClient(
-            server: server,
-            urlSession: .shared,
-            tokensProvider: { try? TokenStore.load(server: server) },
-            onTokensRefreshed: { try? TokenStore.save($0, server: server) },
-            onSignOut: { TokenStore.clear(server: server) }
-        )
-    }
-
-    @MainActor
-    private func loadCloudFoldersFor(_ url: URL) async -> [CloudFolder] {
-        // The sidebar's CloudServerSection .task fires at app launch in
-        // parallel with restoreLastSource → bootstrapAndRestore. Without
-        // the same await dance autoPickInitialSource / loadCloudLibrary
-        // do, the /api/folders request races out before tokens are
-        // restored — server replies 401 "missing bearer", the
-        // AuthenticatedHTTPClient's refresh path also finds no tokens
-        // (race), and we silently return []. Awaiting bootstrap here
-        // ensures the keychain restore is complete before tokensProvider
-        // is consulted.
-        let session = sessionFor(url)
-        if !session.isSignedIn { await session.bootstrapAndRestore() }
-        guard session.isSignedIn else { return [] }
-
-        let httpClient = makeAuthenticatedHTTPClient(server: url)
-        let client = CloudFoldersClient(server: url, httpClient: httpClient)
-        do {
-            let folders = try await client.listFolders()
-            CloudFoldersCache.save(folders, server: url)
-            return folders
-        }
-        catch {
-            // Offline / server hiccup — fall back to the last-known
-            // folder list so the sidebar still has something to render.
-            // Returning [] here used to give the user an empty sidebar
-            // every time the network blipped.
-            //
-            // Log the swallowed error so triage can distinguish "live
-            // request failed; served cached data" from "live request
-            // succeeded but returned no folders" — invisible before.
-            let cached = CloudFoldersCache.load(server: url)
-            cloudHTTPLogger.info(
-              "listFolders failed for \(url.absoluteString, privacy: .public): \(error.localizedDescription, privacy: .public) — fallback: \(cached != nil ? "cache (\(cached!.count) folders)" : "empty", privacy: .public)"
-            )
-            return cached ?? []
-        }
-    }
-
-    @MainActor
-    private func listCloudDirFor(server: URL, absPath: String) async -> FsDirListing? {
-        // Same cold-start race as loadCloudFoldersFor — wait for
-        // bootstrap before calling /api/fs/dir so the request actually
-        // carries a bearer token. Sidebar tree-row expansion can fire
-        // this before AuthSession.user is hydrated from Keychain.
-        let session = sessionFor(server)
-        if !session.isSignedIn { await session.bootstrapAndRestore() }
-        guard session.isSignedIn else { return nil }
-
-        let httpClient = makeAuthenticatedHTTPClient(server: server)
-        let client = CloudFoldersClient(server: server, httpClient: httpClient)
-        do { return try await client.listDir(absPath: absPath) }
-        catch { return nil }
-    }
-
-    /// Cold-start fallback when there's no saved selection. Picks the
-    /// first sensible source so the user lands on something instead of
-    /// staring at "Pick a folder in the sidebar." Priority:
-    /// 1. First registered cloud server's first library
-    /// 2. Most-recent local folder from SavedFolderStore
-    /// PhotoKit is intentionally NOT auto-picked — it's permission-
-    /// gated and ambushy.
-    @MainActor
-    private func autoPickInitialSource() async {
-        for serverURL in CloudServerRegistry.shared.servers {
-            let session = sessionFor(serverURL)
-            if !session.isSignedIn { await session.bootstrapAndRestore() }
-            guard session.isSignedIn else { continue }
-            let libs = await loadCloudFoldersFor(serverURL)
-            if let first = libs.first {
-                loadCloudLibrary(serverID: serverURL,
-                                 folderID: first.id,
-                                 libraryPath: first.path)
-                return
-            }
-        }
-        if let first = SavedFolderStore.load().first {
-            openSavedFolder(first)
-            return
-        }
-    }
-
-    @MainActor
-    private func loadCloudLibrary(serverID: URL, folderID: String, libraryPath: String) {
-        librarySelection = .cloudLibrary(serverID: serverID, folderID: folderID)
-        cloudCurrentPath = libraryPath
-        SourceSelectionStore.save(.cloudLibrary(serverID: serverID, folderID: folderID, libraryPath: libraryPath))
-        currentRootBookmark = nil
-
-        Task { @MainActor in
-            let session = sessionFor(serverID)
-            // On cold start, sessionFor() returns a freshly-constructed
-            // session whose Keychain restore is still in flight. Awaiting
-            // bootstrapAndRestore() before checking isSignedIn lets that
-            // restore finish — otherwise we'd always fall through to the
-            // sign-in sheet on first launch even though tokens exist.
-            //
-            // For sessions that are already signed in (warm cache, sidebar
-            // click during the session), isSignedIn short-circuits and the
-            // await is skipped.
-            //
-            // For sessions where signOut() was called or refresh failed,
-            // bootstrapAndRestore() returns without setting user, isSignedIn
-            // stays false, and we route to the prefilled sign-in sheet —
-            // same as the previous synchronous behavior.
-            if !session.isSignedIn {
-                await session.bootstrapAndRestore()
-            }
-            guard session.isSignedIn else {
-                addCloudSheetTarget = .prefilled(serverID.host ?? serverID.absoluteString)
-                return
-            }
-
-            let viewMode = CloudServerRegistry.shared.viewMode(for: serverID)
-            switch viewMode {
-            case .folder:
-                cloudTimelineVM = nil
-                let httpClient = makeAuthenticatedHTTPClient(server: serverID)
-                let source = CloudSource(server: serverID,
-                                         folderID: folderID,
-                                         libraryPath: libraryPath,
-                                         httpClient: httpClient)
-                // Use the dir-listing loader so the grid shows BOTH
-                // subfolders and images at this level.
-                await browseVM.loadCloudDir(source, absPath: libraryPath)
-
-                // Path-not-on-server fallback. If the persisted path
-                // was renamed or deleted server-side, /api/fs/dir 4xx's
-                // and BrowseViewModel.loadError gets set. Look up the
-                // library's registered root via /api/folders and retry
-                // there, then update the persisted selection so cold
-                // start no longer points at the missing path.
-                if browseVM.loadError != nil {
-                    let foldersClient = CloudFoldersClient(server: serverID,
-                                                           httpClient: httpClient)
-                    if let libs = try? await foldersClient.listFolders(),
-                       let registered = libs.first(where: { $0.id == folderID }),
-                       registered.path != libraryPath {
-                        // The original 4xx is already logged by CloudSource's
-                        // decode-error path; no need for an extra line here.
-                        cloudCurrentPath = registered.path
-                        SourceSelectionStore.save(.cloudLibrary(serverID: serverID,
-                                                                folderID: folderID,
-                                                                libraryPath: registered.path))
-                        await browseVM.loadCloudDir(source, absPath: registered.path)
-                    }
-                }
-
-                libraryTitle = serverID.host ?? serverID.absoluteString
-                mode = .browse
-            case .timeline:
-                browseVM.clear()
-                // Single AuthenticatedHTTPClient shared by the search +
-                // thumb clients for the lifetime of this Timeline VM.
-                // Defeats the 401-refresh-storm bug if many cells hit
-                // expired tokens at once — only one /api/auth/refresh
-                // call goes out, all callers wait on the same continuation.
-                let httpClient = makeAuthenticatedHTTPClient(server: serverID)
-                let searchClient = CloudSearchClient(server: serverID, httpClient: httpClient)
-                // pathPrefix = libraryPath scopes the Timeline to whatever
-                // the user has selected in the sidebar tree — library root
-                // when they pick the library row, a subfolder when they
-                // pick deeper. Matches the web Timeline's filter behavior:
-                // both /api/search/buckets and /api/search receive the
-                // same pathPrefix so the bucket counts and asset listings
-                // describe the same scope.
-                // Construct a PhotoKitMergeAdapter when this cloud library is
-                // the configured backup destination AND the user has granted
-                // PhotoKit access. This enables the merged Photos+Cloud view
-                // so the user sees local-only, synced, and cloud-only cells
-                // with sync-status badges.
-                let photoKitMerge: PhotoKitMergeAdapter? = {
-                    guard let settings = BackupSettings.load(),
-                          settings.isConfigured,
-                          settings.serverURL == serverID.absoluteString,
-                          settings.libraryId == folderID else { return nil }
-                    let status = PhotoKitLibrary.authorizationStatus()
-                    guard status == .authorized || status == .limited else { return nil }
-                    let adapter = PhotoKitMergeAdapter()
-                    // Kick a background warm-up so the cache refreshes against
-                    // current PhotoKit state. The adapter's init already loaded
-                    // any disk-cached buckets synchronously, so first-paint of
-                    // the cloud timeline is instant on subsequent launches.
-                    // First-ever launch sees cloud-only cells until warm-up
-                    // finishes; the VM observes `onWarmedUp` to re-merge.
-                    Task { await adapter.warmUp() }
-                    return adapter
-                }()
-                cloudTimelineVM = CloudTimelineViewModel(
-                    server: serverID,
-                    libraryID: folderID,
-                    pathPrefix: libraryPath,
-                    searchClient: searchClient,
-                    photoKitMerge: photoKitMerge)
-                cloudTimelineThumbClient = CloudThumbClient(server: serverID, httpClient: httpClient)
-                cloudTimelineThumbCache = CloudThumbCache()
-                libraryTitle = (serverID.host ?? serverID.absoluteString) + " — Timeline"
-                mode = .browse
-            }
-        }
-    }
-
-    /// Open the FullImage editor for a `.localOnly` cell selected from the
-    /// merged cloud timeline. These are PhotoKit photos that haven't been
-    /// uploaded yet, so there is no `SearchAsset` to route through
-    /// `openCloudAsset` — instead, build a PhotoKit-backed AssetRef from
-    /// the asset's local identifier and open it in the editor with
-    /// session-local edits (matches the regular PhotoKit-filter flow).
-    @MainActor
-    private func openLocalPhotoKitAsset(_ ref: ImageRef) {
-        Task { @MainActor in
-            do {
-                let source = try PhotoKitSource()
-                let displayName = ref.displayName
-                let ext = (displayName as NSString).pathExtension.lowercased()
-                let assetRef = AssetRef(
-                    displayName: displayName,
-                    hintExtension: ext.isEmpty ? nil : ext,
-                    stableID: ref.id,
-                    bytesProvider: { [source, ref] in
-                        try await source.rawBytes(for: ref)
-                    }
-                )
-                if sessions[assetRef.id] == nil {
-                    let session = EditSession(asset: assetRef)
-                    sessions[assetRef.id] = session
-                    Task { await session.loadSidecar() }
-                }
-                browseVM.loadSingleCloudAsset(assetRef)
-                mode = .fullImage
-            } catch {
-                browseVM.loadError = error
-            }
-        }
-    }
-
-    /// Open the FullImage editor for a cloud asset selected from
-    /// CloudTimelineView. Builds a bytes-providing AssetRef so the Rust
-    /// pipeline can decode without a local file, and injects a
-    /// CloudSidecarStore so XMP edits persist back to the server.
-    @MainActor
-    private func openCloudAsset(_ asset: SearchAsset, server: URL) {
-        let httpClient = makeAuthenticatedHTTPClient(server: server)
-        // libraryPath is unused for this code path — we never call
-        // source.images() on a single-asset open. Pass the asset's
-        // parent dir so a hypothetical navigate() lands somewhere
-        // sensible.
-        let parentPath = (asset.abs_path as NSString).deletingLastPathComponent
-        let source = CloudSource(server: server,
-                                 folderID: asset.folder_id,
-                                 libraryPath: parentPath,
-                                 httpClient: httpClient)
-        // The cloud asset's editor id matches the web's `fs:<absPath>`
-        // shape so CloudSource.thumb / rawBytes pull paths from id.
-        let imageRef = ImageRef(id: asset.id, displayName: asset.filename, url: nil)
-        let assetRef = AssetRef(
-            displayName: asset.filename,
-            hintExtension: (asset.filename as NSString).pathExtension.lowercased(),
-            stableID: asset.id,
-            bytesProvider: { [source, imageRef] in try await source.rawBytes(for: imageRef) }
-        )
-        if sessions[assetRef.id] == nil {
-            let remoteStore = CloudSidecarStore(server: server, assetID: asset.id, httpClient: httpClient)
-            let session = EditSession(asset: assetRef, remoteSidecarStore: remoteStore)
-            sessions[assetRef.id] = session
-            Task { await session.loadSidecar() }
-        }
-        browseVM.loadSingleCloudAsset(assetRef)
-        mode = .fullImage
-    }
-
-    // MARK: - Restore
-
-    @MainActor
-    private func restoreLastSource() async {
-        guard let selection = SourceSelectionStore.load() else {
-            // Nothing saved → auto-pick the first sensible source so the
-            // user lands on something instead of an empty grid that says
-            // "Pick a folder in the sidebar." Priority: cloud > local > none.
-            await autoPickInitialSource()
-            return
-        }
-        switch selection {
-        case .filesystem(let bookmark):
-            // Route through the same non-recursive folder-walk that
-            // openSavedFolder uses — we want sub-folders + immediate images,
-            // not a flattened descendant list.
-            var isStale = false
-            let url: URL?
-            #if os(macOS)
-            url = try? URL(
-                resolvingBookmarkData: bookmark,
-                options: .withSecurityScope,
-                relativeTo: nil,
-                bookmarkDataIsStale: &isStale
-            )
-            #else
-            url = try? URL(
-                resolvingBookmarkData: bookmark,
-                options: [],
-                relativeTo: nil,
-                bookmarkDataIsStale: &isStale
-            )
-            #endif
-            guard let folderURL = url else {
-                SourceSelectionStore.clear()
-                return
-            }
-            // Hold scope for the whole session so detached render tasks work.
-            claimScope(for: folderURL)
-            currentRootBookmark = bookmark
-            browseVM.currentScopeRoot = folderURL
-            await ThumbnailDiskCache.shared.configure(folderURL: folderURL)
-            await RenderedPreviewCache.shared.configure(folderURL: folderURL)
-            await DecodedBufferCache.shared.configure(folderURL: folderURL)
-            librarySelection = .folder(path: folderURL.path)
-            libraryTitle = folderURL.lastPathComponent
-            browseVM.loadFolder(url: folderURL)
-        case .photoKit, .photoKitFilter:
-            // Do NOT auto-load Photos on cold start. The user opted into
-            // PhotoKit in a previous session; that's no excuse to ambush them
-            // with a library of thousands of images every launch. They click
-            // a Photos filter explicitly if they want it this session.
-            break
-        case .smb(let share):
-            connectSavedSMB(share)
-        case .cloudLibrary(let serverID, let folderID, let libraryPath):
-            loadCloudLibrary(serverID: serverID, folderID: folderID, libraryPath: libraryPath)
-        }
-    }
-
-    @MainActor
-    /// Lazy per-asset session creation. Called from `BrowseGrid`'s
-    /// thumbnail-cell `.onAppear` so a session is built only when the
-    /// cell scrolls into view, NOT eagerly across the entire folder.
-    /// User reported on iPad: opening a 70-asset folder fired 70+
-    /// `loadSidecar()` calls — every one a `CIRAWFilter` instantiation
-    /// and an XMP store read for an asset the user might never tap.
-    /// SwiftUI's `LazyVGrid` already defers cell instantiation; this
-    /// closes the matching gap on the session model.
-    private func ensureSession(for asset: AssetRef) {
-        guard sessions[asset.id] == nil else { return }
-        let remoteStore: (any SidecarStoreProtocol)? = {
-            // Cloud-backed asset: route XMP through CloudSidecarStore so
-            // edits round-trip via PUT /api/assets/<id>/xmp. Local files
-            // (folder/SMB) keep using XMPSidecarStore via EditSession's
-            // primaryURL branch. Cloud refs carry the upstream asset id
-            // in stableID (set by BrowseViewModel.loadSource).
-            guard case .cloudLibrary(let serverID, _) = librarySelection,
-                  let assetID = asset.stableID
-            else { return nil }
-            return CloudSidecarStore(
-                server: serverID,
-                assetID: assetID,
-                httpClient: makeAuthenticatedHTTPClient(server: serverID))
-        }()
-        let session = EditSession(asset: asset, remoteSidecarStore: remoteStore)
-        sessions[asset.id] = session
-        Task { await session.loadSidecar() }
-    }
-
-    // MARK: - Security scope lifecycle
-
-    /// Claim security scope on the given URL for the whole current browse
-    /// session. Releases any prior claim. `url` MUST be a bookmark-resolved
-    /// URL (from `URL(resolvingBookmarkData:)`) — plain `URL(fileURLWithPath:)`
-    /// is NOT scope-backed on macOS and the start call silently no-ops.
-    @MainActor
-    private func claimScope(for url: URL) {
-        // Drop the prior claim first — reclaiming on the same URL is fine,
-        // but we must release the old one before switching folders.
-        releaseScope()
-        let ok = url.startAccessingSecurityScopedResource()
-        if ok { activeScopeURL = url }
-    }
-
-    @MainActor
-    private func releaseScope() {
-        if let prev = activeScopeURL {
-            prev.stopAccessingSecurityScopedResource()
-            activeScopeURL = nil
-        }
-    }
 }
 
 // MARK: - Previews
