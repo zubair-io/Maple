@@ -21,7 +21,7 @@ src/apple/Packages/MapleCore/Sources/MapleCore/FileProvider/RemoteCatalog.swift 
 src/apple/Packages/MapleCore/Sources/MapleCore/ImageEditPipeline.swift            # 861  — edit-pipeline orchestrator
 src/apple/Packages/MapleCore/Sources/MapleCore/PipelineRenderer.swift             # 978  — Metal render driver
 src/apple/Packages/MapleCore/Sources/MapleCore/MetalKernels.swift                 # 626  — MSL kernel registrations
-src/apple/Packages/MapleCore/Tests/MapleCoreTests/SceneLinearPipelineTests.swift  # 3316 — scene-linear parity test bank
+src/apple/Packages/MapleCore/Tests/MapleCoreTests/SceneLinearPipelineTests.swift  # 1253 — scene-linear parity test bank (post-split base; refs #134)
 src/apple/Packages/MapleCore/Tests/MapleCoreTests/DeepZoomTileRenderingTests.swift # 740 — deep-zoom tiling tests
 src/apple/Packages/MapleCore/Tests/MapleCoreTests/AppleRenderHarnessTests.swift   # 638  — Apple render harness
 
