@@ -1,0 +1,48 @@
+# tools/budget-allowlist.txt — paths that may exceed the 600-line hard budget.
+#
+# Format: one repo-relative path per line. Lines starting with `#` and blank
+# lines are ignored. Trailing whitespace and inline `# comment` segments are
+# stripped before matching.
+#
+# Each entry below corresponds (or will correspond) to a split ticket on the
+# KTLO project — this is the day-0 audit captured when the budget was first
+# wired up (issue #113). Adding new entries to this file is blocked in CI
+# (see #114); every removal should land in the same PR that does the split.
+#
+# Numbers in trailing comments are the LOC at the moment of seeding — they
+# drift, the gate doesn't depend on them, they're here for context only.
+
+# --- Apple (SwiftUI shell + MapleCore package) ---
+src/apple/Maple/Views/AppShell.swift                                              # 1620 — main three-column shell
+src/apple/Maple/Views/LibrarySidebar.swift                                        # 831  — sources tree
+src/apple/Maple/Views/BrowseGrid.swift                                            # 723  — grid view
+src/apple/Packages/MapleCore/Sources/MapleCore/FileProvider/FileProviderExtensionCore.swift  # 1569 — file-provider entry point
+src/apple/Packages/MapleCore/Sources/MapleCore/FileProvider/RemoteCatalog.swift   # 778  — remote source adapter
+src/apple/Packages/MapleCore/Sources/MapleCore/ImageEditPipeline.swift            # 861  — edit-pipeline orchestrator
+src/apple/Packages/MapleCore/Sources/MapleCore/PipelineRenderer.swift             # 978  — Metal render driver
+src/apple/Packages/MapleCore/Sources/MapleCore/MetalKernels.swift                 # 626  — MSL kernel registrations
+src/apple/Packages/MapleCore/Tests/MapleCoreTests/SceneLinearPipelineTests.swift  # 3316 — scene-linear parity test bank
+src/apple/Packages/MapleCore/Tests/MapleCoreTests/DeepZoomTileRenderingTests.swift # 740 — deep-zoom tiling tests
+src/apple/Packages/MapleCore/Tests/MapleCoreTests/AppleRenderHarnessTests.swift   # 638  — Apple render harness
+
+# --- Rust core (raw-pipeline) ---
+src/raw-pipeline/raw-core/src/api.rs                                              # 1381 — public C-FFI surface
+src/raw-pipeline/raw-core/src/color/dcp.rs                                        # 1097 — DCP profile evaluator
+src/raw-pipeline/raw-core/src/color/hsm.rs                                        # 683  — HSL/HSV/saturation maps
+src/raw-pipeline/raw-core/src/decode.rs                                           # 787  — RAW decode entry
+src/raw-pipeline/raw-core/src/demosaic/amaze.rs                                   # 723  — AMaZE demosaic kernel
+src/raw-pipeline/raw-core/src/test_support/synth_dng.rs                           # 702  — synthetic DNG generator (tests only)
+
+# --- Web (Angular + maple-common) ---
+src/web/projects/maple-common/src/lib/state/library-fetch.service.ts              # 871  — library-state fetch facade
+src/web/projects/maple-common/src/lib/api/bun-api-backend.service.ts              # 721  — Bun API client
+src/web/projects/maple-common/src/lib/components/timeline-view/timeline-view.component.ts  # 760 — timeline view
+
+# --- API (Bun + Elysia) ---
+src/api/src/db/client.ts                                                          # 997  — Mongo client / repo wiring
+src/api/src/db/schema.ts                                                          # 809  — DTO + collection schema
+src/api/src/routes/folders.ts                                                     # 790  — folders REST routes
+src/api/src/fs/browse.ts                                                          # 635  — filesystem browse adapter
+src/api/tests/search/buckets.test.ts                                              # 842  — search bucket integration tests
+src/api/tests/search-place-route.test.ts                                          # 664  — search-by-place tests
+src/api/tests/enrichment-dead-letter.test.ts                                      # 623  — enrichment dead-letter tests
