@@ -32,7 +32,8 @@
 import { readFile } from 'node:fs/promises';
 import type { ImageDoc, StageContext, StageResult } from '../run-stage.ts';
 import { defineStage, runStage, type RunStageHandle } from '../run-stage.ts';
-import { cachePathFor } from '../../fs/xmp.ts';
+import { cachePathFor, cachePathForAsset } from '../../fs/xmp.ts';
+import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
 import {
   type DescribeProvider,
   getDescribeProvider,
@@ -115,7 +116,19 @@ export async function describeHandler(image: ImageDoc, _ctx: StageContext): Prom
   // signs and small subjects. The preview stage produces this artefact;
   // its absence means either the preview stage hasn't run yet (DAG bug)
   // or the source asset has gone missing.
-  const previewPath = cachePathFor(image.abs_path as string, 'previews', PREVIEW_SIZE_KEY);
+  //
+  // Prefer the content-addressed preview path when the row has maple_id +
+  // fileinfo[0]; fall back to the legacy basename-keyed cache path for
+  // unmigrated rows.
+  let libs: ReadonlyMap<string, string>;
+  try {
+    libs = await loadLibraryRoots();
+  } catch {
+    libs = new Map();
+  }
+  const previewPath =
+    cachePathForAsset(image as never, libs, 'previews', PREVIEW_SIZE_KEY) ??
+    cachePathFor(image.abs_path as string, 'previews', PREVIEW_SIZE_KEY);
   let jpegBytes: Buffer;
   try {
     jpegBytes = await readFile(previewPath);
