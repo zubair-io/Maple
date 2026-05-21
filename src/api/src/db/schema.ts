@@ -8,7 +8,7 @@
  *   - users, credentials, invites, refresh_tokens, challenges : auth (Phase A)
  */
 
-import type { ObjectId, WithId } from "mongodb";
+import type { ObjectId, WithId } from 'mongodb';
 
 // ---------------------------------------------------------------------------
 // Folder
@@ -92,13 +92,7 @@ export interface VisionDoc {
    * "building", "vehicle", "landscape", "food", "plant", … Open vocabulary,
    * but the prompt guides the model toward common values. */
   subjects: string[];
-  scene_type:
-    | "indoor"
-    | "outdoor"
-    | "aerial"
-    | "macro"
-    | "studio"
-    | "mixed";
+  scene_type: 'indoor' | 'outdoor' | 'aerial' | 'macro' | 'studio' | 'mixed';
   /** Specific environment, e.g. "kitchen", "beach", "sports field".
    * Free-text but constrained by the prompt's examples. `null` when the
    * model cannot identify the setting. */
@@ -106,56 +100,22 @@ export interface VisionDoc {
   /** What is happening, e.g. "lacrosse", "cooking", "hiking". `null` for
    * a static scene with no action. */
   activity: string | null;
-  time_of_day:
-    | "morning"
-    | "midday"
-    | "afternoon"
-    | "golden hour"
-    | "evening"
-    | "night"
-    | "unknown";
-  lighting:
-    | "natural"
-    | "artificial"
-    | "mixed"
-    | "low-light"
-    | "backlit"
-    | "flash";
-  weather:
-    | "clear"
-    | "cloudy"
-    | "rainy"
-    | "snowy"
-    | "foggy"
-    | "indoor"
-    | "unknown";
+  time_of_day: 'morning' | 'midday' | 'afternoon' | 'golden hour' | 'evening' | 'night' | 'unknown';
+  lighting: 'natural' | 'artificial' | 'mixed' | 'low-light' | 'backlit' | 'flash';
+  weather: 'clear' | 'cloudy' | 'rainy' | 'snowy' | 'foggy' | 'indoor' | 'unknown';
   /** 1–3 words describing atmosphere. */
   mood: string;
   /** Dominant colors, max 5. */
   colors: string[];
-  composition:
-    | "wide shot"
-    | "close-up"
-    | "portrait"
-    | "landscape"
-    | "aerial"
-    | "macro"
-    | "candid";
+  composition: 'wide shot' | 'close-up' | 'portrait' | 'landscape' | 'aerial' | 'macro' | 'candid';
   /** Any readable text in the image. `null` when there is none. The
    * describe stage mirrors this value into `ocr_text` and stamps
    * `ocr_meta.engine = "qwen2.5-vl"` on every run. */
   text_visible: string | null;
   /** Distinctive objects, max 8. */
   notable_objects: string[];
-  shot_type:
-    | "action"
-    | "static"
-    | "candid"
-    | "posed"
-    | "architectural"
-    | "nature"
-    | "event";
-  indoor_outdoor: "indoor" | "outdoor";
+  shot_type: 'action' | 'static' | 'candid' | 'posed' | 'architectural' | 'nature' | 'event';
+  indoor_outdoor: 'indoor' | 'outdoor';
   /** True when the image is a screenshot of a phone/computer/app UI
    * rather than a photograph. Canonical signal — the top-level
    * `AssetDoc.is_screenshot` mirrors this once the describe stage has
@@ -173,7 +133,7 @@ export interface VisionDoc {
  */
 export interface VisionMeta {
   /** Describe provider that produced this row. */
-  provider: "ollama" | "anthropic" | "openai" | "gemini";
+  provider: 'ollama' | 'anthropic' | 'openai' | 'gemini';
   /** Concrete model tag, e.g. "qwen2.5vl:7b". */
   model: string;
   /** Bumped whenever the system prompt changes. */
@@ -184,12 +144,73 @@ export interface VisionMeta {
   raw_response_size: number;
 }
 
-export interface AssetDoc {
-  folder_id: ObjectId;
-  /** Filename only (no directory). */
+/**
+ * One known on-disk location for an asset. An asset may appear in multiple
+ * places (same content backed up from two devices, or a copy under a
+ * different folder); each location is one entry here.
+ *
+ * `path` is the directory relative to the library root, **POSIX-separated**
+ * (`/` always — never `\`), no leading slash, no trailing slash. `""` means
+ * the file sits at the library root. Matches the existing
+ * `apple_rendered_path` and File Provider `relative_path` conventions.
+ *
+ * Writers must normalize `path.sep` → `/` before storing. The API runs on
+ * Linux/macOS in production (where `path.sep === '/'` so the normalization
+ * is a no-op), but enforcing POSIX in storage keeps the wire contract
+ * portable for clients on every host.
+ *
+ * Readers MUST split on `/` (not `path.sep`) when reconstructing an
+ * absolute path, then re-join with the platform separator via
+ * `path.join`. The `assetAbsPath` helper does this; prefer it.
+ *
+ * Cache-path resolution uses `fileinfo[0]` as the canonical entry: thumbs
+ * and previews live under `<library_root>/<fileinfo[0].path>/.maple/...`,
+ * keyed by `maple_id`. Subsequent entries are alternate observations
+ * discovered later. When the primary entry's library disappears, callers
+ * walk the array and pick the first entry whose `library_id` still
+ * resolves to a registered folder.
+ *
+ * `deleted_at` is per-entry so the asset row survives one location being
+ * unlinked while another stays live. The asset is fully soft-deleted only
+ * when every entry has `deleted_at` set.
+ */
+export interface FileInfo {
+  /** Directory relative to the library root, POSIX-separated.
+   * Examples: `"vacation/2024"`, `""` (file at library root). Never
+   * contains `\` even on Windows hosts — writers normalize. */
+  path: string;
+  /** File name with extension, e.g. "IMG_001.dng". */
   filename: string;
-  /** Absolute filesystem path (folder.path + "/" + filename). */
+  /** ObjectId of the registered folder this entry lives under. */
+  library_id: ObjectId;
+  /** ISO timestamp when this specific location was unlinked. Absent or
+   * null when the entry is live. */
+  deleted_at?: string | null;
+}
+
+export interface AssetDoc {
+  /** @deprecated Use `fileinfo[0].library_id`. Retained during the
+   * content-addressing migration so legacy code paths keep working;
+   * removed in PR 6 of the migration. */
+  folder_id: ObjectId;
+  /** @deprecated Use `fileinfo[0].filename`. Retained during the
+   * content-addressing migration; removed in PR 6. */
+  filename: string;
+  /** @deprecated Use `assetAbsPath(asset, libraries)` which composes from
+   * `fileinfo[0]`. Retained during the content-addressing migration;
+   * removed in PR 6. */
   abs_path: string;
+  /**
+   * Known on-disk locations for this asset. Populated by the discover
+   * watcher and backup-ingest. Length ≥ 1 for any live asset. Index 0
+   * is the canonical entry used for cache-path resolution.
+   *
+   * Optional only during the additive phase of the content-addressing
+   * migration (PRs 1–5); a boot-time backfill in `db/migrations.ts`
+   * populates `fileinfo[0]` for legacy rows from `(folder_id, filename,
+   * abs_path)`. After PR 6 the field is required.
+   */
+  fileinfo?: FileInfo[];
   /** File size in bytes from stat. */
   size: number;
   /** Last-modified epoch ms from stat. */
@@ -248,7 +269,7 @@ export interface AssetDoc {
    * describe stage re-runs them; the API returns those values verbatim
    * (no read-side rewrite) so the wire contract must allow both. */
   ocr_meta?: {
-    engine: "qwen2.5-vl" | "tesseract";
+    engine: 'qwen2.5-vl' | 'tesseract';
     engine_version: string;
     generated_at: string;
     /** Always `null` for the qwen2.5-vl path — the VLM has no per-token
@@ -322,7 +343,7 @@ export interface StageHandlerDoc {
   /** Stage name. Today only "ai" is honoured. */
   stage: string;
   /** Implementation kind. */
-  impl: "builtin" | "http";
+  impl: 'builtin' | 'http';
   /** Required when impl === "http". POSTed the contract input. */
   url?: string;
   /** Override transport timeout. Defaults to 30 000 ms when absent. */
@@ -402,7 +423,7 @@ export interface PlaceRollups {
 }
 
 export interface Place {
-  source: "nominatim";
+  source: 'nominatim';
   geocoder_version: number;
   geocoded_at: string;
   lat: number;
@@ -539,9 +560,7 @@ export function pendingEnrichment(): Enrichment {
  * the same pending shape that the writer uses on insert, so old rows look
  * indistinguishable from freshly-skeletoned ones.
  */
-export function normaliseEnrichment(
-  raw: Partial<Enrichment> | undefined | null,
-): Enrichment {
+export function normaliseEnrichment(raw: Partial<Enrichment> | undefined | null): Enrichment {
   return {
     geocode: { ...pendingStageState(), ...(raw?.geocode ?? {}) },
     face: { ...pendingStageState(), ...(raw?.face ?? {}) },
@@ -553,14 +572,14 @@ export function normaliseEnrichment(
 // Indexer queue task
 // ---------------------------------------------------------------------------
 
-export type TaskKind = "scan_folder" | "gen_thumb" | "extract_exif";
+export type TaskKind = 'scan_folder' | 'gen_thumb' | 'extract_exif';
 
 export interface IndexerTaskDoc {
   kind: TaskKind;
   /** Payload varies by task kind. */
   payload: Record<string, unknown>;
   /** Lifecycle: pending → processing → done | failed. */
-  status: "pending" | "processing" | "done" | "failed";
+  status: 'pending' | 'processing' | 'done' | 'failed';
   /** Error message when status === "failed". */
   error: string | null;
   created_at: string;
@@ -579,17 +598,12 @@ export type IndexerTaskWithId = WithId<IndexerTaskDoc>;
 
 /** Job kinds the runner knows how to dispatch. Add new kinds by extending
  * this union and registering a handler in `job-runner/handlers/index.ts`. */
-export type JobKind = "batch_jpeg_export";
+export type JobKind = 'batch_jpeg_export';
 
 /** Lifecycle: queued → running → (done | failed | cancelled).
  * `cancelled` is set when a running job observes `cancel_requested` between
  * progress steps and exits cleanly. */
-export type JobStatus =
-  | "queued"
-  | "running"
-  | "done"
-  | "failed"
-  | "cancelled";
+export type JobStatus = 'queued' | 'running' | 'done' | 'failed' | 'cancelled';
 
 export interface JobDoc {
   kind: JobKind;
@@ -621,7 +635,7 @@ export type JobWithId = WithId<JobDoc>;
 // User
 // ---------------------------------------------------------------------------
 
-export type UserRole = "owner" | "member";
+export type UserRole = 'owner' | 'member';
 
 export interface UserDoc {
   email: string; // unique, lowercased
@@ -679,7 +693,7 @@ export type RefreshTokenWithId = WithId<RefreshTokenDoc>;
 // WebAuthn challenge (5-min TTL)
 // ---------------------------------------------------------------------------
 
-export type ChallengePurpose = "register" | "authenticate" | "add_credential";
+export type ChallengePurpose = 'register' | 'authenticate' | 'add_credential';
 
 export interface ChallengeDoc {
   challenge: string; // base64url
@@ -726,7 +740,7 @@ export interface UploadSessionDoc {
   received_bytes: number;
   chunk_size: number;
   /** Sessions older than 7d in "open" get GC'd by the TTL monitor. */
-  state: "open" | "completed" | "abandoned";
+  state: 'open' | 'completed' | 'abandoned';
   /** TTL — Date (not string) so the Mongo TTL monitor can prune abandoned sessions older than 7d. */
   created_at: Date;
   /** Bumped on every chunk; same TTL semantics as `created_at`. */
@@ -762,7 +776,7 @@ export type BackupSessionWithId = WithId<BackupSessionDoc>;
 // Asset change feed (Phase 5b — File Provider push channel)
 // ---------------------------------------------------------------------------
 
-export type AssetChangeKind = "create" | "update" | "delete" | "restore";
+export type AssetChangeKind = 'create' | 'update' | 'delete' | 'restore';
 
 export interface AssetChangeDoc {
   /** Monotonically increasing per insert. Allocated via the

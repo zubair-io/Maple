@@ -18,16 +18,22 @@
  * On modify: re-issues the upsert so mtime is refreshed; $setOnInsert guards
  *            against clobbering existing stage progress.
  */
-import * as path from "node:path";
-import * as fsNode from "node:fs/promises";
-import { ObjectId } from "mongodb";
-import { Watcher, type WatchEvent } from "../../indexer/watcher.ts";
-import { blankStagesSkeleton } from "../stages/manifest.ts";
-import { child } from "../../log.ts";
-import { assetsCollection, foldersCollection, getDb, ensureIndexes, closeDb } from "../../db/client.ts";
-import { recordAndPublishAssetChange } from "../../db/changes.repo.ts";
+import * as path from 'node:path';
+import * as fsNode from 'node:fs/promises';
+import { ObjectId } from 'mongodb';
+import { Watcher, type WatchEvent } from '../../indexer/watcher.ts';
+import { blankStagesSkeleton } from '../stages/manifest.ts';
+import { child } from '../../log.ts';
+import {
+  assetsCollection,
+  foldersCollection,
+  getDb,
+  ensureIndexes,
+  closeDb,
+} from '../../db/client.ts';
+import { recordAndPublishAssetChange } from '../../db/changes.repo.ts';
 
-const log = child("discover");
+const log = child('discover');
 
 export interface DiscoverOptions {
   /** Absolute paths to watch. One path per registered folder root. */
@@ -43,20 +49,79 @@ export interface DiscoverHandle {
 }
 
 const SUPPORTED_EXTS = new Set([
-  ".dng", ".cr2", ".cr3", ".nef", ".arw", ".raf", ".orf", ".rw2",
-  ".pef", ".srw", ".x3f", ".3fr", ".mef", ".erf", ".mrw",
-  ".jpg", ".jpeg", ".tif", ".tiff", ".heic", ".heif",
+  '.dng',
+  '.cr2',
+  '.cr3',
+  '.nef',
+  '.arw',
+  '.raf',
+  '.orf',
+  '.rw2',
+  '.pef',
+  '.srw',
+  '.x3f',
+  '.3fr',
+  '.mef',
+  '.erf',
+  '.mrw',
+  '.jpg',
+  '.jpeg',
+  '.tif',
+  '.tiff',
+  '.heic',
+  '.heif',
 ]);
+
+/**
+ * Convert `path.relative` output to the POSIX form stored in
+ * `FileInfo.path`: `""` for empty/".", forward-slash separators on every
+ * host. The API runs on Linux/macOS in production, but normalising here
+ * keeps the on-wire contract honest if someone runs the harness on
+ * Windows.
+ */
+function toPosixRelDir(relDir: string): string {
+  if (relDir === '' || relDir === '.') return '';
+  return relDir.split(path.sep).join('/');
+}
+
+/**
+ * Build the `fileinfo[0]` entry for a file inside a known library root.
+ * Returns null when the file path escapes the library (defensive — should
+ * not happen because the watcher only emits events under registered roots,
+ * but cheap to check and avoids storing `path: "../escape"`).
+ */
+function buildFileinfoEntry(
+  libraryRoot: string,
+  absPath: string,
+  folderId: ObjectId,
+): { path: string; filename: string; library_id: ObjectId } | null {
+  const relDir = path.relative(libraryRoot, path.dirname(absPath));
+  if (relDir.startsWith('..') || path.isAbsolute(relDir)) return null;
+  return {
+    path: toPosixRelDir(relDir),
+    filename: path.basename(absPath),
+    library_id: folderId,
+  };
+}
 
 /**
  * Exported for integration tests — allows tests to simulate events without
  * waiting for chokidar's polling interval (60s/300s in production config).
+ *
+ * `libraryRoot` is the absolute filesystem path of the library that owns
+ * `folderId`. The supervisor caches this from the folders collection at
+ * boot (see `startDiscover`) so handleEvent doesn't pay a Mongo round-trip
+ * per FS event. Tests that drive `handleEvent` directly must pass it.
  */
-export async function handleEvent(event: WatchEvent, folderId: ObjectId): Promise<void> {
+export async function handleEvent(
+  event: WatchEvent,
+  folderId: ObjectId,
+  libraryRoot: string,
+): Promise<void> {
   const { kind, absPath, fromPath } = event;
   const coll = await assetsCollection();
 
-  if (kind === "removed") {
+  if (kind === 'removed') {
     // Read the asset ID before the soft-delete so the change event can
     // carry it. Soft-deletes preserve the row, so this never races with
     // a delete-then-readd.
@@ -64,14 +129,11 @@ export async function handleEvent(event: WatchEvent, folderId: ObjectId): Promis
       { abs_path: absPath },
       { projection: { _id: 1, folder_id: 1 } },
     );
-    await coll.updateOne(
-      { abs_path: absPath },
-      { $set: { deleted_at: new Date().toISOString() } },
-    );
-    log.info({ absPath }, "soft-deleted");
+    await coll.updateOne({ abs_path: absPath }, { $set: { deleted_at: new Date().toISOString() } });
+    log.info({ absPath }, 'soft-deleted');
     if (existing) {
       await recordAndPublishAssetChange({
-        kind: "delete",
+        kind: 'delete',
         asset_id: existing._id,
         folder_id: existing.folder_id ?? folderId,
         abs_path: absPath,
@@ -80,33 +142,55 @@ export async function handleEvent(event: WatchEvent, folderId: ObjectId): Promis
     return;
   }
 
-  if (kind === "renamed" && fromPath) {
+  if (kind === 'renamed' && fromPath) {
     const before = await coll.findOne(
       { abs_path: fromPath },
-      { projection: { _id: 1 } },
+      { projection: { _id: 1, fileinfo: 1 } },
     );
+    if (!before) {
+      log.warn({ fromPath, absPath }, 'renamed event but no existing row — skipping');
+      return;
+    }
+
+    // A rename is not a new location — we overwrite the primary entry
+    // in place so `fileinfo.length` stays the same.
+    const entry = buildFileinfoEntry(libraryRoot, absPath, folderId);
+    if (!entry) {
+      log.warn({ libraryRoot, absPath }, 'rename target escapes library root — skipping');
+      return;
+    }
+    const newFileinfo = [entry, ...(before.fileinfo ?? []).slice(1)];
+
     await coll.updateOne(
       { abs_path: fromPath },
       {
         $set: {
           abs_path: absPath,
+          // Watcher renames may cross library roots — the discover
+          // supervisor invokes `handleEvent` with `folderId` set to
+          // the NEW library that owns `absPath`, but the legacy
+          // `folder_id` field on the row still points at the OLD
+          // library if we don't update it. PR 7 removes `folder_id`
+          // entirely; until then, keep it in sync so per-folder
+          // queries (e.g. `GET /api/folders/:id/assets`) don't list
+          // a renamed file under its previous library.
+          folder_id: folderId,
           filename: path.basename(absPath),
+          fileinfo: newFileinfo,
           indexed_at: new Date().toISOString(),
           deleted_at: null,
         },
       },
     );
-    log.info({ from: fromPath, to: absPath }, "renamed");
-    if (before) {
-      // Renames keep the same _id but change the path — surface as an
-      // `update` so File Provider clients pick up the new filename.
-      await recordAndPublishAssetChange({
-        kind: "update",
-        asset_id: before._id,
-        folder_id: folderId,
-        abs_path: absPath,
-      });
-    }
+    log.info({ from: fromPath, to: absPath }, 'renamed');
+    // Renames keep the same _id but change the path — surface as an
+    // `update` so File Provider clients pick up the new filename.
+    await recordAndPublishAssetChange({
+      kind: 'update',
+      asset_id: before._id,
+      folder_id: folderId,
+      abs_path: absPath,
+    });
     return;
   }
 
@@ -115,9 +199,34 @@ export async function handleEvent(event: WatchEvent, folderId: ObjectId): Promis
   try {
     stat = await fsNode.stat(absPath);
   } catch {
-    log.warn({ absPath }, "stat failed after watch event — skipping");
+    log.warn({ absPath }, 'stat failed after watch event — skipping');
     return;
   }
+
+  // Hard-skip when the file escapes the library root — we'd rather log a
+  // warning and drop the event than insert a row without a valid fileinfo
+  // entry (which would violate the post-migration invariant that every
+  // live asset has length ≥ 1).
+  const fileinfoEntry = buildFileinfoEntry(libraryRoot, absPath, folderId);
+  if (!fileinfoEntry) {
+    log.warn({ libraryRoot, absPath }, 'event absPath escapes library root — skipping insert');
+    return;
+  }
+  const filename = path.basename(absPath);
+
+  const setOnInsert: Record<string, unknown> = {
+    abs_path: absPath,
+    folder_id: folderId,
+    filename,
+    fileinfo: [fileinfoEntry],
+    rating: 0,
+    flag: 0,
+    color_label: '',
+    exif: null,
+    maple_id: null,
+    sha1_head: null,
+    stages: blankStagesSkeleton(),
+  };
 
   const now = new Date().toISOString();
   const res = await coll.findOneAndUpdate(
@@ -129,28 +238,17 @@ export async function handleEvent(event: WatchEvent, folderId: ObjectId): Promis
         indexed_at: now,
         deleted_at: null,
       },
-      $setOnInsert: {
-        abs_path: absPath,
-        folder_id: folderId,
-        filename: path.basename(absPath),
-        rating: 0,
-        flag: 0,
-        color_label: "",
-        exif: null,
-        maple_id: null,
-        sha1_head: null,
-        stages: blankStagesSkeleton(),
-      },
+      $setOnInsert: setOnInsert,
     },
-    { upsert: true, returnDocument: "after" },
+    { upsert: true, returnDocument: 'after' },
   );
-  log.info({ absPath, kind }, "upserted");
+  log.info({ absPath, kind }, 'upserted');
   // Emit a change feed entry. `created` events become a "create" kind
   // for File Provider clients; `modified` becomes "update".
   const assetId = (res as unknown as { _id?: ObjectId } | null)?._id ?? null;
   if (assetId) {
     await recordAndPublishAssetChange({
-      kind: kind === "created" ? "create" : "update",
+      kind: kind === 'created' ? 'create' : 'update',
       asset_id: assetId,
       folder_id: folderId,
       abs_path: absPath,
@@ -159,56 +257,59 @@ export async function handleEvent(event: WatchEvent, folderId: ObjectId): Promis
 }
 
 /**
- * Resolve the folder_id for an absolute file path by longest-prefix match
- * against the list of registered folders.
+ * Resolve the (folder_id, library_root) pair for an absolute file path by
+ * longest-prefix match against the list of registered folders. Returns
+ * `null` when no registered folder claims the path.
  */
-function resolveFolderId(
+function resolveFolder(
   absPath: string,
   folders: Array<{ _id: ObjectId; path: string }>,
-): ObjectId | null {
+): { id: ObjectId; root: string } | null {
   let best: { _id: ObjectId; path: string } | null = null;
   for (const f of folders) {
-    const root = f.path.endsWith("/") ? f.path : f.path + "/";
+    const root = f.path.endsWith('/') ? f.path : f.path + '/';
     if (absPath.startsWith(root) || absPath === f.path) {
       if (!best || f.path.length > best.path.length) {
         best = f;
       }
     }
   }
-  return best ? best._id : null;
+  return best ? { id: best._id, root: best.path } : null;
 }
 
 /**
  * Start the discover loop. Called by the supervisor in-process (or by tests).
- * Resolves folder documents from MongoDB at start time; each FS event derives
- * its folder_id from the file's absolute path via longest-prefix match so
- * that no folderId parameter is required at call time.
- * Returns a handle that stops the watcher gracefully.
+ * Loads registered folder documents once at start time and caches the
+ * `(folder_id, library_root)` pair so each FS event resolves in-process,
+ * avoiding a Mongo round-trip per watcher tick.
+ *
+ * Folder changes today require a restart of the worker (the supervisor
+ * cycles it). A SIGHUP-to-refresh hook could be added if hot folder
+ * registration becomes important.
  */
 export async function startDiscover(opts: DiscoverOptions): Promise<DiscoverHandle> {
   const include = opts.include ?? SUPPORTED_EXTS;
 
-  // Load registered folders once at start time. Refreshed on SIGHUP if needed
-  // in the future; for now a restart is sufficient when folders change.
   const foldersColl = await foldersCollection();
-  const folderDocs = (await foldersColl
-    .find({}, { projection: { path: 1 } })
-    .toArray()) as Array<{ _id: ObjectId; path: string }>;
+  const folderDocs = (await foldersColl.find({}, { projection: { path: 1 } }).toArray()) as Array<{
+    _id: ObjectId;
+    path: string;
+  }>;
 
   const watcher = new Watcher({
     roots: opts.roots,
     debounceMs: opts.debounceMs,
     include,
     onEvent: (event: WatchEvent) => {
-      const folderId = resolveFolderId(event.absPath, folderDocs);
-      if (!folderId) {
-        log.warn({ absPath: event.absPath }, "no registered folder matched — skipping event");
+      const folder = resolveFolder(event.absPath, folderDocs);
+      if (!folder) {
+        log.warn({ absPath: event.absPath }, 'no registered folder matched — skipping event');
         return;
       }
-      handleEvent(event, folderId).catch((err) => {
+      handleEvent(event, folder.id, folder.root).catch((err) => {
         log.error(
           { absPath: event.absPath, err: err instanceof Error ? err.message : err },
-          "event handler failed",
+          'event handler failed',
         );
       });
     },
@@ -231,33 +332,31 @@ export async function startDiscover(opts: DiscoverOptions): Promise<DiscoverHand
 async function main(): Promise<void> {
   const [, , ...roots] = process.argv;
   if (roots.length === 0) {
-    process.stderr.write(
-      "Usage: bun src/api/src/workers/discover/index.ts <root1> [<root2>...]\n",
-    );
+    process.stderr.write('Usage: bun src/api/src/workers/discover/index.ts <root1> [<root2>...]\n');
     process.exit(1);
   }
 
   await getDb().then(() => ensureIndexes());
 
   const handle = await startDiscover({ roots });
-  log.info({ roots }, "discover started");
+  log.info({ roots }, 'discover started');
 
   async function shutdown(): Promise<void> {
-    log.info("shutting down discover");
+    log.info('shutting down discover');
     await handle.stop();
     await closeDb();
     process.exit(0);
   }
 
-  process.on("SIGTERM", () => {
+  process.on('SIGTERM', () => {
     shutdown().catch((e) => {
-      log.error({ err: e instanceof Error ? e.message : e }, "shutdown error");
+      log.error({ err: e instanceof Error ? e.message : e }, 'shutdown error');
       process.exit(1);
     });
   });
-  process.on("SIGINT", () => {
+  process.on('SIGINT', () => {
     shutdown().catch((e) => {
-      log.error({ err: e instanceof Error ? e.message : e }, "shutdown error");
+      log.error({ err: e instanceof Error ? e.message : e }, 'shutdown error');
       process.exit(1);
     });
   });
@@ -266,9 +365,7 @@ async function main(): Promise<void> {
 // Only run main when executed directly, not when imported by tests.
 if (import.meta.main) {
   main().catch((e) => {
-    process.stderr.write(
-      `[discover] fatal: ${e instanceof Error ? e.message : e}\n`,
-    );
+    process.stderr.write(`[discover] fatal: ${e instanceof Error ? e.message : e}\n`);
     process.exit(1);
   });
 }
