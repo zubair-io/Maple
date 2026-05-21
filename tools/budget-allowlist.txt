@@ -43,6 +43,10 @@ src/api/src/db/client.ts                                                        
 src/api/src/db/schema.ts                                                          # 809  — DTO + collection schema
 src/api/src/routes/folders.ts                                                     # 790  — folders REST routes
 src/api/src/fs/browse.ts                                                          # 635  — filesystem browse adapter
+src/api/src/workers/discover/index.ts                                             # 622  — discover producer; split tracked in #253
 src/api/tests/search/buckets.test.ts                                              # 842  — search bucket integration tests
 src/api/tests/search-place-route.test.ts                                          # 664  — search-by-place tests
 src/api/tests/enrichment-dead-letter.test.ts                                      # 623  — enrichment dead-letter tests
+src/api/src/db/migrations.test.ts                                                 # 765  — migrations test bank; split tracked in #250
+src/api/src/workers/discover/discover.test.ts                                     # 696  — discover producer tests; split tracked in #251
+src/api/tests/backup-ingest.test.ts                                               # 628  — backup-ingest tests; split tracked in #252
