@@ -4,17 +4,19 @@
  * while remaining compatible with the existing `AssetDoc` shape.
  */
 
-import type { Collection, ObjectId, UpdateResult } from "mongodb";
-import { assetsCollection } from "../db/client.ts";
-import { meilisearchClient } from "../enrichment/meilisearch-client.ts";
+import * as path from 'node:path';
+import type { Collection, ObjectId, UpdateResult } from 'mongodb';
+import { assetsCollection } from '../db/client.ts';
+import { meilisearchClient } from '../enrichment/meilisearch-client.ts';
 import {
   pendingEnrichment,
   type AssetDoc,
   type AssetExif,
   type AssetFaceDoc,
   type Enrichment,
+  type FileInfo,
   type Place,
-} from "../db/schema.ts";
+} from '../db/schema.ts';
 
 /**
  * Persisted face-detection result. Re-exported from the schema so existing
@@ -54,6 +56,94 @@ export type IndexerAssetDoc = AssetDoc & IndexerAssetFields;
 export async function coll(): Promise<Collection<IndexerAssetDoc>> {
   const c = await assetsCollection();
   return c as unknown as Collection<IndexerAssetDoc>;
+}
+
+// ---------------------------------------------------------------------------
+// Location helpers (content-addressing migration)
+//
+// `fileinfo[]` is the canonical location record; `abs_path` is retained as a
+// denormalized convenience field during the migration. These helpers prefer
+// `fileinfo[0]` and fall back to the legacy field, so callers can be swept
+// from `image.abs_path` to `assetAbsPath(image, libraries)` incrementally.
+// ---------------------------------------------------------------------------
+
+/**
+ * First live `fileinfo` entry, or `null` when the array is missing or every
+ * entry is marked `deleted_at`. "Live" means `deleted_at` is null or absent.
+ *
+ * After PR 6 of the migration this is the only place that knows the entry
+ * is at index 0; callers should not depend on the index itself.
+ */
+export function assetPrimaryFileInfo(asset: Pick<AssetDoc, 'fileinfo'>): FileInfo | null {
+  const list = asset.fileinfo;
+  if (!list || list.length === 0) return null;
+  for (const entry of list) {
+    if (!entry.deleted_at) return entry;
+  }
+  return null;
+}
+
+/**
+ * Library root absolute path for this asset's primary location, looked up
+ * in the supplied `libraries` map (`hex(_id) → root path`).
+ *
+ * Order of resolution:
+ *   1. `fileinfo[0].library_id → libraries map`
+ *   2. legacy `folder_id → libraries map` (for unmigrated rows during the
+ *      content-addressing migration)
+ *
+ * Returns `null` when neither source resolves to a registered library.
+ *
+ * NOTE: the earlier draft fell back to `path.dirname(abs_path)`, which
+ * returns the file's containing directory — often a subdirectory of the
+ * library root, not the root itself. That made the helper unsafe for
+ * callers that rely on the result actually being a library root (cache
+ * resolution, library-scoped operations). The correct legacy fallback is
+ * `folder_id`, which is the registered library by definition.
+ */
+export function assetLibraryPath(
+  asset: Pick<AssetDoc, 'fileinfo' | 'folder_id'>,
+  libraries: ReadonlyMap<string, string>,
+): string | null {
+  const primary = assetPrimaryFileInfo(asset);
+  if (primary) {
+    const root = libraries.get(primary.library_id.toHexString());
+    if (root) return root;
+  }
+  if (asset.folder_id) {
+    const root = libraries.get(asset.folder_id.toHexString());
+    if (root) return root;
+  }
+  return null;
+}
+
+/**
+ * Resolve the absolute filesystem path of the asset's primary location.
+ *
+ * Composed from `(library root, fileinfo[0].path, fileinfo[0].filename)`.
+ * `fileinfo.path` is stored POSIX-style (`/` separators); we re-split on
+ * `/` so that on a Windows host the join uses platform-correct separators
+ * via `path.join`. On Linux/macOS (the production target) the split is a
+ * no-op.
+ *
+ * Falls back to the legacy `abs_path` field for unmigrated rows or when
+ * the primary entry's `library_id` is not present in `libraries`.
+ * Returns `null` when no source resolves.
+ */
+export function assetAbsPath(
+  asset: Pick<AssetDoc, 'fileinfo' | 'abs_path'>,
+  libraries: ReadonlyMap<string, string>,
+): string | null {
+  const primary = assetPrimaryFileInfo(asset);
+  if (primary) {
+    const root = libraries.get(primary.library_id.toHexString());
+    if (root) {
+      const segments = primary.path === '' ? [] : primary.path.split('/');
+      return path.join(root, ...segments, primary.filename);
+    }
+  }
+  if (asset.abs_path) return asset.abs_path;
+  return null;
 }
 
 export interface UpsertInput {
@@ -115,7 +205,7 @@ export async function upsertByMapleId(input: UpsertInput): Promise<UpdateResult>
         filename: input.filename,
         rating: 0,
         flag: 0,
-        color_label: "",
+        color_label: '',
         enrichment: pendingEnrichment(),
         place: null,
         faces: [] as AssetFace[],
@@ -123,7 +213,7 @@ export async function upsertByMapleId(input: UpsertInput): Promise<UpdateResult>
         ai_tags: [] as string[],
       },
     },
-    { upsert: true }
+    { upsert: true },
   );
 }
 
@@ -150,16 +240,10 @@ export async function softDelete(absPath: string): Promise<void> {
   // Skipping when the row doesn't exist or pre-dates the maple_id field
   // (Phase 1 introduced it; older rows simply aren't in Meilisearch
   // either, so a no-op is correct).
-  const existing = await c.findOne(
-    { abs_path: absPath },
-    { projection: { maple_id: 1 } },
-  );
-  await c.updateOne(
-    { abs_path: absPath },
-    { $set: { deleted_at: new Date().toISOString() } }
-  );
+  const existing = await c.findOne({ abs_path: absPath }, { projection: { maple_id: 1 } });
+  await c.updateOne({ abs_path: absPath }, { $set: { deleted_at: new Date().toISOString() } });
   const mapleId = existing?.maple_id;
-  if (typeof mapleId === "string" && mapleId.length > 0) {
+  if (typeof mapleId === 'string' && mapleId.length > 0) {
     try {
       await meilisearchClient().tombstone(mapleId);
     } catch {
@@ -173,7 +257,7 @@ export async function softDelete(absPath: string): Promise<void> {
 export async function updatePath(
   mapleId: string,
   absPath: string,
-  filename: string
+  filename: string,
 ): Promise<void> {
   const c = await coll();
   await c.updateOne(
@@ -185,7 +269,7 @@ export async function updatePath(
         deleted_at: null,
         indexed_at: new Date().toISOString(),
       },
-    }
+    },
   );
 }
 

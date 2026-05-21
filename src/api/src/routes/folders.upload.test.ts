@@ -11,16 +11,16 @@
  * Requires a running MongoDB (skips gracefully if unreachable).
  */
 
-import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { Elysia } from "elysia";
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import * as nodePath from "node:path";
-import { MongoClient, ObjectId, type Db } from "mongodb";
-import { closeDb } from "../db/client.ts";
-import { foldersRoutes } from "./folders.ts";
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { Elysia } from 'elysia';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import * as nodePath from 'node:path';
+import { MongoClient, ObjectId, type Db } from 'mongodb';
+import { closeDb } from '../db/client.ts';
+import { foldersRoutes } from './folders.ts';
 
-const MONGO_URI = process.env.MAPLE_MONGO_URI ?? "mongodb://localhost:27017";
+const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
 const TEST_DB = `maple_folders_upload_test_${process.pid}`;
 
 async function tryConnect(): Promise<MongoClient | null> {
@@ -30,15 +30,17 @@ async function tryConnect(): Promise<MongoClient | null> {
   });
   try {
     await c.connect();
-    await c.db("admin").command({ ping: 1 });
+    await c.db('admin').command({ ping: 1 });
     return c;
   } catch {
-    try { await c.close(); } catch {}
+    try {
+      await c.close();
+    } catch {}
     return null;
   }
 }
 
-describe("POST /api/folders/:id/upload → asset_changes emit", () => {
+describe('POST /api/folders/:id/upload → asset_changes emit', () => {
   let mongo: MongoClient | null = null;
   let db: Db | null = null;
   let folderId: ObjectId | null = null;
@@ -53,12 +55,12 @@ describe("POST /api/folders/:id/upload → asset_changes emit", () => {
     await closeDb();
     db = mongo.db(TEST_DB);
     await db.dropDatabase();
-    folderPath = await mkdtemp(nodePath.join(tmpdir(), "maple-upload-test-"));
+    folderPath = await mkdtemp(nodePath.join(tmpdir(), 'maple-upload-test-'));
     folderId = new ObjectId();
-    await db.collection("folders").insertOne({
+    await db.collection('folders').insertOne({
       _id: folderId,
       path: folderPath,
-      label: "upload-test",
+      label: 'upload-test',
       last_scan: null,
       file_count: 0,
       created_at: new Date().toISOString(),
@@ -76,25 +78,25 @@ describe("POST /api/folders/:id/upload → asset_changes emit", () => {
     folderPath = null;
   });
 
-  it("inserts an asset_changes row with kind=create matching the uploaded asset", async () => {
+  it('inserts an asset_changes row with kind=create matching the uploaded asset', async () => {
     if (!mongo || !db || !folderId) {
-      console.log("[folders.upload.test] MongoDB unreachable — skipping");
+      console.log('[folders.upload.test] MongoDB unreachable — skipping');
       return;
     }
 
     const app = new Elysia().use(foldersRoutes);
-    const fileBytes = new Uint8Array([0x49, 0x49, 0x2A, 0x00]);  // TIFF magic; harmless body
-    const target = "uploaded.dng";
+    const fileBytes = new Uint8Array([0x49, 0x49, 0x2a, 0x00]); // TIFF magic; harmless body
+    const target = 'uploaded.dng';
     const url = `http://localhost/api/folders/${folderId.toHexString()}/upload`;
     const res = await app.handle(
       new Request(url, {
-        method: "POST",
+        method: 'POST',
         headers: {
-          "X-Maple-Target-Path": target,
-          "Content-Type": "application/octet-stream",
+          'X-Maple-Target-Path': target,
+          'Content-Type': 'application/octet-stream',
         },
         body: fileBytes,
-      })
+      }),
     );
     expect(res.status).toBe(201);
     const body = (await res.json()) as { asset_id: string; abs_path: string };
@@ -105,13 +107,10 @@ describe("POST /api/folders/:id/upload → asset_changes emit", () => {
     // The change emit is awaited inside the route (best-effort, but
     // sequential) so by the time the route returns 201 the row should
     // be present. No polling needed.
-    const changes = await db
-      .collection("asset_changes")
-      .find({})
-      .toArray();
+    const changes = await db.collection('asset_changes').find({}).toArray();
     expect(changes.length).toBe(1);
     const change = changes[0]!;
-    expect(change.kind).toBe("create");
+    expect(change.kind).toBe('create');
     expect((change.asset_id as ObjectId).toHexString()).toBe(body.asset_id);
     expect((change.folder_id as ObjectId).toHexString()).toBe(folderId.toHexString());
     expect(change.abs_path).toBe(expectedAbsPath);
@@ -119,5 +118,65 @@ describe("POST /api/folders/:id/upload → asset_changes emit", () => {
     // from `folder.path + abs_path`. For a top-level upload it equals
     // the target path with no leading slash.
     expect(change.relative_path).toBe(target);
+
+    // PR 1 content-addressing invariant: every writer that inserts an
+    // asset row writes `fileinfo[0]` with library-relative path +
+    // filename + library_id. The upload route is a writer.
+    const asset = await db.collection('assets').findOne({ _id: new ObjectId(body.asset_id) });
+    expect(asset?.fileinfo).toHaveLength(1);
+    // Target was "uploaded.dng" at the library root → path === "".
+    expect(asset!.fileinfo![0].path).toBe('');
+    expect(asset!.fileinfo![0].filename).toBe(target);
+    expect((asset!.fileinfo![0].library_id as ObjectId).toHexString()).toBe(folderId.toHexString());
+  });
+
+  it('rejects X-Maple-Target-Path containing backslashes with 400', async () => {
+    if (!mongo || !db || !folderId) return;
+    const app = new Elysia().use(foldersRoutes);
+    const fileBytes = new Uint8Array([0x49, 0x49, 0x2a, 0x00]);
+    // Percent-encode the backslashes so the raw header bytes are still
+    // valid HTTP; `decodeURIComponent` will turn them back into `\`
+    // and the validator must reject. Without encoding, fetch/Bun may
+    // mangle backslashes in the header itself.
+    const target = encodeURIComponent('vacation\\2024\\file.dng');
+    const url = `http://localhost/api/folders/${folderId.toHexString()}/upload`;
+    const res = await app.handle(
+      new Request(url, {
+        method: 'POST',
+        headers: {
+          'X-Maple-Target-Path': target,
+          'Content-Type': 'application/octet-stream',
+        },
+        body: fileBytes,
+      }),
+    );
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toMatch(/[Bb]ackslash/);
+  });
+
+  it('uploads to a subdirectory record fileinfo[0].path correctly', async () => {
+    if (!mongo || !db || !folderId) return;
+    const app = new Elysia().use(foldersRoutes);
+    const fileBytes = new Uint8Array([0x49, 0x49, 0x2a, 0x00]);
+    const target = 'vacation/2024/uploaded2.dng';
+    const url = `http://localhost/api/folders/${folderId.toHexString()}/upload`;
+    const res = await app.handle(
+      new Request(url, {
+        method: 'POST',
+        headers: {
+          'X-Maple-Target-Path': target,
+          'Content-Type': 'application/octet-stream',
+        },
+        body: fileBytes,
+      }),
+    );
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { asset_id: string };
+
+    const asset = await db.collection('assets').findOne({ _id: new ObjectId(body.asset_id) });
+    expect(asset?.fileinfo).toHaveLength(1);
+    expect(asset!.fileinfo![0].path).toBe('vacation/2024');
+    expect(asset!.fileinfo![0].filename).toBe('uploaded2.dng');
   });
 });

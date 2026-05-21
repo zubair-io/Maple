@@ -329,11 +329,24 @@ export const backupIngestRoutes = new Elysia().post(
     await atomicMove(tmpFile, finalPath);
     await uploadSessions.complete({ sessionId: session._id, mapleId });
 
+    // fileinfo[0] mirrors the resolved target path split into
+    // (directory relative to library, filename, library_id).
+    // FileInfo.path is documented as POSIX-separated; normalize sep
+    // here so a host with `\` as path.sep doesn't store backslashes.
+    const relDirRaw = path.dirname(resolvedTargetRelPath);
+    const relDir = relDirRaw === '.' || relDirRaw === '' ? '' : relDirRaw.split(path.sep).join('/');
     await a.insertOne({
       _id: new ObjectId(),
       folder_id: libraryId,
       filename,
       abs_path: finalPath,
+      fileinfo: [
+        {
+          path: relDir,
+          filename,
+          library_id: libraryId,
+        },
+      ],
       size: totalBytes,
       mtime: Date.now(),
       rating: 0,
