@@ -22,6 +22,9 @@
 // single-face endpoints in parallel and refresh once after settle — the
 // API doesn't surface a bulk endpoint yet, and typical selection sizes
 // (≤ 60 faces, per the visible cap) make N round-trips acceptable.
+//
+// Bearer-gated thumb loading lives in {@link ThumbBlobCache} so the
+// component stays focused on UI flow control.
 
 import {
   ChangeDetectionStrategy,
@@ -32,7 +35,6 @@ import {
   effect,
   inject,
   signal,
-  untracked,
 } from '@angular/core';
 import { DecimalPipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -49,6 +51,7 @@ import {
 import { SettingsShellComponent } from '../settings-shell.component';
 import { SettingsIconComponent } from '../settings-icon.component';
 import { MapleVisibleOnceDirective } from './visible-once.directive';
+import { ThumbBlobCache } from './thumb-blob-cache';
 
 type Tone = 'success' | 'error';
 
@@ -187,9 +190,9 @@ export class PeopleComponent implements OnInit, OnDestroy {
     return isAutoNamed(name);
   }
 
-  private readonly thumbBlobs = signal<ReadonlyMap<string, string>>(new Map());
-  private readonly inflightThumbs = new Set<string>();
-  private readonly ownedBlobUrls = new Set<string>();
+  /** Bearer-gated thumbnail blob cache. See {@link ThumbBlobCache} for
+   * lifecycle / cache-key rules. Created once per component instance. */
+  private readonly thumbs = new ThumbBlobCache(this.api, this.fsBrowse);
 
   ngOnInit(): void {
     this.refresh();
@@ -218,60 +221,18 @@ export class PeopleComponent implements OnInit, OnDestroy {
       const detail = this.selected();
       if (!detail) return;
       for (const f of detail.faces) {
-        this.ensureThumbBlob(f.absPath, f.absPath, f.assetId);
+        this.thumbs.ensure(f.absPath, f.absPath, f.assetId);
       }
     });
   }
 
   ngOnDestroy(): void {
-    for (const url of this.ownedBlobUrls) URL.revokeObjectURL(url);
-    this.ownedBlobUrls.clear();
+    this.thumbs.destroy();
   }
 
   ensureCoverThumb(p: ApiPerson): void {
-    const key = this.coverCacheKey(p);
-    if (key) this.ensureThumbBlob(key, p.coverAbsPath, p.coverAssetId);
-  }
-
-  private coverCacheKey(p: {
-    coverAbsPath: string | null;
-    coverAssetId: string | null;
-  }): string | null {
-    if (p.coverAbsPath) return p.coverAbsPath;
-    if (p.coverAssetId) return `apiId:${p.coverAssetId}`;
-    return null;
-  }
-
-  private ensureThumbBlob(
-    cacheKey: string,
-    absPath: string | null,
-    apiAssetId: string | null,
-  ): void {
-    if (!cacheKey) return;
-    if (this.inflightThumbs.has(cacheKey)) return;
-    if (untracked(this.thumbBlobs).has(cacheKey)) return;
-    this.inflightThumbs.add(cacheKey);
-
-    const promise: Promise<{ url: string; owned: boolean }> = absPath
-      ? this.fsBrowse.getThumbBlobUrl(absPath, 512).then((url) => ({ url, owned: false }))
-      : apiAssetId
-        ? firstValueFrom(this.api.getThumb(apiAssetId)).then((b) => ({
-            url: URL.createObjectURL(b),
-            owned: true,
-          }))
-        : Promise.reject(new Error('no asset reference'));
-
-    promise
-      .then(({ url, owned }) => {
-        this.inflightThumbs.delete(cacheKey);
-        if (owned) this.ownedBlobUrls.add(url);
-        const next = new Map(untracked(this.thumbBlobs));
-        next.set(cacheKey, url);
-        this.thumbBlobs.set(next);
-      })
-      .catch(() => {
-        this.inflightThumbs.delete(cacheKey);
-      });
+    const key = ThumbBlobCache.coverKey(p);
+    if (key) this.thumbs.ensure(key, p.coverAbsPath, p.coverAssetId);
   }
 
   refresh(): void {
@@ -458,87 +419,64 @@ export class PeopleComponent implements OnInit, OnDestroy {
     return detail.faces.filter((f) => keys.has(this.faceKey(f)));
   }
 
-  async bulkMoveTo(personId: string): Promise<void> {
+  /** Fan one bulk action out over the current selection. `verb` is the
+   * past-tense word the toast uses ("Moved", "Unassigned", "Hid") so each
+   * action stays grammatically clean without duplicating the try/finally
+   * + busy-counter scaffolding. */
+  private async bulkApply(
+    verb: string,
+    fn: (face: ApiPersonFace) => Promise<unknown>,
+  ): Promise<void> {
+    const faces = this.selectedFaceObjects();
+    if (faces.length === 0) return;
+    this.bulkBusy.update((n) => n + 1);
+    try {
+      await Promise.all(faces.map(fn));
+      this.showToast(`${verb} ${faces.length} face${faces.length === 1 ? '' : 's'}.`, 'success');
+      this.clearSelection();
+      const open = this.selected();
+      if (open) this.openDetail(open.id);
+      this.refresh();
+    } catch (err) {
+      this.showToast(this.errorMessage(err), 'error');
+    } finally {
+      this.bulkBusy.update((n) => Math.max(0, n - 1));
+    }
+  }
+
+  bulkMoveTo(personId: string): Promise<void> {
     const target = personId.trim();
-    if (!target) return;
-    const faces = this.selectedFaceObjects();
-    if (faces.length === 0) return;
-    this.bulkBusy.update((n) => n + 1);
-    try {
-      await Promise.all(
-        faces.map((f) =>
-          firstValueFrom(this.api.assignFaceToPerson(f.assetId, f.faceIndex, target)),
-        ),
-      );
-      this.showToast(`Moved ${faces.length} face${faces.length === 1 ? '' : 's'}.`, 'success');
-      this.clearSelection();
-      const open = this.selected();
-      if (open) this.openDetail(open.id);
-      this.refresh();
-    } catch (err) {
-      this.showToast(this.errorMessage(err), 'error');
-    } finally {
-      this.bulkBusy.update((n) => Math.max(0, n - 1));
-    }
+    if (!target) return Promise.resolve();
+    return this.bulkApply('Moved', (f) =>
+      firstValueFrom(this.api.assignFaceToPerson(f.assetId, f.faceIndex, target)),
+    );
   }
 
-  async bulkUnassign(): Promise<void> {
-    const faces = this.selectedFaceObjects();
-    if (faces.length === 0) return;
-    this.bulkBusy.update((n) => n + 1);
-    try {
-      await Promise.all(
-        faces.map((f) => firstValueFrom(this.api.assignFaceToPerson(f.assetId, f.faceIndex, null))),
-      );
-      this.showToast(`Unassigned ${faces.length} face${faces.length === 1 ? '' : 's'}.`, 'success');
-      this.clearSelection();
-      const open = this.selected();
-      if (open) this.openDetail(open.id);
-      this.refresh();
-    } catch (err) {
-      this.showToast(this.errorMessage(err), 'error');
-    } finally {
-      this.bulkBusy.update((n) => Math.max(0, n - 1));
-    }
+  bulkUnassign(): Promise<void> {
+    return this.bulkApply('Unassigned', (f) =>
+      firstValueFrom(this.api.assignFaceToPerson(f.assetId, f.faceIndex, null)),
+    );
   }
 
-  async bulkHide(): Promise<void> {
-    const faces = this.selectedFaceObjects();
-    if (faces.length === 0) return;
-    this.bulkBusy.update((n) => n + 1);
-    try {
-      await Promise.all(
-        faces.map((f) => firstValueFrom(this.api.hideFace(f.assetId, f.faceIndex))),
-      );
-      this.showToast(`Hid ${faces.length} face${faces.length === 1 ? '' : 's'}.`, 'success');
-      this.clearSelection();
-      const open = this.selected();
-      if (open) this.openDetail(open.id);
-      this.refresh();
-    } catch (err) {
-      this.showToast(this.errorMessage(err), 'error');
-    } finally {
-      this.bulkBusy.update((n) => Math.max(0, n - 1));
-    }
+  bulkHide(): Promise<void> {
+    return this.bulkApply('Hid', (f) => firstValueFrom(this.api.hideFace(f.assetId, f.faceIndex)));
   }
 
   // ── Cover-thumb URL helpers ─────────────────────────────────────────
 
   coverThumbUrl(person: ApiPerson): string | null {
-    const key = this.coverCacheKey(person);
-    if (!key) return null;
-    return this.thumbBlobs().get(key) ?? null;
+    return this.thumbs.url(ThumbBlobCache.coverKey(person));
   }
 
   detailCoverUrl(detail: ApiPersonDetail): string | null {
     const original = this.people().find((p) => p.id === detail.id);
     if (original) return this.coverThumbUrl(original);
     if (!detail.coverAssetId) return null;
-    return this.thumbBlobs().get(`apiId:${detail.coverAssetId}`) ?? null;
+    return this.thumbs.url(`apiId:${detail.coverAssetId}`);
   }
 
   faceThumbUrl(face: ApiPersonFace): string | null {
-    return this.thumbBlobs().get(face.absPath) ?? null;
+    return this.thumbs.url(face.absPath);
   }
 
   /** Bbox-crop transform for the face thumb `<img>`. The wrapper is
