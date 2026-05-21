@@ -1,6 +1,6 @@
 # 07 — UI Architecture
 
-The state model, undo/redo semantics, interaction loops. This document is about the shape of the editing experience — what the user sees, what happens when they drag a slider, how one image transitions to the next — not the visual design. For visual design tokens see `docs/maple-prd.md` (visual design appendix).
+The state model, undo/redo semantics, interaction loops. This document is about the shape of the editing experience — what the user sees, what happens when they drag a slider, how one image transitions to the next — not the visual design. For visual design tokens see `src/web/projects/maple-common/src/lib/tokens.scss` (CSS custom properties — `--mpl-*`) and the companion `tokens.ts` (typed mirrors).
 
 The data types that flow through the UI are in [`01-data-model.md`](./01-data-model.md); what happens to pixels when the UI asks for a render is in [`02-pipeline.md`](./02-pipeline.md).
 

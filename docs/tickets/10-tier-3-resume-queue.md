@@ -19,7 +19,7 @@ Plan: `.archived-plans/plans/2026-04-25-plan-3-m2-webgl-shaders.md`.
 
 ### B — Plan 3 M3 — Angular canvas wiring
 
-Plan ready at `.archived-plans/plans/2026-04-25-plan-3-m3-angular- wiring.md`. Gated on (A) being green. Wires the WebGL2 pipeline classinto the `image-canvas.component.ts` so the web hosted UI stops usingthe legacy `render_bytes` path and instead renders scene-linear viathe WebGL shader chain. ~1–2 days.
+Plan ready at `.archived-plans/plans/2026-04-25-plan-3-m3-angular-wiring.md`. Gated on (A) being green. Wires the WebGL2 pipeline classinto the `image-canvas.component.ts` so the web hosted UI stops usingthe legacy `render_bytes` path and instead renders scene-linear viathe WebGL shader chain. ~1–2 days.
 
 ### C — Visual-diff Task 7 — slider-state matrix
 

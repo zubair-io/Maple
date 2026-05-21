@@ -313,7 +313,8 @@ When a feature request lands that fits one of these buckets, the answer is "note
 ### B. References
 
 - `docs/spec/12-maple-apps-spec.md` — Maple apps architecture, source of truth for what each surface (Hosted / Self Hosted / Native) does. Supersedes the earlier feature/UI spec drafts removed in #128.
-- `docs/spec/07-ui-architecture.md` — UI state model, interaction loops, visual design tokens.
+- `docs/spec/07-ui-architecture.md` — UI state model, interaction loops.
+- `src/web/projects/maple-common/src/lib/tokens.scss` (+ `tokens.ts`) — canonical visual design tokens (`--mpl-*` CSS custom properties).
 - `docs/architecture.md` — system design, scene-linear chain, parity gates.
 - `docs/caching.md` — five-cache design.
 - `docs/best-practices.md` — Angular and Swift coding standards.
