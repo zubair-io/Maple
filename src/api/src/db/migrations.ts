@@ -15,15 +15,15 @@
  * just wasteful — we accept the rare double-run to keep the design simple.
  */
 
-import type { Db } from "mongodb";
+import type { Db } from 'mongodb';
 
 export type MigrationId =
-  | "exif-captured-year-month-backfill"
-  | "place-search-blob-backfill"
-  | "asset-search-blob-backfill"
-  | "reset-describe-dead-vision-parse-2026-05-20"
-  | "reset-describe-dead-vision-parse-2026-05-21"
-  | "reset-describe-dead-vision-parse-2026-05-22";
+  | 'exif-captured-year-month-backfill'
+  | 'place-search-blob-backfill'
+  | 'asset-search-blob-backfill'
+  | 'reset-describe-dead-vision-parse-2026-05-20'
+  | 'reset-describe-dead-vision-parse-2026-05-21'
+  | 'reset-describe-dead-vision-parse-2026-05-22';
 
 interface MigrationDoc {
   _id: MigrationId;
@@ -41,29 +41,22 @@ interface MigrationDoc {
  * module init; parameterising on `Db` keeps the dependency direction
  * one-way (client → migrations).
  */
-export async function migrationApplied(
-  db: Db,
-  id: MigrationId,
-): Promise<boolean> {
+export async function migrationApplied(db: Db, id: MigrationId): Promise<boolean> {
   // Cast: the TS driver insists `_id` be ObjectId for `Collection<T>` when
   // T._id isn't an ObjectId itself. The runtime query is fine — Mongo
   // happily matches on a string _id when one exists.
   const doc = await db
-    .collection<MigrationDoc>("migrations")
+    .collection<MigrationDoc>('migrations')
     .findOne({ _id: id } as Parameters<
-      ReturnType<typeof db.collection<MigrationDoc>>["findOne"]
+      ReturnType<typeof db.collection<MigrationDoc>>['findOne']
     >[0]);
   return doc != null;
 }
 
 /** Records a migration as applied. Idempotent — duplicate inserts are swallowed. */
-export async function recordMigration(
-  db: Db,
-  id: MigrationId,
-  rows: number,
-): Promise<void> {
+export async function recordMigration(db: Db, id: MigrationId, rows: number): Promise<void> {
   try {
-    await db.collection<MigrationDoc>("migrations").insertOne({
+    await db.collection<MigrationDoc>('migrations').insertOne({
       _id: id,
       applied_at: new Date(),
       rows,

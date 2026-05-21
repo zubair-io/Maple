@@ -3,9 +3,9 @@
  * on a real Ollama instance.
  */
 
-import { describe, it, expect } from "bun:test";
-import { OllamaProvider } from "./ollama.ts";
-import { RemoteError } from "./index.ts";
+import { describe, it, expect } from 'bun:test';
+import { OllamaProvider } from './ollama.ts';
+import { RemoteError } from './index.ts';
 
 interface MockResponse {
   status?: number;
@@ -20,11 +20,8 @@ function mockFetch(responses: MockResponse[]): {
 } {
   const calls: Array<{ url: string; init?: RequestInit }> = [];
   let i = 0;
-  const fetchImpl = (async (
-    input: string | URL | Request,
-    init?: RequestInit,
-  ) => {
-    const url = typeof input === "string" ? input : input.toString();
+  const fetchImpl = (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = typeof input === 'string' ? input : input.toString();
     calls.push({ url, init });
     const r = responses[Math.min(i++, responses.length - 1)]!;
     if (r.failWith) throw r.failWith;
@@ -34,11 +31,11 @@ function mockFetch(responses: MockResponse[]): {
         if (init?.signal) {
           if (init.signal.aborted) {
             clearTimeout(timer);
-            reject(new DOMException("aborted", "AbortError"));
+            reject(new DOMException('aborted', 'AbortError'));
           } else {
-            init.signal.addEventListener("abort", () => {
+            init.signal.addEventListener('abort', () => {
               clearTimeout(timer);
-              reject(new DOMException("aborted", "AbortError"));
+              reject(new DOMException('aborted', 'AbortError'));
             });
           }
         }
@@ -46,55 +43,55 @@ function mockFetch(responses: MockResponse[]): {
     }
     return new Response(JSON.stringify(r.body ?? {}), {
       status: r.status ?? 200,
-      headers: { "content-type": "application/json" },
+      headers: { 'content-type': 'application/json' },
     });
   }) as unknown as typeof fetch;
   return { fetchImpl, calls };
 }
 
-describe("OllamaProvider.health", () => {
-  it("resolves on 200 from /api/tags", async () => {
+describe('OllamaProvider.health', () => {
+  it('resolves on 200 from /api/tags', async () => {
     const { fetchImpl, calls } = mockFetch([{ status: 200, body: { models: [] } }]);
     const provider = new OllamaProvider({
-      baseUrl: "http://ollama.test",
+      baseUrl: 'http://ollama.test',
       fetchImpl,
     });
     await provider.health();
-    expect(calls[0]!.url).toBe("http://ollama.test/api/tags");
+    expect(calls[0]!.url).toBe('http://ollama.test/api/tags');
   });
 
-  it("throws RemoteError on 5xx (non-retryable for health)", async () => {
+  it('throws RemoteError on 5xx (non-retryable for health)', async () => {
     const { fetchImpl } = mockFetch([{ status: 503 }]);
     const provider = new OllamaProvider({
-      baseUrl: "http://ollama.test",
+      baseUrl: 'http://ollama.test',
       fetchImpl,
     });
     await expect(provider.health()).rejects.toMatchObject({
-      name: "RemoteError",
+      name: 'RemoteError',
       retryable: false,
       status: 503,
     });
   });
 
-  it("strips trailing slash", async () => {
+  it('strips trailing slash', async () => {
     const { fetchImpl, calls } = mockFetch([{ status: 200 }]);
     const provider = new OllamaProvider({
-      baseUrl: "http://ollama.test///",
+      baseUrl: 'http://ollama.test///',
       fetchImpl,
     });
     await provider.health();
-    expect(calls[0]!.url).toBe("http://ollama.test/api/tags");
+    expect(calls[0]!.url).toBe('http://ollama.test/api/tags');
   });
 });
 
-describe("OllamaProvider.describe — happy path", () => {
-  it("posts the base64 image and returns the trimmed caption", async () => {
+describe('OllamaProvider.describe — happy path', () => {
+  it('posts the base64 image and returns the trimmed caption', async () => {
     const { fetchImpl, calls } = mockFetch([
       {
         status: 200,
         body: {
-          model: "llava:latest",
-          response: "  A red bicycle.\n",
+          model: 'llava:latest',
+          response: '  A red bicycle.\n',
           done: true,
           eval_count: 17,
           total_duration: 1_234_567_890,
@@ -102,48 +99,46 @@ describe("OllamaProvider.describe — happy path", () => {
       },
     ]);
     const provider = new OllamaProvider({
-      baseUrl: "http://ollama.test",
+      baseUrl: 'http://ollama.test',
       fetchImpl,
     });
     const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xd9]);
     const result = await provider.describe(jpeg, {
-      systemPrompt: "describe this",
-      model: "llava:latest",
+      systemPrompt: 'describe this',
+      model: 'llava:latest',
     });
-    expect(result.text).toBe("A red bicycle.");
+    expect(result.text).toBe('A red bicycle.');
     expect(result.cost_usd).toBe(0);
-    expect(result.provider_info.model).toBe("llava:latest");
-    expect(result.provider_info.eval_count).toBe("17");
+    expect(result.provider_info.model).toBe('llava:latest');
+    expect(result.provider_info.eval_count).toBe('17');
     expect(Number(result.provider_info.total_duration_ms)).toBeGreaterThan(0);
 
-    expect(calls[0]!.url).toBe("http://ollama.test/api/generate");
+    expect(calls[0]!.url).toBe('http://ollama.test/api/generate');
     const body = JSON.parse(String(calls[0]!.init!.body));
-    expect(body.model).toBe("llava:latest");
-    expect(body.prompt).toBe("describe this");
+    expect(body.model).toBe('llava:latest');
+    expect(body.prompt).toBe('describe this');
     expect(Array.isArray(body.images)).toBe(true);
-    expect(body.images[0]).toBe(jpeg.toString("base64"));
+    expect(body.images[0]).toBe(jpeg.toString('base64'));
     expect(body.stream).toBe(false);
     // No `format` field when the caller doesn't supply one — back-compat
     // with older Ollama versions and free-text describe calls.
-    expect("format" in body).toBe(false);
+    expect('format' in body).toBe(false);
   });
 
-  it("forwards a JSON Schema via the `format` field for structured output", async () => {
-    const { fetchImpl, calls } = mockFetch([
-      { status: 200, body: { response: "{}", done: true } },
-    ]);
+  it('forwards a JSON Schema via the `format` field for structured output', async () => {
+    const { fetchImpl, calls } = mockFetch([{ status: 200, body: { response: '{}', done: true } }]);
     const provider = new OllamaProvider({
-      baseUrl: "http://ollama.test",
+      baseUrl: 'http://ollama.test',
       fetchImpl,
     });
     const schema = {
-      type: "object",
-      properties: { caption: { type: "string" } },
-      required: ["caption"],
+      type: 'object',
+      properties: { caption: { type: 'string' } },
+      required: ['caption'],
     };
     await provider.describe(Buffer.from([0xff, 0xd8]), {
-      systemPrompt: "p",
-      model: "qwen2.5vl:7b",
+      systemPrompt: 'p',
+      model: 'qwen2.5vl:7b',
       format: schema,
     });
     const body = JSON.parse(String(calls[0]!.init!.body));
@@ -151,18 +146,18 @@ describe("OllamaProvider.describe — happy path", () => {
   });
 });
 
-describe("OllamaProvider.describe — failure modes", () => {
-  it("classifies 5xx as retryable", async () => {
+describe('OllamaProvider.describe — failure modes', () => {
+  it('classifies 5xx as retryable', async () => {
     const { fetchImpl } = mockFetch([{ status: 502 }]);
     const provider = new OllamaProvider({
-      baseUrl: "http://ollama.test",
+      baseUrl: 'http://ollama.test',
       fetchImpl,
     });
     let caught: RemoteError | null = null;
     try {
       await provider.describe(Buffer.alloc(4), {
-        systemPrompt: "p",
-        model: "llava:latest",
+        systemPrompt: 'p',
+        model: 'llava:latest',
       });
     } catch (e) {
       caught = e as RemoteError;
@@ -172,17 +167,17 @@ describe("OllamaProvider.describe — failure modes", () => {
     expect(caught!.status).toBe(502);
   });
 
-  it("classifies 4xx as non-retryable", async () => {
+  it('classifies 4xx as non-retryable', async () => {
     const { fetchImpl } = mockFetch([{ status: 400 }]);
     const provider = new OllamaProvider({
-      baseUrl: "http://ollama.test",
+      baseUrl: 'http://ollama.test',
       fetchImpl,
     });
     let caught: RemoteError | null = null;
     try {
       await provider.describe(Buffer.alloc(4), {
-        systemPrompt: "p",
-        model: "llava:latest",
+        systemPrompt: 'p',
+        model: 'llava:latest',
       });
     } catch (e) {
       caught = e as RemoteError;
@@ -191,20 +186,18 @@ describe("OllamaProvider.describe — failure modes", () => {
     expect(caught!.status).toBe(400);
   });
 
-  it("times out a slow response and surfaces a retryable error", async () => {
-    const { fetchImpl } = mockFetch([
-      { status: 200, body: {}, delayMs: 5_000 },
-    ]);
+  it('times out a slow response and surfaces a retryable error', async () => {
+    const { fetchImpl } = mockFetch([{ status: 200, body: {}, delayMs: 5_000 }]);
     const provider = new OllamaProvider({
-      baseUrl: "http://ollama.test",
+      baseUrl: 'http://ollama.test',
       fetchImpl,
       requestTimeoutMs: 50,
     });
     let caught: RemoteError | null = null;
     try {
       await provider.describe(Buffer.alloc(4), {
-        systemPrompt: "p",
-        model: "llava:latest",
+        systemPrompt: 'p',
+        model: 'llava:latest',
       });
     } catch (e) {
       caught = e as RemoteError;
@@ -214,19 +207,17 @@ describe("OllamaProvider.describe — failure modes", () => {
     expect(caught!.message).toMatch(/timed out/);
   });
 
-  it("rejects an empty response as non-retryable", async () => {
-    const { fetchImpl } = mockFetch([
-      { status: 200, body: { response: "   " } },
-    ]);
+  it('rejects an empty response as non-retryable', async () => {
+    const { fetchImpl } = mockFetch([{ status: 200, body: { response: '   ' } }]);
     const provider = new OllamaProvider({
-      baseUrl: "http://ollama.test",
+      baseUrl: 'http://ollama.test',
       fetchImpl,
     });
     let caught: RemoteError | null = null;
     try {
       await provider.describe(Buffer.alloc(4), {
-        systemPrompt: "p",
-        model: "llava:latest",
+        systemPrompt: 'p',
+        model: 'llava:latest',
       });
     } catch (e) {
       caught = e as RemoteError;
