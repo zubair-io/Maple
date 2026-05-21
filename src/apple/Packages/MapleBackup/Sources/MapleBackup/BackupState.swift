@@ -55,18 +55,32 @@ public actor BackupStateStore {
     }
 
     /// Transition a task to `state`. Always overwrites `last_error` —
-    /// pass nil to clear it on success.
+    /// pass nil to clear it on success. When `retryCount` is supplied,
+    /// the `retry_count` column is updated in the same statement; when
+    /// nil, the existing column value is preserved.
     public func transition(_ id: BackupTaskID,
                            to state: BackupState,
-                           error: String? = nil) throws {
+                           error: String? = nil,
+                           retryCount: Int? = nil) throws {
         try dbQueue.write { db in
-            try db.execute(literal: """
-                UPDATE tasks
-                   SET state=\(state.rawValue),
-                       last_error=\(error)
-                 WHERE device_id=\(id.deviceId)
-                   AND phasset_local_id=\(id.phassetLocalId)
-                """)
+            if let retryCount {
+                try db.execute(literal: """
+                    UPDATE tasks
+                       SET state=\(state.rawValue),
+                           last_error=\(error),
+                           retry_count=\(retryCount)
+                     WHERE device_id=\(id.deviceId)
+                       AND phasset_local_id=\(id.phassetLocalId)
+                    """)
+            } else {
+                try db.execute(literal: """
+                    UPDATE tasks
+                       SET state=\(state.rawValue),
+                           last_error=\(error)
+                     WHERE device_id=\(id.deviceId)
+                       AND phasset_local_id=\(id.phassetLocalId)
+                    """)
+            }
         }
     }
 
