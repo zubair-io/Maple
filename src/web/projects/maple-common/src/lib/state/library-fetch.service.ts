@@ -10,15 +10,8 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { Injectable, effect, inject } from '@angular/core';
 import { Asset, AssetId, ColorLabel, Flag } from '../models/asset';
 import { GridFolderItem } from '../models/folder';
-import {
-  AdjustmentModel,
-  defaultAdjustmentModel,
-} from '../models/adjustment-model';
-import {
-  ApiAsset,
-  ApiFolder,
-  BunApiBackendService,
-} from '../api/bun-api-backend.service';
+import { AdjustmentModel, defaultAdjustmentModel } from '../models/adjustment-model';
+import { ApiFolder, BunApiBackendService } from '../api/bun-api-backend.service';
 import {
   FilesystemBrowseService,
   FsDirListing,
@@ -30,6 +23,7 @@ import { MapleCacheService } from '../maple-cache/maple-cache.service';
 import { XmpParserService } from '../xmp/xmp-parser.service';
 import { XmpStoreService } from '../xmp/xmp-store.service';
 import { XmpSerializerService } from '../xmp/xmp-serializer.service';
+import { SidecarStore } from '../xmp/sidecar.store';
 import { XmpCulling } from '../xmp/xmp.types';
 import { MapleFolderHandle } from '../folder-access/folder-access.types';
 import { IndexedAsset } from '../maple-cache/maple-cache.types';
@@ -121,6 +115,7 @@ export class LibraryFetch {
   private readonly xmpParser = inject(XmpParserService);
   private readonly xmpStore = inject(XmpStoreService);
   private readonly xmpSerializer = inject(XmpSerializerService);
+  private readonly sidecarStore = inject(SidecarStore);
   private readonly api = inject(BunApiBackendService);
   private readonly fsBrowse = inject(FilesystemBrowseService);
 
@@ -452,6 +447,10 @@ export class LibraryFetch {
       // faces / description / ocr. Absent on un-indexed files — the detail
       // fetch then no-ops and the enrichment sections stay hidden.
       if (img.id) this.store.apiAssetIds.set(id, img.id);
+      // Best-effort warm of the sidecar IDB cache so the editor's filmstrip
+      // navigation resolves a focused asset's XMP from memory without a
+      // network round-trip. Fire-and-forget — `prefetch` swallows errors.
+      void this.sidecarStore.prefetch(img.path);
       const meta = exifToAssetMetadata(img.exif);
       return {
         id,
@@ -628,74 +627,6 @@ export class LibraryFetch {
     }
   }
 
-  /**
-   * Map a batch of remote API assets into local Asset records and merge.
-   * Kept for the legacy `/api/folders/{id}/assets` callers — the FS-walk
-   * path uses `_applyFsListing` instead.
-   */
-  applyApiAssets(folderId: string, apiAssets: ApiAsset[]): void {
-    const newAssets: Asset[] = [];
-    // Keep existing id mappings for other folders; just overwrite this folder's.
-    for (const localId of Array.from(this.store.apiAssetIds.keys())) {
-      const existingAsset = this.store.assets().find((a) => a.id === localId);
-      if (existingAsset?.folderId === folderId) this.store.apiAssetIds.delete(localId);
-    }
-
-    for (const a of apiAssets) {
-      const localId = crypto.randomUUID();
-      this.store.apiAssetIds.set(localId, a.id);
-      newAssets.push({
-        id: localId,
-        filename: a.filename,
-        folderId,
-        rating: a.rating ?? 0,
-        flag: (a.flag ?? 'unflagged') as Flag,
-        colorLabel: (a.colorLabel ?? null) as ColorLabel,
-        thumbnailGradient: '',
-        aspectRatio: a.width && a.height ? a.width / a.height : 3 / 2,
-        width: a.width,
-        height: a.height,
-      });
-
-      // Best-effort XMP load — populates AdjustmentModel if a sidecar exists.
-      this._loadApiXmp(localId, a.id);
-    }
-
-    this.store.assets.update((list) => {
-      const others = list.filter((x) => x.folderId !== folderId);
-      const previous = list.filter((x) => x.folderId === folderId);
-      const merged = mergePreservingRefs(previous, newAssets, assetsEqualForRender);
-      return [...others, ...merged];
-    });
-  }
-
-  private _loadApiXmp(localId: AssetId, apiId: string): void {
-    this.api.getXmp(apiId).subscribe({
-      next: (xml) => {
-        if (!xml) return;
-        try {
-          const { model, passthrough } = this.xmpParser.parseAdjustmentModel(xml);
-          const fullModel: AdjustmentModel = { ...defaultAdjustmentModel(), ...model };
-          this.store.adjustmentModels.update((map) => {
-            const next = new Map(map);
-            next.set(localId, fullModel);
-            return next;
-          });
-          // Mirror the Hosted path: stash the passthrough bucket so the next
-          // putXmp() preserves unknown-namespace attributes / nested nodes
-          // verbatim. Re-uses XmpStoreService's per-asset map rather than
-          // inventing a parallel structure.
-          this.xmpStore.rememberPassthrough(localId, passthrough);
-        } catch {
-          /* ignore malformed sidecars — server has already stored them */
-        }
-      },
-      error: () => {
-        // 404 is expected when no sidecar exists; anything else is best-effort.
-      },
-    });
-  }
-
   // ── addImportedAsset (legacy path — drag-drop without FS Access folder) ────
 
   /**
@@ -756,13 +687,11 @@ export class LibraryFetch {
     this.xmpStore.scheduleWrite(id, folder, asset.filename, fullModel, culling);
   }
 
-  private _scheduleApiXmpWrite(
-    id: AssetId,
-    model: AdjustmentModel,
-    culling: XmpCulling,
-  ): void {
-    const apiId = this.store.apiAssetIds.get(id);
-    if (!apiId) return;
+  private _scheduleApiXmpWrite(id: AssetId, model: AdjustmentModel, culling: XmpCulling): void {
+    // Gate on a known source path — no path, no XMP target. This replaces the
+    // previous `apiAssetIds` gate as part of slice 4 of #193 (path-keyed XMP).
+    const absPath = this.store.assetAbsPaths.get(id);
+    if (!absPath) return;
 
     this._apiXmpPending.set(id, { model, culling });
 
@@ -778,19 +707,24 @@ export class LibraryFetch {
 
   private _flushApiXmpWrite(id: AssetId): void {
     const pending = this._apiXmpPending.get(id);
-    const apiId = this.store.apiAssetIds.get(id);
-    if (!pending || !apiId) return;
+    const absPath = this.store.assetAbsPaths.get(id);
+    if (!pending || !absPath) return;
     this._apiXmpPending.delete(id);
 
-    // Re-use the canonical serializer so Self-Hosted XMP matches Hosted byte-for-byte.
-    // Pull the passthrough bucket cached on load (`_loadApiXmp`) so unknown-
-    // namespace attributes (Lightroom-specific tags, vendor extensions, custom
-    // workflow metadata, etc.) survive a Maple edit cycle — matching the
-    // Hosted path's round-trip guarantees.
+    // Re-use the canonical serializer so Self-Hosted XMP matches Hosted
+    // byte-for-byte. Pull the passthrough bucket cached on load so unknown-
+    // namespace attributes (Lightroom-specific tags, vendor extensions,
+    // custom workflow metadata, etc.) survive a Maple edit cycle — matching
+    // the Hosted path's round-trip guarantees.
     const passthrough = this.xmpStore.passthroughFor(id);
     const xml = this.xmpSerializer.serialize(pending.model, passthrough, pending.culling);
-    this.api.putXmp(apiId, xml).subscribe({
-      error: (err) => console.error(`putXmp failed for asset ${id}:`, err),
+    // Route through SidecarStore so the in-memory + IDB caches reflect the
+    // optimistic write and roll back coherently on a failed POST. The store's
+    // `write()` returns a Promise that rejects on network failure; we log
+    // here and let consumers (e.g. an upcoming toast surface) decide what to
+    // do with the error.
+    void this.sidecarStore.write(absPath, xml).catch((err) => {
+      console.error(`putXmp failed for asset ${id} (path=${absPath}):`, err);
     });
   }
 
