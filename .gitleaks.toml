@@ -1,0 +1,18 @@
+# Repo-level gitleaks config for the Maple monorepo.
+# - Inherits the default rule set bundled with gitleaks (see https://github.com/gitleaks/gitleaks).
+# - Adds a path-based allowlist for known false-positives so we don't need
+#   commit-SHA-pinned fingerprints in .gitleaksignore (which break on rebase).
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Maple monorepo allowlist"
+paths = [
+    # Cache-GC test fixture: a 16-char hex placeholder mimicking the
+    # legacy sha256_prefix16 cache basename. Looks like an API key to
+    # the generic-api-key rule but is intentionally not a secret.
+    # Used to verify the orphan-thumb sweep deletes files keyed under
+    # the legacy basename-hash format.
+    '''src/api/src/workers/cache-gc\.test\.ts''',
+]
