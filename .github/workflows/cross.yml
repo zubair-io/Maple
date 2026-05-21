@@ -185,6 +185,40 @@ jobs:
 
           echo "OK — allowlist did not grow (shrinks allowed)."
 
+  codegen-drift:
+    name: codegen-drift (regenerated outputs are committed)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Probe codegen script presence
+        id: probe
+        run: |
+          if [ -f tools/codegen.sh ]; then
+            echo "have_script=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "have_script=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::tools/codegen.sh not present — skipping."
+          fi
+
+      - name: Regenerate codegen outputs
+        if: steps.probe.outputs.have_script == 'true'
+        run: bash tools/codegen.sh
+
+      - name: Verify no drift
+        if: steps.probe.outputs.have_script == 'true'
+        run: |
+          # `git add -N` ensures newly-emitted (untracked) files show up in
+          # `git diff` — without it, a generator that adds a new output file
+          # would slip past the gate.
+          git add -N .
+          if ! git diff --exit-code; then
+            echo "::error::codegen outputs are out of date. Run 'bash tools/codegen.sh' and commit the result."
+            exit 1
+          fi
+
   gitleaks:
     name: gitleaks (full history)
     runs-on: ubuntu-latest
