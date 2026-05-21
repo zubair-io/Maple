@@ -309,3 +309,39 @@ fn render_thumbnail_jpeg_quality_zero_uses_default() {
         maple_free_byte_buffer(&mut buf_explicit);
     }
 }
+
+#[test]
+fn jpeg_quality_above_100_returns_rc_14() {
+    let path = CString::new("/dev/null").unwrap();
+    let mut out = empty_byte_buf();
+    let rc = unsafe { maple_render_thumbnail_jpeg(path.as_ptr(), 512, 200, &mut out) };
+    assert_eq!(rc, 14, "quality=200 should be rejected at validation");
+}
+
+#[test]
+fn jpeg_quality_255_returns_rc_14() {
+    let path = CString::new("/dev/null").unwrap();
+    let mut out = empty_byte_buf();
+    let rc = unsafe { maple_render_thumbnail_jpeg(path.as_ptr(), 512, 255, &mut out) };
+    assert_eq!(rc, 14);
+}
+
+#[test]
+fn jpeg_to_file_quality_above_100_returns_rc_14() {
+    let raw_path = CString::new("/dev/null").unwrap();
+    let out_path = CString::new("/tmp/maple_test.jpg").unwrap();
+    let rc = unsafe {
+        maple_render_thumbnail_jpeg_to_file(raw_path.as_ptr(), out_path.as_ptr(), 512, 200)
+    };
+    assert_eq!(rc, 14, "quality=200 should be rejected at validation");
+}
+
+#[test]
+fn jpeg_to_file_quality_255_returns_rc_14() {
+    let raw_path = CString::new("/dev/null").unwrap();
+    let out_path = CString::new("/tmp/maple_test.jpg").unwrap();
+    let rc = unsafe {
+        maple_render_thumbnail_jpeg_to_file(raw_path.as_ptr(), out_path.as_ptr(), 512, 255)
+    };
+    assert_eq!(rc, 14);
+}
