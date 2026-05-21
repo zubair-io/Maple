@@ -37,7 +37,9 @@ enum DetailPanelVM {
         return String(format: "%.0f K", cct)
     }
 
-    /// Formats the as-shot tint as a signed integer-ish string ("−5", "12").
+    /// Formats the as-shot tint as a signed integer-ish string ("-5", "12").
+    /// Uses the ASCII hyphen because `String(format: "%.0f", …)` renders
+    /// the minus sign as `-` (U+002D), not the Unicode minus `−` (U+2212).
     /// `nil` when no tint is available.
     static func formatAsShotTint(_ tint: Double?) -> String? {
         guard let tint else { return nil }

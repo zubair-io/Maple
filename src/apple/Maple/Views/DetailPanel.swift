@@ -31,8 +31,10 @@ struct DetailPanel: View {
     /// Flips automatically on `isFullImage` transitions (see `.onChange` below).
     @State private var selectedTab: PanelTab = .info
 
-    /// Visible above the file scope so `DetailPanelVM.tabForFullImage` (in
-    /// `DetailPanel+VM.swift`) can return this without leaking SwiftUI types.
+    /// Nested in `DetailPanel` rather than file-scoped, but exposed by the
+    /// outer type's namespace so `DetailPanelVM.tabForFullImage` (in
+    /// `DetailPanel+VM.swift`) can return `DetailPanel.PanelTab` without
+    /// leaking SwiftUI types.
     enum PanelTab { case info, develop }
 
     var body: some View {
