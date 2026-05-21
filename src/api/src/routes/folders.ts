@@ -23,6 +23,7 @@ import { listPairedSidecars } from "../fs/xmp.ts";
 import { child as childLogger } from "../log.ts";
 import { computeBodyETag, ifNoneMatchEqual } from "../runtime/http-etag.ts";
 import { handleEvent } from "../workers/discover/index.ts";
+import { invalidateLibraryRoots } from "../indexer/libraries.cache.ts";
 import { stageManifest, blankStagesSkeleton } from "../workers/stages/manifest.ts";
 
 // Mirror of the hash stage's prefix-SHA-1: first 64 KB. Reused here so a
@@ -149,6 +150,10 @@ export const foldersRoutes = new Elysia({ prefix: "/api/folders" })
       const result = await coll.insertOne(doc);
       const id = result.insertedId.toHexString();
       const folderId = result.insertedId;
+
+      // The library-roots cache (used by every fileinfo[] resolver) must
+      // re-read after this insert so the new library is visible.
+      invalidateLibraryRoots();
 
       // Fire-and-forget: walk the new folder and push each supported image
       // file through the discover producer so the pipeline starts indexing
