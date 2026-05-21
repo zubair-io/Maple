@@ -422,7 +422,14 @@ export class PeopleComponent implements OnInit, OnDestroy {
   /** Fan one bulk action out over the current selection. `verb` is the
    * past-tense word the toast uses ("Moved", "Unassigned", "Hid") so each
    * action stays grammatically clean without duplicating the try/finally
-   * + busy-counter scaffolding. */
+   * + busy-counter scaffolding.
+   *
+   * Uses `Promise.allSettled` rather than `Promise.all` so a single
+   * per-face failure doesn't abort the whole batch: any face that did
+   * succeed is now on a different person / hidden, and skipping the
+   * refresh would leave the UI lying about server state. The toast
+   * surfaces the success/failure split; failures still flow into the
+   * error toast so the operator sees what went wrong. */
   private async bulkApply(
     verb: string,
     fn: (face: ApiPersonFace) => Promise<unknown>,
@@ -431,15 +438,31 @@ export class PeopleComponent implements OnInit, OnDestroy {
     if (faces.length === 0) return;
     this.bulkBusy.update((n) => n + 1);
     try {
-      await Promise.all(faces.map(fn));
-      this.showToast(`${verb} ${faces.length} face${faces.length === 1 ? '' : 's'}.`, 'success');
+      const results = await Promise.allSettled(faces.map(fn));
+      const ok = results.filter((r) => r.status === 'fulfilled').length;
+      const failed = results.length - ok;
+
+      if (ok > 0) {
+        this.showToast(`${verb} ${ok} face${ok === 1 ? '' : 's'}.`, 'success');
+      }
+      if (failed > 0) {
+        // Surface the first rejection's message — picking one rather than
+        // concatenating keeps the toast tight. The remaining failures are
+        // implicit in the count.
+        const firstReject = results.find(
+          (r): r is PromiseRejectedResult => r.status === 'rejected',
+        );
+        const reason = firstReject ? this.errorMessage(firstReject.reason) : 'unknown error';
+        this.showToast(`${failed} face${failed === 1 ? '' : 's'} failed: ${reason}`, 'error');
+      }
+    } finally {
+      // Always clear selection + refresh, even on partial / total failure
+      // — the server state for the successful faces moved, so leaving the
+      // UI alone would lie about what's where.
       this.clearSelection();
       const open = this.selected();
       if (open) this.openDetail(open.id);
       this.refresh();
-    } catch (err) {
-      this.showToast(this.errorMessage(err), 'error');
-    } finally {
       this.bulkBusy.update((n) => Math.max(0, n - 1));
     }
   }

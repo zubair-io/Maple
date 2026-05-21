@@ -15,10 +15,10 @@
   @if (selected(); as detail) {
     <!-- ── Detail view ───────────────────────────────────────────────── -->
     <div class="detail-head">
-      <a class="back-link" (click)="closeDetail()" tabindex="0" role="button">
+      <button type="button" class="back-link" (click)="closeDetail()">
         <maple-settings-icon name="back" [size]="13" color="#a8a29e" />
         <span>People</span>
-      </a>
+      </button>
 
       <div class="detail-identity">
         <div class="detail-avatar">
@@ -288,7 +288,8 @@
               (mapleVisibleOnce)="ensureCoverThumb(p)"
               tabindex="0"
               role="button"
-              (keydown.enter)="selectPerson(p.id)"
+              (keydown.enter)="selectPerson(p.id); $event.preventDefault()"
+              (keydown.space)="selectPerson(p.id); $event.preventDefault()"
             >
               <div class="person-thumb">
                 @if (coverThumbUrl(p); as url) {

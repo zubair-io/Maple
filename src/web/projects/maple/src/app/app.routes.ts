@@ -57,9 +57,11 @@ export const routes: Routes = [
   },
   // People — face-cluster identities. Lives inside the Settings shell;
   // the `:id` variant deep-links into the detail view. The legacy
-  // `/people` and `/people/:id` URLs 301 to the new location so existing
+  // `/people` and `/people/:id` URLs are client-side redirects (Angular
+  // router-level, not HTTP 301) to the new location so existing
   // bookmarks and in-app links (e.g. info-tab face badges before the
-  // settings/people migration) still resolve.
+  // settings/people migration) still resolve. The SPA index.html catches
+  // either entrypoint and the router takes it from there.
   {
     path: 'settings/people',
     canActivate: [authGuard],
