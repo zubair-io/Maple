@@ -184,12 +184,63 @@ export interface VisionMeta {
   raw_response_size: number;
 }
 
-export interface AssetDoc {
-  folder_id: ObjectId;
-  /** Filename only (no directory). */
+/**
+ * One known on-disk location for an asset. An asset may appear in multiple
+ * places (same content backed up from two devices, or a copy under a
+ * different folder); each location is one entry here.
+ *
+ * `path` is the directory relative to the library root, slash-separated,
+ * no leading slash, no trailing slash. `""` means the file sits at the
+ * library root. Matches the existing `apple_rendered_path` and File
+ * Provider `relative_path` conventions.
+ *
+ * Cache-path resolution uses `fileinfo[0]` as the canonical entry: thumbs
+ * and previews live under `<library_root>/<fileinfo[0].path>/.maple/...`,
+ * keyed by `maple_id`. Subsequent entries are alternate observations
+ * discovered later. When the primary entry's library disappears, callers
+ * walk the array and pick the first entry whose `library_id` still
+ * resolves to a registered folder.
+ *
+ * `deleted_at` is per-entry so the asset row survives one location being
+ * unlinked while another stays live. The asset is fully soft-deleted only
+ * when every entry has `deleted_at` set.
+ */
+export interface FileInfo {
+  /** Directory relative to the library root, e.g. "vacation/2024".
+   * Empty string for files at the library root. */
+  path: string;
+  /** File name with extension, e.g. "IMG_001.dng". */
   filename: string;
-  /** Absolute filesystem path (folder.path + "/" + filename). */
+  /** ObjectId of the registered folder this entry lives under. */
+  library_id: ObjectId;
+  /** ISO timestamp when this specific location was unlinked. Absent or
+   * null when the entry is live. */
+  deleted_at?: string | null;
+}
+
+export interface AssetDoc {
+  /** @deprecated Use `fileinfo[0].library_id`. Retained during the
+   * content-addressing migration so legacy code paths keep working;
+   * removed in PR 6 of the migration. */
+  folder_id: ObjectId;
+  /** @deprecated Use `fileinfo[0].filename`. Retained during the
+   * content-addressing migration; removed in PR 6. */
+  filename: string;
+  /** @deprecated Use `assetAbsPath(asset, libraries)` which composes from
+   * `fileinfo[0]`. Retained during the content-addressing migration;
+   * removed in PR 6. */
   abs_path: string;
+  /**
+   * Known on-disk locations for this asset. Populated by the discover
+   * watcher and backup-ingest. Length ≥ 1 for any live asset. Index 0
+   * is the canonical entry used for cache-path resolution.
+   *
+   * Optional only during the additive phase of the content-addressing
+   * migration (PRs 1–5); a boot-time backfill in `db/migrations.ts`
+   * populates `fileinfo[0]` for legacy rows from `(folder_id, filename,
+   * abs_path)`. After PR 6 the field is required.
+   */
+  fileinfo?: FileInfo[];
   /** File size in bytes from stat. */
   size: number;
   /** Last-modified epoch ms from stat. */

@@ -1,5 +1,11 @@
 import { describe, test, expect } from "bun:test";
-import type { AssetDoc, UploadSessionDoc, BackupSessionDoc } from "./schema.ts";
+import { ObjectId } from "mongodb";
+import type {
+  AssetDoc,
+  FileInfo,
+  UploadSessionDoc,
+  BackupSessionDoc,
+} from "./schema.ts";
 
 describe("PhotoKit backup schema additions", () => {
   test("AssetDoc accepts phasset_links, deleted_from_photos, apple_rendered_path", () => {
@@ -83,5 +89,58 @@ describe("PhotoKit backup schema additions", () => {
       failed_count: 0,
     };
     expect(b.uploaded_count).toBe(1);
+  });
+});
+
+describe("FileInfo (content-addressed assets)", () => {
+  test("matches the canonical shape: path, filename, library_id", () => {
+    const libId = new ObjectId();
+    const fi: FileInfo = {
+      path: "vacation/2024",
+      filename: "IMG_001.dng",
+      library_id: libId,
+    };
+    expect(fi.path).toBe("vacation/2024");
+    expect(fi.filename).toBe("IMG_001.dng");
+    expect(fi.library_id.equals(libId)).toBe(true);
+  });
+
+  test("path of '' represents a file at the library root", () => {
+    const fi: FileInfo = {
+      path: "",
+      filename: "root.dng",
+      library_id: new ObjectId(),
+    };
+    expect(fi.path).toBe("");
+  });
+
+  test("deleted_at marker is optional and ISO-string", () => {
+    const fi: FileInfo = {
+      path: "x",
+      filename: "y.dng",
+      library_id: new ObjectId(),
+      deleted_at: "2026-05-20T00:00:00Z",
+    };
+    expect(fi.deleted_at).toBe("2026-05-20T00:00:00Z");
+  });
+
+  test("attaches to AssetDoc as an array", () => {
+    const libId = new ObjectId();
+    const doc: AssetDoc = {
+      folder_id: libId,
+      filename: "IMG_001.dng",
+      abs_path: "/lib/vacation/2024/IMG_001.dng",
+      fileinfo: [
+        { path: "vacation/2024", filename: "IMG_001.dng", library_id: libId },
+      ],
+      size: 1,
+      mtime: 0,
+      rating: 0,
+      flag: 0,
+      color_label: "",
+      indexed_at: "2026-05-20T00:00:00Z",
+    };
+    expect(Array.isArray(doc.fileinfo)).toBe(true);
+    expect(doc.fileinfo).toHaveLength(1);
   });
 });
