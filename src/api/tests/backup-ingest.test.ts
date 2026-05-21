@@ -244,7 +244,7 @@ describe('POST /api/libraries/:id/backup/ingest — happy paths', () => {
       _id: new ObjectId(),
       fileinfo: [
         {
-          library_id: libId,
+          library_id: suite.handle.libId,
           path: path.dirname(indexerRelPath),
           filename: path.basename(indexerRelPath),
           deleted_at: null,
