@@ -1,119 +1,96 @@
 // RenderActor.swift — actor boundary for the per-image render pipeline.
 //
-// Slice 2 of 3 — issue #194. This file now owns the decoded-image cache
-// and the FFI decode coalescers. EditSession still owns the two-phase
-// scheduler, the publish layer (`renderedPreview`), and asset-switch
-// identity; slice 3 moves the scheduler in.
+// Slice 3 of 3 — issue #194. This file now owns:
+//   • The decoded-image cache + FFI decode coalescers (slice 2)
+//   • The two-phase scheduler — fast / refine task handles, debounce
+//     timers, generation counter, slider-drag coalescing (slice 3)
 //
-// Surface today (slice 2):
+// EditSession (MainActor) is now a thin caller: it owns the observable
+// publish state (`renderedPreview`, `renderPhase`, `isRendering`,
+// `renderError`) and the model/culling/canvas math. Slider ticks and
+// other render-triggering mutations call `await renderActor.schedule…(…)`
+// — the actor cancels the in-flight task and debounces the storm into a
+// single fast publish + (optionally) a refine publish.
 //
-//   • `init(pipeline:)` — accepts the shared `ImageEditPipeline` actor.
+// Surface (cumulative across all 3 slices):
 //
-//   • `renderPreview(asset:model:)` — thin pass-through preserved from
-//     slice 1 so the slice-1 actor-boundary tests keep working. No
-//     cache, no scheduling, no generation guard.
+//   • `init(pipeline:)`
+//   • `renderPreview(asset:model:)`               — slice 1 boundary check
+//   • `renderForExport(asset:model:asShot:)`      — slice 2
+//   • `sharedDecode(asset:normalize:)`            — slice 2
+//   • `coalescedRefineDecode(asset:target:decode:)` — slice 2
+//   • `invalidate()`                              — slice 2
+//   • `snapshot(forAsset:)`                       — slice 2
+//   • `seed(...)` / `seedIfUnpopulated(...)`      — slice 2
+//   • `scheduleRender(phase:work:)`               — slice 3
+//   • `scheduleRefine(work:)`                     — slice 3
+//   • `cancelAll()`                               — slice 3
+//   • `currentGeneration()`                       — slice 3
 //
-//   • `sharedDecode(asset:normalize:)` — single-flight Rust FFI decode
-//     per asset. Replaces the same-named method on EditSession. Writes
-//     the actor's `decodedImage` / `decodedForAssetID` /
-//     `decodedSidecarMtime` / `decodedAtModel` / `decodedRawResolution`
-//     fields, returns the normalised CIImage. The `normalize` closure
-//     hops back to the caller's actor (MainActor in production) to apply
-//     `decodedForNativeCanvas` — see the rationale at its call site.
+// The scheduler API takes a `@Sendable` closure parameterised on a
+// `UInt64` generation counter — the closure does the actual filter-chain
+// work (still on MainActor — see EditSession+Render.swift) and checks
+// `await renderActor.currentGeneration() == gen` before publishing.
+// This lets the heavy CPU work stay anchored to MainActor (where it
+// needs to read `previewSize` / `pixelScale` / `nativeImageSize` /
+// `asShotCCT,Tint` / `renderedPreview` for the composite underlay) while
+// the actor owns the cancel/coalesce/debounce decisions.
 //
-//   • `coalescedRefineDecode(asset:target:decode:)` — register-before-
-//     await for refine peers. Same shape and semantics as the prior
-//     EditSession method, just moved.
+// Two-phase semantics (matches CLAUDE.md § Performance invariants):
 //
-//   • `renderForExport(asset:model:asShot:)` — full-quality export
-//     bypass of the preview cache. Moved verbatim from EditSession.
+//   • Fast phase — runs immediately on every schedule. Slider drag at
+//     60–120 Hz lands here; the previous in-flight task is cancelled
+//     before the new one launches so only the most recent tick reaches
+//     the filter chain.
+//   • Refine phase — debounced 150 ms after the last schedule. During a
+//     continuous drag the refine task is cancelled on every tick; it
+//     only fires once the user pauses. The refine debounce is the
+//     "drag coalescer" — many ticks collapse into one full-resolution
+//     refine pass when the drag settles.
 //
-//   • `invalidate()` — drop every cached field. EditSession's public
-//     `invalidateDecodedCache()` forwards here.
+// Cancellation contract:
 //
-//   • `snapshot(forAsset:)` — one-await accessor for render-path
-//     consumers that need to read `(image, decodedAtModel,
-//     decodedRawResolution, isFresh)` atomically. The freshness check
-//     is computed against the live sidecar mtime so the actor doesn't
-//     need to know about EditSession.
-//
-//   • `seed(...)` / `seedIfUnpopulated(...)` — seed the cache from a
-//     non-Rust source (cached preview, embedded JPEG). Hydration uses
-//     `seedIfUnpopulated` so the populated-check and the cache write
-//     happen in a single actor entry — without atomicity, a background
-//     Rust decode landing between the check and the seed would let
-//     hydration overwrite the high-quality buffer with the inferior
-//     preview.
-//
-//   • `_testSeedDecodedCache(...)` / `_testDecodedCachePopulated(forAsset:)`
-//     — test hooks mirroring the prior EditSession surface so the
-//     `EditSessionDecodedCacheTests` suite continues to exercise the
-//     freshness state machine without paying the Rust FFI cost.
-//
-// What slice 2 deliberately does NOT move (per the planning brief):
-//
-//   • The two-phase scheduler (`_scheduleRender`, `_scheduleRefine`,
-//     `refineVisibleRegion`, `decodeAndRender`, `renderFull`) — still
-//     on EditSession in `EditSession+Render.swift`. Slice 3 moves it.
-//
-//   • `persistCurrentPreviewToCache` — reads `renderedPreview` /
-//     `previewSize` from EditSession, has no coupling to the decoded-
-//     image cache. Stays on EditSession.
-//
-//   • Sidecar parse + mtime helpers — pure static functions; left on
-//     EditSession as `static` so both the actor and EditSession can
-//     call them without a circular import.
+//   • `scheduleRender(phase:)` cancels the previous `renderTask` AND
+//     the previous `refineTask` synchronously (under the actor's
+//     isolation), bumps `renderGeneration`, then spawns a new
+//     `renderTask`. The closure receives the post-bump generation
+//     counter and is responsible for honouring `Task.isCancelled` and
+//     the gen-counter check.
+//   • `scheduleRefine()` cancels only the previous `refineTask`. It
+//     does NOT bump the generation counter — refine schedules during a
+//     pan/zoom or window resize must not invalidate the most recent
+//     fast publish.
 
 import Foundation
 import CoreImage
 
 /// Per-session actor boundary for the render pipeline. Owns the decoded-
-/// image cache (slice 2) plus its single-flight and per-target coalescers.
+/// image cache (slice 2) plus the two-phase scheduler (slice 3).
 public actor RenderActor {
     /// Shared GPU pipeline (Metal kernels + `CIContext`). Constructed by
     /// `EditSession` and handed in — keeping a single `ImageEditPipeline`
     /// per session preserves the current GPU-resource lifetime.
     private let pipeline: ImageEditPipeline
 
-    // MARK: - Decoded-image cache state (moved from EditSession in slice 2)
+    // MARK: - Decoded-image cache state (slice 2)
 
-    /// Cached decode for the current asset. Populated by `sharedDecode`
-    /// or `seed(...)`; consumed by `snapshot(forAsset:)` on the hot
-    /// render path. The MainActor scheduler reads this through the
-    /// snapshot accessor — direct access from outside the actor is not
-    /// permitted (actor isolation enforces this at compile time).
     private var decodedImage: CIImage?
-
-    /// Underlying pixel resolution of `decodedImage` before the
-    /// `decodedForNativeCanvas` upscale. See the matching doc on
-    /// EditSession (pre-move) for the load-bearing detail about why
-    /// `.extent.size` of the cached buffer is not the same thing.
     private var decodedRawResolution: CGSize = .zero
     private var decodedForAssetID: AssetRef.ID?
     private var decodedSidecarMtime: Date?
     private var decodedAtModel: AdjustmentModel?
 
-    /// Single-flight Rust FFI decode handle for the current asset.
     private var decodeTask: Task<CIImage?, Never>?
     private var decodeTaskAssetID: AssetRef.ID?
 
-    /// Refine-decode coalescer — see the doc on the prior EditSession
-    /// field for the architectural detail. Kept here so the test suite
-    /// `EditSessionRefineCoalesceTests` continues to verify the
-    /// register-before-await semantics, and as a safety net for any
-    /// future re-introduction of a sized refine path.
     private var refineDecodeTasks: [RefineDecodeKey: RefineDecodeSlot] = [:]
     private var refineDecodeSlotCounter: UInt64 = 0
 
-    /// Slot value paired with a `Task<CIImage?, Never>` so cleanup at
-    /// task completion can match its own insertion. See the prior
-    /// EditSession definition for the rationale.
     struct RefineDecodeSlot {
         let id: UInt64
         let task: Task<CIImage?, Never>
     }
 
-    /// Composite key for the refine-decode coalescer dictionary.
     struct RefineDecodeKey: Hashable {
         let assetID: AssetRef.ID
         let widthPx: Int
@@ -126,18 +103,40 @@ public actor RenderActor {
         }
     }
 
-    /// Atomic-ish snapshot consumed by the hot render path. One `await`
-    /// per render request, rather than 3-4 round-trips against
-    /// individual actor properties (each of which would race the others
-    /// across the isolation boundary). `isFresh` is computed against
-    /// the live sidecar mtime so the snapshot reflects the same
-    /// freshness contract as `decodedCacheIsFreshForCurrentAsset`.
     public struct DecodedSnapshot: Sendable {
         public let image: CIImage?
         public let decodedAtModel: AdjustmentModel?
         public let rawResolution: CGSize
         public let isFresh: Bool
     }
+
+    // MARK: - Scheduler state (slice 3)
+
+    /// Current render task — fast phase, kicked synchronously per
+    /// schedule call. `scheduleRender` cancels this before spawning the
+    /// next one.
+    private var renderTask: Task<Void, Never>?
+
+    /// Current refine task — wraps the 150 ms debounce sleep plus the
+    /// refine work. Cancelled on every schedule (both `scheduleRender`
+    /// and `scheduleRefine`) so a continuous slider drag collapses to a
+    /// single refine pass at the tail.
+    private var refineTask: Task<Void, Never>?
+
+    /// Monotonic generation counter — bumped on every `scheduleRender`
+    /// (NOT on `scheduleRefine`). The render closure receives its
+    /// generation at spawn time and must re-read `currentGeneration()`
+    /// (or compare against the captured `gen`) before publishing so
+    /// stale results from a superseded schedule don't clobber the
+    /// preview produced by the newer one.
+    private var renderGeneration: UInt64 = 0
+
+    /// Refine debounce — 150 ms matches CLAUDE.md § Performance
+    /// invariants. Slice-2 EditSession used 250 ms; slice 3 aligns to
+    /// the spec. The shorter delay makes the refine pass land sooner
+    /// after the user stops dragging without measurably hurting the
+    /// coalesce ratio on a continuous slider drag.
+    public static let refineDebounceMilliseconds: UInt64 = 150
 
     public init(pipeline: ImageEditPipeline) {
         self.pipeline = pipeline
@@ -147,10 +146,10 @@ public actor RenderActor {
 
     /// Render a preview CIImage for `asset` against `model`.
     ///
-    /// Thin pass-through preserved from slice 1 — see commit history for
-    /// the original rationale. Slice 2 does not route the EditSession
-    /// scheduler through this method; it stays for the
-    /// `RenderActorTests` boundary check until slice 3 takes ownership.
+    /// Thin pass-through preserved from slice 1 for the boundary check
+    /// in `RenderActorTests`. The production scheduler does NOT route
+    /// through this method — it calls into the closure handed to
+    /// `scheduleRender(work:phase:)`.
     public func renderPreview(
         asset: AssetRef,
         model: AdjustmentModel
@@ -190,12 +189,8 @@ public actor RenderActor {
         )
     }
 
-    // MARK: - Export
+    // MARK: - Export (slice 2)
 
-    /// Bake the current model against a fresh full-quality decode for
-    /// export. Bypasses the preview-quality decoded-image cache. Moved
-    /// verbatim from `EditSession+Decode.renderForExport()` — see that
-    /// commit history for the design.
     public func renderForExport(
         asset: AssetRef,
         model: AdjustmentModel,
@@ -240,37 +235,14 @@ public actor RenderActor {
         }.value
     }
 
-    // MARK: - Single-flight decode (moved from EditSession)
+    // MARK: - Single-flight decode (slice 2)
 
-    /// Decode `asset` through the Rust FFI at most once even if multiple
-    /// concurrent callers race in. Writes the actor's decode cache on
-    /// completion. The `normalize` closure runs the post-decode
-    /// `decodedForNativeCanvas` step — it's an injected callback so the
-    /// caller (MainActor `EditSession`) can keep its `nativeImageSize`
-    /// side-effects in MainActor isolation rather than racing them on
-    /// the actor's executor (see the planning-brief option (b) for
-    /// rationale).
-    ///
-    /// `normalize` is called for the freshly-decoded CIImage AND for
-    /// the piggy-backed result from a peer task — the cached buffer the
-    /// actor publishes is always the normalised one.
     func sharedDecode(
         asset: AssetRef,
         normalize: @escaping @Sendable (CIImage, AssetRef) async -> CIImage
     ) async -> CIImage? {
-        // Piggy-back: a peer caller is already running the FFI for the
-        // same asset. Await its raw decode then normalise locally — the
-        // peer may not have published yet, so we don't rely on the
-        // actor cache having been written.
         if let existing = decodeTask, decodeTaskAssetID == asset.id {
             guard let decoded = await existing.value else { return nil }
-            // Asset-switch guard: if the caller's session moved to a
-            // different asset while we were piggy-backing, return the
-            // raw decode without re-publishing — the caller's identity
-            // check will drop it. We don't have a `self.asset` on the
-            // actor; the caller passes the asset they want, so an
-            // asset-switch must be observed by the caller's identity
-            // check after this returns.
             if decodedAtModel == nil {
                 decodedAtModel = EditSession.parseSidecarModel(for: asset)
             }
@@ -367,12 +339,6 @@ public actor RenderActor {
         return normalized
     }
 
-    /// Coalesce concurrent refine decodes by `(asset, target)`.
-    ///
-    /// Register-before-await ordering matters: we synchronously install
-    /// the task in `refineDecodeTasks` BEFORE the first `await` so a
-    /// sibling caller arriving during the closure's body sees the in-
-    /// flight task and joins. Same race fix applied to `sharedDecode`.
     @discardableResult
     public func coalescedRefineDecode(
         asset: AssetRef,
@@ -399,12 +365,8 @@ public actor RenderActor {
         return result
     }
 
-    // MARK: - Cache lifecycle
+    // MARK: - Cache lifecycle (slice 2)
 
-    /// Drop every cached field. EditSession's public
-    /// `invalidateDecodedCache()` forwards here. In-flight tasks are
-    /// NOT cancelled — their detached work runs to completion and the
-    /// result is dropped by the caller's gen check upstream.
     public func invalidate() {
         decodedImage = nil
         decodedRawResolution = .zero
@@ -416,11 +378,6 @@ public actor RenderActor {
         decodedAtModel = nil
     }
 
-    /// Snapshot the cache for `asset`. Returns the cached buffer iff it
-    /// matches the requested asset and the live sidecar mtime equals
-    /// the captured mtime. The caller threads the result into the hot
-    /// render path; freshness can flip false even with a non-nil image
-    /// (the live mtime moved), so always honour the `isFresh` flag.
     public func snapshot(forAsset asset: AssetRef) -> DecodedSnapshot {
         let isFresh = (decodedForAssetID == asset.id)
             && (EditSession.sidecarMtime(for: asset) == decodedSidecarMtime)
@@ -432,14 +389,6 @@ public actor RenderActor {
         )
     }
 
-    // MARK: - Hydration interop (slice 2 plan item 5)
-
-    /// Seed the cache from a non-Rust source (cached preview, embedded
-    /// JPEG). EditSession's seed methods stay on MainActor (they own
-    /// the `renderedPreview` write); they call here for the cache-only
-    /// fields. `rawResolution` is the buffer's pre-normalise extent;
-    /// `sidecarMtime` defaults to the current live mtime so the seed
-    /// behaves like a real cold decode against the on-disk sidecar.
     public func seed(
         asset: AssetRef,
         decoded: CIImage,
@@ -453,16 +402,6 @@ public actor RenderActor {
         self.decodedAtModel = decodedAtModel
     }
 
-    /// Atomic populated-check + seed. Returns `true` iff the seed was
-    /// accepted (the cache was empty for this asset and got written),
-    /// `false` iff a higher-quality decode already populated the cache.
-    ///
-    /// Slice-2 callers (cached-preview / embedded-JPEG seed paths) use
-    /// this to avoid a TOCTOU race against the background Rust decode:
-    /// without atomicity, a check-then-write across two actor hops can
-    /// be interleaved with the Rust task's seed-on-completion and the
-    /// inferior preview buffer overwrites the high-quality decode. One
-    /// actor entry collapses the window to zero.
     public func seedIfUnpopulated(
         asset: AssetRef,
         decoded: CIImage,
@@ -480,11 +419,81 @@ public actor RenderActor {
         return true
     }
 
+    // MARK: - Scheduler (slice 3)
+
+    /// Current generation counter — render closures call this on resume
+    /// to confirm they're still the newest schedule before publishing.
+    /// Identical semantics to the `gen != renderGeneration` guard the
+    /// pre-slice-3 EditSession scheduler used.
+    public func currentGeneration() -> UInt64 {
+        renderGeneration
+    }
+
+    /// Schedule a render. Cancels the previous fast + refine tasks,
+    /// bumps the generation counter, and spawns a new task that runs
+    /// `work` immediately (no fast-phase sleep — the cancel-previous
+    /// already short-circuits the storm during a slider drag).
+    ///
+    /// The closure receives the post-bump generation counter; it is
+    /// expected to honour `Task.isCancelled` and to compare against the
+    /// live `currentGeneration()` before writing to MainActor state.
+    ///
+    /// Returns the generation counter so callers that need to coordinate
+    /// follow-up work (e.g. chaining a refine after the fast publish)
+    /// can do so without an extra actor hop.
+    @discardableResult
+    public func scheduleRender(
+        phase: RenderPhase,
+        work: @escaping @Sendable (UInt64) async -> Void
+    ) -> UInt64 {
+        renderTask?.cancel()
+        refineTask?.cancel()
+        renderGeneration &+= 1
+        let gen = renderGeneration
+        editSessionLogger.debug(
+            "scheduleRender gen=\(gen) phase=\(String(describing: phase), privacy: .public)"
+        )
+        renderTask = Task { [work] in
+            await work(gen)
+        }
+        return gen
+    }
+
+    /// Schedule a refine. Cancels the previous refine task and spawns a
+    /// new one that sleeps for `refineDebounceMilliseconds` before
+    /// running `work`. During a continuous flurry of schedules only the
+    /// last one survives the debounce — the slider-drag coalescer.
+    ///
+    /// Does NOT bump `renderGeneration` — pan/zoom and window-resize
+    /// refines must not invalidate the most recent fast publish. The
+    /// closure receives the live generation so it can still bail out if
+    /// a NEWER fast schedule landed after the refine debounce started.
+    @discardableResult
+    public func scheduleRefine(
+        work: @escaping @Sendable (UInt64) async -> Void
+    ) -> UInt64 {
+        refineTask?.cancel()
+        let gen = renderGeneration
+        refineTask = Task { [work] in
+            try? await Task.sleep(for: .milliseconds(Int(RenderActor.refineDebounceMilliseconds)))
+            guard !Task.isCancelled else { return }
+            await work(gen)
+        }
+        return gen
+    }
+
+    /// Cancel both in-flight tasks. Used on asset switch / session
+    /// teardown so background work from the previous asset doesn't
+    /// continue to spend GPU cycles after the user moved on.
+    public func cancelAll() {
+        renderTask?.cancel()
+        refineTask?.cancel()
+        renderTask = nil
+        refineTask = nil
+    }
+
     // MARK: - Test hooks
 
-    /// Test hook — manually populate the cache fields with a synthetic
-    /// CIImage. NOT for production use; the seed methods above are the
-    /// real path.
     internal func _testSeedDecodedCache(
         asset: AssetRef,
         decoded: CIImage,
@@ -499,19 +508,26 @@ public actor RenderActor {
         self.decodedAtModel = decodedAtModel
     }
 
-    /// Test inspector — true when `decodedImage` has been populated for
-    /// the requested asset.
     internal func _testDecodedCachePopulated(forAsset asset: AssetRef) -> Bool {
         decodedImage != nil && decodedForAssetID == asset.id
     }
 
-    /// Test inspector — exposes the freshness state machine for the
-    /// `EditSessionDecodedCacheTests` mtime-change assertions.
     internal func _testDecodedCacheIsFresh(forAsset asset: AssetRef) -> Bool {
         snapshot(forAsset: asset).isFresh
     }
 
-    /// Test inspector — read the `decodedAtModel` field for the
-    /// `testInvalidateClearsAllCacheFields` post-invalidate assertion.
     internal var _testDecodedAtModel: AdjustmentModel? { decodedAtModel }
+
+    /// Test inspector — true when a render task is currently in flight
+    /// (not yet completed, not cancelled). Used by
+    /// `RenderActorSchedulerTests` to assert cancel-previous semantics.
+    internal func _testRenderTaskInFlight() -> Bool {
+        guard let task = renderTask else { return false }
+        return !task.isCancelled
+    }
+
+    internal func _testRefineTaskInFlight() -> Bool {
+        guard let task = refineTask else { return false }
+        return !task.isCancelled
+    }
 }

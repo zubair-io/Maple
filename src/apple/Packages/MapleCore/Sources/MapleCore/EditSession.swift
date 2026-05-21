@@ -147,21 +147,22 @@ public final class EditSession {
 
     /// Per-session render actor (issue #194). Slice 2 moved the decoded-
     /// image cache + `sharedDecode` / `coalescedRefineDecode` /
-    /// `renderForExport` behind this boundary; the scheduler still
-    /// lives in `EditSession+Render.swift` and routes through here for
-    /// every cache read/write. Slice 3 moves the scheduler too.
+    /// `renderForExport` behind this boundary. Slice 3 moves the
+    /// scheduler (render/refine task handles, generation counter,
+    /// debounce + slider-drag coalescer) — the actor now owns
+    /// `scheduleRender` / `scheduleRefine` and EditSession is a thin
+    /// caller. The MainActor methods in `EditSession+Render.swift`
+    /// remain the bodies that the actor's scheduled closures invoke
+    /// (they read/write SwiftUI-observable state, so they must stay on
+    /// MainActor).
     ///
     /// `internal` so the test suite can poke the actor's cache state
-    /// directly via `await session.renderActor.…`.
+    /// and scheduler directly via `await session.renderActor.…`.
     @ObservationIgnored let renderActor: RenderActor
     /// File-backed sidecar store. `nil` for sourceless assets (PhotoKit, self-
     /// hosted API) where sidecar persistence goes through the source's
     /// `writeXMP` API instead.
     @ObservationIgnored let sidecarStore: (any SidecarStoreProtocol)?
-    @ObservationIgnored var renderTask: Task<Void, Never>?
-    @ObservationIgnored var refineTask: Task<Void, Never>?
-    /// Bumped on every render schedule so that stale tasks exit before writing UI state.
-    @ObservationIgnored var renderGeneration: UInt64 = 0
 
     /// True while `loadSidecar()` is applying persisted state. Hydration must
     /// not behave like a user edit: it should not schedule preview renders
