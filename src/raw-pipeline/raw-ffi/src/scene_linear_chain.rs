@@ -93,18 +93,17 @@ pub unsafe extern "C" fn maple_apply_scene_linear_chain(
     }
     // checked_mul (not saturating_mul) — on overflow we want to bail with
     // an error rc, not return usize::MAX and feed that to from_raw_parts
-    // (UB). Width and height are u32 so on a 64-bit usize the product
-    // can't overflow today (max ~2^64 vs 2^32 * 2^32 * 4 ≈ 2^66 — but
-    // checked_mul is correct under any future widening too).
+    // (UB). The RGBA byte product `width * height * 4` reaches ~2^66 at
+    // max u32 inputs, which DOES overflow a 64-bit usize (max 2^64-1) —
+    // so the checked_mul guards are required, not defensive padding. The
+    // earlier `width == 0 || height == 0` short-circuit already returned
+    // before we get here, so the lanes computation can only land on a
+    // strictly positive value or `None` (overflow).
     let lanes = match (width as usize)
         .checked_mul(height as usize)
         .and_then(|p| p.checked_mul(4))
     {
-        Some(n) if n > 0 => n,
-        Some(_) => {
-            set_last_error("apply_scene_linear_chain: zero-lane buffer".into());
-            return 3;
-        }
+        Some(n) => n,
         None => {
             set_last_error(format!(
                 "apply_scene_linear_chain: pixel-count overflow width={} height={}",
