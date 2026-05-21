@@ -23,6 +23,7 @@ import { LibraryStore } from './library-store.service';
 import { LibrarySelection } from './library-selection.service';
 import { LibraryCache } from './library-cache.service';
 import { LibraryFetch } from './library-fetch.service';
+import { BrowsePreferencesService } from './browse-preferences.service';
 
 // Re-export RAW-extension helpers for callers that import from this module.
 export { SUPPORTED_RAW_EXTENSIONS, isSupportedRaw, exifToAssetMetadata } from './library-fetch.service';
@@ -33,6 +34,7 @@ export class LibraryStateService {
   private readonly selection = inject(LibrarySelection);
   private readonly cache_ = inject(LibraryCache);
   private readonly fetch_ = inject(LibraryFetch);
+  private readonly prefs = inject(BrowsePreferencesService);
 
   // ── Backend identity ──────────────────────────────────────────────────────
   readonly backend = this.store.backend;
@@ -70,8 +72,8 @@ export class LibraryStateService {
   readonly currentFolder = this.store.currentFolder;
 
   // ── Sidebar open/collapsed state ───────────────────────────────────────────
-  readonly sectionOpen = this.store.sectionOpen;
-  readonly folderOpen = this.store.folderOpen;
+  readonly sectionOpen = this.prefs.sectionOpen;
+  readonly folderOpen = this.prefs.folderOpen;
 
   // ── Selection ──────────────────────────────────────────────────────────────
   readonly selectedSourceId = this.selection.selectedSourceId;
@@ -80,26 +82,26 @@ export class LibraryStateService {
   readonly selectedSourceLabel = this.selection.selectedSourceLabel;
 
   // ── Thumbnail size (grid density) ─────────────────────────────────────────
-  readonly thumbSize = this.store.thumbSize;
+  readonly thumbSize = this.prefs.thumbSize;
 
   // ── Sort + filter ─────────────────────────────────────────────────────────
-  readonly sort = this.store.sort;
-  readonly filter = this.store.filter;
+  readonly sort = this.prefs.sort;
+  readonly filter = this.prefs.filter;
 
   // ── In-grid search query (filename substring filter) ──────────────────────
   readonly searchQuery = this.store.searchQuery;
 
   // ── Panel visibility (persisted) ──────────────────────────────────────────
-  readonly sidebarVisible = this.store.sidebarVisible;
-  readonly inspectorVisible = this.store.inspectorVisible;
+  readonly sidebarVisible = this.prefs.sidebarVisible;
+  readonly inspectorVisible = this.prefs.inspectorVisible;
 
   // ── Active detail tab ─────────────────────────────────────────────────────
-  readonly activeTab = this.store.activeTab;
+  readonly activeTab = this.prefs.activeTab;
 
   // ── Browse-shell view mode (Folder vs Timeline) ──────────────────────────
-  readonly viewMode = this.store.viewMode;
+  readonly viewMode = this.prefs.viewMode;
   setViewMode(mode: 'folder' | 'timeline'): void {
-    this.store.setViewMode(mode);
+    this.prefs.setViewMode(mode);
   }
 
   // ── Thumbnail URL cache ────────────────────────────────────────────────────
@@ -270,20 +272,20 @@ export class LibraryStateService {
 
   // ── Panel toggles ──────────────────────────────────────────────────────────
   toggleSidebar(): void {
-    this.store.toggleSidebar();
+    this.prefs.toggleSidebar();
   }
 
   toggleInspector(): void {
-    this.store.toggleInspector();
+    this.prefs.toggleInspector();
   }
 
   // ── Tree expand state ──────────────────────────────────────────────────────
   toggleSection(id: string): void {
-    this.store.toggleSection(id);
+    this.prefs.toggleSection(id);
   }
 
   setFolderOpen(id: string, open: boolean): void {
-    this.store.setFolderOpen(id, open);
+    this.prefs.setFolderOpen(id, open);
   }
 }
 
