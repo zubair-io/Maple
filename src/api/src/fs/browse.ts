@@ -569,25 +569,30 @@ export async function listDirContents(
 
 /**
  * Find the deepest registered folder whose `path` is an ancestor of
- * `absPath` (inclusive). Returns the folder's hex `_id`, or `null` if
- * `absPath` is not under any registered folder. The set of folders is
- * small (one per library root the user has registered) so a full scan
- * here is fine.
+ * `absPath` (inclusive). Returns the folder's hex `_id` and its library
+ * root path, or `null` if `absPath` is not under any registered folder.
+ * The set of folders is small (one per library root the user has
+ * registered) so a full scan here is fine.
+ *
+ * The returned `root` is passed straight through to `handleEvent` so the
+ * discover producer doesn't pay a second Mongo round-trip per file.
  */
-async function findOwningFolderId(absPath: string): Promise<string | null> {
+async function findOwningFolder(
+  absPath: string,
+): Promise<{ id: string; root: string } | null> {
   const coll = await foldersCollection();
   const folders = await coll.find({}).toArray();
-  let bestId: string | null = null;
+  let best: { id: string; root: string } | null = null;
   let bestLen = -1;
   for (const f of folders) {
-    if (absPath === f.path || absPath.startsWith(f.path + "/")) {
+    if (absPath === f.path || absPath.startsWith(f.path + '/')) {
       if (f.path.length > bestLen) {
         bestLen = f.path.length;
-        bestId = f._id.toHexString();
+        best = { id: f._id.toHexString(), root: f.path };
       }
     }
   }
-  return bestId;
+  return best;
 }
 
 /**
@@ -606,30 +611,30 @@ async function enqueueBrowseIndex(
   dirPath: string,
   paths: string[],
 ): Promise<void> {
-  const { handleEvent } = await import("../workers/discover/index.ts");
-  const { ObjectId } = await import("mongodb");
+  const { handleEvent } = await import('../workers/discover/index.ts');
+  const { ObjectId } = await import('mongodb');
 
-  const folderId = await findOwningFolderId(dirPath);
-  if (!folderId) {
+  const folder = await findOwningFolder(dirPath);
+  if (!folder) {
     log.debug(
       { dirPath, count: paths.length },
-      "enqueueBrowseIndex: no owning folder found — skipping",
+      'enqueueBrowseIndex: no owning folder found — skipping',
     );
     return;
   }
 
-  const folderObjectId = new ObjectId(folderId);
+  const folderObjectId = new ObjectId(folder.id);
   for (const absPath of paths) {
-    handleEvent({ kind: "created", absPath }, folderObjectId).catch((err) =>
+    handleEvent({ kind: 'created', absPath }, folderObjectId, folder.root).catch((err) =>
       log.warn(
         { absPath, err: err instanceof Error ? err.message : err },
-        "enqueueBrowseIndex: handleEvent failed",
+        'enqueueBrowseIndex: handleEvent failed',
       ),
     );
   }
 
   log.debug(
-    { dirPath, count: paths.length, folderId },
-    "enqueueBrowseIndex: fired",
+    { dirPath, count: paths.length, folderId: folder.id },
+    'enqueueBrowseIndex: fired',
   );
 }

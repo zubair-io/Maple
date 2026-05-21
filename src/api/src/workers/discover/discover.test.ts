@@ -103,7 +103,7 @@ describe("discover producer", () => {
 
     // Directly invoke handleEvent to bypass chokidar's polling interval
     // (60 s / 300 s in production — unusable in a unit test).
-    await handleEvent({ kind: "created", absPath: file }, folderId);
+    await handleEvent({ kind: "created", absPath: file }, folderId, dir);
 
     // The doc should now be in the assets collection.
     const coll = await assetsCollection();
@@ -145,14 +145,14 @@ describe("discover producer", () => {
     const folderId = folderResult.insertedId;
 
     // Insert via created event first.
-    await handleEvent({ kind: "created", absPath: file }, folderId);
+    await handleEvent({ kind: "created", absPath: file }, folderId, tempDir);
     const coll = await assetsCollection();
     const before = await coll.findOne({ abs_path: file });
     expect(before).not.toBeNull();
     expect((before as Record<string, unknown>).deleted_at).toBeNull();
 
     // Now fire the removed event.
-    await handleEvent({ kind: "removed", absPath: file }, folderId);
+    await handleEvent({ kind: "removed", absPath: file }, folderId, tempDir);
     const after = await coll.findOne({ abs_path: file });
     expect(after).not.toBeNull();
     expect((after as Record<string, unknown>).deleted_at).not.toBeNull();
@@ -183,7 +183,7 @@ describe("discover producer", () => {
     const coll = await assetsCollection();
 
     // First discover — inserts with skeleton (all version: 0).
-    await handleEvent({ kind: "created", absPath: file }, folderId);
+    await handleEvent({ kind: "created", absPath: file }, folderId, tempDir);
     // Simulate hash stage completing: bump stages.hash.version to 1.
     await coll.updateOne(
       { abs_path: file },
@@ -191,7 +191,7 @@ describe("discover producer", () => {
     );
 
     // Re-discover (modified event) — must not reset hash back to 0.
-    await handleEvent({ kind: "modified", absPath: file }, folderId);
+    await handleEvent({ kind: "modified", absPath: file }, folderId, tempDir);
     const doc = await coll.findOne({ abs_path: file });
     expect(doc).not.toBeNull();
     const stages = (doc!.stages as Record<string, { version: number }>);
@@ -226,7 +226,7 @@ describe("discover producer", () => {
     await changesColl.deleteMany({});
 
     // create → expect a "create" change row.
-    await handleEvent({ kind: "created", absPath: file }, folderId);
+    await handleEvent({ kind: "created", absPath: file }, folderId, tempDir);
     let rows = await changesColl
       .find({ abs_path: file })
       .sort({ cursor: 1 })
@@ -235,7 +235,7 @@ describe("discover producer", () => {
     expect(rows[0]!.kind).toBe("create");
 
     // modify → "update"
-    await handleEvent({ kind: "modified", absPath: file }, folderId);
+    await handleEvent({ kind: "modified", absPath: file }, folderId, tempDir);
     rows = await changesColl
       .find({ abs_path: file })
       .sort({ cursor: 1 })
@@ -249,6 +249,7 @@ describe("discover producer", () => {
     await handleEvent(
       { kind: "renamed", absPath: newPath, fromPath: file },
       folderId,
+      tempDir,
     );
     const renamedRows = await changesColl
       .find({ abs_path: newPath })
@@ -258,7 +259,7 @@ describe("discover producer", () => {
     expect(renamedRows[0]!.kind).toBe("update");
 
     // soft-delete → "delete"
-    await handleEvent({ kind: "removed", absPath: newPath }, folderId);
+    await handleEvent({ kind: "removed", absPath: newPath }, folderId, tempDir);
     const deleted = await changesColl
       .find({ abs_path: newPath, kind: "delete" })
       .toArray();
@@ -271,15 +272,23 @@ describe("discover producer", () => {
     await rm(tempDir, { recursive: true, force: true });
   });
 
-  it("does not collide on shared basename across folders", async () => {
+  it("does not collide on shared basename across subdirectories", async () => {
     if (!mongoReachable) return;
 
     const { handleEvent } = await import("./index.ts");
     const { assetsCollection, foldersCollection } = await import("../../db/client.ts");
+    const { mkdir } = await import("node:fs/promises");
 
-    // Create two real tmp dirs so stat() inside handleEvent succeeds for both paths.
-    const dir2024 = await mkdtemp(path.join(os.tmpdir(), "discover-coll-2024-"));
-    const dir2025 = await mkdtemp(path.join(os.tmpdir(), "discover-coll-2025-"));
+    // Same library, two subdirectories with the same basename. Used to be
+    // forbidden by the (folder_id, filename) unique index; that index was
+    // dropped — content dedup happens via the unique `maple_id` index in
+    // PR 2 of the content-addressing migration. This test pins the
+    // current behaviour: per-path rows, no collision on filename alone.
+    const root = await mkdtemp(path.join(os.tmpdir(), "discover-coll-"));
+    const dir2024 = path.join(root, "2024");
+    const dir2025 = path.join(root, "2025");
+    await mkdir(dir2024, { recursive: true });
+    await mkdir(dir2025, { recursive: true });
     const file2024 = path.join(dir2024, "IMG_0001.DNG");
     const file2025 = path.join(dir2025, "IMG_0001.DNG");
     await writeFile(file2024, Buffer.alloc(100, 0x11));
@@ -287,8 +296,10 @@ describe("discover producer", () => {
 
     const foldersColl = await foldersCollection();
     const folderResult = await foldersColl.insertOne({
-      abs_path: dir2024,
-      name: "collision-test-folder",
+      path: root,
+      label: "collision-test-folder",
+      last_scan: null,
+      file_count: 0,
       created_at: new Date().toISOString(),
     } as never);
     const folderId = folderResult.insertedId;
@@ -296,8 +307,8 @@ describe("discover producer", () => {
     const coll = await assetsCollection();
 
     // Insert two docs that share a basename but have different absolute paths.
-    await handleEvent({ kind: "created", absPath: file2024 }, folderId);
-    await handleEvent({ kind: "created", absPath: file2025 }, folderId);
+    await handleEvent({ kind: "created", absPath: file2024 }, folderId, root);
+    await handleEvent({ kind: "created", absPath: file2025 }, folderId, root);
 
     const docs = await coll.find({ filename: "IMG_0001.DNG" }).toArray();
     expect(docs.length).toBe(2);
@@ -307,8 +318,7 @@ describe("discover producer", () => {
     // Clean up.
     await coll.deleteMany({ filename: "IMG_0001.DNG" });
     await foldersColl.deleteOne({ _id: folderId });
-    await rm(dir2024, { recursive: true, force: true });
-    await rm(dir2025, { recursive: true, force: true });
+    await rm(root, { recursive: true, force: true });
   });
 
   it("writes fileinfo[0] with path-relative-to-library on insert", async () => {
@@ -334,7 +344,7 @@ describe("discover producer", () => {
     } as never);
     const folderId = folderResult.insertedId;
 
-    await handleEvent({ kind: "created", absPath: file }, folderId);
+    await handleEvent({ kind: "created", absPath: file }, folderId, root);
 
     const coll = await assetsCollection();
     const doc = await coll.findOne({ abs_path: file });
@@ -369,7 +379,7 @@ describe("discover producer", () => {
     } as never);
     const folderId = folderResult.insertedId;
 
-    await handleEvent({ kind: "created", absPath: file }, folderId);
+    await handleEvent({ kind: "created", absPath: file }, folderId, root);
 
     const coll = await assetsCollection();
     const doc = await coll.findOne({ abs_path: file });
@@ -408,9 +418,9 @@ describe("discover producer", () => {
     } as never);
     const folderId = folderResult.insertedId;
 
-    await handleEvent({ kind: "created", absPath: before }, folderId);
+    await handleEvent({ kind: "created", absPath: before }, folderId, root);
     await fsRename(before, after);
-    await handleEvent({ kind: "renamed", absPath: after, fromPath: before }, folderId);
+    await handleEvent({ kind: "renamed", absPath: after, fromPath: before }, folderId, root);
 
     const coll = await assetsCollection();
     const doc = await coll.findOne({ abs_path: after });

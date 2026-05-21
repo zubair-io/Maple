@@ -157,11 +157,13 @@ export const foldersRoutes = new Elysia({ prefix: "/api/folders" })
 
       // Fire-and-forget: walk the new folder and push each supported image
       // file through the discover producer so the pipeline starts indexing
-      // immediately without waiting for the next watcher tick.
-      void scanFolderAndDiscover(path, folderId).catch((err) =>
+      // immediately without waiting for the next watcher tick. The library
+      // root is `path` itself (we just inserted the row with that path),
+      // passed through so handleEvent doesn't re-fetch the folder doc.
+      void scanFolderAndDiscover(path, folderId, path).catch((err) =>
         log.warn(
           { path, err: err instanceof Error ? err.message : err },
-          "initial folder scan failed — files will be indexed on next watcher tick",
+          'initial folder scan failed — files will be indexed on next watcher tick',
         ),
       );
 
@@ -751,7 +753,11 @@ async function dispatchPool<T>(items: T[], limit: number, run: (i: T) => Promise
  * handleEvent calls (also 8) so DB write pressure stays bounded on large trees.
  * Silently skips permission-denied subtrees.
  */
-async function scanFolderAndDiscover(rootPath: string, folderId: ObjectId): Promise<void> {
+async function scanFolderAndDiscover(
+  rootPath: string,
+  folderId: ObjectId,
+  libraryRoot: string,
+): Promise<void> {
   const CONCURRENCY = 8;
   const queue: string[] = [rootPath];
 
@@ -784,10 +790,10 @@ async function scanFolderAndDiscover(rootPath: string, folderId: ObjectId): Prom
 
     // Dispatch the files found in this directory batch with bounded concurrency.
     await dispatchPool(fileBatch, CONCURRENCY, async (absPath) => {
-      await handleEvent({ kind: "created", absPath }, folderId).catch((err) =>
+      await handleEvent({ kind: 'created', absPath }, folderId, libraryRoot).catch((err) =>
         log.warn(
           { absPath, err: err instanceof Error ? err.message : err },
-          "discover upsert failed during initial folder scan",
+          'discover upsert failed during initial folder scan',
         ),
       );
     });

@@ -80,7 +80,7 @@ describe("workers smoke test", () => {
       // smoke test. Drive discover's handleEvent directly to insert the doc
       // immediately, then let the stage children pick it up on their next poll.
       const { handleEvent } = await import("./discover/index.ts");
-      await handleEvent({ kind: "created", absPath: file }, new ObjectId(folderId));
+      await handleEvent({ kind: "created", absPath: file }, new ObjectId(folderId), dir);
 
       // Poll until all three stages reach their target version or the deadline fires.
       const assetsColl = await assetsCollection();
