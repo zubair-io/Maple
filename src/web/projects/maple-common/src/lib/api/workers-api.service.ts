@@ -1,7 +1,8 @@
 // WorkersApiService — typed HttpClient wrapper for /api/workers/*.
 //
 // All methods return Observable<T> per project convention.
-// Consumed by WorkersComponent (polling) and WorkerConfigDialogComponent (PATCH).
+// Consumed by WorkersComponent for both polling (getStatus) and per-stage
+// runtime edits (patchConfig).
 
 import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';

@@ -1,76 +1,129 @@
-<section class="max-w-[720px] mx-auto p-6">
-  <h2 class="mb-4">Users &amp; invites</h2>
-
-  <form
-    (submit)="createInvite(); $event.preventDefault()"
-    class="flex gap-2"
-  >
-    <input
-      type="email"
-      [(ngModel)]="email"
-      name="email"
-      placeholder="invitee@example.com"
-      autocomplete="off"
-      required
-      class="flex-1 px-2.5 py-2"
-    />
-    <button type="submit" [disabled]="busy() || !email">Invite</button>
-  </form>
-
-  @if (freshInvite(); as fi) {
-    <div
-      class="mt-4 p-3 border border-[rgba(255,255,255,0.12)] rounded-md"
-    >
-      <h3 class="mt-6 mb-2">Invite for {{ fi.email }}</h3>
+<maple-settings-shell section="users">
+  <header class="page-header">
+    <div class="titles">
+      <h1>Users</h1>
       <p>
-        Code: <code class="text-[18px] tracking-[2px]">{{ fi.code }}</code>
+        Who can sign in to this Maple instance. Owners can change every
+        setting and invite new members; members can browse and edit photos.
       </p>
-      <p>
-        URL: <a [href]="fi.url">{{ fi.url }}</a>
-      </p>
-      <img
-        class="block my-2 bg-white p-1"
-        [src]="qrSrc(fi)"
-        alt="Invite QR"
-        width="180"
-        height="180"
-      />
-      <p class="opacity-60 text-xs m-0">Expires {{ fi.expires_at }}</p>
     </div>
-  }
+    <div class="actions">
+      <button type="button" class="btn-primary" (click)="openInvite()">
+        <maple-settings-icon name="plus" [size]="13" [color]="'#fff'"/>
+        Invite user
+      </button>
+    </div>
+  </header>
 
-  <h3 class="mt-6 mb-2">Pending invites</h3>
-  <ul class="list-none p-0 m-0">
-    @for (inv of invites(); track inv.code) {
-      <li
-        class="flex items-center gap-3 py-2 border-b border-[rgba(255,255,255,0.08)]"
-        [class.opacity-50]="inv.consumed_at !== null"
+  <div class="users-body">
+    @if (showInviteForm()) {
+      <form
+        class="invite-form"
+        (submit)="createInvite(); $event.preventDefault()"
       >
-        <span class="font-medium">{{ inv.email }}</span>
-        <code class="tracking-[1px] opacity-[0.85]">{{ inv.code }}</code>
-        <span class="flex-1 opacity-60 text-xs">
-          @if (inv.consumed_at) {
-            consumed {{ inv.consumed_at }}
-          } @else {
-            expires {{ inv.expires_at }}
-          }
-        </span>
-        @if (!inv.consumed_at) {
-          <button
-            type="button"
-            [disabled]="busy()"
-            (click)="rescind(inv.code)"
-          >
-            Rescind
-          </button>
-        }
-      </li>
-    } @empty {
-      <li class="opacity-60 italic">No pending invites.</li>
+        <input
+          type="email"
+          [(ngModel)]="email"
+          name="email"
+          placeholder="invitee@example.com"
+          autocomplete="off"
+          required
+        />
+        <button type="submit" class="btn-primary" [disabled]="busy() || !email">
+          Send invite
+        </button>
+      </form>
     }
-  </ul>
 
-  @if (error(); as e) {
-    <p class="text-[#ff6b6b] mt-3">{{ e }}</p>
-  }
-</section>
+    @if (freshInvite(); as fi) {
+      <section class="fresh-invite">
+        <div class="subhead">New invite for {{ fi.email }}</div>
+        <div class="fresh-row">
+          <img class="qr" [src]="qrSrc(fi)" alt="Invite QR" width="120" height="120"/>
+          <div class="fresh-meta">
+            <div>
+              <span class="meta-label">Code</span>
+              <code class="meta-code">{{ fi.code }}</code>
+              <button type="button" class="copy-btn" title="Copy code" (click)="copyCode(fi.code)">
+                <maple-settings-icon name="copy" [size]="12"/>
+              </button>
+            </div>
+            <div>
+              <span class="meta-label">URL</span>
+              <a [href]="fi.url" class="meta-url mono">{{ fi.url }}</a>
+            </div>
+            <div class="meta-expires">Expires {{ fi.expires_at }}</div>
+          </div>
+        </div>
+      </section>
+    }
+
+    <section>
+      <div class="subhead">Members</div>
+      <div class="card-list">
+        @if (currentUser(); as u) {
+          <div class="member-row">
+            <div class="who">
+              <div class="avatar" [style.background]="avatarColor(u.email)">
+                {{ u.email[0].toUpperCase() }}
+              </div>
+              <span class="mono email">{{ u.email }}</span>
+              <span class="you-chip">YOU</span>
+            </div>
+            <span class="role-chip" [class.owner]="u.role === 'owner'">
+              {{ u.role.toUpperCase() }}
+            </span>
+            <span class="dim mono">—</span>
+            <span class="dim mono">now</span>
+            <span></span>
+          </div>
+        }
+      </div>
+    </section>
+
+    <section>
+      <div class="section-row">
+        <div class="subhead">Invite codes</div>
+      </div>
+      <div class="card-list">
+        @if (invites().length === 0) {
+          <p class="empty">No pending invites.</p>
+        } @else {
+          @for (inv of invites(); track inv.code) {
+            <div class="invite-row" [class.is-consumed]="inv.consumed_at !== null">
+              <span class="mono email">{{ inv.email }}</span>
+              <span class="invite-code">
+                <code class="mono">{{ inv.code }}</code>
+                <button type="button" class="copy-btn" title="Copy code" (click)="copyCode(inv.code)">
+                  <maple-settings-icon name="copy" [size]="12"/>
+                </button>
+              </span>
+              <span class="role-chip">INVITE</span>
+              <span class="dim mono">
+                @if (inv.consumed_at) {
+                  consumed {{ inv.consumed_at }}
+                } @else {
+                  expires {{ inv.expires_at }}
+                }
+              </span>
+              <span class="actions-cell">
+                @if (!inv.consumed_at) {
+                  <button
+                    type="button"
+                    class="revoke-btn"
+                    [disabled]="busy()"
+                    (click)="rescind(inv.code)"
+                  >Revoke</button>
+                }
+              </span>
+            </div>
+          }
+        }
+      </div>
+    </section>
+
+    @if (error(); as e) {
+      <p class="error">{{ e }}</p>
+    }
+  </div>
+</maple-settings-shell>
