@@ -12,11 +12,11 @@
  *
  * Mounted into `assetsRoutes` (see ./index.ts) which provides the
  * `/api/assets` prefix.
+ *
+ * Mongo access lives in `src/db/assets.repo.ts`.
  */
 
 import { Elysia, t } from "elysia";
-import { ObjectId } from "mongodb";
-import { assetsCollection } from "../../db/client.ts";
 import {
   readXmp,
   writeXmpWithPrecondition,
@@ -26,28 +26,30 @@ import {
   deleteConflictSidecar,
 } from "../../fs/xmp.ts";
 import { recordAndPublishAssetChange } from "../../db/changes.repo.ts";
+import {
+  findCoreInfoById,
+  parseAssetId,
+  setHasXmp,
+} from "../../db/assets.repo.ts";
 
 export const xmpRoutes = new Elysia()
   // Read XMP sidecar
   .get("/:id/xmp", async ({ params, query, set }) => {
-    let id: ObjectId;
-    try {
-      id = new ObjectId(params.id);
-    } catch {
+    const id = parseAssetId(params.id);
+    if (!id) {
       set.status = 400;
       return { error: "Invalid asset id" };
     }
 
-    const coll = await assetsCollection();
-    const doc = await coll.findOne({ _id: id });
-    if (!doc) {
+    const info = await findCoreInfoById(id);
+    if (!info) {
       set.status = 404;
       return { error: "Asset not found" };
     }
 
     const conflict = typeof query.conflict === "string" ? query.conflict : null;
     if (conflict !== null) {
-      const result = await readConflictSidecar(doc.abs_path, conflict);
+      const result = await readConflictSidecar(info.abs_path, conflict);
       if (!result.ok) {
         set.status = 404;
         return { error: result.error };
@@ -56,11 +58,11 @@ export const xmpRoutes = new Elysia()
       return result.data;
     }
 
-    const result = await readXmp(doc.abs_path);
+    const result = await readXmp(info.abs_path);
     if (!result.ok) {
       // No sidecar yet — return empty XMP
       set.headers["Content-Type"] = "application/xml";
-      return emptyXmp(doc.filename);
+      return emptyXmp(info.filename);
     }
 
     set.headers["Content-Type"] = "application/xml";
@@ -84,17 +86,14 @@ export const xmpRoutes = new Elysia()
   .put(
     "/:id/xmp",
     async ({ params, body, headers, query, set }) => {
-      let id: ObjectId;
-      try {
-        id = new ObjectId(params.id);
-      } catch {
+      const id = parseAssetId(params.id);
+      if (!id) {
         set.status = 400;
         return { error: "Invalid asset id" };
       }
 
-      const coll = await assetsCollection();
-      const doc = await coll.findOne({ _id: id });
-      if (!doc) {
+      const info = await findCoreInfoById(id);
+      if (!info) {
         set.status = 404;
         return { error: "Asset not found" };
       }
@@ -108,7 +107,7 @@ export const xmpRoutes = new Elysia()
 
       const conflict = typeof query.conflict === "string" ? query.conflict : null;
       if (conflict !== null) {
-        const outcome = await writeConflictSidecarAtomic(doc.abs_path, conflict, xmlContent);
+        const outcome = await writeConflictSidecarAtomic(info.abs_path, conflict, xmlContent);
         if (!outcome.ok) {
           set.status = 400;
           return { error: outcome.error };
@@ -121,8 +120,8 @@ export const xmpRoutes = new Elysia()
         await recordAndPublishAssetChange({
           kind: "update",
           asset_id: id,
-          folder_id: doc.folder_id,
-          abs_path: doc.abs_path,
+          folder_id: info.folder_id,
+          abs_path: info.abs_path,
         }).catch(() => {});
         return;
       }
@@ -136,7 +135,7 @@ export const xmpRoutes = new Elysia()
       const deviceName = typeof deviceHeader === "string" ? deviceHeader : "";
 
       const outcome = await writeXmpWithPrecondition(
-        doc.abs_path,
+        info.abs_path,
         xmlContent,
         ifMtimeMatchesEpoch,
         deviceName,
@@ -157,16 +156,14 @@ export const xmpRoutes = new Elysia()
       set.status = 204;
       // Mark the asset as carrying an XMP sidecar so the working-set
       // `has_xmp` filter can find it cheaply (Task B1).
-      await coll
-        .updateOne({ _id: id }, { $set: { has_xmp: true } })
-        .catch(() => {});
+      await setHasXmp(id, true).catch(() => {});
       // Best-effort change-feed emit so the File Provider extension can
       // signal the OS to re-fetch this asset's sidecar.
       await recordAndPublishAssetChange({
         kind: "update",
         asset_id: id,
-        folder_id: doc.folder_id,
-        abs_path: doc.abs_path,
+        folder_id: info.folder_id,
+        abs_path: info.abs_path,
       }).catch(() => {});
       return;
     },
@@ -178,23 +175,20 @@ export const xmpRoutes = new Elysia()
 
   // Delete XMP sidecar (idempotent).
   .delete("/:id/xmp", async ({ params, query, set }) => {
-    let id: ObjectId;
-    try {
-      id = new ObjectId(params.id);
-    } catch {
+    const id = parseAssetId(params.id);
+    if (!id) {
       set.status = 400;
       return { error: "Invalid asset id" };
     }
-    const coll = await assetsCollection();
-    const doc = await coll.findOne({ _id: id });
-    if (!doc) {
+    const info = await findCoreInfoById(id);
+    if (!info) {
       set.status = 404;
       return { error: "Asset not found" };
     }
     const conflict = typeof query.conflict === "string" ? query.conflict : null;
     const result = conflict !== null
-      ? await deleteConflictSidecar(doc.abs_path, conflict)
-      : await deleteXmpSidecar(doc.abs_path);
+      ? await deleteConflictSidecar(info.abs_path, conflict)
+      : await deleteXmpSidecar(info.abs_path);
     if (!result.ok) {
       set.status = 400;
       return { error: result.error };
@@ -204,16 +198,14 @@ export const xmpRoutes = new Elysia()
     // for conflict-sidecar deletes the canonical may still be there,
     // so leave has_xmp alone in that branch.
     if (conflict === null) {
-      await coll
-        .updateOne({ _id: id }, { $set: { has_xmp: false } })
-        .catch(() => {});
+      await setHasXmp(id, false).catch(() => {});
     }
     // The sidecar state changed — emit a feed event either way.
     await recordAndPublishAssetChange({
       kind: "update",
       asset_id: id,
-      folder_id: doc.folder_id,
-      abs_path: doc.abs_path,
+      folder_id: info.folder_id,
+      abs_path: info.abs_path,
     }).catch(() => {});
     return;
   });

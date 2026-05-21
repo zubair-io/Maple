@@ -183,6 +183,7 @@ describe("POST /api/assets/:id/restore", () => {
     // `RestoreResponse.mtime: Date` decoder (RemoteCatalog.swift) accepts
     // it. The DB column stays epoch-ms — see assertion below.
     expect(typeof body.mtime).toBe("string");
+    expect(body.mtime).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
     expect(Number.isFinite(Date.parse(body.mtime))).toBe(true);
     // Doc must carry the renamed filename so the unique
     // {folder_id, filename} index no longer reserves the OLD basename
@@ -192,6 +193,7 @@ describe("POST /api/assets/:id/restore", () => {
     expect(doc.size).toBe(3);
     // DB stays epoch-ms (number) — only the wire response is ISO.
     expect(typeof doc.mtime).toBe("number");
+    expect(Number.isFinite(doc.mtime as number)).toBe(true);
   });
 
   // Regression for #166: a restored asset's mtime must persist as a
