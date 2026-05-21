@@ -159,9 +159,13 @@ export async function serverStateCollection(): Promise<Collection<ServerStateDoc
   return (await getDb()).collection<ServerStateDoc>('server_state');
 }
 
-/** Stage names whose claim-query indexes are created at startup. */
+/** Stage names whose claim-query indexes are created at startup.
+ *
+ * The `hash` stage was removed in the content-addressing migration (hashing
+ * is now done inline by discover/backup-ingest), so its indexes are dropped
+ * by the `drop-abs-path-2026-05-21` sentinel block in `ensureIndexes` and
+ * never recreated here. */
 const WORKER_STAGE_NAMES = [
-  'hash',
   'exif',
   'thumb',
   'preview',
@@ -494,12 +498,19 @@ export async function ensureIndexes(): Promise<void> {
       );
     } else {
       // Drop legacy indexes (IndexNotFound is fine — already dropped or never existed).
+      // The `stage_hash_*` pair is dropped here too: the hash stage was retired in
+      // PR 7 (hashing moved inline into discover/backup-ingest), so the worker-stage
+      // index loop no longer recreates them. Bundling the drop into this sentinel
+      // means existing deploys lose their orphan indexes on the next boot and the
+      // drop never repeats afterwards (the sentinel short-circuits everything).
       for (const name of [
         'abs_path_1',
         'abs_path_captured_year_month',
         'folder_id_1_filename_1',
         'folder_id_1',
         'filename_1',
+        'stage_hash_version',
+        'stage_hash_dead',
       ]) {
         try {
           await db.collection('assets').dropIndex(name);
@@ -508,12 +519,19 @@ export async function ensureIndexes(): Promise<void> {
           if (!/IndexNotFound|index not found/i.test(msg)) throw err;
         }
       }
-      // Add replacement indexes scoped to fileinfo[].
+      // Add replacement indexes scoped to fileinfo[]. The dedicated
+      // `fileinfo.filename` index powers the `name` sort on /api/search and
+      // /api/folders/:id — the compound `(fileinfo.path, fileinfo.filename)`
+      // index above can't satisfy a sort-only-on-filename query because its
+      // first key is `path`.
       await db.collection('assets').createIndex({ 'fileinfo.library_id': 1 });
       await db.collection('assets').createIndex({ 'fileinfo.path': 1, 'fileinfo.filename': 1 });
+      await db
+        .collection('assets')
+        .createIndex({ 'fileinfo.filename': 1 }, { name: 'fileinfo_filename_1' });
       await recordMigration(db, 'drop-abs-path-2026-05-21', 0);
       log.info(
-        'dropped legacy abs_path / folder_id / filename indexes; added fileinfo replacements',
+        'dropped legacy abs_path / folder_id / filename / stage_hash indexes; added fileinfo replacements',
       );
     }
   }
