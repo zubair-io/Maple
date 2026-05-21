@@ -89,7 +89,7 @@ pub fn apply_scene_linear_chain(
         })?;
     let expected_len = pixel_count.checked_mul(4).ok_or_else(|| {
         crate::error::Error::Pipeline(format!(
-            "apply_scene_linear_chain: pixel count overflow: {}x{}",
+            "apply_scene_linear_chain: expected input length overflow (RGBA 4-lane multiplier): {}x{}",
             width, height
         ))
     })?;
@@ -242,18 +242,18 @@ mod tests {
         assert!(r.is_err(), "size mismatch must error");
     }
 
-    /// Defense-in-depth: `width * height` is computed with `checked_mul`,
-    /// so a width/height pair guaranteed to overflow `usize` on 64-bit
-    /// returns a Pipeline error rather than wrapping to a nonsense buffer
-    /// size. Pre-existing bug surfaced by Copilot review on #159.
+    /// Defense-in-depth: `width * height` and the subsequent `* 4` are both
+    /// computed with `checked_mul`, so a width/height pair whose RGBA byte
+    /// length overflows `usize` on 64-bit returns a Pipeline error rather
+    /// than wrapping to a nonsense buffer size. Pre-existing bug surfaced by
+    /// Copilot review on #159.
     #[test]
-    fn apply_scene_linear_chain_pixel_count_overflow_errors() {
+    fn apply_scene_linear_chain_rgba_length_overflow_errors() {
         let model = AdjustmentModel::default();
-        // u32::MAX * u32::MAX = ~1.8e19, which overflows usize on 64-bit
-        // (usize::MAX ~ 1.8e19 as well, but the second factor pushes past).
-        // The product as u128 is 0xFFFFFFFE00000001, which is just under
-        // usize::MAX on 64-bit — but multiplying by 4 (for the rgba length
-        // check) overflows reliably. Either way the impl must error.
+        // u32::MAX * u32::MAX as u128 is 0xFFFFFFFE00000001 — this fits in
+        // usize on 64-bit (usize::MAX = 0xFFFFFFFFFFFFFFFF). The reliable
+        // overflow happens on the next step: `pixel_count * 4` for the RGBA
+        // byte length, which the impl also guards with checked_mul.
         let r = apply_scene_linear_chain(&[], u32::MAX, u32::MAX, &model, 6500.0, 0.0, false);
         match r {
             Err(crate::error::Error::Pipeline(msg)) => {
