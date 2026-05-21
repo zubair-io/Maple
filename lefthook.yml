@@ -1,0 +1,94 @@
+# lefthook.yml — pre-commit hooks for Maple.
+#
+# Install:  brew install lefthook  (or: npm i -g lefthook)
+# Activate: lefthook install        (writes .git/hooks/*; once per clone)
+#
+# Hooks are intentionally graceful — if a formatter binary isn't installed
+# locally, the step skips with a soft message. CI is the gate; pre-commit
+# is the early-warning system. See CONTRIBUTING.md § "Tooling".
+
+pre-commit:
+  parallel: true
+  commands:
+    # --- File-size budget (#113). Runs only on staged source files. ---
+    file-budget:
+      glob: "*.{rs,swift,ts,tsx,js,py}"
+      run: bash tools/check-file-budget.sh {staged_files}
+
+    # --- Prettier (TS/JS/HTML/SCSS/CSS/JSON/YAML/MD). ---
+    # Honours src/web/.prettierrc. Resolves `prettier` from PATH first, then
+    # falls back to src/web/node_modules/.bin/prettier so it works without a
+    # root install. Soft-skips if neither is found.
+    prettier:
+      glob: "*.{ts,tsx,js,jsx,html,scss,css,json,yaml,yml,md,graphql}"
+      run: |
+        if command -v prettier >/dev/null 2>&1; then
+          prettier --check {staged_files}
+        elif [ -x src/web/node_modules/.bin/prettier ]; then
+          src/web/node_modules/.bin/prettier --check {staged_files}
+        else
+          echo "lefthook: prettier not installed — skipping (CI will gate)"
+        fi
+
+    # --- rustfmt (matches Rust 2021 edition used by raw-pipeline). ---
+    rustfmt:
+      glob: "*.rs"
+      run: |
+        if command -v rustfmt >/dev/null 2>&1; then
+          rustfmt --edition 2021 --check {staged_files}
+        else
+          echo "lefthook: rustfmt not installed — skipping (CI will gate)"
+        fi
+
+    # --- swift-format (Apple-bundled, ships with Xcode 15+). ---
+    swift-format:
+      glob: "*.swift"
+      run: |
+        if xcrun --find swift-format >/dev/null 2>&1; then
+          xcrun swift-format lint --strict {staged_files}
+        else
+          echo "lefthook: swift-format not available — skipping (CI will gate)"
+        fi
+
+    # --- Ruff format + lint (Python helper scripts under src/scripts/, tools/). ---
+    ruff:
+      glob: "*.py"
+      run: |
+        if command -v ruff >/dev/null 2>&1; then
+          ruff format --check {staged_files} && ruff check {staged_files}
+        else
+          echo "lefthook: ruff not installed — skipping (CI will gate)"
+        fi
+
+    # --- shfmt for shell scripts under src/scripts/, tools/, src/apple/scripts/. ---
+    shfmt:
+      glob: "*.{sh,bash}"
+      run: |
+        if command -v shfmt >/dev/null 2>&1; then
+          shfmt -d {staged_files}
+        else
+          echo "lefthook: shfmt not installed — skipping (CI will gate)"
+        fi
+
+# --- Commit-message hook: Conventional Commits. ---
+# Runs a tiny inline regex check so we don't pull in commitlint as a
+# repo-root devDep just for this. The Exposure setup uses commitlint —
+# we can swap to that once we add a root package.json with devDeps.
+commit-msg:
+  commands:
+    conventional-commits:
+      run: |
+        msg_file="{1}"
+        first_line=$(head -n1 "$msg_file" | sed 's/[[:space:]]*$//')
+        # Allow Merge / Revert / fixup / squash automation lines unchanged.
+        case "$first_line" in
+          Merge*|Revert*|"fixup!"*|"squash!"*|"amend!"*) exit 0 ;;
+        esac
+        # Conventional Commits: type(scope)?!?: description
+        # type ∈ {feat,fix,docs,style,refactor,perf,test,build,ci,chore,revert}
+        if ! printf '%s' "$first_line" | grep -Eq '^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\([^)]+\))?!?: .+'; then
+          echo "commit-msg: not a Conventional Commit. Got:" >&2
+          echo "  $first_line" >&2
+          echo "Expected: type(scope)?: description  — see CONTRIBUTING.md" >&2
+          exit 1
+        fi
