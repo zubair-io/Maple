@@ -358,8 +358,14 @@ export async function mergeDuplicateAssets(db: Db): Promise<MergeDuplicatesResul
  * to abort the deploy or log + skip the index drops.
  */
 export async function countAssetsMissingFileinfo(db: Db): Promise<number> {
+  // Match the same live-row predicate the API uses (see
+  // `routes/search/query.ts` `applyLiveFilter`): `deleted_at: null` OR the
+  // field is absent. Legacy rows that pre-date the indexer's explicit
+  // `deleted_at: null` write would slip past a strict `deleted_at: null`
+  // filter — counting them as 0 here would let the index drop run and
+  // strand those rows in an unindexed state.
   return await db.collection('assets').countDocuments({
     fileinfo: { $exists: false },
-    deleted_at: null,
+    $or: [{ deleted_at: null }, { deleted_at: { $exists: false } }],
   });
 }
