@@ -154,6 +154,31 @@ final class BackupEngineTests: XCTestCase {
         XCTAssertEqual(row?.state, .pending)
     }
 
+    /// Regression for #225: when `process()` re-marks the task `.pending`
+    /// after a failure, the bumped retryCount must round-trip through
+    /// SQLite — otherwise restart rehydration silently resets retries to 0
+    /// and the `maxRetries` ceiling becomes effectively infinite.
+    func testFailurePersistsBumpedRetryCountToSQLite() async throws {
+        StubURLProtocol.stub = .status(500)
+        let (engine, queue, state, _, _, tmpRoot) = try freshHarness()
+        defer { try? FileManager.default.removeItem(at: tmpRoot) }
+        let id = BackupTaskID(deviceId: "d", phassetLocalId: "P1")
+        let task = BackupTask(id: id, state: .pending, priority: .background,
+                              retryCount: 2)
+        try await state.upsert(task)
+        await queue.enqueue(task, priority: .background)
+        do {
+            try await engine.processOne()
+            XCTFail("expected upload to fail and throw")
+        } catch {
+            // expected
+        }
+        let row = try await state.find(id)
+        XCTAssertEqual(row?.state, .pending)
+        XCTAssertEqual(row?.retryCount, 3,
+                       "transition() must persist the bumped retryCount (#225)")
+    }
+
     func testFailureSchedulesRetry() async throws {
         StubURLProtocol.stub = .status(500)
         let (engine, queue, state, _, _, tmpRoot) = try freshHarness()
