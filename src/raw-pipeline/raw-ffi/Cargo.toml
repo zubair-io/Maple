@@ -13,3 +13,9 @@ raw-core = { path = "../raw-core" }
 rawler.workspace = true
 image.workspace = true
 thiserror.workspace = true
+
+[dev-dependencies]
+# Enable raw-core's synthetic-DNG writer for thumbnail tests that need a
+# RAW with no embedded JPEG preview (exercises the rc=8 fall-through).
+raw-core = { path = "../raw-core", features = ["test-support"] }
+tempfile = "3"

@@ -63,3 +63,6 @@ mod handle_tests;
 #[cfg(test)]
 #[path = "id_tests.rs"]
 mod id_tests;
+#[cfg(test)]
+#[path = "thumbnail_tests.rs"]
+mod thumbnail_tests;
