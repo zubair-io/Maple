@@ -285,7 +285,7 @@ pub unsafe extern "C" fn maple_render_bytes_scene_linear_sized(
 /// Tile scene-linear render — same fp16 RGBA output struct as the sized
 /// variant, but renders only the source-pixel rectangle
 /// `(src_x, src_y, src_w, src_h)`. Pads internally by
-/// `raw_core::pipeline::tile::TILE_OVERLAP_PX` to satisfy the
+/// `raw_core::pipeline::TILE_OVERLAP_PX` to satisfy the
 /// development chain's stencil radii (clarity is the binding
 /// constraint), then trims to the inner rect, downsamples to
 /// `(out_w, out_h)`, orients, and packs to fp16 RGBA.
