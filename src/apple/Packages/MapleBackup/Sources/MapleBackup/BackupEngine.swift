@@ -272,10 +272,17 @@ public actor BackupEngine {
             let willRetry = nextRetry < Self.maxRetries
             if !willRetry {
                 try? await state.transition(task.id, to: .failedRetry,
-                                            error: "max retries: \(error)")
+                                            error: "max retries: \(error)",
+                                            retryCount: nextRetry)
             } else {
+                // Persist the bumped retry count alongside the state flip —
+                // otherwise SQLite's `retry_count` stays at the previous
+                // value and `EngineHost.start()` rehydration would reset it
+                // back to that stale value on restart, making the
+                // `maxRetries` ceiling effectively infinite across restarts.
                 try? await state.transition(task.id, to: .pending,
-                                            error: "\(error)")
+                                            error: "\(error)",
+                                            retryCount: nextRetry)
                 // Re-enqueue from a detached Task that sleeps the backoff.
                 let backoff = Self.backoffSeconds(for: nextRetry)
                 let queueRef = queue
