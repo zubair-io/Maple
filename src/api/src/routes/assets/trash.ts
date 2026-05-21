@@ -187,11 +187,16 @@ export const trashRoutes = new Elysia()
       // with the same basename even though the file is at a new path.
       const restoredFilename = path.basename(result.newAbsPath);
       let restoredSize = info.size;
-      let restoredMtimeIso = new Date().toISOString();
+      // `AssetDoc.mtime` is epoch-ms (number) per db/schema.ts. Persist as
+      // a number so the assets-list serialiser's `Math.floor(r.mtime /
+      // 1000)` stays finite (#166). The wire response converts to
+      // ISO-8601 below for the Swift File Provider client's `Date`
+      // decoder.
+      let restoredMtimeMs = Date.now();
       try {
         const st = await stat(result.newAbsPath);
         restoredSize = st.size;
-        restoredMtimeIso = new Date(st.mtimeMs).toISOString();
+        restoredMtimeMs = st.mtimeMs;
       } catch (err) {
         assetsLog.warn(
           { absPath: result.newAbsPath, err: err instanceof Error ? err.message : String(err) },
@@ -203,7 +208,7 @@ export const trashRoutes = new Elysia()
         newAbsPath: result.newAbsPath,
         filename: restoredFilename,
         size: restoredSize,
-        mtimeIso: restoredMtimeIso,
+        mtimeMs: restoredMtimeMs,
       });
 
       // Best-effort Meilisearch re-index — symmetric with the tombstone
@@ -260,7 +265,7 @@ export const trashRoutes = new Elysia()
         abs_path: result.newAbsPath,
         filename: restoredFilename,
         size: restoredSize,
-        mtime: restoredMtimeIso,
+        mtime: new Date(restoredMtimeMs).toISOString(),
       };
     },
     {

@@ -43,7 +43,21 @@ export const assetsListRoutes = new Elysia({ prefix: "/api/assets" }).get(
       }
       filter.capturedAfterIso = d.toISOString();
     }
-    const limit = Number.parseInt(query.limit ?? "1000", 10);
+    // Validate `limit` here rather than letting `Number.parseInt` pass
+    // `NaN` through to the repo's `Math.min(Math.max(NaN, 1), 20000)`
+    // (which propagates NaN, then turns into an unbounded find). Reject
+    // garbage with 400; the repo still clamps as a defensive backstop.
+    let limit: number;
+    if (query.limit === undefined) {
+      limit = 1000;
+    } else {
+      const parsed = Number.parseInt(query.limit, 10);
+      if (!Number.isFinite(parsed) || parsed < 1) {
+        set.status = 400;
+        return { error: "limit must be a positive integer" };
+      }
+      limit = parsed;
+    }
     const assets = await findListItems(filter, limit);
     return { assets };
   },

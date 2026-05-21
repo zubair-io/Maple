@@ -233,15 +233,28 @@ describe("assets.repo", () => {
       expect(rows[0].filename).toBe("a.dng");
     });
 
-    it("clamps the limit to the [1, 20000] range", async () => {
+    it("normalizes invalid limits to the default (1000) before clamping", async () => {
       if (!db) return;
-      // Seed 3 rows then ask for limit=0 — clamp should still let one
-      // through (clamps up to 1).
+      // Seed 3 rows. Both NaN and < 1 limits are invalid; the repo
+      // normalizes them to the default (1000) — *not* clamping NaN
+      // through `Math.min(Math.max(NaN, 1), 20000)` which yields NaN
+      // and turns the find into "no limit" (unbounded scan).
       for (let i = 0; i < 3; i++) {
         await seedAsset(db, { filename: `f${i}.dng` });
       }
-      const rows = await findListItems({}, 0, db);
-      expect(rows.length).toBe(1);
+      const rowsZero = await findListItems({}, 0, db);
+      expect(rowsZero.length).toBe(3);
+      const rowsNaN = await findListItems({}, Number.NaN, db);
+      expect(rowsNaN.length).toBe(3);
+    });
+
+    it("clamps positive integer limits to the [1, 20000] upper bound", async () => {
+      if (!db) return;
+      for (let i = 0; i < 3; i++) {
+        await seedAsset(db, { filename: `g${i}.dng` });
+      }
+      const rows = await findListItems({}, 2, db);
+      expect(rows.length).toBe(2);
     });
   });
 
@@ -404,12 +417,13 @@ describe("assets.repo", () => {
         indexed_at: "x",
         deleted_at: null,
       } as never);
+      const restoredMtimeMs = Date.UTC(2026, 5, 1, 0, 0, 0);
       await restoreFromTrash({
         id,
         newAbsPath: "/lib/a.dng",
         filename: "a.dng",
         size: 2048,
-        mtimeIso: "2026-06-01T00:00:00Z",
+        mtimeMs: restoredMtimeMs,
         dbOverride: db,
       });
       // Only one row should now sit at /lib/a.dng — ours.
@@ -422,6 +436,11 @@ describe("assets.repo", () => {
       const info = await findCoreInfoById(id, db);
       expect(info!.deleted_at).toBeNull();
       expect(info!.original_path).toBeNull();
+      // Regression for #166: mtime must be a number (epoch-ms), not an
+      // ISO string. The assets-list serialiser does `Math.floor(r.mtime
+      // / 1000)`; a string would yield NaN.
+      expect(typeof rows[0].mtime).toBe("number");
+      expect(rows[0].mtime).toBe(restoredMtimeMs);
     });
   });
 });

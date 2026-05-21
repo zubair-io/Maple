@@ -11,7 +11,7 @@
  * assets repo (vision, vision_meta, enrichment, description_meta).
  */
 
-import { afterAll, beforeEach, describe, expect, it } from "bun:test";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "bun:test";
 import { Elysia } from "elysia";
 import { MongoClient, ObjectId, type Db } from "mongodb";
 import { closeDb } from "../src/db/client.ts";
@@ -23,6 +23,12 @@ const TEST_DB = `maple_assets_detail_route_test_${process.pid}`;
 
 let client: MongoClient | null = null;
 let db: Db | null = null;
+// Capture once in beforeAll (not beforeEach — beforeEach mutates the
+// envs and would clobber the originals on the second iteration). Used
+// by afterAll to restore the host's MAPLE_MONGO_URI / MAPLE_MONGO_DB
+// so this suite doesn't leak into sibling test files / processes.
+let priorMongoUri: string | undefined;
+let priorMongoDb: string | undefined;
 
 async function tryConnect(): Promise<MongoClient | null> {
   const c = new MongoClient(MONGO_URI, {
@@ -41,6 +47,11 @@ async function tryConnect(): Promise<MongoClient | null> {
   }
 }
 
+beforeAll(() => {
+  priorMongoUri = process.env.MAPLE_MONGO_URI;
+  priorMongoDb = process.env.MAPLE_MONGO_DB;
+});
+
 beforeEach(async () => {
   client = await tryConnect();
   if (!client) return;
@@ -55,6 +66,12 @@ afterAll(async () => {
   if (db) await db.dropDatabase();
   if (client) await client.close();
   await closeDb();
+  // Restore the originals so this suite doesn't leak env mutations into
+  // other tests / the host shell.
+  if (priorMongoUri === undefined) delete process.env.MAPLE_MONGO_URI;
+  else process.env.MAPLE_MONGO_URI = priorMongoUri;
+  if (priorMongoDb === undefined) delete process.env.MAPLE_MONGO_DB;
+  else process.env.MAPLE_MONGO_DB = priorMongoDb;
 });
 
 describe("GET /api/assets/:id", () => {
