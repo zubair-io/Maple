@@ -8,13 +8,18 @@
  * caller injected `$or`/`$and` clauses.
  *
  * Filter strategy notes:
- *   - For free-text `q`, we use case-insensitive `$regex` against `filename`
- *     (and a fallback regex against `abs_path` via `$or`). We deliberately
- *     do NOT use the `$text` index here even though one exists: `$text`
- *     does not allow substring matches without word boundaries (e.g.
- *     "DJI" wouldn't match "dji_0001.dng" cleanly), and combining `$text`
- *     with the structured EXIF filters would require `$and` plumbing that
- *     the planner sometimes mis-costs. The text index is still kept for
+ *   - For free-text `q`, we use case-insensitive `$regex` against
+ *     `fileinfo[].filename` (and a fallback regex against `fileinfo[].path`
+ *     via `$or`). Post drop-abs-path-2026-05-21 the canonical filename and
+ *     path live on `fileinfo[]` entries; Mongo array-element semantics make
+ *     `fileinfo.filename` and `fileinfo.path` predicates match if ANY
+ *     entry's value matches — same wire semantics as the old top-level
+ *     `filename` / `abs_path` scans. We deliberately do NOT use the
+ *     `$text` index here even though one exists: `$text` does not allow
+ *     substring matches without word boundaries (e.g. "DJI" wouldn't
+ *     match "dji_0001.dng" cleanly), and combining `$text` with the
+ *     structured EXIF filters would require `$and` plumbing that the
+ *     planner sometimes mis-costs. The text index is still kept for
  *     future ranked search.
  *   - All other filters are exact / range matches on indexed paths
  *     (see `ensureIndexes` in `src/db/client.ts`).
@@ -170,12 +175,17 @@ export function buildFilter(
 ): Filter<AssetDoc> | { error: string } {
   const filter: Filter<AssetDoc> = {};
 
-  // Free-text q: case-insensitive substring on filename + abs_path.
+  // Free-text q: case-insensitive substring on `fileinfo[].filename` and
+  // `fileinfo[].path`. Pre-PR 7 this scanned the top-level `filename` and
+  // `abs_path` fields; after the drop-abs-path-2026-05-21 migration both
+  // live on `fileinfo[]` entries instead. Mongo array-element semantics
+  // make a `fileinfo.filename` predicate match if ANY entry's filename
+  // matches — which is the same semantics as the old top-level scan.
   if (q.q && q.q.trim().length > 0) {
     const pattern = escapeRegex(q.q.trim());
     (filter as Filter<AssetDoc> & { $or?: unknown[] }).$or = [
-      { filename: { $regex: pattern, $options: "i" } },
-      { abs_path: { $regex: pattern, $options: "i" } },
+      { "fileinfo.filename": { $regex: pattern, $options: "i" } },
+      { "fileinfo.path": { $regex: pattern, $options: "i" } },
     ];
   }
 
@@ -193,12 +203,18 @@ export function buildFilter(
     };
   }
 
-  // Library scoping.
+  // Library scoping. After drop-abs-path-2026-05-21 the per-asset
+  // library pointer lives on `fileinfo[].library_id` (one row can span
+  // multiple library entries when the same content is observed under
+  // more than one root); we restrict to assets whose ANY entry is in
+  // the requested library.
   if (q.libraryId) {
     if (!ObjectId.isValid(q.libraryId)) {
       return { error: "Invalid libraryId" };
     }
-    (filter as Record<string, unknown>).folder_id = new ObjectId(q.libraryId);
+    (filter as Record<string, unknown>)["fileinfo.library_id"] = new ObjectId(
+      q.libraryId,
+    );
   }
 
   // Camera substring across make + model.
@@ -301,18 +317,25 @@ export function buildFilter(
     (filter as Record<string, unknown>).color_label = q.color;
   }
 
-  // Path prefix — anchored regex on abs_path, used by Timeline view to
-  // scope results to a subtree. We add it as a top-level field; Mongo ANDs
-  // top-level fields, which composes correctly with the existing q-driven
-  // `$or` (which also touches abs_path) — the $or only needs ONE branch to
-  // match, while pathPrefix forces all matches to also start with the prefix.
+  // Path prefix — anchored regex on `fileinfo[].path`, used by the
+  // Timeline view to scope results to a subtree. `fileinfo[].path` is
+  // the directory portion (relative to the library root) without the
+  // filename. Pre-PR 7 this regex-anchored on the absolute `abs_path`;
+  // post-migration we strip leading AND trailing slashes off the
+  // caller's prefix and require a directory boundary after it, so a
+  // prefix like `/A/` matches `A` and `A/B` but NOT `A (1)` (which the
+  // pre-migration `^/A/` regex would also have rejected). Preserves
+  // wire semantics for callers that pass slash-anchored prefixes.
   if (q.pathPrefix && q.pathPrefix.length > 0) {
     if (q.pathPrefix.length > 1024) {
       return { error: "pathPrefix too long" };
     }
-    (filter as Record<string, unknown>).abs_path = {
-      $regex: "^" + escapeRegex(q.pathPrefix),
-    };
+    const stripped = q.pathPrefix.replace(/^\/+/, "").replace(/\/+$/, "");
+    if (stripped.length > 0) {
+      (filter as Record<string, unknown>)["fileinfo.path"] = {
+        $regex: "^" + escapeRegex(stripped) + "(\\/|$)",
+      };
+    }
   }
 
   // Vision scene_type — closed union, exact match.
@@ -366,7 +389,11 @@ export function buildFilter(
       }
     }
     if (exts.length > 0) {
-      (filter as Record<string, unknown>).filename = {
+      // Post-PR 7: filename moved onto `fileinfo[].filename`. Mongo
+      // array-element semantics: an entry-level regex matches if ANY
+      // fileinfo entry's filename satisfies it — same semantics as the
+      // pre-migration top-level field scan.
+      (filter as Record<string, unknown>)["fileinfo.filename"] = {
         $regex: `\\.(?:${exts.join("|")})$`,
         $options: "i",
       };

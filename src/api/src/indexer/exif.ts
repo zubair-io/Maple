@@ -6,15 +6,10 @@
  * proprietary RAW formats have weak/absent metadata — those leave the
  * `exif` field null and downstream stages keep advancing.
  *
- * The XMP sidecar is still consulted for Maple-side fields (rating, flag,
- * color label) since those are the editor's authoritative source.
- *
- * The exif subdoc and the XMP-derived fields are persisted in one Mongo
- * update keyed on `abs_path` (the asset row already exists by the time the
- * exif stage runs because the discover→hash chain has staged it).
+ * The XMP sidecar is consulted in dedicated stages — this module focuses
+ * on parsing only.
  */
 
-import { assetsCollection } from "../db/client.ts";
 import type { AssetExif } from "../db/schema.ts";
 import { child as childLogger } from "../log.ts";
 import exifr from "exifr";
@@ -185,46 +180,3 @@ export async function readExif(absPath: string): Promise<AssetExif | null> {
   }
 }
 
-/**
- * Backfill helper for the one-shot upgrade in `IndexerService`.
- *
- * Updates an existing asset row with freshly-parsed EXIF and sidecar fields.
- * Used to upgrade rows that were indexed before EXIF support landed (i.e.
- * `{ exif: { $exists: false } }`). Returns true if the document was matched
- * (so the caller can count progress).
- *
- * Pipeline jobs do NOT call this — they let the exif stage populate `job.exif`
- * and rely on the mongo stage's upsert to write it. Calling this from the
- * pipeline would race against the mongo stage's own `$set`.
- */
-export async function backfillAssetExif(absPath: string): Promise<boolean> {
-  const [exif, sidecar] = await Promise.all([
-    readExif(absPath),
-    (async () => {
-      const { readXmp } = await import("../fs/xmp.ts");
-      const result = await readXmp(absPath);
-      if (!result.ok) return null;
-      const xml = result.data!;
-      const ratingMatch = xml.match(/xmp:Rating\s*=\s*["'](\d+)["']/);
-      const rating = ratingMatch
-        ? Math.min(5, Math.max(0, Number(ratingMatch[1])))
-        : 0;
-      const flagMatch = xml.match(/maple:Flag\s*=\s*["'](-?\d+)["']/);
-      const rawFlag = flagMatch ? Number(flagMatch[1]) : 0;
-      const flag = (rawFlag === 1 ? 1 : rawFlag === -1 ? -1 : 0) as -1 | 0 | 1;
-      const labelMatch = xml.match(/maple:ColorLabel\s*=\s*["']([^"']*)["']/);
-      const color_label = labelMatch ? labelMatch[1] : "";
-      return { rating, flag, color_label };
-    })(),
-  ]);
-
-  const $set: Record<string, unknown> = { exif };
-  if (sidecar) {
-    $set.rating = sidecar.rating;
-    $set.flag = sidecar.flag;
-    $set.color_label = sidecar.color_label;
-  }
-  const coll = await assetsCollection();
-  const r = await coll.updateOne({ abs_path: absPath }, { $set });
-  return r.matchedCount > 0;
-}
