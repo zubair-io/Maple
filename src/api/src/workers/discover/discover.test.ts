@@ -8,16 +8,16 @@
  * Requires: MAPLE_MONGO_URI (or a local MongoDB on localhost:27017).
  * Skips gracefully when Mongo is unreachable.
  */
-import { describe, expect, it, beforeAll, afterAll } from "bun:test";
-import { mkdtemp, writeFile, rm } from "node:fs/promises";
-import { MongoClient, ObjectId, type Db } from "mongodb";
-import * as os from "node:os";
-import * as path from "node:path";
-import { ALL_STAGE_NAMES } from "../stages/manifest.ts";
+import { describe, expect, it, beforeAll, afterAll } from 'bun:test';
+import { mkdtemp, writeFile, rm } from 'node:fs/promises';
+import { MongoClient, ObjectId, type Db } from 'mongodb';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import { ALL_STAGE_NAMES } from '../stages/manifest.ts';
 
 const TEST_DB = `maple_test_discover_${process.pid}`;
 process.env.MAPLE_MONGO_DB = TEST_DB;
-const MONGO_URI = process.env.MAPLE_MONGO_URI ?? "mongodb://localhost:27017";
+const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
 
 let mongo: MongoClient | null = null;
 let mongoReachable = false;
@@ -30,7 +30,7 @@ async function tryConnect(): Promise<MongoClient | null> {
   });
   try {
     await c.connect();
-    await c.db("admin").command({ ping: 1 });
+    await c.db('admin').command({ ping: 1 });
     return c;
   } catch {
     try {
@@ -44,12 +44,12 @@ beforeAll(async () => {
   mongo = await tryConnect();
   mongoReachable = mongo !== null;
   if (!mongoReachable) {
-    console.log("[discover.test] skipping: MongoDB unreachable");
+    console.log('[discover.test] skipping: MongoDB unreachable');
     return;
   }
   db = mongo!.db(TEST_DB);
   await db.dropDatabase();
-  const { closeDb } = await import("../../db/client.ts");
+  const { closeDb } = await import('../../db/client.ts');
   await closeDb();
 });
 
@@ -62,11 +62,11 @@ afterAll(async () => {
       await mongo.close();
     } catch {}
   }
-  const { closeDb } = await import("../../db/client.ts");
+  const { closeDb } = await import('../../db/client.ts');
   await closeDb();
 });
 
-describe("discover producer", () => {
+describe('discover producer', () => {
   let dir: string;
   let discoverHandle: { stop: () => Promise<void> } | null = null;
 
@@ -75,16 +75,16 @@ describe("discover producer", () => {
     if (dir) await rm(dir, { recursive: true, force: true });
   });
 
-  it("inserts a doc with the full stages skeleton when a file is created", async () => {
+  it('inserts a doc with the full stages skeleton when a file is created', async () => {
     if (!mongoReachable) return;
 
-    dir = await mkdtemp(path.join(os.tmpdir(), "discover-test-"));
+    dir = await mkdtemp(path.join(os.tmpdir(), 'discover-test-'));
 
     // Import the discover module.
-    const { startDiscover, handleEvent } = await import("./index.ts");
+    const { startDiscover, handleEvent } = await import('./index.ts');
 
     // Create a temporary folder row in the DB so discover can reference it.
-    const { foldersCollection, assetsCollection } = await import("../../db/client.ts");
+    const { foldersCollection, assetsCollection } = await import('../../db/client.ts');
     const foldersColl = await foldersCollection();
     const folderResult = await foldersColl.insertOne({
       abs_path: dir,
@@ -98,12 +98,12 @@ describe("discover producer", () => {
     discoverHandle = await startDiscover({ roots: [dir] });
 
     // Write a file so stat() inside handleEvent succeeds.
-    const file = path.join(dir, "test.jpg");
+    const file = path.join(dir, 'test.jpg');
     await writeFile(file, Buffer.alloc(100, 0xcc));
 
     // Directly invoke handleEvent to bypass chokidar's polling interval
     // (60 s / 300 s in production — unusable in a unit test).
-    await handleEvent({ kind: "created", absPath: file }, folderId);
+    await handleEvent({ kind: 'created', absPath: file }, folderId, dir);
 
     // The doc should now be in the assets collection.
     const coll = await assetsCollection();
@@ -126,14 +126,14 @@ describe("discover producer", () => {
     await coll.deleteOne({ abs_path: file });
   });
 
-  it("soft-deletes a doc when a removed event is received", async () => {
+  it('soft-deletes a doc when a removed event is received', async () => {
     if (!mongoReachable) return;
 
-    const { handleEvent } = await import("./index.ts");
-    const { assetsCollection, foldersCollection } = await import("../../db/client.ts");
+    const { handleEvent } = await import('./index.ts');
+    const { assetsCollection, foldersCollection } = await import('../../db/client.ts');
 
-    const tempDir = await mkdtemp(path.join(os.tmpdir(), "discover-del-"));
-    const file = path.join(tempDir, "todelete.jpg");
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), 'discover-del-'));
+    const file = path.join(tempDir, 'todelete.jpg');
     await writeFile(file, Buffer.alloc(50, 0xaa));
 
     const foldersColl = await foldersCollection();
@@ -145,14 +145,14 @@ describe("discover producer", () => {
     const folderId = folderResult.insertedId;
 
     // Insert via created event first.
-    await handleEvent({ kind: "created", absPath: file }, folderId);
+    await handleEvent({ kind: 'created', absPath: file }, folderId, tempDir);
     const coll = await assetsCollection();
     const before = await coll.findOne({ abs_path: file });
     expect(before).not.toBeNull();
     expect((before as Record<string, unknown>).deleted_at).toBeNull();
 
     // Now fire the removed event.
-    await handleEvent({ kind: "removed", absPath: file }, folderId);
+    await handleEvent({ kind: 'removed', absPath: file }, folderId, tempDir);
     const after = await coll.findOne({ abs_path: file });
     expect(after).not.toBeNull();
     expect((after as Record<string, unknown>).deleted_at).not.toBeNull();
@@ -163,14 +163,14 @@ describe("discover producer", () => {
     await rm(tempDir, { recursive: true, force: true });
   });
 
-  it("$setOnInsert preserves existing stage progress on re-discover", async () => {
+  it('$setOnInsert preserves existing stage progress on re-discover', async () => {
     if (!mongoReachable) return;
 
-    const { handleEvent } = await import("./index.ts");
-    const { assetsCollection, foldersCollection } = await import("../../db/client.ts");
+    const { handleEvent } = await import('./index.ts');
+    const { assetsCollection, foldersCollection } = await import('../../db/client.ts');
 
-    const tempDir = await mkdtemp(path.join(os.tmpdir(), "discover-rescan-"));
-    const file = path.join(tempDir, "photo.jpg");
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), 'discover-rescan-'));
+    const file = path.join(tempDir, 'photo.jpg');
     await writeFile(file, Buffer.alloc(200, 0xbb));
 
     const foldersColl = await foldersCollection();
@@ -183,18 +183,15 @@ describe("discover producer", () => {
     const coll = await assetsCollection();
 
     // First discover — inserts with skeleton (all version: 0).
-    await handleEvent({ kind: "created", absPath: file }, folderId);
+    await handleEvent({ kind: 'created', absPath: file }, folderId, tempDir);
     // Simulate hash stage completing: bump stages.hash.version to 1.
-    await coll.updateOne(
-      { abs_path: file },
-      { $set: { "stages.hash.version": 1 } },
-    );
+    await coll.updateOne({ abs_path: file }, { $set: { 'stages.hash.version': 1 } });
 
     // Re-discover (modified event) — must not reset hash back to 0.
-    await handleEvent({ kind: "modified", absPath: file }, folderId);
+    await handleEvent({ kind: 'modified', absPath: file }, folderId, tempDir);
     const doc = await coll.findOne({ abs_path: file });
     expect(doc).not.toBeNull();
-    const stages = (doc!.stages as Record<string, { version: number }>);
+    const stages = doc!.stages as Record<string, { version: number }>;
     expect(stages.hash.version).toBe(1); // preserved by $setOnInsert
 
     // Clean up.
@@ -203,15 +200,15 @@ describe("discover producer", () => {
     await rm(tempDir, { recursive: true, force: true });
   });
 
-  it("emits asset_changes rows on create / modify / rename / soft-delete", async () => {
+  it('emits asset_changes rows on create / modify / rename / soft-delete', async () => {
     if (!mongoReachable) return;
 
-    const { handleEvent } = await import("./index.ts");
+    const { handleEvent } = await import('./index.ts');
     const { assetsCollection, foldersCollection, assetChangesCollection } =
-      await import("../../db/client.ts");
+      await import('../../db/client.ts');
 
-    const tempDir = await mkdtemp(path.join(os.tmpdir(), "discover-changes-"));
-    const file = path.join(tempDir, "feed.jpg");
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), 'discover-changes-'));
+    const file = path.join(tempDir, 'feed.jpg');
     await writeFile(file, Buffer.alloc(64, 0x33));
 
     const foldersColl = await foldersCollection();
@@ -226,42 +223,28 @@ describe("discover producer", () => {
     await changesColl.deleteMany({});
 
     // create → expect a "create" change row.
-    await handleEvent({ kind: "created", absPath: file }, folderId);
-    let rows = await changesColl
-      .find({ abs_path: file })
-      .sort({ cursor: 1 })
-      .toArray();
+    await handleEvent({ kind: 'created', absPath: file }, folderId, tempDir);
+    let rows = await changesColl.find({ abs_path: file }).sort({ cursor: 1 }).toArray();
     expect(rows.length).toBe(1);
-    expect(rows[0]!.kind).toBe("create");
+    expect(rows[0]!.kind).toBe('create');
 
     // modify → "update"
-    await handleEvent({ kind: "modified", absPath: file }, folderId);
-    rows = await changesColl
-      .find({ abs_path: file })
-      .sort({ cursor: 1 })
-      .toArray();
+    await handleEvent({ kind: 'modified', absPath: file }, folderId, tempDir);
+    rows = await changesColl.find({ abs_path: file }).sort({ cursor: 1 }).toArray();
     expect(rows.length).toBe(2);
-    expect(rows[1]!.kind).toBe("update");
+    expect(rows[1]!.kind).toBe('update');
 
     // rename — give chokidar a new path
-    const newPath = path.join(tempDir, "feed-renamed.jpg");
+    const newPath = path.join(tempDir, 'feed-renamed.jpg');
     await writeFile(newPath, Buffer.alloc(64, 0x33));
-    await handleEvent(
-      { kind: "renamed", absPath: newPath, fromPath: file },
-      folderId,
-    );
-    const renamedRows = await changesColl
-      .find({ abs_path: newPath })
-      .sort({ cursor: 1 })
-      .toArray();
+    await handleEvent({ kind: 'renamed', absPath: newPath, fromPath: file }, folderId, tempDir);
+    const renamedRows = await changesColl.find({ abs_path: newPath }).sort({ cursor: 1 }).toArray();
     expect(renamedRows.length).toBe(1);
-    expect(renamedRows[0]!.kind).toBe("update");
+    expect(renamedRows[0]!.kind).toBe('update');
 
     // soft-delete → "delete"
-    await handleEvent({ kind: "removed", absPath: newPath }, folderId);
-    const deleted = await changesColl
-      .find({ abs_path: newPath, kind: "delete" })
-      .toArray();
+    await handleEvent({ kind: 'removed', absPath: newPath }, folderId, tempDir);
+    const deleted = await changesColl.find({ abs_path: newPath, kind: 'delete' }).toArray();
     expect(deleted.length).toBe(1);
 
     // Clean up.
@@ -271,24 +254,34 @@ describe("discover producer", () => {
     await rm(tempDir, { recursive: true, force: true });
   });
 
-  it("does not collide on shared basename across folders", async () => {
+  it('does not collide on shared basename across subdirectories', async () => {
     if (!mongoReachable) return;
 
-    const { handleEvent } = await import("./index.ts");
-    const { assetsCollection, foldersCollection } = await import("../../db/client.ts");
+    const { handleEvent } = await import('./index.ts');
+    const { assetsCollection, foldersCollection } = await import('../../db/client.ts');
+    const { mkdir } = await import('node:fs/promises');
 
-    // Create two real tmp dirs so stat() inside handleEvent succeeds for both paths.
-    const dir2024 = await mkdtemp(path.join(os.tmpdir(), "discover-coll-2024-"));
-    const dir2025 = await mkdtemp(path.join(os.tmpdir(), "discover-coll-2025-"));
-    const file2024 = path.join(dir2024, "IMG_0001.DNG");
-    const file2025 = path.join(dir2025, "IMG_0001.DNG");
+    // Same library, two subdirectories with the same basename. Used to be
+    // forbidden by the (folder_id, filename) unique index; that index was
+    // dropped — content dedup happens via the unique `maple_id` index in
+    // PR 2 of the content-addressing migration. This test pins the
+    // current behaviour: per-path rows, no collision on filename alone.
+    const root = await mkdtemp(path.join(os.tmpdir(), 'discover-coll-'));
+    const dir2024 = path.join(root, '2024');
+    const dir2025 = path.join(root, '2025');
+    await mkdir(dir2024, { recursive: true });
+    await mkdir(dir2025, { recursive: true });
+    const file2024 = path.join(dir2024, 'IMG_0001.DNG');
+    const file2025 = path.join(dir2025, 'IMG_0001.DNG');
     await writeFile(file2024, Buffer.alloc(100, 0x11));
     await writeFile(file2025, Buffer.alloc(100, 0x22));
 
     const foldersColl = await foldersCollection();
     const folderResult = await foldersColl.insertOne({
-      abs_path: dir2024,
-      name: "collision-test-folder",
+      path: root,
+      label: 'collision-test-folder',
+      last_scan: null,
+      file_count: 0,
       created_at: new Date().toISOString(),
     } as never);
     const folderId = folderResult.insertedId;
@@ -296,18 +289,130 @@ describe("discover producer", () => {
     const coll = await assetsCollection();
 
     // Insert two docs that share a basename but have different absolute paths.
-    await handleEvent({ kind: "created", absPath: file2024 }, folderId);
-    await handleEvent({ kind: "created", absPath: file2025 }, folderId);
+    await handleEvent({ kind: 'created', absPath: file2024 }, folderId, root);
+    await handleEvent({ kind: 'created', absPath: file2025 }, folderId, root);
 
-    const docs = await coll.find({ filename: "IMG_0001.DNG" }).toArray();
+    const docs = await coll.find({ filename: 'IMG_0001.DNG' }).toArray();
     expect(docs.length).toBe(2);
     const paths = docs.map((d) => (d as Record<string, unknown>).abs_path as string).sort();
     expect(paths).toEqual([file2024, file2025].sort());
 
     // Clean up.
-    await coll.deleteMany({ filename: "IMG_0001.DNG" });
+    await coll.deleteMany({ filename: 'IMG_0001.DNG' });
     await foldersColl.deleteOne({ _id: folderId });
-    await rm(dir2024, { recursive: true, force: true });
-    await rm(dir2025, { recursive: true, force: true });
+    await rm(root, { recursive: true, force: true });
+  });
+
+  it('writes fileinfo[0] with path-relative-to-library on insert', async () => {
+    if (!mongoReachable) return;
+
+    const { handleEvent } = await import('./index.ts');
+    const { assetsCollection, foldersCollection } = await import('../../db/client.ts');
+
+    const root = await mkdtemp(path.join(os.tmpdir(), 'discover-fi-'));
+    const sub = path.join(root, 'vacation', '2024');
+    const { mkdir } = await import('node:fs/promises');
+    await mkdir(sub, { recursive: true });
+    const file = path.join(sub, 'IMG_001.dng');
+    await writeFile(file, Buffer.alloc(100, 0xdd));
+
+    const foldersColl = await foldersCollection();
+    const folderResult = await foldersColl.insertOne({
+      path: root,
+      label: path.basename(root),
+      last_scan: null,
+      file_count: 0,
+      created_at: new Date().toISOString(),
+    } as never);
+    const folderId = folderResult.insertedId;
+
+    await handleEvent({ kind: 'created', absPath: file }, folderId, root);
+
+    const coll = await assetsCollection();
+    const doc = await coll.findOne({ abs_path: file });
+    expect(doc).not.toBeNull();
+    expect(doc!.fileinfo).toHaveLength(1);
+    expect(doc!.fileinfo![0].path).toBe('vacation/2024');
+    expect(doc!.fileinfo![0].filename).toBe('IMG_001.dng');
+    expect(doc!.fileinfo![0].library_id.equals(folderId)).toBe(true);
+
+    await coll.deleteOne({ _id: doc!._id });
+    await foldersColl.deleteOne({ _id: folderId });
+    await rm(root, { recursive: true, force: true });
+  });
+
+  it("fileinfo[0].path is '' for files at the library root", async () => {
+    if (!mongoReachable) return;
+
+    const { handleEvent } = await import('./index.ts');
+    const { assetsCollection, foldersCollection } = await import('../../db/client.ts');
+
+    const root = await mkdtemp(path.join(os.tmpdir(), 'discover-fi-root-'));
+    const file = path.join(root, 'top.jpg');
+    await writeFile(file, Buffer.alloc(50, 0xee));
+
+    const foldersColl = await foldersCollection();
+    const folderResult = await foldersColl.insertOne({
+      path: root,
+      label: path.basename(root),
+      last_scan: null,
+      file_count: 0,
+      created_at: new Date().toISOString(),
+    } as never);
+    const folderId = folderResult.insertedId;
+
+    await handleEvent({ kind: 'created', absPath: file }, folderId, root);
+
+    const coll = await assetsCollection();
+    const doc = await coll.findOne({ abs_path: file });
+    expect(doc).not.toBeNull();
+    expect(doc!.fileinfo![0].path).toBe('');
+    expect(doc!.fileinfo![0].filename).toBe('top.jpg');
+
+    await coll.deleteOne({ _id: doc!._id });
+    await foldersColl.deleteOne({ _id: folderId });
+    await rm(root, { recursive: true, force: true });
+  });
+
+  it('rename updates fileinfo[0] (still one entry — rename is not a new location)', async () => {
+    if (!mongoReachable) return;
+
+    const { handleEvent } = await import('./index.ts');
+    const { assetsCollection, foldersCollection } = await import('../../db/client.ts');
+
+    const root = await mkdtemp(path.join(os.tmpdir(), 'discover-fi-rename-'));
+    const { mkdir, rename: fsRename } = await import('node:fs/promises');
+    const dirA = path.join(root, 'a');
+    const dirB = path.join(root, 'b');
+    await mkdir(dirA, { recursive: true });
+    await mkdir(dirB, { recursive: true });
+    const before = path.join(dirA, 'x.dng');
+    const after = path.join(dirB, 'x.dng');
+    await writeFile(before, Buffer.alloc(50, 0xff));
+
+    const foldersColl = await foldersCollection();
+    const folderResult = await foldersColl.insertOne({
+      path: root,
+      label: path.basename(root),
+      last_scan: null,
+      file_count: 0,
+      created_at: new Date().toISOString(),
+    } as never);
+    const folderId = folderResult.insertedId;
+
+    await handleEvent({ kind: 'created', absPath: before }, folderId, root);
+    await fsRename(before, after);
+    await handleEvent({ kind: 'renamed', absPath: after, fromPath: before }, folderId, root);
+
+    const coll = await assetsCollection();
+    const doc = await coll.findOne({ abs_path: after });
+    expect(doc).not.toBeNull();
+    expect(doc!.fileinfo).toHaveLength(1);
+    expect(doc!.fileinfo![0].path).toBe('b');
+    expect(doc!.fileinfo![0].filename).toBe('x.dng');
+
+    await coll.deleteOne({ _id: doc!._id });
+    await foldersColl.deleteOne({ _id: folderId });
+    await rm(root, { recursive: true, force: true });
   });
 });

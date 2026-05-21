@@ -15,7 +15,8 @@
  * just wasteful — we accept the rare double-run to keep the design simple.
  */
 
-import type { Db } from 'mongodb';
+import * as pathMod from 'node:path';
+import type { AnyBulkWriteOperation, Db } from 'mongodb';
 
 export type MigrationId =
   | 'exif-captured-year-month-backfill'
@@ -23,7 +24,8 @@ export type MigrationId =
   | 'asset-search-blob-backfill'
   | 'reset-describe-dead-vision-parse-2026-05-20'
   | 'reset-describe-dead-vision-parse-2026-05-21'
-  | 'reset-describe-dead-vision-parse-2026-05-22';
+  | 'reset-describe-dead-vision-parse-2026-05-22'
+  | 'fileinfo-backfill-2026-05-20';
 
 interface MigrationDoc {
   _id: MigrationId;
@@ -68,4 +70,119 @@ export async function recordMigration(db: Db, id: MigrationId, rows: number): Pr
     const code = (err as { code?: number } | null)?.code;
     if (code !== 11000) throw err;
   }
+}
+
+// ---------------------------------------------------------------------------
+// fileinfo-backfill-2026-05-20
+//
+// Populate `fileinfo[0]` for legacy `assets` rows that pre-date the content-
+// addressing migration. Derives the entry from `(folder_id, filename,
+// abs_path)`: the library root is the `folder.path` matching `folder_id`, and
+// `fileinfo[0].path` is `path.dirname(abs_path)` made relative to that root,
+// then POSIX-normalised (`/` only) so it's portable across hosts. `""` means
+// the file sits at the library root.
+//
+// Idempotent — the `$exists: false` filter on both the read cursor AND the
+// write predicate prevents overwriting concurrently-populated rows (e.g. by
+// the discover watcher running on the same boot).
+//
+// Rows whose `folder_id` doesn't resolve to a registered library, or whose
+// `abs_path` escapes the library root, are left unchanged and counted in
+// `skipped`. The intent is conservative: we'd rather leave a row legacy than
+// store invalid `fileinfo.path` (e.g. `"../escape"`).
+// ---------------------------------------------------------------------------
+
+/**
+ * Convert a relative directory produced by `path.relative` to POSIX form:
+ * empty / "." → "", backslashes → forward slashes. The `FileInfo.path`
+ * docstring promises `/` separators; the API only runs on Linux/macOS in
+ * production but the normalization keeps the contract honest if someone
+ * runs the harness on a Windows host.
+ */
+function toPosixRelDir(relDir: string): string {
+  if (relDir === '' || relDir === '.') return '';
+  return relDir.split(pathMod.sep).join('/');
+}
+
+/** A row matches the backfill if its derived rel-dir is inside the library
+ * (doesn't start with `..` or resolve to an absolute path). */
+function relDirIsInsideLibrary(relDir: string): boolean {
+  if (relDir.startsWith('..')) return false;
+  if (pathMod.isAbsolute(relDir)) return false;
+  return true;
+}
+
+export interface BackfillFileinfoResult {
+  scanned: number;
+  updated: number;
+  skipped: number;
+}
+
+const BACKFILL_BATCH_SIZE = 500;
+
+export async function backfillFileinfo(db: Db): Promise<BackfillFileinfoResult> {
+  // Build the library_id → root path map once.
+  const folders = await db
+    .collection('folders')
+    .find({}, { projection: { path: 1 } })
+    .toArray();
+  const folderMap = new Map<string, string>();
+  for (const f of folders) {
+    folderMap.set((f._id as { toHexString: () => string }).toHexString(), f.path as string);
+  }
+
+  const cursor = db
+    .collection('assets')
+    .find(
+      { fileinfo: { $exists: false }, abs_path: { $exists: true } },
+      { projection: { _id: 1, folder_id: 1, filename: 1, abs_path: 1 } },
+    );
+
+  let scanned = 0;
+  let updated = 0;
+  let skipped = 0;
+  let batch: AnyBulkWriteOperation[] = [];
+
+  const flush = async (): Promise<void> => {
+    if (batch.length === 0) return;
+    const res = await db.collection('assets').bulkWrite(batch, { ordered: false });
+    updated += res.modifiedCount ?? 0;
+    batch = [];
+  };
+
+  for await (const doc of cursor) {
+    scanned += 1;
+    const folderId = doc.folder_id as { toHexString: () => string } | undefined;
+    const libRoot = folderId ? folderMap.get(folderId.toHexString()) : undefined;
+    if (!libRoot || !doc.abs_path) {
+      skipped += 1;
+      continue;
+    }
+    const relDir = pathMod.relative(libRoot, pathMod.dirname(doc.abs_path as string));
+    if (!relDirIsInsideLibrary(relDir)) {
+      skipped += 1;
+      continue;
+    }
+    batch.push({
+      updateOne: {
+        // Re-check `fileinfo: { $exists: false }` on the write so a row
+        // populated between cursor read and bulk flush stays untouched.
+        filter: { _id: doc._id, fileinfo: { $exists: false } },
+        update: {
+          $set: {
+            fileinfo: [
+              {
+                path: toPosixRelDir(relDir),
+                filename: doc.filename as string,
+                library_id: doc.folder_id,
+              },
+            ],
+          },
+        },
+      },
+    });
+    if (batch.length >= BACKFILL_BATCH_SIZE) await flush();
+  }
+  await flush();
+  return { scanned, updated, skipped };
 }
