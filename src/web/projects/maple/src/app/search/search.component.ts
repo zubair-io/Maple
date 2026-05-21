@@ -9,6 +9,12 @@
 // (same blob-URL cache the browse grid uses), and clicking a result
 // navigates to `/edit/<fs:abs_path>` — that id matches the editor's
 // cold-load contract from filesystem-browse.
+//
+// Pure derivation (param coercion, CSV-set plumbing, active-filter
+// predicate, date-preset math, `currentParams` builder, label helpers,
+// result → view-model adapter, option tables) lives next door in
+// `./search.vm.ts`. This file owns DI, signal wiring, route effects,
+// debounce timers, request fan-out, and the thumb-cache side effects.
 
 import {
   ChangeDetectionStrategy,
@@ -36,43 +42,34 @@ import {
   SearchService,
   SearchSort,
 } from '@maple-common';
-
-const PAGE_SIZE = 100;
-
-const SORT_LABEL: Record<SearchSort, string> = {
-  captured_desc: 'Newest first',
-  captured_asc: 'Oldest first',
-  name: 'Name',
-  rating: 'Rating',
-};
-
-const SCENE_TYPE_OPTIONS: ReadonlyArray<{ value: SearchSceneType; label: string }> = [
-  { value: '', label: 'Any' },
-  { value: 'indoor', label: 'Indoor' },
-  { value: 'outdoor', label: 'Outdoor' },
-  { value: 'aerial', label: 'Aerial' },
-  { value: 'macro', label: 'Macro' },
-  { value: 'studio', label: 'Studio' },
-  { value: 'mixed', label: 'Mixed' },
-];
-
-const COLOR_LABELS: Array<{
-  value: '' | 'red' | 'yellow' | 'green' | 'blue' | 'purple';
-  label: string;
-  swatch: string;
-}> = [
-  { value: '', label: 'Any', swatch: 'transparent' },
-  { value: 'red', label: 'Red', swatch: '#e11d48' },
-  { value: 'yellow', label: 'Yellow', swatch: '#eab308' },
-  { value: 'green', label: 'Green', swatch: '#22c55e' },
-  { value: 'blue', label: 'Blue', swatch: '#3b82f6' },
-  { value: 'purple', label: 'Purple', swatch: '#a855f7' },
-];
-
-interface ResultViewModel extends SearchResult {
-  thumbUrl: string | null;
-  thumbLoading: boolean;
-}
+import {
+  COLOR_LABELS,
+  ColorValue,
+  FlagValue,
+  PAGE_SIZE,
+  PresetKind,
+  ResultViewModel,
+  SCENE_TYPE_OPTIONS,
+  SORT_OPTIONS,
+  ScreenshotValue,
+  buildSearchParams,
+  cameraLabel,
+  hasActiveFilters,
+  numOrEmpty,
+  numString,
+  parseColor,
+  parseCsvSet,
+  parseFlag,
+  parseRating,
+  parseSceneType,
+  parseScreenshot,
+  parseSort,
+  presetDateRange,
+  sceneTypeCount,
+  sortLabel,
+  toResultViewModel,
+  toggleCsv,
+} from './search.vm';
 
 @Component({
   standalone: true,
@@ -109,52 +106,24 @@ export class SearchComponent implements OnInit, OnDestroy {
   readonly focalMax = computed(() => numOrEmpty(this.query()?.get('focalMax')));
   readonly from = computed(() => this.query()?.get('from') ?? '');
   readonly to = computed(() => this.query()?.get('to') ?? '');
-  readonly rating = computed(() => Number(this.query()?.get('rating') ?? '0'));
-  readonly flag = computed(
-    () => (this.query()?.get('flag') ?? '') as '' | 'pick' | 'reject' | 'none',
-  );
-  readonly color = computed(
-    () => (this.query()?.get('color') ?? '') as '' | 'red' | 'yellow' | 'green' | 'blue' | 'purple',
-  );
+  readonly rating = computed(() => parseRating(this.query()?.get('rating')));
+  readonly flag = computed<FlagValue>(() => parseFlag(this.query()?.get('flag')));
+  readonly color = computed<ColorValue>(() => parseColor(this.query()?.get('color')));
   readonly extSelectedCsv = computed(() => this.query()?.get('ext') ?? '');
-  readonly sceneType = computed<SearchSceneType>(
-    () => (this.query()?.get('sceneType') as SearchSceneType) || '',
-  );
+  readonly sceneType = computed<SearchSceneType>(() => parseSceneType(this.query()?.get('sceneType')));
   readonly activity = computed(() => this.query()?.get('activity') ?? '');
   readonly subjectsCsv = computed(() => this.query()?.get('subjects') ?? '');
   /** Tri-state screenshot filter: `''` (Any), `'true'` (Screenshots only),
    * `'false'` (Photos only). Stored as the literal query-param value so
    * the URL round-trips cleanly. */
-  readonly isScreenshot = computed<'' | 'true' | 'false'>(
-    () => (this.query()?.get('isScreenshot') as '' | 'true' | 'false') || '',
-  );
-  readonly sort = computed<SearchSort>(
-    () => (this.query()?.get('sort') as SearchSort) || 'captured_desc',
-  );
+  readonly isScreenshot = computed<ScreenshotValue>(() => parseScreenshot(this.query()?.get('isScreenshot')));
+  readonly sort = computed<SearchSort>(() => parseSort(this.query()?.get('sort')));
 
   /** Set of selected extensions, parsed from the comma-separated `ext` param. */
-  readonly extSelected = computed<Set<string>>(() => {
-    const csv = this.extSelectedCsv();
-    if (!csv) return new Set();
-    return new Set(
-      csv
-        .split(',')
-        .map((s) => s.trim().toLowerCase())
-        .filter(Boolean),
-    );
-  });
+  readonly extSelected = computed<Set<string>>(() => parseCsvSet(this.extSelectedCsv(), { lower: true }));
 
   /** Set of selected vision subjects, parsed from the comma-separated `subjects` param. */
-  readonly subjectsSelected = computed<Set<string>>(() => {
-    const csv = this.subjectsCsv();
-    if (!csv) return new Set();
-    return new Set(
-      csv
-        .split(',')
-        .map((s) => s.trim())
-        .filter(Boolean),
-    );
-  });
+  readonly subjectsSelected = computed<Set<string>>(() => parseCsvSet(this.subjectsCsv()));
 
   /** Local q input (may differ from the URL while the debounce is running). */
   readonly qInput = signal<string>('');
@@ -169,28 +138,23 @@ export class SearchComponent implements OnInit, OnDestroy {
   readonly error = signal<string | null>(null);
 
   // ── Derived view-model bits ──────────────────────────────────────────────
-  readonly sortOptions: ReadonlyArray<{ value: SearchSort; label: string }> = (
-    Object.entries(SORT_LABEL) as Array<[SearchSort, string]>
-  ).map(([value, label]) => ({ value, label }));
+  readonly sortOptions = SORT_OPTIONS;
   readonly colorOptions = COLOR_LABELS;
   readonly sceneTypeOptions = SCENE_TYPE_OPTIONS;
   readonly stars = [1, 2, 3, 4, 5];
 
   /** True when any structured filter (i.e. anything besides q) is set. */
-  readonly hasActiveFilters = computed(() => {
-    const m = this.query();
-    if (!m) return false;
-    for (const k of m.keys) {
-      if (k === 'q' || k === 'sort' || k === 'page' || k === 'limit') continue;
-      const v = m.get(k);
-      if (v && v.length > 0) return true;
-    }
-    return false;
-  });
+  readonly hasActiveFilters = computed(() => hasActiveFilters(this.query() ?? null));
 
   readonly canLoadMore = computed(() => this.results().length < this.total() && !this.loading());
 
-  readonly sortLabel = computed(() => SORT_LABEL[this.sort()] ?? this.sort());
+  readonly sortLabel = computed(() => sortLabel(this.sort()));
+
+  // Template-binding shims so the HTML keeps calling `cameraLabel(c)` and
+  // `sceneTypeCount(v)` unchanged after the VM extraction.
+  protected readonly cameraLabel = cameraLabel;
+  protected readonly sceneTypeCountFor = (value: string): number | null =>
+    sceneTypeCount(this.facets(), value);
 
   // ── Debounce timers + generation guards ──────────────────────────────────
   /** Debounces q-input keystrokes → URL updates (250 ms). Separate from the
@@ -243,34 +207,29 @@ export class SearchComponent implements OnInit, OnDestroy {
 
   // ── URL helpers ──────────────────────────────────────────────────────────
   private currentParams(): SearchParams {
-    return {
-      q: this.q() || undefined,
-      libraryId: this.libraryId() || undefined,
-      camera: this.camera() || undefined,
-      lens: this.lens() || undefined,
-      isoMin: this.isoMin() ?? undefined,
-      isoMax: this.isoMax() ?? undefined,
-      apertureMin: this.apertureMin() ?? undefined,
-      apertureMax: this.apertureMax() ?? undefined,
-      focalMin: this.focalMin() ?? undefined,
-      focalMax: this.focalMax() ?? undefined,
-      from: this.from() || undefined,
-      to: this.to() || undefined,
-      rating: this.rating() > 0 ? this.rating() : undefined,
-      flag: (this.flag() || undefined) as 'pick' | 'reject' | 'none' | undefined,
-      color: this.color() || undefined,
-      ext: this.extSelectedCsv() || undefined,
-      sceneType: (this.sceneType() || undefined) as SearchSceneType | undefined,
-      activity: this.activity() || undefined,
-      subjects: this.subjectsSelected().size > 0 ? Array.from(this.subjectsSelected()) : undefined,
-      isScreenshot:
-        this.isScreenshot() === 'true'
-          ? true
-          : this.isScreenshot() === 'false'
-            ? false
-            : undefined,
+    return buildSearchParams({
+      q: this.q(),
+      libraryId: this.libraryId(),
+      camera: this.camera(),
+      lens: this.lens(),
+      isoMin: this.isoMin(),
+      isoMax: this.isoMax(),
+      apertureMin: this.apertureMin(),
+      apertureMax: this.apertureMax(),
+      focalMin: this.focalMin(),
+      focalMax: this.focalMax(),
+      from: this.from(),
+      to: this.to(),
+      rating: this.rating(),
+      flag: this.flag(),
+      color: this.color(),
+      extCsv: this.extSelectedCsv(),
+      sceneType: this.sceneType(),
+      activity: this.activity(),
+      subjects: this.subjectsSelected(),
+      isScreenshot: this.isScreenshot(),
       sort: this.sort(),
-    };
+    });
   }
 
   private patchQueryParams(patch: Params): void {
@@ -352,19 +311,16 @@ export class SearchComponent implements OnInit, OnDestroy {
     this.patchQueryParams({ rating: next > 0 ? next : null, page: null });
   }
 
-  setFlag(value: '' | 'pick' | 'reject' | 'none'): void {
+  setFlag(value: FlagValue): void {
     this.patchQueryParams({ flag: value, page: null });
   }
 
-  setColor(value: '' | 'red' | 'yellow' | 'green' | 'blue' | 'purple'): void {
+  setColor(value: ColorValue): void {
     this.patchQueryParams({ color: value, page: null });
   }
 
   toggleExt(value: string): void {
-    const next = new Set(this.extSelected());
-    if (next.has(value)) next.delete(value);
-    else next.add(value);
-    const csv = Array.from(next).sort().join(',');
+    const csv = toggleCsv(this.extSelectedCsv(), value);
     this.patchQueryParams({ ext: csv, page: null });
   }
 
@@ -377,37 +333,18 @@ export class SearchComponent implements OnInit, OnDestroy {
   }
 
   toggleSubject(value: string): void {
-    const next = new Set(this.subjectsSelected());
-    if (next.has(value)) next.delete(value);
-    else next.add(value);
-    const csv = Array.from(next).sort().join(',');
+    const csv = toggleCsv(this.subjectsCsv(), value);
     this.patchQueryParams({ subjects: csv, page: null });
   }
 
-  setIsScreenshot(value: '' | 'true' | 'false'): void {
+  setIsScreenshot(value: ScreenshotValue): void {
     this.patchQueryParams({ isScreenshot: value, page: null });
   }
 
   /** Quick date presets — write the from/to params directly. */
-  preset(kind: 'last7' | 'last30' | 'thisYear'): void {
-    const now = new Date();
-    let from = '';
-    if (kind === 'last7') {
-      const d = new Date(now);
-      d.setDate(d.getDate() - 7);
-      from = d.toISOString().slice(0, 10);
-    } else if (kind === 'last30') {
-      const d = new Date(now);
-      d.setDate(d.getDate() - 30);
-      from = d.toISOString().slice(0, 10);
-    } else {
-      from = `${now.getFullYear()}-01-01`;
-    }
-    this.patchQueryParams({
-      from,
-      to: now.toISOString().slice(0, 10),
-      page: null,
-    });
+  preset(kind: PresetKind): void {
+    const { from, to } = presetDateRange(kind, new Date());
+    this.patchQueryParams({ from, to, page: null });
   }
 
   // ── Search + facets requests (debounced) ─────────────────────────────────
@@ -464,12 +401,7 @@ export class SearchComponent implements OnInit, OnDestroy {
 
   // ── Result thumbnails ────────────────────────────────────────────────────
   private toViewModel(r: SearchResult): ResultViewModel {
-    const cached = this.thumbCache.get(r.abs_path) ?? null;
-    return {
-      ...r,
-      thumbUrl: cached,
-      thumbLoading: cached === null,
-    };
+    return toResultViewModel(r, this.thumbCache.get(r.abs_path) ?? null);
   }
 
   private async loadThumb(vm: ResultViewModel): Promise<void> {
@@ -499,38 +431,14 @@ export class SearchComponent implements OnInit, OnDestroy {
   trackExt = (_: number, e: { value: string }) => e.value;
   trackFacetValue = (_: number, e: { value: string }) => e.value;
 
-  cameraLabel(c: { make: string | null; model: string | null }): string {
-    return [c.make, c.model].filter(Boolean).join(' · ') || 'Unknown';
-  }
-
-  /** Count for a given scene_type from the current facet snapshot.
-   * Returns null when there are no matches (so the option label can omit
-   * the parenthetical for empty buckets). */
+  /** Shim retained for template compatibility; delegates to the VM helper
+   * bound to the current `facets()` snapshot. */
   sceneTypeCount(value: string): number | null {
-    const buckets = this.facets()?.scene_types;
-    if (!buckets) return null;
-    const hit = buckets.find((b) => b.value === value);
-    return hit ? hit.count : null;
+    return sceneTypeCount(this.facets(), value);
   }
 
   retry(): void {
     this.error.set(null);
     void this.runSearch(false);
   }
-}
-
-/** Parse a string param into a number. Empty/invalid → null. */
-function numOrEmpty(v: string | null | undefined): number | null {
-  if (v === undefined || v === null || v === '') return null;
-  const n = Number(v);
-  return Number.isFinite(n) ? n : null;
-}
-
-/** Read a number-input event into a string suitable for the URL (or empty
- * to strip the param). */
-function numString(e: Event): string {
-  const v = (e.target as HTMLInputElement).value;
-  if (v === '') return '';
-  const n = Number(v);
-  return Number.isFinite(n) ? String(n) : '';
 }
