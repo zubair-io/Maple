@@ -9,7 +9,12 @@
 import { MongoClient, type Db, type Collection, ServerApiVersion } from 'mongodb';
 import { child as childLogger } from '../log.ts';
 import { searchBlobUpdateExpression } from '../enrichment/search-blob.ts';
-import { backfillFileinfo, migrationApplied, recordMigration } from './migrations.ts';
+import {
+  backfillFileinfo,
+  mergeDuplicateAssets,
+  migrationApplied,
+  recordMigration,
+} from './migrations.ts';
 import type {
   FolderDoc,
   AssetDoc,
@@ -496,6 +501,26 @@ export async function ensureIndexes(): Promise<void> {
       },
     },
   );
+  // Heal pre-existing duplicate-maple_id rows BEFORE creating the unique
+  // partial index below — otherwise createIndex throws DuplicateKey and
+  // the boot aborts. The migration is idempotent + sentinel-gated, so
+  // subsequent boots short-circuit. See PR 3 (#233) for the design.
+  //
+  // The merge runs whether or not the sentinel is set on the FIRST boot
+  // post-deploy because we need a clean state for the index. After it
+  // records the sentinel, subsequent boots skip — and the index already
+  // exists from the previous boot.
+  if (!(await migrationApplied(db, 'merge-duplicate-assets-2026-05-21'))) {
+    try {
+      const res = await mergeDuplicateAssets(db);
+      await recordMigration(db, 'merge-duplicate-assets-2026-05-21', res.deleted_rows);
+      log.info(res, 'applied merge-duplicate-assets');
+    } catch (err) {
+      // Do NOT record on failure so the next boot retries.
+      log.warn({ err: err instanceof Error ? err.message : err }, 'merge-duplicate-assets skipped');
+    }
+  }
+
   // Content-derived dedup key: `maple_id` is the 16-byte hash assigned by
   // the hash stage. Hot-path callers:
   //   - `src/routes/backup-ingest.ts` `findOne({ maple_id })` per upload

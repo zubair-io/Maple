@@ -372,4 +372,286 @@ describe("ensureIndexes — backfills don't re-run on second boot", () => {
       expect(after?.fileinfo).toBeUndefined();
     });
   });
+
+  describe('mergeDuplicateAssets', () => {
+    // The unique partial index on maple_id forbids same-maple_id rows in the
+    // steady state. Tests for the heal migration MUST drop the index in
+    // setup so the dup-state can be manufactured; ensureIndexes then
+    // re-creates the index on the merged (clean) state.
+    async function dropMapleIdIndex(): Promise<void> {
+      try {
+        await db!.collection('assets').dropIndex('maple_id_1');
+      } catch {
+        // IndexNotFound — fine, fresh DB.
+      }
+    }
+
+    it('collapses rows sharing a maple_id into one with union fileinfo[]', async () => {
+      if (!mongoReachable) return;
+      const { mergeDuplicateAssets } = await import('./migrations.ts');
+      const { ObjectId } = await import('mongodb');
+      await dropMapleIdIndex();
+
+      const lib = new ObjectId();
+      const sharedId = 'a'.repeat(32);
+
+      await db!.collection('assets').insertMany([
+        {
+          _id: new ObjectId(),
+          folder_id: lib,
+          filename: 'x.dng',
+          abs_path: '/lib/a/x.dng',
+          fileinfo: [{ path: 'a', filename: 'x.dng', library_id: lib }],
+          maple_id: sharedId,
+          size: 1,
+          mtime: 1,
+          rating: 5,
+          flag: 1,
+          color_label: 'red',
+          indexed_at: '2026-05-01T00:00:00Z',
+        },
+        {
+          _id: new ObjectId(),
+          folder_id: lib,
+          filename: 'x.dng',
+          abs_path: '/lib/b/x.dng',
+          fileinfo: [{ path: 'b', filename: 'x.dng', library_id: lib }],
+          maple_id: sharedId,
+          size: 1,
+          mtime: 1,
+          rating: 0,
+          flag: 0,
+          color_label: '',
+          indexed_at: '2026-05-10T00:00:00Z',
+        },
+      ] as never);
+
+      const result = await mergeDuplicateAssets(db!);
+      expect(result.merged_groups).toBe(1);
+      expect(result.deleted_rows).toBe(1);
+
+      const rows = await db!.collection('assets').find({ maple_id: sharedId }).toArray();
+      expect(rows).toHaveLength(1);
+      // Survivor is the earliest indexed_at — keeps its user-edited fields.
+      expect(rows[0]!.rating).toBe(5);
+      expect(rows[0]!.flag).toBe(1);
+      expect(rows[0]!.color_label).toBe('red');
+      // fileinfo[] is the union, de-duped by (lib, path, filename).
+      expect(rows[0]!.fileinfo).toHaveLength(2);
+      const sorted = (rows[0]!.fileinfo ?? []).map((e: any) => e.path).sort();
+      expect(sorted).toEqual(['a', 'b']);
+    });
+
+    it('idempotent — does not touch already-unique rows', async () => {
+      if (!mongoReachable) return;
+      const { mergeDuplicateAssets } = await import('./migrations.ts');
+      const { ObjectId } = await import('mongodb');
+      await dropMapleIdIndex();
+
+      const lib = new ObjectId();
+      await db!.collection('assets').insertOne({
+        _id: new ObjectId(),
+        folder_id: lib,
+        filename: 'solo.dng',
+        abs_path: '/lib/solo.dng',
+        fileinfo: [{ path: '', filename: 'solo.dng', library_id: lib }],
+        maple_id: 'b'.repeat(32),
+        size: 1,
+        mtime: 1,
+        rating: 0,
+        flag: 0,
+        color_label: '',
+        indexed_at: '2026-05-01T00:00:00Z',
+      } as never);
+
+      const r1 = await mergeDuplicateAssets(db!);
+      expect(r1.merged_groups).toBe(0);
+      const r2 = await mergeDuplicateAssets(db!);
+      expect(r2.merged_groups).toBe(0);
+    });
+
+    it('preserves survivor _id (no reinsert; just $set fileinfo)', async () => {
+      if (!mongoReachable) return;
+      const { mergeDuplicateAssets } = await import('./migrations.ts');
+      const { ObjectId } = await import('mongodb');
+      await dropMapleIdIndex();
+
+      const lib = new ObjectId();
+      const survivorId = new ObjectId();
+      const loserId = new ObjectId();
+      const sharedId = 'c'.repeat(32);
+
+      await db!.collection('assets').insertMany([
+        {
+          _id: survivorId,
+          folder_id: lib,
+          filename: 'y.dng',
+          abs_path: '/lib/A/y.dng',
+          fileinfo: [{ path: 'A', filename: 'y.dng', library_id: lib }],
+          maple_id: sharedId,
+          size: 1,
+          mtime: 1,
+          rating: 3,
+          flag: 0,
+          color_label: '',
+          indexed_at: '2026-05-01T00:00:00Z',
+        },
+        {
+          _id: loserId,
+          folder_id: lib,
+          filename: 'y.dng',
+          abs_path: '/lib/B/y.dng',
+          fileinfo: [{ path: 'B', filename: 'y.dng', library_id: lib }],
+          maple_id: sharedId,
+          size: 1,
+          mtime: 1,
+          rating: 0,
+          flag: 0,
+          color_label: '',
+          indexed_at: '2026-05-09T00:00:00Z',
+        },
+      ] as never);
+
+      await mergeDuplicateAssets(db!);
+      const survivor = await db!.collection('assets').findOne({ _id: survivorId });
+      expect(survivor).not.toBeNull();
+      const loser = await db!.collection('assets').findOne({ _id: loserId });
+      expect(loser).toBeNull();
+    });
+
+    it('handles 3+ rows in a group', async () => {
+      if (!mongoReachable) return;
+      const { mergeDuplicateAssets } = await import('./migrations.ts');
+      const { ObjectId } = await import('mongodb');
+      await dropMapleIdIndex();
+
+      const lib = new ObjectId();
+      const sharedId = 'e'.repeat(32);
+      const rows = ['a', 'b', 'c', 'd'].map((p, i) => ({
+        _id: new ObjectId(),
+        folder_id: lib,
+        filename: 'z.dng',
+        abs_path: `/lib/${p}/z.dng`,
+        fileinfo: [{ path: p, filename: 'z.dng', library_id: lib }],
+        maple_id: sharedId,
+        size: 1,
+        mtime: 1,
+        rating: 0,
+        flag: 0,
+        color_label: '',
+        indexed_at: `2026-05-0${1 + i}T00:00:00Z`,
+      }));
+      await db!.collection('assets').insertMany(rows as never[]);
+
+      const result = await mergeDuplicateAssets(db!);
+      expect(result.merged_groups).toBe(1);
+      expect(result.deleted_rows).toBe(3);
+
+      const survivors = await db!.collection('assets').find({ maple_id: sharedId }).toArray();
+      expect(survivors).toHaveLength(1);
+      expect(survivors[0]!.fileinfo).toHaveLength(4);
+    });
+
+    it('deduplicates fileinfo entries within the union', async () => {
+      if (!mongoReachable) return;
+      const { mergeDuplicateAssets } = await import('./migrations.ts');
+      const { ObjectId } = await import('mongodb');
+      await dropMapleIdIndex();
+
+      const lib = new ObjectId();
+      const sharedId = 'f'.repeat(32);
+      const sameEntry = { path: 'shared', filename: 's.dng', library_id: lib };
+      await db!.collection('assets').insertMany([
+        {
+          _id: new ObjectId(),
+          folder_id: lib,
+          filename: 's.dng',
+          abs_path: '/lib/shared/s.dng',
+          fileinfo: [sameEntry, { path: 'a', filename: 's.dng', library_id: lib }],
+          maple_id: sharedId,
+          size: 1,
+          mtime: 1,
+          rating: 0,
+          flag: 0,
+          color_label: '',
+          indexed_at: '2026-05-01T00:00:00Z',
+        },
+        {
+          _id: new ObjectId(),
+          folder_id: lib,
+          filename: 's.dng',
+          abs_path: '/lib/shared/s.dng',
+          fileinfo: [sameEntry, { path: 'b', filename: 's.dng', library_id: lib }],
+          maple_id: sharedId,
+          size: 1,
+          mtime: 1,
+          rating: 0,
+          flag: 0,
+          color_label: '',
+          indexed_at: '2026-05-02T00:00:00Z',
+        },
+      ] as never);
+
+      await mergeDuplicateAssets(db!);
+      const merged = await db!.collection('assets').findOne({ maple_id: sharedId });
+      // sameEntry appears in both → counts once. plus 'a' and 'b' → 3 total.
+      expect(merged!.fileinfo).toHaveLength(3);
+    });
+
+    it('runs in ensureIndexes BEFORE the unique-index creation', async () => {
+      if (!mongoReachable) return;
+      const { closeDb, ensureIndexes } = await import('./client.ts');
+      const { migrationApplied } = await import('./migrations.ts');
+      const { ObjectId } = await import('mongodb');
+      await closeDb();
+      await dropMapleIdIndex();
+
+      const lib = new ObjectId();
+      const sharedId = 'd'.repeat(32);
+      await db!.collection('assets').insertMany([
+        {
+          _id: new ObjectId(),
+          folder_id: lib,
+          filename: 'z.dng',
+          abs_path: '/lib/a/z.dng',
+          fileinfo: [{ path: 'a', filename: 'z.dng', library_id: lib }],
+          maple_id: sharedId,
+          size: 1,
+          mtime: 1,
+          rating: 0,
+          flag: 0,
+          color_label: '',
+          indexed_at: '2026-05-01T00:00:00Z',
+        },
+        {
+          _id: new ObjectId(),
+          folder_id: lib,
+          filename: 'z.dng',
+          abs_path: '/lib/b/z.dng',
+          fileinfo: [{ path: 'b', filename: 'z.dng', library_id: lib }],
+          maple_id: sharedId,
+          size: 1,
+          mtime: 1,
+          rating: 0,
+          flag: 0,
+          color_label: '',
+          indexed_at: '2026-05-02T00:00:00Z',
+        },
+      ] as never);
+
+      // ensureIndexes must merge dupes THEN successfully create the unique
+      // index. If the ordering is wrong, createIndex throws (DuplicateKey).
+      await ensureIndexes();
+      expect(await migrationApplied(db!, 'merge-duplicate-assets-2026-05-21')).toBe(true);
+
+      const rows = await db!.collection('assets').find({ maple_id: sharedId }).toArray();
+      expect(rows).toHaveLength(1);
+
+      // Unique partial index must be back in place after the merge.
+      const indexes = await db!.collection('assets').indexes();
+      const mapleIdIdx = indexes.find((i: { name?: unknown }) => i.name === 'maple_id_1');
+      expect(mapleIdIdx).toBeDefined();
+      expect((mapleIdIdx as { unique?: boolean }).unique).toBe(true);
+    });
+  });
 });

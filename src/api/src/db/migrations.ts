@@ -16,7 +16,7 @@
  */
 
 import * as pathMod from 'node:path';
-import type { AnyBulkWriteOperation, Db } from 'mongodb';
+import type { AnyBulkWriteOperation, Db, ObjectId } from 'mongodb';
 
 export type MigrationId =
   | 'exif-captured-year-month-backfill'
@@ -25,7 +25,8 @@ export type MigrationId =
   | 'reset-describe-dead-vision-parse-2026-05-20'
   | 'reset-describe-dead-vision-parse-2026-05-21'
   | 'reset-describe-dead-vision-parse-2026-05-22'
-  | 'fileinfo-backfill-2026-05-20';
+  | 'fileinfo-backfill-2026-05-20'
+  | 'merge-duplicate-assets-2026-05-21';
 
 interface MigrationDoc {
   _id: MigrationId;
@@ -185,4 +186,109 @@ export async function backfillFileinfo(db: Db): Promise<BackfillFileinfoResult> 
   }
   await flush();
   return { scanned, updated, skipped };
+}
+
+// ---------------------------------------------------------------------------
+// merge-duplicate-assets-2026-05-21
+//
+// Healing pass: collapse pre-existing rows that share a `maple_id` into a
+// single row with a union of every group member's `fileinfo[]`.
+//
+// Why this exists even though the unique partial index `maple_id_1` forbids
+// the state: on deploys where the index was never built (or was dropped at
+// some point) and PR 1's hash-stage races didn't merge cleanly, the
+// collection can carry "physical" duplicates that the runtime constraint
+// would now reject on insert. `ensureIndexes` calls this BEFORE the
+// `maple_id_1` createIndex so the index creation succeeds on the cleaned-up
+// state — without this ordering, `createIndex` would throw `DuplicateKey`
+// and the boot would abort.
+//
+// Survivor rule: earliest `indexed_at` wins. This is the row most likely to
+// carry user-edited fields (rating, flag, color_label, faces, sidecar
+// mirrors). Ties on `indexed_at` are broken by `_id.toString()` so the
+// outcome is deterministic across boots.
+//
+// User-edited fields are NOT merged across rows — only the survivor's are
+// kept. Operators are expected to redo any edits made on losers; we log
+// the survivor + loser ids so audit is possible.
+//
+// Idempotent: a second call finds zero groups and is a no-op. Sentinel-gated
+// in `ensureIndexes` so it only runs once per database.
+// ---------------------------------------------------------------------------
+
+export interface MergeDuplicatesResult {
+  scanned_groups: number;
+  merged_groups: number;
+  deleted_rows: number;
+}
+
+interface DupGroup {
+  _id: string;
+  ids: ObjectId[];
+  count: number;
+}
+
+interface FileInfoEntryShape {
+  path: string;
+  filename: string;
+  library_id: ObjectId;
+  deleted_at?: string | null;
+}
+
+export async function mergeDuplicateAssets(db: Db): Promise<MergeDuplicatesResult> {
+  const dupes = (await db
+    .collection('assets')
+    .aggregate([
+      { $match: { maple_id: { $type: 'string' } } },
+      { $group: { _id: '$maple_id', ids: { $push: '$_id' }, count: { $sum: 1 } } },
+      { $match: { count: { $gt: 1 } } },
+    ])
+    .toArray()) as unknown as DupGroup[];
+
+  let merged_groups = 0;
+  let deleted_rows = 0;
+
+  for (const group of dupes) {
+    const rows = await db
+      .collection('assets')
+      .find({ _id: { $in: group.ids } })
+      .toArray();
+    if (rows.length < 2) continue;
+
+    // Earliest indexed_at survives; ties broken by _id for determinism.
+    rows.sort((a, b) => {
+      const ai = (a.indexed_at as string) ?? '';
+      const bi = (b.indexed_at as string) ?? '';
+      if (ai === bi) return a._id.toString().localeCompare(b._id.toString());
+      return ai.localeCompare(bi);
+    });
+    const survivor = rows[0]!;
+    const losers = rows.slice(1);
+
+    // Union fileinfo across the group, de-duped by (library_id, path, filename).
+    const seen = new Set<string>();
+    const merged: FileInfoEntryShape[] = [];
+    for (const row of rows) {
+      const list = (row.fileinfo ?? []) as FileInfoEntryShape[];
+      for (const entry of list) {
+        const key = `${entry.library_id.toHexString()}|${entry.path}|${entry.filename}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        merged.push(entry);
+      }
+    }
+
+    await db.collection('assets').updateOne({ _id: survivor._id }, { $set: { fileinfo: merged } });
+    const del = await db
+      .collection('assets')
+      .deleteMany({ _id: { $in: losers.map((l) => l._id) } });
+    merged_groups += 1;
+    deleted_rows += del.deletedCount ?? 0;
+  }
+
+  return {
+    scanned_groups: dupes.length,
+    merged_groups,
+    deleted_rows,
+  };
 }
