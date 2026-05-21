@@ -10,11 +10,13 @@
  *
  * dependsOn: ["hash"]   — needs sha1_head on the doc (written by hash).
  */
-import * as fs from "node:fs/promises";
-import * as path from "node:path";
-import { readExif } from "../../indexer/exif.ts";
-import { deriveId } from "../../indexer/id.ts";
-import { defineStage, runStage, type RunStageHandle } from "../run-stage.ts";
+import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
+import { readExif } from '../../indexer/exif.ts';
+import { deriveId } from '../../indexer/id.ts';
+import { assetAbsPath } from '../../indexer/images.repo.ts';
+import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
+import { defineStage, runStage, type RunStageHandle } from '../run-stage.ts';
 
 const SHA1_HEAD_BYTES = 64 * 1024;
 
@@ -48,7 +50,7 @@ export function isLikelyScreenshot(
 }
 
 async function readHead(absPath: string): Promise<Uint8Array> {
-  const fd = await fs.open(absPath, "r");
+  const fd = await fs.open(absPath, 'r');
   try {
     const buf = new Uint8Array(SHA1_HEAD_BYTES);
     const { bytesRead } = await fd.read(buf, 0, buf.length, 0);
@@ -59,11 +61,11 @@ async function readHead(absPath: string): Promise<Uint8Array> {
 }
 
 const exifStage = defineStage({
-  name: "exif",
+  name: 'exif',
   // v2: GPS hemisphere refs added to the exifr pick list — earlier indexes
   // wrote western-hemisphere longitudes as positive. Bumping forces re-extract.
   targetVersion: 2,
-  dependsOn: ["hash"],
+  dependsOn: ['hash'],
   defaults: {
     concurrency: 4,
     batchSize: 10,
@@ -74,7 +76,17 @@ const exifStage = defineStage({
     last_seen_target_version: 0,
   },
   handler: async (image) => {
-    const absPath = image.abs_path as string;
+    // Resolve via assetAbsPath when the row has fileinfo[0]; fall back to the
+    // legacy abs_path field otherwise. Treat unresolvable rows like missing
+    // files — fs.stat below will throw and the stage's normal retry/dead
+    // bookkeeping handles it.
+    let libs: ReadonlyMap<string, string>;
+    try {
+      libs = await loadLibraryRoots();
+    } catch {
+      libs = new Map();
+    }
+    const absPath = assetAbsPath(image as never, libs) ?? (image.abs_path as string);
 
     // Stat the file first — throws ENOENT when it doesn't exist, satisfying
     // the "throws when the file does not exist" test contract before we even

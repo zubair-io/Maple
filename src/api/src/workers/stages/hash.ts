@@ -17,6 +17,8 @@
  * dependsOn: []   — first stage in the graph; no prerequisites.
  */
 import { hashFileForId } from '../../indexer/id.ts';
+import { assetAbsPath } from '../../indexer/images.repo.ts';
+import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
 import { defineStage, runStage, type RunStageHandle } from '../run-stage.ts';
 
 const hashStage = defineStage({
@@ -45,7 +47,13 @@ const hashStage = defineStage({
     if (image.maple_id && image.sha1_head && image.size && image.mtime) {
       return { patch: {} };
     }
-    const absPath = image.abs_path as string;
+    let libs: ReadonlyMap<string, string>;
+    try {
+      libs = await loadLibraryRoots();
+    } catch {
+      libs = new Map();
+    }
+    const absPath = assetAbsPath(image as never, libs) ?? (image.abs_path as string);
     const { maple_id, sha1_head, size, mtime } = await hashFileForId(absPath);
     return {
       patch: { sha1_head, size, mtime, maple_id },
