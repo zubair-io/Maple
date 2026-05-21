@@ -218,12 +218,39 @@ export const xmpRoutes = new Elysia()
     return;
   });
 
+/**
+ * Escape a string for safe inclusion inside an XML attribute value.
+ *
+ * Filenames come from the indexed filesystem and may contain `& < > " '`,
+ * any of which would break well-formedness or — for `"` and `<` — allow
+ * attribute-breaking / element-injection into the `rdf:about` attribute
+ * (see #168). Map all five XML special characters to their entities.
+ *
+ * XML 1.0 also forbids most C0 control characters (U+0000..U+001F except
+ * TAB U+0009, LF U+000A, CR U+000D) in well-formed documents, and a
+ * determined attacker with filesystem control could plant such a byte in
+ * a filename. Strip them outright — they have no legitimate use in a
+ * filename and including them would produce an unparseable XMP sidecar.
+ */
+export function xmlAttrEscape(s: string): string {
+  // Strip XML 1.0-invalid control bytes (U+0000..U+0008, U+000B, U+000C,
+  // U+000E..U+001F) before entity-escaping. TAB / LF / CR are preserved.
+  // eslint-disable-next-line no-control-regex
+  return s
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
+}
+
 /** Minimal empty XMP document for an asset that has no sidecar yet. */
-function emptyXmp(filename: string): string {
+export function emptyXmp(filename: string): string {
   return `<?xml version="1.0" encoding="UTF-8"?>
 <x:xmpmeta xmlns:x="adobe:ns:meta/">
   <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
-    <rdf:Description rdf:about="${filename}"
+    <rdf:Description rdf:about="${xmlAttrEscape(filename)}"
       xmlns:xmp="http://ns.adobe.com/xap/1.0/"
       xmlns:maple="https://maple.app/xmp/1.0/"
       xmp:Rating="0"
