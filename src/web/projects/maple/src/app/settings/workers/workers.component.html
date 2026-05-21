@@ -1,154 +1,452 @@
-<div class="mx-auto max-w-[1200px] px-8 pt-6 pb-12">
-  <header class="mb-6 flex items-center gap-4">
-    <a
-      class="text-[12px] text-text-muted no-underline hover:text-text-main hover:underline"
-      routerLink="/settings"
-    >&larr; Settings</a>
-    <h2 class="m-0 flex-1 text-[22px] font-semibold tracking-[-0.01em]">Workers</h2>
+<maple-settings-shell section="workers">
+  <header class="page-header">
+    <div class="titles">
+      <h1>Workers</h1>
+      <p>
+        Every stage of the photo pipeline — ingest, enrichment, and search
+        index. Click a row to inspect and tune.
+      </p>
+    </div>
+    <div class="actions">
+      <span class="chip ok">
+        <span class="chip-val">{{ summary().running }}</span>
+        <span class="chip-label">Running</span>
+      </span>
+      <span class="chip">
+        <span class="chip-val">{{ summary().paused }}</span>
+        <span class="chip-label">Paused</span>
+      </span>
+      <span class="chip" [class.err]="summary().dead > 0">
+        <span class="chip-val">{{ summary().dead | number }}</span>
+        <span class="chip-label">Dead</span>
+      </span>
+      <span class="chip">
+        <span class="chip-val">{{ summary().pending | number }}</span>
+        <span class="chip-label">Pending</span>
+      </span>
+    </div>
   </header>
 
   @if (error()) {
-    <p class="mb-4 rounded bg-error-bg px-4 py-2 text-[12px] text-error-text">
+    <div class="banner-error">
       {{ error() }}
-    </p>
-  }
-
-  @if (!status() && !error()) {
-    <p class="text-[13px] text-text-muted">Loading…</p>
-  }
-
-  @if (stages().length > 0) {
-    <div class="overflow-x-auto rounded-lg border border-border">
-      <table class="w-full text-[12px]">
-        <thead>
-          <tr class="border-b border-border bg-surface-hover">
-            <th class="px-4 py-2.5 text-left font-semibold text-text-muted">Stage</th>
-            <th class="px-4 py-2.5 text-left font-semibold text-text-muted">Status</th>
-            <th class="px-4 py-2.5 text-right font-semibold text-text-muted">Concurrency</th>
-            <th class="px-4 py-2.5 text-right font-semibold text-text-muted">In flight</th>
-            <th class="px-4 py-2.5 text-right font-semibold text-text-muted">Pending</th>
-            <th class="px-4 py-2.5 text-right font-semibold text-text-muted">Dead</th>
-            <th class="px-4 py-2.5 text-right font-semibold text-text-muted">Throughput</th>
-            <th class="px-4 py-2.5 text-center font-semibold text-text-muted">Config</th>
-            <th class="px-4 py-2.5 text-center font-semibold text-text-muted">Pause</th>
-          </tr>
-        </thead>
-        <tbody>
-          @for (s of stages(); track s.name) {
-            <tr
-              class="border-b border-border last:border-0 hover:bg-surface-hover"
-              data-testid="worker-row"
-            >
-              <!-- Stage -->
-              <td class="px-4 py-2.5 font-mono font-medium text-text-main">{{ s.name }}</td>
-
-              <!-- Status -->
-              <td class="px-4 py-2.5">
-                <span class="flex items-center gap-1.5">
-                  <span
-                    class="h-2 w-2 rounded-full"
-                    [class.bg-green-500]="s.status === 'running'"
-                    [class.bg-text-muted]="s.status === 'paused' || s.status === 'stopped' || s.status === 'starting' || s.status === 'restarting'"
-                    [class.bg-red-500]="s.status === 'error'"
-                    [title]="s.lastError ?? ''"
-                  ></span>
-                  <span
-                    data-testid="status"
-                    class="text-text-main"
-                    [class.text-error-text]="s.status === 'error'"
-                    [title]="s.lastError ?? ''"
-                  >{{ statusLabel(s) }}</span>
-                </span>
-              </td>
-
-              <!-- Concurrency: configured worker cap -->
-              <td class="px-4 py-2.5 text-right text-text-main" data-testid="workers">
-                {{ s.configured }}
-              </td>
-
-              <!-- In flight: dispatched / batch limit -->
-              <td class="px-4 py-2.5 text-right text-text-main" data-testid="in-flight">
-                {{ s.inFlight }} / {{ s.batchSize }}
-              </td>
-
-              <!-- Pending -->
-              <td class="px-4 py-2.5 text-right font-medium text-text-main" data-testid="pending">
-                {{ s.pending | number }}
-              </td>
-
-              <!-- Dead + retry -->
-              <td class="px-4 py-2.5 text-right" data-testid="dead-cell">
-                @if (s.dead > 0) {
-                  <span class="inline-flex items-center gap-1">
-                    <button
-                      data-testid="dead-count"
-                      type="button"
-                      class="cursor-pointer rounded border-none bg-transparent p-0 text-error-text hover:underline"
-                      title="Show dead-letter reasons"
-                      [attr.aria-label]="'Show dead-letter reasons for ' + s.name + ' (' + s.dead + ' items)'"
-                      (click)="openDead(s)"
-                    >{{ s.dead }}</button>
-                    <button
-                      data-testid="retry-dead-btn"
-                      type="button"
-                      class="cursor-pointer rounded border-none bg-transparent px-1 py-0.5 text-[11px] text-primary hover:underline"
-                      title="Retry all dead-lettered docs for this stage"
-                      (click)="retryDead(s)"
-                    >&#8635;</button>
-                  </span>
-                } @else {
-                  <span class="text-text-muted">0</span>
-                }
-              </td>
-
-              <!-- Throughput -->
-              <td
-                class="px-4 py-2.5 text-right text-text-muted"
-                data-testid="throughput"
-              >{{ throughputLabel(s) }}</td>
-
-              <!-- Config cog -->
-              <td class="px-4 py-2.5 text-center">
-                <button
-                  type="button"
-                  class="cursor-pointer rounded border-none bg-transparent px-1.5 py-1 text-[14px] text-text-muted hover:text-text-main"
-                  title="Edit stage config"
-                  (click)="openConfig(s)"
-                >&#9881;</button>
-              </td>
-
-              <!-- Pause / resume -->
-              <td class="px-4 py-2.5 text-center">
-                <button
-                  data-testid="pause-resume-btn"
-                  type="button"
-                  class="cursor-pointer rounded border-none bg-transparent px-1.5 py-1 text-[14px] text-text-muted hover:text-text-main"
-                  [title]="pauseResumeTitle(s)"
-                  (click)="togglePause(s)"
-                >{{ pauseResumeLabel(s) }}</button>
-              </td>
-            </tr>
-          }
-        </tbody>
-      </table>
     </div>
   }
-</div>
 
-<!-- Config dialog — rendered outside the table to avoid stacking-context issues -->
-@if (activeDialogStage(); as ds) {
-  <maple-worker-config-dialog
-    [stage]="ds"
-    [config]="dialogConfig()"
-    (saved)="onConfigSaved(ds.name, $event)"
-    (cancelled)="closeDialog()"
-  />
-}
+  <div class="workers-body">
+    <!-- Column header -->
+    <div class="row-grid col-header">
+      <span></span>
+      <span>Stage</span>
+      <span>Status</span>
+      <span class="r">Concur</span>
+      <span class="r">In flight</span>
+      <span class="r">Pending</span>
+      <span class="r">Dead</span>
+      <span class="r">Throughput</span>
+      <span></span>
+      <span class="c">Pause</span>
+    </div>
 
-<!-- Dead-letter dialog — lists recent dead docs and their last_error. -->
-@if (activeDeadStage(); as ds) {
-  <maple-dead-letter-dialog
-    [stage]="ds"
-    (cancelled)="closeDead()"
-  />
-}
+    @for (g of groupedStages(); track g.group) {
+      @if (g.rows.length > 0) {
+        <div class="group-label">{{ g.group }}</div>
+        @for (s of g.rows; track s.name) {
+          <div class="row" [class.is-expanded]="isExpanded(s)" data-testid="worker-row">
+            <!-- Click target = the row itself -->
+            <div
+              class="row-grid row-summary"
+              (click)="toggleExpanded(s)"
+              role="button"
+              [attr.aria-expanded]="isExpanded(s)"
+              tabindex="0"
+              (keydown.enter)="toggleExpanded(s)"
+              (keydown.space)="toggleExpanded(s); $event.preventDefault()"
+            >
+              <maple-settings-icon [name]="isExpanded(s) ? 'chev-d' : 'chev-r'" [size]="12" [stroke]="2" [color]="'#a8a29e'"/>
+
+              <span class="stage-id">
+                <maple-settings-icon [name]="meta(s).icon" [size]="14" [color]="s.status === 'paused' ? '#78706a' : '#a8a29e'"/>
+                <span class="mono">{{ s.name }}</span>
+                @if (meta(s).enrichment) {
+                  <span class="enrich-chip">ENRICH</span>
+                }
+              </span>
+
+              <span class="status-pill">
+                <span class="status-dot" [style.background]="statusDotColor(s)"></span>
+                <span class="status-label" data-testid="status">{{ statusLabel(s) }}</span>
+              </span>
+
+              <span class="mono r" data-testid="workers">{{ s.configured }}</span>
+              <span class="mono r mid" data-testid="in-flight">
+                {{ s.inFlight }}<span class="dim"> / {{ s.batchSize }}</span>
+              </span>
+              <span class="mono r" data-testid="pending">{{ s.pending | number }}</span>
+              <span class="mono r dead-cell" data-testid="dead-cell" [class.has-dead]="s.dead > 0">
+                <span data-testid="dead-count">{{ s.dead | number }}</span>
+                @if (s.dead > 0) {
+                  <maple-settings-icon name="retry" [size]="11" [color]="'#f87171'"/>
+                }
+              </span>
+              <span class="mono r tput">
+                @if (s.throughput > 0) {
+                  <span class="tput-val">{{ throughputLabel(s) }}</span>
+                  <span class="dim"> /min</span>
+                } @else {
+                  <span class="dim">—</span>
+                }
+              </span>
+
+              <button
+                type="button"
+                class="kebab-btn"
+                title="Stage actions"
+                (click)="$event.stopPropagation()"
+              >
+                <maple-settings-icon name="kebab" [size]="14" [color]="'#a8a29e'"/>
+              </button>
+
+              <button
+                type="button"
+                class="pause-btn"
+                data-testid="pause-resume-btn"
+                [class.is-paused]="s.status === 'paused'"
+                [title]="s.status === 'paused' ? 'Resume stage' : 'Pause stage'"
+                (click)="togglePause(s, $event)"
+              >
+                <maple-settings-icon
+                  [name]="s.status === 'paused' ? 'play' : 'pause'"
+                  [size]="12"
+                  [color]="s.status === 'paused' ? '#c4493a' : '#a8a29e'"
+                />
+              </button>
+            </div>
+
+            @if (isExpanded(s)) {
+              <div class="expanded">
+                <div class="desc-bar">
+                  <p>{{ meta(s).description }}</p>
+                  <span class="group-tag">{{ meta(s).group }}</span>
+                </div>
+
+                @if (meta(s).enrichment) {
+                  <div class="block">
+                    <div class="subhead">
+                      @switch (meta(s).enrichment) {
+                        @case ('describe') { Describe worker }
+                        @case ('geocode')  { Geocode worker }
+                        @case ('face')     { Face detection }
+                      }
+                    </div>
+
+                    @switch (meta(s).enrichment) {
+                      @case ('describe') {
+                        <div class="grid-2col">
+                          <div class="field field-wide">
+                            <div class="field-label">Ollama URL</div>
+                            <div class="text-input mono">
+                              <div class="text-input-wrap">
+                                <input
+                                  type="text"
+                                  placeholder="http://localhost:11434"
+                                  [value]="enrichmentValue(s, 'describe_provider_url')"
+                                  (input)="setEnrichment(s, 'describe_provider_url', $any($event.target).value)"
+                                />
+                              </div>
+                              <button
+                                type="button"
+                                class="btn-ghost"
+                                [disabled]="testState(s).kind === 'testing'"
+                                (click)="testConnection(s)"
+                              >
+                                <maple-settings-icon name="test" [size]="12"/>
+                                {{ testState(s).kind === 'testing' ? 'Testing…' : 'Test connection' }}
+                              </button>
+                            </div>
+                            <div class="field-hint">
+                              Empty uses the default
+                              <span class="mono">http://localhost:11434</span>. Point at a
+                              remote Ollama if the model lives on a different machine.
+                            </div>
+                            @if (testState(s).kind === 'ok') {
+                              <div class="test-result ok">
+                                <maple-settings-icon name="check" [size]="12" [color]="'#4ade80'"/>
+                                Ollama responded.
+                              </div>
+                            } @else if (testState(s).kind === 'error') {
+                              <div class="test-result err">
+                                {{ $any(testState(s)).message }}
+                              </div>
+                            }
+                          </div>
+                          <div class="field">
+                            <div class="field-label">Model</div>
+                            <div class="text-input mono">
+                              <div class="text-input-wrap">
+                                <input
+                                  type="text"
+                                  [value]="enrichmentValue(s, 'describe_model')"
+                                  (input)="setEnrichment(s, 'describe_model', $any($event.target).value)"
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      }
+
+                      @case ('geocode') {
+                        <div class="grid-2col">
+                          <div class="field field-wide">
+                            <div class="field-label">Nominatim URL</div>
+                            <div class="text-input mono">
+                              <div class="text-input-wrap">
+                                <input
+                                  type="text"
+                                  placeholder="(empty disables)"
+                                  [value]="enrichmentValue(s, 'nominatim_url')"
+                                  (input)="setEnrichment(s, 'nominatim_url', $any($event.target).value)"
+                                />
+                              </div>
+                              <button
+                                type="button"
+                                class="btn-ghost"
+                                [disabled]="testState(s).kind === 'testing'"
+                                (click)="testConnection(s)"
+                              >
+                                <maple-settings-icon name="test" [size]="12"/>
+                                {{ testState(s).kind === 'testing' ? 'Testing…' : 'Test connection' }}
+                              </button>
+                            </div>
+                            <div class="field-hint">
+                              Empty disables geocoding. When the worker is unpaused, the server
+                              health-checks the URL on save and rejects unreachable values.
+                            </div>
+                            @if (testState(s).kind === 'ok') {
+                              <div class="test-result ok">
+                                <maple-settings-icon name="check" [size]="12" [color]="'#4ade80'"/>
+                                Nominatim responded.
+                              </div>
+                            } @else if (testState(s).kind === 'error') {
+                              <div class="test-result err">
+                                {{ $any(testState(s)).message }}
+                              </div>
+                            }
+                          </div>
+                          <div class="field">
+                            <div class="field-label">Rate limit</div>
+                            <div class="num-input">
+                              <input
+                                type="number"
+                                min="0.1" max="100" step="0.1"
+                                [value]="enrichmentValue(s, 'nominatim_rate_limit_per_sec')"
+                                (input)="setEnrichment(s, 'nominatim_rate_limit_per_sec', $any($event.target).value)"
+                              />
+                              <span class="num-suffix">requests / second</span>
+                            </div>
+                            <div class="field-hint">
+                              Token-bucket throttle. Lower for shared / slow instances.
+                            </div>
+                          </div>
+                        </div>
+                      }
+
+                      @case ('face') {
+                        @if (enrichmentConfig()?.face_models) {
+                          <div class="face-banner" [class.warn]="enrichmentConfig()!.face_models!.status === 'error'">
+                            <maple-settings-icon
+                              [name]="enrichmentConfig()!.face_models!.status === 'loaded' ? 'check' : 'x'"
+                              [size]="13"
+                              [color]="enrichmentConfig()!.face_models!.status === 'loaded' ? '#4ade80' : '#fbbf24'"
+                            />
+                            <span class="banner-status">
+                              {{ enrichmentConfig()!.face_models!.status === 'loaded' ? 'Models loaded.' : 'Models not yet loaded.' }}
+                            </span>
+                            <span class="banner-detail mono">
+                              retinaface.onnx · {{ formatBytes(enrichmentConfig()!.face_models!.retinaface.bytes) }} ·
+                              mobilefacenet.onnx · {{ formatBytes(enrichmentConfig()!.face_models!.mobilefacenet.bytes) }}
+                            </span>
+                            <span class="banner-spacer"></span>
+                            <span class="banner-path mono">{{ enrichmentConfig()!.face_models!.retinaface.path }}</span>
+                          </div>
+                        }
+                        <div class="grid-2col">
+                          <div class="field field-wide">
+                            <div class="field-label">Model directory</div>
+                            <div class="text-input mono">
+                              <div class="text-input-wrap">
+                                <input
+                                  type="text"
+                                  [value]="enrichmentValue(s, 'face_model_dir')"
+                                  (input)="setEnrichment(s, 'face_model_dir', $any($event.target).value)"
+                                />
+                              </div>
+                            </div>
+                            <div class="field-hint">
+                              Where the worker stages retinaface.onnx and mobilefacenet.onnx.
+                              Empty falls back to <span class="mono">~/.maple/models/</span>.
+                            </div>
+                          </div>
+                          <div class="field">
+                            <div class="field-label">RetinaFace download URL</div>
+                            <div class="text-input mono">
+                              <div class="text-input-wrap">
+                                <input
+                                  type="text"
+                                  placeholder="https://example.com/retinaface.onnx"
+                                  [value]="enrichmentValue(s, 'face_retinaface_url')"
+                                  (input)="setEnrichment(s, 'face_retinaface_url', $any($event.target).value)"
+                                />
+                              </div>
+                            </div>
+                            <div class="field-hint">
+                              Used only when <span class="mono">retinaface.onnx</span> isn't
+                              already in the model dir.
+                            </div>
+                          </div>
+                          <div class="field">
+                            <div class="field-label">RetinaFace sha256</div>
+                            <div class="text-input mono">
+                              <div class="text-input-wrap">
+                                <input
+                                  type="text"
+                                  placeholder="optional sha256 (hex)"
+                                  [value]="enrichmentValue(s, 'face_retinaface_sha256')"
+                                  (input)="setEnrichment(s, 'face_retinaface_sha256', $any($event.target).value)"
+                                />
+                              </div>
+                            </div>
+                          </div>
+                          <div class="field">
+                            <div class="field-label">MobileFaceNet download URL</div>
+                            <div class="text-input mono">
+                              <div class="text-input-wrap">
+                                <input
+                                  type="text"
+                                  placeholder="https://example.com/mobilefacenet.onnx"
+                                  [value]="enrichmentValue(s, 'face_mobilefacenet_url')"
+                                  (input)="setEnrichment(s, 'face_mobilefacenet_url', $any($event.target).value)"
+                                />
+                              </div>
+                            </div>
+                          </div>
+                          <div class="field">
+                            <div class="field-label">MobileFaceNet sha256</div>
+                            <div class="text-input mono">
+                              <div class="text-input-wrap">
+                                <input
+                                  type="text"
+                                  placeholder="optional sha256 (hex)"
+                                  [value]="enrichmentValue(s, 'face_mobilefacenet_sha256')"
+                                  (input)="setEnrichment(s, 'face_mobilefacenet_sha256', $any($event.target).value)"
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      }
+                    }
+                  </div>
+                }
+
+                <div class="block">
+                  <div class="subhead">Stage runtime</div>
+                  <div class="grid-4col">
+                    <div class="field">
+                      <div class="field-label">Concurrency</div>
+                      <div class="num-input">
+                        <input
+                          type="number"
+                          min="1" max="32"
+                          [value]="runtimeValue(s, 'concurrency')"
+                          (input)="setRuntime(s, 'concurrency', $any($event.target).value)"
+                        />
+                      </div>
+                      <div class="field-hint">1 – 32</div>
+                    </div>
+                    <div class="field">
+                      <div class="field-label">Poll interval</div>
+                      <div class="num-input">
+                        <input
+                          type="number"
+                          min="100" max="60000"
+                          [value]="runtimeValue(s, 'pollIntervalMs')"
+                          (input)="setRuntime(s, 'pollIntervalMs', $any($event.target).value)"
+                        />
+                        <span class="num-suffix">ms</span>
+                      </div>
+                      <div class="field-hint">100 – 60 000 ms</div>
+                    </div>
+                    <div class="field">
+                      <div class="field-label">Batch size</div>
+                      <div class="num-input">
+                        <input
+                          type="number"
+                          min="1" max="100"
+                          [value]="runtimeValue(s, 'batchSize')"
+                          (input)="setRuntime(s, 'batchSize', $any($event.target).value)"
+                        />
+                      </div>
+                      <div class="field-hint">1 – 100</div>
+                    </div>
+                    <div class="field">
+                      <div class="field-label">Max attempts</div>
+                      <div class="num-input">
+                        <input
+                          type="number"
+                          min="1" max="20"
+                          [value]="runtimeValue(s, 'maxAttempts')"
+                          (input)="setRuntime(s, 'maxAttempts', $any($event.target).value)"
+                        />
+                      </div>
+                      <div class="field-hint">1 – 20</div>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="row-footer">
+                  @if (s.dead > 0) {
+                    <button
+                      type="button"
+                      class="btn-ghost danger"
+                      data-testid="retry-dead-btn"
+                      (click)="retryDead(s, $event)"
+                    >
+                      <maple-settings-icon name="retry" [size]="12" [color]="'#f87171'"/>
+                      Retry {{ s.dead | number }} dead
+                    </button>
+                  }
+                  <button type="button" class="btn-ghost">
+                    <maple-settings-icon name="open" [size]="12"/>
+                    Open logs
+                  </button>
+                  <span class="footer-spacer"></span>
+                  @if (saveError(s); as msg) {
+                    <span class="save-error">{{ msg }}</span>
+                  } @else if (saveState(s) === 'success') {
+                    <span class="save-ok">Saved.</span>
+                  }
+                  <button type="button" class="btn-ghost" (click)="resetForm(s)">
+                    Reset to defaults
+                  </button>
+                  <button
+                    type="button"
+                    class="btn-primary"
+                    [disabled]="saveState(s) === 'saving'"
+                    (click)="saveStage(s)"
+                  >
+                    {{ saveState(s) === 'saving' ? 'Saving…' : 'Save changes' }}
+                  </button>
+                </div>
+              </div>
+            }
+          </div>
+        }
+      }
+    }
+
+    @if (stages().length === 0 && !error()) {
+      <p class="loading">Loading…</p>
+    }
+  </div>
+</maple-settings-shell>
