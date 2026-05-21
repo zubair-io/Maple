@@ -38,6 +38,7 @@ import { mergePreservingRefs, shallowEqualByKeys } from './merge-by-id';
 import { LibraryStore } from './library-store.service';
 import { LibrarySelection } from './library-selection.service';
 import { LibraryCache } from './library-cache.service';
+import { LibraryStatusService } from './library-status.service';
 
 const ASSET_RENDER_KEYS: readonly (keyof Asset)[] = [
   'id',
@@ -112,6 +113,7 @@ export function exifToAssetMetadata(exif: FsImageExif | null | undefined): Parti
 @Injectable({ providedIn: 'root' })
 export class LibraryFetch {
   private readonly store = inject(LibraryStore);
+  private readonly status = inject(LibraryStatusService);
   private readonly selection = inject(LibrarySelection);
   private readonly cache_ = inject(LibraryCache);
   private readonly fs = inject(FolderAccessService);
@@ -262,25 +264,25 @@ export class LibraryFetch {
   loadFolderTree(): void {
     if (this.store.backend !== 'self-hosted') return;
 
-    this.store.backendLoading.set(true);
-    this.store.backendError.set(null);
-    this.store.backendEmpty.set(false);
+    this.status.backendLoading.set(true);
+    this.status.backendError.set(null);
+    this.status.backendEmpty.set(false);
 
     this.api.listFolders().subscribe({
       next: (folders) => {
         this.store.registeredFolders.set(folders);
         this._applyFolderTree(folders);
         if (folders.length === 0) {
-          this.store.backendEmpty.set(true);
+          this.status.backendEmpty.set(true);
         }
-        this.store.backendLoading.set(false);
+        this.status.backendLoading.set(false);
         // Don't auto-open the first folder — that fires /api/folders/{id}/assets
         // before the user has expressed intent and before the indexer may have
         // scanned anything. The user picks a folder from the tree.
       },
       error: (err: HttpErrorResponse) => {
-        this.store.backendLoading.set(false);
-        this.store.backendError.set(
+        this.status.backendLoading.set(false);
+        this.status.backendError.set(
           err.status >= 500
             ? `Server error (${err.status}). The Maple API may be down.`
             : `Failed to load folders: ${err.message}`,
@@ -296,8 +298,8 @@ export class LibraryFetch {
   addLibraryFolder(absPath: string): void {
     if (this.store.backend !== 'self-hosted') return;
 
-    this.store.backendLoading.set(true);
-    this.store.backendError.set(null);
+    this.status.backendLoading.set(true);
+    this.status.backendError.set(null);
 
     this.api.registerFolder(absPath).subscribe({
       next: () => {
@@ -305,9 +307,9 @@ export class LibraryFetch {
         this.loadFolderTree();
       },
       error: (err: HttpErrorResponse) => {
-        this.store.backendLoading.set(false);
+        this.status.backendLoading.set(false);
         const detail = err?.error?.error ?? err?.message ?? 'Unknown error';
-        this.store.backendError.set(`Failed to register folder: ${detail}`);
+        this.status.backendError.set(`Failed to register folder: ${detail}`);
       },
     });
   }
@@ -319,32 +321,32 @@ export class LibraryFetch {
    * idempotent so unchanged files no-op and new files get indexed.
    */
   rescanCurrentFolder(): void {
-    if (this.store.rescanStatus() === 'running') return;
+    if (this.status.rescanStatus() === 'running') return;
     const folder = this.store.currentRegisteredFolder(this.selection.selectedSourceId());
     if (!folder) {
-      this.store.rescanError.set('Pick a library folder first.');
-      this.store.rescanStatus.set('error');
+      this.status.rescanError.set('Pick a library folder first.');
+      this.status.rescanStatus.set('error');
       return;
     }
-    this.store.rescanError.set(null);
-    this.store.rescanStatus.set('running');
+    this.status.rescanError.set(null);
+    this.status.rescanStatus.set('running');
     this.api.rescanFolder(folder.id).subscribe({
       next: (res) => {
         if (res.ok) {
-          this.store.rescanStatus.set('done');
+          this.status.rescanStatus.set('done');
           // Brief success indicator, then return to idle.
           setTimeout(() => {
-            if (this.store.rescanStatus() === 'done') this.store.rescanStatus.set('idle');
+            if (this.status.rescanStatus() === 'done') this.status.rescanStatus.set('idle');
           }, 2_500);
         } else {
-          this.store.rescanError.set(res.error ?? 'Rescan failed');
-          this.store.rescanStatus.set('error');
+          this.status.rescanError.set(res.error ?? 'Rescan failed');
+          this.status.rescanStatus.set('error');
         }
       },
       error: (err: HttpErrorResponse) => {
         const detail = err?.error?.error ?? err?.message ?? 'Unknown error';
-        this.store.rescanError.set(`Rescan failed: ${detail}`);
-        this.store.rescanStatus.set('error');
+        this.status.rescanError.set(`Rescan failed: ${detail}`);
+        this.status.rescanStatus.set('error');
       },
     });
   }
@@ -380,9 +382,9 @@ export class LibraryFetch {
     // Set the selection synchronously so the file-list breadcrumb + grid
     // empty-state reflect the click immediately, before the HTTP response.
     this.selection.selectedSourceId.set(id);
-    this.store.backendLoading.set(true);
-    this.store.backendError.set(null);
-    this.store.backendEmpty.set(false);
+    this.status.backendLoading.set(true);
+    this.status.backendError.set(null);
+    this.status.backendEmpty.set(false);
 
     this.fsBrowse.listDir(absPath).subscribe({
       next: (listing) => {
@@ -397,17 +399,17 @@ export class LibraryFetch {
           const firstAsset = this.store.assets().find((a) => a.folderId === id);
           if (firstAsset) this.selection.selectAsset(firstAsset.id);
         }
-        this.store.backendLoading.set(false);
+        this.status.backendLoading.set(false);
         if (listing.dirs.length === 0 && listing.images.length === 0) {
           // Empty folder — clear any leftover error banner; the grid will
           // show its own "Folder is empty" state.
-          this.store.backendEmpty.set(false);
+          this.status.backendEmpty.set(false);
         }
       },
       error: (err: HttpErrorResponse) => {
-        this.store.backendLoading.set(false);
+        this.status.backendLoading.set(false);
         const detail = err?.error?.error ?? err?.message ?? 'Unknown error';
-        this.store.backendError.set(
+        this.status.backendError.set(
           err.status >= 500
             ? `Server error (${err.status}) loading folder.`
             : `Failed to load folder: ${detail}`,
