@@ -54,6 +54,70 @@ describe("uploadSessions", () => {
     expect(reset).toBe(false);
   });
 
+  test("openOrResume short-circuits same-content retry of a completed session", async () => {
+    // Original ingest succeeded; session is in state "completed". Then a
+    // downstream step (sidecar / rendered / live) failed and the device is
+    // retrying the original upload — same total_bytes, same target path.
+    const { session: a } = await uploadSessions.openOrResume({
+      libraryId,
+      deviceId,
+      phassetLocalId: "completed-retry",
+      totalBytes: 1024,
+      chunkSize: 256,
+      targetRelPath: "2024/Tokyo/IMG.heic",
+    });
+    await uploadSessions.recordChunk({ sessionId: a._id, bytesReceived: 1024 });
+    await uploadSessions.complete({ sessionId: a._id, mapleId: "maple-abc" });
+
+    const r = await uploadSessions.openOrResume({
+      libraryId,
+      deviceId,
+      phassetLocalId: "completed-retry",
+      totalBytes: 1024,
+      chunkSize: 256,
+      targetRelPath: "2024/Tokyo/IMG.heic",
+    });
+    expect(r.alreadyComplete).toBe(true);
+    expect(r.reset).toBe(false);
+    expect(r.session._id.equals(a._id)).toBe(true);
+    expect(r.session.maple_id).toBe("maple-abc");
+    expect(r.session.target_rel_path).toBe("2024/Tokyo/IMG.heic");
+    expect(r.session.state).toBe("completed");
+  });
+
+  test("openOrResume reopens a completed session in place when total_bytes changes", async () => {
+    // User edited the asset between attempts; total_bytes now differs from
+    // the original completed upload. Reuse the row (unique resume-key index)
+    // and treat as a fresh upload — same behaviour as the abandoned-state
+    // reopen path. alreadyComplete must NOT be set; the client needs to send
+    // the new bytes.
+    const { session: a } = await uploadSessions.openOrResume({
+      libraryId,
+      deviceId,
+      phassetLocalId: "completed-edit",
+      totalBytes: 1024,
+      chunkSize: 256,
+      targetRelPath: "2024/Tokyo/IMG.heic",
+    });
+    await uploadSessions.complete({ sessionId: a._id, mapleId: "maple-old" });
+
+    const r = await uploadSessions.openOrResume({
+      libraryId,
+      deviceId,
+      phassetLocalId: "completed-edit",
+      totalBytes: 2048, // edited — different size
+      chunkSize: 256,
+      targetRelPath: "2024/Tokyo/IMG.heic",
+    });
+    expect(r.alreadyComplete).toBe(false);
+    expect(r.reset).toBe(true);
+    expect(r.session._id.equals(a._id)).toBe(true);
+    expect(r.session.state).toBe("open");
+    expect(r.session.total_bytes).toBe(2048);
+    expect(r.session.received_bytes).toBe(0);
+    expect(r.session.maple_id).toBeUndefined();
+  });
+
   test("complete marks the session done and stores maple_id", async () => {
     const { session } = await uploadSessions.openOrResume({
       libraryId,

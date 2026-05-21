@@ -153,6 +153,7 @@ export const backupIngestRoutes = new Elysia().post(
     // Open or resume the upload session.
     let session;
     let didReset = false;
+    let alreadyComplete = false;
     try {
       const r = await uploadSessions.openOrResume({
         libraryId,
@@ -165,6 +166,7 @@ export const backupIngestRoutes = new Elysia().post(
       });
       session = r.session;
       didReset = r.reset;
+      alreadyComplete = r.alreadyComplete;
     } catch (e: any) {
       if (e instanceof BusyElsewhereError) {
         set.status = 423;
@@ -175,6 +177,24 @@ export const backupIngestRoutes = new Elysia().post(
       }
       set.status = 409;
       return { error: e?.message ?? "session metadata mismatch on resume" };
+    }
+
+    // Short-circuit when the upload already finished server-side. The device
+    // is retrying because something AFTER the original ingest (sidecar /
+    // rendered / live video) failed and re-enqueued the task — re-uploading
+    // the same bytes is wasted work, and the client's downstream steps
+    // (sidecar PUT, rendered POST) only need `maple_id` + `target_rel_path`
+    // to proceed. Skip chunk processing entirely.
+    if (alreadyComplete) {
+      log.debug(
+        { phid, mapleId: session.maple_id, targetRelPath: session.target_rel_path },
+        "ingest short-circuit (already complete)",
+      );
+      set.status = 200;
+      return {
+        maple_id: session.maple_id,
+        target_rel_path: session.target_rel_path,
+      };
     }
 
     // Use the stored target_rel_path as the source of truth (not the freshly

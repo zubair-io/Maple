@@ -218,6 +218,7 @@ export const backupRenderedRoutes = new Elysia().post(
     // Open or resume the upload session.
     let session;
     let didReset = false;
+    let alreadyComplete = false;
     try {
       const r = await uploadSessions.openOrResume({
         libraryId,
@@ -230,6 +231,7 @@ export const backupRenderedRoutes = new Elysia().post(
       });
       session = r.session;
       didReset = r.reset;
+      alreadyComplete = r.alreadyComplete;
     } catch (e: any) {
       if (e instanceof BusyElsewhereError) {
         set.status = 423;
@@ -240,6 +242,19 @@ export const backupRenderedRoutes = new Elysia().post(
       }
       set.status = 409;
       return { error: e?.message ?? "session metadata mismatch on resume" };
+    }
+
+    // Same short-circuit as backup-ingest: when the rendered companion
+    // already finished server-side, return 200 with the stored target path
+    // so the client doesn't burn retry slots on an upload that's already
+    // landed on disk.
+    if (alreadyComplete) {
+      log.debug(
+        { phid, targetRelPath: session.target_rel_path },
+        "rendered ingest short-circuit (already complete)",
+      );
+      set.status = 200;
+      return { target_rel_path: session.target_rel_path };
     }
 
     const resolvedTargetRelPath = session.target_rel_path;

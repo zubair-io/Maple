@@ -101,6 +101,51 @@ describe("POST /api/libraries/:id/backup/ingest", () => {
     expect(r2.status).toBe(200);
   });
 
+  test("retry after completed upload → 200 short-circuit, no duplicate AssetDoc", async () => {
+    // Regression for #223: original ingest completes, but a downstream step
+    // in the device pipeline (sidecar / rendered / live) fails and the
+    // engine re-enqueues the task. The retry must NOT 409-loop — the server
+    // recognises the completed session and short-circuits to 200 with the
+    // stored maple_id + target_rel_path.
+    const retryPhid = "ABC/L0/RETRY";
+    const retryMapleId = "maple-retry-after-complete";
+    const bytes = Buffer.alloc(128, 7);
+    const headers = {
+      "X-Maple-Device-Id": deviceId,
+      "X-Maple-Phasset-Id": retryPhid,
+      "X-Maple-Capture-Date": "2024-04-01T08:00:00Z",
+      "X-Maple-Filename": "IMG_RETRY.HEIC",
+      "X-Maple-Total-Bytes": "128",
+      "X-Maple-Maple-Id": retryMapleId,
+      "Content-Range": "bytes 0-127/128",
+    };
+
+    // First attempt — original ingest completes.
+    const first = await app.handle(ingest(bytes, headers));
+    expect(first.status).toBe(200);
+    const firstBody = await first.json();
+    expect(firstBody.maple_id).toBe(retryMapleId);
+    const firstTargetRelPath = firstBody.target_rel_path;
+
+    // Simulate the device pipeline failing post-ingest and retrying. The
+    // bytes are identical (same asset, same total, same path). Before the
+    // fix this returned 409 without an expected_offset and the client gave
+    // up after eight retries.
+    const second = await app.handle(ingest(bytes, headers));
+    expect(second.status).toBe(200);
+    const secondBody = await second.json();
+    expect(secondBody.maple_id).toBe(retryMapleId);
+    expect(secondBody.target_rel_path).toBe(firstTargetRelPath);
+
+    // Still exactly one AssetDoc for this content — no duplicate row, no
+    // duplicate phasset_link.
+    const a = await assetsCollection();
+    const docs = await a.find({ maple_id: retryMapleId }).toArray();
+    expect(docs.length).toBe(1);
+    expect(docs[0].phasset_links.length).toBe(1);
+    expect(docs[0].phasset_links[0].phasset_local_id).toBe(retryPhid);
+  });
+
   test("missing required header → 400", async () => {
     const r = await app.handle(ingest(Buffer.alloc(16), {
       "X-Maple-Device-Id": deviceId,
