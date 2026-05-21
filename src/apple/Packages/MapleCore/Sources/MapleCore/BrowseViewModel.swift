@@ -377,4 +377,42 @@ public final class BrowseViewModel {
             loadError = error
         }
     }
+
+    // MARK: - Preview
+
+    /// Sample `BrowseViewModel` for SwiftUI `#Preview` blocks. Skips the
+    /// async loader plumbing entirely — assets are inserted directly so the
+    /// grid can render its populated layout without touching any source
+    /// actor. Issue #139.
+    public enum PreviewState: Sendable {
+        case empty
+        case loaded(count: Int)
+        case loading
+        case error
+        case photosAuthNeeded
+    }
+
+    public static func preview(_ state: PreviewState = .loaded(count: 12)) -> BrowseViewModel {
+        let vm = BrowseViewModel()
+        switch state {
+        case .empty:
+            break
+        case .loaded(let count):
+            vm.assets = (0..<count).map { i in
+                AssetRef.preview(displayName: String(format: "IMG_%04d.dng", i + 1))
+            }
+            vm.selectedID = vm.assets.first?.id
+        case .loading:
+            vm.isLoading = true
+        case .error:
+            vm.loadError = NSError(
+                domain: "MapleCore.BrowseViewModel.preview",
+                code: -1,
+                userInfo: [NSLocalizedDescriptionKey: "Couldn't load this folder."]
+            )
+        case .photosAuthNeeded:
+            vm.photosAuthNeeded = true
+        }
+        return vm
+    }
 }

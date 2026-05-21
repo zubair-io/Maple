@@ -243,3 +243,49 @@ struct CloudFolderTreeRow: View {
     }
   }
 }
+
+// MARK: - Previews
+//
+// Issue #139 — sidecar row for cloud folder navigation. Bindings + the
+// `onListDir` closure return an always-empty listing so the row stays
+// collapsed unless the user expands it. Different depths exercise the
+// indent token.
+
+private struct _CloudFolderTreeRowPreviewWrapper: View {
+  let depth: Int
+  let selected: Bool
+  @State private var selection: LibrarySelection = .none
+  @State private var cache: [String: FsDirListing] = [:]
+  @State private var expanded: Set<String> = []
+
+  var body: some View {
+    CloudFolderTreeRow(
+      serverURL: URL(string: "https://preview.maple.invalid")!,
+      libraryFolderID: "lib-1",
+      absPath: "/photos/2024",
+      displayName: "2024",
+      depth: depth,
+      onListDir: { _, _ in nil },
+      onPickPath: { _, _, _ in },
+      cloudCurrentPath: selected ? "/photos/2024" : "/photos/2023",
+      selection: $selection,
+      listingCache: $cache,
+      expanded: $expanded
+    )
+    .padding()
+    .background(MapleTokens.sidebar)
+    .frame(width: 280)
+  }
+}
+
+#Preview("Default (depth 0)") {
+  _CloudFolderTreeRowPreviewWrapper(depth: 0, selected: false)
+}
+
+#Preview("Selected (depth 0)") {
+  _CloudFolderTreeRowPreviewWrapper(depth: 0, selected: true)
+}
+
+#Preview("Nested (depth 2)") {
+  _CloudFolderTreeRowPreviewWrapper(depth: 2, selected: false)
+}

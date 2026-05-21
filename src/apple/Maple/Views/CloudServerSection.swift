@@ -158,3 +158,73 @@ struct CloudServerSection: View {
     }
   }
 }
+
+// MARK: - Previews
+//
+// Issue #139 — sidebar section for a connected cloud server. The
+// folders array drives the inner CloudFolderTreeRow list; the listing
+// closure returns nil so children stay collapsed. Coverage: with
+// folders (loaded), no folders (empty), folder vs timeline modes.
+
+private struct _CloudServerSectionPreviewWrapper: View {
+  let folders: [CloudFolder]
+  let viewMode: CloudViewMode
+  @State private var isExpanded: Bool
+  @State private var selection: LibrarySelection = .none
+
+  init(folders: [CloudFolder], viewMode: CloudViewMode, expanded: Bool = true) {
+    self.folders = folders
+    self.viewMode = viewMode
+    self._isExpanded = State(initialValue: expanded)
+  }
+
+  var body: some View {
+    CloudServerSection(
+      serverURL: URL(string: "https://preview.maple.invalid")!,
+      folders: folders,
+      viewMode: viewMode,
+      displayName: "preview.maple",
+      isExpanded: $isExpanded,
+      selection: $selection,
+      onSetViewMode: { _ in },
+      onPickPath: { _, _, _ in },
+      onListDir: { _, _ in nil },
+      cloudCurrentPath: nil,
+      onSignOut: {},
+      onRemoveServer: {},
+      onRename: { _ in }
+    )
+    .padding()
+    .background(MapleTokens.sidebar)
+    .frame(width: 320)
+  }
+}
+
+#Preview("Loaded — folder mode") {
+  _CloudServerSectionPreviewWrapper(
+    folders: [
+      CloudFolder(id: "1", path: "/photos", label: "Photos"),
+      CloudFolder(id: "2", path: "/raws", label: "RAWs"),
+    ],
+    viewMode: .folder
+  )
+}
+
+#Preview("Loaded — timeline mode") {
+  _CloudServerSectionPreviewWrapper(
+    folders: [
+      CloudFolder(id: "1", path: "/photos", label: "Photos"),
+    ],
+    viewMode: .timeline
+  )
+}
+
+#Preview("Empty (no folders)") {
+  _CloudServerSectionPreviewWrapper(folders: [], viewMode: .folder)
+}
+
+#Preview("Collapsed") {
+  _CloudServerSectionPreviewWrapper(folders: [
+    CloudFolder(id: "1", path: "/photos", label: "Photos"),
+  ], viewMode: .folder, expanded: false)
+}

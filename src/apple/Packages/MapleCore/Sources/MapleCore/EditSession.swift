@@ -389,4 +389,20 @@ public final class EditSession {
         beginEdit()
         model = originalModel
     }
+
+    // MARK: - Preview
+
+    /// Sample `EditSession` for SwiftUI `#Preview` blocks. Constructed against
+    /// `AssetRef.preview()` and the default `AdjustmentModel` — no rendering
+    /// is kicked off because there's no real asset on disk, so the preview
+    /// renders the view chrome around an empty pipeline. Issue #139.
+    public static func preview(displayName: String = "IMG_0042.dng",
+                               model: AdjustmentModel = .default,
+                               culling: CullingState = CullingState()) -> EditSession {
+        EditSession(
+            asset: AssetRef.preview(displayName: displayName),
+            model: model,
+            culling: culling
+        )
+    }
 }

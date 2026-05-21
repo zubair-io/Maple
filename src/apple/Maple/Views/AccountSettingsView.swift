@@ -42,3 +42,25 @@ struct AccountSettingsView: View {
     me = try? await client.me(accessToken: access)
   }
 }
+
+// MARK: - Previews
+//
+// Issue #139 — Account settings against the AuthSession + AuthClient
+// preview factories. The `.task` modifier fires `client.me` against the
+// non-routable preview server, which fails fast and leaves the
+// Passkeys section empty — that's the expected preview behaviour.
+
+#Preview("Signed in (owner)") {
+    AccountSettingsView(client: AuthClient.preview())
+        .environment(AuthSession.preview(state: .signedInOwner))
+}
+
+#Preview("Signed in (member)") {
+    AccountSettingsView(client: AuthClient.preview())
+        .environment(AuthSession.preview(state: .signedInMember))
+}
+
+#Preview("Signed out") {
+    AccountSettingsView(client: AuthClient.preview())
+        .environment(AuthSession.preview(state: .signedOut))
+}

@@ -125,3 +125,21 @@ private func makeQRImageUI(_ payload: String) -> UIImage? {
   return UIImage(cgImage: cg)
 }
 #endif
+
+// MARK: - Previews
+//
+// Issue #139 — invite admin panel against the preview AuthSession. The
+// `.task` modifier calls `reload()`, which returns early when
+// `TokenStore.load(...)` yields no access token (the default preview
+// state), so `client.listInvites` is never invoked and the Pending
+// Invites section stays empty.
+
+#Preview("Owner") {
+    ManageUsersView(client: AuthClient.preview())
+        .environment(AuthSession.preview(state: .signedInOwner))
+}
+
+#Preview("Member") {
+    ManageUsersView(client: AuthClient.preview())
+        .environment(AuthSession.preview(state: .signedInMember))
+}

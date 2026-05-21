@@ -197,4 +197,27 @@ public struct AssetRef: Identifiable, Sendable, Equatable, Hashable {
     public func hash(into hasher: inout Hasher) {
         hasher.combine(id)
     }
+
+    // MARK: - Preview
+
+    /// Sample `AssetRef` for SwiftUI `#Preview` blocks. Points at a synthetic
+    /// in-memory `bytesProvider` that throws when invoked — previews never
+    /// actually decode pixels, so failing the fetch is acceptable; what we
+    /// need is a stable `displayName` and a non-nil identity. Issue #139.
+    public static func preview(displayName: String = "IMG_0042.dng",
+                               hintExtension: String? = "dng") -> AssetRef {
+        AssetRef(
+            displayName: displayName,
+            hintExtension: hintExtension,
+            stableID: "preview-\(displayName)",
+            explicitIsRaw: true,
+            bytesProvider: {
+                throw NSError(
+                    domain: "MapleCore.AssetRef.preview",
+                    code: -1,
+                    userInfo: [NSLocalizedDescriptionKey: "preview asset has no bytes"]
+                )
+            }
+        )
+    }
 }

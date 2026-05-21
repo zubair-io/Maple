@@ -490,3 +490,16 @@ struct CIImageView: View {
         }
     }
 }
+
+// MARK: - Previews
+//
+// Issue #139 — full-image canvas against `EditSession.preview()`. The
+// canvas shows its placeholder background because no render is ever
+// produced (preview asset has no bytes), but the toolbar, zoom HUD and
+// fit/pan controls all render — which is what the preview is here to
+// surface.
+
+#Preview("Default") {
+    FullImageView(session: EditSession.preview())
+        .frame(width: 900, height: 700)
+}
