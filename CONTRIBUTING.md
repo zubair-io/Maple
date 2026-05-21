@@ -96,6 +96,56 @@ test-fixtures/         Gitignored RAWs + ACR references + per-case budgets
 - **16ms slider budget.** No feature ships that breaks the slider-tick budget on the reference scene set. If a feature adds allocation inside the render loop or a per-tick WASM round-trip, it does not ship.
 - **Apple visual harness** lives in `src/apple/MapleUITests/`; **slider matrix harness** is `SliderMatrixUITests` (see `CLAUDE.md` § "UITest visual harness").
 
+## Storybook (web)
+
+The Angular workspace ships a Storybook instance under
+`src/web/.storybook/` for developing UI primitives in isolation against
+stub stores. Stories live next to their components as
+`*.stories.ts` files and are picked up automatically by the
+`projects/**/*.stories.@(ts|mdx)` glob in `.storybook/main.ts`.
+
+```bash
+cd src/web
+
+# Dev server on http://localhost:6006 (live reload on story changes).
+bun run storybook
+
+# Static export — produces `src/web/storybook-static/` for CI / preview deploys.
+bun run build-storybook
+```
+
+Both scripts proxy to `ng run maple:storybook` and `ng run maple:build-storybook`,
+configured in `src/web/angular.json`.
+
+Notes for an Angular 21 + multi-project workspace:
+
+- The Storybook architect targets are attached to the `maple` project but
+  pick up stories from every project under `projects/`. Stories in the
+  `maple-common` library are excluded from the `ng-packagr` library build
+  via `tsconfig.lib.json`'s `exclude` glob, so they don't ship to consumers.
+- The Storybook config deliberately does NOT set `browserTarget` — pulling
+  in `projects/maple/src/main.ts` drags the WASM-backed raw-pipeline into
+  the Angular type-checker, which fails when the gitignored wasm-pack
+  artifacts are absent. Global styles are wired through the `styles`
+  option on the architect target instead.
+- The `.storybook/tsconfig.json` is intentionally narrow — it includes only
+  `preview.ts` and `*.stories.ts` and lets transitive imports pull in the
+  components under test. Don't widen it to `src/**` without good reason.
+
+### Authoring stories
+
+Every reusable / screen-level component should have a sibling
+`*.stories.ts`. Use Component Story Format 3 (typed `Meta` + `StoryObj`
+from `@storybook/angular`). Each story file should at minimum cover:
+
+- `Default` — the most common props
+- `Loading` / `Empty` / `Error` / `EdgeCases` — when applicable
+
+Stub services via `moduleMetadata` providers when a component pulls in
+shared state; the seed stories in this PR avoid that surface deliberately
+(they target leaf primitives — `MapleButton`, `MapleCollapsible`,
+`LoadingBanner`, `ErrorBanner`).
+
 ## Read before editing
 
 | If you need to…                           | Read this                                          |
