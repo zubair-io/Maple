@@ -44,24 +44,9 @@ except ImportError:
     _IMAGEIO_AVAILABLE = False
 
 
-# Luma weights per primaries. We pick weights to match the colour space
-# the buffer is in: Rec.2020 for everything pre-`rec2020_to_srgb`, Rec.709
-# (= sRGB) for stages whose name signals they've been moved into sRGB
-# primaries. Using the wrong weights would mis-bucket shadow/highlight
-# pixels (per PR #281 review feedback).
 REC2020_LUM = np.array([0.2627, 0.6780, 0.0593], dtype=np.float32)
-REC709_LUM  = np.array([0.2126, 0.7152, 0.0722], dtype=np.float32)
 SHADOW_LUMA = 0.05
 HIGHLIGHT_LUMA = 0.7
-
-
-def luma_weights_for_stage(stage_name: str) -> np.ndarray:
-    """Return Rec.709 luma weights for stages whose name signals they've
-    been mapped into sRGB primaries (e.g. `17_srgb_linear`). Default
-    Rec.2020 for every pre-view-transform stage."""
-    if "srgb" in stage_name.lower():
-        return REC709_LUM
-    return REC2020_LUM
 
 
 def load_exr_rgb(path: Path) -> np.ndarray:
@@ -90,17 +75,6 @@ def load_exr_rgb(path: Path) -> np.ndarray:
             raise ValueError(f"{path}: expected 3-channel EXR, got shape {arr.shape}")
         arr = arr[:, :, :3]
         if arr.dtype == np.uint8:
-            # imageio's Pillow EXR fallback silently downcasts to uint8 on
-            # some platforms. Warn loudly — stats computed off normalised
-            # uint8 are misleading and won't match the f32 pipeline values
-            # (mirrors the same caveat in stage_diff.py).
-            import warnings
-            warnings.warn(
-                f"{path}: imageio returned uint8 (Pillow path) — values will be "
-                "normalised to [0, 1] but precision is lost. Install the "
-                "OpenEXR Python package for exact f32 readback.",
-                RuntimeWarning, stacklevel=3,
-            )
             arr = arr.astype(np.float32) / 255.0
         return arr.astype(np.float32)
 
@@ -110,19 +84,12 @@ def load_exr_rgb(path: Path) -> np.ndarray:
     )
 
 
-def stage_metrics(rgb: np.ndarray, stage_name: str = "") -> dict:
-    """Compute the metrics this tool emits for a single EXR buffer.
-
-    `stage_name` is used only to pick luma weights — Rec.709 for
-    sRGB-primaries stages, Rec.2020 otherwise. Pass the stage filename
-    (with or without the `.exr` suffix); empty string defaults to
-    Rec.2020.
-    """
+def stage_metrics(rgb: np.ndarray) -> dict:
+    """Compute the metrics this tool emits for a single EXR buffer."""
     h, w, _ = rgb.shape
     n = h * w
 
-    luma_w = luma_weights_for_stage(stage_name)
-    luma = (rgb * luma_w).sum(axis=-1)
+    luma = (rgb * REC2020_LUM).sum(axis=-1)
     shadow_mask = luma < SHADOW_LUMA
     highlight_mask = luma > HIGHLIGHT_LUMA
 
@@ -167,7 +134,6 @@ def stage_metrics(rgb: np.ndarray, stage_name: str = "") -> dict:
     return {
         "shape": [h, w],
         "n_pixels": n,
-        "luma_primaries":  "rec709" if (luma_w is REC709_LUM) else "rec2020",
         "channels": channels,
         "out_of_gamut": {
             "neg_pixels":     neg_count,
@@ -181,15 +147,6 @@ def stage_metrics(rgb: np.ndarray, stage_name: str = "") -> dict:
     }
 
 
-def _fmt_drift(d: dict) -> str:
-    """Compact 'R-G' drift number, or '-' when no pixels were in the
-    bucket. Pulled out of `format_row` to avoid nested f-strings (PR
-    #281 review feedback — they parse but are fragile and hard to read).
-    """
-    val = d["rg"]
-    return "-" if val is None else f"{val:.4f}"
-
-
 def format_row(stage: str, m: dict) -> str:
     rs = m["channels"]["r"]
     gs = m["channels"]["g"]
@@ -197,16 +154,14 @@ def format_row(stage: str, m: dict) -> str:
     da = m["drift_all"]
     ds = m["drift_shadows"]
     dh = m["drift_highlights"]
-    oog = m["out_of_gamut"]
-    sh_drift = _fmt_drift(ds)
-    hi_drift = _fmt_drift(dh)
     return (
         f"{stage:<28} "
         f"R[{rs['min']:+7.3f},{rs['max']:+7.3f},{rs['mean']:+7.3f}] "
         f"G[{gs['min']:+7.3f},{gs['max']:+7.3f},{gs['mean']:+7.3f}] "
         f"B[{bs['min']:+7.3f},{bs['max']:+7.3f},{bs['mean']:+7.3f}] "
-        f"OOG[-{oog['neg_pct']:5.2f}%/+{oog['supra_pct']:5.2f}%] "
-        f"drift[all={da['rg']:.4f},sh={sh_drift},hi={hi_drift}]"
+        f"OOG[-{m['out_of_gamut']['neg_pct']:5.2f}%/+{m['out_of_gamut']['supra_pct']:5.2f}%] "
+        f"drift[all={da['rg']:.4f},sh={'-' if ds['rg'] is None else f'{ds['rg']:.4f}'},"
+        f"hi={'-' if dh['rg'] is None else f'{dh['rg']:.4f}'}]"
     )
 
 
@@ -236,45 +191,27 @@ def main() -> int:
         stage = f.stem
         try:
             rgb = load_exr_rgb(f)
-            m = stage_metrics(rgb, stage_name=stage)
+            m = stage_metrics(rgb)
         except Exception as e:
             print(f"{stage:<28} ERROR {e}", file=sys.stderr)
             continue
         all_metrics[stage] = m
         print(format_row(stage, m))
 
-    # Flag interesting stages (heuristics, not gates). Thresholds match
-    # the comments verbatim — comment and code stay in sync per PR #281
-    # review.
-    SHADOW_DRIFT_THRESHOLD = 0.005     # > this in shadows → magenta-crush candidate
-    HIGHLIGHT_DRIFT_THRESHOLD = 0.05   # > this in highlights → hue-shift candidate
+    # Flag interesting stages (heuristics, not gates).
     interesting: list[str] = []
     for stage, m in all_metrics.items():
-        # Shadow drift > 0.005: candidate for the "magenta in deep shadow"
-        # symptom (per-channel sigmoid clamp asymmetry).
+        # Per-channel mean drift > 0.005 in shadows = candidate for the
+        # "magenta in deep shadow" symptom.
         ds = m["drift_shadows"]
-        if ds["rg"] is not None and (
-            ds["rg"] > SHADOW_DRIFT_THRESHOLD
-            or ds["rb"] > SHADOW_DRIFT_THRESHOLD
-            or ds["gb"] > SHADOW_DRIFT_THRESHOLD
-        ):
-            interesting.append(
-                f"  {stage}: shadow drift R-G={ds['rg']:.4f} "
-                f"R-B={ds['rb']:.4f} G-B={ds['gb']:.4f}"
-            )
-        # Highlight drift > 0.05: candidate for the "highlight hue shift"
-        # symptom (saturated colours rotating at the per-channel sigmoid
-        # shoulder).
+        if ds["rg"] is not None and (ds["rg"] > 0.005 or ds["rb"] > 0.005 or ds["gb"] > 0.005):
+            interesting.append(f"  {stage}: shadow drift R-G={ds['rg']:.4f} R-B={ds['rb']:.4f} G-B={ds['gb']:.4f}")
+        # Per-channel mean drift > 0.01 in highlights = candidate for
+        # the "highlight hue shift" symptom (saturated colours rotating
+        # at the per-channel sigmoid shoulder).
         dh = m["drift_highlights"]
-        if dh["rg"] is not None and (
-            dh["rg"] > HIGHLIGHT_DRIFT_THRESHOLD
-            or dh["rb"] > HIGHLIGHT_DRIFT_THRESHOLD
-            or dh["gb"] > HIGHLIGHT_DRIFT_THRESHOLD
-        ):
-            interesting.append(
-                f"  {stage}: highlight drift R-G={dh['rg']:.4f} "
-                f"R-B={dh['rb']:.4f} G-B={dh['gb']:.4f}"
-            )
+        if dh["rg"] is not None and (dh["rg"] > 0.05 or dh["rb"] > 0.05 or dh["gb"] > 0.05):
+            interesting.append(f"  {stage}: highlight drift R-G={dh['rg']:.4f} R-B={dh['rb']:.4f} G-B={dh['gb']:.4f}")
 
     if interesting:
         print()
