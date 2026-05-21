@@ -142,7 +142,7 @@ pub fn render_bytes(raw: &[u8], ext: &str, xmp: Option<String>) -> Result<MapleR
 /// the `Vec<u16>`; the JS getter exposes it as a `Uint16Array` view, which
 /// is the same bit pattern as the Apple buffer).
 ///
-/// Plan 3 M1 — see docs/superpowers/plans/2026-04-25-plan-3-web-ffi-split-m1.md.
+/// Plan 3 M1 — see .archived-plans/plans/2026-04-25-plan-3-web-ffi-split-m1.md.
 #[wasm_bindgen]
 pub struct MapleSceneLinearRender {
     width: u32,
@@ -189,7 +189,7 @@ impl MapleSceneLinearRender {
 /// `quality_preview = true` runs the half-res Preview pipeline; `false`
 /// runs full-res Full. Same mapping as the legacy entry.
 ///
-/// Plan 3 M1 — see docs/superpowers/plans/2026-04-25-plan-3-web-ffi-split-m1.md.
+/// Plan 3 M1 — see .archived-plans/plans/2026-04-25-plan-3-web-ffi-split-m1.md.
 #[wasm_bindgen]
 pub fn render_bytes_scene_linear(
     raw: &[u8],

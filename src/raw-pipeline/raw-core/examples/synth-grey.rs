@@ -1,5 +1,5 @@
 //! Generate a synthetic grey DNG. See
-//! `docs/superpowers/specs/2026-04-28-synthetic-grey-dng-design.md`.
+//! `.archived-plans/specs/2026-04-28-synthetic-grey-dng-design.md`.
 //!
 //! Build:
 //!   cargo build --release -p raw-core --features test-support \

@@ -263,7 +263,7 @@ budget instead of the source sensor size.
 - Include tile overlap for demosaic/neighborhood filters.
 - Promote the tile path only after viewport-sized preview is stable.
 - Status: Plans 1-3 complete (Plan 3 =
-  `docs/superpowers/plans/2026-04-25-deep-zoom-tile-rendering.md`)
+  `.archived-plans/plans/2026-04-25-deep-zoom-tile-rendering.md`)
   delivers Milestones 1-3 of M4: single-tile cold render via CLI,
   Apple `TileManager` actor + composite over fixed viewport, and
   `FullImageView` wiring for `MagnifyGesture` / `Cmd+1` / `Cmd+=` /

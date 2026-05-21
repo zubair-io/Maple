@@ -70,7 +70,7 @@ pub fn render_from_raw_with_quality(
 /// Plan 1 (FFI split) — the Apple side imports this buffer as a CIImage
 /// tagged extendedLinearITUR_2020 and runs Lanczos prescale + AgX kernel
 /// + sRGB encode in CoreImage. See
-/// docs/superpowers/plans/2026-04-24-ffi-split-plan-1.md.
+/// .archived-plans/plans/2026-04-24-ffi-split-plan-1.md.
 pub fn render_scene_linear_from_raw_with_quality(
     raw: &RawImage,
     model: &AdjustmentModel,

@@ -343,7 +343,7 @@ int32_t maple_render_bytes_scene_linear(const uint8_t *raw_bytes,
  * Aspect math is local to the Rust renderer because it knows the
  * source dimensions.
  *
- * Plan 1 v2 — see docs/superpowers/plans/2026-04-24-ffi-split-plan-1.md
+ * Plan 1 v2 — see .archived-plans/plans/2026-04-24-ffi-split-plan-1.md
  * Task 8 and docs/tickets/06-viewport-sized-rust-ffi-preview.md
  * Milestone 2.
  */
@@ -382,7 +382,7 @@ int32_t maple_render_bytes_scene_linear_sized(const uint8_t *raw_bytes,
  *          fit-zoom rendering.
  *   - 11: `out_w > src_w || out_h > src_h` — tile path is downscale-only.
  *
- * Plan 3 — see docs/superpowers/plans/2026-04-25-deep-zoom-tile-rendering.md
+ * Plan 3 — see .archived-plans/plans/2026-04-25-deep-zoom-tile-rendering.md
  * Task 2 and docs/tickets/06-viewport-sized-rust-ffi-preview.md M4.
  */
 int32_t maple_render_file_scene_linear_tile(const char *raw_path,

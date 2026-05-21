@@ -5,7 +5,7 @@
 // implementation is in-process; future revisions can swap in a
 // shared-storage queue without changing the engine's API.
 //
-// Spec: docs/superpowers/specs/2026-05-09-photokit-backup-design.md §18.
+// Spec: .archived-plans/specs/2026-05-09-photokit-backup-design.md §18.
 
 import Foundation
 

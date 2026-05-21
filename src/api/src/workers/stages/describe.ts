@@ -26,7 +26,7 @@
  * enrichment config at first use and cached as module-level singletons.
  * Tests inject dependencies via `setDescribeDepsForTests`.
  *
- * Spec: `docs/superpowers/specs/2026-05-19-qwen-vision-ocr-design.md`.
+ * Spec: `.archived-plans/specs/2026-05-19-qwen-vision-ocr-design.md`.
  */
 
 import { readFile } from "node:fs/promises";

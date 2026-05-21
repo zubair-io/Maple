@@ -106,7 +106,7 @@ pub fn apply(img: &mut Image, model: &AdjustmentModel) {
         // Behavioural change: blacks<0 no longer synthesises negative
         // scene values. ACR doesn't do this either — the toe in ACR's
         // black-point shift is non-negative. See investigation spec
-        // docs/superpowers/specs/2026-04-26-blacks-clarity-bug-investigation.md.
+        // .archived-plans/specs/2026-04-26-blacks-clarity-bug-investigation.md.
         if apply_blacks {
             p[0] = (p[0] + b_add).max(0.0);
             p[1] = (p[1] + b_add).max(0.0);
@@ -225,7 +225,7 @@ mod tests {
         // The post-fix floor at 0 preserves the architectural intent
         // (blacks<0 crushes deep shadows toward black) without producing
         // negative scene values. See Bug A in Ticket 11 / 11-Bugs.md and
-        // the investigation spec under docs/superpowers/specs/.
+        // the investigation spec under .archived-plans/specs/.
         let mut img = fresh_img([0.0, 0.0, 0.0]);
         let mut m = model_default();
         m.blacks = -100.0;

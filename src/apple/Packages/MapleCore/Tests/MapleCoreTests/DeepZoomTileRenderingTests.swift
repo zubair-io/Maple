@@ -4,9 +4,9 @@
 // notification, and `EditSession.computeVisibleSourceRect`.
 //
 // Cross-links:
-//   docs/superpowers/plans/2026-04-25-deep-zoom-tile-rendering.md Task 4
-//   docs/superpowers/plans/2026-04-25-deep-zoom-tile-rendering.md Task 6
-//   docs/superpowers/plans/2026-04-25-deep-zoom-tile-rendering.md Task 8
+//   .archived-plans/plans/2026-04-25-deep-zoom-tile-rendering.md Task 4
+//   .archived-plans/plans/2026-04-25-deep-zoom-tile-rendering.md Task 6
+//   .archived-plans/plans/2026-04-25-deep-zoom-tile-rendering.md Task 8
 //
 // Tests are split into two tiers:
 //   - "no fixture" tier: exercises the wrapper APIs through their

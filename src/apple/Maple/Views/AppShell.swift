@@ -1,7 +1,7 @@
 // AppShell.swift — NavigationSplitView (Mac/iPad) +
 // TabView single-column collapse (iPhone).
 //
-// Layout ported from docs/photo_app_mockup_v2.html:
+// Layout ported from docs/mockup.html:
 //   • LibrarySidebar   — Folders / Photos Library / Connections tree
 //   • BrowseGrid       — lazy thumbnail grid with empty-state + error banner
 //   • DetailPanel      — third column only in Full-image mode; Browse drops
@@ -240,7 +240,7 @@ struct AppShell: View {
             // mode so the test can wait on `canvas-render-ready`. Skips
             // restoreLastSource() entirely — the harness wants a known
             // empty starting state. See
-            // docs/superpowers/plans/2026-04-25-xcuitest-visual-harness.md.
+            // .archived-plans/plans/2026-04-25-xcuitest-visual-harness.md.
             if let fixtureURL = MapleApp.uitestFixtureURL {
                 browseVM.loadSingleAsset(url: fixtureURL)
                 if let asset = browseVM.assets.first {

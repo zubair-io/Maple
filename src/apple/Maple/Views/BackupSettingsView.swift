@@ -3,7 +3,7 @@
 // Settings → Photo Library backup panel. Configures server + library +
 // inclusion toggles, surfaces engine progress via BackupStatusPanel.
 //
-// Spec: docs/superpowers/specs/2026-05-09-photokit-backup-design.md §7.
+// Spec: .archived-plans/specs/2026-05-09-photokit-backup-design.md §7.
 
 import SwiftUI
 import OSLog

@@ -1,6 +1,6 @@
 // TimelineView — Year → Month → folder grouped scroller.
 //
-// Data flow (matching docs/superpowers/specs/2026-05-06-timeline-view-design.md):
+// Data flow (matching .archived-plans/specs/2026-05-06-timeline-view-design.md):
 //
 //  1. On mount + on every (pathPrefix | filters | searchQuery) change
 //     (debounced 250 ms): call SearchService.buckets to refresh the

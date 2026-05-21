@@ -81,7 +81,7 @@ export interface AssetExif {
  * Versioned by `vision_meta.{model, prompt_version}`: bumping either causes
  * the runtime to invalidate stale rows and re-run the stage.
  *
- * Spec: `docs/superpowers/specs/2026-05-19-qwen-vision-ocr-design.md`.
+ * Spec: `.archived-plans/specs/2026-05-19-qwen-vision-ocr-design.md`.
  */
 export interface VisionDoc {
   /** 1–2 sentence caption focused on searchable content. Mirrors the
@@ -264,7 +264,7 @@ export interface AssetDoc {
   search_blob?: string;
   /** Per-device link from Apple Photos. Multiple entries when the same
    * content has been observed on more than one device. See
-   * `docs/superpowers/specs/2026-05-09-photokit-backup-design.md` §16. */
+   * `.archived-plans/specs/2026-05-09-photokit-backup-design.md` §16. */
   phasset_links?: PhotoKitAssetLink[];
   /** Set when reconciliation observes the asset has been removed from Apple
    * Photos on every linked device. The cloud copy is preserved. */

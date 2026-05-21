@@ -151,7 +151,7 @@ struct FullImageView: View {
                         // preview AND `isRendering` has flipped false.
                         // The harness waits via NSPredicate(exists==1) on
                         // `app.otherElements["canvas-render-ready"]`. See
-                        // docs/superpowers/plans/2026-04-25-xcuitest-visual-harness.md.
+                        // .archived-plans/plans/2026-04-25-xcuitest-visual-harness.md.
                         .accessibilityIdentifier(
                             (!session.isRendering && session.renderedPreview != nil)
                                 ? "canvas-render-ready"
@@ -455,7 +455,7 @@ struct CIImageView: View {
     /// 16-bit reduces banding on smooth gradients (sky, skin shadows).
     ///
     /// Earlier docs ref (sRGB 8-bit rationale): see
-    /// docs/superpowers/plans/2026-04-24-ffi-split-plan-1.md Task 4 Step
+    /// .archived-plans/plans/2026-04-24-ffi-split-plan-1.md Task 4 Step
     /// 4.0b — the determinism reasoning still holds, the choice of P3+16
     /// over sRGB+8 is the gamut/depth upgrade.
     private static let context = CIContext()

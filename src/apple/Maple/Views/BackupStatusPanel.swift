@@ -7,7 +7,7 @@
 // Surfaces the "see the photos being uploaded and how much is left"
 // requirement.
 //
-// Spec: docs/superpowers/specs/2026-05-09-photokit-backup-design.md §7, §21.
+// Spec: .archived-plans/specs/2026-05-09-photokit-backup-design.md §7, §21.
 
 import SwiftUI
 import Photos
