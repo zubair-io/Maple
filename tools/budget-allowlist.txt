@@ -48,4 +48,3 @@ src/api/tests/search-place-route.test.ts                                        
 src/api/tests/enrichment-dead-letter.test.ts                                      # 623  — enrichment dead-letter tests
 src/api/src/workers/discover/discover.test.ts                                     # 696  — discover producer tests; split per discover concern (refs #134, #251)
 src/api/tests/backup-ingest.test.ts                                               # 628  — backup-ingest route tests; split per scenario (refs #134, #252)
-src/api/src/workers/discover/index.ts                                             # 622  — discover producer; split per dispatch/scheduling/observation seam (refs #134, #253)
