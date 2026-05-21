@@ -7,13 +7,13 @@
 // math the template reads through `vm().*` (or, for now, through the
 // component's helper methods that delegate to these functions).
 
-import { ColorLabel } from '../models/asset';
-import {
+import type { ColorLabel } from '../models/asset';
+import type {
   ApiAssetDetail,
   ApiEnrichmentStage,
   ApiEnrichmentStageState,
 } from '../api/bun-api-backend.service';
-import { EnrichmentStageStatus } from './enrichment-status-badge.component';
+import type { EnrichmentStageStatus } from './enrichment-status-badge.component';
 
 // ── Constants ──────────────────────────────────────────────────────────────
 

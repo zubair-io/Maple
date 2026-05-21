@@ -21,7 +21,7 @@ import {
   untaggedFaceCount,
   xmpName,
 } from './info-tab.vm';
-import {
+import type {
   ApiAssetDetail,
   ApiEnrichmentStageState,
 } from '../api/bun-api-backend.service';
