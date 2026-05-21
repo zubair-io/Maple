@@ -19,6 +19,12 @@ export class LibrarySelection {
   readonly selectedAssetIds = signal<Set<AssetId>>(new Set());
   readonly focusedAssetId = signal<AssetId | null>(null);
 
+  // ── In-grid search query (filename substring filter) ──────────────────────
+  // Ephemeral — does NOT persist. Lives next to the rest of the selection
+  // signals because the toolbar input narrows the visible asset/folder set
+  // (i.e. it's a selection-shaping input, not library data).
+  readonly searchQuery = signal<string>('');
+
   /**
    * Label of the currently selected sidebar entry (recursive lookup), or empty
    * when nothing is selected. Used by the BrowseShell title bar.
@@ -51,7 +57,7 @@ export class LibrarySelection {
 
     // Filename substring filter from the toolbar search input.
     // Pragmatic scope: filename only — structured search lives on /search.
-    const q = this.store.searchQuery().trim().toLowerCase();
+    const q = this.searchQuery().trim().toLowerCase();
     if (q.length > 0) {
       list = list.filter((a) => a.filename.toLowerCase().includes(q));
     }
@@ -70,7 +76,7 @@ export class LibrarySelection {
     // Folder navigation ignores rating/flag filters (those are image-only
     // concepts) but honours the toolbar search filter on folder name so the
     // search input filters both kinds consistently.
-    const q = this.store.searchQuery().trim().toLowerCase();
+    const q = this.searchQuery().trim().toLowerCase();
     if (q.length > 0) {
       list = list.filter((f) => f.name.toLowerCase().includes(q));
     }

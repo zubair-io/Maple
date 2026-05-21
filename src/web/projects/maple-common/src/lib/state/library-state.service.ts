@@ -89,7 +89,7 @@ export class LibraryStateService {
   readonly filter = this.prefs.filter;
 
   // ── In-grid search query (filename substring filter) ──────────────────────
-  readonly searchQuery = this.store.searchQuery;
+  readonly searchQuery = this.selection.searchQuery;
 
   // ── Panel visibility (persisted) ──────────────────────────────────────────
   readonly sidebarVisible = this.prefs.sidebarVisible;
