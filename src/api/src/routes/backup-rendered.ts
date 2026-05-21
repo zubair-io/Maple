@@ -37,19 +37,16 @@
  *         Body: { retry_after_seconds }. Same-key metadata mismatches
  *         self-heal silently (session reset in place).
  */
-import { Elysia, t } from "elysia";
-import { ObjectId } from "mongodb";
-import {
-  assetsCollection,
-  foldersCollection,
-} from "../db/client.ts";
-import { uploadSessions, BusyElsewhereError } from "../backup/upload-session.ts";
-import { child as childLogger } from "../log.ts";
-import fs from "node:fs/promises";
-import path from "node:path";
+import { Elysia, t } from 'elysia';
+import { ObjectId } from 'mongodb';
+import { assetsCollection, foldersCollection } from '../db/client.ts';
+import { uploadSessions, BusyElsewhereError } from '../backup/upload-session.ts';
+import { child as childLogger } from '../log.ts';
+import fs from 'node:fs/promises';
+import path from 'node:path';
 
-const log = childLogger("backup-rendered");
-const CHUNK_DIR = process.env.MAPLE_BACKUP_TMP ?? "/tmp/maple-backup-chunks";
+const log = childLogger('backup-rendered');
+const CHUNK_DIR = process.env.MAPLE_BACKUP_TMP ?? '/tmp/maple-backup-chunks';
 
 /** Move src to dst atomically. Fails with EEXIST when dst already exists —
  * this is the final-path collision guard for rendered uploads.
@@ -73,12 +70,12 @@ async function atomicMove(src: string, dst: string): Promise<void> {
     await fs.unlink(src);
     return;
   } catch (e: any) {
-    if (e?.code === "EEXIST") throw e;
-    if (e?.code !== "EXDEV") throw e;
+    if (e?.code === 'EEXIST') throw e;
+    if (e?.code !== 'EXDEV') throw e;
   }
   // Cross-filesystem: open the destination with "wx" (O_CREAT | O_EXCL), copy
   // bytes through, then drop the tmp. "wx" surfaces EEXIST atomically.
-  const dstHandle = await fs.open(dst, "wx");
+  const dstHandle = await fs.open(dst, 'wx');
   try {
     const data = await fs.readFile(src);
     await dstHandle.writeFile(data);
@@ -94,10 +91,10 @@ async function atomicMove(src: string, dst: string): Promise<void> {
  */
 function isSafeRelPath(relPath: string): boolean {
   if (!relPath || relPath.length === 0 || relPath.length > 2048) return false;
-  if (relPath.startsWith("/") || relPath.startsWith("\\")) return false;
+  if (relPath.startsWith('/') || relPath.startsWith('\\')) return false;
   const parts = relPath.split(/[/\\]/);
   for (const part of parts) {
-    if (part === ".." || part === ".") return false;
+    if (part === '..' || part === '.') return false;
     if (part.length === 0) return false;
   }
   return true;
@@ -116,18 +113,21 @@ function isSafeRelPath(relPath: string): boolean {
  *   twin lands without the `.rendered.` infix.
  */
 function renderedRelPath(originalRelPath: string, ext?: string, suffixOverride?: string): string {
-  const base = originalRelPath.slice(0, originalRelPath.length - path.extname(originalRelPath).length);
+  const base = originalRelPath.slice(
+    0,
+    originalRelPath.length - path.extname(originalRelPath).length,
+  );
   if (suffixOverride) {
-    const normalSuffix = suffixOverride.startsWith(".") ? suffixOverride.slice(1) : suffixOverride;
+    const normalSuffix = suffixOverride.startsWith('.') ? suffixOverride.slice(1) : suffixOverride;
     return `${base}.${normalSuffix}`;
   }
   const extToUse = ext ?? path.extname(originalRelPath);
-  const normalExt = extToUse.startsWith(".") ? extToUse : `.${extToUse}`;
+  const normalExt = extToUse.startsWith('.') ? extToUse : `.${extToUse}`;
   return `${base}.rendered${normalExt}`;
 }
 
 export const backupRenderedRoutes = new Elysia().post(
-  "/api/libraries/:libraryId/backup/rendered",
+  '/api/libraries/:libraryId/backup/rendered',
   async ({ params, headers, body, set }) => {
     // Validate library id.
     let libraryId: ObjectId;
@@ -135,72 +135,72 @@ export const backupRenderedRoutes = new Elysia().post(
       libraryId = new ObjectId(params.libraryId);
     } catch {
       set.status = 400;
-      return { error: "invalid library id" };
+      return { error: 'invalid library id' };
     }
 
     // Extract + validate required headers.
-    const deviceId = headers["x-maple-device-id"];
-    const phid = headers["x-maple-phasset-id"];
-    const originalRelPath = headers["x-maple-target-rel-path"];
-    const totalBytesRaw = headers["x-maple-total-bytes"];
-    const range = headers["content-range"];
-    const mapleId = headers["x-maple-maple-id"];
-    const filenameExt = headers["x-maple-filename-ext"];
+    const deviceId = headers['x-maple-device-id'];
+    const phid = headers['x-maple-phasset-id'];
+    const originalRelPath = headers['x-maple-target-rel-path'];
+    const totalBytesRaw = headers['x-maple-total-bytes'];
+    const range = headers['content-range'];
+    const mapleId = headers['x-maple-maple-id'];
+    const filenameExt = headers['x-maple-filename-ext'];
     // Optional suffix-override: when present, the assembled file is named
     // `<base>.<suffixOverride>` instead of `<base>.rendered.<ext>`.
     // Used by the Live Photo .mov path to avoid the `.rendered.` infix.
-    const suffixOverride = headers["x-maple-suffix-override"];
+    const suffixOverride = headers['x-maple-suffix-override'];
     // Optional iCloud cloud id — when both devices on the same iCloud
     // library try to upload the rendered companion for the same photo,
     // openOrResume uses this to detect the cross-device collision and
     // return 423 instead of letting the second device race the
     // `atomicMove` at the end of the upload.
-    const phCloudId = headers["x-maple-phasset-cloud-id"];
+    const phCloudId = headers['x-maple-phasset-cloud-id'];
 
     if (!deviceId || !phid || !originalRelPath || !totalBytesRaw || !range) {
       set.status = 400;
-      return { error: "missing required headers" };
+      return { error: 'missing required headers' };
     }
 
     // Path-traversal guard.
     if (!isSafeRelPath(originalRelPath)) {
       set.status = 400;
-      return { error: "unsafe X-Maple-Target-Rel-Path" };
+      return { error: 'unsafe X-Maple-Target-Rel-Path' };
     }
 
     const totalBytes = parseInt(totalBytesRaw, 10);
     if (!Number.isFinite(totalBytes) || totalBytes <= 0) {
       set.status = 400;
-      return { error: "invalid X-Maple-Total-Bytes" };
+      return { error: 'invalid X-Maple-Total-Bytes' };
     }
 
     // Parse Content-Range: bytes <start>-<end>/<total>
     const m = /^bytes (\d+)-(\d+)\/(\d+)$/.exec(range);
     if (!m) {
       set.status = 400;
-      return { error: "invalid Content-Range" };
+      return { error: 'invalid Content-Range' };
     }
     const start = parseInt(m[1], 10);
     const end = parseInt(m[2], 10);
     const rangeTotal = parseInt(m[3], 10);
     if (end < start) {
       set.status = 400;
-      return { error: "invalid Content-Range: end must be >= start" };
+      return { error: 'invalid Content-Range: end must be >= start' };
     }
     if (end >= rangeTotal) {
       set.status = 400;
-      return { error: "invalid Content-Range: end must be < total" };
+      return { error: 'invalid Content-Range: end must be < total' };
     }
     if (rangeTotal !== totalBytes) {
       set.status = 400;
-      return { error: "Content-Range total mismatch with X-Maple-Total-Bytes" };
+      return { error: 'Content-Range total mismatch with X-Maple-Total-Bytes' };
     }
 
     // Check library exists.
     const folder = await (await foldersCollection()).findOne({ _id: libraryId });
     if (!folder) {
       set.status = 404;
-      return { error: "library not found" };
+      return { error: 'library not found' };
     }
 
     // Compute target rel-path for the rendered companion.
@@ -218,6 +218,7 @@ export const backupRenderedRoutes = new Elysia().post(
     // Open or resume the upload session.
     let session;
     let didReset = false;
+    let alreadyComplete = false;
     try {
       const r = await uploadSessions.openOrResume({
         libraryId,
@@ -230,6 +231,7 @@ export const backupRenderedRoutes = new Elysia().post(
       });
       session = r.session;
       didReset = r.reset;
+      alreadyComplete = r.alreadyComplete;
     } catch (e: any) {
       if (e instanceof BusyElsewhereError) {
         set.status = 423;
@@ -239,7 +241,20 @@ export const backupRenderedRoutes = new Elysia().post(
         };
       }
       set.status = 409;
-      return { error: e?.message ?? "session metadata mismatch on resume" };
+      return { error: e?.message ?? 'session metadata mismatch on resume' };
+    }
+
+    // Same short-circuit as backup-ingest: when the rendered companion
+    // already finished server-side, return 200 with the stored target path
+    // so the client doesn't burn retry slots on an upload that's already
+    // landed on disk.
+    if (alreadyComplete) {
+      log.debug(
+        { phid, targetRelPath: session.target_rel_path },
+        'rendered ingest short-circuit (already complete)',
+      );
+      set.status = 200;
+      return { target_rel_path: session.target_rel_path };
     }
 
     const resolvedTargetRelPath = session.target_rel_path;
@@ -256,9 +271,9 @@ export const backupRenderedRoutes = new Elysia().post(
       try {
         await fs.unlink(tmpFile);
       } catch (e: any) {
-        if (e?.code !== "ENOENT") {
+        if (e?.code !== 'ENOENT') {
           set.status = 500;
-          return { error: `could not clear stale tmp file: ${e?.message ?? "unlink failed"}` };
+          return { error: `could not clear stale tmp file: ${e?.message ?? 'unlink failed'}` };
         }
       }
     }
@@ -266,19 +281,18 @@ export const backupRenderedRoutes = new Elysia().post(
     // Enforce resume offset.
     if (session.received_bytes !== start) {
       set.status = 409;
-      return { error: "resume offset mismatch", expected_offset: session.received_bytes };
+      return { error: 'resume offset mismatch', expected_offset: session.received_bytes };
     }
 
-    const buf =
-      body instanceof Uint8Array
-        ? Buffer.from(body)
-        : Buffer.from(body as ArrayBuffer);
+    const buf = body instanceof Uint8Array ? Buffer.from(body) : Buffer.from(body as ArrayBuffer);
 
     // Verify body length matches Content-Range claim.
     const expectedChunkLen = end - start + 1;
     if (buf.byteLength !== expectedChunkLen) {
       set.status = 400;
-      return { error: `body length ${buf.byteLength} does not match Content-Range span ${expectedChunkLen}` };
+      return {
+        error: `body length ${buf.byteLength} does not match Content-Range span ${expectedChunkLen}`,
+      };
     }
 
     // Verify tmp file size is consistent with DB state before appending.
@@ -289,11 +303,14 @@ export const backupRenderedRoutes = new Elysia().post(
       } catch {
         await uploadSessions.resetForRestart(session._id);
         set.status = 409;
-        return { error: "tmp file missing — restart required", expected_offset: 0 };
+        return { error: 'tmp file missing — restart required', expected_offset: 0 };
       }
       if (tmpStat.size !== session.received_bytes) {
         set.status = 409;
-        return { error: "tmp file size mismatch — restart required", expected_offset: tmpStat.size };
+        return {
+          error: 'tmp file size mismatch — restart required',
+          expected_offset: tmpStat.size,
+        };
       }
     }
 
@@ -312,7 +329,7 @@ export const backupRenderedRoutes = new Elysia().post(
 
     if (!mapleId) {
       set.status = 400;
-      return { error: "X-Maple-Maple-Id required on final chunk" };
+      return { error: 'X-Maple-Maple-Id required on final chunk' };
     }
 
     const finalPath = path.join(folder.path, resolvedTargetRelPath);
@@ -320,7 +337,7 @@ export const backupRenderedRoutes = new Elysia().post(
     try {
       await atomicMove(tmpFile, finalPath);
     } catch (e: any) {
-      if (e?.code === "EEXIST") {
+      if (e?.code === 'EEXIST') {
         // Another device beat us to the final path (cross-device race past
         // the non-atomic cloud-id check). The rendered companion already
         // exists at the canonical location and the AssetDoc below will
@@ -340,7 +357,7 @@ export const backupRenderedRoutes = new Elysia().post(
       { $set: { apple_rendered_path: resolvedTargetRelPath } },
     );
 
-    log.debug({ phid, targetRelPath: resolvedTargetRelPath, mapleId }, "rendered ingest complete");
+    log.debug({ phid, targetRelPath: resolvedTargetRelPath, mapleId }, 'rendered ingest complete');
     set.status = 200;
     return { target_rel_path: resolvedTargetRelPath };
   },
