@@ -21,37 +21,37 @@
  *   PATCH /api/workers/:name/config     — update WorkerConfig fields + notify
  */
 
-import { Elysia, t } from "elysia";
-import { getDb } from "../db/client.ts";
-import { WorkerConfigRepo } from "./worker-config.repo.ts";
-import type { WorkerConfig, ImageDoc } from "./run-stage.ts";
-import type { WorkerConfigDoc } from "./worker-config.repo.ts";
-import { stageRegistry } from "./registry.ts";
-import { child } from "../log.ts";
+import { Elysia, t } from 'elysia';
+import { getDb } from '../db/client.ts';
+import { WorkerConfigRepo } from './worker-config.repo.ts';
+import type { WorkerConfig, ImageDoc } from './run-stage.ts';
+import type { WorkerConfigDoc } from './worker-config.repo.ts';
+import { stageRegistry } from './registry.ts';
+import { assetAbsPath } from '../indexer/images.repo.ts';
+import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
+import { child } from '../log.ts';
 
-const log = child("workers:routes");
+const log = child('workers:routes');
 
 const DEAD_LIST_LIMIT_DEFAULT = 50;
 const DEAD_LIST_LIMIT_MAX = 500;
 
 export function workerRoutes(): Elysia {
-  return new Elysia({ prefix: "/api/workers" })
+  return new Elysia({ prefix: '/api/workers' })
 
-    .get("/status", async () => {
+    .get('/status', async () => {
       // DB collections — fetched once for all stages.
-      let assets:
-        | import("mongodb").Collection<import("mongodb").Document>
-        | null = null;
+      let assets: import('mongodb').Collection<import('mongodb').Document> | null = null;
       const configMap = new Map<string, WorkerConfig>();
       const pendingByStage = new Map<string, number>();
       const deadByStage = new Map<string, number>();
 
       try {
         const db = await getDb();
-        assets = db.collection("assets") as import("mongodb").Collection<
-          import("mongodb").Document
+        assets = db.collection('assets') as import('mongodb').Collection<
+          import('mongodb').Document
         >;
-        const configColl = db.collection<WorkerConfigDoc>("worker_config");
+        const configColl = db.collection<WorkerConfigDoc>('worker_config');
 
         const allConfigs = await configColl.find({}).toArray();
         for (const cfg of allConfigs) {
@@ -76,29 +76,23 @@ export function workerRoutes(): Elysia {
                 ],
                 [`stages.${name}.dead`]: { $ne: true },
               })
-              .then((n) => ({ key: "pending" as const, name, n }))
+              .then((n) => ({ key: 'pending' as const, name, n }))
               .catch((err) => {
-                log.warn(
-                  { stage: name, err },
-                  "countDocuments failed for pending — returning 0",
-                );
-                return { key: "pending" as const, name, n: 0 };
+                log.warn({ stage: name, err }, 'countDocuments failed for pending — returning 0');
+                return { key: 'pending' as const, name, n: 0 };
               });
             const dead = assets!
               .countDocuments({ [`stages.${name}.dead`]: true })
-              .then((n) => ({ key: "dead" as const, name, n }))
+              .then((n) => ({ key: 'dead' as const, name, n }))
               .catch((err) => {
-                log.warn(
-                  { stage: name, err },
-                  "countDocuments failed for dead — returning 0",
-                );
-                return { key: "dead" as const, name, n: 0 };
+                log.warn({ stage: name, err }, 'countDocuments failed for dead — returning 0');
+                return { key: 'dead' as const, name, n: 0 };
               });
             return [pending, dead];
           }),
         );
         for (const c of counts) {
-          if (c.key === "pending") pendingByStage.set(c.name, c.n);
+          if (c.key === 'pending') pendingByStage.set(c.name, c.n);
           else deadByStage.set(c.name, c.n);
         }
       }
@@ -126,7 +120,7 @@ export function workerRoutes(): Elysia {
       return { stages };
     })
 
-    .get("/:name/dead", async ({ params, query, set }) => {
+    .get('/:name/dead', async ({ params, query, set }) => {
       if (!stageRegistry.has(params.name)) {
         set.status = 404;
         return { error: `unknown stage: ${params.name}` };
@@ -137,7 +131,7 @@ export function workerRoutes(): Elysia {
         : DEAD_LIST_LIMIT_DEFAULT;
       try {
         const db = await getDb();
-        const assets = db.collection<ImageDoc>("assets");
+        const assets = db.collection<ImageDoc>('assets');
         const stageKey = `stages.${params.name}`;
         const docs = await assets
           .find(
@@ -146,6 +140,8 @@ export function workerRoutes(): Elysia {
               projection: {
                 _id: 1,
                 abs_path: 1,
+                fileinfo: 1,
+                folder_id: 1,
                 [`${stageKey}.last_error`]: 1,
                 [`${stageKey}.attempts`]: 1,
                 [`${stageKey}.processed_at`]: 1,
@@ -155,16 +151,15 @@ export function workerRoutes(): Elysia {
           .sort({ [`${stageKey}.processed_at`]: -1 })
           .limit(limit)
           .toArray();
+        const libs = await loadLibraryRoots();
         const items = docs.map((doc) => {
           const stage = doc.stages?.[params.name];
           return {
             id: String(doc._id),
-            abs_path: doc.abs_path ?? null,
+            abs_path: assetAbsPath(doc as never, libs) ?? doc.abs_path ?? null,
             last_error: stage?.last_error ?? null,
             attempts: stage?.attempts ?? 0,
-            processed_at: stage?.processed_at
-              ? new Date(stage.processed_at).toISOString()
-              : null,
+            processed_at: stage?.processed_at ? new Date(stage.processed_at).toISOString() : null,
           };
         });
         return { items };
@@ -174,7 +169,7 @@ export function workerRoutes(): Elysia {
       }
     })
 
-    .post("/:name/pause", async ({ params, set }) => {
+    .post('/:name/pause', async ({ params, set }) => {
       if (!stageRegistry.has(params.name)) {
         set.status = 404;
         return { error: `unknown stage: ${params.name}` };
@@ -186,7 +181,7 @@ export function workerRoutes(): Elysia {
       return { ok: true };
     })
 
-    .post("/:name/resume", async ({ params, set }) => {
+    .post('/:name/resume', async ({ params, set }) => {
       if (!stageRegistry.has(params.name)) {
         set.status = 404;
         return { error: `unknown stage: ${params.name}` };
@@ -198,14 +193,14 @@ export function workerRoutes(): Elysia {
       return { ok: true };
     })
 
-    .post("/:name/retry-dead", async ({ params, set }) => {
+    .post('/:name/retry-dead', async ({ params, set }) => {
       if (!stageRegistry.has(params.name)) {
         set.status = 404;
         return { error: `unknown stage: ${params.name}` };
       }
       try {
         const db = await getDb();
-        const images = db.collection<ImageDoc>("assets");
+        const images = db.collection<ImageDoc>('assets');
         const result = await images.updateMany(
           { [`stages.${params.name}.dead`]: true },
           {
@@ -224,7 +219,7 @@ export function workerRoutes(): Elysia {
     })
 
     .patch(
-      "/:name/config",
+      '/:name/config',
       async ({ params, body, set }) => {
         if (!stageRegistry.has(params.name)) {
           set.status = 404;
@@ -232,7 +227,7 @@ export function workerRoutes(): Elysia {
         }
         try {
           const db = await getDb();
-          const coll = db.collection("worker_config");
+          const coll = db.collection('worker_config');
           const repo = new WorkerConfigRepo(coll as never);
           await repo.patch(params.name, body as Partial<WorkerConfig>);
           // Tell the running poll loop to re-read its config from Mongo.
