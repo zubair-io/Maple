@@ -1,6 +1,7 @@
 // TimelineStateService — Timeline-mode-only filter signals + derived params.
 //
-// LibraryStateService already owns selection, sidebar, and toolbar `searchQuery`.
+// LibraryStateService already exposes selection, sidebar, and toolbar `searchQuery`
+// (the search signal lives on LibrarySelection and is re-exported via the facade).
 // This service holds the cull-axis filters that only apply when the user has
 // flipped to Timeline view (rating, flag, color, date range), and derives a
 // `params` object suitable for `SearchService.search` and `.buckets`.
