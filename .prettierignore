@@ -1,0 +1,9 @@
+# Test fixtures are governed by tools/budget_init.py + ACR reference renders.
+# Prettier reformatting budgets.json reorders keys / changes numeric precision
+# and exits non-zero on the file. Keep it out of every prettier invocation.
+test-fixtures/
+
+# Vendored / generated.
+node_modules/
+**/node_modules/
+**/dist/
