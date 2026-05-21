@@ -1,0 +1,214 @@
+/**
+ * Allowed-value sets, synonym maps, and defaults for the qwen2.5-vl
+ * `VisionDoc` schema. Split out from `parse-vision-json.ts` so the
+ * orchestrator stays under the file-size budget (#114).
+ *
+ * The JSON Schema at the bottom is fed to Ollama's `format` parameter so
+ * the model's output is grammar-constrained at decode time. With it in
+ * place the model literally cannot emit a value outside the allowed enum
+ * or drop a required field. The synonym maps stay as defense in depth —
+ * they handle older Ollama versions (< 0.5 don't honour `format`), future
+ * provider swaps, and the rare case where the grammar engine emits a
+ * token that doesn't match the schema in some edge case.
+ */
+
+export const ALLOWED_SCENE_TYPE = new Set([
+  'indoor',
+  'outdoor',
+  'aerial',
+  'macro',
+  'studio',
+  'mixed',
+]);
+export const ALLOWED_TIME_OF_DAY = new Set([
+  'morning',
+  'midday',
+  'afternoon',
+  'golden hour',
+  'evening',
+  'night',
+  'unknown',
+]);
+export const ALLOWED_LIGHTING = new Set([
+  'natural',
+  'artificial',
+  'mixed',
+  'low-light',
+  'backlit',
+  'flash',
+]);
+export const ALLOWED_WEATHER = new Set([
+  'clear',
+  'cloudy',
+  'rainy',
+  'snowy',
+  'foggy',
+  'indoor',
+  'unknown',
+]);
+export const ALLOWED_COMPOSITION = new Set([
+  'wide shot',
+  'close-up',
+  'portrait',
+  'landscape',
+  'aerial',
+  'macro',
+  'candid',
+]);
+export const ALLOWED_SHOT_TYPE = new Set([
+  'action',
+  'static',
+  'candid',
+  'posed',
+  'architectural',
+  'nature',
+  'event',
+]);
+export const ALLOWED_INDOOR_OUTDOOR = new Set(['indoor', 'outdoor']);
+
+/** Per-enum synonym maps. qwen2.5-vl regularly emits values that are
+ * semantically equivalent to one of the allowed enum values but not
+ * literally in the set — e.g. "partly cloudy" for `weather`, "day" for
+ * `time_of_day`, "static" for `scene_type` (confused with `shot_type`).
+ * Mapping these to their nearest allowed value is more useful than
+ * dead-lettering the row. Keys are lowercased before lookup. */
+export const SCENE_TYPE_SYNONYMS: Record<string, string> = {
+  // qwen sometimes confuses scene_type with shot_type and emits "static".
+  static: 'mixed',
+};
+export const TIME_OF_DAY_SYNONYMS: Record<string, string> = {
+  day: 'midday',
+  daytime: 'midday',
+  daylight: 'midday',
+  noon: 'midday',
+  dawn: 'morning',
+  sunrise: 'morning',
+  'early morning': 'morning',
+  'late morning': 'midday',
+  'early afternoon': 'afternoon',
+  'late afternoon': 'afternoon',
+  dusk: 'evening',
+  twilight: 'evening',
+  sunset: 'golden hour',
+  'late evening': 'night',
+  midnight: 'night',
+  'late night': 'night',
+};
+export const LIGHTING_SYNONYMS: Record<string, string> = {
+  ambient: 'natural',
+  daylight: 'natural',
+  sunlight: 'natural',
+  dark: 'low-light',
+  dim: 'low-light',
+  'dimly lit': 'low-light',
+  unknown: 'natural',
+};
+export const WEATHER_SYNONYMS: Record<string, string> = {
+  'partly cloudy': 'cloudy',
+  'partly sunny': 'cloudy',
+  'mostly cloudy': 'cloudy',
+  overcast: 'cloudy',
+  sunny: 'clear',
+  'clear sky': 'clear',
+  'clear skies': 'clear',
+  rain: 'rainy',
+  snow: 'snowy',
+  fog: 'foggy',
+  misty: 'foggy',
+  haze: 'foggy',
+  hazy: 'foggy',
+};
+export const COMPOSITION_SYNONYMS: Record<string, string> = {
+  panorama: 'wide shot',
+  panoramic: 'wide shot',
+  closeup: 'close-up',
+  'macro shot': 'macro',
+  'aerial shot': 'aerial',
+  // qwen sometimes confuses composition with shot_type and emits one of
+  // the shot_type enum values here. Map the non-overlapping ones to the
+  // closest composition; "candid" already overlaps both enums.
+  action: 'candid',
+  static: 'candid',
+  posed: 'portrait',
+  architectural: 'wide shot',
+  nature: 'landscape',
+  event: 'candid',
+};
+export const SHOT_TYPE_SYNONYMS: Record<string, string> = {
+  motion: 'action',
+  dynamic: 'action',
+  still: 'static',
+  scenic: 'nature',
+  natural: 'nature',
+};
+export const INDOOR_OUTDOOR_SYNONYMS: Record<string, string> = {
+  // qwen returns "unknown" for ambiguous frames. Real photos are
+  // overwhelmingly outdoor in our corpus — bias toward outdoor.
+  unknown: 'outdoor',
+  mixed: 'outdoor',
+  both: 'outdoor',
+  outside: 'outdoor',
+  inside: 'indoor',
+};
+
+/** Per-enum default for null/undefined/missing inputs. Picked to match
+ * the value qwen2.5-vl would most likely have emitted had it classified
+ * the field — biased toward the "unknown" / least-informative legal
+ * value rather than an arbitrary positive class. */
+export const ENUM_DEFAULTS = {
+  scene_type: 'mixed',
+  time_of_day: 'unknown', // already in the enum
+  lighting: 'natural',
+  weather: 'unknown', // already in the enum
+  composition: 'candid',
+  shot_type: 'static',
+  indoor_outdoor: 'outdoor',
+} as const;
+
+/**
+ * JSON Schema passed to Ollama's `format` parameter so the model's output
+ * is constrained at decode time. Built from the same `ALLOWED_*` sets the
+ * parser uses so the schema and the validator can never drift. `null` is
+ * included on the nullable enum fields because the prompt asks the model
+ * to return null on featureless images; the parser maps null to the
+ * field's default.
+ */
+export const VISION_DOC_JSON_SCHEMA = {
+  type: 'object',
+  properties: {
+    caption: { type: 'string', minLength: 1 },
+    subjects: { type: ['array', 'null'], items: { type: 'string' } },
+    scene_type: { type: ['string', 'null'], enum: [...ALLOWED_SCENE_TYPE, null] },
+    setting: { type: ['string', 'null'] },
+    activity: { type: ['string', 'null'] },
+    time_of_day: { type: ['string', 'null'], enum: [...ALLOWED_TIME_OF_DAY, null] },
+    lighting: { type: ['string', 'null'], enum: [...ALLOWED_LIGHTING, null] },
+    weather: { type: ['string', 'null'], enum: [...ALLOWED_WEATHER, null] },
+    mood: { type: ['string', 'null'] },
+    colors: { type: ['array', 'null'], items: { type: 'string' } },
+    composition: { type: ['string', 'null'], enum: [...ALLOWED_COMPOSITION, null] },
+    text_visible: { type: ['string', 'null'] },
+    notable_objects: { type: ['array', 'null'], items: { type: 'string' } },
+    shot_type: { type: ['string', 'null'], enum: [...ALLOWED_SHOT_TYPE, null] },
+    indoor_outdoor: { type: ['string', 'null'], enum: [...ALLOWED_INDOOR_OUTDOOR, null] },
+    is_screenshot: { type: 'boolean' },
+  },
+  required: [
+    'caption',
+    'subjects',
+    'scene_type',
+    'setting',
+    'activity',
+    'time_of_day',
+    'lighting',
+    'weather',
+    'mood',
+    'colors',
+    'composition',
+    'text_visible',
+    'notable_objects',
+    'shot_type',
+    'indoor_outdoor',
+    'is_screenshot',
+  ],
+} as const;
