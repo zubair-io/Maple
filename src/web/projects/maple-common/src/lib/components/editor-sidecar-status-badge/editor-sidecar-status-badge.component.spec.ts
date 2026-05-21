@@ -1,10 +1,11 @@
-// EditorSidecarStatusBadge — unit tests for slice 2 of #193.
+// EditorSidecarStatusBadge — unit tests for slice 4 of #193 (path-keyed).
 //
 // Strategy: stub `SidecarStore` with writable signals so each `status` branch
 // of the template can be exercised deterministically. The store's own
 // behaviour is covered by `sidecar.store.spec.ts`; here we only verify the
 // canonical reactive consumer pattern (template discriminator, lifecycle
-// wiring via `setActiveId`, hosted no-op, focused→API id resolution).
+// wiring via `setActivePath`, hosted no-op, focused→path resolution via
+// `library.assetAbsPaths`).
 
 import { TestBed } from '@angular/core/testing';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
@@ -18,7 +19,7 @@ import { LIBRARY_BACKEND } from '../../api/library-backend.token';
 import type { StoreStatus } from '../../state/store';
 
 const LOCAL_ID = 'local-asset-1';
-const API_ID = 'api-asset-1';
+const ABS_PATH = '/srv/photos/folder/IMG_0001.dng';
 
 class FakeSidecarStore {
   // Public signals so the test can pin any status branch directly.
@@ -28,15 +29,16 @@ class FakeSidecarStore {
   refreshing = signal(false);
   error = signal<Error | null>(null);
 
-  // Capture what the consumer wires into `setActiveId` so the test can
+  // Capture what the consumer wires into `setActivePath` so the test can
   // assert the resolution path is reactive.
-  activeIdSignal: Signal<string | undefined> | null = null;
-  setActiveId = vi.fn((idSig: Signal<string | undefined>) => {
-    this.activeIdSignal = idSig;
+  activePathSignal: Signal<string | undefined> | null = null;
+  setActivePath = vi.fn((pathSig: Signal<string | undefined>) => {
+    this.activePathSignal = pathSig;
   });
-  setActiveIdValue = vi.fn();
+  setActivePathValue = vi.fn();
   invalidate = vi.fn();
   write = vi.fn();
+  prefetch = vi.fn();
 }
 
 class FakeLibraryStateService {
@@ -45,7 +47,7 @@ class FakeLibraryStateService {
 }
 
 class FakeLibraryStore {
-  apiAssetIds = new Map<string, string>();
+  assetAbsPaths = new Map<string, string>();
 }
 
 function makeFixture(opts: { backend?: 'hosted' | 'self-hosted' } = {}) {
@@ -53,7 +55,7 @@ function makeFixture(opts: { backend?: 'hosted' | 'self-hosted' } = {}) {
   const fakeState = new FakeLibraryStateService();
   fakeState.backend = opts.backend ?? 'self-hosted';
   const fakeLibrary = new FakeLibraryStore();
-  fakeLibrary.apiAssetIds.set(LOCAL_ID, API_ID);
+  fakeLibrary.assetAbsPaths.set(LOCAL_ID, ABS_PATH);
 
   TestBed.configureTestingModule({
     imports: [EditorSidecarStatusBadgeComponent],
@@ -81,18 +83,18 @@ describe('EditorSidecarStatusBadgeComponent', () => {
     TestBed.resetTestingModule();
   });
 
-  it('wires setActiveId with a signal derived from focusedAssetId + apiAssetIds', () => {
+  it('wires setActivePath with a signal derived from focusedAssetId + assetAbsPaths', () => {
     const { fixture, store, state } = makeFixture();
 
-    expect(store.setActiveId).toHaveBeenCalledTimes(1);
+    expect(store.setActivePath).toHaveBeenCalledTimes(1);
     // The signal handed to the store should resolve to `undefined` until a
     // focused asset is set (no fan-out, no eager fetch).
-    const sig = store.activeIdSignal!;
+    const sig = store.activePathSignal!;
     expect(sig()).toBeUndefined();
 
     state.focusedAssetId.set(LOCAL_ID);
     fixture.detectChanges();
-    expect(sig()).toBe(API_ID);
+    expect(sig()).toBe(ABS_PATH);
   });
 
   it('renders nothing in idle state', () => {
@@ -141,7 +143,7 @@ describe('EditorSidecarStatusBadgeComponent', () => {
     const { fixture, store } = makeFixture();
     store.status.set('loaded');
     store.data.set({
-      id: LOCAL_ID,
+      path: ABS_PATH,
       model: {},
       culling: { rating: 3, flag: 'unflagged', colorLabel: null },
       passthrough: { unknownAttributes: [], unknownNodes: [] },
@@ -161,7 +163,7 @@ describe('EditorSidecarStatusBadgeComponent', () => {
     const { fixture, store } = makeFixture();
     store.status.set('loaded');
     store.data.set({
-      id: LOCAL_ID,
+      path: ABS_PATH,
       model: {},
       culling: { rating: 0, flag: 'unflagged', colorLabel: null },
       passthrough: { unknownAttributes: [], unknownNodes: [] },
@@ -190,7 +192,7 @@ describe('EditorSidecarStatusBadgeComponent', () => {
     const { fixture, store } = makeFixture({ backend: 'hosted' });
     store.status.set('loaded');
     store.data.set({
-      id: LOCAL_ID,
+      path: ABS_PATH,
       model: {},
       culling: { rating: 5, flag: 'unflagged', colorLabel: null },
       passthrough: { unknownAttributes: [], unknownNodes: [] },
@@ -201,38 +203,38 @@ describe('EditorSidecarStatusBadgeComponent', () => {
     expect(findBadge(fixture)).toBeNull();
   });
 
-  it('resolved id stays undefined on Hosted even when focused asset is set', () => {
-    // Hosted-mode wiring must not produce an API id — the store would
+  it('resolved path stays undefined on Hosted even when focused asset is set', () => {
+    // Hosted-mode wiring must not produce a path — the store would
     // request the wrong URL if we did.
     const { fixture, store, state } = makeFixture({ backend: 'hosted' });
     state.focusedAssetId.set(LOCAL_ID);
     fixture.detectChanges();
-    expect(store.activeIdSignal!()).toBeUndefined();
+    expect(store.activePathSignal!()).toBeUndefined();
   });
 
-  it('resolved id is undefined when focused asset has no API mapping', () => {
+  it('resolved path is undefined when focused asset has no absPath mapping', () => {
     const { fixture, store, state, library } = makeFixture();
-    library.apiAssetIds.clear();
+    library.assetAbsPaths.clear();
     state.focusedAssetId.set('orphan-id');
     fixture.detectChanges();
-    expect(store.activeIdSignal!()).toBeUndefined();
+    expect(store.activePathSignal!()).toBeUndefined();
   });
 
   it('re-resolves when focused asset id changes', () => {
+    const SECOND_PATH = '/srv/photos/folder/IMG_0002.dng';
     const { fixture, store, state, library } = makeFixture();
-    library.apiAssetIds.set('local-2', 'api-2');
+    library.assetAbsPaths.set('local-2', SECOND_PATH);
 
     state.focusedAssetId.set(LOCAL_ID);
     fixture.detectChanges();
-    expect(store.activeIdSignal!()).toBe(API_ID);
+    expect(store.activePathSignal!()).toBe(ABS_PATH);
 
     state.focusedAssetId.set('local-2');
     fixture.detectChanges();
-    expect(store.activeIdSignal!()).toBe('api-2');
+    expect(store.activePathSignal!()).toBe(SECOND_PATH);
 
     state.focusedAssetId.set(undefined);
     fixture.detectChanges();
-    expect(store.activeIdSignal!()).toBeUndefined();
+    expect(store.activePathSignal!()).toBeUndefined();
   });
-
 });

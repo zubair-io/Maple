@@ -1,11 +1,10 @@
-// EditorSidecarStatusBadge — slice 2 of N (Refs #193).
+// EditorSidecarStatusBadge — slice 4 of #193 (path-keyed consumer).
 //
 // First reactive consumer of `SidecarStore`. Demonstrates the canonical
-// signal-based template + `setActiveId` lifecycle pattern established by
-// slice 1 (PR #220) without disturbing the entangled bulk-hydration reader
-// in `library-fetch.service._loadApiXmp` — which still needs unification of
-// the local-AssetId vs API-id spaces before it can swap to the store. See
-// the brief on issue #193.
+// signal-based template + `setActivePath` lifecycle pattern. Slice 4 swapped
+// the activation key from the local-AssetId → API-id detour (which silently
+// collapsed N paths of edits to one under content-addressing) to the asset's
+// absolute filesystem path. See the design comment on #193.
 //
 // The badge slots into the editor detail panel and renders a tiny status
 // chip for the focused asset's sidecar:
@@ -22,13 +21,7 @@
 // `XmpStoreService` (the FS Access debounced writer); slice 1's brief left
 // that out of scope.
 
-import {
-  ChangeDetectionStrategy,
-  Component,
-  computed,
-  effect,
-  inject,
-} from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, effect, inject } from '@angular/core';
 
 import { LibraryStateService } from '../../state/library-state.service';
 import { LibraryStore } from '../../state/library-store.service';
@@ -48,20 +41,20 @@ export class EditorSidecarStatusBadgeComponent {
   protected readonly store = inject(SidecarStore);
 
   /**
-   * Resolved API id for the focused local AssetId.
+   * Resolved absolute filesystem path for the focused local AssetId.
    *
-   * `library.apiAssetIds` is a plain `Map` (not a signal), so we re-evaluate
+   * `library.assetAbsPaths` is a plain `Map` (not a signal), so we re-evaluate
    * the lookup whenever `focusedAssetId` (a signal) changes — which is
    * exactly when a re-fetch is meaningful. The Map is populated during
    * folder hydration; by the time the editor has a focused asset, the entry
-   * is in place. If it isn't (e.g. an FS-walk asset not yet round-tripped
-   * through the API), we return `undefined` and the store stays idle.
+   * is in place. If it isn't (e.g. an in-memory imported asset without an
+   * on-disk path), we return `undefined` and the store stays idle.
    */
-  protected readonly resolvedApiId = computed<string | undefined>(() => {
+  protected readonly resolvedPath = computed<string | undefined>(() => {
     const localId = this.state.focusedAssetId();
     if (!localId) return undefined;
     if (this.state.backend !== 'self-hosted') return undefined;
-    return this.library.apiAssetIds.get(localId);
+    return this.library.assetAbsPaths.get(localId);
   });
 
   /** Hosted backends short-circuit; the store would no-op anyway, but
@@ -70,11 +63,11 @@ export class EditorSidecarStatusBadgeComponent {
   protected readonly isSelfHosted = this.state.backend === 'self-hosted';
 
   constructor() {
-    // Drive the store off the resolved API id. The store's own `setActiveId`
-    // accepts a `Signal<AssetId | undefined>`, so we hand it the `computed`
+    // Drive the store off the resolved path. The store's own `setActivePath`
+    // accepts a `Signal<string | undefined>`, so we hand it the `computed`
     // directly — the store sets up its own effect to mirror it, and the
-    // resource re-fetches when the id changes.
-    this.store.setActiveId(this.resolvedApiId);
+    // resource re-fetches when the path changes.
+    this.store.setActivePath(this.resolvedPath);
 
     // Defensive log on store-level errors. The template surfaces them too,
     // but keeping the console signal helps when the panel is collapsed.

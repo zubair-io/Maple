@@ -1,9 +1,11 @@
-// LibraryStateService — Self-Hosted XMP passthrough round-trip (T4-followup).
+// LibraryStateService — Self-Hosted library-picker + addLibraryFolder tests.
 //
-// Verifies: when the Self-Hosted load path receives an XMP that contains an
-// attribute outside Maple's known namespaces (e.g. <myvendor:custom>X</…>),
-// editing an adjustment and triggering the debounced API write reproduces
-// that vendor element verbatim in the body sent to BunApiBackendService.putXmp.
+// Slice 4 of #193 removed the dead `applyApiAssets` → `_loadApiXmp` code
+// path that this file's original "passthrough round-trip" test exercised.
+// The XMP round-trip contract is now covered end-to-end by
+// `sidecar.store.spec.ts` (the path-keyed cache + write-through layer) +
+// the serializer's own unit tests. The remaining tests here verify the
+// picker / addLibraryFolder slice of the facade that's still in use.
 
 import { TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
@@ -14,58 +16,16 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 import { LibraryStateService } from './library-state.service';
 import { BunApiBackendService } from '../api/bun-api-backend.service';
-import type { ApiAsset, ApiFolder, ApiAssetPage } from '../api/bun-api-backend.service';
+import type { ApiFolder } from '../api/bun-api-backend.service';
 import { LIBRARY_BACKEND } from '../api/library-backend.token';
 
-const VENDOR_NODE = '<myvendor:custom xmlns:myvendor="http://example.com/v">X</myvendor:custom>';
-
-const FIXTURE_XMP = `<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?>
-<x:xmpmeta xmlns:x="adobe:ns:meta/" x:xmptk="Adobe XMP Core">
- <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
-  <rdf:Description rdf:about=""
-    xmlns:xmp="http://ns.adobe.com/xap/1.0/"
-    xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
-    xmlns:myvendor="http://example.com/v"
-    crs:Version="11.0"
-    crs:ProcessVersion="11.0"
-    crs:HasSettings="True"
-    crs:Exposure2012="0.50">
-  ${VENDOR_NODE}
-  </rdf:Description>
- </rdf:RDF>
-</x:xmpmeta>
-<?xpacket end="w"?>`;
-
 class ApiStub {
-  putBodies: string[] = [];
-  putXmp = vi.fn((_id: string, xml: string) => {
-    this.putBodies.push(xml);
-    return of(undefined as void);
-  });
-  getXmp = vi.fn((_id: string) => of(FIXTURE_XMP));
+  putXmp = vi.fn((_path: string, _xml: string) => of(undefined as void));
+  getXmp = vi.fn((_path: string) => of('' as string));
 
   // Folder / asset enumeration is not exercised here; we drive the load path
   // directly via openSelfHostedFolder() with a hand-built ApiFolder fixture.
   listFolders = vi.fn(() => of([] as ApiFolder[]));
-  listAssets = vi.fn((_folderId: string) =>
-    of({
-      assets: [
-        {
-          id: 'remote-asset-1',
-          filename: 'IMG_0001.dng',
-          folderId: 'remote-folder-1',
-          width: 6000,
-          height: 4000,
-          rating: 0,
-          flag: 'unflagged',
-          colorLabel: null,
-        } satisfies ApiAsset,
-      ],
-      total: 1,
-      page: 1,
-      limit: 100,
-    } satisfies ApiAssetPage),
-  );
   getRawBytes = vi.fn(() => new Subject<ArrayBuffer>().asObservable());
   getThumb = vi.fn(() => new Subject<Blob>().asObservable());
   getAsset = vi.fn();
@@ -81,7 +41,7 @@ class ApiStub {
   );
 }
 
-describe('LibraryStateService — Self-Hosted passthrough round-trip (T4-followup)', () => {
+describe('LibraryStateService — Self-Hosted picker + addLibraryFolder', () => {
   let api: ApiStub;
   let svc: LibraryStateService;
 
@@ -105,37 +65,14 @@ describe('LibraryStateService — Self-Hosted passthrough round-trip (T4-followu
     vi.useRealTimers();
   });
 
-  it('preserves unknown-namespace nodes across an edit cycle', () => {
-    // 1. Drive the Self-Hosted load path. listAssets() resolves synchronously
-    //    via `of(...)`, so by the time subscribe() returns the asset is in
-    //    the signal map and `_loadApiXmp` has already run (also synchronous
-    //    because getXmp is `of(FIXTURE_XMP)`).
-    svc.openSelfHostedFolder({
-      id: 'remote-folder-1',
-      path: '/srv/photos/folder-1',
-      label: 'folder-1',
-      last_scan: null,
-      file_count: 1,
-      created_at: '2026-01-01T00:00:00Z',
-    });
-
-    const asset = svc.assets()[0];
-    expect(asset, 'asset registered after openSelfHostedFolder').toBeDefined();
-    expect(api.getXmp).toHaveBeenCalledWith('remote-asset-1');
-
-    // 2. Mutate an adjustment to trigger the debounced PUT.
-    svc.updateAdjustment(asset.id, { exposure: 1.25 });
-
-    // 3. Advance past the API_XMP_DEBOUNCE_MS (750ms).
-    vi.advanceTimersByTime(800);
-
-    // 4. The body should contain the vendor element verbatim.
-    expect(api.putXmp).toHaveBeenCalledTimes(1);
-    expect(api.putBodies).toHaveLength(1);
-    const body = api.putBodies[0];
-    expect(body).toContain('<myvendor:custom');
-    expect(body).toContain('>X</myvendor:custom>');
-  });
+  // The slice-4 migration (#193) removed the dead `openSelfHostedFolder` →
+  // `applyApiAssets` → `_loadApiXmp` code path, so the previous passthrough
+  // round-trip test that exercised it via `api.listAssets` no longer reaches
+  // the XMP read at all. The live Self-Hosted load path (`_applyFsListing`)
+  // now hydrates XMP via `SidecarStore.prefetch(path)` — the round-trip
+  // passthrough contract is covered by `sidecar.store.spec.ts` and the
+  // serializer's own tests. We keep this file for the library-picker and
+  // addLibraryFolder assertions below.
 
   describe('library picker visibility', () => {
     it('toggles via openLibraryPicker / closeLibraryPicker', () => {
@@ -147,7 +84,14 @@ describe('LibraryStateService — Self-Hosted passthrough round-trip (T4-followu
     });
 
     it('addLibraryFolder closes the picker on success', () => {
-      const folder: ApiFolder = { id: 'f1', path: '/photos', label: 'photos', last_scan: null, file_count: 0, created_at: '2026-01-01T00:00:00Z' };
+      const folder: ApiFolder = {
+        id: 'f1',
+        path: '/photos',
+        label: 'photos',
+        last_scan: null,
+        file_count: 0,
+        created_at: '2026-01-01T00:00:00Z',
+      };
       api.registerFolder = vi.fn(() => of(folder));
       api.listFolders = vi.fn(() => of([folder]));
 
@@ -161,7 +105,14 @@ describe('LibraryStateService — Self-Hosted passthrough round-trip (T4-followu
 
   describe('addLibraryFolder (self-hosted)', () => {
     it('POSTs the path and refreshes the tree on success', () => {
-      const folder: ApiFolder = { id: 'f1', path: '/photos', label: 'photos', last_scan: null, file_count: 0, created_at: '2026-01-01T00:00:00Z' };
+      const folder: ApiFolder = {
+        id: 'f1',
+        path: '/photos',
+        label: 'photos',
+        last_scan: null,
+        file_count: 0,
+        created_at: '2026-01-01T00:00:00Z',
+      };
       api.registerFolder = vi.fn(() => of(folder));
       api.listFolders = vi.fn(() => of([folder]));
 
