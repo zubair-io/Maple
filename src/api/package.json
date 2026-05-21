@@ -23,7 +23,8 @@
     "mongodb": "^6.10.0",
     "onnxruntime-node": "^1.26.0",
     "pino": "^10.3.1",
-    "sharp": "^0.34.5"
+    "sharp": "^0.34.5",
+    "ulid": "3.0.2"
   },
   "devDependencies": {
     "@types/bun": "latest",

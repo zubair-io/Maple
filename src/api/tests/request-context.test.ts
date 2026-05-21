@@ -10,7 +10,7 @@
  *   - A thrown exception inside a route surfaces as `code: "internal"` 500
  *     and carries the request-id.
  *   - The legacy DB-unavailable carve-out keeps its 503 + `tip` semantic
- *     under `details.tip`.
+ *     with `tip` at the top level (the existing operator UI reads it there).
  *
  * No MongoDB required — every case mounts a tiny Elysia app from
  * `requestContext` + an inline route, so this file runs in every CI
@@ -42,10 +42,8 @@ describe("requestContext: request-id header", () => {
     expect(res.status).toBe(200);
     const id = res.headers.get("X-Request-Id");
     expect(id).toBeTruthy();
-    // UUID v4 shape (8-4-4-4-12 hex).
-    expect(id!).toMatch(
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
-    );
+    // ULID shape: 26 chars of Crockford Base32 (issue #133).
+    expect(id!).toMatch(/^[0-9A-HJKMNP-TV-Z]{26}$/);
   });
 
   test("echoes client-supplied X-Request-Id verbatim", async () => {
@@ -233,6 +231,111 @@ describe("requestContext: integration via buildApp()", () => {
     expect(body.code).toBe("unauthorized");
     expect(body.requestId).toBe("integration-test-id");
     expect(typeof body.error).toBe("string");
+  });
+});
+
+describe("requestContext: raw Response wrapping (fix for static-UI 403)", () => {
+  test("non-JSON error Response (e.g. `new Response('Forbidden', { status: 403 })`) is wrapped into the envelope", async () => {
+    const app = appWith((a) =>
+      a.get("/forbidden", () => new Response("Forbidden", { status: 403 })),
+    );
+    const res = await app.handle(new Request("http://localhost/forbidden"));
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.error).toBe("Forbidden");
+    expect(body.code).toBe("forbidden");
+    expect(typeof body.requestId).toBe("string");
+    expect(body.requestId).toBe(res.headers.get("X-Request-Id"));
+    expect(res.headers.get("content-type") ?? "").toMatch(/json/i);
+  });
+
+  test("2xx raw Response is passed through unchanged", async () => {
+    const app = appWith((a) =>
+      a.get("/file", () =>
+        new Response("hello", {
+          status: 200,
+          headers: { "Content-Type": "text/plain" },
+        }),
+      ),
+    );
+    const res = await app.handle(new Request("http://localhost/file"));
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe("hello");
+    expect(res.headers.get("content-type") ?? "").toMatch(/text\/plain/);
+  });
+
+  test("3xx redirect Response is passed through (no wrap)", async () => {
+    const app = appWith((a) =>
+      a.get("/r", () =>
+        new Response(null, {
+          status: 302,
+          headers: { Location: "/elsewhere" },
+        }),
+      ),
+    );
+    const res = await app.handle(new Request("http://localhost/r"));
+    expect(res.status).toBe(302);
+    expect(res.headers.get("Location")).toBe("/elsewhere");
+  });
+
+  test("JSON-typed raw error Response is NOT double-wrapped", async () => {
+    const app = appWith((a) =>
+      a.get("/j", () =>
+        new Response(JSON.stringify({ already: "shaped" }), {
+          status: 400,
+          headers: { "Content-Type": "application/json" },
+        }),
+      ),
+    );
+    const res = await app.handle(new Request("http://localhost/j"));
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body).toEqual({ already: "shaped" });
+  });
+});
+
+describe("requestContext: concurrency safety", () => {
+  test("100 concurrent requests with distinct supplied ids each echo their own id (no cross-talk)", async () => {
+    // The previous implementation stashed requestId on the plugin-shared
+    // `store` object; concurrent in-flight requests would overwrite each
+    // other so `mapResponse` returned the wrong id in the body. Reproduce
+    // a realistic interleaving by yielding inside the route handler.
+    const app = appWith((a) =>
+      a.get(
+        "/concurrent",
+        async ({ set }: { set: { status: number } }) => {
+          await new Promise((r) => setTimeout(r, Math.random() * 5));
+          set.status = 400;
+          return { error: "bad" };
+        },
+      ),
+    );
+
+    const N = 100;
+    const results = await Promise.all(
+      Array.from({ length: N }, (_, i) => {
+        const supplied = `concurrent-req-${i}`;
+        return app
+          .handle(
+            new Request("http://localhost/concurrent", {
+              headers: { "X-Request-Id": supplied },
+            }),
+          )
+          .then(async (res: Response) => {
+            const body = (await res.json()) as Record<string, unknown>;
+            return {
+              supplied,
+              header: res.headers.get("X-Request-Id"),
+              bodyId: body.requestId,
+            };
+          });
+      }),
+    );
+
+    for (const r of results) {
+      expect(r.header).toBe(r.supplied);
+      expect(r.bodyId).toBe(r.supplied);
+    }
   });
 });
 

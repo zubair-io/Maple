@@ -30,10 +30,18 @@
  *     `return { error: "..." }` without throwing — those bypass `onError`
  *     entirely. mapResponse rewraps the body in the envelope so the schema
  *     is uniform.
+ *
+ * Per-request storage:
+ *   The requestId is stashed on `set` (which IS per-request in Elysia 1.4)
+ *   under a non-enumerable-style private key. The plugin's instance-level
+ *   `store` is shared across concurrent requests; using it for the id
+ *   races under load. `derive` propagates to `mapResponse`/`onError` for
+ *   matched routes but does NOT run on the NOT_FOUND path, so `set`-based
+ *   stashing is the only mechanism that works for every code path.
  */
 
 import { Elysia } from "elysia";
-import { randomUUID } from "node:crypto";
+import { ulid } from "ulid";
 import type { Logger } from "pino";
 import { child as childLogger } from "../log.ts";
 
@@ -84,6 +92,49 @@ function statusAsNumber(s: unknown): number {
   // Elysia accepts named statuses ("Bad Request", etc.); we only care about
   // the numeric form here — leave anything else as 200 (success).
   return 200;
+}
+
+/**
+ * Per-request stash key on Elysia's `set` context. `set` is constructed
+ * fresh per request, so this avoids the cross-request race that affected
+ * the previous `store`-based implementation.
+ */
+const REQUEST_ID_KEY = "__mapleRequestId" as const;
+
+interface SetWithRequestId {
+  status?: number | string;
+  headers: Record<string, string>;
+  [REQUEST_ID_KEY]?: string;
+}
+
+function getRequestId(set: unknown): string | undefined {
+  if (!isObject(set)) return undefined;
+  const v = (set as unknown as SetWithRequestId)[REQUEST_ID_KEY];
+  return typeof v === "string" ? v : undefined;
+}
+
+function setRequestId(set: unknown, id: string): void {
+  if (!isObject(set)) return;
+  (set as unknown as SetWithRequestId)[REQUEST_ID_KEY] = id;
+}
+
+/**
+ * Generate a request id, preferring an inbound `X-Request-Id` header when
+ * present and well-formed; otherwise return a fresh ULID.
+ *
+ * ULID is required by the issue #133 spec — 26-char Crockford Base32,
+ * lexicographically sortable, timestamp-prefixed. The `ulid` package is a
+ * thin zero-dep ESM module.
+ */
+function deriveRequestId(inboundHeader: string | null): string {
+  if (
+    inboundHeader &&
+    inboundHeader.length > 0 &&
+    inboundHeader.length <= 128
+  ) {
+    return inboundHeader;
+  }
+  return ulid();
 }
 
 /**
@@ -156,33 +207,25 @@ function buildEnvelope(
  *
  * Adds two derived fields to the route context:
  *   - `requestId: string` — the stable id (echoed from `X-Request-Id`
- *     inbound header, or freshly generated).
+ *     inbound header, or freshly generated as a ULID).
  *   - `log: Logger` — a pino child bound to `{ requestId, method, path }`,
  *     so any handler that calls `log.warn(...)` gets the id for free.
  */
 export const requestContext = new Elysia({ name: "requestContext" })
   // onRequest fires before derive and before any route handler. Stash the
-  // request-id on `store` so it's accessible from every later lifecycle
-  // hook (`onError`, `mapResponse`) — those don't see `derive`d fields.
-  .onRequest(({ request, set, store }) => {
+  // request-id on `set` (per-request) so it's accessible from every later
+  // lifecycle hook — including the NOT_FOUND path where `derive` does not
+  // run. `store` would race across concurrent requests; do NOT use it.
+  .onRequest(({ request, set }) => {
     const inbound = request.headers.get("x-request-id");
-    const requestId =
-      inbound && inbound.length > 0 && inbound.length <= 128
-        ? inbound
-        : randomUUID();
-    // Mutating store at request scope is fine — Elysia gives each request
-    // its own context. (See Elysia docs: "store is per-instance, derive is
-    // per-request"; here we use store because onError/mapResponse need it
-    // and they bypass derive's context.)
-    (store as Record<string, unknown>).requestId = requestId;
+    const requestId = deriveRequestId(inbound);
+    setRequestId(set, requestId);
     set.headers["X-Request-Id"] = requestId;
   })
-  // derive runs after onRequest. Expose `requestId` + a bound logger to
-  // handlers via destructuring.
-  .derive(({ store, request }) => {
-    const requestId =
-      (store as Record<string, unknown>).requestId as string | undefined;
-    const id = requestId ?? randomUUID();
+  // derive runs after onRequest for matched routes. Surfaces `requestId`
+  // and a bound logger to route handlers via destructuring.
+  .derive(({ set, request }) => {
+    const id = getRequestId(set) ?? ulid();
     const log: Logger = childLogger("request").child({
       requestId: id,
       method: request.method,
@@ -193,10 +236,8 @@ export const requestContext = new Elysia({ name: "requestContext" })
   // onError catches thrown errors. Writes a fresh envelope and preserves
   // any pre-set `set.status` so middleware-imposed codes (e.g. 401 from
   // requireAuth) still surface to the client.
-  .onError(({ error, set, request, store, code }) => {
-    const requestId =
-      ((store as Record<string, unknown>).requestId as string | undefined) ??
-      randomUUID();
+  .onError(({ error, set, request, code }) => {
+    const requestId = getRequestId(set) ?? ulid();
     const log = childLogger("request").child({
       requestId,
       method: request.method,
@@ -258,11 +299,10 @@ export const requestContext = new Elysia({ name: "requestContext" })
   //
   // IMPORTANT: returning `undefined` from mapResponse clears the body in
   // Elysia 1.4 (it assigns `_r = undefined` after our hook). So for the
-  // pass-through cases — 2xx, raw Response objects, already-envelope —
-  // we explicitly return the original response. Only the rewrap path
-  // returns a new value.
+  // pass-through cases — 2xx, redirects, already-envelope — we explicitly
+  // return the original response. Only the rewrap path returns a new value.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  .mapResponse(((ctx: any) => {
+  .mapResponse((async (ctx: any) => {
     // mapResponse's typed signature ties `response` to the route schema
     // tree, which is `{}` on a freshly-instantiated plugin — leading to
     // "unknown not assignable" errors when we return something. We operate
@@ -270,15 +310,56 @@ export const requestContext = new Elysia({ name: "requestContext" })
     // registration boundary and introspect freely below.
     const response: unknown = ctx.response;
     const set = ctx.set;
-    const store = ctx.store as Record<string, unknown>;
-    const status = statusAsNumber(set.status);
+    const setStatus = statusAsNumber(set.status);
 
+    // For raw Response objects the route may have set a non-2xx status on
+    // the Response itself while leaving `set.status` at 200 (Bun's default).
+    // Use the Response's own status for the wrap decision in that case.
+    if (response instanceof Response) {
+      const respStatus = response.status;
+      // 1xx/2xx/3xx (incl. redirects) pass through unchanged. Only wrap
+      // genuine error responses.
+      if (respStatus < 400 || respStatus >= 600) return response;
+
+      // If the raw Response is already JSON, assume the handler produced
+      // the body it wants and pass through (avoids double-wrapping streamed
+      // JSON error bodies). We treat absent content-type as "not JSON" —
+      // `new Response("Forbidden", { status: 403 })` falls into the wrap
+      // path, which is the desired behaviour.
+      const ct = response.headers.get("content-type") ?? "";
+      if (ct.toLowerCase().includes("json")) return response;
+
+      // HEAD requests must not have a body. Preserve the status but skip
+      // body rewriting.
+      if (ctx.request?.method === "HEAD") {
+        // Surface the request id on the headers if not already present.
+        const headers = new Headers(response.headers);
+        const reqId = getRequestId(set);
+        if (reqId && !headers.has("X-Request-Id")) {
+          headers.set("X-Request-Id", reqId);
+        }
+        return new Response(null, { status: respStatus, headers });
+      }
+
+      const requestId = getRequestId(set) ?? ulid();
+      const text = await response.text();
+      const envelope = buildEnvelope(text, respStatus, requestId);
+      const headers = new Headers(response.headers);
+      headers.set("Content-Type", "application/json; charset=utf-8");
+      headers.set("X-Request-Id", requestId);
+      // Drop content-length: the body changed shape.
+      headers.delete("Content-Length");
+      // Reflect the wrap on set.status so downstream sees the same number.
+      set.status = respStatus;
+      return new Response(JSON.stringify(envelope), {
+        status: respStatus,
+        headers,
+      });
+    }
+
+    // Non-Response responses: dispatch on set.status.
     // Success / redirect: pass through.
-    if (status < 400 || status >= 600) return response;
-
-    // Raw Response objects (file streams, etc.) own their own shape;
-    // pass them through untouched. The envelope only covers JSON errors.
-    if (response instanceof Response) return response;
+    if (setStatus < 400 || setStatus >= 600) return response;
 
     // Already-an-envelope short-circuit (built by our onError above, or
     // by the `errorEnvelope` helper).
@@ -291,9 +372,8 @@ export const requestContext = new Elysia({ name: "requestContext" })
       return response;
     }
 
-    const requestId =
-      (store.requestId as string | undefined) ?? randomUUID();
-    const envelope = buildEnvelope(response, status, requestId);
+    const requestId = getRequestId(set) ?? ulid();
+    const envelope = buildEnvelope(response, setStatus, requestId);
     return envelope;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
   }) as any)
