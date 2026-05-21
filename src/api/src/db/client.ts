@@ -11,6 +11,7 @@ import { child as childLogger } from '../log.ts';
 import { searchBlobUpdateExpression } from '../enrichment/search-blob.ts';
 import {
   backfillFileinfo,
+  countAssetsMissingFileinfo,
   mergeDuplicateAssets,
   migrationApplied,
   recordMigration,
@@ -411,44 +412,11 @@ export async function ensureIndexes(): Promise<void> {
   // folders: path is unique
   await db.collection('folders').createIndex({ path: 1 }, { unique: true });
 
-  // assets: non-unique compound index on (folder_id, filename) for query
-  // performance only. The uniqueness constraint was dropped — same-filename
-  // collisions are legitimate (e.g. two devices uploading IMG_1234.jpg via
-  // backup-ingest, or any re-upload whose content hashed to a different
-  // `maple_id`). Content-level dedup happens via the unique `maple_id_1`
-  // index; on-disk path collisions are guarded by the backup-ingest route.
-  //
-  // Migration: any pre-existing `folder_id_1_filename_1` carries the old
-  // `unique: true` spec. Drop it before recreating with the new spec so
-  // `createIndex` doesn't reject as `IndexOptionsConflict`. The
-  // introspect-and-drop pattern mirrors `ensureStageIndexes` above. On a
-  // fresh DB the `assets` collection doesn't exist yet — calling
-  // `.indexes()` on a missing namespace throws `NamespaceNotFound`
-  // (Mongo error 26). The migration check is a no-op in that case anyway
-  // (no pre-existing index to drop), so swallow the error.
-  let assetIndexes: { name?: unknown; unique?: unknown; partialFilterExpression?: unknown }[] = [];
-  try {
-    assetIndexes = (await db.collection('assets').indexes()) as typeof assetIndexes;
-  } catch (err) {
-    const code = (err as { code?: number } | null)?.code;
-    if (code !== 26) throw err;
-  }
-  const existingFolderFilenameIdx = assetIndexes.find(
-    (i) =>
-      (i.name as string) === 'folder_id_1_filename_1' &&
-      ((i as { unique?: unknown }).unique === true ||
-        (i as { partialFilterExpression?: unknown }).partialFilterExpression),
-  );
-  if (existingFolderFilenameIdx) {
-    try {
-      await db.collection('assets').dropIndex('folder_id_1_filename_1');
-    } catch {
-      // IndexNotFound is fine — another process may have already dropped.
-    }
-  }
-  await db.collection('assets').createIndex({ folder_id: 1, filename: 1 });
+  // assets: legacy compound + standalone indexes on `folder_id` / `filename`
+  // were retired in the drop-abs-path-2026-05-21 migration below (see end of
+  // this function). Replacement indexes live on `fileinfo.library_id` and
+  // `(fileinfo.path, fileinfo.filename)`.
   await db.collection('assets').createIndex({ mtime: 1 }, { sparse: true });
-  await db.collection('assets').createIndex({ folder_id: 1 });
 
   // Trash-GC sweeper queries `{ deleted_at: { $lt: cutoffIso, $ne: null } }`
   // every interval (and once on boot). Without this index the find is a
@@ -469,38 +437,17 @@ export async function ensureIndexes(): Promise<void> {
   );
 
   // Search indexes — added with EXIF support. Captured-at sorts the default
-  // result list (newest first); camera + lens cover the FE's facet dropdowns;
-  // the text index over filename + abs_path lets the search route fall back
-  // to $regex (no $text) without a sequential scan when there are
-  // alphanumeric ranges/wildcards involved. Sparse where the field is
-  // optional so old rows without EXIF don't bloat the index.
+  // result list (newest first); camera + lens cover the FE's facet dropdowns.
+  // Sparse where the field is optional so old rows without EXIF don't bloat
+  // the index. The former `abs_path_1` and `abs_path_captured_year_month`
+  // indexes were retired by the drop-abs-path-2026-05-21 migration at the
+  // end of this function; path-prefix and timeline queries now run against
+  // `fileinfo.path`.
   await db.collection('assets').createIndex({ 'exif.captured_at': -1 }, { sparse: true });
   await db
     .collection('assets')
     .createIndex({ 'exif.camera_make': 1, 'exif.camera_model': 1 }, { sparse: true });
   await db.collection('assets').createIndex({ 'exif.lens': 1 }, { sparse: true });
-  // Anchored-prefix regex on abs_path is used by /api/search?pathPrefix=...
-  // (Timeline view). Without this index, every prefix query is a coll scan.
-  await db.collection('assets').createIndex({ abs_path: 1 });
-  // Compound index for the timeline buckets endpoint. Lets Mongo answer
-  // `match abs_path prefix → group by year+month` from the index alone
-  // (no fetch of doc bodies). The partialFilterExpression scopes it to
-  // live + timed rows, which is the only use case — keeps the index
-  // small even on libraries with many soft-deleted or untimed assets.
-  await db.collection('assets').createIndex(
-    {
-      abs_path: 1,
-      'exif.captured_year': -1,
-      'exif.captured_month': -1,
-    },
-    {
-      name: 'abs_path_captured_year_month',
-      partialFilterExpression: {
-        deleted_at: null,
-        'exif.captured_year': { $exists: true },
-      },
-    },
-  );
   // One-shot heal: collapse pre-existing rows sharing a maple_id into one
   // with a union fileinfo[]. Gated by the migrations sentinel so this runs
   // exactly once per database (subsequent boots short-circuit). MUST run
@@ -524,6 +471,49 @@ export async function ensureIndexes(): Promise<void> {
             err instanceof Error ? { message: err.message, stack: err.stack, name: err.name } : err,
         },
         'merge-duplicate-assets failed — unique maple_id_1 index creation may fail next',
+      );
+    }
+  }
+
+  // Final content-addressing migration step: drop the legacy
+  // `abs_path` / `folder_id` / `filename` indexes once every live row has
+  // `fileinfo` populated. Pre-flight counts rows still missing the field;
+  // if any are found we log the count and leave the indexes intact so the
+  // operator can re-run discover (which backfills) and re-deploy.
+  //
+  // Crucially we do NOT throw on a non-zero count — aborting the API boot
+  // would lock the operator out of the very surface they need to diagnose
+  // the issue. The sentinel is only recorded once the drop runs cleanly,
+  // so subsequent boots will retry until the state is consistent.
+  if (!(await migrationApplied(db, 'drop-abs-path-2026-05-21'))) {
+    const missing = await countAssetsMissingFileinfo(db);
+    if (missing > 0) {
+      log.error(
+        { missing },
+        'cannot drop abs_path indexes: rows still missing fileinfo — run discover to backfill',
+      );
+    } else {
+      // Drop legacy indexes (IndexNotFound is fine — already dropped or never existed).
+      for (const name of [
+        'abs_path_1',
+        'abs_path_captured_year_month',
+        'folder_id_1_filename_1',
+        'folder_id_1',
+        'filename_1',
+      ]) {
+        try {
+          await db.collection('assets').dropIndex(name);
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : '';
+          if (!/IndexNotFound|index not found/i.test(msg)) throw err;
+        }
+      }
+      // Add replacement indexes scoped to fileinfo[].
+      await db.collection('assets').createIndex({ 'fileinfo.library_id': 1 });
+      await db.collection('assets').createIndex({ 'fileinfo.path': 1, 'fileinfo.filename': 1 });
+      await recordMigration(db, 'drop-abs-path-2026-05-21', 0);
+      log.info(
+        'dropped legacy abs_path / folder_id / filename indexes; added fileinfo replacements',
       );
     }
   }
@@ -554,13 +544,9 @@ export async function ensureIndexes(): Promise<void> {
     },
   );
 
-  // Fast prefix index on filename for lowercase-anchored regex queries
-  // ($regex: "^...") — the planner can use this when the pattern is a
-  // simple prefix. The case-insensitive substring query in the search route
-  // collation-folds and falls back to a collection scan; Phase 3's text
-  // index sits on `place.search_blob` (Mongo allows only ONE text index per
-  // collection, and the place search is the user-visible surface).
-  await db.collection('assets').createIndex({ filename: 1 });
+  // The former standalone `filename_1` index was retired by the
+  // drop-abs-path-2026-05-21 migration at the end of this function;
+  // filename queries now run against `fileinfo.filename`.
 
   // indexer_queue: status for fast pending-task lookups
   await db.collection('indexer_queue').createIndex({ status: 1 });
@@ -748,14 +734,17 @@ export async function ensureIndexes(): Promise<void> {
   // `dropIndexes: "place_search_blob_text"`). Introspect first so the
   // common case (already migrated) is silent.
   //
-  // Re-read `assetIndexes` to capture indexes created since the earlier
-  // snapshot above (e.g. the `folder_id_1_filename_1` rebuild).
-  const assetIndexesPostFolderRebuild = await db
+  // Read the current asset indexes to determine which legacy text indexes
+  // are still present. On a fresh DB the `assets` collection doesn't exist
+  // yet — calling `.indexes()` on a missing namespace throws
+  // `NamespaceNotFound` (Mongo error 26); treat that as an empty list.
+  type IndexShape = { name?: unknown; unique?: unknown; partialFilterExpression?: unknown };
+  const assetIndexesPostFolderRebuild: IndexShape[] = await db
     .collection('assets')
     .indexes()
     .catch((err: unknown) => {
       const code = (err as { code?: number } | null)?.code;
-      if (code === 26) return [] as typeof assetIndexes;
+      if (code === 26) return [] as IndexShape[];
       throw err;
     });
   const presentLegacyTextIndexes = new Set(

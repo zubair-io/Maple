@@ -29,7 +29,8 @@ export type MigrationId =
   | 'reset-describe-dead-vision-parse-2026-05-21'
   | 'reset-describe-dead-vision-parse-2026-05-22'
   | 'fileinfo-backfill-2026-05-20'
-  | 'merge-duplicate-assets-2026-05-21';
+  | 'merge-duplicate-assets-2026-05-21'
+  | 'drop-abs-path-2026-05-21';
 
 interface MigrationDoc {
   _id: MigrationId;
@@ -334,4 +335,31 @@ export async function mergeDuplicateAssets(db: Db): Promise<MergeDuplicatesResul
     merged_groups,
     deleted_rows,
   };
+}
+
+// ---------------------------------------------------------------------------
+// drop-abs-path-2026-05-21 pre-flight
+//
+// Final PR of the content-addressing migration retires the legacy
+// `abs_path` / `filename` / `folder_id` indexes. Before dropping them we
+// need to be sure every LIVE asset carries `fileinfo` — otherwise readers
+// that fall back through to the legacy fields would have no source of
+// truth left.
+//
+// Returns the count of live rows still missing `fileinfo`. 0 means safe to
+// proceed; > 0 means an operator must re-run discover so the watcher can
+// backfill the field before the index drop will run.
+// ---------------------------------------------------------------------------
+
+/**
+ * Pre-flight for the abs_path drop: refuse to drop the legacy fields if any
+ * live (`deleted_at: null`) row is still missing `fileinfo`. Returns the
+ * count of legacy rows (0 means safe to proceed). Caller decides whether
+ * to abort the deploy or log + skip the index drops.
+ */
+export async function countAssetsMissingFileinfo(db: Db): Promise<number> {
+  return await db.collection('assets').countDocuments({
+    fileinfo: { $exists: false },
+    deleted_at: null,
+  });
 }
