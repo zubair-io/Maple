@@ -9,7 +9,12 @@
 import { MongoClient, type Db, type Collection, ServerApiVersion } from 'mongodb';
 import { child as childLogger } from '../log.ts';
 import { searchBlobUpdateExpression } from '../enrichment/search-blob.ts';
-import { backfillFileinfo, migrationApplied, recordMigration } from './migrations.ts';
+import {
+  backfillFileinfo,
+  mergeDuplicateAssets,
+  migrationApplied,
+  recordMigration,
+} from './migrations.ts';
 import type {
   FolderDoc,
   AssetDoc,
@@ -496,6 +501,33 @@ export async function ensureIndexes(): Promise<void> {
       },
     },
   );
+  // One-shot heal: collapse pre-existing rows sharing a maple_id into one
+  // with a union fileinfo[]. Gated by the migrations sentinel so this runs
+  // exactly once per database (subsequent boots short-circuit). MUST run
+  // BEFORE the unique-partial `maple_id_1` createIndex below — otherwise
+  // createIndex would throw DuplicateKey on deploys carrying pre-existing
+  // dupes and the boot would abort. See PR #234 / issue #233.
+  if (!(await migrationApplied(db, 'merge-duplicate-assets-2026-05-21'))) {
+    try {
+      const res = await mergeDuplicateAssets(db);
+      await recordMigration(db, 'merge-duplicate-assets-2026-05-21', res.deleted_rows);
+      log.info(res, 'applied merge-duplicate-assets');
+    } catch (err) {
+      // Do NOT record on failure so the next boot retries. Do NOT rethrow —
+      // the existing boot contract is "continue so the operator can SSH in".
+      // Log as error (not warn) with the full err object: a "skipped" message
+      // on a real failure makes the subsequent DuplicateKey from createIndex
+      // look unexplained.
+      log.error(
+        {
+          err:
+            err instanceof Error ? { message: err.message, stack: err.stack, name: err.name } : err,
+        },
+        'merge-duplicate-assets failed — unique maple_id_1 index creation may fail next',
+      );
+    }
+  }
+
   // Content-derived dedup key: `maple_id` is the 16-byte hash assigned by
   // the hash stage. Hot-path callers:
   //   - `src/routes/backup-ingest.ts` `findOne({ maple_id })` per upload
