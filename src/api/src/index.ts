@@ -37,61 +37,53 @@
  *                        Defaults to 1 (sequential execution mode).
  */
 
-import { Elysia } from "elysia";
-import { swagger } from "@elysiajs/swagger";
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
-import { dirname } from "node:path";
-import { randomBytes } from "node:crypto";
-import { child as childLogger } from "./log.ts";
-import { requestContext } from "./middleware/request-context.ts";
-import { healthRoutes } from "./routes/health.ts";
-import { foldersRoutes } from "./routes/folders.ts";
-import { assetsRoutes } from "./routes/assets.ts";
-import { eventsRoutes } from "./routes/events.ts";
-import { authRoutes } from "./routes/auth.ts";
-import { fsRoutes } from "./routes/fs.ts";
-import { fsThumbsRoutes } from "./routes/fs-thumbs.ts";
-import { searchRoutes } from "./routes/search.ts";
-import { jobsRoutes } from "./routes/jobs.ts";
-import { enrichmentRoutes } from "./routes/enrichment.ts";
-import { meilisearchBackfillRoutes } from "./routes/admin-backfill-meilisearch.ts";
-import { peopleRoutes } from "./routes/people.ts";
-import { geocodeReverseRoutes } from "./routes/geocode-reverse.ts";
-import { backupIngestRoutes } from "./routes/backup-ingest.ts";
-import { backupStateRoutes } from "./routes/backup-state.ts";
-import { backupSidecarRoutes } from "./routes/backup-sidecar.ts";
-import { backupRenderedRoutes } from "./routes/backup-rendered.ts";
-import { backupNotifyDeletedRoutes } from "./routes/backup-notify-deleted.ts";
-import { changesRoutes } from "./routes/changes.ts";
-import { assetsListRoutes } from "./routes/assets-list.ts";
-import { requireAuth } from "./auth/middleware.ts";
-import { staticUiPlugin } from "./routes/static_ui.ts";
-import { getDb, ensureIndexes, closeDb, foldersCollection } from "./db/client.ts";
-import { startTrashGc, type TrashGcHandle } from "./workers/trash-gc.ts";
-import { startAllStages, stopAllStages } from "./workers/orchestrator.ts";
-import { stageRegistry } from "./workers/registry.ts";
-import { startDiscover, type DiscoverHandle } from "./workers/discover/index.ts";
-import { workerRoutes } from "./workers/routes.ts";
-import {
-  startGeocodeWorker,
-  stopGeocodeWorker,
-} from "./enrichment/bootstrap.ts";
-import {
-  startFaceWorker,
-  stopFaceWorker,
-} from "./enrichment/face-bootstrap.ts";
-import {
-  startDescribeWorker,
-  stopDescribeWorker,
-} from "./enrichment/describe-bootstrap.ts";
-import { meilisearchClient } from "./enrichment/meilisearch-client.ts";
-import { startJobRunner, stopJobRunner } from "./job-runner/runner.ts";
-import { getChangeFeedTailer } from "./runtime/change-feed-tailer.ts";
+import { Elysia } from 'elysia';
+import { swagger } from '@elysiajs/swagger';
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { dirname } from 'node:path';
+import { randomBytes } from 'node:crypto';
+import { child as childLogger } from './log.ts';
+import { requestContext } from './middleware/request-context.ts';
+import { healthRoutes } from './routes/health.ts';
+import { foldersRoutes } from './routes/folders.ts';
+import { assetsRoutes } from './routes/assets.ts';
+import { eventsRoutes } from './routes/events.ts';
+import { authRoutes } from './routes/auth.ts';
+import { fsRoutes } from './routes/fs.ts';
+import { fsThumbsRoutes } from './routes/fs-thumbs.ts';
+import { searchRoutes } from './routes/search.ts';
+import { jobsRoutes } from './routes/jobs.ts';
+import { enrichmentRoutes } from './routes/enrichment.ts';
+import { meilisearchBackfillRoutes } from './routes/admin-backfill-meilisearch.ts';
+import { peopleRoutes } from './routes/people.ts';
+import { geocodeReverseRoutes } from './routes/geocode-reverse.ts';
+import { backupIngestRoutes } from './routes/backup-ingest.ts';
+import { backupStateRoutes } from './routes/backup-state.ts';
+import { backupSidecarRoutes } from './routes/backup-sidecar.ts';
+import { backupRenderedRoutes } from './routes/backup-rendered.ts';
+import { backupNotifyDeletedRoutes } from './routes/backup-notify-deleted.ts';
+import { changesRoutes } from './routes/changes.ts';
+import { assetsListRoutes } from './routes/assets-list.ts';
+import { requireAuth } from './auth/middleware.ts';
+import { staticUiPlugin } from './routes/static_ui.ts';
+import { getDb, ensureIndexes, closeDb, foldersCollection } from './db/client.ts';
+import { startTrashGc, type TrashGcHandle } from './workers/trash-gc.ts';
+import { startAllStages, stopAllStages } from './workers/orchestrator.ts';
+import { stageRegistry } from './workers/registry.ts';
+import { startDiscover, type DiscoverHandle } from './workers/discover/index.ts';
+import { sweepOrphanedCaches } from './workers/cache-gc.ts';
+import { workerRoutes } from './workers/routes.ts';
+import { startGeocodeWorker, stopGeocodeWorker } from './enrichment/bootstrap.ts';
+import { startFaceWorker, stopFaceWorker } from './enrichment/face-bootstrap.ts';
+import { startDescribeWorker, stopDescribeWorker } from './enrichment/describe-bootstrap.ts';
+import { meilisearchClient } from './enrichment/meilisearch-client.ts';
+import { startJobRunner, stopJobRunner } from './job-runner/runner.ts';
+import { getChangeFeedTailer } from './runtime/change-feed-tailer.ts';
 
 const PORT = Number(process.env.PORT ?? 3000);
-const CORS_ORIGIN = process.env.MAPLE_CORS_ORIGIN ?? "*";
+const CORS_ORIGIN = process.env.MAPLE_CORS_ORIGIN ?? '*';
 
-const log = childLogger("server");
+const log = childLogger('server');
 
 // ---------------------------------------------------------------------------
 // JWT secret bootstrap
@@ -104,16 +96,16 @@ const log = childLogger("server");
 //      and use that. The .maple/ directory is gitignored.
 function ensureJwtSecret(): void {
   if (process.env.MAPLE_JWT_SECRET) return;
-  const path = process.env.MAPLE_JWT_SECRET_FILE ?? "./.maple/jwt.secret";
+  const path = process.env.MAPLE_JWT_SECRET_FILE ?? './.maple/jwt.secret';
   if (existsSync(path)) {
-    process.env.MAPLE_JWT_SECRET = readFileSync(path, "utf8").trim();
+    process.env.MAPLE_JWT_SECRET = readFileSync(path, 'utf8').trim();
     return;
   }
   mkdirSync(dirname(path), { recursive: true });
-  const secret = randomBytes(32).toString("base64url");
+  const secret = randomBytes(32).toString('base64url');
   writeFileSync(path, secret, { mode: 0o600 });
   process.env.MAPLE_JWT_SECRET = secret;
-  log.info({ path }, "generated JWT secret");
+  log.info({ path }, 'generated JWT secret');
 }
 
 // ---------------------------------------------------------------------------
@@ -136,22 +128,20 @@ export function buildApp(_opts: { stageNames?: string[] } = {}): Elysia {
     // because the page becomes cross-origin-isolated only when *every* top-level
     // document response carries both headers.
     .onBeforeHandle(({ set }) => {
-      set.headers["Access-Control-Allow-Origin"] = CORS_ORIGIN;
-      set.headers["Access-Control-Allow-Methods"] =
-        "GET, POST, PUT, DELETE, OPTIONS";
-      set.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization";
-      set.headers["Cross-Origin-Opener-Policy"] = "same-origin";
-      set.headers["Cross-Origin-Embedder-Policy"] = "require-corp";
+      set.headers['Access-Control-Allow-Origin'] = CORS_ORIGIN;
+      set.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS';
+      set.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization';
+      set.headers['Cross-Origin-Opener-Policy'] = 'same-origin';
+      set.headers['Cross-Origin-Embedder-Policy'] = 'require-corp';
     })
     // Mirror the isolation headers onto OPTIONS preflight too, so that any
     // cross-origin check counts them as present.
-    .options("/*", ({ set }) => {
-      set.headers["Access-Control-Allow-Origin"] = CORS_ORIGIN;
-      set.headers["Access-Control-Allow-Methods"] =
-        "GET, POST, PUT, DELETE, OPTIONS";
-      set.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization";
-      set.headers["Cross-Origin-Opener-Policy"] = "same-origin";
-      set.headers["Cross-Origin-Embedder-Policy"] = "require-corp";
+    .options('/*', ({ set }) => {
+      set.headers['Access-Control-Allow-Origin'] = CORS_ORIGIN;
+      set.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS';
+      set.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization';
+      set.headers['Cross-Origin-Opener-Policy'] = 'same-origin';
+      set.headers['Cross-Origin-Embedder-Policy'] = 'require-corp';
       set.status = 204;
       return;
     })
@@ -196,7 +186,7 @@ export function buildApp(_opts: { stageNames?: string[] } = {}): Elysia {
     // loads (you can't reach /sign-in if the server demands a bearer to
     // serve index.html).
     .use(
-      new Elysia({ name: "authedApi" })
+      new Elysia({ name: 'authedApi' })
         .use(requireAuth)
         .use(foldersRoutes)
         // Mounted BEFORE assetsRoutes so the bare `GET /api/assets` list
@@ -225,14 +215,14 @@ export function buildApp(_opts: { stageNames?: string[] } = {}): Elysia {
     .use(
       swagger({
         // Scalar UI at /docs (human-readable), spec JSON at /openapi.json.
-        path: "/docs",
-        specPath: "/openapi.json",
+        path: '/docs',
+        specPath: '/openapi.json',
         documentation: {
           info: {
-            title: "Maple API",
-            version: "0.1.0",
+            title: 'Maple API',
+            version: '0.1.0',
             description:
-              "Maple Self Hosted HTTP API. See https://github.com/zubair-io/Maple/issues/131.",
+              'Maple Self Hosted HTTP API. See https://github.com/zubair-io/Maple/issues/131.',
           },
         },
       }),
@@ -264,21 +254,21 @@ async function start(): Promise<void> {
   ensureJwtSecret();
   log.info(
     {
-      version: "0.1.0",
+      version: '0.1.0',
       port: PORT,
-      mongo_uri: process.env.MAPLE_MONGO_URI ?? "mongodb://localhost:27017",
+      mongo_uri: process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017',
     },
-    "Maple Self Hosted starting",
+    'Maple Self Hosted starting',
   );
-  if (process.env.MAPLE_DEV === "1") {
+  if (process.env.MAPLE_DEV === '1') {
     log.info(
-      { dev_origin: process.env.MAPLE_DEV_ORIGIN ?? "http://localhost:4200" },
-      "UI: proxying to dev origin",
+      { dev_origin: process.env.MAPLE_DEV_ORIGIN ?? 'http://localhost:4200' },
+      'UI: proxying to dev origin',
     );
   }
-  if (process.env.MAPLE_DEV_AUTH === "1") {
+  if (process.env.MAPLE_DEV_AUTH === '1') {
     log.warn(
-      "*** MAPLE_DEV_AUTH=1 — passkey bypass enabled. /api/auth/dev-login is exposed. Do NOT set this in production.",
+      '*** MAPLE_DEV_AUTH=1 — passkey bypass enabled. /api/auth/dev-login is exposed. Do NOT set this in production.',
     );
   }
 
@@ -291,20 +281,17 @@ async function start(): Promise<void> {
     try {
       await getDb();
     } catch (err) {
-      log.warn(
-        { err },
-        "MongoDB not available — server continues, DB-bound routes will 503",
-      );
+      log.warn({ err }, 'MongoDB not available — server continues, DB-bound routes will 503');
       return;
     }
 
     try {
       await ensureIndexes();
-      log.info("DB ready");
+      log.info('DB ready');
     } catch (err) {
       log.error(
         { err },
-        "ensureIndexes failed — continuing without all indexes; affected routes may be slower until resolved",
+        'ensureIndexes failed — continuing without all indexes; affected routes may be slower until resolved',
       );
     }
 
@@ -313,40 +300,47 @@ async function start(): Promise<void> {
       // clients see worker-emitted changes.
       await getChangeFeedTailer().start();
     } catch (err) {
-      log.error(
-        { err },
-        "change feed tailer failed to start",
-      );
+      log.error({ err }, 'change feed tailer failed to start');
     }
 
     // Auto-start the in-process stage runners unless explicitly disabled.
-    if (process.env.MAPLE_INDEXER_AUTOSTART === "0") {
-      log.info("Indexer autostart disabled (MAPLE_INDEXER_AUTOSTART=0)");
+    if (process.env.MAPLE_INDEXER_AUTOSTART === '0') {
+      log.info('Indexer autostart disabled (MAPLE_INDEXER_AUTOSTART=0)');
     } else {
       try {
         await startAllStages();
-        log.info(stageRegistry.statuses(), "Worker stages running");
+        log.info(stageRegistry.statuses(), 'Worker stages running');
       } catch (err) {
-        log.warn(
-          { err },
-          "Worker stages failed to start",
-        );
+        log.warn({ err }, 'Worker stages failed to start');
       }
 
       try {
         const foldersColl = await foldersCollection();
-        const folders = await foldersColl
-          .find({}, { projection: { path: 1 } })
-          .toArray();
+        const folders = await foldersColl.find({}, { projection: { path: 1 } }).toArray();
         const discoverRoots = folders.map((f) => f.path).filter(Boolean);
         if (discoverRoots.length > 0) {
           _discoverHandle = await startDiscover({ roots: discoverRoots });
         }
+
+        // Fire-and-forget cache-gc sweep per library. Reaps both legacy
+        // sha256_prefix16-keyed thumbs (always orphans post-PR-3) and stale
+        // maple_id-keyed files for hard-deleted or relocated assets. See
+        // `workers/cache-gc.ts` for why no migration sentinel.
+        for (const root of discoverRoots) {
+          void (async (libRoot: string) => {
+            try {
+              const result = await sweepOrphanedCaches(libRoot);
+              log.info({ libRoot, ...result }, 'cache-gc swept');
+            } catch (err) {
+              log.warn(
+                { libRoot, err: err instanceof Error ? err.message : err },
+                'cache-gc sweep failed',
+              );
+            }
+          })(root);
+        }
       } catch (err) {
-        log.warn(
-          { err },
-          "Discover failed to start",
-        );
+        log.warn({ err }, 'Discover failed to start');
       }
     }
 
@@ -356,28 +350,19 @@ async function start(): Promise<void> {
     try {
       await startGeocodeWorker();
     } catch (err) {
-      log.error(
-        { err },
-        "geocode worker failed to start; fix via /settings/enrichment",
-      );
+      log.error({ err }, 'geocode worker failed to start; fix via /settings/enrichment');
     }
 
     try {
       await startFaceWorker();
     } catch (err) {
-      log.error(
-        { err },
-        "face worker failed to start; fix via /settings/enrichment",
-      );
+      log.error({ err }, 'face worker failed to start; fix via /settings/enrichment');
     }
 
     try {
       await startDescribeWorker();
     } catch (err) {
-      log.error(
-        { err },
-        "describe worker failed to start; fix via /settings/enrichment",
-      );
+      log.error({ err }, 'describe worker failed to start; fix via /settings/enrichment');
     }
 
     try {
@@ -385,20 +370,17 @@ async function start(): Promise<void> {
       // unconfigured / unreachable / index build fails.
       const meili = meilisearchClient();
       if (!meili.isConfigured()) {
-        log.info("MAPLE_MEILISEARCH_URL unset — Meilisearch sidecar disabled");
+        log.info('MAPLE_MEILISEARCH_URL unset — Meilisearch sidecar disabled');
       } else if (!(await meili.health())) {
         log.warn(
-          "Meilisearch health check failed; search will fall back to Mongo $text until the service is reachable",
+          'Meilisearch health check failed; search will fall back to Mongo $text until the service is reachable',
         );
       } else {
         await meili.ensureIndex();
-        log.info("Meilisearch sidecar ready");
+        log.info('Meilisearch sidecar ready');
       }
     } catch (err) {
-      log.warn(
-        { err },
-        "Meilisearch boot failed; search will fall back to Mongo $text",
-      );
+      log.warn({ err }, 'Meilisearch boot failed; search will fall back to Mongo $text');
     }
 
     try {
@@ -406,10 +388,7 @@ async function start(): Promise<void> {
       // user-triggered long-running work (export, batch reprocess).
       startJobRunner();
     } catch (err) {
-      log.warn(
-        { err },
-        "JobRunner failed to start",
-      );
+      log.warn({ err }, 'JobRunner failed to start');
     }
   })();
 
@@ -423,73 +402,54 @@ async function start(): Promise<void> {
 
 // Graceful shutdown.
 async function shutdown(signal: string): Promise<void> {
-  log.info({ signal }, "shutting down");
+  log.info({ signal }, 'shutting down');
   // Stop the change-feed tailer first — its self-scheduling setTimeout
   // would otherwise keep the event loop alive after Mongo closes.
   try {
     getChangeFeedTailer().stop();
   } catch (e) {
-    log.warn(
-      { err: e },
-      "error stopping change feed tailer",
-    );
+    log.warn({ err: e }, 'error stopping change feed tailer');
   }
   // Stop the trash-gc loop next so its daily timer doesn't fire mid-shutdown.
-  try { _trashGcHandle?.stop(); _trashGcHandle = null; }
-  catch (e) {
-    log.warn({ err: e }, "error stopping trash-gc");
+  try {
+    _trashGcHandle?.stop();
+    _trashGcHandle = null;
+  } catch (e) {
+    log.warn({ err: e }, 'error stopping trash-gc');
   }
   // Stop the file-system watcher so it stops producing new docs while we drain.
   try {
     await _discoverHandle?.stop();
     _discoverHandle = null;
   } catch (e) {
-    log.warn(
-      { err: e },
-      "error stopping discover",
-    );
+    log.warn({ err: e }, 'error stopping discover');
   }
   // Stop the in-process stage runners so any in-flight handler can drain
   // before the process exits.
   try {
     await stopAllStages();
   } catch (e) {
-    log.warn(
-      { err: e },
-      "error stopping worker stages",
-    );
+    log.warn({ err: e }, 'error stopping worker stages');
   }
   try {
     await stopGeocodeWorker();
   } catch (e) {
-    log.warn(
-      { err: e },
-      "error stopping geocode worker",
-    );
+    log.warn({ err: e }, 'error stopping geocode worker');
   }
   try {
     await stopFaceWorker();
   } catch (e) {
-    log.warn(
-      { err: e },
-      "error stopping face worker",
-    );
+    log.warn({ err: e }, 'error stopping face worker');
   }
   try {
     await stopDescribeWorker();
   } catch (e) {
-    log.warn(
-      { err: e },
-      "error stopping describe worker",
-    );
+    log.warn({ err: e }, 'error stopping describe worker');
   }
   try {
     await stopJobRunner();
   } catch (e) {
-    log.warn(
-      { err: e },
-      "error stopping job runner",
-    );
+    log.warn({ err: e }, 'error stopping job runner');
   }
   try {
     await closeDb();
@@ -499,15 +459,15 @@ async function shutdown(signal: string): Promise<void> {
   process.exit(0);
 }
 
-process.on("SIGTERM", () => {
-  shutdown("SIGTERM").catch((e) => {
-    log.error({ err: e }, "shutdown error");
+process.on('SIGTERM', () => {
+  shutdown('SIGTERM').catch((e) => {
+    log.error({ err: e }, 'shutdown error');
     process.exit(1);
   });
 });
-process.on("SIGINT", () => {
-  shutdown("SIGINT").catch((e) => {
-    log.error({ err: e }, "shutdown error");
+process.on('SIGINT', () => {
+  shutdown('SIGINT').catch((e) => {
+    log.error({ err: e }, 'shutdown error');
     process.exit(1);
   });
 });
