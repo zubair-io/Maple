@@ -1,9 +1,0 @@
-// Layout + visuals are handled by Tailwind utilities in the template.
-// This file exists to satisfy the standalone-component contract; add
-// component-scoped overrides here only if a utility doesn't fit.
-
-:host {
-  display: block;
-  height: 100%;
-  overflow: auto;
-}
