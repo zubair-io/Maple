@@ -225,9 +225,19 @@ export const xmpRoutes = new Elysia()
  * any of which would break well-formedness or — for `"` and `<` — allow
  * attribute-breaking / element-injection into the `rdf:about` attribute
  * (see #168). Map all five XML special characters to their entities.
+ *
+ * XML 1.0 also forbids most C0 control characters (U+0000..U+001F except
+ * TAB U+0009, LF U+000A, CR U+000D) in well-formed documents, and a
+ * determined attacker with filesystem control could plant such a byte in
+ * a filename. Strip them outright — they have no legitimate use in a
+ * filename and including them would produce an unparseable XMP sidecar.
  */
 export function xmlAttrEscape(s: string): string {
+  // Strip XML 1.0-invalid control bytes (U+0000..U+0008, U+000B, U+000C,
+  // U+000E..U+001F) before entity-escaping. TAB / LF / CR are preserved.
+  // eslint-disable-next-line no-control-regex
   return s
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, "")
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")

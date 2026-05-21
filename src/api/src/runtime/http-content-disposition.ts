@@ -8,12 +8,15 @@
  * UTF-8/percent-encoded form (RFC 5987), in that order. Modern clients
  * prefer `filename*`; older clients fall back to `filename`.
  *
- * - CR / LF / NUL bytes are stripped from the source string before any
- *   further processing — they have no business in a header value.
- * - The ASCII fallback escapes `\` and `"` and replaces any non-ASCII or
- *   control bytes with `_` so the quoted-string is always 7-bit safe.
- * - The UTF-8 form uses `encodeURIComponent` plus the extra characters
- *   RFC 5987's `attr-char` grammar requires to be percent-encoded.
+ * - The ASCII fallback drops every byte < 0x20 (incl. CR / LF / NUL) and
+ *   DEL, escapes `\` and `"`, and replaces non-ASCII with `_` so the
+ *   quoted-string is always 7-bit safe and free of response-splitting
+ *   bytes.
+ * - The UTF-8 (`filename*`) form runs the original string through
+ *   `encodeURIComponent` plus the extra characters RFC 5987's
+ *   `attr-char` grammar requires to be percent-encoded — control bytes
+ *   end up as `%01`…`%1F` rather than being stripped, which is still
+ *   safe in a header value because the percent-encoding escapes them.
  */
 
 /**
