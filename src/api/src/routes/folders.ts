@@ -483,6 +483,20 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
       }
 
       const nowIso = new Date().toISOString();
+      // fileinfo[0] mirrors the validated target path split into
+      // (library-relative directory, filename, library_id). Computed
+      // here so we can include it in `$setOnInsert` alongside the
+      // legacy abs_path / filename / folder_id triple. POSIX-normalize
+      // `path.sep` → `/` so the stored path obeys the FileInfo
+      // docstring contract on every host.
+      const relDirRaw = nodePath.dirname(target);
+      const relDir =
+        relDirRaw === '.' || relDirRaw === '' ? '' : relDirRaw.split(nodePath.sep).join('/');
+      const fileinfoEntry = {
+        path: relDir,
+        filename,
+        library_id: folderId,
+      };
       // Upsert by `abs_path` to race-safely cooperate with the discover
       // watcher. If the watcher's chokidar tick observed the just-
       // written file first and already created an asset row, our
@@ -508,6 +522,7 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
               folder_id: folderId,
               filename,
               abs_path: absPath,
+              fileinfo: [fileinfoEntry],
               rating: 0,
               flag: 0,
               color_label: '',
