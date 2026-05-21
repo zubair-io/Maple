@@ -125,12 +125,29 @@ beforeAll(async () => {
     gps: { lat: 42.65, lng: -73.75 },
   };
 
+  // Post drop-abs-path-2026-05-21 the on-disk pointer is `fileinfo[]`
+  // only — the search projection reads filename / folder_id from the
+  // primary fileinfo entry and resolves abs_path through the libraries
+  // cache. Seed a single folder so abs_path comes back as `/lib/<name>`
+  // matching the historic assertion shape.
+  await db.collection("folders").insertOne({
+    _id: folder,
+    path: "/lib",
+    label: "lib",
+    last_scan: null,
+    file_count: 0,
+    created_at: new Date().toISOString(),
+  } as never);
+  const { invalidateLibraryRoots } = await import(
+    "../src/indexer/libraries.cache.ts"
+  );
+  invalidateLibraryRoots();
   await db.collection("assets").insertMany([
     {
-      folder_id: folder,
+      fileinfo: [
+        { library_id: folder, path: "", filename: "albany-museum.dng", deleted_at: null },
+      ],
       maple_id: "maple-albany",
-      abs_path: "/lib/albany-museum.dng",
-      filename: "albany-museum.dng",
       size: 1024,
       mtime: 1000,
       rating: 5,
@@ -154,10 +171,10 @@ beforeAll(async () => {
       },
     },
     {
-      folder_id: folder,
+      fileinfo: [
+        { library_id: folder, path: "", filename: "nyc-park.dng", deleted_at: null },
+      ],
       maple_id: "maple-nyc",
-      abs_path: "/lib/nyc-park.dng",
-      filename: "nyc-park.dng",
       size: 1024,
       mtime: 2000,
       rating: 4,

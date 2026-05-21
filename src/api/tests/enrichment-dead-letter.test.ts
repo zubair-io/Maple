@@ -53,6 +53,12 @@ async function tryConnect(): Promise<MongoClient | null> {
   }
 }
 
+// Single shared library id — every seeded asset's `fileinfo[0]` points
+// at this library so `dead-letter.repo.ts` can resolve abs_path via the
+// process-wide libraries cache. Path is `/lib` so the assertion
+// `abs_path.startsWith("/lib/")` still holds.
+const LIBRARY_ID = new ObjectId();
+
 beforeAll(async () => {
   mongo = await tryConnect();
   mongoReachable = mongo !== null;
@@ -62,9 +68,23 @@ beforeAll(async () => {
   }
   db = mongo!.db(TEST_DB);
   await db.dropDatabase();
+  await db.collection("folders").insertOne({
+    _id: LIBRARY_ID,
+    path: "/lib",
+    label: "lib",
+    last_scan: null,
+    file_count: 0,
+    created_at: new Date().toISOString(),
+  } as never);
   // Reset the singleton so getDb() reads MAPLE_MONGO_DB on next call.
   const { closeDb } = await import("../src/db/client.ts");
   await closeDb();
+  // Invalidate the process-wide library cache so `loadLibraryRoots`
+  // re-reads the test DB rather than reusing sibling-suite entries.
+  const { invalidateLibraryRoots } = await import(
+    "../src/indexer/libraries.cache.ts"
+  );
+  invalidateLibraryRoots();
   // Mount the routes WITHOUT requireAuth — mirrors enrichment-route.test.ts.
   const { enrichmentAdminRoutes } = await import(
     "../src/routes/enrichment-admin.ts"
@@ -137,9 +157,17 @@ async function seedAsset(opts: SeedOpts): Promise<ObjectId> {
   }
   await assetsColl().insertOne({
     _id,
-    folder_id: new ObjectId(),
-    filename: `${_id.toHexString()}.dng`,
-    abs_path: `/lib/${_id.toHexString()}.dng`,
+    // Post drop-abs-path-2026-05-21 the on-disk pointer is solely
+    // `fileinfo[]`; the dead-letter route resolves abs_path through the
+    // libraries cache so the seeded folder above gives `/lib/<id>.dng`.
+    fileinfo: [
+      {
+        library_id: LIBRARY_ID,
+        path: "",
+        filename: `${_id.toHexString()}.dng`,
+        deleted_at: null,
+      },
+    ],
     size: 1,
     mtime: 1,
     rating: 0,

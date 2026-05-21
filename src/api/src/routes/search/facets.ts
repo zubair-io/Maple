@@ -62,6 +62,8 @@ export const facetsRoute = new Elysia().get(
           .toArray(),
         // Extensions: derive in Mongo via $split + $arrayElemAt — simpler
         // than $regexFindAll and works on every supported server version.
+        // Post drop-abs-path-2026-05-21 the filename lives on
+        // `fileinfo[0].filename`; pull it out before splitting on `.`.
         coll
           .aggregate([
             { $match: finalFilter },
@@ -69,7 +71,15 @@ export const facetsRoute = new Elysia().get(
               $project: {
                 ext: {
                   $toLower: {
-                    $arrayElemAt: [{ $split: ["$filename", "."] }, -1],
+                    $arrayElemAt: [
+                      {
+                        $split: [
+                          { $arrayElemAt: ["$fileinfo.filename", 0] },
+                          ".",
+                        ],
+                      },
+                      -1,
+                    ],
                   },
                 },
               },

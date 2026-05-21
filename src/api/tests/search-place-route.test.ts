@@ -81,6 +81,17 @@ function placeFor(
   );
 }
 
+/**
+ * Post drop-abs-path-2026-05-21: helper to translate the legacy
+ * `{ folder_id, abs_path, filename }` triple into the persisted
+ * `fileinfo[0]` shape. Keeps the seed fixtures readable while routing
+ * the asset's location through the content-addressed pointer the
+ * server actually reads.
+ */
+function fi(filename: string) {
+  return [{ library_id: folder, path: "", filename, deleted_at: null }];
+}
+
 beforeAll(async () => {
   mongo = await tryConnect();
   mongoReachable = mongo !== null;
@@ -93,6 +104,18 @@ beforeAll(async () => {
   }
   const db = mongo!.db(TEST_DB);
   await db.dropDatabase();
+  await db.collection("folders").insertOne({
+    _id: folder,
+    path: "/lib",
+    label: "lib",
+    last_scan: null,
+    file_count: 0,
+    created_at: new Date().toISOString(),
+  } as never);
+  const { invalidateLibraryRoots } = await import(
+    "../src/indexer/libraries.cache.ts"
+  );
+  invalidateLibraryRoots();
 
   // Four place-bearing assets + one without place to confirm the partial
   // text index excludes it from $text matches.
@@ -169,9 +192,7 @@ beforeAll(async () => {
   // Asset without `place` — must NOT match any placeQuery.
   await db.collection("assets").insertMany([
     {
-      folder_id: folder,
-      abs_path: "/lib/albany-museum.dng",
-      filename: "albany-museum.dng",
+      fileinfo: fi("albany-museum.dng"),
       size: 1024,
       mtime: 1000,
       rating: 5,
@@ -182,9 +203,7 @@ beforeAll(async () => {
       place: albanyMuseum,
     },
     {
-      folder_id: folder,
-      abs_path: "/lib/nyc-park.dng",
-      filename: "nyc-park.dng",
+      fileinfo: fi("nyc-park.dng"),
       size: 1024,
       mtime: 2000,
       rating: 4,
@@ -195,9 +214,7 @@ beforeAll(async () => {
       place: nycCentralPark,
     },
     {
-      folder_id: folder,
-      abs_path: "/lib/sf-park.dng",
-      filename: "sf-park.dng",
+      fileinfo: fi("sf-park.dng"),
       size: 1024,
       mtime: 3000,
       rating: 3,
@@ -208,9 +225,7 @@ beforeAll(async () => {
       place: sfPark,
     },
     {
-      folder_id: folder,
-      abs_path: "/lib/paris.dng",
-      filename: "paris.dng",
+      fileinfo: fi("paris.dng"),
       size: 1024,
       mtime: 4000,
       rating: 3,
@@ -221,9 +236,7 @@ beforeAll(async () => {
       place: parisLouvre,
     },
     {
-      folder_id: folder,
-      abs_path: "/lib/no-place.jpg",
-      filename: "no-place.jpg",
+      fileinfo: fi("no-place.jpg"),
       size: 512,
       mtime: 5000,
       rating: 0,
@@ -235,9 +248,7 @@ beforeAll(async () => {
     },
     // Soft-deleted Albany row — must NOT match.
     {
-      folder_id: folder,
-      abs_path: "/lib/albany-deleted.dng",
-      filename: "albany-deleted.dng",
+      fileinfo: fi("albany-deleted.dng"),
       size: 256,
       mtime: 6000,
       rating: 0,
@@ -251,9 +262,7 @@ beforeAll(async () => {
     // Phase 8: a row with NO place but a description that mentions
     // "telescope". Asserts the unified search_blob picks up description.
     {
-      folder_id: folder,
-      abs_path: "/lib/telescope.jpg",
-      filename: "telescope.jpg",
+      fileinfo: fi("telescope.jpg"),
       size: 512,
       mtime: 7000,
       rating: 0,
@@ -267,9 +276,7 @@ beforeAll(async () => {
     // Phase 8: a row with NO place but OCR text. Asserts ocr_text
     // contributes to the unified blob.
     {
-      folder_id: folder,
-      abs_path: "/lib/menu.jpg",
-      filename: "menu.jpg",
+      fileinfo: fi("menu.jpg"),
       size: 512,
       mtime: 8000,
       rating: 0,
@@ -546,9 +553,7 @@ describe("/api/search?placeQuery", () => {
     const legacyId = new ObjectId();
     await db.collection("assets").insertOne({
       _id: legacyId,
-      folder_id: folder,
-      abs_path: "/lib/legacy.dng",
-      filename: "legacy.dng",
+      fileinfo: fi("legacy.dng"),
       size: 1024,
       mtime: 9999,
       rating: 0,

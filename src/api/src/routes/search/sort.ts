@@ -20,7 +20,11 @@ export function pickSort(sort: string | undefined): Sort {
     case "captured_asc":
       return { "exif.captured_at": 1, _id: 1 };
     case "name":
-      return { filename: 1, _id: 1 };
+      // Post drop-abs-path-2026-05-21 the canonical filename lives on
+      // `fileinfo[0].filename`; pre-PR-7 it was the top-level
+      // `filename` field. Sort on the primary fileinfo entry to keep
+      // the wire semantics ("alphabetical by name").
+      return { "fileinfo.0.filename": 1, _id: 1 };
     case "rating":
       return { rating: -1, "exif.captured_at": -1, _id: 1 };
     case "captured_desc":
