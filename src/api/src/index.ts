@@ -259,7 +259,7 @@ export function buildApp(_opts: { stageNames?: string[] } = {}): Elysia {
             title: "Maple API",
             version: "0.1.0",
             description:
-              "Maple Self Hosted HTTP API. See https://github.com/zubair-io/_Maple/issues/131.",
+              "Maple Self Hosted HTTP API. See https://github.com/zubair-io/Maple/issues/131.",
           },
         },
       }),

@@ -22,11 +22,10 @@ describe("GET /openapi.json", () => {
     let doc: {
       info?: { title?: string; version?: string };
       paths?: Record<string, unknown>;
-    };
+    } = {};
     expect(() => {
       doc = JSON.parse(text);
     }).not.toThrow();
-    doc = JSON.parse(text);
 
     expect(doc.info?.title).toBe("Maple API");
     expect(typeof doc.info?.version).toBe("string");
