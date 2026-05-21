@@ -11,14 +11,7 @@
 // row or two of cards before they reach the fold, avoiding the visual
 // pop-in.
 
-import {
-  AfterViewInit,
-  Directive,
-  ElementRef,
-  OnDestroy,
-  inject,
-  output,
-} from '@angular/core';
+import { AfterViewInit, Directive, ElementRef, OnDestroy, inject, output } from '@angular/core';
 
 @Directive({
   standalone: true,
