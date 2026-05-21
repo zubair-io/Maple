@@ -71,6 +71,7 @@ import { startTrashGc, type TrashGcHandle } from './workers/trash-gc.ts';
 import { startAllStages, stopAllStages } from './workers/orchestrator.ts';
 import { stageRegistry } from './workers/registry.ts';
 import { startDiscover, type DiscoverHandle } from './workers/discover/index.ts';
+import { sweepOrphanedCaches } from './workers/cache-gc.ts';
 import { workerRoutes } from './workers/routes.ts';
 import { startGeocodeWorker, stopGeocodeWorker } from './enrichment/bootstrap.ts';
 import { startFaceWorker, stopFaceWorker } from './enrichment/face-bootstrap.ts';
@@ -328,7 +329,6 @@ async function start(): Promise<void> {
         for (const root of discoverRoots) {
           void (async (libRoot: string) => {
             try {
-              const { sweepOrphanedCaches } = await import('./workers/cache-gc.ts');
               const result = await sweepOrphanedCaches(libRoot);
               log.info({ libRoot, ...result }, 'cache-gc swept');
             } catch (err) {

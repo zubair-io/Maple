@@ -22,6 +22,7 @@
  *   registered library as a fire-and-forget background task. Bounded work:
  *   each sweep is O(files-in-library).
  */
+import type { Dirent } from 'node:fs';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { assetsCollection } from '../db/client.ts';
@@ -32,7 +33,25 @@ const log = childLogger('cache-gc');
 export interface SweepResult {
   scanned: number;
   deleted: number;
+  skipped_recent: number;
 }
+
+/**
+ * Files written within this window are assumed mid-write or just-written by a
+ * concurrent stage. Skip them this pass — the next boot's sweep will catch
+ * them if they're genuinely orphaned. Cheapest defense against the TOCTOU
+ * race where `known` is snapshotted before a stage finishes writing a fresh
+ * `<maple_id>.jpg`.
+ */
+const RECENT_THRESHOLD_MS = 60 * 1000;
+
+/**
+ * Abort the sweep after this many consecutive same-errno unlink failures.
+ * EACCES / EROFS / EBUSY signal an operator-level config problem (mount
+ * read-only, perms wrong, busy by another process) — no point continuing
+ * to retry across thousands of files for noise we can't fix from here.
+ */
+const FAIL_THRESHOLD = 3;
 
 /**
  * Matches `<maple_id>` (32 lowercase hex) or `<maple_id>_<size>` where size
@@ -55,15 +74,26 @@ export async function sweepOrphanedCaches(libraryRoot: string): Promise<SweepRes
 
   let scanned = 0;
   let deleted = 0;
+  let skippedRecent = 0;
+  const now = Date.now();
+
+  let recentFailErrno: string | null = null;
+  let recentFailCount = 0;
 
   async function walk(dir: string): Promise<void> {
-    let entries: import('node:fs').Dirent[];
+    let entries: Dirent[];
     try {
-      entries = (await fs.readdir(dir, { withFileTypes: true })) as never;
+      entries = (await fs.readdir(dir, { withFileTypes: true })) as Dirent[];
     } catch {
       return;
     }
     for (const entry of entries) {
+      // Skip symlinks defensively — with `withFileTypes: true`, a symlink
+      // entry has `isSymbolicLink() === true` and `isDirectory() === false`
+      // (the dirent reflects lstat, not stat). Without this guard, a future
+      // change that resolves the target before classification could let a
+      // self-referential or upward-pointing dir symlink loop the walk forever.
+      if (entry.isSymbolicLink()) continue;
       const full = path.join(dir, entry.name);
       if (entry.isDirectory()) {
         if (entry.name === '.maple') {
@@ -77,9 +107,9 @@ export async function sweepOrphanedCaches(libraryRoot: string): Promise<SweepRes
   }
 
   async function sweepCacheDir(cacheDir: string): Promise<void> {
-    let entries: import('node:fs').Dirent[];
+    let entries: Dirent[];
     try {
-      entries = (await fs.readdir(cacheDir, { withFileTypes: true })) as never;
+      entries = (await fs.readdir(cacheDir, { withFileTypes: true })) as Dirent[];
     } catch {
       return; // ENOENT — fine, no cache here.
     }
@@ -87,30 +117,67 @@ export async function sweepOrphanedCaches(libraryRoot: string): Promise<SweepRes
       if (!entry.isFile() || !entry.name.endsWith('.jpg')) continue;
       scanned += 1;
       const stem = entry.name.slice(0, -4); // strip .jpg
+      const fullPath = path.join(cacheDir, entry.name);
+
+      // TOCTOU defense: `known` was snapshotted before this walk began. A
+      // stage may have written this file in the meantime. If the file's
+      // mtime is within the recency window, defer to the next boot's sweep.
+      const stat = await fs.stat(fullPath).catch(() => null);
+      if (stat && now - stat.mtimeMs < RECENT_THRESHOLD_MS) {
+        skippedRecent += 1;
+        continue;
+      }
+
       if (!MAPLE_ID_RE.test(stem)) {
         // basename isn't shaped like a maple_id (e.g. legacy 16-hex
         // sha256_prefix16 key). Definitely orphaned.
-        await unlinkSafe(path.join(cacheDir, entry.name));
-        deleted += 1;
+        if (await unlinkSafe(fullPath)) deleted += 1;
         continue;
       }
       // Stem is `<maple_id>` or `<maple_id>_<size>`. First 32 chars are the id.
       const mapleId = stem.slice(0, 32);
       if (!known.has(mapleId)) {
-        await unlinkSafe(path.join(cacheDir, entry.name));
-        deleted += 1;
+        if (await unlinkSafe(fullPath)) deleted += 1;
       }
     }
   }
 
-  async function unlinkSafe(p: string): Promise<void> {
+  async function unlinkSafe(p: string): Promise<boolean> {
     try {
       await fs.unlink(p);
+      recentFailCount = 0;
+      recentFailErrno = null;
+      return true;
     } catch (err) {
-      log.warn({ p, err: err instanceof Error ? err.message : err }, 'unlink failed');
+      const errno = (err as { code?: string } | null)?.code ?? 'UNKNOWN';
+      if (errno === recentFailErrno) {
+        recentFailCount += 1;
+      } else {
+        recentFailErrno = errno;
+        recentFailCount = 1;
+      }
+      log.warn({ p, errno, err: err instanceof Error ? err.message : err }, 'unlink failed');
+      if (recentFailCount >= FAIL_THRESHOLD) {
+        log.error(
+          { errno, count: recentFailCount },
+          'cache-gc: too many unlink failures — aborting sweep',
+        );
+        throw new Error(`cache-gc aborted: ${recentFailCount} consecutive ${errno} failures`);
+      }
+      return false;
     }
   }
 
-  await walk(libraryRoot);
-  return { scanned, deleted };
+  try {
+    await walk(libraryRoot);
+  } catch (err) {
+    // unlinkSafe threw past FAIL_THRESHOLD — return the partial result so
+    // the caller can log the operator-actionable error without losing the
+    // counts collected up to the abort point.
+    log.error(
+      { err: err instanceof Error ? err.message : err, scanned, deleted, skippedRecent },
+      'cache-gc sweep aborted with partial result',
+    );
+  }
+  return { scanned, deleted, skipped_recent: skippedRecent };
 }

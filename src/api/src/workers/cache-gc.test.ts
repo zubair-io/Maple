@@ -3,7 +3,17 @@
  * unreachable, mirroring `libraries.cache.test.ts`.
  */
 import { describe, test, expect, beforeAll, beforeEach, afterAll } from 'bun:test';
-import { mkdtemp, mkdir, writeFile, rm, stat } from 'node:fs/promises';
+import {
+  mkdtemp,
+  mkdir,
+  writeFile,
+  rm,
+  stat,
+  utimes,
+  symlink,
+  chmod,
+  readdir,
+} from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { MongoClient, ObjectId, type Db } from 'mongodb';
@@ -84,6 +94,17 @@ async function writeJpg(p: string): Promise<void> {
   await writeFile(p, Buffer.from([0xff, 0xd8, 0xff, 0xd9])); // tiny JPEG-ish bytes
 }
 
+/**
+ * Age `p` past the recency-skip window so the sweep will consider it for
+ * deletion. The sweep skips files whose mtime is within 60s of `Date.now()`
+ * (TOCTOU defense). Tests that want a file to be eligible for unlink must
+ * call this. 5 minutes back is generous and stable across slow CI clocks.
+ */
+async function agePast(p: string): Promise<void> {
+  const past = new Date(Date.now() - 5 * 60 * 1000);
+  await utimes(p, past, past);
+}
+
 describe('sweepOrphanedCaches', () => {
   test('unlinks legacy sha256_prefix16-keyed thumb and keeps known maple_id-keyed thumb', async () => {
     if (!mongoReachable) return;
@@ -94,13 +115,15 @@ describe('sweepOrphanedCaches', () => {
       const legacyThumb = path.join(root, '.maple', 'thumbs', `${LEGACY_KEY}.jpg`);
       await writeJpg(knownThumb);
       await writeJpg(legacyThumb);
+      await agePast(knownThumb);
+      await agePast(legacyThumb);
 
       await db!
         .collection('assets')
         .insertOne({ _id: new ObjectId(), maple_id: KNOWN_ID } as never);
 
       const result = await sweepOrphanedCaches(root);
-      expect(result).toEqual({ scanned: 2, deleted: 1 });
+      expect(result).toEqual({ scanned: 2, deleted: 1, skipped_recent: 0 });
 
       // Known file remains.
       const s = await stat(knownThumb);
@@ -119,10 +142,11 @@ describe('sweepOrphanedCaches', () => {
     try {
       const orphan = path.join(root, '.maple', 'previews', `${OTHER_ID}_1280.jpg`);
       await writeJpg(orphan);
+      await agePast(orphan);
 
       // No assets in the collection — every cache file is orphaned.
       const result = await sweepOrphanedCaches(root);
-      expect(result).toEqual({ scanned: 1, deleted: 1 });
+      expect(result).toEqual({ scanned: 1, deleted: 1, skipped_recent: 0 });
 
       await expect(stat(orphan)).rejects.toThrow();
     } finally {
@@ -137,13 +161,14 @@ describe('sweepOrphanedCaches', () => {
     try {
       const keep = path.join(root, '.maple', 'previews', `${KNOWN_ID}_full.jpg`);
       await writeJpg(keep);
+      await agePast(keep);
 
       await db!
         .collection('assets')
         .insertOne({ _id: new ObjectId(), maple_id: KNOWN_ID } as never);
 
       const result = await sweepOrphanedCaches(root);
-      expect(result).toEqual({ scanned: 1, deleted: 0 });
+      expect(result).toEqual({ scanned: 1, deleted: 0, skipped_recent: 0 });
 
       const s = await stat(keep);
       expect(s.size).toBeGreaterThan(0);
@@ -158,11 +183,19 @@ describe('sweepOrphanedCaches', () => {
     const root = await mkTree();
     try {
       // Put a normal photo at the root and a sub-folder, but no .maple.
-      await writeJpg(path.join(root, 'photo.jpg'));
-      await writeJpg(path.join(root, 'sub', 'photo2.jpg'));
+      const topPhoto = path.join(root, 'photo.jpg');
+      const subPhoto = path.join(root, 'sub', 'photo2.jpg');
+      await writeJpg(topPhoto);
+      await writeJpg(subPhoto);
 
       const result = await sweepOrphanedCaches(root);
-      expect(result).toEqual({ scanned: 0, deleted: 0 });
+      expect(result).toEqual({ scanned: 0, deleted: 0, skipped_recent: 0 });
+
+      // Sweep must never touch normal asset files outside .maple/ caches.
+      const topStat = await stat(topPhoto);
+      expect(topStat.size).toBeGreaterThan(0);
+      const subStat = await stat(subPhoto);
+      expect(subStat.size).toBeGreaterThan(0);
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -175,12 +208,116 @@ describe('sweepOrphanedCaches', () => {
     try {
       const nested = path.join(root, 'vacation', '2024', '.maple', 'thumbs', `${LEGACY_KEY}.jpg`);
       await writeJpg(nested);
+      await agePast(nested);
 
       const result = await sweepOrphanedCaches(root);
       expect(result.scanned).toBe(1);
       expect(result.deleted).toBe(1);
       await expect(stat(nested)).rejects.toThrow();
     } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test('TOCTOU: recently-written orphan is NOT unlinked (skipped_recent bumps)', async () => {
+    if (!mongoReachable) return;
+    const { sweepOrphanedCaches } = await import('./cache-gc.ts');
+    const root = await mkTree();
+    try {
+      // Unknown id (no assets inserted) with fresh mtime — simulates a stage
+      // mid-write or just-finished writing while `known` was already snapshotted.
+      const fresh = path.join(root, '.maple', 'previews', `${OTHER_ID}_1280.jpg`);
+      await writeJpg(fresh);
+      // Do NOT age — mtime is "now", inside the recency window.
+
+      const result = await sweepOrphanedCaches(root);
+      expect(result.scanned).toBe(1);
+      expect(result.deleted).toBe(0);
+      expect(result.skipped_recent).toBe(1);
+
+      // File is still on disk despite its id being unknown.
+      const s = await stat(fresh);
+      expect(s.size).toBeGreaterThan(0);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test('does not follow directory symlinks (no infinite loop)', async () => {
+    if (!mongoReachable) return;
+    const { sweepOrphanedCaches } = await import('./cache-gc.ts');
+    const root = await mkTree();
+    try {
+      // A real .maple cache with one legacy orphan to verify the sweep still
+      // does its job around the symlink.
+      const realOrphan = path.join(root, '.maple', 'thumbs', `${LEGACY_KEY}.jpg`);
+      await writeJpg(realOrphan);
+      await agePast(realOrphan);
+
+      // Self-referential dir symlink: would loop forever if the walk followed it.
+      await mkdir(path.join(root, 'inner'), { recursive: true });
+      await symlink(root, path.join(root, 'inner', 'loop'));
+
+      const result = await sweepOrphanedCaches(root);
+      // Walk completed (no hang) and still found / unlinked the real orphan.
+      expect(result.scanned).toBe(1);
+      expect(result.deleted).toBe(1);
+      await expect(stat(realOrphan)).rejects.toThrow();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test('persistent unlink failure aborts sweep without crashing the caller', async () => {
+    if (!mongoReachable) return;
+    // POSIX unlink requires write+execute on the parent directory. Chmod the
+    // parent to 0o555 (r-x for owner) so:
+    //   - readdir still works (need 'r'), so the sweep sees the files
+    //   - unlink fails with EACCES (need 'w' on parent), tripping the threshold
+    // Skip on Windows (no POSIX perms) and when running as root (perms ignored).
+    if (process.platform === 'win32') return;
+    if (typeof process.getuid === 'function' && process.getuid() === 0) return;
+
+    const { sweepOrphanedCaches } = await import('./cache-gc.ts');
+    const root = await mkTree();
+    const lockedDir = path.join(root, '.maple', 'thumbs');
+    try {
+      // Four orphan files in one cache dir. We need at least 3 same-errno
+      // failures to trip FAIL_THRESHOLD; the 4th may or may not be attempted
+      // depending on whether the abort raced the loop body.
+      const orphans = [
+        path.join(lockedDir, `${LEGACY_KEY}.jpg`),
+        path.join(lockedDir, '0123456789abcdee.jpg'),
+        path.join(lockedDir, '0123456789abcded.jpg'),
+        path.join(lockedDir, '0123456789abcdec.jpg'),
+      ];
+      for (const p of orphans) {
+        await writeJpg(p);
+        await agePast(p);
+      }
+
+      // Read-execute on parent: readdir/stat succeed, unlink fails EACCES.
+      await chmod(lockedDir, 0o555);
+
+      // Sweep should catch the abort internally and return partial counts —
+      // crucially, it must NOT throw past the boot wiring at index.ts.
+      const result = await sweepOrphanedCaches(root);
+      expect(result.deleted).toBe(0);
+      // At least 3 scanned (the threshold) before the abort. May be 3 or 4
+      // depending on readdir order.
+      expect(result.scanned).toBeGreaterThanOrEqual(3);
+
+      // Restore perms so files still on disk can be enumerated then cleaned.
+      await chmod(lockedDir, 0o755);
+      const remaining = await readdir(lockedDir);
+      expect(remaining.length).toBe(orphans.length);
+    } finally {
+      // Defensive: re-open perms in case the test errored before we did.
+      try {
+        await chmod(lockedDir, 0o755);
+      } catch {
+        /* ignore */
+      }
       await rm(root, { recursive: true, force: true });
     }
   });
