@@ -189,6 +189,49 @@ final class UploadClientTests: XCTestCase {
         }
     }
 
+    /// Regression for #223: when the server short-circuits a retry of an
+    /// already-completed upload, it returns 200 on the FIRST chunk (not the
+    /// final one) with `{ maple_id, target_rel_path }`. Before the fix, the
+    /// client threw `badResponse` because it required 200 only on the final
+    /// chunk; the engine then transitioned the task back to .pending and
+    /// burned retry slots until .failedRetry.
+    func testUploadAccepts200OnNonFinalChunkAsAlreadyComplete() async throws {
+        StubURLProtocol.stub = .ok(
+            json: #"{"maple_id":"already-done","target_rel_path":"2024/Tokyo/IMG.heic"}"#)
+        let client = await makeClient(chunkSize: 100)
+        // 256 total bytes, chunkSize 100 → would normally be three chunks.
+        // The server replies 200 on the first chunk (asset is already
+        // complete from a prior successful ingest) so the loop terminates
+        // immediately.
+        let result = try await client.upload(
+            phassetLocalId: "P1", filename: "IMG.heic",
+            captureDate: Date(timeIntervalSince1970: 1_700_000_000),
+            lat: nil, lon: nil,
+            bytes: Data(count: 256), mapleId: "client-computed-id")
+        XCTAssertEqual(result.mapleId, "already-done",
+                       "client must trust server's stored maple_id from the completed session")
+        XCTAssertEqual(result.targetRelPath, "2024/Tokyo/IMG.heic")
+        // Only one request should have gone out — the server's 200 short-
+        // circuit means the remaining chunks are not sent.
+        XCTAssertEqual(StubURLProtocol.recordedRequests.count, 1,
+                       "expected exactly one chunk before short-circuit, got \(StubURLProtocol.recordedRequests.count)")
+    }
+
+    /// Same short-circuit semantics for `uploadRendered`: a 200 on any chunk
+    /// means the rendered companion is already complete server-side.
+    func testUploadRenderedAccepts200OnNonFinalChunkAsAlreadyComplete() async throws {
+        StubURLProtocol.stub = .ok(json: #"{"target_rel_path":"x"}"#)
+        let client = await makeClient(chunkSize: 100)
+        // No throw expected — the client returns without sending the rest.
+        try await client.uploadRendered(
+            phassetLocalId: "P1",
+            targetRelPath: "2024/Tokyo/IMG.heic",
+            filenameExt: "jpeg",
+            bytes: Data(count: 250))
+        XCTAssertEqual(StubURLProtocol.recordedRequests.count, 1,
+                       "expected exactly one chunk before short-circuit")
+    }
+
     func testNetworkErrorPropagates() async throws {
         StubURLProtocol.stub = .networkError(.notConnectedToInternet)
         let client = await makeClient()

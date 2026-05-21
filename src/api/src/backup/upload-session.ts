@@ -25,9 +25,9 @@
  *
  * Spec: .archived-plans/specs/2026-05-09-photokit-backup-design.md §16, §20.
  */
-import { ObjectId } from "mongodb";
-import { uploadSessionsCollection } from "../db/client.ts";
-import type { UploadSessionDoc } from "../db/schema.ts";
+import { ObjectId } from 'mongodb';
+import { uploadSessionsCollection } from '../db/client.ts';
+import type { UploadSessionDoc } from '../db/schema.ts';
 
 /** A peer device is considered "actively uploading" if its session has
  * received a chunk within this window. Generous enough that a phone going
@@ -43,8 +43,8 @@ export const CROSS_DEVICE_BUSY_WINDOW_MS = 30 * 60 * 1000;
 export class BusyElsewhereError extends Error {
   readonly retryAfterSeconds: number;
   constructor(retryAfterSeconds: number) {
-    super("another device is actively uploading this asset");
-    this.name = "BusyElsewhereError";
+    super('another device is actively uploading this asset');
+    this.name = 'BusyElsewhereError';
     this.retryAfterSeconds = retryAfterSeconds;
   }
 }
@@ -55,6 +55,14 @@ export interface OpenOrResumeResult {
    * self-heal). The route must unlink the stale tmp file so the next chunk
    * append doesn't pick up old bytes. */
   reset: boolean;
+  /** True when the existing session was already `state: "completed"` for the
+   * same `(total_bytes, target_rel_path)`. The route short-circuits to HTTP
+   * 200 with the stored `maple_id` + `target_rel_path` so the client doesn't
+   * burn retry slots on an upload that already finished server-side. Triggered
+   * when the original chunked upload completed but a downstream step in the
+   * device pipeline (sidecar, rendered, live video) failed and re-enqueued
+   * the task. */
+  alreadyComplete: boolean;
 }
 
 export const uploadSessions = {
@@ -99,7 +107,7 @@ export const uploadSessions = {
         {
           library_id: args.libraryId,
           phasset_cloud_id: args.phassetCloudId,
-          state: "open",
+          state: 'open',
           $or: [
             { device_id: { $ne: args.deviceId } },
             { phasset_local_id: { $ne: args.phassetLocalId } },
@@ -112,9 +120,7 @@ export const uploadSessions = {
         if (ageMs <= CROSS_DEVICE_BUSY_WINDOW_MS) {
           // Peer is actively progressing — tell the caller to back off until
           // the peer either completes or goes stale.
-          const retryAfter = Math.ceil(
-            (CROSS_DEVICE_BUSY_WINDOW_MS - ageMs) / 1000,
-          );
+          const retryAfter = Math.ceil((CROSS_DEVICE_BUSY_WINDOW_MS - ageMs) / 1000);
           throw new BusyElsewhereError(retryAfter);
         }
         // The most-recent peer is stale → all peers are stale. Sweep every
@@ -125,13 +131,13 @@ export const uploadSessions = {
           {
             library_id: args.libraryId,
             phasset_cloud_id: args.phassetCloudId,
-            state: "open",
+            state: 'open',
             $or: [
               { device_id: { $ne: args.deviceId } },
               { phasset_local_id: { $ne: args.phassetLocalId } },
             ],
           },
-          { $set: { state: "abandoned", updated_at: new Date() } },
+          { $set: { state: 'abandoned', updated_at: new Date() } },
         );
       }
     }
@@ -148,7 +154,7 @@ export const uploadSessions = {
       phasset_local_id: args.phassetLocalId,
     });
 
-    if (existing?.state === "open") {
+    if (existing?.state === 'open') {
       const totalChanged = existing.total_bytes !== args.totalBytes;
       const pathChanged = existing.target_rel_path !== args.targetRelPath;
       if (totalChanged || pathChanged) {
@@ -156,12 +162,9 @@ export const uploadSessions = {
         // holds — reset in place so the next chunk starts at offset 0 with
         // the new metadata. The unique index spans all states, so we update
         // rather than abandon-then-insert.
-        const unsetFields: Record<string, ""> = {};
-        if (
-          args.phassetCloudId === undefined &&
-          existing.phasset_cloud_id !== undefined
-        ) {
-          unsetFields.phasset_cloud_id = "";
+        const unsetFields: Record<string, ''> = {};
+        if (args.phassetCloudId === undefined && existing.phasset_cloud_id !== undefined) {
+          unsetFields.phasset_cloud_id = '';
         }
         const now = new Date();
         await coll.updateOne(
@@ -177,21 +180,16 @@ export const uploadSessions = {
                 ? { phasset_cloud_id: args.phassetCloudId }
                 : {}),
             },
-            ...(Object.keys(unsetFields).length > 0
-              ? { $unset: unsetFields }
-              : {}),
+            ...(Object.keys(unsetFields).length > 0 ? { $unset: unsetFields } : {}),
           },
         );
         const refreshed = (await coll.findOne({ _id: existing._id }))!;
-        return { session: refreshed, reset: true };
+        return { session: refreshed, reset: true, alreadyComplete: false };
       }
       // No reset needed. If the caller is now offering a cloud id we didn't
       // have before, enrich the row in place — this is metadata-only and
       // doesn't invalidate progress (e.g. iCloud was enabled mid-upload).
-      if (
-        args.phassetCloudId !== undefined &&
-        existing.phasset_cloud_id === undefined
-      ) {
+      if (args.phassetCloudId !== undefined && existing.phasset_cloud_id === undefined) {
         await coll.updateOne(
           { _id: existing._id },
           {
@@ -203,48 +201,94 @@ export const uploadSessions = {
         );
         existing.phasset_cloud_id = args.phassetCloudId;
       }
-      return { session: existing, reset: false };
+      return { session: existing, reset: false, alreadyComplete: false };
     }
 
-    if (existing?.state === "abandoned") {
-      // The row was abandoned by a cross-device takeover or by gcAbandoned().
-      // Reopen in place — inserting a new row would collide with the unique
-      // resume-key index. The route treats reset:true as "clear stale tmp
-      // bytes" so the next chunk starts at offset 0 cleanly.
-      const unsetFields: Record<string, ""> = { maple_id: "" };
-      if (
-        args.phassetCloudId === undefined &&
-        existing.phasset_cloud_id !== undefined
-      ) {
-        unsetFields.phasset_cloud_id = "";
+    if (existing?.state === 'completed') {
+      // The original chunked upload finished — but a downstream step in the
+      // device pipeline (sidecar, rendered companion, Live Photo .mov) threw
+      // and re-enqueued the task. The client is now retrying the original
+      // upload from offset 0; without this branch, `insertOne` below would
+      // collide on the unique resume-key index, the route would return 409
+      // without an `expected_offset`, and the client would burn retry slots
+      // until `.failedRetry`.
+      //
+      // Same-content retry: tell the route to short-circuit to HTTP 200 with
+      // the stored maple_id + target_rel_path. The client treats that as
+      // success without re-sending the bytes.
+      //
+      // Different content (total_bytes or target_rel_path drift): treat as a
+      // genuine new upload for the same (deviceId, phid) — reopen in place
+      // exactly like the abandoned-state path. This covers the rare case of
+      // the user editing an asset after the previous version was uploaded.
+      const totalChanged = existing.total_bytes !== args.totalBytes;
+      const pathChanged = existing.target_rel_path !== args.targetRelPath;
+      // `maple_id` is typed optional on UploadSessionDoc — `complete()` always
+      // sets it under the normal flow, but a corrupt/legacy/migration-inserted
+      // row could be `state: "completed"` without one. Short-circuiting in
+      // that case would return a 200 body the Swift client can't decode
+      // (`maple_id` is required on its response struct), kicking the engine
+      // back into the same retry loop this PR is meant to fix. Treat the
+      // missing-id case as corrupt and fall through to reopen-in-place so
+      // the client re-uploads from offset 0 and we recover a valid maple_id
+      // on the next final chunk.
+      if (!totalChanged && !pathChanged && existing.maple_id) {
+        return { session: existing, reset: false, alreadyComplete: true };
+      }
+      const unsetFields: Record<string, ''> = { maple_id: '' };
+      if (args.phassetCloudId === undefined && existing.phasset_cloud_id !== undefined) {
+        unsetFields.phasset_cloud_id = '';
       }
       const now = new Date();
       await coll.updateOne(
         { _id: existing._id },
         {
           $set: {
-            state: "open",
+            state: 'open',
             total_bytes: args.totalBytes,
             target_rel_path: args.targetRelPath,
             chunk_size: args.chunkSize,
             received_bytes: 0,
             created_at: now,
             updated_at: now,
-            ...(args.phassetCloudId !== undefined
-              ? { phasset_cloud_id: args.phassetCloudId }
-              : {}),
+            ...(args.phassetCloudId !== undefined ? { phasset_cloud_id: args.phassetCloudId } : {}),
           },
           $unset: unsetFields,
         },
       );
       const refreshed = (await coll.findOne({ _id: existing._id }))!;
-      return { session: refreshed, reset: true };
+      return { session: refreshed, reset: true, alreadyComplete: false };
     }
 
-    // existing?.state === "completed" falls through to insertOne, which will
-    // hit a unique-key collision — pre-existing behavior outside this PR's
-    // scope (the device is retrying an already-finished upload; the right
-    // response is "already done", not a fresh session).
+    if (existing?.state === 'abandoned') {
+      // The row was abandoned by a cross-device takeover or by gcAbandoned().
+      // Reopen in place — inserting a new row would collide with the unique
+      // resume-key index. The route treats reset:true as "clear stale tmp
+      // bytes" so the next chunk starts at offset 0 cleanly.
+      const unsetFields: Record<string, ''> = { maple_id: '' };
+      if (args.phassetCloudId === undefined && existing.phasset_cloud_id !== undefined) {
+        unsetFields.phasset_cloud_id = '';
+      }
+      const now = new Date();
+      await coll.updateOne(
+        { _id: existing._id },
+        {
+          $set: {
+            state: 'open',
+            total_bytes: args.totalBytes,
+            target_rel_path: args.targetRelPath,
+            chunk_size: args.chunkSize,
+            received_bytes: 0,
+            created_at: now,
+            updated_at: now,
+            ...(args.phassetCloudId !== undefined ? { phasset_cloud_id: args.phassetCloudId } : {}),
+          },
+          $unset: unsetFields,
+        },
+      );
+      const refreshed = (await coll.findOne({ _id: existing._id }))!;
+      return { session: refreshed, reset: true, alreadyComplete: false };
+    }
 
     const now = new Date();
     const doc: UploadSessionDoc = {
@@ -256,18 +300,18 @@ export const uploadSessions = {
       total_bytes: args.totalBytes,
       received_bytes: 0,
       chunk_size: args.chunkSize,
-      state: "open",
+      state: 'open',
       created_at: now,
       updated_at: now,
       ...(args.phassetCloudId ? { phasset_cloud_id: args.phassetCloudId } : {}),
     };
     await coll.insertOne(doc);
-    return { session: doc, reset: false };
+    return { session: doc, reset: false, alreadyComplete: false };
   },
 
   async recordChunk(args: { sessionId: ObjectId; bytesReceived: number }): Promise<void> {
     if (args.bytesReceived < 0) {
-      throw new Error("uploadSessions.recordChunk: bytesReceived must be >= 0");
+      throw new Error('uploadSessions.recordChunk: bytesReceived must be >= 0');
     }
     const coll = await uploadSessionsCollection();
     await coll.updateOne(
@@ -280,7 +324,7 @@ export const uploadSessions = {
     const coll = await uploadSessionsCollection();
     await coll.updateOne(
       { _id: args.sessionId },
-      { $set: { state: "completed", maple_id: args.mapleId, updated_at: new Date() } },
+      { $set: { state: 'completed', maple_id: args.mapleId, updated_at: new Date() } },
     );
   },
 
@@ -304,8 +348,8 @@ export const uploadSessions = {
   async gcAbandoned(cutoff: Date): Promise<number> {
     const coll = await uploadSessionsCollection();
     const r = await coll.updateMany(
-      { state: "open", updated_at: { $lt: cutoff } },
-      { $set: { state: "abandoned" } },
+      { state: 'open', updated_at: { $lt: cutoff } },
+      { $set: { state: 'abandoned' } },
     );
     return r.modifiedCount;
   },
