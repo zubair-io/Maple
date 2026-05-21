@@ -1,0 +1,40 @@
+/* TypeScript configuration for Storybook compilation.
+ * Picks up:
+ *   - Storybook config files in `.storybook/`
+ *   - Story files across every project in the workspace
+ *   - The maple-common library sources (so stories can import components by relative path)
+ *   - The maple application sources (for shell-level stories)
+ */
+{
+  "compileOnSave": false,
+  "compilerOptions": {
+    "outDir": "../out-tsc/storybook",
+    "paths": {
+      "@maple-common": ["../projects/maple-common/src/public-api.ts"]
+    },
+    "strict": true,
+    "noImplicitOverride": true,
+    "noPropertyAccessFromIndexSignature": false,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "skipLibCheck": true,
+    "isolatedModules": true,
+    "experimentalDecorators": true,
+    "importHelpers": true,
+    "target": "ES2022",
+    "module": "preserve",
+    "types": []
+  },
+  "angularCompilerOptions": {
+    "enableI18nLegacyMessageIdFormat": false,
+    "strictInjectionParameters": true,
+    "strictInputAccessModifiers": true,
+    "strictTemplates": true
+  },
+  "include": ["./preview.ts", "../projects/**/*.stories.ts"],
+  "exclude": [
+    "../**/*.spec.ts",
+    "../projects/maple-common/src/lib/raw-pipeline/**",
+    "../projects/maple-common/src/lib/webgl/dev/**"
+  ]
+}
