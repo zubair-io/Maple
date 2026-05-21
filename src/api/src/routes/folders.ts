@@ -805,7 +805,7 @@ export function buildTrashListFilter(
   };
 
   const filter: Record<string, unknown> = {
-    folder_id: folderId,
+    'fileinfo.library_id': folderId,
     ...trashPredicate,
   };
 
@@ -826,7 +826,7 @@ export function buildTrashListFilter(
   // planner unions the index-eligibility analysis across both sides of
   // an $and, so dropping it on the cursor branch reintroduces the bug.
   return {
-    folder_id: folderId,
+    'fileinfo.library_id': folderId,
     $and: [
       trashPredicate,
       {

@@ -84,15 +84,22 @@ function makeEmbedding(dim: number, seed: number): number[] {
 }
 
 async function insertAssetWithFaces(faces: AssetFaceDoc[]): Promise<ObjectId> {
+  // Seed a folder so coverAbsPath resolution can compose the wire abs_path.
+  const libraryId = makeFolderObjectId();
+  const libraryRoot = `/tmp/maple-test/${libraryId.toHexString()}`;
+  const filename = `${Math.random().toString(36).slice(2, 8)}.jpg`;
+  await db!.collection('folders').insertOne({
+    _id: libraryId,
+    path: libraryRoot,
+    label: 'people-test',
+    last_scan: null,
+    file_count: 0,
+    created_at: new Date().toISOString(),
+  } as never);
+  const { invalidateLibraryRoots } = await import('../indexer/libraries.cache.ts');
+  invalidateLibraryRoots();
   const doc: AssetDoc = {
-    fileinfo: [
-      {
-        path: '',
-        filename: `${Math.random().toString(36).slice(2, 8)}.jpg`,
-        library_id: makeFolderObjectId(),
-        deleted_at: null,
-      },
-    ],
+    fileinfo: [{ path: '', filename, library_id: libraryId, deleted_at: null }],
     size: 1024,
     mtime: Date.now(),
     rating: 0,
@@ -248,7 +255,13 @@ describe('people.repo — listPeople', () => {
       },
     ]);
     const liveAssetDoc = await db!.collection<AssetDoc>('assets').findOne({ _id: liveAsset });
-    const livePath = liveAssetDoc?.fileinfo?.[0]?.filename;
+    // Compose the wire abs_path the way the route would: library root + filename.
+    const primary = liveAssetDoc?.fileinfo?.[0];
+    expect(primary).toBeDefined();
+    const folderDoc = await db!
+      .collection<{ path: string }>('folders')
+      .findOne({ _id: primary!.library_id });
+    const livePath = `${folderDoc!.path}/${primary!.filename}`;
     expect(typeof livePath).toBe('string');
     // Set covers directly. Mixed-case hex on the orphan exercises the
     // safeObjectId normalisation in coverAbsPathByPerson.

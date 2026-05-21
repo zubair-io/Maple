@@ -13,7 +13,7 @@
 
 import { Elysia, t } from 'elysia';
 import { stat } from 'node:fs/promises';
-import { resolveThumbPath, resolveThumbPathForAsset } from '../../fs/xmp.ts';
+import { resolveThumbPathForAsset } from '../../fs/xmp.ts';
 import { safeReadFile } from '../../fs/root.ts';
 import { ifNoneMatchEqual } from '../../runtime/http-etag.ts';
 import { buildContentDispositionAttachment } from '../../runtime/http-content-disposition.ts';
@@ -92,15 +92,18 @@ export const metadataRoutes = new Elysia()
 
       // Single per-file thumb (size param is render-target advisory only;
       // the cache key no longer includes size — see fs/xmp.ts).
-      // Prefer content-addressed cache key when the asset has both
-      // `maple_id` and `fileinfo[0]`; fall back to the legacy basename-keyed
-      // path for unmigrated rows.
+      // Content-addressed cache key: requires `maple_id` + `fileinfo[0]`.
+      // The legacy basename-keyed fallback was retired in the
+      // drop-abs-path-2026-05-21 migration.
       const libs = await loadLibraryRoots();
-      const cacheKeyed = resolveThumbPathForAsset(
+      const thumbPath = resolveThumbPathForAsset(
         { maple_id: info.maple_id ?? undefined, fileinfo: info.fileinfo },
         libs,
       );
-      const thumbPath = cacheKeyed ?? resolveThumbPath(info.abs_path);
+      if (!thumbPath) {
+        set.status = 404;
+        return { error: 'Asset has no resolvable thumbnail location' };
+      }
 
       // Stat the thumb FIRST so a 304-bound request never pays the
       // body-read cost. The previous shape (read then stat) defeated

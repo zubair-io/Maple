@@ -287,10 +287,7 @@ async function coverAbsPathByPerson(people: WithId<PersonDoc>[]): Promise<Map<st
   }
   if (coverObjectIds.length === 0) return out;
   const assets = await assetsCollection();
-  const cursor = assets.find(
-    { _id: { $in: coverObjectIds } },
-    { projection: { abs_path: 1, fileinfo: 1, folder_id: 1 } },
-  );
+  const cursor = assets.find({ _id: { $in: coverObjectIds } }, { projection: { fileinfo: 1 } });
   const libs = await loadLibraryRoots();
   for await (const row of cursor) {
     const personHex = personByCover.get(row._id.toHexString());

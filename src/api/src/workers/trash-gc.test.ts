@@ -140,8 +140,22 @@ describe('trash-gc sweeper query plan', () => {
     writeFileSync(oldPath, 'x');
     writeFileSync(newPath, 'x');
 
+    // Seed a folder so the trash-gc handler can resolve fileinfo[0]
+    // entries via assetAbsPath.
+    const { foldersCollection } = await import('../db/client.ts');
+    const { invalidateLibraryRoots } = await import('../indexer/libraries.cache.ts');
+    invalidateLibraryRoots();
+    const foldersColl = await foldersCollection();
+    const libraryId = await foldersColl
+      .insertOne({
+        path: dir,
+        label: 'trash-gc-test',
+        last_scan: null,
+        file_count: 0,
+        created_at: '2026-05-11T00:00:00Z',
+      } as never)
+      .then((r) => r.insertedId);
     const base = {
-      folder_id: 'f',
       size: 1,
       mtime: 0,
       rating: 0,
@@ -150,9 +164,21 @@ describe('trash-gc sweeper query plan', () => {
       indexed_at: '2026-05-11T00:00:00Z',
     };
     await db!.collection('assets').insertMany([
-      { ...base, filename: 'old.jpg', abs_path: oldPath, deleted_at: oldIso },
-      { ...base, filename: 'new.jpg', abs_path: newPath, deleted_at: newIso },
-      { ...base, filename: 'live.jpg', abs_path: '/n/a', deleted_at: null },
+      {
+        ...base,
+        fileinfo: [{ path: '', filename: 'old.jpg', library_id: libraryId, deleted_at: null }],
+        deleted_at: oldIso,
+      },
+      {
+        ...base,
+        fileinfo: [{ path: '', filename: 'new.jpg', library_id: libraryId, deleted_at: null }],
+        deleted_at: newIso,
+      },
+      {
+        ...base,
+        fileinfo: [{ path: '', filename: 'live.jpg', library_id: libraryId, deleted_at: null }],
+        deleted_at: null,
+      },
     ]);
 
     const { runTrashGcOnce } = await import('./trash-gc.ts');
@@ -163,9 +189,9 @@ describe('trash-gc sweeper query plan', () => {
     // The old row is gone, the new one and the live one remain.
     const remaining = (await db!
       .collection('assets')
-      .find({}, { projection: { filename: 1 } })
-      .toArray()) as Array<{ filename?: string }>;
-    const names = remaining.map((r) => r.filename).sort();
+      .find({}, { projection: { fileinfo: 1 } })
+      .toArray()) as Array<{ fileinfo?: Array<{ filename?: string }> }>;
+    const names = remaining.map((r) => r.fileinfo?.[0]?.filename).sort();
     expect(names).toEqual(['live.jpg', 'new.jpg']);
   });
 });

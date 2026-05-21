@@ -52,15 +52,21 @@ describe('GET /api/assets/:id/thumb — ETag', () => {
     process.env.MAPLE_ROOTS = tmp;
     const rawPath = join(tmp, 'a.dng');
     await writeFile(rawPath, Buffer.alloc(8));
-    const thumbPath = resolveThumbPath(rawPath);
-    await mkdir(dirname(thumbPath), { recursive: true });
-    await writeFile(thumbPath, Buffer.from([0xff, 0xd8, 0xff]));
     assetId = new ObjectId();
+    const libraryId = new ObjectId();
+    const mapleId = 'thumbetag' + assetId.toHexString();
+    await db.collection('folders').insertOne({
+      _id: libraryId,
+      path: tmp,
+      label: 'thumb-etag-test',
+      last_scan: null,
+      file_count: 0,
+      created_at: 'now',
+    } as never);
     await db.collection('assets').insertOne({
       _id: assetId,
-      folder_id: new ObjectId(),
-      filename: 'a.dng',
-      abs_path: rawPath,
+      fileinfo: [{ path: '', filename: 'a.dng', library_id: libraryId, deleted_at: null }],
+      maple_id: mapleId,
       size: 8,
       mtime: Date.now(),
       rating: 0,
@@ -68,6 +74,14 @@ describe('GET /api/assets/:id/thumb — ETag', () => {
       color_label: '',
       indexed_at: 'now',
     } as never);
+    // Stage the thumb at the content-addressed path the route will look at.
+    const thumbPath = join(tmp, '.maple', 'thumbs', `${mapleId}.jpg`);
+    await mkdir(dirname(thumbPath), { recursive: true });
+    await writeFile(thumbPath, Buffer.from([0xff, 0xd8, 0xff]));
+    // Invalidate the library cache so the route's loadLibraryRoots picks
+    // up the freshly-inserted folder.
+    const { invalidateLibraryRoots } = await import('../indexer/libraries.cache.ts');
+    invalidateLibraryRoots();
   });
 
   afterEach(async () => {
@@ -160,14 +174,13 @@ describe('GET /api/assets/:id/thumb — ETag', () => {
     );
     const etag = first.headers.get('ETag')!;
     // Delete the thumb. Now any subsequent stat fails.
-    const { resolveThumbPath } = await import('../fs/xmp.ts');
-    const { assetAbsPath } = await import('../indexer/images.repo.ts');
+    const { resolveThumbPathForAsset } = await import('../fs/xmp.ts');
     const { loadLibraryRoots } = await import('../indexer/libraries.cache.ts');
     const coll = await (await import('../db/client.ts')).assetsCollection();
     const doc = await coll.findOne({ _id: assetId! });
     const libs = await loadLibraryRoots();
-    const absPath = assetAbsPath(doc!, libs);
-    if (absPath) await unlink(resolveThumbPath(absPath));
+    const thumbPath = resolveThumbPathForAsset(doc!, libs);
+    if (thumbPath) await unlink(thumbPath);
     const second = await app.handle(
       new Request(`http://localhost/api/assets/${assetId!.toHexString()}/thumb`, {
         headers: { 'If-None-Match': etag },

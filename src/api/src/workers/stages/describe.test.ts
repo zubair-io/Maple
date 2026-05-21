@@ -9,7 +9,8 @@ import {
   type DescribeProvider,
   type DescribeResult,
 } from '../../enrichment/describe-providers/index.ts';
-import { cachePathFor } from '../../fs/xmp.ts';
+import { cachePathForAsset } from '../../fs/xmp.ts';
+import { setLibraryRootsForTests } from '../../indexer/libraries.cache.ts';
 
 import { describeHandler, setDescribeDepsForTests, DESCRIBE_PROMPT_VERSION } from './describe.ts';
 import { VISION_DOC_JSON_SCHEMA } from '../../enrichment/describe-providers/parse-vision-json.ts';
@@ -33,12 +34,19 @@ const VALID_VISION = {
   is_screenshot: false,
 };
 
-function fakeDoc(absPath: string): ImageDoc {
+function fakeDoc(absPath: string, libraryId: ObjectId, libraryRoot: string): ImageDoc {
+  const relDir = (() => {
+    const r = absPath.startsWith(libraryRoot + '/')
+      ? absPath.substring(libraryRoot.length + 1)
+      : '';
+    const lastSlash = r.lastIndexOf('/');
+    return lastSlash < 0 ? '' : r.substring(0, lastSlash);
+  })();
+  const filename = absPath.split('/').pop()!;
   return {
     _id: new ObjectId(),
-    folder_id: new ObjectId(),
-    filename: 'test.dng',
-    abs_path: absPath,
+    fileinfo: [{ path: relDir, filename, library_id: libraryId, deleted_at: null }],
+    maple_id: 'describe-test-' + Math.random().toString(36).slice(2),
     size: 1,
     mtime: 1,
     rating: 0,
@@ -62,7 +70,7 @@ function fakeDoc(absPath: string): ImageDoc {
     description: null,
     place: null,
     stages: {},
-  } as ImageDoc;
+  } as unknown as ImageDoc;
 }
 
 function mockProvider(result: DescribeResult | Error): DescribeProvider {
@@ -77,19 +85,33 @@ function mockProvider(result: DescribeResult | Error): DescribeProvider {
 }
 
 let tmpRoot: string;
+let libraryId: ObjectId;
 beforeEach(() => {
   tmpRoot = mkdtempSync(join(tmpdir(), 'maple-describe-stage-'));
+  libraryId = new ObjectId();
+  setLibraryRootsForTests(new Map([[libraryId.toHexString(), tmpRoot]]));
 });
 afterEach(() => {
   rmSync(tmpRoot, { recursive: true, force: true });
   setDescribeDepsForTests(null);
+  setLibraryRootsForTests(null);
 });
 
-/** Seed a fake 1280-px preview at the path the describe stage will read. */
-function seedPreview(absPath: string): void {
-  const previewPath = cachePathFor(absPath, 'previews', '1280');
+/** Stage a fake 1280-px preview AND build the matching doc. The doc's
+ * maple_id determines the preview cache path so we have to construct
+ * them together. */
+function stageDoc(absPath: string): ImageDoc {
+  const doc = fakeDoc(absPath, libraryId, tmpRoot);
+  const previewPath = cachePathForAsset(
+    doc as never,
+    new Map([[libraryId.toHexString(), tmpRoot]]),
+    'previews',
+    '1280',
+  );
+  if (!previewPath) throw new Error('test setup: cachePathForAsset returned null');
   mkdirSync(dirname(previewPath), { recursive: true });
   writeFileSync(previewPath, Buffer.from([0xff, 0xd8, 0xff, 0xd9]));
+  return doc;
 }
 
 const fakeCtx = {} as never;
@@ -97,8 +119,7 @@ const fakeCtx = {} as never;
 describe('describeHandler — happy path', () => {
   it('returns patch with description, description_meta, vision, vision_meta', async () => {
     const absPath = join(tmpRoot, 'img.dng');
-    seedPreview(absPath);
-    const doc = fakeDoc(absPath);
+    const doc = stageDoc(absPath);
     const provider = mockProvider({
       text: JSON.stringify(VALID_VISION),
       cost_usd: 0.0, // qwen2.5-vl runs locally; no spend
@@ -144,8 +165,7 @@ describe('describeHandler — happy path', () => {
 
   it('threads VISION_DOC_JSON_SCHEMA through to the provider as `format`', async () => {
     const absPath = join(tmpRoot, 'img.dng');
-    seedPreview(absPath);
-    const doc = fakeDoc(absPath);
+    const doc = stageDoc(absPath);
     let capturedFormat: unknown = undefined;
     const provider: DescribeProvider = {
       name: 'ollama',
@@ -174,8 +194,7 @@ describe('describeHandler — happy path', () => {
 
   it('writes is_screenshot: true at the top level when the VLM flags it', async () => {
     const absPath = join(tmpRoot, 'screenshot.png');
-    seedPreview(absPath);
-    const doc = fakeDoc(absPath);
+    const doc = stageDoc(absPath);
     const vision = { ...VALID_VISION, is_screenshot: true };
     const provider = mockProvider({
       text: JSON.stringify(vision),
@@ -196,8 +215,7 @@ describe('describeHandler — happy path', () => {
 
   it('forgives a markdown-fence-wrapped model response', async () => {
     const absPath = join(tmpRoot, 'fenced.dng');
-    seedPreview(absPath);
-    const doc = fakeDoc(absPath);
+    const doc = stageDoc(absPath);
     const provider = mockProvider({
       text: '```json\n' + JSON.stringify(VALID_VISION) + '\n```',
       cost_usd: 0,
@@ -217,8 +235,7 @@ describe('describeHandler — happy path', () => {
 describe('describeHandler — parse failure', () => {
   it('throws on prose-only model output (runtime auto-dead-letters)', async () => {
     const absPath = join(tmpRoot, 'prose.dng');
-    seedPreview(absPath);
-    const doc = fakeDoc(absPath);
+    const doc = stageDoc(absPath);
     const provider = mockProvider({
       text: 'Sorry, I cannot help with that.',
       cost_usd: 0,
@@ -234,8 +251,7 @@ describe('describeHandler — parse failure', () => {
 
   it('throws on JSON with a missing required field', async () => {
     const absPath = join(tmpRoot, 'incomplete.dng');
-    seedPreview(absPath);
-    const doc = fakeDoc(absPath);
+    const doc = stageDoc(absPath);
     const broken = { ...VALID_VISION } as Partial<typeof VALID_VISION>;
     // `caption` is the canonical strictly-required field — array-of-feature
     // fields (subjects/colors/notable_objects) and the enum fields are
@@ -260,7 +276,7 @@ describe('describeHandler — preview missing', () => {
   it("returns { skip: 'preview-missing' } when the 1280-px preview is absent", async () => {
     const absPath = join(tmpRoot, 'no-preview.dng');
     // No seedPreview call — the file doesn't exist.
-    const doc = fakeDoc(absPath);
+    const doc = fakeDoc(absPath, libraryId, tmpRoot);
     const provider = mockProvider({
       text: JSON.stringify(VALID_VISION),
       cost_usd: 0,
@@ -280,8 +296,7 @@ describe('describeHandler — preview missing', () => {
 describe('describeHandler — provider errors', () => {
   it('a retryable RemoteError propagates', async () => {
     const absPath = join(tmpRoot, 'img2.dng');
-    seedPreview(absPath);
-    const doc = fakeDoc(absPath);
+    const doc = stageDoc(absPath);
     const provider = mockProvider(new RemoteError('Provider 5xx: 503', true, 503));
     setDescribeDepsForTests({
       provider,
@@ -293,8 +308,7 @@ describe('describeHandler — provider errors', () => {
 
   it('a non-retryable RemoteError propagates', async () => {
     const absPath = join(tmpRoot, 'img3.dng');
-    seedPreview(absPath);
-    const doc = fakeDoc(absPath);
+    const doc = stageDoc(absPath);
     const provider = mockProvider(new RemoteError('Provider 4xx: 401', false, 401));
     setDescribeDepsForTests({
       provider,
@@ -308,8 +322,7 @@ describe('describeHandler — provider errors', () => {
 describe('describeHandler — OCR mirror from vision.text_visible', () => {
   it('writes ocr_text + ocr_meta when the asset has no prior ocr_meta', async () => {
     const absPath = join(tmpRoot, 'ocr-fresh.dng');
-    seedPreview(absPath);
-    const doc = fakeDoc(absPath);
+    const doc = stageDoc(absPath);
     // No ocr_meta on the doc — describe should populate it.
     const vision = { ...VALID_VISION, text_visible: 'STOP' };
     const provider = mockProvider({
@@ -332,8 +345,7 @@ describe('describeHandler — OCR mirror from vision.text_visible', () => {
 
   it('writes ocr_text as empty string when vision.text_visible is null', async () => {
     const absPath = join(tmpRoot, 'ocr-null.dng');
-    seedPreview(absPath);
-    const doc = fakeDoc(absPath);
+    const doc = stageDoc(absPath);
     const vision = { ...VALID_VISION, text_visible: null };
     const provider = mockProvider({
       text: JSON.stringify(vision),
@@ -352,8 +364,7 @@ describe('describeHandler — OCR mirror from vision.text_visible', () => {
 
   it("unconditionally writes ocr_text + ocr_meta on refresh (vision wins; engine is the literal 'qwen2.5-vl')", async () => {
     const absPath = join(tmpRoot, 'ocr-refresh.dng');
-    seedPreview(absPath);
-    const doc = fakeDoc(absPath);
+    const doc = stageDoc(absPath);
     // Prior ocr_meta of any shape on the doc is ignored — vision always wins.
     (doc as unknown as Record<string, unknown>).ocr_meta = {
       engine: 'qwen2.5-vl',
@@ -384,8 +395,7 @@ describe('describeHandler — OCR mirror from vision.text_visible', () => {
 describe('describeHandler — provider_info extras', () => {
   it('spreads provider_info into description_meta', async () => {
     const absPath = join(tmpRoot, 'img4.dng');
-    seedPreview(absPath);
-    const doc = fakeDoc(absPath);
+    const doc = stageDoc(absPath);
     const provider = mockProvider({
       text: JSON.stringify(VALID_VISION),
       cost_usd: 0.04,

@@ -28,21 +28,27 @@ async function tryConnect(): Promise<MongoClient | null> {
   }
 }
 
-function makeDoc(absPath: string) {
+function makeDoc(
+  absPath: string,
+  libraryId: import('mongodb').ObjectId,
+  libraryRoot: string,
+  mapleIdOverride?: string,
+) {
+  const relDir = path.relative(libraryRoot, path.dirname(absPath));
   return {
     _id: '000000000000000000000004' as unknown as import('mongodb').ObjectId,
-    abs_path: absPath,
+    fileinfo: [
+      {
+        path: relDir === '.' || relDir === '' ? '' : relDir.split(path.sep).join('/'),
+        filename: path.basename(absPath),
+        library_id: libraryId,
+        deleted_at: null,
+      },
+    ],
     sha1_head: 'c'.repeat(40),
-    maple_id: 'd'.repeat(32),
+    maple_id: mapleIdOverride ?? 'd'.repeat(32),
     exif: null,
     stages: {
-      hash: {
-        version: 1,
-        attempts: 0,
-        last_error: null,
-        processed_at: new Date().toISOString(),
-        dead: false,
-      },
       exif: {
         version: 1,
         attempts: 0,
@@ -68,11 +74,17 @@ function makeDoc(absPath: string) {
 
 describe('preview handler — bitmap path', () => {
   let dir: string;
+  let libraryId: import('mongodb').ObjectId;
   beforeAll(async () => {
     dir = await mkdtemp(path.join(os.tmpdir(), 'preview-stage-'));
+    libraryId = new ObjectId();
+    const { setLibraryRootsForTests } = await import('../../indexer/libraries.cache.ts');
+    setLibraryRootsForTests(new Map([[libraryId.toHexString(), dir]]));
   });
   afterAll(async () => {
     await rm(dir, { recursive: true, force: true });
+    const { setLibraryRootsForTests } = await import('../../indexer/libraries.cache.ts');
+    setLibraryRootsForTests(null);
   });
 
   it('generates a 1280-px preview for a 2000-px JPEG and returns preview_path', async () => {
@@ -84,7 +96,7 @@ describe('preview handler — bitmap path', () => {
       .toBuffer();
     await writeFile(file, buf);
 
-    const doc = makeDoc(file);
+    const doc = makeDoc(file, libraryId, dir);
     const result = await previewStage.handler(doc as never, {} as never);
 
     expect('patch' in result).toBe(true);
@@ -108,7 +120,7 @@ describe('preview handler — bitmap path', () => {
       .toBuffer();
     await writeFile(file, buf);
 
-    const doc = makeDoc(file);
+    const doc = makeDoc(file, libraryId, dir);
     const result = await previewStage.handler(doc as never, {} as never);
     const { patch } = result as { patch: Record<string, unknown> };
     const meta = await sharp(patch.preview_path as string).metadata();
@@ -126,7 +138,7 @@ describe('preview handler — bitmap path', () => {
       .toBuffer();
     await writeFile(file, buf);
 
-    const doc = makeDoc(file);
+    const doc = makeDoc(file, libraryId, dir);
     const result = await previewStage.handler(doc as never, {} as never);
     const { patch } = result as { patch: Record<string, unknown> };
     const meta = await sharp(patch.preview_path as string).metadata();
@@ -142,7 +154,7 @@ describe('preview handler — bitmap path', () => {
       .toBuffer();
     await writeFile(file, buf);
 
-    const doc = makeDoc(file);
+    const doc = makeDoc(file, libraryId, dir);
     const first = await previewStage.handler(doc as never, {} as never);
     const { patch: p1 } = first as { patch: Record<string, unknown> };
     const previewPath = p1.preview_path as string;
@@ -171,11 +183,21 @@ describe('preview handler — bitmap path', () => {
     }
     if (!dngExists) return;
 
-    const doc = makeDoc(dng);
+    // RAW is outside the test library; stage a second library for it.
+    const rawLibraryId = new ObjectId();
+    const { setLibraryRootsForTests } = await import('../../indexer/libraries.cache.ts');
+    setLibraryRootsForTests(
+      new Map([
+        [libraryId.toHexString(), dir],
+        [rawLibraryId.toHexString(), path.dirname(dng)],
+      ]),
+    );
+    const doc = makeDoc(dng, rawLibraryId, path.dirname(dng), 'f'.repeat(32));
     const result = await previewStage.handler(doc as never, {} as never);
     expect('patch' in result).toBe(true);
     const { patch } = result as { patch: Record<string, unknown> };
     expect(typeof patch.preview_path).toBe('string');
+    setLibraryRootsForTests(new Map([[libraryId.toHexString(), dir]]));
   });
 });
 
@@ -243,9 +265,8 @@ describe('preview handler — content-addressed cache path', () => {
 
     const mapleId = 'f'.repeat(32);
     const doc = {
-      ...makeDoc(file),
-      maple_id: mapleId,
-      fileinfo: [{ path: 'trip', filename: 'wide.jpg', library_id: libId }],
+      ...makeDoc(file, libId, dir, mapleId),
+      fileinfo: [{ path: 'trip', filename: 'wide.jpg', library_id: libId, deleted_at: null }],
     };
 
     const result = await previewStage.handler(doc as never, {} as never);
