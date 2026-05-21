@@ -35,6 +35,16 @@ public actor CloudThumbCache {
     self.maxBytes = maxBytes
   }
 
+  /// Sample cache for SwiftUI `#Preview` blocks. Backed by a per-process
+  /// temp directory so previews never collide with the real cache. The
+  /// directory is created lazily on first put; this constructor just picks
+  /// a unique URL. Issue #139.
+  public static func preview() -> CloudThumbCache {
+    let tmp = FileManager.default.temporaryDirectory
+      .appendingPathComponent("maple-preview-\(UUID().uuidString)", isDirectory: true)
+    return CloudThumbCache(baseDir: tmp, maxBytes: 64 * 1024 * 1024)
+  }
+
   public func get(host: String, absPath: String) -> Data? {
     let url = path(host: host, absPath: absPath)
     guard FileManager.default.fileExists(atPath: url.path) else { return nil }

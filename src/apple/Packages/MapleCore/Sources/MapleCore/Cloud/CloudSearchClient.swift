@@ -16,6 +16,18 @@ public actor CloudSearchClient {
     self.httpClient = httpClient
   }
 
+  /// Sample client for SwiftUI `#Preview` blocks. Points at an unreachable
+  /// example server; any /api/search call fails fast, leaving the timeline
+  /// rendering its empty/loading state. Issue #139.
+  public static func preview(
+    server: URL = URL(string: "https://preview.maple.invalid")!
+  ) -> CloudSearchClient {
+    CloudSearchClient(
+      server: server,
+      httpClient: AuthenticatedHTTPClient.preview(server: server)
+    )
+  }
+
   /// `GET /api/search/buckets?libraryId=<id>[&pathPrefix=<p>]` — returns
   /// year/month aggregations for the given library, optionally narrowed
   /// to records whose `abs_path` starts with `pathPrefix`. Sending the

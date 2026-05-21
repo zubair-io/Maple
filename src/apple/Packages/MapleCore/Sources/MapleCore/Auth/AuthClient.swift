@@ -179,4 +179,15 @@ extension AuthClient {
     try checkStatus(resp, data: data)
     return (try JSONSerialization.jsonObject(with: data) as? [[String: Any]]) ?? []
   }
+
+  // MARK: - Preview
+
+  /// Sample `AuthClient` for SwiftUI `#Preview` blocks. Pointed at a
+  /// non-routable example URL so any accidental network call in a preview
+  /// fails fast rather than hitting a real server. Issue #139.
+  public static func preview(
+    server: URL = URL(string: "https://preview.maple.invalid")!
+  ) -> AuthClient {
+    AuthClient(server: server)
+  }
 }

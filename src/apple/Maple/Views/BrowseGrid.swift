@@ -721,3 +721,51 @@ struct ThumbnailImage: View {
         return img
     }
 }
+
+// MARK: - Previews
+//
+// Issue #139 — grid against the `BrowseViewModel.preview(...)` factory.
+// Thumbnails fail to load (the preview AssetRef has no bytes), so each
+// cell shows the placeholder shimmer; the grid layout itself renders
+// correctly. Coverage: empty, loaded, loading, error, photosAuthNeeded.
+
+private struct _BrowseGridPreviewWrapper: View {
+    let vm: BrowseViewModel
+    let grantPhotos: Bool
+    @State private var sessions: [AssetRef.ID: EditSession] = [:]
+
+    init(vm: BrowseViewModel, grantPhotos: Bool = false) {
+        self.vm = vm
+        self.grantPhotos = grantPhotos
+    }
+
+    var body: some View {
+        BrowseGrid(
+            vm: vm,
+            sessions: $sessions,
+            onGrantPhotosAccess: grantPhotos ? {} : nil
+        )
+        .frame(width: 720, height: 540)
+    }
+}
+
+#Preview("Loaded") {
+    _BrowseGridPreviewWrapper(vm: BrowseViewModel.preview(.loaded(count: 18)))
+}
+
+#Preview("Empty") {
+    _BrowseGridPreviewWrapper(vm: BrowseViewModel.preview(.empty))
+}
+
+#Preview("Loading") {
+    _BrowseGridPreviewWrapper(vm: BrowseViewModel.preview(.loading))
+}
+
+#Preview("Error") {
+    _BrowseGridPreviewWrapper(vm: BrowseViewModel.preview(.error))
+}
+
+#Preview("Photos access needed") {
+    _BrowseGridPreviewWrapper(vm: BrowseViewModel.preview(.photosAuthNeeded),
+                              grantPhotos: true)
+}
