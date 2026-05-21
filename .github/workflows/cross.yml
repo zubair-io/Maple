@@ -144,7 +144,7 @@ jobs:
           # Fetch the base branch tip so `git merge-base` can find the true
           # fork point. checkout@v4 with fetch-depth: 0 fetches all branches'
           # commits, but not always the named ref — be explicit.
-          git fetch --no-tags --depth=0 origin "+refs/heads/${BASE_REF}:refs/remotes/origin/${BASE_REF}"
+          git fetch --no-tags origin "+refs/heads/${BASE_REF}:refs/remotes/origin/${BASE_REF}"
           merge_base="$(git merge-base "origin/${BASE_REF}" HEAD)"
           echo "MERGE_BASE=${merge_base}" >> "$GITHUB_ENV"
           echo "merge base: ${merge_base}"
