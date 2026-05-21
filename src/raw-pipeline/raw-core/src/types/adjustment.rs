@@ -6,10 +6,13 @@
 //! codegen (#118 / #119) will consume the [`ADJUSTMENT_SCHEMA`] table below
 //! to keep all three platforms in lockstep.
 //!
-//! Per-platform *defaults* may legitimately differ (see Swift's ACR-like
-//! sharpen defaults in `AdjustmentModel.swift`) — the codegen design emits
-//! generated *shapes and ranges*, while default-value blocks stay
-//! hand-written on each platform.
+//! [`ADJUSTMENT_SCHEMA`] captures each field's `kind`, range, and the
+//! canonical Rust default (`default_f32`). Tests at the bottom of this file
+//! assert that `AdjustmentModel::default()` matches the schema's
+//! `default_f32` values field-by-field. Per-platform overrides (e.g.
+//! Swift's ACR-like sharpen defaults in `AdjustmentModel.swift`) live on
+//! the platform side as deliberate deviations from the canonical defaults
+//! — the schema continues to ship the Rust defaults as the reference.
 
 /// Highlight reconstruction mode per spec § 3.3a. Default is `Off` — no
 /// reconstruction (slice-1/2/3 behavior). When non-default, highlights that
