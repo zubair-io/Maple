@@ -285,16 +285,26 @@ private struct BrowseEmptyState: View {
     }
 
     private var iconName: String {
-        vm.photosAuthNeeded ? "lock.shield" : "photo.on.rectangle.angled"
+        BrowseGridVM.emptyStateIconName(photosAuthNeeded: vm.photosAuthNeeded)
     }
 
     private var primaryTitle: String {
-        vm.photosAuthNeeded ? "Photos access not granted" : "No assets yet"
+        BrowseGridVM.emptyStatePrimaryTitle(photosAuthNeeded: vm.photosAuthNeeded)
+    }
+
+    private var secondaryCase: BrowseGridVM.EmptyStateSecondary {
+        BrowseGridVM.emptyStateSecondary(.init(
+            photosAuthNeeded: vm.photosAuthNeeded,
+            isLoading: vm.isLoading,
+            hasLoadError: vm.loadError != nil,
+            hasCurrentSource: vm.currentSource != nil
+        ))
     }
 
     @ViewBuilder
     private var secondary: some View {
-        if vm.photosAuthNeeded {
+        switch secondaryCase {
+        case .photosAuthCTA:
             VStack(spacing: 8) {
                 Text("Maple needs permission to read your Photos library.")
                     .font(.system(size: 11))
@@ -305,7 +315,7 @@ private struct BrowseEmptyState: View {
                     .buttonStyle(.bordered)
                     .disabled(onGrantPhotosAccess == nil)
             }
-        } else if vm.isLoading {
+        case .loading:
             HStack(spacing: 8) {
                 ProgressView()
                     .controlSize(.small)
@@ -313,9 +323,9 @@ private struct BrowseEmptyState: View {
                     .font(MapleTokens.Typography.emptySecondary)
                     .foregroundStyle(MapleTokens.textMuted)
             }
-        } else if let err = vm.loadError {
+        case .loadError:
             VStack(spacing: 6) {
-                Text(err.localizedDescription)
+                Text(vm.loadError?.localizedDescription ?? "")
                     .font(.system(size: 11))
                     .foregroundStyle(MapleTokens.textMuted)
                     .multilineTextAlignment(.center)
@@ -326,12 +336,12 @@ private struct BrowseEmptyState: View {
                 }
                 .buttonStyle(.bordered)
             }
-        } else if vm.currentSource != nil {
+        case .sourceHasNoRaws:
             Text("This folder has no supported RAW files.")
                 .font(MapleTokens.Typography.emptySecondary)
                 .foregroundStyle(MapleTokens.textMuted)
                 .multilineTextAlignment(.center)
-        } else {
+        case .noSourcePicked:
             Text("Pick a folder or Photos Library filter in the sidebar.")
                 .font(MapleTokens.Typography.emptySecondary)
                 .foregroundStyle(MapleTokens.textMuted)
@@ -567,32 +577,15 @@ private struct MergedCellView: View {
         }
     }
 
-    @ViewBuilder
     private var badgeView: some View {
-        switch cell {
-        case .synced:
-            Image(systemName: "checkmark.icloud.fill")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(.white)
-                .shadow(radius: 1)
-        case .cloudOnly:
-            Image(systemName: "icloud.fill")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(.white)
-                .shadow(radius: 1)
-        case .localOnly:
-            Image(systemName: "icloud.and.arrow.up")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(.white)
-                .shadow(radius: 1)
-        }
+        Image(systemName: BrowseGridVM.mergedCellBadgeIconName(cell))
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundStyle(.white)
+            .shadow(radius: 1)
     }
 
     private var displayName: String {
-        switch cell {
-        case .localOnly(let r), .cloudOnly(let r): return r.displayName
-        case .synced(let l, _): return l.displayName
-        }
+        BrowseGridVM.mergedCellDisplayName(cell)
     }
 
     /// For `.synced` and `.localOnly`, fetch via PHImageManager (fast, cached
