@@ -105,7 +105,15 @@ export function setupBackupIngestSuite(opts: BackupIngestSetupOptions): {
       }
     },
     afterAll: async () => {
-      await fs.rm(handle.tmpLib, { recursive: true, force: true });
+      // Guard against beforeAll having failed (or not run) — tmpLib stays
+      // empty in that case, and `fs.rm('')` would throw and mask the
+      // original failure with a misleading teardown error.
+      if (!handle.tmpLib) return;
+      try {
+        await fs.rm(handle.tmpLib, { recursive: true, force: true });
+      } catch {
+        // Teardown is best-effort; the OS will reclaim the tmpdir.
+      }
     },
   };
 }
