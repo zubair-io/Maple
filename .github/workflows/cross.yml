@@ -59,7 +59,11 @@ jobs:
       - name: Check budget script presence
         id: probe
         run: |
-          if [ -x tools/check-file-budget.sh ] && [ -f tools/budget-allowlist.txt ]; then
+          # Probe with -f (file exists) rather than -x (executable). The script
+          # is invoked via `bash tools/check-file-budget.sh` below, so it only
+          # needs to be readable. Requiring +x here meant a file committed
+          # without the executable bit would silently skip the job forever.
+          if [ -f tools/check-file-budget.sh ] && [ -f tools/budget-allowlist.txt ]; then
             echo "have_script=true" >> "$GITHUB_OUTPUT"
           else
             echo "have_script=false" >> "$GITHUB_OUTPUT"
@@ -91,10 +95,22 @@ jobs:
             echo "::notice::tools/budget-allowlist.txt not present yet (waiting on #205) — skipping."
           fi
 
-      - name: Compare allowlist length against merge base
+      - name: Compute merge base
         if: steps.probe.outputs.have_allowlist == 'true'
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          set -euo pipefail
+          # Fetch the base branch tip so `git merge-base` can find the true
+          # fork point. checkout@v4 with fetch-depth: 0 fetches all branches'
+          # commits, but not always the named ref — be explicit.
+          git fetch --no-tags --depth=0 origin "+refs/heads/${BASE_REF}:refs/remotes/origin/${BASE_REF}"
+          merge_base="$(git merge-base "origin/${BASE_REF}" HEAD)"
+          echo "MERGE_BASE=${merge_base}" >> "$GITHUB_ENV"
+          echo "merge base: ${merge_base}"
+
+      - name: Compare allowlist length against merge base
+        if: steps.probe.outputs.have_allowlist == 'true'
         run: |
           set -euo pipefail
 
@@ -105,17 +121,21 @@ jobs:
 
           head_count="$(count_entries tools/budget-allowlist.txt)"
 
-          if git cat-file -e "${BASE_SHA}:tools/budget-allowlist.txt" 2>/dev/null; then
+          # Diff against the actual PR fork point, not `base.sha` (the base
+          # tip at event time). If the base branch's allowlist shrinks after
+          # the PR branched, `base.sha` would make any unchanged PR look like
+          # it grew the file.
+          if git cat-file -e "${MERGE_BASE}:tools/budget-allowlist.txt" 2>/dev/null; then
             tmp="$(mktemp)"
-            git show "${BASE_SHA}:tools/budget-allowlist.txt" > "$tmp"
+            git show "${MERGE_BASE}:tools/budget-allowlist.txt" > "$tmp"
             base_count="$(count_entries "$tmp")"
             rm -f "$tmp"
           else
-            # File didn't exist on base — anything but empty is a grow.
+            # File didn't exist at merge base — anything but empty is a grow.
             base_count=0
           fi
 
-          echo "base entries: ${base_count}"
+          echo "base entries (at merge-base): ${base_count}"
           echo "head entries: ${head_count}"
 
           if [ "$head_count" -gt "$base_count" ]; then
@@ -136,14 +156,36 @@ jobs:
 
       # Install direct from GitHub releases — the official gitleaks-action
       # requires a paid license key for orgs, so we don't use it.
+      #
+      # Both the version and the tarball SHA-256 are pinned. The hash is
+      # verified locally before extraction, so a malicious upstream tag
+      # rewrite (or a MITM on the release CDN) can't slip a tampered
+      # binary in. To bump: download the new release's
+      # gitleaks_<version>_checksums.txt, copy the linux_x64 SHA, update
+      # both env vars in lockstep.
       - name: Install gitleaks
         env:
           GITLEAKS_VERSION: "8.21.2"
+          GITLEAKS_LINUX_X64_SHA256: "5bc41815076e6ed6ef8fbecc9d9b75bcae31f39029ceb55da08086315316e3ba"
         run: |
           set -euo pipefail
-          curl -fsSL -o /tmp/gitleaks.tar.gz \
-            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
-          tar -xzf /tmp/gitleaks.tar.gz -C /tmp gitleaks
+          tarball="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          base_url="https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}"
+
+          curl -fsSL -o "/tmp/${tarball}" "${base_url}/${tarball}"
+          curl -fsSL -o /tmp/gitleaks_checksums.txt \
+            "${base_url}/gitleaks_${GITLEAKS_VERSION}_checksums.txt"
+
+          # 1. Verify the tarball against the upstream checksums file
+          #    (defends against tarball corruption / partial CDN swap).
+          ( cd /tmp && grep " ${tarball}\$" gitleaks_checksums.txt | sha256sum -c - )
+
+          # 2. Verify the tarball against the SHA we pinned in this
+          #    workflow (defends against an upstream tag rewrite that
+          #    re-publishes both the tarball *and* the checksums file).
+          echo "${GITLEAKS_LINUX_X64_SHA256}  /tmp/${tarball}" | sha256sum -c -
+
+          tar -xzf "/tmp/${tarball}" -C /tmp gitleaks
           sudo install -m 0755 /tmp/gitleaks /usr/local/bin/gitleaks
           gitleaks version
 
