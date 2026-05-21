@@ -1,10 +1,12 @@
-// Library store — data and prefs only. No fetching, no caching, no selection.
+// Library store — data and adjustment models. Persisted UI prefs live in
+// `BrowsePreferencesService`; ephemeral UI flags are moving out screen-by-
+// screen (ticket #191).
 //
 // Holds the signal-readable state for the browse + editor shells:
 //   - asset list, grid folders, sidebar tree
 //   - current folder handle, registered libraries (Self-Hosted)
 //   - per-asset adjustment models + id ↔ remote-id maps
-//   - persisted prefs (sort/filter/search/view mode, panel visibility, etc.)
+//   - transient Self-Hosted bootstrap flags (scheduled for later extraction)
 //
 // **Design call (ticket #122):** stayed on plain Angular signals rather than
 // migrating to NgRx SignalStore. This is a brownfield split — the goal is to
@@ -12,6 +14,17 @@
 // drag in @ngrx/signals and rewrite the consumer surface (we'd have to switch
 // every component from `inject(LibraryStateService)` to selectors). Park that
 // migration for a follow-up greenfield ticket.
+//
+// **#191 inventory of former store fields and their new homes:**
+//   - thumbSize, sort, filter, sidebarVisible, inspectorVisible, activeTab,
+//     viewMode, sectionOpen, folderOpen
+//       → extracted in this PR into BrowsePreferencesService
+//         (`browse-preferences.service.ts`). Callers read them via the
+//         LibraryStateService facade, which re-exports each signal.
+//   - searchQuery, pickerVisible, adminVisible, backendLoading,
+//     backendError, backendEmpty, rescanStatus, rescanError
+//       → still on this store; planned to collapse into component / fetcher
+//         signals in follow-up PRs per the issue brief.
 
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { Asset, AssetId, Flag, ColorLabel } from '../models/asset';
@@ -30,6 +43,10 @@ import { MapleIndex } from '../maple-cache/maple-cache.types';
 export class LibraryStore {
   /** Which backend is in use. Consumers read this to branch data-source paths. */
   readonly backend = inject(LIBRARY_BACKEND);
+
+  // BrowsePreferencesService is consumed directly by LibraryStateService
+  // (the facade) and the components that need it — there is no store-level
+  // consumer of the prefs, so this class does not inject it.
 
   // ── Self-Hosted bootstrap state ────────────────────────────────────────────
   /** True while listFolders / listAssets is in flight (Self-Hosted only). */
@@ -85,58 +102,10 @@ export class LibraryStore {
   /** The folder the user most recently opened via openFolder(). */
   readonly currentFolder = signal<MapleFolderHandle | null>(null);
 
-  // ── Sidebar open/collapsed state ───────────────────────────────────────────
-  readonly sectionOpen = signal<Record<string, boolean>>(
-    this._loadOrDefault('cm.sections', { folders: true, photos: true }),
-  );
-
-  readonly folderOpen = signal<Record<string, boolean>>(
-    this._loadOrDefault('cm.folderOpen', { 'f-2026': true }),
-  );
-
-  // ── Thumbnail size (grid density) ─────────────────────────────────────────
-  readonly thumbSize = signal<number>(this._loadOrDefault('cm.thumbSize', 140) as number);
-
-  // ── Sort + filter ─────────────────────────────────────────────────────────
-  readonly sort = signal<'date' | 'name'>(
-    this._loadOrDefault('cm.sort', 'date') as 'date' | 'name',
-  );
-  readonly filter = signal<'all' | 'picks' | '4stars'>(
-    this._loadOrDefault('cm.filter', 'all') as 'all' | 'picks' | '4stars',
-  );
-
   // ── In-grid search query (filename substring filter) ──────────────────────
+  // Ephemeral — does NOT persist. Slated to move to BrowseShell component
+  // signal in a follow-up PR per the #191 brief.
   readonly searchQuery = signal<string>('');
-
-  // ── Panel visibility (persisted) ──────────────────────────────────────────
-  readonly sidebarVisible = signal<boolean>(this._loadOrDefault('cm.leftHidden', false) === false);
-  readonly inspectorVisible = signal<boolean>(
-    this._loadOrDefault('cm.detailHidden', false) === false,
-  );
-
-  // ── Active detail tab ─────────────────────────────────────────────────────
-  readonly activeTab = signal<'info' | 'develop'>(
-    this._loadOrDefault('cm.tab', 'info') as 'info' | 'develop',
-  );
-
-  // ── Browse-shell view mode (Folder vs Timeline) ──────────────────────────
-  readonly viewMode = signal<'folder' | 'timeline'>(
-    // Guard against corrupted/manipulated storage — anything other than the
-    // two valid modes falls back to 'folder'.
-    (() => {
-      const v = this._loadOrDefault<unknown>('cm.viewMode', 'folder');
-      return v === 'timeline' ? 'timeline' : 'folder';
-    })(),
-  );
-
-  setViewMode(mode: 'folder' | 'timeline'): void {
-    this.viewMode.set(mode);
-    try {
-      localStorage.setItem('cm.viewMode', JSON.stringify(mode));
-    } catch {
-      /* noop */
-    }
-  }
 
   // ── Adjustment models (per-asset develop settings) ────────────────────────
   readonly adjustmentModels = signal<Map<AssetId, AdjustmentModel>>(new Map());
@@ -227,52 +196,6 @@ export class LibraryStore {
     return best;
   }
 
-  // ── Panel toggles ──────────────────────────────────────────────────────────
-
-  toggleSidebar(): void {
-    this.sidebarVisible.update((v) => !v);
-    try {
-      localStorage.setItem('cm.leftHidden', JSON.stringify(!this.sidebarVisible()));
-    } catch {
-      /* noop */
-    }
-  }
-
-  toggleInspector(): void {
-    this.inspectorVisible.update((v) => !v);
-    try {
-      localStorage.setItem('cm.detailHidden', JSON.stringify(!this.inspectorVisible()));
-    } catch {
-      /* noop */
-    }
-  }
-
-  // ── Tree expand state ──────────────────────────────────────────────────────
-
-  toggleSection(id: string): void {
-    this.sectionOpen.update((prev) => {
-      const next = { ...prev, [id]: !prev[id] };
-      try {
-        localStorage.setItem('cm.sections', JSON.stringify(next));
-      } catch {
-        /* noop */
-      }
-      return next;
-    });
-  }
-
-  setFolderOpen(id: string, open: boolean): void {
-    this.folderOpen.update((prev) => {
-      const next = { ...prev, [id]: open };
-      try {
-        localStorage.setItem('cm.folderOpen', JSON.stringify(next));
-      } catch {
-        /* noop */
-      }
-      return next;
-    });
-  }
-
   // ── Sidebar helpers ────────────────────────────────────────────────────────
 
   ensureFolder(folderId: string, label: string): void {
@@ -356,16 +279,5 @@ export class LibraryStore {
   /** Look up an asset record by id from the current signal value. */
   findAsset(id: AssetId): Asset | undefined {
     return this.assets().find((a) => a.id === id);
-  }
-
-  // ── Persistence helpers ───────────────────────────────────────────────────
-
-  private _loadOrDefault<T>(key: string, fallback: T): T {
-    try {
-      const s = localStorage.getItem(key);
-      return s != null ? (JSON.parse(s) as T) : fallback;
-    } catch {
-      return fallback;
-    }
   }
 }
