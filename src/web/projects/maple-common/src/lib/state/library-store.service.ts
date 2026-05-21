@@ -70,9 +70,17 @@ export function assetAbsPath(
     if (root) {
       // FileInfo.path is POSIX-separated by contract. Web is always POSIX
       // so we can join with `/` without re-splitting.
-      return primary.path === ''
-        ? `${root}/${primary.filename}`
-        : `${root}/${primary.path}/${primary.filename}`;
+      //
+      // Normalise the slash boundaries so a trailing `/` on `root` (e.g.
+      // `"/Volumes/Photos/"`) or a stray leading/trailing `/` on
+      // `primary.path` doesn't produce `//` in the joined result.
+      // Preserve `root === "/"` (root of the filesystem) as-is.
+      const trimmedRoot = root === '/' ? '/' : root.replace(/\/+$/, '');
+      const dir = primary.path.replace(/^\/+|\/+$/g, '');
+      const rootPrefix = trimmedRoot === '/' ? '' : trimmedRoot;
+      return dir === ''
+        ? `${rootPrefix}/${primary.filename}`
+        : `${rootPrefix}/${dir}/${primary.filename}`;
     }
   }
   if (asset.absPath) return asset.absPath;
