@@ -169,14 +169,12 @@ struct CloudServerSection: View {
 private struct _CloudServerSectionPreviewWrapper: View {
   let folders: [CloudFolder]
   let viewMode: CloudViewMode
-  let expanded: Bool
   @State private var isExpanded: Bool
   @State private var selection: LibrarySelection = .none
 
   init(folders: [CloudFolder], viewMode: CloudViewMode, expanded: Bool = true) {
     self.folders = folders
     self.viewMode = viewMode
-    self.expanded = expanded
     self._isExpanded = State(initialValue: expanded)
   }
 

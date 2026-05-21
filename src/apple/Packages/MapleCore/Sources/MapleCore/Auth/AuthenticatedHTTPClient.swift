@@ -31,12 +31,20 @@ public actor AuthenticatedHTTPClient {
   /// Sample client for SwiftUI `#Preview` blocks. Points at an unreachable
   /// example URL with a no-op token provider; any network call fails fast,
   /// which is the intended behaviour for previews. Issue #139.
+  ///
+  /// Uses an ephemeral `URLSession` with a 2-second request timeout so a
+  /// preview that accidentally triggers a real request doesn't sit on
+  /// `URLSession.shared`'s default 60-second timeout (which would freeze
+  /// Xcode's preview canvas).
   public static func preview(
     server: URL = URL(string: "https://preview.maple.invalid")!
   ) -> AuthenticatedHTTPClient {
-    AuthenticatedHTTPClient(
+    let config = URLSessionConfiguration.ephemeral
+    config.timeoutIntervalForRequest = 2
+    config.timeoutIntervalForResource = 2
+    return AuthenticatedHTTPClient(
       server: server,
-      urlSession: .shared,
+      urlSession: URLSession(configuration: config),
       tokensProvider: { nil },
       onSignOut: { }
     )

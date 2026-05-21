@@ -129,8 +129,10 @@ private func makeQRImageUI(_ payload: String) -> UIImage? {
 // MARK: - Previews
 //
 // Issue #139 — invite admin panel against the preview AuthSession. The
-// `.task` modifier fires `client.listInvites` against the unreachable
-// preview server and leaves the Pending Invites section empty.
+// `.task` modifier calls `reload()`, which returns early when
+// `TokenStore.load(...)` yields no access token (the default preview
+// state), so `client.listInvites` is never invoked and the Pending
+// Invites section stays empty.
 
 #Preview("Owner") {
     ManageUsersView(client: AuthClient.preview())
