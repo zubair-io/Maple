@@ -8,7 +8,7 @@
 // The shape mirrors `folder-access/file-cache.ts` — a hand-rolled IDB module
 // without an extra dependency.
 
-import { Injectable } from '@angular/core';
+import { Injectable, InjectionToken, inject } from '@angular/core';
 import type { AssetId } from '../models/asset';
 
 const IDB_DB_NAME = 'maple-sidecar-cache';
@@ -139,9 +139,10 @@ export class InMemorySidecarCache implements SidecarCache {
 }
 
 /** DI token used by `SidecarStore` so tests can substitute the in-memory
- * implementation without faking IndexedDB itself. */
-import { InjectionToken } from '@angular/core';
+ * implementation without faking IndexedDB itself. The factory goes through
+ * `inject(SidecarIdbCache)` so the class participates in DI (and tests can
+ * `useValue` against the token without losing the production binding). */
 export const SIDECAR_CACHE = new InjectionToken<SidecarCache>('SIDECAR_CACHE', {
   providedIn: 'root',
-  factory: () => new SidecarIdbCache(),
+  factory: () => inject(SidecarIdbCache),
 });

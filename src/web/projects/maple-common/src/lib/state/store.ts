@@ -52,11 +52,21 @@ import type { Signal } from '@angular/core';
  * - `loaded`     — a value is available. `data()` is defined.
  * - `refreshing` — a re-fetch is in progress and `data()` still holds the
  *                  previous value.
+ * - `not-found`  — a fetch completed but the upstream returned no value
+ *                  (e.g. a 404 normalised to "no sidecar yet"). `data()` is
+ *                  `undefined`, `error()` is `null`. Distinct from `idle`
+ *                  because we actually attempted a fetch.
  * - `error`      — the last fetch failed. `error()` is non-null. `data()`
  *                  holds whatever the previous successful value was (which
  *                  may be `undefined`).
  */
-export type StoreStatus = 'idle' | 'loading' | 'loaded' | 'refreshing' | 'error';
+export type StoreStatus =
+  | 'idle'
+  | 'loading'
+  | 'loaded'
+  | 'refreshing'
+  | 'not-found'
+  | 'error';
 
 /**
  * Canonical store contract. All `*.store.ts` files under `state/` implement

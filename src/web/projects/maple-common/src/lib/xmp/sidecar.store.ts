@@ -1,4 +1,4 @@
-// SidecarStore — slice 2 of N (Refs #193).
+// SidecarStore — slice 1 of N (Refs #193).
 //
 // Proof-of-shape implementation of the canonical `Store<T>` interface (see
 // `../state/store.ts`). Reads + caches XMP sidecars for the **Self-Hosted**
@@ -32,6 +32,7 @@ import {
   effect,
   inject,
   signal,
+  type EffectRef,
   type Signal,
 } from '@angular/core';
 import { httpResource } from '@angular/common/http';
@@ -160,11 +161,18 @@ export class SidecarStore implements Store<SidecarDoc> {
 
   // ── Public surface: input wiring ─────────────────────────────────────────
 
+  /** Held so repeat calls to `setActiveId(...)` tear down the previous
+   *  upstream→local effect — otherwise each call would leak a live
+   *  subscription on the prior signal. */
+  private _activeIdEffect?: EffectRef;
+
   /**
    * Wire the active id to an upstream signal. Subsequent reads of `data()`,
    * `status()`, etc. reflect whatever the upstream signal currently holds.
    *
-   * Passing `undefined` (the default) puts the store in `idle`.
+   * Passing `undefined` (the default) puts the store in `idle`. Calling this
+   * a second time tears down the previous subscription before installing the
+   * new one — no leak, and the old upstream signal stops driving the store.
    */
   setActiveId(idSig: Signal<AssetId | undefined>): void {
     // We intentionally don't use `linkedSignal` here — `effect` keeps the
@@ -172,7 +180,8 @@ export class SidecarStore implements Store<SidecarDoc> {
     // ResourceRef internals. The store-level `Injector` is used so consumers
     // can call this outside an injection context (e.g. from a setter on a
     // view-model that already holds a signal).
-    effect(
+    this._activeIdEffect?.destroy();
+    this._activeIdEffect = effect(
       () => {
         this._activeId.set(idSig());
       },
@@ -216,13 +225,25 @@ export class SidecarStore implements Store<SidecarDoc> {
     return err;
   });
 
-  /** Discriminated status — preferred read for templates. */
+  /** Discriminated status — preferred read for templates.
+   *
+   *  Note: when an active id is set and the fetch has settled with no value
+   *  (e.g. a 404 normalised to `null` error), we return `'not-found'` rather
+   *  than `'idle'` — the latter means "we never asked", which is a different
+   *  thing from "we asked, the server said nothing". */
   readonly status: Signal<StoreStatus> = computed(() => {
     if (!this._activeId()) return 'idle';
     if (this.error()) return 'error';
     if (this.loading()) return 'loading';
     if (this.refreshing()) return 'refreshing';
-    return this.data() !== undefined ? 'loaded' : 'idle';
+    if (this.data() !== undefined) return 'loaded';
+    // Active id, not loading, no error, no data. If the resource has
+    // actually completed (resolved or errored — the latter normalised to
+    // `null` for 404), report `'not-found'` so callers can distinguish
+    // "we asked, the server said nothing" from "we never asked".
+    const rs = this.resource.status();
+    if (rs === 'resolved' || rs === 'error') return 'not-found';
+    return 'idle';
   });
 
   /**
@@ -245,7 +266,16 @@ export class SidecarStore implements Store<SidecarDoc> {
    * the rollback so callers can surface the error.
    */
   async write(id: AssetId, xml: string): Promise<void> {
-    const previous = this._docs().get(id);
+    const previousMem = this._docs().get(id);
+    // Capture IDB state BEFORE the optimistic write — `_ingest(..., true)`
+    // fires `cache.put` and would otherwise overwrite the value we need to
+    // roll back to. If IDB has a record but the in-memory cache doesn't
+    // (callers can `write()` before ever observing the id), this is the
+    // value we need to restore on failure.
+    const previousIdb = previousMem
+      ? null
+      : await this.cache.get(id).catch(() => null);
+
     // 1. Optimistic in-memory + IDB write.
     this._ingest(id, xml, /* persist */ true);
     try {
@@ -258,12 +288,24 @@ export class SidecarStore implements Store<SidecarDoc> {
       // 3. Rollback. We do this best-effort — if IDB write fails on rollback
       //    the in-memory state still reflects the previous value, which is
       //    what consumers actually observe.
-      if (previous) {
-        this._docs.update((m) => new Map(m).set(id, previous));
-        await this.cache.put(id, previous.xml).catch((cacheErr) => {
+      if (previousMem) {
+        this._docs.update((m) => new Map(m).set(id, previousMem));
+        await this.cache.put(id, previousMem.xml).catch((cacheErr) => {
           console.warn('SidecarStore: rollback IDB write failed', cacheErr);
         });
+      } else if (previousIdb) {
+        // We never had an in-memory doc, but IDB held one — restore it so we
+        // don't silently destroy a cached prior version on a failed PUT.
+        this._docs.update((m) => {
+          const next = new Map(m);
+          next.delete(id);
+          return next;
+        });
+        await this.cache.put(id, previousIdb.xml).catch((cacheErr) => {
+          console.warn('SidecarStore: rollback IDB restore failed', cacheErr);
+        });
       } else {
+        // Nothing was there before — delete the optimistic row.
         this._docs.update((m) => {
           const next = new Map(m);
           next.delete(id);

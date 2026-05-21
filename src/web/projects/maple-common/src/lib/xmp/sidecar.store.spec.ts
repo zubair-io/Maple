@@ -215,7 +215,7 @@ describe('SidecarStore', () => {
     httpMock.verify();
   });
 
-  it('normalises 404 to a null error (no sidecar yet is not an error)', async () => {
+  it('normalises 404 to a null error and surfaces `not-found` status', async () => {
     makeBed();
     store = TestBed.inject(SidecarStore);
     httpMock = TestBed.inject(HttpTestingController);
@@ -227,8 +227,11 @@ describe('SidecarStore', () => {
       .flush('not found', { status: 404, statusText: 'Not Found' });
     await flushAll();
 
+    // 404 is normalised because "no sidecar yet" is the common case, not an
+    // error — but the status must distinguish it from `idle` (never asked).
     expect(store.error()).toBeNull();
-    expect(store.status()).not.toBe('error');
+    expect(store.status()).toBe('not-found');
+    expect(store.data()).toBeUndefined();
   });
 
   it('write(id, xml) is optimistic + writes through to IDB', async () => {
@@ -268,6 +271,64 @@ describe('SidecarStore', () => {
     // Rolled back to previous value, both in memory and in IDB.
     expect(store.data()!.xml).toBe(SIDECAR_XML_BASIC);
     const rec = await cache.get(ASSET_ID);
+    expect(rec!.xml).toBe(SIDECAR_XML_BASIC);
+  });
+
+  it('tears down the previous setActiveId effect when called again', async () => {
+    makeBed();
+    store = TestBed.inject(SidecarStore);
+    httpMock = TestBed.inject(HttpTestingController);
+
+    // First wiring — signalA drives the store.
+    const signalA = signal<string | undefined>(undefined);
+    store.setActiveId(signalA);
+    signalA.set(ASSET_ID);
+    TestBed.tick();
+    httpMock.expectOne(`/api/assets/${ASSET_ID}/xmp`).flush(SIDECAR_XML_BASIC);
+    await flushAll();
+    expect(store.data()!.id).toBe(ASSET_ID);
+
+    // Re-wire to signalB. The previous effect MUST be destroyed — otherwise
+    // updates to signalA would keep mutating the store's active id.
+    const signalB = signal<string | undefined>(ASSET_ID_2);
+    store.setActiveId(signalB);
+    TestBed.tick();
+    httpMock.expectOne(`/api/assets/${ASSET_ID_2}/xmp`).flush(SIDECAR_XML_UPDATED);
+    await flushAll();
+    expect(store.data()!.id).toBe(ASSET_ID_2);
+
+    // Mutate the OLD signal — if the previous effect leaked, the store would
+    // swing its active id back to whatever signalA holds and issue a new
+    // request. We expect neither.
+    signalA.set('asset-ghost');
+    TestBed.tick();
+    await flushAll();
+    expect(store.data()!.id).toBe(ASSET_ID_2);
+    httpMock.expectNone(`/api/assets/asset-ghost/xmp`);
+    httpMock.verify();
+  });
+
+  it('write rolls back from IDB when the in-memory cache was never populated', async () => {
+    // Pre-populate IDB with a prior value WITHOUT visiting the id, so the
+    // store's in-memory map has no entry for it. This models the case where
+    // a previous tab/session wrote to IDB and a fresh tab calls write()
+    // before observing the asset.
+    const cache = new InMemorySidecarCache();
+    await cache.put(ASSET_ID, SIDECAR_XML_BASIC);
+    const { api } = makeBed({ cache });
+    store = TestBed.inject(SidecarStore);
+    TestBed.inject(HttpTestingController);
+
+    // Sanity: the store has not seen this id yet.
+    expect(store.data()).toBeUndefined();
+
+    api.putResult = 'fail';
+    await expect(store.write(ASSET_ID, SIDECAR_XML_UPDATED)).rejects.toThrow('PUT failed');
+
+    // Critical: IDB must NOT be left holding the optimistic value, and must
+    // NOT be deleted — the prior cached value should be restored.
+    const rec = await cache.get(ASSET_ID);
+    expect(rec).not.toBeNull();
     expect(rec!.xml).toBe(SIDECAR_XML_BASIC);
   });
 
