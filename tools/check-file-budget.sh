@@ -99,6 +99,7 @@ collect_files() {
       -not -path '*/DerivedData/*' \
       -not -path '*/raw-wasm/pkg/*' \
       -not -path '*/pkg/*' \
+      -not -path '*/.claude/*' \
       -print
   fi
 }
