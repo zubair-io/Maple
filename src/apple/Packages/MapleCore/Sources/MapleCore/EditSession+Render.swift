@@ -7,11 +7,11 @@
 //   • The fast/refine dispatch through `decodeAndRender`
 //   • `renderFull` public entry point
 //
-// The Rust FFI decode + the decoded-image cache state machine live in
-// `EditSession+Decode.swift`. The cache invalidation / sidecar / preview-
-// persist helpers live in `EditSession+Cache.swift`. The
-// composite-over-prior-preview helper consumed by both `refineVisibleRegion`
-// (here) and `refineDeepZoom` (in DeepZoom) lives in `EditSession+DeepZoom`.
+// History: slice 2 of issue #194 moved the decoded-image cache + the
+// Rust FFI decode + the per-target coalescer off this file onto
+// `RenderActor`. The scheduler reads the actor's `snapshot(forAsset:)`
+// on every fast/refine hop and calls `renderActor.sharedDecode(...)`
+// for cold decodes. Slice 3 moves the scheduler itself.
 
 import Foundation
 import CoreImage
@@ -24,6 +24,21 @@ extension EditSession {
     public func renderFull() async {
         renderRequested = true
         await decodeAndRender(targetSize: nil, phase: .refine)
+    }
+
+    /// Bake the current model against a fresh full-quality decode for export.
+    ///
+    /// Forwarder onto `renderActor.renderForExport(...)`. Preserves the
+    /// pre-slice-2 public surface so `MapleExporter` and other callers
+    /// don't need to know the actor moved.
+    public func renderForExport() async throws -> CIImage {
+        let asShot: ImageEditPipeline.AsShotWB? = {
+            guard let cct = asShotCCT, let t = asShotTint else { return nil }
+            return ImageEditPipeline.AsShotWB(temperature: cct, tint: t)
+        }()
+        return try await renderActor.renderForExport(
+            asset: asset, model: model, asShot: asShot
+        )
     }
 
     // MARK: - Two-phase scheduler
@@ -67,24 +82,9 @@ extension EditSession {
             try? await Task.sleep(for: .milliseconds(250))
             guard gen == renderGeneration, !Task.isCancelled else { return }
             // Plan 3 / Ticket 06 M4 — deep-zoom branch. When the user
-            // has zoomed past 1.0 (one source pixel per screen pixel)
-            // we route the refine through the tile manager instead of
-            // re-running the whole-image scene-linear pipeline. The
-            // tile path renders 512² source-pixel tiles on demand and
-            // composites them over the upscaled cached preview, so
-            // memory stays bounded and slider/pan latency hits the
-            // brief's 16 ms target on cache hits. The fit-zoom path
-            // below is unchanged for `pixelScale < 1.0`.
-            //
-            // Gated by `EditSession.deepZoomEnabled`. Default OFF —
-            // the per-tile pipeline has known color-discontinuity
-            // artifacts at tile boundaries (local-context stages like
-            // sharpen/clarity see different overlap context per tile).
-            // When OFF, refine falls through to the sized-FFI path
-            // below, which renders the full image once at the refined
-            // target size — slower at very high zoom but pixel-perfect
-            // colors. Flip ON once the per-tile color parity ticket
-            // lands.
+            // has zoomed past 1.0 we route the refine through the tile
+            // manager instead of re-running the whole-image scene-linear
+            // pipeline. See `EditSession+DeepZoom.swift` for the design.
             if Self.deepZoomEnabled,
                pixelScale >= 1.0,
                !viewportSourceRect.isEmpty,
@@ -93,11 +93,7 @@ extension EditSession {
                 return
             }
             // Short-circuit when refine would render at the same (or smaller)
-            // target as the most recent fast pass. Avoids a wasted CoreImage
-            // pipeline build when the user hasn't actually zoomed in. Persist
-            // the fast result first so a cold re-open can paint from the
-            // cache — without this, fit-to-window opens (the common case)
-            // never populate `RenderedPreviewCache`.
+            // target as the most recent fast pass.
             if let fast = fastTargetSize, let refine = refinedTargetSize,
                refine.width <= fast.width + 1 && refine.height <= fast.height + 1 {
                 persistCurrentPreviewToCache()
@@ -105,26 +101,19 @@ extension EditSession {
             }
             // Visible-region refine. With a full-native cached decode
             // available (Piece 1), the only refine cost left is the
-            // CoreImage materialise step — and at high zoom that step
-            // is what gets billed for "100% feels heavy on slider tick"
-            // because it's running the kernel chain across the whole
-            // canvas. By cropping the lazy chain to `viewportSourceRect`
-            // before calling `createCGImage`, CoreImage's planner
-            // computes filters only for the visible window and we
-            // composite the fresh visible patch over the prior preview
-            // (upscaled to the canvas) so unrendered regions still show
-            // the last-good pixels instead of black.
-            //
-            // Fallback to the legacy whole-canvas refine when the View
-            // hasn't pushed a visible rect yet (Browse-grid prewarmed
-            // sessions, the seed-from-metadata phase before
-            // `notifyVisibleRegion` fires).
+            // CoreImage materialise step.
             let visible = viewportSourceRect
+            let snapshot = await renderActor.snapshot(forAsset: asset)
             if !visible.isEmpty,
                nativeImageSize.width > 0, nativeImageSize.height > 0,
-               decodedCacheIsFreshForCurrentAsset(),
-               decodedImage != nil {
-                await refineVisibleRegion(visibleRect: visible, gen: gen)
+               snapshot.isFresh,
+               snapshot.image != nil {
+                await refineVisibleRegion(
+                    visibleRect: visible,
+                    gen: gen,
+                    cached: snapshot.image!,
+                    cachedDecodedAtModel: snapshot.decodedAtModel
+                )
                 return
             }
             await decodeAndRender(targetSize: refinedTargetSize, phase: .refine, gen: gen)
@@ -137,17 +126,21 @@ extension EditSession {
     /// pattern (`compositeWithPreviewUnderlay`) but feeds the cached
     /// full-native scene-linear decode into the standard
     /// `processSceneLinear` chain rather than the per-tile decoder.
-    /// The kernel chain is lazy until `materializeRegion` forces a
-    /// rasterise of `visibleRect` only, so the CoreImage planner spends
-    /// shader time on viewport-sized pixel counts even at 100% zoom on
-    /// a 100 MP RAW.
-    func refineVisibleRegion(visibleRect: CGRect, gen: UInt64) async {
-        guard let cached = decodedImage else { return }
+    ///
+    /// Slice-2 change: the cached buffer + decoded-at-model now come in
+    /// as parameters because they live on `RenderActor`. The caller has
+    /// already taken the snapshot under the gen guard, so this method
+    /// trusts the inputs.
+    func refineVisibleRegion(
+        visibleRect: CGRect,
+        gen: UInt64,
+        cached: CIImage,
+        cachedDecodedAtModel: AdjustmentModel?
+    ) async {
         let assetID = asset.id
         let canvasSize = nativeImageSize
         let pipeline = self.pipeline
         let m = model
-        let cachedDecodedAtModel = decodedAtModel
         let asShot: ImageEditPipeline.AsShotWB? = {
             guard let cct = asShotCCT, let t = asShotTint else { return nil }
             return ImageEditPipeline.AsShotWB(temperature: cct, tint: t)
@@ -166,10 +159,6 @@ extension EditSession {
             "refineVisibleRegion gen=\(gen) rect=\(visibleRect.origin.x, format: .fixed(precision: 0)),\(visibleRect.origin.y, format: .fixed(precision: 0)) \(visibleRect.width, format: .fixed(precision: 0))x\(visibleRect.height, format: .fixed(precision: 0))"
         )
 
-        // Run the kernel chain at the cached buffer's full extent (no
-        // prescale). The crop+materialise below tells the CoreImage
-        // planner which slice to actually compute, so the lazy graph
-        // shouldn't run filters across the whole canvas.
         let materialised = await Task.detached(priority: .userInitiated) {
             () -> CIImage? in
             mapleStage("filter chain (.refine visible-region)") {
@@ -199,10 +188,6 @@ extension EditSession {
             return
         }
 
-        // Composite the freshly-rendered viewport patch over the prior
-        // preview (upscaled to the canvas). Unrendered canvas regions
-        // show the last good preview rather than black, which matches
-        // the deep-zoom path's "progressive refine" UX.
         let composite = compositeWithPreviewUnderlay(
             materialised, underlay: priorPreview, canvasSize: canvasSize
         )
@@ -220,21 +205,20 @@ extension EditSession {
     // MARK: - Unified decode + render
 
     /// Unified render entry point — handles both fast and refine phases
-    /// by taking the target size as a parameter. Reuses the cached decoded
-    /// CIImage on the hot path so slider ticks skip the Rust FFI.
+    /// by taking the target size as a parameter. Consults the
+    /// `renderActor` cache snapshot on the hot path so slider ticks skip
+    /// the Rust FFI; falls through to `renderActor.sharedDecode` on the
+    /// cold path.
     func decodeAndRender(targetSize: CGSize?, phase: RenderPhase, gen: UInt64? = nil) async {
         isRendering = true
         renderPhase = phase
         let m = model
         let asset = self.asset
         let pipeline = self.pipeline
-        let cached = decodedImage
-        let alreadyDecodedID = decodedForAssetID
-        // Plan 2 M3 — snapshot the decode-time model for the WB kernel.
-        // On the hot path (`cached != nil`) this is the value persisted
-        // by the prior `sharedDecode` call. On the cold path it's
-        // refreshed after `sharedDecode` returns below.
-        let cachedDecodedAtModel = decodedAtModel
+        let snapshot = await renderActor.snapshot(forAsset: asset)
+        let cached = snapshot.image
+        let cacheFresh = (cached != nil) && snapshot.isFresh
+        let cachedDecodedAtModel = snapshot.decodedAtModel
         let asShot: ImageEditPipeline.AsShotWB? = {
             guard let cct = asShotCCT, let t = asShotTint else { return nil }
             return ImageEditPipeline.AsShotWB(temperature: cct, tint: t)
@@ -242,10 +226,6 @@ extension EditSession {
         editSessionLogger.debug(
             "decodeAndRender begin gen=\(gen ?? 0) phase=\(String(describing: phase), privacy: .public) target=\(targetSize?.width ?? 0)x\(targetSize?.height ?? 0) cached=\(cached != nil)"
         )
-        // Signpost interval covers the full decode+process for this phase so
-        // Instruments can show fast-pass and refine-pass bars stacked on the
-        // same timeline. `.fast` and `.refine` are separate interval names so
-        // they appear as independent lanes.
         let phaseName: StaticString = (phase == .fast) ? "fast" : "refine"
         let phaseSignpostID = editSessionSignposter.makeSignpostID()
         let phaseState = editSessionSignposter.beginInterval(phaseName, id: phaseSignpostID)
@@ -257,28 +237,8 @@ extension EditSession {
 
         do {
             let image: CIImage
-            // Cache validity: the decoded buffer is full-native and
-            // covers every fast/refine target the canvas can request, so
-            // the only thing that flips the cache stale (without an
-            // explicit `invalidateDecodedCache()` call) is a sidecar
-            // mtime change — the Rust path bakes sidecar-driven stages
-            // (highlight_recovery, profile-driven WB) before returning,
-            // so an external XMP edit demands a fresh decode.
-            //
-            // Dispatch the kernel chain on asset.isRaw — non-RAW skips
-            // the WB-calibration kernel (the JPEG was baked at the
-            // source-light already) and uses processSceneLinearNonRaw.
             let isRaw = asset.isRaw
-            let cacheFresh = (cached != nil)
-                && alreadyDecodedID == asset.id
-                && decodedCacheIsFreshForCurrentAsset()
             if let cached, cacheFresh {
-                // Cached decode — apply scene-linear chain only. Hot path
-                // for slider/zoom/pan after first decode lands. The
-                // CoreImage filter graph fuses `processSceneLinear`'s
-                // lazy Lanczos prescale with the kernel chain so the
-                // 200 MB fp16 intermediate never materialises — only
-                // the requested target pixels do.
                 image = await Task.detached(priority: .userInitiated) {
                     mapleStage(filterStageName) {
                         if !isRaw {
@@ -293,19 +253,20 @@ extension EditSession {
                     }
                 }.value
             } else {
-                // Cold decode — run the Rust FFI once (RAW) or ImageIO once
-                // (non-RAW), cache the result. Dedupe: if another render
-                // phase is already awaiting a decode for this asset, piggy-
-                // back on its Task rather than starting a concurrent one.
-                // SwiftUI can fire previewSize and pixelScale didSets in
-                // rapid succession as the viewport lays itself out, which
-                // used to schedule several cold decodes in parallel — each
-                // observing `decodedImage` still nil because no sibling had
-                // written it yet. The result was N concurrent Rust FFI
-                // decodes on a 100MP RAW with no survivor ever reaching the
-                // published-preview assignment. Single in-flight decode per
-                // asset fixes it.
-                let decoded = await sharedDecode(asset: asset, pipeline: pipeline)
+                // Cold decode — route through the actor. The `normalize`
+                // closure hops back to MainActor to apply the
+                // `decodedForNativeCanvas` upscale (which mutates
+                // `nativeImageSize` via the synchronous metadata seed)
+                // — see RenderActor.sharedDecode doc for the rationale.
+                let decoded = await renderActor.sharedDecode(
+                    asset: asset,
+                    normalize: { [weak self] image, asset in
+                        guard let self else { return image }
+                        return await MainActor.run {
+                            self.decodedForNativeCanvas(image, asset: asset)
+                        }
+                    }
+                )
                 guard !Task.isCancelled else {
                     isRendering = false
                     return
@@ -313,13 +274,11 @@ extension EditSession {
                 guard let decoded else {
                     throw RenderError.pipelineFailed
                 }
-                // Plan 2 M3 — sharedDecode has just published decodedAtModel
-                // (the model the Rust path used for this decode). Capture
-                // it here so the WB kernel applies (live - decoded).
-                let freshDecodedAtModel = self.decodedAtModel
-                // Process is cheap (Metal-kernel chain) — run it per
-                // phase with the caller's targetSize. Not shared with peers
-                // because targetSize differs between fast and refine.
+                // The actor wrote `decodedAtModel` as the tail of its
+                // sharedDecode. Re-read via snapshot so the WB kernel
+                // applies (live - decoded).
+                let freshSnapshot = await renderActor.snapshot(forAsset: asset)
+                let freshDecodedAtModel = freshSnapshot.decodedAtModel
                 let processed = await Task.detached(priority: .userInitiated) {
                     mapleStage(filterStageName) {
                         if !isRaw {
@@ -352,11 +311,6 @@ extension EditSession {
                 "decodeAndRender published preview gen=\(gen ?? 0) extent=\(image.extent.width)x\(image.extent.height)"
             )
 
-            // Refresh the on-disk thumbnail so the browse grid reflects the
-            // user's develop (not the camera's embedded preview). Only on
-            // the refine pass — the fast pass is viewport-sized and blurry
-            // when downscaled to 256 px. Filesystem assets only: sourceless
-            // assets don't have a stable URL to key off of.
             if phase == .refine, let url = asset.primaryURL {
                 Task.detached(priority: .utility) {
                     await ThumbnailLoader.shared.updateThumbnailFromRender(image, for: url)
@@ -368,9 +322,6 @@ extension EditSession {
                 isRendering = false
                 return
             }
-            // Surface the failure. Without this log a silent decode failure
-            // looks identical to "still decoding" from the outside — the
-            // viewport just never paints.
             editSessionLogger.error(
                 "decodeAndRender failed gen=\(gen ?? 0) phase=\(String(describing: phase), privacy: .public) error=\(String(describing: error), privacy: .public)"
             )

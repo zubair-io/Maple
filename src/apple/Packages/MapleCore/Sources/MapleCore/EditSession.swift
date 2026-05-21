@@ -145,11 +145,14 @@ public final class EditSession {
 
     @ObservationIgnored let pipeline: ImageEditPipeline
 
-    /// Per-session render actor (issue #194 slice 1). Constructed here so
-    /// future slices have a stable handoff point, but no caller is routed
-    /// through it yet — slice 1 is a pure scaffold. Slice 2 moves the
-    /// decoded-image cache + `sharedDecode` / `coalescedRefineDecode`
-    /// behind this boundary; slice 3 moves the two-phase scheduler.
+    /// Per-session render actor (issue #194). Slice 2 moved the decoded-
+    /// image cache + `sharedDecode` / `coalescedRefineDecode` /
+    /// `renderForExport` behind this boundary; the scheduler still
+    /// lives in `EditSession+Render.swift` and routes through here for
+    /// every cache read/write. Slice 3 moves the scheduler too.
+    ///
+    /// `internal` so the test suite can poke the actor's cache state
+    /// directly via `await session.renderActor.…`.
     @ObservationIgnored let renderActor: RenderActor
     /// File-backed sidecar store. `nil` for sourceless assets (PhotoKit, self-
     /// hosted API) where sidecar persistence goes through the source's
@@ -170,103 +173,6 @@ public final class EditSession {
     /// primes sessions for every folder asset so metadata/culling is ready,
     /// but those inactive sessions must stay decode-free until opened.
     @ObservationIgnored var renderRequested = false
-
-    /// Cached neutral decode for this asset. Populated on the first render
-    /// and reused for every subsequent slider tick — the Rust FFI is only
-    /// invoked again after `invalidateDecodedCache()` (e.g. on asset reload).
-    /// Mirrors the `decodedImage` field in the Maple reference's EditSession.
-    @ObservationIgnored var decodedImage: CIImage?
-
-    /// Actual underlying pixel resolution of `decodedImage` BEFORE the
-    /// `decodedForNativeCanvas` upscale. The CIImage's `.extent` reports
-    /// the native canvas dims (because that helper applies an affine
-    /// scale + crop), but the pixel data is at the original sized-FFI
-    /// output resolution — typically ~viewport. The refine path uses
-    /// this to decide whether the cached buffer can serve a high-res
-    /// target or a fresh native-target decode is needed.
-    @ObservationIgnored var decodedRawResolution: CGSize = .zero
-    @ObservationIgnored var decodedForAssetID: AssetRef.ID?
-
-    /// Sidecar file modification time at the moment `decodedImage` was
-    /// captured. Bumping the sidecar (e.g. an external XMP edit, a paste-
-    /// adjustments flow that writes through the file) MUST invalidate the
-    /// cache because the Rust decode bakes sidecar-driven stages
-    /// (highlight_recovery, profile-driven WB) before returning. The cold-
-    /// path `sharedDecode` writes this; the hot path checks it via
-    /// `sidecarMtimeMatchesCache` before reusing `decodedImage`.
-    /// `nil` means no sidecar was on disk at decode time — equivalent to
-    /// a fresh open.
-    @ObservationIgnored var decodedSidecarMtime: Date?
-
-    /// Plan 2 M3 — model snapshot at the moment `sharedDecode`'s Rust FFI
-    /// ran. Used by `processSceneLinear`'s WhiteBalance kernel as the
-    /// "decoded WB" reference so the kernel applies only the live delta
-    /// and the slider doesn't double-apply on top of Rust-side WB.
-    ///
-    /// Plan 2 v1 limitation: only WB uses this; tone/vibrance/saturation
-    /// will double-apply on saved sidecars until the user moves a slider
-    /// (which triggers a re-decode at the new model). Plan 2 v2 generalises
-    /// the delta to every kernel.
-    @ObservationIgnored public internal(set) var decodedAtModel: AdjustmentModel?
-
-    /// In-flight decode task for the current asset. When a render phase
-    /// needs a fresh decode and finds no cache, it either starts a new task
-    /// here or awaits the existing one. This deduplicates concurrent cold
-    /// decodes that would otherwise fire when `previewSize` / `pixelScale`
-    /// cascade multiple scheduleRender/scheduleRefine calls while the first
-    /// Rust FFI call is still running. Cleared by `invalidateDecodedCache`
-    /// and whenever the current task finishes.
-    @ObservationIgnored var decodeTask: Task<CIImage?, Never>?
-    @ObservationIgnored var decodeTaskAssetID: AssetRef.ID?
-
-    /// Ticket 10 item H — refine-decode coalescer. Maps `(asset, target)`
-    /// to an in-flight decode task so that two callers at the same
-    /// target collapse to one underlying decode call.
-    ///
-    /// Originally this guarded the per-refine `decodeSceneLinearSized`
-    /// call against the cross-debounce race where two refines both
-    /// passed the stale-gen check and entered the Rust FFI in parallel.
-    /// After the decoded-image cache rework (commit on this branch),
-    /// refine no longer crosses the FFI — it always reuses the
-    /// full-native cached buffer captured by `sharedDecode`. The
-    /// coalescer is preserved as a public-facing internal API
-    /// (`coalescedRefineDecode`) so the test suite
-    /// `EditSessionRefineCoalesceTests` continues to verify its
-    /// register-before-await semantics, and as a safety net for any
-    /// future re-introduction of a sized refine path.
-    ///
-    /// Keyed by `(asset.id, integer-rounded width × height)` because the
-    /// target sizes that arrive at the refine boundary are point-derived
-    /// floats whose fractional bits aren't load-bearing — two refines
-    /// with target widths 1500.0 and 1500.0001 should still collapse.
-    @ObservationIgnored var refineDecodeTasks: [RefineDecodeKey: RefineDecodeSlot] = [:]
-    @ObservationIgnored var refineDecodeSlotCounter: UInt64 = 0
-
-    /// Slot value paired with a `Task<CIImage?, Never>` so cleanup at
-    /// task completion can match its own insertion (vs. a sibling that
-    /// raced in via `invalidateDecodedCache` + a new schedule). `Task`
-    /// itself is a value type — no `===` to compare instances — so we
-    /// disambiguate via a monotonically-increasing slot id.
-    struct RefineDecodeSlot {
-        let id: UInt64
-        let task: Task<CIImage?, Never>
-    }
-
-    /// Composite key for the refine-decode coalescer dictionary. Hashes
-    /// asset identity together with integer-quantised target dimensions
-    /// so floating-point jitter from layout passes doesn't bypass the
-    /// dedupe.
-    struct RefineDecodeKey: Hashable {
-        let assetID: AssetRef.ID
-        let widthPx: Int
-        let heightPx: Int
-
-        init(assetID: AssetRef.ID, target: CGSize) {
-            self.assetID = assetID
-            self.widthPx = Int(target.width.rounded())
-            self.heightPx = Int(target.height.rounded())
-        }
-    }
 
     // MARK: Deep zoom (Plan 3 / Ticket 06 M4)
 

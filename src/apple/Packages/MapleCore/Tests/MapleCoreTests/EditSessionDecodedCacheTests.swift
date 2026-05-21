@@ -2,8 +2,9 @@
 // cache rework.
 //
 // EditSession caches the Rust scene-linear FFI's full-native output as
-// `decodedImage` so subsequent slider/zoom/pan calls reuse it instead
-// of re-crossing the FFI per tick. Two invariants are load-bearing:
+// the actor's `decodedImage` so subsequent slider/zoom/pan calls reuse
+// it instead of re-crossing the FFI per tick. Two invariants are
+// load-bearing:
 //
 //   1. Same asset twice → second open hits the cache (fresh check
 //      returns true; the cold-path `sharedDecode` short-circuits).
@@ -15,7 +16,11 @@
 // These tests exercise the freshness state machine directly. The
 // fixture-gated companion test `testColdOpenSecondRenderUsesCachedDecode`
 // runs the full Rust decode once on a real RAW and verifies the second
-// render lands in <50 ms — proof that the FFI was not re-entered.
+// render lands in <1.5 s — proof that the FFI was not re-entered.
+//
+// Slice 2 of issue #194: the cache fields moved off EditSession onto
+// `RenderActor`. The test surface is `session.renderActor.…` instead of
+// `session.…`, but the assertions stay the same.
 
 import XCTest
 import CoreImage
@@ -29,7 +34,7 @@ final class EditSessionDecodedCacheTests: XCTestCase {
     /// Synthesise a temp `.dng` so `AssetRef(url:)` has a real file
     /// path to key against. Bytes don't matter for the freshness tests
     /// — they never invoke the Rust FFI; the cache fields are seeded
-    /// directly via the `_testSeedDecodedCache` hook.
+    /// directly via the actor's `_testSeedDecodedCache` hook.
     private func makeAsset() throws -> (asset: AssetRef, dir: URL) {
         let dir = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -55,25 +60,28 @@ final class EditSessionDecodedCacheTests: XCTestCase {
     /// A freshly-seeded cache (no sidecar on disk) is fresh — the
     /// freshness check sees `decodedSidecarMtime == nil` and the live
     /// mtime is also `nil` (file doesn't exist), so they match.
-    func testFreshlySeededCacheIsFreshWhenNoSidecarPresent() throws {
+    func testFreshlySeededCacheIsFreshWhenNoSidecarPresent() async throws {
         let (asset, dir) = try makeAsset()
         defer { try? FileManager.default.removeItem(at: dir) }
 
         let session = EditSession(asset: asset)
-        session._testSeedDecodedCache(
+        await session.renderActor._testSeedDecodedCache(
+            asset: asset,
             decoded: makeDecoded(),
             rawResolution: CGSize(width: 100, height: 100),
             sidecarMtime: nil
         )
 
-        XCTAssertTrue(session._testDecodedCachePopulated)
-        XCTAssertTrue(session.decodedCacheIsFreshForCurrentAsset(),
+        let populated = await session.renderActor._testDecodedCachePopulated(forAsset: asset)
+        XCTAssertTrue(populated)
+        let fresh = await session.renderActor._testDecodedCacheIsFresh(forAsset: asset)
+        XCTAssertTrue(fresh,
             "cache with no sidecar at decode and no sidecar live should be fresh")
     }
 
     /// A freshly-seeded cache (sidecar on disk, mtime captured) is
     /// fresh until the sidecar is touched.
-    func testFreshlySeededCacheIsFreshWhenSidecarMtimeMatches() throws {
+    func testFreshlySeededCacheIsFreshWhenSidecarMtimeMatches() async throws {
         let (asset, dir) = try makeAsset()
         defer { try? FileManager.default.removeItem(at: dir) }
 
@@ -83,13 +91,15 @@ final class EditSessionDecodedCacheTests: XCTestCase {
         let mtime = try writeSidecar(at: sidecarURL)
 
         let session = EditSession(asset: asset)
-        session._testSeedDecodedCache(
+        await session.renderActor._testSeedDecodedCache(
+            asset: asset,
             decoded: makeDecoded(),
             rawResolution: CGSize(width: 100, height: 100),
             sidecarMtime: mtime
         )
 
-        XCTAssertTrue(session.decodedCacheIsFreshForCurrentAsset(),
+        let fresh = await session.renderActor._testDecodedCacheIsFresh(forAsset: asset)
+        XCTAssertTrue(fresh,
             "cache mtime equal to live sidecar mtime should be fresh")
     }
 
@@ -105,12 +115,14 @@ final class EditSessionDecodedCacheTests: XCTestCase {
         let mtime0 = try writeSidecar(at: sidecarURL)
 
         let session = EditSession(asset: asset)
-        session._testSeedDecodedCache(
+        await session.renderActor._testSeedDecodedCache(
+            asset: asset,
             decoded: makeDecoded(),
             rawResolution: CGSize(width: 100, height: 100),
             sidecarMtime: mtime0
         )
-        XCTAssertTrue(session.decodedCacheIsFreshForCurrentAsset(),
+        let freshBefore = await session.renderActor._testDecodedCacheIsFresh(forAsset: asset)
+        XCTAssertTrue(freshBefore,
             "precondition: cache is fresh before sidecar bumps")
 
         // Sleep past 1 sec so APFS's whole-second mtime granularity
@@ -119,7 +131,8 @@ final class EditSessionDecodedCacheTests: XCTestCase {
         try await Task.sleep(for: .milliseconds(1100))
         _ = try writeSidecar(at: sidecarURL, content: "<x:xmpmeta version=\"2\"/>")
 
-        XCTAssertFalse(session.decodedCacheIsFreshForCurrentAsset(),
+        let freshAfter = await session.renderActor._testDecodedCacheIsFresh(forAsset: asset)
+        XCTAssertFalse(freshAfter,
             "rewriting the sidecar should bump mtime and stale the cache")
     }
 
@@ -127,7 +140,7 @@ final class EditSessionDecodedCacheTests: XCTestCase {
     /// later, should also stale the cache — the Rust path used the
     /// no-sidecar default model, but a sidecar now exists with
     /// potentially different stages baked in.
-    func testCacheIsStaleWhenSidecarAppearsAfterDecode() throws {
+    func testCacheIsStaleWhenSidecarAppearsAfterDecode() async throws {
         let (asset, dir) = try makeAsset()
         defer { try? FileManager.default.removeItem(at: dir) }
 
@@ -137,17 +150,20 @@ final class EditSessionDecodedCacheTests: XCTestCase {
 
         // Decode happened with no sidecar on disk → captured mtime nil.
         let session = EditSession(asset: asset)
-        session._testSeedDecodedCache(
+        await session.renderActor._testSeedDecodedCache(
+            asset: asset,
             decoded: makeDecoded(),
             rawResolution: CGSize(width: 100, height: 100),
             sidecarMtime: nil
         )
-        XCTAssertTrue(session.decodedCacheIsFreshForCurrentAsset(),
+        let freshBefore = await session.renderActor._testDecodedCacheIsFresh(forAsset: asset)
+        XCTAssertTrue(freshBefore,
             "precondition: cache is fresh before sidecar appears")
 
         // Sidecar now appears (e.g. paste-adjustments wrote one).
         _ = try writeSidecar(at: sidecarURL)
-        XCTAssertFalse(session.decodedCacheIsFreshForCurrentAsset(),
+        let freshAfter = await session.renderActor._testDecodedCacheIsFresh(forAsset: asset)
+        XCTAssertFalse(freshAfter,
             "live mtime present where decoded captured nil should stale the cache")
     }
 
@@ -155,7 +171,7 @@ final class EditSessionDecodedCacheTests: XCTestCase {
     /// deleting the sidecar, should also stale the cache — the cached
     /// buffer was decoded with sidecar stages applied, but a fresh
     /// decode would now use the default model.
-    func testCacheIsStaleWhenSidecarDisappearsAfterDecode() throws {
+    func testCacheIsStaleWhenSidecarDisappearsAfterDecode() async throws {
         let (asset, dir) = try makeAsset()
         defer { try? FileManager.default.removeItem(at: dir) }
 
@@ -165,25 +181,28 @@ final class EditSessionDecodedCacheTests: XCTestCase {
         let mtime = try writeSidecar(at: sidecarURL)
 
         let session = EditSession(asset: asset)
-        session._testSeedDecodedCache(
+        await session.renderActor._testSeedDecodedCache(
+            asset: asset,
             decoded: makeDecoded(),
             rawResolution: CGSize(width: 100, height: 100),
             sidecarMtime: mtime
         )
-        XCTAssertTrue(session.decodedCacheIsFreshForCurrentAsset(),
+        let freshBefore = await session.renderActor._testDecodedCacheIsFresh(forAsset: asset)
+        XCTAssertTrue(freshBefore,
             "precondition: cache is fresh before sidecar deletion")
 
         try FileManager.default.removeItem(at: sidecarURL)
-        XCTAssertFalse(session.decodedCacheIsFreshForCurrentAsset(),
+        let freshAfter = await session.renderActor._testDecodedCacheIsFresh(forAsset: asset)
+        XCTAssertFalse(freshAfter,
             "live mtime nil where decoded captured a real value should stale the cache")
     }
 
     /// `invalidateDecodedCache()` MUST clear every cache field —
-    /// otherwise a follow-up `_testDecodedCachePopulated` check would
-    /// still claim "we have a cache" with stale data behind it. The
-    /// `decodedSidecarMtime` field was added in this branch and could
-    /// be left lingering by an incomplete invalidate.
-    func testInvalidateClearsAllCacheFields() throws {
+    /// otherwise a follow-up populated-check would still claim "we have
+    /// a cache" with stale data behind it. The `decodedSidecarMtime`
+    /// field was added in this branch and could be left lingering by an
+    /// incomplete invalidate.
+    func testInvalidateClearsAllCacheFields() async throws {
         let (asset, dir) = try makeAsset()
         defer { try? FileManager.default.removeItem(at: dir) }
 
@@ -193,40 +212,50 @@ final class EditSessionDecodedCacheTests: XCTestCase {
         let mtime = try writeSidecar(at: sidecarURL)
 
         let session = EditSession(asset: asset)
-        session._testSeedDecodedCache(
+        await session.renderActor._testSeedDecodedCache(
+            asset: asset,
             decoded: makeDecoded(),
             rawResolution: CGSize(width: 100, height: 100),
             sidecarMtime: mtime,
             decodedAtModel: AdjustmentModel.default
         )
-        XCTAssertTrue(session._testDecodedCachePopulated)
-        XCTAssertNotNil(session.decodedAtModel)
+        let populated = await session.renderActor._testDecodedCachePopulated(forAsset: asset)
+        XCTAssertTrue(populated)
+        let atModel = await session.renderActor._testDecodedAtModel
+        XCTAssertNotNil(atModel)
 
-        session.invalidateDecodedCache()
+        // Public sync forwarder is fire-and-forget — fence on a direct
+        // actor invalidate so the test doesn't race against the Task
+        // queue.
+        await session.renderActor.invalidate()
 
-        XCTAssertFalse(session._testDecodedCachePopulated,
+        let populatedAfter = await session.renderActor._testDecodedCachePopulated(forAsset: asset)
+        XCTAssertFalse(populatedAfter,
             "invalidate must clear decodedImage")
-        XCTAssertNil(session.decodedAtModel,
+        let atModelAfter = await session.renderActor._testDecodedAtModel
+        XCTAssertNil(atModelAfter,
             "invalidate must clear decodedAtModel")
         // Re-seed with the same mtime — if `decodedSidecarMtime` had
         // not been cleared, this would short-circuit to "fresh"
         // immediately. We seed afresh and check that freshness state
         // depends only on the new seed, proving the invalidate cleared
         // the prior mtime capture.
-        session._testSeedDecodedCache(
+        await session.renderActor._testSeedDecodedCache(
+            asset: asset,
             decoded: makeDecoded(),
             rawResolution: CGSize(width: 100, height: 100),
             sidecarMtime: mtime
         )
-        XCTAssertTrue(session.decodedCacheIsFreshForCurrentAsset())
+        let freshAgain = await session.renderActor._testDecodedCacheIsFresh(forAsset: asset)
+        XCTAssertTrue(freshAgain)
     }
 
     /// Cold-open second-render parity: when fixture is present, run a
     /// real decode through `ensureRenderStarted`, wait for the Rust
-    /// pass to land in `decodedImage` AND the first preview to publish
-    /// (proving the cold pipeline drained), then verify a second
-    /// `_scheduleRender` call reuses the cache rather than re-FFIing.
-    /// We can't easily count Rust calls without invasive
+    /// pass to land in the actor's cache AND the first preview to
+    /// publish (proving the cold pipeline drained), then verify a
+    /// second `_scheduleRender` call reuses the cache rather than
+    /// re-FFIing. We can't easily count Rust calls without invasive
     /// instrumentation; instead we assert the second slider tick's
     /// publish latency is well under the cold-decode budget. On a
     /// 100 MP RAW the FFI is multi-second; a cached re-render lands in
@@ -255,39 +284,25 @@ final class EditSessionDecodedCacheTests: XCTestCase {
         session.ensureRenderStarted()
 
         // Wait up to 30 s for the cold Rust decode to populate the
-        // cache AND for the first render to publish. The
-        // ensureRenderStarted path runs the sized FFI in the
-        // background while we paint embedded JPEG seeds; we wait for
-        // both to complete before timing the warm path. On dev
-        // hardware the full decode is 3-5 s on a 100 MP RAW; CI
-        // without GPU could be slower.
+        // cache AND for the first render to publish.
         let coldDeadline = Date().addingTimeInterval(30.0)
         while Date() < coldDeadline {
-            let cached = await session._testDecodedCachePopulated
+            let cached = await session.renderActor._testDecodedCachePopulated(forAsset: asset)
             let isRendering = await session.isRendering
             if cached && !isRendering {
-                // One more grace period to let any trailing refine /
-                // persist task settle so it doesn't race with the
-                // slider tick we're about to drive.
                 try await Task.sleep(for: .milliseconds(300))
                 break
             }
             try await Task.sleep(for: .milliseconds(100))
         }
-        let populated = await session._testDecodedCachePopulated
+        let populated = await session.renderActor._testDecodedCachePopulated(forAsset: asset)
         guard populated else {
             return XCTFail("Rust decode did not populate cache within 30 s")
         }
 
         // Now mutate the model — this triggers `_scheduleRender(.fast)`
         // through the `model.didSet`. Time how long it takes for the
-        // fast render to publish. The cached hot path goes
-        // `processSceneLinear(decoded, ...)` only — kernel chain at
-        // viewport target. A cache miss would re-enter
-        // `decodeSceneLinear` (multi-second on a real RAW). Budget
-        // 1500 ms — well under any plausible Rust decode time but
-        // generous against scheduler jitter and the 50 ms
-        // `_scheduleRender` debounce.
+        // fast render to publish.
         let beforePreview = await session.renderedPreview
         let t0 = ContinuousClock.now
         await MainActor.run {
@@ -309,15 +324,9 @@ final class EditSessionDecodedCacheTests: XCTestCase {
         XCTAssertTrue(publishedAfter, "no preview update within 2.5 s of slider tick")
         XCTAssertLessThan(elapsedMs, 1500,
             "cached slider tick should land in <1.5 s; got \(elapsedMs) ms — cache miss?")
-        // Surface the measured ms for ratchet-down sanity checks. Not a
-        // gate (the assertion above is); just a number you can grep for
-        // when comparing test runs across changes.
         print("CACHED_SLIDER_TICK_MS \(elapsedMs)")
-        // Sanity: the cache state machine still reports populated and
-        // fresh post-tick. If the slider had triggered an invalidation
-        // accidentally, this would flip false.
-        let stillCached = await session._testDecodedCachePopulated
-        let stillFresh = await session.decodedCacheIsFreshForCurrentAsset()
+        let stillCached = await session.renderActor._testDecodedCachePopulated(forAsset: asset)
+        let stillFresh = await session.renderActor._testDecodedCacheIsFresh(forAsset: asset)
         XCTAssertTrue(stillCached, "decoded cache should still be populated after a slider tick")
         XCTAssertTrue(stillFresh, "decoded cache should still be fresh after a slider tick")
     }

@@ -6,11 +6,17 @@ import { LibraryStateService } from '../../state/library-state.service';
 import { InfoTabComponent } from '../../detail-panel/info-tab.component';
 import { MapleIconComponent } from '../../icons/maple-icon.component';
 import { DevelopTabComponent } from './develop-tab.component';
+import { EditorSidecarStatusBadgeComponent } from '../editor-sidecar-status-badge/editor-sidecar-status-badge.component';
 
 @Component({
   selector: 'editor-detail-panel',
   standalone: true,
-  imports: [MapleIconComponent, InfoTabComponent, DevelopTabComponent],
+  imports: [
+    MapleIconComponent,
+    InfoTabComponent,
+    DevelopTabComponent,
+    EditorSidecarStatusBadgeComponent,
+  ],
   styleUrl: './editor-detail-panel.component.scss',
   host: {
     class:
