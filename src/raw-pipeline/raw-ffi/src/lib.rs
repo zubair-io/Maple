@@ -64,5 +64,8 @@ mod handle_tests;
 #[path = "id_tests.rs"]
 mod id_tests;
 #[cfg(test)]
+#[path = "scene_linear_chain_tests.rs"]
+mod scene_linear_chain_tests;
+#[cfg(test)]
 #[path = "thumbnail_tests.rs"]
 mod thumbnail_tests;

@@ -93,7 +93,9 @@ fn resize_long_edge(img: image::DynamicImage, max_px: u32) -> image::DynamicImag
 /// free via `maple_free_byte_buffer`. Non-zero on error.
 ///
 /// `quality` is JPEG quality in [1, 100]. Spec-pinned default is 82; pass 0
-/// to use the default.
+/// to use the default. Values > 100 are rejected (rc 14) — `u8` allows up
+/// to 255 and the JPEG encoder accepts anything > 100 silently, which is
+/// not what callers mean.
 #[no_mangle]
 pub unsafe extern "C" fn maple_render_thumbnail_jpeg(
     raw_path: *const c_char,
@@ -108,6 +110,10 @@ pub unsafe extern "C" fn maple_render_thumbnail_jpeg(
     if max_px == 0 {
         set_last_error("max_px must be > 0".into());
         return 9;
+    }
+    if quality > 100 {
+        set_last_error(format!("quality must be in [1, 100] (got {})", quality));
+        return 14;
     }
     let raw_path_str = match CStr::from_ptr(raw_path).to_str() {
         Ok(s) => s.to_owned(),
@@ -165,6 +171,9 @@ pub unsafe extern "C" fn maple_render_thumbnail_jpeg(
 /// JS just reads the resulting file. The cost is one extra fs read, which is
 /// negligible (the route writes-through to the same cache file anyway).
 ///
+/// `quality` is JPEG quality in [1, 100]; pass 0 to use the default (82).
+/// Values > 100 are rejected with rc 14.
+///
 /// Returns 0 on success; non-zero on error (call `maple_last_error`).
 #[no_mangle]
 pub unsafe extern "C" fn maple_render_thumbnail_jpeg_to_file(
@@ -180,6 +189,10 @@ pub unsafe extern "C" fn maple_render_thumbnail_jpeg_to_file(
     if max_px == 0 {
         set_last_error("max_px must be > 0".into());
         return 9;
+    }
+    if quality > 100 {
+        set_last_error(format!("quality must be in [1, 100] (got {})", quality));
+        return 14;
     }
     let raw_path_str = match CStr::from_ptr(raw_path).to_str() {
         Ok(s) => s.to_owned(),
