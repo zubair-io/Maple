@@ -8,9 +8,9 @@
 //! a 100 MP RAW land in ~10 s rather than ~10 minutes.
 //!
 //! Stencil-sensitive stages constrain the overlap pad: clarity at
-//! radius 40 (3-pass box ≈ 39 px effective tail) is the binding stage.
-//! Dehaze (radius 67 px) doesn't fit and is errored at the entry. See
-//! [`TILE_OVERLAP_PX`] and [`render_scene_linear_tile_from_raw_with_quality`].
+//! radius 40 (3-pass box = exactly 39 px effective tail) is the binding
+//! stage. Dehaze (radius 67 px) doesn't fit and is errored at the entry.
+//! See [`TILE_OVERLAP_PX`] and [`render_scene_linear_tile_from_raw_with_quality`].
 
 use crate::{
     color::dcp,
@@ -31,12 +31,34 @@ use super::{
 };
 
 /// Tile-overlap pad in source pixels per edge. Picked to satisfy
-/// clarity at radius 40 (3-pass box ≈ 39 px) — the binding stencil among
-/// the tile-safe stages. Other stages (demosaic 2 px, sharpen ≤ 9 px,
+/// clarity at radius 40 (3-pass box reach is exactly
+/// `3 * (40 / 3) = 39 px` per axis) — the binding stencil among the
+/// tile-safe stages. Other stages (demosaic 2 px, sharpen ≤ 9 px,
 /// nr_color ≤ 4 px, texture 3 px) sit comfortably inside this pad.
 /// Dehaze (radius 67) is NOT tile-safe — `render_scene_linear_tile_from_raw_with_quality`
 /// errors when `model.dehaze != 0`.
-pub const TILE_OVERLAP_PX: u32 = 35;
+///
+/// 48 = 39 (clarity reach) rounded up with headroom. The const assertion
+/// below ties this value to `clarity::CLARITY_RADIUS` — if the clarity
+/// radius is ever bumped, the build will refuse until this constant
+/// follows.
+pub const TILE_OVERLAP_PX: u32 = 48;
+
+// Build-time guard: TILE_OVERLAP_PX must cover the 3-pass clarity box
+// reach. The 3-pass cascaded box blur with per-pass radius
+// `(CLARITY_RADIUS / 3).max(1)` reaches `3 * r_box` pixels per side
+// (every pass shifts the support by `r_box`). If `CLARITY_RADIUS` is
+// raised in the future, this assertion fails until `TILE_OVERLAP_PX` is
+// raised to match.
+const CLARITY_BOX_R: usize = {
+    let r = crate::stages::clarity::CLARITY_RADIUS / 3;
+    if r < 1 { 1 } else { r }
+};
+const CLARITY_TAIL_PX: usize = 3 * CLARITY_BOX_R;
+const _: () = assert!(
+    (TILE_OVERLAP_PX as usize) >= CLARITY_TAIL_PX,
+    "TILE_OVERLAP_PX must cover the 3-pass clarity box reach; bump it when CLARITY_RADIUS grows.",
+);
 
 /// Pad a `(src_x, src_y, src_w, src_h)` source-pixel rect by `pad` pixels on
 /// each edge, clamp to `(0..mosaic_w, 0..mosaic_h)`, and round the resulting
@@ -184,7 +206,7 @@ fn develop_scene_linear_from_padded_mosaic(
     stage("tile_clarity", || clarity::apply(&mut scene, model.clarity));
     stage("tile_texture", || texture::apply(&mut scene, model.texture));
     // dehaze intentionally omitted — the tile entry asserts dehaze == 0
-    // before this function runs (radius 67 px > 35 px overlap pad).
+    // before this function runs (radius 67 px > TILE_OVERLAP_PX overlap pad).
     stage("tile_sharpen", || sharpen::apply(&mut scene, model.sharpen_amount, model.sharpen_radius, model.sharpen_detail, model.sharpen_masking));
     stage("tile_nr_luminance", || noise_reduction::apply_luminance(&mut scene, model.nr_luminance));
     stage("tile_nr_color", || noise_reduction::apply_color(&mut scene, model.nr_color));
@@ -204,9 +226,15 @@ fn develop_scene_linear_from_padded_mosaic(
 ///
 /// Errors:
 /// - `model.dehaze != 0` → returns `Err` with a "dehaze" message; tiles
-///   are not safe with dehaze active (radius 67 px > 35 px overlap pad).
+///   are not safe with dehaze active (radius 67 px > overlap pad).
 /// - `out_w > src_w || out_h > src_h` → returns `Err` ("upscale"); the
 ///   tile path caps at native resolution.
+/// - `(out_w, out_h)` aspect does not match `(src_w, src_h)` aspect →
+///   returns `Err` ("matching aspect"). The tile path's
+///   `downsample_image_area` is single-axis (long-edge driven), so a
+///   non-matching aspect would be silently snapped to a square fit. We
+///   reject loudly instead; callers requesting non-square output should
+///   recrop to the matching aspect first.
 ///
 /// Output is fp16 RGBA, length `4 * out_w * out_h`, alpha = 0x3c00. The
 /// orientation is applied by walking the trim+downsample output through
@@ -228,7 +256,7 @@ pub fn render_scene_linear_tile_from_raw_with_quality(
     }
     if model.dehaze.abs() > 1e-3 {
         return Err(crate::error::Error::Pipeline(
-            "tile path is not supported when dehaze != 0 (radius 67 px > 35 px overlap pad)"
+            "tile path is not supported when dehaze != 0 (radius 67 px > overlap pad)"
                 .into()
         ));
     }
@@ -236,6 +264,22 @@ pub fn render_scene_linear_tile_from_raw_with_quality(
         return Err(crate::error::Error::Pipeline(
             format!("tile path is downscale-only (no upscale): out {}×{} > src {}×{}",
                 out_w, out_h, src_w, src_h)
+        ));
+    }
+    // Aspect-mismatch guard: the trim → downsample path drives a single
+    // long-edge scale (see `target_long_edge` below), so a request whose
+    // aspect differs from the source's aspect would be silently fitted
+    // to a square. Reject mismatched aspect with a clear error; callers
+    // wanting a non-matching aspect should recrop the source rect to
+    // match. Cross-product comparison avoids fp; tolerance is one row /
+    // column of integer rounding (`max(src_w, src_h)`).
+    let cross = (out_w as u64 * src_h as u64)
+        .abs_diff(out_h as u64 * src_w as u64);
+    let tol = src_w.max(src_h) as u64;
+    if cross > tol {
+        return Err(crate::error::Error::Pipeline(
+            format!("tile path requires matching aspect: src {}×{}, out {}×{}",
+                src_w, src_h, out_w, out_h)
         ));
     }
     // (src_x, src_y, src_w, src_h) are in DISPLAY-oriented source coords —
@@ -357,6 +401,55 @@ mod tests {
             "error must mention dehaze, got: {}", msg);
     }
 
+    /// Tile entry rejects mismatched-aspect requests. The trim →
+    /// downsample chain drives a single long-edge scale, so honouring
+    /// `(out_w, out_h)` with a non-matching aspect would silently
+    /// produce a fit-within square instead of the requested rect. We
+    /// reject loudly with a "matching aspect" message; the FFI surface
+    /// maps that to rc=12. Same fake-RawImage rationale as the dehaze
+    /// test (rejection fires before any decode work).
+    #[test]
+    fn render_scene_linear_tile_rejects_mismatched_aspect() {
+        let raw = fake_raw(2048, 2048);
+        let model = AdjustmentModel::default();
+        // src 512×512 (1:1), out 512×256 (2:1) — strict mismatch.
+        let r = render_scene_linear_tile_from_raw_with_quality(
+            &raw, &model, 0, 0, 512, 512, 512, 256,
+            RenderQuality::Full,
+        );
+        assert!(r.is_err(), "tile path must error on mismatched aspect");
+        let msg = format!("{}", r.unwrap_err());
+        assert!(msg.contains("matching aspect"),
+            "error must mention matching aspect, got: {}", msg);
+
+        // src 1024×512 (2:1), out 256×128 (2:1) — matches; should NOT
+        // error on the aspect check. (May still error elsewhere because
+        // `fake_raw` has no DCP profile, so just confirm the message is
+        // not the aspect one.)
+        let r_ok_aspect = render_scene_linear_tile_from_raw_with_quality(
+            &raw, &model, 0, 0, 1024, 512, 256, 128,
+            RenderQuality::Full,
+        );
+        if let Err(e) = r_ok_aspect {
+            let msg = format!("{}", e);
+            assert!(!msg.contains("matching aspect"),
+                "matching-aspect request must not trip the aspect guard: {}", msg);
+        }
+
+        // Equal cross-product within the integer-rounding tolerance
+        // (one row/column of `src_w.max(src_h)`) — should pass.
+        // src 513×512, out 257×256: cross diff = |513*256 - 512*257| = 256 <= 513.
+        let r_tol = render_scene_linear_tile_from_raw_with_quality(
+            &raw, &model, 0, 0, 513, 512, 257, 256,
+            RenderQuality::Full,
+        );
+        if let Err(e) = r_tol {
+            let msg = format!("{}", e);
+            assert!(!msg.contains("matching aspect"),
+                "near-aspect within tolerance must not trip guard: {}", msg);
+        }
+    }
+
     /// Tile entry rejects upscale requests (`out_w > src_w` or
     /// `out_h > src_h`). Same fake-RawImage rationale as the dehaze test.
     #[test]
@@ -451,12 +544,12 @@ mod tests {
         assert!(w3 > 0 && h3 > 0);
     }
 
-    /// 35 px overlap pad tile-stencil reachability test: with `src` placed
-    /// well inside the mosaic and `pad = 35`, every pixel within
-    /// `src_w + 70 × src_h + 70` of the inner rect must lie inside the
-    /// padded crop. This is the geometric check that the clarity stencil
-    /// (effective tail ≈ 39 px) sits inside the trimmed region's overlap
-    /// — equivalently, no clarity sample at the inner-rect boundary
+    /// Tile-stencil reachability test: with `src` placed well inside the
+    /// mosaic and `pad = TILE_OVERLAP_PX`, every pixel within `pad` of
+    /// the inner rect must lie inside the padded crop. This is the
+    /// geometric check that the clarity stencil (effective tail 39 px at
+    /// `CLARITY_RADIUS = 40`) sits inside the trimmed region's overlap —
+    /// equivalently, no clarity sample at the inner-rect boundary
     /// reaches outside the mosaic crop unless the src is itself clipped
     /// by the image edge.
     #[test]
@@ -483,13 +576,13 @@ mod tests {
         // Padded crop sits inside the mosaic — does not overshoot.
         assert!(x + w <= mosaic_w, "padded crop overshoots width");
         assert!(y + h <= mosaic_h, "padded crop overshoots height");
-        // The clarity stencil at radius 40 (3-pass box ≈ 39 px effective
-        // tail) is inside the 35 px overlap on three of three passes:
-        // each box pass has radius (CLARITY_RADIUS / 3) ≈ 13 px and the
-        // 3-pass concatenation reaches ≈ 39 px — within 35 + 4 px of
-        // sharpen + texture + nr_color cushion. The hard limit is dehaze
-        // (radius 67 px) which is gated separately.
-        assert_eq!(pad, 35);
+        // Locks the binding stencil: clarity at radius 40 has a 3-pass
+        // box reach of exactly `3 * (40 / 3) = 39` px per side. The
+        // const assertion at module scope pins `TILE_OVERLAP_PX` to
+        // this value; check the runtime relation here too.
+        let clarity_reach = 3 * (crate::stages::clarity::CLARITY_RADIUS / 3).max(1);
+        assert!((pad as usize) >= clarity_reach,
+            "TILE_OVERLAP_PX {} must cover clarity tail {}", pad, clarity_reach);
     }
 
     /// Tile entry: renders a 512×512 source-pixel rectangle out of the

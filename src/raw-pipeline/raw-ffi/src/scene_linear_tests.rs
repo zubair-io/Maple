@@ -268,6 +268,26 @@ fn render_tile_upscale_returns_error_code_11() {
     assert_eq!(rc, 11, "out_h>src_h must rc=11, got {}", rc);
 }
 
+/// Tile FFI rejects mismatched aspect (`out_w/out_h` ≠ `src_w/src_h`)
+/// with rc=12. Fixture-gated — the aspect gate lives inside the
+/// post-decode core call.
+#[test]
+fn render_tile_mismatched_aspect_returns_error_code_12() {
+    let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../test-fixtures/raws/test_0002.dng");
+    if !path.exists() { return; }
+    let raw_cstr = CString::new(path.to_str().unwrap()).unwrap();
+    let mut buf = empty_buf();
+    // src 512×512 (1:1), out 512×256 (2:1) — strict aspect mismatch.
+    let rc = unsafe {
+        maple_render_file_scene_linear_tile(
+            raw_cstr.as_ptr(), std::ptr::null(),
+            1024, 1024, 512, 512, 512, 256, 0, &mut buf,
+        )
+    };
+    assert_eq!(rc, 12, "mismatched aspect must rc=12, got {}", rc);
+}
+
 // -----------------------------------------------------------------
 // Cross-language strip round-trip (ticket #124 follow-up).
 //

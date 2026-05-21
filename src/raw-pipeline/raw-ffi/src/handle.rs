@@ -188,6 +188,8 @@ pub unsafe extern "C" fn maple_open_raw_handle_bytes(
 ///   - 9: bad tile geometry (src_w/src_h/out_w/out_h == 0)
 ///   - 10: dehaze active in the handle's model — tile path unsafe
 ///   - 11: upscale attempt (out > src) — tile path is downscale-only
+///   - 12: mismatched aspect — tile path requires `out_w/out_h` aspect
+///         to match `src_w/src_h` aspect (within integer rounding)
 ///   - 8: any other error from the core tile renderer
 #[no_mangle]
 pub unsafe extern "C" fn maple_render_handle_scene_linear_tile(
@@ -244,6 +246,7 @@ pub unsafe extern "C" fn maple_render_handle_scene_linear_tile(
                 set_last_error(msg.clone());
                 if msg.contains("dehaze") { return 10; }
                 if msg.contains("upscale") || msg.contains("downscale-only") { return 11; }
+                if msg.contains("matching aspect") { return 12; }
                 return 8;
             }
         };

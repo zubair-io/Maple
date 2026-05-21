@@ -3,7 +3,15 @@ use crate::{
     stages::blur::gaussian_blur_plane,
 };
 
-const CLARITY_RADIUS: usize = 40;
+/// Gaussian-equivalent reach of the clarity unsharp pass, in pixels.
+/// The clarity kernel is three cascaded box blurs of radius
+/// `(CLARITY_RADIUS / 3).max(1)` per axis (see `blur::gaussian_blur_plane`),
+/// so the worst-case stencil tail reaches `3 * (CLARITY_RADIUS / 3) = 39`
+/// pixels per side at the current value. `crate::pipeline::TILE_OVERLAP_PX`
+/// pins itself to this constant via a const assertion — if you raise
+/// `CLARITY_RADIUS`, the build will refuse until the tile overlap grows
+/// to match.
+pub const CLARITY_RADIUS: usize = 40;
 
 /// Rec.2020 luminance coefficients — matches LUMA_REC2020 in the
 /// SceneToneControls Metal shader and the WebGL port.
