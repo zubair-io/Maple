@@ -236,14 +236,18 @@ export const fsThumbsRoutes = new Elysia({ prefix: "/api/fs" }).get(
         set.status = 500;
         return { error: "Thumbnail render failed (see server log)" };
       }
+      // Defense-in-depth: the FFI bakes orientation into the pixels and
+      // emits a bare JPEG with no EXIF, so this is a metadata-read no-op
+      // on every RAW thumb. Kept to catch any future code path that lands
+      // a tagged JPEG at this cache location.
       try {
         await applyExifOrientationInPlace(thumbPath);
       } catch (err) {
-        // Non-fatal: the FFI output is still a valid JPEG, just possibly
-        // un-rotated. Better to serve a sideways image than 500 the request.
+        // Non-fatal: the FFI output is still a valid JPEG. Better to serve
+        // what we have than 500 the request.
         log.warn(
           { thumbPath, err: err instanceof Error ? err.message : err },
-          "orientation post-process failed; serving un-rotated thumb",
+          "orientation post-process failed; serving thumb as-is",
         );
       }
     }
