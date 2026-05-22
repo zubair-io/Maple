@@ -318,12 +318,17 @@ mod tests {
     }
 
     #[test]
-    fn defaults_highlight_recovery_is_off() {
-        // Per #325: `ChromaticAdaptation` exists as an opt-in variant but
-        // the default remains `Off` until the algorithm clears the parity
-        // harness. Default-on is tracked in a follow-up ticket.
+    fn defaults_highlight_recovery_is_chromatic_adaptation() {
+        // Per #336: ChromaticAdaptation is the default — fixes the
+        // magenta-highlight symptom in #325 once the algorithm was tuned
+        // (scene-median fallback, invariant clamp, SAT-backed adaptive
+        // radius). Users can still opt out per-image via
+        // `papp:HighlightRecoveryMode="Off"`.
         let m = AdjustmentModel::default();
-        assert_eq!(m.highlight_recovery, HighlightRecoveryMode::Off);
+        assert_eq!(
+            m.highlight_recovery,
+            HighlightRecoveryMode::ChromaticAdaptation
+        );
     }
 
     #[test]

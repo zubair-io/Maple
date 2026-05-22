@@ -103,6 +103,6 @@ export function defaultGeneratedAdjustmentModel(): GeneratedAdjustmentModel {
     nrLuminance: 0.0,
     nrColor: 25.0,
     dehaze: 0.0,
-    highlightRecovery: 'Off',
+    highlightRecovery: 'ChromaticAdaptation',
   };
 }

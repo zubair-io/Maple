@@ -106,7 +106,7 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
         captureSharpeningRadius: Double = 1.0,
         nrLuminance: Double = 0,
         nrColor: Double = 25,
-        highlightRecovery: HighlightRecoveryMode = .off
+        highlightRecovery: HighlightRecoveryMode = .chromaticAdaptation
     ) {
         self.temperature = temperature
         self.tint = tint

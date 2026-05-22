@@ -16,17 +16,22 @@
 
 /// Highlight reconstruction mode per spec § 3.3a.
 ///
-/// Default is currently `Off`. The `ChromaticAdaptation` variant (Path C —
-/// `AsShotNeutral`-aware reconstruction) was added in #325 but did NOT pass
-/// the parity harness as a default — every baseline fixture regressed
-/// (uniform negative bias in candidate vs ACR reference). Flipping the
-/// default to `ChromaticAdaptation` is deferred to a follow-up ticket once
-/// the algorithm has been tuned against the fixture set; users can opt in
-/// by setting `papp:HighlightRecoveryMode="ChromaticAdaptation"` in the
-/// XMP sidecar. See the PR for #325 for the diagnostic data and the
-/// three known shortcomings (neutral fallback over-pulls on sunsets;
-/// two-channel-clip can darken pixels; 7×7 window is too small for blown
-/// sky regions where unclipped neighbors are 50+ pixels away).
+/// Default is `ChromaticAdaptation` (Path C — `AsShotNeutral`-aware
+/// reconstruction) as of #336. The algorithm was added in #325 / #334 as
+/// opt-in pending three known shortcomings: (1) the conf=0 neutral
+/// fallback over-pulled large homogeneous clipped regions (e.g. sunsets) to
+/// white, (2) two-channel clip could darken the brighter unclipped anchor
+/// through the implied-value rewrite, (3) the 7×7 neighbour window was too
+/// small for blown-sky regions where unclipped neighbours sit dozens of
+/// pixels away. #336 tunes the algorithm against all three:
+///
+/// 1. Scene-median chromaticity fallback (computed once per stage entry)
+///    replaces the per-pixel "neutral white" pull — warm sunsets stay warm.
+/// 2. An invariant clamp `recovered[c] >= observed[c]` keeps clipped
+///    channels from reconstructing below their observed values.
+/// 3. SAT-based adaptive-radius search (7×7 → 15×15) finds unclipped
+///    neighbours beyond the original 7×7 window; deeper interiors hand off
+///    to the scene-median fallback.
 ///
 /// `Off` skips the stage entirely. `Blend` and `Luminance` are kept for
 /// back-compat with XMP sidecars produced before #325; both silently upgrade
@@ -34,7 +39,7 @@
 /// wrong-directional pull (`Blend` lerped clipped channels DOWN, magnifying
 /// the magenta cast) and a partial single-channel scope (`Luminance` ignored
 /// 2-channel clips), so silently fixing them was preferred to preserving a
-/// known-broken behavior behind an enum variant.
+/// known-broken behaviour behind an enum variant.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum HighlightRecoveryMode {
     Off,
@@ -50,7 +55,7 @@ pub enum HighlightRecoveryMode {
 
 impl Default for HighlightRecoveryMode {
     fn default() -> Self {
-        Self::Off
+        Self::ChromaticAdaptation
     }
 }
 
@@ -137,7 +142,7 @@ impl Default for AdjustmentModel {
             nr_luminance: 0.0,
             nr_color: 25.0,
             dehaze: 0.0,
-            highlight_recovery: HighlightRecoveryMode::Off,
+            highlight_recovery: HighlightRecoveryMode::ChromaticAdaptation,
         }
     }
 }
