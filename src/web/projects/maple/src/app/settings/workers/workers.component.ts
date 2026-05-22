@@ -51,6 +51,7 @@ import {
   blankRuntime,
   errorMessage,
   formatBytes,
+  formatDate,
   groupStagesByPipeline,
   runtimeFormToPatch,
   stageMeta,
@@ -244,11 +245,6 @@ export class WorkersComponent implements OnInit, OnDestroy {
   @HostListener('document:keydown.escape')
   onEscape(): void {
     if (this.deadLog() !== null) this.closeLog();
-  }
-
-  formatDate(iso: string | null): string {
-    if (!iso) return '';
-    return new Date(iso).toLocaleString();
   }
 
   /** Probe the URL currently typed into the describe/geocode panel —
@@ -456,6 +452,7 @@ export class WorkersComponent implements OnInit, OnDestroy {
   statusDotColor = statusDotColor;
   throughputLabel = throughputLabel;
   formatBytes = formatBytes;
+  formatDate = formatDate;
 
   saveState(s: StageStatus): SaveState {
     return this.saveStates()[s.name] ?? 'idle';
