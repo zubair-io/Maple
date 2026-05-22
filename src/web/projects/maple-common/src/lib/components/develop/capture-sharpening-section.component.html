@@ -12,12 +12,21 @@
       [max]="100"
       (valueChange)="patch('captureSharpeningAmount', $event)"
     />
+    <!--
+      Step quantised to whole pixels: the Rust pipeline's tripled-box-blur
+      capture-sharpening stage accepts only integer radii (see
+      `capture_sharpening_params_from_model` in develop.rs — it rounds to
+      `usize`). Fractional steps would advertise UI precision the pipeline
+      doesn't honour. Min/max also snap to integer endpoints inside the
+      model's declared [0.5, 2.0] range; the true-sigma path that would
+      restore fractional control is tracked in KTLO #320.
+    -->
     <editor-slider
       label="Radius"
       [value]="adj().captureSharpeningRadius"
-      [min]="0.5"
-      [max]="2.0"
-      [step]="0.1"
+      [min]="1"
+      [max]="2"
+      [step]="1"
       (valueChange)="patch('captureSharpeningRadius', $event)"
     />
   }
