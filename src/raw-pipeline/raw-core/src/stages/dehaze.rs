@@ -213,7 +213,19 @@ pub fn apply(img: &mut Image, dehaze: f32) {
     // doesn't. Cheap — one smoothstep per pixel + one box-blur pass.
     let sky = sky_mask(&dc, w, h);
 
-    // Map the slider onto the transmission.
+    recover_with_mask(img, dehaze, &t_refined, a, &sky);
+}
+
+/// Recovery loop split out for testability. `apply` calls this with the real
+/// sky mask; tests can call it with a zero-mask buffer to verify the mask is
+/// load-bearing (without it, the sky-preservation property fails).
+fn recover_with_mask(
+    img: &mut Image,
+    dehaze: f32,
+    t_refined: &[f32],
+    a: [f32; 3],
+    mask: &[f32],
+) {
     let t0 = 0.1f32;
     let scale = (dehaze / 100.0).clamp(-1.0, 1.0);
     for (i, p) in img.pixels.iter_mut().enumerate() {
@@ -231,7 +243,7 @@ pub fn apply(img: &mut Image, dehaze: f32) {
         let j_b = (p[2] - a[2]) / t_eff + a[2];
         // Blend dehaze result `J` with the unmodified input `I` by the sky
         // mask: mask=1 → input, mask=0 → full dehaze.
-        let m = sky[i].clamp(0.0, 1.0);
+        let m = mask[i].clamp(0.0, 1.0);
         let inv_m = 1.0 - m;
         *p = [
             inv_m * j_r + m * p[0],
@@ -239,6 +251,27 @@ pub fn apply(img: &mut Image, dehaze: f32) {
             inv_m * j_b + m * p[2],
         ];
     }
+}
+
+/// Test-only entry that mirrors `apply` but with a caller-supplied mask buffer.
+/// Used by `dehaze_preserves_sky_attacks_haze` to verify that the sky mask is
+/// load-bearing — when passed a zero mask, the sky-preservation assertion
+/// must fail (proving the mask is what makes it pass).
+#[cfg(test)]
+fn apply_with_mask_override(img: &mut Image, dehaze: f32, mask_override: &[f32]) {
+    img.assert_space(ColorSpace::SceneLinearRec2020);
+    if dehaze.abs() < 1e-3 { return; }
+    let w = img.width as usize;
+    let h = img.height as usize;
+    let dc = dark_channel(img);
+    let a = atmospheric_light(img, &dc);
+    let t_raw = transmission(img, a);
+    let guide: Vec<f32> = img.pixels.iter().map(|p| {
+        0.2627 * p[0] + 0.6780 * p[1] + 0.0593 * p[2]
+    }).collect();
+    let t_refined = guided_filter(&guide, &t_raw, w, h, 60, 1e-3);
+    assert_eq!(mask_override.len(), (w * h));
+    recover_with_mask(img, dehaze, &t_refined, a, mask_override);
 }
 
 #[cfg(test)]
@@ -347,7 +380,8 @@ mod tests {
             assert!(raw[i] >= raw[i - 1] - 1e-6,
                 "smoothstep not monotone at {}: {} -> {}", i, raw[i - 1], raw[i]);
         }
-        // Mid-band (0.50, the geometric midpoint of the smoothstep) is around 0.5.
+        // Mid-band (0.50, the arithmetic midpoint of SKY_MASK_LOW..SKY_MASK_HIGH)
+        // is around 0.5.
         assert!((raw[2] - 0.5).abs() < 0.1, "midpoint near 0.5, got {}", raw[2]);
     }
 
@@ -359,13 +393,17 @@ mod tests {
         assert!((smoothstep(0.0, 1.0, 0.5) - 0.5).abs() < 1e-6);
     }
 
-    #[test]
-    fn dehaze_preserves_sky_attacks_haze() {
-        // Synthetic split scene (issue #272): bright "sky" on top, hazy mid-
-        // distance content on the bottom. At dehaze=+100 the sky must barely
-        // move (< 5% per channel) and the hazy region must change substantially.
-        let w = 60usize;
-        let h = 60usize;
+    /// Build the synthetic split scene used by `dehaze_preserves_sky_attacks_haze`
+    /// and the companion "without mask the test fails" assertion below.
+    /// Sky on top half, hazy mid-distance content on the bottom half with a
+    /// low-contrast checker that exercises the DCP path.
+    ///
+    /// The sky is `0.85` everywhere except a small "specular" patch at `0.97`
+    /// that pulls the estimated atmospheric light `A` above the sky body.
+    /// Without that separation `A ≈ sky` and `J = (I − A)/t + A ≈ I` even
+    /// without the mask, which would make the mask un-testable (Copilot
+    /// review on PR #316 flagged this).
+    fn build_sky_haze_scene(w: usize, h: usize) -> Image {
         let mut img = Image::new(w as u32, h as u32, ColorSpace::SceneLinearRec2020);
         for y in 0..h {
             for x in 0..w {
@@ -373,19 +411,70 @@ mod tests {
                     // Sky proxy: every channel high → dark channel is also high.
                     img.pixels[y * w + x] = [0.85, 0.85, 0.85];
                 } else {
-                    // Hazy base + low-contrast feature: a couple of darker
-                    // strokes that exercise the DCP path.
+                    // Hazy base + low-contrast feature.
                     let dark_feature = (x / 6) % 2 == 0 && (y / 6) % 2 == 0;
                     let v = if dark_feature { 0.22 } else { 0.30 };
                     img.pixels[y * w + x] = [v, v, v];
                 }
             }
         }
+        // Add a bright "specular" patch in the sky corner so the atmospheric-
+        // light estimator A lands distinctly *above* the sky body (0.85).
+        // Atmospheric_light picks the top-dc positions and averages the
+        // original pixels there. The patch must be larger than the dark-
+        // channel neighbourhood (15×15) so its interior pixels have dc =
+        // patch brightness rather than being min-filtered down to the
+        // surrounding sky level. With a 20×20 patch, the centre cells have
+        // 15×15 neighbourhoods fully inside the patch and dc = 0.95 — which
+        // sorts above the sky body's dc = 0.85, so A ≈ [0.95, 0.95, 0.95].
+        // That gives the sky body a meaningful (I − A) = −0.10 to amplify,
+        // which is what makes the no-mask path move the sky.
+        for y in 0..20 {
+            for x in 0..20 {
+                img.pixels[y * w + x] = [0.95, 0.95, 0.95];
+            }
+        }
+        img
+    }
+
+    /// Maximum per-channel relative change between `before` and `after` over
+    /// the row range `[y0, y1)`.
+    fn max_rel_change(before: &[[f32; 3]], after: &[[f32; 3]], w: usize, y0: usize, y1: usize) -> f32 {
+        let mut max_rel = 0.0f32;
+        for y in y0..y1 {
+            for x in 0..w {
+                let b = before[y * w + x];
+                let a = after[y * w + x];
+                for c in 0..3 {
+                    let rel = (a[c] - b[c]).abs() / b[c].max(1e-6);
+                    if rel > max_rel { max_rel = rel; }
+                }
+            }
+        }
+        max_rel
+    }
+
+    #[test]
+    fn dehaze_preserves_sky_attacks_haze() {
+        // Synthetic split scene (issue #272): bright "sky" on top, hazy mid-
+        // distance content on the bottom. At dehaze=+100 the sky must barely
+        // move (< 5% per channel) and the hazy region must change substantially.
+        let w = 60usize;
+        let h = 60usize;
+        let mut img = build_sky_haze_scene(w, h);
         let before = img.pixels.clone();
         apply(&mut img, 100.0);
 
-        // Sky half: per-channel change must stay under 5% of the input.
-        for y in 0..(h / 2) {
+        // Pure-sky band (top quarter, well clear of the haze boundary): the
+        // mask is fully saturated here, so per-channel change must stay under
+        // 5%. Boundary rows in the lower-sky band are intentionally excluded —
+        // the mask feathers there by design, so the pixels move some
+        // (small) amount. The "without mask, sky moves substantially"
+        // assertion in `dehaze_without_sky_mask_breaks_sky_preservation`
+        // covers the load-bearing claim that the mask is what suppresses
+        // movement in the sky.
+        let pure_sky_rows = h / 4;
+        for y in 0..pure_sky_rows {
             for x in 0..w {
                 let b = before[y * w + x];
                 let a = img.pixels[y * w + x];
@@ -398,18 +487,41 @@ mod tests {
             }
         }
         // Hazy half: at least one strong-feature pixel must change substantially.
-        let mut max_rel_change = 0.0f32;
-        for y in (h / 2)..h {
-            for x in 0..w {
-                let b = before[y * w + x];
-                let a = img.pixels[y * w + x];
-                let rel = (a[0] - b[0]).abs() / b[0].max(1e-6);
-                if rel > max_rel_change { max_rel_change = rel; }
-            }
-        }
-        assert!(max_rel_change > 0.10,
+        let haze_max_rel = max_rel_change(&before, &img.pixels, w, h / 2, h);
+        assert!(haze_max_rel > 0.10,
             "expected dehaze to substantially modify the hazy half, got max rel {:.3}",
-            max_rel_change);
+            haze_max_rel);
+    }
+
+    /// Companion to `dehaze_preserves_sky_attacks_haze`: prove the sky mask is
+    /// load-bearing. Re-runs the same recovery math but with the mask forced
+    /// to zero everywhere — the sky-preservation property must FAIL, i.e. the
+    /// pure-sky band must move by *much* more than the 5%-per-channel
+    /// ceiling the masked variant enforces. If this assertion ever fires,
+    /// the masked test is no longer load-bearing evidence that the mask
+    /// works.
+    #[test]
+    fn dehaze_without_sky_mask_breaks_sky_preservation() {
+        let w = 60usize;
+        let h = 60usize;
+        let mut img = build_sky_haze_scene(w, h);
+        let before = img.pixels.clone();
+
+        // Run the full recovery pipeline with a zero mask (mask disabled).
+        let zero_mask = vec![0.0f32; w * h];
+        apply_with_mask_override(&mut img, 100.0, &zero_mask);
+
+        // Check the exact same pure-sky band the masked test asserts on.
+        // The masked test requires every pixel-channel here to move < 5%;
+        // the no-mask path must blow well past that — we require > 20% to
+        // leave headroom and make the contrast unambiguous.
+        let pure_sky_rows = h / 4;
+        let sky_max_rel = max_rel_change(&before, &img.pixels, w, 0, pure_sky_rows);
+        assert!(sky_max_rel > 0.20,
+            "without the sky mask the sky should move substantially, got max rel {:.3} \
+             (if this fires, the masked sky-preservation test is no longer load-bearing \
+             evidence that the mask works)",
+            sky_max_rel);
     }
 
     #[test]
