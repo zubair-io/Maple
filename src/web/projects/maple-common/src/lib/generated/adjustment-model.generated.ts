@@ -40,6 +40,10 @@ export interface GeneratedAdjustmentModel {
   sharpenDetail: number;
   /** Sharpening edge-mask threshold. Range: [0.0, 100.0]. */
   sharpenMasking: number;
+  /** Capture sharpening strength (Richardson-Lucy deconvolution; 0 = stage skipped). Range: [0.0, 100.0]. */
+  captureSharpeningAmount: number;
+  /** Capture sharpening PSF blur radius in pixels. Range: [0.5, 2.0]. */
+  captureSharpeningRadius: number;
   /** Luminance noise reduction strength per spec § 3.11. Range: [0.0, 100.0]. */
   nrLuminance: number;
   /** Color noise reduction strength (default = ACR's default). Range: [0.0, 100.0]. */
@@ -68,6 +72,8 @@ export const ADJUSTMENT_RANGES = {
   sharpenRadius: [0.5, 3.0] as const,
   sharpenDetail: [0.0, 100.0] as const,
   sharpenMasking: [0.0, 100.0] as const,
+  captureSharpeningAmount: [0.0, 100.0] as const,
+  captureSharpeningRadius: [0.5, 2.0] as const,
   nrLuminance: [0.0, 100.0] as const,
   nrColor: [0.0, 100.0] as const,
   dehaze: [-100.0, 100.0] as const,
@@ -92,6 +98,8 @@ export function defaultGeneratedAdjustmentModel(): GeneratedAdjustmentModel {
     sharpenRadius: 0.5,
     sharpenDetail: 25.0,
     sharpenMasking: 0.0,
+    captureSharpeningAmount: 0.0,
+    captureSharpeningRadius: 1.0,
     nrLuminance: 0.0,
     nrColor: 25.0,
     dehaze: 0.0,

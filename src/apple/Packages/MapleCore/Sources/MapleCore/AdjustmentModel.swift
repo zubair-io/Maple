@@ -65,6 +65,13 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
     public var sharpenDetail: Double    // 0..100, default 25
     public var sharpenMasking: Double   // 0..100, default 0
 
+    // Detail — capture sharpening (Maple-proprietary Richardson-Lucy
+    // deconvolution; distinct from ACR's unsharp-mask sliders above).
+    // Defaults to 0 (stage skipped) so first-open matches pre-#271 behaviour
+    // bit-identically. Per-camera defaults are a follow-up calibration ticket.
+    public var captureSharpeningAmount: Double  // 0..100, default 0
+    public var captureSharpeningRadius: Double  // 0.5..2.0, default 1.0
+
     // Detail — noise reduction
     public var nrLuminance: Double      // 0..100, default 0
     public var nrColor: Double          // 0..100, default 25
@@ -90,6 +97,8 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
         sharpenRadius: Double = 1.0,
         sharpenDetail: Double = 25,
         sharpenMasking: Double = 0,
+        captureSharpeningAmount: Double = 0,
+        captureSharpeningRadius: Double = 1.0,
         nrLuminance: Double = 0,
         nrColor: Double = 25,
         highlightRecovery: HighlightRecoveryMode = .off
@@ -111,6 +120,8 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
         self.sharpenRadius = sharpenRadius
         self.sharpenDetail = sharpenDetail
         self.sharpenMasking = sharpenMasking
+        self.captureSharpeningAmount = captureSharpeningAmount
+        self.captureSharpeningRadius = captureSharpeningRadius
         self.nrLuminance = nrLuminance
         self.nrColor = nrColor
         self.highlightRecovery = highlightRecovery
@@ -225,6 +236,8 @@ private final class _XMPParserDelegate: NSObject, XMLParserDelegate {
         case "crs:SharpenRadius":       model.sharpenRadius  = d(value) ?? model.sharpenRadius
         case "crs:SharpenDetail":       model.sharpenDetail  = d(value) ?? model.sharpenDetail
         case "crs:SharpenEdgeMasking":  model.sharpenMasking = d(value) ?? model.sharpenMasking
+        case "papp:CaptureSharpeningAmount": model.captureSharpeningAmount = d(value) ?? model.captureSharpeningAmount
+        case "papp:CaptureSharpeningRadius": model.captureSharpeningRadius = d(value) ?? model.captureSharpeningRadius
         case "crs:LuminanceSmoothing":  model.nrLuminance    = d(value) ?? model.nrLuminance
         case "crs:ColorNoiseReduction": model.nrColor        = d(value) ?? model.nrColor
         case "crs:WhiteBalance":
@@ -288,6 +301,8 @@ public struct XMPSerializer {
             ("crs:SharpenRadius",        String(format: "%.1f", model.sharpenRadius)),
             ("crs:SharpenDetail",        String(format: "%.0f", model.sharpenDetail)),
             ("crs:SharpenEdgeMasking",   String(format: "%.0f", model.sharpenMasking)),
+            ("papp:CaptureSharpeningAmount", String(format: "%.0f", model.captureSharpeningAmount)),
+            ("papp:CaptureSharpeningRadius", String(format: "%.1f", model.captureSharpeningRadius)),
             ("crs:LuminanceSmoothing",   String(format: "%.0f", model.nrLuminance)),
             ("crs:ColorNoiseReduction",  String(format: "%.0f", model.nrColor)),
             ("xmp:Rating",               String(culling.stars)),

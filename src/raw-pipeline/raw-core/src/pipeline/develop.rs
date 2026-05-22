@@ -29,8 +29,8 @@ use crate::{
     image::RawImage,
     linearize,
     stages::{
-        auto_exposure, clarity, dehaze, highlight_recovery, noise_reduction, saturation,
-        scene_tone_controls, sharpen, texture, vibrance, white_balance,
+        auto_exposure, capture_sharpening, clarity, dehaze, highlight_recovery, noise_reduction,
+        saturation, scene_tone_controls, sharpen, texture, vibrance, white_balance,
     },
     xmp::AdjustmentModel,
 };
@@ -38,6 +38,30 @@ use crate::{
 use super::{
     downsample::downsample_image_area, dump_after, stage, RenderQuality, AUTO_EXPOSURE_CLIP_PCT,
 };
+
+/// Translate the AdjustmentModel's user-facing capture-sharpening sliders
+/// into the stage's [`capture_sharpening::CaptureSharpeningParams`]. Returns
+/// `None` when the stage should be skipped (default identity: amount = 0).
+///
+/// The slider's `capture_sharpening_radius` is an f32 in `[0.5, 2.0]`; the
+/// underlying tripled-box-blur approximation accepts only integer-pixel
+/// radii, so we round to the nearest integer (clamped to `>= 1` since
+/// `radius == 0` short-circuits the stage). A future ticket can swap in a
+/// true Gaussian sigma path that uses the fractional value directly.
+fn capture_sharpening_params_from_model(
+    model: &AdjustmentModel,
+) -> Option<capture_sharpening::CaptureSharpeningParams> {
+    if model.capture_sharpening_amount <= 0.0 {
+        return None;
+    }
+    let radius = model.capture_sharpening_radius.round().max(1.0) as usize;
+    let strength = (model.capture_sharpening_amount / 100.0).clamp(0.0, 1.5);
+    Some(capture_sharpening::CaptureSharpeningParams {
+        radius,
+        strength,
+        ..capture_sharpening::CaptureSharpeningParams::default()
+    })
+}
 
 /// Run the entire development chain through `nr_color` and return the
 /// developed `Image` in `ColorSpace::SceneLinearRec2020`. Shared by both
@@ -131,6 +155,19 @@ pub fn develop_scene_linear_from_raw_with_quality(
         });
     }
     dump_after("04_profile_gain_table_map", &scene);
+    // Capture sharpening — Richardson-Lucy deconvolution against a Gaussian
+    // PSF, run first thing in scene-linear Rec.2020 so it sees the
+    // calibrated sensor signal before any user-facing tone/WB transforms.
+    // No-op when `capture_sharpening_amount` is 0 (the default), which keeps
+    // the parity-harness baseline bit-identical to pre-#271 behaviour.
+    // Commutative with the downstream scalar gains (auto_exposure,
+    // white_balance) so placement here vs. post-AE has no algebraic effect.
+    if let Some(params) = capture_sharpening_params_from_model(model) {
+        stage("capture_sharpening", || {
+            capture_sharpening::apply_capture_sharpening(&mut scene, &params)
+        });
+    }
+    dump_after("04b_capture_sharpening", &scene);
     // Per-image histogram-shape auto-exposure. Operates on the
     // post-DCP/PTC/PGTM scene-linear Rec.2020 image; deterministic; pure
     // math. Production behavior is identity (`AE_DAMPING = 0.0` in
@@ -254,6 +291,12 @@ pub fn develop_scene_linear_sized_from_raw_with_quality(
         });
     }
     dump_after("04_profile_gain_table_map", &scene);
+    if let Some(params) = capture_sharpening_params_from_model(model) {
+        stage("sized_capture_sharpening", || {
+            capture_sharpening::apply_capture_sharpening(&mut scene, &params)
+        });
+    }
+    dump_after("04b_capture_sharpening", &scene);
     stage("sized_auto_exposure", || auto_exposure::apply(&mut scene, AUTO_EXPOSURE_CLIP_PCT));
     dump_after("05_auto_exposure", &scene);
     stage("sized_white_balance", || white_balance::apply(&mut scene, model.temperature, model.tint));

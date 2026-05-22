@@ -1,0 +1,24 @@
+<maple-collapsible
+  label="Capture Sharpening"
+  storageKey="dev-capture-sharpen"
+  [padInner]="false"
+  [defaultOpen]="false"
+>
+  @if (assetId()) {
+    <editor-slider
+      label="Amount"
+      [value]="adj().captureSharpeningAmount"
+      [min]="0"
+      [max]="100"
+      (valueChange)="patch('captureSharpeningAmount', $event)"
+    />
+    <editor-slider
+      label="Radius"
+      [value]="adj().captureSharpeningRadius"
+      [min]="0.5"
+      [max]="2.0"
+      [step]="0.1"
+      (valueChange)="patch('captureSharpeningRadius', $event)"
+    />
+  }
+</maple-collapsible>
