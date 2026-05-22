@@ -184,6 +184,46 @@ describe('exif handler', () => {
   });
 });
 
+describe('readExif — video extension short-circuit', () => {
+  // Regression for the log-spam noticed in production: the backup-ingest
+  // route doesn't filter by extension, so .mov/.mp4 assets reach the exif
+  // stage and exifr throws "Unknown file format" once per file. The
+  // short-circuit in readExif() must return null BEFORE exifr.parse runs.
+  it('returns null for video extensions without calling exifr.parse', async () => {
+    const realExifr = (await import('exifr')).default;
+    let parseCalls = 0;
+    try {
+      mock.module('exifr', () => ({
+        default: {
+          ...realExifr,
+          parse: async () => {
+            parseCalls += 1;
+            throw new Error('exifr.parse should not be invoked for video extensions');
+          },
+        },
+      }));
+      const { readExif } = await import('../../indexer/exif.ts');
+      for (const p of [
+        '/tmp/clip.mov',
+        '/tmp/CLIP.MOV',
+        '/tmp/clip.mp4',
+        '/tmp/clip.m4v',
+        '/tmp/clip.webm',
+        '/tmp/clip.avi',
+        '/tmp/clip.mkv',
+        '/tmp/clip.mts',
+        '/tmp/clip.m2ts',
+        '/tmp/clip.3gp',
+      ]) {
+        await expect(readExif(p)).resolves.toBeNull();
+      }
+      expect(parseCalls).toBe(0);
+    } finally {
+      mock.module('exifr', () => ({ default: realExifr }));
+    }
+  });
+});
+
 describe('isLikelyScreenshot — heuristic', () => {
   it('matches iOS screenshot filenames', () => {
     expect(isLikelyScreenshot('Screenshot 2026-05-19 at 10.04.32.png', null)).toBe(true);
