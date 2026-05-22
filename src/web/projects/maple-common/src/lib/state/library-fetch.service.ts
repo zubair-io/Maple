@@ -9,7 +9,7 @@
 import { HttpErrorResponse } from '@angular/common/http';
 import { Injectable, effect, inject } from '@angular/core';
 import { Asset, AssetId, ColorLabel, Flag } from '../models/asset';
-import { GridFolderItem } from '../models/folder';
+import { GridFolderItem, SidebarEntry } from '../models/folder';
 import { AdjustmentModel, defaultAdjustmentModel } from '../models/adjustment-model';
 import { ApiFolder, BunApiBackendService } from '../api/bun-api-backend.service';
 import {
@@ -33,6 +33,7 @@ import { LibraryStore } from './library-store.service';
 import { LibrarySelection } from './library-selection.service';
 import { LibraryCache } from './library-cache.service';
 import { LibraryStatusService } from './library-status.service';
+import { BrowsePreferencesService } from './browse-preferences.service';
 
 const ASSET_RENDER_KEYS: readonly (keyof Asset)[] = [
   'id',
@@ -81,6 +82,15 @@ export function isSupportedRaw(filename: string): boolean {
 }
 
 /**
+ * localStorage key for the Self-Hosted last-selected source id.
+ *
+ * Single source of truth: `LibraryFetch._selectInitialFolder` reads it on
+ * cold start and `BrowseShellComponent` writes it from a `selectedSourceId`
+ * effect. Both sides import this constant so the key can't silently drift.
+ */
+export const LAST_SOURCE_KEY = 'cm.lastSourceId';
+
+/**
  * Format the indexer's EXIF subdocument into the human-readable strings the
  * Asset model + Info-tab template expect (`f/2.8`, `50mm`, `Hasselblad
  * L3D-100c`, etc). Returns a partial Asset slice — fields stay undefined
@@ -118,13 +128,10 @@ export class LibraryFetch {
   private readonly sidecarStore = inject(SidecarStore);
   private readonly api = inject(BunApiBackendService);
   private readonly fsBrowse = inject(FilesystemBrowseService);
+  private readonly prefs = inject(BrowsePreferencesService);
 
   // ── Index write debounce ──────────────────────────────────────────────────
   private _indexWriteTimer: ReturnType<typeof setTimeout> | null = null;
-
-  // ── Self-Hosted cold-start landing folder ────────────────────────────────
-  /** localStorage key — mirrored in BrowseShellComponent. */
-  private readonly LAST_SOURCE_KEY = 'cm.lastSourceId';
 
   // ── Self-Hosted XMP write debounce ────────────────────────────────────────
   private readonly API_XMP_DEBOUNCE_MS = 750;
@@ -296,17 +303,35 @@ export class LibraryFetch {
   /**
    * Pick a folder to land on after a `loadFolderTree` returns:
    *   1. Respect any pre-set `selectedSourceId` (URL `?folder=…` was applied
-   *      synchronously in BrowseShell before this call).
+   *      synchronously in BrowseShell before this call). Still synthesize
+   *      ancestor tree nodes for sub-folder paths so the breadcrumb +
+   *      sidebar highlight resolve.
    *   2. Otherwise, try the last source the user picked (localStorage).
    *      Either the registered library itself, or a sub-folder inside one.
    *   3. Otherwise, open the first registered library.
    */
   private _selectInitialFolder(folders: ApiFolder[]): void {
-    if (this.selection.selectedSourceId()) return;
+    const findOwningLib = (absPath: string): ApiFolder | undefined =>
+      folders.find((f) => absPath === f.path || absPath.startsWith(f.path + '/'));
+
+    const existing = this.selection.selectedSourceId();
+    if (existing) {
+      // URL deep-link applied selection before libraries were known.
+      // Synthesize the ancestor chain now so the sidebar can resolve a
+      // label and (eventually, when the user expands) show the chain.
+      if (existing.startsWith('fs:')) {
+        const absPath = existing.slice(3);
+        const owning = findOwningLib(absPath);
+        if (owning && absPath !== owning.path) {
+          this._ensureFsPathInTree(absPath, owning.path);
+        }
+      }
+      return;
+    }
 
     const lastId = (() => {
       try {
-        return localStorage.getItem(this.LAST_SOURCE_KEY);
+        return localStorage.getItem(LAST_SOURCE_KEY);
       } catch {
         return null;
       }
@@ -321,9 +346,12 @@ export class LibraryFetch {
       }
       // Sub-folder of a registered library — descendants are not in the
       // top-level `folders` listing, but `openSelfHostedSubfolder` fetches
-      // via `/api/fs/dir` so it works as long as some library owns the path.
-      const owningLib = folders.find((f) => absPath === f.path || absPath.startsWith(f.path + '/'));
+      // via `/api/fs/dir` so it works as long as some library owns the
+      // path. Synthesize the ancestor chain first so the sidebar has
+      // somewhere to highlight the restored selection.
+      const owningLib = findOwningLib(absPath);
       if (owningLib) {
+        this._ensureFsPathInTree(absPath, owningLib.path);
         this.openSelfHostedSubfolder(absPath, lastId);
         return;
       }
@@ -331,6 +359,67 @@ export class LibraryFetch {
 
     const first = folders[0];
     if (first) this.openSelfHostedFolder(first);
+  }
+
+  /**
+   * Insert minimal sibling-less sidebar nodes for each ancestor of
+   * `absPath` under the registered `libraryRoot`, and auto-expand the
+   * library root + every ancestor so the deep selection is visible in
+   * the sidebar from the moment the page loads.
+   *
+   * Children are loaded lazily — the synthesized nodes have no
+   * `childrenStatus`, so clicking the chevron triggers a real
+   * `expandFsFolder` fetch. The chain just needs to exist so
+   * `selectedSourceLabel` resolves and the highlight has somewhere
+   * to land.
+   *
+   * No-ops if `absPath` isn't a strict descendant of `libraryRoot`.
+   */
+  private _ensureFsPathInTree(absPath: string, libraryRoot: string): void {
+    if (absPath === libraryRoot) return;
+    if (!absPath.startsWith(libraryRoot + '/')) return;
+    const rel = absPath.slice(libraryRoot.length + 1);
+    const segments = rel.split('/').filter(Boolean);
+    if (segments.length === 0) return;
+
+    // Make the library row itself open so its children (the first
+    // ancestor we're about to synthesize) are visible.
+    this.prefs.setFolderOpen(`fs:${libraryRoot}`, true);
+
+    let parentId = `fs:${libraryRoot}`;
+    let parentPath = libraryRoot;
+    for (let i = 0; i < segments.length; i++) {
+      const seg = segments[i]!;
+      parentPath = `${parentPath}/${seg}`;
+      const childId = `fs:${parentPath}`;
+      const childLabel = seg;
+      const childPath = parentPath;
+      this.store.sidebarTree.update((tree) =>
+        this.store.patchTree(tree, parentId, (n) => {
+          if ((n.children ?? []).some((c) => c.id === childId)) return n;
+          return {
+            ...n,
+            children: [
+              ...(n.children ?? []),
+              {
+                kind: 'folder' as const,
+                id: childId,
+                label: childLabel,
+                count: null,
+                absPath: childPath,
+              },
+            ],
+          };
+        }),
+      );
+      // Auto-expand every ancestor on the chain (not the leaf itself —
+      // it has no children yet to reveal, and its own grid is the
+      // active view).
+      if (i < segments.length - 1) {
+        this.prefs.setFolderOpen(childId, true);
+      }
+      parentId = childId;
+    }
   }
 
   /**
@@ -539,6 +628,12 @@ export class LibraryFetch {
    * registered library root or a previously-loaded subfolder) with folder
    * entries derived from `dirs`. Marks the node as `loaded` so the chevron
    * doesn't trigger another fetch.
+   *
+   * For children whose id already exists under this node, we preserve the
+   * existing entry (carrying over `childrenStatus`, `children`, etc.) so
+   * a refetch of a parent doesn't wipe a deeper expanded subtree — the
+   * listing describes which directories exist, not their per-child
+   * expanded state.
    */
   private _attachFsChildren(
     sourceId: string,
@@ -546,19 +641,29 @@ export class LibraryFetch {
     dirs: { name: string; path: string; mtime: string }[],
   ): void {
     this.store.sidebarTree.update((tree) =>
-      this.store.patchTree(tree, sourceId, (n) => ({
-        ...n,
-        childrenStatus: 'loaded' as const,
-        childrenError: undefined,
-        children: dirs.map((d) => ({
-          kind: 'folder' as const,
-          id: `fs:${d.path}`,
-          label: d.name,
-          count: null,
-          absPath: d.path,
-          // childrenStatus left undefined — fetched on first chevron expand.
-        })),
-      })),
+      this.store.patchTree(tree, sourceId, (n) => {
+        const existingById = new Map<string, SidebarEntry>(
+          (n.children ?? []).map((c) => [c.id, c]),
+        );
+        return {
+          ...n,
+          childrenStatus: 'loaded' as const,
+          childrenError: undefined,
+          children: dirs.map((d) => {
+            const id = `fs:${d.path}`;
+            const prior = existingById.get(id);
+            if (prior) return { ...prior, label: d.name, absPath: d.path };
+            return {
+              kind: 'folder' as const,
+              id,
+              label: d.name,
+              count: null,
+              absPath: d.path,
+              // childrenStatus left undefined — fetched on first chevron expand.
+            };
+          }),
+        };
+      }),
     );
   }
 
