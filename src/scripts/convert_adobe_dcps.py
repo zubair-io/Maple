@@ -49,11 +49,12 @@ Usage:
       --src "/Library/Application Support/Adobe/CameraRaw/CameraProfiles/Adobe Standard" \
       --out src/raw-pipeline/raw-core/src/color/profiles/profiles.bin
 
-  # Skip HSM to keep the bundle small (~210 KB instead of ~72 MB):
-  python3 src/scripts/convert_adobe_dcps.py --src ... --out ... --no-hsm
+  # Include HSM (HueSatMap data) — adds ~72 MB to the bundle:
+  python3 src/scripts/convert_adobe_dcps.py --src ... --out ... --include-hsm
 
-By default `--no-hsm` is OFF. Most Maple fixtures need matrices only to drop
-ΔE below 8; HSM is a follow-up refinement that costs ~72 MB in the repo.
+HSM is OFF by default (`--include-hsm` is opt-in). Most Maple fixtures need
+matrices only to drop ΔE below 8; HSM is a follow-up refinement that costs
+~72 MB in the repo.
 """
 
 from __future__ import annotations
@@ -61,6 +62,7 @@ from __future__ import annotations
 import argparse
 import logging
 import os
+import re
 import struct
 import sys
 import warnings
@@ -124,7 +126,70 @@ def write_hsm_data(buf: bytearray, values) -> None:
         buf += struct.pack("<f", float(v))
 
 
+# ── Duplicate-UCM dedup ───────────────────────────────────────────────────────
+#
+# Adobe ships multiple .dcp files with the same UniqueCameraModel for ~44 of
+# the 1,447 bodies. Two flavours of duplication:
+#
+#   * "Adobe Standard v2" vs "Adobe Standard" (and "Adobe_Standard_v2" vs
+#     "Adobe_Standard"): the v2 variant is the newer Adobe-calibrated profile
+#     for that body. We prefer v2.
+#   * "Adobe Standard" vs "Camera Default": Adobe ships a copy of the
+#     vendor's own (non-Adobe) matrices under "Camera Default" for ACR's
+#     default-selection UI. We're bundling Adobe Standard, so we drop the
+#     "Camera Default" duplicate.
+#
+# Ranking returns a sortable tuple where LOWER wins (so deterministic
+# `min(...)` picks the preferred file). The tuple is (tier, basename) so
+# ties fall back to lexicographic filename — keeps output stable across
+# machines and Adobe updates.
+
+
+def dcp_preference(filename: str) -> tuple[int, str]:
+    """Return a (tier, basename) sort key — lower tier wins.
+
+    tier 0: "Adobe Standard v2" / "Adobe_Standard_v2" (newer Adobe-calibrated)
+    tier 1: "Adobe Standard"     / "Adobe_Standard"   (older Adobe-calibrated)
+    tier 2: "Camera Default"                          (vendor matrices)
+    tier 9: anything else (no Adobe Standard suffix at all)
+    """
+    name = filename.lower()
+    if re.search(r"adobe[_ ]standard[_ ]v2", name):
+        return (0, filename)
+    if re.search(r"camera default", name):
+        return (2, filename)
+    if re.search(r"adobe[_ ]standard", name):
+        return (1, filename)
+    return (9, filename)
+
+
 # ── Per-file extraction ───────────────────────────────────────────────────────
+
+
+def read_ucm(path: Path) -> Optional[str]:
+    """Read just the `UniqueCameraModel` tag from a DCP.
+
+    Cheap probe used to bucket duplicate-UCM files before serialization, so
+    we only parse and emit the preferred candidate per UCM. Returns None
+    when the file has no UCM tag, can't be opened, or the UCM is empty /
+    too long to encode.
+    """
+    try:
+        with tifffile.TiffFile(str(path)) as tif:
+            tags = {tag.name: tag for tag in tif.pages[0].tags}
+    except Exception:  # noqa: BLE001
+        return None
+    if "UniqueCameraModel" not in tags:
+        return None
+    ucm = tags["UniqueCameraModel"].value
+    if isinstance(ucm, bytes):
+        ucm = ucm.decode("utf-8", errors="replace")
+    ucm = ucm.strip("\x00")
+    if not ucm:
+        return None
+    if len(ucm.encode("utf-8")) > 0xFFFF:
+        return None
+    return ucm
 
 
 def extract_profile(path: Path, include_hsm: bool) -> Optional[bytes]:
@@ -263,11 +328,41 @@ def main() -> int:
         sys.stderr.write(f"error: no .dcp files found in {src}\n")
         return 1
 
+    # ── Phase 1: bucket every .dcp by UCM, then pick the preferred file per
+    # UCM via `dcp_preference`. This makes duplicate handling deterministic
+    # and logged — without it, `profile_loader::parse_bundle` would silently
+    # last-write-wins whichever record happened to come second on disk.
+    buckets: dict[str, list[Path]] = {}
+    no_ucm: list[Path] = []
+    for f in files:
+        ucm = read_ucm(f)
+        if ucm is None:
+            no_ucm.append(f)
+            continue
+        buckets.setdefault(ucm, []).append(f)
+
+    selected: list[tuple[str, Path]] = []  # (ucm, chosen file)
+    discarded: list[tuple[str, str, str]] = []  # (ucm, chosen, discarded)
+    for ucm, candidates in sorted(buckets.items()):
+        chosen = min(candidates, key=lambda p: dcp_preference(p.name))
+        selected.append((ucm, chosen))
+        for c in candidates:
+            if c != chosen:
+                discarded.append((ucm, chosen.name, c.name))
+
+    if discarded:
+        print(f"Deduplicated {len(discarded)} duplicate-UCM file(s):")
+        for ucm, chosen, dropped in discarded[:20]:
+            print(f"  {ucm!r}: kept {chosen!r}, dropped {dropped!r}")
+        if len(discarded) > 20:
+            print(f"  ... and {len(discarded) - 20} more")
+
+    # ── Phase 2: serialize only the selected winners.
     records: list[bytes] = []
-    skipped: list[tuple[str, str]] = []
+    skipped: list[tuple[str, str]] = [(f.name, "no UniqueCameraModel") for f in no_ucm]
     manifest_entries: list[dict] = []
 
-    for f in files:
+    for _ucm, f in selected:
         try:
             rec = extract_profile(f, include_hsm=args.include_hsm)
         except Exception as e:  # noqa: BLE001
