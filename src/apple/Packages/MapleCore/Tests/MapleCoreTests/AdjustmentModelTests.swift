@@ -9,10 +9,10 @@ final class AdjustmentModelTests: XCTestCase {
     func testDefaultExposure() { XCTAssertEqual(AdjustmentModel.default.exposure, 0) }
     func testDefaultNrColor() { XCTAssertEqual(AdjustmentModel.default.nrColor, 25) }
     func testDefaultHighlightRecovery() {
-        // Per #325: `chromaticAdaptation` exists as an opt-in variant but the
-        // default remains `.off` until the algorithm clears the parity
-        // harness. Default-on is tracked in a follow-up ticket.
-        XCTAssertEqual(AdjustmentModel.default.highlightRecovery, .off)
+        // #335 flipped the default to `.chromaticAdaptation` after a
+        // re-measured Off-vs-CA harness diff. Users can opt out per-image
+        // via `papp:HighlightRecoveryMode="Off"` in the XMP sidecar.
+        XCTAssertEqual(AdjustmentModel.default.highlightRecovery, .chromaticAdaptation)
     }
 
     /// Ticket 12 Bug 3 — first-open of a sidecar-less RAW must apply the
