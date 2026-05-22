@@ -555,11 +555,15 @@
     >
       <div class="log-header">
         <div class="log-title">
-          <maple-settings-icon name="open" [size]="14" [color]="'#a8a29e'"/>
+          <maple-settings-icon name="open" [size]="14" [color]="'#a8a29e'" />
           <span class="mono">{{ log.stage.name }}</span>
           @if (!log.loading) {
             <span class="log-subtitle">
-              {{ log.items.length === 0 ? 'No failed jobs' : log.items.length + ' failed job' + (log.items.length === 1 ? '' : 's') }}
+              {{
+                log.items.length === 0
+                  ? 'No failed jobs'
+                  : log.items.length + ' failed job' + (log.items.length === 1 ? '' : 's')
+              }}
             </span>
           }
         </div>
@@ -570,12 +574,12 @@
               class="btn-ghost danger"
               (click)="retryDead(log.stage, $event); closeLog()"
             >
-              <maple-settings-icon name="retry" [size]="12" [color]="'#f87171'"/>
+              <maple-settings-icon name="retry" [size]="12" [color]="'#f87171'" />
               Retry all dead
             </button>
           }
           <button type="button" class="log-close" (click)="closeLog()" aria-label="Close">
-            <maple-settings-icon name="x" [size]="14" [color]="'#a8a29e'"/>
+            <maple-settings-icon name="x" [size]="14" [color]="'#a8a29e'" />
           </button>
         </div>
       </div>
