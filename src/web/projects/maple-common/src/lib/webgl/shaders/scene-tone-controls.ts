@@ -72,7 +72,7 @@ void main() {
     }
 
     // 4. Whites — smoothstep-weighted gain near the diffuse-white
-    //    endpoint (Ticket #267). The legacy `1 + whites/200` scalar
+    //    endpoint (Ticket #267). The legacy "1 + whites/200" scalar
     //    gain brightened mid-gray; weighting by smoothstep(0.5, 1.0, Y)
     //    leaves midtones alone and concentrates the action near
     //    diffuse white.
