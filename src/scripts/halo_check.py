@@ -107,22 +107,28 @@ def halo_overshoot(radii: np.ndarray, luma: np.ndarray) -> dict:
         {
           "background": float,         # background asymptote
           "min_inside":  float,        # min luma inside (disk centre)
-          "edge_radius": int,          # px where luma crosses midpoint
+          "edge_radius_px": float,     # pixel distance from centre where luma crosses midpoint
           "max_overshoot_abs": float,  # max(luma) - background in band
           "max_overshoot_pct": float,  # 100 * that / background
-          "peak_radius_px":   int,     # radius where overshoot peaks
+          "peak_radius_px":   float,   # pixel distance from centre where overshoot peaks
         }
+
+    `radii` and `luma` are matched 1D arrays from `radial_profile` — the
+    `radii` entries are true pixel distances from the image centre, so we
+    look up `radii[idx]` to convert any sample index into a px-from-cx
+    value before reporting.
     """
     if luma.size < 8:
         return {"error": f"radial profile too short: {luma.size}"}
     mid = (luma.min() + luma.max()) / 2.0
-    # Edge radius = first index past centre where luma >= midpoint.
+    # Edge index = first sample past centre where luma >= midpoint.
     edge_idx = int(np.argmax(luma >= mid))
+    edge_radius_px = float(radii[edge_idx])
     # Background = mean of the outermost 25 % of the profile (well past
     # the edge so any overshoot/ringing has died out).
     tail = max(1, luma.size // 4)
     background = float(luma[-tail:].mean())
-    # Overshoot band: 1 → 4 disk-edge widths past the edge.
+    # Overshoot band: 1 → 4 disk-edge widths past the edge (in indices).
     edge_width = max(2, edge_idx // 8)
     band_start = edge_idx + 1
     band_end = min(luma.size, edge_idx + 1 + 4 * edge_width)
@@ -131,24 +137,25 @@ def halo_overshoot(radii: np.ndarray, luma: np.ndarray) -> dict:
         return {
             "background": background,
             "min_inside": float(luma.min()),
-            "edge_radius": edge_idx,
+            "edge_radius_px": edge_radius_px,
             "max_overshoot_abs": 0.0,
             "max_overshoot_pct": 0.0,
-            "peak_radius_px": 0,
+            "peak_radius_px": 0.0,
             "note": "edge too close to image boundary for an overshoot band",
         }
     band = luma[band_start:band_end]
     peak_local = int(np.argmax(band))
+    peak_idx = band_start + peak_local
     max_in_band = float(band.max())
     overshoot_abs = max_in_band - background
     overshoot_pct = 100.0 * overshoot_abs / max(background, 1e-6)
     return {
         "background": background,
         "min_inside": float(luma.min()),
-        "edge_radius": edge_idx,
+        "edge_radius_px": edge_radius_px,
         "max_overshoot_abs": overshoot_abs,
         "max_overshoot_pct": overshoot_pct,
-        "peak_radius_px": band_start + peak_local,
+        "peak_radius_px": float(radii[peak_idx]),
     }
 
 
@@ -183,10 +190,10 @@ def main() -> int:
         return 0
     print(f"  background luma (asymptote): {res['background']:.4f}")
     print(f"  inside luma (disk centre):   {res['min_inside']:.4f}")
-    print(f"  edge radius (px from cx):    {res['edge_radius']}")
+    print(f"  edge radius (px from cx):    {res['edge_radius_px']:.1f}")
     print(f"  max overshoot (abs):         {res['max_overshoot_abs']:+.4f}")
     print(f"  max overshoot (pct of bg):   {res['max_overshoot_pct']:+.2f} %")
-    print(f"  peak radius (px from cx):    {res['peak_radius_px']}")
+    print(f"  peak radius (px from cx):    {res['peak_radius_px']:.1f}")
     if res.get("note"):
         print(f"  note: {res['note']}")
     print()
