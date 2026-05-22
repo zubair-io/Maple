@@ -5,19 +5,25 @@
 //! itself derived from RawTherapee's `getAutoExp` / `getAutoExpHistogram`).
 //!
 //! # Why this exists
-//! The Maple AgX retune (commit a730f2d) lowered mid-gray ~0.65 EV vs
-//! canonical Blender 4.x AgX. We previously compensated with a global
-//! `MAPLE_AGX_BASELINE_COMPENSATION_EV = 0.65` constant in `decode.rs`,
-//! which fixed the average bias but not the per-image variance: the
-//! `calibrate_color_pipeline.sh` harness showed test_0001 slightly too
-//! bright while test_0010 / test_0013 stayed dark because their per-camera
-//! DCP gap dominates.
+//! Maintained as infrastructure for a future user-facing "Auto" toggle.
+//! At production damping (`AE_DAMPING = 0.0`) the stage is identity — it
+//! computes the histogram + EV correctly and returns them for callers /
+//! diagnostics, but leaves pixels untouched. The histogram-shape AE
+//! algorithm is a port of RawTherapee's `getAutoExp`: sample the actual
+//! scene-linear distribution post-DCP, fit a per-image gain that lands
+//! the mean / median / top of the histogram near canonical mid-gray and
+//! clipping points, return EV. Per-image, deterministic, pure math.
 //!
-//! This module replaces that constant with a histogram-shape auto-exposure:
-//! sample the actual scene-linear distribution post-DCP, fit a per-image
-//! gain that lands the mean / median / top of the histogram near canonical
-//! mid-gray and clipping points, return EV. Per-image, deterministic,
-//! pure math.
+//! # History — band-aids removed
+//! Earlier versions of the pipeline ran a non-zero damping (0.2) layered
+//! on top of a global `MAPLE_AGX_BASELINE_COMPENSATION_EV = 0.65` constant
+//! in `decode.rs`. That tuning was AgX-toward-ACR, which is the wrong
+//! optimization target — Maple uses AgX as the platform view transform
+//! and ACR uses a different proprietary tone curve. Both compensations
+//! were removed in commit `ba8e0ecb` after the WB pre-gain bundle
+//! (Phase 1.2) + per-body BE table (Phase 1.1) gave the pipeline a
+//! correct foundation. The damping constant is kept at 0 here so the AE
+//! infrastructure is preserved for the future "Auto" toggle.
 //!
 //! # Adaptations from the reference port
 //! * Reference operates on a `DemosaicedImage { pixels: Vec<f32> }` (interleaved
