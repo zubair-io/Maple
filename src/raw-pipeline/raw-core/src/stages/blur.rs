@@ -33,7 +33,7 @@ pub(crate) fn box_blur_plane(buf: &[f32], w: usize, h: usize, r: usize) -> Vec<f
     box_blur_channel(buf, w, h, r)
 }
 
-fn box_blur_channel(buf: &[f32], w: usize, h: usize, r: usize) -> Vec<f32> {
+pub(crate) fn box_blur_channel(buf: &[f32], w: usize, h: usize, r: usize) -> Vec<f32> {
     if r == 0 { return buf.to_vec(); }
 
     // --- Horizontal sweep: row-parallel, row-major output ---
