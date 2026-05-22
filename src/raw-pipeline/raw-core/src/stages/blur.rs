@@ -4,6 +4,12 @@
 //! blurs per axis (Wells 1986, "Efficient synthesis of Gaussian filters"). At
 //! the slice-3 radii (3 and 40), the approximation is visually indistinguishable
 //! from a true Gaussian and runs in O(n) per pixel independent of radius.
+//!
+//! Also hosts `guided_filter` (He, Sun, Tang 2010) — the edge-preserving
+//! base/detail decomposition primitive shared by clarity (#264) and texture
+//! (#265). Self-guided (`guide == p`) gives a structure-aware local mean
+//! that does not bleed across high-contrast edges, eliminating the
+//! unsharp-mask halo around dark/bright transitions.
 
 use crate::image::{ColorSpace, Image};
 use rayon::prelude::*;
@@ -23,6 +29,10 @@ use rayon::prelude::*;
 ///   pass. Memory cost: one extra w×h f32 buffer (same size as `tmp`).
 ///   CPU cost: one extra pass, amortized against doing the full sweep in
 ///   parallel on 8+ cores.
+pub(crate) fn box_blur_plane(buf: &[f32], w: usize, h: usize, r: usize) -> Vec<f32> {
+    box_blur_channel(buf, w, h, r)
+}
+
 fn box_blur_channel(buf: &[f32], w: usize, h: usize, r: usize) -> Vec<f32> {
     if r == 0 { return buf.to_vec(); }
 
@@ -84,6 +94,93 @@ pub fn gaussian_blur_plane(buf: &[f32], w: usize, h: usize, radius: usize) -> Ve
         plane = box_blur_channel(&plane, w, h, r_box);
     }
     plane
+}
+
+/// Edge-preserving local-mean filter (He, Sun, Tang 2010 — "Guided
+/// Image Filtering"). Returns the filtered `p` plane in which each
+/// pixel is a locally-linear regression of `p` against `guide` over a
+/// `(2r+1)²` window. `eps` is the regularisation that controls how
+/// strongly `guide` edges propagate into the output: small `eps`
+/// (≪ var(guide)) means "follow the edges sharply", large `eps`
+/// (≫ var(guide)) collapses the filter back toward a plain box blur.
+///
+/// Self-guided (`guide == p`) is the classic structure-preserving
+/// smoother — gives the "base" layer for base/detail decomposition.
+/// `detail = p - guided(p, p, r, eps)` is high-frequency without the
+/// cross-edge bleed that an unsharp mask suffers.
+///
+/// Effective stencil reach is `2r` per side: the `mean_a` / `mean_b`
+/// passes box-blur a buffer that was itself box-blurred at radius `r`.
+/// Pin tile overlap accordingly when adding new callers — see
+/// `pipeline::tile::TILE_OVERLAP_PX` and the const-assertion against
+/// `CLARITY_GUIDED_RADIUS` in `pipeline::tile::mod`.
+///
+/// Used by `stages::clarity` (radius 20, structure-scale) and
+/// `stages::texture` (radius 2, fine-detail-scale).
+pub(crate) fn guided_filter(
+    guide: &[f32],
+    p: &[f32],
+    w: usize,
+    h: usize,
+    r: usize,
+    eps: f32,
+) -> Vec<f32> {
+    assert_eq!(guide.len(), p.len());
+    let n = guide.len();
+    if r == 0 {
+        return p.to_vec();
+    }
+
+    // Pre-compute the cross-products so all four `box_blur_plane`
+    // passes operate on independent buffers and can run in parallel.
+    let ip: Vec<f32> = guide
+        .par_iter()
+        .zip(p.par_iter())
+        .map(|(&a, &b)| a * b)
+        .collect();
+    let ii: Vec<f32> = guide.par_iter().map(|&a| a * a).collect();
+
+    // Box-blur the four planes concurrently. Each call already does
+    // internal rayon parallelism over rows/columns; rayon::join lets
+    // them overlap end-to-end so the cumulative wall-clock cost is
+    // dominated by the slowest one, not the sum.
+    let ((mean_i, mean_p), (mean_ip, mean_ii)) = rayon::join(
+        || {
+            rayon::join(
+                || box_blur_plane(guide, w, h, r),
+                || box_blur_plane(p, w, h, r),
+            )
+        },
+        || {
+            rayon::join(
+                || box_blur_plane(&ip, w, h, r),
+                || box_blur_plane(&ii, w, h, r),
+            )
+        },
+    );
+
+    // Fuse the covariance / variance / a / b derivations into a
+    // single parallel pass — eliminates four intermediate Vecs.
+    let (a, b): (Vec<f32>, Vec<f32>) = (0..n)
+        .into_par_iter()
+        .map(|i| {
+            let cov_ip = mean_ip[i] - mean_i[i] * mean_p[i];
+            let var_i = mean_ii[i] - mean_i[i] * mean_i[i];
+            let a_i = cov_ip / (var_i + eps);
+            let b_i = mean_p[i] - a_i * mean_i[i];
+            (a_i, b_i)
+        })
+        .unzip();
+
+    let (mean_a, mean_b) = rayon::join(
+        || box_blur_plane(&a, w, h, r),
+        || box_blur_plane(&b, w, h, r),
+    );
+
+    (0..n)
+        .into_par_iter()
+        .map(|i| mean_a[i] * guide[i] + mean_b[i])
+        .collect()
 }
 
 pub fn gaussian_blur_rgb(img: &Image, radius: usize) -> Image {
@@ -192,5 +289,70 @@ mod tests {
         let bot_row = blurred.pixels[(h - 1) * w][0];
         assert!(stripe > top_row, "stripe row not brightest: stripe={}, top={}", stripe, top_row);
         assert!(stripe > bot_row, "stripe row not brightest: stripe={}, bot={}", stripe, bot_row);
+    }
+
+    #[test]
+    fn guided_filter_of_constants_is_constant() {
+        // Edge-preserving filter on a flat input collapses to the
+        // input — no halo, no drift.
+        let guide = vec![0.5f32; 40 * 40];
+        let p = vec![0.7f32; 40 * 40];
+        let out = guided_filter(&guide, &p, 40, 40, 5, 1e-3);
+        assert!(out.iter().all(|v| (*v - 0.7).abs() < 1e-4));
+    }
+
+    #[test]
+    fn self_guided_preserves_sharp_edge() {
+        // Self-guided (guide == p) keeps a hard step edge sharp.
+        // A plain box blur would smear it across `2r+1` pixels; the
+        // guided filter should leave the step almost intact when eps
+        // is small.
+        let w = 32usize;
+        let h = 8usize;
+        let mut p = vec![0.0f32; w * h];
+        for y in 0..h {
+            for x in 0..w {
+                p[y * w + x] = if x < w / 2 { 0.2 } else { 0.8 };
+            }
+        }
+        let out = guided_filter(&p, &p, w, h, 4, 1e-4);
+        // Far from the edge, output equals input.
+        for y in 0..h {
+            assert!((out[y * w + 1] - 0.2).abs() < 1e-3,
+                "left side drifted at row {}: {}", y, out[y * w + 1]);
+            assert!((out[y * w + (w - 2)] - 0.8).abs() < 1e-3,
+                "right side drifted at row {}: {}", y, out[y * w + (w - 2)]);
+        }
+        // Edge transition: the two pixels straddling the step retain
+        // most of the contrast (≥ 0.5 of the original 0.6 gap), which
+        // a Gaussian at radius 4 would not.
+        let edge_left  = out[3 * w + (w / 2 - 1)];
+        let edge_right = out[3 * w + (w / 2)];
+        assert!(edge_right - edge_left > 0.3,
+            "edge contrast collapsed: {} -> {}", edge_left, edge_right);
+    }
+
+    #[test]
+    fn self_guided_local_mean_does_not_overshoot() {
+        // Property that drives #264 / #265: on a dark blob in a bright
+        // field the self-guided base never exceeds the field's
+        // brightness. A Gaussian blur of the same plane *would*
+        // produce values outside the input range only via accumulated
+        // float error, but in practice the unsharp-mask combine step
+        // is what generates the overshoot. Here we just check the GF
+        // produces nothing outside [min(p), max(p)] up to f32 noise.
+        let w = 24usize;
+        let h = 24usize;
+        let mut p = vec![0.8f32; w * h];
+        for y in 8..16 {
+            for x in 8..16 {
+                p[y * w + x] = 0.2;
+            }
+        }
+        let out = guided_filter(&p, &p, w, h, 3, 1e-3);
+        for &v in &out {
+            assert!(v >= 0.2 - 1e-3 && v <= 0.8 + 1e-3,
+                "guided output out of input range: {}", v);
+        }
     }
 }
