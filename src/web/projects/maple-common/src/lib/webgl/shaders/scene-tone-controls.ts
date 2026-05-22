@@ -50,9 +50,9 @@ void main() {
         float h_denom = 1.0 + h_amount * 2.0;
         if (abs(h_denom) > 1e-6) {
             float y_old = dot(p, LUMA_REC2020);
-            // Y must exceed the knee to compress; tiny-positive Y values
-            // are pathological — skip defensively.
-            if (y_old > 1.0 && y_old > 1e-6) {
+            // Y must exceed the knee to compress; below the knee the
+            // pixel passes through unchanged.
+            if (y_old > 1.0) {
                 float y_new = 1.0 + (y_old - 1.0) / h_denom;
                 float scale = y_new / y_old;
                 p *= scale;

@@ -77,12 +77,10 @@ pub fn apply(img: &mut Image, model: &AdjustmentModel) {
             let y_old = LUMA_REC2020[0] * p[0]
                 + LUMA_REC2020[1] * p[1]
                 + LUMA_REC2020[2] * p[2];
-            // Guard against division by ~0; also skip the case where the
-            // pixel has no headroom to compress (Y ≤ knee). Tiny-positive
-            // Y values that exceed the knee can only happen pathologically
-            // (one channel huge negative against two large positives) —
-            // skip those defensively.
-            if y_old > 1.0 && y_old > 1e-6 {
+            // Skip the case where the pixel has no headroom to compress
+            // (Y ≤ knee) — below the knee the pixel passes through
+            // unchanged. (h_denom ≈ 0 is already guarded above.)
+            if y_old > 1.0 {
                 let y_new = 1.0 + (y_old - 1.0) / h_denom;
                 let scale = y_new / y_old;
                 p[0] *= scale;
