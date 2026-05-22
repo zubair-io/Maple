@@ -131,13 +131,18 @@ pub fn develop_scene_linear_from_raw_with_quality(
         });
     }
     dump_after("04_profile_gain_table_map", &scene);
-    // Damped per-image histogram-shape auto-exposure. Operates on the
+    // Per-image histogram-shape auto-exposure. Operates on the
     // post-DCP/PTC/PGTM scene-linear Rec.2020 image; deterministic; pure
-    // math. Layered ON TOP of the empirical `MAPLE_AGX_BASELINE_COMPENSATION_EV
-    // = 0.65` constant in decode.rs (NOT a replacement — empirical sweep
-    // showed pure AE regressed; damping=0.2 is the calibrated sweet spot).
-    // Runs BEFORE scene_tone_controls so the user's exposure slider stacks
-    // additively (in EV) on top of the auto-tuned baseline.
+    // math. Production behavior is identity (`AE_DAMPING = 0.0` in
+    // stages/auto_exposure.rs) — the stage computes the histogram + EV for
+    // diagnostics but leaves pixels untouched. Kept as infrastructure for a
+    // future user-facing "Auto" toggle. The earlier
+    // `MAPLE_AGX_BASELINE_COMPENSATION_EV = 0.65` band-aid + `damping = 0.2`
+    // tuning were both removed in commit `ba8e0ecb` once the WB pre-gain
+    // bundle (Phase 1.2) + per-body BE table (Phase 1.1) gave the chain a
+    // correct foundation. Runs BEFORE scene_tone_controls so the user's
+    // exposure slider stacks additively (in EV) on top of any future
+    // auto-tuned baseline.
     stage("auto_exposure", || auto_exposure::apply(&mut scene, AUTO_EXPOSURE_CLIP_PCT));
     dump_after("05_auto_exposure", &scene);
     stage("white_balance", || white_balance::apply(&mut scene, model.temperature, model.tint));
@@ -344,10 +349,11 @@ mod tests {
         );
 
         // Mean per-channel delta budget. 0.005 in [0, ~5] scene-linear
-        // headroom is ~0.1% of typical scene values. Was briefly 0.006
-        // when MAPLE_AGX_BASELINE_COMPENSATION_EV = 0.65 inflated scene
-        // values ~1.57x; with that constant removed, restoring the
-        // tighter original budget.
+        // headroom is ~0.1% of typical scene values. Held tight since the
+        // `MAPLE_AGX_BASELINE_COMPENSATION_EV = 0.65` band-aid was removed
+        // (commit `ba8e0ecb`); the calibration foundation (WB pre-gain
+        // bundle + per-body BE table) doesn't inflate scene values, so the
+        // early-vs-late commutativity budget stays tight.
         assert!(mean_dr < 0.005, "mean R delta {} > 0.005", mean_dr);
         assert!(mean_dg < 0.005, "mean G delta {} > 0.005", mean_dg);
         assert!(mean_db < 0.005, "mean B delta {} > 0.005", mean_db);
