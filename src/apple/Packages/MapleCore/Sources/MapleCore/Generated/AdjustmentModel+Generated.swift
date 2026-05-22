@@ -63,9 +63,9 @@ extension AdjustmentModel {
     public static let clarityRange: ClosedRange<Double> = -100.0...100.0
     /// Fine texture (unsharp radius 3 per spec § 3.8).
     public static let textureRange: ClosedRange<Double> = -100.0...100.0
-    /// Sharpening amount per spec § 3.10 (0 = stage skipped, 100 = full RL).
+    /// Sharpening amount per spec § 3.10 (0 = stage skipped, 100 = full RL). Default = ACR import (40).
     public static let sharpenAmountRange: ClosedRange<Double> = 0.0...150.0
-    /// Sharpening PSF Gaussian sigma.
+    /// Sharpening PSF Gaussian sigma. Default = ACR import (1.0).
     public static let sharpenRadiusRange: ClosedRange<Double> = 0.5...3.0
     /// Sharpening edge-attenuation strength.
     public static let sharpenDetailRange: ClosedRange<Double> = 0.0...100.0

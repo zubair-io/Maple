@@ -359,11 +359,15 @@ mod tests {
     /// Budget: mean per-channel delta ≤ 0.005 in linear-light. The
     /// expected dominant source of difference is the
     /// non-commutativity of (downsample ∘ filter) vs
-    /// (filter ∘ downsample); for natural scenes at the default
-    /// AdjustmentModel (sharpen_amount=0, nr_luminance=0,
-    /// nr_color=25 with radius 1 px, clarity=0, dehaze=0) this is
-    /// dominated by the nr_color blur and bounded by the
-    /// downsample kernel's low-pass character.
+    /// (filter ∘ downsample); for natural scenes with sharpening
+    /// disabled (sharpen_amount=0, nr_luminance=0, nr_color=25 with
+    /// radius 1 px, clarity=0, dehaze=0) this is dominated by the
+    /// nr_color blur and bounded by the downsample kernel's
+    /// low-pass character. The test explicitly disables sharpening
+    /// (the canonical default carries sharpen_amount=40 per #326)
+    /// because USM sharpening near the downsample-filter cutoff is
+    /// fundamentally non-commutative with downsampling and is not
+    /// what this commutativity gate is measuring.
     ///
     /// Skips if test_0017.dng is absent (gitignored fixtures).
     #[test]
@@ -373,7 +377,10 @@ mod tests {
         if !path.exists() { return; }
         let bytes = std::fs::read(&path).expect("read raw");
         let raw = crate::decode::decode_bytes(&bytes, "dng").expect("decode");
-        let model = AdjustmentModel::default();
+        // Disable sharpening for this commutativity gate: USM sharpening's
+        // non-commutativity with downsampling is well-known and is not what
+        // this test is measuring.
+        let model = AdjustmentModel { sharpen_amount: 0.0, ..AdjustmentModel::default() };
         let max_long_edge: u32 = 1500;
 
         // Late-downsample: full-res develop, then downsample.
