@@ -447,10 +447,6 @@ export class LibraryFetch {
       // faces / description / ocr. Absent on un-indexed files — the detail
       // fetch then no-ops and the enrichment sections stay hidden.
       if (img.id) this.store.apiAssetIds.set(id, img.id);
-      // Best-effort warm of the sidecar IDB cache so the editor's filmstrip
-      // navigation resolves a focused asset's XMP from memory without a
-      // network round-trip. Fire-and-forget — `prefetch` swallows errors.
-      void this.sidecarStore.prefetch(img.path);
       const meta = exifToAssetMetadata(img.exif);
       return {
         id,
