@@ -14,14 +14,20 @@ pub fn predict_exposure(scene: f32, ev: f32) -> f32 {
     scene * ev.exp2()
 }
 
-/// scene_tone_controls::apply, step 2. Highlights only fires above 1.0.
+/// scene_tone_controls::apply, step 2. Luma-coupled highlights — for a
+/// neutral input R=G=B=scene, Y collapses to scalar `scene`, so the
+/// per-channel scale `Y_new/Y_old` collapses to the same closed form
+/// the previous per-channel implementation produced for neutrals.
 pub fn predict_highlights(scene: f32, h_slider: f32) -> f32 {
     if h_slider.abs() < 1e-3 { return scene; }
     if scene <= 1.0 { return scene; }
     let h_amount = h_slider / 100.0;
     let h_denom = 1.0 + h_amount * 2.0;
     if h_denom.abs() < 1e-6 { return scene; }
-    1.0 + (scene - 1.0) / h_denom
+    if scene <= 1e-6 { return scene; }
+    let y_new = 1.0 + (scene - 1.0) / h_denom;
+    // scale = y_new/scene; output = scene * scale = y_new (on neutrals).
+    y_new
 }
 
 /// scene_tone_controls::apply, step 3. For a neutral pixel R=G=B=scene,
@@ -34,23 +40,31 @@ pub fn predict_shadows(scene: f32, s_slider: f32) -> f32 {
     scene * (1.0 + lift)
 }
 
-/// scene_tone_controls::apply, step 4. (Simplified to a uniform scalar
-/// gain on every pixel after the 2026-04-28 whites refactor — no
-/// luma weighting, no overshoot.)
+/// scene_tone_controls::apply, step 4. Parametric upper-end curve
+/// (Ticket #267) — smoothstep-weighted gain near diffuse white.
 pub fn predict_whites(scene: f32, w_slider: f32) -> f32 {
     if w_slider.abs() < 1e-3 { return scene; }
-    let w_gain = 1.0 + w_slider / 200.0;
+    let w = smoothstep(0.5, 1.0, scene);
+    let w_gain = 1.0 + (w_slider / 200.0) * w;
     scene * w_gain
 }
 
-/// scene_tone_controls::apply, step 5. (Simplified to a uniform additive
-/// shift after the 2026-04-28 blacks refactor — no luma weighting, no
-/// per-direction multiplicative branch. Floor at 0 keeps deep shadows
-/// non-negative for AgX's per-channel log encode.)
+/// scene_tone_controls::apply, step 5. Parametric toe curve (Ticket #268)
+/// — smoothstep-weighted near zero, identity above ~Y=0.2. Branch on
+/// sign of slider: negative crushes multiplicatively (no negative
+/// scene values possible); positive lifts additively (matches the
+/// legacy zero-input lift semantics).
 pub fn predict_blacks(scene: f32, b_slider: f32) -> f32 {
     if b_slider.abs() < 1e-3 { return scene; }
-    let b_add = b_slider / 400.0;
-    (scene + b_add).max(0.0)
+    let w = 1.0 - smoothstep(0.0, 0.2, scene);
+    if b_slider < 0.0 {
+        let b_amount = b_slider / 100.0; // -1..0
+        let factor = 1.0 + b_amount * w;
+        scene * factor
+    } else {
+        let delta = (b_slider / 400.0) * w;
+        scene + delta
+    }
 }
 
 pub fn predict_saturation(scene: f32, _s_slider: f32) -> f32 { scene }
@@ -224,9 +238,14 @@ mod tests {
     #[test] fn shadows_above_mask_no_op()     { round_trip_shadows(0.50, 50.0); }
     #[test] fn shadows_zero_is_identity()     { round_trip_shadows(0.05, 0.0); }
 
-    #[test] fn whites_plus50_lifts_bright()   { round_trip_whites(0.50, 50.0); }
-    #[test] fn whites_minus50_pulls_bright()  { round_trip_whites(0.50, -50.0); }
+    // Post-#267: whites is smoothstep-weighted with pivot at Y=0.5.
+    // The lift / pull-down behaviour tests now sample a brighter input
+    // (0.9) where the smoothstep weight is non-zero; the pivot test
+    // covers a luma below the smoothstep e0.
+    #[test] fn whites_plus50_lifts_bright()   { round_trip_whites(0.90, 50.0); }
+    #[test] fn whites_minus50_pulls_bright()  { round_trip_whites(0.90, -50.0); }
     #[test] fn whites_below_pivot_no_op()     { round_trip_whites(0.10, 50.0); }
+    #[test] fn whites_at_pivot_no_op()        { round_trip_whites(0.50, 50.0); }
     #[test] fn whites_zero_is_identity()      { round_trip_whites(0.50, 0.0); }
 
     #[test] fn blacks_plus50_lifts_floor()    { round_trip_blacks(0.05, 50.0); }

@@ -1,14 +1,17 @@
-// scene-tone-controls.ts — port of SceneToneControls.metal:25-75 (Plan 3 M2.1).
+// scene-tone-controls.ts — GLSL mirror of the Rust core scene_tone_controls stage.
 // GLSL ES 3.0 fragment shader source as a TypeScript template literal.
+//
+// Apple uses the same Rust core via FFI — there is no Metal shader for this
+// stage. The Rust reference is the source of truth; this shader must match
+// it within the 1e-4 parity gate (CLAUDE.md § "Parity before features").
 
 export const SCENE_TONE_CONTROLS_FRAGMENT_SOURCE = /* glsl */ `#version 300 es
-// SceneToneControls.frag — port of SceneToneControls.metal:25-75.
+// SceneToneControls.frag — mirror of
+// src/raw-pipeline/raw-core/src/stages/scene_tone_controls.rs.
 //
 // Input: scene-linear Rec.2020 from the WB stage.
 // Five tone parameters: exposure (EV), highlights, shadows, whites, blacks
 // (each -100..100, contrast lives in AgX).
-//
-// Mirrors src/apple/.../Metal/SceneToneControls.metal:25-75.
 
 precision highp float;
 
@@ -23,7 +26,7 @@ uniform float uWhites;      // -100..+100
 uniform float uBlacks;      // -100..+100
 
 // Rec.2020 luminance coefficients — matches LUMA_REC2020 in
-// SceneToneControls.metal:18 (also matches Rust LUMA_REC2020 array).
+// scene_tone_controls.rs:6 (also matches Apple FFI path's constant).
 const vec3 LUMA_REC2020 = vec3(0.2627, 0.6780, 0.0593);
 
 void main() {
@@ -36,19 +39,29 @@ void main() {
         p *= gain;
     }
 
-    // 2. Highlights — soft compression above knee = 1.0 (per metal:42-50).
+    // 2. Highlights — luminance-coupled soft compression above knee=1.0
+    //    (Ticket #266). The legacy per-channel compression introduced a
+    //    hue rotation on saturated specular highlights (one channel
+    //    above knee, others below → only one channel compressed → R:G:B
+    //    drift). Computing Y, compressing Y, scaling RGB by Y_new/Y_old
+    //    preserves hue: only operation on RGB is a uniform multiply.
     if (abs(uHighlights) >= 1e-3) {
         float h_amount = uHighlights / 100.0;
         float h_denom = 1.0 + h_amount * 2.0;
         if (abs(h_denom) > 1e-6) {
-            if (p.r > 1.0) p.r = 1.0 + (p.r - 1.0) / h_denom;
-            if (p.g > 1.0) p.g = 1.0 + (p.g - 1.0) / h_denom;
-            if (p.b > 1.0) p.b = 1.0 + (p.b - 1.0) / h_denom;
+            float y_old = dot(p, LUMA_REC2020);
+            // Y must exceed the knee to compress; tiny-positive Y values
+            // are pathological — skip defensively.
+            if (y_old > 1.0 && y_old > 1e-6) {
+                float y_new = 1.0 + (y_old - 1.0) / h_denom;
+                float scale = y_new / y_old;
+                p *= scale;
+            }
         }
     }
 
-    // 3. Shadows — luminance-masked lift of deep values (per metal:53-60).
-    // GLSL smoothstep(e0, e1, x) matches Apple's smoothstep_f exactly
+    // 3. Shadows — luminance-masked lift of deep values (per rs:64-71).
+    // GLSL smoothstep(e0, e1, x) matches Rust's smoothstep_f exactly
     // (same Hermite definition, same clamp).
     if (abs(uShadows) >= 1e-3) {
         float luma = dot(p, LUMA_REC2020);
@@ -58,29 +71,37 @@ void main() {
         p += p * lift;
     }
 
-    // 4. Whites — small scalar gain near diffuse white (per metal:63-66).
+    // 4. Whites — smoothstep-weighted gain near the diffuse-white
+    //    endpoint (Ticket #267). The legacy `1 + whites/200` scalar
+    //    gain brightened mid-gray; weighting by smoothstep(0.5, 1.0, Y)
+    //    leaves midtones alone and concentrates the action near
+    //    diffuse white.
     if (abs(uWhites) >= 1e-3) {
-        float w_gain = 1.0 + uWhites / 200.0;
+        float y_old = dot(p, LUMA_REC2020);
+        float w = smoothstep(0.5, 1.0, y_old);
+        float w_gain = 1.0 + (uWhites / 200.0) * w;
         p *= w_gain;
     }
 
-    // 5. Blacks — additive shift, then floor at 0 to keep deep shadows
-    //    physical (no negative scene-linear values).
+    // 5. Blacks — smoothstep-weighted parametric toe (Ticket #268).
+    //    Legacy: additive shift floored at 0 — produced a hard floor on
+    //    negative blacks (Bug A regression fix in #135).
     //
-    // Pre-fix: \`p += uBlacks/400\` could drive deep-shadow pixels
-    // negative; the downstream AgX shader log-encodes per channel and
-    // clamps the negative to display ≈ 0, but if any channel survives
-    // just-positive (typically R in skin) the result is R-only —
-    // pink/magenta speckle on what should be a uniform crush.
-    // See Bug A in Ticket 11 / 11-Bugs.md and the investigation spec
-    // at .archived-plans/specs/2026-04-26-blacks-clarity-bug-investigation.md.
-    //
-    // Post-fix: floor each channel at 0 immediately after the shift.
-    // Mirrors raw-core/src/stages/scene_tone_controls.rs:80 and
-    // SceneToneControls.metal:69-94 byte-for-byte at the algorithm level.
+    //    New: weight by w = 1 - smoothstep(0, 0.2, Y) so midtones are
+    //    untouched. Negative blacks crush multiplicatively (no negative
+    //    scene values possible), positive blacks lift additively
+    //    (preserves legacy zero-input → 0.25 at blacks=+100).
     if (abs(uBlacks) >= 1e-3) {
-        float b_add = uBlacks / 400.0;
-        p = max(p + b_add, vec3(0.0));
+        float y_old = dot(p, LUMA_REC2020);
+        float w = 1.0 - smoothstep(0.0, 0.2, y_old);
+        if (uBlacks < 0.0) {
+            float b_amount = uBlacks / 100.0; // -1..0
+            float factor = 1.0 + b_amount * w;
+            p *= factor;
+        } else {
+            float delta = (uBlacks / 400.0) * w;
+            p += vec3(delta);
+        }
     }
 
     outColor = vec4(p, color.a);
