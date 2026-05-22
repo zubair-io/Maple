@@ -10,11 +10,19 @@
  * on parsing only.
  */
 
+import * as path from 'node:path';
 import type { AssetExif } from '../db/schema.ts';
 import { child as childLogger } from '../log.ts';
 import exifr from 'exifr';
 
 const log = childLogger('indexer:exif');
+
+/** Extensions that exifr cannot parse. Assets with these extensions arrive
+ * via the backup ingest route (no extension filter there). Return null
+ * without attempting a parse — no warning needed, this is expected. */
+const EXIFR_UNSUPPORTED_EXTS = new Set([
+  '.mov', '.mp4', '.m4v', '.avi', '.mkv', '.webm', '.mts', '.m2ts', '.3gp',
+]);
 
 /**
  * exifr's parse result is a loose record. We pluck the fields we want and
@@ -150,9 +158,10 @@ export function normalizeExif(raw: LooseRecord): AssetExif {
 
 /**
  * Parse EXIF for one file. Returns null if the file has no readable EXIF
- * (parser threw, or returned undefined).
+ * (parser threw, returned undefined, or the extension is unsupported).
  */
 export async function readExif(absPath: string): Promise<AssetExif | null> {
+  if (EXIFR_UNSUPPORTED_EXTS.has(path.extname(absPath).toLowerCase())) return null;
   try {
     const raw = (await exifr.parse(absPath, {
       pick: EXIF_PICK_TAGS as unknown as string[],
