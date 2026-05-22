@@ -149,8 +149,14 @@ fn emit_ts(schema: &[FieldSpec]) -> String {
     s.push_str("// default factory. Hand-written extensions (e.g. `WhiteBalancePreset`)\n");
     s.push_str("// live alongside in `adjustment-model.ts` and augment this shape.\n\n");
 
-    // HighlightRecoveryMode union (only enum field today).
-    s.push_str("export type HighlightRecoveryMode = 'Off' | 'Blend' | 'Luminance';\n\n");
+    // HighlightRecoveryMode union (only enum field today). `Blend` and
+    // `Luminance` are legacy back-compat variants kept so old XMP sidecars
+    // continue to parse; both upgrade to `ChromaticAdaptation` at apply time
+    // (see raw-core::stages::highlight_recovery).
+    s.push_str(
+        "export type HighlightRecoveryMode = \
+         'Off' | 'Blend' | 'Luminance' | 'ChromaticAdaptation';\n\n",
+    );
 
     // Generated interface.
     s.push_str("export interface GeneratedAdjustmentModel {\n");
@@ -206,8 +212,11 @@ fn emit_ts(schema: &[FieldSpec]) -> String {
                 s.push_str(&format!("    {}: {},\n", camel, f(spec.default_f32)));
             }
             FieldKind::Enum => {
-                // The only enum today is HighlightRecoveryMode; its default is `Off`.
-                // Encode that as a string literal — matches the union type.
+                // The only enum today is HighlightRecoveryMode; its default
+                // is `Off` (ticket #325 adds `ChromaticAdaptation` as an
+                // opt-in variant but defers the default flip — see the enum
+                // docs for the regression analysis). Hard-coded because
+                // there's no enum default slot on `FieldSpec`.
                 s.push_str(&format!("    {}: 'Off',\n", camel));
             }
         }

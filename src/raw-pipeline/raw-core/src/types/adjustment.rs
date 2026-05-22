@@ -14,15 +14,38 @@
 //! the platform side as deliberate deviations from the canonical defaults
 //! — the schema continues to ship the Rust defaults as the reference.
 
-/// Highlight reconstruction mode per spec § 3.3a. Default is `Off` — no
-/// reconstruction (slice-1/2/3 behavior). When non-default, highlights that
-/// would otherwise clip at the sensor white level get extended above 1.0 in
-/// camera-native RGB so AgX can render them on its shoulder.
+/// Highlight reconstruction mode per spec § 3.3a.
+///
+/// Default is currently `Off`. The `ChromaticAdaptation` variant (Path C —
+/// `AsShotNeutral`-aware reconstruction) was added in #325 but did NOT pass
+/// the parity harness as a default — every baseline fixture regressed
+/// (uniform negative bias in candidate vs ACR reference). Flipping the
+/// default to `ChromaticAdaptation` is deferred to a follow-up ticket once
+/// the algorithm has been tuned against the fixture set; users can opt in
+/// by setting `papp:HighlightRecoveryMode="ChromaticAdaptation"` in the
+/// XMP sidecar. See the PR for #325 for the diagnostic data and the
+/// three known shortcomings (neutral fallback over-pulls on sunsets;
+/// two-channel-clip can darken pixels; 7×7 window is too small for blown
+/// sky regions where unclipped neighbors are 50+ pixels away).
+///
+/// `Off` skips the stage entirely. `Blend` and `Luminance` are kept for
+/// back-compat with XMP sidecars produced before #325; both silently upgrade
+/// to `ChromaticAdaptation` at apply time. The old implementations had a
+/// wrong-directional pull (`Blend` lerped clipped channels DOWN, magnifying
+/// the magenta cast) and a partial single-channel scope (`Luminance` ignored
+/// 2-channel clips), so silently fixing them was preferred to preserving a
+/// known-broken behavior behind an enum variant.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum HighlightRecoveryMode {
     Off,
+    /// Legacy — silently upgraded to `ChromaticAdaptation`. Kept so old XMPs
+    /// continue to parse.
     Blend,
+    /// Legacy — silently upgraded to `ChromaticAdaptation`. Kept so old XMPs
+    /// continue to parse.
     Luminance,
+    /// Path C: `AsShotNeutral`-aware reconstruction. Opt-in until tuned.
+    ChromaticAdaptation,
 }
 
 impl Default for HighlightRecoveryMode {

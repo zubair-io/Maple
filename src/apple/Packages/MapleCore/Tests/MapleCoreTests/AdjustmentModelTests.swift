@@ -9,6 +9,9 @@ final class AdjustmentModelTests: XCTestCase {
     func testDefaultExposure() { XCTAssertEqual(AdjustmentModel.default.exposure, 0) }
     func testDefaultNrColor() { XCTAssertEqual(AdjustmentModel.default.nrColor, 25) }
     func testDefaultHighlightRecovery() {
+        // Per #325: `chromaticAdaptation` exists as an opt-in variant but the
+        // default remains `.off` until the algorithm clears the parity
+        // harness. Default-on is tracked in a follow-up ticket.
         XCTAssertEqual(AdjustmentModel.default.highlightRecovery, .off)
     }
 
