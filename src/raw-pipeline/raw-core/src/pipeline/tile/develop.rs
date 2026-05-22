@@ -69,7 +69,9 @@ pub(super) fn develop_scene_linear_from_padded_mosaic(
     stage("tile_white_balance::apply_pre_gain", || {
         white_balance::apply_pre_gain(&mut camera_rgb, raw.as_shot_neutral)
     });
-    stage("tile_highlight_recovery", || highlight_recovery::apply(&mut camera_rgb, model.highlight_recovery));
+    stage("tile_highlight_recovery", || {
+        highlight_recovery::apply(&mut camera_rgb, model.highlight_recovery, raw.as_shot_neutral)
+    });
     let profile = stage("tile_dcp_profile_for", || dcp::profile_for(raw))?;
     let mut scene = stage("tile_dcp_apply", || dcp::apply_with_plt_and_ptc(
         &camera_rgb, &profile, raw.plt.as_ref(), raw.profile_tone_curve.as_ref(),

@@ -148,7 +148,13 @@ pub fn develop_scene_linear_from_raw_with_quality(
             white_balance::apply_pre_gain(&mut camera_rgb, raw.as_shot_neutral)
         });
     }
-    stage("highlight_recovery", || highlight_recovery::apply(&mut camera_rgb, model.highlight_recovery));
+    // `highlight_recovery` runs AFTER `apply_pre_gain`, so it sees the
+    // per-channel clip ceilings = 1.0 / AsShotNeutral. We pass the triplet
+    // through so the stage can compute the right per-channel thresholds
+    // (ticket #325 — chromatic-adaptation reconstruction).
+    stage("highlight_recovery", || {
+        highlight_recovery::apply(&mut camera_rgb, model.highlight_recovery, raw.as_shot_neutral)
+    });
     dump_after("02_highlight_recovery", &camera_rgb);
     let profile = stage("dcp::profile_for", || dcp::profile_for(raw))?;
     // dcp::apply_with_plt_and_ptc runs HSM (from `profile.hsm`),
@@ -294,7 +300,10 @@ pub fn develop_scene_linear_sized_from_raw_with_quality(
             white_balance::apply_pre_gain(&mut camera_rgb, raw.as_shot_neutral)
         });
     }
-    stage("sized_highlight_recovery", || highlight_recovery::apply(&mut camera_rgb, model.highlight_recovery));
+    // See unsized variant for why we plumb AsShotNeutral here (ticket #325).
+    stage("sized_highlight_recovery", || {
+        highlight_recovery::apply(&mut camera_rgb, model.highlight_recovery, raw.as_shot_neutral)
+    });
     dump_after("02_highlight_recovery", &camera_rgb);
     let profile = stage("sized_dcp_profile_for", || dcp::profile_for(raw))?;
     let mut scene = stage("sized_dcp_apply", || dcp::apply_with_plt_and_ptc(
