@@ -35,8 +35,7 @@ function clamp(x: number, lo: number, hi: number): number {
 
 function equationScale(xPivot: number, yPivot: number, slope: number, power: number): number {
   return Math.pow(
-    Math.pow(slope * xPivot, -power) *
-      (Math.pow(slope * (xPivot / yPivot), power) - 1.0),
+    Math.pow(slope * xPivot, -power) * (Math.pow(slope * (xPivot / yPivot), power) - 1.0),
     -1.0 / power,
   );
 }
