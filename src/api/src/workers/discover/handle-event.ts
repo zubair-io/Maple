@@ -181,9 +181,12 @@ export async function handleEvent(
   // with the old maple_id. Mark that fileinfo entry deleted first so the
   // old row stops claiming the location.
   //
-  // The `maple_id !== hashed.maple_id` guard is what keeps the idempotent
-  // re-discover case unaffected: same content at same path hits this lookup
-  // but skips the mark-deleted branch.
+  // The guard compares `sha1_head` (invariant for the row's lifetime), NOT
+  // `maple_id`. maple_id gets rewritten in place by the exif stage when it
+  // upgrades the fallback id to the primary form, so a maple_id mismatch on
+  // a re-discover does NOT indicate a content change — it indicates the row
+  // has been through the upgrade. Comparing sha1_head keeps the idempotent
+  // re-discover case unaffected after that upgrade.
   const staleAtPath = await coll.findOne(
     {
       fileinfo: {
@@ -194,9 +197,9 @@ export async function handleEvent(
         },
       },
     },
-    { projection: { _id: 1, maple_id: 1 } },
+    { projection: { _id: 1, sha1_head: 1 } },
   );
-  if (staleAtPath && staleAtPath.maple_id !== hashed.maple_id) {
+  if (staleAtPath && staleAtPath.sha1_head !== hashed.sha1_head) {
     await coll.updateOne(
       { _id: staleAtPath._id },
       {
@@ -215,7 +218,7 @@ export async function handleEvent(
       },
     );
     log.info(
-      { absPath, old_maple_id: staleAtPath.maple_id, new_maple_id: hashed.maple_id },
+      { absPath, old_sha1_head: staleAtPath.sha1_head, new_sha1_head: hashed.sha1_head },
       'file content changed — marked old fileinfo entry deleted',
     );
   }
