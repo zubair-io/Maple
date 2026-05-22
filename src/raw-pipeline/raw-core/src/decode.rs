@@ -122,9 +122,9 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
     // curve. They will not produce identical images by design, and
     // pushing AgX brightness toward ACR via a global EV bump fights the
     // view-transform's intended look. The constant is removed; if the
-    // AgX shape itself needs work, retune AGX_MID_DISPLAY in
-    // raw-core/src/view/agx_coeffs.rs against canonical Blender 4.x AgX
-    // (not against ACR).
+    // AgX shape itself needs work, retune the Y_PIVOT / matrix
+    // compression / sigmoid powers in src/scripts/derive_agx_lut.py
+    // against canonical Sobotka AgX (#263 — see view::agx_coeffs).
     // BaselineExposure resolution:
     //
     //   MAPLE_BE_OVERRIDE (env, dev-only) → absolute override
