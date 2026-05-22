@@ -90,8 +90,12 @@ fn apply_pixel(rgb: [f32; 3], scale: f32) -> [f32; 3] {
     // If the input chroma is already past the hull (e.g. vibrance pushed
     // the pixel just out of gamut before saturation ran), don't pull it
     // back below where it started — the saturation slider has to be
-    // monotone-non-decreasing in chroma for scale ≥ 1.
-    let c_floor = c_in.min(c_hull);
+    // monotone-non-decreasing in chroma for scale ≥ 1. Using `c_in`
+    // directly (not `min(c_in, c_hull)`) is what enforces "never reduce
+    // chroma below the input": if `c_in > c_hull` the floor stays at
+    // `c_in`, and since `soft_compress(..) ≤ c_hull < c_in` the `.max`
+    // pins `c_out` to `c_in`.
+    let c_floor = c_in;
 
     let c_out = soft_compress(c_target, c_hull).max(c_floor);
     oklab_to_rec2020([l, a_hat * c_out, b_hat * c_out])
@@ -342,8 +346,11 @@ mod tests {
     /// Diagnostic-only: prints the pre/post-gamut-clip (min, max) channels at
     /// +saturation=100 across a handful of highly-saturated inputs. Not a
     /// CI gate — only there to capture the PR body's before/after table.
-    /// Run with `cargo test … print_gamut_clip_before_after -- --nocapture`.
+    /// Marked `#[ignore]` so it stays out of the default `cargo test` run
+    /// (no runtime cost, no stderr noise in CI). Run on demand with
+    /// `cargo test … print_gamut_clip_before_after -- --ignored --nocapture`.
     #[test]
+    #[ignore = "diagnostic-only; prints a table for the PR body, not a CI gate"]
     fn print_gamut_clip_before_after() {
         let cases: [[f32; 3]; 5] = [
             [0.9,  0.05, 0.05],
