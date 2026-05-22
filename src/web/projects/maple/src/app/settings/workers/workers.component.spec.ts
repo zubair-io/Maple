@@ -7,24 +7,65 @@ import { WorkersComponent } from './workers.component';
 import { API_BASE_URL } from '@maple-common';
 import type { WorkersStatusResponse, EnrichmentConfigResponse } from '@maple-common';
 
-const MOCK_CONFIG = { concurrency: 4, pollIntervalMs: 1000, batchSize: 10, maxAttempts: 5, paused: false, last_seen_target_version: 1 };
+const MOCK_CONFIG = {
+  concurrency: 4,
+  pollIntervalMs: 1000,
+  batchSize: 10,
+  maxAttempts: 5,
+  paused: false,
+  last_seen_target_version: 1,
+};
 
 const MOCK_STATUS: WorkersStatusResponse = {
   stages: [
     {
-      name: 'hash', status: 'running', inFlight: 3, configured: 4, pending: 1247,
-      dead: 0, throughput: 18, lastError: null, config: MOCK_CONFIG, batchSize: 10,
+      name: 'hash',
+      status: 'running',
+      inFlight: 3,
+      configured: 4,
+      pending: 1247,
+      dead: 0,
+      throughput: 18,
+      lastError: null,
+      config: MOCK_CONFIG,
+      batchSize: 10,
     },
     {
-      name: 'face', status: 'running', inFlight: 1, configured: 2, pending: 842,
-      dead: 3, throughput: 6, lastError: null,
-      config: { concurrency: 2, pollIntervalMs: 1000, batchSize: 5, maxAttempts: 5, paused: false, last_seen_target_version: 1 },
+      name: 'face',
+      status: 'running',
+      inFlight: 1,
+      configured: 2,
+      pending: 842,
+      dead: 3,
+      throughput: 6,
+      lastError: null,
+      config: {
+        concurrency: 2,
+        pollIntervalMs: 1000,
+        batchSize: 5,
+        maxAttempts: 5,
+        paused: false,
+        last_seen_target_version: 1,
+      },
       batchSize: 5,
     },
     {
-      name: 'describe', status: 'error', inFlight: 0, configured: 2, pending: 842,
-      dead: 0, throughput: 0, lastError: 'API key invalid',
-      config: { concurrency: 2, pollIntervalMs: 1000, batchSize: 5, maxAttempts: 5, paused: false, last_seen_target_version: 1 },
+      name: 'describe',
+      status: 'error',
+      inFlight: 0,
+      configured: 2,
+      pending: 842,
+      dead: 0,
+      throughput: 0,
+      lastError: 'API key invalid',
+      config: {
+        concurrency: 2,
+        pollIntervalMs: 1000,
+        batchSize: 5,
+        maxAttempts: 5,
+        paused: false,
+        last_seen_target_version: 1,
+      },
       batchSize: 5,
     },
   ],
@@ -47,12 +88,21 @@ const MOCK_ENRICHMENT: EnrichmentConfigResponse = {
   face_mobilefacenet_url: null,
   face_mobilefacenet_sha256: null,
   source: {
-    nominatim_url: 'unset', geocode_worker_enabled: 'default', nominatim_rate_limit_per_sec: 'default',
-    describe_worker_enabled: 'default', describe_provider: 'default', describe_provider_url: 'unset',
-    describe_model: 'default', describe_system_prompt: 'default', describe_daily_cap_usd: 'default',
-    face_worker_enabled: 'default', face_model_dir: 'default',
-    face_retinaface_url: 'unset', face_retinaface_sha256: 'unset',
-    face_mobilefacenet_url: 'unset', face_mobilefacenet_sha256: 'unset',
+    nominatim_url: 'unset',
+    geocode_worker_enabled: 'default',
+    nominatim_rate_limit_per_sec: 'default',
+    describe_worker_enabled: 'default',
+    describe_provider: 'default',
+    describe_provider_url: 'unset',
+    describe_model: 'default',
+    describe_system_prompt: 'default',
+    describe_daily_cap_usd: 'default',
+    face_worker_enabled: 'default',
+    face_model_dir: 'default',
+    face_retinaface_url: 'unset',
+    face_retinaface_sha256: 'unset',
+    face_mobilefacenet_url: 'unset',
+    face_mobilefacenet_sha256: 'unset',
   },
 };
 
@@ -98,7 +148,9 @@ describe('WorkersComponent', () => {
 
   it('renders Status column correctly', () => {
     initWithMock();
-    const rows: NodeListOf<HTMLElement> = fixture.nativeElement.querySelectorAll('[data-testid="worker-row"]');
+    const rows: NodeListOf<HTMLElement> = fixture.nativeElement.querySelectorAll(
+      '[data-testid="worker-row"]',
+    );
     // Rows are grouped in pipeline order: hash (Ingest), describe + face (Enrich)
     const hashRow = Array.from(rows).find((r) => r.textContent?.includes('hash'));
     const descRow = Array.from(rows).find((r) => r.textContent?.includes('describe'));
@@ -108,28 +160,38 @@ describe('WorkersComponent', () => {
 
   it('renders Concurrency column as the configured value', () => {
     initWithMock();
-    const rows: NodeListOf<HTMLElement> = fixture.nativeElement.querySelectorAll('[data-testid="worker-row"]');
+    const rows: NodeListOf<HTMLElement> = fixture.nativeElement.querySelectorAll(
+      '[data-testid="worker-row"]',
+    );
     const hashRow = Array.from(rows).find((r) => r.textContent?.includes('hash'))!;
     expect(hashRow.querySelector('[data-testid="workers"]')?.textContent?.trim()).toBe('4');
   });
 
   it('renders In flight as inFlight / batchSize', () => {
     initWithMock();
-    const rows: NodeListOf<HTMLElement> = fixture.nativeElement.querySelectorAll('[data-testid="worker-row"]');
+    const rows: NodeListOf<HTMLElement> = fixture.nativeElement.querySelectorAll(
+      '[data-testid="worker-row"]',
+    );
     const hashRow = Array.from(rows).find((r) => r.textContent?.includes('hash'))!;
-    expect(hashRow.querySelector('[data-testid="in-flight"]')?.textContent?.replace(/\s+/g, ' ').trim()).toBe('3 / 10');
+    expect(
+      hashRow.querySelector('[data-testid="in-flight"]')?.textContent?.replace(/\s+/g, ' ').trim(),
+    ).toBe('3 / 10');
   });
 
   it('renders Pending count with thousands separator', () => {
     initWithMock();
-    const rows: NodeListOf<HTMLElement> = fixture.nativeElement.querySelectorAll('[data-testid="worker-row"]');
+    const rows: NodeListOf<HTMLElement> = fixture.nativeElement.querySelectorAll(
+      '[data-testid="worker-row"]',
+    );
     const hashRow = Array.from(rows).find((r) => r.textContent?.includes('hash'))!;
     expect(hashRow.querySelector('[data-testid="pending"]')?.textContent?.trim()).toBe('1,247');
   });
 
   it('renders Dead count with retry-affordance icon when dead > 0', () => {
     initWithMock();
-    const rows: NodeListOf<HTMLElement> = fixture.nativeElement.querySelectorAll('[data-testid="worker-row"]');
+    const rows: NodeListOf<HTMLElement> = fixture.nativeElement.querySelectorAll(
+      '[data-testid="worker-row"]',
+    );
     const faceRow = Array.from(rows).find((r) => r.textContent?.includes('face'))!;
     expect(faceRow.querySelector('[data-testid="dead-count"]')?.textContent?.trim()).toBe('3');
 
@@ -139,7 +201,9 @@ describe('WorkersComponent', () => {
 
   it('renders throughput as "n /min" and "—" when zero', () => {
     initWithMock();
-    const rows: NodeListOf<HTMLElement> = fixture.nativeElement.querySelectorAll('[data-testid="worker-row"]');
+    const rows: NodeListOf<HTMLElement> = fixture.nativeElement.querySelectorAll(
+      '[data-testid="worker-row"]',
+    );
     const hashRow = Array.from(rows).find((r) => r.textContent?.includes('hash'))!;
     const descRow = Array.from(rows).find((r) => r.textContent?.includes('describe'))!;
     expect(hashRow.textContent?.replace(/\s+/g, ' ')).toContain('18 /min');
@@ -149,17 +213,23 @@ describe('WorkersComponent', () => {
 
   it('clicking the pause button POSTs /api/workers/{name}/pause', () => {
     initWithMock();
-    const rows: NodeListOf<HTMLElement> = fixture.nativeElement.querySelectorAll('[data-testid="worker-row"]');
+    const rows: NodeListOf<HTMLElement> = fixture.nativeElement.querySelectorAll(
+      '[data-testid="worker-row"]',
+    );
     const hashRow = Array.from(rows).find((r) => r.textContent?.includes('hash'))!;
     hashRow.querySelector<HTMLButtonElement>('[data-testid="pause-resume-btn"]')?.click();
 
-    http.expectOne({ method: 'POST', url: '/api/workers/hash/pause' }).flush(null, { status: 204, statusText: '' });
+    http
+      .expectOne({ method: 'POST', url: '/api/workers/hash/pause' })
+      .flush(null, { status: 204, statusText: '' });
     fixture.detectChanges();
   });
 
   it('clicking a row expands an inline config panel', () => {
     initWithMock();
-    const rows: NodeListOf<HTMLElement> = fixture.nativeElement.querySelectorAll('[data-testid="worker-row"]');
+    const rows: NodeListOf<HTMLElement> = fixture.nativeElement.querySelectorAll(
+      '[data-testid="worker-row"]',
+    );
     const hashRow = Array.from(rows).find((r) => r.textContent?.includes('hash'))!;
     // Before click: panel not present.
     expect(hashRow.querySelector('.expanded')).toBeNull();
@@ -171,4 +241,100 @@ describe('WorkersComponent', () => {
     expect(hashRow.querySelector('.btn-primary')?.textContent?.trim()).toContain('Save');
   });
 
+  // ── Open logs drawer ──────────────────────────────────────────────────
+
+  /** Expand a stage row and click its "Open logs" button. */
+  function openLogsFor(stageName: string): void {
+    const rows: NodeListOf<HTMLElement> = fixture.nativeElement.querySelectorAll(
+      '[data-testid="worker-row"]',
+    );
+    const row = Array.from(rows).find((r) => r.textContent?.includes(stageName))!;
+    row.querySelector<HTMLElement>('.row-summary')?.click();
+    fixture.detectChanges();
+    row.querySelector<HTMLButtonElement>('[data-testid="open-logs-btn"]')?.click();
+    fixture.detectChanges();
+  }
+
+  it('clicking "Open logs" GETs /api/workers/{name}/dead and renders the drawer', () => {
+    initWithMock();
+    openLogsFor('face');
+
+    const req = http.expectOne('/api/workers/face/dead?limit=50');
+    expect(req.request.method).toBe('GET');
+    req.flush({
+      items: [
+        {
+          id: 'abc123',
+          abs_path: '/photos/IMG_0001.dng',
+          last_error: 'ONNX session crashed',
+          attempts: 3,
+          processed_at: '2026-05-22T05:00:00Z',
+        },
+      ],
+    });
+    fixture.detectChanges();
+
+    const drawer = fixture.nativeElement.querySelector('[data-testid="log-drawer"]');
+    expect(drawer).toBeTruthy();
+    expect(drawer.getAttribute('aria-modal')).toBe('true');
+    expect(drawer.textContent).toContain('/photos/IMG_0001.dng');
+    expect(drawer.textContent).toContain('ONNX session crashed');
+    expect(drawer.textContent).toContain('3 attempts');
+    expect(drawer.textContent).toContain('1 failed job');
+  });
+
+  it('shows an empty state when the dead list is empty', () => {
+    initWithMock();
+    openLogsFor('hash');
+
+    http.expectOne('/api/workers/hash/dead?limit=50').flush({ items: [] });
+    fixture.detectChanges();
+
+    const drawer = fixture.nativeElement.querySelector('[data-testid="log-drawer"]');
+    expect(drawer.textContent).toContain('No failed jobs for this stage.');
+    // Retry-all is hidden when there are no dead items.
+    expect(drawer.querySelector('.btn-ghost.danger')).toBeNull();
+  });
+
+  it('clicking the backdrop closes the drawer', () => {
+    initWithMock();
+    openLogsFor('hash');
+    http.expectOne('/api/workers/hash/dead?limit=50').flush({ items: [] });
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.querySelector('[data-testid="log-drawer"]')).toBeTruthy();
+    (
+      fixture.nativeElement.querySelector('[data-testid="log-backdrop"]') as HTMLElement | null
+    )?.click();
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('[data-testid="log-drawer"]')).toBeNull();
+  });
+
+  it('Escape key closes the drawer', () => {
+    initWithMock();
+    openLogsFor('hash');
+    http.expectOne('/api/workers/hash/dead?limit=50').flush({ items: [] });
+    fixture.detectChanges();
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('[data-testid="log-drawer"]')).toBeNull();
+  });
+
+  it('Retry-all in the drawer POSTs retry-dead and closes', () => {
+    initWithMock();
+    openLogsFor('face');
+    http.expectOne('/api/workers/face/dead?limit=50').flush({
+      items: [{ id: 'a', abs_path: '/a.dng', last_error: 'x', attempts: 1, processed_at: null }],
+    });
+    fixture.detectChanges();
+
+    const drawer = fixture.nativeElement.querySelector('[data-testid="log-drawer"]') as HTMLElement;
+    (drawer.querySelector('.btn-ghost.danger') as HTMLButtonElement | null)?.click();
+    http
+      .expectOne({ method: 'POST', url: '/api/workers/face/retry-dead' })
+      .flush({ ok: true, reset: 1 });
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('[data-testid="log-drawer"]')).toBeNull();
+  });
 });
