@@ -30,33 +30,28 @@ use develop::develop_scene_linear_from_padded_mosaic;
 use region::{pad_and_clamp_mosaic_rect, trim_image_to_inner};
 
 /// Tile-overlap pad in source pixels per edge. Picked to satisfy
-/// clarity at radius 40 (3-pass box reach is exactly
-/// `3 * (40 / 3) = 39 px` per axis) — the binding stencil among the
-/// tile-safe stages. Other stages (demosaic 2 px, sharpen ≤ 9 px,
-/// nr_color ≤ 4 px, texture 3 px) sit comfortably inside this pad.
-/// Dehaze (radius 67) is NOT tile-safe — `render_scene_linear_tile_from_raw_with_quality`
-/// errors when `model.dehaze != 0`.
+/// clarity's stencil reach (40 px per side: a guided filter at
+/// `CLARITY_GUIDED_RADIUS = 20` performs `mean_a` / `mean_b` box-blurs
+/// on a buffer that was itself box-blurred at radius 20, so the
+/// effective reach is `2 * 20 = 40 px`). Clarity is the binding
+/// stencil among the tile-safe stages. Other stages (demosaic 2 px,
+/// sharpen ≤ 9 px, nr_color ≤ 4 px, texture ≈ 4 px) sit comfortably
+/// inside this pad. Dehaze (radius 67) is NOT tile-safe —
+/// `render_scene_linear_tile_from_raw_with_quality` errors when
+/// `model.dehaze != 0`.
 ///
-/// 48 = 39 (clarity reach) rounded up with headroom. The const assertion
-/// below ties this value to `clarity::CLARITY_RADIUS` — if the clarity
-/// radius is ever bumped, the build will refuse until this constant
-/// follows.
+/// 48 = 40 (clarity guided-filter reach) rounded up with headroom.
+/// The const assertion below ties this value to
+/// `clarity::CLARITY_GUIDED_REACH_PX` — if the clarity radius is ever
+/// bumped, the build will refuse until this constant follows.
 pub const TILE_OVERLAP_PX: u32 = 48;
 
-// Build-time guard: TILE_OVERLAP_PX must cover the 3-pass clarity box
-// reach. The 3-pass cascaded box blur with per-pass radius
-// `(CLARITY_RADIUS / 3).max(1)` reaches `3 * r_box` pixels per side
-// (every pass shifts the support by `r_box`). If `CLARITY_RADIUS` is
-// raised in the future, this assertion fails until `TILE_OVERLAP_PX` is
-// raised to match.
-const CLARITY_BOX_R: usize = {
-    let r = crate::stages::clarity::CLARITY_RADIUS / 3;
-    if r < 1 { 1 } else { r }
-};
-const CLARITY_TAIL_PX: usize = 3 * CLARITY_BOX_R;
+// Build-time guard: TILE_OVERLAP_PX must cover the clarity guided-filter
+// reach. If `CLARITY_GUIDED_RADIUS` is raised, the reach (= 2 * radius)
+// grows and this assertion fails until `TILE_OVERLAP_PX` is bumped.
 const _: () = assert!(
-    (TILE_OVERLAP_PX as usize) >= CLARITY_TAIL_PX,
-    "TILE_OVERLAP_PX must cover the 3-pass clarity box reach; bump it when CLARITY_RADIUS grows.",
+    (TILE_OVERLAP_PX as usize) >= crate::stages::clarity::CLARITY_GUIDED_REACH_PX,
+    "TILE_OVERLAP_PX must cover the clarity guided-filter reach; bump it when CLARITY_GUIDED_RADIUS grows.",
 );
 
 /// Render a tile of the developed scene-linear Rec.2020 fp16 RGBA image.

@@ -159,11 +159,11 @@ mod tests {
     /// Tile-stencil reachability test: with `src` placed well inside the
     /// mosaic and `pad = TILE_OVERLAP_PX`, every pixel within `pad` of
     /// the inner rect must lie inside the padded crop. This is the
-    /// geometric check that the clarity stencil (effective tail 39 px at
-    /// `CLARITY_RADIUS = 40`) sits inside the trimmed region's overlap —
-    /// equivalently, no clarity sample at the inner-rect boundary
-    /// reaches outside the mosaic crop unless the src is itself clipped
-    /// by the image edge.
+    /// geometric check that the clarity stencil (effective reach
+    /// `CLARITY_GUIDED_REACH_PX = 2 * CLARITY_GUIDED_RADIUS = 40` px)
+    /// sits inside the trimmed region's overlap — equivalently, no
+    /// clarity sample at the inner-rect boundary reaches outside the
+    /// mosaic crop unless the src is itself clipped by the image edge.
     #[test]
     fn pad_and_clamp_mosaic_rect_overlap_covers_clarity_stencil() {
         let mosaic_w = 8000u32;
@@ -188,11 +188,12 @@ mod tests {
         // Padded crop sits inside the mosaic — does not overshoot.
         assert!(x + w <= mosaic_w, "padded crop overshoots width");
         assert!(y + h <= mosaic_h, "padded crop overshoots height");
-        // Locks the binding stencil: clarity at radius 40 has a 3-pass
-        // box reach of exactly `3 * (40 / 3) = 39` px per side. The
-        // const assertion at module scope pins `TILE_OVERLAP_PX` to
-        // this value; check the runtime relation here too.
-        let clarity_reach = 3 * (crate::stages::clarity::CLARITY_RADIUS / 3).max(1);
+        // Locks the binding stencil: clarity now uses a guided filter
+        // at radius `CLARITY_GUIDED_RADIUS` with effective reach
+        // `2 * radius = CLARITY_GUIDED_REACH_PX`. The const assertion
+        // at module scope pins `TILE_OVERLAP_PX` to this value; check
+        // the runtime relation here too.
+        let clarity_reach = crate::stages::clarity::CLARITY_GUIDED_REACH_PX;
         assert!((pad as usize) >= clarity_reach,
             "TILE_OVERLAP_PX {} must cover clarity tail {}", pad, clarity_reach);
     }
