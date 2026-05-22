@@ -368,7 +368,10 @@
   gap: 8px;
   min-width: 0;
 
-  .mono { font-size: 13px; color: var(--s-text); }
+  .mono {
+    font-size: 13px;
+    color: var(--s-text);
+  }
 
   .log-subtitle {
     font-size: 12px;
@@ -396,7 +399,9 @@
   cursor: pointer;
   padding: 0;
 
-  &:hover { background: rgba(255, 255, 255, 0.05); }
+  &:hover {
+    background: rgba(255, 255, 255, 0.05);
+  }
 }
 
 .log-list {
@@ -408,7 +413,9 @@
   padding: 10px 18px;
   border-bottom: 0.5px solid var(--s-border);
 
-  &:last-child { border-bottom: none; }
+  &:last-child {
+    border-bottom: none;
+  }
 }
 
 .log-entry-path {
