@@ -4,12 +4,12 @@
  * via sharp's `.rotate()` — which physically rotates the pixels and strips
  * the orientation tag — then atomically replaces the file.
  *
- * Used after the libraw FFI extracts an embedded preview JPEG: the FFI
- * preserves the source's orientation tag rather than baking the rotation
- * into pixels, so without this step a portrait shot ends up sideways on
- * disk while the bitmap path (which routes through sharp's `.rotate()` at
- * decode time) renders upright. This helper closes that gap so both paths
- * produce byte-equivalent thumbs in `.maple/thumbs/`.
+ * Defense-in-depth helper. The raw-ffi thumbnail path bakes the orientation
+ * into pixels and emits a bare JPEG with no EXIF, so this call is normally
+ * a no-op on FFI output; the bitmap path routes through sharp's `.rotate()`
+ * at decode time, also bakes orientation, and likewise carries no tag. If
+ * a future code path lands a thumb in `.maple/thumbs/` that still carries
+ * an orientation tag, this catches it before it's served to the client.
  */
 
 import { rename, unlink, writeFile } from "node:fs/promises";
