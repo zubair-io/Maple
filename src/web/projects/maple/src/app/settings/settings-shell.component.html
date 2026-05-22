@@ -1,19 +1,15 @@
 <div class="settings-shell">
   <aside class="sidebar">
     <a routerLink="/" class="back-link">
-      <maple-settings-icon name="back" [size]="14"/>
+      <maple-settings-icon name="back" [size]="14" />
       <span>Back to Browse</span>
     </a>
 
     <div class="section-label">Settings</div>
 
     @for (it of items(); track it.id) {
-      <a
-        [routerLink]="it.link"
-        class="nav-item"
-        [class.is-active]="section() === it.id"
-      >
-        <maple-settings-icon [name]="it.icon" [size]="15"/>
+      <a [routerLink]="it.link" class="nav-item" [class.is-active]="section() === it.id">
+        <maple-settings-icon [name]="it.icon" [size]="15" />
         <div class="nav-text">
           <div class="nav-label">{{ it.label }}</div>
           @if (it.sub) {
@@ -36,6 +32,6 @@
   </aside>
 
   <div class="page">
-    <ng-content/>
+    <ng-content />
   </div>
 </div>
