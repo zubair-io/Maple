@@ -7,9 +7,11 @@ import {
   Component,
   HostListener,
   OnInit,
+  effect,
   inject,
 } from '@angular/core';
-import { Router, RouterLink } from '@angular/router';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { LibraryStateService } from '../../state/library-state.service';
 import { FolderTreeComponent } from '../../components/folder-tree/folder-tree.component';
 import { AssetGridComponent } from '../../components/asset-grid/asset-grid.component';
@@ -45,12 +47,55 @@ import { TimelineViewComponent } from '../../components/timeline-view/timeline-v
 export class BrowseShellComponent implements OnInit {
   state = inject(LibraryStateService);
   private router = inject(Router);
+  private route = inject(ActivatedRoute);
+
+  /** localStorage key — mirrors LAST_SOURCE_KEY in library-fetch.service. */
+  private static readonly LAST_SOURCE_KEY = 'cm.lastSourceId';
+
+  constructor() {
+    // ── URL → selection ─────────────────────────────────────────────────────
+    // `?folder=<absPath>` deep-links into a folder. Subscribes (not just the
+    // snapshot) so back/forward navigation re-applies the URL.
+    this.route.queryParamMap.pipe(takeUntilDestroyed()).subscribe((qp) => {
+      const path = qp.get('folder');
+      if (!path) return;
+      const targetId = `fs:${path}`;
+      if (this.state.selectedSourceId() === targetId) return;
+      // `openSelfHostedSubfolder` no-ops on non-self-hosted backends; safe
+      // to call without a backend check here.
+      this.state.openSelfHostedSubfolder(path, targetId);
+    });
+
+    // ── Selection → URL + localStorage ──────────────────────────────────────
+    // The folder-tree component, asset-grid breadcrumbs, and the post-load
+    // auto-select in LibraryFetch all flow through `selectedSourceId`. Mirror
+    // every change back into the URL so refreshing or copying the URL lands
+    // the user on the same folder.
+    effect(() => {
+      const id = this.state.selectedSourceId();
+      if (!id || !id.startsWith('fs:')) return;
+      const path = id.slice(3);
+      try {
+        localStorage.setItem(BrowseShellComponent.LAST_SOURCE_KEY, id);
+      } catch {
+        /* noop — private mode / quota */
+      }
+      const current = this.route.snapshot.queryParamMap.get('folder');
+      if (current === path) return;
+      void this.router.navigate([], {
+        relativeTo: this.route,
+        queryParams: { folder: path },
+        queryParamsHandling: 'merge',
+      });
+    });
+  }
 
   ngOnInit(): void {
     // Self-Hosted: kick off folder enumeration once the browse page mounts.
     // Lives here (not on the root App component) so it runs AFTER the
     // authGuard passes — otherwise the unauthenticated request races the
-    // sign-in redirect and returns 401.
+    // sign-in redirect and returns 401. `loadFolderTree` also handles the
+    // cold-start landing folder — see `_selectInitialFolder`.
     this.state.loadFolderTree();
   }
 
