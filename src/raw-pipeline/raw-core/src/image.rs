@@ -111,6 +111,17 @@ pub struct RawImage {
     pub as_shot_cct: Option<f32>,
     pub camera_make: String,
     pub camera_model: String,
+    /// DNG `UniqueCameraModel` tag (50708) when present. Distinct from
+    /// `camera_model` for mobile bodies whose lens variants share a model
+    /// name — e.g. iPhone 12 Pro DNGs all report `Model="iPhone 12 Pro"`
+    /// but `UniqueCameraModel="iPhone13,3 back camera"` /
+    /// `"iPhone13,3 back telephoto camera"` etc. The bundled-DCP lookup
+    /// in `color::profile_loader` keys off this when present and falls
+    /// back to `camera_model` when absent. Vendor RAWs (CR2, ARW, NEF, …)
+    /// typically lack the tag; their `camera_model` already matches
+    /// Adobe's DCP UCM convention (`"Canon EOS 5D Mark IV"` etc.) so the
+    /// fallback path works there without changes.
+    pub unique_camera_model: Option<String>,
     /// Camera color matrices by calibration illuminant. Each is XYZ→camera per
     /// DNG spec (inverse at apply-time to get camera→XYZ). Populated from rawler
     /// per-illuminant data; may contain 1-2 entries. Used by DCP for dual-

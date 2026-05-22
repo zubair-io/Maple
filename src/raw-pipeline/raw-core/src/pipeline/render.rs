@@ -282,8 +282,13 @@ mod tests {
     /// 1. RawImage carries the parsed PTC (decode-side wiring).
     /// 2. The pipeline renders cleanly with PTC applied — no panics, no
     ///    NaN, plausible output statistics.
-    /// 3. Render WITH PTC differs from render WITHOUT PTC (so the new
-    ///    stage actually runs; guards against silent no-op regressions).
+    /// 3. Render WITH PTC differs from render WITHOUT PTC ONLY when the
+    ///    bundled Adobe-derived profile path is NOT in use. When the
+    ///    bundled path is active (PR #324) the develop pipeline suppresses
+    ///    the source DNG's PTC because it was calibrated against Apple's
+    ///    own matrices, not Adobe Standard's — applying it after the
+    ///    matrix swap is a tone double-up. AgX handles tone mapping at
+    ///    the view transform regardless.
     #[test]
     fn render_test_0013_runs_profile_tone_curve() {
         let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -301,16 +306,26 @@ mod tests {
         let sat_ratio = with_ptc.iter().filter(|b| **b == 255).count() as f32 / with_ptc.len() as f32;
         assert!(zero_ratio < 0.5, "render too dark: {:.1}% zeros", zero_ratio * 100.0);
         assert!(sat_ratio < 0.5, "render too bright: {:.1}% saturated", sat_ratio * 100.0);
-        // Render WITHOUT PTC by stripping the field — output MUST differ.
+        // Render WITHOUT PTC by stripping the field. The PTC-vs-no-PTC
+        // delta should be observable ONLY when the bundled profile path
+        // is disabled — when bundled is active for this body, PTC is
+        // suppressed by `pipeline::develop` and the two outputs match.
+        let bundled_active = crate::color::profile_loader::has_bundled_profile(&raw);
         let mut raw_no_ptc = raw.clone();
         raw_no_ptc.profile_tone_curve = None;
         let (_, _, without_ptc) = render_from_raw(&raw_no_ptc, &model).unwrap();
         assert_eq!(with_ptc.len(), without_ptc.len());
         let diffs: usize = with_ptc.iter().zip(without_ptc.iter())
             .filter(|(a, b)| a != b).count();
-        assert!(diffs > with_ptc.len() / 100,
-            "PTC stage had no measurable effect on test_0013: {} of {} bytes differ",
-            diffs, with_ptc.len());
+        if bundled_active {
+            assert_eq!(diffs, 0,
+                "with bundled profile active, PTC must be suppressed (got {} differing bytes)",
+                diffs);
+        } else {
+            assert!(diffs > with_ptc.len() / 100,
+                "PTC stage had no measurable effect on test_0013: {} of {} bytes differ",
+                diffs, with_ptc.len());
+        }
     }
 
     #[test]

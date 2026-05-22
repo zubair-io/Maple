@@ -435,11 +435,32 @@ fn lerp_hsm_for_cct(
 
 /// Synthesize a `DcpProfile` from a `RawImage`'s embedded color matrices.
 ///
-/// Prefers dual-illuminant reciprocal-CCT interpolation (spec § 3.4) when
-/// both a warm illuminant (StdA) and a cool illuminant (D65/D55) are present.
-/// Falls back to single-illuminant (D65 → D50 → D55 → StdA → any) when only
-/// one matrix is available.
+/// Lookup order (first hit wins):
+///   1. **Maple's bundled Adobe-derived profile** for this camera's
+///      `UniqueCameraModel` (when present). See
+///      [`crate::color::profile_loader`]. This is the high-quality path —
+///      1,447 Adobe-calibrated camera profiles, PTC/PLT stripped (AgX
+///      handles tone). Falls through to (2) on a miss.
+///   2. The `RawImage`'s embedded color matrices (rawler or DNG profile).
+///      Prefers dual-illuminant reciprocal-CCT interpolation (spec § 3.4)
+///      when both a warm illuminant (StdA) and a cool illuminant (D65/D55)
+///      are present. Falls back to single-illuminant
+///      (D65 → D50 → D55 → StdA → any) when only one matrix is available.
 pub fn profile_for(raw: &RawImage) -> crate::Result<DcpProfile> {
+    // (1) Bundled Adobe-derived profile lookup. Returns the same DcpProfile
+    // shape — dual-illum interpolation when applicable, single-illum
+    // fallback otherwise. The PTC/PLT fields on DcpProfile are NOT set by
+    // this path; PTC/PLT come from RawImage tags and remain whatever the
+    // file shipped (typically Apple iPhone's 257-pair PTC). Because we
+    // dropped PTC/PLT during conversion, the bundled profile never contests
+    // those fields — it only overrides the matrices + HSM tables.
+    if let Some(bundled) = crate::color::profile_loader::lookup_profile(raw) {
+        if let Some(p) = crate::color::profile_loader::to_dcp_profile(bundled, raw) {
+            return Ok(p);
+        }
+        // to_dcp_profile only fails when the bundle entry has no CMs at all
+        // — never observed in practice. Fall through to embedded path.
+    }
     // Phase 1.2 of the color-convergence work re-enabled the DNG-spec WB
     // pre-gain at `pipeline.rs` (after `linearize` + `demosaic`, before
     // DCP). After pre-gain, a neutral scene patch reads as (1, 1, 1) going
@@ -561,6 +582,7 @@ mod tests {
             as_shot_cct: None,
             camera_make: "Test".into(),
             camera_model: "Test".into(),
+            unique_camera_model: None,
             color_matrices: cms,
             forward_matrices: std::collections::HashMap::new(),
             orientation: crate::image::ExifOrientation::Normal,
@@ -736,6 +758,7 @@ mod tests {
             as_shot_cct: None,
             camera_make: "Test".into(),
             camera_model: "Test".into(),
+            unique_camera_model: None,
             color_matrices: cms,
             forward_matrices: std::collections::HashMap::new(),
             orientation: crate::image::ExifOrientation::Normal,
@@ -802,6 +825,7 @@ mod tests {
             as_shot_cct: None,
             camera_make: "Test".into(),
             camera_model: "Test".into(),
+            unique_camera_model: None,
             color_matrices: cms.clone(),
             forward_matrices: std::collections::HashMap::new(),
             orientation: crate::image::ExifOrientation::Normal,
@@ -869,6 +893,7 @@ mod tests {
             as_shot_cct: None,
             camera_make: "Test".into(),
             camera_model: "Test".into(),
+            unique_camera_model: None,
             color_matrices: cms,
             forward_matrices: std::collections::HashMap::new(),
             orientation: crate::image::ExifOrientation::Normal,
@@ -1031,6 +1056,7 @@ mod tests {
             as_shot_cct: None,
             camera_make: "Test".into(),
             camera_model: "Test".into(),
+            unique_camera_model: None,
             color_matrices: cms,
             forward_matrices: std::collections::HashMap::new(),
             orientation: crate::image::ExifOrientation::Normal,
