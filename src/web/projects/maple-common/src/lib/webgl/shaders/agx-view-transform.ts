@@ -9,10 +9,16 @@
 //   * src/raw-pipeline/raw-core/src/view/agx_coeffs.rs (Rust port)
 //   * src/raw-pipeline/raw-core/src/view/agx_lut.bin   (Rust LUT)
 //
-// Cross-platform parity is verified at 1e-4 per channel: the Rust LUT
-// (sigmoid sampled by derive_agx_lut.py) and the inline GLSL math here
-// agree at every LUT index. Vitest spec
-// `agx-view-transform.parity.spec.ts` enforces this.
+// Cross-platform parity is split across two test boundaries:
+//   * Rust↔GLSL byte-equality at 1e-4 per LUT index is enforced by
+//     `glsl_port_matches_rust_lut` in
+//     `src/raw-pipeline/raw-core/src/view/agx.rs` — it ports this
+//     GLSL sigmoid math into Rust and diffs against every entry of
+//     `agx_lut.bin`. Run via `cargo test -p raw-core --lib`.
+//   * GLSL self-consistency (pivot exactness, monotonicity, endpoint
+//     anchors) is enforced by `agx-view-transform.parity.spec.ts`.
+// Splitting the boundary this way avoids needing node:fs / Node types
+// in the jsdom Angular spec environment.
 
 export const AGX_VIEW_TRANSFORM_FRAGMENT_SOURCE = /* glsl */ `#version 300 es
 // AgXViewTransform.frag — canonical Sobotka AgX with inline matrices + sigmoid.
