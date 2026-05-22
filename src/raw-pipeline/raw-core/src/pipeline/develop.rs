@@ -155,7 +155,7 @@ pub fn develop_scene_linear_from_raw_with_quality(
     let hr_neutral = if skip_pre_gain { [1.0; 3] } else { raw.as_shot_neutral };
     stage("highlight_recovery", || highlight_recovery::apply(&mut camera_rgb, model.highlight_recovery, hr_neutral));
     dump_after("02_highlight_recovery", &camera_rgb);
-    let profile = stage("dcp::profile_for", || dcp::profile_for(raw))?;
+    let (profile, source) = stage("dcp::profile_for", || dcp::profile_for_with_source(raw))?;
     // dcp::apply_with_plt_and_ptc runs HSM (from `profile.hsm`),
     // ProfileToneCurve (from `raw.profile_tone_curve`), and PLT (from
     // `raw.plt`) ALL in linear-ProPhoto-D50 space, between the chromatic
@@ -172,7 +172,11 @@ pub fn develop_scene_linear_from_raw_with_quality(
     // Adobe-DNG-Converter outputs it's actually Adobe Standard's look
     // table and removing it regresses ΔE on Canon DNG fixtures. The
     // universal DisplayLookCurve (separate ticket) replaces PLT entirely.
-    let use_bundled = crate::color::profile_loader::has_bundled_profile(raw);
+    //
+    // `source` comes from the same lookup `profile_for_with_source`
+    // already did — no second HashMap probe or env-var read in this hot
+    // path. See `dcp::ProfileSource` for the rationale.
+    let use_bundled = matches!(source, dcp::ProfileSource::Bundled);
     let ptc_for_apply = if use_bundled { None } else { raw.profile_tone_curve.as_ref() };
     let mut scene = stage("dcp::apply", || dcp::apply_with_plt_and_ptc(
         &camera_rgb, &profile, raw.plt.as_ref(), ptc_for_apply,
@@ -314,10 +318,12 @@ pub fn develop_scene_linear_sized_from_raw_with_quality(
     let hr_neutral = if skip_pre_gain { [1.0; 3] } else { raw.as_shot_neutral };
     stage("sized_highlight_recovery", || highlight_recovery::apply(&mut camera_rgb, model.highlight_recovery, hr_neutral));
     dump_after("02_highlight_recovery", &camera_rgb);
-    let profile = stage("sized_dcp_profile_for", || dcp::profile_for(raw))?;
+    let (profile, source) = stage("sized_dcp_profile_for", || dcp::profile_for_with_source(raw))?;
     // PTC suppression when bundled — see the comment in the full-res
-    // variant. PLT stays for Adobe-DNG-Converter inputs.
-    let use_bundled = crate::color::profile_loader::has_bundled_profile(raw);
+    // variant. PLT stays for Adobe-DNG-Converter inputs. `source` is the
+    // same lookup result `profile_for_with_source` already produced — no
+    // redundant HashMap probe in the sized path either.
+    let use_bundled = matches!(source, dcp::ProfileSource::Bundled);
     let ptc_for_apply = if use_bundled { None } else { raw.profile_tone_curve.as_ref() };
     let mut scene = stage("sized_dcp_apply", || dcp::apply_with_plt_and_ptc(
         &camera_rgb, &profile, raw.plt.as_ref(), ptc_for_apply,

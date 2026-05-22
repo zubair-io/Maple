@@ -11,10 +11,15 @@
 //! Canon 5DM3/5DM4 family — producing 20+ ΔE biases on standard fixtures.
 //! Adobe's calibrated DCPs fix the matrices. See ticket #324.
 //!
-//! Lookup key is `(UniqueCameraModel, Option<lens_id>)`. The lens
-//! disambiguation handles mobile cameras whose lens variants ship as separate
-//! Adobe DCPs (e.g. `iPhone13,3 back camera`, `iPhone13,3 back telephoto
-//! camera`, `iPhone13,3 back ultra wide camera`).
+//! Lookup key is the DNG `UniqueCameraModel` string (tag 50708). For
+//! multi-lens mobile bodies, the lens identifier is already baked into the
+//! UCM by the vendor — Apple ships per-lens UCMs like `iPhone13,3 back
+//! camera`, `iPhone13,3 back telephoto camera`, `iPhone13,3 back ultra wide
+//! camera`, and Adobe ships one DCP per lens-tagged UCM. We bundle all
+//! variants as distinct entries (see `iphone_lens_variants_are_distinct_keys`
+//! test below) and the runtime picks the right one by matching the captured
+//! DNG's UCM byte-for-byte. No separate `lens_id` column is needed — the
+//! DNG-spec UCM is the discriminator the vendor and Adobe already share.
 //!
 //! ## Bundle format
 //!
@@ -88,10 +93,12 @@ pub struct MapleProfile {
     pub baseline_exposure_offset: f32,
 }
 
-/// Resolved camera identity used as the lookup key. The optional lens
-/// component lets us distinguish multi-lens mobile cameras (iPhone wide /
-/// telephoto / ultra-wide variants). For non-multi-lens bodies the lens
-/// field is `None` and the bundled UCM is the full key.
+/// Resolved camera identity used as the lookup key. The DNG
+/// `UniqueCameraModel` string is the full key — for multi-lens mobile
+/// cameras the lens variant is already encoded in the UCM by the vendor
+/// (e.g. `iPhone13,3 back camera` vs `iPhone13,3 back telephoto camera`),
+/// and Adobe ships one DCP per such lens-tagged UCM. See the module
+/// docstring for the keying rationale.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct CameraKey {
     pub unique_camera_model: String,
@@ -106,10 +113,18 @@ impl CameraKey {
 }
 
 /// Embedded bundle blob — produced by `src/scripts/convert_adobe_dcps.py`.
-/// When the file is missing at compile time we degrade to an empty bundle:
-/// `lookup_profile` returns `None`, and `dcp::profile_for` falls back to
-/// rawler / DNG-embedded paths exactly as before. This lets CI builds
-/// without the Adobe profiles directory still produce a working binary.
+/// `include_bytes!` is a compile-time macro: the file MUST exist at
+/// `profiles/profiles.bin` for the crate to build. The bundle is committed
+/// to the repo (currently ~256 KB, well under any practical limit), so
+/// every developer / CI runner gets it via `git clone`. Regenerate by
+/// re-running the converter against an Adobe Camera Raw install.
+///
+/// Runtime graceful degradation: when `parse_bundle` fails to validate
+/// the header (e.g. bumped `FORMAT_VERSION`, corrupted bytes) it returns
+/// an empty `HashMap` — `lookup_profile` then returns `None` and
+/// `dcp::profile_for` falls back to rawler / DNG-embedded paths. So a
+/// stale bundle never breaks decoding, but a *missing* bundle is a build
+/// error, not a runtime miss.
 const PROFILES_BIN: &[u8] = include_bytes!("profiles/profiles.bin");
 
 const MAGIC: &[u8; 4] = b"MDCP";
@@ -120,22 +135,85 @@ const FORMAT_VERSION: u16 = 1;
 /// since Rust 1.70 — same semantics, no extra crate.
 static PROFILE_TABLE: OnceLock<HashMap<CameraKey, MapleProfile>> = OnceLock::new();
 
-/// Look up a bundled profile for the given `RawImage`. Returns `None` when
-/// the camera isn't in the bundle, falling back to the existing DCP code
-/// path (rawler matrices / embedded DNG profile). See [`dcp::profile_for`]
-/// for the wiring.
+/// Look up a bundled profile for the given `RawImage`. Returns `None` in
+/// three cases, in priority order:
 ///
-/// Honours the `MAPLE_DISABLE_BUNDLED_PROFILES=1` env var as a dev-only
-/// kill switch: forces a miss without rebuilding. Useful when comparing
-/// the bundled vs embedded paths during calibration. Production builds
-/// never set the var.
+/// 1. The camera isn't in the bundle (or `MAPLE_DISABLE_BUNDLED_PROFILES=1`).
+/// 2. **The source DNG already ships a `ProfileLookTable`.** When PLT is
+///    present, the source was authored by Adobe DNG Converter and already
+///    carries Adobe Standard's calibrated PLT (paired to Adobe's matrices
+///    + FM). Substituting a bundled override on top is a partial-
+///    calibration mismatch — the matrices/FM we'd inject diverge from what
+///    the embedded PLT was tuned for. Empirically observed regression on
+///    Leica M10 DNG: +1.80 mean ΔE without this gate; with it, no change.
+///    Vendor RAW formats don't ship PLT, so this gate doesn't apply there.
+/// 3. **The source matrices already match the bundled ones byte-for-byte
+///    within 1e-3 per entry.** Applying the bundle would only have value
+///    via its FM addition; but adding Adobe's FM to a body that previously
+///    used Bradford CA regresses the ACR-reference fixture set for several
+///    vendor formats (Fujifilm RAF: +7.18 ΔE, Sony ARW: +2.85, Nikon NEF:
+///    +2.82). Adobe's FM is calibrated against ACR's full chain; Maple's
+///    chain doesn't yet match ACR's downstream (AgX vs. ACR tone), so the
+///    FM-vs-Bradford choice swings per body. Until that's reconciled, only
+///    apply the bundle when matrices actually differ from the source.
+///
+/// Together these gates collapse the bundled-lookup hit set to bodies
+/// whose embedded matrices materially diverge from Adobe Standard AND
+/// whose source isn't already Adobe-calibrated. In the current fixture
+/// set that's effectively the iPhone DNG family — the canonical motivating
+/// case for this ticket. Broader coverage (Canon CR2 FM addition, Leica
+/// matrix swap) is gated behind the downstream tone-chain work in
+/// separate tickets.
 pub fn lookup_profile(raw: &RawImage) -> Option<&'static MapleProfile> {
     if std::env::var("MAPLE_DISABLE_BUNDLED_PROFILES").as_deref() == Ok("1") {
         return None;
     }
     let table = PROFILE_TABLE.get_or_init(parse_bundle);
     let key = camera_key_for(raw);
-    table.get(&key)
+    let profile = table.get(&key)?;
+    // Gate 2: Adobe-DNG-Converter-authored DNGs are already calibrated.
+    if raw.plt.is_some() {
+        return None;
+    }
+    // Gate 3: bundle would be a no-op matrix-wise, and FM addition can hurt.
+    if matrices_match_source(profile, raw) {
+        return None;
+    }
+    Some(profile)
+}
+
+/// True when every bundled matrix that's also present in the source `RawImage`
+/// agrees within a tight tolerance. The tolerance is loose enough to absorb
+/// SRATIONAL → f32 round-trip noise (1e-3 per entry); tight enough to catch
+/// the iPhone case where rawler-exposed CMs differ from Adobe Standard by
+/// ~0.16 in several entries.
+fn matrices_match_source(profile: &MapleProfile, raw: &RawImage) -> bool {
+    const TOL: f32 = 1e-3;
+    fn close(a: Matrix3, b: Matrix3, tol: f32) -> bool {
+        for r in 0..3 {
+            for c in 0..3 {
+                if (a.0[r][c] - b.0[r][c]).abs() > tol {
+                    return false;
+                }
+            }
+        }
+        true
+    }
+    for (illum_opt, bundled_cm) in [
+        (profile.illum1, profile.cm1),
+        (profile.illum2, profile.cm2),
+    ] {
+        let (illum, bcm) = match (illum_opt, bundled_cm) {
+            (Some(i), Some(m)) => (i, m),
+            _ => continue,
+        };
+        if let Some(src_cm) = raw.color_matrices.get(&illum) {
+            if !close(*src_cm, bcm, TOL) {
+                return false;
+            }
+        }
+    }
+    true
 }
 
 /// True when this `RawImage` has a bundled Maple profile available. When
@@ -327,6 +405,7 @@ fn parse_bundle() -> HashMap<CameraKey, MapleProfile> {
         None => return map, // empty / wrong-magic bundle → degrade to empty.
     };
     let count = r.count;
+    let mut duplicates: Vec<String> = Vec::new();
     for _ in 0..count {
         let Some(profile) = r.read_profile() else {
             // Malformed record → bail with what we have so far. We don't
@@ -334,9 +413,29 @@ fn parse_bundle() -> HashMap<CameraKey, MapleProfile> {
             break;
         };
         let key = CameraKey::new(profile.unique_camera_model.clone());
-        // Multiple DCPs with the same UCM would be a writer bug; last-write-
-        // wins is fine because the input dir has unique UCMs per file.
+        // Deduplication is the converter's job (see
+        // `src/scripts/convert_adobe_dcps.py`'s `dcp_preference` ranking,
+        // which picks one record per UCM deterministically). If a duplicate
+        // still slips through into the bundle we record it for the loader
+        // tests below — the first-write wins so the converter's chosen
+        // record is preserved instead of silently overwritten.
+        if map.contains_key(&key) {
+            duplicates.push(profile.unique_camera_model.clone());
+            continue;
+        }
         map.insert(key, profile);
+    }
+    if !duplicates.is_empty() {
+        // Surface in test output / debug builds; production logging picks
+        // this up via env_logger when wired in. Hard-failing in release
+        // would brick the app on a slightly-stale bundle, so we degrade
+        // gracefully with first-write-wins.
+        eprintln!(
+            "profile_loader: bundle contains {} duplicate-UCM record(s) \
+             (first-write wins): {:?}",
+            duplicates.len(),
+            &duplicates[..duplicates.len().min(5)]
+        );
     }
     map
 }
@@ -480,10 +579,12 @@ mod tests {
     #[test]
     fn bundled_profiles_load_and_contain_fixture_cameras() {
         let table = PROFILE_TABLE.get_or_init(parse_bundle);
-        // Without the gitignored `profiles.bin` this will be empty (CI
-        // without Adobe profiles installed). Skip-assert in that case
-        // matches the "fixtures missing → soft pass" pattern in
-        // test_color_pipeline.sh.
+        // `profiles.bin` is committed to the repo (required at compile time
+        // by `include_bytes!`), so this path normally has entries. The
+        // empty-table guard below covers the corrupted-header /
+        // version-mismatch case — `parse_bundle` returns an empty map in
+        // those scenarios — and matches the "fixtures missing → soft pass"
+        // pattern in test_color_pipeline.sh.
         if table.is_empty() {
             eprintln!(
                 "profile_loader: bundle empty (profiles.bin missing or stale); \
@@ -542,6 +643,35 @@ mod tests {
             variants.len(),
             "expected all 4 iPhone 13,3 lens variants in bundle, found {}",
             found
+        );
+    }
+
+    /// The shipped bundle has no duplicate UCMs. The converter
+    /// (`src/scripts/convert_adobe_dcps.py`) deterministically picks one
+    /// record per UCM via `dcp_preference`; this test catches a regression
+    /// where the dedup step is bypassed or a converter rewrite re-introduces
+    /// duplicates (which would silently overwrite records in `parse_bundle`
+    /// pre-PR #330-followup; today the loader detects them but still drops
+    /// data — neither is desirable).
+    #[test]
+    fn shipped_bundle_has_no_duplicate_ucms() {
+        let mut r = match Reader::new(PROFILES_BIN) {
+            Some(r) => r,
+            None => return, // empty bundle in CI without profiles.bin
+        };
+        let mut seen = std::collections::HashSet::new();
+        let mut dupes: Vec<String> = Vec::new();
+        for _ in 0..r.count {
+            let Some(p) = r.read_profile() else { break };
+            if !seen.insert(p.unique_camera_model.clone()) {
+                dupes.push(p.unique_camera_model);
+            }
+        }
+        assert!(
+            dupes.is_empty(),
+            "shipped profiles.bin contains {} duplicate-UCM record(s): {:?}",
+            dupes.len(),
+            dupes
         );
     }
 
