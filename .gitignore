@@ -7,6 +7,8 @@
 test-fixtures/*
 # Exception: the per-case ΔE budget table IS committed (it's the CI ratchet).
 !test-fixtures/budgets.json
+# Exception: drift / state notes that travel with budgets.json.
+!test-fixtures/BUDGETS_DRIFT.md
 
 # Rust
 target/
