@@ -224,9 +224,7 @@ export class WorkersComponent implements OnInit, OnDestroy {
     this.api.listDead(stage.name).subscribe({
       next: (res) => {
         this.deadLog.update((cur) =>
-          cur?.stage.name === stage.name
-            ? { ...cur, items: res.items, loading: false }
-            : cur,
+          cur?.stage.name === stage.name ? { ...cur, items: res.items, loading: false } : cur,
         );
       },
       error: (err) => {
