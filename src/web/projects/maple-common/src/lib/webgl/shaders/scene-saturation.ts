@@ -166,9 +166,11 @@ void main() {
 
     // Bisect for the hull, soft-compress toward it. Never reduce chroma
     // below the input — saturation is monotone non-decreasing in chroma
-    // for scale >= 1.
+    // for scale >= 1. The floor is c_in (not min(c_in, c_hull)): if
+    // c_in > c_hull the soft-compressed value is <= c_hull < c_in, so
+    // the max() pins c_out to c_in, preserving the invariant.
     float c_hull = bisect_gamut_hull(l, a_hat, b_hat, c_target);
-    float c_floor = min(c_in, c_hull);
+    float c_floor = c_in;
     float c_out = max(soft_compress(c_target, c_hull), c_floor);
     outColor = vec4(oklab_to_rec2020_sat(vec3(l, a_hat * c_out, b_hat * c_out)), color.a);
 }
