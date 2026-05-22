@@ -163,8 +163,19 @@ pub fn develop_scene_linear_from_raw_with_quality(
     // DNG SDK reference: HSM → PTC → PLT (DNG 1.4 § 6.4.4 + DNG 1.6
     // § 6.6/§ 6.7). When all three are absent, falls through to the
     // fast single-matmul path.
+    //
+    // When a bundled Maple profile is in use, suppress the source DNG's
+    // ProfileToneCurve — that tag was calibrated against the vendor's own
+    // matrices (iPhone DNGs ship a 257-pair PTC tuned for Apple's
+    // matrices, not Adobe Standard's), so applying it after a matrix swap
+    // is a tone double-up that AgX would have to undo. PLT stays: on
+    // Adobe-DNG-Converter outputs it's actually Adobe Standard's look
+    // table and removing it regresses ΔE on Canon DNG fixtures. The
+    // universal DisplayLookCurve (separate ticket) replaces PLT entirely.
+    let use_bundled = crate::color::profile_loader::has_bundled_profile(raw);
+    let ptc_for_apply = if use_bundled { None } else { raw.profile_tone_curve.as_ref() };
     let mut scene = stage("dcp::apply", || dcp::apply_with_plt_and_ptc(
-        &camera_rgb, &profile, raw.plt.as_ref(), raw.profile_tone_curve.as_ref(),
+        &camera_rgb, &profile, raw.plt.as_ref(), ptc_for_apply,
     ))?;
     dump_after("03_dcp_apply", &scene);
     // ProfileGainTableMap (DNG 1.6 § 6.8) — spatially-varying RGB gain.
@@ -304,8 +315,12 @@ pub fn develop_scene_linear_sized_from_raw_with_quality(
     stage("sized_highlight_recovery", || highlight_recovery::apply(&mut camera_rgb, model.highlight_recovery, hr_neutral));
     dump_after("02_highlight_recovery", &camera_rgb);
     let profile = stage("sized_dcp_profile_for", || dcp::profile_for(raw))?;
+    // PTC suppression when bundled — see the comment in the full-res
+    // variant. PLT stays for Adobe-DNG-Converter inputs.
+    let use_bundled = crate::color::profile_loader::has_bundled_profile(raw);
+    let ptc_for_apply = if use_bundled { None } else { raw.profile_tone_curve.as_ref() };
     let mut scene = stage("sized_dcp_apply", || dcp::apply_with_plt_and_ptc(
-        &camera_rgb, &profile, raw.plt.as_ref(), raw.profile_tone_curve.as_ref(),
+        &camera_rgb, &profile, raw.plt.as_ref(), ptc_for_apply,
     ))?;
     dump_after("03_dcp_apply", &scene);
     if let Some(pgtm) = raw.profile_gain_table_map.as_ref() {

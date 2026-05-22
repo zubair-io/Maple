@@ -73,8 +73,11 @@ pub(super) fn develop_scene_linear_from_padded_mosaic(
         highlight_recovery::apply(&mut camera_rgb, model.highlight_recovery, raw.as_shot_neutral)
     });
     let profile = stage("tile_dcp_profile_for", || dcp::profile_for(raw))?;
+    // PTC suppression when bundled — see `pipeline::develop` for rationale.
+    let use_bundled = crate::color::profile_loader::has_bundled_profile(raw);
+    let ptc_for_apply = if use_bundled { None } else { raw.profile_tone_curve.as_ref() };
     let mut scene = stage("tile_dcp_apply", || dcp::apply_with_plt_and_ptc(
-        &camera_rgb, &profile, raw.plt.as_ref(), raw.profile_tone_curve.as_ref(),
+        &camera_rgb, &profile, raw.plt.as_ref(), ptc_for_apply,
     ))?;
     if let Some(pgtm) = raw.profile_gain_table_map.as_ref() {
         stage("tile_profile_gain_table_map", || {
