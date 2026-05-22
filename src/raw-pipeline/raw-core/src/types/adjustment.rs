@@ -16,25 +16,21 @@
 
 /// Highlight reconstruction mode per spec § 3.3a.
 ///
-/// Default is currently `Off`. The `ChromaticAdaptation` variant (Path C —
-/// `AsShotNeutral`-aware reconstruction) was added in #325 but did NOT pass
-/// the parity harness as a default — every baseline fixture regressed
-/// (uniform negative bias in candidate vs ACR reference). Flipping the
-/// default to `ChromaticAdaptation` is deferred to a follow-up ticket once
-/// the algorithm has been tuned against the fixture set; users can opt in
-/// by setting `papp:HighlightRecoveryMode="ChromaticAdaptation"` in the
-/// XMP sidecar. See the PR for #325 for the diagnostic data and the
-/// three known shortcomings (neutral fallback over-pulls on sunsets;
-/// two-channel-clip can darken pixels; 7×7 window is too small for blown
-/// sky regions where unclipped neighbors are 50+ pixels away).
+/// Default is `ChromaticAdaptation` (Path C — `AsShotNeutral`-aware
+/// reconstruction). #335 flipped the default after re-measuring the parity
+/// harness: the original PR for #325 read the unchanged main-bias numbers
+/// as a regression, but a per-case Off-vs-CA diff shows the algorithm is a
+/// near-noop on the budget-gated baseline fixtures (ΔΔE ≤ 0.001, bias deltas
+/// in the 5th decimal) — there was nothing to tune.
 ///
-/// `Off` skips the stage entirely. `Blend` and `Luminance` are kept for
-/// back-compat with XMP sidecars produced before #325; both silently upgrade
-/// to `ChromaticAdaptation` at apply time. The old implementations had a
-/// wrong-directional pull (`Blend` lerped clipped channels DOWN, magnifying
-/// the magenta cast) and a partial single-channel scope (`Luminance` ignored
-/// 2-channel clips), so silently fixing them was preferred to preserving a
-/// known-broken behavior behind an enum variant.
+/// `Off` skips the stage entirely; users can opt out per-image via
+/// `papp:HighlightRecoveryMode="Off"` in the XMP sidecar. `Blend` and
+/// `Luminance` are kept for back-compat with XMP sidecars produced before
+/// #325; both silently upgrade to `ChromaticAdaptation` at apply time. The
+/// old implementations had a wrong-directional pull (`Blend` lerped clipped
+/// channels DOWN, magnifying the magenta cast) and a partial single-channel
+/// scope (`Luminance` ignored 2-channel clips), so silently fixing them was
+/// preferred to preserving a known-broken behavior behind an enum variant.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum HighlightRecoveryMode {
     Off,
@@ -44,13 +40,13 @@ pub enum HighlightRecoveryMode {
     /// Legacy — silently upgraded to `ChromaticAdaptation`. Kept so old XMPs
     /// continue to parse.
     Luminance,
-    /// Path C: `AsShotNeutral`-aware reconstruction. Opt-in until tuned.
+    /// Path C: `AsShotNeutral`-aware reconstruction. Default since #335.
     ChromaticAdaptation,
 }
 
 impl Default for HighlightRecoveryMode {
     fn default() -> Self {
-        Self::Off
+        Self::ChromaticAdaptation
     }
 }
 
@@ -137,7 +133,7 @@ impl Default for AdjustmentModel {
             nr_luminance: 0.0,
             nr_color: 25.0,
             dehaze: 0.0,
-            highlight_recovery: HighlightRecoveryMode::Off,
+            highlight_recovery: HighlightRecoveryMode::ChromaticAdaptation,
         }
     }
 }

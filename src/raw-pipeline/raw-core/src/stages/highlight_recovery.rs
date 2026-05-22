@@ -16,19 +16,15 @@
 //! pulled the clipped channels DOWN toward `max_unclipped ≤ 1.0`, which
 //! made the situation worse.
 //!
-//! ### What Path C does (`ChromaticAdaptation`, OPT-IN)
+//! ### What Path C does (`ChromaticAdaptation`, DEFAULT since #335)
 //!
-//! NOTE on default: this variant exists but is NOT the default mode. As
-//! landed in #325 it caused every baseline parity fixture to regress
-//! (uniformly darker pixels with ~0.1 negative channel bias). The default
-//! flip is deferred to a follow-up ticket once the algorithm is tuned —
-//! three known issues from the diagnostic pass: (a) the conf=0 neutral
-//! fallback over-pulls large homogeneous clipped regions (e.g. sunsets) to
-//! white, (b) two-channel clip can darken the brighter unclipped anchor
-//! through the implied-value rewrite, (c) the 7×7 neighbor window is too
-//! small for blown sky where unclipped neighbors sit dozens of pixels
-//! away. Users can opt in per-image via
-//! `papp:HighlightRecoveryMode="ChromaticAdaptation"`.
+//! The variant was originally landed in #334 as opt-in because the PR body
+//! read the unchanged main-bias numbers as a regression. A per-case Off-vs-CA
+//! diff in #335 showed the algorithm is a near-noop on the budget-gated
+//! baseline fixtures (ΔΔE ≤ 0.001, bias deltas in the 5th decimal): the
+//! pixels post-WB rarely cross their per-channel ceilings on these scenes,
+//! so the `!any_clipped` early-out fires and the stage is effectively a
+//! pass-through. The flip was parity-safe.
 //!
 //! For each pixel where one or two channels exceed the per-channel ceiling:
 //!

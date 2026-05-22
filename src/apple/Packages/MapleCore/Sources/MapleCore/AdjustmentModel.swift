@@ -106,7 +106,7 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
         captureSharpeningRadius: Double = 1.0,
         nrLuminance: Double = 0,
         nrColor: Double = 25,
-        highlightRecovery: HighlightRecoveryMode = .off
+        highlightRecovery: HighlightRecoveryMode = .chromaticAdaptation
     ) {
         self.temperature = temperature
         self.tint = tint
@@ -323,7 +323,7 @@ public struct XMPSerializer {
         if culling.flag != .none {
             attrs.append(("xmp:Label", culling.flag == .pick ? "Red" : "Rejected"))
         }
-        if model.highlightRecovery != .off {
+        if model.highlightRecovery != .chromaticAdaptation {
             attrs.append(("papp:HighlightRecoveryMode", model.highlightRecovery.rawValue))
         }
 
