@@ -16,6 +16,7 @@
 src/apple/Maple/Views/AppShell.swift                                              # 1620 — main three-column shell
 src/apple/Maple/Views/LibrarySidebar.swift                                        # 831  — sources tree
 src/apple/Maple/Views/BrowseGrid.swift                                            # 723  — grid view
+src/apple/Maple/Views/DetailPanel.swift                                           # 604  — develop tab panel; split tracked in #319
 src/apple/Packages/MapleCore/Sources/MapleCore/FileProvider/FileProviderExtensionCore.swift  # 1569 — file-provider entry point
 src/apple/Packages/MapleCore/Sources/MapleCore/FileProvider/RemoteCatalog.swift   # 778  — remote source adapter
 src/apple/Packages/MapleCore/Sources/MapleCore/ImageEditPipeline.swift            # 861  — edit-pipeline orchestrator
