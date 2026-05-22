@@ -1,0 +1,96 @@
+# .github/workflows/raw-pipeline.yml
+#
+# Color-parity gate for the Rust raw pipeline. Per CLAUDE.md §
+# "Objective color testing — no eyeballing": every color-pipeline
+# change must pass src/scripts/test_color_pipeline.sh against the
+# committed test-fixtures/budgets.json (which is a one-way ratchet).
+#
+# This workflow exists because the rule was previously enforced only
+# on the local laptop of whoever ran the harness before merging — see
+# test-fixtures/BUDGETS_DRIFT.md for the resulting drift on main.
+#
+# Fixtures: test-fixtures/raws/ and test-fixtures/references/ are
+# gitignored (6.5 GB). On GitHub-hosted runners without fixtures, the
+# harness skip-passes at preflight before building maple-cli — see
+# src/scripts/test_color_pipeline.sh lines 73–83. The job is therefore
+# a no-op on stock runners; it becomes meaningful on a self-hosted
+# runner (or any environment) where fixtures have been provisioned.
+# Fixture provisioning is tracked separately.
+
+name: raw-pipeline
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/raw-pipeline/**'
+      - 'test-fixtures/budgets.json'
+      - 'src/scripts/test_color_pipeline.sh'
+      - 'src/scripts/compare_images.py'
+      - '.github/workflows/raw-pipeline.yml'
+  pull_request:
+    paths:
+      - 'src/raw-pipeline/**'
+      - 'test-fixtures/budgets.json'
+      - 'src/scripts/test_color_pipeline.sh'
+      - 'src/scripts/compare_images.py'
+      - '.github/workflows/raw-pipeline.yml'
+
+concurrency:
+  group: raw-pipeline-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  color-pipeline:
+    name: color-pipeline (test_color_pipeline.sh)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Probe for fixtures up front so the rest of the job (Rust
+      # toolchain install, cargo build) can be skipped on stock
+      # runners. The harness itself also skip-passes, but doing the
+      # check here saves ~3 minutes of toolchain setup per PR.
+      - name: Probe fixtures
+        id: probe
+        run: |
+          if [ -d test-fixtures/raws ] && [ -f test-fixtures/references/manifest.json ]; then
+            echo "have_fixtures=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "have_fixtures=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::test-fixtures/raws or references/manifest.json not present — color-pipeline gate is a no-op on this runner. See test-fixtures/BUDGETS_DRIFT.md."
+          fi
+
+      - uses: actions/setup-python@v5
+        if: steps.probe.outputs.have_fixtures == 'true'
+        with:
+          python-version: '3.12'
+
+      - name: Install Python diff deps
+        if: steps.probe.outputs.have_fixtures == 'true'
+        run: pip install numpy pillow colour-science
+
+      - uses: dtolnay/rust-toolchain@stable
+        if: steps.probe.outputs.have_fixtures == 'true'
+
+      - name: Cache cargo registry + raw-pipeline target
+        if: steps.probe.outputs.have_fixtures == 'true'
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src/raw-pipeline/target
+          key: raw-pipeline-cargo-${{ runner.os }}-${{ hashFiles('src/raw-pipeline/**/Cargo.lock', 'src/raw-pipeline/**/Cargo.toml') }}
+
+      - name: Run color-pipeline harness
+        if: steps.probe.outputs.have_fixtures == 'true'
+        run: bash src/scripts/test_color_pipeline.sh
+
+      # Soft-pass branch: still invoke the script so its own skip-pass
+      # message lands in the log (helps a self-hosted-runner debugger
+      # confirm the path the gate took). The script exits 0 at
+      # preflight when fixtures are absent — no Rust toolchain needed.
+      - name: Run color-pipeline harness (skip-pass)
+        if: steps.probe.outputs.have_fixtures == 'false'
+        run: bash src/scripts/test_color_pipeline.sh
