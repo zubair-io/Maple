@@ -16,9 +16,16 @@ This is **canonical Sobotka AgX**, Rec.2020-targeted, photography-tuned.
 The pipeline is:
 
     scene-linear Rec.2020
-        → INSET matrix (Rec.2020 → AgX-Base-Rec.2020; primaries pulled
-          toward D65 white by 20% per `AgX.AgX_compressed_matrix(0.20)`
-          in https://github.com/sobotka/AgX-S2O3/blob/main/AgX.py)
+        → INSET matrix (Rec.2020 → AgX-Base-Rec.2020). The AgX-Base
+          chromaticities are obtained by pushing each primary AWAY from
+          D65 along its (primary − white) ray by a factor of
+          1 / (1 − 0.20) = 1.25 (i.e. the chromaticity gamut expands
+          by 25%). Because AgX-Base then encloses a wider triangle than
+          Rec.2020, the Rec.2020 → AgX-Base RGB→RGB matrix is a
+          *desaturating* (per-channel) transform on saturated inputs —
+          which is the inset behaviour the AgX pipeline wants. Mirrors
+          `AgX.AgX_compressed_matrix(0.20)` in
+          https://github.com/sobotka/AgX-S2O3/blob/main/AgX.py L17-50.
         → per-channel log2-encode + normalize (MIN_EV=-10, MAX_EV=+6.5,
           MID_GRAY=0.18) — Sobotka `open_domain_to_normalized_log2`
         → per-channel Jed Smith sigmoid `equation_full_curve(x, x_pivot,
@@ -86,7 +93,11 @@ TOE_POWER    = 3.0                                 # Sobotka default
 SHOULDER_POWER = 3.25                              # Sobotka default
 
 # Inset compression (Sobotka AgX.py L17-50 `AgX_compressed_matrix`).
-# 0.20 = primaries pulled 20% toward D65 white. Matches AgX-S2O3 default.
+# 0.20 = primaries pushed away from D65 by scale 1/(1-0.20) = 1.25 along
+# the (primary - white) ray in CIE xy — the chromaticity triangle widens
+# by 25%. Used as an inset matrix (Rec.2020 → AgX-Base-Rec.2020), this
+# desaturates saturated Rec.2020 inputs because they're no longer at the
+# corners of the wider AgX-Base triangle. Matches AgX-S2O3 default.
 COMPRESSION  = 0.20
 
 # Version key. Bump whenever the LUT bytes or coefficients change.
@@ -207,7 +218,15 @@ def _matrix_rgb_to_rgb(src_primaries, src_white, dst_primaries, dst_white) -> li
 
 
 def _agx_compressed_primaries(primaries, whitepoint, compression=0.20):
-    """Sobotka AgX.py `AgX_compressed_matrix`: pull primaries toward white."""
+    """Sobotka AgX.py `AgX_compressed_matrix`: push primaries AWAY from
+    the whitepoint by `scale = 1 / (1 - compression)` along the
+    (primary − white) chromaticity ray. With `compression = 0.20`,
+    `scale = 1.25` — the chromaticity gamut widens by 25%. When this
+    wider colourspace is used as an *inset* target (Rec.2020 →
+    AgX-Base-Rec.2020), the Rec.2020 → AgX-Base RGB→RGB matrix is a
+    per-channel *desaturating* transform on saturated inputs, which is
+    the AgX behaviour we want before the sigmoid.
+    """
     wx, wy = whitepoint
     scale = 1.0 / (1.0 - compression)
     return tuple(
@@ -277,8 +296,13 @@ def emit_rs(path: Path) -> None:
         )
 
     inset_doc = (
-        "Inset matrix: scene-linear Rec.2020 → AgX-Base-Rec.2020 (Rec.2020 "
-        "primaries pulled 20% toward D65 white). Computed by "
+        "Inset matrix: scene-linear Rec.2020 → AgX-Base-Rec.2020. The "
+        "AgX-Base primaries are constructed by pushing each Rec.2020 "
+        "primary AWAY from D65 by scale 1/(1-0.20) = 1.25 along the "
+        "(primary - white) chromaticity ray (the gamut triangle widens "
+        "by 25%); the resulting Rec.2020 -> AgX-Base RGB->RGB transform "
+        "is per-channel desaturating on saturated inputs, which is the "
+        "AgX inset behaviour. Computed by "
         "`src/scripts/derive_agx_lut.py::derive_inset_outset()`; "
         "construction mirrors `AgX_compressed_matrix(compression=0.20)` "
         "in https://github.com/sobotka/AgX-S2O3/blob/main/AgX.py L17-50. "
