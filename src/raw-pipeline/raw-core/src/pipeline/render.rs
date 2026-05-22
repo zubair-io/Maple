@@ -158,7 +158,7 @@ pub fn render_scene_linear_sized_from_raw_with_quality(
 /// in the working colorspace by construction.
 ///
 /// `MAPLE_STAGE_DUMP` is honoured: stages 16 (`16_agx`) and 17
-/// (`17_post_srgb_encode`) get written exactly like the RAW path, so the
+/// (`17_srgb_linear`) get written exactly like the RAW path, so the
 /// detectors in `src/scripts/{banding,hue_stability,halo}_check.py` can
 /// load and analyse them without caring whether the input was a real DNG
 /// or a synthetic ramp.
@@ -177,7 +177,7 @@ pub fn render_from_scene_linear(
     stage("synth_agx", || agx::apply(&mut scene, model.contrast));
     dump_after("16_agx", &scene);
     stage("synth_rec2020_to_srgb", || encode::rec2020_to_srgb(&mut scene));
-    dump_after("17_post_srgb_encode", &scene);
+    dump_after("17_srgb_linear", &scene);
     let (w, h) = (scene.width, scene.height);
     let bytes = stage("synth_quantize_u8", || encode::quantize_u8(&mut scene));
     Ok((w, h, bytes))
@@ -237,7 +237,7 @@ pub fn render_from_scene_linear_with_chain(
     stage("synth_agx", || agx::apply(&mut scene, model.contrast));
     dump_after("16_agx", &scene);
     stage("synth_rec2020_to_srgb", || encode::rec2020_to_srgb(&mut scene));
-    dump_after("17_post_srgb_encode", &scene);
+    dump_after("17_srgb_linear", &scene);
     let (w, h) = (scene.width, scene.height);
     let bytes = stage("synth_quantize_u8", || encode::quantize_u8(&mut scene));
     Ok((w, h, bytes))

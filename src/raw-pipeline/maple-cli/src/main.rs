@@ -479,9 +479,10 @@ fn do_synthetic(
     let h = height.unwrap_or(default_h);
 
     // Validate against each kind's minimum dimensions BEFORE calling the
-    // generator — otherwise raw_core::synthetic_input::* panics on debug
-    // assertions and leaves the user with a stack trace instead of a
-    // CLI error. Constraints mirror the asserts in synthetic_input.rs.
+    // generator — otherwise raw_core::synthetic_input::* panics on failed
+    // assertions (the generators use `assert!`, which fires in both debug
+    // and release builds) and leaves the user with a stack trace instead of
+    // a CLI error. Constraints mirror the asserts in synthetic_input.rs.
     let (min_w, min_h) = match kind {
         SyntheticKind::NeutralRamp => (2u32, 1u32),
         SyntheticKind::HuePatch    => (1u32, 1u32),
