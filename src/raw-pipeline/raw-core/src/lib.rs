@@ -29,6 +29,8 @@ pub mod stages;
 
 pub mod view;
 
+pub mod synthetic_input;
+
 pub mod png;
 
 pub mod jpeg;

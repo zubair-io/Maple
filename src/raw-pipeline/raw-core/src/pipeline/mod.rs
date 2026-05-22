@@ -30,13 +30,12 @@ mod scene_linear_chain;
 mod tile;
 
 pub use develop::{
-    develop_scene_linear_from_raw_with_quality,
-    develop_scene_linear_sized_from_raw_with_quality,
+    develop_scene_linear_from_raw_with_quality, develop_scene_linear_sized_from_raw_with_quality,
 };
 pub use downsample::downsample_image_area;
 pub use render::{
-    render_from_raw, render_from_raw_with_quality,
-    render_scene_linear_from_raw_with_quality,
+    render_from_raw, render_from_raw_with_quality, render_from_scene_linear,
+    render_from_scene_linear_with_chain, render_scene_linear_from_raw_with_quality,
     render_scene_linear_sized_from_raw_with_quality,
 };
 pub use scene_linear_chain::apply_scene_linear_chain;
