@@ -53,7 +53,7 @@ pub const AGX_SHOULDER_POWER: f32 = 3.25;
 /// Size of the per-channel sigmoid LUT embedded in agx_lut.bin.
 pub const AGX_LUT_SIZE: usize = 512;
 
-/// Inset matrix: scene-linear Rec.2020 → AgX-Base-Rec.2020 (Rec.2020 primaries pulled 20% toward D65 white). Computed by `src/scripts/derive_agx_lut.py::derive_inset_outset()`; construction mirrors `AgX_compressed_matrix(compression=0.20)` in https://github.com/sobotka/AgX-S2O3/blob/main/AgX.py L17-50. Row sums are 1.0 (numerically), so neutral triples pass through the inset unchanged — load-bearing for mid-gray preservation.
+/// Inset matrix: scene-linear Rec.2020 → AgX-Base-Rec.2020. The AgX-Base primaries are constructed by pushing each Rec.2020 primary AWAY from D65 by scale 1/(1-0.20) = 1.25 along the (primary - white) chromaticity ray (the gamut triangle widens by 25%); the resulting Rec.2020 -> AgX-Base RGB->RGB transform is per-channel desaturating on saturated inputs, which is the AgX inset behaviour. Computed by `src/scripts/derive_agx_lut.py::derive_inset_outset()`; construction mirrors `AgX_compressed_matrix(compression=0.20)` in https://github.com/sobotka/AgX-S2O3/blob/main/AgX.py L17-50. Row sums are 1.0 (numerically), so neutral triples pass through the inset unchanged — load-bearing for mid-gray preservation.
 #[rustfmt::skip]
 pub const AGX_INSET_MATRIX: [[f32; 3]; 3] = [
     [ 8.591975135285663e-01_f32,  5.597524856454414e-02_f32,  8.482723790688949e-02_f32],
