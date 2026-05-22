@@ -9,11 +9,7 @@
 // All Angular-bearing types are imported via `import type` so this module
 // can compile/be tested as plain TS.
 
-import type {
-  EnrichmentConfigResponse,
-  StageStatus,
-  WorkerConfig,
-} from '@maple-common';
+import type { EnrichmentConfigResponse, StageStatus, WorkerConfig } from '@maple-common';
 import type { SettingsIconName } from '../settings-icon.component';
 
 // ── Polling cadence ────────────────────────────────────────────────────────
@@ -39,30 +35,77 @@ export interface StageMeta {
 // with a default description, so an added worker shows up without code
 // changes.
 export const STAGE_META: Record<string, StageMeta> = {
-  hash:     { id: 'hash',     group: 'Ingest', icon: 'hash',   enrichment: null,
-              description: 'Computes content hash for each new asset; deduplicates on ingest.' },
-  exif:     { id: 'exif',     group: 'Ingest', icon: 'exif',   enrichment: null,
-              description: 'Extracts EXIF/XMP metadata: camera, lens, exposure, GPS, dates.' },
-  thumb:    { id: 'thumb',    group: 'Ingest', icon: 'thumb',  enrichment: null,
-              description: 'Generates 256-px grid thumbnails and stores them in the thumb cache.' },
-  preview:  { id: 'preview',  group: 'Ingest', icon: 'image',  enrichment: null,
-              description: 'Builds 1280-px preview cache used by the editor and enrichment LLM.' },
-  describe: { id: 'describe', group: 'Enrich', icon: 'sparkle', enrichment: 'describe',
-              description: 'Local vision-LLM via Ollama. Runs a multimodal model against the preview cache and produces a structured caption plus OCR text.' },
-  geocode:  { id: 'geocode',  group: 'Enrich', icon: 'globe',  enrichment: 'geocode',
-              description: 'Reverse-geocodes EXIF GPS coordinates against a self-hosted Nominatim instance.' },
-  face:     { id: 'face',     group: 'Enrich', icon: 'face',   enrichment: 'face',
-              description: 'Detects faces in cached thumbnails using RetinaFace + MobileFaceNet (ONNX).' },
-  meili:    { id: 'meili',    group: 'Index',  icon: 'search', enrichment: null,
-              description: 'Pushes enriched assets to Meilisearch so they show up in the library search.' },
+  hash: {
+    id: 'hash',
+    group: 'Ingest',
+    icon: 'hash',
+    enrichment: null,
+    description: 'Computes content hash for each new asset; deduplicates on ingest.',
+  },
+  exif: {
+    id: 'exif',
+    group: 'Ingest',
+    icon: 'exif',
+    enrichment: null,
+    description: 'Extracts EXIF/XMP metadata: camera, lens, exposure, GPS, dates.',
+  },
+  thumb: {
+    id: 'thumb',
+    group: 'Ingest',
+    icon: 'thumb',
+    enrichment: null,
+    description: 'Generates 256-px grid thumbnails and stores them in the thumb cache.',
+  },
+  preview: {
+    id: 'preview',
+    group: 'Ingest',
+    icon: 'image',
+    enrichment: null,
+    description: 'Builds 1280-px preview cache used by the editor and enrichment LLM.',
+  },
+  describe: {
+    id: 'describe',
+    group: 'Enrich',
+    icon: 'sparkle',
+    enrichment: 'describe',
+    description:
+      'Local vision-LLM via Ollama. Runs a multimodal model against the preview cache and produces a structured caption plus OCR text.',
+  },
+  geocode: {
+    id: 'geocode',
+    group: 'Enrich',
+    icon: 'globe',
+    enrichment: 'geocode',
+    description: 'Reverse-geocodes EXIF GPS coordinates against a self-hosted Nominatim instance.',
+  },
+  face: {
+    id: 'face',
+    group: 'Enrich',
+    icon: 'face',
+    enrichment: 'face',
+    description: 'Detects faces in cached thumbnails using RetinaFace + MobileFaceNet (ONNX).',
+  },
+  meili: {
+    id: 'meili',
+    group: 'Index',
+    icon: 'search',
+    enrichment: null,
+    description: 'Pushes enriched assets to Meilisearch so they show up in the library search.',
+  },
 };
 
 /** Fallback used when the server reports a stage we don't have metadata for —
  * lands in Ingest with the generic pipe icon and no enrichment panel. */
 export function stageMeta(name: string): StageMeta {
-  return STAGE_META[name] ?? {
-    id: name, group: 'Ingest', icon: 'pipe', description: '', enrichment: null,
-  };
+  return (
+    STAGE_META[name] ?? {
+      id: name,
+      group: 'Ingest',
+      icon: 'pipe',
+      description: '',
+      enrichment: null,
+    }
+  );
 }
 
 // ── Per-stage form shapes ─────────────────────────────────────────────────
@@ -79,9 +122,10 @@ export interface RuntimeForm {
 
 /** Per-stage form state for the enrichment domain config. */
 export interface EnrichmentForm {
-  // Describe
+  // Describe — `describe_model` is intentionally absent: the runtime
+  // hardcodes qwen2.5-VL (see FIXED_DESCRIBE_MODEL below), so the UI
+  // displays it read-only and never sends it.
   describe_provider_url: string;
-  describe_model: string;
   // Geocode
   nominatim_url: string;
   nominatim_rate_limit_per_sec: string;
@@ -92,6 +136,14 @@ export interface EnrichmentForm {
   face_mobilefacenet_url: string;
   face_mobilefacenet_sha256: string;
 }
+
+/** Ollama tag the describe stage is locked to at runtime. The structured
+ * JSON parser only accepts this model's output shape, so the operator's
+ * DB-backed `describe_model` is ignored server-side and the UI surface
+ * matches by treating the field as read-only. Mirrors `QWEN_VL_OLLAMA_TAG`
+ * + `FIXED_DESCRIBE_MODEL` in `src/api/src/enrichment/enrichment-config.repo.ts`
+ * and `src/api/src/workers/stages/describe.ts`. */
+export const FIXED_DESCRIBE_MODEL = 'qwen2.5vl:7b';
 
 export type SaveState = 'idle' | 'saving' | 'success' | 'error';
 
@@ -119,11 +171,12 @@ export function blankRuntime(stage: StageStatus): RuntimeForm {
   };
 }
 
-/** Seed enrichment-form values from the latest server config snapshot. */
+/** Seed enrichment-form values from the latest server config snapshot.
+ * `describe_model` is not seeded — the runtime hardcodes the model so the
+ * UI shows `FIXED_DESCRIBE_MODEL` as a read-only label. */
 export function blankEnrichment(ec: EnrichmentConfigResponse | null): EnrichmentForm {
   return {
     describe_provider_url: ec?.describe_provider_url ?? '',
-    describe_model: ec?.describe_model ?? 'qwen2.5vl:7b',
     nominatim_url: ec?.nominatim_url ?? '',
     nominatim_rate_limit_per_sec: String(ec?.nominatim_rate_limit_per_sec ?? 10),
     face_model_dir: ec?.face_model_dir ?? '',
@@ -139,12 +192,7 @@ export function blankEnrichment(ec: EnrichmentConfigResponse | null): Enrichment
 /** Parse a string as an int, clamp to [min, max], or return `fallback`
  * when the string is not finite. Server-side validation is authoritative;
  * this just keeps the round-trip body sane. */
-export function parseClampedInt(
-  value: string,
-  min: number,
-  max: number,
-  fallback: number,
-): number {
+export function parseClampedInt(value: string, min: number, max: number, fallback: number): number {
   const n = Number.parseInt(value, 10);
   if (!Number.isFinite(n)) return fallback;
   return Math.min(max, Math.max(min, n));
@@ -155,7 +203,12 @@ export function parseClampedInt(
 export function runtimeFormToPatch(form: RuntimeForm): Partial<WorkerConfig> {
   return {
     concurrency: parseClampedInt(form.concurrency, 1, 32, DEFAULT_RUNTIME.concurrency),
-    pollIntervalMs: parseClampedInt(form.pollIntervalMs, 100, 60_000, DEFAULT_RUNTIME.pollIntervalMs),
+    pollIntervalMs: parseClampedInt(
+      form.pollIntervalMs,
+      100,
+      60_000,
+      DEFAULT_RUNTIME.pollIntervalMs,
+    ),
     batchSize: parseClampedInt(form.batchSize, 1, 100, DEFAULT_RUNTIME.batchSize),
     maxAttempts: parseClampedInt(form.maxAttempts, 1, 20, DEFAULT_RUNTIME.maxAttempts),
   };
@@ -197,23 +250,32 @@ export function summarizeStages(stages: readonly StageStatus[]): {
 
 export function statusLabel(s: StageStatus): string {
   switch (s.status) {
-    case 'running':    return 'Running';
-    case 'paused':     return 'Paused';
-    case 'error':      return 'Error';
-    case 'starting':   return 'Starting';
-    case 'restarting': return 'Restarting';
-    case 'stopped':    return 'Stopped';
+    case 'running':
+      return 'Running';
+    case 'paused':
+      return 'Paused';
+    case 'error':
+      return 'Error';
+    case 'starting':
+      return 'Starting';
+    case 'restarting':
+      return 'Restarting';
+    case 'stopped':
+      return 'Stopped';
   }
 }
 
 export function statusDotColor(s: StageStatus): string {
   switch (s.status) {
-    case 'running':    return '#4ade80';
+    case 'running':
+      return '#4ade80';
     case 'paused':
     case 'starting':
     case 'restarting':
-    case 'stopped':    return '#a8a29e';
-    case 'error':      return '#f87171';
+    case 'stopped':
+      return '#a8a29e';
+    case 'error':
+      return '#f87171';
   }
 }
 

@@ -297,28 +297,78 @@ describe('pickSelectedFaces', () => {
 
 // ── faceCropTransform ─────────────────────────────────────────────────────
 
+/** Parse `scale(s) translate(tx%, ty%)` back into numbers so tests can
+ * assert on properties (bbox centre lands at 50%, scale > 1) rather than
+ * eyeballing JS's float-formatting quirks. */
+function parseTransform(s: string): { scale: number; tx: number; ty: number } {
+  const m = s.match(/^scale\(([^)]+)\) translate\(([^%]+)%, ([^%]+)%\)$/);
+  if (!m) throw new Error(`unparseable transform: ${s}`);
+  return { scale: Number(m[1]), tx: Number(m[2]), ty: Number(m[3]) };
+}
+
 describe('faceCropTransform', () => {
-  it('returns a scale + translate string in CSS units', () => {
-    const bbox: Bbox = { x: 0.25, y: 0.5, w: 0.5, h: 0.5 };
-    // 1 / 0.5 = 2 → scale(2). translate: -25%, -50%.
-    expect(faceCropTransform(bbox)).toBe('scale(2) translate(-25%, -50%)');
+  it('centres a square bbox after 25% padding', () => {
+    // Padded bbox (0.125, 0.125, 0.75, 0.75). scale = 1/0.75. translate
+    // keeps the bbox centre at the wrapper centre.
+    const bbox: Bbox = { x: 0.25, y: 0.25, w: 0.5, h: 0.5 };
+    const t = parseTransform(faceCropTransform(bbox));
+    expect(t.scale).toBeCloseTo(4 / 3);
+    expect(t.tx).toBeCloseTo(-12.5);
+    expect(t.ty).toBeCloseTo(-12.5);
   });
 
-  it('clamps scale at >= 1 (no zooming OUT of a full-frame bbox)', () => {
+  it("clamps full-frame bbox at scale 1 (padding can't spill past [0,1])", () => {
     const bbox: Bbox = { x: 0, y: 0, w: 1, h: 1 };
     expect(faceCropTransform(bbox)).toBe('scale(1) translate(0%, 0%)');
   });
 
   it('clamps tiny bboxes at the 0.01 floor to avoid runaway scale', () => {
     const bbox: Bbox = { x: 0, y: 0, w: 0, h: 0 };
-    // 1 / 0.01 = 100 — the floor stops a divide-by-zero blow-up.
-    expect(faceCropTransform(bbox)).toBe('scale(100) translate(0%, 0%)');
+    // After 25% padding, w and h are still 0 → max(0.01, 0) = 0.01 floor.
+    // scale = 100. translate: 0.5/100 - 0 - 0 = 0.005 → 0.5%.
+    expect(faceCropTransform(bbox)).toBe('scale(100) translate(0.5%, 0.5%)');
   });
 
-  it('takes the larger of the per-axis scales so the bbox fills the wrapper', () => {
+  it('takes the larger axis when bbox aspect ≠ wrapper aspect', () => {
+    // Padded bbox: w=0.625 (clamped at right edge), h=0.3125.
+    // scale = 1/0.625 = 1.6 (the larger axis fills the wrapper).
     const bbox: Bbox = { x: 0, y: 0, w: 0.5, h: 0.25 };
-    // scaleX = 2, scaleY = 4 → scale(4).
-    expect(faceCropTransform(bbox)).toBe('scale(4) translate(0%, 0%)');
+    expect(faceCropTransform(bbox)).toBe('scale(1.6) translate(0%, 15.625%)');
+  });
+
+  it('undoes the object-fit:cover letterbox on a non-square source', () => {
+    // Same source-normalised bbox on a 3:2 landscape thumbnail. With
+    // `object-fit: cover` the cover crop maps the source's 0..1 vertical
+    // range into the element's 0..1 height and the 0..aspect horizontal
+    // range into the same 0..1 element width — so a horizontally-centred
+    // bbox at x=0.5 still ends up at element-x=0.5, but its element-width
+    // grows by `aspect` (1.5 for 3:2). The bbox therefore occupies more
+    // of the visible area, so we zoom LESS to make it fill the wrapper.
+    const bbox: Bbox = { x: 0.4, y: 0.4, w: 0.2, h: 0.2 };
+    const square = parseTransform(faceCropTransform(bbox));
+    const landscape = parseTransform(faceCropTransform(bbox, { nw: 600, nh: 400 }));
+    expect(landscape.scale).toBeLessThan(square.scale);
+    // The translates differ because the aspect-aware path moves the
+    // bbox centre in element-space coords, not source-normalised coords.
+    expect(landscape.tx).not.toBe(square.tx);
+  });
+
+  it('handles portrait sources symmetrically to landscape', () => {
+    const bbox: Bbox = { x: 0.4, y: 0.4, w: 0.2, h: 0.2 };
+    const portrait = parseTransform(faceCropTransform(bbox, { nw: 400, nh: 600 }));
+    expect(portrait.scale).toBeGreaterThan(1);
+  });
+
+  it('treats a missing or null naturalDims as the aspect-naïve fallback', () => {
+    const bbox: Bbox = { x: 0.4, y: 0.4, w: 0.2, h: 0.2 };
+    expect(faceCropTransform(bbox)).toBe(faceCropTransform(bbox, null));
+    expect(faceCropTransform(bbox)).toBe(faceCropTransform(bbox, undefined));
+  });
+
+  it('ignores degenerate naturalDims (zero-sized image)', () => {
+    const bbox: Bbox = { x: 0.4, y: 0.4, w: 0.2, h: 0.2 };
+    expect(faceCropTransform(bbox, { nw: 0, nh: 600 })).toBe(faceCropTransform(bbox));
+    expect(faceCropTransform(bbox, { nw: 600, nh: 0 })).toBe(faceCropTransform(bbox));
   });
 });
 

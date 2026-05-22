@@ -169,13 +169,15 @@ describe('blankEnrichment', () => {
     const form = blankEnrichment(ec);
     expect(form.nominatim_url).toBe('http://nom.local');
     expect(form.nominatim_rate_limit_per_sec).toBe('4');
-    expect(form.describe_model).toBe('qwen2.5vl:7b');
+    // describe_model is intentionally absent — the runtime hardcodes
+    // qwen2.5-VL via FIXED_DESCRIBE_MODEL.
+    expect('describe_model' in form).toBe(false);
     expect(form.face_model_dir).toBe('/tmp/models');
   });
 
   it('falls back to safe defaults when snapshot is null', () => {
     const form = blankEnrichment(null);
-    expect(form.describe_model).toBe('qwen2.5vl:7b');
+    expect('describe_model' in form).toBe(false);
     expect(form.nominatim_rate_limit_per_sec).toBe('10');
     expect(form.nominatim_url).toBe('');
   });
