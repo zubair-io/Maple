@@ -345,3 +345,36 @@ fn jpeg_to_file_quality_255_returns_rc_14() {
     };
     assert_eq!(rc, 14);
 }
+
+/// Regression test for the embedded-preview orientation bug.
+///
+/// The FFI used to extract the embedded preview JPEG and re-encode it
+/// without baking the EXIF orientation tag into the pixels, leaving
+/// portrait shots sideways on disk. The Bun-side `applyExifOrientationInPlace`
+/// helper that was meant to fix it up keyed off the JPEG's orientation tag —
+/// but `raw_core::jpeg::encode` writes a bare JPEG with no EXIF, so the
+/// post-process was effectively a no-op and the bug shipped silently.
+///
+/// `test_0003.CR2` is a portrait Canon shot (see decode.rs:
+/// `decode_test_0003_reports_exif_orientation`), so after rotation the
+/// thumb's long edge must be the height, not the width. If this assertion
+/// flips, the FFI has stopped baking orientation again.
+#[test]
+fn render_thumbnail_jpeg_applies_orientation_to_portrait_raw() {
+    let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../test-fixtures/raws/test_0003.CR2");
+    if !path.exists() { return; }
+    let raw_cstr = CString::new(path.to_str().unwrap()).unwrap();
+    let mut out = empty_byte_buf();
+    let rc = unsafe {
+        maple_render_thumbnail_jpeg(raw_cstr.as_ptr(), 512, 0, &mut out)
+    };
+    assert_eq!(rc, 0, "thumbnail rc = {}", rc);
+    let bytes = unsafe { std::slice::from_raw_parts(out.bytes, out.len) };
+    let decoded = image::load_from_memory(bytes).expect("decodable JPEG");
+    use image::GenericImageView;
+    let (w, h) = decoded.dimensions();
+    assert!(h > w,
+        "expected portrait thumb for a portrait-shot RAW, got {}x{}", w, h);
+    unsafe { maple_free_byte_buffer(&mut out) };
+}

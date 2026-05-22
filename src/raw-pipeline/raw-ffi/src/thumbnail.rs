@@ -13,6 +13,7 @@
 
 use crate::buffers::MapleByteBuffer;
 use crate::error::set_last_error;
+use raw_core::ExifOrientation;
 use std::ffi::{CStr, c_char};
 
 /// Common rawler preview-image extraction used by both entries.
@@ -21,10 +22,16 @@ use std::ffi::{CStr, c_char};
 /// (DNG SubIFD), then `thumbnail_image` (tiny root-IFD thumb). If none
 /// exists, return an error — the caller may decide to fall through to a
 /// full pipeline render.
+///
+/// Also returns the source's EXIF orientation so the caller can bake the
+/// rotation into the pixels. Embedded preview JPEGs (and the rawler decode
+/// path that delivers them as a `DynamicImage`) are typically in sensor
+/// orientation with no EXIF carried through; without applying the tag here
+/// portrait shots end up sideways on disk.
 fn extract_embedded_preview(
     raw_bytes: &[u8],
     raw_path: &std::path::Path,
-) -> Result<image::DynamicImage, String> {
+) -> Result<(image::DynamicImage, ExifOrientation), String> {
     // Wrap the entire decoder + image extraction in catch_unwind. Rawler can
     // panic on malformed RAWs; if that panic unwinds across the FFI boundary
     // it's UB and Bun bus-errors the whole process. Catching it lets us
@@ -35,6 +42,17 @@ fn extract_embedded_preview(
         let decoder = rawler::get_decoder(&source)
             .map_err(|e| format!("get_decoder: {}", e))?;
         let params = rawler::decoders::RawDecodeParams::default();
+
+        // EXIF orientation. Pull from `raw_metadata().exif.orientation` —
+        // the raw TIFF tag — same source the full decode path uses
+        // (`decode::decode_bytes` § 1a). Works across DNG/CR2/ARW/NEF;
+        // defaults to Normal when missing.
+        let orientation = decoder
+            .raw_metadata(&source, &params)
+            .ok()
+            .and_then(|md| md.exif.orientation)
+            .map(ExifOrientation::from_u16)
+            .unwrap_or(ExifOrientation::Normal);
 
         // Embedded preview hunt — different decoders put the largest
         // embedded JPEG in different rawler slots:
@@ -58,15 +76,26 @@ fn extract_embedded_preview(
             .or_else(|| try_slot(decoder.full_image(&source, &params)))
             .or_else(|| try_slot(decoder.thumbnail_image(&source, &params)));
         match img {
-            Some(i) => Ok::<image::DynamicImage, String>(i),
+            Some(i) => Ok::<(image::DynamicImage, ExifOrientation), String>((i, orientation)),
             None => Err("no embedded preview / thumbnail in RAW".into()),
         }
     }));
     match extract {
-        Ok(Ok(img)) => Ok(img),
+        Ok(Ok(pair)) => Ok(pair),
         Ok(Err(msg)) => Err(msg),
         Err(_) => Err("rawler panicked during preview extraction".into()),
     }
+}
+
+/// Bake the EXIF orientation into the pixels of an already-decoded RGB8
+/// buffer. Returns `(width, height, bytes)`, where width/height are swapped
+/// for transpose-family orientations. A `Normal` input is the identity but
+/// still allocates a fresh buffer — at thumbnail resolutions this is
+/// cheaper than threading an `Option` through the encode call site.
+fn bake_orientation(
+    w: u32, h: u32, rgb: &[u8], orientation: ExifOrientation,
+) -> (u32, u32, Vec<u8>) {
+    raw_core::image::apply_orientation(rgb, w, h, orientation)
 }
 
 /// Resize `img` so the long edge is at most `max_px`, preserving aspect
@@ -126,8 +155,8 @@ pub unsafe extern "C" fn maple_render_thumbnail_jpeg(
         Err(e) => { set_last_error(format!("raw read: {}", e)); return 6; }
     };
 
-    let dyn_img = match extract_embedded_preview(&raw_bytes, raw_path) {
-        Ok(img) => img,
+    let (dyn_img, orientation) = match extract_embedded_preview(&raw_bytes, raw_path) {
+        Ok(pair) => pair,
         Err(msg) => {
             let panicked = msg.contains("panicked");
             set_last_error(msg);
@@ -137,8 +166,13 @@ pub unsafe extern "C" fn maple_render_thumbnail_jpeg(
 
     let resized = resize_long_edge(dyn_img, max_px);
     let rgb_img = resized.to_rgb8();
-    let (ow, oh) = rgb_img.dimensions();
-    let jpeg = match raw_core::jpeg::encode(ow, oh, rgb_img.as_raw(), q) {
+    let (rw, rh) = rgb_img.dimensions();
+    // Bake EXIF orientation into the pixels — rawler hands back the
+    // embedded preview in its native (usually sensor) orientation and the
+    // JPEG re-encode below carries no EXIF, so rotating here is the only
+    // chance to land an upright thumb on disk.
+    let (ow, oh, oriented) = bake_orientation(rw, rh, rgb_img.as_raw(), orientation);
+    let jpeg = match raw_core::jpeg::encode(ow, oh, &oriented, q) {
         Ok(b) => b,
         Err(e) => { set_last_error(format!("jpeg encode: {}", e)); return 10; }
     };
@@ -211,8 +245,8 @@ pub unsafe extern "C" fn maple_render_thumbnail_jpeg_to_file(
         Err(e) => { set_last_error(format!("raw read: {}", e)); return 6; }
     };
 
-    let dyn_img = match extract_embedded_preview(&raw_bytes, raw_path) {
-        Ok(img) => img,
+    let (dyn_img, orientation) = match extract_embedded_preview(&raw_bytes, raw_path) {
+        Ok(pair) => pair,
         Err(msg) => {
             let panicked = msg.contains("panicked");
             set_last_error(msg);
@@ -222,8 +256,11 @@ pub unsafe extern "C" fn maple_render_thumbnail_jpeg_to_file(
 
     let resized = resize_long_edge(dyn_img, max_px);
     let rgb_img = resized.to_rgb8();
-    let (ow, oh) = rgb_img.dimensions();
-    let jpeg = match raw_core::jpeg::encode(ow, oh, rgb_img.as_raw(), q) {
+    let (rw, rh) = rgb_img.dimensions();
+    // Bake EXIF orientation into the pixels — see the bytes-variant above
+    // for rationale.
+    let (ow, oh, oriented) = bake_orientation(rw, rh, rgb_img.as_raw(), orientation);
+    let jpeg = match raw_core::jpeg::encode(ow, oh, &oriented, q) {
         Ok(b) => b,
         Err(e) => { set_last_error(format!("jpeg encode: {}", e)); return 10; }
     };
