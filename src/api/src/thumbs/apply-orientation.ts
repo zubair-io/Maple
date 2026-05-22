@@ -12,20 +12,15 @@
  * an orientation tag, this catches it before it's served to the client.
  */
 
-import { rename, unlink, writeFile } from "node:fs/promises";
-import { randomUUID } from "node:crypto";
-import sharp from "sharp";
+import { rename, unlink, writeFile } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
+import sharp from 'sharp';
 
-export async function applyExifOrientationInPlace(
-  jpegPath: string,
-): Promise<void> {
+export async function applyExifOrientationInPlace(jpegPath: string): Promise<void> {
   const meta = await sharp(jpegPath).metadata();
   if (!meta.orientation || meta.orientation === 1) return;
 
-  const buf = await sharp(jpegPath)
-    .rotate()
-    .jpeg({ quality: 82, mozjpeg: true })
-    .toBuffer();
+  const buf = await sharp(jpegPath).rotate().jpeg({ quality: 82, mozjpeg: true }).toBuffer();
   const tmp = `${jpegPath}.${process.pid}.${randomUUID()}.rot.tmp`;
   try {
     await writeFile(tmp, buf);
