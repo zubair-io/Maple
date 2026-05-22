@@ -27,6 +27,18 @@
 //! (Buades' self-similarity correction) so the output isn't biased
 //! toward the noisy centre when all other patches disagree.
 //!
+//! Consequence — pixels within `patch_radius` of any edge have no
+//! shift for which both their own patch and the shifted patch fit
+//! the image, so `wsum` and `max_w` stay zero and the post-loop
+//! `max(1e-12)` clamp returns the input value unchanged. The strict
+//! patch-radius strip is therefore **passed through, not denoised**.
+//! This is intentional — locked in by `border_strip_passes_through_unchanged`
+//! — and acceptable because the raw-pipeline draws denoising over an
+//! image at full resolution; the unprocessed strip is a few pixels
+//! at the edge, dominated by demosaic edge artefacts already. If we
+//! ever pad or mirror the buffer to denoise the strip, update the
+//! test alongside the policy change.
+//!
 //! # Parallelism
 //!
 //! Shifts run sequentially in the outer loop; each shift parallelises
@@ -183,10 +195,17 @@ fn process_shift(
             let ys = ys as usize;
             let src_row = &plane[y * w..(y + 1) * w];
             let shift_row = &plane[ys * w..(ys + 1) * w];
+            // Clamp both bounds to `w`. When `|dx| >= w` (which can
+            // happen if `search_radius > w-1`) the naive formulas
+            // produce `xs_lo > w` or `xs_hi > w` and the zero-fill
+            // loops below index past the end of `out_row` — panic.
+            // Clamping turns over-wide shifts into a fully-zero
+            // sqdiff row, which the patch-fit guard later early-
+            // returns on, so the math is unchanged for valid shifts.
             let (xs_lo, xs_hi) = if dx >= 0 {
                 (0usize, w.saturating_sub(dx as usize))
             } else {
-                ((-dx) as usize, w)
+                (((-dx) as usize).min(w), w)
             };
             // Out-of-bounds region: zero.
             for x in 0..xs_lo {
@@ -393,5 +412,82 @@ mod tests {
         let mean: f32 = v.iter().sum::<f32>() / v.len() as f32;
         let var: f32 = v.iter().map(|&x| (x - mean).powi(2)).sum::<f32>() / v.len() as f32;
         var.sqrt()
+    }
+
+    /// `search_radius > image_width` previously caused `process_shift` to
+    /// index `out_row[x]` for `x in 0..xs_lo` with `xs_lo > w`, panicking
+    /// on the first negative-dx shift. Clamping `xs_lo`/`xs_hi` to `w`
+    /// turns the over-wide shift into a fully-zero sqdiff row, which the
+    /// patch-fit guard at the accumulator stage then early-returns on.
+    #[test]
+    fn search_radius_larger_than_width_does_not_panic() {
+        let w = 3;
+        let h = 10;
+        let plane = vec![0.5f32; w * h];
+        // search_radius = 5 means dx ranges over [-5, 5], so for dx = -4
+        // and dx = -5, (-dx) as usize > w.
+        let out = denoise_plane(
+            &plane,
+            w,
+            h,
+            NlmParams {
+                patch_radius: 1,
+                search_radius: 5,
+                h: 0.1,
+            },
+        );
+        for &v in &out {
+            assert!((v - 0.5).abs() < 1e-5, "constant plane changed: {}", v);
+        }
+    }
+
+    /// Pixels within `patch_radius` of every edge are skipped by every
+    /// shift (no shift `d` makes both the patch at `p` and the patch at
+    /// `p+d` fit the image). For those pixels `wsum` and `max_w` stay at
+    /// zero, and the post-loop normalisation falls back to the input
+    /// value via the `max(1e-12)` clamp.
+    ///
+    /// This locks in the documented behaviour: corner-strip pixels
+    /// (rows/cols 0..patch_radius and the symmetric far edge) are
+    /// **passed through unchanged**, not zeroed and not denoised. If we
+    /// ever pad the buffer or change the policy, this test will flag the
+    /// behaviour change.
+    #[test]
+    fn border_strip_passes_through_unchanged() {
+        let w = 16;
+        let h = 16;
+        let p = 2;
+        let s = 3;
+        // Deterministic non-constant plane so passthrough is detectable.
+        let mut plane = vec![0.0f32; w * h];
+        for (i, v) in plane.iter_mut().enumerate() {
+            *v = (i as f32) * 0.001;
+        }
+        let out = denoise_plane(
+            &plane,
+            w,
+            h,
+            NlmParams {
+                patch_radius: p,
+                search_radius: s,
+                h: 0.05,
+            },
+        );
+        // Only the strict patch-radius strip is guaranteed passthrough:
+        // for any shift d, the patch at p must fit, requiring x ∈ [p, w-1-p].
+        for y in 0..h {
+            for x in 0..w {
+                let i = y * w + x;
+                let in_strip =
+                    x < p || x >= w - p || y < p || y >= h - p;
+                if in_strip {
+                    assert!(
+                        (out[i] - plane[i]).abs() < 1e-6,
+                        "border-strip pixel ({},{}) was modified: in={}, out={}",
+                        x, y, plane[i], out[i],
+                    );
+                }
+            }
+        }
     }
 }
