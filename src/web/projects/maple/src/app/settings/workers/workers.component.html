@@ -500,7 +500,7 @@
                       Retry {{ s.dead | number }} dead
                     </button>
                   }
-                  <button type="button" class="btn-ghost">
+                  <button type="button" class="btn-ghost" (click)="openLogs(s, $event)">
                     <maple-settings-icon name="open" [size]="12" />
                     Open logs
                   </button>
@@ -544,3 +544,66 @@
     }
   </div>
 </maple-settings-shell>
+
+@if (deadLog(); as log) {
+  <div class="log-backdrop" (click)="closeLog()" role="presentation">
+    <div
+      class="log-drawer"
+      (click)="$event.stopPropagation()"
+      role="dialog"
+      [attr.aria-label]="'Failed jobs: ' + log.stage.name"
+    >
+      <div class="log-header">
+        <div class="log-title">
+          <maple-settings-icon name="open" [size]="14" [color]="'#a8a29e'"/>
+          <span class="mono">{{ log.stage.name }}</span>
+          @if (!log.loading) {
+            <span class="log-subtitle">
+              {{ log.items.length === 0 ? 'No failed jobs' : log.items.length + ' failed job' + (log.items.length === 1 ? '' : 's') }}
+            </span>
+          }
+        </div>
+        <div class="log-actions">
+          @if (log.stage.dead > 0) {
+            <button
+              type="button"
+              class="btn-ghost danger"
+              (click)="retryDead(log.stage, $event); closeLog()"
+            >
+              <maple-settings-icon name="retry" [size]="12" [color]="'#f87171'"/>
+              Retry all dead
+            </button>
+          }
+          <button type="button" class="log-close" (click)="closeLog()" aria-label="Close">
+            <maple-settings-icon name="x" [size]="14" [color]="'#a8a29e'"/>
+          </button>
+        </div>
+      </div>
+
+      @if (log.loading) {
+        <div class="log-empty">Loading…</div>
+      } @else if (log.error) {
+        <div class="log-error">{{ log.error }}</div>
+      } @else if (log.items.length === 0) {
+        <div class="log-empty">No failed jobs for this stage.</div>
+      } @else {
+        <div class="log-list">
+          @for (item of log.items; track item.id) {
+            <div class="log-entry">
+              <div class="log-entry-path">{{ item.abs_path ?? item.id }}</div>
+              @if (item.last_error) {
+                <div class="log-entry-err">{{ item.last_error }}</div>
+              }
+              <div class="log-entry-meta">
+                <span>{{ item.attempts }} attempt{{ item.attempts === 1 ? '' : 's' }}</span>
+                @if (item.processed_at) {
+                  <span>{{ formatDate(item.processed_at) }}</span>
+                }
+              </div>
+            </div>
+          }
+        </div>
+      }
+    </div>
+  </div>
+}
