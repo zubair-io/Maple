@@ -4,4 +4,5 @@ pub mod dcp;
 pub mod hsm;
 pub mod oklab;
 pub mod profile_gain_table_map;
+pub mod profile_loader;
 pub mod profile_tone_curve;
