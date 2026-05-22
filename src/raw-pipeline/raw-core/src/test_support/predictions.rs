@@ -24,7 +24,6 @@ pub fn predict_highlights(scene: f32, h_slider: f32) -> f32 {
     let h_amount = h_slider / 100.0;
     let h_denom = 1.0 + h_amount * 2.0;
     if h_denom.abs() < 1e-6 { return scene; }
-    if scene <= 1e-6 { return scene; }
     let y_new = 1.0 + (scene - 1.0) / h_denom;
     // scale = y_new/scene; output = scene * scale = y_new (on neutrals).
     y_new
