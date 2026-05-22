@@ -328,6 +328,126 @@
   }
 }
 
+// ── Log drawer ──────────────────────────────────────────────────────────
+
+.log-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  z-index: 100;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+.log-drawer {
+  width: 100%;
+  max-width: 860px;
+  max-height: 60vh;
+  background: var(--s-surface2);
+  border: 0.5px solid var(--s-border);
+  border-radius: 8px 8px 0 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.log-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 13px 16px;
+  border-bottom: 0.5px solid var(--s-border);
+  flex-shrink: 0;
+  gap: 12px;
+}
+
+.log-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+
+  .mono { font-size: 13px; color: var(--s-text); }
+
+  .log-subtitle {
+    font-size: 12px;
+    color: var(--s-text-dim);
+    margin-left: 4px;
+  }
+}
+
+.log-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.log-close {
+  width: 28px;
+  height: 28px;
+  border-radius: 5px;
+  border: none;
+  background: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+
+  &:hover { background: rgba(255, 255, 255, 0.05); }
+}
+
+.log-list {
+  overflow-y: auto;
+  flex: 1;
+}
+
+.log-entry {
+  padding: 10px 18px;
+  border-bottom: 0.5px solid var(--s-border);
+
+  &:last-child { border-bottom: none; }
+}
+
+.log-entry-path {
+  font-family: var(--s-mono);
+  font-size: 12px;
+  color: var(--s-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-bottom: 3px;
+}
+
+.log-entry-err {
+  font-family: var(--s-mono);
+  font-size: 11.5px;
+  color: var(--s-err);
+  margin-bottom: 4px;
+  word-break: break-word;
+}
+
+.log-entry-meta {
+  font-size: 11px;
+  color: var(--s-text-dim);
+  display: flex;
+  gap: 16px;
+}
+
+.log-empty {
+  padding: 24px 18px;
+  font-size: 13px;
+  color: var(--s-text-muted);
+}
+
+.log-error {
+  padding: 12px 18px;
+  font-size: 12.5px;
+  color: var(--s-err);
+}
+
 // ── Responsive ─────────────────────────────────────────────────────────
 
 // Tablet (1023px): keep the 10-column grid but tighten gutters + columns
