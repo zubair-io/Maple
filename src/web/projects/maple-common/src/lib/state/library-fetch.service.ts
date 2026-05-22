@@ -322,9 +322,7 @@ export class LibraryFetch {
       // Sub-folder of a registered library — descendants are not in the
       // top-level `folders` listing, but `openSelfHostedSubfolder` fetches
       // via `/api/fs/dir` so it works as long as some library owns the path.
-      const owningLib = folders.find(
-        (f) => absPath === f.path || absPath.startsWith(f.path + '/'),
-      );
+      const owningLib = folders.find((f) => absPath === f.path || absPath.startsWith(f.path + '/'));
       if (owningLib) {
         this.openSelfHostedSubfolder(absPath, lastId);
         return;
