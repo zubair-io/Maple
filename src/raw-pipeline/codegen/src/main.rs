@@ -212,12 +212,10 @@ fn emit_ts(schema: &[FieldSpec]) -> String {
                 s.push_str(&format!("    {}: {},\n", camel, f(spec.default_f32)));
             }
             FieldKind::Enum => {
-                // The only enum today is HighlightRecoveryMode; its default
-                // is `Off` (ticket #325 adds `ChromaticAdaptation` as an
-                // opt-in variant but defers the default flip — see the enum
-                // docs for the regression analysis). Hard-coded because
+                // The only enum today is HighlightRecoveryMode; default is
+                // `ChromaticAdaptation` since #335. Hard-coded because
                 // there's no enum default slot on `FieldSpec`.
-                s.push_str(&format!("    {}: 'Off',\n", camel));
+                s.push_str(&format!("    {}: 'ChromaticAdaptation',\n", camel));
             }
         }
     }
