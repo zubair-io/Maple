@@ -5,9 +5,10 @@
 //! the platform mirrors from drifting. Driven from `tools/codegen.sh`.
 //!
 //! Per #118: emit ranges, field names, the TS interface, and a TS default
-//! factory. Do NOT emit Swift defaults — Apple's `AdjustmentModel` uses
-//! ACR-like sharpen defaults (45 / 1.0) that intentionally differ from the
-//! Rust canonical defaults (0 / 0.5); those stay hand-written.
+//! factory. Do NOT emit Swift defaults — Apple's `AdjustmentModel` keeps
+//! its defaults hand-written so the per-field doc-comments can live next
+//! to each `let`. Defaults converge with raw-core's canonical values
+//! (sharpen 40 / radius 1.0 / detail 25 / masking 0, per #326).
 
 use std::fs;
 use std::path::PathBuf;
@@ -98,8 +99,9 @@ fn emit_swift(schema: &[FieldSpec]) -> String {
     s.push_str("//\n");
     s.push_str("// Emits range constants and a canonical field-name enum for\n");
     s.push_str("// `AdjustmentModel`. The struct itself + defaults + init stay\n");
-    s.push_str("// hand-written in `AdjustmentModel.swift` (Apple uses ACR-like\n");
-    s.push_str("// sharpen defaults that diverge from the canonical Rust defaults).\n\n");
+    s.push_str("// hand-written in `AdjustmentModel.swift`; Apple's defaults\n");
+    s.push_str("// match raw-core's canonical values (per #326, sharpen converges\n");
+    s.push_str("// to ACR's import baseline: 40 / 1.0 / 25 / 0).\n\n");
     s.push_str("import Foundation\n\n");
 
     // FieldName enum — canonical snake_case names from the schema.
