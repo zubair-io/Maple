@@ -28,7 +28,10 @@ import { defineStage, runStage, type RunStageHandle, type StageResult } from '..
 
 const previewStage = defineStage({
   name: 'preview',
-  targetVersion: 1,
+  // v2 — raw-ffi FFI fix #328: orientation is now baked into the 1280-px
+  // VLM preview before re-encode. Bump so existing rows re-render and the
+  // on-disk previews in `.maple/previews/` get rewritten upright.
+  targetVersion: 2,
   dependsOn: ['thumb'],
   defaults: {
     concurrency: 2,
