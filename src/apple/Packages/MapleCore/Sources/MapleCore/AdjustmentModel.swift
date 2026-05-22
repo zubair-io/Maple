@@ -12,9 +12,14 @@ import Foundation
 // MARK: - HighlightRecoveryMode
 
 public enum HighlightRecoveryMode: String, Codable, Sendable, Hashable {
-    case off        = "Off"
-    case blend      = "Blend"
-    case luminance  = "Luminance"
+    case off                  = "Off"
+    case blend                = "Blend"
+    case luminance            = "Luminance"
+    /// Path C — `AsShotNeutral`-aware chromatic-adaptation highlight
+    /// reconstruction (ticket #325). `blend` and `luminance` are legacy
+    /// variants kept for back-compat: raw-core silently upgrades them at
+    /// apply time.
+    case chromaticAdaptation  = "ChromaticAdaptation"
 }
 
 // MARK: - AdjustmentModel
@@ -246,7 +251,15 @@ private final class _XMPParserDelegate: NSObject, XMLParserDelegate {
                 model.tint = ti
             }
         case "papp:HighlightRecoveryMode":
-            model.highlightRecovery = HighlightRecoveryMode(rawValue: value.capitalized) ?? .off
+            // Try exact rawValue first (so multi-word PascalCase like
+            // "ChromaticAdaptation" round-trips), then fall back to the
+            // capitalized form for single-word back-compat values ("off",
+            // "blend", "luminance"). Unknown values keep the current value
+            // (default) rather than silently flipping reconstruction off.
+            if let parsed = HighlightRecoveryMode(rawValue: value)
+                ?? HighlightRecoveryMode(rawValue: value.capitalized) {
+                model.highlightRecovery = parsed
+            }
         // Lightroom culling
         case "xmp:Rating":
             if let n = Int(value) { culling.stars = max(0, min(5, n)) }

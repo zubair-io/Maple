@@ -79,6 +79,9 @@ fn set_field(m: &mut AdjustmentModel, key: &str, value: &str) -> Result<()> {
                 "off" | "Off" => HighlightRecoveryMode::Off,
                 "blend" | "Blend" => HighlightRecoveryMode::Blend,
                 "luminance" | "Luminance" => HighlightRecoveryMode::Luminance,
+                "chromaticadaptation" | "ChromaticAdaptation" => {
+                    HighlightRecoveryMode::ChromaticAdaptation
+                }
                 other => return Err(Error::Xmp(format!(
                     "unknown HighlightRecoveryMode: {}", other
                 ))),
@@ -316,8 +319,22 @@ mod tests {
 
     #[test]
     fn defaults_highlight_recovery_is_off() {
+        // Per #325: `ChromaticAdaptation` exists as an opt-in variant but
+        // the default remains `Off` until the algorithm clears the parity
+        // harness. Default-on is tracked in a follow-up ticket.
         let m = AdjustmentModel::default();
         assert_eq!(m.highlight_recovery, HighlightRecoveryMode::Off);
+    }
+
+    #[test]
+    fn parse_highlight_recovery_chromatic_adaptation() {
+        let xml = r#"<?xml version="1.0"?><x><rdf:Description xmlns:rdf="x" xmlns:papp="x"
+            papp:HighlightRecoveryMode="ChromaticAdaptation"/></x>"#;
+        let m = parse(xml).unwrap();
+        assert_eq!(
+            m.highlight_recovery,
+            HighlightRecoveryMode::ChromaticAdaptation
+        );
     }
 
     #[test]
