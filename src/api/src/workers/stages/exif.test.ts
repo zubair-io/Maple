@@ -84,12 +84,31 @@ describe('exif handler', () => {
         [rawLibraryId.toHexString(), path.dirname(dng)],
       ]),
     );
-    const doc = makeDoc(dng, rawLibraryId, path.dirname(dng));
-    const result = await exifStage.handler(doc as never, {} as never);
-    const { patch } = result as { patch: Record<string, unknown> };
-    const exif = patch.exif as Record<string, unknown> | null;
-    expect(exif).not.toBeNull();
-    expect(typeof exif?.camera_make).toBe('string');
+    // The handler now does a Mongo lookup when its derived primary id
+    // differs from `image.maple_id`, to catch the duplicate-content merge
+    // case. This unit test is DB-free; stub assetsCollection so the merge
+    // probe sees "no winner" and the handler proceeds with patch.maple_id.
+    // Snapshot + restore so the stub doesn't leak into later tests.
+    const realDbClient = await import('../../db/client.ts');
+    try {
+      mock.module('../../db/client.ts', () => ({
+        ...realDbClient,
+        assetsCollection: async () => ({
+          findOne: async () => null,
+          updateOne: async () => ({ acknowledged: true, modifiedCount: 0 }),
+          deleteOne: async () => ({ acknowledged: true, deletedCount: 0 }),
+        }),
+      }));
+      const { default: freshExifStage } = await import('./exif.ts');
+      const doc = makeDoc(dng, rawLibraryId, path.dirname(dng));
+      const result = await freshExifStage.handler(doc as never, {} as never);
+      const { patch } = result as { patch: Record<string, unknown> };
+      const exif = patch.exif as Record<string, unknown> | null;
+      expect(exif).not.toBeNull();
+      expect(typeof exif?.camera_make).toBe('string');
+    } finally {
+      mock.module('../../db/client.ts', () => realDbClient);
+    }
     setLibraryRootsForTests(new Map([[libraryId.toHexString(), dir]]));
   });
 
