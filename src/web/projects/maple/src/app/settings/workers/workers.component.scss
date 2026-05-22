@@ -57,8 +57,12 @@
   text-transform: uppercase;
   border-bottom: 0.5px solid var(--s-border);
 
-  .r { text-align: right; }
-  .c { text-align: center; }
+  .r {
+    text-align: right;
+  }
+  .c {
+    text-align: center;
+  }
 }
 
 .group-label {
@@ -73,7 +77,9 @@
 .row {
   border-bottom: 0.5px solid var(--s-border);
 
-  &.is-expanded .row-summary { background: var(--s-surface2); }
+  &.is-expanded .row-summary {
+    background: var(--s-surface2);
+  }
 }
 
 .row-summary {
@@ -81,7 +87,9 @@
   cursor: pointer;
   transition: background 120ms;
 
-  &:hover { background: rgba(255, 255, 255, 0.02); }
+  &:hover {
+    background: rgba(255, 255, 255, 0.02);
+  }
 
   .stage-id {
     display: flex;
@@ -102,8 +110,12 @@
     font-variant-numeric: tabular-nums;
     color: var(--s-text);
   }
-  .r.mid { color: var(--s-text-mid); }
-  .dim { color: var(--s-text-dim); }
+  .r.mid {
+    color: var(--s-text-mid);
+  }
+  .dim {
+    color: var(--s-text-dim);
+  }
 
   .status-pill {
     display: flex;
@@ -128,7 +140,9 @@
     justify-content: flex-end;
     color: var(--s-text-dim);
 
-    &.has-dead { color: var(--s-err); }
+    &.has-dead {
+      color: var(--s-err);
+    }
   }
 
   .tput {
@@ -139,10 +153,14 @@
     color: var(--s-text-muted);
     font-size: 12px;
 
-    .tput-val { font-size: 13px; color: var(--s-text); }
+    .tput-val {
+      font-size: 13px;
+      color: var(--s-text);
+    }
   }
 
-  .kebab-btn, .pause-btn {
+  .kebab-btn,
+  .pause-btn {
     width: 28px;
     height: 28px;
     border-radius: 5px;
@@ -155,11 +173,15 @@
     color: var(--s-text-muted);
     padding: 0;
 
-    &:hover { background: rgba(255, 255, 255, 0.04); }
+    &:hover {
+      background: rgba(255, 255, 255, 0.04);
+    }
   }
   .pause-btn.is-paused {
     background: var(--s-accent-bg);
-    &:hover { background: var(--s-accent-bg2); }
+    &:hover {
+      background: var(--s-accent-bg2);
+    }
   }
 }
 
@@ -215,8 +237,12 @@
   gap: 6px;
   font-size: 11.5px;
 
-  &.ok { color: var(--s-ok); }
-  &.err { color: var(--s-err); }
+  &.ok {
+    color: var(--s-ok);
+  }
+  &.err {
+    color: var(--s-err);
+  }
 }
 
 .face-banner {
@@ -235,7 +261,9 @@
     background: rgba(251, 191, 36, 0.08);
     border-color: rgba(251, 191, 36, 0.4);
 
-    .banner-status { color: var(--s-warn); }
+    .banner-status {
+      color: var(--s-warn);
+    }
   }
 
   .banner-status {
@@ -247,7 +275,9 @@
     font-size: 11.5px;
     color: var(--s-text-mid);
   }
-  .banner-spacer { flex: 1; }
+  .banner-spacer {
+    flex: 1;
+  }
   .banner-path {
     font-size: 11px;
     color: var(--s-text-muted);
@@ -264,7 +294,9 @@
   gap: 10px;
   flex-wrap: wrap;
 
-  .footer-spacer { flex: 1; }
+  .footer-spacer {
+    flex: 1;
+  }
 
   .save-error {
     font-size: 11.5px;
@@ -274,6 +306,26 @@
     font-size: 11.5px;
     color: var(--s-ok);
   }
+  .save-disabled-hint {
+    font-size: 11.5px;
+    color: var(--s-text-muted);
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+
+    .link-btn {
+      background: none;
+      border: none;
+      padding: 0;
+      font: inherit;
+      color: var(--s-accent);
+      cursor: pointer;
+
+      &:hover {
+        text-decoration: underline;
+      }
+    }
+  }
 }
 
 // ── Responsive ─────────────────────────────────────────────────────────
@@ -282,8 +334,12 @@
 // so it still fits next to a 196px sidebar. Throughput becomes the flex
 // column so labels keep room.
 @media (max-width: 1023px) {
-  .workers-body { padding: 16px 20px; }
-  .page-header { padding: 24px 20px 18px; }
+  .workers-body {
+    padding: 16px 20px;
+  }
+  .page-header {
+    padding: 24px 20px 18px;
+  }
   .row-grid {
     grid-template-columns:
       20px
@@ -310,11 +366,19 @@
     align-items: stretch;
     padding: 20px 16px 14px;
 
-    .actions { padding-bottom: 0; }
-    h1 { font-size: 22px; }
-    p { font-size: 12.5px; }
+    .actions {
+      padding-bottom: 0;
+    }
+    h1 {
+      font-size: 22px;
+    }
+    p {
+      font-size: 12.5px;
+    }
   }
-  .banner-error { margin: 12px 16px 0; }
+  .banner-error {
+    margin: 12px 16px 0;
+  }
 
   // Wrap header + every row in one horizontal-scroll container so the
   // column header stays aligned with the rows under it.
@@ -332,24 +396,39 @@
     padding-left: 16px;
     padding-right: 16px;
   }
-  .group-label { padding-top: 10px; padding-bottom: 4px; }
+  .group-label {
+    padding-top: 10px;
+    padding-bottom: 4px;
+  }
 
   // Expanded panel: drop the 54px indent + stack form grids to one column.
-  .desc-bar { padding: 12px 16px 12px 16px; }
-  .block    { padding: 0 16px 16px 16px; }
+  .desc-bar {
+    padding: 12px 16px 12px 16px;
+  }
+  .block {
+    padding: 0 16px 16px 16px;
+  }
   .row-footer {
     padding: 14px 16px 0;
     flex-direction: column-reverse;
     align-items: stretch;
     gap: 8px;
 
-    .footer-spacer { display: none; }
-    button { width: 100%; justify-content: center; }
+    .footer-spacer {
+      display: none;
+    }
+    button {
+      width: 100%;
+      justify-content: center;
+    }
   }
-  .grid-2col, .grid-4col {
+  .grid-2col,
+  .grid-4col {
     grid-template-columns: 1fr;
   }
-  .field.field-wide { grid-column: auto; }
+  .field.field-wide {
+    grid-column: auto;
+  }
   .face-banner {
     grid-column: auto;
     flex-direction: column;

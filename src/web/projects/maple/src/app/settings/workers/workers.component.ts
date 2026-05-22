@@ -42,6 +42,7 @@ import { SettingsShellComponent } from '../settings-shell.component';
 import { SettingsIconComponent } from '../settings-icon.component';
 import {
   ERROR_POLL_MS,
+  FIXED_DESCRIBE_MODEL,
   POLL_MS,
   STAGE_META,
   blankEnrichment,
@@ -72,6 +73,8 @@ import {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class WorkersComponent implements OnInit, OnDestroy {
+  protected readonly fixedDescribeModel = FIXED_DESCRIBE_MODEL;
+
   private readonly api = inject(WorkersApiService);
   private readonly enrichmentApi = inject(BunApiBackendService);
 
@@ -79,6 +82,11 @@ export class WorkersComponent implements OnInit, OnDestroy {
   protected readonly error = signal<string | null>(null);
   protected readonly expanded = signal<Record<string, boolean>>({});
   protected readonly enrichmentConfig = signal<EnrichmentConfigResponse | null>(null);
+  /** Tracks whether `GET /enrichment/config` failed. Used together with
+   * `enrichmentConfig === null` to distinguish "still loading" from
+   * "load errored" so the save button can stay safely disabled in both
+   * cases but the operator gets the right hint. */
+  protected readonly enrichmentConfigError = signal<string | null>(null);
 
   // Per-stage form state — keyed by stage id. Empty until the row expands.
   protected readonly runtimeForms = signal<Record<string, RuntimeForm>>({});
@@ -90,15 +98,18 @@ export class WorkersComponent implements OnInit, OnDestroy {
   /** "Test connection" state for the URL field in describe/geocode rows.
    * Keyed by stage id so each row tracks its own probe independently. */
   protected readonly testStates = signal<
-    Record<string, { kind: 'idle' } | { kind: 'testing' } | { kind: 'ok' } | { kind: 'error'; message: string }>
+    Record<
+      string,
+      { kind: 'idle' } | { kind: 'testing' } | { kind: 'ok' } | { kind: 'error'; message: string }
+    >
   >({});
 
   protected readonly stages = computed<StageStatus[]>(() => this.status()?.stages ?? []);
 
   /** Stages grouped + sorted in pipeline order. */
-  protected readonly groupedStages = computed<readonly { group: StageGroup; rows: StageStatus[] }[]>(
-    () => groupStagesByPipeline(this.stages()),
-  );
+  protected readonly groupedStages = computed<
+    readonly { group: StageGroup; rows: StageStatus[] }[]
+  >(() => groupStagesByPipeline(this.stages()));
 
   protected readonly summary = computed(() => summarizeStages(this.stages()));
 
@@ -108,11 +119,27 @@ export class WorkersComponent implements OnInit, OnDestroy {
 
   ngOnInit(): void {
     this.fetchStatus();
+    this.fetchEnrichmentConfig();
+  }
+
+  /** Pulls the enrichment config that seeds the describe/geocode/face
+   * row forms and gates the Save button on those rows. The Ingest runtime
+   * rows don't depend on this config and remain savable regardless of its
+   * load state. Stored as a method so {@link retryEnrichmentConfig} can
+   * re-arm the button after a transient failure without a page reload. */
+  private fetchEnrichmentConfig(): void {
+    this.enrichmentConfigError.set(null);
     this.enrichmentApi.getEnrichmentConfig().subscribe({
       next: (cfg) => this.enrichmentConfig.set(cfg),
-      // Non-fatal; the runtime knobs still work without enrichment config.
-      error: () => { /* ignore */ },
+      error: (err: unknown) => this.enrichmentConfigError.set(errorMessage(err)),
     });
+  }
+
+  /** Retry handler exposed to the template — re-runs the enrichment
+   * config GET so the operator can re-enable save without a page reload
+   * after a transient API hiccup. */
+  protected retryEnrichmentConfig(): void {
+    this.fetchEnrichmentConfig();
   }
 
   ngOnDestroy(): void {
@@ -163,16 +190,23 @@ export class WorkersComponent implements OnInit, OnDestroy {
     event.stopPropagation();
     const next: StageStatus['status'] = stage.status === 'paused' ? 'running' : 'paused';
     this.setLocalStatus(stage.name, next);
-    const obs = stage.status === 'paused' ? this.api.resume(stage.name) : this.api.pause(stage.name);
+    const obs =
+      stage.status === 'paused' ? this.api.resume(stage.name) : this.api.pause(stage.name);
     obs.subscribe({
-      next: () => { /* next poll will sync */ },
+      next: () => {
+        /* next poll will sync */
+      },
       error: () => this.setLocalStatus(stage.name, stage.status),
     });
   }
 
   retryDead(stage: StageStatus, event: Event): void {
     event.stopPropagation();
-    this.api.retryDead(stage.name).subscribe({ next: () => { /* poll syncs */ } });
+    this.api.retryDead(stage.name).subscribe({
+      next: () => {
+        /* poll syncs */
+      },
+    });
   }
 
   /** Probe the URL currently typed into the describe/geocode panel —
@@ -188,7 +222,8 @@ export class WorkersComponent implements OnInit, OnDestroy {
       this.testStates.update((cur) => ({ ...cur, [stage.name]: { kind: 'ok' } }));
     const finishErr = (err: unknown) =>
       this.testStates.update((cur) => ({
-        ...cur, [stage.name]: { kind: 'error', message: errorMessage(err) },
+        ...cur,
+        [stage.name]: { kind: 'error', message: errorMessage(err) },
       }));
 
     if (meta.enrichment === 'geocode') {
@@ -198,7 +233,8 @@ export class WorkersComponent implements OnInit, OnDestroy {
         return;
       }
       this.enrichmentApi.testNominatim(url).subscribe({
-        next: (res) => res.ok ? finishOk() : finishErr(new Error(res.error ?? 'Health check failed')),
+        next: (res) =>
+          res.ok ? finishOk() : finishErr(new Error(res.error ?? 'Health check failed')),
         error: finishErr,
       });
     } else if (meta.enrichment === 'describe') {
@@ -206,11 +242,14 @@ export class WorkersComponent implements OnInit, OnDestroy {
         .testDescribeProvider({
           provider: 'ollama',
           url: form.describe_provider_url.trim() || null,
-          model: form.describe_model.trim() || null,
+          // Locked at runtime — pass the fixed model so the probe reflects
+          // what the worker actually pulls.
+          model: FIXED_DESCRIBE_MODEL,
           api_key: null,
         })
         .subscribe({
-          next: (res) => res.ok ? finishOk() : finishErr(new Error(res.error ?? 'Health check failed')),
+          next: (res) =>
+            res.ok ? finishOk() : finishErr(new Error(res.error ?? 'Health check failed')),
           error: finishErr,
         });
     }
@@ -293,20 +332,36 @@ export class WorkersComponent implements OnInit, OnDestroy {
     onErr: (err: unknown) => void,
   ): void {
     const form = this.enrichmentForms()[stage.name];
-    if (!form) { onOk(); return; }
+    if (!form) {
+      onOk();
+      return;
+    }
     // The save endpoint is whole-config PUT — any field we omit OR set to
     // null gets cleared server-side. Seed the body from the latest server
     // config so editing the describe row doesn't accidentally wipe the
     // Nominatim URL (or vice versa). Then mutate only the fields owned by
     // the row the user is saving.
+    //
+    // Bail if the seed hasn't arrived — without it we'd clobber every
+    // unrelated field on the server. The template guards the Save button
+    // against this via `saveDisabled()`, so reaching here means a
+    // programmatic call slipped past the gate.
     const current = this.enrichmentConfig();
+    if (!current) {
+      onErr(
+        new Error('Enrichment config not loaded — refusing to save (would clobber other fields).'),
+      );
+      return;
+    }
     const body: Parameters<BunApiBackendService['saveEnrichmentConfig']>[0] = {
-      nominatim_url: current?.nominatim_url ?? null,
-      geocode_worker_enabled: current?.geocode_worker_enabled ?? true,
+      nominatim_url: current.nominatim_url,
+      geocode_worker_enabled: current.geocode_worker_enabled,
     };
     if (kind === 'describe') {
       body.describe_provider_url = form.describe_provider_url.trim() || null;
-      body.describe_model = form.describe_model.trim() || null;
+      // describe_model is intentionally omitted — the runtime hardcodes
+      // qwen2.5-VL (see FIXED_DESCRIBE_MODEL in workers.vm.ts), so
+      // anything we'd send is dropped server-side.
     } else if (kind === 'geocode') {
       body.nominatim_url = form.nominatim_url.trim() || null;
       const rate = Number(form.nominatim_rate_limit_per_sec.trim());
@@ -367,10 +422,36 @@ export class WorkersComponent implements OnInit, OnDestroy {
     return this.saveErrors()[s.name] ?? null;
   }
 
+  /** Save button disabled when:
+   *   - a save is in flight (`saving`), OR
+   *   - this row writes enrichment config but that config hasn't been
+   *     fetched yet (initial GET pending) or failed (`null` either way).
+   * Without the second guard, saving would PUT a body seeded from
+   * fallback defaults and clobber every unrelated operator setting on
+   * the server. The Ingest rows (no `enrichment` kind) are never blocked
+   * by config load. */
+  saveDisabled(s: StageStatus): boolean {
+    if (this.saveState(s) === 'saving') return true;
+    const meta = STAGE_META[s.name];
+    if (meta?.enrichment && !this.enrichmentConfig()) return true;
+    return false;
+  }
+
+  /** Operator-facing reason rendered next to the disabled save button.
+   * Only emitted for the enrichment-config-load case — the in-flight
+   * `saving` case is communicated by the button label flipping to
+   * "Saving…", so it doesn't need a sibling hint. */
+  saveDisabledReason(s: StageStatus): string | null {
+    const meta = STAGE_META[s.name];
+    if (!meta?.enrichment || this.enrichmentConfig()) return null;
+    const err = this.enrichmentConfigError();
+    return err ? `Enrichment config failed to load: ${err}` : 'Loading enrichment config…';
+  }
+
   private setLocalStatus(name: string, status: StageStatus['status']): void {
     this.status.update((cur) => {
       if (!cur) return cur;
-      return { stages: cur.stages.map((s) => s.name === name ? { ...s, status } : s) };
+      return { stages: cur.stages.map((s) => (s.name === name ? { ...s, status } : s)) };
     });
   }
 }

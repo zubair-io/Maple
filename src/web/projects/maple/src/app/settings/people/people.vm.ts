@@ -97,10 +97,7 @@ export function visibleFaces(
 
 /** Faces hidden by the threshold slider — surfaced in the count chip
  * so the operator knows the slider is excluding data. */
-export function hiddenFaceCount(
-  faces: readonly ApiPersonFace[],
-  thresholdPercent: number,
-): number {
+export function hiddenFaceCount(faces: readonly ApiPersonFace[], thresholdPercent: number): number {
   return faces.length - visibleFaces(faces, thresholdPercent).length;
 }
 
@@ -158,21 +155,69 @@ export function pickSelectedFaces(
 
 // ── Geometry ──────────────────────────────────────────────────────────────
 
-/** Bbox-crop transform for the face thumb `<img>`. The wrapper is
- * `aspect-square overflow-hidden`; the inner `<img>` is absolute-
- * positioned and we scale + translate so the bbox fills the wrapper.
+/** Bbox-crop transform for the face thumb `<img>`. The wrapper is a
+ * 1:1 square with `overflow: hidden`; the inner `<img>` is
+ * `position: absolute; left:0; top:0; width/height:100%;
+ * object-fit: cover`, so the source thumbnail is centre-cropped along
+ * its long axis before we ever touch it. The transform then maps the
+ * (padded) detector bbox to the container.
+ *
  * `bbox` is in normalised `[0,1]` proportions of the source image —
  * the face detector emits them this way and they survive end-to-end
- * unchanged. The prototype's `background: center/cover` won't crop to
- * the face; this transform keeps the cover/thumb composed correctly. */
-export function faceCropTransform(bbox: Bbox): string {
-  const { x, y, w, h } = bbox;
-  const scaleX = Math.max(1, 1 / Math.max(0.01, w));
-  const scaleY = Math.max(1, 1 / Math.max(0.01, h));
-  const scale = Math.max(scaleX, scaleY);
-  const tx = -x * 100;
-  const ty = -y * 100;
-  return `scale(${scale}) translate(${tx}%, ${ty}%)`;
+ * unchanged.
+ *
+ * Math:
+ *   - Pad the bbox 25% on each side so heads, chins and ears aren't
+ *     shaved off the edges.
+ *   - When `naturalDims` is supplied, convert the source-normalised bbox
+ *     into element-space coords (`bx, by, bw, bh`) by accounting for
+ *     the `object-fit: cover` letterbox. Without this step a 3:2
+ *     landscape thumbnail cropped to a square loses ~25% off each
+ *     horizontal side, so the bbox drifts visibly off-centre.
+ *   - Scale by `1 / max(bw, bh)` so the longer bbox axis fills the
+ *     container, and translate so the bbox centre lands at (0.5, 0.5).
+ *
+ * Callers should pass `naturalDims` (read from the `<img>` `(load)`
+ * event) once available; the aspect-naïve fallback is used on first
+ * paint so the thumb isn't visibly worse than the pre-padding version. */
+export function faceCropTransform(
+  bbox: Bbox,
+  naturalDims?: { nw: number; nh: number } | null,
+): string {
+  const PAD = 0.25;
+  const x = Math.max(0, bbox.x - bbox.w * PAD);
+  const y = Math.max(0, bbox.y - bbox.h * PAD);
+  const w = Math.min(1, bbox.x + bbox.w * (1 + PAD)) - x;
+  const h = Math.min(1, bbox.y + bbox.h * (1 + PAD)) - y;
+
+  let bx: number;
+  let by: number;
+  let bw: number;
+  let bh: number;
+  if (naturalDims && naturalDims.nw > 0 && naturalDims.nh > 0) {
+    const aspect = naturalDims.nw / naturalDims.nh;
+    if (aspect >= 1) {
+      bx = -(aspect - 1) / 2 + x * aspect;
+      by = y;
+      bw = w * aspect;
+      bh = h;
+    } else {
+      const ia = 1 / aspect;
+      bx = x;
+      by = -(ia - 1) / 2 + y * ia;
+      bw = w;
+      bh = h * ia;
+    }
+  } else {
+    bx = x;
+    by = y;
+    bw = w;
+    bh = h;
+  }
+  const scale = 1 / Math.max(0.01, Math.max(bw, bh));
+  const tx = 0.5 / scale - bx - bw / 2;
+  const ty = 0.5 / scale - by - bh / 2;
+  return `scale(${scale}) translate(${tx * 100}%, ${ty * 100}%)`;
 }
 
 // ── Copy / labels ─────────────────────────────────────────────────────────

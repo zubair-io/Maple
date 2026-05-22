@@ -236,6 +236,16 @@
     &.mono input {
       font-family: var(--s-mono);
     }
+    &.readonly {
+      .text-input-wrap {
+        background: transparent;
+        border-style: dashed;
+      }
+      input {
+        color: var(--s-text-muted);
+        cursor: default;
+      }
+    }
   }
 
   .num-input {
