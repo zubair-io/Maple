@@ -282,7 +282,12 @@ extension AppShell {
             )
             #endif
             guard let folderURL = url else {
+                // Bookmark went stale (folder moved/renamed/unmounted).
+                // Drop the saved selection and fall back to the first
+                // available source so the user lands on something instead
+                // of an empty grid.
                 SourceSelectionStore.clear()
+                await autoPickInitialSource()
                 return
             }
             // Hold scope for the whole session so detached render tasks work.
@@ -300,7 +305,11 @@ extension AppShell {
             // PhotoKit in a previous session; that's no excuse to ambush them
             // with a library of thousands of images every launch. They click
             // a Photos filter explicitly if they want it this session.
-            break
+            //
+            // Still pick a folder so they don't land on the empty "pick a
+            // folder" state — `autoPickInitialSource` skips PhotoKit by
+            // design so this is a clean fallback.
+            await autoPickInitialSource()
         case .smb(let share):
             connectSavedSMB(share)
         case .cloudLibrary(let serverID, let folderID, let libraryPath):
