@@ -222,16 +222,10 @@ async function tryMergeWithExistingPrimary(
   const survivor = otherIsOlder ? other : loser;
   const condemned = otherIsOlder ? loser : other;
 
-  const mergedFileinfo = unionFileinfo(
-    (other.fileinfo ?? []) as FileInfo[],
-    (loser.fileinfo ?? []) as FileInfo[],
-  );
-
-  // Build the patch for the survivor. fileinfo always changes; the rest
-  // only when the survivor holds a default and the condemned has a
-  // non-default value. For the freshly-extracted exif/is_screenshot from
-  // this stage run, prefer them when the survivor's exif is missing.
-  const survivorPatch: Record<string, unknown> = { fileinfo: mergedFileinfo };
+  // Non-fileinfo carry-over: single $set on the survivor. fileinfo gets
+  // merged separately (per-entry) below to avoid clobbering concurrent
+  // $pushes from discover / other merge workers.
+  const survivorPatch: Record<string, unknown> = {};
   const condemnedRating = (condemned as { rating?: number }).rating ?? 0;
   const condemnedFlag = (condemned as { flag?: number }).flag ?? 0;
   const condemnedColor = (condemned as { color_label?: string }).color_label ?? '';
@@ -252,15 +246,26 @@ async function tryMergeWithExistingPrimary(
   if (!otherIsOlder) {
     survivorPatch.maple_id = newMapleId;
   }
+  if (Object.keys(survivorPatch).length > 0) {
+    await assets.updateOne({ _id: survivor._id }, { $set: survivorPatch });
+  }
 
-  await assets.updateOne({ _id: survivor._id }, { $set: survivorPatch });
+  // Per-entry fileinfo merge. Each entry from `condemned.fileinfo` is
+  // either pushed onto the survivor (conditionally — no-op if a concurrent
+  // worker already pushed the same key triple) or, if the survivor already
+  // has that entry tombstoned and ours is live, flipped to live via
+  // arrayFilters. Mirrors the discover dedup-append pattern in
+  // handle-event.ts so concurrent discover $pushes can't be clobbered by a
+  // wholesale fileinfo replacement.
+  for (const entry of (condemned.fileinfo ?? []) as FileInfo[]) {
+    await mergeFileinfoEntry(assets, survivor._id, entry);
+  }
   await assets.deleteOne({ _id: condemned._id });
 
   // Publish change events so File Provider / SSE clients don't go stale.
   // Best-effort — recordAndPublishAssetChange swallows its own errors so a
   // publish failure won't undo the merge writes above.
   const condemnedPrimary = assetPrimaryFileInfo(condemned as never);
-  const survivorPrimary = assetPrimaryFileInfo({ fileinfo: mergedFileinfo } as never);
   await recordAndPublishAssetChange({
     kind: 'delete',
     asset_id: condemned._id,
@@ -270,30 +275,65 @@ async function tryMergeWithExistingPrimary(
   await recordAndPublishAssetChange({
     kind: 'update',
     asset_id: survivor._id,
-    folder_id: survivorPrimary?.library_id ?? null,
+    folder_id: condemnedPrimary?.library_id ?? null,
     abs_path: null,
   });
 
   return survivor._id;
 }
 
-function unionFileinfo(a: FileInfo[], b: FileInfo[]): FileInfo[] {
-  const seen = new Map<string, FileInfo>();
-  for (const list of [a, b]) {
-    for (const entry of list) {
-      const key = JSON.stringify([entry.library_id.toHexString(), entry.path, entry.filename]);
-      const existing = seen.get(key);
-      if (!existing) {
-        seen.set(key, entry);
-        continue;
-      }
-      // Prefer live over tombstoned for the same location key.
-      if (existing.deleted_at != null && entry.deleted_at == null) {
-        seen.set(key, entry);
-      }
-    }
+/**
+ * Add or refresh a single fileinfo entry on the survivor without
+ * clobbering concurrent $pushes from other writers. Two-step:
+ *   1. Conditional $push — only when no entry with the same
+ *      `(library_id, path, filename)` triple is present.
+ *   2. If the conditional $push found a match (modifiedCount === 0)
+ *      AND our entry is live, clear any tombstone on the matching
+ *      survivor entry via arrayFilters.
+ *
+ * Idempotent: re-running on the same input is a no-op the second time.
+ */
+async function mergeFileinfoEntry(
+  assets: Awaited<ReturnType<typeof assetsCollection>>,
+  survivorId: ObjectId,
+  entry: FileInfo,
+): Promise<void> {
+  const pushResult = await assets.updateOne(
+    {
+      _id: survivorId,
+      fileinfo: {
+        $not: {
+          $elemMatch: {
+            library_id: entry.library_id,
+            path: entry.path,
+            filename: entry.filename,
+          },
+        },
+      },
+    },
+    { $push: { fileinfo: entry as never } },
+  );
+  if (pushResult.modifiedCount > 0) return;
+  // Entry already present on the survivor. If ours is live, surface that
+  // over any tombstone the survivor was holding. (If ours is tombstoned
+  // too, keep the survivor's first-seen entry — same as the boot-time
+  // mergeDuplicateAssets first-wins behaviour.)
+  if (entry.deleted_at == null) {
+    await assets.updateOne(
+      { _id: survivorId },
+      { $set: { 'fileinfo.$[entry].deleted_at': null } },
+      {
+        arrayFilters: [
+          {
+            'entry.library_id': entry.library_id,
+            'entry.path': entry.path,
+            'entry.filename': entry.filename,
+            'entry.deleted_at': { $ne: null },
+          },
+        ],
+      },
+    );
   }
-  return Array.from(seen.values());
 }
 
 export default exifStage;
