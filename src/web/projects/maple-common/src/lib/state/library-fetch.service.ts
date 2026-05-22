@@ -122,6 +122,10 @@ export class LibraryFetch {
   // ── Index write debounce ──────────────────────────────────────────────────
   private _indexWriteTimer: ReturnType<typeof setTimeout> | null = null;
 
+  // ── Self-Hosted cold-start landing folder ────────────────────────────────
+  /** localStorage key — mirrored in BrowseShellComponent. */
+  private readonly LAST_SOURCE_KEY = 'cm.lastSourceId';
+
   // ── Self-Hosted XMP write debounce ────────────────────────────────────────
   private readonly API_XMP_DEBOUNCE_MS = 750;
   private readonly _apiXmpTimers = new Map<AssetId, ReturnType<typeof setTimeout>>();
@@ -269,11 +273,14 @@ export class LibraryFetch {
         this._applyFolderTree(folders);
         if (folders.length === 0) {
           this.status.backendEmpty.set(true);
+        } else {
+          // Land the user on a folder so the grid isn't an empty "pick a
+          // folder" state. Skipped when something already set the selection
+          // (e.g. BrowseShell read `?folder=<absPath>` from the URL on cold
+          // start, or the user clicked a folder mid-flight).
+          this._selectInitialFolder(folders);
         }
         this.status.backendLoading.set(false);
-        // Don't auto-open the first folder — that fires /api/folders/{id}/assets
-        // before the user has expressed intent and before the indexer may have
-        // scanned anything. The user picks a folder from the tree.
       },
       error: (err: HttpErrorResponse) => {
         this.status.backendLoading.set(false);
@@ -284,6 +291,48 @@ export class LibraryFetch {
         );
       },
     });
+  }
+
+  /**
+   * Pick a folder to land on after a `loadFolderTree` returns:
+   *   1. Respect any pre-set `selectedSourceId` (URL `?folder=…` was applied
+   *      synchronously in BrowseShell before this call).
+   *   2. Otherwise, try the last source the user picked (localStorage).
+   *      Either the registered library itself, or a sub-folder inside one.
+   *   3. Otherwise, open the first registered library.
+   */
+  private _selectInitialFolder(folders: ApiFolder[]): void {
+    if (this.selection.selectedSourceId()) return;
+
+    const lastId = (() => {
+      try {
+        return localStorage.getItem(this.LAST_SOURCE_KEY);
+      } catch {
+        return null;
+      }
+    })();
+
+    if (lastId && lastId.startsWith('fs:')) {
+      const absPath = lastId.slice(3);
+      const exactRoot = folders.find((f) => f.path === absPath);
+      if (exactRoot) {
+        this.openSelfHostedFolder(exactRoot);
+        return;
+      }
+      // Sub-folder of a registered library — descendants are not in the
+      // top-level `folders` listing, but `openSelfHostedSubfolder` fetches
+      // via `/api/fs/dir` so it works as long as some library owns the path.
+      const owningLib = folders.find(
+        (f) => absPath === f.path || absPath.startsWith(f.path + '/'),
+      );
+      if (owningLib) {
+        this.openSelfHostedSubfolder(absPath, lastId);
+        return;
+      }
+    }
+
+    const first = folders[0];
+    if (first) this.openSelfHostedFolder(first);
   }
 
   /**
