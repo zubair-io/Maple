@@ -12,16 +12,13 @@ final class AdjustmentModelTests: XCTestCase {
         XCTAssertEqual(AdjustmentModel.default.highlightRecovery, .off)
     }
 
-    /// Ticket 12 Bug 3 — first-open of a sidecar-less RAW must apply the
-    /// ACR / Lightroom default capture-sharpening (Sharpen=45, Radius=1.0)
-    /// instead of the legacy "no edits" identity (Sharpen=0, Radius=0.5).
-    /// Regressing these two would put us back to a soft preview on every
-    /// fresh import. Radius was briefly 5 (the value verbatim from the
-    /// bug ticket) but that pegged the kernel's internal clamp at 3-px
-    /// box width, producing chroma halos on high-contrast edges; 1.0 is
-    /// ACR's actual raw default and well within the documented range.
+    /// Ticket 12 Bug 3 / #326 — first-open of a sidecar-less RAW must apply
+    /// ACR's import baseline (Sharpness=40, Radius=1.0) so the preview is
+    /// no softer than Adobe Camera Raw's. Apple historically carried a
+    /// 45/1.0 override; #326 converges all platforms onto the canonical
+    /// 40/1.0 ACR values.
     func testDefaultSharpeningMatchesACRRawProfile() {
-        XCTAssertEqual(AdjustmentModel.default.sharpenAmount, 45)
+        XCTAssertEqual(AdjustmentModel.default.sharpenAmount, 40)
         XCTAssertEqual(AdjustmentModel.default.sharpenRadius, 1.0)
     }
 

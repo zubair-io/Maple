@@ -32,9 +32,9 @@ export interface GeneratedAdjustmentModel {
   clarity: number;
   /** Fine texture (unsharp radius 3 per spec § 3.8). Range: [-100.0, 100.0]. */
   texture: number;
-  /** Sharpening amount per spec § 3.10 (0 = stage skipped, 100 = full RL). Range: [0.0, 150.0]. */
+  /** Sharpening amount per spec § 3.10 (0 = stage skipped, 100 = full RL). Default = ACR import (40). Range: [0.0, 150.0]. */
   sharpenAmount: number;
-  /** Sharpening PSF Gaussian sigma. Range: [0.5, 3.0]. */
+  /** Sharpening PSF Gaussian sigma. Default = ACR import (1.0). Range: [0.5, 3.0]. */
   sharpenRadius: number;
   /** Sharpening edge-attenuation strength. Range: [0.0, 100.0]. */
   sharpenDetail: number;
@@ -94,8 +94,8 @@ export function defaultGeneratedAdjustmentModel(): GeneratedAdjustmentModel {
     saturation: 0.0,
     clarity: 0.0,
     texture: 0.0,
-    sharpenAmount: 0.0,
-    sharpenRadius: 0.5,
+    sharpenAmount: 40.0,
+    sharpenRadius: 1.0,
     sharpenDetail: 25.0,
     sharpenMasking: 0.0,
     captureSharpeningAmount: 0.0,
