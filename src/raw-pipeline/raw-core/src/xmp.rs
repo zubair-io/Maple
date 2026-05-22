@@ -139,11 +139,11 @@ mod tests {
         let m = parse(&xml).unwrap();
         // baseline.xmp is the camera's default ACR sidecar, which records
         // ACR's user-visible defaults (Sharpness=40, SharpenRadius=1.0).
-        // Rust's `AdjustmentModel::default()` sets sharpen_amount=0 /
-        // sharpen_radius=0.5 — that's the "no edits applied" identity, not
-        // ACR's "fresh camera import" baseline. The assertion compares the
-        // parsed sidecar against an explicitly-built ACR-defaults model so
-        // it doesn't tilt if Default's identity values change.
+        // As of #326, `AdjustmentModel::default()` already encodes the ACR
+        // import baseline, so the explicit overrides below are no-ops —
+        // we keep them spelled out to document what the test is asserting
+        // and to fail loudly if a future commit shifts the canonical
+        // defaults away from ACR.
         let acr_defaults = AdjustmentModel {
             sharpen_amount: 40.0,
             sharpen_radius: 1.0,
@@ -374,9 +374,10 @@ mod tests {
 
     #[test]
     fn defaults_includes_slice5_detail_fields() {
+        // Sharpen defaults match ACR's fresh-import baseline per #326.
         let m = AdjustmentModel::default();
-        assert_eq!(m.sharpen_amount, 0.0);
-        assert_eq!(m.sharpen_radius, 0.5);
+        assert_eq!(m.sharpen_amount, 40.0);
+        assert_eq!(m.sharpen_radius, 1.0);
         assert_eq!(m.sharpen_detail, 25.0);
         assert_eq!(m.sharpen_masking, 0.0);
         assert_eq!(m.nr_luminance, 0.0);
