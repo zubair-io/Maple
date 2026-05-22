@@ -4,7 +4,7 @@
 //   primaryURL hash (MD5)
 //   sidecar mtime (XMP last-modified timestamp)
 //   screen size (integer width class)
-//   viewTransformVersion (AGX_VERSION = 2)
+//   viewTransformVersion (bumped on any pipeline-output change)
 //
 // Storage: .maple/previews/<key>.jpg
 // Entries are invalidated on any key component change.
@@ -38,7 +38,11 @@ public actor RenderedPreviewCache {
     // pre-Phase-1.1 cached render JPEG and short-circuits the entire
     // pipeline, so users keep seeing the OLD output regardless of how many
     // times the Rust code is rebuilt.
-    private let viewTransformVersion: UInt32 = 3
+    // v4 (#263): canonical Sobotka AgX (inset/outset matrices + real Jed
+    // Smith sigmoid replacing the polynomial fit). Mid-gray now lands at
+    // 0.18 instead of 0.237 — every preview from before this change reads
+    // ~8% bright at mid-gray.
+    private let viewTransformVersion: UInt32 = 4
 
     // MARK: - Configure
 
