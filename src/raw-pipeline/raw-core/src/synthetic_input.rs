@@ -1,0 +1,277 @@
+//! Synthetic scene-linear inputs for the diagnostic detectors.
+//!
+//! Every generator returns a fully-formed `Image` in `SceneLinearRec2020`
+//! at f32 — the same colorspace and dtype the develop chain hands to the
+//! view transform. Detectors feed these buffers through
+//! `render_from_scene_linear` (or with the slider chain, when a clarity /
+//! dehaze variant is under test) and inspect the resulting per-stage EXR
+//! dumps via the existing `MAPLE_STAGE_DUMP` infrastructure.
+//!
+//! Three failure modes are covered:
+//!
+//! * `neutral_ramp` — exercises monotonicity / R==G==B / shadow histogram
+//!   gaps. Symptoms: shadow magenta-banding, stepped gradients.
+//! * `hue_patch` — six saturated primaries × six exposures. Symptoms:
+//!   per-channel hue rotation at the AgX shoulder (red→pink, blue→magenta).
+//! * `halo_disk` — anti-aliased dark disk on bright background. Symptoms:
+//!   clarity / dehaze unsharp-mask overshoot at the edge.
+//!
+//! Used by `maple-cli synthetic`. See `src/scripts/banding_check.py`,
+//! `hue_stability.py`, `halo_check.py`.
+
+use crate::image::{ColorSpace, Image};
+
+/// Spec mid-gray used as the brightness anchor for the synthetic inputs.
+/// Matches `view::agx::AGX_MID_GRAY` (0.18) — keeps the AgX log-encoding
+/// math at well-known anchor positions for every kind of synthetic patch.
+const MID_GRAY: f32 = 0.18;
+
+/// One of the six saturated colour primaries that get pumped through the
+/// hue-stability detector. R / G / B are the Rec.2020 primaries; C / M / Y
+/// are their pairwise sums.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum Primary {
+    Red,
+    Green,
+    Blue,
+    Cyan,
+    Magenta,
+    Yellow,
+}
+
+impl Primary {
+    /// Parse the single-letter flag used by `maple-cli synthetic --primary`.
+    pub fn from_letter(s: &str) -> Option<Self> {
+        match s.to_ascii_lowercase().as_str() {
+            "r" | "red" => Some(Primary::Red),
+            "g" | "green" => Some(Primary::Green),
+            "b" | "blue" => Some(Primary::Blue),
+            "c" | "cyan" => Some(Primary::Cyan),
+            "m" | "magenta" => Some(Primary::Magenta),
+            "y" | "yellow" => Some(Primary::Yellow),
+            _ => None,
+        }
+    }
+
+    /// Letter the CLI uses to name this primary on disk (e.g. dump dir
+    /// suffixes). One letter so output dirs sort cleanly.
+    pub fn letter(self) -> &'static str {
+        match self {
+            Primary::Red => "r",
+            Primary::Green => "g",
+            Primary::Blue => "b",
+            Primary::Cyan => "c",
+            Primary::Magenta => "m",
+            Primary::Yellow => "y",
+        }
+    }
+
+    /// Unit triple in Rec.2020-space — the "1.0" magnitude for this
+    /// primary. Multiplied by the EV-scaled mid-gray to get the final
+    /// scene-linear value.
+    fn rgb_unit(self) -> [f32; 3] {
+        match self {
+            Primary::Red => [1.0, 0.0, 0.0],
+            Primary::Green => [0.0, 1.0, 0.0],
+            Primary::Blue => [0.0, 0.0, 1.0],
+            Primary::Cyan => [0.0, 1.0, 1.0],
+            Primary::Magenta => [1.0, 0.0, 1.0],
+            Primary::Yellow => [1.0, 1.0, 0.0],
+        }
+    }
+}
+
+/// 1-D linear 0→1 ramp, tiled vertically. Width pixels along x carry the
+/// ramp value `x / (width - 1)`; height is just for batch-stat sampling
+/// (more rows = denser histogram). Identical R / G / B per pixel — any
+/// per-row R-G drift downstream is purely the pipeline's fault.
+pub fn neutral_ramp(width: u32, height: u32) -> Image {
+    assert!(width >= 2, "neutral_ramp: width must be >= 2");
+    assert!(height >= 1, "neutral_ramp: height must be >= 1");
+    let mut img = Image::new(width, height, ColorSpace::SceneLinearRec2020);
+    let denom = (width - 1) as f32;
+    for y in 0..height as usize {
+        for x in 0..width as usize {
+            let v = (x as f32) / denom;
+            img.pixels[y * width as usize + x] = [v, v, v];
+        }
+    }
+    img
+}
+
+/// Uniform saturated primary at `MID_GRAY * 2^ev`. The output is constant
+/// across all pixels — the detector picks one pixel and measures its hue
+/// angle in CAM16-UCS post-AgX.
+pub fn hue_patch(primary: Primary, ev: f32, width: u32, height: u32) -> Image {
+    assert!(width >= 1, "hue_patch: width must be >= 1");
+    assert!(height >= 1, "hue_patch: height must be >= 1");
+    let scale = MID_GRAY * ev.exp2();
+    let unit = primary.rgb_unit();
+    let rgb = [unit[0] * scale, unit[1] * scale, unit[2] * scale];
+    let mut img = Image::new(width, height, ColorSpace::SceneLinearRec2020);
+    for p in &mut img.pixels {
+        *p = rgb;
+    }
+    img
+}
+
+/// Anti-aliased dark disk on a bright background. Background sits at
+/// `Y ≈ 0.8` (neutral, so each channel is also 0.8); disk sits at
+/// `Y ≈ 0.2`. Centered, diameter = `min(width, height) * 0.6`. The
+/// transition is a 1-pixel smoothstep at the radius — gives the halo
+/// detector enough edge gradient to sample a radial profile without
+/// per-pixel aliasing noise contaminating the overshoot estimate.
+pub fn halo_disk(width: u32, height: u32) -> Image {
+    assert!(width >= 4, "halo_disk: width must be >= 4");
+    assert!(height >= 4, "halo_disk: height must be >= 4");
+    const BG: f32 = 0.8;
+    const FG: f32 = 0.2;
+    let cx = (width as f32 - 1.0) * 0.5;
+    let cy = (height as f32 - 1.0) * 0.5;
+    let radius = (width.min(height) as f32) * 0.3;
+    let mut img = Image::new(width, height, ColorSpace::SceneLinearRec2020);
+    for y in 0..height as usize {
+        for x in 0..width as usize {
+            let dx = x as f32 - cx;
+            let dy = y as f32 - cy;
+            let d = (dx * dx + dy * dy).sqrt();
+            // Smoothstep across a 1-pixel-wide band centred on the
+            // nominal radius. `t = 0` inside the disk → FG; `t = 1`
+            // outside → BG.
+            let t = ((d - radius + 0.5) / 1.0).clamp(0.0, 1.0);
+            let t = t * t * (3.0 - 2.0 * t);
+            let v = FG * (1.0 - t) + BG * t;
+            img.pixels[y * width as usize + x] = [v, v, v];
+        }
+    }
+    img
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn neutral_ramp_endpoints_are_zero_and_one() {
+        let img = neutral_ramp(256, 4);
+        assert_eq!(img.pixels[0], [0.0, 0.0, 0.0]);
+        let last = img.pixels[255];
+        assert!((last[0] - 1.0).abs() < 1e-6);
+        assert_eq!(last[0], last[1]);
+        assert_eq!(last[1], last[2]);
+    }
+
+    #[test]
+    fn neutral_ramp_is_monotone_and_achromatic() {
+        let img = neutral_ramp(64, 1);
+        for i in 1..64 {
+            let prev = img.pixels[i - 1][0];
+            let cur = img.pixels[i][0];
+            assert!(cur >= prev, "non-monotone at {}: {} -> {}", i, prev, cur);
+            let p = img.pixels[i];
+            assert_eq!(p[0], p[1], "R != G at {}: {:?}", i, p);
+            assert_eq!(p[1], p[2], "G != B at {}: {:?}", i, p);
+        }
+    }
+
+    #[test]
+    fn neutral_ramp_rows_are_identical() {
+        let img = neutral_ramp(16, 8);
+        let w = 16usize;
+        for y in 1..8 {
+            for x in 0..w {
+                assert_eq!(img.pixels[y * w + x], img.pixels[x]);
+            }
+        }
+    }
+
+    #[test]
+    fn hue_patch_is_uniform_and_carries_expected_chroma() {
+        let img = hue_patch(Primary::Red, 0.0, 4, 4);
+        let first = img.pixels[0];
+        for p in &img.pixels {
+            assert_eq!(*p, first, "hue patch not uniform");
+        }
+        // EV=0 → MID_GRAY; red unit → R=0.18, G=0, B=0.
+        assert!((first[0] - MID_GRAY).abs() < 1e-6);
+        assert_eq!(first[1], 0.0);
+        assert_eq!(first[2], 0.0);
+    }
+
+    #[test]
+    fn hue_patch_exposures_scale_by_two() {
+        let lo = hue_patch(Primary::Green, 0.0, 1, 1).pixels[0][1];
+        let hi = hue_patch(Primary::Green, 1.0, 1, 1).pixels[0][1];
+        assert!(
+            (hi / lo - 2.0).abs() < 1e-5,
+            "EV+1 should double: {} -> {}",
+            lo,
+            hi
+        );
+    }
+
+    #[test]
+    fn hue_patch_yellow_is_red_plus_green() {
+        let yellow = hue_patch(Primary::Yellow, 0.0, 1, 1).pixels[0];
+        assert!((yellow[0] - MID_GRAY).abs() < 1e-6);
+        assert!((yellow[1] - MID_GRAY).abs() < 1e-6);
+        assert_eq!(yellow[2], 0.0);
+    }
+
+    #[test]
+    fn primary_from_letter_round_trips() {
+        for p in [
+            Primary::Red,
+            Primary::Green,
+            Primary::Blue,
+            Primary::Cyan,
+            Primary::Magenta,
+            Primary::Yellow,
+        ] {
+            assert_eq!(Primary::from_letter(p.letter()), Some(p));
+        }
+        assert_eq!(Primary::from_letter("RED"), Some(Primary::Red));
+        assert!(Primary::from_letter("k").is_none());
+    }
+
+    #[test]
+    fn halo_disk_center_is_dark_and_corners_are_bright() {
+        let img = halo_disk(128, 128);
+        let center = img.pixels[64 * 128 + 64];
+        assert!(center[0] < 0.3, "center should be dark, got {}", center[0]);
+        let corner = img.pixels[0];
+        assert!(
+            corner[0] > 0.7,
+            "corner should be bright, got {}",
+            corner[0]
+        );
+    }
+
+    #[test]
+    fn halo_disk_is_achromatic_everywhere() {
+        let img = halo_disk(64, 64);
+        for p in &img.pixels {
+            assert_eq!(p[0], p[1]);
+            assert_eq!(p[1], p[2]);
+        }
+    }
+
+    #[test]
+    fn halo_disk_edge_band_is_anti_aliased() {
+        // Walk from centre outward along the x axis; the transition from
+        // FG to BG should span more than one pixel (some pixel sits at
+        // an intermediate value).
+        let img = halo_disk(64, 64);
+        let cy = 32usize;
+        let intermediates: usize = (0..64)
+            .filter(|&x| {
+                let v = img.pixels[cy * 64 + x][0];
+                v > 0.25 && v < 0.75
+            })
+            .count();
+        assert!(
+            intermediates >= 1,
+            "halo edge is not anti-aliased (0 intermediate pixels)"
+        );
+    }
+}
