@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # test_halo_detection.sh — halo-overshoot detector on a synthetic disk.
 #
-# Renders three variants of a dark-disk-on-light-background scene through
+# Renders four variants of a dark-disk-on-light-background scene through
 # the pipeline:
-#   control   — default model (no clarity, no dehaze).
+#   control   — default model (no clarity, no texture, no dehaze).
 #   clarity   — clarity=+100.
+#   texture   — texture=+100.
 #   dehaze    — dehaze=+100.
 # Each variant dumps every pipeline stage; `halo_check.py` reports the
 # overshoot percentage at the disk edge.
@@ -58,6 +59,15 @@ cat > "$WORK/xmp/clarity.xmp" <<'EOF'
 </x:xmpmeta>
 EOF
 
+cat > "$WORK/xmp/texture.xmp" <<'EOF'
+<x:xmpmeta xmlns:x="adobe:ns:meta/">
+  <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+    <rdf:Description xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
+                     crs:Texture="+100"/>
+  </rdf:RDF>
+</x:xmpmeta>
+EOF
+
 cat > "$WORK/xmp/dehaze.xmp" <<'EOF'
 <x:xmpmeta xmlns:x="adobe:ns:meta/">
   <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
@@ -75,7 +85,7 @@ cat > "$WORK/xmp/control.xmp" <<'EOF'
 </x:xmpmeta>
 EOF
 
-declare -a VARIANTS=("control" "clarity" "dehaze")
+declare -a VARIANTS=("control" "clarity" "texture" "dehaze")
 for v in "${VARIANTS[@]}"; do
   sub="$WORK/$v"
   mkdir -p "$sub/stages"
