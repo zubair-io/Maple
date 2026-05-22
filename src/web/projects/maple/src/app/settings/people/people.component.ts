@@ -167,8 +167,34 @@ export class PeopleComponent implements OnDestroy {
    * card can use the same `^Person N$` rule. */
   protected readonly isAutoName = isAutoNamed;
 
-  /** Template re-exposure of the bbox-crop transform builder. */
-  protected readonly faceCropTransform = faceCropTransform;
+  /** Natural pixel dimensions of each face-thumb's source image, keyed by
+   * thumb URL. Populated from the `<img>` `(load)` event. Used by
+   * `faceCropTransform` to undo the `object-fit: cover` letterbox so the
+   * bbox lands where the detector said it would, regardless of source
+   * aspect ratio. */
+  protected readonly imgNaturalDims = signal<ReadonlyMap<string, { nw: number; nh: number }>>(
+    new Map(),
+  );
+
+  onFaceImgLoad(url: string, event: Event): void {
+    const img = event.target as HTMLImageElement;
+    if (!img.naturalWidth || !img.naturalHeight) return;
+    const cur = this.imgNaturalDims();
+    const prev = cur.get(url);
+    if (prev && prev.nw === img.naturalWidth && prev.nh === img.naturalHeight) return;
+    const next = new Map(cur);
+    next.set(url, { nw: img.naturalWidth, nh: img.naturalHeight });
+    this.imgNaturalDims.set(next);
+  }
+
+  /** Template wrapper around the pure `faceCropTransform` from
+   * `people.vm.ts` — looks up the natural dimensions captured by
+   * `onFaceImgLoad` for the given thumb URL and threads them through so
+   * the transform can compensate for the cover-fit letterbox. */
+  faceCropTransform(bbox: Bbox, url: string | null): string {
+    const dims = url ? (this.imgNaturalDims().get(url) ?? null) : null;
+    return faceCropTransform(bbox, dims);
+  }
 
   /** Bearer-gated thumbnail blob cache. See {@link ThumbBlobCache} for
    * lifecycle / cache-key rules. Created once per component instance. */
