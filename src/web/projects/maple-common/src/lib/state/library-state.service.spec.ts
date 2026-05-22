@@ -69,10 +69,11 @@ describe('LibraryStateService — Self-Hosted picker + addLibraryFolder', () => 
   // `applyApiAssets` → `_loadApiXmp` code path, so the previous passthrough
   // round-trip test that exercised it via `api.listAssets` no longer reaches
   // the XMP read at all. The live Self-Hosted load path (`_applyFsListing`)
-  // now hydrates XMP via `SidecarStore.prefetch(path)` — the round-trip
-  // passthrough contract is covered by `sidecar.store.spec.ts` and the
-  // serializer's own tests. We keep this file for the library-picker and
-  // addLibraryFolder assertions below.
+  // no longer touches XMP at browse time — `SidecarStore.setActivePath` in
+  // the editor lazy-fetches via `httpResource` when an asset is opened. The
+  // round-trip passthrough contract is covered by `sidecar.store.spec.ts`
+  // and the serializer's own tests. We keep this file for the library-picker
+  // and addLibraryFolder assertions below.
 
   describe('library picker visibility', () => {
     it('toggles via openLibraryPicker / closeLibraryPicker', () => {
