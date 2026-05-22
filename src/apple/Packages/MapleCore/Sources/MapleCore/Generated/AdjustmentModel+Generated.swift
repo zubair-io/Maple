@@ -29,6 +29,8 @@ extension AdjustmentModel {
         case sharpenRadius = "sharpen_radius"
         case sharpenDetail = "sharpen_detail"
         case sharpenMasking = "sharpen_masking"
+        case captureSharpeningAmount = "capture_sharpening_amount"
+        case captureSharpeningRadius = "capture_sharpening_radius"
         case nrLuminance = "nr_luminance"
         case nrColor = "nr_color"
         case dehaze = "dehaze"
@@ -69,6 +71,10 @@ extension AdjustmentModel {
     public static let sharpenDetailRange: ClosedRange<Double> = 0.0...100.0
     /// Sharpening edge-mask threshold.
     public static let sharpenMaskingRange: ClosedRange<Double> = 0.0...100.0
+    /// Capture sharpening strength (Richardson-Lucy deconvolution; 0 = stage skipped).
+    public static let captureSharpeningAmountRange: ClosedRange<Double> = 0.0...100.0
+    /// Capture sharpening PSF blur radius in pixels.
+    public static let captureSharpeningRadiusRange: ClosedRange<Double> = 0.5...2.0
     /// Luminance noise reduction strength per spec § 3.11.
     public static let nrLuminanceRange: ClosedRange<Double> = 0.0...100.0
     /// Color noise reduction strength (default = ACR's default).

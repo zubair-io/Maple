@@ -362,6 +362,17 @@ private struct ActiveDevelopTab: View {
                 AdjustSlider("NR Color",   value: $session.model.nrColor,        range: AdjustmentModel.nrColorRange,
                              colors: [.gray, .white], defaultValue: 25)
             }
+            Divider().overlay(MapleTokens.border)
+            CollapsibleSection(title: "Capture Sharpening") {
+                // Richardson-Lucy deconvolution against a Gaussian PSF —
+                // sensor-pixel-level crispness applied post-DCP in the
+                // Rust scene-linear chain (see #271). Off by default.
+                AdjustSlider("Amount",     value: $session.model.captureSharpeningAmount, range: AdjustmentModel.captureSharpeningAmountRange,
+                             colors: [.gray, .white])
+                AdjustSlider("Radius",     value: $session.model.captureSharpeningRadius, range: AdjustmentModel.captureSharpeningRadiusRange,
+                             format: "%.1f",
+                             colors: [.gray, .white], defaultValue: 1.0)
+            }
         }
         .padding(.vertical, 4)
     }
@@ -438,6 +449,13 @@ private struct DisabledDevelopTab: View {
                              colors: [.gray, .white])
                 AdjustSlider("NR Color",   value: $z, range: AdjustmentModel.nrColorRange,
                              colors: [.gray, .white], defaultValue: 25)
+            }
+            Divider().overlay(MapleTokens.border)
+            CollapsibleSection(title: "Capture Sharpening") {
+                AdjustSlider("Amount",     value: $z, range: AdjustmentModel.captureSharpeningAmountRange,
+                             colors: [.gray, .white])
+                AdjustSlider("Radius",     value: $z, range: AdjustmentModel.captureSharpeningRadiusRange, format: "%.1f",
+                             colors: [.gray, .white], defaultValue: 1.0)
             }
         }
         .padding(.vertical, 4)

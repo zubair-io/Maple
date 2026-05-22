@@ -332,6 +332,8 @@ const SWIFT_STRIPPED_XMP: &str = r#"<?xpacket begin="\u{FEFF}" id="W5M0MpCehiHzr
       crs:SharpenRadius="1.5"
       crs:SharpenDetail="60"
       crs:SharpenEdgeMasking="20"
+      papp:CaptureSharpeningAmount="55"
+      papp:CaptureSharpeningRadius="1.5"
       crs:LuminanceSmoothing="0"
       crs:ColorNoiseReduction="25"
       xmp:Rating="0"
@@ -372,6 +374,10 @@ fn swift_stripped_xmp_round_trips_to_rust_model() {
     assert_eq!(model.sharpen_radius, 1.5);
     assert_eq!(model.sharpen_detail, 60.0);
     assert_eq!(model.sharpen_masking, 20.0);
+    // Capture sharpening (#271) runs inside the Rust decode and has no
+    // Apple Metal equivalent — kept by the strip and must round-trip.
+    assert_eq!(model.capture_sharpening_amount, 55.0);
+    assert_eq!(model.capture_sharpening_radius, 1.5);
     assert_eq!(
         model.highlight_recovery,
         raw_core::xmp::HighlightRecoveryMode::Blend,
