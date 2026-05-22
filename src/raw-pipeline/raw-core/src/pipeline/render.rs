@@ -20,10 +20,7 @@ use super::{
 use crate::{
     error::Result,
     image::{apply_orientation, ColorSpace, Image, RawImage},
-    stages::{
-        clarity, dehaze, noise_reduction, saturation, scene_tone_controls, texture, vibrance,
-        white_balance,
-    },
+    stages::{clarity, dehaze, noise_reduction, saturation, sharpen, texture, vibrance},
     view::{agx, encode},
     xmp::AdjustmentModel,
 };
@@ -187,16 +184,21 @@ pub fn render_from_scene_linear(
 }
 
 /// Synthetic-input render with the slider chain applied first. The detectors
-/// that probe slider artefacts (halo overshoot from clarity / dehaze)
-/// need a path that runs those stages on a synthetic input. Mirrors the
-/// scene-linear stages that `apply_scene_linear_chain` runs over real raws,
-/// but on a fresh `Image` rather than a fp16 RGBA buffer.
+/// that probe slider artefacts (halo overshoot from clarity / dehaze /
+/// sharpen) need a path that runs those stages on a synthetic input. Mirrors
+/// the scene-linear stages that `develop_scene_linear_from_raw_with_quality`
+/// runs over real raws, but on a fresh `Image` rather than going through
+/// decode / demosaic / DCP / auto-exposure.
 ///
-/// White-balance / scene-tone are skipped — the synthetic input is already
-/// in the working colorspace at the requested brightness; running WB or
-/// tone-mapping a uniform patch is meaningless. Clarity, texture, dehaze
-/// and the noise-reduction stages DO run, because those are the ones whose
-/// halo / banding artefacts the synthetic detectors are designed to catch.
+/// White-balance and scene-tone-controls are skipped — the synthetic input
+/// is generated directly in the Rec.2020 working space at a known
+/// brightness, so running WB delta or tone-mapping over it would only
+/// muddy the artefact under test. Vibrance and saturation are kept (they
+/// scale around the achromatic axis, so they're no-ops on neutrals but DO
+/// affect saturated primaries the way a real pixel would see). Stage
+/// numbering matches the real RAW develop chain in `develop.rs`, with no
+/// dumps for the skipped stages (so `05_auto_exposure` / `06_white_balance`
+/// / `07_scene_tone_controls` are absent from this trace by design).
 pub fn render_from_scene_linear_with_chain(
     image: Image,
     model: &AdjustmentModel,
@@ -205,16 +207,9 @@ pub fn render_from_scene_linear_with_chain(
     scene.assert_space(ColorSpace::SceneLinearRec2020);
     dump_after("00_synthetic_input", &scene);
     // White-balance + scene-tone-controls deliberately skipped — see
-    // doc-comment. Vibrance + saturation are scaled around the
-    // achromatic axis, so they're no-ops on neutral / pure-primary
-    // inputs; we still run them for completeness so a magenta patch
-    // gets the same vibrance treatment a real magenta pixel would.
-    stage("synth_white_balance", || {
-        white_balance::apply_delta(&mut scene, model.temperature, model.tint, 6500.0, 0.0)
-    });
-    dump_after("06_white_balance", &scene);
-    stage("synth_scene_tone_controls", || scene_tone_controls::apply(&mut scene, model));
-    dump_after("07_scene_tone_controls", &scene);
+    // doc-comment. The detectors that consume this trace target slider
+    // artefacts (clarity / dehaze / sharpen halos, NR banding); the WB
+    // and tone-control stages are tested elsewhere on real RAWs.
     stage("synth_vibrance", || vibrance::apply(&mut scene, model.vibrance));
     dump_after("08_vibrance", &scene);
     stage("synth_saturation", || saturation::apply(&mut scene, model.saturation));
@@ -225,6 +220,16 @@ pub fn render_from_scene_linear_with_chain(
     dump_after("11_texture", &scene);
     stage("synth_dehaze", || dehaze::apply(&mut scene, model.dehaze));
     dump_after("12_dehaze", &scene);
+    stage("synth_sharpen", || {
+        sharpen::apply(
+            &mut scene,
+            model.sharpen_amount,
+            model.sharpen_radius,
+            model.sharpen_detail,
+            model.sharpen_masking,
+        )
+    });
+    dump_after("13_sharpen", &scene);
     stage("synth_nr_luminance", || noise_reduction::apply_luminance(&mut scene, model.nr_luminance));
     dump_after("14_nr_luminance", &scene);
     stage("synth_nr_color", || noise_reduction::apply_color(&mut scene, model.nr_color));
@@ -396,7 +401,7 @@ mod tests {
         for x in 1..w as usize {
             let prev = bytes[(x - 1) * 3] as i32;
             let cur = bytes[x * 3] as i32;
-            assert!(cur >= prev - 1,
+            assert!(cur >= prev,
                 "non-monotone at x={}: {} -> {}", x, prev, cur);
         }
         // Achromatic: R == G == B at every pixel (tolerance for view-

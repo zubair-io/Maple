@@ -478,6 +478,22 @@ fn do_synthetic(
     let w = width.unwrap_or(default_w);
     let h = height.unwrap_or(default_h);
 
+    // Validate against each kind's minimum dimensions BEFORE calling the
+    // generator — otherwise raw_core::synthetic_input::* panics on debug
+    // assertions and leaves the user with a stack trace instead of a
+    // CLI error. Constraints mirror the asserts in synthetic_input.rs.
+    let (min_w, min_h) = match kind {
+        SyntheticKind::NeutralRamp => (2u32, 1u32),
+        SyntheticKind::HuePatch    => (1u32, 1u32),
+        SyntheticKind::HaloDisk    => (4u32, 4u32),
+    };
+    if w < min_w || h < min_h {
+        return Err(format!(
+            "--kind {:?}: width must be >= {} and height must be >= {} (got {}x{})",
+            kind, min_w, min_h, w, h,
+        ).into());
+    }
+
     let image = match kind {
         SyntheticKind::NeutralRamp => neutral_ramp(w, h),
         SyntheticKind::HuePatch => {
