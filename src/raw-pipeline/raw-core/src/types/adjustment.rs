@@ -82,6 +82,8 @@ pub struct AdjustmentModel {
     pub sharpen_radius: f32, // 0.5..3.0, default 0.5 (PSF Gaussian sigma)
     pub sharpen_detail: f32, // 0..100, default 25 (edge-attenuation strength)
     pub sharpen_masking: f32, // 0..100, default 0 (edge-mask threshold)
+    pub capture_sharpening_amount: f32, // 0..100, default 0 (Richardson–Lucy strength; 0 = stage skipped)
+    pub capture_sharpening_radius: f32, // 0.5..2.0, default 1.0 (PSF blur radius — see stages::capture_sharpening)
     pub nr_luminance: f32,   // 0..100, default 0 (spec § 3.11)
     pub nr_color: f32,       // 0..100, default 25 (default = ACR's default)
     pub dehaze: f32,         // -100..100, default 0
@@ -107,6 +109,8 @@ impl Default for AdjustmentModel {
             sharpen_radius: 0.5,
             sharpen_detail: 25.0,
             sharpen_masking: 0.0,
+            capture_sharpening_amount: 0.0,
+            capture_sharpening_radius: 1.0,
             nr_luminance: 0.0,
             nr_color: 25.0,
             dehaze: 0.0,
@@ -286,6 +290,22 @@ pub const ADJUSTMENT_SCHEMA: &[FieldSpec] = &[
         doc: "Sharpening edge-mask threshold.",
     },
     FieldSpec {
+        name: "capture_sharpening_amount",
+        kind: FieldKind::F32,
+        range: (0.0, 100.0),
+        default_f32: 0.0,
+        enum_name: "",
+        doc: "Capture sharpening strength (Richardson-Lucy deconvolution; 0 = stage skipped).",
+    },
+    FieldSpec {
+        name: "capture_sharpening_radius",
+        kind: FieldKind::F32,
+        range: (0.5, 2.0),
+        default_f32: 1.0,
+        enum_name: "",
+        doc: "Capture sharpening PSF blur radius in pixels.",
+    },
+    FieldSpec {
         name: "nr_luminance",
         kind: FieldKind::F32,
         range: (0.0, 100.0),
@@ -351,6 +371,8 @@ mod tests {
             sharpen_radius,
             sharpen_detail,
             sharpen_masking,
+            capture_sharpening_amount,
+            capture_sharpening_radius,
             nr_luminance,
             nr_color,
             dehaze,
@@ -373,6 +395,8 @@ mod tests {
             "sharpen_radius",
             "sharpen_detail",
             "sharpen_masking",
+            "capture_sharpening_amount",
+            "capture_sharpening_radius",
             "nr_luminance",
             "nr_color",
             "dehaze",
@@ -408,6 +432,8 @@ mod tests {
             sharpen_radius,
             sharpen_detail,
             sharpen_masking,
+            capture_sharpening_amount,
+            capture_sharpening_radius,
             nr_luminance,
             nr_color,
             dehaze,
@@ -441,6 +467,8 @@ mod tests {
                 "sharpen_radius" => m.sharpen_radius,
                 "sharpen_detail" => m.sharpen_detail,
                 "sharpen_masking" => m.sharpen_masking,
+                "capture_sharpening_amount" => m.capture_sharpening_amount,
+                "capture_sharpening_radius" => m.capture_sharpening_radius,
                 "nr_luminance" => m.nr_luminance,
                 "nr_color" => m.nr_color,
                 "dehaze" => m.dehaze,

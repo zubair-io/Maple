@@ -59,6 +59,11 @@ fn set_field(m: &mut AdjustmentModel, key: &str, value: &str) -> Result<()> {
         "crs:SharpenRadius"        => m.sharpen_radius  = v()?,
         "crs:SharpenDetail"        => m.sharpen_detail  = v()?,
         "crs:SharpenEdgeMasking"   => m.sharpen_masking = v()?,
+        // Capture sharpening (Richardson-Lucy deconvolution) — Maple-proprietary,
+        // distinct from ACR's `crs:Sharpness` unsharp-mask sliders above. Lives
+        // under the `papp:` namespace because ACR has no equivalent control.
+        "papp:CaptureSharpeningAmount" => m.capture_sharpening_amount = v()?,
+        "papp:CaptureSharpeningRadius" => m.capture_sharpening_radius = v()?,
         "crs:LuminanceSmoothing"   => m.nr_luminance    = v()?,
         "crs:ColorNoiseReduction"  => m.nr_color        = v()?,
         "crs:Dehaze"         => m.dehaze      = v()?,
@@ -409,5 +414,21 @@ mod tests {
         };
         let m = parse(&xml).unwrap();
         assert_eq!(m.nr_color, 100.0);
+    }
+
+    #[test]
+    fn defaults_capture_sharpening_is_off() {
+        let m = AdjustmentModel::default();
+        assert_eq!(m.capture_sharpening_amount, 0.0);
+        assert_eq!(m.capture_sharpening_radius, 1.0);
+    }
+
+    #[test]
+    fn parse_capture_sharpening_attributes() {
+        let xml = r#"<?xml version="1.0"?><x><rdf:Description xmlns:rdf="x" xmlns:papp="x"
+            papp:CaptureSharpeningAmount="65" papp:CaptureSharpeningRadius="1.5"/></x>"#;
+        let m = parse(xml).unwrap();
+        assert_eq!(m.capture_sharpening_amount, 65.0);
+        assert!((m.capture_sharpening_radius - 1.5).abs() < 1e-6);
     }
 }

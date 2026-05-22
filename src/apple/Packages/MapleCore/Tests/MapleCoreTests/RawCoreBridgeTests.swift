@@ -31,6 +31,8 @@ final class RawCoreBridgeTests: XCTestCase {
             sharpenRadius: 1.5,
             sharpenDetail: 60,
             sharpenMasking: 20,
+            captureSharpeningAmount: 55,
+            captureSharpeningRadius: 1.5,
             nrLuminance: 18,
             nrColor: 33,
             highlightRecovery: .blend
@@ -76,6 +78,11 @@ final class RawCoreBridgeTests: XCTestCase {
         XCTAssertEqual(stripped.sharpenRadius, original.sharpenRadius)
         XCTAssertEqual(stripped.sharpenDetail, original.sharpenDetail)
         XCTAssertEqual(stripped.sharpenMasking, original.sharpenMasking)
+        // captureSharpening* run inside the Rust decode (post-DCP) and have
+        // no Apple Metal equivalent — kept so the live slider value reaches
+        // the FFI decode.
+        XCTAssertEqual(stripped.captureSharpeningAmount, original.captureSharpeningAmount)
+        XCTAssertEqual(stripped.captureSharpeningRadius, original.captureSharpeningRadius)
     }
 
     func test_strip_is_idempotent() {
