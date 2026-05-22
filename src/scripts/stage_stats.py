@@ -17,8 +17,11 @@ For each EXR in <dump_dir>:
 Output: column-aligned table sorted by filename (which sorts in pipeline
 order due to the NN_ prefix). Optional --json for machine consumption.
 
-Exit code 0 always — this is a diagnostic, not a gate. Gates live in the
-existing color-parity harness (test_color_pipeline.sh).
+This is a diagnostic, not a quality gate — for any successful invocation
+the exit code is 0 regardless of what the metrics say, and gates live in
+the existing color-parity harness (test_color_pipeline.sh). Returns
+non-zero (2) only when the invocation itself is invalid, e.g. `dump_dir`
+is not a directory.
 """
 
 from __future__ import annotations
