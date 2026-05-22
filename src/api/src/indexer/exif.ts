@@ -21,7 +21,15 @@ const log = childLogger('indexer:exif');
  * via the backup ingest route (no extension filter there). Return null
  * without attempting a parse — no warning needed, this is expected. */
 const EXIFR_UNSUPPORTED_EXTS = new Set([
-  '.mov', '.mp4', '.m4v', '.avi', '.mkv', '.webm', '.mts', '.m2ts', '.3gp',
+  '.mov',
+  '.mp4',
+  '.m4v',
+  '.avi',
+  '.mkv',
+  '.webm',
+  '.mts',
+  '.m2ts',
+  '.3gp',
 ]);
 
 /**
