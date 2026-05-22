@@ -296,6 +296,12 @@ export function formatBytes(bytes: number | undefined | null): string {
   return `${v.toFixed(v < 10 ? 1 : 0)} ${units[i]}`;
 }
 
+/** Format an ISO 8601 string as a locale-aware date+time. Empty for null. */
+export function formatDate(iso: string | null): string {
+  if (!iso) return '';
+  return new Date(iso).toLocaleString();
+}
+
 // ── Error normalisation ───────────────────────────────────────────────────
 
 /** Extract a human message from an HttpClient error / Error / unknown

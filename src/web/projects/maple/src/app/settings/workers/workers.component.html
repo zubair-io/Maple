@@ -500,7 +500,12 @@
                       Retry {{ s.dead | number }} dead
                     </button>
                   }
-                  <button type="button" class="btn-ghost" (click)="openLogs(s, $event)">
+                  <button
+                    type="button"
+                    class="btn-ghost"
+                    data-testid="open-logs-btn"
+                    (click)="openLogs(s, $event)"
+                  >
                     <maple-settings-icon name="open" [size]="12" />
                     Open logs
                   </button>
@@ -546,15 +551,17 @@
 </maple-settings-shell>
 
 @if (deadLog(); as log) {
-  <div class="log-backdrop" (click)="closeLog()" role="presentation">
+  <div class="log-backdrop" data-testid="log-backdrop" (click)="closeLog()" role="presentation">
     <div
       class="log-drawer"
+      data-testid="log-drawer"
       (click)="$event.stopPropagation()"
       role="dialog"
-      [attr.aria-label]="'Failed jobs: ' + log.stage.name"
+      aria-modal="true"
+      [attr.aria-labelledby]="'log-drawer-title-' + log.stage.name"
     >
       <div class="log-header">
-        <div class="log-title">
+        <div class="log-title" [id]="'log-drawer-title-' + log.stage.name">
           <maple-settings-icon name="open" [size]="14" [color]="'#a8a29e'" />
           <span class="mono">{{ log.stage.name }}</span>
           @if (!log.loading) {
@@ -568,7 +575,7 @@
           }
         </div>
         <div class="log-actions">
-          @if (log.stage.dead > 0) {
+          @if (!log.loading && log.items.length > 0) {
             <button
               type="button"
               class="btn-ghost danger"

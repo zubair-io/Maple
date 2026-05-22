@@ -16,6 +16,7 @@ import {
   blankRuntime,
   errorMessage,
   formatBytes,
+  formatDate,
   groupStagesByPipeline,
   parseClampedInt,
   runtimeFormToPatch,
@@ -267,6 +268,21 @@ describe('formatBytes', () => {
     // < 10 in chosen unit keeps one decimal.
     expect(formatBytes(8 * 1024 * 1024)).toBe('8.0 MB');
     expect(formatBytes(2 * 1024 * 1024 * 1024)).toBe('2.0 GB');
+  });
+});
+
+describe('formatDate', () => {
+  it('returns an empty string for null', () => {
+    expect(formatDate(null)).toBe('');
+  });
+
+  it('renders an ISO string as the host locale string', () => {
+    // Locale output varies — assert it's non-empty and round-trips to the
+    // same instant the input describes.
+    const iso = '2026-05-22T05:00:00Z';
+    const out = formatDate(iso);
+    expect(out).not.toBe('');
+    expect(new Date(out).getTime()).toBe(new Date(iso).getTime());
   });
 });
 
