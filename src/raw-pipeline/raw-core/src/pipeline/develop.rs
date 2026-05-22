@@ -134,9 +134,13 @@ pub fn develop_scene_linear_from_raw_with_quality(
     // Per-image histogram-shape auto-exposure. Operates on the
     // post-DCP/PTC/PGTM scene-linear Rec.2020 image; deterministic; pure
     // math. Production behavior is identity (`AE_DAMPING = 0.0` in
-    // stages/auto_exposure.rs) — the stage computes the histogram + EV for
-    // diagnostics but leaves pixels untouched. Kept as infrastructure for a
-    // future user-facing "Auto" toggle. The earlier
+    // stages/auto_exposure.rs) — the stage computes a histogram internally
+    // and returns an `AutoExposure` (with `expcomp`), but this call site
+    // discards the return value and the damping is 0, so pixels are
+    // untouched and nothing is surfaced today. Kept as infrastructure for
+    // a future user-facing "Auto" toggle — that toggle will (a) capture
+    // the returned `AutoExposure` and apply it, and (b) optionally expose
+    // it as XMP/diagnostic output. The earlier
     // `MAPLE_AGX_BASELINE_COMPENSATION_EV = 0.65` band-aid + `damping = 0.2`
     // tuning were both removed in commit `ba8e0ecb` once the WB pre-gain
     // bundle (Phase 1.2) + per-body BE table (Phase 1.1) gave the chain a
