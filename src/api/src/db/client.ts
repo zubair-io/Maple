@@ -562,6 +562,23 @@ export async function ensureIndexes(): Promise<void> {
     },
   );
 
+  // Secondary content-dedup key: the discover handler falls back to
+  // `findOne({ sha1_head })` when the maple_id lookup misses, so a
+  // duplicate file discovered AFTER the canonical row's id has been
+  // upgraded from fallback to primary form by the exif stage still
+  // dedups into the existing row. Without this fallback the inserted
+  // row would later trip E11000 when the exif stage tried to upgrade
+  // it to the same primary id. See `workers/discover/handle-event.ts`
+  // for the lookup; `workers/stages/exif.ts` carries the runtime merge
+  // for already-inserted duplicates.
+  //
+  // Not unique — legacy rows may share sha1_head when they were created
+  // before content-addressing was enforced. Sparse to skip rows missing
+  // the field.
+  await db
+    .collection('assets')
+    .createIndex({ sha1_head: 1 }, { name: 'sha1_head_1', sparse: true });
+
   // The former standalone `filename_1` index was retired by the
   // drop-abs-path-2026-05-21 migration at the end of this function;
   // filename queries now run against `fileinfo.filename`.

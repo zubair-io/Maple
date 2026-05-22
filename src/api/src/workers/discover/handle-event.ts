@@ -234,10 +234,30 @@ export async function handleEvent(
 
   // Find any existing row for this content. We project narrowly so the
   // doc body stays small even on libraries with many assets.
-  const existing = await coll.findOne(
+  let existing = await coll.findOne(
     { maple_id: hashed.maple_id },
     { projection: { _id: 1, fileinfo: 1 } },
   );
+  if (!existing) {
+    // Fallback dedup by `sha1_head`. The exif stage upgrades `maple_id`
+    // from fallback form (BLAKE3(sha1_head || u64(head_len))) to primary
+    // form (BLAKE3(sha1_head || captured_at || …)) once EXIF is available.
+    // After that upgrade, the maple_id no longer equals what hashFileForId
+    // computes for a fresh duplicate at discover time — the lookup above
+    // misses and we'd insert a duplicate row that the exif stage later
+    // tries to upgrade into the same primary id, hitting E11000.
+    //
+    // sha1_head is invariant for the asset's lifetime (set once at insert,
+    // never rewritten), so it stays a stable join key across the upgrade.
+    // The dedup is consistent with the maple_id design because both forms
+    // of the id only consume the first 64 KB of file content (which is
+    // exactly what sha1_head hashes), so files that share sha1_head are
+    // the same content from the pipeline's point of view.
+    existing = await coll.findOne(
+      { sha1_head: hashed.sha1_head },
+      { projection: { _id: 1, fileinfo: 1 } },
+    );
+  }
 
   if (existing) {
     // Same content — record the new location if it's not already on the

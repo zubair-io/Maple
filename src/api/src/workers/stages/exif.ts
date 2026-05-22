@@ -15,10 +15,13 @@
  */
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
+import type { ObjectId } from 'mongodb';
 import { readExif } from '../../indexer/exif.ts';
 import { deriveId } from '../../indexer/id.ts';
 import { assetAbsPath } from '../../indexer/images.repo.ts';
+import { assetsCollection } from '../../db/client.ts';
 import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
+import type { FileInfo } from '../../db/schema.ts';
 import type { ImageDoc, StageResult } from '../run-stage.ts';
 import { defineStage, runStage, type RunStageHandle } from '../run-stage.ts';
 
@@ -116,15 +119,89 @@ const exifStage = defineStage({
         null, // camera_serial not in AssetExif schema yet
         null, // shutter_count not in AssetExif schema yet
       );
-      patch.maple_id = id.hex;
+      if (id.hex !== image.maple_id) {
+        // The upgrade only runs when the id is actually changing — same
+        // value would be a no-op, but a different value risks colliding
+        // with another row that already holds the primary id.
+        //
+        // Collision happens when a duplicate file slips past the discover
+        // dedup (e.g. third copy of the same content discovered after the
+        // canonical row's maple_id was already upgraded — the fallback-id
+        // findOne misses; the sha1_head fallback in handle-event.ts plugs
+        // most of that, but races and legacy dead-letter rows still need
+        // a runtime safety net).
+        //
+        // When a winner exists we merge our fileinfo[] into it and self-
+        // delete, mirroring the boot-time mergeDuplicateAssets migration
+        // (db/migrations.ts). Returning `skip` lets the orchestrator's
+        // writeback no-op on the now-deleted _id without surfacing as an
+        // error.
+        const merged = await tryMergeWithExistingPrimary(image, id.hex);
+        if (merged) {
+          return { skip: `merged-into-${merged.toHexString()}` };
+        }
+        patch.maple_id = id.hex;
+      }
     }
 
     return { patch };
   },
 });
 
+/**
+ * If another row already owns `newMapleId`, union our `fileinfo[]` into it
+ * (deduped by `(library_id, path, filename)`, live entries preferred over
+ * tombstones) and delete the loser. Returns the winner's `_id` on a merge,
+ * `null` when no winner exists and the caller should proceed with the
+ * normal upgrade.
+ *
+ * The dedup-and-prefer-live logic mirrors `mergeDuplicateAssets` in
+ * `db/migrations.ts:295-313` — keep them in sync.
+ */
+async function tryMergeWithExistingPrimary(
+  loser: ImageDoc,
+  newMapleId: string,
+): Promise<ObjectId | null> {
+  const assets = await assetsCollection();
+  const winner = await assets.findOne(
+    { maple_id: newMapleId, _id: { $ne: loser._id } },
+    { projection: { _id: 1, fileinfo: 1 } },
+  );
+  if (!winner) return null;
+
+  const seen = new Map<string, FileInfo>();
+  const lists: FileInfo[][] = [
+    (winner.fileinfo ?? []) as FileInfo[],
+    (loser.fileinfo ?? []) as FileInfo[],
+  ];
+  for (const list of lists) {
+    for (const entry of list) {
+      const key = JSON.stringify([entry.library_id.toHexString(), entry.path, entry.filename]);
+      const existing = seen.get(key);
+      if (!existing) {
+        seen.set(key, entry);
+        continue;
+      }
+      const existingDead = existing.deleted_at != null;
+      const candidateDead = entry.deleted_at != null;
+      if (existingDead && !candidateDead) seen.set(key, entry);
+    }
+  }
+  await assets.updateOne(
+    { _id: winner._id },
+    { $set: { fileinfo: Array.from(seen.values()) } },
+  );
+  await assets.deleteOne({ _id: loser._id });
+  return winner._id;
+}
+
 export default exifStage;
 
 export async function startExifStage(): Promise<RunStageHandle> {
   return runStage(exifStage);
 }
+
+// Test-only surface: exported so the merge-on-collision path can be
+// exercised against a real Mongo without driving a full handler pass
+// (which requires a fixture with EXIF DateTimeOriginal).
+export const __exifTestInternals = { tryMergeWithExistingPrimary };
