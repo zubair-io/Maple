@@ -134,6 +134,53 @@ fn guided_filter(guide: &[f32], p: &[f32], w: usize, h: usize, r: usize, eps: f3
     (0..n).map(|i| mean_a[i] * guide[i] + mean_b[i]).collect()
 }
 
+/// "Sky / no-dark-pixel" mask thresholds (issue #272).
+///
+/// The dark-channel-prior assumption — every patch contains at least one
+/// channel with a low value — breaks on sky, snow, and white walls. In those
+/// regions every channel is high, so the dark channel itself is high, the
+/// transmission collapses toward 0, and `J = (I − A) / t + A` produces strong
+/// halos at the sky / foreground boundary.
+///
+/// We use the dark channel as a sky detector: when `dc(x,y)` exceeds
+/// `SKY_MASK_LOW`, the pixel is increasingly likely to be sky-like. We
+/// smoothstep from `SKY_MASK_LOW` to `SKY_MASK_HIGH` so the mask feathers
+/// rather than snapping. At positions with `mask = 1` the dehaze recovery is
+/// fully suppressed; the input is passed through unchanged.
+///
+/// Threshold rationale (scene-linear Rec.2020, post-exposure):
+/// - Below 0.40 dc: typical hazy mid-distance content (rocks, foliage,
+///   buildings, water with foam). DCP works here — leave it alone.
+/// - 0.40 – 0.60 dc: ambiguous (bright haze, distant snow, light walls).
+///   Soft-feather so we don't introduce visible boundaries.
+/// - Above 0.60 dc: clear sky or white wall — DCP is unreliable, suppress
+///   the dehaze contribution entirely.
+const SKY_MASK_LOW: f32 = 0.40;
+const SKY_MASK_HIGH: f32 = 0.60;
+
+/// Box-blur radius for the sky mask. Lower than the guided-filter radius
+/// because the mask only needs to be smooth, not edge-aware — the mask
+/// already came from dark-channel min-filtering, which is conservative at
+/// boundaries.
+const SKY_MASK_BLUR_RADIUS: usize = 8;
+
+/// `smoothstep(edge0, edge1, x)` — cubic Hermite interpolation matching
+/// the GLSL builtin. Returns 0 below `edge0`, 1 above `edge1`.
+#[inline]
+fn smoothstep(edge0: f32, edge1: f32, x: f32) -> f32 {
+    let t = ((x - edge0) / (edge1 - edge0)).clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
+}
+
+/// Build a per-pixel "sky" mask in [0, 1] from the dark channel. Then
+/// box-blur it lightly to soften pixel-noise in the transition band.
+fn sky_mask(dc: &[f32], w: usize, h: usize) -> Vec<f32> {
+    let raw: Vec<f32> = dc.iter()
+        .map(|&v| smoothstep(SKY_MASK_LOW, SKY_MASK_HIGH, v))
+        .collect();
+    box_blur(&raw, w, h, SKY_MASK_BLUR_RADIUS)
+}
+
 /// Apply dehaze per spec § 3.9.
 /// `dehaze` in [-100, +100]; 0 is identity.
 ///
@@ -141,6 +188,10 @@ fn guided_filter(guide: &[f32], p: &[f32], w: usize, h: usize, r: usize, eps: f3
 /// recovered value); negative adds haze (transmission pushed toward 1.0).
 /// The final recovery `J = (I - A) / max(t, t0) + A` uses a transmission
 /// floor t0 = 0.1 to avoid division-blowup on the darkest patches.
+///
+/// A sky mask (issue #272) suppresses the dehaze contribution where the
+/// DCP assumption fails (sky, snow, white walls). See `SKY_MASK_LOW` /
+/// `SKY_MASK_HIGH` above for the threshold and feathering rationale.
 pub fn apply(img: &mut Image, dehaze: f32) {
     img.assert_space(ColorSpace::SceneLinearRec2020);
     if dehaze.abs() < 1e-3 { return; }
@@ -158,6 +209,10 @@ pub fn apply(img: &mut Image, dehaze: f32) {
     }).collect();
     let t_refined = guided_filter(&guide, &t_raw, w, h, 60, 1e-3);
 
+    // Sky / no-dark-pixel mask: keep DCP where it works, suppress where it
+    // doesn't. Cheap — one smoothstep per pixel + one box-blur pass.
+    let sky = sky_mask(&dc, w, h);
+
     // Map the slider onto the transmission.
     let t0 = 0.1f32;
     let scale = (dehaze / 100.0).clamp(-1.0, 1.0);
@@ -174,7 +229,15 @@ pub fn apply(img: &mut Image, dehaze: f32) {
         let j_r = (p[0] - a[0]) / t_eff + a[0];
         let j_g = (p[1] - a[1]) / t_eff + a[1];
         let j_b = (p[2] - a[2]) / t_eff + a[2];
-        *p = [j_r, j_g, j_b];
+        // Blend dehaze result `J` with the unmodified input `I` by the sky
+        // mask: mask=1 → input, mask=0 → full dehaze.
+        let m = sky[i].clamp(0.0, 1.0);
+        let inv_m = 1.0 - m;
+        *p = [
+            inv_m * j_r + m * p[0],
+            inv_m * j_g + m * p[1],
+            inv_m * j_b + m * p[2],
+        ];
     }
 }
 
@@ -266,6 +329,87 @@ mod tests {
         for (a, b) in img.pixels.iter().zip(before.iter()) {
             assert_eq!(a, b);
         }
+    }
+
+    #[test]
+    fn sky_mask_is_zero_for_hazy_pixels_one_for_sky() {
+        // Hazy mid-distance pixel: dc ~ 0.3 → mask 0.
+        // Sky pixel: dc ~ 0.85 → mask 1.
+        // Transition is smooth.
+        let dc = vec![0.30f32, 0.45, 0.50, 0.55, 0.85];
+        let raw: Vec<f32> = dc.iter()
+            .map(|&v| smoothstep(SKY_MASK_LOW, SKY_MASK_HIGH, v))
+            .collect();
+        assert!(raw[0] < 1e-5, "haze sample should be 0, got {}", raw[0]);
+        assert!(raw[4] > 1.0 - 1e-5, "sky sample should be 1, got {}", raw[4]);
+        // Monotonically non-decreasing.
+        for i in 1..raw.len() {
+            assert!(raw[i] >= raw[i - 1] - 1e-6,
+                "smoothstep not monotone at {}: {} -> {}", i, raw[i - 1], raw[i]);
+        }
+        // Mid-band (0.50, the geometric midpoint of the smoothstep) is around 0.5.
+        assert!((raw[2] - 0.5).abs() < 0.1, "midpoint near 0.5, got {}", raw[2]);
+    }
+
+    #[test]
+    fn smoothstep_matches_glsl_definition() {
+        assert_eq!(smoothstep(0.0, 1.0, -0.5), 0.0);
+        assert_eq!(smoothstep(0.0, 1.0, 1.5), 1.0);
+        // smoothstep(0, 1, 0.5) = 0.5 by symmetry of 3t² − 2t³ around t=0.5.
+        assert!((smoothstep(0.0, 1.0, 0.5) - 0.5).abs() < 1e-6);
+    }
+
+    #[test]
+    fn dehaze_preserves_sky_attacks_haze() {
+        // Synthetic split scene (issue #272): bright "sky" on top, hazy mid-
+        // distance content on the bottom. At dehaze=+100 the sky must barely
+        // move (< 5% per channel) and the hazy region must change substantially.
+        let w = 60usize;
+        let h = 60usize;
+        let mut img = Image::new(w as u32, h as u32, ColorSpace::SceneLinearRec2020);
+        for y in 0..h {
+            for x in 0..w {
+                if y < h / 2 {
+                    // Sky proxy: every channel high → dark channel is also high.
+                    img.pixels[y * w + x] = [0.85, 0.85, 0.85];
+                } else {
+                    // Hazy base + low-contrast feature: a couple of darker
+                    // strokes that exercise the DCP path.
+                    let dark_feature = (x / 6) % 2 == 0 && (y / 6) % 2 == 0;
+                    let v = if dark_feature { 0.22 } else { 0.30 };
+                    img.pixels[y * w + x] = [v, v, v];
+                }
+            }
+        }
+        let before = img.pixels.clone();
+        apply(&mut img, 100.0);
+
+        // Sky half: per-channel change must stay under 5% of the input.
+        for y in 0..(h / 2) {
+            for x in 0..w {
+                let b = before[y * w + x];
+                let a = img.pixels[y * w + x];
+                for c in 0..3 {
+                    let rel = (a[c] - b[c]).abs() / b[c].max(1e-6);
+                    assert!(rel < 0.05,
+                        "sky pixel ({}, {}) ch{} moved {:.3} → {:.3} (rel {:.3})",
+                        x, y, c, b[c], a[c], rel);
+                }
+            }
+        }
+        // Hazy half: at least one strong-feature pixel must change substantially.
+        let mut max_rel_change = 0.0f32;
+        for y in (h / 2)..h {
+            for x in 0..w {
+                let b = before[y * w + x];
+                let a = img.pixels[y * w + x];
+                let rel = (a[0] - b[0]).abs() / b[0].max(1e-6);
+                if rel > max_rel_change { max_rel_change = rel; }
+            }
+        }
+        assert!(max_rel_change > 0.10,
+            "expected dehaze to substantially modify the hazy half, got max rel {:.3}",
+            max_rel_change);
     }
 
     #[test]
