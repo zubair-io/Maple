@@ -10,15 +10,8 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { Injectable, effect, inject } from '@angular/core';
 import { Asset, AssetId, ColorLabel, Flag } from '../models/asset';
 import { GridFolderItem } from '../models/folder';
-import {
-  AdjustmentModel,
-  defaultAdjustmentModel,
-} from '../models/adjustment-model';
-import {
-  ApiAsset,
-  ApiFolder,
-  BunApiBackendService,
-} from '../api/bun-api-backend.service';
+import { AdjustmentModel, defaultAdjustmentModel } from '../models/adjustment-model';
+import { ApiFolder, BunApiBackendService } from '../api/bun-api-backend.service';
 import {
   FilesystemBrowseService,
   FsDirListing,
@@ -30,6 +23,7 @@ import { MapleCacheService } from '../maple-cache/maple-cache.service';
 import { XmpParserService } from '../xmp/xmp-parser.service';
 import { XmpStoreService } from '../xmp/xmp-store.service';
 import { XmpSerializerService } from '../xmp/xmp-serializer.service';
+import { SidecarStore } from '../xmp/sidecar.store';
 import { XmpCulling } from '../xmp/xmp.types';
 import { MapleFolderHandle } from '../folder-access/folder-access.types';
 import { IndexedAsset } from '../maple-cache/maple-cache.types';
@@ -38,6 +32,7 @@ import { mergePreservingRefs, shallowEqualByKeys } from './merge-by-id';
 import { LibraryStore } from './library-store.service';
 import { LibrarySelection } from './library-selection.service';
 import { LibraryCache } from './library-cache.service';
+import { LibraryStatusService } from './library-status.service';
 
 const ASSET_RENDER_KEYS: readonly (keyof Asset)[] = [
   'id',
@@ -112,6 +107,7 @@ export function exifToAssetMetadata(exif: FsImageExif | null | undefined): Parti
 @Injectable({ providedIn: 'root' })
 export class LibraryFetch {
   private readonly store = inject(LibraryStore);
+  private readonly status = inject(LibraryStatusService);
   private readonly selection = inject(LibrarySelection);
   private readonly cache_ = inject(LibraryCache);
   private readonly fs = inject(FolderAccessService);
@@ -119,6 +115,7 @@ export class LibraryFetch {
   private readonly xmpParser = inject(XmpParserService);
   private readonly xmpStore = inject(XmpStoreService);
   private readonly xmpSerializer = inject(XmpSerializerService);
+  private readonly sidecarStore = inject(SidecarStore);
   private readonly api = inject(BunApiBackendService);
   private readonly fsBrowse = inject(FilesystemBrowseService);
 
@@ -262,25 +259,25 @@ export class LibraryFetch {
   loadFolderTree(): void {
     if (this.store.backend !== 'self-hosted') return;
 
-    this.store.backendLoading.set(true);
-    this.store.backendError.set(null);
-    this.store.backendEmpty.set(false);
+    this.status.backendLoading.set(true);
+    this.status.backendError.set(null);
+    this.status.backendEmpty.set(false);
 
     this.api.listFolders().subscribe({
       next: (folders) => {
         this.store.registeredFolders.set(folders);
         this._applyFolderTree(folders);
         if (folders.length === 0) {
-          this.store.backendEmpty.set(true);
+          this.status.backendEmpty.set(true);
         }
-        this.store.backendLoading.set(false);
+        this.status.backendLoading.set(false);
         // Don't auto-open the first folder — that fires /api/folders/{id}/assets
         // before the user has expressed intent and before the indexer may have
         // scanned anything. The user picks a folder from the tree.
       },
       error: (err: HttpErrorResponse) => {
-        this.store.backendLoading.set(false);
-        this.store.backendError.set(
+        this.status.backendLoading.set(false);
+        this.status.backendError.set(
           err.status >= 500
             ? `Server error (${err.status}). The Maple API may be down.`
             : `Failed to load folders: ${err.message}`,
@@ -296,8 +293,8 @@ export class LibraryFetch {
   addLibraryFolder(absPath: string): void {
     if (this.store.backend !== 'self-hosted') return;
 
-    this.store.backendLoading.set(true);
-    this.store.backendError.set(null);
+    this.status.backendLoading.set(true);
+    this.status.backendError.set(null);
 
     this.api.registerFolder(absPath).subscribe({
       next: () => {
@@ -305,9 +302,9 @@ export class LibraryFetch {
         this.loadFolderTree();
       },
       error: (err: HttpErrorResponse) => {
-        this.store.backendLoading.set(false);
+        this.status.backendLoading.set(false);
         const detail = err?.error?.error ?? err?.message ?? 'Unknown error';
-        this.store.backendError.set(`Failed to register folder: ${detail}`);
+        this.status.backendError.set(`Failed to register folder: ${detail}`);
       },
     });
   }
@@ -319,32 +316,32 @@ export class LibraryFetch {
    * idempotent so unchanged files no-op and new files get indexed.
    */
   rescanCurrentFolder(): void {
-    if (this.store.rescanStatus() === 'running') return;
+    if (this.status.rescanStatus() === 'running') return;
     const folder = this.store.currentRegisteredFolder(this.selection.selectedSourceId());
     if (!folder) {
-      this.store.rescanError.set('Pick a library folder first.');
-      this.store.rescanStatus.set('error');
+      this.status.rescanError.set('Pick a library folder first.');
+      this.status.rescanStatus.set('error');
       return;
     }
-    this.store.rescanError.set(null);
-    this.store.rescanStatus.set('running');
+    this.status.rescanError.set(null);
+    this.status.rescanStatus.set('running');
     this.api.rescanFolder(folder.id).subscribe({
       next: (res) => {
         if (res.ok) {
-          this.store.rescanStatus.set('done');
+          this.status.rescanStatus.set('done');
           // Brief success indicator, then return to idle.
           setTimeout(() => {
-            if (this.store.rescanStatus() === 'done') this.store.rescanStatus.set('idle');
+            if (this.status.rescanStatus() === 'done') this.status.rescanStatus.set('idle');
           }, 2_500);
         } else {
-          this.store.rescanError.set(res.error ?? 'Rescan failed');
-          this.store.rescanStatus.set('error');
+          this.status.rescanError.set(res.error ?? 'Rescan failed');
+          this.status.rescanStatus.set('error');
         }
       },
       error: (err: HttpErrorResponse) => {
         const detail = err?.error?.error ?? err?.message ?? 'Unknown error';
-        this.store.rescanError.set(`Rescan failed: ${detail}`);
-        this.store.rescanStatus.set('error');
+        this.status.rescanError.set(`Rescan failed: ${detail}`);
+        this.status.rescanStatus.set('error');
       },
     });
   }
@@ -380,9 +377,9 @@ export class LibraryFetch {
     // Set the selection synchronously so the file-list breadcrumb + grid
     // empty-state reflect the click immediately, before the HTTP response.
     this.selection.selectedSourceId.set(id);
-    this.store.backendLoading.set(true);
-    this.store.backendError.set(null);
-    this.store.backendEmpty.set(false);
+    this.status.backendLoading.set(true);
+    this.status.backendError.set(null);
+    this.status.backendEmpty.set(false);
 
     this.fsBrowse.listDir(absPath).subscribe({
       next: (listing) => {
@@ -397,17 +394,17 @@ export class LibraryFetch {
           const firstAsset = this.store.assets().find((a) => a.folderId === id);
           if (firstAsset) this.selection.selectAsset(firstAsset.id);
         }
-        this.store.backendLoading.set(false);
+        this.status.backendLoading.set(false);
         if (listing.dirs.length === 0 && listing.images.length === 0) {
           // Empty folder — clear any leftover error banner; the grid will
           // show its own "Folder is empty" state.
-          this.store.backendEmpty.set(false);
+          this.status.backendEmpty.set(false);
         }
       },
       error: (err: HttpErrorResponse) => {
-        this.store.backendLoading.set(false);
+        this.status.backendLoading.set(false);
         const detail = err?.error?.error ?? err?.message ?? 'Unknown error';
-        this.store.backendError.set(
+        this.status.backendError.set(
           err.status >= 500
             ? `Server error (${err.status}) loading folder.`
             : `Failed to load folder: ${detail}`,
@@ -626,74 +623,6 @@ export class LibraryFetch {
     }
   }
 
-  /**
-   * Map a batch of remote API assets into local Asset records and merge.
-   * Kept for the legacy `/api/folders/{id}/assets` callers — the FS-walk
-   * path uses `_applyFsListing` instead.
-   */
-  applyApiAssets(folderId: string, apiAssets: ApiAsset[]): void {
-    const newAssets: Asset[] = [];
-    // Keep existing id mappings for other folders; just overwrite this folder's.
-    for (const localId of Array.from(this.store.apiAssetIds.keys())) {
-      const existingAsset = this.store.assets().find((a) => a.id === localId);
-      if (existingAsset?.folderId === folderId) this.store.apiAssetIds.delete(localId);
-    }
-
-    for (const a of apiAssets) {
-      const localId = crypto.randomUUID();
-      this.store.apiAssetIds.set(localId, a.id);
-      newAssets.push({
-        id: localId,
-        filename: a.filename,
-        folderId,
-        rating: a.rating ?? 0,
-        flag: (a.flag ?? 'unflagged') as Flag,
-        colorLabel: (a.colorLabel ?? null) as ColorLabel,
-        thumbnailGradient: '',
-        aspectRatio: a.width && a.height ? a.width / a.height : 3 / 2,
-        width: a.width,
-        height: a.height,
-      });
-
-      // Best-effort XMP load — populates AdjustmentModel if a sidecar exists.
-      this._loadApiXmp(localId, a.id);
-    }
-
-    this.store.assets.update((list) => {
-      const others = list.filter((x) => x.folderId !== folderId);
-      const previous = list.filter((x) => x.folderId === folderId);
-      const merged = mergePreservingRefs(previous, newAssets, assetsEqualForRender);
-      return [...others, ...merged];
-    });
-  }
-
-  private _loadApiXmp(localId: AssetId, apiId: string): void {
-    this.api.getXmp(apiId).subscribe({
-      next: (xml) => {
-        if (!xml) return;
-        try {
-          const { model, passthrough } = this.xmpParser.parseAdjustmentModel(xml);
-          const fullModel: AdjustmentModel = { ...defaultAdjustmentModel(), ...model };
-          this.store.adjustmentModels.update((map) => {
-            const next = new Map(map);
-            next.set(localId, fullModel);
-            return next;
-          });
-          // Mirror the Hosted path: stash the passthrough bucket so the next
-          // putXmp() preserves unknown-namespace attributes / nested nodes
-          // verbatim. Re-uses XmpStoreService's per-asset map rather than
-          // inventing a parallel structure.
-          this.xmpStore.rememberPassthrough(localId, passthrough);
-        } catch {
-          /* ignore malformed sidecars — server has already stored them */
-        }
-      },
-      error: () => {
-        // 404 is expected when no sidecar exists; anything else is best-effort.
-      },
-    });
-  }
-
   // ── addImportedAsset (legacy path — drag-drop without FS Access folder) ────
 
   /**
@@ -754,13 +683,11 @@ export class LibraryFetch {
     this.xmpStore.scheduleWrite(id, folder, asset.filename, fullModel, culling);
   }
 
-  private _scheduleApiXmpWrite(
-    id: AssetId,
-    model: AdjustmentModel,
-    culling: XmpCulling,
-  ): void {
-    const apiId = this.store.apiAssetIds.get(id);
-    if (!apiId) return;
+  private _scheduleApiXmpWrite(id: AssetId, model: AdjustmentModel, culling: XmpCulling): void {
+    // Gate on a known source path — no path, no XMP target. This replaces the
+    // previous `apiAssetIds` gate as part of slice 4 of #193 (path-keyed XMP).
+    const absPath = this.store.assetAbsPaths.get(id);
+    if (!absPath) return;
 
     this._apiXmpPending.set(id, { model, culling });
 
@@ -776,19 +703,24 @@ export class LibraryFetch {
 
   private _flushApiXmpWrite(id: AssetId): void {
     const pending = this._apiXmpPending.get(id);
-    const apiId = this.store.apiAssetIds.get(id);
-    if (!pending || !apiId) return;
+    const absPath = this.store.assetAbsPaths.get(id);
+    if (!pending || !absPath) return;
     this._apiXmpPending.delete(id);
 
-    // Re-use the canonical serializer so Self-Hosted XMP matches Hosted byte-for-byte.
-    // Pull the passthrough bucket cached on load (`_loadApiXmp`) so unknown-
-    // namespace attributes (Lightroom-specific tags, vendor extensions, custom
-    // workflow metadata, etc.) survive a Maple edit cycle — matching the
-    // Hosted path's round-trip guarantees.
+    // Re-use the canonical serializer so Self-Hosted XMP matches Hosted
+    // byte-for-byte. Pull the passthrough bucket cached on load so unknown-
+    // namespace attributes (Lightroom-specific tags, vendor extensions,
+    // custom workflow metadata, etc.) survive a Maple edit cycle — matching
+    // the Hosted path's round-trip guarantees.
     const passthrough = this.xmpStore.passthroughFor(id);
     const xml = this.xmpSerializer.serialize(pending.model, passthrough, pending.culling);
-    this.api.putXmp(apiId, xml).subscribe({
-      error: (err) => console.error(`putXmp failed for asset ${id}:`, err),
+    // Route through SidecarStore so the in-memory + IDB caches reflect the
+    // optimistic write and roll back coherently on a failed POST. The store's
+    // `write()` returns a Promise that rejects on network failure; we log
+    // here and let consumers (e.g. an upcoming toast surface) decide what to
+    // do with the error.
+    void this.sidecarStore.write(absPath, xml).catch((err) => {
+      console.error(`putXmp failed for asset ${id} (path=${absPath}):`, err);
     });
   }
 

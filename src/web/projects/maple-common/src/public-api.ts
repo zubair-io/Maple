@@ -12,6 +12,7 @@ export * from './lib/icons/material-icon.component';
 export * from './lib/button/maple-button.component';
 export * from './lib/collapsible/maple-collapsible.component';
 export * from './lib/state/library-state.service';
+export * from './lib/state/library-status.service';
 export * from './lib/state/browse-preferences.service';
 export * from './lib/detail-panel/info-tab.component';
 export * from './lib/raw-pipeline/raw-pipeline.service';
@@ -57,6 +58,9 @@ export * from './lib/xmp/xmp-store.service';
 export * from './lib/state/store';
 export * from './lib/xmp/sidecar-idb-cache';
 export * from './lib/xmp/sidecar.store';
+
+// #193 slice 2: first reactive consumer of SidecarStore.
+export * from './lib/components/editor-sidecar-status-badge/editor-sidecar-status-badge.component';
 
 // P7: Unified SPA shells + all components (moved from browse + editor apps)
 export * from './lib/shells/browse-shell/browse-shell.component';

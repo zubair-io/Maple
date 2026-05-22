@@ -1,26 +1,28 @@
-import { describe, test, expect, beforeAll, afterAll, beforeEach } from "bun:test";
-import * as fs from "node:fs/promises";
-import * as os from "node:os";
-import * as path from "node:path";
-import { MongoClient, ObjectId, type Db } from "mongodb";
-import { pendingEnrichment } from "../src/db/schema.ts";
-import { signAccessToken } from "../src/auth/tokens.ts";
+import { describe, test, expect, beforeAll, afterAll, beforeEach } from 'bun:test';
+import * as fs from 'node:fs/promises';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import { MongoClient, ObjectId, type Db } from 'mongodb';
+import { pendingEnrichment } from '../src/db/schema.ts';
+import { signAccessToken } from '../src/auth/tokens.ts';
 import {
   setMeilisearchClientForTests,
   type MeilisearchClient,
   type MeilisearchAssetDoc,
-} from "../src/enrichment/meilisearch-client.ts";
+} from '../src/enrichment/meilisearch-client.ts';
 
-process.env.MAPLE_JWT_SECRET = "x".repeat(32);
-const BEARER = "Bearer " + signAccessToken(
-  { sub: "00000000000000000000000a", email: "tester@maple.local", role: "owner" },
-  process.env.MAPLE_JWT_SECRET!,
-);
+process.env.MAPLE_JWT_SECRET = 'x'.repeat(32);
+const BEARER =
+  'Bearer ' +
+  signAccessToken(
+    { sub: '00000000000000000000000a', email: 'tester@maple.local', role: 'owner' },
+    process.env.MAPLE_JWT_SECRET!,
+  );
 
 const TEST_DB = `maple_test_fp3_restore_${process.pid}`;
 const PRIOR_MONGO_DB = process.env.MAPLE_MONGO_DB;
 const PRIOR_MAPLE_ROOTS = process.env.MAPLE_ROOTS;
-const MONGO_URI = process.env.MAPLE_MONGO_URI ?? "mongodb://localhost:27017";
+const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
 
 let mongo: MongoClient | null = null;
 let mongoReachable = false;
@@ -31,23 +33,43 @@ let folderId: ObjectId;
 
 async function tryConnect(): Promise<MongoClient | null> {
   const c = new MongoClient(MONGO_URI, { serverSelectionTimeoutMS: 1500, connectTimeoutMS: 1500 });
-  try { await c.connect(); await c.db("admin").command({ ping: 1 }); return c; }
-  catch { try { await c.close(); } catch {}; return null; }
+  try {
+    await c.connect();
+    await c.db('admin').command({ ping: 1 });
+    return c;
+  } catch {
+    try {
+      await c.close();
+    } catch {}
+    return null;
+  }
 }
 
-async function trashedAsset(filename: string, opts?: { mapleId?: string; description?: string }): Promise<{ assetId: ObjectId; originalPath: string; trashPath: string; mapleId: string | null }> {
-  const originalPath = path.join(realTmpRoot, "2024", filename);
-  const trashPath = path.join(realTmpRoot, ".maple", "trash", "2024", filename);
+async function trashedAsset(
+  filename: string,
+  opts?: { mapleId?: string; description?: string },
+): Promise<{ assetId: ObjectId; originalPath: string; trashPath: string; mapleId: string | null }> {
+  const originalPath = path.join(realTmpRoot, '2024', filename);
+  const trashPath = path.join(realTmpRoot, '.maple', 'trash', '2024', filename);
   await fs.mkdir(path.dirname(originalPath), { recursive: true });
   await fs.mkdir(path.dirname(trashPath), { recursive: true });
-  await fs.writeFile(trashPath, "raw");
+  await fs.writeFile(trashPath, 'raw');
   const assetId = new ObjectId();
   const mapleId = opts?.mapleId ?? null;
+  // Post drop-abs-path-2026-05-21: the canonical on-disk pointer is
+  // `fileinfo[0]`. For a trashed row the entry points at the trash
+  // subdirectory under the library root — the route's `assetAbsPath`
+  // composes that back into the absolute path the test asserts on.
   const doc: Record<string, unknown> = {
     _id: assetId,
-    folder_id: folderId,
-    filename,
-    abs_path: trashPath,
+    fileinfo: [
+      {
+        library_id: folderId,
+        path: path.relative(realTmpRoot, path.dirname(trashPath)),
+        filename,
+        deleted_at: null,
+      },
+    ],
     size: 3,
     mtime: Date.now(),
     indexed_at: new Date().toISOString(),
@@ -57,7 +79,7 @@ async function trashedAsset(filename: string, opts?: { mapleId?: string; descrip
   };
   if (mapleId) doc.maple_id = mapleId;
   if (opts?.description) doc.description = opts.description;
-  await db!.collection("assets").insertOne(doc as never);
+  await db!.collection('assets').insertOne(doc as never);
   return { assetId, originalPath, trashPath, mapleId };
 }
 
@@ -75,24 +97,30 @@ function capturingMeili(): CapturingMeili {
     isConfigured: () => true,
     health: async () => true,
     ensureIndex: async () => {},
-    upsert: async (doc) => { upserts.push(doc); },
-    upsertOrThrow: async (doc) => { upserts.push(doc); },
-    tombstone: async (id) => { tombstones.push(id); },
+    upsert: async (doc) => {
+      upserts.push(doc);
+    },
+    upsertOrThrow: async (doc) => {
+      upserts.push(doc);
+    },
+    tombstone: async (id) => {
+      tombstones.push(id);
+    },
     search: async () => ({ ids: [], estimatedTotal: 0 }),
   };
 }
 
 function jsonReq(url: string, body: Record<string, unknown>): Request {
   return new Request(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: BEARER },
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: BEARER },
     body: JSON.stringify(body),
   });
 }
 
-describe("POST /api/assets/:id/restore", () => {
+describe('POST /api/assets/:id/restore', () => {
   beforeAll(async () => {
-    const { closeDb } = await import("../src/db/client.ts");
+    const { closeDb } = await import('../src/db/client.ts');
     await closeDb();
     process.env.MAPLE_MONGO_DB = TEST_DB;
     mongo = await tryConnect();
@@ -100,24 +128,34 @@ describe("POST /api/assets/:id/restore", () => {
     if (!mongoReachable) return;
     db = mongo!.db(TEST_DB);
     await db.dropDatabase();
-    tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "maple-fp3-restore-"));
+    tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'maple-fp3-restore-'));
     realTmpRoot = await fs.realpath(tmpRoot);
     process.env.MAPLE_ROOTS = realTmpRoot;
     folderId = new ObjectId();
-    await db.collection("folders").insertOne({
-      _id: folderId, path: realTmpRoot, label: "test",
-      created_at: new Date().toISOString(), file_count: 0,
+    await db.collection('folders').insertOne({
+      _id: folderId,
+      path: realTmpRoot,
+      label: 'test',
+      created_at: new Date().toISOString(),
+      file_count: 0,
     } as never);
+    // Invalidate the process-wide library cache so the route's
+    // `loadLibraryRoots` picks up the just-seeded folder rather than
+    // stale entries from a sibling test suite.
+    const { invalidateLibraryRoots } = await import('../src/indexer/libraries.cache.ts');
+    invalidateLibraryRoots();
   });
 
   afterAll(async () => {
     // Close the APP DB client first so it doesn't leak across tests
     // (the routes import the `getDb()` singleton). Pattern mirrors
     // assets-xmp-delete.test.ts.
-    const { closeDb } = await import("../src/db/client.ts");
+    const { closeDb } = await import('../src/db/client.ts');
     await closeDb();
     if (mongo) {
-      try { await mongo.db(TEST_DB).dropDatabase(); } catch {}
+      try {
+        await mongo.db(TEST_DB).dropDatabase();
+      } catch {}
       await mongo.close();
     }
     if (tmpRoot) await fs.rm(tmpRoot, { recursive: true, force: true });
@@ -132,67 +170,93 @@ describe("POST /api/assets/:id/restore", () => {
     setMeilisearchClientForTests(null);
   });
 
-  test("restores to original_path; clears deleted_at + original_path", async () => {
+  test('restores to original_path; clears deleted_at + original_path', async () => {
     if (!mongoReachable) return;
-    const { app } = await import("../src/index.ts");
-    const { assetId, originalPath, trashPath } = await trashedAsset("IMG_R1.ARW");
+    const { app } = await import('../src/index.ts');
+    const { assetId, originalPath, trashPath } = await trashedAsset('IMG_R1.ARW');
 
-    const res = await app.handle(jsonReq(`http://localhost/api/assets/${assetId.toHexString()}/restore`, {}));
+    const res = await app.handle(
+      jsonReq(`http://localhost/api/assets/${assetId.toHexString()}/restore`, {}),
+    );
     expect(res.status).toBe(200);
-    const body = await res.json() as { abs_path: string };
+    const body = (await res.json()) as { abs_path: string };
     expect(body.abs_path).toBe(originalPath);
 
     await fs.stat(originalPath);
     await expect(fs.stat(trashPath)).rejects.toThrow();
-    const doc = await db!.collection("assets").findOne({ _id: assetId }) as Record<string, unknown>;
+    const doc = (await db!.collection('assets').findOne({ _id: assetId })) as Record<
+      string,
+      unknown
+    >;
     expect(doc.deleted_at).toBeNull();
     expect(doc.original_path).toBeNull();
-    expect(doc.abs_path).toBe(originalPath);
+    // Post drop-abs-path-2026-05-21 the canonical path is composed
+    // from `fileinfo[0]` (library root + relDir + filename); assert on
+    // that shape rather than the dropped top-level `abs_path`.
+    const fi0 = (doc.fileinfo as Array<{ path: string; filename: string }>)[0]!;
+    const composedAbs = path.join(realTmpRoot, fi0.path, fi0.filename);
+    expect(composedAbs).toBe(originalPath);
   });
 
-  test("restores to body-supplied target_relative_path", async () => {
+  test('restores to body-supplied target_relative_path', async () => {
     if (!mongoReachable) return;
-    const { app } = await import("../src/index.ts");
-    const { assetId } = await trashedAsset("IMG_R2.ARW");
-    const target = "elsewhere/IMG_R2.ARW";
-    const res = await app.handle(jsonReq(`http://localhost/api/assets/${assetId.toHexString()}/restore`, { target_relative_path: target }));
+    const { app } = await import('../src/index.ts');
+    const { assetId } = await trashedAsset('IMG_R2.ARW');
+    const target = 'elsewhere/IMG_R2.ARW';
+    const res = await app.handle(
+      jsonReq(`http://localhost/api/assets/${assetId.toHexString()}/restore`, {
+        target_relative_path: target,
+      }),
+    );
     expect(res.status).toBe(200);
-    const body = await res.json() as { abs_path: string };
+    const body = (await res.json()) as { abs_path: string };
     expect(body.abs_path).toBe(path.join(realTmpRoot, target));
     await fs.stat(body.abs_path);
   });
 
-  test(".restored suffix appended on collision", async () => {
+  test('.restored suffix appended on collision', async () => {
     if (!mongoReachable) return;
-    const { app } = await import("../src/index.ts");
-    const { assetId, originalPath } = await trashedAsset("IMG_R3.ARW");
+    const { app } = await import('../src/index.ts');
+    const { assetId, originalPath } = await trashedAsset('IMG_R3.ARW');
     // Create a new file at the original path so restore must rename.
-    await fs.writeFile(originalPath, "occupier");
+    await fs.writeFile(originalPath, 'occupier');
 
-    const res = await app.handle(jsonReq(`http://localhost/api/assets/${assetId.toHexString()}/restore`, {}));
+    const res = await app.handle(
+      jsonReq(`http://localhost/api/assets/${assetId.toHexString()}/restore`, {}),
+    );
     expect(res.status).toBe(200);
-    const body = await res.json() as { abs_path: string; filename: string; size: number; mtime: string };
-    expect(body.abs_path).toBe(path.join(path.dirname(originalPath), "IMG_R3.restored.ARW"));
-    expect(await fs.readFile(originalPath, "utf-8")).toBe("occupier");
-    expect(await fs.readFile(body.abs_path, "utf-8")).toBe("raw");
+    const body = (await res.json()) as {
+      abs_path: string;
+      filename: string;
+      size: number;
+      mtime: string;
+    };
+    expect(body.abs_path).toBe(path.join(path.dirname(originalPath), 'IMG_R3.restored.ARW'));
+    expect(await fs.readFile(originalPath, 'utf-8')).toBe('occupier');
+    expect(await fs.readFile(body.abs_path, 'utf-8')).toBe('raw');
     // Response must carry the freshly-stat'd metadata so the File
     // Provider extension doesn't need to stat the server-side path.
-    expect(body.filename).toBe("IMG_R3.restored.ARW");
+    expect(body.filename).toBe('IMG_R3.restored.ARW');
     expect(body.size).toBe(3); // "raw"
     // Wire contract: `mtime` is an ISO-8601 string so the Swift
     // `RestoreResponse.mtime: Date` decoder (RemoteCatalog.swift) accepts
     // it. The DB column stays epoch-ms — see assertion below.
-    expect(typeof body.mtime).toBe("string");
+    expect(typeof body.mtime).toBe('string');
     expect(body.mtime).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
     expect(Number.isFinite(Date.parse(body.mtime))).toBe(true);
-    // Doc must carry the renamed filename so the unique
-    // {folder_id, filename} index no longer reserves the OLD basename
-    // (otherwise a fresh upload at the original name would 409).
-    const doc = await db!.collection("assets").findOne({ _id: assetId }) as Record<string, unknown>;
-    expect(doc.filename).toBe("IMG_R3.restored.ARW");
+    // Doc must carry the renamed filename so future re-uploads at the
+    // OLD basename don't collide on the maple_id-based content-addressed
+    // path. Post drop-abs-path-2026-05-21 the filename lives on
+    // `fileinfo[0].filename`, not the dropped top-level `filename`.
+    const doc = (await db!.collection('assets').findOne({ _id: assetId })) as Record<
+      string,
+      unknown
+    >;
+    const fi0 = (doc.fileinfo as Array<{ filename: string }>)[0]!;
+    expect(fi0.filename).toBe('IMG_R3.restored.ARW');
     expect(doc.size).toBe(3);
     // DB stays epoch-ms (number) — only the wire response is ISO.
-    expect(typeof doc.mtime).toBe("number");
+    expect(typeof doc.mtime).toBe('number');
     expect(Number.isFinite(doc.mtime as number)).toBe(true);
   });
 
@@ -203,33 +267,40 @@ describe("POST /api/assets/:id/restore", () => {
   // decoder accepts it. Previously the restore handler wrote an ISO
   // string into the DB, which broke the Swift client's
   // contentModificationDate downstream via GET /api/assets.
-  test("restored mtime is ISO on wire, number in DB, finite seconds via GET /api/assets", async () => {
+  test('restored mtime is ISO on wire, number in DB, finite seconds via GET /api/assets', async () => {
     if (!mongoReachable) return;
-    const { app } = await import("../src/index.ts");
-    const { assetId } = await trashedAsset("IMG_R166.ARW");
+    const { app } = await import('../src/index.ts');
+    const { assetId } = await trashedAsset('IMG_R166.ARW');
 
-    const res = await app.handle(jsonReq(`http://localhost/api/assets/${assetId.toHexString()}/restore`, {}));
+    const res = await app.handle(
+      jsonReq(`http://localhost/api/assets/${assetId.toHexString()}/restore`, {}),
+    );
     expect(res.status).toBe(200);
-    const body = await res.json() as { mtime: unknown };
+    const body = (await res.json()) as { mtime: unknown };
     // Wire: ISO-8601 string (Swift decoder expects Date).
-    expect(typeof body.mtime).toBe("string");
+    expect(typeof body.mtime).toBe('string');
     expect(Number.isFinite(Date.parse(body.mtime as string))).toBe(true);
 
     // DB: epoch-ms number.
-    const doc = await db!.collection("assets").findOne({ _id: assetId }) as Record<string, unknown>;
-    expect(typeof doc.mtime).toBe("number");
+    const doc = (await db!.collection('assets').findOne({ _id: assetId })) as Record<
+      string,
+      unknown
+    >;
+    expect(typeof doc.mtime).toBe('number');
     expect(Number.isFinite(doc.mtime as number)).toBe(true);
 
     // Round-trip through GET /api/assets: must yield a finite integer in
     // seconds for the restored asset (not NaN).
-    const listRes = await app.handle(new Request(`http://localhost/api/assets?limit=20000`, {
-      headers: { Authorization: BEARER },
-    }));
+    const listRes = await app.handle(
+      new Request(`http://localhost/api/assets?limit=20000`, {
+        headers: { Authorization: BEARER },
+      }),
+    );
     expect(listRes.status).toBe(200);
-    const listBody = await listRes.json() as { assets: Array<{ id: string; mtime: number }> };
+    const listBody = (await listRes.json()) as { assets: Array<{ id: string; mtime: number }> };
     const restored = listBody.assets.find((a) => a.id === assetId.toHexString());
     expect(restored).toBeTruthy();
-    expect(typeof restored!.mtime).toBe("number");
+    expect(typeof restored!.mtime).toBe('number');
     expect(Number.isNaN(restored!.mtime)).toBe(false);
     expect(Number.isFinite(restored!.mtime)).toBe(true);
   });
@@ -239,25 +310,32 @@ describe("POST /api/assets/:id/restore", () => {
   // different library would silently land in the wrong place.
   test("400 when target_folder_id != asset's folder_id (cross-library guard)", async () => {
     if (!mongoReachable) return;
-    const { app } = await import("../src/index.ts");
-    const { assetId } = await trashedAsset("IMG_XLIB.ARW");
+    const { app } = await import('../src/index.ts');
+    const { assetId } = await trashedAsset('IMG_XLIB.ARW');
     const otherFolderId = new ObjectId().toHexString();
-    const res = await app.handle(jsonReq(`http://localhost/api/assets/${assetId.toHexString()}/restore`, {
-      target_folder_id: otherFolderId,
-    }));
+    const res = await app.handle(
+      jsonReq(`http://localhost/api/assets/${assetId.toHexString()}/restore`, {
+        target_folder_id: otherFolderId,
+      }),
+    );
     expect(res.status).toBe(400);
     // Doc unchanged.
-    const doc = await db!.collection("assets").findOne({ _id: assetId }) as Record<string, unknown>;
+    const doc = (await db!.collection('assets').findOne({ _id: assetId })) as Record<
+      string,
+      unknown
+    >;
     expect(doc.deleted_at).toBeTruthy();
   });
 
   test("200 when target_folder_id matches asset's folder_id", async () => {
     if (!mongoReachable) return;
-    const { app } = await import("../src/index.ts");
-    const { assetId } = await trashedAsset("IMG_XLIB_OK.ARW");
-    const res = await app.handle(jsonReq(`http://localhost/api/assets/${assetId.toHexString()}/restore`, {
-      target_folder_id: folderId.toHexString(),
-    }));
+    const { app } = await import('../src/index.ts');
+    const { assetId } = await trashedAsset('IMG_XLIB_OK.ARW');
+    const res = await app.handle(
+      jsonReq(`http://localhost/api/assets/${assetId.toHexString()}/restore`, {
+        target_folder_id: folderId.toHexString(),
+      }),
+    );
     expect(res.status).toBe(200);
   });
 
@@ -266,58 +344,82 @@ describe("POST /api/assets/:id/restore", () => {
   // abs_path, the route used to fail on the {folder_id, filename}
   // unique index. Now we delete the watcher's transient row before
   // updating.
-  test("restore wins over a watcher-inserted ghost row at the same abs_path", async () => {
+  test('restore wins over a watcher-inserted ghost row at the same abs_path', async () => {
     if (!mongoReachable) return;
-    const { app } = await import("../src/index.ts");
-    const { assetId, originalPath } = await trashedAsset("IMG_WATCHER.ARW");
+    const { app } = await import('../src/index.ts');
+    const { assetId, originalPath } = await trashedAsset('IMG_WATCHER.ARW');
     // Simulate the watcher: insert a transient row at the restore target.
+    // Post drop-abs-path-2026-05-21 the watcher writes `fileinfo[]`
+    // only — the route's restoreFromTrash matches the ghost via
+    // `(library_id, path, filename)` on the primary entry.
     const ghostId = new ObjectId();
-    await db!.collection("assets").insertOne({
+    const relDir = path.relative(realTmpRoot, path.dirname(originalPath));
+    await db!.collection('assets').insertOne({
       _id: ghostId,
-      folder_id: folderId,
-      filename: "IMG_WATCHER.ARW",
-      abs_path: originalPath,
+      fileinfo: [
+        {
+          library_id: folderId,
+          path: relDir,
+          filename: 'IMG_WATCHER.ARW',
+          deleted_at: null,
+        },
+      ],
       size: 99,
       mtime: Date.now(),
       indexed_at: new Date().toISOString(),
       deleted_at: null,
     } as never);
 
-    const res = await app.handle(jsonReq(`http://localhost/api/assets/${assetId.toHexString()}/restore`, {}));
+    const res = await app.handle(
+      jsonReq(`http://localhost/api/assets/${assetId.toHexString()}/restore`, {}),
+    );
     expect(res.status).toBe(200);
     // Ghost is gone, original asset row is now live at the restored path.
-    const ghost = await db!.collection("assets").findOne({ _id: ghostId });
+    const ghost = await db!.collection('assets').findOne({ _id: ghostId });
     expect(ghost).toBeNull();
-    const restored = await db!.collection("assets").findOne({ _id: assetId }) as Record<string, unknown>;
+    const restored = (await db!.collection('assets').findOne({ _id: assetId })) as Record<
+      string,
+      unknown
+    >;
     expect(restored.deleted_at).toBeNull();
-    expect(restored.abs_path).toBe(originalPath);
+    const restoredFi = (restored.fileinfo as Array<{ path: string; filename: string }>)[0]!;
+    expect(path.join(realTmpRoot, restoredFi.path, restoredFi.filename)).toBe(originalPath);
   });
 
-  test("409 when asset is not trashed", async () => {
+  test('409 when asset is not trashed', async () => {
     if (!mongoReachable) return;
-    const { app } = await import("../src/index.ts");
+    const { app } = await import('../src/index.ts');
     const assetId = new ObjectId();
-    await db!.collection("assets").insertOne({
-      _id: assetId, folder_id: folderId, filename: "live.ARW",
-      abs_path: path.join(realTmpRoot, "live.ARW"), size: 0, mtime: 0,
-      indexed_at: new Date().toISOString(), deleted_at: null,
+    await db!.collection('assets').insertOne({
+      _id: assetId,
+      folder_id: folderId,
+      filename: 'live.ARW',
+      abs_path: path.join(realTmpRoot, 'live.ARW'),
+      size: 0,
+      mtime: 0,
+      indexed_at: new Date().toISOString(),
+      deleted_at: null,
     } as never);
-    const res = await app.handle(jsonReq(`http://localhost/api/assets/${assetId.toHexString()}/restore`, {}));
+    const res = await app.handle(
+      jsonReq(`http://localhost/api/assets/${assetId.toHexString()}/restore`, {}),
+    );
     expect(res.status).toBe(409);
   });
 
-  test("restore re-indexes the asset in Meilisearch with deletedAt=null", async () => {
+  test('restore re-indexes the asset in Meilisearch with deletedAt=null', async () => {
     if (!mongoReachable) return;
     const meili = capturingMeili();
     setMeilisearchClientForTests(meili);
-    const { app } = await import("../src/index.ts");
-    const mapleId = "feedfacefeedface";
-    const { assetId, originalPath } = await trashedAsset("IMG_RM1.ARW", {
+    const { app } = await import('../src/index.ts');
+    const mapleId = 'feedfacefeedface';
+    const { assetId, originalPath } = await trashedAsset('IMG_RM1.ARW', {
       mapleId,
-      description: "a sunset over the river",
+      description: 'a sunset over the river',
     });
 
-    const res = await app.handle(jsonReq(`http://localhost/api/assets/${assetId.toHexString()}/restore`, {}));
+    const res = await app.handle(
+      jsonReq(`http://localhost/api/assets/${assetId.toHexString()}/restore`, {}),
+    );
     expect(res.status).toBe(200);
 
     expect(meili.upserts.length).toBe(1);
@@ -325,56 +427,71 @@ describe("POST /api/assets/:id/restore", () => {
     expect(upserted.id).toBe(mapleId);
     expect(upserted.deletedAt).toBeNull();
     expect(upserted.folderId).toBe(folderId.toHexString());
-    expect(upserted.description).toBe("a sunset over the river");
+    expect(upserted.description).toBe('a sunset over the river');
     // searchBlob is a sorted, deduped token bag — the description tokens
     // are present in some order.
-    expect(upserted.searchBlob).toContain("sunset");
-    expect(upserted.searchBlob).toContain("river");
+    expect(upserted.searchBlob).toContain('sunset');
+    expect(upserted.searchBlob).toContain('river');
 
     // File restored regardless of Meili side-effects.
     await fs.stat(originalPath);
   });
 
-  test("restore skips Meilisearch when maple_id is absent (legacy row)", async () => {
+  test('restore skips Meilisearch when maple_id is absent (legacy row)', async () => {
     if (!mongoReachable) return;
     const meili = capturingMeili();
     setMeilisearchClientForTests(meili);
-    const { app } = await import("../src/index.ts");
-    const { assetId } = await trashedAsset("IMG_RM2.ARW");
+    const { app } = await import('../src/index.ts');
+    const { assetId } = await trashedAsset('IMG_RM2.ARW');
 
-    const res = await app.handle(jsonReq(`http://localhost/api/assets/${assetId.toHexString()}/restore`, {}));
+    const res = await app.handle(
+      jsonReq(`http://localhost/api/assets/${assetId.toHexString()}/restore`, {}),
+    );
     expect(res.status).toBe(200);
     expect(meili.upserts).toEqual([]);
   });
 
-  test("restore returns 200 even when Meilisearch throws", async () => {
+  test('restore returns 200 even when Meilisearch throws', async () => {
     if (!mongoReachable) return;
     const failing: MeilisearchClient = {
       isConfigured: () => true,
       health: async () => true,
       ensureIndex: async () => {},
-      upsert: async () => { throw new Error("meili down"); },
-      upsertOrThrow: async () => { throw new Error("meili down"); },
+      upsert: async () => {
+        throw new Error('meili down');
+      },
+      upsertOrThrow: async () => {
+        throw new Error('meili down');
+      },
       tombstone: async () => {},
       search: async () => ({ ids: [], estimatedTotal: 0 }),
     };
     setMeilisearchClientForTests(failing);
-    const { app } = await import("../src/index.ts");
-    const { assetId, originalPath } = await trashedAsset("IMG_RM3.ARW", { mapleId: "xyz789" });
+    const { app } = await import('../src/index.ts');
+    const { assetId, originalPath } = await trashedAsset('IMG_RM3.ARW', { mapleId: 'xyz789' });
 
-    const res = await app.handle(jsonReq(`http://localhost/api/assets/${assetId.toHexString()}/restore`, {}));
+    const res = await app.handle(
+      jsonReq(`http://localhost/api/assets/${assetId.toHexString()}/restore`, {}),
+    );
     expect(res.status).toBe(200);
     // Mongo restored and file moved despite Meili failure.
-    const doc = await db!.collection("assets").findOne({ _id: assetId }) as Record<string, unknown>;
+    const doc = (await db!.collection('assets').findOne({ _id: assetId })) as Record<
+      string,
+      unknown
+    >;
     expect(doc.deleted_at).toBeNull();
     expect(doc.original_path).toBeNull();
-    expect(doc.abs_path).toBe(originalPath);
+    // Post drop-abs-path-2026-05-21 the doc carries fileinfo[] not the
+    // top-level abs_path; compose the resolved path back from the
+    // primary fileinfo entry + library root.
+    const fi0 = (doc.fileinfo as Array<{ path: string; filename: string }>)[0]!;
+    expect(path.join(realTmpRoot, fi0.path, fi0.filename)).toBe(originalPath);
     await fs.stat(originalPath);
   });
 
-  test("404 on unknown asset id", async () => {
+  test('404 on unknown asset id', async () => {
     if (!mongoReachable) return;
-    const { app } = await import("../src/index.ts");
+    const { app } = await import('../src/index.ts');
     const otherId = new ObjectId().toHexString();
     const res = await app.handle(jsonReq(`http://localhost/api/assets/${otherId}/restore`, {}));
     expect(res.status).toBe(404);

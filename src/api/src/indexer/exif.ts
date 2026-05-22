@@ -6,20 +6,31 @@
  * proprietary RAW formats have weak/absent metadata — those leave the
  * `exif` field null and downstream stages keep advancing.
  *
- * The XMP sidecar is still consulted for Maple-side fields (rating, flag,
- * color label) since those are the editor's authoritative source.
- *
- * The exif subdoc and the XMP-derived fields are persisted in one Mongo
- * update keyed on `abs_path` (the asset row already exists by the time the
- * exif stage runs because the discover→hash chain has staged it).
+ * The XMP sidecar is consulted in dedicated stages — this module focuses
+ * on parsing only.
  */
 
-import { assetsCollection } from "../db/client.ts";
-import type { AssetExif } from "../db/schema.ts";
-import { child as childLogger } from "../log.ts";
-import exifr from "exifr";
+import * as path from 'node:path';
+import type { AssetExif } from '../db/schema.ts';
+import { child as childLogger } from '../log.ts';
+import exifr from 'exifr';
 
-const log = childLogger("indexer:exif");
+const log = childLogger('indexer:exif');
+
+/** Extensions that exifr cannot parse. Assets with these extensions arrive
+ * via the backup ingest route (no extension filter there). Return null
+ * without attempting a parse — no warning needed, this is expected. */
+const EXIFR_UNSUPPORTED_EXTS = new Set([
+  '.mov',
+  '.mp4',
+  '.m4v',
+  '.avi',
+  '.mkv',
+  '.webm',
+  '.mts',
+  '.m2ts',
+  '.3gp',
+]);
 
 /**
  * exifr's parse result is a loose record. We pluck the fields we want and
@@ -33,32 +44,32 @@ const log = childLogger("indexer:exif");
  * Drop them and every western-hemisphere coord comes back positive.
  */
 export const EXIF_PICK_TAGS = [
-  "DateTimeOriginal",
-  "CreateDate",
-  "Make",
-  "Model",
-  "LensModel",
-  "LensInfo",
-  "Lens",
-  "ISO",
-  "ISOSpeedRatings",
-  "FNumber",
-  "ApertureValue",
-  "ExposureTime",
-  "ShutterSpeedValue",
-  "FocalLength",
-  "latitude",
-  "longitude",
-  "GPSLatitude",
-  "GPSLongitude",
-  "GPSLatitudeRef",
-  "GPSLongitudeRef",
+  'DateTimeOriginal',
+  'CreateDate',
+  'Make',
+  'Model',
+  'LensModel',
+  'LensInfo',
+  'Lens',
+  'ISO',
+  'ISOSpeedRatings',
+  'FNumber',
+  'ApertureValue',
+  'ExposureTime',
+  'ShutterSpeedValue',
+  'FocalLength',
+  'latitude',
+  'longitude',
+  'GPSLatitude',
+  'GPSLongitude',
+  'GPSLatitudeRef',
+  'GPSLongitudeRef',
 ] as const;
 
 type LooseRecord = Record<string, unknown>;
 
 function asString(v: unknown): string | null {
-  if (typeof v === "string") {
+  if (typeof v === 'string') {
     const s = v.trim();
     return s.length > 0 ? s : null;
   }
@@ -66,8 +77,8 @@ function asString(v: unknown): string | null {
 }
 
 function asNumber(v: unknown): number | null {
-  if (typeof v === "number" && Number.isFinite(v)) return v;
-  if (typeof v === "string") {
+  if (typeof v === 'number' && Number.isFinite(v)) return v;
+  if (typeof v === 'string') {
     const n = Number(v);
     return Number.isFinite(n) ? n : null;
   }
@@ -79,10 +90,9 @@ function asIsoDate(v: unknown): string | null {
   if (v instanceof Date && !Number.isNaN(v.getTime())) {
     return v.toISOString();
   }
-  if (typeof v === "string") {
+  if (typeof v === 'string') {
     // Try EXIF format "YYYY:MM:DD HH:MM:SS" first, then ISO.
-    const exifMatch =
-      /^(\d{4}):(\d{2}):(\d{2})[ T](\d{2}):(\d{2}):(\d{2})/.exec(v);
+    const exifMatch = /^(\d{4}):(\d{2}):(\d{2})[ T](\d{2}):(\d{2}):(\d{2})/.exec(v);
     if (exifMatch) {
       const [, y, mo, d, h, mi, s] = exifMatch;
       const iso = `${y}-${mo}-${d}T${h}:${mi}:${s}`;
@@ -104,17 +114,14 @@ function formatShutter(seconds: number): string {
   if (!Number.isFinite(seconds) || seconds <= 0) return String(seconds);
   if (seconds >= 1) {
     // Trim trailing zeros: 2.0 -> "2", 0.5 -> "0.5".
-    return Number.isInteger(seconds)
-      ? String(seconds)
-      : String(Number(seconds.toFixed(2)));
+    return Number.isInteger(seconds) ? String(seconds) : String(Number(seconds.toFixed(2)));
   }
   return `1/${Math.max(1, Math.round(1 / seconds))}`;
 }
 
 /** Build an `AssetExif` from a loose exifr parse result. */
 export function normalizeExif(raw: LooseRecord): AssetExif {
-  const captured_at =
-    asIsoDate(raw["DateTimeOriginal"]) ?? asIsoDate(raw["CreateDate"]);
+  const captured_at = asIsoDate(raw['DateTimeOriginal']) ?? asIsoDate(raw['CreateDate']);
   // Pre-compute year + month (UTC) at index time so the buckets endpoint
   // can $group without parsing captured_at per-document. The timeline view
   // already operates in UTC; doing the same here keeps results consistent.
@@ -127,25 +134,20 @@ export function normalizeExif(raw: LooseRecord): AssetExif {
       captured_month = d.getUTCMonth() + 1;
     }
   }
-  const camera_make = asString(raw["Make"]);
-  const camera_model = asString(raw["Model"]);
-  const lens =
-    asString(raw["LensModel"]) ??
-    asString(raw["Lens"]) ??
-    asString(raw["LensInfo"]);
-  const iso = asNumber(raw["ISO"]) ?? asNumber(raw["ISOSpeedRatings"]);
-  const aperture = asNumber(raw["FNumber"]) ?? asNumber(raw["ApertureValue"]);
-  const exposureTime = asNumber(raw["ExposureTime"]);
+  const camera_make = asString(raw['Make']);
+  const camera_model = asString(raw['Model']);
+  const lens = asString(raw['LensModel']) ?? asString(raw['Lens']) ?? asString(raw['LensInfo']);
+  const iso = asNumber(raw['ISO']) ?? asNumber(raw['ISOSpeedRatings']);
+  const aperture = asNumber(raw['FNumber']) ?? asNumber(raw['ApertureValue']);
+  const exposureTime = asNumber(raw['ExposureTime']);
   const shutter = exposureTime != null ? formatShutter(exposureTime) : null;
-  const focal_length = asNumber(raw["FocalLength"]);
+  const focal_length = asNumber(raw['FocalLength']);
 
   // exifr returns decimal lat/lng on the top level when `gps: true`.
-  const lat = asNumber(raw["latitude"]);
-  const lng = asNumber(raw["longitude"]);
+  const lat = asNumber(raw['latitude']);
+  const lng = asNumber(raw['longitude']);
   const gps =
-    lat != null && lng != null && Math.abs(lat) <= 90 && Math.abs(lng) <= 180
-      ? { lat, lng }
-      : null;
+    lat != null && lng != null && Math.abs(lat) <= 90 && Math.abs(lng) <= 180 ? { lat, lng } : null;
 
   return {
     captured_at,
@@ -164,9 +166,10 @@ export function normalizeExif(raw: LooseRecord): AssetExif {
 
 /**
  * Parse EXIF for one file. Returns null if the file has no readable EXIF
- * (parser threw, or returned undefined).
+ * (parser threw, returned undefined, or the extension is unsupported).
  */
 export async function readExif(absPath: string): Promise<AssetExif | null> {
+  if (EXIFR_UNSUPPORTED_EXTS.has(path.extname(absPath).toLowerCase())) return null;
   try {
     const raw = (await exifr.parse(absPath, {
       pick: EXIF_PICK_TAGS as unknown as string[],
@@ -177,54 +180,7 @@ export async function readExif(absPath: string): Promise<AssetExif | null> {
     if (!raw) return null;
     return normalizeExif(raw);
   } catch (err) {
-    log.warn(
-      { absPath, err: err instanceof Error ? err.message : err },
-      "exifr failed",
-    );
+    log.warn({ absPath, err: err instanceof Error ? err.message : err }, 'exifr failed');
     return null;
   }
-}
-
-/**
- * Backfill helper for the one-shot upgrade in `IndexerService`.
- *
- * Updates an existing asset row with freshly-parsed EXIF and sidecar fields.
- * Used to upgrade rows that were indexed before EXIF support landed (i.e.
- * `{ exif: { $exists: false } }`). Returns true if the document was matched
- * (so the caller can count progress).
- *
- * Pipeline jobs do NOT call this — they let the exif stage populate `job.exif`
- * and rely on the mongo stage's upsert to write it. Calling this from the
- * pipeline would race against the mongo stage's own `$set`.
- */
-export async function backfillAssetExif(absPath: string): Promise<boolean> {
-  const [exif, sidecar] = await Promise.all([
-    readExif(absPath),
-    (async () => {
-      const { readXmp } = await import("../fs/xmp.ts");
-      const result = await readXmp(absPath);
-      if (!result.ok) return null;
-      const xml = result.data!;
-      const ratingMatch = xml.match(/xmp:Rating\s*=\s*["'](\d+)["']/);
-      const rating = ratingMatch
-        ? Math.min(5, Math.max(0, Number(ratingMatch[1])))
-        : 0;
-      const flagMatch = xml.match(/maple:Flag\s*=\s*["'](-?\d+)["']/);
-      const rawFlag = flagMatch ? Number(flagMatch[1]) : 0;
-      const flag = (rawFlag === 1 ? 1 : rawFlag === -1 ? -1 : 0) as -1 | 0 | 1;
-      const labelMatch = xml.match(/maple:ColorLabel\s*=\s*["']([^"']*)["']/);
-      const color_label = labelMatch ? labelMatch[1] : "";
-      return { rating, flag, color_label };
-    })(),
-  ]);
-
-  const $set: Record<string, unknown> = { exif };
-  if (sidecar) {
-    $set.rating = sidecar.rating;
-    $set.flag = sidecar.flag;
-    $set.color_label = sidecar.color_label;
-  }
-  const coll = await assetsCollection();
-  const r = await coll.updateOne({ abs_path: absPath }, { $set });
-  return r.matchedCount > 0;
 }

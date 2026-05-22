@@ -3,9 +3,14 @@
  * (and any future VLM stages that need more pixels than the 512-px thumb).
  *
  * Delegates to `generatePreview` in `src/api/src/indexer/previewer.ts`.
- * The preview path is derived by `resolvePreviewPath` (a thin wrapper around
- * `cachePathFor(path, "previews", "1280")`) so any consumer can address
- * the file deterministically.
+ *
+ * Cache-path resolution (post content-addressing migration PR 3):
+ *   - if the image doc has both `maple_id` and `fileinfo[0]`, write to the
+ *     content-addressed location: `<lib>/<fileinfo[0].path>/.maple/previews/
+ *     <maple_id>_1280.jpg`;
+ *   - otherwise fall back to the legacy basename-keyed location via
+ *     `resolvePreviewPath(absPath)`. The cache-gc sweep retires legacy
+ *     orphans on the next boot once the row is backfilled.
  *
  * dependsOn: ["thumb"]
  *   — chained on thumb so the FFI worker pool is already warm when this
@@ -15,13 +20,16 @@
  * Not `pausedOnFirstBoot` — this is purely local file IO, free, and downstream
  * stages need it.
  */
-import { generatePreview, resolvePreviewPath } from "../../indexer/previewer.ts";
-import { defineStage, runStage, type RunStageHandle } from "../run-stage.ts";
+import { generatePreview, resolvePreviewPath, PREVIEW_SIZE_KEY } from '../../indexer/previewer.ts';
+import { cachePathForAsset } from '../../fs/xmp.ts';
+import { assetAbsPath } from '../../indexer/images.repo.ts';
+import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
+import { defineStage, runStage, type RunStageHandle, type StageResult } from '../run-stage.ts';
 
 const previewStage = defineStage({
-  name: "preview",
+  name: 'preview',
   targetVersion: 1,
-  dependsOn: ["thumb"],
+  dependsOn: ['thumb'],
   defaults: {
     concurrency: 2,
     batchSize: 5,
@@ -31,14 +39,23 @@ const previewStage = defineStage({
     pausedOnFirstBoot: false,
     last_seen_target_version: 0,
   },
-  handler: async (image) => {
-    const absPath = image.abs_path as string;
-    await generatePreview(absPath);
-    return {
-      patch: {
-        preview_path: resolvePreviewPath(absPath),
-      },
-    };
+  handler: async (image): Promise<StageResult> => {
+    // Let `loadLibraryRoots()` errors propagate — a transient DB hiccup
+    // would otherwise yield an empty libs map, which would make
+    // `assetAbsPath` return null and trip the no-resolvable-location skip
+    // below. That skip writes `version = targetVersion` (see run-stage.ts),
+    // permanently marking the stage done. By throwing, the runner's
+    // retry/backoff path handles the transient case. Reserve `skip` for
+    // the genuine case: libraries loaded fine, but the asset has no
+    // fileinfo[0] or its library is unregistered.
+    const libs = await loadLibraryRoots();
+    const previewPath = cachePathForAsset(image as never, libs, 'previews', PREVIEW_SIZE_KEY);
+    const absPath = assetAbsPath(image as never, libs);
+    if (!previewPath || !absPath) {
+      return { skip: 'no-resolvable-location' };
+    }
+    await generatePreview(absPath, previewPath);
+    return { patch: { preview_path: previewPath } };
   },
 });
 

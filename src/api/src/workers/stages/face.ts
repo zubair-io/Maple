@@ -21,31 +21,45 @@
  * contract.
  */
 
-import { existsSync } from "node:fs";
-import { readFile } from "node:fs/promises";
-import type { ImageDoc, StageContext, StageResult } from "../run-stage.ts";
-import { defineStage, runStage, type RunStageHandle } from "../run-stage.ts";
-import { cachePathFor } from "../../fs/xmp.ts";
+import { existsSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
+import type { ImageDoc, StageContext, StageResult } from '../run-stage.ts';
+import { defineStage, runStage, type RunStageHandle } from '../run-stage.ts';
+import { resolveThumbPathForAsset } from '../../fs/xmp.ts';
+import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
 import {
   defaultFaceDetector,
   ThumbDecodeError,
   type DetectedFace,
-} from "../../enrichment/face-detector.ts";
-import type { AssetFaceDoc } from "../../db/schema.ts";
+} from '../../enrichment/face-detector.ts';
+import type { AssetFaceDoc } from '../../db/schema.ts';
 
-export const THUMB_MISSING_REASON = "thumb-missing";
+export const THUMB_MISSING_REASON = 'thumb-missing';
 /** Cached thumbnail exists on disk but `sharp`/libvips can't decode it
  * (e.g. "VipsJpeg: Invalid SOS parameters"). Non-retryable — the thumb
  * regen would produce the same bytes. Skip-passes so the stage version
  * advances and we stop hammering bad inputs. */
-export const THUMB_UNDECODABLE_REASON = "thumb-undecodable";
+export const THUMB_UNDECODABLE_REASON = 'thumb-undecodable';
 
-export async function faceHandler(
-  image: ImageDoc,
-  _ctx: StageContext,
-): Promise<StageResult> {
+export async function faceHandler(image: ImageDoc, _ctx: StageContext): Promise<StageResult> {
   const detector = defaultFaceDetector();
-  const thumbPath = cachePathFor(image.abs_path as string, "thumbs");
+  // Content-addressed thumb path. The legacy basename-keyed fallback was
+  // retired in the drop-abs-path-2026-05-21 migration; rows without
+  // `fileinfo` are skipped.
+  //
+  // Let `loadLibraryRoots()` errors propagate — a transient DB hiccup would
+  // otherwise yield an empty libs map, which would make
+  // `resolveThumbPathForAsset` return null and trip the no-resolvable-
+  // location skip below. That skip writes `version = targetVersion`
+  // (see run-stage.ts), permanently marking the stage done. By throwing,
+  // the runner's retry/backoff path handles the transient case. Reserve
+  // `skip` for the genuine case: libraries loaded fine, but the asset has
+  // no fileinfo[0] or its library is unregistered.
+  const libs = await loadLibraryRoots();
+  const thumbPath = resolveThumbPathForAsset(image as never, libs);
+  if (!thumbPath) {
+    return { skip: 'no-resolvable-location' };
+  }
   if (!existsSync(thumbPath)) {
     return { skip: `${THUMB_MISSING_REASON}: ${thumbPath}` };
   }
@@ -87,9 +101,9 @@ function detectionToDoc(det: DetectedFace, embedding: Float32Array): AssetFaceDo
 }
 
 const faceStage = defineStage({
-  name: "face",
+  name: 'face',
   targetVersion: 1,
-  dependsOn: ["thumb"],
+  dependsOn: ['thumb'],
   defaults: {
     concurrency: 1,
     pollIntervalMs: 1000,

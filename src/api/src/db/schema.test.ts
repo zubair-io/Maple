@@ -5,9 +5,6 @@ import type { AssetDoc, FileInfo, UploadSessionDoc, BackupSessionDoc } from './s
 describe('PhotoKit backup schema additions', () => {
   test('AssetDoc accepts phasset_links, deleted_from_photos, apple_rendered_path', () => {
     const doc: AssetDoc = {
-      folder_id: {} as any,
-      filename: 'IMG.heic',
-      abs_path: '/Photos/2024/Tokyo/03-15/IMG.heic',
       size: 1,
       mtime: 0,
       rating: 0,
@@ -25,9 +22,6 @@ describe('PhotoKit backup schema additions', () => {
 
   test('phasset_links accepts optional phasset_cloud_id for cross-device join', () => {
     const doc: AssetDoc = {
-      folder_id: {} as any,
-      filename: 'IMG.heic',
-      abs_path: '/Photos/2024/Tokyo/03-15/IMG.heic',
       size: 1,
       mtime: 0,
       rating: 0,
@@ -122,9 +116,6 @@ describe('FileInfo (content-addressed assets)', () => {
   test('attaches to AssetDoc as an array', () => {
     const libId = new ObjectId();
     const doc: AssetDoc = {
-      folder_id: libId,
-      filename: 'IMG_001.dng',
-      abs_path: '/lib/vacation/2024/IMG_001.dng',
       fileinfo: [{ path: 'vacation/2024', filename: 'IMG_001.dng', library_id: libId }],
       size: 1,
       mtime: 0,

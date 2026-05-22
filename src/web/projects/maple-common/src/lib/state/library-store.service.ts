@@ -18,13 +18,25 @@
 // **#191 inventory of former store fields and their new homes:**
 //   - thumbSize, sort, filter, sidebarVisible, inspectorVisible, activeTab,
 //     viewMode, sectionOpen, folderOpen
-//       → extracted in this PR into BrowsePreferencesService
+//       → extracted into BrowsePreferencesService (slice 1, PR #216)
 //         (`browse-preferences.service.ts`). Callers read them via the
 //         LibraryStateService facade, which re-exports each signal.
-//   - searchQuery, pickerVisible, adminVisible, backendLoading,
-//     backendError, backendEmpty, rescanStatus, rescanError
-//       → still on this store; planned to collapse into component / fetcher
-//         signals in follow-up PRs per the issue brief.
+//   - searchQuery
+//       → extracted into LibrarySelection (`library-selection.service.ts`,
+//         slice 2, PR #289). The toolbar search input is conceptually part
+//         of the selection-state group (`selectedAssetIds`, `focusedAssetId`,
+//         `selectedSourceId` already live there). Re-exported via the facade
+//         so consumers keep working unchanged.
+//   - backendLoading, backendError, backendEmpty, rescanStatus, rescanError
+//       → extracted in this PR into LibraryStatusService
+//         (`library-status.service.ts`, slice 3). Async-lifecycle signals
+//         for Self-Hosted bootstrap + rescan flows. `LibraryFetch` (the
+//         only writer) now injects the status service directly; the
+//         facade re-exports each signal so component consumers are
+//         unchanged.
+//   - pickerVisible, adminVisible
+//       → still on this store; pure UI visibility flags, planned to move
+//         to shell-component signals in a follow-up PR.
 
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { Asset, AssetId, Flag, ColorLabel } from '../models/asset';
@@ -39,6 +51,67 @@ import { ApiFolder } from '../api/bun-api-backend.service';
 import { MapleFolderHandle } from '../folder-access/folder-access.types';
 import { MapleIndex } from '../maple-cache/maple-cache.types';
 
+// ─── Location helpers (content-addressing migration) ───────────────────────
+//
+// Mirror of `assetAbsPath` from `src/api/src/indexer/images.repo.ts`. Prefers
+// the new `fileinfo[]` array (PR 1 of the migration) and falls back to the
+// legacy `absPath` field while the server is mid-migration. After the server
+// drops `abs_path` from the wire DTO, the fallback becomes a hard `null`
+// signal that the asset is unresolvable on this client.
+//
+// `libraries` is keyed by hex ObjectId of the registered library →
+// absolute library root path. Callers derive it from
+// `LibraryStore.registeredFolders`; see `librariesById` below.
+
+/**
+ * Resolve the absolute filesystem path for an asset's primary on-disk
+ * location, composed from the library root plus the relative directory and
+ * filename in `fileinfo[0]`.
+ *
+ * Returns `null` when neither source resolves — usually means the registered
+ * library that owns the file is not loaded (e.g. server hasn't sent
+ * `/api/folders` yet) or the asset has neither `fileinfo` nor `absPath`.
+ */
+export function assetAbsPath(
+  asset: Pick<Asset, 'fileinfo' | 'absPath'>,
+  libraries: ReadonlyMap<string, string>,
+): string | null {
+  const primary = (asset.fileinfo ?? []).find((entry) => !entry.deleted_at);
+  if (primary) {
+    const root = libraries.get(primary.library_id);
+    if (root) {
+      // FileInfo.path is POSIX-separated by contract. Web is always POSIX
+      // so we can join with `/` without re-splitting.
+      //
+      // Normalise the slash boundaries so a trailing `/` on `root` (e.g.
+      // `"/Volumes/Photos/"`) or a stray leading/trailing `/` on
+      // `primary.path` doesn't produce `//` in the joined result.
+      // Preserve `root === "/"` (root of the filesystem) as-is.
+      const trimmedRoot = root === '/' ? '/' : root.replace(/\/+$/, '');
+      const dir = primary.path.replace(/^\/+|\/+$/g, '');
+      const rootPrefix = trimmedRoot === '/' ? '' : trimmedRoot;
+      return dir === ''
+        ? `${rootPrefix}/${primary.filename}`
+        : `${rootPrefix}/${dir}/${primary.filename}`;
+    }
+  }
+  // Fall back to the client-synthesised fs-walk path (NOT a wire field —
+  // see the docstring on `Asset.absPath`).
+  if (asset.absPath) return asset.absPath;
+  return null;
+}
+
+/**
+ * Build a `hex(library_id) → root path` map from a list of registered
+ * libraries. Pass `store.registeredFolders()` at the call site so the
+ * result is reactive when used inside a `computed`.
+ */
+export function buildLibrariesById(folders: readonly ApiFolder[]): ReadonlyMap<string, string> {
+  const map = new Map<string, string>();
+  for (const f of folders) map.set(f.id, f.path);
+  return map;
+}
+
 @Injectable({ providedIn: 'root' })
 export class LibraryStore {
   /** Which backend is in use. Consumers read this to branch data-source paths. */
@@ -49,17 +122,18 @@ export class LibraryStore {
   // consumer of the prefs, so this class does not inject it.
 
   // ── Self-Hosted bootstrap state ────────────────────────────────────────────
-  /** True while listFolders / listAssets is in flight (Self-Hosted only). */
-  readonly backendLoading = signal<boolean>(false);
-  /** Last backend error message, cleared on successful load. */
-  readonly backendError = signal<string | null>(null);
-  /** True when the API returned zero folders (index not configured yet). */
-  readonly backendEmpty = signal<boolean>(false);
+  // Note: the five async-lifecycle signals (backendLoading, backendError,
+  // backendEmpty, rescanStatus, rescanError) moved to
+  // `LibraryStatusService` in slice 3 of #191. The facade still
+  // re-exports them so component consumers are unchanged.
   /** Latest server-side registered libraries. */
   readonly registeredFolders = signal<ApiFolder[]>([]);
-  /** Transient state for the "Rescan" button on the toolbar. */
-  readonly rescanStatus = signal<'idle' | 'running' | 'done' | 'error'>('idle');
-  readonly rescanError = signal<string | null>(null);
+  /**
+   * Reactive `hex(library_id) → absolute root path` map derived from
+   * `registeredFolders`. Pass to `assetAbsPath(asset, libraries)` to
+   * resolve content-addressed assets via `fileinfo[0]`.
+   */
+  readonly librariesById = computed(() => buildLibrariesById(this.registeredFolders()));
 
   /** True while the library-picker modal is open. */
   readonly pickerVisible = signal(false);
@@ -101,11 +175,6 @@ export class LibraryStore {
   // ── Current folder handle ─────────────────────────────────────────────────
   /** The folder the user most recently opened via openFolder(). */
   readonly currentFolder = signal<MapleFolderHandle | null>(null);
-
-  // ── In-grid search query (filename substring filter) ──────────────────────
-  // Ephemeral — does NOT persist. Slated to move to BrowseShell component
-  // signal in a follow-up PR per the #191 brief.
-  readonly searchQuery = signal<string>('');
 
   // ── Adjustment models (per-asset develop settings) ────────────────────────
   readonly adjustmentModels = signal<Map<AssetId, AdjustmentModel>>(new Map());

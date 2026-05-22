@@ -24,14 +24,9 @@
  * body.
  */
 
-import {
-  ObjectId,
-  type Filter,
-  type Db,
-  type UpdateResult,
-  type Collection,
-} from "mongodb";
-import { assetsCollection } from "./client.ts";
+import { ObjectId, type Filter, type Db, type UpdateResult, type Collection } from 'mongodb';
+import { assetsCollection } from './client.ts';
+import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
 import {
   normaliseEnrichment,
   type AssetDoc,
@@ -39,8 +34,8 @@ import {
   type Enrichment,
   type EnrichmentStageState,
   type Place,
-} from "./schema.ts";
-import { searchBlobUpdateExpression } from "../enrichment/search-blob.ts";
+} from './schema.ts';
+import { searchBlobUpdateExpression } from '../enrichment/search-blob.ts';
 import {
   toDetailDto,
   toListItemDto,
@@ -48,13 +43,13 @@ import {
   type AssetDetailDto,
   type AssetListItemDto,
   type AssetCoreInfo,
-} from "./assets.transform.ts";
+} from './assets.transform.ts';
 
 // Re-exports so existing call sites can keep `from "../db/assets.repo.ts"`
 // for both the read/mutate verbs and the DTO / trash helpers. New code
 // MAY import the split files directly; both shapes are supported.
 export type { AssetDetailDto, AssetListItemDto, AssetCoreInfo };
-export { markSoftDeleted, hardDelete, restoreFromTrash } from "./assets.trash.ts";
+export { markSoftDeleted, hardDelete, restoreFromTrash } from './assets.trash.ts';
 
 // ---------------------------------------------------------------------------
 // Helpers.
@@ -73,13 +68,42 @@ export function parseAssetId(id: string): ObjectId | null {
 }
 
 async function coll(dbOverride?: Db): Promise<Collection<AssetDoc>> {
-  if (dbOverride) return dbOverride.collection<AssetDoc>("assets");
+  if (dbOverride) return dbOverride.collection<AssetDoc>('assets');
   return assetsCollection();
 }
 
 // ---------------------------------------------------------------------------
 // Read methods (return DTOs).
 // ---------------------------------------------------------------------------
+
+/**
+ * Resolve the library-roots map. A transient DB hiccup mustn't break
+ * transform paths: fall back to an empty map and let `abs_path` resolve
+ * to `""` (every route handler tolerates that).
+ *
+ * When `dbOverride` is provided (tests), reads the folders collection
+ * directly from that DB so test fixtures and the route's data share a
+ * single Mongo instance. The process-wide cache is bypassed in that
+ * case so two tests targeting different databases don't share entries.
+ */
+async function safeLoadLibraries(dbOverride?: Db): Promise<ReadonlyMap<string, string>> {
+  try {
+    if (dbOverride) {
+      const docs = await dbOverride
+        .collection('folders')
+        .find({}, { projection: { path: 1 } })
+        .toArray();
+      const map = new Map<string, string>();
+      for (const d of docs) {
+        map.set((d._id as ObjectId).toHexString(), d.path as string);
+      }
+      return map;
+    }
+    return await loadLibraryRoots();
+  } catch {
+    return new Map();
+  }
+}
 
 /** Single asset, full detail DTO (used by `GET /api/assets/:id`). */
 export async function findDetailById(
@@ -88,7 +112,9 @@ export async function findDetailById(
 ): Promise<AssetDetailDto | null> {
   const c = await coll(dbOverride);
   const doc = await c.findOne({ _id: id });
-  return doc ? toDetailDto(doc as AssetWithId) : null;
+  if (!doc) return null;
+  const libs = await safeLoadLibraries(dbOverride);
+  return toDetailDto(doc as AssetWithId, libs);
 }
 
 /** Single asset, minimal info used by routes that drive FS / change-feed
@@ -99,7 +125,9 @@ export async function findCoreInfoById(
 ): Promise<AssetCoreInfo | null> {
   const c = await coll(dbOverride);
   const doc = await c.findOne({ _id: id });
-  return doc ? toCoreInfo(doc as AssetWithId) : null;
+  if (!doc) return null;
+  const libs = await safeLoadLibraries(dbOverride);
+  return toCoreInfo(doc as AssetWithId, libs);
 }
 
 /** Filter shape accepted by `findListItems`. All fields are optional —
@@ -130,7 +158,7 @@ export async function findListItems(
     mongoFilter.rating = { $gte: filter.ratingGte };
   }
   if (filter.capturedAfterIso !== undefined) {
-    (mongoFilter as Filter<AssetDoc>)["exif.captured_at"] = {
+    (mongoFilter as Filter<AssetDoc>)['exif.captured_at'] = {
       $gt: filter.capturedAfterIso,
     } as never;
   }
@@ -142,7 +170,8 @@ export async function findListItems(
   const safeLimit = Number.isFinite(limit) && limit >= 1 ? limit : 1000;
   const clamped = Math.min(Math.max(safeLimit, 1), 20000);
   const rows = await c.find(mongoFilter).limit(clamped).toArray();
-  return rows.map((r) => toListItemDto(r as AssetWithId));
+  const libs = await safeLoadLibraries(dbOverride);
+  return rows.map((r) => toListItemDto(r as AssetWithId, libs));
 }
 
 // ---------------------------------------------------------------------------
@@ -224,8 +253,7 @@ export async function requeueEnrichmentStage(
   const c = await coll(dbOverride);
   const doc = await c.findOne({ _id: id });
   if (!doc) return null;
-  const current: EnrichmentStageState =
-    normaliseEnrichment(doc.enrichment)[stage];
+  const current: EnrichmentStageState = normaliseEnrichment(doc.enrichment)[stage];
   const nextVersion = (current.version ?? 0) + 1;
   const result = await c.updateOne(
     { _id: id },

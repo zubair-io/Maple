@@ -3,8 +3,8 @@
     <div class="titles">
       <h1>Workers</h1>
       <p>
-        Every stage of the photo pipeline — ingest, enrichment, and search
-        index. Click a row to inspect and tune.
+        Every stage of the photo pipeline — ingest, enrichment, and search index. Click a row to
+        inspect and tune.
       </p>
     </div>
     <div class="actions">
@@ -63,10 +63,19 @@
               (keydown.enter)="toggleExpanded(s)"
               (keydown.space)="toggleExpanded(s); $event.preventDefault()"
             >
-              <maple-settings-icon [name]="isExpanded(s) ? 'chev-d' : 'chev-r'" [size]="12" [stroke]="2" [color]="'#a8a29e'"/>
+              <maple-settings-icon
+                [name]="isExpanded(s) ? 'chev-d' : 'chev-r'"
+                [size]="12"
+                [stroke]="2"
+                [color]="'#a8a29e'"
+              />
 
               <span class="stage-id">
-                <maple-settings-icon [name]="meta(s).icon" [size]="14" [color]="s.status === 'paused' ? '#78706a' : '#a8a29e'"/>
+                <maple-settings-icon
+                  [name]="meta(s).icon"
+                  [size]="14"
+                  [color]="s.status === 'paused' ? '#78706a' : '#a8a29e'"
+                />
                 <span class="mono">{{ s.name }}</span>
               </span>
 
@@ -83,7 +92,7 @@
               <span class="mono r dead-cell" data-testid="dead-cell" [class.has-dead]="s.dead > 0">
                 <span data-testid="dead-count">{{ s.dead | number }}</span>
                 @if (s.dead > 0) {
-                  <maple-settings-icon name="retry" [size]="11" [color]="'#f87171'"/>
+                  <maple-settings-icon name="retry" [size]="11" [color]="'#f87171'" />
                 }
               </span>
               <span class="mono r tput">
@@ -101,7 +110,7 @@
                 title="Stage actions"
                 (click)="$event.stopPropagation()"
               >
-                <maple-settings-icon name="kebab" [size]="14" [color]="'#a8a29e'"/>
+                <maple-settings-icon name="kebab" [size]="14" [color]="'#a8a29e'" />
               </button>
 
               <button
@@ -131,9 +140,15 @@
                   <div class="block">
                     <div class="subhead">
                       @switch (meta(s).enrichment) {
-                        @case ('describe') { Describe worker }
-                        @case ('geocode')  { Geocode worker }
-                        @case ('face')     { Face detection }
+                        @case ('describe') {
+                          Describe worker
+                        }
+                        @case ('geocode') {
+                          Geocode worker
+                        }
+                        @case ('face') {
+                          Face detection
+                        }
                       }
                     </div>
 
@@ -148,7 +163,13 @@
                                   type="text"
                                   placeholder="http://localhost:11434"
                                   [value]="enrichmentValue(s, 'describe_provider_url')"
-                                  (input)="setEnrichment(s, 'describe_provider_url', $any($event.target).value)"
+                                  (input)="
+                                    setEnrichment(
+                                      s,
+                                      'describe_provider_url',
+                                      $any($event.target).value
+                                    )
+                                  "
                                 />
                               </div>
                               <button
@@ -157,18 +178,20 @@
                                 [disabled]="testState(s).kind === 'testing'"
                                 (click)="testConnection(s)"
                               >
-                                <maple-settings-icon name="test" [size]="12"/>
-                                {{ testState(s).kind === 'testing' ? 'Testing…' : 'Test connection' }}
+                                <maple-settings-icon name="test" [size]="12" />
+                                {{
+                                  testState(s).kind === 'testing' ? 'Testing…' : 'Test connection'
+                                }}
                               </button>
                             </div>
                             <div class="field-hint">
                               Empty uses the default
-                              <span class="mono">http://localhost:11434</span>. Point at a
-                              remote Ollama if the model lives on a different machine.
+                              <span class="mono">http://localhost:11434</span>. Point at a remote
+                              Ollama if the model lives on a different machine.
                             </div>
                             @if (testState(s).kind === 'ok') {
                               <div class="test-result ok">
-                                <maple-settings-icon name="check" [size]="12" [color]="'#4ade80'"/>
+                                <maple-settings-icon name="check" [size]="12" [color]="'#4ade80'" />
                                 Ollama responded.
                               </div>
                             } @else if (testState(s).kind === 'error') {
@@ -179,14 +202,17 @@
                           </div>
                           <div class="field">
                             <div class="field-label">Model</div>
-                            <div class="text-input mono">
+                            <div class="text-input mono readonly">
                               <div class="text-input-wrap">
-                                <input
-                                  type="text"
-                                  [value]="enrichmentValue(s, 'describe_model')"
-                                  (input)="setEnrichment(s, 'describe_model', $any($event.target).value)"
-                                />
+                                <input type="text" readonly [value]="fixedDescribeModel" />
                               </div>
+                            </div>
+                            <div class="field-hint">
+                              Locked to <span class="mono">{{ fixedDescribeModel }}</span
+                              >. The structured-JSON parser only accepts this model's output shape —
+                              pull the matching tag with
+                              <span class="mono">ollama pull {{ fixedDescribeModel }}</span
+                              >.
                             </div>
                           </div>
                         </div>
@@ -202,7 +228,9 @@
                                   type="text"
                                   placeholder="(empty disables)"
                                   [value]="enrichmentValue(s, 'nominatim_url')"
-                                  (input)="setEnrichment(s, 'nominatim_url', $any($event.target).value)"
+                                  (input)="
+                                    setEnrichment(s, 'nominatim_url', $any($event.target).value)
+                                  "
                                 />
                               </div>
                               <button
@@ -211,8 +239,10 @@
                                 [disabled]="testState(s).kind === 'testing'"
                                 (click)="testConnection(s)"
                               >
-                                <maple-settings-icon name="test" [size]="12"/>
-                                {{ testState(s).kind === 'testing' ? 'Testing…' : 'Test connection' }}
+                                <maple-settings-icon name="test" [size]="12" />
+                                {{
+                                  testState(s).kind === 'testing' ? 'Testing…' : 'Test connection'
+                                }}
                               </button>
                             </div>
                             <div class="field-hint">
@@ -221,7 +251,7 @@
                             </div>
                             @if (testState(s).kind === 'ok') {
                               <div class="test-result ok">
-                                <maple-settings-icon name="check" [size]="12" [color]="'#4ade80'"/>
+                                <maple-settings-icon name="check" [size]="12" [color]="'#4ade80'" />
                                 Nominatim responded.
                               </div>
                             } @else if (testState(s).kind === 'error') {
@@ -235,9 +265,17 @@
                             <div class="num-input">
                               <input
                                 type="number"
-                                min="0.1" max="100" step="0.1"
+                                min="0.1"
+                                max="100"
+                                step="0.1"
                                 [value]="enrichmentValue(s, 'nominatim_rate_limit_per_sec')"
-                                (input)="setEnrichment(s, 'nominatim_rate_limit_per_sec', $any($event.target).value)"
+                                (input)="
+                                  setEnrichment(
+                                    s,
+                                    'nominatim_rate_limit_per_sec',
+                                    $any($event.target).value
+                                  )
+                                "
                               />
                               <span class="num-suffix">requests / second</span>
                             </div>
@@ -250,21 +288,40 @@
 
                       @case ('face') {
                         @if (enrichmentConfig()?.face_models) {
-                          <div class="face-banner" [class.warn]="enrichmentConfig()!.face_models!.status === 'error'">
+                          <div
+                            class="face-banner"
+                            [class.warn]="enrichmentConfig()!.face_models!.status === 'error'"
+                          >
                             <maple-settings-icon
-                              [name]="enrichmentConfig()!.face_models!.status === 'loaded' ? 'check' : 'x'"
+                              [name]="
+                                enrichmentConfig()!.face_models!.status === 'loaded' ? 'check' : 'x'
+                              "
                               [size]="13"
-                              [color]="enrichmentConfig()!.face_models!.status === 'loaded' ? '#4ade80' : '#fbbf24'"
+                              [color]="
+                                enrichmentConfig()!.face_models!.status === 'loaded'
+                                  ? '#4ade80'
+                                  : '#fbbf24'
+                              "
                             />
                             <span class="banner-status">
-                              {{ enrichmentConfig()!.face_models!.status === 'loaded' ? 'Models loaded.' : 'Models not yet loaded.' }}
+                              {{
+                                enrichmentConfig()!.face_models!.status === 'loaded'
+                                  ? 'Models loaded.'
+                                  : 'Models not yet loaded.'
+                              }}
                             </span>
                             <span class="banner-detail mono">
-                              retinaface.onnx · {{ formatBytes(enrichmentConfig()!.face_models!.retinaface.bytes) }} ·
-                              mobilefacenet.onnx · {{ formatBytes(enrichmentConfig()!.face_models!.mobilefacenet.bytes) }}
+                              retinaface.onnx ·
+                              {{ formatBytes(enrichmentConfig()!.face_models!.retinaface.bytes) }} ·
+                              mobilefacenet.onnx ·
+                              {{
+                                formatBytes(enrichmentConfig()!.face_models!.mobilefacenet.bytes)
+                              }}
                             </span>
                             <span class="banner-spacer"></span>
-                            <span class="banner-path mono">{{ enrichmentConfig()!.face_models!.retinaface.path }}</span>
+                            <span class="banner-path mono">{{
+                              enrichmentConfig()!.face_models!.retinaface.path
+                            }}</span>
                           </div>
                         }
                         <div class="grid-2col">
@@ -275,13 +332,15 @@
                                 <input
                                   type="text"
                                   [value]="enrichmentValue(s, 'face_model_dir')"
-                                  (input)="setEnrichment(s, 'face_model_dir', $any($event.target).value)"
+                                  (input)="
+                                    setEnrichment(s, 'face_model_dir', $any($event.target).value)
+                                  "
                                 />
                               </div>
                             </div>
                             <div class="field-hint">
-                              Where the worker stages retinaface.onnx and mobilefacenet.onnx.
-                              Empty falls back to <span class="mono">~/.maple/models/</span>.
+                              Where the worker stages retinaface.onnx and mobilefacenet.onnx. Empty
+                              falls back to <span class="mono">~/.maple/models/</span>.
                             </div>
                           </div>
                           <div class="field">
@@ -292,13 +351,19 @@
                                   type="text"
                                   placeholder="https://example.com/retinaface.onnx"
                                   [value]="enrichmentValue(s, 'face_retinaface_url')"
-                                  (input)="setEnrichment(s, 'face_retinaface_url', $any($event.target).value)"
+                                  (input)="
+                                    setEnrichment(
+                                      s,
+                                      'face_retinaface_url',
+                                      $any($event.target).value
+                                    )
+                                  "
                                 />
                               </div>
                             </div>
                             <div class="field-hint">
-                              Used only when <span class="mono">retinaface.onnx</span> isn't
-                              already in the model dir.
+                              Used only when <span class="mono">retinaface.onnx</span> isn't already
+                              in the model dir.
                             </div>
                           </div>
                           <div class="field">
@@ -309,7 +374,13 @@
                                   type="text"
                                   placeholder="optional sha256 (hex)"
                                   [value]="enrichmentValue(s, 'face_retinaface_sha256')"
-                                  (input)="setEnrichment(s, 'face_retinaface_sha256', $any($event.target).value)"
+                                  (input)="
+                                    setEnrichment(
+                                      s,
+                                      'face_retinaface_sha256',
+                                      $any($event.target).value
+                                    )
+                                  "
                                 />
                               </div>
                             </div>
@@ -322,7 +393,13 @@
                                   type="text"
                                   placeholder="https://example.com/mobilefacenet.onnx"
                                   [value]="enrichmentValue(s, 'face_mobilefacenet_url')"
-                                  (input)="setEnrichment(s, 'face_mobilefacenet_url', $any($event.target).value)"
+                                  (input)="
+                                    setEnrichment(
+                                      s,
+                                      'face_mobilefacenet_url',
+                                      $any($event.target).value
+                                    )
+                                  "
                                 />
                               </div>
                             </div>
@@ -335,7 +412,13 @@
                                   type="text"
                                   placeholder="optional sha256 (hex)"
                                   [value]="enrichmentValue(s, 'face_mobilefacenet_sha256')"
-                                  (input)="setEnrichment(s, 'face_mobilefacenet_sha256', $any($event.target).value)"
+                                  (input)="
+                                    setEnrichment(
+                                      s,
+                                      'face_mobilefacenet_sha256',
+                                      $any($event.target).value
+                                    )
+                                  "
                                 />
                               </div>
                             </div>
@@ -354,7 +437,8 @@
                       <div class="num-input">
                         <input
                           type="number"
-                          min="1" max="32"
+                          min="1"
+                          max="32"
                           [value]="runtimeValue(s, 'concurrency')"
                           (input)="setRuntime(s, 'concurrency', $any($event.target).value)"
                         />
@@ -366,7 +450,8 @@
                       <div class="num-input">
                         <input
                           type="number"
-                          min="100" max="60000"
+                          min="100"
+                          max="60000"
                           [value]="runtimeValue(s, 'pollIntervalMs')"
                           (input)="setRuntime(s, 'pollIntervalMs', $any($event.target).value)"
                         />
@@ -379,7 +464,8 @@
                       <div class="num-input">
                         <input
                           type="number"
-                          min="1" max="100"
+                          min="1"
+                          max="100"
                           [value]="runtimeValue(s, 'batchSize')"
                           (input)="setRuntime(s, 'batchSize', $any($event.target).value)"
                         />
@@ -391,7 +477,8 @@
                       <div class="num-input">
                         <input
                           type="number"
-                          min="1" max="20"
+                          min="1"
+                          max="20"
                           [value]="runtimeValue(s, 'maxAttempts')"
                           (input)="setRuntime(s, 'maxAttempts', $any($event.target).value)"
                         />
@@ -409,17 +496,31 @@
                       data-testid="retry-dead-btn"
                       (click)="retryDead(s, $event)"
                     >
-                      <maple-settings-icon name="retry" [size]="12" [color]="'#f87171'"/>
+                      <maple-settings-icon name="retry" [size]="12" [color]="'#f87171'" />
                       Retry {{ s.dead | number }} dead
                     </button>
                   }
-                  <button type="button" class="btn-ghost">
-                    <maple-settings-icon name="open" [size]="12"/>
+                  <button
+                    type="button"
+                    class="btn-ghost"
+                    data-testid="open-logs-btn"
+                    (click)="openLogs(s, $event)"
+                  >
+                    <maple-settings-icon name="open" [size]="12" />
                     Open logs
                   </button>
                   <span class="footer-spacer"></span>
                   @if (saveError(s); as msg) {
                     <span class="save-error">{{ msg }}</span>
+                  } @else if (saveDisabledReason(s); as msg) {
+                    <span class="save-disabled-hint">
+                      {{ msg }}
+                      @if (enrichmentConfigError()) {
+                        <button type="button" class="link-btn" (click)="retryEnrichmentConfig()">
+                          Retry
+                        </button>
+                      }
+                    </span>
                   } @else if (saveState(s) === 'success') {
                     <span class="save-ok">Saved.</span>
                   }
@@ -429,7 +530,8 @@
                   <button
                     type="button"
                     class="btn-primary"
-                    [disabled]="saveState(s) === 'saving'"
+                    [disabled]="saveDisabled(s)"
+                    [title]="saveDisabledReason(s) ?? ''"
                     (click)="saveStage(s)"
                   >
                     {{ saveState(s) === 'saving' ? 'Saving…' : 'Save changes' }}
@@ -447,3 +549,72 @@
     }
   </div>
 </maple-settings-shell>
+
+@if (deadLog(); as log) {
+  <div class="log-backdrop" data-testid="log-backdrop" (click)="closeLog()" role="presentation">
+    <div
+      class="log-drawer"
+      data-testid="log-drawer"
+      (click)="$event.stopPropagation()"
+      role="dialog"
+      aria-modal="true"
+      [attr.aria-labelledby]="'log-drawer-title-' + log.stage.name"
+    >
+      <div class="log-header">
+        <div class="log-title" [id]="'log-drawer-title-' + log.stage.name">
+          <maple-settings-icon name="open" [size]="14" [color]="'#a8a29e'" />
+          <span class="mono">{{ log.stage.name }}</span>
+          @if (!log.loading) {
+            <span class="log-subtitle">
+              {{
+                log.items.length === 0
+                  ? 'No failed jobs'
+                  : log.items.length + ' failed job' + (log.items.length === 1 ? '' : 's')
+              }}
+            </span>
+          }
+        </div>
+        <div class="log-actions">
+          @if (!log.loading && log.items.length > 0) {
+            <button
+              type="button"
+              class="btn-ghost danger"
+              (click)="retryDead(log.stage, $event); closeLog()"
+            >
+              <maple-settings-icon name="retry" [size]="12" [color]="'#f87171'" />
+              Retry all dead
+            </button>
+          }
+          <button type="button" class="log-close" (click)="closeLog()" aria-label="Close">
+            <maple-settings-icon name="x" [size]="14" [color]="'#a8a29e'" />
+          </button>
+        </div>
+      </div>
+
+      @if (log.loading) {
+        <div class="log-empty">Loading…</div>
+      } @else if (log.error) {
+        <div class="log-error">{{ log.error }}</div>
+      } @else if (log.items.length === 0) {
+        <div class="log-empty">No failed jobs for this stage.</div>
+      } @else {
+        <div class="log-list">
+          @for (item of log.items; track item.id) {
+            <div class="log-entry">
+              <div class="log-entry-path">{{ item.abs_path ?? item.id }}</div>
+              @if (item.last_error) {
+                <div class="log-entry-err">{{ item.last_error }}</div>
+              }
+              <div class="log-entry-meta">
+                <span>{{ item.attempts }} attempt{{ item.attempts === 1 ? '' : 's' }}</span>
+                @if (item.processed_at) {
+                  <span>{{ formatDate(item.processed_at) }}</span>
+                }
+              </div>
+            </div>
+          }
+        </div>
+      }
+    </div>
+  </div>
+}

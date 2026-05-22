@@ -23,7 +23,9 @@ import { listPairedSidecars } from '../fs/xmp.ts';
 import { child as childLogger } from '../log.ts';
 import { computeBodyETag, ifNoneMatchEqual } from '../runtime/http-etag.ts';
 import { handleEvent } from '../workers/discover/index.ts';
-import { invalidateLibraryRoots } from '../indexer/libraries.cache.ts';
+import { invalidateLibraryRoots, loadLibraryRoots } from '../indexer/libraries.cache.ts';
+import { assetAbsPath } from '../indexer/images.repo.ts';
+import type { AssetDoc, AssetWithId } from '../db/schema.ts';
 import { stageManifest, blankStagesSkeleton } from '../workers/stages/manifest.ts';
 
 // Mirror of the hash stage's prefix-SHA-1: first 64 KB. Reused here so a
@@ -209,9 +211,13 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
       const skip = (page - 1) * limit;
 
       const coll = await assetsCollection();
+      const filter = { 'fileinfo.library_id': folderId };
       const [docs, total] = await Promise.all([
-        coll.find({ folder_id: folderId }).sort({ filename: 1 }).skip(skip).limit(limit).toArray(),
-        coll.countDocuments({ folder_id: folderId }),
+        // Multikey path (no positional `.0.`) so the `fileinfo_filename_1`
+        // index satisfies the sort. See `routes/search/sort.ts` for the
+        // semantics note on multi-entry fileinfo arrays.
+        coll.find(filter).sort({ 'fileinfo.filename': 1 }).skip(skip).limit(limit).toArray(),
+        coll.countDocuments(filter),
       ]);
 
       return {
@@ -219,16 +225,19 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
         page,
         limit,
         total,
-        assets: docs.map((d) => ({
-          id: d._id.toHexString(),
-          filename: d.filename,
-          size: d.size,
-          mtime: d.mtime,
-          rating: d.rating,
-          flag: d.flag,
-          color_label: d.color_label,
-          indexed_at: d.indexed_at,
-        })),
+        assets: docs.map((d) => {
+          const primary = (d.fileinfo ?? []).find((e) => !e.deleted_at) ?? d.fileinfo?.[0];
+          return {
+            id: d._id.toHexString(),
+            filename: primary?.filename ?? '',
+            size: d.size,
+            mtime: d.mtime,
+            rating: d.rating,
+            flag: d.flag,
+            color_label: d.color_label,
+            indexed_at: d.indexed_at,
+          };
+        }),
       };
     },
     {
@@ -240,8 +249,8 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
   )
 
   // Rescan a folder — resets stages.*.version to 0 (and clears dead/attempts/
-  // last_error) for every asset doc whose abs_path is under the folder's path
-  // tree. The stage controllers pick them up on their next poll cycle.
+  // last_error) for every asset doc whose primary fileinfo entry is in the
+  // library. The stage controllers pick them up on their next poll cycle.
   .post('/:id/rescan', async ({ params, set }) => {
     const folderIdStr = params.id;
     if (!ObjectId.isValid(folderIdStr)) {
@@ -267,12 +276,10 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
       stageResetFields[`stages.${stage.name}.last_error`] = null;
     }
 
-    // Escape special regex chars in the path before embedding it.
-    const escapedRoot = scanRoot.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const assets = await assetsCollection();
     const updateResult = await (
-      assets as import('mongodb').Collection<import('mongodb').Document>
-    ).updateMany({ abs_path: { $regex: `^${escapedRoot}/` } }, { $set: stageResetFields });
+      assets as unknown as import('mongodb').Collection<import('mongodb').Document>
+    ).updateMany({ 'fileinfo.library_id': id }, { $set: stageResetFields });
 
     log.info(
       { folderId: folderIdStr, path: scanRoot, modified: updateResult.modifiedCount },
@@ -383,16 +390,47 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
       let trashed: Trashed | undefined;
       try {
         await stat(absPath);
-        const existing = await assets.findOne({ abs_path: absPath, deleted_at: null });
+        // Pre-compute the target fileinfo entry that's about to be
+        // overwritten so we can look up the existing row by `(library_id,
+        // path, filename)` instead of the retired `abs_path` field.
+        const preRelDirRaw = nodePath.dirname(target);
+        const preRelDir =
+          preRelDirRaw === '.' || preRelDirRaw === ''
+            ? ''
+            : preRelDirRaw.split(nodePath.sep).join('/');
+        const existing = await assets.findOne({
+          fileinfo: {
+            $elemMatch: { library_id: folderId, path: preRelDir, filename },
+          },
+          deleted_at: null,
+        });
         const moved = await moveToTrash(absPath, folder.path);
         if (moved.kind === 'ok') {
           if (existing) {
             const existingFields = existing as { sha1_head?: string; size?: number };
+            // Rewrite the primary fileinfo entry to point at the trash
+            // destination so cache resolution + restore can find the row.
+            const trashRelDirRaw = nodePath.relative(
+              folder.path,
+              nodePath.dirname(moved.newAbsPath),
+            );
+            const trashRelDir =
+              trashRelDirRaw === '.' || trashRelDirRaw === ''
+                ? ''
+                : trashRelDirRaw.split(nodePath.sep).join('/');
+            const trashFilename = nodePath.basename(moved.newAbsPath);
             await assets.updateOne(
               { _id: existing._id },
               {
                 $set: {
-                  abs_path: moved.newAbsPath,
+                  fileinfo: [
+                    {
+                      library_id: folderId,
+                      path: trashRelDir,
+                      filename: trashFilename,
+                      deleted_at: null,
+                    },
+                  ],
                   deleted_at: new Date().toISOString(),
                   original_path: absPath,
                 },
@@ -494,11 +532,9 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
 
       const nowIso = new Date().toISOString();
       // fileinfo[0] mirrors the validated target path split into
-      // (library-relative directory, filename, library_id). Computed
-      // here so we can include it in `$setOnInsert` alongside the
-      // legacy abs_path / filename / folder_id triple. POSIX-normalize
-      // `path.sep` → `/` so the stored path obeys the FileInfo
-      // docstring contract on every host.
+      // (library-relative directory, filename, library_id). POSIX-normalize
+      // `path.sep` → `/` so the stored path obeys the FileInfo docstring
+      // contract on every host.
       const relDirRaw = nodePath.dirname(target);
       const relDir =
         relDirRaw === '.' || relDirRaw === '' ? '' : relDirRaw.split(nodePath.sep).join('/');
@@ -506,21 +542,21 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
         path: relDir,
         filename,
         library_id: folderId,
+        deleted_at: null,
       };
-      // Upsert by `abs_path` to race-safely cooperate with the discover
-      // watcher. If the watcher's chokidar tick observed the just-
-      // written file first and already created an asset row, our
-      // `$setOnInsert` is a no-op and we update size/mtime over the
-      // top. If we win the race, we own the insert. Either way the
-      // route returns the doc's real `_id` from the operation result;
-      // the prior `insertOne` with a pre-generated `_id` would have
-      // failed with a duplicate-key error in the loser case, leaving
-      // an orphan file under the user's intended path even though the
-      // upload had succeeded.
+      // Upsert by `(library_id, path, filename)` from fileinfo to race-safely
+      // cooperate with the discover watcher. If the watcher's chokidar tick
+      // observed the just-written file first and already created an asset
+      // row, our `$setOnInsert` is a no-op and we update size/mtime over the
+      // top. If we win the race, we own the insert.
       let assetID: ObjectId;
       try {
         const updated = await assets.findOneAndUpdate(
-          { abs_path: absPath },
+          {
+            fileinfo: {
+              $elemMatch: { library_id: folderId, path: relDir, filename },
+            },
+          },
           {
             $set: {
               size: st.size,
@@ -529,9 +565,6 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
               deleted_at: null,
             },
             $setOnInsert: {
-              folder_id: folderId,
-              filename,
-              abs_path: absPath,
               fileinfo: [fileinfoEntry],
               rating: 0,
               flag: 0,
@@ -689,38 +722,49 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
           : null;
 
       const rootPrefix = folder.path.endsWith('/') ? folder.path : folder.path + '/';
+      const libs = await loadLibraryRoots();
+      const items: Array<{
+        asset_id: string;
+        filename: string;
+        original_relative_path: string;
+        trash_relative_path: string;
+        size: number;
+        mtime: string;
+        deleted_at: string;
+      }> = [];
+      for (const d of pageDocs) {
+        const doc = d as unknown as AssetWithId & {
+          mtime: number | string;
+          deleted_at: string;
+          original_path: string;
+        };
+        const primary = (doc.fileinfo ?? []).find((e) => !e.deleted_at) ?? doc.fileinfo?.[0];
+        if (!primary) continue;
+        const orig = doc.original_path;
+        const originalRel = orig.startsWith(rootPrefix) ? orig.slice(rootPrefix.length) : orig;
+        const absPath = assetAbsPath(doc, libs);
+        if (!absPath) continue;
+        const trashRel = absPath.startsWith(rootPrefix)
+          ? absPath.slice(rootPrefix.length)
+          : absPath;
+        // `doc.mtime` is stored as `fs.stat().mtimeMs` (a number) by the
+        // discover watcher, but may legacy-back as an ISO string from
+        // earlier rows. Always emit ISO-8601 over the wire so the Swift
+        // `Date` decoder works regardless.
+        const mtimeIso =
+          typeof doc.mtime === 'number' ? new Date(doc.mtime).toISOString() : doc.mtime;
+        items.push({
+          asset_id: doc._id.toHexString(),
+          filename: primary.filename,
+          original_relative_path: originalRel,
+          trash_relative_path: trashRel,
+          size: doc.size,
+          mtime: mtimeIso,
+          deleted_at: doc.deleted_at,
+        });
+      }
       return {
-        items: pageDocs.map((d) => {
-          const doc = d as unknown as {
-            _id: ObjectId;
-            filename: string;
-            abs_path: string;
-            size: number;
-            mtime: number | string;
-            deleted_at: string;
-            original_path: string;
-          };
-          const orig = doc.original_path;
-          const originalRel = orig.startsWith(rootPrefix) ? orig.slice(rootPrefix.length) : orig;
-          const trashRel = doc.abs_path.startsWith(rootPrefix)
-            ? doc.abs_path.slice(rootPrefix.length)
-            : doc.abs_path;
-          // `doc.mtime` is stored as `fs.stat().mtimeMs` (a number) by
-          // the discover watcher, but may legacy-back as an ISO string
-          // from earlier rows. Always emit ISO-8601 over the wire so the
-          // Swift `Date` decoder works regardless.
-          const mtimeIso =
-            typeof doc.mtime === 'number' ? new Date(doc.mtime).toISOString() : doc.mtime;
-          return {
-            asset_id: doc._id.toHexString(),
-            filename: doc.filename,
-            original_relative_path: originalRel,
-            trash_relative_path: trashRel,
-            size: doc.size,
-            mtime: mtimeIso,
-            deleted_at: doc.deleted_at,
-          };
-        }),
+        items,
         next_cursor: nextCursor,
       };
     },
@@ -764,7 +808,7 @@ export function buildTrashListFilter(
   };
 
   const filter: Record<string, unknown> = {
-    folder_id: folderId,
+    'fileinfo.library_id': folderId,
     ...trashPredicate,
   };
 
@@ -785,7 +829,7 @@ export function buildTrashListFilter(
   // planner unions the index-eligibility analysis across both sides of
   // an $and, so dropping it on the cursor branch reintroduces the bug.
   return {
-    folder_id: folderId,
+    'fileinfo.library_id': folderId,
     $and: [
       trashPredicate,
       {

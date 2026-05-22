@@ -1,0 +1,64 @@
+@if (isSelfHosted) {
+  @switch (store.status()) {
+    @case ('idle') {
+      <!-- nothing — no active asset yet -->
+    }
+    @case ('loading') {
+      <div
+        class="badge badge-muted"
+        role="status"
+        aria-live="polite"
+        data-testid="sidecar-status-badge"
+        data-status="loading"
+      >
+        <span class="spinner" aria-hidden="true"></span>
+        <span>Loading sidecar…</span>
+      </div>
+    }
+    @case ('refreshing') {
+      <div
+        class="badge badge-muted"
+        role="status"
+        aria-live="polite"
+        data-testid="sidecar-status-badge"
+        data-status="refreshing"
+      >
+        <span class="spinner" aria-hidden="true"></span>
+        <span>Refreshing sidecar…</span>
+      </div>
+    }
+    @case ('not-found') {
+      <div
+        class="badge badge-muted"
+        data-testid="sidecar-status-badge"
+        data-status="not-found"
+      >
+        <span>No sidecar</span>
+      </div>
+    }
+    @case ('loaded') {
+      <div
+        class="badge badge-ok"
+        data-testid="sidecar-status-badge"
+        data-status="loaded"
+      >
+        <span>Sidecar</span>
+        @if (rating() !== null && rating()! > 0) {
+          <span class="rating">· {{ '★'.repeat(rating()!) }}</span>
+        }
+      </div>
+    }
+    @case ('error') {
+      <div
+        class="badge badge-error"
+        role="alert"
+        data-testid="sidecar-status-badge"
+        data-status="error"
+      >
+        <span>Error: {{ errorMessage() }}</span>
+      </div>
+    }
+  }
+} @else {
+  <!-- Hosted (FS Access): SidecarStore is intentionally a no-op. -->
+}

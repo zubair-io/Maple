@@ -350,10 +350,13 @@ export const backupRenderedRoutes = new Elysia().post(
     }
     await uploadSessions.complete({ sessionId: session._id, mapleId });
 
-    // Persist apple_rendered_path on the matching AssetDoc.
+    // Persist apple_rendered_path on the matching AssetDoc. Post
+    // drop-abs-path-2026-05-21 the per-library pointer lives on
+    // `fileinfo[].library_id`; we scope the update via that path plus
+    // the content-addressed `maple_id`.
     const a = await assetsCollection();
     await a.updateOne(
-      { folder_id: libraryId, maple_id: mapleId },
+      { 'fileinfo.library_id': libraryId, maple_id: mapleId },
       { $set: { apple_rendered_path: resolvedTargetRelPath } },
     );
 

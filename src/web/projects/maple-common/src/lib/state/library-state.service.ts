@@ -23,6 +23,7 @@ import { LibraryStore } from './library-store.service';
 import { LibrarySelection } from './library-selection.service';
 import { LibraryCache } from './library-cache.service';
 import { LibraryFetch } from './library-fetch.service';
+import { LibraryStatusService } from './library-status.service';
 import { BrowsePreferencesService } from './browse-preferences.service';
 
 // Re-export RAW-extension helpers for callers that import from this module.
@@ -34,18 +35,22 @@ export class LibraryStateService {
   private readonly selection = inject(LibrarySelection);
   private readonly cache_ = inject(LibraryCache);
   private readonly fetch_ = inject(LibraryFetch);
+  private readonly status = inject(LibraryStatusService);
   private readonly prefs = inject(BrowsePreferencesService);
 
   // ── Backend identity ──────────────────────────────────────────────────────
   readonly backend = this.store.backend;
 
   // ── Self-Hosted bootstrap state ────────────────────────────────────────────
-  readonly backendLoading = this.store.backendLoading;
-  readonly backendError = this.store.backendError;
-  readonly backendEmpty = this.store.backendEmpty;
+  // Async-lifecycle signals live in LibraryStatusService (slice 3 of #191);
+  // re-exported here so existing component consumers (browse-shell banners,
+  // asset-grid rescan button) keep working unchanged.
+  readonly backendLoading = this.status.backendLoading;
+  readonly backendError = this.status.backendError;
+  readonly backendEmpty = this.status.backendEmpty;
   readonly registeredFolders = this.store.registeredFolders;
-  readonly rescanStatus = this.store.rescanStatus;
-  readonly rescanError = this.store.rescanError;
+  readonly rescanStatus = this.status.rescanStatus;
+  readonly rescanError = this.status.rescanError;
 
   readonly pickerVisible = this.store.pickerVisible;
   openLibraryPicker(): void {
@@ -89,7 +94,7 @@ export class LibraryStateService {
   readonly filter = this.prefs.filter;
 
   // ── In-grid search query (filename substring filter) ──────────────────────
-  readonly searchQuery = this.store.searchQuery;
+  readonly searchQuery = this.selection.searchQuery;
 
   // ── Panel visibility (persisted) ──────────────────────────────────────────
   readonly sidebarVisible = this.prefs.sidebarVisible;

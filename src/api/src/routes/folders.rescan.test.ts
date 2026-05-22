@@ -8,11 +8,11 @@
  * Requires a running MongoDB (skips gracefully if unreachable).
  */
 
-import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { MongoClient, ObjectId, type Db } from "mongodb";
-import { ALL_STAGE_NAMES } from "../workers/stages/manifest.ts";
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { MongoClient, ObjectId, type Db } from 'mongodb';
+import { ALL_STAGE_NAMES } from '../workers/stages/manifest.ts';
 
-const MONGO_URI = process.env.MAPLE_MONGO_URI ?? "mongodb://localhost:27017";
+const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
 const TEST_DB = `maple_folders_rescan_test_${process.pid}`;
 
 /** Build a stages skeleton where every stage is at version 1 (already processed). */
@@ -32,7 +32,7 @@ async function tryConnect(): Promise<MongoClient | null> {
   });
   try {
     await c.connect();
-    await c.db("admin").command({ ping: 1 });
+    await c.db('admin').command({ ping: 1 });
     return c;
   } catch {
     try {
@@ -42,7 +42,7 @@ async function tryConnect(): Promise<MongoClient | null> {
   }
 }
 
-describe("POST /api/folders/:id/rescan", () => {
+describe('POST /api/folders/:id/rescan', () => {
   let mongo: MongoClient | null = null;
   let db: Db | null = null;
   let mongoReachable = false;
@@ -51,59 +51,72 @@ describe("POST /api/folders/:id/rescan", () => {
     mongo = await tryConnect();
     mongoReachable = mongo !== null;
     if (!mongoReachable) {
-      console.log("[folders.rescan.test] MongoDB unreachable — skipping");
+      console.log('[folders.rescan.test] MongoDB unreachable — skipping');
       return;
     }
     db = mongo!.db(TEST_DB);
-    await db.collection("assets").drop().catch(() => {});
-    await db.collection("folders").drop().catch(() => {});
+    await db
+      .collection('assets')
+      .drop()
+      .catch(() => {});
+    await db
+      .collection('folders')
+      .drop()
+      .catch(() => {});
   });
 
   afterEach(async () => {
     if (db) {
-      await db.collection("assets").drop().catch(() => {});
-      await db.collection("folders").drop().catch(() => {});
+      await db
+        .collection('assets')
+        .drop()
+        .catch(() => {});
+      await db
+        .collection('folders')
+        .drop()
+        .catch(() => {});
     }
     if (mongo) {
-      await mongo.db(TEST_DB).dropDatabase().catch(() => {});
+      await mongo
+        .db(TEST_DB)
+        .dropDatabase()
+        .catch(() => {});
       await mongo.close();
       mongo = null;
       db = null;
     }
   });
 
-  it("zeroes version on all docs whose abs_path starts with the folder path", async () => {
+  it('zeroes version on all docs whose primary fileinfo entry is in the library', async () => {
     if (!mongoReachable) return;
 
-    const folderPath = "/photos/2024";
+    const folderPath = '/photos/2024';
     const folderId = new ObjectId();
+    const otherFolderId = new ObjectId();
 
-    await db!.collection("folders").insertOne({
+    await db!.collection('folders').insertOne({
       _id: folderId,
       path: folderPath,
-      label: "2024",
+      label: '2024',
       last_scan: null,
       file_count: 0,
       created_at: new Date().toISOString(),
     });
 
-    await db!.collection("assets").insertMany([
+    await db!.collection('assets').insertMany([
       {
         _id: new ObjectId(),
-        abs_path: "/photos/2024/img1.dng",
-        folder_id: folderId,
+        fileinfo: [{ path: '', filename: 'img1.dng', library_id: folderId, deleted_at: null }],
         stages: skeleton(),
       },
       {
         _id: new ObjectId(),
-        abs_path: "/photos/2024/sub/img2.dng",
-        folder_id: folderId,
+        fileinfo: [{ path: 'sub', filename: 'img2.dng', library_id: folderId, deleted_at: null }],
         stages: skeleton(),
       },
       {
         _id: new ObjectId(),
-        abs_path: "/other/img3.dng",
-        folder_id: new ObjectId(),
+        fileinfo: [{ path: '', filename: 'img3.dng', library_id: otherFolderId, deleted_at: null }],
         stages: skeleton(),
       },
     ]);
@@ -118,21 +131,25 @@ describe("POST /api/folders/:id/rescan", () => {
       stageResetFields[`stages.${name}.last_error`] = null;
     }
 
-    const escapedRoot = folderPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const result = await db!.collection("assets").updateMany(
-      { abs_path: { $regex: `^${escapedRoot}/` } },
-      { $set: stageResetFields },
-    );
+    const result = await db!
+      .collection('assets')
+      .updateMany({ 'fileinfo.library_id': folderId }, { $set: stageResetFields });
 
     expect(result.modifiedCount).toBe(2);
 
-    const under = await db!.collection("assets")
-      .find({ abs_path: { $regex: `^${escapedRoot}/` } })
+    const under = await db!
+      .collection('assets')
+      .find({ 'fileinfo.library_id': folderId })
       .toArray();
     expect(under.length).toBe(2);
     for (const doc of under) {
       for (const name of ALL_STAGE_NAMES) {
-        const st = (doc.stages as Record<string, { version: number; dead: boolean; attempts: number; last_error: null }>)[name];
+        const st = (
+          doc.stages as Record<
+            string,
+            { version: number; dead: boolean; attempts: number; last_error: null }
+          >
+        )[name];
         expect(st.version).toBe(0);
         expect(st.dead).toBe(false);
         expect(st.attempts).toBe(0);
@@ -141,47 +158,51 @@ describe("POST /api/folders/:id/rescan", () => {
     }
 
     // Doc outside the folder is untouched.
-    const outside = await db!.collection("assets").findOne({ abs_path: "/other/img3.dng" });
-    expect((outside?.stages as Record<string, { version: number }>).hash.version).toBe(1);
+    const outside = await db!
+      .collection('assets')
+      .findOne({ 'fileinfo.library_id': otherFolderId });
+    expect((outside?.stages as Record<string, { version: number }>).exif.version).toBe(1);
   });
 
-  it("returns 404 when the folder does not exist", async () => {
+  it('returns 404 when the folder does not exist', async () => {
     if (!mongoReachable) return;
 
     const nonExistentId = new ObjectId();
 
     // Simulate the handler logic directly (DB-layer check)
-    const folder = await db!.collection("folders").findOne({ _id: nonExistentId });
+    const folder = await db!.collection('folders').findOne({ _id: nonExistentId });
     expect(folder).toBeNull();
   });
 
-  it("returns 400 when the folder id is invalid", async () => {
+  it('returns 400 when the folder id is invalid', async () => {
     if (!mongoReachable) return;
 
     // Validate that an invalid id string is detected
-    const invalid = "not-an-object-id";
+    const invalid = 'not-an-object-id';
     expect(ObjectId.isValid(invalid)).toBe(false);
   });
 
-  it("does not modify any docs when the folder path matches nothing", async () => {
+  it('does not modify any docs when the rescan folder owns no assets', async () => {
     if (!mongoReachable) return;
 
     const folderId = new ObjectId();
-    const folderPath = "/nonexistent/path";
+    const folderPath = '/nonexistent/path';
+    const otherFolderId = new ObjectId();
 
-    await db!.collection("folders").insertOne({
+    await db!.collection('folders').insertOne({
       _id: folderId,
       path: folderPath,
-      label: "nonexistent",
+      label: 'nonexistent',
       last_scan: null,
       file_count: 0,
       created_at: new Date().toISOString(),
     });
 
-    await db!.collection("assets").insertOne({
+    await db!.collection('assets').insertOne({
       _id: new ObjectId(),
-      abs_path: "/photos/2024/img1.dng",
-      folder_id: new ObjectId(),
+      fileinfo: [
+        { path: '2024', filename: 'img1.dng', library_id: otherFolderId, deleted_at: null },
+      ],
       stages: skeleton(),
     });
 
@@ -193,15 +214,13 @@ describe("POST /api/folders/:id/rescan", () => {
       stageResetFields[`stages.${name}.last_error`] = null;
     }
 
-    const escapedRoot = folderPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const result = await db!.collection("assets").updateMany(
-      { abs_path: { $regex: `^${escapedRoot}/` } },
-      { $set: stageResetFields },
-    );
+    const result = await db!
+      .collection('assets')
+      .updateMany({ 'fileinfo.library_id': folderId }, { $set: stageResetFields });
 
     expect(result.modifiedCount).toBe(0);
 
-    const doc = await db!.collection("assets").findOne({ abs_path: "/photos/2024/img1.dng" });
-    expect((doc?.stages as Record<string, { version: number }>).hash.version).toBe(1);
+    const doc = await db!.collection('assets').findOne({ 'fileinfo.library_id': otherFolderId });
+    expect((doc?.stages as Record<string, { version: number }>).exif.version).toBe(1);
   });
 });

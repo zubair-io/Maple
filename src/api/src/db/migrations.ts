@@ -16,7 +16,10 @@
  */
 
 import * as pathMod from 'node:path';
-import type { AnyBulkWriteOperation, Db } from 'mongodb';
+import type { AnyBulkWriteOperation, Db, ObjectId } from 'mongodb';
+import { child as childLogger } from '../log.ts';
+
+const log = childLogger('db:migrations');
 
 export type MigrationId =
   | 'exif-captured-year-month-backfill'
@@ -25,7 +28,9 @@ export type MigrationId =
   | 'reset-describe-dead-vision-parse-2026-05-20'
   | 'reset-describe-dead-vision-parse-2026-05-21'
   | 'reset-describe-dead-vision-parse-2026-05-22'
-  | 'fileinfo-backfill-2026-05-20';
+  | 'fileinfo-backfill-2026-05-20'
+  | 'merge-duplicate-assets-2026-05-21'
+  | 'drop-abs-path-2026-05-21';
 
 interface MigrationDoc {
   _id: MigrationId;
@@ -185,4 +190,182 @@ export async function backfillFileinfo(db: Db): Promise<BackfillFileinfoResult> 
   }
   await flush();
   return { scanned, updated, skipped };
+}
+
+// ---------------------------------------------------------------------------
+// merge-duplicate-assets-2026-05-21
+//
+// Healing pass: collapse pre-existing rows that share a `maple_id` into a
+// single row with a union of every group member's `fileinfo[]`.
+//
+// Why this exists even though the unique partial index `maple_id_1` forbids
+// the state: on deploys where the index was never built (or was dropped at
+// some point) and PR 1's hash-stage races didn't merge cleanly, the
+// collection can carry "physical" duplicates that the runtime constraint
+// would now reject on insert. `ensureIndexes` calls this BEFORE the
+// `maple_id_1` createIndex so the index creation succeeds on the cleaned-up
+// state — without this ordering, `createIndex` would throw `DuplicateKey`
+// and the boot would abort.
+//
+// Survivor rule: earliest `indexed_at` wins. This is the row most likely to
+// carry user-edited fields (rating, flag, color_label, faces, sidecar
+// mirrors). Ties on `indexed_at` are broken by `_id.toString()` so the
+// outcome is deterministic across boots.
+//
+// User-edited fields are NOT merged across rows — only the survivor's are
+// kept. Operators are expected to redo any edits made on losers; we log
+// the survivor + loser ids so audit is possible.
+//
+// Idempotent: a second call finds zero groups and is a no-op. Sentinel-gated
+// in `ensureIndexes` so it only runs once per database.
+// ---------------------------------------------------------------------------
+
+export interface MergeDuplicatesResult {
+  scanned_groups: number;
+  merged_groups: number;
+  deleted_rows: number;
+}
+
+interface DupGroup {
+  _id: string;
+  ids: ObjectId[];
+  count: number;
+}
+
+interface FileInfoEntryShape {
+  path: string;
+  filename: string;
+  library_id: ObjectId;
+  deleted_at?: string | null;
+}
+
+export async function mergeDuplicateAssets(db: Db): Promise<MergeDuplicatesResult> {
+  const dupes = await db
+    .collection('assets')
+    .aggregate<DupGroup>([
+      { $match: { maple_id: { $type: 'string' } } },
+      { $group: { _id: '$maple_id', ids: { $push: '$_id' }, count: { $sum: 1 } } },
+      { $match: { count: { $gt: 1 } } },
+    ])
+    .toArray();
+
+  let merged_groups = 0;
+  let deleted_rows = 0;
+
+  for (const group of dupes) {
+    // Projection: we only need the fields used by the survivor pick and the
+    // fileinfo union. Pulling whole docs would drag along `vision`,
+    // `search_blob`, etc. for every loser we're about to delete.
+    const rows = await db
+      .collection('assets')
+      .find(
+        { _id: { $in: group.ids } },
+        {
+          projection: {
+            _id: 1,
+            indexed_at: 1,
+            fileinfo: 1,
+            rating: 1,
+            flag: 1,
+            color_label: 1,
+          },
+        },
+      )
+      .toArray();
+    if (rows.length < 2) continue;
+
+    // Earliest indexed_at survives; ties broken by _id for determinism.
+    rows.sort((a, b) => {
+      const ai = (a.indexed_at as string) ?? '';
+      const bi = (b.indexed_at as string) ?? '';
+      if (ai === bi) return a._id.toString().localeCompare(b._id.toString());
+      return ai.localeCompare(bi);
+    });
+    const survivor = rows[0]!;
+    const losers = rows.slice(1);
+
+    // Union fileinfo across the group, de-duped by (library_id, path, filename).
+    // Key uses JSON.stringify so `|` (or any other separator) appearing inside
+    // `path` / `filename` can't cause collisions.
+    //
+    // When two entries share the key but one is live (`deleted_at` absent/null)
+    // and the other is tombstoned, prefer the live entry — otherwise the
+    // first-wins ordering could preserve a deleted entry for a path that's
+    // actually still on disk on another row.
+    const seen = new Map<string, FileInfoEntryShape>();
+    for (const row of rows) {
+      const list = (row.fileinfo ?? []) as FileInfoEntryShape[];
+      for (const entry of list) {
+        const key = JSON.stringify([entry.library_id.toHexString(), entry.path, entry.filename]);
+        const existing = seen.get(key);
+        if (!existing) {
+          seen.set(key, entry);
+          continue;
+        }
+        const existingDead = existing.deleted_at != null;
+        const candidateDead = entry.deleted_at != null;
+        if (existingDead && !candidateDead) {
+          seen.set(key, entry);
+        }
+        // Otherwise (both live, both dead, or candidate dead while existing
+        // live) keep the existing entry — first-seen wins.
+      }
+    }
+    const merged = Array.from(seen.values());
+
+    await db.collection('assets').updateOne({ _id: survivor._id }, { $set: { fileinfo: merged } });
+    const del = await db
+      .collection('assets')
+      .deleteMany({ _id: { $in: losers.map((l) => l._id) } });
+    merged_groups += 1;
+    deleted_rows += del.deletedCount ?? 0;
+    log.info(
+      {
+        maple_id: group._id,
+        survivor: survivor._id.toHexString(),
+        losers: losers.map((l) => l._id.toHexString()),
+        merged_locations: merged.length,
+      },
+      'merge-duplicate-assets: collapsed group',
+    );
+  }
+
+  return {
+    scanned_groups: dupes.length,
+    merged_groups,
+    deleted_rows,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// drop-abs-path-2026-05-21 pre-flight
+//
+// Final PR of the content-addressing migration retires the legacy
+// `abs_path` / `filename` / `folder_id` indexes. Before dropping them we
+// need to be sure every LIVE asset carries `fileinfo` — otherwise readers
+// that fall back through to the legacy fields would have no source of
+// truth left.
+//
+// Returns the count of live rows still missing `fileinfo`. 0 means safe to
+// proceed; > 0 means an operator must re-run discover so the watcher can
+// backfill the field before the index drop will run.
+// ---------------------------------------------------------------------------
+
+/**
+ * Pre-flight for the abs_path drop: refuse to drop the legacy fields if any
+ * live (`deleted_at: null`) row is still missing `fileinfo`. Returns the
+ * count of legacy rows (0 means safe to proceed). Caller decides whether
+ * to abort the deploy or log + skip the index drops.
+ */
+export async function countAssetsMissingFileinfo(db: Db): Promise<number> {
+  // Match the same live-row predicate the API uses (see
+  // `routes/search/query.ts` `applyLiveFilter`): `deleted_at: null` OR the
+  // field is absent. Legacy rows that pre-date the indexer's explicit
+  // `deleted_at: null` write would slip past a strict `deleted_at: null`
+  // filter — counting them as 0 here would let the index drop run and
+  // strand those rows in an unindexed state.
+  return await db.collection('assets').countDocuments({
+    fileinfo: { $exists: false },
+    $or: [{ deleted_at: null }, { deleted_at: { $exists: false } }],
+  });
 }

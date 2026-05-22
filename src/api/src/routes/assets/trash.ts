@@ -23,39 +23,60 @@
  * Mongo access lives in `src/db/assets.repo.ts`.
  */
 
-import { Elysia, t } from "elysia";
-import * as path from "node:path";
-import { stat, unlink } from "node:fs/promises";
-import { foldersCollection } from "../../db/client.ts";
-import { listPairedSidecars } from "../../fs/xmp.ts";
-import { moveToTrash, moveOutOfTrash } from "../../fs/trash.ts";
-import { composeSearchBlob } from "../../enrichment/search-blob.ts";
-import { recordAndPublishAssetChange } from "../../db/changes.repo.ts";
-import { meilisearchClient } from "../../enrichment/meilisearch-client.ts";
-import { assetsLog } from "./_shared.ts";
+import { Elysia, t } from 'elysia';
+import * as path from 'node:path';
+import { stat, unlink } from 'node:fs/promises';
+import { foldersCollection } from '../../db/client.ts';
+import { listPairedSidecars } from '../../fs/xmp.ts';
+import { moveToTrash, moveOutOfTrash } from '../../fs/trash.ts';
+import { composeSearchBlob } from '../../enrichment/search-blob.ts';
+import { recordAndPublishAssetChange } from '../../db/changes.repo.ts';
+import { meilisearchClient } from '../../enrichment/meilisearch-client.ts';
+import { assetsLog } from './_shared.ts';
 import {
   findCoreInfoById,
   hardDelete,
   markSoftDeleted,
   parseAssetId,
   restoreFromTrash,
-} from "../../db/assets.repo.ts";
+} from '../../db/assets.repo.ts';
+import { assetAbsPath } from '../../indexer/images.repo.ts';
+import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
 
 export const trashRoutes = new Elysia()
-  .delete("/:id", async ({ params, set }) => {
+  .delete('/:id', async ({ params, set }) => {
     const id = parseAssetId(params.id);
-    if (!id) { set.status = 400; return { error: "Invalid asset id" }; }
+    if (!id) {
+      set.status = 400;
+      return { error: 'Invalid asset id' };
+    }
 
     const info = await findCoreInfoById(id);
-    if (!info) { set.status = 404; return { error: "Asset not found" }; }
+    if (!info) {
+      set.status = 404;
+      return { error: 'Asset not found' };
+    }
+
+    const libs = await loadLibraryRoots();
+    const absPathResolved = assetAbsPath(info, libs);
+    if (!absPathResolved) {
+      set.status = 404;
+      return { error: 'Asset has no resolvable location' };
+    }
 
     // Already trashed → permanent purge.
     if (info.deleted_at) {
-      const absPath = info.abs_path;
-      try { await unlink(absPath); } catch { /* file may already be gone */ }
+      const absPath = absPathResolved;
+      try {
+        await unlink(absPath);
+      } catch {
+        /* file may already be gone */
+      }
       const sidecars = await listPairedSidecars(absPath);
       for (const sidecar of sidecars) {
-        try { await unlink(sidecar); } catch {}
+        try {
+          await unlink(sidecar);
+        } catch {}
       }
       await hardDelete(id);
       // The doc was already tombstoned in Meilisearch by the prior
@@ -67,7 +88,7 @@ export const trashRoutes = new Elysia()
       // Emit a delete change so the File Provider extension drops this
       // item from its working set on the next pull.
       await recordAndPublishAssetChange({
-        kind: "delete",
+        kind: 'delete',
         asset_id: id,
         folder_id: info.folder_id,
         abs_path: absPath,
@@ -75,7 +96,13 @@ export const trashRoutes = new Elysia()
       return;
     }
 
-    // Locate the owning folder root.
+    // Locate the owning folder root. `info.folder_id` resolves from the
+    // asset's primary fileinfo entry — null when the asset has no live
+    // location at all.
+    if (!info.folder_id) {
+      set.status = 500;
+      return { error: 'Asset has no resolvable library — refusing to trash' };
+    }
     const folders = await foldersCollection();
     const folder = await folders.findOne({ _id: info.folder_id });
     if (!folder) {
@@ -83,17 +110,33 @@ export const trashRoutes = new Elysia()
       return { error: "Asset's folder is missing — refusing to trash" };
     }
 
-    const result = await moveToTrash(info.abs_path, folder.path);
-    if (result.kind !== "ok") {
+    const result = await moveToTrash(absPathResolved, folder.path);
+    if (result.kind !== 'ok') {
       set.status = 500;
       return { error: result.error };
     }
 
-    const originalAbsPath = info.abs_path;
+    // Identify the fileinfo entry that backs `absPathResolved`. Mirrors
+    // `resolvePrimary` in assets.transform.ts — first live entry, else the
+    // first entry on the array. Passing it as `source` tells the repo to
+    // rewrite ONLY that entry instead of clobbering the whole array; when
+    // the asset has multiple `fileinfo[]` (deduped across libraries) we
+    // must preserve the non-trashed locations.
+    const sourceEntry = (info.fileinfo ?? []).find((e) => !e.deleted_at) ?? info.fileinfo?.[0];
+    const originalAbsPath = absPathResolved;
     await markSoftDeleted({
       id,
+      libraryRoot: folder.path,
+      libraryId: info.folder_id,
       newAbsPath: result.newAbsPath,
       originalAbsPath,
+      source: sourceEntry
+        ? {
+            libraryId: sourceEntry.library_id,
+            path: sourceEntry.path,
+            filename: sourceEntry.filename,
+          }
+        : undefined,
     });
 
     // Best-effort Meilisearch tombstone — mirrors the indexer's
@@ -106,8 +149,12 @@ export const trashRoutes = new Elysia()
         await meilisearchClient().tombstone(info.maple_id);
       } catch (err) {
         assetsLog.warn(
-          { assetId: id.toHexString(), mapleId: info.maple_id, err: err instanceof Error ? err.message : String(err) },
-          "meilisearch tombstone on trash failed — Mongo is canonical, search will exclude via deleted_at filter",
+          {
+            assetId: id.toHexString(),
+            mapleId: info.maple_id,
+            err: err instanceof Error ? err.message : String(err),
+          },
+          'meilisearch tombstone on trash failed — Mongo is canonical, search will exclude via deleted_at filter',
         );
       }
     }
@@ -115,7 +162,7 @@ export const trashRoutes = new Elysia()
     // Emit a delete change keyed on the path the OS / File Provider knows
     // about (the pre-trash location). The asset row stays for restore.
     await recordAndPublishAssetChange({
-      kind: "delete",
+      kind: 'delete',
       asset_id: id,
       folder_id: info.folder_id,
       abs_path: originalAbsPath,
@@ -124,18 +171,42 @@ export const trashRoutes = new Elysia()
   })
 
   .post(
-    "/:id/restore",
+    '/:id/restore',
     async ({ params, body, set }) => {
       const id = parseAssetId(params.id);
-      if (!id) { set.status = 400; return { error: "Invalid asset id" }; }
+      if (!id) {
+        set.status = 400;
+        return { error: 'Invalid asset id' };
+      }
 
       const info = await findCoreInfoById(id);
-      if (!info) { set.status = 404; return { error: "Asset not found" }; }
-      if (!info.deleted_at) { set.status = 409; return { error: "Asset is not trashed" }; }
+      if (!info) {
+        set.status = 404;
+        return { error: 'Asset not found' };
+      }
+      if (!info.deleted_at) {
+        set.status = 409;
+        return { error: 'Asset is not trashed' };
+      }
 
+      const libs = await loadLibraryRoots();
+      const trashedAbsPath = assetAbsPath(info, libs);
+      if (!trashedAbsPath) {
+        set.status = 404;
+        return { error: 'Asset has no resolvable location' };
+      }
+
+      if (!info.folder_id) {
+        set.status = 500;
+        return { error: 'Asset has no resolvable library' };
+      }
       const folders = await foldersCollection();
       const folder = await folders.findOne({ _id: info.folder_id });
-      if (!folder) { set.status = 500; return { error: "Asset's folder is missing" }; }
+      if (!folder) {
+        set.status = 500;
+        return { error: "Asset's folder is missing" };
+      }
+      const assetFolderId = info.folder_id;
 
       // Cross-library restore guard. Phase 3 only restores into the
       // SAME library the asset belongs to; dragging from Library A's
@@ -145,12 +216,12 @@ export const trashRoutes = new Elysia()
       // place. The File Provider client sends the new parent's
       // folder_id; reject the request if it doesn't match.
       const targetFolderID = (body as { target_folder_id?: string } | null)?.target_folder_id;
-      if (typeof targetFolderID === "string" && targetFolderID.length > 0) {
-        if (targetFolderID !== info.folder_id.toHexString()) {
+      if (typeof targetFolderID === 'string' && targetFolderID.length > 0) {
+        if (targetFolderID !== assetFolderId.toHexString()) {
           set.status = 400;
           return {
-            error: "Cross-library restore is not supported",
-            asset_folder_id: info.folder_id.toHexString(),
+            error: 'Cross-library restore is not supported',
+            asset_folder_id: assetFolderId.toHexString(),
             target_folder_id: targetFolderID,
           };
         }
@@ -158,24 +229,33 @@ export const trashRoutes = new Elysia()
 
       const targetRel = (body as { target_relative_path?: string } | null)?.target_relative_path;
       let targetAbs: string;
-      if (typeof targetRel === "string" && targetRel.length > 0) {
-        if (targetRel.startsWith("/")) { set.status = 400; return { error: "Target must be relative" }; }
-        const parts = targetRel.split("/").filter((p) => p.length > 0);
+      if (typeof targetRel === 'string' && targetRel.length > 0) {
+        if (targetRel.startsWith('/')) {
+          set.status = 400;
+          return { error: 'Target must be relative' };
+        }
+        const parts = targetRel.split('/').filter((p) => p.length > 0);
         for (const part of parts) {
-          if (part === ".." || part === ".") { set.status = 400; return { error: "Path traversal not allowed" }; }
-          if (part.startsWith(".")) { set.status = 400; return { error: "Hidden path components not allowed" }; }
+          if (part === '..' || part === '.') {
+            set.status = 400;
+            return { error: 'Path traversal not allowed' };
+          }
+          if (part.startsWith('.')) {
+            set.status = 400;
+            return { error: 'Hidden path components not allowed' };
+          }
         }
         targetAbs = path.join(folder.path, targetRel);
       } else {
         if (!info.original_path) {
           set.status = 500;
-          return { error: "Asset has no original_path; supply target_relative_path" };
+          return { error: 'Asset has no original_path; supply target_relative_path' };
         }
         targetAbs = info.original_path;
       }
 
-      const result = await moveOutOfTrash(info.abs_path, targetAbs);
-      if (result.kind !== "ok") {
+      const result = await moveOutOfTrash(trashedAbsPath, targetAbs);
+      if (result.kind !== 'ok') {
         set.status = 500;
         return { error: result.error };
       }
@@ -200,15 +280,28 @@ export const trashRoutes = new Elysia()
       } catch (err) {
         assetsLog.warn(
           { absPath: result.newAbsPath, err: err instanceof Error ? err.message : String(err) },
-          "restore: stat of new path failed — using prior doc values",
+          'restore: stat of new path failed — using prior doc values',
         );
       }
+      // Identify the trashed fileinfo entry — the asset is in trash so its
+      // primary entry is the one we just moved. Same logic as the delete
+      // branch above; passing `source` rewrites that single entry rather
+      // than clobbering any sibling locations.
+      const restoreSource = (info.fileinfo ?? []).find((e) => !e.deleted_at) ?? info.fileinfo?.[0];
       await restoreFromTrash({
         id,
+        libraryRoot: folder.path,
+        libraryId: assetFolderId,
         newAbsPath: result.newAbsPath,
-        filename: restoredFilename,
         size: restoredSize,
         mtimeMs: restoredMtimeMs,
+        source: restoreSource
+          ? {
+              libraryId: restoreSource.library_id,
+              path: restoreSource.path,
+              filename: restoreSource.filename,
+            }
+          : undefined,
       });
 
       // Best-effort Meilisearch re-index — symmetric with the tombstone
@@ -229,14 +322,18 @@ export const trashRoutes = new Elysia()
             }),
             description: info.description,
             ocrText: info.ocr_text,
-            folderId: info.folder_id.toHexString(),
+            folderId: assetFolderId.toHexString(),
             capturedAt: info.exif?.captured_at ?? null,
             deletedAt: null,
           });
         } catch (err) {
           assetsLog.warn(
-            { assetId: id.toHexString(), mapleId: info.maple_id, err: err instanceof Error ? err.message : String(err) },
-            "meilisearch re-index on restore failed — Mongo restored OK, search will lag until next meili stage pass",
+            {
+              assetId: id.toHexString(),
+              mapleId: info.maple_id,
+              err: err instanceof Error ? err.message : String(err),
+            },
+            'meilisearch re-index on restore failed — Mongo restored OK, search will lag until next meili stage pass',
           );
         }
       }
@@ -245,7 +342,7 @@ export const trashRoutes = new Elysia()
       // Emit a restore change so the File Provider extension reinstates
       // the item at its new location.
       await recordAndPublishAssetChange({
-        kind: "restore",
+        kind: 'restore',
         asset_id: id,
         folder_id: info.folder_id,
         abs_path: result.newAbsPath,
@@ -273,5 +370,5 @@ export const trashRoutes = new Elysia()
         target_relative_path: t.Optional(t.String()),
         target_folder_id: t.Optional(t.String()),
       }),
-    }
+    },
   );

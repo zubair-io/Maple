@@ -49,8 +49,9 @@ struct FullImageView: View {
 
     /// Upper clamp on `pixelScale`. Reference caps at 8× so a 24MP image
     /// can show pixel-level noise without the refine target blowing past
-    /// sensible memory budgets.
-    private let maxPixelScale: CGFloat = 8.0
+    /// sensible memory budgets. Sourced from the VM so unit tests and the
+    /// view share one constant.
+    private var maxPixelScale: CGFloat { FullImageViewVM.maxPixelScale }
 
     // MARK: - Canvas math (Ticket 10 item I — DRY value type)
 
@@ -67,10 +68,7 @@ struct FullImageView: View {
     /// real pixels here once so all `CanvasMath`-derived math operates
     /// on the same unit.
     private func canvasMath(viewport: CGSize) -> CanvasMath {
-        let viewportPx = CGSize(
-            width: viewport.width * displayScale,
-            height: viewport.height * displayScale
-        )
+        let viewportPx = FullImageViewVM.viewportInPixels(viewport: viewport, displayScale: displayScale)
         return CanvasMath(
             viewportPx: viewportPx,
             nativeImageSize: session.nativeImageSize,
@@ -153,9 +151,10 @@ struct FullImageView: View {
                         // `app.otherElements["canvas-render-ready"]`. See
                         // .archived-plans/plans/2026-04-25-xcuitest-visual-harness.md.
                         .accessibilityIdentifier(
-                            (!session.isRendering && session.renderedPreview != nil)
-                                ? "canvas-render-ready"
-                                : "canvas-rendering"
+                            FullImageViewVM.canvasAccessibilityID(
+                                isRendering: session.isRendering,
+                                hasPreview: session.renderedPreview != nil
+                            )
                         )
                 } else {
                     // Placeholder while rendering
@@ -201,7 +200,10 @@ struct FullImageView: View {
 
                 // Render indicator — only while we have no preview yet, so
                 // slider ticks don't flash a spinner on every frame.
-                if session.isRendering && session.renderedPreview == nil {
+                if FullImageViewVM.shouldShowRenderIndicator(
+                    isRendering: session.isRendering,
+                    hasPreview: session.renderedPreview != nil
+                ) {
                     ProgressView()
                         .controlSize(.small)
                         .tint(.white)
@@ -300,15 +302,15 @@ struct FullImageView: View {
     /// sees fit mode as a concrete number (e.g. "18%") rather than the word
     /// "Fit". Matches the reference 1:1.
     private func zoomIndicator(viewport: CGSize) -> some View {
-        let percent = Int((effectivePixelScale(viewport: viewport) * 100).rounded())
-        return Text("\(percent)%")
+        let scale = effectivePixelScale(viewport: viewport)
+        return Text(FullImageViewVM.zoomPercentLabel(for: scale))
             .font(.system(size: 10, weight: .medium))
             .foregroundStyle(.white)
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
             .background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 4))
             .padding(8)
-            .accessibilityLabel("Zoom \(percent) percent")
+            .accessibilityLabel(FullImageViewVM.zoomAccessibilityLabel(for: scale))
     }
 
     // MARK: - Gestures (ported from reference verbatim)
@@ -322,20 +324,19 @@ struct FullImageView: View {
                 if pinchStartScale == nil { pinchStartScale = start }
 
                 let fit = fitPixelScale(viewport: viewport)
-                let newScale = max(fit * 0.5, min(start * value.magnification, maxPixelScale))
-                pixelScale = newScale
+                pixelScale = FullImageViewVM.pinchScale(start: start, magnification: value.magnification, fit: fit)
             }
             .onEnded { value in
                 let start = pinchStartScale ?? effectivePixelScale(viewport: viewport)
                 let fit = fitPixelScale(viewport: viewport)
-                let newScale = max(fit * 0.5, min(start * value.magnification, maxPixelScale))
+                let newScale = FullImageViewVM.pinchScale(start: start, magnification: value.magnification, fit: fit)
                 pixelScale = newScale
                 baseScale = newScale
                 pinchStartScale = nil
 
                 // Snap back to fit if pinched near unity — keeps the
                 // indicator honest and prevents 0.998× oddities.
-                if newScale <= fit * 1.02 {
+                if FullImageViewVM.shouldSnapToFit(newScale, fit: fit) {
                     pixelScale = 0
                     baseScale = 0
                     panOffset = .zero
@@ -356,10 +357,7 @@ struct FullImageView: View {
             .onChanged { value in
                 if pixelScale > 0 {
                     // Zoomed in — accumulate pan.
-                    panOffset = CGSize(
-                        width: basePan.width + value.translation.width,
-                        height: basePan.height + value.translation.height
-                    )
+                    panOffset = FullImageViewVM.accumulatedPan(base: basePan, translation: value.translation)
                 }
                 // Fit-mode horizontal swipes are handled by the library
                 // view model / left-right arrow keys in AppShell; this view
@@ -391,7 +389,7 @@ struct FullImageView: View {
 
     private func setZoom(to scale: CGFloat) {
         withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-            pixelScale = min(max(scale, 0.05), maxPixelScale)
+            pixelScale = FullImageViewVM.clampedExplicitZoom(scale)
             baseScale = pixelScale
             panOffset = .zero
             basePan = .zero
@@ -406,7 +404,7 @@ struct FullImageView: View {
             ? effectivePixelScale(viewport: viewportSize)
             : pixelScale
         withAnimation(.easeInOut(duration: 0.15)) {
-            pixelScale = min(current * 1.25, maxPixelScale)
+            pixelScale = FullImageViewVM.zoomInTarget(current: current)
             baseScale = pixelScale
             session.pixelScale = pixelScale
         }
@@ -417,14 +415,14 @@ struct FullImageView: View {
         let fit = fitPixelScale(viewport: viewportSize)
         let current = pixelScale == 0 ? fit : pixelScale
         withAnimation(.easeInOut(duration: 0.15)) {
-            let next = current / 1.25
-            if next <= fit * 1.02 {
+            switch FullImageViewVM.zoomOutTarget(current: current, fit: fit) {
+            case .snapToFit:
                 pixelScale = 0
                 baseScale = 0
                 panOffset = .zero
                 basePan = .zero
-            } else {
-                pixelScale = max(next, fit * 0.5)
+            case .scale(let next):
+                pixelScale = next
                 baseScale = pixelScale
             }
             session.pixelScale = effectivePixelScale(viewport: viewportSize)

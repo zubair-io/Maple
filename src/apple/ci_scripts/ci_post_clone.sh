@@ -39,10 +39,20 @@ fi
 # which the workers can reach.
 export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 if ! command -v rustup >/dev/null 2>&1; then
-    echo "==> brew install rustup-init"
-    brew install rustup-init
-    echo "==> rustup-init"
-    rustup-init -y --default-toolchain stable --profile minimal --no-modify-path
+    echo "==> brew install rustup"
+    brew install rustup
+    # `rustup` is keg-only because it conflicts with `rust`, so brew does
+    # not symlink it into /opt/homebrew/bin (or /usr/local/bin on Intel
+    # workers). Add the keg's bin to PATH ourselves.
+    export PATH="$(brew --prefix rustup)/bin:$PATH"
+    # As of formula 1.29.0_1, Homebrew's `rustup` ships `rustup` but no
+    # longer ships the `rustup-init` bootstrap binary — see brew caveats
+    # ("This formula does not provide rustup-init."). Install the default
+    # toolchain via `rustup` directly. --no-self-update keeps `rustup` itself
+    # brew-managed so brew can upgrade it cleanly later.
+    echo "==> rustup toolchain install stable (profile=minimal)"
+    rustup toolchain install stable --profile minimal --no-self-update
+    rustup default stable
 fi
 
 # rustup-init installs to ~/.cargo/bin; cargo install lands binaries there too.

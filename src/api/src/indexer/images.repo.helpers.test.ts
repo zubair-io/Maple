@@ -7,9 +7,6 @@ const libId = new ObjectId();
 
 function makeAsset(over: Partial<AssetDoc>): AssetDoc {
   return {
-    folder_id: libId,
-    filename: 'IMG_001.dng',
-    abs_path: '/lib/vacation/2024/IMG_001.dng',
     size: 1,
     mtime: 1,
     rating: 0,
@@ -73,21 +70,19 @@ describe('assetAbsPath', () => {
     );
   });
 
-  test('falls back to legacy abs_path when fileinfo absent', () => {
+  test('returns null when fileinfo is absent (legacy fallback retired)', () => {
     const libraries = new Map<string, string>();
-    expect(assetAbsPath(makeAsset({}), libraries)).toBe('/lib/vacation/2024/IMG_001.dng');
+    expect(assetAbsPath(makeAsset({}), libraries)).toBeNull();
   });
 
-  test('falls back to legacy abs_path when library_id is unknown', () => {
+  test('returns null when library_id is unknown to the libraries map', () => {
     const fi: FileInfo = {
       path: 'x',
       filename: 'y.dng',
       library_id: new ObjectId(),
     };
     const libraries = new Map<string, string>();
-    expect(assetAbsPath(makeAsset({ fileinfo: [fi] }), libraries)).toBe(
-      '/lib/vacation/2024/IMG_001.dng',
-    );
+    expect(assetAbsPath(makeAsset({ fileinfo: [fi] }), libraries)).toBeNull();
   });
 
   test("handles path='' (file at library root)", () => {
@@ -97,17 +92,13 @@ describe('assetAbsPath', () => {
       library_id: libId,
     };
     const libraries = new Map([[libId.toHexString(), '/lib']]);
-    const asset = makeAsset({
-      fileinfo: [fi],
-      abs_path: '/lib/root.dng',
-      filename: 'root.dng',
-    });
+    const asset = makeAsset({ fileinfo: [fi] });
     expect(assetAbsPath(asset, libraries)).toBe('/lib/root.dng');
   });
 
-  test('returns null when neither fileinfo nor abs_path can resolve', () => {
+  test('returns null when fileinfo is undefined', () => {
     const libraries = new Map<string, string>();
-    expect(assetAbsPath({ fileinfo: undefined, abs_path: '' }, libraries)).toBeNull();
+    expect(assetAbsPath({ fileinfo: undefined }, libraries)).toBeNull();
   });
 });
 
@@ -122,18 +113,19 @@ describe('assetLibraryPath', () => {
     expect(assetLibraryPath(makeAsset({ fileinfo: [fi] }), libraries)).toBe('/srv/lib');
   });
 
-  test('falls back to folder_id lookup for legacy rows (NOT dirname(abs_path))', () => {
-    // The earlier draft returned `path.dirname(abs_path)` here — but that's
-    // the file's containing directory, not the library root. The correct
-    // legacy fallback is `folder_id`, which is the registered library by
-    // definition.
+  test('returns null when fileinfo is absent', () => {
     const libraries = new Map([[libId.toHexString(), '/lib']]);
-    expect(assetLibraryPath(makeAsset({}), libraries)).toBe('/lib');
+    expect(assetLibraryPath(makeAsset({}), libraries)).toBeNull();
   });
 
-  test('returns null when folder_id is unknown to the libraries map', () => {
+  test('returns null when library_id is unknown to the libraries map', () => {
+    const fi: FileInfo = {
+      path: 'x',
+      filename: 'y.dng',
+      library_id: libId,
+    };
     const libraries = new Map<string, string>();
-    expect(assetLibraryPath(makeAsset({}), libraries)).toBeNull();
+    expect(assetLibraryPath(makeAsset({ fileinfo: [fi] }), libraries)).toBeNull();
   });
 });
 

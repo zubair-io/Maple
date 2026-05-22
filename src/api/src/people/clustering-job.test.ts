@@ -5,20 +5,13 @@
  * we can assert deterministic assignment.
  */
 
-import {
-  describe,
-  it,
-  expect,
-  beforeAll,
-  beforeEach,
-  afterAll,
-} from "bun:test";
-import { MongoClient, ObjectId, type Db } from "mongodb";
-import type { AssetDoc, AssetFaceDoc } from "../db/schema.ts";
+import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'bun:test';
+import { MongoClient, ObjectId, type Db } from 'mongodb';
+import type { AssetDoc, AssetFaceDoc } from '../db/schema.ts';
 
 const TEST_DB = `maple_test_clustering_${process.pid}`;
 process.env.MAPLE_MONGO_DB = TEST_DB;
-const MONGO_URI = process.env.MAPLE_MONGO_URI ?? "mongodb://localhost:27017";
+const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
 
 let mongo: MongoClient | null = null;
 let mongoReachable = false;
@@ -33,10 +26,12 @@ async function tryConnect(): Promise<MongoClient | null> {
   });
   try {
     await c.connect();
-    await c.db("admin").command({ ping: 1 });
+    await c.db('admin').command({ ping: 1 });
     return c;
   } catch {
-    try { await c.close(); } catch {}
+    try {
+      await c.close();
+    } catch {}
     return null;
   }
 }
@@ -45,29 +40,23 @@ beforeAll(async () => {
   mongo = await tryConnect();
   mongoReachable = mongo !== null;
   if (!mongoReachable) {
-    console.log("[clustering-job.test] skipping: MongoDB unreachable");
+    console.log('[clustering-job.test] skipping: MongoDB unreachable');
     return;
   }
   db = mongo!.db(TEST_DB);
   await db.dropDatabase();
-  for (const name of [
-    "users",
-    "credentials",
-    "invites",
-    "refresh_tokens",
-    "challenges",
-  ]) {
+  for (const name of ['users', 'credentials', 'invites', 'refresh_tokens', 'challenges']) {
     await db.createCollection(name).catch(() => undefined);
   }
-  const { closeDb, ensureIndexes } = await import("../db/client.ts");
+  const { closeDb, ensureIndexes } = await import('../db/client.ts');
   await closeDb();
   await ensureIndexes();
 });
 
 beforeEach(async () => {
   if (!mongoReachable) return;
-  await db!.collection("people").deleteMany({});
-  await db!.collection("assets").deleteMany({});
+  await db!.collection('people').deleteMany({});
+  await db!.collection('assets').deleteMany({});
 });
 
 afterAll(async () => {
@@ -75,7 +64,7 @@ afterAll(async () => {
     await mongo.db(TEST_DB).dropDatabase();
     await mongo.close();
   }
-  const { closeDb } = await import("../db/client.ts");
+  const { closeDb } = await import('../db/client.ts');
   await closeDb();
 });
 
@@ -100,63 +89,101 @@ function nearAxis(axis: number, jitter: number): number[] {
   return v;
 }
 
-async function insertAssetWithFaces(
-  faces: AssetFaceDoc[],
-): Promise<ObjectId> {
+async function insertAssetWithFaces(faces: AssetFaceDoc[]): Promise<ObjectId> {
   const doc: AssetDoc = {
-    folder_id: new ObjectId(),
-    filename: `${Math.random().toString(36).slice(2, 8)}.jpg`,
-    abs_path: `/tmp/maple-test/${Math.random().toString(36).slice(2)}.jpg`,
+    fileinfo: [
+      {
+        path: '',
+        filename: `${Math.random().toString(36).slice(2, 8)}.jpg`,
+        library_id: new ObjectId(),
+        deleted_at: null,
+      },
+    ],
     size: 1024,
     mtime: Date.now(),
     rating: 0,
     flag: 0,
-    color_label: "",
+    color_label: '',
     indexed_at: new Date().toISOString(),
     faces,
   };
-  const res = await db!.collection("assets").insertOne(doc as AssetDoc);
+  const res = await db!.collection('assets').insertOne(doc as AssetDoc);
   return res.insertedId;
 }
 
-describe("runOnlineClustering", () => {
-  it("assigns close faces to one cluster", async () => {
+describe('runOnlineClustering', () => {
+  it('assigns close faces to one cluster', async () => {
     if (!mongoReachable) return;
-    const { runOnlineClustering } = await import("./clustering-job.ts");
+    const { runOnlineClustering } = await import('./clustering-job.ts');
     // Three faces close to axis-0 — should land in one auto-named person.
     await insertAssetWithFaces([
-      { bbox: { x: 0, y: 0, w: 1, h: 1 }, person_id: null, confidence: 0.9, embedding: nearAxis(0, 0.05) },
-      { bbox: { x: 1, y: 0, w: 1, h: 1 }, person_id: null, confidence: 0.9, embedding: nearAxis(0, 0.1) },
+      {
+        bbox: { x: 0, y: 0, w: 1, h: 1 },
+        person_id: null,
+        confidence: 0.9,
+        embedding: nearAxis(0, 0.05),
+      },
+      {
+        bbox: { x: 1, y: 0, w: 1, h: 1 },
+        person_id: null,
+        confidence: 0.9,
+        embedding: nearAxis(0, 0.1),
+      },
     ]);
     await insertAssetWithFaces([
-      { bbox: { x: 0, y: 0, w: 1, h: 1 }, person_id: null, confidence: 0.9, embedding: nearAxis(0, 0.15) },
+      {
+        bbox: { x: 0, y: 0, w: 1, h: 1 },
+        person_id: null,
+        confidence: 0.9,
+        embedding: nearAxis(0, 0.15),
+      },
     ]);
     const r = await runOnlineClustering();
     expect(r.assigned).toBe(3);
     expect(r.newPeople).toBe(1);
-    const people = await db!.collection("people").find({ merged_into: null }).toArray();
+    const people = await db!.collection('people').find({ merged_into: null }).toArray();
     expect(people).toHaveLength(1);
     expect(people[0].name).toMatch(/^Person \d+$/);
   });
 
-  it("creates a new person for a far face", async () => {
+  it('creates a new person for a far face', async () => {
     if (!mongoReachable) return;
-    const { runOnlineClustering } = await import("./clustering-job.ts");
+    const { runOnlineClustering } = await import('./clustering-job.ts');
     await insertAssetWithFaces([
-      { bbox: { x: 0, y: 0, w: 1, h: 1 }, person_id: null, confidence: 0.9, embedding: nearAxis(0, 0.05) },
-      { bbox: { x: 1, y: 0, w: 1, h: 1 }, person_id: null, confidence: 0.9, embedding: nearAxis(50, 0.05) },
+      {
+        bbox: { x: 0, y: 0, w: 1, h: 1 },
+        person_id: null,
+        confidence: 0.9,
+        embedding: nearAxis(0, 0.05),
+      },
+      {
+        bbox: { x: 1, y: 0, w: 1, h: 1 },
+        person_id: null,
+        confidence: 0.9,
+        embedding: nearAxis(50, 0.05),
+      },
     ]);
     const r = await runOnlineClustering();
     expect(r.assigned).toBe(2);
     expect(r.newPeople).toBe(2);
   });
 
-  it("is idempotent — re-running assigns nothing", async () => {
+  it('is idempotent — re-running assigns nothing', async () => {
     if (!mongoReachable) return;
-    const { runOnlineClustering } = await import("./clustering-job.ts");
+    const { runOnlineClustering } = await import('./clustering-job.ts');
     await insertAssetWithFaces([
-      { bbox: { x: 0, y: 0, w: 1, h: 1 }, person_id: null, confidence: 0.9, embedding: nearAxis(0, 0.05) },
-      { bbox: { x: 1, y: 0, w: 1, h: 1 }, person_id: null, confidence: 0.9, embedding: nearAxis(0, 0.1) },
+      {
+        bbox: { x: 0, y: 0, w: 1, h: 1 },
+        person_id: null,
+        confidence: 0.9,
+        embedding: nearAxis(0, 0.05),
+      },
+      {
+        bbox: { x: 1, y: 0, w: 1, h: 1 },
+        person_id: null,
+        confidence: 0.9,
+        embedding: nearAxis(0, 0.1),
+      },
     ]);
     const r1 = await runOnlineClustering();
     expect(r1.assigned).toBe(2);
@@ -165,46 +192,61 @@ describe("runOnlineClustering", () => {
     expect(r2.newPeople).toBe(0);
   });
 
-  it("respects an explicit similarity threshold", async () => {
+  it('respects an explicit similarity threshold', async () => {
     if (!mongoReachable) return;
-    const { runOnlineClustering } = await import("./clustering-job.ts");
+    const { runOnlineClustering } = await import('./clustering-job.ts');
     // With a high threshold (0.999) the second face shouldn't merge.
     await insertAssetWithFaces([
-      { bbox: { x: 0, y: 0, w: 1, h: 1 }, person_id: null, confidence: 0.9, embedding: nearAxis(0, 0.05) },
-      { bbox: { x: 1, y: 0, w: 1, h: 1 }, person_id: null, confidence: 0.9, embedding: nearAxis(0, 0.5) },
+      {
+        bbox: { x: 0, y: 0, w: 1, h: 1 },
+        person_id: null,
+        confidence: 0.9,
+        embedding: nearAxis(0, 0.05),
+      },
+      {
+        bbox: { x: 1, y: 0, w: 1, h: 1 },
+        person_id: null,
+        confidence: 0.9,
+        embedding: nearAxis(0, 0.5),
+      },
     ]);
     const r = await runOnlineClustering({ similarityThreshold: 0.999 });
     expect(r.newPeople).toBe(2);
   });
 
-  it("seeds cover_asset_id on newly-created people", async () => {
+  it('seeds cover_asset_id on newly-created people', async () => {
     if (!mongoReachable) return;
-    const { runOnlineClustering } = await import("./clustering-job.ts");
+    const { runOnlineClustering } = await import('./clustering-job.ts');
     const assetId = await insertAssetWithFaces([
-      { bbox: { x: 0, y: 0, w: 1, h: 1 }, person_id: null, confidence: 0.9, embedding: nearAxis(11, 0.05) },
+      {
+        bbox: { x: 0, y: 0, w: 1, h: 1 },
+        person_id: null,
+        confidence: 0.9,
+        embedding: nearAxis(11, 0.05),
+      },
     ]);
     await runOnlineClustering();
-    const person = await db!.collection("people").findOne({ merged_into: null });
+    const person = await db!.collection('people').findOne({ merged_into: null });
     expect(person?.cover_asset_id).toBe(assetId.toHexString());
   });
 
   it("seeds cover_bbox on newly-created people (captures the seeding face's bbox)", async () => {
     if (!mongoReachable) return;
-    const { runOnlineClustering } = await import("./clustering-job.ts");
+    const { runOnlineClustering } = await import('./clustering-job.ts');
     const bbox = { x: 0.25, y: 0.15, w: 0.4, h: 0.5 };
     await insertAssetWithFaces([
       { bbox, person_id: null, confidence: 0.9, embedding: nearAxis(31, 0.05) },
     ]);
     await runOnlineClustering();
-    const person = await db!.collection("people").findOne({ merged_into: null });
+    const person = await db!.collection('people').findOne({ merged_into: null });
     expect(person?.cover_bbox).toEqual(bbox);
   });
 
-  it("backfill heals rows that have cover_asset_id but no cover_bbox", async () => {
+  it('backfill heals rows that have cover_asset_id but no cover_bbox', async () => {
     if (!mongoReachable) return;
-    const { runOnlineClustering } = await import("./clustering-job.ts");
-    const { createPerson, assignFaceToPerson } = await import("./people.repo.ts");
-    const p = await createPerson("Penny");
+    const { runOnlineClustering } = await import('./clustering-job.ts');
+    const { createPerson, assignFaceToPerson } = await import('./people.repo.ts');
+    const p = await createPerson('Penny');
     const bbox = { x: 0.5, y: 0.5, w: 0.25, h: 0.25 };
     const assetId = await insertAssetWithFaces([
       { bbox, person_id: null, confidence: 0.9, embedding: nearAxis(33, 0.05) },
@@ -212,25 +254,35 @@ describe("runOnlineClustering", () => {
     await assignFaceToPerson(assetId, 0, p._id);
     // Simulate a row from before cover_bbox shipped — has the asset id
     // but no bbox.
-    await db!.collection("people").updateOne(
+    await db!.collection('people').updateOne(
       { _id: p._id },
       {
         $set: { cover_asset_id: assetId.toHexString() },
-        $unset: { cover_bbox: "" },
+        $unset: { cover_bbox: '' },
       },
     );
     await runOnlineClustering();
-    const fresh = await db!.collection("people").findOne({ _id: p._id });
+    const fresh = await db!.collection('people').findOne({ _id: p._id });
     expect(fresh?.cover_bbox).toEqual(bbox);
   });
 
   it("hidden faces stay out of clustering — won't reappear under any person", async () => {
     if (!mongoReachable) return;
-    const { runOnlineClustering } = await import("./clustering-job.ts");
-    const { hideFace } = await import("./people.repo.ts");
+    const { runOnlineClustering } = await import('./clustering-job.ts');
+    const { hideFace } = await import('./people.repo.ts');
     const assetId = await insertAssetWithFaces([
-      { bbox: { x: 0, y: 0, w: 1, h: 1 }, person_id: null, confidence: 0.9, embedding: nearAxis(41, 0.05) },
-      { bbox: { x: 0, y: 0, w: 1, h: 1 }, person_id: null, confidence: 0.9, embedding: nearAxis(41, 0.1) },
+      {
+        bbox: { x: 0, y: 0, w: 1, h: 1 },
+        person_id: null,
+        confidence: 0.9,
+        embedding: nearAxis(41, 0.05),
+      },
+      {
+        bbox: { x: 0, y: 0, w: 1, h: 1 },
+        person_id: null,
+        confidence: 0.9,
+        embedding: nearAxis(41, 0.1),
+      },
     ]);
     // Hide one face before any clustering — the unassigned-faces loader
     // should skip it.
@@ -242,89 +294,123 @@ describe("runOnlineClustering", () => {
     // Re-running should not pick up the hidden face either.
     const r2 = await runOnlineClustering();
     expect(r2.assigned).toBe(0);
-    const row = await db!.collection<AssetDoc>("assets").findOne({ _id: assetId });
+    const row = await db!.collection<AssetDoc>('assets').findOne({ _id: assetId });
     expect(row?.faces?.[1]?.hidden).toBe(true);
     expect(row?.faces?.[1]?.person_id).toBeNull();
   });
 
-  it("backfills cover_asset_id on people that have assigned faces but no cover", async () => {
+  it('backfills cover_asset_id on people that have assigned faces but no cover', async () => {
     if (!mongoReachable) return;
-    const { runOnlineClustering } = await import("./clustering-job.ts");
-    const { createPerson, assignFaceToPerson } = await import("./people.repo.ts");
+    const { runOnlineClustering } = await import('./clustering-job.ts');
+    const { createPerson, assignFaceToPerson } = await import('./people.repo.ts');
     // Operator-created person with no cover yet — same shape as a row
     // produced by the old (pre-fix) clustering path.
-    const p = await createPerson("Mary");
+    const p = await createPerson('Mary');
     const assetId = await insertAssetWithFaces([
-      { bbox: { x: 0, y: 0, w: 1, h: 1 }, person_id: null, confidence: 0.9, embedding: nearAxis(13, 0.05) },
+      {
+        bbox: { x: 0, y: 0, w: 1, h: 1 },
+        person_id: null,
+        confidence: 0.9,
+        embedding: nearAxis(13, 0.05),
+      },
     ]);
     await assignFaceToPerson(assetId, 0, p._id);
     // No new unassigned faces — clustering will skip the assignment loop
     // but still run the backfill at the end.
     await runOnlineClustering();
-    const fresh = await db!.collection("people").findOne({ _id: p._id });
+    const fresh = await db!.collection('people').findOne({ _id: p._id });
     expect(fresh?.cover_asset_id).toBe(assetId.toHexString());
   });
 
-  it("backfill picks the highest-confidence face per person", async () => {
+  it('backfill picks the highest-confidence face per person', async () => {
     if (!mongoReachable) return;
-    const { runOnlineClustering } = await import("./clustering-job.ts");
-    const { createPerson, assignFaceToPerson } = await import("./people.repo.ts");
-    const p = await createPerson("Nina");
+    const { runOnlineClustering } = await import('./clustering-job.ts');
+    const { createPerson, assignFaceToPerson } = await import('./people.repo.ts');
+    const p = await createPerson('Nina');
     // Three assets, each with a face assigned to Nina at different
     // confidences. The backfill should pick the highest-confidence asset
     // (mid) regardless of insertion order.
     const lowConfAsset = await insertAssetWithFaces([
-      { bbox: { x: 0, y: 0, w: 1, h: 1 }, person_id: null, confidence: 0.2, embedding: nearAxis(15, 0.05) },
+      {
+        bbox: { x: 0, y: 0, w: 1, h: 1 },
+        person_id: null,
+        confidence: 0.2,
+        embedding: nearAxis(15, 0.05),
+      },
     ]);
     const highConfAsset = await insertAssetWithFaces([
-      { bbox: { x: 0, y: 0, w: 1, h: 1 }, person_id: null, confidence: 0.95, embedding: nearAxis(15, 0.05) },
+      {
+        bbox: { x: 0, y: 0, w: 1, h: 1 },
+        person_id: null,
+        confidence: 0.95,
+        embedding: nearAxis(15, 0.05),
+      },
     ]);
     const midConfAsset = await insertAssetWithFaces([
-      { bbox: { x: 0, y: 0, w: 1, h: 1 }, person_id: null, confidence: 0.6, embedding: nearAxis(15, 0.05) },
+      {
+        bbox: { x: 0, y: 0, w: 1, h: 1 },
+        person_id: null,
+        confidence: 0.6,
+        embedding: nearAxis(15, 0.05),
+      },
     ]);
     await assignFaceToPerson(lowConfAsset, 0, p._id);
     await assignFaceToPerson(highConfAsset, 0, p._id);
     await assignFaceToPerson(midConfAsset, 0, p._id);
     await runOnlineClustering();
-    const fresh = await db!.collection("people").findOne({ _id: p._id });
+    const fresh = await db!.collection('people').findOne({ _id: p._id });
     expect(fresh?.cover_asset_id).toBe(highConfAsset.toHexString());
   });
 
-  it("backfill migrates legacy cover_face_id rows to cover_asset_id", async () => {
+  it('backfill migrates legacy cover_face_id rows to cover_asset_id', async () => {
     if (!mongoReachable) return;
-    const { runOnlineClustering } = await import("./clustering-job.ts");
-    const { createPerson, assignFaceToPerson } = await import("./people.repo.ts");
-    const p = await createPerson("Olive");
+    const { runOnlineClustering } = await import('./clustering-job.ts');
+    const { createPerson, assignFaceToPerson } = await import('./people.repo.ts');
+    const p = await createPerson('Olive');
     const assetId = await insertAssetWithFaces([
-      { bbox: { x: 0, y: 0, w: 1, h: 1 }, person_id: null, confidence: 0.85, embedding: nearAxis(17, 0.05) },
+      {
+        bbox: { x: 0, y: 0, w: 1, h: 1 },
+        person_id: null,
+        confidence: 0.85,
+        embedding: nearAxis(17, 0.05),
+      },
     ]);
     await assignFaceToPerson(assetId, 0, p._id);
     // Simulate a row from the earlier draft that only has the legacy field.
-    await db!.collection("people").updateOne(
-      { _id: p._id },
-      { $set: { cover_face_id: "deadbeefdeadbeefdeadbeef" } },
-    );
+    await db!
+      .collection('people')
+      .updateOne({ _id: p._id }, { $set: { cover_face_id: 'deadbeefdeadbeefdeadbeef' } });
     await runOnlineClustering();
-    const fresh = await db!.collection("people").findOne({ _id: p._id });
+    const fresh = await db!.collection('people').findOne({ _id: p._id });
     expect(fresh?.cover_asset_id).toBe(assetId.toHexString());
     expect(fresh?.cover_face_id).toBeUndefined();
   });
 });
 
-describe("recomputeCentroids", () => {
-  it("refreshes centroid from assigned face embeddings", async () => {
+describe('recomputeCentroids', () => {
+  it('refreshes centroid from assigned face embeddings', async () => {
     if (!mongoReachable) return;
-    const { recomputeCentroids } = await import("./clustering-job.ts");
-    const { createPerson, assignFaceToPerson } = await import("./people.repo.ts");
-    const p = await createPerson("Iris");
+    const { recomputeCentroids } = await import('./clustering-job.ts');
+    const { createPerson, assignFaceToPerson } = await import('./people.repo.ts');
+    const p = await createPerson('Iris');
     const asset = await insertAssetWithFaces([
-      { bbox: { x: 0, y: 0, w: 1, h: 1 }, person_id: null, confidence: 0.9, embedding: nearAxis(7, 0.05) },
-      { bbox: { x: 1, y: 0, w: 1, h: 1 }, person_id: null, confidence: 0.9, embedding: nearAxis(7, 0.1) },
+      {
+        bbox: { x: 0, y: 0, w: 1, h: 1 },
+        person_id: null,
+        confidence: 0.9,
+        embedding: nearAxis(7, 0.05),
+      },
+      {
+        bbox: { x: 1, y: 0, w: 1, h: 1 },
+        person_id: null,
+        confidence: 0.9,
+        embedding: nearAxis(7, 0.1),
+      },
     ]);
     await assignFaceToPerson(asset, 0, p._id);
     await assignFaceToPerson(asset, 1, p._id);
     await recomputeCentroids();
-    const fresh = await db!.collection("people").findOne({ _id: p._id });
+    const fresh = await db!.collection('people').findOne({ _id: p._id });
     expect(fresh?.centroid_face_count).toBe(2);
     // Centroid's primary axis should be axis 7.
     const centroid = fresh?.centroid as number[];

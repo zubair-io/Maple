@@ -6,6 +6,31 @@ export type Flag = 'unflagged' | 'pick' | 'reject';
 
 export type ColorLabel = 'red' | 'orange' | 'yellow' | 'green' | 'blue' | null;
 
+/**
+ * Canonical on-disk location record for an asset. Mirrors
+ * `AssetDoc.fileinfo[]` on the server (`src/api/src/db/schema.ts`).
+ *
+ * Field names are snake_case to match the wire format (the server ships the
+ * BSON doc through verbatim). `path` is POSIX-separated regardless of host;
+ * web clients are always POSIX so consumers can join with `/`.
+ *
+ * Multiple entries are alternate observations of the same asset; entry 0 is
+ * canonical for path / cache resolution. `deleted_at` is per-entry so the
+ * asset row survives one location being unlinked while another stays live.
+ */
+export interface FileInfo {
+  /** Directory relative to the library root, POSIX-separated. `""` for
+   *  files at the library root. */
+  path: string;
+  /** File name with extension, e.g. `"IMG_001.dng"`. */
+  filename: string;
+  /** Hex ObjectId of the registered library this entry lives under. */
+  library_id: string;
+  /** ISO timestamp when this specific location was unlinked. Absent or
+   *  null when the entry is live. */
+  deleted_at?: string | null;
+}
+
 export interface Asset {
   id: AssetId;
   filename: string;
@@ -22,9 +47,27 @@ export interface Asset {
   // Justified-grid layout hint.
   aspectRatio: number; // width/height (e.g. 1.5 for 3:2 landscape)
 
-  // Absolute filesystem path (Self-Hosted "browse by walking the filesystem"
-  // path only — undefined for Hosted/imported assets). Used as the cache key
-  // for /api/fs/thumb fetches and to identify the file on disk for byte loads.
+  /**
+   * Canonical on-disk locations for content-addressed Self-Hosted assets.
+   * Populated by the server's discover watcher and backup-ingest. Resolve
+   * the on-disk path via `assetAbsPath(asset, libraries)` from
+   * `lib/state/library-store.service.ts`.
+   */
+  fileinfo?: FileInfo[];
+
+  /**
+   * Client-synthesised absolute path for Self-Hosted *fs-walk* browse mode
+   * (NOT from the wire). The fs-walk path lets the editor mount on a
+   * deep-link `/edit/fs:<absPath>` without first navigating via Browse;
+   * `hydrateSelfHostedFsAsset` populates it from the route id, and
+   * `_applyFsListing` sets it from `FsDirListing` entries (also a path,
+   * not a content-addressed location).
+   *
+   * NOT to be confused with the retired server-side `abs_path` field; the
+   * wire contract uses `fileinfo[]` exclusively for content-addressed
+   * assets. This field stays on the client model because the fs-walk
+   * browse mode is orthogonal to the content-addressing migration.
+   */
   absPath?: string;
 
   // Metadata (for Info tab).

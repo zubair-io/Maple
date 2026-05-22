@@ -17,13 +17,18 @@
  * (see `./registry.ts`) so `routes.ts` and `events.ts` can read live state.
  */
 
-import type { Collection, Filter, ObjectId } from "mongodb";
-import type { Logger } from "pino";
-import { child as childLogger } from "../log.ts";
-import type { IndexerAssetDoc } from "../indexer/images.repo.ts";
-import { WorkerConfigRepo, type WorkerConfigDoc } from "./worker-config.repo.ts";
-import { recordAndPublishAssetChange } from "../db/changes.repo.ts";
-import { stageRegistry } from "./registry.ts";
+import type { Collection, Filter, ObjectId } from 'mongodb';
+import type { Logger } from 'pino';
+import { child as childLogger } from '../log.ts';
+import {
+  assetAbsPath,
+  assetPrimaryFileInfo,
+  type IndexerAssetDoc,
+} from '../indexer/images.repo.ts';
+import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
+import { WorkerConfigRepo, type WorkerConfigDoc } from './worker-config.repo.ts';
+import { recordAndPublishAssetChange } from '../db/changes.repo.ts';
+import { stageRegistry } from './registry.ts';
 
 // ---------------------------------------------------------------------------
 // Public types — load-bearing for every stage file and stage test.
@@ -115,16 +120,11 @@ export async function bootConfig(
 
   const merged: WorkerConfig = {
     concurrency: pickInt(existing?.concurrency, stage.defaults.concurrency),
-    pollIntervalMs: pickInt(
-      existing?.pollIntervalMs,
-      stage.defaults.pollIntervalMs,
-    ),
+    pollIntervalMs: pickInt(existing?.pollIntervalMs, stage.defaults.pollIntervalMs),
     batchSize: pickInt(existing?.batchSize, stage.defaults.batchSize),
     maxAttempts: pickInt(existing?.maxAttempts, stage.defaults.maxAttempts),
     paused:
-      typeof existing?.paused === "boolean"
-        ? existing.paused
-        : stage.defaults.pausedOnFirstBoot,
+      typeof existing?.paused === 'boolean' ? existing.paused : stage.defaults.pausedOnFirstBoot,
     last_seen_target_version: pickInt(existing?.last_seen_target_version, 0),
   };
 
@@ -136,7 +136,7 @@ export async function bootConfig(
 }
 
 function pickInt(value: unknown, fallback: number): number {
-  return typeof value === "number" && Number.isInteger(value) ? value : fallback;
+  return typeof value === 'number' && Number.isInteger(value) ? value : fallback;
 }
 
 // ---------------------------------------------------------------------------
@@ -185,7 +185,7 @@ export function buildClaimQuery(
     };
   }
   if (inFlight.size > 0) {
-    (filter as Record<string, unknown>)["_id"] = { $nin: [...inFlight] };
+    (filter as Record<string, unknown>)['_id'] = { $nin: [...inFlight] };
   }
   return filter;
 }
@@ -216,6 +216,29 @@ async function dispatchPool<T>(
   await Promise.all(workers);
 }
 
+/**
+ * Resolve `(folder_id, abs_path)` from the doc's primary fileinfo entry and
+ * publish an update event onto the change feed. Best-effort — failures are
+ * swallowed; the change feed tolerates gaps.
+ */
+async function publishUpdate(id: ObjectId, doc: ImageDoc): Promise<void> {
+  let libs: ReadonlyMap<string, string>;
+  try {
+    libs = await loadLibraryRoots();
+  } catch {
+    libs = new Map();
+  }
+  const primary = assetPrimaryFileInfo(doc);
+  const folderId = primary?.library_id ?? null;
+  const absPath = assetAbsPath(doc, libs);
+  await recordAndPublishAssetChange({
+    kind: 'update',
+    asset_id: id,
+    folder_id: folderId,
+    abs_path: absPath,
+  }).catch(() => {});
+}
+
 // ---------------------------------------------------------------------------
 // Single poll tick.
 // ---------------------------------------------------------------------------
@@ -225,8 +248,8 @@ export async function runOnce(
   config: WorkerConfig,
   images: Collection<ImageDoc>,
   _configColl: Collection<WorkerConfigDoc>,
-  resolvedDeps: Array<{ name: string; minVersion: number }> = stage.dependsOn.map(
-    (d) => (typeof d === "string" ? { name: d, minVersion: 1 } : d),
+  resolvedDeps: Array<{ name: string; minVersion: number }> = stage.dependsOn.map((d) =>
+    typeof d === 'string' ? { name: d, minVersion: 1 } : d,
   ),
   signal?: AbortSignal,
   inFlightSet?: Set<string>,
@@ -257,13 +280,11 @@ export async function runOnce(
         dead: false,
       };
 
-      if ("patch" in result) {
-        const forbiddenKeys = Object.keys(result.patch).filter((k) =>
-          k.startsWith("stages."),
-        );
+      if ('patch' in result) {
+        const forbiddenKeys = Object.keys(result.patch).filter((k) => k.startsWith('stages.'));
         if (forbiddenKeys.length > 0) {
           throw new Error(
-            `Handler returned patch with forbidden stage keys: ${forbiddenKeys.join(", ")}`,
+            `Handler returned patch with forbidden stage keys: ${forbiddenKeys.join(', ')}`,
           );
         }
         await images.updateOne(
@@ -275,24 +296,11 @@ export async function runOnce(
             },
           },
         );
-        await recordAndPublishAssetChange({
-          kind: "update",
-          asset_id: id,
-          folder_id: (doc as { folder_id: ObjectId }).folder_id,
-          abs_path: (doc as { abs_path: string }).abs_path,
-        }).catch(() => {});
-      } else if ("wrote" in result) {
-        await images.updateOne(
-          { _id: id },
-          { $set: { [`stages.${stage.name}`]: stageState } },
-        );
-        await recordAndPublishAssetChange({
-          kind: "update",
-          asset_id: id,
-          folder_id: (doc as { folder_id: ObjectId }).folder_id,
-          abs_path: (doc as { abs_path: string }).abs_path,
-        }).catch(() => {});
-      } else if ("skip" in result) {
+        await publishUpdate(id, doc);
+      } else if ('wrote' in result) {
+        await images.updateOne({ _id: id }, { $set: { [`stages.${stage.name}`]: stageState } });
+        await publishUpdate(id, doc);
+      } else if ('skip' in result) {
         await images.updateOne(
           { _id: id },
           {
@@ -312,8 +320,7 @@ export async function runOnce(
         { _id: id },
         { projection: { [`stages.${stage.name}`]: 1 } },
       );
-      const currentAttempts =
-        (current?.stages?.[stage.name]?.attempts ?? 0) + 1;
+      const currentAttempts = (current?.stages?.[stage.name]?.attempts ?? 0) + 1;
       const dead = currentAttempts >= config.maxAttempts;
       await images.updateOne(
         { _id: id },
@@ -384,12 +391,14 @@ export interface RunStageHandle {
  *   - pause: written to worker_config; re-read every tick
  *   - retry transient errors with exponential backoff (saturates at 30s)
  */
-export async function runStage(stage: StageConfig): Promise<RunStageHandle> {
+export async function runStage<TPatch extends Record<string, unknown>>(
+  stage: StageConfig<TPatch>,
+): Promise<RunStageHandle> {
   const log = childLogger(`workers:${stage.name}`);
-  const { getDb } = await import("../db/client.ts");
+  const { getDb } = await import('../db/client.ts');
   const db = await getDb();
-  const images = db.collection<ImageDoc>("assets");
-  const configColl = db.collection<WorkerConfigDoc>("worker_config");
+  const images = db.collection<ImageDoc>('assets');
+  const configColl = db.collection<WorkerConfigDoc>('worker_config');
   const repo = new WorkerConfigRepo(configColl);
 
   let config = await bootConfig(stage, configColl);
@@ -469,10 +478,7 @@ export async function runStage(stage: StageConfig): Promise<RunStageHandle> {
       // Pass the raw Error to pino so its serializer preserves the stack
       // and any structured driver fields (MongoDB error codes etc.) —
       // restores the contract established by #25.
-      log.error(
-        { err, retryInMs: delay },
-        `${stage.name} poll tick error`,
-      );
+      log.error({ err, retryInMs: delay }, `${stage.name} poll tick error`);
     }
     if (!shuttingDown) pollTimer = setTimeout(poll, delay);
   };

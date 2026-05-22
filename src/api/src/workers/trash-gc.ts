@@ -13,12 +13,14 @@
  * Started from `src/api/src/index.ts` via setInterval.
  */
 
-import { unlink } from "node:fs/promises";
-import { assetsCollection } from "../db/client.ts";
-import { listPairedSidecars } from "../fs/xmp.ts";
-import { child as childLogger } from "../log.ts";
+import { unlink } from 'node:fs/promises';
+import { assetsCollection } from '../db/client.ts';
+import { listPairedSidecars } from '../fs/xmp.ts';
+import { assetAbsPath } from '../indexer/images.repo.ts';
+import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
+import { child as childLogger } from '../log.ts';
 
-const log = childLogger("trash-gc");
+const log = childLogger('trash-gc');
 const DAY_MS = 86_400_000;
 const DEFAULT_RETENTION_DAYS = 30;
 const DEFAULT_INTERVAL_MS = DAY_MS;
@@ -48,41 +50,61 @@ export async function runTrashGcOnce(opts: TrashGcOptions = {}): Promise<TrashGc
   // explicit guard documents intent and matches how live rows are
   // written (`deleted_at: null` on every fresh skeleton row).
   const cursor = coll.find(
-    { deleted_at: { $type: "string", $lt: cutoffIso, $ne: null } },
-    { projection: { _id: 1, abs_path: 1 } },
+    { deleted_at: { $type: 'string', $lt: cutoffIso, $ne: null } },
+    { projection: { _id: 1, fileinfo: 1 } },
   );
+  let libs: ReadonlyMap<string, string>;
+  try {
+    libs = await loadLibraryRoots();
+  } catch {
+    libs = new Map();
+  }
   let scanned = 0;
   let purged = 0;
   let errors = 0;
   for await (const doc of cursor) {
     scanned++;
-    const absPath = doc.abs_path;
-    try { await unlink(absPath); } catch (err) {
+    const absPath = assetAbsPath(doc, libs);
+    if (!absPath) {
+      log.warn({ _id: doc._id?.toHexString?.() }, 'purge skip — asset has no resolvable location');
+      errors++;
+      continue;
+    }
+    try {
+      await unlink(absPath);
+    } catch (err) {
       // ENOENT is fine — file might already be gone.
       const code = (err as { code?: string } | null)?.code;
-      if (code !== "ENOENT") {
+      if (code !== 'ENOENT') {
         errors++;
-        log.warn({ absPath, err: err instanceof Error ? err.message : err }, "purge unlink failed");
+        log.warn({ absPath, err: err instanceof Error ? err.message : err }, 'purge unlink failed');
       }
     }
     const sidecars = await listPairedSidecars(absPath);
     for (const sidecar of sidecars) {
-      try { await unlink(sidecar); } catch (err) {
+      try {
+        await unlink(sidecar);
+      } catch (err) {
         const code = (err as { code?: string } | null)?.code;
-        if (code !== "ENOENT") {
+        if (code !== 'ENOENT') {
           errors++;
-          log.warn({ sidecar, err: err instanceof Error ? err.message : err }, "purge sidecar unlink failed");
+          log.warn(
+            { sidecar, err: err instanceof Error ? err.message : err },
+            'purge sidecar unlink failed',
+          );
         }
       }
     }
     await coll.deleteOne({ _id: doc._id });
     purged++;
   }
-  if (scanned > 0) log.info({ scanned, purged, errors }, "trash-gc pass complete");
+  if (scanned > 0) log.info({ scanned, purged, errors }, 'trash-gc pass complete');
   return { scanned, purged, errors };
 }
 
-export interface TrashGcHandle { stop: () => void }
+export interface TrashGcHandle {
+  stop: () => void;
+}
 
 /** Start a background loop. Returns a handle whose `stop()` cancels it. */
 export function startTrashGc(opts: TrashGcOptions & { intervalMs?: number } = {}): TrashGcHandle {
@@ -90,12 +112,15 @@ export function startTrashGc(opts: TrashGcOptions & { intervalMs?: number } = {}
   let stopped = false;
   const tick = async () => {
     if (stopped) return;
-    try { await runTrashGcOnce(opts); }
-    catch (err) {
-      log.error({ err: err instanceof Error ? err.message : err }, "trash-gc pass crashed");
+    try {
+      await runTrashGcOnce(opts);
+    } catch (err) {
+      log.error({ err: err instanceof Error ? err.message : err }, 'trash-gc pass crashed');
     }
   };
-  const timer = setInterval(() => { void tick(); }, intervalMs);
+  const timer = setInterval(() => {
+    void tick();
+  }, intervalMs);
   // Fire once on startup so a freshly-booted server doesn't wait 24h
   // before its first sweep. Errors are swallowed by tick() so a stray
   // failure doesn't crash boot.

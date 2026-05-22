@@ -3,22 +3,32 @@
  *
  * Delegates to `generateThumb` in `src/api/src/indexer/thumbnailer.ts`, which
  * is orientation-aware after Plan 0 (applyExifOrientationInPlace is wired into
- * the RAW path). The thumb path is derived by `resolveThumbPath` — the same
- * function the live /api/fs/thumb route uses so both paths write to the same
- * on-disk location.
+ * the RAW path).
  *
- * dependsOn: ["hash", "exif"]
- *   — thumb needs EXIF orientation to produce an upright image; hash must
- *     have run first so abs_path is confirmed reachable and sha1_head is set.
+ * Cache-path resolution (post content-addressing migration PR 3):
+ *   - if the image doc has both `maple_id` and `fileinfo[0]`, write to the
+ *     content-addressed location: `<lib>/<fileinfo[0].path>/.maple/thumbs/
+ *     <maple_id>.jpg`;
+ *   - otherwise fall back to the legacy basename-keyed location via
+ *     `resolveThumbPath(absPath)`. Legacy rows survive until the upcoming GC
+ *     sweep retires their orphans.
+ *
+ * dependsOn: ["exif"]
+ *   — thumb needs EXIF orientation to produce an upright image. The legacy
+ *     `hash` predecessor was retired in the drop-abs-path-2026-05-21
+ *     migration; discover writes sha1_head + maple_id inline at insert so
+ *     the new cache-key dependency is satisfied before this stage runs.
  */
-import { generateThumb } from "../../indexer/thumbnailer.ts";
-import { resolveThumbPath } from "../../fs/xmp.ts";
-import { defineStage, runStage, type RunStageHandle } from "../run-stage.ts";
+import { generateThumb } from '../../indexer/thumbnailer.ts';
+import { resolveThumbPathForAsset } from '../../fs/xmp.ts';
+import { assetAbsPath } from '../../indexer/images.repo.ts';
+import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
+import { defineStage, runStage, type RunStageHandle, type StageResult } from '../run-stage.ts';
 
 const thumbStage = defineStage({
-  name: "thumb",
+  name: 'thumb',
   targetVersion: 1,
-  dependsOn: ["hash", "exif"],
+  dependsOn: ['exif'],
   defaults: {
     concurrency: 2,
     batchSize: 5,
@@ -28,17 +38,23 @@ const thumbStage = defineStage({
     pausedOnFirstBoot: false,
     last_seen_target_version: 0,
   },
-  handler: async (image) => {
-    const absPath = image.abs_path as string;
-    // generateThumb handles all format paths (RAW via FFI, bitmap via sharp,
-    // unknown format via copy). It is a no-op when the thumb is already
-    // up-to-date (mtime check inside).
-    await generateThumb(absPath);
-    return {
-      patch: {
-        thumb_path: resolveThumbPath(absPath),
-      },
-    };
+  handler: async (image): Promise<StageResult> => {
+    // Let `loadLibraryRoots()` errors propagate — a transient DB hiccup
+    // would otherwise yield an empty libs map, which would make
+    // `assetAbsPath` return null and trip the no-resolvable-location skip
+    // below. That skip writes `version = targetVersion` (see run-stage.ts),
+    // permanently marking the stage done. By throwing, the runner's
+    // retry/backoff path handles the transient case. Reserve `skip` for
+    // the genuine case: libraries loaded fine, but the asset has no
+    // fileinfo[0] or its library is unregistered.
+    const libs = await loadLibraryRoots();
+    const thumbPath = resolveThumbPathForAsset(image as never, libs);
+    const absPath = assetAbsPath(image as never, libs);
+    if (!thumbPath || !absPath) {
+      return { skip: 'no-resolvable-location' };
+    }
+    await generateThumb(absPath, thumbPath);
+    return { patch: { thumb_path: thumbPath } };
   },
 });
 

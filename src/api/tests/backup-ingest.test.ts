@@ -7,9 +7,11 @@ import { assetsCollection } from '../src/db/client.ts';
 import { makeIngestRequest, setupBackupIngestSuite } from './backup-ingest-helpers.ts';
 
 // Happy-path + basic-validation slice of the `POST /api/libraries/:id/backup/ingest`
-// suite. The error/edge cases and the cloud-id / spec-form-dedup tests live in
-// sibling files (`backup-ingest-errors.test.ts`, `backup-ingest-cloud-dedup.test.ts`)
-// so each file stays under the file-size budget (#114).
+// suite. Sibling files cover the other scenarios so each stays under the
+// file-size budget (#114, refs #134, closes #252):
+//   - `backup-ingest-errors.test.ts`         — error / edge cases
+//   - `backup-ingest-cloud-dedup.test.ts`    — cloud-id + advanced dedup
+//   - `backup-ingest-fileinfo.test.ts`       — fileinfo[0] content-addressing
 const deviceId = 'test-device-ingest';
 const phid = 'ABC/L0/001';
 const phid2 = 'ABC/L0/002';

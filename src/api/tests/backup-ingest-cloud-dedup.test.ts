@@ -45,11 +45,18 @@ describe('POST /api/libraries/:id/backup/ingest — cloud-id + advanced dedup', 
     expect(id.kind).toBe('primary');
 
     const a = await assetsCollection();
+    // Post drop-abs-path-2026-05-21: persisted location is fileinfo[]; the
+    // backup-ingest route resolves the target path via `assetAbsPath`.
     await a.insertOne({
       _id: new ObjectId(),
-      folder_id: suite.handle.libId,
-      filename: 'IMG_INDEXED.HEIC',
-      abs_path: indexerAbsPath,
+      fileinfo: [
+        {
+          library_id: suite.handle.libId,
+          path: path.dirname(indexerRelPath),
+          filename: path.basename(indexerRelPath),
+          deleted_at: null,
+        },
+      ],
       size: sharedBytes.byteLength,
       mtime: Date.now(),
       rating: 0,

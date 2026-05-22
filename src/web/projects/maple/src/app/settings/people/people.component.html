@@ -26,10 +26,11 @@
             @if (detail.coverBbox; as bbox) {
               <img
                 [src]="url"
-                [style.transform]="faceCropTransform(bbox)"
+                [style.transform]="faceCropTransform(bbox, url)"
                 style="transform-origin: 0 0"
                 alt=""
                 decoding="async"
+                (load)="onFaceImgLoad(url, $event)"
               />
             } @else {
               <img class="cover-fill" [src]="url" alt="" decoding="async" />
@@ -172,11 +173,12 @@
                 @if (faceThumbUrl(f); as url) {
                   <img
                     [src]="url"
-                    [style.transform]="faceCropTransform(f.bbox)"
+                    [style.transform]="faceCropTransform(f.bbox, url)"
                     style="transform-origin: 0 0"
                     alt=""
                     loading="lazy"
                     decoding="async"
+                    (load)="onFaceImgLoad(url, $event)"
                   />
                 }
                 <span class="confidence-badge">{{ f.confidence * 100 | number: '1.0-0' }}%</span>
@@ -321,11 +323,12 @@
                   @if (p.coverBbox; as bbox) {
                     <img
                       [src]="url"
-                      [style.transform]="faceCropTransform(bbox)"
+                      [style.transform]="faceCropTransform(bbox, url)"
                       style="transform-origin: 0 0"
                       alt=""
                       loading="lazy"
                       decoding="async"
+                      (load)="onFaceImgLoad(url, $event)"
                     />
                   } @else {
                     <img class="cover-fill" [src]="url" alt="" loading="lazy" decoding="async" />

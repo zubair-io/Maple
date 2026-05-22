@@ -3,18 +3,24 @@
  * form when capturedAt is available.
  *
  * The primary-form maple:id embeds BLAKE3( SHA1(head) || capturedAt ||
- * cameraSerial || shutterCount ) (tag 0x01). The hash stage wrote the
- * fallback form (tag 0x02, SHA1(head) only); this stage upgrades it if
- * DateTimeOriginal is present. See `src/api/src/indexer/id.ts` for the byte
- * layout.
+ * cameraSerial || shutterCount ) (tag 0x01). The discover watcher writes
+ * the fallback form (tag 0x02, SHA1(head) only) inline at insert; this
+ * stage upgrades it if DateTimeOriginal is present. See
+ * `src/api/src/indexer/id.ts` for the byte layout.
  *
- * dependsOn: ["hash"]   — needs sha1_head on the doc (written by hash).
+ * dependsOn: []   — discover writes sha1_head + maple_id inline at insert,
+ * so this stage no longer needs a predecessor. The legacy `hash` stage was
+ * retired in the drop-abs-path-2026-05-21 migration once every row carried
+ * `maple_id` at insert time.
  */
-import * as fs from "node:fs/promises";
-import * as path from "node:path";
-import { readExif } from "../../indexer/exif.ts";
-import { deriveId } from "../../indexer/id.ts";
-import { defineStage, runStage, type RunStageHandle } from "../run-stage.ts";
+import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
+import { readExif } from '../../indexer/exif.ts';
+import { deriveId } from '../../indexer/id.ts';
+import { assetAbsPath } from '../../indexer/images.repo.ts';
+import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
+import type { ImageDoc, StageResult } from '../run-stage.ts';
+import { defineStage, runStage, type RunStageHandle } from '../run-stage.ts';
 
 const SHA1_HEAD_BYTES = 64 * 1024;
 
@@ -48,7 +54,7 @@ export function isLikelyScreenshot(
 }
 
 async function readHead(absPath: string): Promise<Uint8Array> {
-  const fd = await fs.open(absPath, "r");
+  const fd = await fs.open(absPath, 'r');
   try {
     const buf = new Uint8Array(SHA1_HEAD_BYTES);
     const { bytesRead } = await fd.read(buf, 0, buf.length, 0);
@@ -59,11 +65,11 @@ async function readHead(absPath: string): Promise<Uint8Array> {
 }
 
 const exifStage = defineStage({
-  name: "exif",
+  name: 'exif',
   // v2: GPS hemisphere refs added to the exifr pick list — earlier indexes
   // wrote western-hemisphere longitudes as positive. Bumping forces re-extract.
   targetVersion: 2,
-  dependsOn: ["hash"],
+  dependsOn: [],
   defaults: {
     concurrency: 4,
     batchSize: 10,
@@ -73,8 +79,20 @@ const exifStage = defineStage({
     paused: false,
     last_seen_target_version: 0,
   },
-  handler: async (image) => {
-    const absPath = image.abs_path as string;
+  handler: async (image: ImageDoc): Promise<StageResult> => {
+    // Resolve via assetAbsPath. Let `loadLibraryRoots()` errors propagate —
+    // a transient DB hiccup would otherwise yield an empty libs map, which
+    // would make `assetAbsPath` return null and trip the no-resolvable-
+    // location skip below. That skip writes `version = targetVersion`
+    // (see run-stage.ts), permanently marking the stage done. By throwing,
+    // the runner's retry/backoff path handles the transient case.
+    // Reserve `skip` for the genuine case: libraries loaded fine, but the
+    // asset has no fileinfo[0] or its library is unregistered.
+    const libs = await loadLibraryRoots();
+    const absPath = assetAbsPath(image, libs);
+    if (!absPath) {
+      return { skip: 'no-resolvable-location' };
+    }
 
     // Stat the file first — throws ENOENT when it doesn't exist, satisfying
     // the "throws when the file does not exist" test contract before we even

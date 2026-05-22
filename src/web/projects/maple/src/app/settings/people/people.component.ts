@@ -25,6 +25,10 @@
 //
 // Bearer-gated thumb loading lives in {@link ThumbBlobCache} so the
 // component stays focused on UI flow control.
+//
+// Pure derivation (auto-name predicate, sort/filter, face-key plumbing,
+// bbox geometry, label copy, error normalisation) lives next door in
+// `./people.vm.ts`. This file owns DI, signal wiring, and side effects.
 
 import {
   ChangeDetectionStrategy,
@@ -52,13 +56,28 @@ import { SettingsShellComponent } from '../settings-shell.component';
 import { SettingsIconComponent } from '../settings-icon.component';
 import { MapleVisibleOnceDirective } from './visible-once.directive';
 import { ThumbBlobCache } from './thumb-blob-cache';
-
-type Tone = 'success' | 'error';
-
-interface Toast {
-  text: string;
-  tone: Tone;
-}
+import {
+  TOAST_TTL_MS,
+  Toast,
+  Tone,
+  averageConfidence,
+  bulkFailureLabel,
+  bulkSuccessLabel,
+  clusteringSummary,
+  deletePersonConfirm,
+  errorMessage,
+  faceCropTransform,
+  faceKey,
+  filterNamed,
+  hiddenFaceCount,
+  isAutoNamed,
+  peopleStats,
+  pickSelectedFaces,
+  selectAllKeys,
+  sortPeople,
+  toggleSelection,
+  visibleFaces,
+} from './people.vm';
 
 @Component({
   standalone: true,
@@ -114,65 +133,27 @@ export class PeopleComponent implements OnDestroy {
 
   readonly hasPeople = computed(() => this.people().length > 0);
 
-  /** Stats line for the list view ("12 named · 138 unnamed · 30,142 faces").
-   * "Last clustered" is intentionally omitted — the API doesn't surface a
-   * timestamp and we won't fabricate one. */
-  readonly peopleStats = computed(() => {
-    const rows = this.people();
-    let named = 0;
-    let faces = 0;
-    for (const p of rows) {
-      if (!isAutoNamed(p.name)) named++;
-      faces += p.faceCount;
-    }
-    return { named, unnamed: rows.length - named, faces };
-  });
+  readonly peopleStats = computed(() => peopleStats(this.people()));
 
-  readonly sortedPeople = computed(() => {
-    const rows = this.people();
-    return [...rows].sort((a, b) => {
-      const aAuto = isAutoNamed(a.name) ? 1 : 0;
-      const bAuto = isAutoNamed(b.name) ? 1 : 0;
-      if (aAuto !== bAuto) return aAuto - bAuto;
-      if (aAuto === 1) {
-        if (a.faceCount !== b.faceCount) return b.faceCount - a.faceCount;
-        return a.id.localeCompare(b.id);
-      }
-      return a.name.localeCompare(b.name, undefined, { sensitivity: 'accent' });
-    });
-  });
+  readonly sortedPeople = computed(() => sortPeople(this.people()));
 
-  readonly namedPeople = computed(() => this.sortedPeople().filter((p) => !isAutoNamed(p.name)));
+  readonly namedPeople = computed(() => filterNamed(this.sortedPeople()));
 
-  /** Visible (threshold-filtered + confidence-sorted) faces of the open
-   * detail. Sort is high-confidence-first so the strongest matches anchor
-   * the top of the grid. */
   readonly visibleFaces = computed(() => {
     const detail = this.selected();
     if (!detail) return [];
-    const min = this.threshold() / 100;
-    return detail.faces
-      .filter((f) => f.confidence >= min)
-      .sort((a, b) => b.confidence - a.confidence);
+    return visibleFaces(detail.faces, this.threshold());
   });
 
-  /** Faces hidden by the threshold slider — surfaced in the count chip
-   * so the operator knows the slider is excluding data. */
   readonly hiddenFaceCount = computed(() => {
     const detail = this.selected();
     if (!detail) return 0;
-    return detail.faces.length - this.visibleFaces().length;
+    return hiddenFaceCount(detail.faces, this.threshold());
   });
 
-  /** Average detector confidence of the open detail's faces, percent.
-   * Labelled honestly in the UI ("avg detector confidence") — see the
-   * comment on `threshold` re: why "similarity" is the wrong label for
-   * this data. */
   readonly averageConfidence = computed(() => {
     const detail = this.selected();
-    if (!detail || detail.faces.length === 0) return 0;
-    const sum = detail.faces.reduce((acc, f) => acc + f.confidence, 0);
-    return Math.round((sum / detail.faces.length) * 100);
+    return detail ? averageConfidence(detail.faces) : 0;
   });
 
   /** True when the open detail's name is an auto-assigned "Person N"
@@ -182,12 +163,37 @@ export class PeopleComponent implements OnDestroy {
     return detail ? isAutoNamed(detail.name) : false;
   });
 
-  /** Template helper — exposed so the list-view card can use the same
-   * `^Person N$` predicate that drives sort + the detail header. The
-   * loose `name.startsWith('Person ')` heuristic miscategorises operator-
-   * named clusters like "Person Alice" as auto-named. */
-  protected isAutoName(name: string): boolean {
-    return isAutoNamed(name);
+  /** Template re-exposure of the auto-name predicate so the list-view
+   * card can use the same `^Person N$` rule. */
+  protected readonly isAutoName = isAutoNamed;
+
+  /** Natural pixel dimensions of each face-thumb's source image, keyed by
+   * thumb URL. Populated from the `<img>` `(load)` event. Used by
+   * `faceCropTransform` to undo the `object-fit: cover` letterbox so the
+   * bbox lands where the detector said it would, regardless of source
+   * aspect ratio. */
+  protected readonly imgNaturalDims = signal<ReadonlyMap<string, { nw: number; nh: number }>>(
+    new Map(),
+  );
+
+  onFaceImgLoad(url: string, event: Event): void {
+    const img = event.target as HTMLImageElement;
+    if (!img.naturalWidth || !img.naturalHeight) return;
+    const cur = this.imgNaturalDims();
+    const prev = cur.get(url);
+    if (prev && prev.nw === img.naturalWidth && prev.nh === img.naturalHeight) return;
+    const next = new Map(cur);
+    next.set(url, { nw: img.naturalWidth, nh: img.naturalHeight });
+    this.imgNaturalDims.set(next);
+  }
+
+  /** Template wrapper around the pure `faceCropTransform` from
+   * `people.vm.ts` — looks up the natural dimensions captured by
+   * `onFaceImgLoad` for the given thumb URL and threads them through so
+   * the transform can compensate for the cover-fit letterbox. */
+  faceCropTransform(bbox: Bbox, url: string | null): string {
+    const dims = url ? (this.imgNaturalDims().get(url) ?? null) : null;
+    return faceCropTransform(bbox, dims);
   }
 
   /** Bearer-gated thumbnail blob cache. See {@link ThumbBlobCache} for
@@ -249,7 +255,7 @@ export class PeopleComponent implements OnDestroy {
     this.loadError.set(null);
     this.api.listPeople().subscribe({
       next: (rows) => this.people.set(rows),
-      error: (err) => this.loadError.set(this.errorMessage(err)),
+      error: (err) => this.loadError.set(errorMessage(err)),
     });
   }
 
@@ -267,7 +273,7 @@ export class PeopleComponent implements OnDestroy {
       },
       error: (err) => {
         this.selectedLoading.set(false);
-        this.loadError.set(this.errorMessage(err));
+        this.loadError.set(errorMessage(err));
       },
     });
   }
@@ -335,7 +341,7 @@ export class PeopleComponent implements OnDestroy {
         }
       },
       error: (err) => {
-        this.showToast(this.errorMessage(err), 'error');
+        this.showToast(errorMessage(err), 'error');
       },
     });
   }
@@ -345,24 +351,18 @@ export class PeopleComponent implements OnDestroy {
     this.api.runClustering().subscribe({
       next: (result) => {
         this.clusteringBusy.set(false);
-        const summary =
-          result.assigned === 0
-            ? 'No new faces to assign.'
-            : `Assigned ${result.assigned} face${result.assigned === 1 ? '' : 's'} to ${result.newPeople} new person${result.newPeople === 1 ? '' : 's'}.`;
-        this.showToast(summary, 'success');
+        this.showToast(clusteringSummary(result), 'success');
         this.refresh();
       },
       error: (err) => {
         this.clusteringBusy.set(false);
-        this.showToast(this.errorMessage(err), 'error');
+        this.showToast(errorMessage(err), 'error');
       },
     });
   }
 
   async deletePerson(person: ApiPerson): Promise<void> {
-    const ok = confirm(
-      `Delete "${person.name}"? Their ${person.faceCount} face${person.faceCount === 1 ? '' : 's'} will become unassigned.`,
-    );
+    const ok = confirm(deletePersonConfirm(person.name, person.faceCount));
     if (!ok) return;
     try {
       await firstValueFrom(this.api.deletePerson(person.id));
@@ -370,7 +370,7 @@ export class PeopleComponent implements OnDestroy {
       if (this.selected()?.id === person.id) this.closeDetail();
       this.refresh();
     } catch (err) {
-      this.showToast(this.errorMessage(err), 'error');
+      this.showToast(errorMessage(err), 'error');
     }
   }
 
@@ -380,9 +380,7 @@ export class PeopleComponent implements OnDestroy {
     if (!detail) return;
     const matching = this.people().find((p) => p.id === detail.id);
     const faceCount = matching?.faceCount ?? detail.faces.length;
-    const ok = confirm(
-      `Delete "${detail.name}"? Their ${faceCount} face${faceCount === 1 ? '' : 's'} will become unassigned.`,
-    );
+    const ok = confirm(deletePersonConfirm(detail.name, faceCount));
     if (!ok) return;
     try {
       await firstValueFrom(this.api.deletePerson(detail.id));
@@ -390,26 +388,22 @@ export class PeopleComponent implements OnDestroy {
       this.closeDetail();
       this.refresh();
     } catch (err) {
-      this.showToast(this.errorMessage(err), 'error');
+      this.showToast(errorMessage(err), 'error');
     }
   }
 
   // ── Face selection (bulk) ───────────────────────────────────────────
 
   faceKey(face: { assetId: string; faceIndex: number }): string {
-    return `${face.assetId}:${face.faceIndex}`;
+    return faceKey(face);
   }
 
   isFaceSelected(face: { assetId: string; faceIndex: number }): boolean {
-    return this.selectedFaces().has(this.faceKey(face));
+    return this.selectedFaces().has(faceKey(face));
   }
 
   toggleFaceSelection(face: { assetId: string; faceIndex: number }): void {
-    const key = this.faceKey(face);
-    const next = new Set(this.selectedFaces());
-    if (next.has(key)) next.delete(key);
-    else next.add(key);
-    this.selectedFaces.set(next);
+    this.selectedFaces.set(toggleSelection(this.selectedFaces(), face));
   }
 
   clearSelection(): void {
@@ -417,19 +411,7 @@ export class PeopleComponent implements OnDestroy {
   }
 
   selectAllVisible(): void {
-    const next = new Set<string>();
-    for (const f of this.visibleFaces()) next.add(this.faceKey(f));
-    this.selectedFaces.set(next);
-  }
-
-  /** Returns the ApiPersonFace objects matching the current selection,
-   * intersected with the open detail. Stale keys (from a refresh) are
-   * dropped silently. */
-  private selectedFaceObjects(): ApiPersonFace[] {
-    const detail = this.selected();
-    if (!detail) return [];
-    const keys = this.selectedFaces();
-    return detail.faces.filter((f) => keys.has(this.faceKey(f)));
+    this.selectedFaces.set(selectAllKeys(this.visibleFaces()));
   }
 
   /** Fan one bulk action out over the current selection. `verb` is the
@@ -447,7 +429,7 @@ export class PeopleComponent implements OnDestroy {
     verb: string,
     fn: (face: ApiPersonFace) => Promise<unknown>,
   ): Promise<void> {
-    const faces = this.selectedFaceObjects();
+    const faces = pickSelectedFaces(this.selected(), this.selectedFaces());
     if (faces.length === 0) return;
     this.bulkBusy.update((n) => n + 1);
     try {
@@ -456,17 +438,14 @@ export class PeopleComponent implements OnDestroy {
       const failed = results.length - ok;
 
       if (ok > 0) {
-        this.showToast(`${verb} ${ok} face${ok === 1 ? '' : 's'}.`, 'success');
+        this.showToast(bulkSuccessLabel(verb, ok), 'success');
       }
       if (failed > 0) {
-        // Surface the first rejection's message — picking one rather than
-        // concatenating keeps the toast tight. The remaining failures are
-        // implicit in the count.
         const firstReject = results.find(
           (r): r is PromiseRejectedResult => r.status === 'rejected',
         );
-        const reason = firstReject ? this.errorMessage(firstReject.reason) : 'unknown error';
-        this.showToast(`${failed} face${failed === 1 ? '' : 's'} failed: ${reason}`, 'error');
+        const reason = firstReject ? errorMessage(firstReject.reason) : 'unknown error';
+        this.showToast(bulkFailureLabel(failed, reason), 'error');
       }
     } finally {
       // Always clear selection + refresh, even on partial / total failure
@@ -515,23 +494,6 @@ export class PeopleComponent implements OnDestroy {
     return this.thumbs.url(face.absPath);
   }
 
-  /** Bbox-crop transform for the face thumb `<img>`. The wrapper is
-   * `aspect-square overflow-hidden`; the inner `<img>` is absolute-
-   * positioned and we scale + translate so the bbox fills the wrapper.
-   * `bbox` is in normalised `[0,1]` proportions of the source image —
-   * the face detector emits them this way and they survive end-to-end
-   * unchanged. The prototype's `background: center/cover` won't crop to
-   * the face; this transform keeps the cover/thumb composed correctly. */
-  faceCropTransform(bbox: Bbox): string {
-    const { x, y, w, h } = bbox;
-    const scaleX = Math.max(1, 1 / Math.max(0.01, w));
-    const scaleY = Math.max(1, 1 / Math.max(0.01, h));
-    const scale = Math.max(scaleX, scaleY);
-    const tx = -x * 100;
-    const ty = -y * 100;
-    return `scale(${scale}) translate(${tx}%, ${ty}%)`;
-  }
-
   // ── Helpers ─────────────────────────────────────────────────────────
 
   private showToast(text: string, tone: Tone): void {
@@ -539,24 +501,6 @@ export class PeopleComponent implements OnDestroy {
     setTimeout(() => {
       const cur = this.toast();
       if (cur && cur.text === text) this.toast.set(null);
-    }, 3500);
+    }, TOAST_TTL_MS);
   }
-
-  private errorMessage(err: unknown): string {
-    if (err && typeof err === 'object' && 'error' in err) {
-      const inner = (err as { error?: unknown }).error;
-      if (inner && typeof inner === 'object' && 'error' in inner) {
-        return String((inner as { error: unknown }).error);
-      }
-      if (typeof inner === 'string') return inner;
-    }
-    if (err instanceof Error) return err.message;
-    return String(err);
-  }
-}
-
-const AUTO_NAME_RE = /^Person \d+$/;
-
-function isAutoNamed(name: string): boolean {
-  return AUTO_NAME_RE.test(name);
 }
