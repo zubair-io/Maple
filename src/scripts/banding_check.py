@@ -95,20 +95,29 @@ def load_exr_rgb(path: Path) -> np.ndarray:
 
 
 def per_row_rgb_drift(rgb: np.ndarray) -> dict:
-    """Max |R-G|, |R-B|, |G-B| across the whole image. The synthetic
-    ramp is achromatic, so anything above 1e-6 in the pre-quantize EXR
-    points at a per-channel stage that rotated the input.
+    """Per-row R/G/B equality, aggregated across rows.
+
+    For each row, take the max |R-G|, |R-B|, |G-B| within that row.
+    Then report the max-across-rows (worst row) and mean-across-rows
+    (typical row). The synthetic ramp is achromatic per row by
+    construction, so anything above 1e-6 in the pre-quantize EXR
+    points at a per-channel stage that rotated the input. Reporting
+    per-row keeps the metric diagnostic — a single bad row pulls the
+    max up without diluting the mean across all the clean rows.
     """
     r = rgb[..., 0]
     g = rgb[..., 1]
     b = rgb[..., 2]
+    per_row_rg = np.abs(r - g).max(axis=1)
+    per_row_rb = np.abs(r - b).max(axis=1)
+    per_row_gb = np.abs(g - b).max(axis=1)
     return {
-        "max_abs_rg": float(np.abs(r - g).max()),
-        "max_abs_rb": float(np.abs(r - b).max()),
-        "max_abs_gb": float(np.abs(g - b).max()),
-        "mean_abs_rg": float(np.abs(r - g).mean()),
-        "mean_abs_rb": float(np.abs(r - b).mean()),
-        "mean_abs_gb": float(np.abs(g - b).mean()),
+        "max_abs_rg": float(per_row_rg.max()),
+        "max_abs_rb": float(per_row_rb.max()),
+        "max_abs_gb": float(per_row_gb.max()),
+        "mean_abs_rg": float(per_row_rg.mean()),
+        "mean_abs_rb": float(per_row_rb.mean()),
+        "mean_abs_gb": float(per_row_gb.mean()),
     }
 
 
