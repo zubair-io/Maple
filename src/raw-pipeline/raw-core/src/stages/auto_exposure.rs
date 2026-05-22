@@ -7,12 +7,13 @@
 //! # Why this exists
 //! Maintained as infrastructure for a future user-facing "Auto" toggle.
 //! At production damping (`AE_DAMPING = 0.0`) the stage is identity — it
-//! computes the histogram + EV correctly and returns them for callers /
-//! diagnostics, but leaves pixels untouched. The histogram-shape AE
-//! algorithm is a port of RawTherapee's `getAutoExp`: sample the actual
-//! scene-linear distribution post-DCP, fit a per-image gain that lands
-//! the mean / median / top of the histogram near canonical mid-gray and
-//! clipping points, return EV. Per-image, deterministic, pure math.
+//! computes the histogram internally and returns the fitted `AutoExposure`
+//! (carrying `expcomp` only; the histogram itself isn't surfaced), but
+//! leaves pixels untouched. The histogram-shape AE algorithm is a port
+//! of RawTherapee's `getAutoExp`: sample the actual scene-linear
+//! distribution post-DCP, fit a per-image gain that lands the mean /
+//! median / top of the histogram near canonical mid-gray and clipping
+//! points, return EV. Per-image, deterministic, pure math.
 //!
 //! # History — band-aids removed
 //! Earlier versions of the pipeline ran a non-zero damping (0.2) layered
