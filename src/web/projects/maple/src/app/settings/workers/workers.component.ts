@@ -22,6 +22,7 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  HostListener,
   OnDestroy,
   OnInit,
   computed,
@@ -33,6 +34,7 @@ import { FormsModule } from '@angular/forms';
 import { type Subscription } from 'rxjs';
 import {
   BunApiBackendService,
+  type DeadDoc,
   type EnrichmentConfigResponse,
   WorkersApiService,
   type StageStatus,
@@ -94,6 +96,13 @@ export class WorkersComponent implements OnInit, OnDestroy {
 
   protected readonly saveStates = signal<Record<string, SaveState>>({});
   protected readonly saveErrors = signal<Record<string, string | null>>({});
+
+  protected readonly deadLog = signal<{
+    stage: StageStatus;
+    items: DeadDoc[];
+    loading: boolean;
+    error: string | null;
+  } | null>(null);
 
   /** "Test connection" state for the URL field in describe/geocode rows.
    * Keyed by stage id so each row tracks its own probe independently. */
@@ -207,6 +216,41 @@ export class WorkersComponent implements OnInit, OnDestroy {
         /* poll syncs */
       },
     });
+  }
+
+  openLogs(stage: StageStatus, event: Event): void {
+    event.stopPropagation();
+    this.deadLog.set({ stage, items: [], loading: true, error: null });
+    this.api.listDead(stage.name).subscribe({
+      next: (res) => {
+        this.deadLog.update((cur) =>
+          cur?.stage.name === stage.name
+            ? { ...cur, items: res.items, loading: false }
+            : cur,
+        );
+      },
+      error: (err) => {
+        this.deadLog.update((cur) =>
+          cur?.stage.name === stage.name
+            ? { ...cur, loading: false, error: errorMessage(err) }
+            : cur,
+        );
+      },
+    });
+  }
+
+  closeLog(): void {
+    this.deadLog.set(null);
+  }
+
+  @HostListener('document:keydown.escape')
+  onEscape(): void {
+    if (this.deadLog() !== null) this.closeLog();
+  }
+
+  formatDate(iso: string | null): string {
+    if (!iso) return '';
+    return new Date(iso).toLocaleString();
   }
 
   /** Probe the URL currently typed into the describe/geocode panel —
