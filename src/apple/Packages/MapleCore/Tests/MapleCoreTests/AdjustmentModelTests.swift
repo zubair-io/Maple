@@ -25,6 +25,31 @@ final class AdjustmentModelTests: XCTestCase {
         XCTAssertEqual(AdjustmentModel.default.sharpenRadius, 1.0)
     }
 
+    /// Capture sharpening (#271) ships off by default so the parity harness
+    /// stays bit-identical to pre-#271 behaviour. Per-camera defaults are a
+    /// follow-up calibration ticket.
+    func testDefaultCaptureSharpeningIsOff() {
+        XCTAssertEqual(AdjustmentModel.default.captureSharpeningAmount, 0)
+        XCTAssertEqual(AdjustmentModel.default.captureSharpeningRadius, 1.0)
+    }
+
+    func testParseCaptureSharpeningAttributes() throws {
+        let xml = xmp(attrs: #"papp:CaptureSharpeningAmount="65" papp:CaptureSharpeningRadius="1.5""#)
+        let (m, _) = try XMPParser.parse(xml)
+        XCTAssertEqual(m.captureSharpeningAmount, 65)
+        XCTAssertEqual(m.captureSharpeningRadius, 1.5, accuracy: 0.01)
+    }
+
+    func testCaptureSharpeningRoundTrip() throws {
+        var m = AdjustmentModel()
+        m.captureSharpeningAmount = 55
+        m.captureSharpeningRadius = 1.5
+        let xml = XMPSerializer.serialize(model: m, culling: CullingState())
+        let (m2, _) = try XMPParser.parse(xml)
+        XCTAssertEqual(m2.captureSharpeningAmount, 55)
+        XCTAssertEqual(m2.captureSharpeningRadius, 1.5, accuracy: 0.01)
+    }
+
     // MARK: - XMP Parse
 
     func testParseExposure() throws {

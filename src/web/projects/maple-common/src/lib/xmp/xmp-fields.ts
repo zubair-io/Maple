@@ -155,6 +155,22 @@ export const ADJUSTMENT_FIELDS: XmpFieldMapping<NumericAdjustmentKey>[] = [
     parse: numericParser,
     defaultValue: () => 0,
   },
+  // Capture sharpening (Maple-proprietary Richardson-Lucy deconvolution).
+  // ACR has no equivalent; lives under the `papp:` namespace.
+  {
+    xmpKey: 'papp:CaptureSharpeningAmount',
+    modelKey: 'captureSharpeningAmount',
+    serialize: numericSerializer,
+    parse: numericParser,
+    defaultValue: () => 0,
+  },
+  {
+    xmpKey: 'papp:CaptureSharpeningRadius',
+    modelKey: 'captureSharpeningRadius',
+    serialize: numericSerializer,
+    parse: numericParser,
+    defaultValue: () => 1.0,
+  },
   {
     xmpKey: 'crs:LuminanceSmoothing',
     modelKey: 'nrLuminance',
