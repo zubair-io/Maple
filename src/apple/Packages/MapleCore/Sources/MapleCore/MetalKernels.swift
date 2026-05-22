@@ -536,7 +536,7 @@ public enum MetalKernels {
     // bundled LUT — has a known-good source of truth).
 
     /// Build a 1×512 CIImage from the embedded agx_lut.bin (f32 LE).
-    /// This is the same binary the Rust pipeline uses (AGX_VERSION 5).
+    /// This is the same binary the Rust pipeline uses (AGX_VERSION 7).
     /// Both LUTs are emitted by `src/scripts/derive_agx_lut.py` — pass
     /// `--apple-bin` to that script to keep the Apple-bundled mirror in
     /// sync with the Rust raw-core source of truth.

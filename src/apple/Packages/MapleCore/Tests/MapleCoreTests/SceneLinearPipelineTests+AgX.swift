@@ -47,15 +47,16 @@ extension SceneLinearPipelineTests {
             XCTAssertTrue(outB >= 0.0 && outB <= 1.0 + 1e-4,
                 "\(label) B out of [0,1]: \(outB)")
         }
-        // Mid-gray must hit a stable, well-defined value. Note: the plan
-        // brief asserts ~0.45 here, but the smoothstep stand-in evaluated
-        // at MID_NORM ≈ 0.6061 produces 0.6061² · (3 − 2·0.6061) ≈ 0.657,
-        // not 0.45. The real Rust LUT lands at AGX_MID_DISPLAY = 0.497
-        // (see agx_coeffs.rs:20). Both are validated separately by
-        // `testSpikeAgXMatchesRustReferenceWithLUT` below — that's the
-        // test that actually compares against the production LUT.
-        // This assertion just locks down the smoothstep stand-in's own
-        // determinism so a regression in the analytic curve trips a
+        // Mid-gray must hit a stable, well-defined value. The smoothstep
+        // stand-in evaluated at MID_NORM ≈ 0.6061 produces
+        // 0.6061² · (3 − 2·0.6061) ≈ 0.657 — this is the analytic
+        // smoothstep, NOT the production AgX sigmoid. The real Rust LUT
+        // at AGX_VERSION 7 (#263) lands AGX_MID_DISPLAY = 0.18 (Maple
+        // photography-tuned, scene 0.18 → display 0.18). Both are
+        // validated separately by `testSpikeAgXMatchesRustReferenceWithLUT`
+        // below — that's the test that compares against the production
+        // LUT. This assertion just locks down the smoothstep stand-in's
+        // own determinism so a regression in the analytic curve trips a
         // failure here even if the LUT-load test is skipped.
         let midOut = Self.agxPerChannelSmoothstep(0.18, slope: 1.0)
         XCTAssertEqual(midOut, 0.657, accuracy: 0.01,
@@ -64,14 +65,15 @@ extension SceneLinearPipelineTests {
 
     /// Stricter mirror that loads the same `agx_lut.bin` Rust uses (via
     /// `Bundle.module`) and applies linear interpolation identical to
-    /// `view/agx.rs:52-77`. Compared against Rust's per-channel AgX kernel
-    /// outputs captured at AGX_VERSION 6 by `examples/spike_1_2_refs.rs`.
-    /// The fixture bypasses `view::agx::apply`'s pre-form rolloff wrapper
-    /// (added in AGX_VERSION 6) and calls the per-channel kernel directly
-    /// so the Swift LUT mirror can match. The LUT binary is byte-identical
-    /// across Rust and Swift, so the only deltas should be f32 rounding
-    /// (~1e-7) — well below the LUT-interpolation noise floor (~1e-4)
-    /// the Spike 1.2 brief calls for.
+    /// the Rust per-channel sigmoid kernel. Compared against Rust's
+    /// per-channel kernel outputs captured at AGX_VERSION 7 by
+    /// `examples/spike_1_2_refs.rs`. The fixture bypasses
+    /// `view::agx::apply`'s INSET/OUTSET matrices (added in AGX_VERSION 7,
+    /// #263) and calls the per-channel kernel directly so the Swift LUT
+    /// mirror can match. The LUT binary is byte-identical across Rust and
+    /// Swift (enforced by `testAppleBundledAgxLUTMatchesRustLUT`), so the
+    /// only deltas should be f32 rounding (~1e-7) — well below the
+    /// LUT-interpolation noise floor (~1e-4).
     ///
     /// This is the Spike 1.2 deliverable in the form the brief asks for:
     /// run the Swift mirror on the brief's fixed grid, run Rust on the
