@@ -17,11 +17,12 @@ export const routes: Routes = [
     path: 'join',
     loadComponent: () => import('./sign-in/join.component').then((m) => m.JoinComponent),
   },
-  // `/` redirects to `/browse`; the browse route's authGuard handles the
-  // unauthenticated case. canActivate here is invalid — Angular runs
-  // redirects BEFORE guards, so the guard would never fire (NG04014).
-  { path: '', redirectTo: 'browse', pathMatch: 'full' },
-  { path: 'browse', canActivate: [authGuard], component: BrowseShellComponent },
+  // `/` IS the browse shell. The legacy `/browse` URL redirects to `/` so
+  // existing bookmarks keep working. The browse shell encodes the currently-
+  // opened folder as `?folder=<absPath>` so direct loads, history nav, and
+  // shared links all land on the right folder.
+  { path: '', canActivate: [authGuard], component: BrowseShellComponent },
+  { path: 'browse', redirectTo: '', pathMatch: 'full' },
   { path: 'edit/:id', canActivate: [authGuard], component: EditorShellComponent },
   // `/settings` lands on Workers. The card-grid landing was replaced by
   // the sidebar shell in v0.2. Non-owners hit authGuard inside
@@ -76,5 +77,5 @@ export const routes: Routes = [
   },
   { path: 'people', redirectTo: 'settings/people', pathMatch: 'full' },
   { path: 'people/:id', redirectTo: 'settings/people/:id' },
-  { path: '**', redirectTo: 'browse' },
+  { path: '**', redirectTo: '' },
 ];
