@@ -76,8 +76,9 @@ public actor TileManager {
 
     /// Current view-transform pipeline version. Bump when the
     /// scene-linear chain or the view transform changes meaning. Plan 2
-    /// landed at v2.
-    public static let viewTransformVersion: UInt32 = 2
+    /// landed at v2. v3 (#263): canonical Sobotka AgX with inset/outset
+    /// matrices + real Jed Smith sigmoid (mid-gray 0.237 → 0.18).
+    public static let viewTransformVersion: UInt32 = 3
 
     private struct Entry {
         let image: CIImage

@@ -5,14 +5,14 @@
 //!
 //! NOTE: this example deliberately exercises the **per-channel LUT path
 //! only** (log-encode → normalize → contrast-modulate → sigmoid LUT),
-//! NOT `view::agx::apply` — that wrapper added a cross-channel
-//! `preform_rolloff` stage at AGX_VERSION 6 which the Swift Spike 1.2
-//! mirror (`agxPerChannelLUT` in `SceneLinearPipelineTests.swift`) does
-//! not implement. The Spike 1.2 brief is about validating the
-//! primary-agnostic per-channel sigmoid mirror, so we generate Rust
-//! reference outputs from the same per-channel kernel the Swift mirror
-//! reproduces. Coefficients are sourced from `view::agx_coeffs`
-//! constants and the LUT bytes from the same `agx_lut.bin` Swift loads.
+//! NOT `view::agx::apply` — at AGX_VERSION 7 (#263) that wrapper became
+//! a full Sobotka pipeline (luma-coupled toe → INSET matrix →
+//! per-channel sigmoid LUT → OUTSET matrix → clamp). The Swift Spike 1.2
+//! mirror (`agxPerChannelLUT` in `SceneLinearPipelineTests.swift`) only
+//! models the per-channel sigmoid stage, so we generate Rust reference
+//! outputs from the same per-channel kernel for apples-to-apples parity.
+//! Coefficients come from `view::agx_coeffs`; LUT bytes from
+//! `agx_lut.bin`.
 
 use raw_core::view::agx::{AGX_LUT_SIZE, AGX_MAX_EV, AGX_MID_GRAY, AGX_MIN_EV};
 

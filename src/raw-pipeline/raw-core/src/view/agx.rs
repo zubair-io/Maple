@@ -1,17 +1,22 @@
 //! AgX view transform: scene-linear Rec.2020 → display-linear Rec.2020.
 //! Spec § 3.6a.
 //!
-//! The sigmoid shape and coefficients are derived once by the Python script
+//! This is **canonical Sobotka AgX** (#263): inset matrix → log encode →
+//! per-channel Jed Smith sigmoid → outset matrix → clamp. The matrices,
+//! sigmoid coefficients, and LUT are derived by
 //! `src/scripts/derive_agx_lut.py` and emitted as:
 //!
 //!   * `agx_lut.bin`    — 512 × f32 little-endian, embedded via
 //!                        `include_bytes!` below.
 //!   * `agx_coeffs.rs`  — `AGX_MIN_EV`, `AGX_MAX_EV`, `AGX_MID_GRAY`,
-//!                        `AGX_BASE_SLOPE`, `AGX_LUT_SIZE`, `AGX_VERSION`.
+//!                        `AGX_X_PIVOT`, `AGX_Y_PIVOT`, `AGX_BASE_SLOPE`,
+//!                        `AGX_TOE_POWER`, `AGX_SHOULDER_POWER`,
+//!                        `AGX_INSET_MATRIX`, `AGX_OUTSET_MATRIX`,
+//!                        `AGX_LUT_SIZE`, `AGX_VERSION`.
 //!
-//! The same two artifacts are the source of truth for the Metal kernel and
-//! WebGL shader; numeric parity across all three is gated at 1e-4 per
-//! channel (spec § 06 cross-platform § AgX parity).
+//! The Apple side bundles a byte-identical copy of `agx_lut.bin` for
+//! parity tests; the Web side compiles the same constants into a GLSL
+//! shader. Cross-platform parity at 1e-4 per channel is a CI gate.
 
 use crate::image::{ColorSpace, Image};
 use rayon::prelude::*;
@@ -19,8 +24,9 @@ use rayon::prelude::*;
 #[path = "agx_coeffs.rs"]
 mod coeffs;
 pub use coeffs::{
-    AGX_BASE_SLOPE, AGX_LUT_SIZE, AGX_MAX_EV, AGX_MID_DISPLAY, AGX_MID_GRAY, AGX_MIN_EV,
-    AGX_VERSION,
+    AGX_BASE_SLOPE, AGX_INSET_MATRIX, AGX_LUT_SIZE, AGX_MAX_EV, AGX_MID_DISPLAY, AGX_MID_GRAY,
+    AGX_MIN_EV, AGX_OUTSET_MATRIX, AGX_SHOULDER_POWER, AGX_TOE_POWER, AGX_VERSION, AGX_X_PIVOT,
+    AGX_Y_PIVOT,
 };
 
 /// Embedded LUT bytes — 512 × f32 little-endian.
@@ -35,9 +41,11 @@ fn lut() -> &'static [f32; AGX_LUT_SIZE] {
     static CELL: std::sync::OnceLock<[f32; AGX_LUT_SIZE]> = std::sync::OnceLock::new();
     CELL.get_or_init(|| {
         assert_eq!(
-            AGX_LUT_BYTES.len(), AGX_LUT_SIZE * 4,
+            AGX_LUT_BYTES.len(),
+            AGX_LUT_SIZE * 4,
             "agx_lut.bin size mismatch: expected {} bytes, got {}",
-            AGX_LUT_SIZE * 4, AGX_LUT_BYTES.len()
+            AGX_LUT_SIZE * 4,
+            AGX_LUT_BYTES.len()
         );
         let mut out = [0.0f32; AGX_LUT_SIZE];
         for (i, chunk) in AGX_LUT_BYTES.chunks_exact(4).enumerate() {
@@ -59,79 +67,96 @@ fn sample_lut(x: f32) -> f32 {
     lut[i0] * (1.0 - f) + lut[i1] * f
 }
 
-/// Per-channel AgX: log2-encode scene value, normalize to [0, 1], apply
-/// contrast-modulated sigmoid, return display-linear value in [0, 1].
-///
-/// `slope` is 1.0 at `contrast=0`; positive contrast steepens, negative
-/// softens. Slope pivots around `MID_NORM` so mid-gray stays anchored.
-fn agx_per_channel(scene: f32, slope: f32) -> f32 {
-    // Clamp below toe: scene values below MID_GRAY * 2^MIN_EV are pinned.
-    let floor = AGX_MID_GRAY * AGX_MIN_EV.exp2();
-    let clamped = scene.max(floor);
-    // Log encode + normalize to [0, 1].
-    let log = (clamped / AGX_MID_GRAY).log2().clamp(AGX_MIN_EV, AGX_MAX_EV);
-    let norm = (log - AGX_MIN_EV) / (AGX_MAX_EV - AGX_MIN_EV);
-    // Contrast as slope around mid-gray normalized anchor.
-    let contrast_adjusted = (MID_NORM + (norm - MID_NORM) * slope).clamp(0.0, 1.0);
-    sample_lut(contrast_adjusted).clamp(0.0, 1.0)
+/// Apply a 3×3 matrix to an RGB triple.
+#[inline]
+fn matrix_mul(m: &[[f32; 3]; 3], v: [f32; 3]) -> [f32; 3] {
+    [
+        m[0][0] * v[0] + m[0][1] * v[1] + m[0][2] * v[2],
+        m[1][0] * v[0] + m[1][1] * v[1] + m[1][2] * v[2],
+        m[2][0] * v[0] + m[2][1] * v[1] + m[2][2] * v[2],
+    ]
 }
 
-/// Scene-linear shoulder where pre-formation rolloff begins, in units of
-/// `AGX_MID_GRAY`. 8× mid-gray = +3 EV from mid-gray = 1.44 scene-linear.
-/// Below this, the per-channel sigmoid is in its near-linear region and
-/// channels reach the shoulder together — no rolloff needed. Above this,
-/// per-channel divergence creates hue rotation, so we compress chroma
-/// toward luminance proportional to how far we are above the shoulder.
-const PREFORM_SHOULDER_X: f32 = 8.0;
+/// Per-channel log2 encode + normalize to [0, 1]. Mirror of Sobotka
+/// `open_domain_to_normalized_log2`. Pinned at the toe (`MIN_EV`) for
+/// non-positive inputs.
+#[inline]
+fn log_encode(channel: f32) -> f32 {
+    let floor = AGX_MID_GRAY * AGX_MIN_EV.exp2();
+    let clamped = channel.max(floor);
+    let log_v = (clamped / AGX_MID_GRAY).log2().clamp(AGX_MIN_EV, AGX_MAX_EV);
+    (log_v - AGX_MIN_EV) / (AGX_MAX_EV - AGX_MIN_EV)
+}
 
-/// Rec.2020 (BT.2020) luminance weights. Used by `preform_rolloff` as the
-/// achromatic target for chroma compression in saturated highlights.
+/// Rec.2020 (BT.2020) luminance weights. Used by the luminance-coupled
+/// toe clamp to evaluate whether a pixel's neutral level is below the
+/// AgX toe — without this, per-channel clamping in deep shadows produces
+/// asymmetric channels and surfaces magenta in the darkest pixels.
 const REC2020_LUM_R: f32 = 0.2627;
 const REC2020_LUM_G: f32 = 0.6780;
 const REC2020_LUM_B: f32 = 0.0593;
 
-/// Pre-formation rolloff: when any channel exceeds the AgX shoulder
-/// (~+3 EV from mid-gray = `AGX_MID_GRAY * PREFORM_SHOULDER_X`), compress
-/// chroma toward Rec.2020 luminance proportionally to the excess. Brings
-/// all three channels closer in magnitude before the per-channel sigmoid
-/// so they reach the shoulder together — eliminates the hue rotation
-/// that pure-color saturated highlights otherwise produce (red→pink,
-/// blue→magenta, green→yellow-lime).
-///
-/// Per `.archived-plans/plans/2026-04-27-clipping-and-artifacts.md`
-/// Phase 1, "AgX pre-formation rolloff". Sobotka's AgX 1.x Open Domain
-/// rolloff with the simpler max-channel compression metric (vs. the full
-/// Blender 4.x 3D-compression form, which would require a separate
-/// codegen path for the Metal/WebGL mirrors).
-fn preform_rolloff(scene: [f32; 3]) -> [f32; 3] {
-    let max = scene[0].max(scene[1]).max(scene[2]);
-    let shoulder = AGX_MID_GRAY * PREFORM_SHOULDER_X;
-    if max <= shoulder {
-        return scene; // below shoulder, no rolloff
+/// Luminance-coupled toe floor. Replaces the old per-channel `max(scene,
+/// floor)` (which clipped each channel against the same floor independently
+/// and produced asymmetric clamping in deep shadows). Here we test luminance
+/// — only pixels whose luminance is itself below the AgX toe get pinned;
+/// in-gamut shadow pixels with channel-level dips below the floor pass
+/// through unchanged and the sigmoid handles them. Preserves chroma in
+/// deep shadows without surfacing the per-channel magenta artifact.
+#[inline]
+fn luma_coupled_toe(pixel: [f32; 3]) -> [f32; 3] {
+    let floor = AGX_MID_GRAY * AGX_MIN_EV.exp2();
+    let y =
+        REC2020_LUM_R * pixel[0] + REC2020_LUM_G * pixel[1] + REC2020_LUM_B * pixel[2];
+    if y >= floor {
+        return pixel;
     }
-    // Compression factor: 0 at max == shoulder, asymptotic to 1 as max → ∞.
-    let t = ((max - shoulder) / max).clamp(0.0, 1.0);
-    // Rec.2020 luminance — the achromatic target.
-    let y = REC2020_LUM_R * scene[0] + REC2020_LUM_G * scene[1] + REC2020_LUM_B * scene[2];
+    // Luminance below the toe — pin all channels to the floor so the
+    // log-encode lands at MIN_EV uniformly (preserves grey-axis).
+    [floor, floor, floor]
+}
+
+/// Apply AgX to a single pixel: full Sobotka pipeline (inset → log →
+/// sigmoid LUT → outset → clamp). `slope` is 1.0 at `contrast=0`; positive
+/// contrast steepens, negative softens. Slope pivots around `MID_NORM`.
+fn agx_pixel(scene: [f32; 3], slope: f32) -> [f32; 3] {
+    // 1) Luminance-coupled toe floor (replaces the old per-channel clamp).
+    let lifted = luma_coupled_toe(scene);
+    // 2) Inset matrix: Rec.2020 → AgX-Base-Rec.2020 (per-channel desat).
+    let inset = matrix_mul(&AGX_INSET_MATRIX, lifted);
+    // 3) Per-channel log encode + sigmoid LUT.
+    let mut sig = [0.0f32; 3];
+    for i in 0..3 {
+        let norm = log_encode(inset[i]);
+        // Contrast modulation: expand/compress around MID_NORM so contrast=0
+        // → identity. The sigmoid LUT already encodes the AgX shape; this
+        // scales the input domain.
+        let modulated = (MID_NORM + (norm - MID_NORM) * slope).clamp(0.0, 1.0);
+        sig[i] = sample_lut(modulated);
+    }
+    // 4) Outset matrix: AgX-Base-Rec.2020 → Rec.2020 (restores chroma).
+    let out = matrix_mul(&AGX_OUTSET_MATRIX, sig);
+    // 5) Clamp to [0, 1]. The outset is the inverse of inset, but the
+    //    sigmoid shape isn't a per-primary mapping in display-linear
+    //    space, so out-of-gamut excursions can produce slightly negative
+    //    channels (e.g. ~ -3e-3) or slight overshoot near 1.0. The next
+    //    pipeline stage (sRGB encode) expects [0, 1]; clamp here.
     [
-        scene[0] * (1.0 - t) + y * t,
-        scene[1] * (1.0 - t) + y * t,
-        scene[2] * (1.0 - t) + y * t,
+        out[0].clamp(0.0, 1.0),
+        out[1].clamp(0.0, 1.0),
+        out[2].clamp(0.0, 1.0),
     ]
 }
 
-/// Apply AgX per-channel across the image. Input must be
-/// `SceneLinearRec2020`; output space is `DisplayLinearRec2020`.
-/// `contrast` in [-100, +100]; 0 is the reference sigmoid.
+/// Apply AgX across the image. Input must be `SceneLinearRec2020`; output
+/// space is `DisplayLinearRec2020`. `contrast` in [-100, +100]; 0 is the
+/// reference Sobotka sigmoid.
 pub fn apply(img: &mut Image, contrast: f32) {
     img.assert_space(ColorSpace::SceneLinearRec2020);
     // Slope = 1 + (contrast/100) * 0.5. At +100 → 1.5×, at −100 → 0.5×.
     let slope = 1.0 + (contrast / 100.0) * 0.5;
     img.pixels.par_iter_mut().for_each(|p| {
-        let rolled = preform_rolloff(*p);
-        p[0] = agx_per_channel(rolled[0], slope);
-        p[1] = agx_per_channel(rolled[1], slope);
-        p[2] = agx_per_channel(rolled[2], slope);
+        *p = agx_pixel(*p, slope);
     });
     img.space = ColorSpace::DisplayLinearRec2020;
 }
@@ -147,38 +172,137 @@ mod tests {
 
     #[test]
     fn lut_anchors_are_zero_and_near_one() {
-        // Maple AgX evaluates to ~9e-5 at x=0 (clamped to 0) and ~0.99 at
-        // x=1. We don't force-clamp the top to exactly 1.0 — the next
-        // display stage (gamma encode) handles any headroom.
+        // Sobotka sigmoid evaluates to ~0 at x=0 and slightly below 1.0 at
+        // x=1. The pipeline clamps post-outset; both endpoint anchors
+        // should be in the expected range.
         let l = lut();
         assert!(l[0].abs() < 1e-3, "LUT[0] = {}", l[0]);
-        assert!(l[AGX_LUT_SIZE - 1] >= 0.97 && l[AGX_LUT_SIZE - 1] <= 1.0,
-            "LUT[last] = {}, expected in [0.97, 1.0]", l[AGX_LUT_SIZE - 1]);
+        assert!(
+            l[AGX_LUT_SIZE - 1] >= 0.97 && l[AGX_LUT_SIZE - 1] <= 1.0,
+            "LUT[last] = {}, expected in [0.97, 1.0]",
+            l[AGX_LUT_SIZE - 1]
+        );
     }
 
     #[test]
     fn lut_is_monotone_nondecreasing() {
         let l = lut();
         for i in 1..AGX_LUT_SIZE {
-            assert!(l[i] >= l[i - 1] - 1e-6,
-                "non-monotone at {}: {} → {}", i, l[i - 1], l[i]);
+            assert!(
+                l[i] >= l[i - 1] - 1e-6,
+                "non-monotone at {}: {} → {}",
+                i,
+                l[i - 1],
+                l[i]
+            );
+        }
+    }
+
+    #[test]
+    fn lut_pivot_value_equals_y_pivot() {
+        // Canonical Sobotka sigmoid: sigmoid(X_PIVOT) = Y_PIVOT = 0.18.
+        // The LUT entry closest to AGX_X_PIVOT must land within
+        // interpolation tolerance of AGX_Y_PIVOT.
+        let l = lut();
+        let pivot_norm = AGX_X_PIVOT;
+        let idx = pivot_norm * ((AGX_LUT_SIZE - 1) as f32);
+        let i0 = idx.floor() as usize;
+        let i1 = (i0 + 1).min(AGX_LUT_SIZE - 1);
+        let f = idx - (i0 as f32);
+        let sampled = l[i0] * (1.0 - f) + l[i1] * f;
+        assert!(
+            (sampled - AGX_Y_PIVOT).abs() < 1e-4,
+            "LUT @ X_PIVOT = {}, expected Y_PIVOT = {} (diff {})",
+            sampled,
+            AGX_Y_PIVOT,
+            (sampled - AGX_Y_PIVOT).abs()
+        );
+    }
+
+    #[test]
+    fn inset_outset_row_sums_are_one() {
+        // The structural guarantee that makes neutral grey-axis preservation
+        // work. If either matrix's row sums drift away from 1, neutral
+        // mid-gray no longer maps to neutral mid-gray.
+        for row in &AGX_INSET_MATRIX {
+            let s: f32 = row.iter().sum();
+            assert!(
+                (s - 1.0).abs() < 1e-6,
+                "INSET row sum {} ≠ 1.0",
+                s
+            );
+        }
+        for row in &AGX_OUTSET_MATRIX {
+            let s: f32 = row.iter().sum();
+            assert!(
+                (s - 1.0).abs() < 1e-6,
+                "OUTSET row sum {} ≠ 1.0",
+                s
+            );
+        }
+    }
+
+    #[test]
+    fn inset_outset_are_numerical_inverses() {
+        // Pure mathematical sanity: INSET @ OUTSET = I within fp tolerance.
+        let mut product = [[0.0f32; 3]; 3];
+        for i in 0..3 {
+            for j in 0..3 {
+                let mut s = 0.0f32;
+                for k in 0..3 {
+                    s += AGX_INSET_MATRIX[i][k] * AGX_OUTSET_MATRIX[k][j];
+                }
+                product[i][j] = s;
+            }
+        }
+        for i in 0..3 {
+            for j in 0..3 {
+                let expected = if i == j { 1.0 } else { 0.0 };
+                assert!(
+                    (product[i][j] - expected).abs() < 1e-5,
+                    "INSET @ OUTSET[{},{}] = {}, expected {}",
+                    i,
+                    j,
+                    product[i][j],
+                    expected
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn mid_gray_identity_preserved() {
+        // The load-bearing #263 acceptance criterion: scene-linear neutral
+        // 0.18 must land at display-linear 0.18 within 1e-3.
+        let mut img = Image::new(1, 1, ColorSpace::SceneLinearRec2020);
+        img.pixels[0] = [AGX_MID_GRAY, AGX_MID_GRAY, AGX_MID_GRAY];
+        apply(&mut img, 0.0);
+        let p = img.pixels[0];
+        for &c in &p {
+            assert!(
+                (c - AGX_MID_GRAY).abs() < 1e-3,
+                "mid-gray identity broken: {} ≠ 0.18 (|Δ|={:.2e})",
+                c,
+                (c - AGX_MID_GRAY).abs()
+            );
         }
     }
 
     #[test]
     fn mid_gray_anchor_preserved() {
-        // Scene mid-gray (AGX_MID_GRAY = 0.18) renders to approximately
-        // AGX_MID_DISPLAY at contrast=0. Maple AgX preserves mid-gray
-        // through the curve (AGX_MID_DISPLAY ≈ 0.164, target 0.18 — small
-        // residual is the least-squares fit error in the 6th-order
-        // polynomial). LUT sampling adds at most one step of linear-interp
-        // error on top.
+        // Companion to `mid_gray_identity_preserved` — assert against the
+        // declared anchor constant. With Y_PIVOT=0.18, AGX_MID_DISPLAY=0.18
+        // by construction; both should agree under the full pipeline.
         let mut img = Image::new(1, 1, ColorSpace::SceneLinearRec2020);
         img.pixels[0] = [AGX_MID_GRAY, AGX_MID_GRAY, AGX_MID_GRAY];
         apply(&mut img, 0.0);
         let p = img.pixels[0];
-        assert!((p[0] - AGX_MID_DISPLAY).abs() < 0.01,
-            "R = {}, expected near {}", p[0], AGX_MID_DISPLAY);
+        assert!(
+            (p[0] - AGX_MID_DISPLAY).abs() < 1e-3,
+            "R = {}, expected near {} (AGX_MID_DISPLAY)",
+            p[0],
+            AGX_MID_DISPLAY
+        );
     }
 
     #[test]
@@ -212,7 +336,7 @@ mod tests {
     #[test]
     fn positive_contrast_steepens_around_mid_gray() {
         let scene_bright = 0.5;
-        let scene_dark   = 0.05;
+        let scene_dark = 0.05;
 
         let mut img = Image::new(2, 1, ColorSpace::SceneLinearRec2020);
         img.pixels[0] = [scene_bright; 3];
@@ -224,96 +348,223 @@ mod tests {
         img2.pixels[0] = [scene_bright; 3];
         img2.pixels[1] = [scene_dark; 3];
         apply(&mut img2, 100.0);
-        assert!(img2.pixels[0][0] > base_bright,
-            "bright should go higher at +100: {} vs {}", img2.pixels[0][0], base_bright);
-        assert!(img2.pixels[1][0] < base_dark,
-            "dark should go lower at +100: {} vs {}", img2.pixels[1][0], base_dark);
+        assert!(
+            img2.pixels[0][0] > base_bright,
+            "bright should go higher at +100: {} vs {}",
+            img2.pixels[0][0],
+            base_bright
+        );
+        assert!(
+            img2.pixels[1][0] < base_dark,
+            "dark should go lower at +100: {} vs {}",
+            img2.pixels[1][0],
+            base_dark
+        );
     }
 
     #[test]
-    fn per_channel_gamut_compression_reduces_saturation_on_blown_channels() {
+    fn saturated_highlight_reduces_in_spread() {
         // A scene with one channel way out of gamut (e.g., saturated red
-        // specular at 20× mid-gray, green/blue at mid-gray). AgX should
-        // roll R off toward 1 while keeping G/B near the mid-gray display
-        // level, producing a LESS-saturated display triple than naive
-        // per-channel clipping would.
+        // specular at 20× mid-gray, green/blue at mid-gray). The inset
+        // matrix bakes per-channel desat into the sigmoid input, so R rolls
+        // off toward 1 while G/B sit near display mid-gray.
         let mut img = Image::new(1, 1, ColorSpace::SceneLinearRec2020);
         img.pixels[0] = [20.0 * AGX_MID_GRAY, AGX_MID_GRAY, AGX_MID_GRAY];
         apply(&mut img, 0.0);
         let p = img.pixels[0];
-        // R should be near the top (shoulder rolloff), but G and B should
-        // sit near mid-gray display. R - G < 20× - 1× = 19× worth of
-        // chroma in scene linear; post-AgX it must be less than (1 - 0.18) ≈ 0.82.
         assert!(p[0] > p[1], "R < G: {} vs {}", p[0], p[1]);
-        let max_spread = 1.0 - AGX_MID_DISPLAY;
-        assert!(p[0] - p[1] < max_spread,
-            "gamut compression failed: R-G = {} - {} = {}, expected much < {}",
-            p[0], p[1], p[0] - p[1], max_spread);
+        // Real Sobotka AgX maps this case to roughly (0.83, 0.31, 0.31) —
+        // R-G spread ≈ 0.52, well under the naive 0.82 cap.
+        let max_spread = 1.0 - AGX_MID_DISPLAY; // 0.82
+        assert!(
+            p[0] - p[1] < max_spread,
+            "saturated-red spread {} - {} = {} should be < {}",
+            p[0],
+            p[1],
+            p[0] - p[1],
+            max_spread
+        );
     }
 
     #[test]
-    fn preform_rolloff_is_noop_below_shoulder() {
-        // Pixels at or below 8× mid-gray (~+3 EV) pass through unchanged.
-        let p = preform_rolloff([0.18, 0.18, 0.18]);
-        assert_eq!(p, [0.18, 0.18, 0.18]);
-        let p = preform_rolloff([1.0, 0.5, 0.3]);
-        assert_eq!(p, [1.0, 0.5, 0.3]);
-        // Right at the shoulder (max == 8 × MID_GRAY = 1.44): still no-op.
-        let p = preform_rolloff([AGX_MID_GRAY * 8.0, 0.18, 0.18]);
-        assert!((p[0] - AGX_MID_GRAY * 8.0).abs() < 1e-6);
-        assert!((p[1] - 0.18).abs() < 1e-6);
-    }
-
-    #[test]
-    fn preform_rolloff_compresses_chroma_above_shoulder() {
-        // Saturated red specular: R way above shoulder, G/B near mid-gray.
-        // After rolloff, R should be lower (compressed toward luminance) and
-        // G/B should be higher (also pulled toward luminance), so the
-        // luminance is roughly preserved but channels are closer together.
-        let scene = [20.0 * AGX_MID_GRAY, AGX_MID_GRAY, AGX_MID_GRAY];
-        let y_before = REC2020_LUM_R * scene[0] + REC2020_LUM_G * scene[1] + REC2020_LUM_B * scene[2];
-        let rolled = preform_rolloff(scene);
-        let y_after = REC2020_LUM_R * rolled[0] + REC2020_LUM_G * rolled[1] + REC2020_LUM_B * rolled[2];
-        assert!(rolled[0] < scene[0], "R should compress: {} -> {}", scene[0], rolled[0]);
-        assert!(rolled[1] > scene[1], "G should lift: {} -> {}", scene[1], rolled[1]);
-        assert!(rolled[2] > scene[2], "B should lift: {} -> {}", scene[2], rolled[2]);
-        // Luminance preserved within numerical noise (this is the *point*
-        // of using REC2020 luminance weights).
-        assert!((y_before - y_after).abs() / y_before < 1e-4,
-            "luminance shifted: {} -> {}", y_before, y_after);
-    }
-
-    #[test]
-    fn preform_rolloff_preserves_hue_on_saturated_red() {
-        // The big invariant: a saturated red highlight, post-rolloff, has
-        // R/G and R/B ratios that match what a less-saturated version of
-        // the same hue would have. Without rolloff, the per-channel sigmoid
-        // compresses R and rolls G/B differently → hue rotation. With
-        // rolloff, the three channels are closer in magnitude going INTO
-        // the sigmoid, so they reach the shoulder together.
-        //
-        // Test this indirectly: end-to-end through `apply()`, the post-AgX
-        // R/G ratio of a saturated red should be MUCH closer to the
-        // pre-rolloff R/G ratio than per-channel-only AgX would produce.
+    fn neutral_axis_preserved_across_log_domain() {
+        // The matrices have row-sums-of-1, so every neutral RGB input
+        // (R=G=B) must produce a neutral RGB output. This is the load-
+        // bearing structural property that makes mid-gray preserve.
         let mut img = Image::new(1, 1, ColorSpace::SceneLinearRec2020);
-        let r_in = 20.0 * AGX_MID_GRAY;
-        let g_in = 0.5 * AGX_MID_GRAY;
-        let b_in = 0.5 * AGX_MID_GRAY;
-        img.pixels[0] = [r_in, g_in, b_in];
-        let pre_ratio_rg = r_in / g_in;
+        for scene in &[0.001f32, 0.01, 0.05, 0.18, 0.5, 1.0, 5.0] {
+            img.pixels[0] = [*scene, *scene, *scene];
+            apply(&mut img, 0.0);
+            let p = img.pixels[0];
+            // R, G, B should all match within fp tolerance.
+            assert!(
+                (p[0] - p[1]).abs() < 1e-4 && (p[1] - p[2]).abs() < 1e-4,
+                "neutral input {} → non-neutral output {:?}",
+                scene,
+                p
+            );
+            // And output should stay in [0, 1].
+            for &c in &p {
+                assert!(c >= 0.0 && c <= 1.0, "out of [0,1]: {}", c);
+            }
+            // Reset color-space marker for the next iteration.
+            img.space = ColorSpace::SceneLinearRec2020;
+        }
+    }
+
+    #[test]
+    fn deep_shadow_chroma_preserved_via_inset_matrix() {
+        // A pixel with luminance above the toe but one channel scratched
+        // below the floor: with the OLD per-channel `max(scene, floor)`
+        // clamp, R could land just above the floor while B landed below,
+        // giving asymmetric channels and a magenta tint. In the new
+        // pipeline, the INSET matrix (row sums = 1, all entries > 0)
+        // pulls every channel upward by ~8.5% of the other channels'
+        // contribution — so a near-zero blue channel rides up off the
+        // floor before the per-channel `max(channel, floor)` inside
+        // `log_encode` sees it. Net effect: chroma survives. The companion
+        // `below_toe_luminance_collapses_to_neutral` covers the luma-gate
+        // case where the WHOLE pixel sits below the toe.
+        let mut img = Image::new(1, 1, ColorSpace::SceneLinearRec2020);
+        let floor = AGX_MID_GRAY * AGX_MIN_EV.exp2();
+        let r = 0.005f32;
+        let g = 0.001f32;
+        let b = floor * 0.5; // below floor — would be pinned by old code
+        img.pixels[0] = [r, g, b];
+        let y = REC2020_LUM_R * r + REC2020_LUM_G * g + REC2020_LUM_B * b;
+        assert!(y > floor, "test setup: luma must be above floor for this case");
         apply(&mut img, 0.0);
         let p = img.pixels[0];
-        let post_ratio_rg = p[0] / p[1].max(1e-6);
-        // Without rolloff, the per-channel AgX would push R near 1.0 and
-        // G near MID_DISPLAY (~0.16), giving a post ratio ~6.25 — vs the
-        // pre ratio of 40. With rolloff, the post ratio should sit in a
-        // milder range (luminance-preserving compression brings G/B up).
-        // The exact value depends on the sigmoid shape; we just check that
-        // R is still the dominant channel and the ratio isn't catastrophic.
-        assert!(p[0] > p[1], "R should still dominate: ({}, {}, {})", p[0], p[1], p[2]);
-        assert!(p[0] > p[2], "R should still dominate B: ({}, {}, {})", p[0], p[1], p[2]);
-        assert!(post_ratio_rg < pre_ratio_rg,
-            "post ratio {} should be less than pre ratio {} (compression occurred)",
-            post_ratio_rg, pre_ratio_rg);
+        // R should remain larger than G in display space — chroma preserved
+        // through the INSET → sigmoid → OUTSET round-trip.
+        assert!(
+            p[0] > p[1],
+            "deep shadow chroma collapsed: R={} not > G={}",
+            p[0],
+            p[1]
+        );
+    }
+
+    #[test]
+    fn below_toe_luminance_collapses_to_neutral() {
+        // Companion to `deep_shadow_chroma_preserved_*`: when luma itself
+        // is below the toe (truly black pixel), all channels collapse to
+        // the floor uniformly. No magenta in deep-deep shadow.
+        let mut img = Image::new(1, 1, ColorSpace::SceneLinearRec2020);
+        img.pixels[0] = [0.0, 0.0, 0.0];
+        apply(&mut img, 0.0);
+        let p = img.pixels[0];
+        // Pure black input must produce a neutral output (all three
+        // channels equal). Mid-gray of zero through the pipeline can be
+        // very slightly above zero from inset/outset rounding, but R, G,
+        // and B must agree.
+        assert!(
+            (p[0] - p[1]).abs() < 1e-4 && (p[1] - p[2]).abs() < 1e-4,
+            "zero input → non-neutral output {:?}",
+            p
+        );
+    }
+
+    /// Cross-platform parity gate: this test ports the GLSL sigmoid math
+    /// from `src/web/projects/maple-common/src/lib/webgl/shaders/agx-view-transform.ts`
+    /// back into Rust and confirms it samples to byte-equivalent values
+    /// against the embedded LUT, within the 1e-4 per-channel tolerance
+    /// the spec § 06-cross-platform.md AgX-parity section gates at.
+    ///
+    /// The Apple side carries a byte-identical copy of `agx_lut.bin`, so
+    /// once Rust↔GLSL agree at 1e-4, Apple↔GLSL also agree at 1e-4.
+    /// Apple↔Rust LUT-byte equality is verified by
+    /// `lut_hash_matches_apple_bundle` below.
+    #[test]
+    fn glsl_port_matches_rust_lut() {
+        // GLSL constants (single source of truth: derive_agx_lut.py).
+        const X_PIVOT: f64 = 10.0 / 16.5;
+        const Y_PIVOT: f64 = 0.18;
+        const SLOPE: f64 = 2.4;
+        const TOE_POWER: f64 = 3.0;
+        const SHOULDER_POWER: f64 = 3.25;
+
+        fn equation_scale(xp: f64, yp: f64, slope: f64, power: f64) -> f64 {
+            ((slope * xp).powf(-power)
+                * ((slope * (xp / yp)).powf(power) - 1.0))
+            .powf(-1.0 / power)
+        }
+
+        fn glsl_sigmoid(x: f64) -> f64 {
+            let x = x.clamp(0.0, 1.0);
+            let (side_power, scale) = if x >= X_PIVOT {
+                let sx = 1.0 - X_PIVOT;
+                let sy = 1.0 - Y_PIVOT;
+                let sp = SHOULDER_POWER;
+                (sp, equation_scale(sx, sy, SLOPE, sp))
+            } else {
+                let sx = X_PIVOT;
+                let sy = Y_PIVOT;
+                let sp = TOE_POWER;
+                (sp, -equation_scale(sx, sy, SLOPE, sp))
+            };
+            let term = (SLOPE * (x - X_PIVOT)) / scale;
+            let hyperbolic = term / (1.0 + term.powf(side_power)).powf(1.0 / side_power);
+            (scale * hyperbolic + Y_PIVOT).clamp(0.0, 1.0)
+        }
+
+        let l = lut();
+        let mut max_abs: f64 = 0.0;
+        let mut max_idx = 0;
+        for i in 0..AGX_LUT_SIZE {
+            let x = (i as f64) / ((AGX_LUT_SIZE - 1) as f64);
+            let glsl = glsl_sigmoid(x);
+            let rust = l[i] as f64;
+            let d = (glsl - rust).abs();
+            if d > max_abs {
+                max_abs = d;
+                max_idx = i;
+            }
+        }
+        assert!(
+            max_abs < 1e-4,
+            "GLSL port diverges from Rust LUT: max |Δ|={:.6e} at LUT index {} \
+             — re-run `python3 src/scripts/derive_agx_lut.py …` and check the \
+             GLSL constants in `agx-view-transform.ts` match.",
+            max_abs,
+            max_idx
+        );
+    }
+
+    /// LUT byte-equality between raw-core's embedded copy and the
+    /// Apple SwiftPM-bundled mirror. Both are written by the same
+    /// `derive_agx_lut.py --bin … --apple-bin …` invocation, so any
+    /// divergence means the script wasn't re-run after a coefficient
+    /// edit.
+    #[test]
+    fn lut_hash_matches_apple_bundle() {
+        // Resolve the Apple-bundled LUT relative to CARGO_MANIFEST_DIR.
+        // Skips if the Apple bundle isn't checked out (e.g. partial checkout).
+        let apple_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../apple/Packages/MapleCore/Sources/MapleCore/Metal/agx_lut.bin");
+        if !apple_path.exists() {
+            eprintln!(
+                "[skip] Apple-bundled agx_lut.bin not found at {} — partial checkout",
+                apple_path.display()
+            );
+            return;
+        }
+        let apple_bytes = std::fs::read(&apple_path)
+            .unwrap_or_else(|e| panic!("read {} failed: {}", apple_path.display(), e));
+        assert_eq!(
+            apple_bytes.len(),
+            AGX_LUT_BYTES.len(),
+            "Apple-bundled LUT size {} differs from Rust LUT size {}",
+            apple_bytes.len(),
+            AGX_LUT_BYTES.len()
+        );
+        // Byte-equality is the parity gate; the LUT is a single source of
+        // truth (derive_agx_lut.py emits both with --apple-bin).
+        assert_eq!(
+            apple_bytes.as_slice(),
+            AGX_LUT_BYTES,
+            "Apple-bundled agx_lut.bin diverges from Rust LUT. Re-run \
+             `python3 src/scripts/derive_agx_lut.py --bin … --rs … --apple-bin …`."
+        );
     }
 }
