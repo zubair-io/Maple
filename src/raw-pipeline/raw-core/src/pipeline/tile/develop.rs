@@ -72,9 +72,14 @@ pub(super) fn develop_scene_linear_from_padded_mosaic(
     stage("tile_highlight_recovery", || {
         highlight_recovery::apply(&mut camera_rgb, model.highlight_recovery, raw.as_shot_neutral)
     });
-    let profile = stage("tile_dcp_profile_for", || dcp::profile_for(raw))?;
+    let (profile, source) = stage("tile_dcp_profile_for", || dcp::profile_for_with_source(raw))?;: gate bundled DCP lookup behind PLT-absent + matrix-divergence)
     // PTC suppression when bundled — see `pipeline::develop` for rationale.
-    let use_bundled = crate::color::profile_loader::has_bundled_profile(raw);
+    // `source` is carried out of the single lookup `profile_for_with_source`
+    // already performed — eliminates the per-tile HashMap+env-var redundancy
+    // flagged in PR #330 review thread `PRRT_kwDOSK_I1M6EOuzz`. The tile
+    // path runs many times per image; this matters for the 16 ms slider
+    // budget on supported hardware.
+    let use_bundled = matches!(source, dcp::ProfileSource::Bundled);
     let ptc_for_apply = if use_bundled { None } else { raw.profile_tone_curve.as_ref() };
     let mut scene = stage("tile_dcp_apply", || dcp::apply_with_plt_and_ptc(
         &camera_rgb, &profile, raw.plt.as_ref(), ptc_for_apply,

@@ -433,7 +433,39 @@ fn lerp_hsm_for_cct(
 
 // ── profile_for ───────────────────────────────────────────────────────────────
 
+/// Where the resolved [`DcpProfile`] came from. Carried alongside the profile
+/// so the develop chain knows whether to suppress the source DNG's
+/// `ProfileToneCurve` (suppressed for `Bundled`, kept for `Embedded`) without
+/// re-doing the bundled-profile lookup. See thread `PRRT_kwDOSK_I1M6EOuzz` on
+/// PR #330 for the motivation — eliminates a redundant HashMap probe + env
+/// var read on every full-frame and tile render.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum ProfileSource {
+    /// Came from Maple's bundled Adobe-derived profile table
+    /// (`crate::color::profile_loader::lookup_profile`). PTC/PLT in the
+    /// source DNG were calibrated against the vendor's own matrices; the
+    /// caller should drop PTC when this variant is in play (see the
+    /// `pipeline::develop` comments at each call site).
+    Bundled,
+    /// Came from the `RawImage`'s embedded color matrices (rawler defaults
+    /// or DNG-embedded profile). PTC/PLT in the source DNG are valid here.
+    Embedded,
+}
+
 /// Synthesize a `DcpProfile` from a `RawImage`'s embedded color matrices.
+///
+/// Thin compatibility shim over [`profile_for_with_source`] for callers
+/// (tests, the FFI/WASM surfaces) that don't need to know which path won.
+/// Pipeline hot paths (`pipeline::develop`, `pipeline::tile::develop`) call
+/// `profile_for_with_source` directly to avoid a redundant lookup.
+pub fn profile_for(raw: &RawImage) -> crate::Result<DcpProfile> {
+    profile_for_with_source(raw).map(|(p, _)| p)
+}
+
+/// Same lookup as [`profile_for`], but also returns the [`ProfileSource`]
+/// describing which path produced the profile. Used by the develop chain
+/// to decide PTC suppression in a single pass — see ticket #324 and the
+/// PR #330 PTC-suppression rationale in `pipeline::develop`.
 ///
 /// Lookup order (first hit wins):
 ///   1. **Maple's bundled Adobe-derived profile** for this camera's
@@ -446,7 +478,7 @@ fn lerp_hsm_for_cct(
 ///      when both a warm illuminant (StdA) and a cool illuminant (D65/D55)
 ///      are present. Falls back to single-illuminant
 ///      (D65 → D50 → D55 → StdA → any) when only one matrix is available.
-pub fn profile_for(raw: &RawImage) -> crate::Result<DcpProfile> {
+pub fn profile_for_with_source(raw: &RawImage) -> crate::Result<(DcpProfile, ProfileSource)> {
     // (1) Bundled Adobe-derived profile lookup. Returns the same DcpProfile
     // shape — dual-illum interpolation when applicable, single-illum
     // fallback otherwise. The PTC/PLT fields on DcpProfile are NOT set by
@@ -456,7 +488,7 @@ pub fn profile_for(raw: &RawImage) -> crate::Result<DcpProfile> {
     // those fields — it only overrides the matrices + HSM tables.
     if let Some(bundled) = crate::color::profile_loader::lookup_profile(raw) {
         if let Some(p) = crate::color::profile_loader::to_dcp_profile(bundled, raw) {
-            return Ok(p);
+            return Ok((p, ProfileSource::Bundled));
         }
         // to_dcp_profile only fails when the bundle entry has no CMs at all
         // — never observed in practice. Fall through to embedded path.
@@ -501,7 +533,7 @@ pub fn profile_for(raw: &RawImage) -> crate::Result<DcpProfile> {
             // becomes None and DCP falls back to Bradford CA.
             let fm_cold = raw.forward_matrices.get(&il_cold).copied();
             let fm_warm = raw.forward_matrices.get(&il_warm).copied();
-            return Ok(interpolated_profile(
+            return Ok((interpolated_profile(
                 m_cold, il_cold,
                 m_warm, il_warm,
                 raw.as_shot_neutral,
@@ -510,7 +542,7 @@ pub fn profile_for(raw: &RawImage) -> crate::Result<DcpProfile> {
                 raw.hsm_data2.as_ref(),
                 fm_cold,
                 fm_warm,
-            ));
+            ), ProfileSource::Embedded));
         }
     }
 
@@ -533,7 +565,7 @@ pub fn profile_for(raw: &RawImage) -> crate::Result<DcpProfile> {
             let scene_white_xyz = cm.inverse()
                 .map(|inv| normalize_to_y1(inv.mul_vec(neutral_for_white)))
                 .unwrap_or(crate::color::matrices::XYZ_D65);
-            return Ok(DcpProfile {
+            return Ok((DcpProfile {
                 illuminant: illum,
                 color_matrix: *cm,
                 forward_matrix: raw.forward_matrices.get(&illum).copied(),
@@ -541,7 +573,7 @@ pub fn profile_for(raw: &RawImage) -> crate::Result<DcpProfile> {
                 scene_white_xyz,
                 wb_already_baked,
                 hsm: single_hsm,
-            });
+            }, ProfileSource::Embedded));
         }
     }
     // Any remaining illuminant, deterministic iteration order (sorted by debug name).
@@ -552,7 +584,7 @@ pub fn profile_for(raw: &RawImage) -> crate::Result<DcpProfile> {
         let scene_white_xyz = cm.inverse()
             .map(|inv| normalize_to_y1(inv.mul_vec(neutral_for_white)))
             .unwrap_or(crate::color::matrices::XYZ_D65);
-        return Ok(DcpProfile {
+        return Ok((DcpProfile {
             illuminant: **illum,
             color_matrix: **cm,
             forward_matrix: raw.forward_matrices.get(illum).copied(),
@@ -560,7 +592,7 @@ pub fn profile_for(raw: &RawImage) -> crate::Result<DcpProfile> {
             scene_white_xyz,
             wb_already_baked,
             hsm: single_hsm,
-        });
+        }, ProfileSource::Embedded));
     }
     Err(crate::Error::Dcp(format!(
         "no embedded color matrix for {} {}",
