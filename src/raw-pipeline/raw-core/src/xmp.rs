@@ -318,12 +318,16 @@ mod tests {
     }
 
     #[test]
-    fn defaults_highlight_recovery_is_off() {
-        // Per #325: `ChromaticAdaptation` exists as an opt-in variant but
-        // the default remains `Off` until the algorithm clears the parity
-        // harness. Default-on is tracked in a follow-up ticket.
+    fn defaults_highlight_recovery_is_chromatic_adaptation() {
+        // #335 flipped the default to `ChromaticAdaptation` after re-measuring
+        // the parity harness: per-case Off-vs-CA diff shows the algorithm is
+        // a near-noop on baseline fixtures (ΔΔE ≤ 0.001). Users can opt out
+        // per-image via `papp:HighlightRecoveryMode="Off"` in the XMP sidecar.
         let m = AdjustmentModel::default();
-        assert_eq!(m.highlight_recovery, HighlightRecoveryMode::Off);
+        assert_eq!(
+            m.highlight_recovery,
+            HighlightRecoveryMode::ChromaticAdaptation
+        );
     }
 
     #[test]
