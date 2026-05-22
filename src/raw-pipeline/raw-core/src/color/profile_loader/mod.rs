@@ -25,7 +25,7 @@
 //!
 //! Little-endian throughout. Header (16 bytes) followed by N variable-length
 //! profile records. See `src/scripts/convert_adobe_dcps.py` module-docstring
-//! for the per-byte spec — both reader (this file) and writer (the script)
+//! for the per-byte spec — both reader ([`parser`]) and writer (the script)
 //! must move together. Format version is bumped (header u16 at offset 4)
 //! when the layout changes.
 //!
@@ -48,69 +48,26 @@
 //! motivated this ticket; HSM is a refinement that can be turned on later if
 //! the per-fixture color-checker analysis says it's necessary. The reader
 //! supports both layouts — `flags & 0x10` / `flags & 0x20` per profile.
+//!
+//! ## Module layout
+//!
+//! - [`types`] — the public `MapleProfile` / `CameraKey` data types.
+//! - [`parser`] — the binary-bundle `Reader` + `parse_bundle()`.
+//! - this file — the `OnceLock` singleton, public lookup API
+//!   (`lookup_profile`, `has_bundled_profile`, `camera_key_for`,
+//!   `to_dcp_profile`), and the DCP-profile resolution math.
+
+mod parser;
+mod types;
 
 use std::collections::HashMap;
 use std::sync::OnceLock;
 
 use crate::color::dcp::{interpolated_profile, DcpProfile};
-use crate::color::hsm::{HsmEncoding, HsmTable};
-use crate::color::illuminant::Illuminant as CoreIlluminant;
 use crate::image::RawImage;
 use crate::math::Matrix3;
 
-/// One bundled Maple profile — Adobe-DCP-derived, AgX-compatible (PTC/PLT
-/// dropped at conversion time). Stored as `'static` in [`PROFILE_TABLE`].
-#[derive(Clone, Debug)]
-pub struct MapleProfile {
-    /// Unique camera key from DCP `UniqueCameraModel` (tag 50708). Apple
-    /// per-lens variants like `"iPhone13,3 back telephoto camera"` are
-    /// distinct keys — the lens disambiguation happens at lookup time.
-    pub unique_camera_model: String,
-    /// DCP calibration illuminant 1 (typically StdA / 2856K). `None` when
-    /// the source DCP omitted CM1.
-    pub illum1: Option<CoreIlluminant>,
-    /// DCP calibration illuminant 2 (typically D65 / 6504K). `None` when
-    /// the source DCP omitted CM2.
-    pub illum2: Option<CoreIlluminant>,
-    /// `ColorMatrix1` (XYZ → camera at illuminant 1).
-    pub cm1: Option<Matrix3>,
-    /// `ColorMatrix2` (XYZ → camera at illuminant 2).
-    pub cm2: Option<Matrix3>,
-    /// `ForwardMatrix1` (camera → XYZ-D50). Absent in ~11/1447 bodies; DCP
-    /// falls back to Bradford CA when missing.
-    pub fm1: Option<Matrix3>,
-    /// `ForwardMatrix2` (camera → XYZ-D50). Same shape as `fm1`.
-    pub fm2: Option<Matrix3>,
-    /// `ProfileHueSatMapData1` — pre-allocated `HsmTable`. `None` when the
-    /// bundle was built without HSM (current default) or when the DCP omits
-    /// HSM entirely (322/1447 bodies).
-    pub hsm1: Option<HsmTable>,
-    /// `ProfileHueSatMapData2`.
-    pub hsm2: Option<HsmTable>,
-    /// Per-image baseline-exposure offset from DCP tag 51109. Default 0.0.
-    /// Composed additively with the DNG-level `BaselineExposure` tag at
-    /// decode time (see `decode.rs` § 1b).
-    pub baseline_exposure_offset: f32,
-}
-
-/// Resolved camera identity used as the lookup key. The DNG
-/// `UniqueCameraModel` string is the full key — for multi-lens mobile
-/// cameras the lens variant is already encoded in the UCM by the vendor
-/// (e.g. `iPhone13,3 back camera` vs `iPhone13,3 back telephoto camera`),
-/// and Adobe ships one DCP per such lens-tagged UCM. See the module
-/// docstring for the keying rationale.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct CameraKey {
-    pub unique_camera_model: String,
-}
-
-impl CameraKey {
-    pub fn new(unique_camera_model: impl Into<String>) -> Self {
-        Self {
-            unique_camera_model: unique_camera_model.into(),
-        }
-    }
-}
+pub use types::{CameraKey, MapleProfile};
 
 /// Embedded bundle blob — produced by `src/scripts/convert_adobe_dcps.py`.
 /// `include_bytes!` is a compile-time macro: the file MUST exist at
@@ -119,16 +76,16 @@ impl CameraKey {
 /// every developer / CI runner gets it via `git clone`. Regenerate by
 /// re-running the converter against an Adobe Camera Raw install.
 ///
-/// Runtime graceful degradation: when `parse_bundle` fails to validate
-/// the header (e.g. bumped `FORMAT_VERSION`, corrupted bytes) it returns
-/// an empty `HashMap` — `lookup_profile` then returns `None` and
+/// Runtime graceful degradation: when `parser::parse_bundle` fails to
+/// validate the header (e.g. bumped `FORMAT_VERSION`, corrupted bytes) it
+/// returns an empty `HashMap` — `lookup_profile` then returns `None` and
 /// `dcp::profile_for` falls back to rawler / DNG-embedded paths. So a
 /// stale bundle never breaks decoding, but a *missing* bundle is a build
 /// error, not a runtime miss.
-const PROFILES_BIN: &[u8] = include_bytes!("profiles/profiles.bin");
+pub(crate) const PROFILES_BIN: &[u8] = include_bytes!("../profiles/profiles.bin");
 
-const MAGIC: &[u8; 4] = b"MDCP";
-const FORMAT_VERSION: u16 = 1;
+pub(crate) const MAGIC: &[u8; 4] = b"MDCP";
+pub(crate) const FORMAT_VERSION: u16 = 1;
 
 /// Decoded `(camera_key → profile)` table. Populated lazily on first
 /// `lookup_profile` call. `OnceLock` is the std-lib equivalent of `lazy_static`
@@ -168,7 +125,7 @@ pub fn lookup_profile(raw: &RawImage) -> Option<&'static MapleProfile> {
     if std::env::var("MAPLE_DISABLE_BUNDLED_PROFILES").as_deref() == Ok("1") {
         return None;
     }
-    let table = PROFILE_TABLE.get_or_init(parse_bundle);
+    let table = PROFILE_TABLE.get_or_init(|| parser::parse_bundle(PROFILES_BIN));
     let key = camera_key_for(raw);
     let profile = table.get(&key)?;
     // Gate 2: Adobe-DNG-Converter-authored DNGs are already calibrated.
@@ -396,195 +353,23 @@ fn compute_scene_cct_single(cm: Matrix3, wb_neutral: [f32; 3], fallback: f32) ->
     cct.clamp(2000.0, 15000.0)
 }
 
-// ── Bundle parsing ────────────────────────────────────────────────────────────
-
-fn parse_bundle() -> HashMap<CameraKey, MapleProfile> {
-    let mut map = HashMap::new();
-    let mut r = match Reader::new(PROFILES_BIN) {
-        Some(r) => r,
-        None => return map, // empty / wrong-magic bundle → degrade to empty.
-    };
-    let count = r.count;
-    let mut duplicates: Vec<String> = Vec::new();
-    for _ in 0..count {
-        let Some(profile) = r.read_profile() else {
-            // Malformed record → bail with what we have so far. We don't
-            // poison the whole table on a single bad record.
-            break;
-        };
-        let key = CameraKey::new(profile.unique_camera_model.clone());
-        // Deduplication is the converter's job (see
-        // `src/scripts/convert_adobe_dcps.py`'s `dcp_preference` ranking,
-        // which picks one record per UCM deterministically). If a duplicate
-        // still slips through into the bundle we record it for the loader
-        // tests below — the first-write wins so the converter's chosen
-        // record is preserved instead of silently overwritten.
-        if map.contains_key(&key) {
-            duplicates.push(profile.unique_camera_model.clone());
-            continue;
-        }
-        map.insert(key, profile);
-    }
-    if !duplicates.is_empty() {
-        // Surface in test output / debug builds; production logging picks
-        // this up via env_logger when wired in. Hard-failing in release
-        // would brick the app on a slightly-stale bundle, so we degrade
-        // gracefully with first-write-wins.
-        eprintln!(
-            "profile_loader: bundle contains {} duplicate-UCM record(s) \
-             (first-write wins): {:?}",
-            duplicates.len(),
-            &duplicates[..duplicates.len().min(5)]
-        );
-    }
-    map
-}
-
-struct Reader<'a> {
-    buf: &'a [u8],
-    pos: usize,
-    count: u32,
-}
-
-impl<'a> Reader<'a> {
-    fn new(buf: &'a [u8]) -> Option<Self> {
-        if buf.len() < 16 || &buf[..4] != MAGIC {
-            return None;
-        }
-        let version = u16::from_le_bytes([buf[4], buf[5]]);
-        if version != FORMAT_VERSION {
-            return None;
-        }
-        let count = u32::from_le_bytes([buf[8], buf[9], buf[10], buf[11]]);
-        Some(Self { buf, pos: 16, count })
-    }
-
-    #[inline]
-    fn take(&mut self, n: usize) -> Option<&'a [u8]> {
-        let end = self.pos.checked_add(n)?;
-        if end > self.buf.len() {
-            return None;
-        }
-        let s = &self.buf[self.pos..end];
-        self.pos = end;
-        Some(s)
-    }
-
-    fn read_u8(&mut self) -> Option<u8> { Some(self.take(1)?[0]) }
-    fn read_u16(&mut self) -> Option<u16> {
-        let b = self.take(2)?;
-        Some(u16::from_le_bytes([b[0], b[1]]))
-    }
-    fn read_f32(&mut self) -> Option<f32> {
-        let b = self.take(4)?;
-        Some(f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
-    }
-
-    fn read_matrix(&mut self) -> Option<Matrix3> {
-        let mut m = [[0f32; 3]; 3];
-        for r in 0..3 {
-            for c in 0..3 {
-                m[r][c] = self.read_f32()?;
-            }
-        }
-        Some(Matrix3(m))
-    }
-
-    fn read_hsm(&mut self, dims: [u32; 3], encoding: HsmEncoding) -> Option<HsmTable> {
-        let expected = (dims[0] as usize) * (dims[1] as usize) * (dims[2] as usize) * 3;
-        let mut data = Vec::with_capacity(expected);
-        for _ in 0..expected {
-            data.push(self.read_f32()?);
-        }
-        HsmTable::new(dims, data, encoding)
-    }
-
-    fn read_profile(&mut self) -> Option<MapleProfile> {
-        let ucm_len = self.read_u16()? as usize;
-        let ucm_bytes = self.take(ucm_len)?;
-        let unique_camera_model = std::str::from_utf8(ucm_bytes).ok()?.to_string();
-
-        let flags = self.read_u8()?;
-        let _reserved = self.read_u8()?;
-        let illum1_code = self.read_u16()?;
-        let illum2_code = self.read_u16()?;
-        let _reserved = self.read_u16()?;
-
-        let cm1 = if flags & 0x01 != 0 { Some(self.read_matrix()?) } else { None };
-        let cm2 = if flags & 0x02 != 0 { Some(self.read_matrix()?) } else { None };
-        let fm1 = if flags & 0x04 != 0 { Some(self.read_matrix()?) } else { None };
-        let fm2 = if flags & 0x08 != 0 { Some(self.read_matrix()?) } else { None };
-
-        let hsm_h = self.read_u16()? as u32;
-        let hsm_s = self.read_u16()? as u32;
-        let hsm_v = self.read_u16()? as u32;
-        let hsm_encoding_byte = self.read_u8()?;
-        let _reserved = self.read_u8()?;
-        let hsm_encoding = match hsm_encoding_byte {
-            1 => HsmEncoding::Srgb,
-            _ => HsmEncoding::Linear,
-        };
-
-        let hsm1 = if flags & 0x10 != 0 {
-            self.read_hsm([hsm_h, hsm_s, hsm_v], hsm_encoding)
-        } else {
-            None
-        };
-        let hsm2 = if flags & 0x20 != 0 {
-            self.read_hsm([hsm_h, hsm_s, hsm_v], hsm_encoding)
-        } else {
-            None
-        };
-
-        let baseline_exposure_offset = self.read_f32()?;
-
-        let illum1 = if illum1_code != 0 { Some(exif_illuminant_to_core(illum1_code)) } else { None };
-        let illum2 = if illum2_code != 0 { Some(exif_illuminant_to_core(illum2_code)) } else { None };
-
-        Some(MapleProfile {
-            unique_camera_model,
-            illum1,
-            illum2,
-            cm1,
-            cm2,
-            fm1,
-            fm2,
-            hsm1,
-            hsm2,
-            baseline_exposure_offset,
-        })
-    }
-}
-
-/// Same EXIF-illuminant decoder as `decode.rs::exif_illuminant_to_core`,
-/// duplicated to keep the loader self-contained. The DNG/EXIF tags are
-/// stable; if the mapping ever changes both call sites must move together.
-fn exif_illuminant_to_core(code: u16) -> CoreIlluminant {
-    match code {
-        17 => CoreIlluminant::StdA,
-        21 => CoreIlluminant::D65,
-        22 => CoreIlluminant::D55,
-        23 => CoreIlluminant::D50,
-        _ => CoreIlluminant::D65,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::color::illuminant::Illuminant as CoreIlluminant;
 
     /// The embedded bundle parses without errors and contains expected
     /// fixture-camera bodies. If this fires after a bundle regen, the
     /// converter dropped a body or the format changed without a version bump.
     #[test]
     fn bundled_profiles_load_and_contain_fixture_cameras() {
-        let table = PROFILE_TABLE.get_or_init(parse_bundle);
+        let table = PROFILE_TABLE.get_or_init(|| parser::parse_bundle(PROFILES_BIN));
         // `profiles.bin` is committed to the repo (required at compile time
         // by `include_bytes!`), so this path normally has entries. The
         // empty-table guard below covers the corrupted-header /
-        // version-mismatch case — `parse_bundle` returns an empty map in
-        // those scenarios — and matches the "fixtures missing → soft pass"
-        // pattern in test_color_pipeline.sh.
+        // version-mismatch case — `parser::parse_bundle` returns an empty
+        // map in those scenarios — and matches the "fixtures missing → soft
+        // pass" pattern in test_color_pipeline.sh.
         if table.is_empty() {
             eprintln!(
                 "profile_loader: bundle empty (profiles.bin missing or stale); \
@@ -622,7 +407,7 @@ mod tests {
     /// reason the lookup key includes the lens-tagged UCM.
     #[test]
     fn iphone_lens_variants_are_distinct_keys() {
-        let table = PROFILE_TABLE.get_or_init(parse_bundle);
+        let table = PROFILE_TABLE.get_or_init(|| parser::parse_bundle(PROFILES_BIN));
         if table.is_empty() {
             return;
         }
@@ -644,55 +429,5 @@ mod tests {
             "expected all 4 iPhone 13,3 lens variants in bundle, found {}",
             found
         );
-    }
-
-    /// The shipped bundle has no duplicate UCMs. The converter
-    /// (`src/scripts/convert_adobe_dcps.py`) deterministically picks one
-    /// record per UCM via `dcp_preference`; this test catches a regression
-    /// where the dedup step is bypassed or a converter rewrite re-introduces
-    /// duplicates (which would silently overwrite records in `parse_bundle`
-    /// pre-PR #330-followup; today the loader detects them but still drops
-    /// data — neither is desirable).
-    #[test]
-    fn shipped_bundle_has_no_duplicate_ucms() {
-        let mut r = match Reader::new(PROFILES_BIN) {
-            Some(r) => r,
-            None => return, // empty bundle in CI without profiles.bin
-        };
-        let mut seen = std::collections::HashSet::new();
-        let mut dupes: Vec<String> = Vec::new();
-        for _ in 0..r.count {
-            let Some(p) = r.read_profile() else { break };
-            if !seen.insert(p.unique_camera_model.clone()) {
-                dupes.push(p.unique_camera_model);
-            }
-        }
-        assert!(
-            dupes.is_empty(),
-            "shipped profiles.bin contains {} duplicate-UCM record(s): {:?}",
-            dupes.len(),
-            dupes
-        );
-    }
-
-    /// Header validation: a buffer that doesn't start with `MDCP` produces an
-    /// empty bundle without panicking.
-    #[test]
-    fn bad_magic_yields_empty_bundle() {
-        // Simulate a bundle parse on a known-bad buffer via a private path.
-        let bad = b"NOTOK\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00";
-        assert!(Reader::new(bad).is_none());
-    }
-
-    /// Header validation: version mismatch yields no Reader.
-    #[test]
-    fn version_mismatch_yields_empty_bundle() {
-        let mut buf = Vec::new();
-        buf.extend_from_slice(MAGIC);
-        buf.extend_from_slice(&999u16.to_le_bytes()); // wrong version
-        buf.extend_from_slice(&0u16.to_le_bytes());
-        buf.extend_from_slice(&0u32.to_le_bytes());
-        buf.extend_from_slice(&0u32.to_le_bytes());
-        assert!(Reader::new(&buf).is_none());
     }
 }
