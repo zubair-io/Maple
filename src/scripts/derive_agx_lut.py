@@ -232,7 +232,13 @@ def build_lut() -> list[float]:
     for i in range(LUT_SIZE):
         x = i / (LUT_SIZE - 1)
         y = agx_sigmoid(x)
-        # Allow slight overshoot at endpoints; final pipeline clamps post-outset.
+        # Clamp to [0, 1]: the analytic Jed Smith sigmoid can land a few
+        # ULPs outside the unit interval near the endpoints due to fp
+        # rounding (and AgX's `Y_PIVOT + scale * hyperbolic` form has
+        # no hard upper anchor). The Rust runtime's `sample_lut` and the
+        # GLSL fragment both clamp post-outset, so storing pre-clamped
+        # LUT bytes keeps the LUT itself within the [0, 1] contract that
+        # `lut_anchors_are_zero_and_near_one` (agx.rs) asserts.
         lut.append(max(0.0, min(1.0, y)))
     # The Jed Smith sigmoid is analytically monotone; this is just an
     # in-case-of-fp-rounding cumulative-max sweep.
