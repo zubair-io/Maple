@@ -25,20 +25,21 @@ Two reasons stacked:
    > * Color-pipeline budget ratchet (AC #4) — requires
    >   `test-fixtures/raws/` (gitignored), validated in CI after merge.
 
-   The CI gate the commit was relying on doesn't exist. So the
-   deferred ratchet was never applied. The Sobotka rewrite shifts
+   The CI gate the commit was relying on didn't exist at the time
+   (it's added in the same PR as this note). So the deferred ratchet
+   was never applied while drift was accumulating. The Sobotka rewrite shifts
    mid-gray from 0.237 → 0.180 by construction — every fixture's
    perceptual delta vs ACR moves by some amount when the view
    transform changes, regardless of whether the new transform is
    "better." Budgets need to be re-baselined against the new ground
    truth.
 
-2. **No CI workflow runs `src/scripts/test_color_pipeline.sh`.** Per
+2. **No CI workflow ran `src/scripts/test_color_pipeline.sh`.** Per
    the script's own header and `CLAUDE.md` § *Objective color testing*:
    *Budgets are a one-way ratchet — they only go down.* Until the
-   workflow added alongside this note exists, that rule lives in human
-   memory: it's enforced only on the laptop of whoever remembers to
-   run the harness before merging. Anyone landing a change without
+   workflow added alongside this note existed, that rule lived in
+   human memory: enforced only on the laptop of whoever remembered
+   to run the harness before merging. Anyone landing a change without
    fixtures locally couldn't trip the gate.
 
 Several other commits in the same window plausibly contribute to

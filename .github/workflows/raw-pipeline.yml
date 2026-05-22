@@ -10,12 +10,18 @@
 # test-fixtures/BUDGETS_DRIFT.md for the resulting drift on main.
 #
 # Fixtures: test-fixtures/raws/ and test-fixtures/references/ are
-# gitignored (6.5 GB). On GitHub-hosted runners without fixtures, the
-# harness skip-passes at preflight before building maple-cli — see
-# src/scripts/test_color_pipeline.sh lines 73–83. The job is therefore
-# a no-op on stock runners; it becomes meaningful on a self-hosted
-# runner (or any environment) where fixtures have been provisioned.
-# Fixture provisioning is tracked separately.
+# gitignored (6.5 GB). The harness skip-passes at preflight when its
+# manifest or budgets file is missing (src/scripts/test_color_pipeline.sh
+# lines 73–83); a missing raws/ directory is *not* checked by the
+# script directly — it would only fail later when maple-cli batch tries
+# to open the RAW paths in manifest.json. To keep the workflow robust
+# against partial-fixture states, the probe below treats raws/ AND
+# manifest as load-bearing, and the skip-pass branch points the script
+# at a synthetic non-existent manifest so it unconditionally takes its
+# preflight exit. The job is therefore a no-op on stock runners; it
+# becomes meaningful on a self-hosted runner (or any environment) where
+# fixtures have been provisioned. Fixture provisioning is tracked
+# separately.
 
 name: raw-pipeline
 
@@ -68,7 +74,7 @@ jobs:
 
       - name: Install Python diff deps
         if: steps.probe.outputs.have_fixtures == 'true'
-        run: pip install numpy pillow colour-science
+        run: pip install -r src/scripts/requirements.txt
 
       - uses: dtolnay/rust-toolchain@stable
         if: steps.probe.outputs.have_fixtures == 'true'
@@ -89,8 +95,14 @@ jobs:
 
       # Soft-pass branch: still invoke the script so its own skip-pass
       # message lands in the log (helps a self-hosted-runner debugger
-      # confirm the path the gate took). The script exits 0 at
-      # preflight when fixtures are absent — no Rust toolchain needed.
+      # confirm the path the gate took). We override MANIFEST to a path
+      # that cannot exist so the script unconditionally takes its
+      # manifest-missing preflight exit (line 73) — guarding against the
+      # partial-fixture case where references/manifest.json is present
+      # but raws/ isn't, which would otherwise let the script proceed
+      # into cargo build with no Rust toolchain installed.
       - name: Run color-pipeline harness (skip-pass)
         if: steps.probe.outputs.have_fixtures == 'false'
+        env:
+          MANIFEST: /nonexistent/test-fixtures-not-provisioned.json
         run: bash src/scripts/test_color_pipeline.sh
