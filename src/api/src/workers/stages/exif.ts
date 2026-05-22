@@ -18,10 +18,11 @@ import * as path from 'node:path';
 import type { ObjectId } from 'mongodb';
 import { readExif } from '../../indexer/exif.ts';
 import { deriveId } from '../../indexer/id.ts';
-import { assetAbsPath } from '../../indexer/images.repo.ts';
+import { assetAbsPath, assetPrimaryFileInfo } from '../../indexer/images.repo.ts';
 import { assetsCollection } from '../../db/client.ts';
 import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
-import type { FileInfo } from '../../db/schema.ts';
+import type { AssetExif, FileInfo } from '../../db/schema.ts';
+import { recordAndPublishAssetChange } from '../../db/changes.repo.ts';
 import type { ImageDoc, StageResult } from '../run-stage.ts';
 import { defineStage, runStage, type RunStageHandle } from '../run-stage.ts';
 
@@ -131,12 +132,16 @@ const exifStage = defineStage({
         // most of that, but races and legacy dead-letter rows still need
         // a runtime safety net).
         //
-        // When a winner exists we merge our fileinfo[] into it and self-
-        // delete, mirroring the boot-time mergeDuplicateAssets migration
-        // (db/migrations.ts). Returning `skip` lets the orchestrator's
-        // writeback no-op on the now-deleted _id without surfacing as an
-        // error.
-        const merged = await tryMergeWithExistingPrimary(image, id.hex);
+        // When a collision is detected we merge the two rows the same way
+        // the boot-time mergeDuplicateAssets migration does (db/migrations.ts):
+        // pick the row with the earliest indexed_at as survivor, union
+        // fileinfo[], promote loser's user-edited and freshly-extracted
+        // fields where the survivor has defaults, then delete the other
+        // row.
+        const merged = await tryMergeWithExistingPrimary(image, id.hex, {
+          exif,
+          is_screenshot: patch.is_screenshot as boolean,
+        });
         if (merged) {
           return { skip: `merged-into-${merged.toHexString()}` };
         }
@@ -149,32 +154,132 @@ const exifStage = defineStage({
 });
 
 /**
- * If another row already owns `newMapleId`, union our `fileinfo[]` into it
- * (deduped by `(library_id, path, filename)`, live entries preferred over
- * tombstones) and delete the loser. Returns the winner's `_id` on a merge,
- * `null` when no winner exists and the caller should proceed with the
- * normal upgrade.
+ * Fresh-from-handler signal the loser computed during this run. The exif
+ * stage extracted these from the loser's bytes; if the survivor row has
+ * defaults for them we forward the new values onto the survivor before
+ * deleting the loser so the parse work isn't thrown away.
+ */
+interface LoserExifContribution {
+  exif: AssetExif | null;
+  is_screenshot: boolean;
+}
+
+/**
+ * Other-row owns `newMapleId`. Merge it with the loser passed in and delete
+ * whichever loses the survivor pick. Returns the survivor's `_id` on a
+ * merge, `null` when no other row exists and the caller should proceed with
+ * the normal upgrade.
  *
- * The dedup-and-prefer-live logic mirrors `mergeDuplicateAssets` in
- * `db/migrations.ts:295-313` — keep them in sync.
+ * Behaviour mirrors `mergeDuplicateAssets` in `db/migrations.ts`:
+ *   - Survivor is the row with the earliest `indexed_at` (ties: _id ascending).
+ *   - `fileinfo[]` unions both rows, deduped by `(library_id, path, filename)`,
+ *     with live entries preferred over tombstones.
+ *   - User-mutable fields (rating, flag, color_label) are carried from
+ *     non-survivor into survivor when the survivor still holds defaults,
+ *     so a rating set on the loser between discover and exif isn't lost.
+ *   - The freshly-computed exif/is_screenshot from this stage run are
+ *     written onto the survivor when it lacks them — otherwise the parse
+ *     work is discarded along with the deleted row.
+ *
+ * The merge is non-atomic (updateOne then deleteOne). Crash between the
+ * two writes leaves both rows alive with overlapping fileinfo; the next
+ * retry re-enters this function, finds the same survivor, and the dedup
+ * keys make the re-merge idempotent. The boot-time migration is also
+ * idempotent for the same reason.
+ *
+ * Change feed: publishes a `delete` event for the deleted row and an
+ * `update` event for the survivor so File Provider / SSE consumers see
+ * the merge instead of going stale.
  */
 async function tryMergeWithExistingPrimary(
   loser: ImageDoc,
   newMapleId: string,
+  loserContribution: LoserExifContribution,
 ): Promise<ObjectId | null> {
   const assets = await assetsCollection();
-  const winner = await assets.findOne(
+  const other = await assets.findOne(
     { maple_id: newMapleId, _id: { $ne: loser._id } },
-    { projection: { _id: 1, fileinfo: 1 } },
+    {
+      projection: {
+        _id: 1,
+        fileinfo: 1,
+        indexed_at: 1,
+        rating: 1,
+        flag: 1,
+        color_label: 1,
+        exif: 1,
+        is_screenshot: 1,
+      },
+    },
   );
-  if (!winner) return null;
+  if (!other) return null;
 
-  const seen = new Map<string, FileInfo>();
-  const lists: FileInfo[][] = [
-    (winner.fileinfo ?? []) as FileInfo[],
+  const otherIndexedAt = (other.indexed_at as string | undefined) ?? '';
+  const loserIndexedAt = (loser.indexed_at as string | undefined) ?? '';
+  const otherIsOlder =
+    otherIndexedAt < loserIndexedAt ||
+    (otherIndexedAt === loserIndexedAt && other._id.toString() < loser._id.toString());
+  const survivor = otherIsOlder ? other : loser;
+  const condemned = otherIsOlder ? loser : other;
+
+  const mergedFileinfo = unionFileinfo(
+    (other.fileinfo ?? []) as FileInfo[],
     (loser.fileinfo ?? []) as FileInfo[],
-  ];
-  for (const list of lists) {
+  );
+
+  // Build the patch for the survivor. fileinfo always changes; the rest
+  // only when the survivor holds a default and the condemned has a
+  // non-default value. For the freshly-extracted exif/is_screenshot from
+  // this stage run, prefer them when the survivor's exif is missing.
+  const survivorPatch: Record<string, unknown> = { fileinfo: mergedFileinfo };
+  const condemnedRating = (condemned as { rating?: number }).rating ?? 0;
+  const condemnedFlag = (condemned as { flag?: number }).flag ?? 0;
+  const condemnedColor = (condemned as { color_label?: string }).color_label ?? '';
+  const survivorRating = (survivor as { rating?: number }).rating ?? 0;
+  const survivorFlag = (survivor as { flag?: number }).flag ?? 0;
+  const survivorColor = (survivor as { color_label?: string }).color_label ?? '';
+  if (survivorRating === 0 && condemnedRating !== 0) survivorPatch.rating = condemnedRating;
+  if (survivorFlag === 0 && condemnedFlag !== 0) survivorPatch.flag = condemnedFlag;
+  if (survivorColor === '' && condemnedColor !== '') survivorPatch.color_label = condemnedColor;
+  const survivorExif = (survivor as { exif?: AssetExif | null }).exif;
+  if (!survivorExif && loserContribution.exif) {
+    survivorPatch.exif = loserContribution.exif;
+    survivorPatch.is_screenshot = loserContribution.is_screenshot;
+  }
+  // If the survivor is the LOSER (we're keeping this stage's row), it also
+  // needs the upgraded maple_id since the orchestrator's writeback path on
+  // `skip` won't apply our patch.
+  if (!otherIsOlder) {
+    survivorPatch.maple_id = newMapleId;
+  }
+
+  await assets.updateOne({ _id: survivor._id }, { $set: survivorPatch });
+  await assets.deleteOne({ _id: condemned._id });
+
+  // Publish change events so File Provider / SSE clients don't go stale.
+  // Best-effort — recordAndPublishAssetChange swallows its own errors so a
+  // publish failure won't undo the merge writes above.
+  const condemnedPrimary = assetPrimaryFileInfo(condemned as never);
+  const survivorPrimary = assetPrimaryFileInfo({ fileinfo: mergedFileinfo } as never);
+  await recordAndPublishAssetChange({
+    kind: 'delete',
+    asset_id: condemned._id,
+    folder_id: condemnedPrimary?.library_id ?? null,
+    abs_path: null,
+  });
+  await recordAndPublishAssetChange({
+    kind: 'update',
+    asset_id: survivor._id,
+    folder_id: survivorPrimary?.library_id ?? null,
+    abs_path: null,
+  });
+
+  return survivor._id;
+}
+
+function unionFileinfo(a: FileInfo[], b: FileInfo[]): FileInfo[] {
+  const seen = new Map<string, FileInfo>();
+  for (const list of [a, b]) {
     for (const entry of list) {
       const key = JSON.stringify([entry.library_id.toHexString(), entry.path, entry.filename]);
       const existing = seen.get(key);
@@ -182,17 +287,13 @@ async function tryMergeWithExistingPrimary(
         seen.set(key, entry);
         continue;
       }
-      const existingDead = existing.deleted_at != null;
-      const candidateDead = entry.deleted_at != null;
-      if (existingDead && !candidateDead) seen.set(key, entry);
+      // Prefer live over tombstoned for the same location key.
+      if (existing.deleted_at != null && entry.deleted_at == null) {
+        seen.set(key, entry);
+      }
     }
   }
-  await assets.updateOne(
-    { _id: winner._id },
-    { $set: { fileinfo: Array.from(seen.values()) } },
-  );
-  await assets.deleteOne({ _id: loser._id });
-  return winner._id;
+  return Array.from(seen.values());
 }
 
 export default exifStage;
