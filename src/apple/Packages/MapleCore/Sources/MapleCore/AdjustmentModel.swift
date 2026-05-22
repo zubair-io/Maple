@@ -50,23 +50,13 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
 
     // Detail — sharpening
     //
-    // Defaults mirror ACR / Lightroom raw-file profile sharpening — a small
-    // amount of capture-sharpening at the lens-blur radius — rather than the
-    // "no edits applied" identity (0 / 0.5) the Rust `AdjustmentModel::default()`
-    // uses. First-open of a sidecar-less RAW should look as sharp as ACR's
-    // default-import, not soft. See Ticket 12 Bug 3 for context.
-    //
-    // sharpenRadius default revised from 5 to 1.0 (this commit). The earlier
-    // value of 5 was outside the documented field range 0.5..3.0; both the
-    // Rust `sharpen::apply` and Apple Metal kernel clamp internally to 3.0
-    // and round to integer-px box width, so radius=5 silently rendered as
-    // radius=3 — pegged at the upper bound. Combined with amount=45 (3 RL
-    // iterations at full strength) on high-contrast-edge inputs (e.g. a
-    // ColorChecker chart) the 3-px stencil produced visible chroma halos.
-    // 1.0 is ACR's actual raw-file default and the value the docstring
-    // range implies as typical capture-sharpening.
-    public var sharpenAmount: Double    // 0..150, default 45 (was 0)
-    public var sharpenRadius: Double    // 0.5..3.0, default 1.0 (was 0.5, briefly 5)
+    // Defaults mirror ACR / Lightroom's import baseline (Sharpness=40,
+    // Radius=1.0, Detail=25, EdgeMasking=0) so first-open of a sidecar-less
+    // RAW looks as sharp as Adobe Camera Raw's default-import, not soft.
+    // Aligned with the canonical raw-core defaults per #326 — Apple no
+    // longer carries a sharpening divergence (was sharpenAmount=45).
+    public var sharpenAmount: Double    // 0..150, default 40 (ACR import)
+    public var sharpenRadius: Double    // 0.5..3.0, default 1.0 (ACR import)
     public var sharpenDetail: Double    // 0..100, default 25
     public var sharpenMasking: Double   // 0..100, default 0
 
@@ -98,7 +88,7 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
         clarity: Double = 0,
         texture: Double = 0,
         dehaze: Double = 0,
-        sharpenAmount: Double = 45,
+        sharpenAmount: Double = 40,
         sharpenRadius: Double = 1.0,
         sharpenDetail: Double = 25,
         sharpenMasking: Double = 0,

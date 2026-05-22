@@ -9,10 +9,10 @@
 //! [`ADJUSTMENT_SCHEMA`] captures each field's `kind`, range, and the
 //! canonical Rust default (`default_f32`). Tests at the bottom of this file
 //! assert that `AdjustmentModel::default()` matches the schema's
-//! `default_f32` values field-by-field. Per-platform overrides (e.g.
-//! Swift's ACR-like sharpen defaults in `AdjustmentModel.swift`) live on
-//! the platform side as deliberate deviations from the canonical defaults
-//! — the schema continues to ship the Rust defaults as the reference.
+//! `default_f32` values field-by-field. Per-#326, sharpen defaults now
+//! match ACR's import baseline (Sharpness=40, Radius=1.0, Detail=25,
+//! EdgeMasking=0) so first-open output is no softer than Lightroom; the
+//! Swift hand-written defaults in `AdjustmentModel.swift` mirror this.
 
 /// Highlight reconstruction mode per spec § 3.3a.
 ///
@@ -97,8 +97,8 @@ pub struct AdjustmentModel {
     pub saturation: f32,  // -100..100, default 0
     pub clarity: f32,     // -100..100, default 0 (unsharp radius 40 per spec § 3.8)
     pub texture: f32,     // -100..100, default 0 (unsharp radius 3 per spec § 3.8)
-    pub sharpen_amount: f32, // 0..150, default 0 (spec § 3.10; 0 = stage skipped, 100 = full RL, >100 overdrive)
-    pub sharpen_radius: f32, // 0.5..3.0, default 0.5 (PSF Gaussian sigma)
+    pub sharpen_amount: f32, // 0..150, default 40 (ACR import default; spec § 3.10; 0 = stage skipped, 100 = full RL, >100 overdrive)
+    pub sharpen_radius: f32, // 0.5..3.0, default 1.0 (ACR import default; PSF Gaussian sigma)
     pub sharpen_detail: f32, // 0..100, default 25 (edge-attenuation strength)
     pub sharpen_masking: f32, // 0..100, default 0 (edge-mask threshold)
     pub capture_sharpening_amount: f32, // 0..100, default 0 (Richardson–Lucy strength; 0 = stage skipped)
@@ -124,8 +124,13 @@ impl Default for AdjustmentModel {
             saturation: 0.0,
             clarity: 0.0,
             texture: 0.0,
-            sharpen_amount: 0.0,
-            sharpen_radius: 0.5,
+            // Sharpen defaults converge to ACR's fresh-import baseline
+            // (Sharpness=40, Radius=1.0, Detail=25, EdgeMasking=0) per #326.
+            // Prior identity defaults (amount=0, radius=0.5) shipped soft
+            // first-open output and conflated calibration drift with a
+            // defaults mismatch in the perceptual harness.
+            sharpen_amount: 40.0,
+            sharpen_radius: 1.0,
             sharpen_detail: 25.0,
             sharpen_masking: 0.0,
             capture_sharpening_amount: 0.0,
@@ -280,17 +285,17 @@ pub const ADJUSTMENT_SCHEMA: &[FieldSpec] = &[
         name: "sharpen_amount",
         kind: FieldKind::F32,
         range: (0.0, 150.0),
-        default_f32: 0.0,
+        default_f32: 40.0,
         enum_name: "",
-        doc: "Sharpening amount per spec § 3.10 (0 = stage skipped, 100 = full RL).",
+        doc: "Sharpening amount per spec § 3.10 (0 = stage skipped, 100 = full RL). Default = ACR import (40).",
     },
     FieldSpec {
         name: "sharpen_radius",
         kind: FieldKind::F32,
         range: (0.5, 3.0),
-        default_f32: 0.5,
+        default_f32: 1.0,
         enum_name: "",
-        doc: "Sharpening PSF Gaussian sigma.",
+        doc: "Sharpening PSF Gaussian sigma. Default = ACR import (1.0).",
     },
     FieldSpec {
         name: "sharpen_detail",
