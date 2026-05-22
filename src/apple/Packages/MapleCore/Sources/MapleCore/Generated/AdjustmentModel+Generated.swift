@@ -3,8 +3,9 @@
 //
 // Emits range constants and a canonical field-name enum for
 // `AdjustmentModel`. The struct itself + defaults + init stay
-// hand-written in `AdjustmentModel.swift` (Apple uses ACR-like
-// sharpen defaults that diverge from the canonical Rust defaults).
+// hand-written in `AdjustmentModel.swift`; Apple's defaults
+// match raw-core's canonical values (per #326, sharpen converges
+// to ACR's import baseline: 40 / 1.0 / 25 / 0).
 
 import Foundation
 
