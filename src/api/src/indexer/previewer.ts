@@ -161,12 +161,16 @@ async function renderRawPreviewToFile(rawPath: string, previewPath: string): Pro
     return false;
   }
   if (!ok) return false;
+  // Defense-in-depth: the FFI bakes EXIF orientation into the pixels and
+  // emits a bare JPEG with no EXIF, so this is normally a metadata-read
+  // no-op. Kept to catch any future code path that lands a tagged JPEG
+  // here before the VLM sees a sideways portrait.
   try {
     await applyExifOrientationInPlace(previewPath);
   } catch (e) {
     log.warn(
       { rawPath, err: e instanceof Error ? e.message : e },
-      'orientation post-process failed; preview left unrotated',
+      'orientation post-process failed; preview left as-is',
     );
   }
   return true;

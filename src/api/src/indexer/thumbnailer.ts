@@ -136,12 +136,16 @@ async function renderRawThumbToFile(rawPath: string, thumbPath: string): Promise
     return false;
   }
   if (!ok) return false;
+  // Defense-in-depth: the FFI bakes orientation into the pixels and emits
+  // a bare JPEG with no EXIF, so this is a metadata-read no-op on every
+  // RAW thumb. Kept so any future code path that lands a tagged JPEG in
+  // the thumb cache gets normalized before the client sees it.
   try {
     await applyExifOrientationInPlace(thumbPath);
   } catch (e) {
     log.warn(
       { rawPath, err: e instanceof Error ? e.message : e },
-      'orientation post-process failed; thumb left unrotated',
+      'orientation post-process failed; thumb left as-is',
     );
     // The FFI output is still on disk — mark success rather than failing the stage.
   }
