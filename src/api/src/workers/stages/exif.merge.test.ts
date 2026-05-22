@@ -100,17 +100,13 @@ describe('exif stage — tryMergeWithExistingPrimary', () => {
       _id: new ObjectId(),
       maple_id: collidingId,
       indexed_at: '2026-04-01T00:00:00.000Z',
-      fileinfo: [
-        { library_id: libraryId, path: 'a', filename: 'IMG.jpg', deleted_at: null },
-      ],
+      fileinfo: [{ library_id: libraryId, path: 'a', filename: 'IMG.jpg', deleted_at: null }],
     };
     const loser = {
       _id: new ObjectId(),
       maple_id: '02' + 'd'.repeat(30),
       indexed_at: '2026-05-01T00:00:00.000Z',
-      fileinfo: [
-        { library_id: libraryId, path: 'b', filename: 'IMG.jpg', deleted_at: null },
-      ],
+      fileinfo: [{ library_id: libraryId, path: 'b', filename: 'IMG.jpg', deleted_at: null }],
     };
     await coll.deleteMany({ maple_id: { $in: [other.maple_id, loser.maple_id] } });
     await coll.insertMany([other, loser] as never);
@@ -126,9 +122,7 @@ describe('exif stage — tryMergeWithExistingPrimary', () => {
     // Survivor (other) now carries both locations; loser is gone.
     const survivor = await coll.findOne({ _id: other._id });
     expect(survivor).not.toBeNull();
-    const entries = (survivor!.fileinfo ?? [])
-      .map((e: any) => `${e.path}/${e.filename}`)
-      .sort();
+    const entries = (survivor!.fileinfo ?? []).map((e: any) => `${e.path}/${e.filename}`).sort();
     expect(entries).toEqual(['a/IMG.jpg', 'b/IMG.jpg']);
     const deadLoser = await coll.findOne({ _id: loser._id });
     expect(deadLoser).toBeNull();
@@ -151,9 +145,7 @@ describe('exif stage — tryMergeWithExistingPrimary', () => {
       _id: new ObjectId(),
       maple_id: collidingId,
       indexed_at: '2026-05-15T00:00:00.000Z',
-      fileinfo: [
-        { library_id: libraryId, path: 'newer', filename: 'IMG.jpg', deleted_at: null },
-      ],
+      fileinfo: [{ library_id: libraryId, path: 'newer', filename: 'IMG.jpg', deleted_at: null }],
     };
     const loser = {
       _id: new ObjectId(),
@@ -162,9 +154,7 @@ describe('exif stage — tryMergeWithExistingPrimary', () => {
       rating: 5,
       flag: 1,
       color_label: 'red',
-      fileinfo: [
-        { library_id: libraryId, path: 'older', filename: 'IMG.jpg', deleted_at: null },
-      ],
+      fileinfo: [{ library_id: libraryId, path: 'older', filename: 'IMG.jpg', deleted_at: null }],
     };
     await coll.deleteMany({ maple_id: { $in: [other.maple_id, loser.maple_id] } });
     await coll.insertMany([other, loser] as never);
@@ -214,9 +204,7 @@ describe('exif stage — tryMergeWithExistingPrimary', () => {
       rating: 0,
       flag: 0,
       color_label: '',
-      fileinfo: [
-        { library_id: libraryId, path: 'a', filename: 'IMG.jpg', deleted_at: null },
-      ],
+      fileinfo: [{ library_id: libraryId, path: 'a', filename: 'IMG.jpg', deleted_at: null }],
     };
     const loser = {
       _id: new ObjectId(),
@@ -225,9 +213,7 @@ describe('exif stage — tryMergeWithExistingPrimary', () => {
       rating: 4,
       flag: 1,
       color_label: 'green',
-      fileinfo: [
-        { library_id: libraryId, path: 'b', filename: 'IMG.jpg', deleted_at: null },
-      ],
+      fileinfo: [{ library_id: libraryId, path: 'b', filename: 'IMG.jpg', deleted_at: null }],
     };
     await coll.deleteMany({ maple_id: { $in: [other.maple_id, loser.maple_id] } });
     await coll.insertMany([other, loser] as never);
@@ -259,17 +245,13 @@ describe('exif stage — tryMergeWithExistingPrimary', () => {
       maple_id: collidingId,
       indexed_at: '2026-04-01T00:00:00.000Z',
       exif: null,
-      fileinfo: [
-        { library_id: libraryId, path: 'a', filename: 'IMG.jpg', deleted_at: null },
-      ],
+      fileinfo: [{ library_id: libraryId, path: 'a', filename: 'IMG.jpg', deleted_at: null }],
     };
     const loser = {
       _id: new ObjectId(),
       maple_id: '02' + '8'.repeat(30),
       indexed_at: '2026-05-01T00:00:00.000Z',
-      fileinfo: [
-        { library_id: libraryId, path: 'b', filename: 'IMG.jpg', deleted_at: null },
-      ],
+      fileinfo: [{ library_id: libraryId, path: 'b', filename: 'IMG.jpg', deleted_at: null }],
     };
     await coll.deleteMany({ maple_id: { $in: [other.maple_id, loser.maple_id] } });
     await coll.insertMany([other, loser] as never);
@@ -328,9 +310,7 @@ describe('exif stage — tryMergeWithExistingPrimary', () => {
       _id: new ObjectId(),
       maple_id: '02' + 'f'.repeat(30),
       indexed_at: '2026-05-15T00:00:00.000Z',
-      fileinfo: [
-        { library_id: libraryId, path: 'shared', filename: 'IMG.jpg', deleted_at: null },
-      ],
+      fileinfo: [{ library_id: libraryId, path: 'shared', filename: 'IMG.jpg', deleted_at: null }],
     };
     await coll.deleteMany({ maple_id: { $in: [other.maple_id, loser.maple_id] } });
     await coll.insertMany([other, loser] as never);
