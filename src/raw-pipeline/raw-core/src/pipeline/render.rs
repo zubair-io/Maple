@@ -46,7 +46,11 @@ pub fn render_from_raw_with_quality(
     stage("agx", || agx::apply(&mut scene, model.contrast));
     dump_after("16_agx", &scene);
     stage("rec2020_to_srgb", || encode::rec2020_to_srgb(&mut scene));
-    dump_after("17_post_srgb_encode", &scene);
+    // Buffer is in display-linear sRGB primaries here. Gamma encoding
+    // happens later in `quantize_u8`. Name reflects that — "srgb_linear",
+    // not "post_srgb_encode" which would have implied a full sRGB encode
+    // (per PR #281 review feedback).
+    dump_after("17_srgb_linear", &scene);
     let bytes = stage("quantize_u8", || encode::quantize_u8(&mut scene));
     // Apply EXIF orientation last — rotating/flipping sRGB u8 is cheap and
     // keeps every upstream stage indifferent to sensor-vs-display framing.
