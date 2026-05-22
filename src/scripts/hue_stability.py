@@ -127,10 +127,15 @@ def hue_angle_cam16ucs(rgb: np.ndarray) -> float:
 
 def hue_angle_oklab(rgb: np.ndarray) -> float:
     """Fallback hue: Oklab a/b angle when CAM16-UCS isn't available.
-    Treats the buffer as display-linear sRGB (close enough for hue —
-    we're after relative drift across exposures, not absolute hue)."""
-    # Linear-Rec.2020 → CIE XYZ via colour-science; then approximate
-    # Oklab via the standard transform.
+    Treats the buffer as display-linear Rec.2020 — same input as
+    `hue_angle_cam16ucs`. The default stage is `16_agx`, which is
+    post-AgX but pre-`rec2020_to_srgb`, so the BT.2020 RGB→XYZ matrix
+    is the right one. (If you switch the harness to `--stage 17_post_srgb_encode`,
+    the buffer becomes display-linear sRGB and this matrix is wrong;
+    we accept that mismatch for now — the diagnostic is relative drift
+    across exposures, not absolute hue.)"""
+    # Linear-Rec.2020 → CIE XYZ via colour-science; then Oklab via
+    # the standard transform.
     cs = colour.RGB_COLOURSPACES["ITU-R BT.2020"]
     rgb_clipped = np.clip(rgb.reshape(-1, 3).astype(np.float64), 0.0, None)
     xyz = colour.RGB_to_XYZ(
