@@ -27,7 +27,10 @@ import { defineStage, runStage, type RunStageHandle, type StageResult } from '..
 
 const thumbStage = defineStage({
   name: 'thumb',
-  targetVersion: 1,
+  // v2 — raw-ffi FFI fix #328: orientation is now baked into the embedded-
+  // preview JPEG before re-encode. Bump so existing rows re-render and the
+  // on-disk thumbs in `.maple/thumbs/` get rewritten upright.
+  targetVersion: 2,
   dependsOn: ['exif'],
   defaults: {
     concurrency: 2,
