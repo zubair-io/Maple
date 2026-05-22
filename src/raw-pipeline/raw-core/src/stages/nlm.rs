@@ -49,11 +49,14 @@
 use rayon::prelude::*;
 
 /// Fast exp(-x) lookup. The NLM weight is `exp(-d²/(h²·area))` where the
-/// argument is always ≥ 0. For x > `FAST_EXP_RANGE` the weight is < 4e-4
+/// argument is always ≥ 0. For x ≥ `FAST_EXP_RANGE` the weight is ≤ ~3.4e-4
 /// — well below the noise floor of f32 accumulation across O(1000) pixels,
-/// so we clamp to 0. Inside the range we linearly interpolate a 512-entry
-/// table. Measured at ~0.6 ns per call on Apple Silicon (vs ~5 ns for
-/// hardware `expf`) — at 81 shifts × 2 MP, the saving is ~36 ms.
+/// so we clamp to 0. The bound is `≥` (not `>`) so that the `i+1` table
+/// lookup stays in range — at exactly `x = FAST_EXP_RANGE`, `i = TABLE_SIZE`
+/// and `table[i+1]` would be out of bounds. Inside the range we linearly
+/// interpolate a 512-entry table. Measured at ~0.6 ns per call on Apple
+/// Silicon (vs ~5 ns for hardware `expf`) — at 81 shifts × 2 MP, the
+/// saving is ~36 ms.
 const FAST_EXP_RANGE: f32 = 8.0;
 const FAST_EXP_TABLE_SIZE: usize = 512;
 
@@ -224,9 +227,12 @@ fn process_shift(
     // 2) Integral image of sqdiff. Two passes:
     //    a) Row-wise prefix sum into ii[1..iw, 1..ih] — independent
     //       across rows, parallel.
-    //    b) Column-wise prefix sum down each column — independent
-    //       across columns. Sequential within a column but parallel
-    //       across columns.
+    //    b) Column-wise prefix sum — the inter-column work is
+    //       independent in principle, but a stride-iw column walk is
+    //       cache-unfriendly, so we sweep sequentially over rows and
+    //       vectorise across x within each row (see the inline note at
+    //       the column pass). O(N) total, same asymptotic, better
+    //       cache behaviour than naive per-column parallelism.
     let iw = w + 1;
     let ih = h + 1;
     // Zero the first row + first column.
