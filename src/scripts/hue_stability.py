@@ -130,7 +130,7 @@ def hue_angle_oklab(rgb: np.ndarray) -> float:
     Treats the buffer as display-linear Rec.2020 — same input as
     `hue_angle_cam16ucs`. The default stage is `16_agx`, which is
     post-AgX but pre-`rec2020_to_srgb`, so the BT.2020 RGB→XYZ matrix
-    is the right one. (If you switch the harness to `--stage 17_post_srgb_encode`,
+    is the right one. (If you switch the harness to `--stage 17_srgb_linear`,
     the buffer becomes display-linear sRGB and this matrix is wrong;
     we accept that mismatch for now — the diagnostic is relative drift
     across exposures, not absolute hue.)"""
