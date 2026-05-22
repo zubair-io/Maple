@@ -19,7 +19,11 @@ use super::{
 };
 use crate::{
     error::Result,
-    image::{apply_orientation, RawImage},
+    image::{apply_orientation, ColorSpace, Image, RawImage},
+    stages::{
+        clarity, dehaze, noise_reduction, saturation, scene_tone_controls, texture, vibrance,
+        white_balance,
+    },
     view::{agx, encode},
     xmp::AdjustmentModel,
 };
@@ -150,9 +154,94 @@ pub fn render_scene_linear_sized_from_raw_with_quality(
     Ok((w, h, fp16))
 }
 
+/// Synthetic-input render: takes an already-scene-linear `Image` (the kind
+/// `synthetic_input::*` produces) and runs ONLY the view transform on it —
+/// AgX + Rec.2020→sRGB + u8 quantize. The develop chain (linearize,
+/// demosaic, DCP, scene-tone, …) is skipped because the input is already
+/// in the working colorspace by construction.
+///
+/// `MAPLE_STAGE_DUMP` is honoured: stages 16 (`16_agx`) and 17
+/// (`17_post_srgb_encode`) get written exactly like the RAW path, so the
+/// detectors in `src/scripts/{banding,hue_stability,halo}_check.py` can
+/// load and analyse them without caring whether the input was a real DNG
+/// or a synthetic ramp.
+///
+/// Used by `maple-cli synthetic --kind {neutral-ramp,hue-patch,halo-disk}`.
+pub fn render_from_scene_linear(
+    image: Image,
+    model: &AdjustmentModel,
+) -> Result<(u32, u32, Vec<u8>)> {
+    let mut scene = image;
+    scene.assert_space(ColorSpace::SceneLinearRec2020);
+    // Dump the pre-view-transform buffer too — gives the detectors a
+    // way to see exactly what entered AgX. Numbered `00` so it sorts
+    // before stages 16/17 in the dump dir.
+    dump_after("00_synthetic_input", &scene);
+    stage("synth_agx", || agx::apply(&mut scene, model.contrast));
+    dump_after("16_agx", &scene);
+    stage("synth_rec2020_to_srgb", || encode::rec2020_to_srgb(&mut scene));
+    dump_after("17_post_srgb_encode", &scene);
+    let (w, h) = (scene.width, scene.height);
+    let bytes = stage("synth_quantize_u8", || encode::quantize_u8(&mut scene));
+    Ok((w, h, bytes))
+}
+
+/// Synthetic-input render with the slider chain applied first. The detectors
+/// that probe slider artefacts (halo overshoot from clarity / dehaze)
+/// need a path that runs those stages on a synthetic input. Mirrors the
+/// scene-linear stages that `apply_scene_linear_chain` runs over real raws,
+/// but on a fresh `Image` rather than a fp16 RGBA buffer.
+///
+/// White-balance / scene-tone are skipped — the synthetic input is already
+/// in the working colorspace at the requested brightness; running WB or
+/// tone-mapping a uniform patch is meaningless. Clarity, texture, dehaze
+/// and the noise-reduction stages DO run, because those are the ones whose
+/// halo / banding artefacts the synthetic detectors are designed to catch.
+pub fn render_from_scene_linear_with_chain(
+    image: Image,
+    model: &AdjustmentModel,
+) -> Result<(u32, u32, Vec<u8>)> {
+    let mut scene = image;
+    scene.assert_space(ColorSpace::SceneLinearRec2020);
+    dump_after("00_synthetic_input", &scene);
+    // White-balance + scene-tone-controls deliberately skipped — see
+    // doc-comment. Vibrance + saturation are scaled around the
+    // achromatic axis, so they're no-ops on neutral / pure-primary
+    // inputs; we still run them for completeness so a magenta patch
+    // gets the same vibrance treatment a real magenta pixel would.
+    stage("synth_white_balance", || {
+        white_balance::apply_delta(&mut scene, model.temperature, model.tint, 6500.0, 0.0)
+    });
+    dump_after("06_white_balance", &scene);
+    stage("synth_scene_tone_controls", || scene_tone_controls::apply(&mut scene, model));
+    dump_after("07_scene_tone_controls", &scene);
+    stage("synth_vibrance", || vibrance::apply(&mut scene, model.vibrance));
+    dump_after("08_vibrance", &scene);
+    stage("synth_saturation", || saturation::apply(&mut scene, model.saturation));
+    dump_after("09_saturation", &scene);
+    stage("synth_clarity", || clarity::apply(&mut scene, model.clarity));
+    dump_after("10_clarity", &scene);
+    stage("synth_texture", || texture::apply(&mut scene, model.texture));
+    dump_after("11_texture", &scene);
+    stage("synth_dehaze", || dehaze::apply(&mut scene, model.dehaze));
+    dump_after("12_dehaze", &scene);
+    stage("synth_nr_luminance", || noise_reduction::apply_luminance(&mut scene, model.nr_luminance));
+    dump_after("14_nr_luminance", &scene);
+    stage("synth_nr_color", || noise_reduction::apply_color(&mut scene, model.nr_color));
+    dump_after("15_nr_color", &scene);
+    stage("synth_agx", || agx::apply(&mut scene, model.contrast));
+    dump_after("16_agx", &scene);
+    stage("synth_rec2020_to_srgb", || encode::rec2020_to_srgb(&mut scene));
+    dump_after("17_post_srgb_encode", &scene);
+    let (w, h) = (scene.width, scene.height);
+    let bytes = stage("synth_quantize_u8", || encode::quantize_u8(&mut scene));
+    Ok((w, h, bytes))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::synthetic_input::{halo_disk, hue_patch, neutral_ramp, Primary};
 
     /// Shell helper for tests only — reads from disk then runs the pure
     /// pipeline. The core no longer exposes a path-based entrypoint.
@@ -292,5 +381,84 @@ mod tests {
         for chunk in fp16_rgba.chunks_exact(4) {
             assert_eq!(chunk[3], 0x3c00, "alpha != 1.0 in sized buffer");
         }
+    }
+
+    #[test]
+    fn render_from_scene_linear_neutral_ramp_is_monotone() {
+        let ramp = neutral_ramp(64, 4);
+        let model = AdjustmentModel::default();
+        let (w, h, bytes) = render_from_scene_linear(ramp, &model)
+            .expect("synthetic ramp render");
+        assert_eq!(w, 64);
+        assert_eq!(h, 4);
+        assert_eq!(bytes.len(), (w * h * 3) as usize);
+        // First row, channel R: must be monotone non-decreasing.
+        for x in 1..w as usize {
+            let prev = bytes[(x - 1) * 3] as i32;
+            let cur = bytes[x * 3] as i32;
+            assert!(cur >= prev - 1,
+                "non-monotone at x={}: {} -> {}", x, prev, cur);
+        }
+        // Achromatic: R == G == B at every pixel (tolerance for view-
+        // transform / quantize rounding).
+        for x in 0..w as usize {
+            let r = bytes[x * 3];
+            let g = bytes[x * 3 + 1];
+            let b = bytes[x * 3 + 2];
+            assert!((r as i32 - g as i32).abs() <= 2,
+                "R-G drift at x={}: {} vs {}", x, r, g);
+            assert!((g as i32 - b as i32).abs() <= 2,
+                "G-B drift at x={}: {} vs {}", x, g, b);
+        }
+    }
+
+    #[test]
+    fn render_from_scene_linear_uniform_hue_patch_is_uniform_output() {
+        let patch = hue_patch(Primary::Red, 0.0, 8, 8);
+        let model = AdjustmentModel::default();
+        let (w, h, bytes) = render_from_scene_linear(patch, &model)
+            .expect("synthetic hue patch render");
+        // Every pixel should map to the same triple — no spatial noise.
+        let r0 = bytes[0];
+        let g0 = bytes[1];
+        let b0 = bytes[2];
+        for i in 0..(w * h) as usize {
+            assert_eq!(bytes[i * 3], r0, "pixel {} R differs", i);
+            assert_eq!(bytes[i * 3 + 1], g0, "pixel {} G differs", i);
+            assert_eq!(bytes[i * 3 + 2], b0, "pixel {} B differs", i);
+        }
+    }
+
+    #[test]
+    fn render_from_scene_linear_halo_disk_dark_center_bright_corners() {
+        let disk = halo_disk(64, 64);
+        let model = AdjustmentModel::default();
+        let (w, h, bytes) = render_from_scene_linear(disk, &model)
+            .expect("synthetic halo render");
+        assert_eq!(w, 64);
+        assert_eq!(h, 64);
+        let center_r = bytes[(32 * 64 + 32) * 3] as i32;
+        let corner_r = bytes[0] as i32;
+        assert!(center_r < corner_r - 30,
+            "halo center / corner contrast collapsed: center={} corner={}", center_r, corner_r);
+    }
+
+    #[test]
+    fn render_from_scene_linear_with_chain_dehaze_zero_is_passthrough() {
+        // With every slider at default (0), the chain should produce the
+        // same bytes as the view-transform-only path (modulo a couple
+        // levels of u8 rounding from the extra Oklab round-trips).
+        let ramp_a = neutral_ramp(32, 2);
+        let ramp_b = neutral_ramp(32, 2);
+        let model = AdjustmentModel::default();
+        let (_, _, plain) = render_from_scene_linear(ramp_a, &model).unwrap();
+        let (_, _, chained) = render_from_scene_linear_with_chain(ramp_b, &model).unwrap();
+        assert_eq!(plain.len(), chained.len());
+        let max_diff = plain.iter().zip(chained.iter())
+            .map(|(a, b)| (*a as i32 - *b as i32).abs())
+            .max()
+            .unwrap();
+        assert!(max_diff <= 3,
+            "default model with-chain vs no-chain should match (max diff {})", max_diff);
     }
 }
