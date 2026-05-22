@@ -10,6 +10,18 @@ fn main() {
     println!("file:              {}", path);
     println!("camera_make:       {:?}", raw.camera_make);
     println!("camera_model:      {:?}", raw.camera_model);
+    println!("unique_camera_model: {:?}", raw.unique_camera_model);
+    let key = raw_core::color::profile_loader::camera_key_for(&raw);
+    let bundled = raw_core::color::profile_loader::lookup_profile(&raw);
+    println!("camera_key:        {:?}", key);
+    println!("bundled_profile:   {}", if bundled.is_some() {"HIT"} else {"MISS"});
+    if let Some(p) = bundled {
+        println!("  illum1/2: {:?}/{:?}", p.illum1, p.illum2);
+        println!("  cm1: {:?}", p.cm1.map(|m| m.0));
+        println!("  cm2: {:?}", p.cm2.map(|m| m.0));
+        println!("  fm1: {:?}", p.fm1.map(|m| m.0));
+        println!("  fm2: {:?}", p.fm2.map(|m| m.0));
+    }
     println!("baseline_exposure: {}", raw.baseline_exposure);
     println!(
         "as_shot_neutral:   [{:.4}, {:.4}, {:.4}]",

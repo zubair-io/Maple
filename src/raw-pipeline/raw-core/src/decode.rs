@@ -287,6 +287,28 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
     let camera_make = raw.clean_make.clone();
     let camera_model = raw.clean_model.clone();
 
+    // DNG UniqueCameraModel tag (50708). Apple DNGs ship a per-lens-variant
+    // UCM ("iPhone13,3 back telephoto camera") that's distinct from
+    // `clean_model`. The bundled-DCP lookup keys off this when present so
+    // the lens variant resolves to the correct Adobe profile. Vendor RAWs
+    // (CR2, ARW, NEF, ...) typically omit the tag — None there is fine,
+    // the loader falls back to `camera_model`.
+    let unique_camera_model: Option<String> = root_ifd.as_ref().and_then(|ifd| {
+        ifd.get_entry(DngTag::UniqueCameraModel)
+            .and_then(|e| match &e.value {
+                rawler::formats::tiff::Value::Ascii(s) => {
+                    // Take the first string when multiple ASCII strings are packed.
+                    s.strings().first().map(|raw| {
+                        // ASCII tag may include a trailing NUL terminator —
+                        // trim it (and any whitespace) before bundling.
+                        raw.trim_end_matches('\0').trim().to_string()
+                    })
+                }
+                _ => None,
+            })
+            .filter(|s| !s.is_empty())
+    });
+
     // ── 8. Color matrices (XYZ → Camera) per illuminant ──────────────────
     // Collect all per-illuminant calibration matrices into our HashMap.
     // `FlatColorMatrix` is a `Vec<f32>` in row-major order. The DNG spec
@@ -412,6 +434,7 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
         as_shot_cct,
         camera_make,
         camera_model,
+        unique_camera_model,
         color_matrices,
         forward_matrices,
         orientation,
