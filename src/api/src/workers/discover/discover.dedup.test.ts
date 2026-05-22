@@ -216,6 +216,74 @@ describe('discover producer — dedup', () => {
     await rm(root, { recursive: true, force: true });
   });
 
+  it('dedups by sha1_head when the existing row has been upgraded to a primary maple_id', async () => {
+    if (!mongoReachable) return;
+
+    // The exif stage upgrades a row's maple_id from the discover-time
+    // fallback form to the primary form once captured_at is available.
+    // A duplicate file discovered AFTER that upgrade can no longer
+    // match the existing row by maple_id alone — the lookup would miss
+    // and we'd insert a second row that the exif stage later tries to
+    // upgrade into the same primary id, hitting E11000 and ending up
+    // dead-lettered. The sha1_head fallback lookup is what keeps the
+    // duplicate dedup'd into the canonical row.
+    const { handleEvent } = await import('./index.ts');
+    const { assetsCollection, foldersCollection } = await import('../../db/client.ts');
+    const { mkdir } = await import('node:fs/promises');
+
+    const root = await mkdtemp(path.join(os.tmpdir(), 'discover-sha1-'));
+    const dirA = path.join(root, 'a');
+    const dirB = path.join(root, 'b');
+    await mkdir(dirA, { recursive: true });
+    await mkdir(dirB, { recursive: true });
+    const fileA = path.join(dirA, 'IMG.dng');
+    const fileB = path.join(dirB, 'IMG.dng');
+    const bytes = Buffer.alloc(70 * 1024, 0xcd);
+    await writeFile(fileA, bytes);
+    await writeFile(fileB, bytes);
+
+    const foldersColl = await foldersCollection();
+    const folderResult = await foldersColl.insertOne({
+      path: root,
+      label: 'sha1-fallback-test',
+      last_scan: null,
+      file_count: 0,
+      created_at: new Date().toISOString(),
+    } as never);
+    const folderId = folderResult.insertedId;
+    const coll = await assetsCollection();
+    const { hashFileForId } = await import('../../indexer/id.ts');
+    const { maple_id: fallbackId, sha1_head } = await hashFileForId(fileA);
+    const upgradedId = `01${'f'.repeat(30)}`;
+    await coll.deleteMany({
+      $or: [{ maple_id: fallbackId }, { maple_id: upgradedId }, { sha1_head }],
+    });
+
+    // Discover fileA → row inserted with fallback id.
+    await handleEvent({ kind: 'created', absPath: fileA }, folderId, root);
+    // Simulate the exif stage upgrading the maple_id. sha1_head is
+    // left untouched, mirroring the real upgrade in workers/stages/exif.ts.
+    await coll.updateOne({ maple_id: fallbackId }, { $set: { maple_id: upgradedId } });
+    // Discover fileB — must dedup into the existing row via sha1_head,
+    // not insert a fresh row.
+    await handleEvent({ kind: 'created', absPath: fileB }, folderId, root);
+
+    const rowsByUpgraded = await coll.find({ maple_id: upgradedId }).toArray();
+    expect(rowsByUpgraded).toHaveLength(1);
+    expect(rowsByUpgraded[0]!.fileinfo).toHaveLength(2);
+    const entries = (rowsByUpgraded[0]!.fileinfo ?? [])
+      .map((e: any) => `${e.path}/${e.filename}`)
+      .sort();
+    expect(entries).toEqual(['a/IMG.dng', 'b/IMG.dng']);
+    // No row was inserted with the fallback id (the dedup hit caught it).
+    const rowsByFallback = await coll.find({ maple_id: fallbackId }).toArray();
+    expect(rowsByFallback).toHaveLength(0);
+
+    await coll.deleteMany({ sha1_head });
+    await foldersColl.deleteOne({ _id: folderId });
+    await rm(root, { recursive: true, force: true });
+  });
+
   it('insert path populates maple_id directly (no post-insert hash stage needed)', async () => {
     if (!mongoReachable) return;
 
