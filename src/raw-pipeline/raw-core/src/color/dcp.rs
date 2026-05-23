@@ -310,29 +310,12 @@ fn compute_as_shot_cct(
     cct
 }
 
-/// Single-CM variant of [`compute_as_shot_cct`]. No interpolation step — the
-/// CM is fixed, so derive the scene CCT directly from `inv(CM) * wb_neutral`.
-/// Used by the single-illuminant fallback in [`profile_for`] so that the
-/// Bradford source white still comes from the *scene*, not the sole
-/// calibration illuminant.
-fn compute_scene_cct_single(cm: Matrix3, wb_neutral: [f32; 3], fallback: f32) -> f32 {
-    let cm_inv = match cm.inverse() {
-        Some(inv) => inv,
-        None => return fallback,
-    };
-    let xyz = cm_inv.mul_vec(wb_neutral);
-    let sum = xyz[0] + xyz[1] + xyz[2];
-    if sum < 1e-6 { return fallback; }
-    let x = xyz[0] / sum;
-    let y = xyz[1] / sum;
-    let n = (x - 0.3320) / (0.1858 - y);
-    let cct = 437.0 * n.powi(3) + 3601.0 * n.powi(2) + 6861.0 * n + 5517.0;
-    cct.clamp(2000.0, 15000.0)
-}
-
 /// Build a profile by interpolating between two illuminants, using the
-/// camera's as-shot neutral to compute the scene CCT. Used when rawler's
-/// color_matrix HashMap has 2+ entries.
+/// camera's as-shot neutral to compute the scene CCT. Called by
+/// `profile_loader::to_dcp_profile` when the bundled `MapleProfile`
+/// carries both CM1 and CM2 (the typical dual-illuminant DCP shape).
+/// Also exposed for the dcp.rs unit tests, which exercise the math
+/// directly without going through the dispatcher.
 ///
 /// `wb_already_baked = true` for LinearRaw DNGs whose converter pre-applied
 /// AsShotNeutral. In that case `scene_white_xyz` derives from
@@ -433,12 +416,13 @@ fn lerp_hsm_for_cct(
 
 // ── profile_for ───────────────────────────────────────────────────────────────
 
-/// Where the resolved [`DcpProfile`] came from. Carried alongside the profile
-/// so the develop chain knows whether to suppress the source DNG's
-/// `ProfileToneCurve` (suppressed for `Bundled`, kept for `Embedded`) without
-/// re-doing the bundled-profile lookup. See thread `PRRT_kwDOSK_I1M6EOuzz` on
-/// PR #330 for the motivation — eliminates a redundant HashMap probe + env
-/// var read on every full-frame and tile render.
+/// Where the resolved [`DcpProfile`] came from. Carried alongside the
+/// profile so the develop chain knows whether to suppress the source
+/// DNG's `ProfileToneCurve` (suppressed for `Bundled`, kept otherwise)
+/// without re-doing the bundled-profile lookup. See thread
+/// `PRRT_kwDOSK_I1M6EOuzz` on PR #330 for the motivation — eliminates
+/// a redundant HashMap probe + env var read on every full-frame and
+/// tile render.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum ProfileSource {
     /// Came from Maple's bundled third-party-derived profile table
@@ -447,9 +431,22 @@ pub enum ProfileSource {
     /// caller should drop PTC when this variant is in play (see the
     /// `pipeline::develop` comments at each call site).
     Bundled,
-    /// Came from the `RawImage`'s embedded color matrices (rawler defaults
-    /// or DNG-embedded profile). PTC/PLT in the source DNG are valid here.
-    Embedded,
+    /// Identity-CM fallback — the bundle has no entry for this body and
+    /// the UCM-mapping table didn't alias to anything that hit. Under
+    /// #345 (bundle-canonical) we no longer silently substitute rawler's
+    /// dcraw-lineage matrices, because rawler is decode-only — color
+    /// math always comes from the bundle when the bundle has the body.
+    /// `Fallback` exists so the develop pipeline can render *something*
+    /// (visibly wrong, but not a panic) and the gap shows up in
+    /// diagnostics. The profile carries identity CM, no FM, D65
+    /// illuminant. Coverage gaps that produce `Fallback` are tracked
+    /// in `src/raw-pipeline/raw-core/src/color/profiles/COVERAGE.md`.
+    ///
+    /// PTC/PLT contract: when the develop chain sees `Fallback`, the
+    /// source DNG's PTC/PLT (if any) flow through unchanged — the
+    /// identity render is already wrong, stripping the curves compounds
+    /// the misrender. See `pipeline::develop` for the call-site logic.
+    Fallback,
 }
 
 /// Synthesize a `DcpProfile` from a `RawImage`'s embedded color matrices.
@@ -467,137 +464,63 @@ pub fn profile_for(raw: &RawImage) -> crate::Result<DcpProfile> {
 /// to decide PTC suppression in a single pass — see ticket #324 and the
 /// PR #330 PTC-suppression rationale in `pipeline::develop`.
 ///
-/// Lookup order (first hit wins):
-///   1. **Maple's bundled third-party-derived profile** for this camera's
-///      `UniqueCameraModel` (when present). See
-///      [`crate::color::profile_loader`]. This is the high-quality path —
-///      1,447 externally-calibrated camera profiles, PTC/PLT stripped (AgX
-///      handles tone). Falls through to (2) on a miss.
-///   2. The `RawImage`'s embedded color matrices (rawler or DNG profile).
-///      Prefers dual-illuminant reciprocal-CCT interpolation (spec § 3.4)
-///      when both a warm illuminant (StdA) and a cool illuminant (D65/D55)
-///      are present. Falls back to single-illuminant
-///      (D65 → D50 → D55 → StdA → any) when only one matrix is available.
+/// Lookup order under ticket #345 (bundle-canonical color):
+///
+///   1. **Maple's bundled third-party-derived profile** for this
+///      camera's UCM (or a known alias — see
+///      [`crate::color::ucm_mapping`]). Returns
+///      [`ProfileSource::Bundled`]. This is the canonical color source:
+///      1,403+ externally-calibrated profiles, PTC/PLT stripped (AgX
+///      handles tone). If the source is a DNG with its own embedded CM,
+///      the bundle's CM wins — every body is authored once by the
+///      external standard, not split between bundle (matrices) and
+///      vendor (FM/HSM).
+///
+///   2. **Identity-CM fallback** when the bundle has no entry. Returns
+///      [`ProfileSource::Fallback`]. The fallback profile carries an
+///      identity ColorMatrix, no ForwardMatrix, D65 illuminant. It
+///      keeps the develop pipeline producing pixels (visibly wrong,
+///      but not a panic or `Err`) so coverage gaps surface as
+///      misrendered output + a `Fallback` source tag in diagnostics
+///      instead of being papered over by rawler's dcraw-lineage
+///      matrices.
+///
+/// **No rawler-CM path.** rawler is decode-only — pixels, EXIF,
+/// `AsShotNeutral`, black/white levels. Color comes from the bundle.
+/// This eliminates the source-mixing failure mode where the bundle's
+/// `ForwardMatrix` (calibrated against the bundle's CM) was spliced
+/// onto rawler's dcraw-lineage CM — empirically a 3–7 ΔE regression on
+/// Fuji / Sony / Nikon under the old gates. See #345 PR body for the
+/// before/after numbers.
 pub fn profile_for_with_source(raw: &RawImage) -> crate::Result<(DcpProfile, ProfileSource)> {
-    // (1) Bundled third-party-derived profile lookup. Returns the same DcpProfile
-    // shape — dual-illum interpolation when applicable, single-illum
-    // fallback otherwise. The PTC/PLT fields on DcpProfile are NOT set by
-    // this path; PTC/PLT come from RawImage tags and remain whatever the
-    // file shipped (typically Apple iPhone's 257-pair PTC). Because we
-    // dropped PTC/PLT during conversion, the bundled profile never contests
-    // those fields — it only overrides the matrices + HSM tables.
     if let Some(bundled) = crate::color::profile_loader::lookup_profile(raw) {
         if let Some(p) = crate::color::profile_loader::to_dcp_profile(bundled, raw) {
             return Ok((p, ProfileSource::Bundled));
         }
-        // to_dcp_profile only fails when the bundle entry has no CMs at all
-        // — never observed in practice. Fall through to embedded path.
+        // to_dcp_profile only fails when the bundle entry has no CMs at
+        // all — never observed in practice across the 1,447-profile set.
+        // Fall through to identity-fallback for the degenerate case.
     }
-    // Phase 1.2 of the color-convergence work re-enabled the DNG-spec WB
-    // pre-gain at `pipeline.rs` (after `linearize` + `demosaic`, before
-    // DCP). After pre-gain, a neutral scene patch reads as (1, 1, 1) going
-    // into DCP, so `scene_white_xyz = inv(CM) · (1, 1, 1)` and the DCP path
-    // must run with `wb_already_baked = true`.
-    //
-    // Exception: 8-bit lossy LinearRaw DNGs (DNG Converter perceptual
-    // path with `BitsPerSample = 8 8 8` and `white_level <= 255`) skip
-    // pre-gain at pipeline.rs — WB stays baked through the linearize gamma
-    // decode. For those, the legacy `inv(CM) · AsShotNeutral` derivation
-    // is the empirical match (the principled `inv(CM) · (1, 1, 1)`
-    // regressed by ~14 ΔE in earlier testing — see linearize.rs:137-145
-    // for the detailed history).
+    // Identity-CM fallback: bundle has no usable entry for this body.
+    // Render produces visibly-wrong colors (identity CM treats camera
+    // RGB as XYZ), but the pipeline keeps moving and the `Fallback`
+    // source tag surfaces in diagnostics. Coverage gaps are documented
+    // in `src/raw-pipeline/raw-core/src/color/profiles/COVERAGE.md`.
     let skip_pre_gain = matches!(raw.cfa, crate::image::CfaPattern::LinearRgb)
         && raw.white_level <= 255;
     let wb_already_baked = !skip_pre_gain;
-    let neutral_for_white: [f32; 3] = if wb_already_baked {
-        [1.0, 1.0, 1.0]
-    } else {
-        raw.as_shot_neutral
-    };
-
-    // Prefer two-illuminant interpolation when we have CMs at both ends of
-    // the typical range (cold illuminant like StdA, warm like D65).
-    let cold_candidates = [Illuminant::StdA, Illuminant::D50];
-    let warm_candidates = [Illuminant::D65, Illuminant::D55, Illuminant::D50];
-
-    let cold = cold_candidates.iter()
-        .find_map(|i| raw.color_matrices.get(i).map(|m| (*i, *m)));
-    let warm = warm_candidates.iter()
-        .find_map(|i| raw.color_matrices.get(i).map(|m| (*i, *m)));
-
-    if let (Some((il_cold, m_cold)), Some((il_warm, m_warm))) = (cold, warm) {
-        if il_cold != il_warm {
-            // Pair the FMs by illuminant so they lerp on the same `t` axis as
-            // the CMs. ForwardMatrix1 / ForwardMatrix2 may be absent (most
-            // bodies); when missing the dual-CM path's `forward_matrix`
-            // becomes None and DCP falls back to Bradford CA.
-            let fm_cold = raw.forward_matrices.get(&il_cold).copied();
-            let fm_warm = raw.forward_matrices.get(&il_warm).copied();
-            return Ok((interpolated_profile(
-                m_cold, il_cold,
-                m_warm, il_warm,
-                raw.as_shot_neutral,
-                wb_already_baked,
-                raw.hsm_data1.as_ref(),
-                raw.hsm_data2.as_ref(),
-                fm_cold,
-                fm_warm,
-            ), ProfileSource::Embedded));
-        }
-    }
-
-    // Single-illuminant HSM resolution. If only one of HSM1/HSM2 is present,
-    // use it directly; if both are present (rare in single-CM profiles —
-    // shouldn't happen, but tolerate), prefer HSM1 (the cold-side per spec
-    // convention). For the dual-CM path above, the proper reciprocal lerp
-    // runs inside `interpolated_profile`.
-    let single_hsm: Option<HsmTable> = raw.hsm_data1.clone().or_else(|| raw.hsm_data2.clone());
-
-    // Single-illuminant fallback: prefer D65, then D50, then anything. The
-    // scene CCT is still derived from AsShotNeutral + the lone CM (spec § 3.4
-    // "Profile has only one illuminant — skip interpolation; use it directly"
-    // — but Bradford source is still the scene white, not the calibration
-    // white, so fix 1+2 collapses to the same code path as the dual-CM case).
-    let preferred = [Illuminant::D65, Illuminant::D50, Illuminant::D55, Illuminant::StdA];
-    for illum in preferred {
-        if let Some(cm) = raw.color_matrices.get(&illum) {
-            let scene_cct = compute_scene_cct_single(*cm, raw.as_shot_neutral, illum.cct());
-            let scene_white_xyz = cm.inverse()
-                .map(|inv| normalize_to_y1(inv.mul_vec(neutral_for_white)))
-                .unwrap_or(crate::color::matrices::XYZ_D65);
-            return Ok((DcpProfile {
-                illuminant: illum,
-                color_matrix: *cm,
-                forward_matrix: raw.forward_matrices.get(&illum).copied(),
-                scene_cct,
-                scene_white_xyz,
-                wb_already_baked,
-                hsm: single_hsm,
-            }, ProfileSource::Embedded));
-        }
-    }
-    // Any remaining illuminant, deterministic iteration order (sorted by debug name).
-    let mut entries: Vec<_> = raw.color_matrices.iter().collect();
-    entries.sort_by_key(|(illum, _)| format!("{:?}", illum));
-    if let Some((illum, cm)) = entries.first() {
-        let scene_cct = compute_scene_cct_single(**cm, raw.as_shot_neutral, illum.cct());
-        let scene_white_xyz = cm.inverse()
-            .map(|inv| normalize_to_y1(inv.mul_vec(neutral_for_white)))
-            .unwrap_or(crate::color::matrices::XYZ_D65);
-        return Ok((DcpProfile {
-            illuminant: **illum,
-            color_matrix: **cm,
-            forward_matrix: raw.forward_matrices.get(illum).copied(),
-            scene_cct,
-            scene_white_xyz,
+    Ok((
+        DcpProfile {
+            illuminant: Illuminant::D65,
+            color_matrix: crate::math::Matrix3::IDENTITY,
+            forward_matrix: None,
+            scene_cct: Illuminant::D65.cct(),
+            scene_white_xyz: crate::color::matrices::XYZ_D65,
             wb_already_baked,
-            hsm: single_hsm,
-        }, ProfileSource::Embedded));
-    }
-    Err(crate::Error::Dcp(format!(
-        "no embedded color matrix for {} {}",
-        raw.camera_make, raw.camera_model
-    )))
+            hsm: None,
+        },
+        ProfileSource::Fallback,
+    ))
 }
 
 #[cfg(test)]
@@ -676,25 +599,39 @@ mod tests {
         }
     }
 
+    /// Under ticket #345 (bundle-canonical color), a RawImage with no
+    /// bundle hit AND no embedded matrices no longer errors — it returns
+    /// an identity-CM fallback profile tagged
+    /// [`ProfileSource::Fallback`]. The pipeline produces visibly-wrong
+    /// colors, but doesn't panic or return Err. This keeps coverage
+    /// gaps surfaceable via the source tag instead of bricking decode.
     #[test]
-    fn profile_for_returns_err_when_no_matrix() {
+    fn profile_for_with_no_matrix_returns_fallback() {
         let raw = make_raw(std::collections::HashMap::new());
-        let err = profile_for(&raw).unwrap_err();
-        match err {
-            crate::Error::Dcp(_) => {}
-            other => panic!("expected Error::Dcp, got {:?}", other),
-        }
+        let (profile, source) = profile_for_with_source(&raw).expect("fallback should succeed");
+        assert_eq!(source, ProfileSource::Fallback);
+        assert_eq!(profile.color_matrix, Matrix3::IDENTITY);
+        assert_eq!(profile.illuminant, Illuminant::D65);
+        assert!(profile.forward_matrix.is_none());
     }
 
+    /// Under #345, `profile_for` always returns Ok — bundle hit returns
+    /// `Bundled`, everything else returns identity-`Fallback`. A
+    /// synthetic raw with no UCM hits Fallback; the raw's embedded
+    /// color_matrices are NOT used (rawler is decode-only). This
+    /// replaces the pre-#345 test that expected the embedded path to
+    /// surface synthetic CMs verbatim.
     #[test]
-    fn profile_for_succeeds_when_matrix_present() {
+    fn synthetic_raw_with_embedded_cms_still_returns_fallback_under_bundle_canonical() {
         let mut cms = std::collections::HashMap::new();
-        cms.insert(Illuminant::D65, Matrix3::IDENTITY);
+        cms.insert(Illuminant::D65, Matrix3([
+            [0.7, 0.0, 0.0], [0.0, 0.7, 0.0], [0.0, 0.0, 0.7],
+        ]));
         let raw = make_raw(cms);
-        let profile = profile_for(&raw).unwrap();
-        assert_eq!(profile.illuminant, Illuminant::D65);
+        let (profile, source) = profile_for_with_source(&raw).expect("fallback should succeed");
+        // The synthetic CM is ignored; the fallback identity matrix wins.
+        assert_eq!(source, ProfileSource::Fallback);
         assert_eq!(profile.color_matrix, Matrix3::IDENTITY);
-        assert!(profile.forward_matrix.is_none());
     }
 
     // ── New dual-illuminant tests ─────────────────────────────────────────────
@@ -733,14 +670,18 @@ mod tests {
         assert_eq!(hotter.0[0][0], 2.0);
     }
 
-    /// RED test for DCP fix 1+2 (Bradford from scene CCT, unified path).
-    /// A neutral patch at an off-calibration scene CCT must render neutral.
-    /// Failure mode this catches: Bradford adapted from nearest-calibration
-    /// illuminant instead of the scene illuminant leaves residual chroma.
+    /// Bradford-from-scene-CCT (unified path): a neutral patch at an
+    /// off-calibration scene CCT must render neutral. Failure mode this
+    /// catches: Bradford adapted from nearest-calibration illuminant
+    /// instead of the scene illuminant leaves residual chroma.
     ///
+    /// Calls `interpolated_profile` directly because under #345
+    /// (bundle-canonical) `profile_for` no longer dispatches on
+    /// synthetic `color_matrices` — those would now resolve to identity
+    /// `Fallback`. The math here is `interpolated_profile`'s, not the
+    /// dispatcher's, so the direct call is the right shape.
     #[test]
     fn neutral_patch_at_scene_illuminant_renders_approximately_neutral() {
-        // Two plausibly-shaped CM matrices at StdA and D65.
         let cm_a = Matrix3([
             [ 0.6722, -0.0635, -0.0963],
             [-0.4287,  1.2460,  0.2028],
@@ -761,9 +702,7 @@ mod tests {
         let y = -3.0 * x * x + 2.870 * x - 0.275;
         let xyz_scene: crate::math::Vec3 = [x / y, 1.0, (1.0 - x - y) / y];
 
-        // Simulate the camera reading of a neutral patch at 4500K:
-        // camera_rgb = CM_interp * XYZ_scene, where CM_interp is the
-        // reciprocal-CCT lerp between StdA (2856K) and D65 (6504K).
+        // Simulate the camera reading of a neutral patch at 4500K.
         let t = (1.0/cct - 1.0/2856.0) / (1.0/6504.0 - 1.0/2856.0);
         let cm_interp = {
             let a = &cm_a.0;
@@ -778,37 +717,19 @@ mod tests {
         };
         let as_shot_neutral = cm_interp.mul_vec(xyz_scene);
 
-        let mut cms = std::collections::HashMap::new();
-        cms.insert(Illuminant::StdA, cm_a);
-        cms.insert(Illuminant::D65, cm_d);
-        let raw = RawImage {
-            width: 1, height: 1,
-            cfa: crate::image::CfaPattern::Rggb,
-            black_level: [0; 4], white_level: 1,
-            raw_data: vec![0],
+        // Build the dual-illuminant profile directly via
+        // `interpolated_profile`. wb_already_baked = true matches the
+        // production Bayer post-pre-gain contract.
+        let profile = interpolated_profile(
+            cm_a, Illuminant::StdA,
+            cm_d, Illuminant::D65,
             as_shot_neutral,
-            as_shot_cct: None,
-            camera_make: "Test".into(),
-            camera_model: "Test".into(),
-            unique_camera_model: None,
-            color_matrices: cms,
-            forward_matrices: std::collections::HashMap::new(),
-            orientation: crate::image::ExifOrientation::Normal,
-            baseline_exposure: 0.0,
-            hsm_data1: None,
-            hsm_data2: None,
-            plt: None,
-            profile_tone_curve: None,
-            profile_gain_table_map: None,
-        };
-        let profile = profile_for(&raw).unwrap();
+            /* wb_already_baked */ true,
+            None, None,
+            None, None,
+        );
+        assert!(profile.wb_already_baked);
 
-        // Phase 1.2: pipeline.rs pre-gains camera_rgb by AsShotNeutral
-        // before DCP. After pre-gain, a neutral patch reads (1, 1, 1) and
-        // profile_for returns wb_already_baked=true so DCP uses
-        // `inv(CM) · (1, 1, 1)` for scene_white_xyz. This unit test mirrors
-        // that contract: feed (1, 1, 1) and expect neutral output.
-        assert!(profile.wb_already_baked, "expected pre-gain semantics for Bayer cfa");
         let mut img = Image::new(1, 1, ColorSpace::CameraNativeLinearRgb);
         img.pixels[0] = [1.0, 1.0, 1.0];
         let out = apply(&img, &profile).unwrap();
@@ -821,44 +742,30 @@ mod tests {
             p[0], p[1], p[2], rg, bg);
     }
 
-    /// Regression test for ticket #07 (LinearRaw WB double-apply fix),
-    /// updated for Phase 1.2 of color-convergence (WB pre-gain re-enabled).
-    ///
-    /// 16-bit LinearRgb DNGs go through `linearize::linearraw_to_camera_rgb`
-    /// which multiplies by AsShotNeutral to undo the converter's WB pre-bake
-    /// (puts data in same camera-RGB space the Bayer path produces). Then
-    /// pipeline.rs pre-gains BOTH paths uniformly. So both profile paths now
-    /// produce identical `scene_white_xyz` because both run with
-    /// `wb_already_baked=true` and `neutral_for_white=(1,1,1)`.
-    ///
-    /// 8-bit lossy LinearRgb (white_level <= 255) skips pre-gain entirely
-    /// (data is gamma-decoded but WB-baked); for those, `wb_already_baked`
-    /// stays false and `scene_white_xyz = inv(CM) · AsShotNeutral`. That
-    /// path is covered separately.
+    /// `wb_already_baked` derivation is a property of `cfa` +
+    /// `white_level`, independent of which profile-source path runs.
+    /// Under #345 a synthetic raw without a UCM goes through the
+    /// `Fallback` path, but the Fallback profile still carries
+    /// `wb_already_baked` derived from the same cfa/white_level rules
+    /// as the original linearraw / Bayer dispatch — this regression
+    /// test confirms that property survives the strict-bundle refactor.
     #[test]
-    fn linearraw_profile_matches_bayer_after_pre_bake_undo() {
-        let cm = Matrix3([
-            [ 0.6722, -0.0635, -0.0963],
-            [-0.4287,  1.2460,  0.2028],
-            [-0.0908,  0.2162,  0.5668],
-        ]);
-        let mut cms = std::collections::HashMap::new();
-        cms.insert(Illuminant::D65, cm);
-        let warm_wb: [f32; 3] = [1.65, 1.0, 2.16]; // Canon-shape AsShotNeutral
+    fn fallback_profile_wb_already_baked_follows_cfa_and_white_level() {
+        let warm_wb: [f32; 3] = [1.65, 1.0, 2.16];
 
-        // Use white_level > 255 so the LinearRgb path is the 16-bit variant
-        // (gets pre-gain, wb_already_baked=true) — matches Bayer's contract.
+        // 16-bit LinearRgb (white_level > 255): pipeline.rs pre-gains,
+        // so wb_already_baked = true.
         let raw_linear = RawImage {
             width: 1, height: 1,
             cfa: crate::image::CfaPattern::LinearRgb,
             black_level: [0; 4], white_level: 65535,
-            raw_data: vec![0; 3], // 1 px × 3 channels
+            raw_data: vec![0; 3],
             as_shot_neutral: warm_wb,
             as_shot_cct: None,
             camera_make: "Test".into(),
             camera_model: "Test".into(),
             unique_camera_model: None,
-            color_matrices: cms.clone(),
+            color_matrices: std::collections::HashMap::new(),
             forward_matrices: std::collections::HashMap::new(),
             orientation: crate::image::ExifOrientation::Normal,
             baseline_exposure: 0.0,
@@ -868,77 +775,44 @@ mod tests {
             profile_tone_curve: None,
             profile_gain_table_map: None,
         };
-        let prof_linear = profile_for(&raw_linear).unwrap();
-        // 16-bit LinearRgb path: pipeline.rs pre-gains, so DCP runs with
-        // wb_already_baked=true (same as Bayer).
+        let (prof_linear, src_linear) = profile_for_with_source(&raw_linear).unwrap();
+        assert_eq!(src_linear, ProfileSource::Fallback);
         assert!(prof_linear.wb_already_baked,
             "16-bit LinearRgb must get wb_already_baked=true after Phase 1.2");
 
-        // For comparison: a Bayer raw with the same CM + WB must produce
-        // the SAME scene_white_xyz — both pre-gained, both compute
-        // scene_white from inv(CM) · (1,1,1).
         let mut raw_bayer = raw_linear.clone();
         raw_bayer.cfa = crate::image::CfaPattern::Rggb;
-        let prof_bayer = profile_for(&raw_bayer).unwrap();
+        let (prof_bayer, _) = profile_for_with_source(&raw_bayer).unwrap();
         assert!(prof_bayer.wb_already_baked);
-        for i in 0..3 {
-            assert!((prof_linear.scene_white_xyz[i] - prof_bayer.scene_white_xyz[i]).abs() < 1e-5,
-                "LinearRgb and Bayer profiles must produce the SAME scene_white_xyz; \
-                 LinearRgb={:?}, Bayer={:?}",
-                prof_linear.scene_white_xyz, prof_bayer.scene_white_xyz);
-        }
 
-        // Self-consistency: with wb_already_baked=true, scene_white_xyz =
-        // inv(CM) · (1,1,1) / Y_normalized.
-        let inv_cm = cm.inverse().unwrap();
-        let xyz = inv_cm.mul_vec([1.0, 1.0, 1.0]);
-        let s = 1.0 / xyz[1];
-        let expected = [xyz[0] * s, 1.0, xyz[2] * s];
-        for i in 0..3 {
-            assert!((prof_linear.scene_white_xyz[i] - expected[i]).abs() < 1e-4,
-                "scene_white_xyz[{}] = {} (want inv(CM)·(1,1,1) = {})",
-                i, prof_linear.scene_white_xyz[i], expected[i]);
-        }
-
-        // The 8-bit lossy LinearRgb path keeps the legacy contract: no
-        // pre-gain, scene_white from inv(CM) · AsShotNeutral.
+        // 8-bit lossy LinearRgb (white_level <= 255): no pre-gain,
+        // wb_already_baked stays false.
         let mut raw_lossy = raw_linear.clone();
         raw_lossy.white_level = 255;
-        let prof_lossy = profile_for(&raw_lossy).unwrap();
+        let (prof_lossy, _) = profile_for_with_source(&raw_lossy).unwrap();
         assert!(!prof_lossy.wb_already_baked,
             "8-bit lossy LinearRgb must keep wb_already_baked=false");
     }
 
+    /// `interpolated_profile` produces a CM between the two endpoints
+    /// when scene CCT lands between the calibration CCTs. This used to
+    /// be tested via `profile_for(synthetic_raw)`; under #345 the
+    /// dispatcher no longer surfaces synthetic CMs, so the direct
+    /// call is the appropriate test surface.
     #[test]
-    fn profile_for_interpolates_when_two_illuminants_available() {
-        let mut cms = std::collections::HashMap::new();
-        cms.insert(Illuminant::StdA, Matrix3::IDENTITY);
-        cms.insert(Illuminant::D65, Matrix3([
-            [2.0, 0.0, 0.0], [0.0, 2.0, 0.0], [0.0, 0.0, 2.0],
-        ]));
-        let raw = RawImage {
-            width: 1, height: 1,
-            cfa: crate::image::CfaPattern::Rggb,
-            black_level: [0; 4], white_level: 1,
-            raw_data: vec![0],
-            as_shot_neutral: [1.0, 1.0, 1.0],
-            as_shot_cct: None,
-            camera_make: "Test".into(),
-            camera_model: "Test".into(),
-            unique_camera_model: None,
-            color_matrices: cms,
-            forward_matrices: std::collections::HashMap::new(),
-            orientation: crate::image::ExifOrientation::Normal,
-            baseline_exposure: 0.0,
-            hsm_data1: None,
-            hsm_data2: None,
-            plt: None,
-            profile_tone_curve: None,
-            profile_gain_table_map: None,
-        };
-        let profile = profile_for(&raw).unwrap();
-        // Neutral (1,1,1) camera neutral → should land near D65 CCT → interpolated
-        // CM should be between identity (StdA) and 2*identity (D65).
+    fn interpolated_profile_lerps_between_endpoint_cms() {
+        let m_cold = Matrix3::IDENTITY;
+        let m_warm = Matrix3([[2.0, 0.0, 0.0], [0.0, 2.0, 0.0], [0.0, 0.0, 2.0]]);
+        let profile = interpolated_profile(
+            m_cold, Illuminant::StdA,
+            m_warm, Illuminant::D65,
+            /* as_shot_neutral */ [1.0, 1.0, 1.0],
+            /* wb_already_baked */ false,
+            None, None,
+            None, None,
+        );
+        // Neutral (1,1,1) → scene CCT lands near D65 → interpolated CM
+        // sits between identity (StdA) and 2*identity (D65).
         assert!(profile.color_matrix.0[0][0] > 1.0);
         assert!(profile.color_matrix.0[0][0] < 2.0);
     }
@@ -1044,71 +918,37 @@ mod tests {
             baseline.pixels[0], plt_out.pixels[0]);
     }
 
-    /// Dual-illuminant HSM lerp: when both HSM1/HSM2 are present in the
-    /// `RawImage`, `interpolated_profile` resolves to a single HSM via
-    /// reciprocal-CCT lerp using the SAME `t` as the CM lerp.
+    /// Dual-illuminant HSM lerp: `interpolated_profile` resolves the
+    /// HSM via reciprocal-CCT lerp using the SAME `t` as the CM lerp.
+    /// Tested by calling `interpolated_profile` directly (under #345
+    /// `profile_for` doesn't surface synthetic HSMs because the
+    /// dispatcher hits Fallback for synthetic raws).
     #[test]
     fn dual_hsm_lerps_at_scene_cct() {
-        // Build dual-illuminant fixture with HSM1/HSM2 that differ only in
-        // a single lattice point to make the lerp trivially observable.
         let m_a = Matrix3::IDENTITY;
         let m_d = Matrix3([[2.0, 0.0, 0.0], [0.0, 2.0, 0.0], [0.0, 0.0, 2.0]]);
         let dims = [2u32, 2, 1];
         let n = (dims[0] * dims[1] * dims[2]) as usize;
-        // HSM1: hueDelta = 30° everywhere
         let mut h1_data = Vec::with_capacity(n * 3);
         for _ in 0..n { h1_data.extend_from_slice(&[30.0, 1.0, 1.0]); }
-        // HSM2: hueDelta = 90° everywhere
         let mut h2_data = Vec::with_capacity(n * 3);
         for _ in 0..n { h2_data.extend_from_slice(&[90.0, 1.0, 1.0]); }
         let h1 = crate::color::hsm::HsmTable::new(dims, h1_data, crate::color::hsm::HsmEncoding::Linear).unwrap();
         let h2 = crate::color::hsm::HsmTable::new(dims, h2_data, crate::color::hsm::HsmEncoding::Linear).unwrap();
 
-        // At the reciprocal midpoint (StdA 2856K + D65 6504K), lerp should
-        // give hueDelta = (30 + 90) / 2 = 60°.
-        let mid_cct = 2.0 / (1.0 / 2856.0 + 1.0 / 6504.0);
-        // Synthesize an as_shot_neutral that drives compute_as_shot_cct
-        // close to mid_cct: pick (1, 1, 1) and use the simpler property
-        // that the resolved scene CCT equals the midpoint when CMs are
-        // diagonal-ish.
-        let mut cms = std::collections::HashMap::new();
-        cms.insert(Illuminant::StdA, m_a);
-        cms.insert(Illuminant::D65, m_d);
-        // Pick AsShotNeutral so the as_shot_cct lands near the midpoint.
-        // For identity-vs-2I matrices, the inverse-mapping puts us close
-        // to the midpoint when neutral is (1.5, 1.5, 1.5)-shaped — but we
-        // don't need pixel-perfect, only verify the lerp ran and produced
-        // something between the endpoints.
-        let raw = RawImage {
-            width: 1, height: 1,
-            cfa: crate::image::CfaPattern::Rggb,
-            black_level: [0; 4], white_level: 1,
-            raw_data: vec![0],
-            as_shot_neutral: [1.5, 1.0, 1.7],
-            as_shot_cct: None,
-            camera_make: "Test".into(),
-            camera_model: "Test".into(),
-            unique_camera_model: None,
-            color_matrices: cms,
-            forward_matrices: std::collections::HashMap::new(),
-            orientation: crate::image::ExifOrientation::Normal,
-            baseline_exposure: 0.0,
-            hsm_data1: Some(h1),
-            hsm_data2: Some(h2),
-            plt: None,
-            profile_tone_curve: None,
-            profile_gain_table_map: None,
-        };
-        let profile = profile_for(&raw).unwrap();
+        let profile = interpolated_profile(
+            m_a, Illuminant::StdA,
+            m_d, Illuminant::D65,
+            /* as_shot_neutral */ [1.5, 1.0, 1.7],
+            /* wb_already_baked */ false,
+            Some(&h1), Some(&h2),
+            None, None,
+        );
         let resolved_hsm = profile.hsm.as_ref().expect("dual-HSM path resolves to a table");
-        // The lerped hueDelta must lie in [30, 90].
+        // Lerped hueDelta lies in [30, 90].
         let hd = resolved_hsm.data[0];
         assert!(hd >= 30.0 - 0.5 && hd <= 90.0 + 0.5,
             "lerped hueDelta = {} not in expected [30, 90] range", hd);
-        // And it should differ from BOTH endpoints (not 30 exactly, not 90 exactly)
-        // unless the as_shot_cct happens to clamp at one endpoint — which
-        // depends on the synthetic neutral. Allow either case but document.
-        let _ = mid_cct;
     }
 
     /// Tiny helper to construct a 1xN Image of CameraNativeLinearRgb.
