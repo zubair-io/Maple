@@ -1,5 +1,5 @@
 // Capture sharpening section — Maple-proprietary Richardson-Lucy
-// deconvolution (#271). Distinct from the ACR-style unsharp-mask
+// deconvolution (#271). Distinct from the reference-renderer-style unsharp-mask
 // sliders in `editor-sharpening-section`; runs post-DCP in the Rust
 // scene-linear chain, sees the calibrated sensor signal before any
 // user tone/WB transforms. Off by default (amount = 0).

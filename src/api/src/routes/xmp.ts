@@ -15,7 +15,7 @@
  * caller-supplied path is inside an indexed library root, resolves the
  * `.xmp` sibling on disk, and performs the read / write / delete
  * directly. Two distinct paths that happen to share a `maple_id` get
- * two distinct sidecars — matching ACR/Lightroom behaviour and giving
+ * two distinct sidecars — matching reference-renderer/Lightroom behaviour and giving
  * us the shadow-copy primitive for free.
  *
  * Auth boundary: the path must be under one of the registered library

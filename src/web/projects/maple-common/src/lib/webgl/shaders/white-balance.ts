@@ -44,7 +44,7 @@ const mat3 M_XYZ_D65_TO_REC2020 = mat3(
 // Hernández-Andrés et al. 1999, "Calculating correlated color temperatures
 // across the entire gamut of daylight and skylight chromaticities"
 // (Applied Optics 38(27), 5703–5709). Valid 1667K–25000K; clamped to
-// [2000K, 25000K] (ACR exposes 2000K–50000K; clamp the upper end).
+// [2000K, 25000K] (the reference renderer exposes 2000K–50000K; clamp the upper end).
 //
 // Mirrors cct_to_xy in WhiteBalance.metal / white_balance.rs —
 // coefficients must stay byte-identical across Rust / Metal / WebGL.
@@ -76,16 +76,16 @@ vec3 xy_to_xyz(float x, float y, float Y) {
 }
 
 // Per-channel Rec.2020 gain to compensate for a SOURCE-LIGHT (cct, tint).
-// ACR convention: cct slider value is the COLOR TEMPERATURE OF THE LIGHT
+// Reference-renderer convention: cct slider value is the COLOR TEMPERATURE OF THE LIGHT
 // THE PHOTO WAS TAKEN UNDER. To neutralize, apply gain = D65 / source.
 // Warm source (2000K) → low gain[R], high gain[B] → cools the image.
 //
 // Previous version computed \`target / D65\` which inverted the direction;
 // slider_visual_matrix.py surfaced this on test_0002 — temperature_min
-// (2000K) rendered red/magenta where ACR rendered blue. Mirrors
+// (2000K) rendered red/magenta where the reference renderer rendered blue. Mirrors
 // WhiteBalance.metal post-fix and white_balance.rs::wb_gains.
 vec3 wb_gains(float cct, float tint) {
-    // ACR tint semantics: slider value is the IMAGE-direction shift
+    // Reference-renderer tint semantics: slider value is the IMAGE-direction shift
     // (positive = add green, negative = add magenta). To produce that
     // shift via gain = D65/source, the source must be in the OPPOSITE
     // chromaticity direction. Subtract (not add) tint from y.
