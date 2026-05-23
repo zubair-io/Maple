@@ -8,10 +8,8 @@
 //! hands the buffer off to a CoreImage / WebGL2 view transform.
 
 use super::{
-    develop::{
-        develop_scene_linear_from_raw_with_quality,
-        develop_scene_linear_sized_from_raw_with_quality,
-    },
+    develop::develop_scene_linear_from_raw_with_quality,
+    develop_sized::develop_scene_linear_sized_from_raw_with_quality,
     dump_after,
     fp16::f32_to_f16_bits,
     orient::apply_orientation_f32_rgba,
