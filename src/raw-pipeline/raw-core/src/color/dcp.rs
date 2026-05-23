@@ -221,10 +221,6 @@ fn apply_with_post_pro(
 ) -> crate::Result<Image> {
     camera.assert_space(ColorSpace::CameraNativeLinearRgb);
 
-    let cam_to_xyz = profile.color_matrix.inverse().ok_or_else(|| {
-        crate::Error::Dcp("ColorMatrix is singular, cannot invert to camera→XYZ".into())
-    })?;
-
     // Camera RGB → ProPhoto D50.
     //
     // Two paths, dispatched on `wb_already_baked` (whether
@@ -255,6 +251,13 @@ fn apply_with_post_pro(
     let cam_to_pro = match (profile.forward_matrix, profile.wb_already_baked) {
         (Some(fm), true) => inv_pro.mul_mat(&fm),
         _ => {
+            // Non-FM path: invert CM here (lazily — the FM path doesn't
+            // need it and skipping the inversion saves a 3x3 matrix inverse
+            // per image). CM is XYZ→camera per the DNG spec; we want the
+            // forward direction.
+            let cam_to_xyz = profile.color_matrix.inverse().ok_or_else(|| {
+                crate::Error::Dcp("ColorMatrix is singular, cannot invert to camera→XYZ".into())
+            })?;
             let adapt = bradford_adapt(profile.scene_white_xyz, XYZ_D50);
             inv_pro.mul_mat(&adapt).mul_mat(&cam_to_xyz)
         }
