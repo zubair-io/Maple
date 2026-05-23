@@ -110,3 +110,107 @@ fn chroma_prefilter_defaults_to_zero() {
     let m = AdjustmentModel::default();
     assert_eq!(m.chroma_prefilter, 0.0);
 }
+
+// ---------------------------------------------------------------------------
+// Crop value-type invariants
+// ---------------------------------------------------------------------------
+
+#[test]
+fn crop_default_is_identity() {
+    let c = Crop::default();
+    assert_eq!(c, Crop::IDENTITY);
+    assert!(c.is_identity(), "Default crop must be the identity");
+}
+
+#[test]
+fn crop_identity_fields_are_full_frame() {
+    let c = Crop::IDENTITY;
+    assert_eq!(c.top, 0.0);
+    assert_eq!(c.left, 0.0);
+    assert_eq!(c.bottom, 1.0);
+    assert_eq!(c.right, 1.0);
+    assert_eq!(c.angle, 0.0);
+}
+
+#[test]
+fn crop_non_identity_when_any_edge_or_angle_differs() {
+    // Edge-perturbation cases.
+    let mut c = Crop::IDENTITY;
+    c.top = 0.1;
+    assert!(!c.is_identity());
+
+    let mut c = Crop::IDENTITY;
+    c.right = 0.9;
+    assert!(!c.is_identity());
+
+    // Angle-only perturbation: identity rect with a rotation is still a
+    // visible operation (straighten); spec § 3.12 explicitly allows
+    // angle-only adjustments.
+    let mut c = Crop::IDENTITY;
+    c.angle = 0.01;
+    assert!(!c.is_identity());
+}
+
+#[test]
+fn crop_rect_validity_well_formed() {
+    let c = Crop {
+        top: 0.1,
+        left: 0.2,
+        bottom: 0.9,
+        right: 0.8,
+        angle: 0.0,
+    };
+    assert!(c.rect_is_valid());
+}
+
+#[test]
+fn crop_rect_validity_inverted_or_empty_is_invalid() {
+    // Inverted: bottom < top.
+    let c = Crop {
+        top: 0.9,
+        left: 0.0,
+        bottom: 0.1,
+        right: 1.0,
+        angle: 0.0,
+    };
+    assert!(!c.rect_is_valid());
+
+    // Empty: right == left.
+    let c = Crop {
+        top: 0.0,
+        left: 0.5,
+        bottom: 1.0,
+        right: 0.5,
+        angle: 0.0,
+    };
+    assert!(!c.rect_is_valid());
+}
+
+#[test]
+fn crop_rect_validity_out_of_range_is_invalid() {
+    let c = Crop {
+        top: -0.1,
+        left: 0.0,
+        bottom: 1.0,
+        right: 1.0,
+        angle: 0.0,
+    };
+    assert!(!c.rect_is_valid());
+
+    let c = Crop {
+        top: 0.0,
+        left: 0.0,
+        bottom: 1.1,
+        right: 1.0,
+        angle: 0.0,
+    };
+    assert!(!c.rect_is_valid());
+}
+
+#[test]
+fn adjustment_default_crop_is_identity() {
+    // AdjustmentModel::default() must produce an identity crop so the
+    // baseline parity harness stays a no-op for the geometry stage.
+    let m = AdjustmentModel::default();
+    assert!(m.crop.is_identity());
+}
