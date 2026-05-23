@@ -30,7 +30,8 @@ export type MigrationId =
   | 'reset-describe-dead-vision-parse-2026-05-22'
   | 'fileinfo-backfill-2026-05-20'
   | 'merge-duplicate-assets-2026-05-21'
-  | 'drop-abs-path-2026-05-21';
+  | 'drop-abs-path-2026-05-21'
+  | 'swap-maple-id-partial-filter-2026-05-23';
 
 interface MigrationDoc {
   _id: MigrationId;
