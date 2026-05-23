@@ -101,7 +101,7 @@ fn emit_swift(schema: &[FieldSpec]) -> String {
     s.push_str("// `AdjustmentModel`. The struct itself + defaults + init stay\n");
     s.push_str("// hand-written in `AdjustmentModel.swift`; Apple's defaults\n");
     s.push_str("// match raw-core's canonical values (per #326, sharpen converges\n");
-    s.push_str("// to ACR's import baseline: 40 / 1.0 / 25 / 0).\n\n");
+    s.push_str("// to the reference renderer's import baseline: 40 / 1.0 / 25 / 0).\n\n");
     s.push_str("import Foundation\n\n");
 
     // FieldName enum — canonical snake_case names from the schema.
