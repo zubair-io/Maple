@@ -17,32 +17,39 @@
  * a dot product.
  */
 
+import { type Filter, ObjectId } from 'mongodb';
+import { assetsCollection, peopleCollection } from '../db/client.ts';
+import type { AssetDoc, AssetFaceDoc, Bbox, PersonDoc } from '../db/schema.ts';
+import { child as childLogger } from '../log.ts';
 import {
-  type Filter,
-  ObjectId,
-} from "mongodb";
-import {
-  assetsCollection,
-  peopleCollection,
-} from "../db/client.ts";
-import type {
-  AssetDoc,
-  AssetFaceDoc,
-  Bbox,
-  PersonDoc,
-} from "../db/schema.ts";
-import { child as childLogger } from "../log.ts";
+  DEFAULT_SIMILARITY_THRESHOLD,
+  EMBEDDING_DIM,
+  l2Normalise,
+  dotProduct,
+  updateCentroid,
+} from './cluster-embeddings.ts';
 
-const log = childLogger("people:clustering");
+const log = childLogger('people:clustering');
 
-/** Online-clustering knob. 0.5 chosen empirically: MobileFaceNet
- * embeddings tend to score 0.6-0.9 within an identity and < 0.4 across.
- * Operators can override at call time when triaging a noisy library. */
-const DEFAULT_SIMILARITY_THRESHOLD = 0.5;
-
-/** Embedding dimensionality from MobileFaceNet. Used as a sanity check
- * when reading embeddings from Mongo. */
-const EMBEDDING_DIM = 512;
+// Re-exports for back-compat with prior public surface — these constants
+// and helpers used to live in this file. The pure-function clustering
+// core (`clusterEmbeddings`, `ClusterSeed`, etc.) is exported from
+// `./cluster-embeddings.ts` directly; callers prefer that path so the
+// harness can import without dragging the Mongo deps in this module
+// along for the ride.
+export {
+  DEFAULT_SIMILARITY_THRESHOLD,
+  EMBEDDING_DIM,
+  l2Normalise,
+  dotProduct,
+  updateCentroid,
+  clusterEmbeddings,
+} from './cluster-embeddings.ts';
+export type {
+  ClusterSeed,
+  OnlineClusterOptions,
+  OnlineClusterResult,
+} from './cluster-embeddings.ts';
 
 export interface RunOnlineClusteringOptions {
   /** Cosine threshold to merge a face into an existing cluster. Faces
@@ -81,7 +88,12 @@ interface CentroidEntry {
 }
 
 // ---------------------------------------------------------------------------
-// Public API
+// Public API — DB-backed wrapper around the pure clustering core in
+// `./cluster-embeddings.ts`. The pure function does the embedding →
+// assignment math; this layer adds the Mongo round-trips: load existing
+// centroids, persist assignments to `asset.faces[*].person_id`, create
+// `PersonDoc` rows for new clusters, and trigger the cover-asset
+// backfill.
 // ---------------------------------------------------------------------------
 
 /**
@@ -107,7 +119,10 @@ export async function runOnlineClustering(
   let newPeople = 0;
   // Buffer assignments per (asset_id, face_index) so we can apply them
   // in a single bulk write per asset.
-  const perAsset = new Map<string, { assetId: ObjectId; updates: Array<{ index: number; personId: string }> }>();
+  const perAsset = new Map<
+    string,
+    { assetId: ObjectId; updates: Array<{ index: number; personId: string }> }
+  >();
 
   for (const face of faces) {
     let bestId: ObjectId | null = null;
@@ -124,11 +139,7 @@ export async function runOnlineClustering(
       if (target) {
         // Streaming mean: c' = (c * n + e) / (n + 1) followed by L2
         // renormalise so cosine == dot.
-        target.centroid = updateCentroid(
-          target.centroid,
-          face.embedding,
-          target.face_count,
-        );
+        target.centroid = updateCentroid(target.centroid, face.embedding, target.face_count);
         target.face_count += 1;
       }
       bufferAssignment(perAsset, face, bestId.toHexString());
@@ -139,12 +150,7 @@ export async function runOnlineClustering(
     // face as the cover thumb.
     nextAutoIndex += 1;
     const name = `Person ${nextAutoIndex}`;
-    const created = await createAutoPerson(
-      name,
-      face.embedding,
-      face.asset_id,
-      face.bbox,
-    );
+    const created = await createAutoPerson(name, face.embedding, face.asset_id, face.bbox);
     centroids.push({
       person_id: created,
       centroid: l2Normalise(face.embedding),
@@ -175,10 +181,7 @@ export async function runOnlineClustering(
   // created manually via `POST /api/people` ahead of any face assignment.
   await backfillCoverAssets();
 
-  log.info(
-    { assigned, newPeople, scanned: faces.length, threshold },
-    "online clustering finished",
-  );
+  log.info({ assigned, newPeople, scanned: faces.length, threshold }, 'online clustering finished');
   return { assigned, newPeople, scanned: faces.length };
 }
 
@@ -193,9 +196,7 @@ export async function runOnlineClustering(
 export async function recomputeCentroids(): Promise<number> {
   const peopleC = await peopleCollection();
   const assets = await assetsCollection();
-  const livePeople = await peopleC
-    .find({ merged_into: null } as Filter<PersonDoc>)
-    .toArray();
+  const livePeople = await peopleC.find({ merged_into: null } as Filter<PersonDoc>).toArray();
   let updated = 0;
   for (const person of livePeople) {
     const personHex = person._id.toHexString();
@@ -205,14 +206,14 @@ export async function recomputeCentroids(): Promise<number> {
     // second drops the unwound rows whose `person_id` is for someone
     // else.
     const cursor = assets.aggregate<{ embedding: number[] }>([
-      { $match: { "faces.person_id": personHex } },
-      { $unwind: "$faces" },
-      { $match: { "faces.person_id": personHex } },
+      { $match: { 'faces.person_id': personHex } },
+      { $unwind: '$faces' },
+      { $match: { 'faces.person_id': personHex } },
       // Hidden faces are out of clustering — they should not contribute
       // to the centroid even if they somehow still carry a `person_id`.
-      { $match: { "faces.hidden": { $ne: true } } },
-      { $match: { "faces.embedding": { $exists: true, $ne: [] } } },
-      { $project: { embedding: "$faces.embedding" } },
+      { $match: { 'faces.hidden': { $ne: true } } },
+      { $match: { 'faces.embedding': { $exists: true, $ne: [] } } },
+      { $project: { embedding: '$faces.embedding' } },
     ]);
     let count = 0;
     let mean: Float32Array | null = null;
@@ -237,7 +238,11 @@ export async function recomputeCentroids(): Promise<number> {
     }
     for (let i = 0; i < EMBEDDING_DIM; i += 1) mean[i] /= count;
     const normalised = l2Normalise(mean);
-    if ((person.centroid_face_count ?? -1) === count && person.centroid && person.centroid.length === EMBEDDING_DIM) {
+    if (
+      (person.centroid_face_count ?? -1) === count &&
+      person.centroid &&
+      person.centroid.length === EMBEDDING_DIM
+    ) {
       // Centroid unchanged — skip the write.
       continue;
     }
@@ -261,9 +266,7 @@ export async function recomputeCentroids(): Promise<number> {
 
 async function loadCentroids(): Promise<CentroidEntry[]> {
   const peopleC = await peopleCollection();
-  const rows = await peopleC
-    .find({ merged_into: null } as Filter<PersonDoc>)
-    .toArray();
+  const rows = await peopleC.find({ merged_into: null } as Filter<PersonDoc>).toArray();
   const out: CentroidEntry[] = [];
   for (const r of rows) {
     if (!r.centroid || r.centroid.length !== EMBEDDING_DIM) continue;
@@ -285,17 +288,17 @@ async function loadUnassignedFaces(): Promise<FaceRef[]> {
     bbox: Bbox;
   }>([
     { $match: { faces: { $exists: true, $ne: [] } } },
-    { $unwind: { path: "$faces", includeArrayIndex: "face_index" } },
-    { $match: { "faces.person_id": null } },
+    { $unwind: { path: '$faces', includeArrayIndex: 'face_index' } },
+    { $match: { 'faces.person_id': null } },
     // Operator-hidden faces stay out of clustering — re-running shouldn't
     // re-assign them to anyone.
-    { $match: { "faces.hidden": { $ne: true } } },
-    { $match: { "faces.embedding": { $exists: true, $ne: [] } } },
+    { $match: { 'faces.hidden': { $ne: true } } },
+    { $match: { 'faces.embedding': { $exists: true, $ne: [] } } },
     {
       $project: {
         face_index: 1,
-        embedding: "$faces.embedding",
-        bbox: "$faces.bbox",
+        embedding: '$faces.embedding',
+        bbox: '$faces.bbox',
       },
     },
   ]);
@@ -317,9 +320,7 @@ async function loadUnassignedFaces(): Promise<FaceRef[]> {
  * person exists. */
 async function maxAutoNameIndex(): Promise<number> {
   const peopleC = await peopleCollection();
-  const cursor = peopleC.find(
-    { name: { $regex: /^Person \d+$/ } } as Filter<PersonDoc>,
-  );
+  const cursor = peopleC.find({ name: { $regex: /^Person \d+$/ } } as Filter<PersonDoc>);
   let maxIdx = 0;
   for await (const row of cursor) {
     const m = /^Person (\d+)$/.exec(row.name);
@@ -415,26 +416,26 @@ async function doBackfillCoverAssets(): Promise<void> {
   const cursor = assets.aggregate<{
     _id: string;
     best_asset_id: ObjectId;
-    best_bbox: AssetFaceDoc["bbox"];
+    best_bbox: AssetFaceDoc['bbox'];
   }>([
     { $match: { faces: { $exists: true, $ne: [] } } },
-    { $unwind: "$faces" },
-    { $match: { "faces.person_id": { $in: missingHexIds } } },
-    { $match: { "faces.hidden": { $ne: true } } },
+    { $unwind: '$faces' },
+    { $match: { 'faces.person_id': { $in: missingHexIds } } },
+    { $match: { 'faces.hidden': { $ne: true } } },
     {
       $project: {
         _id: 1,
-        person_id: "$faces.person_id",
-        confidence: "$faces.confidence",
-        bbox: "$faces.bbox",
+        person_id: '$faces.person_id',
+        confidence: '$faces.confidence',
+        bbox: '$faces.bbox',
       },
     },
     { $sort: { confidence: -1 } },
     {
       $group: {
-        _id: "$person_id",
-        best_asset_id: { $first: "$_id" },
-        best_bbox: { $first: "$bbox" },
+        _id: '$person_id',
+        best_asset_id: { $first: '$_id' },
+        best_bbox: { $first: '$bbox' },
       },
     },
   ]);
@@ -445,10 +446,10 @@ async function doBackfillCoverAssets(): Promise<void> {
       update: {
         $set: {
           cover_asset_id: string;
-          cover_bbox: AssetFaceDoc["bbox"];
+          cover_bbox: AssetFaceDoc['bbox'];
           updated_at: string;
         };
-        $unset: { cover_face_id: "" };
+        $unset: { cover_face_id: '' };
       };
     };
   }> = [];
@@ -470,7 +471,7 @@ async function doBackfillCoverAssets(): Promise<void> {
             updated_at: now,
           },
           // Drop the legacy field so old + new docs converge on one shape.
-          $unset: { cover_face_id: "" },
+          $unset: { cover_face_id: '' },
         },
       },
     });
@@ -509,44 +510,9 @@ function bufferAssignment(
   entry.updates.push({ index: face.face_index, personId: personHex });
 }
 
-// ---------------------------------------------------------------------------
-// Vector helpers
-// ---------------------------------------------------------------------------
-
-/** L2-normalise into a fresh Float32Array. A zero vector returns zeros
- * (no NaN); the dot product against a zero vector is 0, which keeps the
- * "not similar" semantics intact. */
-export function l2Normalise(v: Float32Array): Float32Array {
-  let sumSq = 0;
-  for (let i = 0; i < v.length; i += 1) sumSq += v[i] * v[i];
-  const norm = Math.sqrt(sumSq);
-  if (norm === 0) return new Float32Array(v.length);
-  const out = new Float32Array(v.length);
-  for (let i = 0; i < v.length; i += 1) out[i] = v[i] / norm;
-  return out;
-}
-
-export function dotProduct(a: Float32Array, b: Float32Array): number {
-  if (a.length !== b.length) return 0;
-  let sum = 0;
-  for (let i = 0; i < a.length; i += 1) sum += a[i] * b[i];
-  return sum;
-}
-
-/** Streaming mean: c' = ((c * n) + e) / (n + 1). Renormalises before
- * returning so the centroid stays unit-length for the cosine path. */
-export function updateCentroid(
-  centroid: Float32Array,
-  embedding: Float32Array,
-  count: number,
-): Float32Array {
-  if (centroid.length !== embedding.length) return centroid;
-  const out = new Float32Array(centroid.length);
-  for (let i = 0; i < centroid.length; i += 1) {
-    out[i] = (centroid[i] * count + embedding[i]) / (count + 1);
-  }
-  return l2Normalise(out);
-}
+// Vector helpers (l2Normalise / dotProduct / updateCentroid) live in
+// `./cluster-embeddings.ts` and are re-exported at the top of this file
+// for callers that import them through here.
 
 /** Re-export kept for the test suite. */
 export const _internals = {
