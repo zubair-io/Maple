@@ -1,0 +1,10 @@
+{
+  "purity_min": 0.97,
+  "nmi_min": 0.9359,
+  "v_measure_min": 0.9359,
+  "ari_min": 0.8974,
+  "recall_at_1_min": 0.905,
+  "similarity_threshold": 0.5,
+  "fixtures_mode": "synthetic",
+  "notes": "Seeded 2026-05-23 from a synthetic-mode run (20 identities x 10 faces, hard_fraction=0.15, intra=0.7 / inter=0.2, threshold=0.5). Measured: purity=1.0000 nmi=0.9659 v=0.9659 ari=0.9274 recall@1=0.9350; floors set ~3% below to absorb fixture-seed noise. Real-LFW numbers will differ — when LFW embeddings are committed, re-seed via `bun src/api/src/people/clustering-quality-harness.ts --suggest-budgets`."
+}
