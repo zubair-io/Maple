@@ -57,7 +57,7 @@ use crate::image::RawImage;
 /// `_raw` is unused today. It's threaded through so the Pixel-lens
 /// future iteration can read EXIF lens metadata without touching every
 /// call site again.
-pub fn map_to_bundle_ucm(_raw: &RawImage, source_key: &str) -> Option<String> {
+pub fn map_to_bundle_ucm(_raw: &RawImage, source_key: &str) -> Option<&'static str> {
     match source_key {
         // ── Hasselblad medium-format ──────────────────────────────────
         // The H-series body codes (H2D, H4D, H5D, H6D) carry the sensor
@@ -66,7 +66,7 @@ pub fn map_to_bundle_ucm(_raw: &RawImage, source_key: &str) -> Option<String> {
         // per-sensor calibration is what matters for color, not the
         // body shell. Verified by inspecting the bundled profile set
         // (see `convert_dcps.py` + the bundle parser).
-        "Hasselblad H2D-39" => Some("Hasselblad 39-Coated".to_string()),
+        "Hasselblad H2D-39" => Some("Hasselblad 39-Coated"),
         // ── DJI Mavic 3 Pro (Hasselblad L3D-100c sensor) ──────────────
         // The L3D-100c is the 100 MP main-camera sensor on the Mavic 3
         // Pro. The bundle files it under the drone body code FC4382.
@@ -75,7 +75,7 @@ pub fn map_to_bundle_ucm(_raw: &RawImage, source_key: &str) -> Option<String> {
         // don't map there explicitly because rawler would have to
         // report something other than `Hasselblad L3D-100c` to reach
         // here, and that case doesn't exist in our fixtures.
-        "Hasselblad L3D-100c" => Some("DJI FC4382 Mavic3Pro".to_string()),
+        "Hasselblad L3D-100c" => Some("DJI FC4382 Mavic3Pro"),
         // ── Google Pixel 6 Pro ────────────────────────────────────────
         // Default to the Rear Main Camera profile. The Pixel 6 Pro's
         // RAW pipeline most often produces output from the main wide
@@ -83,7 +83,7 @@ pub fn map_to_bundle_ucm(_raw: &RawImage, source_key: &str) -> Option<String> {
         // metadata that rawler doesn't surface today. When that lands,
         // the `_raw` arg can be inspected and the variant picked
         // properly. Tracking issue: see COVERAGE.md.
-        "Google Pixel 6 Pro" => Some("Google Pixel 6 Pro Rear Main Camera".to_string()),
+        "Google Pixel 6 Pro" => Some("Google Pixel 6 Pro Rear Main Camera"),
         _ => None,
     }
 }
@@ -121,7 +121,7 @@ mod tests {
         let raw = make_raw("Hasselblad H2D-39");
         assert_eq!(
             map_to_bundle_ucm(&raw, "Hasselblad H2D-39"),
-            Some("Hasselblad 39-Coated".to_string())
+            Some("Hasselblad 39-Coated")
         );
     }
 
@@ -130,7 +130,7 @@ mod tests {
         let raw = make_raw("Hasselblad L3D-100c");
         assert_eq!(
             map_to_bundle_ucm(&raw, "Hasselblad L3D-100c"),
-            Some("DJI FC4382 Mavic3Pro".to_string())
+            Some("DJI FC4382 Mavic3Pro")
         );
     }
 
@@ -139,7 +139,7 @@ mod tests {
         let raw = make_raw("Google Pixel 6 Pro");
         assert_eq!(
             map_to_bundle_ucm(&raw, "Google Pixel 6 Pro"),
-            Some("Google Pixel 6 Pro Rear Main Camera".to_string())
+            Some("Google Pixel 6 Pro Rear Main Camera")
         );
     }
 
