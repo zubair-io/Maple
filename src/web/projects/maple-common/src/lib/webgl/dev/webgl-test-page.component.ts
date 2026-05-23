@@ -18,10 +18,7 @@ import {
   signal,
   AfterViewInit,
 } from '@angular/core';
-import {
-  defaultAdjustmentModel,
-  type AdjustmentModel,
-} from '../../models/adjustment-model';
+import { defaultAdjustmentModel, type AdjustmentModel } from '../../models/adjustment-model';
 import type { DecodedSceneLinearImage } from '../../raw-pipeline/raw-pipeline.types';
 import { Pipeline, WebglFp16Unsupported } from '../pipeline';
 import { computeDeltaEStats } from '../delta-e-2000';
@@ -78,7 +75,9 @@ export class WebglTestPageComponent implements AfterViewInit {
       this.status.set('loading fixtures');
       const [inputBuf, refImg] = await Promise.all([
         fetch(FIXTURE_INPUT_URL).then((r) => r.arrayBuffer()),
-        fetch(FIXTURE_REFERENCE_URL).then((r) => r.blob()).then(blobToImageData),
+        fetch(FIXTURE_REFERENCE_URL)
+          .then((r) => r.blob())
+          .then(blobToImageData),
       ]);
       if (inputBuf.byteLength !== 2048) {
         throw new Error(
@@ -139,11 +138,7 @@ async function blobToImageData(blob: Blob): Promise<ImageData> {
   return ctx.getImageData(0, 0, bmp.width, bmp.height);
 }
 
-function flipVerticallyRgba(
-  rgba: Uint8ClampedArray,
-  w: number,
-  h: number,
-): Uint8ClampedArray {
+function flipVerticallyRgba(rgba: Uint8ClampedArray, w: number, h: number): Uint8ClampedArray {
   const out = new Uint8ClampedArray(rgba.length);
   const rowBytes = w * 4;
   for (let y = 0; y < h; y += 1) {
