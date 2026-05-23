@@ -284,9 +284,7 @@ describe('ensureIndexes — maple_id index (Fix 4)', () => {
     // Seed at least one matching row so the planner has something to weigh
     // against alternatives; an empty collection sometimes biases toward
     // EOF/COLLSCAN regardless of indexes.
-    await db!
-      .collection('assets')
-      .insertOne({ filename: 'seed.jpg', maple_id: 'a'.repeat(32) });
+    await db!.collection('assets').insertOne({ filename: 'seed.jpg', maple_id: 'a'.repeat(32) });
 
     const explain = (await db!
       .collection('assets')
