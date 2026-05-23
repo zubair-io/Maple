@@ -144,7 +144,7 @@ export async function handleEvent(
   // created or modified — hash, then dedup by maple_id.
   //
   // PR 2: hashing moves from the post-insert `hash` stage to here so the
-  // unique `maple_id_1` index becomes the dedup gate. When two files have
+  // unique `maple_id_gt_1` index becomes the dedup gate. When two files have
   // identical content the second event no longer inserts a new row — it
   // $push's a fileinfo entry on the existing row.
   //

@@ -199,14 +199,14 @@ export async function backfillFileinfo(db: Db): Promise<BackfillFileinfoResult> 
 // Healing pass: collapse pre-existing rows that share a `maple_id` into a
 // single row with a union of every group member's `fileinfo[]`.
 //
-// Why this exists even though the unique partial index `maple_id_1` forbids
-// the state: on deploys where the index was never built (or was dropped at
-// some point) and PR 1's hash-stage races didn't merge cleanly, the
-// collection can carry "physical" duplicates that the runtime constraint
-// would now reject on insert. `ensureIndexes` calls this BEFORE the
-// `maple_id_1` createIndex so the index creation succeeds on the cleaned-up
-// state — without this ordering, `createIndex` would throw `DuplicateKey`
-// and the boot would abort.
+// Why this exists even though the unique partial index `maple_id_gt_1`
+// forbids the state: on deploys where the index was never built (or was
+// dropped at some point) and PR 1's hash-stage races didn't merge cleanly,
+// the collection can carry "physical" duplicates that the runtime
+// constraint would now reject on insert. `ensureIndexes` calls this
+// BEFORE the `maple_id_gt_1` createIndex so the index creation succeeds
+// on the cleaned-up state — without this ordering, `createIndex` would
+// throw `DuplicateKey` and the boot would abort.
 //
 // Survivor rule: earliest `indexed_at` wins. This is the row most likely to
 // carry user-edited fields (rating, flag, color_label, faces, sidecar
