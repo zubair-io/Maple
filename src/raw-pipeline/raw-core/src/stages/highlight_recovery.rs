@@ -118,13 +118,23 @@ fn apply_chromatic_adaptation(img: &mut Image, neutral: [f32; 3]) {
     let ceil = ceilings(neutral);
     let thresholds = [ceil[0] - EPSILON, ceil[1] - EPSILON, ceil[2] - EPSILON];
 
+    // Cheap pre-scan: most scenes have no clipping post-WB (the common case
+    // now that ChromaticAdaptation is the default — see #335 per-fixture
+    // diff). Bail out before touching the heap. `any()` short-circuits on
+    // the first clipped pixel.
+    let any_clipped = img.pixels.iter().any(|p| {
+        p[0] >= thresholds[0] || p[1] >= thresholds[1] || p[2] >= thresholds[2]
+    });
+    if !any_clipped {
+        return;
+    }
+
     // Pass 1: build a per-pixel clip mask. Bit 0..2 = "channel c is clipped".
     // Pixels with any channel ≥ its per-channel ceiling minus EPSILON count as
     // "clipped" for the purposes of neighbor exclusion. Storing the mask in a
     // `Vec<u8>` rather than recomputing keeps the inner loop branch-free.
     let n = img.pixels.len();
     let mut clip_mask = vec![0u8; n];
-    let mut any_clipped = false;
     for (i, p) in img.pixels.iter().enumerate() {
         let mut m: u8 = 0;
         if p[0] >= thresholds[0] {
@@ -137,12 +147,6 @@ fn apply_chromatic_adaptation(img: &mut Image, neutral: [f32; 3]) {
             m |= 0b100;
         }
         clip_mask[i] = m;
-        if m != 0 {
-            any_clipped = true;
-        }
-    }
-    if !any_clipped {
-        return; // Fast path: nothing to do.
     }
 
     // Snapshot of inputs so the inner loop reads consistent values even as we
