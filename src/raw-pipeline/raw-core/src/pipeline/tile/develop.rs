@@ -72,7 +72,7 @@ pub(super) fn develop_scene_linear_from_padded_mosaic(
     stage("tile_highlight_recovery", || {
         highlight_recovery::apply(&mut camera_rgb, model.highlight_recovery, raw.as_shot_neutral)
     });
-    let (profile, source) = stage("tile_dcp_profile_for", || dcp::profile_for_with_source(raw))?;: gate bundled DCP lookup behind PLT-absent + matrix-divergence)
+    let (profile, source) = stage("tile_dcp_profile_for", || dcp::profile_for_with_source(raw))?;
     // PTC suppression when bundled — see `pipeline::develop` for rationale.
     // `source` is carried out of the single lookup `profile_for_with_source`
     // already performed — eliminates the per-tile HashMap+env-var redundancy
