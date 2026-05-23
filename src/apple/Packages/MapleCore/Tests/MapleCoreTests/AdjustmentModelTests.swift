@@ -338,6 +338,67 @@ final class AdjustmentModelTests: XCTestCase {
 
     // MARK: - Helpers
 
+    // MARK: - Crop / straighten (ticket #277)
+
+    func testDefaultCropIsIdentity() {
+        let m = AdjustmentModel.default
+        XCTAssertTrue(m.crop.isIdentity)
+        XCTAssertEqual(m.crop.top, 0)
+        XCTAssertEqual(m.crop.left, 0)
+        XCTAssertEqual(m.crop.bottom, 1)
+        XCTAssertEqual(m.crop.right, 1)
+        XCTAssertEqual(m.crop.angle, 0)
+    }
+
+    func testParseCropWithHasCropTrue() throws {
+        let xml = xmp(attrs:
+            #"crs:HasCrop="True" crs:CropTop="0.1" crs:CropLeft="0.2" crs:CropBottom="0.9" crs:CropRight="0.8""#)
+        let (m, _) = try XMPParser.parse(xml)
+        XCTAssertEqual(m.crop.top, 0.1, accuracy: 1e-6)
+        XCTAssertEqual(m.crop.left, 0.2, accuracy: 1e-6)
+        XCTAssertEqual(m.crop.bottom, 0.9, accuracy: 1e-6)
+        XCTAssertEqual(m.crop.right, 0.8, accuracy: 1e-6)
+    }
+
+    func testParseCropWithoutHasCropLeavesIdentity() throws {
+        let xml = xmp(attrs: #"crs:CropTop="0.5" crs:CropBottom="0.9" crs:CropRight="0.9""#)
+        let (m, _) = try XMPParser.parse(xml)
+        XCTAssertTrue(m.crop.isIdentity, "crop without HasCrop must stay identity")
+    }
+
+    func testParseCropAngleAloneAppliesPureStraighten() throws {
+        let xml = xmp(attrs: #"crs:CropAngle="-2.5""#)
+        let (m, _) = try XMPParser.parse(xml)
+        XCTAssertEqual(m.crop.angle, -2.5, accuracy: 1e-6)
+        XCTAssertEqual(m.crop.top, 0)
+        XCTAssertEqual(m.crop.right, 1)
+        XCTAssertFalse(m.crop.isIdentity)
+    }
+
+    func testCropRoundTrip() throws {
+        var m = AdjustmentModel()
+        m.crop = Crop(top: 0.05, left: 0.1, bottom: 0.95, right: 0.9, angle: 1.5)
+        let xml = XMPSerializer.serialize(model: m, culling: CullingState())
+        let (m2, _) = try XMPParser.parse(xml)
+        XCTAssertEqual(m2.crop.top, m.crop.top, accuracy: 1e-5)
+        XCTAssertEqual(m2.crop.left, m.crop.left, accuracy: 1e-5)
+        XCTAssertEqual(m2.crop.bottom, m.crop.bottom, accuracy: 1e-5)
+        XCTAssertEqual(m2.crop.right, m.crop.right, accuracy: 1e-5)
+        XCTAssertEqual(m2.crop.angle, m.crop.angle, accuracy: 1e-5)
+    }
+
+    func testIdentityCropOmitsCropGroupOnSerialize() throws {
+        let xml = XMPSerializer.serialize(
+            model: AdjustmentModel(), culling: CullingState()
+        )
+        XCTAssertFalse(xml.contains("crs:HasCrop"),
+                       "identity crop must not emit crs:HasCrop")
+        XCTAssertFalse(xml.contains("crs:CropTop"),
+                       "identity crop must not emit crs:CropTop")
+        XCTAssertFalse(xml.contains("crs:CropAngle"),
+                       "identity crop must not emit crs:CropAngle")
+    }
+
     private func xmp(attrs: String) -> String {
         """
         <?xml version="1.0"?>
