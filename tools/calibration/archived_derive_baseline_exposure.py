@@ -1,9 +1,27 @@
 #!/usr/bin/env python3
-"""Sweep MAPLE_BE_OVERRIDE values for one fixture, find the BE that
-minimizes per-channel bias magnitude vs the reference baseline.
+"""ARCHIVED — see ticket #370.
 
-Usage:
-    derive_baseline_exposure.py <fixture.raw> <ref.png> \
+This script swept MAPLE_BE_OVERRIDE across a single fixture to find the
+per-body BaselineExposure value that minimised channel-bias vs the
+reference renderer's baseline render. Its output populated the
+`camera_calibration::baseline_exposure` lookup table.
+
+That table was removed in #370 as an architectural smell: per-body
+aesthetic calibration lived in the sensor-calibration namespace but was
+actually compensating for view-transform differences vs the reference
+renderer, fighting the documented global `apply_look` plan
+(`docs/spec/03-algorithms.md` § "Look presets"). Per-body alignment moves
+to a global `view::look` curve in the follow-up ticket #371, calibrated
+against the post-removal bias signature — not against the per-body
+optimum this script produced.
+
+The script is kept as a historical reference in case any future per-body
+work (lens-tagged BE, sensor temperature compensation, etc.) wants the
+same sweep-vs-bias methodology. It is not part of the active build or
+test surface.
+
+Original usage (no longer wired up to a live table):
+    archived_derive_baseline_exposure.py <fixture.raw> <ref.png> \
         [--ev-min -1.5] [--ev-max 1.5] [--ev-step 0.1] \
         [--maple-cli <path>]
 

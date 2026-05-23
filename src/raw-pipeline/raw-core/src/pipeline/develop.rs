@@ -92,9 +92,11 @@ pub fn develop_scene_linear_from_raw_with_quality(
 
     // DNG WB pre-gain per spec § 1.4.4.5 step 4: divide camera RGB by
     // AsShotNeutral so a neutral scene patch reads as (1, 1, 1) going into
-    // DCP. Re-enabled in Phase 1.2 of the color-convergence work after the
-    // per-body BaselineExposure table was populated in Phase 1.1 (which
-    // satisfied the prerequisite that originally deferred this step). See
+    // DCP. Enabled unconditionally now that the BaselineExposure compose
+    // chain is sourced from DNG tags + bundled-DCP `BaselineExposureOffset`
+    // only — the historical Phase-1.1 per-body BE lookup that previously
+    // gated this step was removed in #370 (per-body aesthetic alignment
+    // moves to a global `view::look` curve in #371). See
     // .archived-plans/specs/2026-04-30-color-convergence-design.md.
     //
     // Skipped for 8-bit lossy LinearRaw DNGs (DNG Converter's
@@ -184,8 +186,10 @@ pub fn develop_scene_linear_from_raw_with_quality(
     // it as XMP/diagnostic output. The earlier
     // `MAPLE_AGX_BASELINE_COMPENSATION_EV = 0.65` band-aid + `damping = 0.2`
     // tuning were both removed in commit `ba8e0ecb` once the WB pre-gain
-    // bundle (Phase 1.2) + per-body BE table (Phase 1.1) gave the chain a
-    // correct foundation. Runs BEFORE scene_tone_controls so the user's
+    // bundle (Phase 1.2) gave the chain a correct foundation. (The Phase-1.1
+    // per-body BE table that originally accompanied it was itself removed
+    // in #370; aesthetic alignment moves to `view::look` in #371.) Runs
+    // BEFORE scene_tone_controls so the user's
     // exposure slider stacks additively (in EV) on top of any future
     // auto-tuned baseline.
     stage("auto_exposure", || auto_exposure::apply(&mut scene, AUTO_EXPOSURE_CLIP_PCT));
@@ -417,9 +421,10 @@ mod tests {
         // Mean per-channel delta budget. 0.005 in [0, ~5] scene-linear
         // headroom is ~0.1% of typical scene values. Held tight since the
         // `MAPLE_AGX_BASELINE_COMPENSATION_EV = 0.65` band-aid was removed
-        // (commit `ba8e0ecb`); the calibration foundation (WB pre-gain
-        // bundle + per-body BE table) doesn't inflate scene values, so the
-        // early-vs-late commutativity budget stays tight.
+        // (commit `ba8e0ecb`); the calibration foundation (DNG WB pre-gain
+        // bundle, with the per-body BE table since removed in #370) doesn't
+        // inflate scene values, so the early-vs-late commutativity budget
+        // stays tight.
         assert!(mean_dr < 0.005, "mean R delta {} > 0.005", mean_dr);
         assert!(mean_dg < 0.005, "mean G delta {} > 0.005", mean_dg);
         assert!(mean_db < 0.005, "mean B delta {} > 0.005", mean_db);
