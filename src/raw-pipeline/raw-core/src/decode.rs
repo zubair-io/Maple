@@ -102,9 +102,6 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
     // Both are EV units. Rawler ignores both on decode (only copies them
     // in the DNG writer path — decoders/dng.rs:175 and 186), so we read
     // them directly from the Root IFD.
-    //
-    // For vendor RAW formats (CR2, RW2, ARW, ...) neither tag is present;
-    // we fall back to `camera_calibration::baseline_exposure`.
     let root_ifd = decoder.as_ref()
         .and_then(|dec| dec.ifd(WellKnownIFD::Root).ok().flatten());
     let baseline_tag = root_ifd.as_ref()
@@ -113,51 +110,29 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
     let offset_tag = root_ifd.as_ref()
         .and_then(|ifd| ifd.get_entry(DngTag::BaselineExposureOffset)
             .map(|e| e.value.force_f32(0)));
-    // BaselineExposure for the asset: DNG tag if present, else the
-    // per-camera camconst lookup. No additional global compensation is
-    // applied here. An earlier `MAPLE_AGX_BASELINE_COMPENSATION_EV =
-    // 0.65` constant was added (commit da1ad87) to match the reference
-    // renderer's brightness at default sliders. That was the wrong target:
-    // Maple uses AgX as the platform view transform; the reference renderer
-    // uses a proprietary tone curve. They will not produce identical images
-    // by design, and pushing AgX brightness toward the reference renderer
-    // via a global EV bump fights the
-    // view-transform's intended look. The constant is removed; if the
-    // AgX shape itself needs work, retune the Y_PIVOT / matrix
-    // compression / sigmoid powers in src/scripts/derive_agx_lut.py
-    // against canonical Sobotka AgX (#263 — see view::agx_coeffs).
-    // BaselineExposure resolution:
+    // BaselineExposure resolution (compose chain):
     //
     //   MAPLE_BE_OVERRIDE (env, dev-only) → absolute override
     //                                       OR
-    //   (DNG BaselineExposure tag) + (DNG BaselineExposureOffset tag)
-    //     + (camera_calibration::baseline_exposure lookup, additive)
+    //   (DNG BaselineExposure tag)
+    //     + (DNG BaselineExposureOffset tag)
+    //     + (bundled DCP profile baseline_exposure_offset)
     //
-    // Each tag/lookup contributes 0.0 when absent. The per-body lookup is
-    // ADDITIVE on top of the DNG-supplied value — lets us fine-tune bodies
-    // whose embedded BaselineExposure undershoots the reference renderer's brightness on this
-    // body (e.g. Hasselblad H2D-39, tag=0, needs +0.3 lift). For vendor RAW
-    // formats (CR2/ARW/RAF/NEF/X3F/fff/RAW) the tags are absent and the
-    // lookup is the sole source — same as Phase 1.1. The lookup returns
-    // 0.0 for unknown bodies so adding an entry never breaks anything that
-    // wasn't there.
+    // Each contribution defaults to 0.0 when absent. The bundled-profile
+    // term is sourced via `color::profile_loader::lookup_profile` once the
+    // `RawImage` is otherwise assembled (it gates on the same matrix /
+    // PLT checks the rest of the pipeline uses). Only 5/1447 bundled
+    // profiles ship a non-zero offset; the field was previously parsed but
+    // never applied — see ticket #370 for the architectural rationale
+    // (per-body aesthetic alignment moves to the global `view::look` in
+    // #371, calibrated against the post-#370 bias signature).
     //
-    // MAPLE_BE_OVERRIDE is only used by tools/calibration/derive_baseline_
-    // exposure.py to sweep absolute BE values during calibration; production
-    // never sets it.
-    let baseline_exposure = match std::env::var("MAPLE_BE_OVERRIDE")
+    // MAPLE_BE_OVERRIDE is a dev-only absolute override (replaces the
+    // entire chain) used by harness sweeps; production never sets it.
+    let be_override = std::env::var("MAPLE_BE_OVERRIDE")
         .ok()
-        .and_then(|s| s.parse::<f32>().ok())
-    {
-        Some(ev) => ev,
-        None => {
-            let from_tags = baseline_tag.unwrap_or(0.0) + offset_tag.unwrap_or(0.0);
-            let from_lookup = crate::camera_calibration::baseline_exposure(
-                &raw.clean_make, &raw.clean_model,
-            );
-            from_tags + from_lookup
-        }
-    };
+        .and_then(|s| s.parse::<f32>().ok());
+    let be_from_tags = baseline_tag.unwrap_or(0.0) + offset_tag.unwrap_or(0.0);
 
     // ── 2. CFA pattern ────────────────────────────────────────────────────
     let cfa = match &raw.photometric {
@@ -424,7 +399,12 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
         })
     });
 
-    Ok(RawImage {
+    // Assemble first with a placeholder BE, then resolve the bundled-profile
+    // contribution against the fully-populated RawImage (§ 1b compose chain).
+    // `lookup_profile` gates on `raw.plt`, `raw.color_matrices`, and the
+    // bundle's matrix-match check — so it must see the final struct, not a
+    // partial. Cheap: BE is a single f32 mutation post-construction.
+    let mut image = RawImage {
         width,
         height,
         cfa,
@@ -439,13 +419,23 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
         color_matrices,
         forward_matrices,
         orientation,
-        baseline_exposure,
+        baseline_exposure: 0.0,
         hsm_data1,
         hsm_data2,
         plt,
         profile_tone_curve,
         profile_gain_table_map,
-    })
+    };
+    image.baseline_exposure = match be_override {
+        Some(ev) => ev,
+        None => {
+            let be_from_bundle = crate::color::profile_loader::lookup_profile(&image)
+                .map(|p| p.baseline_exposure_offset)
+                .unwrap_or(0.0);
+            be_from_tags + be_from_bundle
+        }
+    };
+    Ok(image)
 }
 
 /// Read ProfileHueSatMap1/2 + ProfileLookTable from a DNG Root IFD.

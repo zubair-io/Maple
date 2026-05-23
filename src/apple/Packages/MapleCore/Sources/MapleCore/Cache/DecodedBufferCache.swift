@@ -24,11 +24,21 @@ public actor DecodedBufferCache {
     // version is part of the cache key so stale entries are silently
     // ignored and overwritten.
     //
+    // v4 (2026-05-23, #370): BaselineExposure compose chain rewritten —
+    // the per-body `camera_calibration::baseline_exposure` lookup that
+    // contributed to BE for several vendor bodies (Canon 5DM4 / 5DS R,
+    // Fuji 50R / 50S, Hasselblad H2D-39, Nikon D850, Panasonic LX2) is
+    // gone, replaced by the bundled DCP profile's `BaselineExposureOffset`
+    // field (5/1447 profiles ship a non-zero value). Affected bodies now
+    // get darker by 0.5–1.5 EV; per-fixture pixel output is materially
+    // different. Bump the cache version so any decoded buffer from v3
+    // (which embedded the table contribution) is silently invalidated.
+    //
     // v3 (2026-05-01): color-convergence Phase 1.1 + 1.2 + 2 + 1.5 landed
     // a long sequence of pipeline-output changes that all alter pixel
     // values:
     //   - Phase 1.1: per-body BaselineExposure lookup populated for
-    //     7 vendor bodies (commit 90582fe).
+    //     7 vendor bodies (commit 90582fe). (Removed in v4.)
     //   - Phase 1.2: DNG WB pre-gain bundle re-enabled in all 3 develop
     //     paths (full / sized / tile), with paired wb_already_baked=true
     //     on the DCP profile (commits 9588dd0 + d1f0958).
@@ -38,13 +48,11 @@ public actor DecodedBufferCache {
     //     (commit 65ccc1d).
     //   - apply_scene_linear_chain switched from apply_delta to apply
     //     (commit 2cec8cc) — input contract is now "at D65".
-    //   - camera_calibration::baseline_exposure semantics: lookup is
-    //     additive on top of DNG tag (commit c43d8ca) + Hasselblad H2D-39
-    //     entry added.
-    // Symptom of leaving v2: app shows pre-Phase-1.1 output indefinitely
-    // (the cache hit short-circuits the Rust decode, then the post-AgX
-    // chain runs against stale pre-WB-pregain bytes).
-    private let rustVersion: UInt32 = 3
+    // Symptom of leaving an old version: app shows pre-#370 output
+    // indefinitely (the cache hit short-circuits the Rust decode, then
+    // the post-AgX chain runs against stale bytes that embed the
+    // since-removed per-body BE table contribution).
+    private let rustVersion: UInt32 = 4
 
     public init() {}
 

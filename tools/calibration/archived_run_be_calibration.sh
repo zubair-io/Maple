@@ -1,9 +1,15 @@
 #!/bin/bash
-# run_be_calibration.sh — sweep BE for every vendor-RAW fixture.
+# archived_run_be_calibration.sh — ARCHIVED, see ticket #370.
 #
-# Drives derive_baseline_exposure.py against the 11 vendor-RAW fixtures
-# (CR2, ARW, RAF, NEF, X3F, fff, RAW). Skips the 7 DNG fixtures (their
-# BaselineExposure tag is the canonical source).
+# Driver for the now-archived archived_derive_baseline_exposure.py. The
+# per-body BaselineExposure lookup it populated was removed in #370 as
+# the wrong architectural layer for aesthetic alignment (see docs/spec/
+# 03-algorithms.md § "Look presets" / `view::look` in #371). Retained as
+# historical reference only — not part of the active calibration loop.
+#
+# Drives archived_derive_baseline_exposure.py against the 11 vendor-RAW
+# fixtures (CR2, ARW, RAF, NEF, X3F, fff, RAW). Skips the 7 DNG fixtures
+# (their BaselineExposure tag is the canonical source).
 #
 # Output: a single-line JSON-per-fixture stream to stdout, plus a
 # human-readable proposal table to stderr. Saves the full proposal at
@@ -16,7 +22,7 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-TOOL="$REPO_ROOT/tools/calibration/derive_baseline_exposure.py"
+TOOL="$REPO_ROOT/tools/calibration/archived_derive_baseline_exposure.py"
 RAWS_DIR="$REPO_ROOT/test-fixtures/raws"
 REFS_DIR="$REPO_ROOT/test-fixtures/references"
 OUT="/tmp/be-proposals.json"
