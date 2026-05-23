@@ -406,4 +406,26 @@ mod tests {
             found
         );
     }
+
+    /// Regression sanity for #370: at least one bundled body carries a
+    /// non-zero `baseline_exposure_offset`. The per-body BE fudge table
+    /// in `camera_calibration` was deleted in #370; the replacement is
+    /// the offset that ships inside each DCP record. If every offset is
+    /// zero, the wiring in `decode.rs` is correct but the production
+    /// data is missing — likely a regression in `convert_dcps.py`.
+    #[test]
+    fn bundle_ships_at_least_one_body_with_nonzero_be_offset() {
+        let table = PROFILE_TABLE.get_or_init(|| parser::parse_bundle(PROFILES_BIN));
+        if table.is_empty() {
+            // Soft-pass when profiles.bin is missing/stale, matching the
+            // "fixtures absent → soft pass" pattern elsewhere.
+            return;
+        }
+        let any_with_be = table.values().any(|p| p.baseline_exposure_offset != 0.0);
+        assert!(
+            any_with_be,
+            "bundle has no body with a non-zero baseline_exposure_offset — \
+             regression in convert_dcps.py?"
+        );
+    }
 }

@@ -426,16 +426,37 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
         profile_tone_curve,
         profile_gain_table_map,
     };
-    image.baseline_exposure = match be_override {
-        Some(ev) => ev,
-        None => {
-            let be_from_bundle = crate::color::profile_loader::lookup_profile(&image)
-                .map(|p| p.baseline_exposure_offset)
-                .unwrap_or(0.0);
-            be_from_tags + be_from_bundle
-        }
+    let be_from_bundle = if be_override.is_none() {
+        crate::color::profile_loader::lookup_profile(&image)
+            .map(|p| p.baseline_exposure_offset)
+            .unwrap_or(0.0)
+    } else {
+        0.0
     };
+    image.baseline_exposure = compose_baseline_exposure(be_from_tags, be_from_bundle, be_override);
     Ok(image)
+}
+
+/// Compose the final `RawImage.baseline_exposure` from its three sources.
+///
+/// * `be_from_tags` — the sum of DNG `BaselineExposure` (50730) and
+///   `BaselineExposureOffset` (51109) on the source IFD.
+/// * `be_from_bundle` — the `baseline_exposure_offset` field on the
+///   matched bundled DCP profile, or 0.0 when there is no bundle match.
+/// * `be_override` — escape hatch for diagnostics; when `Some(ev)` the
+///   composition collapses to that value (no tags, no bundle).
+///
+/// Extracted as a pure function so the additive contract (#370) is unit-
+/// testable without going through DNG decode.
+fn compose_baseline_exposure(
+    be_from_tags: f32,
+    be_from_bundle: f32,
+    be_override: Option<f32>,
+) -> f32 {
+    match be_override {
+        Some(ev) => ev,
+        None => be_from_tags + be_from_bundle,
+    }
 }
 
 /// Read ProfileHueSatMap1/2 + ProfileLookTable from a DNG Root IFD.
@@ -661,6 +682,35 @@ mod tests {
         assert!((raw.baseline_exposure - 1.01).abs() < 0.01,
             "expected BaselineExposure ≈ 1.01 EV, got {:.4}", raw.baseline_exposure);
     }
+
+    /// Regression test for #370 — the bundled-DCP `baseline_exposure_offset`
+    /// field must add into the final `RawImage.baseline_exposure` on top of
+    /// the DNG tags. Covers three cases via the pure `compose_baseline_exposure`
+    /// helper, which is what `decode_bytes` calls at the bottom of the
+    /// BE composition chain.
+    #[test]
+    fn compose_baseline_exposure_adds_bundle_offset_to_tags() {
+        // Tags = 1.0 EV, bundle = +0.5 EV → 1.5 EV. Demonstrates that the
+        // bundled offset is additive on top of the DNG tags, which is the
+        // contract that replaces the deleted per-body BE table from #370.
+        assert!((compose_baseline_exposure(1.0, 0.5, None) - 1.5).abs() < 1e-6);
+    }
+
+    #[test]
+    fn compose_baseline_exposure_override_wins_over_tags_and_bundle() {
+        // Override is the diagnostic escape hatch; when set it ignores
+        // both tags and bundle. (Used by the `MAPLE_BE_OVERRIDE` env var
+        // pipeline path, see decode.rs § 1b.)
+        assert!((compose_baseline_exposure(1.0, 0.5, Some(0.3)) - 0.3).abs() < 1e-6);
+    }
+
+    #[test]
+    fn compose_baseline_exposure_zero_when_both_absent() {
+        // No tags, no bundle, no override — stays at 0.0. This is the
+        // "no BE adjustment anywhere" baseline.
+        assert_eq!(compose_baseline_exposure(0.0, 0.0, None), 0.0);
+    }
+
 
     /// Regression test for fix #4 (EXIF orientation): test_0003.CR2 was shot
     /// in portrait, so its EXIF orientation tag must be a non-Normal value.
