@@ -1,5 +1,12 @@
 //! Canonical `AdjustmentModel` and companion enums.
 //!
+//! The `local_adjustments` array (per ticket #280) is a `Vec<LocalAdjustment>`
+//! that defaults to empty. It is intentionally **not** part of
+//! `ADJUSTMENT_SCHEMA` because the schema table only describes scalar / enum
+//! fields for codegen; the local-adjustment layer carries its own structured
+//! schema in `crate::types::local_adjustment`. The `schema_matches_struct`
+//! drift test below allow-lists `local_adjustments` as a known exception.
+//!
 //! This module is the **single source of truth** for the develop-settings
 //! schema. Swift (`MapleCore.AdjustmentModel`) and TypeScript
 //! (`maple-common/AdjustmentModel`) mirror this shape today by hand; future
@@ -107,6 +114,13 @@ pub struct AdjustmentModel {
     pub nr_color: f32,       // 0..100, default 25 (default = the reference renderer's default)
     pub dehaze: f32,         // -100..100, default 0
     pub highlight_recovery: HighlightRecoveryMode,
+    /// Local adjustment layers (ticket #280). Each entry pairs a `Mask`
+    /// (linear / radial gradient) with a `PartialAdjustments` payload, and
+    /// is applied between `dehaze` and `sharpen` in the develop chain. An
+    /// empty `Vec` (the default) means the stage short-circuits — bit-for-bit
+    /// identical to the pre-#280 pipeline. **Not part of `ADJUSTMENT_SCHEMA`**
+    /// (see module-level doc).
+    pub local_adjustments: Vec<super::local_adjustment::LocalAdjustment>,
 }
 
 impl Default for AdjustmentModel {
@@ -139,6 +153,7 @@ impl Default for AdjustmentModel {
             nr_color: 25.0,
             dehaze: 0.0,
             highlight_recovery: HighlightRecoveryMode::ChromaticAdaptation,
+            local_adjustments: Vec::new(),
         }
     }
 }
@@ -401,6 +416,7 @@ mod tests {
             nr_color,
             dehaze,
             highlight_recovery,
+            local_adjustments,
         } = m;
         let expected_order = [
             "temperature",
@@ -462,6 +478,35 @@ mod tests {
             nr_color,
             dehaze,
             highlight_recovery,
+        );
+        // `local_adjustments` is allow-listed: it carries structured data
+        // (Vec<LocalAdjustment>) and is documented as not part of the schema
+        // table. Asserting its default keeps the drift guard honest.
+        assert!(
+            local_adjustments.is_empty(),
+            "AdjustmentModel::default().local_adjustments must be empty"
+        );
+    }
+
+    /// Schema-exemption allow-list. Fields appearing here are the ones
+    /// `schema_matches_struct` deliberately omits from `ADJUSTMENT_SCHEMA`
+    /// because they carry structured payloads (Vec / nested struct) rather
+    /// than scalar values. Adding a new exemption MUST land in the same PR
+    /// that justifies the deviation. The string-matching keeps the
+    /// allow-list source-grep-friendly.
+    #[test]
+    fn schema_exemption_allowlist() {
+        const ALLOWED: &[&str] = &["local_adjustments"];
+        assert_eq!(
+            ALLOWED.len(),
+            1,
+            "schema exemption count changed — update this test and the \
+             matching note on the module-level doc-comment"
+        );
+        assert!(
+            ALLOWED.contains(&"local_adjustments"),
+            "local_adjustments must remain on the schema-exemption allow-list \
+             until the codegen table grows a structured-field FieldKind variant"
         );
     }
 

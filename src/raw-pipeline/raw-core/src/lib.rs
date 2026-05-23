@@ -45,8 +45,8 @@ pub mod stage_dump;
 
 pub mod types;
 pub use types::{
-    AdjustmentModel, FieldKind, FieldSpec, HighlightRecoveryMode, WhiteBalancePreset,
-    ADJUSTMENT_SCHEMA,
+    AdjustmentModel, FieldKind, FieldSpec, HighlightRecoveryMode, LocalAdjustment, Mask,
+    PartialAdjustments, Point2, WhiteBalancePreset, ADJUSTMENT_SCHEMA,
 };
 
 pub mod xmp;
