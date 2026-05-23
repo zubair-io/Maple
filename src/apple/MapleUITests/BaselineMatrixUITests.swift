@@ -1,6 +1,6 @@
 // BaselineMatrixUITests.swift — diagnostic baseline-only matrix.
 //
-// Purpose: capture today's per-fixture color delta vs ACR baseline
+// Purpose: capture today's per-fixture color delta vs the reference baseline
 // references so we have ground-truth numbers to track when remediating
 // the open-path color regression. Mirrors SliderMatrixUITests but runs
 // only the `baseline.xmp` case per fixture, and **never fails on bad
@@ -260,7 +260,7 @@ final class BaselineMatrixUITests: XCTestCase {
         fullAttachment.lifetime = .keepAlways
         add(fullAttachment)
 
-        // CIEDE2000 vs the ACR reference. Resize the reference to a
+        // CIEDE2000 vs the reference. Resize the reference to a
         // 1024 long edge first; then resize the candidate to that
         // exact (W, H). Avoids the ±1px floating-point drift that
         // happens when both are independently resized.

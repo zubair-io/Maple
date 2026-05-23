@@ -4,7 +4,7 @@
 // src/raw-pipeline/raw-core/src/xmp.rs exactly.
 //
 // XMP parsing is handled by the pure-Swift `XMPParser` below, which reads the
-// same ACR attributes as the Rust `parse()` function so that sidecar files
+// same XMP attributes as the Rust `parse()` function so that sidecar files
 // produced by either Lightroom or Maple are interchangeable.
 
 import Foundation
@@ -50,18 +50,20 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
 
     // Detail — sharpening
     //
-    // Defaults mirror ACR / Lightroom's import baseline (Sharpness=40,
-    // Radius=1.0, Detail=25, EdgeMasking=0) so first-open of a sidecar-less
-    // RAW looks as sharp as Adobe Camera Raw's default-import, not soft.
-    // Aligned with the canonical raw-core defaults per #326 — Apple no
-    // longer carries a sharpening divergence (was sharpenAmount=45).
-    public var sharpenAmount: Double    // 0..150, default 40 (ACR import)
-    public var sharpenRadius: Double    // 0.5..3.0, default 1.0 (ACR import)
+    // Defaults mirror the reference renderer / Lightroom's import baseline
+    // (Sharpness=40, Radius=1.0, Detail=25, EdgeMasking=0) so first-open of
+    // a sidecar-less RAW looks as sharp as the reference renderer's
+    // default-import, not soft. Aligned with the canonical raw-core defaults
+    // per #326 — Apple no longer carries a sharpening divergence (was
+    // sharpenAmount=45).
+    public var sharpenAmount: Double    // 0..150, default 40 (reference import)
+    public var sharpenRadius: Double    // 0.5..3.0, default 1.0 (reference import)
     public var sharpenDetail: Double    // 0..100, default 25
     public var sharpenMasking: Double   // 0..100, default 0
 
     // Detail — capture sharpening (Maple-proprietary Richardson-Lucy
-    // deconvolution; distinct from ACR's unsharp-mask sliders above).
+    // deconvolution; distinct from the reference renderer's unsharp-mask
+    // sliders above).
     // Defaults to 0 (stage skipped) so first-open matches pre-#271 behaviour
     // bit-identically. Per-camera defaults are a follow-up calibration ticket.
     public var captureSharpeningAmount: Double  // 0..100, default 0
@@ -146,7 +148,7 @@ public enum CullFlag: String, Codable, Sendable, Hashable {
 
 // MARK: - XMPParser
 
-/// Pure-Swift ACR XMP parser. Reads the same attribute names as the Rust
+/// Pure-Swift XMP parser for `crs:` attributes. Reads the same attribute names as the Rust
 /// `raw_core::xmp::parse()` function. Unknown attributes are silently ignored.
 public struct XMPParser {
     private init() {}
@@ -288,7 +290,7 @@ private final class _XMPParserDelegate: NSObject, XMLParserDelegate {
 
 // MARK: - XMP Serializer
 
-/// Emit an ACR-compatible XMP sidecar string from a model + culling state.
+/// Emit an XMP sidecar string compatible with the `crs:` schema from a model + culling state.
 /// Output is byte-for-byte interchangeable with Lightroom / Maple Hosted.
 public struct XMPSerializer {
     private init() {}
@@ -342,7 +344,7 @@ public struct XMPSerializer {
     }
 
     private static func fmtF(_ v: Double) -> String {
-        // Exposure uses two decimal places like ACR
+        // Exposure uses two decimal places to match the reference renderer's wire format
         String(format: "%.2f", v)
     }
 }

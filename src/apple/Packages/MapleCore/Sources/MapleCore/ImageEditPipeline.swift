@@ -510,7 +510,7 @@ public actor ImageEditPipeline {
         // produced them; AgX is a scene-referred view transform expecting
         // extended dynamic range, so applying it to display-bound input
         // double-tone-maps (white at 1.0 compresses to ~0.82, screenshots
-        // come back dim and warm). ACR / Lightroom skip their default
+        // come back dim and warm). Reference renderers / Lightroom skip their default
         // tone curve on non-RAW for the same reason.
         //
         // The contrast slider (which AgX normally consumes via curve
@@ -598,7 +598,7 @@ public actor ImageEditPipeline {
         //   2. Apple's chain passes `decodedTemp = asShot.temperature`
         //      (NOT 6500). The chain's `apply_delta(live, decoded)`
         //      computes `wb_gains(live) / wb_gains(asShot)`, which is
-        //      identity at `live == asShot` — matching ACR's "As Shot"
+        //      identity at `live == asShot` — matching the reference renderer's "As Shot"
         //      UX where the default slider value produces zero WB shift
         //      (the post-DCP buffer is already at D65, viewed as the
         //      camera's intended scene rendering). Moving the slider

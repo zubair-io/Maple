@@ -12,9 +12,9 @@ import CoreGraphics
 extension SceneLinearPipelineTests {
 
     /// Drag the Temperature slider down to 3000 K on a neutral mid-gray
-    /// pixel. ACR convention: the slider VALUE is the colour
+    /// pixel. The `crs:Temperature` convention: the slider VALUE is the colour
     /// temperature of the light the photo was taken under (see commit
-    /// 1580228 "fix(wb): flip ACR-direction for temperature + tint
+    /// 1580228 "fix(wb): flip slider direction for temperature + tint
     /// across all 3 platforms" — moving the slider warm means "tell the
     /// renderer the source was tungsten" → the renderer applies a
     /// COOLING correction → the image goes BLUER. So R-B for the warm-
