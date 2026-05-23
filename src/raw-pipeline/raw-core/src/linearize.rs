@@ -70,27 +70,32 @@ pub fn sensor_linearize_region(
 ///
 /// **Two flavors of LinearRaw exist in the wild:**
 ///
-/// 1. **8-bit lossy linear DNG** (e.g. `Compression = LossyJPEG`,
+/// 1. **8-bit lossy linear DNG** (`Compression = LossyJPEG`,
 ///    `BitsPerSample = 8 8 8`, no `LinearizationTable`): the DNG
-///    Converter writes the data with WB pre-applied AND with a
-///    perceptually-uniform gamma curve (close to 2.4) before JPEG
-///    compression to better allocate JPEG's 8-bit dynamic range. We
-///    detect this with `white_level <= 255` and invert the gamma:
-///    `linear = encoded^2.4`. The data is also WB-baked, so a neutral
-///    patch reads `(K, K, K)` after gamma decode — we leave WB alone
-///    and the DCP path handles the "neutrals = (1,1,1)" case via
-///    `wb_already_baked` (no, kept disabled — see comment below).
+///    Converter writes data with WB pre-applied AND a perceptually-
+///    uniform gamma curve (~2.4) before JPEG compression. We detect
+///    via `white_level <= 255` and invert: `linear = encoded^2.4`. The
+///    data stays WB-baked; DCP handles via `wb_already_baked = false`
+///    (legacy `inv(CM) · AsShotNeutral` path — see lossy_8bit comment).
 ///
-/// 2. **High-bit-depth linear DNG** (e.g. `BitsPerSample = 12 12 12` +
-///    `LinearizationTable`): rawler's `apply_linearization` already
-///    converts to 16-bit linear during decode. The data here is genuinely
-///    linear and WB-pre-baked. We multiply each channel by AsShotNeutral
-///    to undo the WB pre-bake, putting the data in the same camera-RGB
-///    space the Bayer pipeline produces. `dcp::apply` then handles it
-///    identically.
+/// 2. **High-bit-depth linear DNG / Canon sRaw / iPhone LinearRaw**:
+///    data is in **camera-RGB space** — a neutral patch reads as
+///    `(K × asn_r, K, K × asn_b)`, the same shape the Bayer pipeline
+///    produces post-demosaic. We just black-normalize; downstream
+///    pre-gain in `pipeline/develop.rs` divides by AsShotNeutral so
+///    neutrals enter DCP as `(1, 1, 1)`. `dcp::apply` handles it
+///    identically to Bayer.
 ///
-/// Skips both `sensor_linearize` (1 SPP scanline) and `demosaic::*`
-/// because the data is already 3-channel RGB. Caller dispatches based on
+///    Verified by `examples/sraw_probe` (ticket #373): center-patch
+///    R/G ≈ AsShotNeutral_R for Canon sRaw (5DM4) and iPhone 12 Pro —
+///    camera-RGB, NOT pre-baked WB. The pre-#373 multiply by
+///    AsShotNeutral cancelled with pre-gain (leaving camera-RGB into
+///    DCP) but `dcp::profile_for` set `wb_already_baked = true`, so
+///    Bradford used `inv(CM) · (1,1,1)` instead of
+///    `inv(CM) · AsShotNeutral` — crushing R on Canon sRaw neutrals.
+///
+/// Skips both `sensor_linearize` and `demosaic::*` because the data is
+/// already 3-channel RGB. Caller dispatches on
 /// `raw.cfa == CfaPattern::LinearRgb`. See ticket #07.
 pub fn linearraw_to_camera_rgb(raw: &RawImage) -> crate::Result<Image> {
     debug_assert_eq!(raw.cfa, CfaPattern::LinearRgb);
@@ -117,10 +122,6 @@ pub fn linearraw_to_camera_rgb(raw: &RawImage) -> crate::Result<Image> {
     let denom_g = (wl - bl_g).max(1.0);
     let denom_b = (wl - bl_b).max(1.0);
 
-    let asn_r = raw.as_shot_neutral[0];
-    let asn_g = raw.as_shot_neutral[1];
-    let asn_b = raw.as_shot_neutral[2];
-
     // Distinguish 8-bit lossy (gamma-encoded) from high-bit-depth (linear).
     // 8-bit white_level == 255 is the unambiguous signal: any DNG-Converter lossy
     // linear DNG without a LinearizationTable lands here. High-bit-depth
@@ -145,10 +146,10 @@ pub fn linearraw_to_camera_rgb(raw: &RawImage) -> crate::Result<Image> {
             // path matches the DNG Converter's implicit pipeline closely enough.
             (r_norm.powf(2.4), g_norm.powf(2.4), b_norm.powf(2.4))
         } else {
-            // High-bit-depth linear DNG: data is already linear and
-            // WB-baked. Multiply by AsShotNeutral to put data in the
-            // same camera-RGB space the Bayer pipeline produces.
-            (r_norm * asn_r, g_norm * asn_g, b_norm * asn_b)
+            // High-bit-depth LinearRaw / sRaw: pass through camera-RGB.
+            // Pre-gain in pipeline/develop.rs handles AsShotNeutral. See
+            // function docs and ticket #373 for rationale.
+            (r_norm, g_norm, b_norm)
         };
         *px = [r, g, b];
     });
@@ -288,24 +289,40 @@ mod tests {
         }
     }
 
-    /// Regression test for ticket #07: `linearraw_to_camera_rgb` undoes the
-    /// converter's AsShotNeutral pre-bake. A neutral patch in the LinearRaw
-    /// file (raw value `(K, K, K)` for some K) should land at
-    /// `(K × asn[0], K × asn[1], K × asn[2]) / white_level` after the helper
-    /// — i.e. the pre-WB camera reading.
+    /// Regression test for ticket #373: high-bit-depth LinearRaw (Canon
+    /// sRaw, iPhone LinearRaw) carries camera-RGB data — neutrals read as
+    /// `(K × asn_r, K, K × asn_b)`, NOT WB-baked `(K, K, K)`. The helper
+    /// must pass camera-RGB through unmodified (only black-/white-level
+    /// normalization), so the downstream pre-gain step in
+    /// `pipeline/develop.rs` can divide by AsShotNeutral and land neutrals
+    /// at `(1, 1, 1)` into DCP — same shape the Bayer + demosaic pipeline
+    /// produces.
+    ///
+    /// Verified empirically by `examples/sraw_probe`: Canon 5D Mark IV
+    /// sRaw center-patch ratios are `(R/G, B/G) ≈ (0.55, 0.68)` against
+    /// AsShotNeutral `(0.50, 0.68)` — clearly camera-RGB, not
+    /// WB-baked `(1.0, 1.0)`.
     #[test]
-    fn linearraw_to_camera_rgb_undoes_as_shot_neutral_pre_bake() {
-        // DNG-Converter LinearRaw of a neutral patch reads roughly (K, K, K). Use a
-        // typical Canon AsShotNeutral [0.606, 1.0, 0.462] and verify the
-        // helper restores the pre-WB camera reading.
-        let raw_data: Vec<u16> = vec![100, 100, 100]; // 1 px neutral
+    fn linearraw_to_camera_rgb_passes_camera_rgb_through_unchanged() {
+        // A camera-RGB neutral patch reads `(K * asn_r, K * asn_g, K * asn_b)`
+        // — the same shape the Bayer pipeline produces post-demosaic.
+        // The helper should preserve those raw camera readings (post black/
+        // white normalization). asn here is typical Canon daylight.
+        let asn: [f32; 3] = [0.606276, 1.0, 0.46188504];
+        let k = 100u16;
+        let raw_data: Vec<u16> = vec![
+            (k as f32 * asn[0]).round() as u16,
+            (k as f32 * asn[1]).round() as u16,
+            (k as f32 * asn[2]).round() as u16,
+        ];
         let raw = RawImage {
             width: 1, height: 1,
             cfa: CfaPattern::LinearRgb,
             black_level: [0, 0, 0, 0],
+            // > 255 so we hit the high-bit-depth branch (not the lossy_8bit gamma path).
             white_level: 1000,
-            raw_data,
-            as_shot_neutral: [0.606276, 1.0, 0.46188504],
+            raw_data: raw_data.clone(),
+            as_shot_neutral: asn,
             as_shot_cct: None,
             camera_make: "Test".into(),
             camera_model: "Test".into(),
@@ -322,13 +339,25 @@ mod tests {
         };
         let img = linearraw_to_camera_rgb(&raw).expect("LinearRaw decode");
         let p = img.pixels[0];
-        let n = 100.0 / 1000.0; // raw / white_level
-        let expected = [n * 0.606276, n * 1.0, n * 0.46188504];
+        let denom = (raw.white_level as f32).max(1.0);
+        // Expect raw counts normalized only — NO AsShotNeutral multiply.
+        let expected = [
+            raw_data[0] as f32 / denom,
+            raw_data[1] as f32 / denom,
+            raw_data[2] as f32 / denom,
+        ];
         for c in 0..3 {
-            assert!((p[c] - expected[c]).abs() < 1e-5,
-                "channel {}: got {}, want {} (n × asn[{}] = {} × {} = {})",
-                c, p[c], expected[c], c, n, raw.as_shot_neutral[c], expected[c]);
+            assert!((p[c] - expected[c]).abs() < 1e-3,
+                "channel {}: got {}, want {} (raw[{}]={} / white={})",
+                c, p[c], expected[c], c, raw_data[c], raw.white_level);
         }
+        // R/G ratio of output should be ≈ asn_r (camera-RGB), NOT 1.0.
+        let rg = p[0] / p[1];
+        let bg = p[2] / p[1];
+        assert!((rg - asn[0]).abs() < 1e-2,
+            "R/G = {} should be ≈ asn_r = {} (camera-RGB passthrough)", rg, asn[0]);
+        assert!((bg - asn[2]).abs() < 1e-2,
+            "B/G = {} should be ≈ asn_b = {} (camera-RGB passthrough)", bg, asn[2]);
     }
 
     /// Regression test for ticket #07: `linearraw_to_camera_rgb` rejects
