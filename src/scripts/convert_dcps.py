@@ -52,6 +52,16 @@ Usage:
   # Include HSM (HueSatMap data) — adds ~72 MB to the bundle:
   python3 src/scripts/convert_dcps.py --src ... --out ... --include-hsm
 
+`--src` may point to either the parent `CameraProfiles/` directory or
+a specific subfolder. When given the parent the script recursively
+walks the tree and picks up profiles under both
+`Adobe Standard/` (the canonical Adobe-calibrated 1,403-body set) and
+`Camera/<body>/` (Adobe's per-creative-style variants — Standard /
+Faithful / Landscape / Neutral / Portrait, plus a handful of bodies
+that ONLY ship under `Camera/`). UCM dedup keeps one record per body
+via `dcp_preference` (Adobe Standard v2 > Adobe Standard >
+Camera Default > Camera/<creative style>).
+
 HSM is OFF by default (`--include-hsm` is opt-in). Most Maple fixtures need
 matrices only to drop ΔE below 8; HSM is a follow-up refinement that costs
 ~72 MB in the repo.
@@ -151,7 +161,19 @@ def dcp_preference(filename: str) -> tuple[int, str]:
     tier 0: "*Standard v2" / "*_Standard_v2" (newer externally-calibrated)
     tier 1: "*Standard"     / "*_Standard"   (older externally-calibrated)
     tier 2: "Camera Default"                 (vendor matrices)
-    tier 9: anything else (no standard-suffix at all)
+    tier 3: "Camera Standard"  / "Camera_Standard"  (creative variants — Camera/ subdir)
+    tier 4: "Camera Faithful"  / "Camera_Faithful"
+    tier 5: "Camera Landscape" / "Camera_Landscape"
+    tier 6: "Camera Neutral"   / "Camera_Neutral"
+    tier 7: "Camera Portrait"  / "Camera_Portrait"
+    tier 9: anything else (no recognized suffix at all)
+
+    Tiers 3-7 enable picking up the handful of bodies that ONLY ship in
+    the upstream `Camera/<body>/` subdir without external-standard aliases
+    (e.g. Nikon D810, OM-3 Astro, Pentax K-1 Mark II) — we walk those
+    files too under #345, but rank them after the canonical external
+    standard set so when both exist for a body, the calibrated profile
+    wins.
     """
     name = filename.lower()
     if re.search(r"adobe[_ ]standard[_ ]v2", name):
@@ -160,6 +182,16 @@ def dcp_preference(filename: str) -> tuple[int, str]:
         return (2, filename)
     if re.search(r"adobe[_ ]standard", name):
         return (1, filename)
+    if re.search(r"camera[_ ]standard", name):
+        return (3, filename)
+    if re.search(r"camera[_ ]faithful", name):
+        return (4, filename)
+    if re.search(r"camera[_ ]landscape", name):
+        return (5, filename)
+    if re.search(r"camera[_ ]neutral", name):
+        return (6, filename)
+    if re.search(r"camera[_ ]portrait", name):
+        return (7, filename)
     return (9, filename)
 
 
@@ -323,9 +355,15 @@ def main() -> int:
         return 1
     out.parent.mkdir(parents=True, exist_ok=True)
 
-    files = sorted(p for p in src.iterdir() if p.suffix.lower() == ".dcp")
+    # Recursive walk: pick up `.dcp` files at any depth so the script can
+    # be pointed at either a leaf directory (`Adobe Standard/`) or the
+    # parent `CameraProfiles/` to vacuum up both `Adobe Standard/` and
+    # the `Camera/<body>/<style>.dcp` creative variants in one pass.
+    # UCM dedup downstream picks the best file per body via
+    # `dcp_preference`, so the script is happy with overlapping inputs.
+    files = sorted(p for p in src.rglob("*.dcp"))
     if not files:
-        sys.stderr.write(f"error: no .dcp files found in {src}\n")
+        sys.stderr.write(f"error: no .dcp files found under {src}\n")
         return 1
 
     # ── Phase 1: bucket every .dcp by UCM, then pick the preferred file per

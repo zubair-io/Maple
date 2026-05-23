@@ -1,21 +1,29 @@
 //! Runtime loader for Maple's bundled third-party-derived DCP profiles.
 //!
-//! The upstream tooling ships 1,447 high-quality "standard" DCPs under its
-//! `CameraRaw/CameraProfiles/` directory. The `src/scripts/convert_dcps.py`
-//! tool re-encodes that data into a single binary at `profiles/profiles.bin`,
-//! included into the crate via [`include_bytes!`].
+//! The upstream tooling ships 1,403+ high-quality externally-calibrated
+//! DCPs under its `CameraRaw/CameraProfiles/` directory. The
+//! `src/scripts/convert_dcps.py` tool re-encodes that data into a
+//! single binary at `profiles/profiles.bin`, included into the crate via
+//! [`include_bytes!`].
 //!
 //! Why bundled at all: rawler's per-camera matrices (its dcraw-lineage
 //! defaults) are catastrophically wrong on some bodies — iPhone 12 Pro, the
 //! Canon 5DM3/5DM4 family — producing 20+ ΔE biases on standard fixtures.
 //! The externally-calibrated DCPs fix the matrices. See ticket #324.
 //!
+//! Under ticket #345 (bundle-canonical color) the bundle is the SOLE
+//! source of color math: rawler decodes pixels + EXIF, the bundle
+//! supplies CM/FM/HSM, and when the bundle has no entry for a body the
+//! `dcp` layer returns an identity-CM `Fallback` profile rather than
+//! silently substituting rawler's dcraw-lineage matrices. Coverage gaps
+//! are tracked in `COVERAGE.md` next to the bundle binary.
+//!
 //! Lookup key is the DNG `UniqueCameraModel` string (tag 50708). For
 //! multi-lens mobile bodies, the lens identifier is already baked into the
 //! UCM by the vendor — Apple ships per-lens UCMs like `iPhone13,3 back
 //! camera`, `iPhone13,3 back telephoto camera`, `iPhone13,3 back ultra wide
-//! camera`, and the upstream tooling ships one DCP per lens-tagged UCM. We
-//! bundle all variants as distinct entries (see
+//! camera`, and the upstream tooling ships one DCP per lens-tagged UCM.
+//! We bundle all variants as distinct entries (see
 //! `iphone_lens_variants_are_distinct_keys` test below) and the runtime
 //! picks the right one by matching the captured DNG's UCM byte-for-byte.
 //! No separate `lens_id` column is needed — the DNG-spec UCM is the
@@ -64,6 +72,7 @@ use std::collections::HashMap;
 use std::sync::OnceLock;
 
 use crate::color::dcp::{interpolated_profile, DcpProfile};
+use crate::color::ucm_mapping;
 use crate::image::RawImage;
 use crate::math::Matrix3;
 
@@ -79,9 +88,12 @@ pub use types::{CameraKey, MapleProfile};
 /// Runtime graceful degradation: when `parser::parse_bundle` fails to
 /// validate the header (e.g. bumped `FORMAT_VERSION`, corrupted bytes) it
 /// returns an empty `HashMap` — `lookup_profile` then returns `None` and
-/// `dcp::profile_for` falls back to rawler / DNG-embedded paths. So a
-/// stale bundle never breaks decoding, but a *missing* bundle is a build
-/// error, not a runtime miss.
+/// `dcp::profile_for_with_source` produces an identity-CM fallback
+/// profile tagged [`crate::color::dcp::ProfileSource::Fallback`] (#345
+/// — bundle-canonical color, no rawler-CM substitution). So a stale or
+/// missing bundle never breaks decoding, but the developer sees an
+/// obvious wrong-color render and a `Fallback` ProfileSource in the
+/// pipeline diagnostics rather than a silently wrong rawler-CM output.
 pub(crate) const PROFILES_BIN: &[u8] = include_bytes!("../profiles/profiles.bin");
 
 pub(crate) const MAGIC: &[u8; 4] = b"MDCP";
@@ -92,106 +104,63 @@ pub(crate) const FORMAT_VERSION: u16 = 1;
 /// since Rust 1.70 — same semantics, no extra crate.
 static PROFILE_TABLE: OnceLock<HashMap<CameraKey, MapleProfile>> = OnceLock::new();
 
-/// Look up a bundled profile for the given `RawImage`. Returns `None` in
-/// three cases, in priority order:
+/// Look up a bundled profile for the given `RawImage`.
 ///
-/// 1. The camera isn't in the bundle (or `MAPLE_DISABLE_BUNDLED_PROFILES=1`).
-/// 2. **The source DNG already ships a `ProfileLookTable`.** When PLT is
-///    present, the source was authored by the DNG Converter and already
-///    carries the external standard profile's calibrated PLT (paired to the
-///    upstream matrices + FM). Substituting a bundled override on top is a
-///    partial-calibration mismatch — the matrices/FM we'd inject diverge
-///    from what the embedded PLT was tuned for. Empirically observed
-///    regression on Leica M10 DNG: +1.80 mean ΔE without this gate; with it,
-///    no change. Vendor RAW formats don't ship PLT, so this gate doesn't
-///    apply there.
-/// 3. **The source matrices already match the bundled ones byte-for-byte
-///    within 1e-3 per entry.** Applying the bundle would only have value
-///    via its FM addition; but adding the upstream FM to a body that
-///    previously used Bradford CA regresses the reference fixture set for
-///    several vendor formats (Fujifilm RAF: +7.18 ΔE, Sony ARW: +2.85,
-///    Nikon NEF: +2.82). The upstream FM is calibrated against the
-///    reference renderer's full chain; Maple's chain doesn't yet match the
-///    reference renderer's downstream (AgX vs. the reference renderer's
-///    tone), so the FM-vs-Bradford choice swings per body. Until that's
-///    reconciled, only apply the bundle when matrices actually differ from
-///    the source.
+/// Returns `None` only in two cases:
+///   1. The camera isn't in the bundle (no UCM hit, and no UCM-mapping
+///      alias matched either — see [`ucm_mapping`]).
+///   2. `MAPLE_DISABLE_BUNDLED_PROFILES=1` is set (escape hatch for
+///      diagnostics — exercises the identity-fallback path in
+///      [`crate::color::dcp::profile_for_with_source`]).
 ///
-/// Together these gates collapse the bundled-lookup hit set to bodies
-/// whose embedded matrices materially diverge from the external standard
-/// profile AND whose source isn't already externally calibrated. In the
-/// current fixture
-/// set that's effectively the iPhone DNG family — the canonical motivating
-/// case for this ticket. Broader coverage (Canon CR2 FM addition, Leica
-/// matrix swap) is gated behind the downstream tone-chain work in
-/// separate tickets.
+/// Per ticket #345 (bundle-canonical color), the previous two gates
+/// (`PLT-present` and `matrices-match-source`) were removed. Those gates
+/// existed to hedge against source-mixing between rawler's `ColorMatrix`
+/// and the bundle's `ForwardMatrix` — under bundle-canonical, both come
+/// from the same authoring source so the source-mixing artifact they
+/// hedged against no longer applies. With the gates gone, the bundled
+/// lookup hit set expands from 1/16 fixtures (iPhone-only) to every
+/// body whose UCM the bundle covers (16/16 in the current fixture set
+/// after the UCM alias table lands — see [`ucm_mapping`] +
+/// `profiles/COVERAGE.md`).
 pub fn lookup_profile(raw: &RawImage) -> Option<&'static MapleProfile> {
     if std::env::var("MAPLE_DISABLE_BUNDLED_PROFILES").as_deref() == Ok("1") {
         return None;
     }
     let table = PROFILE_TABLE.get_or_init(|| parser::parse_bundle(PROFILES_BIN));
     let key = camera_key_for(raw);
-    let profile = table.get(&key)?;
-    // Gate 2: DNG-Converter-authored DNGs are already calibrated.
-    if raw.plt.is_some() {
-        return None;
+    if let Some(profile) = table.get(&key) {
+        return Some(profile);
     }
-    // Gate 3: bundle would be a no-op matrix-wise, and FM addition can hurt.
-    if matrices_match_source(profile, raw) {
-        return None;
-    }
-    Some(profile)
-}
-
-/// True when every bundled matrix that's also present in the source `RawImage`
-/// agrees within a tight tolerance. The tolerance is loose enough to absorb
-/// SRATIONAL → f32 round-trip noise (1e-3 per entry); tight enough to catch
-/// the iPhone case where rawler-exposed CMs differ from the external standard by
-/// ~0.16 in several entries.
-fn matrices_match_source(profile: &MapleProfile, raw: &RawImage) -> bool {
-    const TOL: f32 = 1e-3;
-    fn close(a: Matrix3, b: Matrix3, tol: f32) -> bool {
-        for r in 0..3 {
-            for c in 0..3 {
-                if (a.0[r][c] - b.0[r][c]).abs() > tol {
-                    return false;
-                }
-            }
-        }
-        true
-    }
-    for (illum_opt, bundled_cm) in [
-        (profile.illum1, profile.cm1),
-        (profile.illum2, profile.cm2),
-    ] {
-        let (illum, bcm) = match (illum_opt, bundled_cm) {
-            (Some(i), Some(m)) => (i, m),
-            _ => continue,
-        };
-        if let Some(src_cm) = raw.color_matrices.get(&illum) {
-            if !close(*src_cm, bcm, TOL) {
-                return false;
-            }
+    // UCM-naming-mismatch fallback (#345 step 3). Some rawler-reported
+    // UCMs differ from the bundle's authoring UCM by vendor naming
+    // convention only (Hasselblad medium-format, DJI Mavic 3 Pro's
+    // Hasselblad sensor, etc.). The alias table maps the source string
+    // to the bundle's string deterministically — no fuzzy matching.
+    if let Some(alias) = ucm_mapping::map_to_bundle_ucm(raw, &key.unique_camera_model) {
+        if let Some(profile) = table.get(&CameraKey::new(alias)) {
+            return Some(profile);
         }
     }
-    true
+    None
 }
 
 /// True when this `RawImage` has a bundled Maple profile available. When
 /// true, the develop pipeline should ignore the source DNG's
 /// `ProfileToneCurve` tag — that tag was calibrated against the source
-/// vendor's own matrices, and the bundled external-standard matrices we
-/// substitute differ enough on some bodies (notably iPhone DNGs, which
-/// ship a 257-pair PTC) to cause a tone double-up. Maple's AgX view
-/// transform supplies the canonical tone mapping; the PTC was redundant
-/// even before the matrix swap.
+/// vendor's own matrices, and the bundled externally-calibrated matrices
+/// we substitute differ enough on some bodies (notably iPhone DNGs,
+/// which ship a 257-pair PTC) to cause a tone double-up. Maple's AgX
+/// view transform supplies the canonical tone mapping; the PTC was
+/// redundant even before the matrix swap.
 ///
 /// `ProfileLookTable` is NOT suppressed by this flag: on bodies whose
-/// source DNG was produced by the DNG Converter, the embedded PLT IS
-/// the external standard profile's calibrated look table and dropping it causes a real
-/// ΔE regression (~10 units on the Canon 5D Mark III DNG fixture). The
-/// universal-Look refactor (separate ticket) will replace PLT entirely
-/// with a profile-independent display-look curve; until then PLT stays.
+/// source DNG was produced by an external DNG converter, the embedded
+/// PLT IS the external standard profile's calibrated look table and
+/// dropping it causes a real ΔE regression (~10 units on the Canon 5D
+/// Mark III DNG fixture). The universal-Look refactor (separate
+/// ticket) will replace PLT entirely with a profile-independent
+/// display-look curve; until then PLT stays.
 ///
 /// `ProfileGainTableMap` is also NOT suppressed: it's per-pixel sensor-
 /// domain calibration, not look-space tone shaping, so it remains valid
@@ -205,13 +174,13 @@ pub fn has_bundled_profile(raw: &RawImage) -> bool {
 /// Three sources, in priority order:
 ///   1. The DNG `UniqueCameraModel` tag when present (`raw.unique_camera_model`).
 ///      iPhone DNGs ship lens-disambiguated values here — e.g.
-///      `"iPhone13,3 back telephoto camera"` — which match the upstream DCP
+///      `"iPhone13,3 back telephoto camera"` — which match Adobe's DCP
 ///      filenames byte-for-byte.
 ///   2. `"{camera_make} {camera_model}"` when both are non-empty and the make
-///      isn't already a prefix of the model. The upstream UCM convention for
+///      isn't already a prefix of the model. Adobe's UCM convention for
 ///      DSLRs is `"Canon EOS 5D Mark IV"` / `"Nikon D850"` / `"Sony ILCE-7M3"`,
 ///      but rawler's `clean_model` strips the make prefix (yielding
-///      `"EOS 5D Mark IV"`). Recomposing matches the upstream filenames.
+///      `"EOS 5D Mark IV"`). Recomposing matches Adobe's filenames.
 ///   3. `camera_model` alone (for completeness; rawler's `clean_model` is
 ///      sometimes already `"Canon EOS 5D Mark IV"` shape for legacy bodies).
 ///
@@ -267,8 +236,8 @@ pub fn to_dcp_profile(
     // HSM source: prefer the bundle's. When the bundle ships no HSM tables
     // (current default — matrices-only bundle), pass through the source
     // DNG's HSM (raw.hsm_data1/2). That preserves the pre-#324 behavior on
-    // bodies whose DNG already shipped the upstream HSM (e.g. Canon 5DM3 DNG
-    // post-conversion-from-CR2 — the embedded HSM matches the external standard's
+    // bodies whose DNG already shipped Adobe's HSM (e.g. Canon 5DM3 DNG
+    // post-conversion-from-CR2 — the embedded HSM matches Adobe Standard's
     // by construction). Vendor RAW formats lack DNG tags, so the fallback
     // is `None`, same as before.
     let hsm1 = profile.hsm1.as_ref().or(raw.hsm_data1.as_ref());
@@ -336,10 +305,12 @@ fn normalize_to_y1(xyz: crate::math::Vec3) -> crate::math::Vec3 {
     [xyz[0] * s, 1.0, xyz[2] * s]
 }
 
-/// Re-implementation of `dcp::compute_scene_cct_single`. Duplicated here
-/// because it's a private function in `dcp.rs`; rather than widen the
-/// surface area, this 8-line piece of math is kept in sync. If the algorithm
-/// in `dcp.rs` ever changes, update both sites.
+/// Scene-CCT estimate from a single ColorMatrix + AsShotNeutral. Used by
+/// `to_dcp_profile`'s single-illuminant fallback so the Bradford source
+/// white comes from the *scene*, not the sole calibration illuminant.
+/// Same 8-line math (McCamy polynomial) that lived in `dcp.rs` before
+/// #345 — now only here, since the dcp-side single-illum fallback was
+/// removed in the bundle-canonical refactor.
 fn compute_scene_cct_single(cm: Matrix3, wb_neutral: [f32; 3], fallback: f32) -> f32 {
     let cm_inv = match cm.inverse() {
         Some(inv) => inv,
