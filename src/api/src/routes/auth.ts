@@ -37,7 +37,8 @@ import { rateLimit } from "../auth/rate_limit.ts";
 
 function jwtSecret(): string {
   const s = process.env.MAPLE_JWT_SECRET;
-  if (!s || s.length < 16) throw new Error("MAPLE_JWT_SECRET unset or too short");
+  if (!s || s.length < 16)
+    throw new Error("MAPLE_JWT_SECRET unset or too short");
   return s;
 }
 
@@ -106,7 +107,11 @@ export const authRoutes = new Elysia({ prefix: "/api/auth" })
       return {
         access_token,
         refresh_token: refresh.raw,
-        user: { id: user._id.toHexString(), email: user.email, role: user.role },
+        user: {
+          id: user._id.toHexString(),
+          email: user.email,
+          role: user.role,
+        },
       };
     },
     { body: t.Object({ email: t.Optional(t.String({ format: "email" })) }) },
@@ -116,10 +121,16 @@ export const authRoutes = new Elysia({ prefix: "/api/auth" })
   .post(
     "/register/options",
     async ({ body, set, request }) => {
-      const ip = (request.headers.get("x-forwarded-for") ?? request.headers.get("x-real-ip") ?? "anon")
-        .split(",")[0].trim();
+      const ip = (
+        request.headers.get("x-forwarded-for") ??
+        request.headers.get("x-real-ip") ??
+        "anon"
+      )
+        .split(",")[0]
+        .trim();
       if (!rateLimit(`auth:${ip}`, 10, 60_000)) {
-        set.status = 429; return { error: "rate limited" };
+        set.status = 429;
+        return { error: "rate limited" };
       }
       const email = body.email.toLowerCase();
       const claimed = await isClaimed();
@@ -129,7 +140,9 @@ export const authRoutes = new Elysia({ prefix: "/api/auth" })
           return { error: "invite required" };
         }
         // Peek at invite without consuming (consumed on verify).
-        const inv = await (await invitesCollection()).findOne({ code: body.invite_code });
+        const inv = await (
+          await invitesCollection()
+        ).findOne({ code: body.invite_code });
         if (!inv || inv.consumed_at || inv.expires_at.getTime() < Date.now()) {
           set.status = 410;
           return { error: "invite invalid" };
@@ -151,7 +164,7 @@ export const authRoutes = new Elysia({ prefix: "/api/auth" })
         email: t.String({ format: "email" }),
         invite_code: t.Optional(t.String()),
       }),
-    }
+    },
   )
 
   // ----- register/verify -----
@@ -161,7 +174,10 @@ export const authRoutes = new Elysia({ prefix: "/api/auth" })
       const email = body.email.toLowerCase();
       const clientChallenge = body.credential?.response?.clientDataJSON
         ? JSON.parse(
-            Buffer.from(body.credential.response.clientDataJSON, "base64url").toString()
+            Buffer.from(
+              body.credential.response.clientDataJSON,
+              "base64url",
+            ).toString(),
           ).challenge
         : "";
       const challengeRow = await consumeChallenge(clientChallenge);
@@ -211,9 +227,12 @@ export const authRoutes = new Elysia({ prefix: "/api/auth" })
 
       const access_token = signAccessToken(
         { sub: userIns.insertedId.toHexString(), email, role },
-        jwtSecret()
+        jwtSecret(),
       );
-      const refresh = await issueRefreshToken(userIns.insertedId, body.device_label);
+      const refresh = await issueRefreshToken(
+        userIns.insertedId,
+        body.device_label,
+      );
       cookie.maple_refresh.set({
         value: refresh.raw,
         httpOnly: true,
@@ -235,17 +254,23 @@ export const authRoutes = new Elysia({ prefix: "/api/auth" })
         device_label: t.String({ minLength: 1, maxLength: 64 }),
         credential: t.Any(),
       }),
-    }
+    },
   )
 
   // ----- login/options -----
   .post(
     "/login/options",
     async ({ body, set, request }) => {
-      const ip = (request.headers.get("x-forwarded-for") ?? request.headers.get("x-real-ip") ?? "anon")
-        .split(",")[0].trim();
+      const ip = (
+        request.headers.get("x-forwarded-for") ??
+        request.headers.get("x-real-ip") ??
+        "anon"
+      )
+        .split(",")[0]
+        .trim();
       if (!rateLimit(`auth:${ip}`, 10, 60_000)) {
-        set.status = 429; return { error: "rate limited" };
+        set.status = 429;
+        return { error: "rate limited" };
       }
       const email = body.email.toLowerCase();
       const u = await (await usersCollection()).findOne({ email });
@@ -255,7 +280,7 @@ export const authRoutes = new Elysia({ prefix: "/api/auth" })
       }
       return buildAuthenticationOptions(u._id, email);
     },
-    { body: t.Object({ email: t.String({ format: "email" }) }) }
+    { body: t.Object({ email: t.String({ format: "email" }) }) },
   )
 
   // ----- login/verify -----
@@ -265,43 +290,46 @@ export const authRoutes = new Elysia({ prefix: "/api/auth" })
       const email = body.email.toLowerCase();
       const clientChallenge = body.credential?.response?.clientDataJSON
         ? JSON.parse(
-            Buffer.from(body.credential.response.clientDataJSON, "base64url").toString()
+            Buffer.from(
+              body.credential.response.clientDataJSON,
+              "base64url",
+            ).toString(),
           ).challenge
         : "";
 
-      // Fan out the three pre-verification reads concurrently — none depends
-      // on the others. consumeChallenge stays a findOneAndDelete, so the
-      // challenge is consumed even if later checks fail (same behaviour as
-      // the previous sequential code: the original ran consumeChallenge
-      // before the user/credential lookups, so a "no such user" reply also
-      // burned the challenge). The credential is now looked up by its unique
-      // `credential_id` and the user binding is checked in JS — identical
-      // semantics to the prior compound-key findOne.
+      // Consume the challenge first so an invalid/replayed challenge can't
+      // trigger user + credential lookups (DB-amplification on bad input).
+      // Once the challenge is validated, fan out the user + credential reads
+      // in parallel — they're independent. The credential is looked up by
+      // its unique `credential_id` and the user binding is checked in JS,
+      // matching the semantics of the prior compound-key findOne.
+      let challengeRow;
+      try {
+        challengeRow = await consumeChallenge(clientChallenge);
+      } catch {
+        set.status = 400;
+        return { error: "challenge invalid" };
+      }
+      if (
+        challengeRow.purpose !== "authenticate" ||
+        challengeRow.email !== email
+      ) {
+        set.status = 400;
+        return { error: "challenge mismatch" };
+      }
+
       const [credsColl, usersColl] = await Promise.all([
         credentialsCollection(),
         usersCollection(),
       ]);
       const credentialId = body.credential?.id;
-      const [challengeRes, user, credLookup] = await Promise.all([
-        consumeChallenge(clientChallenge).then(
-          (row) => ({ ok: true as const, row }),
-          (err: unknown) => ({ ok: false as const, err })
-        ),
+      const [user, credLookup] = await Promise.all([
         usersColl.findOne({ email }),
         credentialId
           ? credsColl.findOne({ credential_id: credentialId })
           : Promise.resolve(null),
       ]);
 
-      if (!challengeRes.ok) {
-        set.status = 400;
-        return { error: "challenge invalid" };
-      }
-      const challengeRow = challengeRes.row;
-      if (challengeRow.purpose !== "authenticate" || challengeRow.email !== email) {
-        set.status = 400;
-        return { error: "challenge mismatch" };
-      }
       if (!user) {
         set.status = 404;
         return { error: "no such user" };
@@ -322,15 +350,13 @@ export const authRoutes = new Elysia({ prefix: "/api/auth" })
         return { error: "verification failed" };
       }
 
-      // JWT signing is sync + CPU-bound; do it before kicking off writes so
-      // the three round-trips below run while we have nothing else to do.
-      const access_token = signAccessToken(
-        { sub: user._id.toHexString(), email: user.email, role: user.role },
-        jwtSecret()
-      );
-
+      // Kick off the two updates without awaiting so JWT signing (sync,
+      // CPU-bound) overlaps with the DB round-trips. issueRefreshToken is
+      // sequenced AFTER the updates so a failure on either update doesn't
+      // leave an orphan refresh token row (the row would still TTL-expire
+      // on the `expires_at` index, but better to never write it).
       const nowIso = new Date().toISOString();
-      const [, , refresh] = await Promise.all([
+      const updates = Promise.all([
         credsColl.updateOne(
           { _id: cred._id },
           {
@@ -338,14 +364,19 @@ export const authRoutes = new Elysia({ prefix: "/api/auth" })
               counter: verification.authenticationInfo.newCounter,
               last_used_at: nowIso,
             },
-          }
+          },
         ),
         usersColl.updateOne(
           { _id: user._id },
-          { $set: { last_seen_at: nowIso } }
+          { $set: { last_seen_at: nowIso } },
         ),
-        issueRefreshToken(user._id, cred.device_label),
       ]);
+      const access_token = signAccessToken(
+        { sub: user._id.toHexString(), email: user.email, role: user.role },
+        jwtSecret(),
+      );
+      await updates;
+      const refresh = await issueRefreshToken(user._id, cred.device_label);
 
       cookie.maple_refresh.set({
         value: refresh.raw,
@@ -358,7 +389,11 @@ export const authRoutes = new Elysia({ prefix: "/api/auth" })
       return {
         access_token,
         refresh_token: refresh.raw,
-        user: { id: user._id.toHexString(), email: user.email, role: user.role },
+        user: {
+          id: user._id.toHexString(),
+          email: user.email,
+          role: user.role,
+        },
       };
     },
     {
@@ -366,17 +401,23 @@ export const authRoutes = new Elysia({ prefix: "/api/auth" })
         email: t.String({ format: "email" }),
         credential: t.Any(),
       }),
-    }
+    },
   )
 
   // ----- refresh -----
   .post(
     "/refresh",
     async ({ body, cookie, set, request }) => {
-      const ip = (request.headers.get("x-forwarded-for") ?? request.headers.get("x-real-ip") ?? "anon")
-        .split(",")[0].trim();
+      const ip = (
+        request.headers.get("x-forwarded-for") ??
+        request.headers.get("x-real-ip") ??
+        "anon"
+      )
+        .split(",")[0]
+        .trim();
       if (!rateLimit(`auth:${ip}`, 10, 60_000)) {
-        set.status = 429; return { error: "rate limited" };
+        set.status = 429;
+        return { error: "rate limited" };
       }
       const cookieRaw = cookie.maple_refresh?.value as string | undefined;
       const raw: string | undefined = body.refresh_token ?? cookieRaw;
@@ -391,14 +432,16 @@ export const authRoutes = new Elysia({ prefix: "/api/auth" })
         set.status = 401;
         return { error: (err as Error).message };
       }
-      const user = await (await usersCollection()).findOne({ _id: fresh.userId });
+      const user = await (
+        await usersCollection()
+      ).findOne({ _id: fresh.userId });
       if (!user) {
         set.status = 401;
         return { error: "user gone" };
       }
       const access_token = signAccessToken(
         { sub: user._id.toHexString(), email: user.email, role: user.role },
-        jwtSecret()
+        jwtSecret(),
       );
       // Re-set the cookie if the request used cookie auth.
       if (cookieRaw) {
@@ -413,7 +456,7 @@ export const authRoutes = new Elysia({ prefix: "/api/auth" })
       }
       return { access_token, refresh_token: fresh.raw };
     },
-    { body: t.Object({ refresh_token: t.Optional(t.String()) }) }
+    { body: t.Object({ refresh_token: t.Optional(t.String()) }) },
   )
 
   // ----- logout -----
@@ -432,25 +475,30 @@ export const authRoutes = new Elysia({ prefix: "/api/auth" })
       cookie.maple_refresh?.remove();
       return new Response(null, { status: 204 });
     },
-    { body: t.Object({ refresh_token: t.Optional(t.String()) }) }
+    { body: t.Object({ refresh_token: t.Optional(t.String()) }) },
   )
 
   // ----- invites (owner-only) -----
   .group("/invites", (g) =>
-    g.use(requireAuth).use(requireOwner)
+    g
+      .use(requireAuth)
+      .use(requireOwner)
       .post(
         "/",
         async ({ body, auth }) => {
-          const inv = await createInvite(new ObjectId(auth.user.sub), body.email);
+          const inv = await createInvite(
+            new ObjectId(auth.user.sub),
+            body.email,
+          );
           return { code: inv.code, expires_at: inv.expires_at };
         },
-        { body: t.Object({ email: t.String({ format: "email" }) }) }
+        { body: t.Object({ email: t.String({ format: "email" }) }) },
       )
       .get("/", async () => listInvites())
       .delete("/:code", async ({ params }) => {
         await rescindInvite(params.code);
         return new Response(null, { status: 204 });
-      })
+      }),
   )
 
   // ----- /me + credential management (user-scoped) -----
@@ -461,10 +509,19 @@ export const authRoutes = new Elysia({ prefix: "/api/auth" })
   .get("/me", async ({ auth }) => {
     const userId = new ObjectId(auth.user.sub);
     const user = await (await usersCollection()).findOne({ _id: userId });
-    const creds = await (await credentialsCollection())
+    const creds = await (
+      await credentialsCollection()
+    )
       .find(
         { user_id: userId },
-        { projection: { _id: 1, device_label: 1, last_used_at: 1, created_at: 1 } }
+        {
+          projection: {
+            _id: 1,
+            device_label: 1,
+            last_used_at: 1,
+            created_at: 1,
+          },
+        },
       )
       .toArray();
     return {
@@ -500,7 +557,10 @@ export const authRoutes = new Elysia({ prefix: "/api/auth" })
       const userId = new ObjectId(auth.user.sub);
       const clientChallenge = body.credential?.response?.clientDataJSON
         ? JSON.parse(
-            Buffer.from(body.credential.response.clientDataJSON, "base64url").toString()
+            Buffer.from(
+              body.credential.response.clientDataJSON,
+              "base64url",
+            ).toString(),
           ).challenge
         : "";
       const challengeRow = await consumeChallenge(clientChallenge);
@@ -539,7 +599,7 @@ export const authRoutes = new Elysia({ prefix: "/api/auth" })
         credential: t.Any(),
         device_label: t.String({ minLength: 1, maxLength: 64 }),
       }),
-    }
+    },
   )
 
   .delete("/credentials/:id", async ({ auth, params, set }) => {
@@ -550,7 +610,10 @@ export const authRoutes = new Elysia({ prefix: "/api/auth" })
       set.status = 409;
       return { error: "cannot remove last credential" };
     }
-    const r = await c.deleteOne({ _id: new ObjectId(params.id), user_id: userId });
+    const r = await c.deleteOne({
+      _id: new ObjectId(params.id),
+      user_id: userId,
+    });
     if (r.deletedCount === 0) {
       set.status = 404;
       return { error: "not found" };
