@@ -1,5 +1,8 @@
-//! Print the normalized (make, model) keys that camera_calibration::baseline_exposure
-//! uses internally, given a list of (raw_make, raw_model) inputs from the fixture set.
+//! Print the aggressively-normalised (make, model) keys that the now-removed
+//! `camera_calibration::baseline_exposure` table once used, given a list of
+//! (raw_make, raw_model) inputs from the fixture set. Retained as a debugging
+//! aid for any future per-body lookup that needs the same normalisation
+//! shape; the function being keyed against is gone (see ticket #370).
 //!
 //! Usage: cargo run --release --example normalize-camera-key
 

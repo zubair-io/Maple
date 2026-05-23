@@ -416,8 +416,12 @@ pub fn interpolated_profile(
         (None, Some(fw))     => Some(fw),
         (None, None)         => None,
     };
-    // The pipeline is NOT pre-gaining camera RGB (WB pre-gain deferred until
-    // paired with per-body BaselineExposure + HSM — see pipeline.rs comment).
+    // Historical no-pre-gain branch: this path is exercised when WB pre-gain
+    // was skipped upstream (currently only the 8-bit lossy LinearRaw
+    // `wb_already_baked = true` route — see develop.rs). The non-LinearRaw
+    // path pre-gains by AsShotNeutral so a neutral patch enters inv(CM) as
+    // (1, 1, 1); without pre-gain, a neutral patch enters inv(CM) as
+    // AsShotNeutral.
     // In the no-pre-gain world, a neutral scene patch enters inv(CM) as
     // AsShotNeutral, so the self-consistent Bradford source is
     // `inv(CM_interp) * AsShotNeutral`, normalized to Y=1. For LinearRaw

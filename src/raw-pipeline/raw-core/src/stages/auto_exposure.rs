@@ -23,9 +23,11 @@
 //! transform and the reference renderer uses a different proprietary tone
 //! curve. Both compensations
 //! were removed in commit `ba8e0ecb` after the WB pre-gain bundle
-//! (Phase 1.2) + per-body BE table (Phase 1.1) gave the pipeline a
-//! correct foundation. The damping constant is kept at 0 here so the AE
-//! infrastructure is preserved for the future "Auto" toggle.
+//! (Phase 1.2) gave the pipeline a correct foundation. (The Phase-1.1
+//! per-body BE table that originally accompanied it was itself removed
+//! in #370; aesthetic alignment is now the job of `view::look` (#371).)
+//! The damping constant is kept at 0 here so the AE infrastructure is
+//! preserved for the future "Auto" toggle.
 //!
 //! # Adaptations from the reference port
 //! * Reference operates on a `DemosaicedImage { pixels: Vec<f32> }` (interleaved
