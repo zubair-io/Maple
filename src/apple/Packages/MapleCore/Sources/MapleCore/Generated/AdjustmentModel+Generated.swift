@@ -5,7 +5,7 @@
 // `AdjustmentModel`. The struct itself + defaults + init stay
 // hand-written in `AdjustmentModel.swift`; Apple's defaults
 // match raw-core's canonical values (per #326, sharpen converges
-// to ACR's import baseline: 40 / 1.0 / 25 / 0).
+// to the reference renderer's import baseline: 40 / 1.0 / 25 / 0).
 
 import Foundation
 
@@ -64,9 +64,9 @@ extension AdjustmentModel {
     public static let clarityRange: ClosedRange<Double> = -100.0...100.0
     /// Fine texture (unsharp radius 3 per spec § 3.8).
     public static let textureRange: ClosedRange<Double> = -100.0...100.0
-    /// Sharpening amount per spec § 3.10 (0 = stage skipped, 100 = full RL). Default = ACR import (40).
+    /// Sharpening amount per spec § 3.10 (0 = stage skipped, 100 = full RL). Default = reference-renderer import (40).
     public static let sharpenAmountRange: ClosedRange<Double> = 0.0...150.0
-    /// Sharpening PSF Gaussian sigma. Default = ACR import (1.0).
+    /// Sharpening PSF Gaussian sigma. Default = reference-renderer import (1.0).
     public static let sharpenRadiusRange: ClosedRange<Double> = 0.5...3.0
     /// Sharpening edge-attenuation strength.
     public static let sharpenDetailRange: ClosedRange<Double> = 0.0...100.0
@@ -78,7 +78,7 @@ extension AdjustmentModel {
     public static let captureSharpeningRadiusRange: ClosedRange<Double> = 0.5...2.0
     /// Luminance noise reduction strength per spec § 3.11.
     public static let nrLuminanceRange: ClosedRange<Double> = 0.0...100.0
-    /// Color noise reduction strength (default = ACR's default).
+    /// Color noise reduction strength (default = the reference renderer's default).
     public static let nrColorRange: ClosedRange<Double> = 0.0...100.0
     /// Dehaze strength.
     public static let dehazeRange: ClosedRange<Double> = -100.0...100.0
