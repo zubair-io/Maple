@@ -251,15 +251,23 @@ private final class _XMPParserDelegate: NSObject, XMLParserDelegate {
                 model.tint = ti
             }
         case "papp:HighlightRecoveryMode":
-            // Try exact rawValue first (so multi-word PascalCase like
-            // "ChromaticAdaptation" round-trips), then fall back to the
-            // capitalized form for single-word back-compat values ("off",
-            // "blend", "luminance"). Unknown values keep the current value
-            // (default) rather than silently flipping reconstruction off.
-            if let parsed = HighlightRecoveryMode(rawValue: value)
-                ?? HighlightRecoveryMode(rawValue: value.capitalized) {
-                model.highlightRecovery = parsed
+            // Case-insensitive match against the four canonical PascalCase
+            // rawValues. Rust's parser accepts both lowercase and PascalCase
+            // forms (and #335's review flagged a parity gap where lowercase
+            // `chromaticadaptation` parsed on Rust/Web but silently fell
+            // through to the default on Apple). Unknown values keep the
+            // current value (default) rather than silently flipping
+            // reconstruction off.
+            let lowered = value.lowercased()
+            let parsed: HighlightRecoveryMode?
+            switch lowered {
+            case "off":                  parsed = .off
+            case "blend":                parsed = .blend
+            case "luminance":            parsed = .luminance
+            case "chromaticadaptation":  parsed = .chromaticAdaptation
+            default:                     parsed = nil
             }
+            if let parsed { model.highlightRecovery = parsed }
         // Lightroom culling
         case "xmp:Rating":
             if let n = Int(value) { culling.stars = max(0, min(5, n)) }
