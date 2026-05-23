@@ -16,11 +16,11 @@ final class AdjustmentModelTests: XCTestCase {
     }
 
     /// Ticket 12 Bug 3 / #326 — first-open of a sidecar-less RAW must apply
-    /// ACR's import baseline (Sharpness=40, Radius=1.0) so the preview is
-    /// no softer than Adobe Camera Raw's. Apple historically carried a
-    /// 45/1.0 override; #326 converges all platforms onto the canonical
-    /// 40/1.0 ACR values.
-    func testDefaultSharpeningMatchesACRRawProfile() {
+    /// the reference renderer's import baseline (Sharpness=40, Radius=1.0)
+    /// so the preview is no softer than the reference renderer's. Apple
+    /// historically carried a 45/1.0 override; #326 converges all platforms
+    /// onto the canonical 40/1.0 reference values.
+    func testDefaultSharpeningMatchesReferenceRawProfile() {
         XCTAssertEqual(AdjustmentModel.default.sharpenAmount, 40)
         XCTAssertEqual(AdjustmentModel.default.sharpenRadius, 1.0)
     }

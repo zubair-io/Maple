@@ -282,12 +282,12 @@ private struct ActiveDevelopTab: View {
             CollapsibleSection(title: "White Balance") {
                 // Temperature: blue (cool source / cool render at low CCT)
                 // → orange (warm source / warm render at high CCT). Default
-                // 6500 K = D65, neutral. Mirrors ACR's slider visual.
+                // 6500 K = D65, neutral. Mirrors the reference renderer's slider visual.
                 AdjustSlider("Temperature", value: $session.model.temperature,
                              range: AdjustmentModel.temperatureRange, format: "%.0f K",
                              colors: [.blue, .orange], defaultValue: 6500)
                 // Tint: green (positive shift) → magenta (negative shift).
-                // ACR convention is signed −100..+100 with 0 neutral.
+                // The `crs:Tint` convention is signed −100..+100 with 0 neutral.
                 AdjustSlider("Tint", value: $session.model.tint, range: AdjustmentModel.tintRange,
                              colors: [.green, .pink])
                 if let cct = session.asShotCCT, let tint = session.asShotTint {
@@ -349,7 +349,7 @@ private struct ActiveDevelopTab: View {
             Divider().overlay(MapleTokens.border)
             CollapsibleSection(title: "Detail") {
                 // Sharpening + NR are intensity ramps — gray → white reads
-                // as "more processing." Radius default 1.0 mirrors ACR's
+                // as "more processing." Radius default 1.0 mirrors the reference renderer's
                 // raw-file capture-sharpening default (after the recent
                 // f4e3ef7 commit dropped the ill-advised default of 5).
                 AdjustSlider("Sharpen",    value: $session.model.sharpenAmount,  range: AdjustmentModel.sharpenAmountRange,
