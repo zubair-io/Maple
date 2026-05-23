@@ -8,8 +8,8 @@
 //! fp16 RGBA.
 //!
 //! Stages, in order: `white_balance::apply_delta` → `scene_tone_controls`
-//! → `vibrance` → `saturation` → `clarity` → `texture` → `dehaze` →
-//! `nr_luminance` → `agx` (when `skip_agx == false`).
+//! → `tone_curves` → `vibrance` → `saturation` → `clarity` → `texture` →
+//! `dehaze` → `nr_luminance` → `agx` (when `skip_agx == false`).
 //!
 //! **Deliberately omits** `sharpen` and `nr_color` — those two stay on
 //! the Apple GPU path (Metal compute pipelines). See the per-function
@@ -25,8 +25,8 @@ use crate::{error::Result, xmp::AdjustmentModel};
 /// scene-linear Rec.2020 buffer.
 ///
 /// Stages, in order: `white_balance::apply_delta` → `scene_tone_controls`
-/// → `vibrance` → `saturation` → `clarity` → `texture` → `dehaze` →
-/// `nr_luminance` → `agx`.
+/// → `tone_curves` → `vibrance` → `saturation` → `clarity` → `texture` →
+/// `dehaze` → `nr_luminance` → `agx`.
 ///
 /// **Deliberately omits** `sharpen` and `nr_color`. Those two stages are
 /// kept on the Apple GPU path (Metal compute pipelines) because:
@@ -75,7 +75,7 @@ pub fn apply_scene_linear_chain(
     use crate::image::{ColorSpace, Image};
     use crate::stages::{
         clarity, dehaze, local_adjustments, noise_reduction, saturation, scene_tone_controls,
-        texture, vibrance, white_balance,
+        texture, tone_curves, vibrance, white_balance,
     };
     use crate::view::agx;
 
@@ -138,6 +138,7 @@ pub fn apply_scene_linear_chain(
     stage("ffi_chain_scene_tone_controls", || {
         scene_tone_controls::apply(&mut img, model)
     });
+    stage("ffi_chain_tone_curves", || tone_curves::apply(&mut img, model));
     stage("ffi_chain_vibrance", || vibrance::apply(&mut img, model.vibrance));
     stage("ffi_chain_saturation", || {
         saturation::apply(&mut img, model.saturation)

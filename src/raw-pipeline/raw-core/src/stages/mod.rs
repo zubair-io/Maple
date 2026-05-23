@@ -1,6 +1,7 @@
 pub mod auto_exposure;
 pub mod white_balance;
 pub mod scene_tone_controls;
+pub mod tone_curves;
 pub mod vibrance;
 pub mod saturation;
 pub mod clarity;
