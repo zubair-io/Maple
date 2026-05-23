@@ -107,8 +107,8 @@ and a Bradford fallback when either condition fails.
    buffer entering DCP is `camera_raw / AsShotNeutral`).
 2. `ForwardMatrix * rgb_camera_wb` → linear XYZ-D50. The DNG SDK
    contract (`dng_camera_profile.h` field comment;
-   `dng_color_spec.cpp:444-446`) defines FM's *input* as white-balanced
-   camera RGB and *output* as XYZ-D50. FM is not composed with `inv(CM)`
+   `dng_color_spec.cpp:444-446`) defines FM's _input_ as white-balanced
+   camera RGB and _output_ as XYZ-D50. FM is not composed with `inv(CM)`
    on this path.
 3. `inv(M_pro_to_xyz_d50) * xyz_D50` → linear ProPhoto D50.
 

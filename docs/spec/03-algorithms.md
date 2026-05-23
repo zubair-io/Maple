@@ -206,9 +206,9 @@ The DCP math is specified in ProPhoto D50 (per the DNG spec). Maple runs the mat
 
 ### What a DCP contains
 
-- **ColorMatrix1 (CM1)** — camera-to-XYZ under illuminant 1 (typically StdA / ~2850K).
-- **ColorMatrix2 (CM2)** — camera-to-XYZ under illuminant 2 (typically D65 / ~6500K).
-- **ForwardMatrix1/2 (FM1, FM2)** — **white-balanced camera RGB → XYZ-D50** under each illuminant (optional but increasingly standard). NOTE: this is the DNG SDK contract per `dng_camera_profile.h` (FM field comment) and `dng_color_spec.cpp:444-446`; older Maple commentary occasionally described FM as "XYZ → ProPhoto", which is wrong. FM's *input* is the white-balanced camera RGB (camera RGB divided by AsShotNeutral, i.e. the post-pre-gain buffer); FM's *output* is XYZ chromatically adapted to D50.
+- **ColorMatrix1 (CM1)** — **XYZ → camera** at illuminant 1 (typically StdA / ~2850K) per the DNG spec convention. The pipeline inverts it (`inv(CM)`) when it needs camera→XYZ on the non-FM path; see `src/raw-pipeline/raw-core/src/color/profile_loader/types.rs` field docstring.
+- **ColorMatrix2 (CM2)** — **XYZ → camera** at illuminant 2 (typically D65 / ~6500K). Same convention as CM1.
+- **ForwardMatrix1/2 (FM1, FM2)** — **white-balanced camera RGB → XYZ-D50** under each illuminant (optional but increasingly standard). NOTE: this is the DNG SDK contract per `dng_camera_profile.h` (FM field comment) and `dng_color_spec.cpp:444-446`; older Maple commentary occasionally described FM as "XYZ → ProPhoto", which is wrong. FM's _input_ is the white-balanced camera RGB (camera RGB divided by AsShotNeutral, i.e. the post-pre-gain buffer); FM's _output_ is XYZ chromatically adapted to D50.
 - **HueSatMapData1/2** — 3D lookup tables (hue × saturation × value) of additive hue and saturation offsets, per illuminant.
 - **ProfileLookTable** — an optional final 3D LUT applied after HueSatMap for "look" character (stylistic tweaks).
 - **CalibrationIlluminant1/2** — the CIE illuminant codes for the above matrices.
