@@ -9,8 +9,10 @@
 //! `quick-xml` for other modules.
 
 pub mod adjustment;
+pub mod local_adjustment;
 
 pub use adjustment::{
     AdjustmentModel, FieldKind, FieldSpec, HighlightRecoveryMode, WhiteBalancePreset,
     ADJUSTMENT_SCHEMA,
 };
+pub use local_adjustment::{LocalAdjustment, Mask, PartialAdjustments, Point2};
