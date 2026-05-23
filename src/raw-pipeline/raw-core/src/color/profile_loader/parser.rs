@@ -1,6 +1,6 @@
 //! Binary-bundle parser for the embedded Maple profiles blob.
 //!
-//! Reader for the format produced by `src/scripts/convert_adobe_dcps.py`.
+//! Reader for the format produced by `src/scripts/convert_dcps.py`.
 //! Both reader (this file) and writer (the script) must move together —
 //! `FORMAT_VERSION` is bumped on any layout change.
 //!
@@ -41,7 +41,7 @@ pub(super) fn parse_bundle(bytes: &[u8]) -> HashMap<CameraKey, MapleProfile> {
         };
         let key = CameraKey::new(profile.unique_camera_model.clone());
         // Deduplication is the converter's job (see
-        // `src/scripts/convert_adobe_dcps.py`'s `dcp_preference` ranking,
+        // `src/scripts/convert_dcps.py`'s `dcp_preference` ranking,
         // which picks one record per UCM deterministically). If a duplicate
         // still slips through into the bundle we record it for the loader
         // tests below — the first-write wins so the converter's chosen
@@ -202,7 +202,7 @@ mod tests {
     use super::super::PROFILES_BIN;
 
     /// The shipped bundle has no duplicate UCMs. The converter
-    /// (`src/scripts/convert_adobe_dcps.py`) deterministically picks one
+    /// (`src/scripts/convert_dcps.py`) deterministically picks one
     /// record per UCM via `dcp_preference`; this test catches a regression
     /// where the dedup step is bypassed or a converter rewrite re-introduces
     /// duplicates (which would silently overwrite records in `parse_bundle`

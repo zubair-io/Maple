@@ -25,7 +25,7 @@
 //!
 //! # Slider semantics
 //!
-//! `nr_luminance` / `nr_color` are in [0, 100] (matches ACR's
+//! `nr_luminance` / `nr_color` are in [0, 100] (matches the reference renderer's
 //! Luminance / Color sliders). The slider amount scales the NLM
 //! filtering strength `h` linearly from a noise floor at 0 to the
 //! configured maximum at 100. Zero is identity (short-circuited).

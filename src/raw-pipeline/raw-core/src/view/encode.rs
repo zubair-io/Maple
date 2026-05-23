@@ -25,9 +25,10 @@ pub fn srgb_gamma(x: f32) -> f32 {
 
 // Display-space Levels look-layer was previously applied here (black=66,
 // white=227, gamma=0.65) to compensate for Blender 4.x AgX's mid-gray lift
-// when measured against ACR. Maple AgX (v6) is now calibrated directly
-// against ACR — its polynomial places mid-gray near 0.18 display-linear,
-// matching ACR's tone placement. The Levels layer is therefore no longer
+// when measured against the reference renderer. Maple AgX (v6) is now
+// calibrated directly against the reference renderer — its polynomial places
+// mid-gray near 0.18 display-linear, matching the reference renderer's tone
+// placement. The Levels layer is therefore no longer
 // needed; leaving it in compounds the correction and crushes midtones.
 
 /// Final encode: display-linear sRGB → u8 RGB via piecewise gamma +

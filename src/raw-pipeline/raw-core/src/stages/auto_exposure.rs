@@ -18,9 +18,10 @@
 //! # History — band-aids removed
 //! Earlier versions of the pipeline ran a non-zero damping (0.2) layered
 //! on top of a global `MAPLE_AGX_BASELINE_COMPENSATION_EV = 0.65` constant
-//! in `decode.rs`. That tuning was AgX-toward-ACR, which is the wrong
-//! optimization target — Maple uses AgX as the platform view transform
-//! and ACR uses a different proprietary tone curve. Both compensations
+//! in `decode.rs`. That tuning was AgX-toward-reference-renderer, which is
+//! the wrong optimization target — Maple uses AgX as the platform view
+//! transform and the reference renderer uses a different proprietary tone
+//! curve. Both compensations
 //! were removed in commit `ba8e0ecb` after the WB pre-gain bundle
 //! (Phase 1.2) + per-body BE table (Phase 1.1) gave the pipeline a
 //! correct foundation. The damping constant is kept at 0 here so the AE
@@ -73,7 +74,7 @@ pub struct AutoExposure {
 
 // Engine constants — held in the reference verbatim.
 const SCALE: f32 = 65536.0;
-/// Linear-gamma middle grey (Adobe convention).
+/// Linear-gamma middle grey (DNG-spec convention).
 const MIDGRAY: f32 = 0.1842;
 /// Histogram compression: 65536 >> 3 = 8192 bins.
 const HISTCOMPR: u32 = 3;
@@ -318,12 +319,13 @@ pub fn auto_exposure_from_image(image: &Image, clip: f32) -> AutoExposure {
 /// Currently 0.0 — auto-exposure does NOT modify pixels by default.
 ///
 /// History: was set to 0.2 (commit d431fcf) after a sweep against
-/// ACR-rendered references showed it produced a small grand-mean ΔE
+/// reference-rendered references showed it produced a small grand-mean ΔE
 /// improvement (12.55 → 12.49 = ~0.06). That tuning was wrong-target:
-/// we were calibrating Maple-AgX brightness toward ACR's Adobe-Color
-/// brightness. Maple chose AgX as the platform view transform; ACR
-/// uses a different proprietary tone curve. They produce different
-/// images by design. Tuning AE to push AgX toward ACR fights the
+/// we were calibrating Maple-AgX brightness toward the reference
+/// renderer's brightness. Maple chose AgX as the platform view transform;
+/// the reference renderer uses a different proprietary tone curve. They
+/// produce different images by design. Tuning AE to push AgX toward the
+/// reference renderer fights the
 /// view-transform's intended look.
 ///
 /// AE remains as infrastructure for a future user-facing "Auto"

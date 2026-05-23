@@ -10,14 +10,14 @@ use crate::{
 /// chromaticities" (Applied Optics 38(27), 5703–5709).
 ///
 /// Valid range: 1667K – 25000K. Clamped to [2000K, 25000K] here because
-/// (a) ACR's slider exposes 2000K–50000K and (b) the polynomial is
+/// (a) the reference renderer's slider exposes 2000K–50000K and (b) the polynomial is
 /// not defined above 25000K — clamping the upper bound matches what
-/// ACR appears to do internally.
+/// the reference renderer appears to do internally.
 ///
 /// Earlier versions of this function used the Krystek 1985 D-illuminant
 /// polynomial. That fits the daylight locus (~4000K–25000K) and
 /// extrapolates poorly at the warm end: at 2000K it under-cooled
-/// vs ACR's slider. The slider-visual-matrix harness on test_0002
+/// vs the reference renderer's slider. The slider-visual-matrix harness on test_0002
 /// surfaced the magnitude error after the direction fix landed.
 pub fn cct_to_xy(cct: f32) -> (f32, f32) {
     let t = cct.clamp(2000.0, 25000.0);
@@ -46,29 +46,29 @@ pub fn xy_to_xyz(x: f32, y: f32, big_y: f32) -> Vec3 {
 /// (temperature, tint). Tint in [-100, 100] with 0.001 per-unit scaling
 /// (spec § 3.5).
 ///
-/// ACR convention: the temperature slider value is the COLOR TEMPERATURE
+/// The reference renderer's convention: the temperature slider value is the COLOR TEMPERATURE
 /// OF THE LIGHT THE PHOTO WAS TAKEN UNDER. To render the scene as
 /// neutral D65 we apply the INVERSE of the source-light chromaticity:
 ///   gain = D65_rec2020 / source_rec2020
 ///
 /// At source = 2000K (tungsten), `source_rec2020` has high R and low B,
 /// so `gain = D65/source` gives low R and high B — cooling the image,
-/// which is the correct ACR direction for "compensate warm tungsten".
+/// which is the correct reference-renderer direction for "compensate warm tungsten".
 ///
 /// The previous code computed `target / D65` which made warm-CCT
-/// sliders WARM the image (the opposite of ACR). The slider-visual-
+/// sliders WARM the image (the opposite of the reference renderer). The slider-visual-
 /// matrix harness on test_0002 surfaced this immediately:
-/// temperature_min (2000K) rendered red/magenta on Maple where ACR
+/// temperature_min (2000K) rendered red/magenta on Maple where the reference renderer
 /// produced blue. Fix flipped the ratio direction.
 pub fn wb_gains(temperature: f32, tint: f32) -> Vec3 {
-    // ACR tint semantics differ from temperature: the slider VALUE is the
+    // The reference renderer's tint semantics differ from temperature: the slider VALUE is the
     // image-direction shift the user wants (positive = add green, negative
     // = add magenta), NOT the source-light direction. To produce that
     // image shift via a "source / D65" gain, the source must be in the
     // OPPOSITE chromaticity direction. Subtract (rather than add) tint
     // from y so positive tint moves source DOWN (toward magenta) → gain
     // = D65/source pushes image UP (toward green) → image gets greener.
-    // Matches ACR's "drag right = greener" UI affordance.
+    // Matches the reference renderer's "drag right = greener" UI affordance.
     let (x, mut y) = cct_to_xy(temperature);
     y -= tint * 0.001;
     let xyz_source = xy_to_xyz(x, y, 1.0);
@@ -186,7 +186,7 @@ mod tests {
 
     #[test]
     fn warm_source_cools_image() {
-        // ACR convention: temp slider value = source-light CCT. A warm
+        // The reference renderer's convention: temp slider value = source-light CCT. A warm
         // source (3000K, tungsten) means we apply COOLING to compensate
         // — gain[R] < 1, gain[B] > 1. Reversed in the previous version.
         let gains = wb_gains(3000.0, 0.0);
@@ -230,11 +230,11 @@ mod tests {
 
     #[test]
     fn negative_tint_adds_magenta() {
-        // ACR convention: negative tint = add magenta to image (R+B up
+        // The reference renderer's convention: negative tint = add magenta to image (R+B up
         // relative to G). gain[G] is normalized to 1.0 so G stays put;
         // magenta manifests as R and B both rising above G.
         // Surfaced by slider_visual_matrix.py — earlier flipped-direction
-        // bug had tint_min(-150) rendering green where ACR rendered magenta.
+        // bug had tint_min(-150) rendering green where the reference renderer rendered magenta.
         let mut img = Image::new(2, 2, ColorSpace::SceneLinearRec2020);
         for p in &mut img.pixels { *p = [0.3, 0.3, 0.3]; }
         apply(&mut img, 6500.0, -100.0);
@@ -248,8 +248,8 @@ mod tests {
 
     #[test]
     fn extreme_warm_2000k_cools_strongly() {
-        // ACR exposes 2000K at the cool end of the Temperature slider.
-        // Krystek's daylight polynomial under-cools at 2000K vs ACR;
+        // The reference renderer exposes 2000K at the cool end of the Temperature slider.
+        // Krystek's daylight polynomial under-cools at 2000K vs the reference renderer;
         // Hernández-Andrés's Planckian polynomial cools much harder
         // (R drops to ~0.41, B rises to ~5.34 at 2000K).
         let gains = wb_gains(2000.0, 0.0);
@@ -261,9 +261,9 @@ mod tests {
 
     #[test]
     fn extreme_cool_50000k_warms_strongly() {
-        // ACR exposes 50000K at the warm end of the Temperature slider.
+        // The reference renderer exposes 50000K at the warm end of the Temperature slider.
         // Hernández-Andrés is defined only to 25000K, so the polynomial
-        // clamps above that — matches ACR's apparent behaviour. At the
+        // clamps above that — matches the reference renderer's apparent behaviour. At the
         // 25000K clamp R~1.18 (warming) and B~0.57 (cool-source kill).
         let gains = wb_gains(50000.0, 0.0);
         assert!(gains[0] > 1.15,

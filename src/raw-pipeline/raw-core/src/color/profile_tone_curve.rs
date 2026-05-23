@@ -4,7 +4,7 @@
 //! in [0, 1]. The curve is piecewise-linear between the lattice points; any
 //! value outside the input range clamps to the nearest endpoint's output.
 //!
-//! Per Adobe's reference implementation (DNG SDK `dng_camera_profile.cpp`),
+//! Per the DNG SDK reference implementation (`dng_camera_profile.cpp`),
 //! the curve is applied in the camera profile's working space — linear
 //! ProPhoto D50 — between HSM/PLT (which also live in ProPhoto-D50) and the
 //! gamut conversion to Rec.2020 D65. A neutral-preserving curve operates on
