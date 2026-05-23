@@ -27,6 +27,7 @@ import { WorkerConfigRepo } from './worker-config.repo.ts';
 import type { WorkerConfig, ImageDoc } from './run-stage.ts';
 import type { WorkerConfigDoc } from './worker-config.repo.ts';
 import { stageRegistry } from './registry.ts';
+import type { StageStatusSnapshot } from './registry.ts';
 import { assetAbsPath } from '../indexer/images.repo.ts';
 import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
 import { child } from '../log.ts';
@@ -36,71 +37,115 @@ const log = child('workers:routes');
 const DEAD_LIST_LIMIT_DEFAULT = 50;
 const DEAD_LIST_LIMIT_MAX = 500;
 
+// Short-TTL cache for the DB-derived half of /status. Holds worker_config rows
+// and per-stage pending/dead counts; the registry-derived fields (status,
+// inFlight, throughput, lastError) are recomposed from the in-process registry
+// on every call so they stay fresh. Keyed on the stage-name + targetVersion
+// signature so a stage gaining or changing targetVersion bypasses the cache.
+// Polling FE clients (settings UI ticks every ~1-2s) hit cache on every other
+// call, reducing 14 parallel countDocuments round-trips to zero work.
+type StatusDbState = {
+  configMap: Map<string, WorkerConfig>;
+  pendingByStage: Map<string, number>;
+  deadByStage: Map<string, number>;
+};
+const STATUS_CACHE_TTL_MS = 2000;
+let statusCache: { key: string; data: StatusDbState; expiresAt: number } | null = null;
+
+function statusCacheKey(
+  stageNames: string[],
+  statuses: Record<string, StageStatusSnapshot>,
+): string {
+  return stageNames.map((n) => `${n}:${statuses[n]?.targetVersion ?? 1}`).join('|');
+}
+
+function invalidateStatusCache(): void {
+  statusCache = null;
+}
+
+/** Test-only: drop the cached /status snapshot so tests don't see prior state. */
+export function _resetStatusCacheForTests(): void {
+  invalidateStatusCache();
+}
+
+async function fetchStatusDbState(
+  stageNames: string[],
+  statuses: Record<string, StageStatusSnapshot>,
+): Promise<StatusDbState> {
+  const configMap = new Map<string, WorkerConfig>();
+  const pendingByStage = new Map<string, number>();
+  const deadByStage = new Map<string, number>();
+  let assets: import('mongodb').Collection<import('mongodb').Document> | null = null;
+
+  try {
+    const db = await getDb();
+    assets = db.collection('assets') as import('mongodb').Collection<
+      import('mongodb').Document
+    >;
+    const configColl = db.collection<WorkerConfigDoc>('worker_config');
+    const allConfigs = await configColl.find({}).toArray();
+    for (const cfg of allConfigs) configMap.set(cfg.name, cfg);
+  } catch {
+    // DB unavailable — counts remain zeros, configMap empty.
+  }
+
+  if (assets && stageNames.length > 0) {
+    const counts = await Promise.all(
+      stageNames.flatMap((name) => {
+        const tv = statuses[name]?.targetVersion ?? 1;
+        const pending = assets!
+          .countDocuments({
+            $or: [
+              { [`stages.${name}.version`]: { $lt: tv } },
+              { [`stages.${name}.version`]: { $exists: false } },
+            ],
+            [`stages.${name}.dead`]: { $ne: true },
+          })
+          .then((n) => ({ key: 'pending' as const, name, n }))
+          .catch((err) => {
+            log.warn({ stage: name, err }, 'countDocuments failed for pending — returning 0');
+            return { key: 'pending' as const, name, n: 0 };
+          });
+        const dead = assets!
+          .countDocuments({ [`stages.${name}.dead`]: true })
+          .then((n) => ({ key: 'dead' as const, name, n }))
+          .catch((err) => {
+            log.warn({ stage: name, err }, 'countDocuments failed for dead — returning 0');
+            return { key: 'dead' as const, name, n: 0 };
+          });
+        return [pending, dead];
+      }),
+    );
+    for (const c of counts) {
+      if (c.key === 'pending') pendingByStage.set(c.name, c.n);
+      else deadByStage.set(c.name, c.n);
+    }
+  }
+
+  return { configMap, pendingByStage, deadByStage };
+}
+
 export function workerRoutes(): Elysia {
   return new Elysia({ prefix: '/api/workers' })
 
     .get('/status', async () => {
-      // DB collections — fetched once for all stages.
-      let assets: import('mongodb').Collection<import('mongodb').Document> | null = null;
-      const configMap = new Map<string, WorkerConfig>();
-      const pendingByStage = new Map<string, number>();
-      const deadByStage = new Map<string, number>();
-
-      try {
-        const db = await getDb();
-        assets = db.collection('assets') as import('mongodb').Collection<
-          import('mongodb').Document
-        >;
-        const configColl = db.collection<WorkerConfigDoc>('worker_config');
-
-        const allConfigs = await configColl.find({}).toArray();
-        for (const cfg of allConfigs) {
-          configMap.set(cfg.name, cfg);
-        }
-      } catch {
-        // DB unavailable — counts remain zeros, configMap empty.
-      }
-
       const statuses = stageRegistry.statuses();
       const stageNames = Object.keys(statuses);
+      const cacheKey = statusCacheKey(stageNames, statuses);
+      const now = Date.now();
 
-      if (assets && stageNames.length > 0) {
-        const counts = await Promise.all(
-          stageNames.flatMap((name) => {
-            const tv = statuses[name]?.targetVersion ?? 1;
-            const pending = assets!
-              .countDocuments({
-                $or: [
-                  { [`stages.${name}.version`]: { $lt: tv } },
-                  { [`stages.${name}.version`]: { $exists: false } },
-                ],
-                [`stages.${name}.dead`]: { $ne: true },
-              })
-              .then((n) => ({ key: 'pending' as const, name, n }))
-              .catch((err) => {
-                log.warn({ stage: name, err }, 'countDocuments failed for pending — returning 0');
-                return { key: 'pending' as const, name, n: 0 };
-              });
-            const dead = assets!
-              .countDocuments({ [`stages.${name}.dead`]: true })
-              .then((n) => ({ key: 'dead' as const, name, n }))
-              .catch((err) => {
-                log.warn({ stage: name, err }, 'countDocuments failed for dead — returning 0');
-                return { key: 'dead' as const, name, n: 0 };
-              });
-            return [pending, dead];
-          }),
-        );
-        for (const c of counts) {
-          if (c.key === 'pending') pendingByStage.set(c.name, c.n);
-          else deadByStage.set(c.name, c.n);
-        }
+      let dbState: StatusDbState;
+      if (statusCache && statusCache.key === cacheKey && statusCache.expiresAt > now) {
+        dbState = statusCache.data;
+      } else {
+        dbState = await fetchStatusDbState(stageNames, statuses);
+        statusCache = { key: cacheKey, data: dbState, expiresAt: now + STATUS_CACHE_TTL_MS };
       }
 
       const stages = Object.entries(statuses).map(([name, s]) => {
-        const pending = pendingByStage.get(name) ?? 0;
-        const dead = deadByStage.get(name) ?? 0;
-        const config = configMap.get(name) ?? null;
+        const pending = dbState.pendingByStage.get(name) ?? 0;
+        const dead = dbState.deadByStage.get(name) ?? 0;
+        const config = dbState.configMap.get(name) ?? null;
         const configured = config?.concurrency ?? 0;
         const batchSize = config?.batchSize ?? 0;
         return {
@@ -211,6 +256,7 @@ export function workerRoutes(): Elysia {
             },
           },
         );
+        invalidateStatusCache();
         return { ok: true, reset: result.modifiedCount };
       } catch (err) {
         set.status = 500;
@@ -233,6 +279,7 @@ export function workerRoutes(): Elysia {
           // Tell the running poll loop to re-read its config from Mongo.
           await stageRegistry.notifyConfigChanged(params.name);
           const savedConfig = await repo.load(params.name);
+          invalidateStatusCache();
           return { ok: true, config: savedConfig };
         } catch (err) {
           set.status = 500;
