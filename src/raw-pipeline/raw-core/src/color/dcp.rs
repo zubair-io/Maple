@@ -13,7 +13,12 @@ use rayon::prelude::*;
 pub use crate::color::illuminant::Illuminant as DcpIlluminant;
 
 /// Minimal DCP for slice 1+. Spec § 3.4 subset:
-///   single (or interpolated) illuminant, CM (camera → XYZ), optional FM (XYZ D50 → ProPhoto).
+///   single (or interpolated) illuminant, CM (XYZ → camera), optional FM
+///   (white-balanced camera RGB → XYZ-D50).
+/// See `dng_camera_profile.h` (FM field comment) and
+/// `dng_color_spec.cpp:444-446` for the SDK contract — FM does NOT take
+/// XYZ as input; it takes the already-WB-divided camera RGB and outputs
+/// XYZ chromatically adapted to D50.
 /// No HueSatMap, no ProfileLookTable. Those land in a later slice per the roadmap.
 #[derive(Clone, Debug)]
 pub struct DcpProfile {
@@ -24,10 +29,26 @@ pub struct DcpProfile {
     /// CM profiles; the raw calibration CM for single-CM profiles). Spec § 3.4
     /// step 1.
     pub color_matrix: Matrix3,
-    /// XYZ D50 → ProPhoto RGB. Optional per DNG spec. When present, Bradford
-    /// CA is skipped — FM absorbs it (spec § 3.4 step 2). When absent, we
-    /// Bradford from `scene_white_xyz` to D50 and fall back to the inverse
-    /// of `M_PRO_TO_XYZ_D50`.
+    /// **White-balanced camera RGB → XYZ-D50** per DNG SDK (NOT XYZ →
+    /// ProPhoto, despite older Maple commentary and parts of the spec).
+    /// `dng_camera_profile.h` documents FM1/FM2 as "matrices [that] map
+    /// white balanced camera values to XYZ chromatically adapted to D50",
+    /// and `dng_color_spec.cpp:444-446` builds the full transform as
+    /// `forwardMatrix × Invert(refCameraWhite.AsDiagonal()) ×
+    /// individualToReference`. With `AnalogBalance = CameraCalibration =
+    /// Identity` (Maple's universe), the chain collapses to
+    /// `FM × Diag(refCameraWhite)⁻¹ × camera_raw`. Maple's pipeline
+    /// pre-gains camera RGB by AsShotNeutral BEFORE DCP (see
+    /// `pipeline::develop` step 4), so by the time DCP runs the
+    /// `Diag(refCameraWhite)⁻¹ × camera_raw` term is already represented
+    /// in the buffer — DCP just needs `cam_to_pro = inv(M_pro_to_xyz_d50)
+    /// × FM` and emphatically does NOT compose FM with `inv(CM)`.
+    ///
+    /// Optional per DNG spec. When present and `wb_already_baked = true`,
+    /// the FM path runs. When absent OR `wb_already_baked = false` (the
+    /// 8-bit lossy LinearRaw escape hatch), we Bradford from
+    /// `scene_white_xyz` to D50 and fall back to the inverse of
+    /// `M_PRO_TO_XYZ_D50`.
     pub forward_matrix: Option<Matrix3>,
     /// Correlated color temperature of the scene illuminant in Kelvin, derived
     /// iteratively from AsShotNeutral + calibration matrices. Not itself used
@@ -101,14 +122,26 @@ fn normalize_to_y1(xyz: crate::math::Vec3) -> crate::math::Vec3 {
 /// Apply DCP to camera-native linear RGB, producing scene-linear Rec.2020 D65.
 /// Single-illuminant and interpolated-dual-illuminant profiles both flow
 /// through this path; single-CM skips the interpolation but uses the same
-/// Bradford / FM logic.
+/// Bradford / FM dispatch logic.
 ///
-/// DNG's `ColorMatrix` is defined `XYZ → camera`; for decoding we use its
-/// inverse (spec § 3.4 step 1). The chromatic adaptation to D50 (step 2)
-/// uses the **scene illuminant's** white point derived from `scene_cct`,
-/// not the nearer calibration illuminant — that distinction is what drives
-/// the per-fixture color cast when omitted. When `forward_matrix` is
-/// present, Bradford is skipped entirely: FM absorbs the CA per spec.
+/// Two paths inside `apply_with_post_pro`:
+///
+/// * **FM path** — when `profile.forward_matrix` is `Some` AND
+///   `profile.wb_already_baked` is `true` (i.e. the pipeline's
+///   `white_balance::apply_pre_gain` ran upstream). The buffer arriving
+///   here is `camera_raw / AsShotNeutral`, which is the white-balanced
+///   camera RGB FM's contract specifies; multiply by FM to get XYZ-D50,
+///   then by `inv(M_pro_to_xyz_d50)` to land in linear ProPhoto D50.
+///   No runtime Bradford on this path — FM is the calibrated camera-WB
+///   → XYZ-D50 mapping. See the `forward_matrix` field docstring for
+///   the DNG SDK citations.
+/// * **Bradford fallback** — when FM is absent OR pre-gain was skipped
+///   (the 8-bit lossy LinearRaw escape hatch). Invert CM, Bradford
+///   from `scene_white_xyz` to D50, then `inv(M_pro_to_xyz_d50)` to
+///   reach ProPhoto D50. `scene_white_xyz` is the scene illuminant's
+///   white point derived from the as-shot neutral, NOT the nearer
+///   calibration illuminant — that distinction drives the per-fixture
+///   color cast when omitted.
 ///
 /// When `profile.hsm` is `Some`, the ProfileHueSatMap is applied in
 /// ProPhoto-D50 space (per DNG SDK reference `dng_color_spec.cpp` —
@@ -139,10 +172,13 @@ pub fn apply_with_plt(
 }
 
 /// Like [`apply_with_plt`] but also runs the DNG 1.4 § 6.4.4
-/// ProfileToneCurve in profile-working space, between HSM and PLT.
-/// Per the DNG SDK reference (`dng_camera_profile.cpp`), the canonical
-/// order is HSM → ProfileToneCurve → ProfileLookTable, all in linear
-/// ProPhoto D50.
+/// ProfileToneCurve in profile-working space.
+/// Per the DNG SDK reference (`dng_render.cpp:1094-1121`, where the
+/// `Render` method chains `DoBaselineHueSatMap` (HSM) →
+/// `DoBaselineHueSatMap` again with `fLookTable` (PLT) →
+/// `DoBaselineRGBTone` (PTC)), the canonical order is HSM → PLT → PTC,
+/// all in linear ProPhoto D50. **NOT** HSM → PTC → PLT (that was the
+/// pre-#354 bug — PLT was incorrectly seeing PTC-curved values).
 pub fn apply_with_plt_and_ptc(
     camera: &Image,
     profile: &DcpProfile,
@@ -189,19 +225,39 @@ fn apply_with_post_pro(
         crate::Error::Dcp("ColorMatrix is singular, cannot invert to camera→XYZ".into())
     })?;
 
-    // Camera RGB → ProPhoto D50: identical algebra to the original
-    // single-matrix path, just stopped one matrix earlier so we can run
-    // HSM and/or PLT in ProPhoto space when present.
-    let cam_to_pro = if let Some(fm) = profile.forward_matrix {
-        // FM is XYZ_scene → ProPhoto D50 with CA baked in.
-        fm.mul_mat(&cam_to_xyz)
-    } else {
-        // Bradford-adapt from the scene white to D50, then inverse-ProPhoto
-        // to enter ProPhoto D50. See the `apply` doc on this same file
-        // for why scene_white_xyz is the right Bradford source.
-        let adapt = bradford_adapt(profile.scene_white_xyz, XYZ_D50);
-        let inv_pro = M_PRO_TO_XYZ_D50.inverse().expect("ProPhoto matrix is invertible");
-        inv_pro.mul_mat(&adapt).mul_mat(&cam_to_xyz)
+    // Camera RGB → ProPhoto D50.
+    //
+    // Two paths, dispatched on `wb_already_baked` (whether
+    // `pipeline::develop` ran `white_balance::apply_pre_gain` before us):
+    //
+    //   * **FM path (post-#354).** Per DNG SDK
+    //     `dng_color_spec.cpp:444-446` the SDK builds `fCameraToPCS =
+    //     forwardMatrix * Invert(refCameraWhite.AsDiagonal()) *
+    //     individualToReference`. With AnalogBalance = CameraCalibration
+    //     = Identity (Maple's universe), the chain reduces to `FM ×
+    //     Diag(refCameraWhite)⁻¹ × camera_raw`. Maple's pipeline already
+    //     divided camera RGB by AsShotNeutral upstream, so the buffer is
+    //     in the FM-input space — DCP just multiplies by FM (yielding
+    //     XYZ-D50) and then by `inv(M_pro_to_xyz_d50)` to land in
+    //     linear-ProPhoto-D50. Critically: FM is NOT composed with
+    //     `inv(CM)` (that double-rotates an already-white-balanced
+    //     buffer and was the pre-#354 bug that regressed bundle-canonical
+    //     FM application). See the field docstring on `forward_matrix`
+    //     for the full citation.
+    //   * **Non-FM / pre-gain-skipped path.** Either the profile has no
+    //     FM (Bradford fallback per spec § 3.4 step 2) OR pre-gain was
+    //     skipped because the source is 8-bit lossy LinearRaw (see
+    //     `pipeline::develop::develop_scene_linear_from_raw_with_quality`
+    //     comment block; that path leaves WB baked through gamma decode).
+    //     In both cases we invert CM, Bradford-adapt from the scene white
+    //     to D50, then inverse-ProPhoto to enter ProPhoto D50.
+    let inv_pro = M_PRO_TO_XYZ_D50.inverse().expect("ProPhoto matrix is invertible");
+    let cam_to_pro = match (profile.forward_matrix, profile.wb_already_baked) {
+        (Some(fm), true) => inv_pro.mul_mat(&fm),
+        _ => {
+            let adapt = bradford_adapt(profile.scene_white_xyz, XYZ_D50);
+            inv_pro.mul_mat(&adapt).mul_mat(&cam_to_xyz)
+        }
     };
 
     let needs_pro_intermediate =
@@ -218,17 +274,22 @@ fn apply_with_post_pro(
             .par_iter_mut()
             .zip(camera.pixels.par_iter())
             .for_each(|(o, p)| { *o = cam_to_pro.mul_vec(*p); });
-        // DNG SDK order: HSM (camera-hue rotation per illuminant) →
-        // ProfileToneCurve (1D tone) → ProfileLookTable (look). All in
-        // linear ProPhoto D50.
+        // DNG SDK order per `dng_render.cpp:1094-1121` (the `Render`
+        // method): HSM (camera-hue rotation per illuminant) →
+        // ProfileLookTable (look HSM, `fLookTable` in the SDK) →
+        // ProfileToneCurve (`DoBaselineRGBTone`). All in linear ProPhoto
+        // D50. The pre-#354 code applied PTC BEFORE PLT — that swap
+        // shifted PLT's value-axis sampling into a region the curve
+        // had already steepened, regressing fixtures whose PLT carries
+        // value-dependent saturation behaviour.
         if let Some(table) = profile.hsm.as_ref() {
+            hsm::apply(&mut pro, table);
+        }
+        if let Some(table) = post_pro {
             hsm::apply(&mut pro, table);
         }
         if let Some(curve) = ptc {
             crate::color::profile_tone_curve::apply(&mut pro, curve);
-        }
-        if let Some(table) = post_pro {
-            hsm::apply(&mut pro, table);
         }
         let exit = m_pro_to_rec2020();
         let mut out = Image::new(camera.width, camera.height, ColorSpace::SceneLinearRec2020);
