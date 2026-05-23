@@ -134,6 +134,11 @@ pub fn develop_scene_linear_from_raw_with_quality(
     // table and removing it regresses ΔE on Canon DNG fixtures. The
     // universal DisplayLookCurve (separate ticket) replaces PLT entirely.
     //
+    // For `ProfileSource::Fallback` (#345 identity-CM rendering — body
+    // not in the bundle), PTC/PLT from the raw flow through unchanged.
+    // The identity-fallback path is already producing visibly-wrong
+    // colors; stripping PTC/PLT on top would compound the misrender.
+    //
     // `source` comes from the same lookup `profile_for_with_source`
     // already did — no second HashMap probe or env-var read in this hot
     // path. See `dcp::ProfileSource` for the rationale.
