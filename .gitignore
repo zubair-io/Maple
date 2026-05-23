@@ -9,6 +9,10 @@ test-fixtures/*
 !test-fixtures/budgets.json
 # Exception: drift / state notes that travel with budgets.json.
 !test-fixtures/BUDGETS_DRIFT.md
+# Exception: face-clustering fixtures are small (~2 MB) and IS committed
+# (the parity gate at src/scripts/test_face_clustering.sh needs them).
+# See test-fixtures/face-clustering/README.md for regenerator details.
+!test-fixtures/face-clustering/
 
 # Rust
 target/
