@@ -13,12 +13,42 @@ use crate::types::adjustment::{ToneCurve, ToneCurvePoint};
 /// useful midtone-to-bright range with one knot per region.
 pub(super) const REF_MAX: f32 = 4.0;
 
+/// A monotonic-cubic-ready curve: knots plus the Fritsch–Carlson slopes
+/// and tangents pre-computed once, so the per-pixel evaluator does zero
+/// allocation.
+///
+/// Build via [`prepare_curve`] (from a `ToneCurve`) or
+/// [`prepare_curve_from_slice`] (from a synthesised knot array, e.g. the
+/// parametric path's 5-knot polyline).
+pub(super) struct PreparedCurve {
+    /// Sorted, deduped, clamped knots. Length ≥ 0.
+    pub(super) knots: Vec<ToneCurvePoint>,
+    /// Per-knot tangents after Fritsch–Carlson monotonicity adjustment.
+    /// Length = `knots.len()` when `knots.len() ≥ 2`, else 0. Slopes are
+    /// computed inside `finalize_prepared_curve` and folded into the
+    /// tangents; they aren't needed after preparation, so we don't keep
+    /// them around.
+    tangents: Vec<f32>,
+}
+
+impl PreparedCurve {
+    /// Number of knots — handy when a caller needs to short-circuit on
+    /// degenerate curves.
+    pub(super) fn len(&self) -> usize {
+        self.knots.len()
+    }
+}
+
 /// Sort the curve's control points by `x` ascending and clamp them into
 /// the `[0, 1]` × `[0, 1]` authoring domain. The evaluator requires
 /// strictly increasing x; if two points share an x value we keep the
 /// later one (last-write-wins matches the way UI editors typically draw
 /// curves when the user drags through an existing knot).
-pub(super) fn prepare_curve(curve: &ToneCurve) -> Vec<ToneCurvePoint> {
+///
+/// Returns a [`PreparedCurve`] with the Fritsch–Carlson slopes and
+/// monotonicity-guarded tangents pre-computed — the per-pixel evaluator
+/// reads these without allocating.
+pub(super) fn prepare_curve(curve: &ToneCurve) -> PreparedCurve {
     let mut pts: Vec<ToneCurvePoint> = curve
         .points
         .iter()
@@ -34,61 +64,26 @@ pub(super) fn prepare_curve(curve: &ToneCurve) -> Vec<ToneCurvePoint> {
             false
         }
     });
-    pts
+    finalize_prepared_curve(pts)
 }
 
-/// Evaluate the curve at scene-linear value `v`. The authoring `[0, 1]`
-/// domain maps to scene `[0, REF_MAX]`. Above `REF_MAX` the curve becomes
-/// flat at the last knot's `y` (scaled out to scene) — this preserves the
-/// "two-stops-above-white headroom" intent and prevents the user's curve
-/// from clipping specular detail that AgX would have preserved (paper §
-/// 4.6).
-pub(super) fn eval_curve_scene_linear(knots: &[ToneCurvePoint], v: f32) -> f32 {
-    if knots.len() < 2 {
-        // Degenerate curves: empty is identity (early-return'd by the
-        // caller — kept here for total-function defence). Single-point
-        // is constant output, scaled out to scene linear.
-        if let Some(&(_, y)) = knots.first() {
-            return y * REF_MAX;
-        }
-        return v;
-    }
-    // Map scene v → authoring x in [0, 1].
-    let x = (v / REF_MAX).clamp(0.0, 1.0);
-    let y_authoring = eval_monotonic_cubic(knots, x);
-    // Map authoring y → scene linear.
-    y_authoring * REF_MAX
+/// Same as [`prepare_curve`] but consumes a synthesised knot slice
+/// (already in authoring domain). Used by the parametric path, which
+/// builds its 5-knot array in-line.
+pub(super) fn prepare_curve_from_slice(pts: &[ToneCurvePoint]) -> PreparedCurve {
+    finalize_prepared_curve(pts.to_vec())
 }
 
-/// Fritsch–Carlson monotonic cubic Hermite interpolation. Returns `y` at
-/// the given `x` (both in authoring `[0, 1]` domain). Out-of-bounds `x`
-/// clamps to the first / last knot's `y` — the caller has already
-/// clamped `x` to `[0, 1]`, but the guard belongs here for total-function
-/// safety.
-///
-/// Algorithm (Fritsch & Carlson, "Monotone Piecewise Cubic Interpolation",
-/// SIAM J. Numer. Anal. 17, 1980):
-/// 1. Compute slopes m_i = (y_{i+1} - y_i) / (x_{i+1} - x_i) between
-///    consecutive knots.
-/// 2. Compute tangents t_i at each knot. Endpoints use one-sided slope;
-///    interior knots use the average of adjacent slopes.
-/// 3. Apply the monotonicity adjustment: where m_i = 0 the tangents
-///    bordering it are zeroed; otherwise project (t_i, t_{i+1}) into the
-///    "monotonicity circle" of radius 3 around (0, 0) in normalised
-///    units.
-/// 4. Evaluate the cubic Hermite spline between the bracketing knots.
-pub(super) fn eval_monotonic_cubic(knots: &[ToneCurvePoint], x: f32) -> f32 {
+fn finalize_prepared_curve(knots: Vec<ToneCurvePoint>) -> PreparedCurve {
     let n = knots.len();
-    debug_assert!(n >= 2);
-
-    if x <= knots[0].0 {
-        return knots[0].1;
-    }
-    if x >= knots[n - 1].0 {
-        return knots[n - 1].1;
+    if n < 2 {
+        return PreparedCurve {
+            knots,
+            tangents: Vec::new(),
+        };
     }
 
-    // Compute segment slopes and per-knot tangents.
+    // Compute segment slopes.
     let mut slopes = Vec::with_capacity(n - 1);
     for i in 0..n - 1 {
         let dx = knots[i + 1].0 - knots[i].0;
@@ -97,6 +92,7 @@ pub(super) fn eval_monotonic_cubic(knots: &[ToneCurvePoint], x: f32) -> f32 {
         slopes.push(dy / dx);
     }
 
+    // Compute per-knot tangents.
     let mut tangents = Vec::with_capacity(n);
     tangents.push(slopes[0]);
     for i in 1..n - 1 {
@@ -131,6 +127,68 @@ pub(super) fn eval_monotonic_cubic(knots: &[ToneCurvePoint], x: f32) -> f32 {
         }
     }
 
+    let _ = slopes; // consumed into `tangents`; no need to keep after prep
+    PreparedCurve { knots, tangents }
+}
+
+/// Evaluate the curve at scene-linear value `v`. The authoring `[0, 1]`
+/// domain maps to scene `[0, REF_MAX]`. Above `REF_MAX` the curve becomes
+/// flat at the last knot's `y` (scaled out to scene) — this preserves the
+/// "two-stops-above-white headroom" intent and prevents the user's curve
+/// from clipping specular detail that AgX would have preserved (paper §
+/// 4.6).
+pub(super) fn eval_curve_scene_linear(curve: &PreparedCurve, v: f32) -> f32 {
+    if curve.len() < 2 {
+        // Degenerate curves: empty is identity (early-return'd by the
+        // caller — kept here for total-function defence). Single-point
+        // is constant output, scaled out to scene linear.
+        if let Some(&(_, y)) = curve.knots.first() {
+            return y * REF_MAX;
+        }
+        return v;
+    }
+    // Map scene v → authoring x in [0, 1].
+    let x = (v / REF_MAX).clamp(0.0, 1.0);
+    let y_authoring = eval_monotonic_cubic(curve, x);
+    // Map authoring y → scene linear.
+    y_authoring * REF_MAX
+}
+
+/// Fritsch–Carlson monotonic cubic Hermite interpolation. Returns `y` at
+/// the given `x` (both in authoring `[0, 1]` domain). Out-of-bounds `x`
+/// clamps to the first / last knot's `y` — the caller has already
+/// clamped `x` to `[0, 1]`, but the guard belongs here for total-function
+/// safety.
+///
+/// Reads from the [`PreparedCurve`] — slopes and tangents are
+/// pre-computed once at curve preparation time, so this function does
+/// zero allocation on the per-pixel hot path.
+///
+/// Algorithm (Fritsch & Carlson, "Monotone Piecewise Cubic Interpolation",
+/// SIAM J. Numer. Anal. 17, 1980):
+/// 1. Segment slopes m_i = (y_{i+1} - y_i) / (x_{i+1} - x_i) — computed
+///    in [`finalize_prepared_curve`].
+/// 2. Per-knot tangents t_i — endpoints use one-sided slope; interior
+///    knots use the average of adjacent slopes. Computed in
+///    [`finalize_prepared_curve`].
+/// 3. Monotonicity adjustment: where m_i = 0 the bordering tangents are
+///    zeroed; otherwise (t_i, t_{i+1}) is projected into the
+///    monotonicity circle of radius 3. Done in
+///    [`finalize_prepared_curve`].
+/// 4. Evaluate the cubic Hermite spline between the bracketing knots —
+///    this function.
+pub(super) fn eval_monotonic_cubic(curve: &PreparedCurve, x: f32) -> f32 {
+    let knots = &curve.knots[..];
+    let n = knots.len();
+    debug_assert!(n >= 2);
+
+    if x <= knots[0].0 {
+        return knots[0].1;
+    }
+    if x >= knots[n - 1].0 {
+        return knots[n - 1].1;
+    }
+
     // Locate the segment that brackets `x`.
     let mut i = 0;
     for j in 0..n - 1 {
@@ -150,14 +208,18 @@ pub(super) fn eval_monotonic_cubic(knots: &[ToneCurvePoint], x: f32) -> f32 {
     let h01 = -2.0 * t3 + 3.0 * t2;
     let h11 = t3 - t2;
     h00 * knots[i].1
-        + h10 * dx * tangents[i]
+        + h10 * dx * curve.tangents[i]
         + h01 * knots[i + 1].1
-        + h11 * dx * tangents[i + 1]
+        + h11 * dx * curve.tangents[i + 1]
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn prepared_from(knots: &[ToneCurvePoint]) -> PreparedCurve {
+        prepare_curve_from_slice(knots)
+    }
 
     #[test]
     fn identity_curve_through_knots_is_pass_through() {
@@ -172,8 +234,9 @@ mod tests {
             (0.75, 0.75),
             (1.0, 1.0),
         ];
+        let prepared = prepared_from(&knots);
         for &x in &[0.0, 0.1, 0.25, 0.42, 0.5, 0.63, 0.75, 0.9, 1.0] {
-            let y = eval_monotonic_cubic(&knots, x);
+            let y = eval_monotonic_cubic(&prepared, x);
             assert!((y - x).abs() < 1e-5, "identity drift at x={}: y={}", x, y);
         }
     }
@@ -190,10 +253,11 @@ mod tests {
             (0.8, 0.85),
             (1.0, 1.0),
         ];
+        let prepared = prepared_from(&knots);
         let xs: Vec<f32> = (0..=100).map(|i| i as f32 / 100.0).collect();
         let mut prev_y = f32::NEG_INFINITY;
         for x in xs {
-            let y = eval_monotonic_cubic(&knots, x);
+            let y = eval_monotonic_cubic(&prepared, x);
             assert!(
                 y >= prev_y - 1e-6,
                 "non-monotonic: y({})={}, prev={}",
@@ -217,8 +281,9 @@ mod tests {
     #[test]
     fn out_of_bounds_x_clamps_to_endpoint_y() {
         let knots = [(0.0_f32, 0.0_f32), (1.0, 1.0)];
-        assert_eq!(eval_monotonic_cubic(&knots, -10.0), 0.0);
-        assert_eq!(eval_monotonic_cubic(&knots, 10.0), 1.0);
+        let prepared = prepared_from(&knots);
+        assert_eq!(eval_monotonic_cubic(&prepared, -10.0), 0.0);
+        assert_eq!(eval_monotonic_cubic(&prepared, 10.0), 1.0);
     }
 
     #[test]
@@ -228,7 +293,8 @@ mod tests {
         // curve so the math is exact: 8.0 in, last_knot.y * REF_MAX out
         // = 1.0 * 4.0 = 4.0.
         let knots = [(0.0_f32, 0.0_f32), (1.0, 1.0)];
-        let v = eval_curve_scene_linear(&knots, 8.0);
+        let prepared = prepared_from(&knots);
+        let v = eval_curve_scene_linear(&prepared, 8.0);
         assert!((v - REF_MAX).abs() < 1e-5, "got {}", v);
     }
 
@@ -236,21 +302,38 @@ mod tests {
     fn prepare_curve_sorts_by_x() {
         let curve = ToneCurve::new(vec![(0.5, 0.6), (0.0, 0.0), (1.0, 1.0)]);
         let prepared = prepare_curve(&curve);
-        assert_eq!(prepared, vec![(0.0, 0.0), (0.5, 0.6), (1.0, 1.0)]);
+        assert_eq!(prepared.knots, vec![(0.0, 0.0), (0.5, 0.6), (1.0, 1.0)]);
     }
 
     #[test]
     fn prepare_curve_clamps_to_unit_square() {
         let curve = ToneCurve::new(vec![(-0.1, -0.2), (1.5, 2.0)]);
         let prepared = prepare_curve(&curve);
-        assert_eq!(prepared, vec![(0.0, 0.0), (1.0, 1.0)]);
+        assert_eq!(prepared.knots, vec![(0.0, 0.0), (1.0, 1.0)]);
     }
 
     #[test]
     fn prepare_curve_dedups_equal_x_last_wins() {
         let curve = ToneCurve::new(vec![(0.5, 0.1), (0.5, 0.9)]);
         let prepared = prepare_curve(&curve);
-        assert_eq!(prepared.len(), 1);
-        assert_eq!(prepared[0], (0.5, 0.9));
+        assert_eq!(prepared.knots.len(), 1);
+        assert_eq!(prepared.knots[0], (0.5, 0.9));
+    }
+
+    #[test]
+    fn prepared_tangents_are_precomputed_once() {
+        // The whole point of `PreparedCurve` is that the Fritsch–Carlson
+        // tangents are populated at prep time, not per-eval. Smoke test:
+        // a non-trivial curve produces non-empty tangents immediately
+        // after preparation, and `eval_monotonic_cubic` doesn't need to
+        // recompute them.
+        let curve = ToneCurve::new(vec![(0.0, 0.0), (0.4, 0.1), (1.0, 1.0)]);
+        let prepared = prepare_curve(&curve);
+        assert_eq!(prepared.tangents.len(), 3);
+        // Same eval twice produces the same value — proves the state is
+        // stable across calls (catches any "lazy-init mutates state" bugs).
+        let a = eval_monotonic_cubic(&prepared, 0.6);
+        let b = eval_monotonic_cubic(&prepared, 0.6);
+        assert_eq!(a, b);
     }
 }
