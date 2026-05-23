@@ -80,9 +80,13 @@ pub fn develop_scene_linear_sized_from_raw_with_quality(
     // let `downsample_image_area` decide whether the cropped buffer is
     // still over the long-edge cap. See ticket #375.
     if let Some(crop) = raw.crop_rect {
-        camera_rgb = stage("sized_crop_to_default", || {
+        if let Some(cropped) = stage("sized_crop_to_default", || {
             crop_to_default(&camera_rgb, crop, quality_divisor(quality))
-        });
+        }) {
+            camera_rgb = cropped;
+        }
+        // No-op: keep camera_rgb as-is; crop_to_default returns None
+        // instead of cloning the buffer.
     }
     dump_after("00b_crop_to_default", &camera_rgb);
 
