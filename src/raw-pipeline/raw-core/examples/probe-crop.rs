@@ -18,7 +18,13 @@ fn main() {
         let bytes = std::fs::read(path).unwrap_or_else(|e| {
             panic!("read {}: {}", path.display(), e)
         });
-        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("dng");
+        // Lowercase: rawler's format detection uses the extension on the
+        // hint path; some decoders disambiguate by case-folded suffix.
+        let ext = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|s| s.to_ascii_lowercase())
+            .unwrap_or_else(|| "dng".to_string());
         let source = RawSource::new_from_slice(&bytes)
             .with_path(Path::new(&format!("rawfile.{}", ext)));
         let params = RawDecodeParams::default();
