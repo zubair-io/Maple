@@ -96,13 +96,34 @@ The view transform (AgX) is the **only** stage that compresses scene range into 
 
 The entire DCP transform (§ 3.4 in [`03-algorithms.md`](./03-algorithms.md)) is in f32 linear. Output is scene-referred linear Rec.2020 D65.
 
-Steps inside this transform:
+Steps inside this transform. Two branches share the same exit: an FM
+fast-path when the profile carries a ForwardMatrix and pipeline pre-gain
+has already divided camera RGB by AsShotNeutral (the typical case),
+and a Bradford fallback when either condition fails.
+
+**FM path (post-#354):**
+
+1. Linear, white-balanced camera RGB (demosaiced + pre-gained — the
+   buffer entering DCP is `camera_raw / AsShotNeutral`).
+2. `ForwardMatrix * rgb_camera_wb` → linear XYZ-D50. The DNG SDK
+   contract (`dng_camera_profile.h` field comment;
+   `dng_color_spec.cpp:444-446`) defines FM's *input* as white-balanced
+   camera RGB and *output* as XYZ-D50. FM is not composed with `inv(CM)`
+   on this path.
+3. `inv(M_pro_to_xyz_d50) * xyz_D50` → linear ProPhoto D50.
+
+**Bradford fallback (no FM, or pre-gain was skipped):**
 
 1. Linear camera RGB (demosaiced).
-2. `CameraMatrix * rgb` → linear CIE XYZ, camera white point.
-3. Bradford adapt from camera white → D50 white. XYZ D50.
-4. `ForwardMatrix * xyz_D50` → linear ProPhoto. (If no ForwardMatrix, synthesize via `XYZ_D50 → ProPhoto` with the ROMM matrix.)
-5. (Optional) HueSatMap and ProfileLookTable — operate in ProPhoto-HSV, per the DNG spec.
+2. `inv(CameraMatrix) * rgb_camera` → linear CIE XYZ at the scene white.
+3. `Bradford(scene_white → D50) * xyz` → linear XYZ-D50.
+4. `inv(M_pro_to_xyz_d50) * xyz_D50` → linear ProPhoto D50.
+
+Shared tail (both branches):
+
+5. (Optional) HueSatMap → ProfileLookTable → ProfileToneCurve — all
+   operate in linear ProPhoto-D50 (HSM / PLT in HSV, PTC on the max
+   channel preserving hue). Order per DNG SDK `dng_render.cpp:1094-1121`.
 6. **`M_pro_to_rec2020 * rgb_pro` → linear Rec.2020 D65.** This composed matrix folds ProPhoto→XYZ D50, Bradford D50→D65, XYZ D65→Rec.2020 into a single 3×3, computed once at startup.
 
 Output: f32 linear scene-referred Rec.2020, D65, headroom unbounded (practically 0 to ~20 on a normal exposure).
@@ -273,7 +294,7 @@ Rust core: no ICC library. DCP math and Maple's known space matrices cover the w
 
 The Bradford transform is used at two specific points, both compile-time:
 
-1. **Inside DCP transform**: adapts the XYZ value from the camera's as-shot white to D50 (the connecting white point before ForwardMatrix). Runtime computation per pixel via a precomputed matrix for the interpolated-illuminant case.
+1. **Inside the DCP Bradford-fallback path**: when the profile carries no ForwardMatrix (or pipeline pre-gain was skipped), adapt the post-CM XYZ value from the scene as-shot white to D50 (the connecting white point). Runtime computation per pixel via a precomputed matrix for the interpolated-illuminant case. The FM path does NOT use a runtime Bradford — FM's `camera-WB → XYZ-D50` mapping bakes the chromatic adaptation into the calibrated matrix itself.
 2. **ProPhoto D50 → Rec.2020 D65 exit matrix at the end of DCP**: the composite matrix folds Bradford D50→D65 in.
 
 At no runtime stage in the interactive pipeline does Bradford actually compute per pixel — it's folded into constant matrices. Chromatic adaptation inside a shader is expensive and unnecessary when both endpoints are known.

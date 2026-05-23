@@ -121,9 +121,11 @@ pub fn develop_scene_linear_from_raw_with_quality(
     // ProfileToneCurve (from `raw.profile_tone_curve`), and PLT (from
     // `raw.plt`) ALL in linear-ProPhoto-D50 space, between the chromatic
     // adaptation and the gamut conversion to Rec.2020. Order per the
-    // DNG SDK reference: HSM → PTC → PLT (DNG 1.4 § 6.4.4 + DNG 1.6
-    // § 6.6/§ 6.7). When all three are absent, falls through to the
-    // fast single-matmul path.
+    // DNG SDK reference: HSM → PLT → PTC, mirroring `dng_render.cpp`
+    // (`Render` method, lines ~1094-1121) which applies `DoBaselineHueSatMap`
+    // (HSM) → `DoBaselineHueSatMap` again with `fLookTable` (PLT) →
+    // `DoBaselineRGBTone` (PTC). When all three are absent, falls
+    // through to the fast single-matmul path.
     //
     // When a bundled Maple profile is in use, suppress the source DNG's
     // ProfileToneCurve — that tag was calibrated against the vendor's own
