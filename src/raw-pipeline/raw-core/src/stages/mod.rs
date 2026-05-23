@@ -24,3 +24,4 @@ pub mod vignette;
 pub mod grain;
 pub mod split_tone;
 pub mod hsl;
+pub mod crop;

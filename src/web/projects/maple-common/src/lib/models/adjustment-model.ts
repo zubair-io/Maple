@@ -6,6 +6,9 @@
 // aren't part of the canonical Rust schema yet — `whiteBalancePreset` is
 // the TS-side preset selector and stays hand-written until the Rust
 // `WhiteBalancePreset` enum is promoted into the canonical schema (#119).
+// `Crop` is also hand-written here because it's a nested struct rather than
+// a flat slider — see `raw-core::types::adjustment::schema` for the design
+// note that excludes it from `ADJUSTMENT_SCHEMA`.
 
 import {
   GeneratedAdjustmentModel,
@@ -36,21 +39,77 @@ export type WhiteBalancePreset =
   | 'Custom';
 
 /**
+ * Geometry (crop + straighten) per spec § 3.12 / ticket #277. Mirror of
+ * `raw_core::types::Crop`. Coordinates are normalised to [0, 1] against
+ * the display-oriented image dimensions (post-EXIF orientation).
+ *
+ * Identity is the full frame at zero rotation; serialisation omits the
+ * whole `crs:Crop*` group + `crs:HasCrop` marker in that case (spec § 01
+ * invariant 3). `angle` is in degrees, positive = clockwise (reference-renderer convention).
+ */
+export interface Crop {
+  top: number;
+  left: number;
+  bottom: number;
+  right: number;
+  angle: number;
+}
+
+export const CROP_IDENTITY: Crop = Object.freeze({
+  top: 0,
+  left: 0,
+  bottom: 1,
+  right: 1,
+  angle: 0,
+});
+
+export function defaultCrop(): Crop {
+  return { ...CROP_IDENTITY };
+}
+
+export function isIdentityCrop(c: Crop): boolean {
+  return c.top === 0 && c.left === 0 && c.bottom === 1 && c.right === 1 && c.angle === 0;
+}
+
+export function isCropRectValid(c: Crop): boolean {
+  return (
+    c.top >= 0 &&
+    c.top <= 1 &&
+    c.left >= 0 &&
+    c.left <= 1 &&
+    c.bottom >= 0 &&
+    c.bottom <= 1 &&
+    c.right >= 0 &&
+    c.right <= 1 &&
+    c.right > c.left &&
+    c.bottom > c.top
+  );
+}
+
+/**
  * Per-asset develop settings. Extends the generated raw-core shape with the
- * web-only `whiteBalancePreset` selector.
+ * web-only `whiteBalancePreset` selector and the nested `crop` group.
  */
 export interface AdjustmentModel extends GeneratedAdjustmentModel {
   whiteBalancePreset: WhiteBalancePreset;
+  crop: Crop;
 }
 
 export function defaultAdjustmentModel(): AdjustmentModel {
   return {
     ...defaultGeneratedAdjustmentModel(),
     whiteBalancePreset: 'As Shot',
+    crop: defaultCrop(),
   };
 }
 
 export function isDefaultAdjustment(m: AdjustmentModel): boolean {
   const d = defaultAdjustmentModel();
-  return (Object.keys(d) as Array<keyof AdjustmentModel>).every((k) => m[k] === d[k]);
+  // `crop` is a nested object; compare by deep value before falling back to
+  // strict-equality on the flat scalar fields.
+  if (!isIdentityCrop(m.crop)) return false;
+  return (Object.keys(d) as Array<keyof AdjustmentModel>).every((k) => {
+    if (k === 'crop') return true;
+    return m[k] === d[k];
+  });
 }

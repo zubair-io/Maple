@@ -439,3 +439,96 @@ fn parse_no_s5_attrs_leaves_defaults() {
     assert_eq!(m.split_tone_highlight_saturation, d.split_tone_highlight_saturation);
     assert_eq!(m.split_tone_balance, d.split_tone_balance);
 }
+
+// -----------------------------------------------------------------------
+// Crop / straighten (spec § 3.12, ticket #277)
+// -----------------------------------------------------------------------
+
+#[test]
+fn defaults_crop_is_identity() {
+    let m = AdjustmentModel::default();
+    assert!(m.crop.is_identity());
+    assert_eq!(m.crop.top, 0.0);
+    assert_eq!(m.crop.left, 0.0);
+    assert_eq!(m.crop.bottom, 1.0);
+    assert_eq!(m.crop.right, 1.0);
+    assert_eq!(m.crop.angle, 0.0);
+}
+
+#[test]
+fn parse_crop_with_has_crop_true_applies_rect() {
+    let xml = r#"<?xml version="1.0"?><x><rdf:Description xmlns:rdf="x" xmlns:crs="x"
+        crs:HasCrop="True"
+        crs:CropTop="0.1" crs:CropLeft="0.2"
+        crs:CropBottom="0.9" crs:CropRight="0.8"/></x>"#;
+    let m = parse(xml).unwrap();
+    assert!((m.crop.top - 0.1).abs() < 1e-6);
+    assert!((m.crop.left - 0.2).abs() < 1e-6);
+    assert!((m.crop.bottom - 0.9).abs() < 1e-6);
+    assert!((m.crop.right - 0.8).abs() < 1e-6);
+    assert_eq!(m.crop.angle, 0.0);
+}
+
+#[test]
+fn parse_crop_without_has_crop_leaves_identity() {
+    // Stale crop fields without HasCrop=True must be ignored, matching
+    // ACR's behaviour. The angle field is independent and would still
+    // pass through, so this case carries no angle.
+    let xml = r#"<?xml version="1.0"?><x><rdf:Description xmlns:rdf="x" xmlns:crs="x"
+        crs:CropTop="0.5" crs:CropLeft="0.5"
+        crs:CropBottom="0.9" crs:CropRight="0.9"/></x>"#;
+    let m = parse(xml).unwrap();
+    assert!(
+        m.crop.is_identity(),
+        "crop without HasCrop=True should stay identity, got {:?}",
+        m.crop
+    );
+}
+
+#[test]
+fn parse_crop_has_crop_false_leaves_identity() {
+    let xml = r#"<?xml version="1.0"?><x><rdf:Description xmlns:rdf="x" xmlns:crs="x"
+        crs:HasCrop="False"
+        crs:CropTop="0.5" crs:CropLeft="0.5"
+        crs:CropBottom="0.9" crs:CropRight="0.9"/></x>"#;
+    let m = parse(xml).unwrap();
+    assert!(m.crop.is_identity());
+}
+
+#[test]
+fn parse_crop_angle_without_rect_applies_pure_straighten() {
+    // `crs:CropAngle` is independent of `crs:HasCrop` per spec § 01
+    // invariant 3 — a pure rotation can be emitted alone.
+    let xml = r#"<?xml version="1.0"?><x><rdf:Description xmlns:rdf="x" xmlns:crs="x"
+        crs:CropAngle="-2.5"/></x>"#;
+    let m = parse(xml).unwrap();
+    assert_eq!(m.crop.top, 0.0);
+    assert_eq!(m.crop.left, 0.0);
+    assert_eq!(m.crop.bottom, 1.0);
+    assert_eq!(m.crop.right, 1.0);
+    assert!((m.crop.angle - (-2.5)).abs() < 1e-6);
+    assert!(!m.crop.is_identity());
+}
+
+#[test]
+fn parse_crop_with_angle_and_rect_round_trips() {
+    let xml = r#"<?xml version="1.0"?><x><rdf:Description xmlns:rdf="x" xmlns:crs="x"
+        crs:HasCrop="True"
+        crs:CropTop="0.05" crs:CropLeft="0.0"
+        crs:CropBottom="0.95" crs:CropRight="1.0"
+        crs:CropAngle="3.75"/></x>"#;
+    let m = parse(xml).unwrap();
+    assert!((m.crop.top - 0.05).abs() < 1e-6);
+    assert!((m.crop.bottom - 0.95).abs() < 1e-6);
+    assert!((m.crop.angle - 3.75).abs() < 1e-6);
+}
+
+#[test]
+fn parse_crop_constrain_to_warp_is_silently_accepted() {
+    let xml = r#"<?xml version="1.0"?><x><rdf:Description xmlns:rdf="x" xmlns:crs="x"
+        crs:HasCrop="True"
+        crs:CropTop="0.1" crs:CropLeft="0.1"
+        crs:CropBottom="0.9" crs:CropRight="0.9"
+        crs:CropConstrainToWarp="0"/></x>"#;
+    assert!(parse(xml).is_ok());
+}

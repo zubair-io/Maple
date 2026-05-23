@@ -10,7 +10,7 @@
 
 import { Injectable } from '@angular/core';
 import type { XmpCulling, XmpFlag, XmpColorLabel, PassthroughBucket } from './xmp.types';
-import type { AdjustmentModel, WhiteBalancePreset } from '../models/adjustment-model';
+import type { AdjustmentModel, WhiteBalancePreset, Crop } from '../models/adjustment-model';
 import type {
   HotPixelSuppressionMode,
   Look,
@@ -70,6 +70,14 @@ const KNOWN_ATTRIBUTES = new Set<string>([
   'papp:Profile',
   // Hot/dead-pixel suppression (#1106) — decode-product enum field.
   'papp:HotPixelSuppression',
+  // Crop / straighten group (ticket #277)
+  'crs:HasCrop',
+  'crs:CropTop',
+  'crs:CropLeft',
+  'crs:CropBottom',
+  'crs:CropRight',
+  'crs:CropAngle',
+  'crs:CropConstrainToWarp',
   // structural / bookkeeping
   'rdf:about',
   'crs:Version',
@@ -221,6 +229,18 @@ export class XmpParserService {
     // later Look from clobbering an earlier Profile.
     let profileSeen = false;
 
+    // Crop gating (#277): crs:HasCrop must be discovered before applying the
+    // rect fields — mirrors the two-pass approach in raw-core's xmp/mod.rs.
+    // crs:CropAngle is independent of HasCrop (pure straighten; spec § 01
+    // invariant 3). Missing or "False" → leave crop at identity default.
+    const hasCropAttr = desc.getAttribute('crs:HasCrop');
+    const hasCrop = hasCropAttr === 'True' || hasCropAttr === 'true';
+    let cropTop: number | undefined;
+    let cropLeft: number | undefined;
+    let cropBottom: number | undefined;
+    let cropRight: number | undefined;
+    let cropAngle: number | undefined;
+
     // Pass 1: walk attributes, applying canonical fields and remembering
     // legacy-aliased attributes for a second pass.
     const legacyDeferred: Array<{ name: string; value: string }> = [];
@@ -305,6 +325,35 @@ export class XmpParserService {
         }
         continue;
       }
+
+      // Crop / straighten (#277). Rect fields gated by hasCrop (above);
+      // CropAngle is always parsed. HasCrop and CropConstrainToWarp are
+      // in KNOWN_ATTRIBUTES so they don't fall into the passthrough bucket.
+      if (hasCrop && name === 'crs:CropTop') {
+        const n = parseFloat(attr.value);
+        if (!Number.isNaN(n)) cropTop = n;
+        continue;
+      }
+      if (hasCrop && name === 'crs:CropLeft') {
+        const n = parseFloat(attr.value);
+        if (!Number.isNaN(n)) cropLeft = n;
+        continue;
+      }
+      if (hasCrop && name === 'crs:CropBottom') {
+        const n = parseFloat(attr.value);
+        if (!Number.isNaN(n)) cropBottom = n;
+        continue;
+      }
+      if (hasCrop && name === 'crs:CropRight') {
+        const n = parseFloat(attr.value);
+        if (!Number.isNaN(n)) cropRight = n;
+        continue;
+      }
+      if (name === 'crs:CropAngle') {
+        const n = parseFloat(attr.value);
+        if (!Number.isNaN(n)) cropAngle = n;
+        continue;
+      }
     }
 
     // Pass 2: apply legacy aliases only where the canonical key didn't
@@ -319,6 +368,25 @@ export class XmpParserService {
       if (!Number.isNaN(parsed)) {
         model[alias.modelKey] = parsed;
       }
+    }
+
+    // Emit `crop` only when any field came through; angle alone is enough
+    // (pure straighten). Identity default is applied for absent fields.
+    if (
+      cropTop !== undefined ||
+      cropLeft !== undefined ||
+      cropBottom !== undefined ||
+      cropRight !== undefined ||
+      cropAngle !== undefined
+    ) {
+      const crop: Crop = {
+        top: cropTop ?? 0,
+        left: cropLeft ?? 0,
+        bottom: cropBottom ?? 1,
+        right: cropRight ?? 1,
+        angle: cropAngle ?? 0,
+      };
+      model.crop = crop;
     }
 
     // Collect unknown attributes for the passthrough bucket.

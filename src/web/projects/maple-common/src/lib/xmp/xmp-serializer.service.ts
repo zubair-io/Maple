@@ -83,6 +83,26 @@ export class XmpSerializerService {
       parts.push(`papp:HotPixelSuppression="${this._escapeAttr(model.hotPixelSuppression)}"`);
     }
 
+    // Crop / straighten (#277, spec § 01 invariant 3). Emit the full group
+    // only when non-identity. CropAngle is independent — a pure straighten
+    // with no rect trim emits angle but no HasCrop/rect fields. Mirrors the
+    // Rust `serialize()` in xmp/mod.rs and the Swift XMP writer.
+    if (model.crop) {
+      const c = model.crop;
+      const rectIsIdentity = c.top === 0 && c.left === 0 && c.bottom === 1 && c.right === 1;
+      if (!rectIsIdentity) {
+        parts.push('crs:HasCrop="True"');
+        parts.push(`crs:CropTop="${this._fmtCrop(c.top)}"`);
+        parts.push(`crs:CropLeft="${this._fmtCrop(c.left)}"`);
+        parts.push(`crs:CropBottom="${this._fmtCrop(c.bottom)}"`);
+        parts.push(`crs:CropRight="${this._fmtCrop(c.right)}"`);
+        parts.push('crs:CropConstrainToWarp="0"');
+      }
+      if (c.angle !== 0) {
+        parts.push(`crs:CropAngle="${this._fmtCrop(c.angle)}"`);
+      }
+    }
+
     // Culling fields.
     if (culling?.rating && culling.rating > 0) {
       parts.push(`xmp:Rating="${culling.rating}"`);
@@ -166,5 +186,14 @@ export class XmpSerializerService {
       .replaceAll('<', '&lt;')
       .replaceAll('>', '&gt;')
       .replaceAll('"', '&quot;');
+  }
+
+  /**
+   * Format a crop edge or angle value. 6 significant decimal places —
+   * matches the reference renderer's output and keeps sidecars
+   * byte-interchangeable for the crop group across platforms.
+   */
+  private _fmtCrop(v: number): string {
+    return v.toFixed(6);
   }
 }

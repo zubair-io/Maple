@@ -17,7 +17,7 @@ use super::{
 use crate::{
     error::Result,
     image::{apply_orientation, ColorSpace, Image, RawImage},
-    stages::{clarity, dehaze, grain, noise_reduction, saturation, sharpen, split_tone, texture, vibrance, vignette},
+    stages::{clarity, crop, dehaze, grain, noise_reduction, saturation, sharpen, split_tone, texture, vibrance, vignette},
     types::adjustment::{AutoExposureMode, Profile},
     view::{agx, auto_profile, encode},
     xmp::AdjustmentModel,
@@ -282,6 +282,10 @@ fn render_display_from_raw(
     // Apply EXIF orientation last — rotating/flipping sRGB u8 is cheap and
     // keeps every upstream stage indifferent to sensor-vs-display framing.
     let (w, h, bytes) = stage("apply_orientation", || apply_orientation(&bytes, scene.width, scene.height, raw.orientation));
+    // Crop / straighten (spec § 3.12, ticket #277): operates on the
+    // display-oriented u8 RGB buffer. Identity is a no-op (early-exit in
+    // `crop::apply_u8_rgb`). Invalid rects are also treated as identity.
+    let (w, h, bytes) = stage("crop", || crop::apply_u8_rgb(&bytes, w, h, &model.crop));
     // Both branches return the buffer at its actual rendered dimensions —
     // `Full` matches the sensor, `Preview` is half-res in both axes
     // (because of `demosaic::half_res`), and Apple/Web consumers handle

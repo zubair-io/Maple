@@ -97,6 +97,10 @@ fn schema_matches_struct() {
         chroma_prefilter,
         hot_pixel_suppression,
         deep_denoise,
+        // `crop` is excluded from ADJUSTMENT_SCHEMA by design (nested struct,
+        // not a codegen-eligible scalar/enum). Bound here so adding a struct
+        // field without updating this test is a compile error.
+        crop,
     } = m;
     let expected_order = [
         "temperature",
@@ -258,13 +262,20 @@ fn schema_matches_struct() {
         chroma_prefilter,
         hot_pixel_suppression,
         deep_denoise,
+        crop,
     );
     // `local_adjustments` is allow-listed: it carries structured data
     // (Vec<LocalAdjustment>) and is documented as not part of the schema
-    // table. Asserting its default keeps the drift guard honest.
+    // table. `crop` is similarly allow-listed (nested struct, not a
+    // codegen-eligible scalar/enum — see schema module docs). Asserting
+    // their defaults keeps the drift guard honest.
     assert!(
         local_adjustments.is_empty(),
         "AdjustmentModel::default().local_adjustments must be empty"
+    );
+    assert!(
+        crop.is_identity(),
+        "AdjustmentModel::default().crop must be identity"
     );
 }
 
@@ -276,10 +287,11 @@ fn schema_matches_struct() {
 /// source-grep-friendly.
 #[test]
 fn schema_exemption_allowlist() {
-    const ALLOWED: &[&str] = &["local_adjustments"];
+    // `crop` added in #277: nested `Crop` struct, not a codegen scalar.
+    const ALLOWED: &[&str] = &["local_adjustments", "crop"];
     assert_eq!(
         ALLOWED.len(),
-        1,
+        2,
         "schema exemption count changed — update this test and the \
          matching note on the module-level doc-comment"
     );
@@ -287,6 +299,11 @@ fn schema_exemption_allowlist() {
         ALLOWED.contains(&"local_adjustments"),
         "local_adjustments must remain on the schema-exemption allow-list \
          until the codegen table grows a structured-field FieldKind variant"
+    );
+    assert!(
+        ALLOWED.contains(&"crop"),
+        "crop must remain on the schema-exemption allow-list \
+         (nested Crop struct, not a codegen-eligible scalar/enum)"
     );
 }
 
