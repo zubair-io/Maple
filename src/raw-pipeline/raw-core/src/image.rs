@@ -204,7 +204,7 @@ pub struct RawImage {
 ///
 /// Coordinates are sensor-absolute (x, y, w, h) in raw-pixel units. The
 /// pipeline applies the crop post-demosaic, so for half-res Preview the
-/// rect is halved at apply time (see `pipeline::develop::apply_crop`).
+/// rect is halved at apply time (see `pipeline::develop::crop_to_default`).
 /// Orientation is applied AFTER crop on the developed RGB buffer — this
 /// mirrors the DNG spec's ordering (§ 6.3) and what ACR / dng_render does.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
