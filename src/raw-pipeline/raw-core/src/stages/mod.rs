@@ -13,3 +13,4 @@ pub mod highlight_recovery;
 pub mod sharpen;
 pub mod capture_sharpening;
 pub mod noise_reduction;
+pub mod local_adjustments;

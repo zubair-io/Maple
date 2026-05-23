@@ -29,8 +29,9 @@ use crate::{
     image::RawImage,
     linearize,
     stages::{
-        auto_exposure, capture_sharpening, clarity, dehaze, highlight_recovery, noise_reduction,
-        saturation, scene_tone_controls, sharpen, texture, vibrance, white_balance,
+        auto_exposure, capture_sharpening, clarity, dehaze, highlight_recovery, local_adjustments,
+        noise_reduction, saturation, scene_tone_controls, sharpen, texture, vibrance,
+        white_balance,
     },
     xmp::AdjustmentModel,
 };
@@ -197,6 +198,12 @@ pub fn develop_scene_linear_from_raw_with_quality(
     dump_after("11_texture", &scene);
     stage("dehaze", || dehaze::apply(&mut scene, model.dehaze));
     dump_after("12_dehaze", &scene);
+    // Local adjustments (ticket #280). Empty Vec (the default) makes this a
+    // bit-identical short-circuit — the parity-harness baseline is unchanged.
+    stage("local_adjustments", || {
+        local_adjustments::apply(&mut scene, &model.local_adjustments)
+    });
+    dump_after("12b_local_adjustments", &scene);
     stage("sharpen", || sharpen::apply(&mut scene, model.sharpen_amount, model.sharpen_radius, model.sharpen_detail, model.sharpen_masking));
     dump_after("13_sharpen", &scene);
     stage("nr_luminance", || noise_reduction::apply_luminance(&mut scene, model.nr_luminance));
@@ -318,6 +325,10 @@ pub fn develop_scene_linear_sized_from_raw_with_quality(
     dump_after("11_texture", &scene);
     stage("sized_dehaze", || dehaze::apply(&mut scene, model.dehaze));
     dump_after("12_dehaze", &scene);
+    stage("sized_local_adjustments", || {
+        local_adjustments::apply(&mut scene, &model.local_adjustments)
+    });
+    dump_after("12b_local_adjustments", &scene);
     stage("sized_sharpen", || sharpen::apply(&mut scene, model.sharpen_amount, model.sharpen_radius, model.sharpen_detail, model.sharpen_masking));
     dump_after("13_sharpen", &scene);
     stage("sized_nr_luminance", || noise_reduction::apply_luminance(&mut scene, model.nr_luminance));
