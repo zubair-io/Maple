@@ -223,6 +223,7 @@ mod tests {
             plt: None,
             profile_tone_curve: None,
             profile_gain_table_map: None,
+            crop_rect: None,
         }
     }
 
