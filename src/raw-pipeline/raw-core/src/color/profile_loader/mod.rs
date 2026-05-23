@@ -120,8 +120,9 @@ static PROFILE_TABLE: OnceLock<HashMap<CameraKey, MapleProfile>> = OnceLock::new
 /// from the same authoring source so the source-mixing artifact they
 /// hedged against no longer applies. With the gates gone, the bundled
 /// lookup hit set expands from 1/16 fixtures (iPhone-only) to every
-/// body whose UCM the bundle covers (16/16 in the current fixture set
-/// after the UCM alias table lands — see [`ucm_mapping`] +
+/// body whose UCM the bundle covers (15/16 in the current fixture set
+/// after the UCM alias table lands; test_0004 / Hasselblad H5D-40 is
+/// the only color-renderable miss — see [`ucm_mapping`] +
 /// `profiles/COVERAGE.md`).
 pub fn lookup_profile(raw: &RawImage) -> Option<&'static MapleProfile> {
     if std::env::var("MAPLE_DISABLE_BUNDLED_PROFILES").as_deref() == Ok("1") {
