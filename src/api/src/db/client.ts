@@ -455,7 +455,7 @@ export async function ensureIndexes(): Promise<void> {
   // One-shot heal: collapse pre-existing rows sharing a maple_id into one
   // with a union fileinfo[]. Gated by the migrations sentinel so this runs
   // exactly once per database (subsequent boots short-circuit). MUST run
-  // BEFORE the unique-partial `maple_id_1` createIndex below — otherwise
+  // BEFORE the unique-partial `maple_id_gt_1` createIndex below — otherwise
   // createIndex would throw DuplicateKey on deploys carrying pre-existing
   // dupes and the boot would abort. See PR #234 / issue #233.
   if (!(await migrationApplied(db, 'merge-duplicate-assets-2026-05-21'))) {
@@ -474,7 +474,7 @@ export async function ensureIndexes(): Promise<void> {
           err:
             err instanceof Error ? { message: err.message, stack: err.stack, name: err.name } : err,
         },
-        'merge-duplicate-assets failed — unique maple_id_1 index creation may fail next',
+        'merge-duplicate-assets failed — unique maple_id_gt_1 index creation may fail next',
       );
     }
   }
@@ -546,16 +546,23 @@ export async function ensureIndexes(): Promise<void> {
   // Unique because the hash is unique by construction.
   //
   // Partial filter is `{ maple_id: { $gt: '' } }`, NOT `{ $type: 'string' }`
-  // (which is what this index used to carry — see
-  // swap-maple-id-partial-filter-2026-05-23 below). Reason: MongoDB's
-  // planner does not infer that a literal-string equality predicate like
-  // `{ maple_id: 'abc' }` satisfies `{ maple_id: { $type: 'string' } }`, so
-  // the index was excluded at candidate selection and every dedup lookup
-  // went COLLSCAN. `$gt: ''` is matched by literal-string equality (any
-  // non-empty string is `> ''`), and excludes `null` / absent / numeric
-  // values by BSON canonical-type ordering (null and numbers sort before
-  // strings), so it preserves the same "real hash values only" set the
-  // unique constraint needs to police.
+  // (which is what the predecessor index `maple_id_1` carried — see the
+  // post-swap drop guarded by `swap-maple-id-partial-filter-2026-05-23`
+  // below). Reason: MongoDB's planner does not infer that a literal-string
+  // equality predicate like `{ maple_id: 'abc' }` satisfies
+  // `{ maple_id: { $type: 'string' } }`, so the index was excluded at
+  // candidate selection and every dedup lookup went COLLSCAN. `$gt: ''`
+  // is matched by literal-string equality (any non-empty string is
+  // `> ''`), and excludes `null` / absent / numeric values by BSON
+  // canonical-type ordering. Note: `$gt: ''` does NOT exclude every
+  // non-string type — BSON types that sort *after* strings (objects,
+  // arrays, BinData, ObjectId, Boolean, Date, …) would also match. Maple
+  // writers never produce those for `maple_id` (it's always either `null`
+  // on a skeleton row or a 32-char hex string on a hashed row), so in
+  // practice the indexed set is identical to what `$type: 'string'`
+  // captured. If a future writer ever stores a non-string maple_id the
+  // unique constraint would still police it correctly; only the planner
+  // hint is at risk.
   //
   // Partial filter (NOT `sparse: true`): freshly-discovered skeleton rows
   // are inserted with `maple_id: null` explicitly. `sparse: true` only
@@ -564,10 +571,26 @@ export async function ensureIndexes(): Promise<void> {
   // every null-maple-id skeleton row into a single key and reject the
   // second insert with E11000.
   //
-  // The sentinel below drops any pre-existing `maple_id_1` so the
-  // unconditional createIndex can rebuild it with the new opts —
-  // MongoDB rejects createIndex with the same name but a different
-  // partialFilterExpression (`IndexOptionsConflict`, code 85).
+  // Index name is `maple_id_gt_1`, not `maple_id_1`, on purpose. MongoDB
+  // rejects createIndex with the same name + different partialFilter
+  // (`IndexOptionsConflict`, code 85), so we can't rebuild in place. The
+  // boot order also matters: `ensureIndexes` runs in the background
+  // *after* HTTP routes are live (see `src/index.ts:282`), so concurrent
+  // `POST /api/backup-ingest` could land in any drop→createIndex window.
+  // To avoid a uniqueness gap during the swap we build the new index
+  // first (under the new name), then drop the old one — the unique
+  // constraint is enforced by *some* index throughout. The
+  // `swap-maple-id-partial-filter-2026-05-23` sentinel guards the drop
+  // so we don't issue a redundant `IndexNotFound` on every subsequent
+  // boot.
+  await db.collection('assets').createIndex(
+    { maple_id: 1 },
+    {
+      name: 'maple_id_gt_1',
+      unique: true,
+      partialFilterExpression: { maple_id: { $gt: '' } },
+    },
+  );
   if (!(await migrationApplied(db, 'swap-maple-id-partial-filter-2026-05-23'))) {
     try {
       await db.collection('assets').dropIndex('maple_id_1');
@@ -577,14 +600,6 @@ export async function ensureIndexes(): Promise<void> {
     }
     await recordMigration(db, 'swap-maple-id-partial-filter-2026-05-23', 0);
   }
-  await db.collection('assets').createIndex(
-    { maple_id: 1 },
-    {
-      name: 'maple_id_1',
-      unique: true,
-      partialFilterExpression: { maple_id: { $gt: '' } },
-    },
-  );
 
   // Secondary content-dedup key: the discover handler falls back to
   // `findOne({ sha1_head })` when the maple_id lookup misses, so a

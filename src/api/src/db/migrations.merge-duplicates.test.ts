@@ -70,10 +70,16 @@ afterAll(async () => {
 
 describe('mergeDuplicateAssets', () => {
   async function dropMapleIdIndex(): Promise<void> {
-    try {
-      await db!.collection('assets').dropIndex('maple_id_1');
-    } catch {
-      // IndexNotFound — fine, fresh DB.
+    // Drop both index names — `maple_id_gt_1` is the post-swap canonical
+    // name, `maple_id_1` is the legacy predecessor that ensureIndexes
+    // drops once on boot. Either may be present depending on the test's
+    // setup ordering.
+    for (const name of ['maple_id_gt_1', 'maple_id_1']) {
+      try {
+        await db!.collection('assets').dropIndex(name);
+      } catch {
+        // IndexNotFound — fine.
+      }
     }
   }
 
@@ -447,8 +453,10 @@ describe('mergeDuplicateAssets', () => {
     expect(rows).toHaveLength(1);
 
     // Unique partial index must be back in place after the merge.
+    // Post-swap the canonical name is `maple_id_gt_1` (see comment block
+    // in client.ts).
     const indexes = await db!.collection('assets').indexes();
-    const mapleIdIdx = indexes.find((i: { name?: unknown }) => i.name === 'maple_id_1');
+    const mapleIdIdx = indexes.find((i: { name?: unknown }) => i.name === 'maple_id_gt_1');
     expect(mapleIdIdx).toBeDefined();
     expect((mapleIdIdx as { unique?: boolean }).unique).toBe(true);
   });
