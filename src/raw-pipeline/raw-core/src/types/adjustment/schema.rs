@@ -281,6 +281,7 @@ pub const ADJUSTMENT_SCHEMA: &[FieldSpec] = &[
 #[cfg(test)]
 mod tests {
     use super::*;
+    use super::super::AdjustmentModel;
 
     /// Schema-vs-struct drift guard: every scalar / enum field of the
     /// struct must appear exactly once in the schema, in declaration order.
