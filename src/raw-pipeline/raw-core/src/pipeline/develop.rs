@@ -148,20 +148,12 @@ pub fn develop_scene_linear_from_raw_with_quality(
             white_balance::apply_pre_gain(&mut camera_rgb, raw.as_shot_neutral)
         });
     }
-    // `highlight_recovery` runs AFTER `apply_pre_gain`, so it sees the
-    // per-channel clip ceilings = 1.0 / AsShotNeutral. We pass the triplet
-    // through so the stage can compute the right per-channel thresholds
-    // (ticket #325 — chromatic-adaptation reconstruction).
-    //
-    // When `skip_pre_gain` is true (8-bit lossy LinearRaw) the buffer is
-    // still in pre-gain space, so we hand identity `[1, 1, 1]` to keep the
-    // ceiling check honest against the actual saturation point of 1.0.
-    // Without this, R/B ceilings would land at 2.0 / 1.43 and the detector
-    // would no-op on R/B clipping (and trip incorrectly on G at 1.0).
-    let hr_neutral = if skip_pre_gain { [1.0, 1.0, 1.0] } else { raw.as_shot_neutral };
-    stage("highlight_recovery", || {
-        highlight_recovery::apply(&mut camera_rgb, model.highlight_recovery, hr_neutral)
-    });
+    // highlight_recovery (ticket #325) sees per-channel ceilings = 1/AsShotNeutral
+    // post-pre-gain, identity (1,1,1) when pre-gain was skipped (8-bit lossy
+    // LinearRaw) — without the identity branch the detector misses R/B clips
+    // and trips incorrectly on G.
+    let hr_neutral = if skip_pre_gain { [1.0; 3] } else { raw.as_shot_neutral };
+    stage("highlight_recovery", || highlight_recovery::apply(&mut camera_rgb, model.highlight_recovery, hr_neutral));
     dump_after("02_highlight_recovery", &camera_rgb);
     let profile = stage("dcp::profile_for", || dcp::profile_for(raw))?;
     // dcp::apply_with_plt_and_ptc runs HSM (from `profile.hsm`),
@@ -307,13 +299,9 @@ pub fn develop_scene_linear_sized_from_raw_with_quality(
             white_balance::apply_pre_gain(&mut camera_rgb, raw.as_shot_neutral)
         });
     }
-    // See unsized variant for why we plumb AsShotNeutral here (ticket #325).
-    // skip_pre_gain → identity neutral for the same reason: buffer hasn't
-    // been pre-gained yet, so the ceiling check needs to live at 1.0.
-    let hr_neutral = if skip_pre_gain { [1.0, 1.0, 1.0] } else { raw.as_shot_neutral };
-    stage("sized_highlight_recovery", || {
-        highlight_recovery::apply(&mut camera_rgb, model.highlight_recovery, hr_neutral)
-    });
+    // See unsized variant (ticket #325, skip_pre_gain identity branch).
+    let hr_neutral = if skip_pre_gain { [1.0; 3] } else { raw.as_shot_neutral };
+    stage("sized_highlight_recovery", || highlight_recovery::apply(&mut camera_rgb, model.highlight_recovery, hr_neutral));
     dump_after("02_highlight_recovery", &camera_rgb);
     let profile = stage("sized_dcp_profile_for", || dcp::profile_for(raw))?;
     let mut scene = stage("sized_dcp_apply", || dcp::apply_with_plt_and_ptc(
