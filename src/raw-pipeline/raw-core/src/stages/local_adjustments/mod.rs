@@ -39,9 +39,15 @@ pub fn apply(img: &mut Image, layers: &[LocalAdjustment]) {
     if w == 0 || h == 0 {
         return;
     }
-    // Normalized-coordinate denominators. Using `(dim - 1)` so the first
-    // pixel maps to 0.0 and the last pixel maps to 1.0 exactly — important
-    // for mask endpoints that sit on image corners.
+    // Normalized-coordinate denominators. For the common case (dim > 1),
+    // using `(dim - 1)` so the first pixel maps to 0.0 and the last pixel
+    // maps to 1.0 exactly — important for mask endpoints that sit on image
+    // corners. For the degenerate single-pixel-axis case (dim == 1), the
+    // denominator is undefined; we fall back to `inv = 0.0` so the lone
+    // pixel maps to 0.0. Mask endpoints on the far edge will see weight 0
+    // along that axis, which is consistent with the smoothstep falloff
+    // — a one-pixel-tall or one-pixel-wide image isn't a useful target
+    // for local adjustments, and we don't want to divide by zero.
     let inv_w = if w > 1 { 1.0 / (w as f32 - 1.0) } else { 0.0 };
     let inv_h = if h > 1 { 1.0 / (h as f32 - 1.0) } else { 0.0 };
 
