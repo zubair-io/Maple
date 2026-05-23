@@ -30,7 +30,7 @@ use crate::{
     linearize,
     stages::{
         auto_exposure, capture_sharpening, clarity, dehaze, highlight_recovery, local_adjustments,
-        noise_reduction, saturation, scene_tone_controls, sharpen, texture, vibrance,
+        noise_reduction, saturation, scene_tone_controls, sharpen, texture, tone_curves, vibrance,
         white_balance,
     },
     xmp::AdjustmentModel,
@@ -49,8 +49,8 @@ use super::{
 ///
 /// Stages: linearize, demosaic, baseline_exposure, highlight_recovery,
 /// dcp::profile_for + dcp::apply (camera RGB → SceneLinearRec2020),
-/// white_balance, scene_tone_controls, vibrance, saturation, clarity,
-/// texture, dehaze, sharpen, nr_luminance, nr_color.
+/// white_balance, scene_tone_controls, tone_curves, vibrance, saturation,
+/// clarity, texture, dehaze, sharpen, nr_luminance, nr_color.
 pub fn develop_scene_linear_from_raw_with_quality(
     raw: &RawImage,
     model: &AdjustmentModel,
@@ -199,6 +199,10 @@ pub fn develop_scene_linear_from_raw_with_quality(
     dump_after("06_white_balance", &scene);
     stage("scene_tone_controls", || scene_tone_controls::apply(&mut scene, model));
     dump_after("07_scene_tone_controls", &scene);
+    // User-authored tone curves (parametric + per-channel) — see stages/tone_curves.rs.
+    // Identity short-circuits on default model so this is a no-op for non-curve fixtures.
+    stage("tone_curves", || tone_curves::apply(&mut scene, model));
+    dump_after("07b_tone_curves", &scene);
     stage("vibrance", || vibrance::apply(&mut scene, model.vibrance));
     dump_after("08_vibrance", &scene);
     stage("saturation", || saturation::apply(&mut scene, model.saturation));
@@ -326,6 +330,8 @@ pub fn develop_scene_linear_sized_from_raw_with_quality(
     dump_after("06_white_balance", &scene);
     stage("sized_scene_tone_controls", || scene_tone_controls::apply(&mut scene, model));
     dump_after("07_scene_tone_controls", &scene);
+    stage("sized_tone_curves", || tone_curves::apply(&mut scene, model));
+    dump_after("07b_tone_curves", &scene);
     stage("sized_vibrance", || vibrance::apply(&mut scene, model.vibrance));
     dump_after("08_vibrance", &scene);
     stage("sized_saturation", || saturation::apply(&mut scene, model.saturation));

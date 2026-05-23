@@ -41,6 +41,17 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
     public var whites: Double           // -100..100, default 0
     public var blacks: Double           // -100..100, default 0
 
+    // Parametric tone curve — PV2012-style four-region sliders (ticket #273).
+    // Synthesises a piecewise-cubic over the canonical region split points
+    // (¼, ½, ¾) and applies post-`scene_tone_controls`, pre-`vibrance` in
+    // the Rust core. Identity at all-zero. Per-channel point curves
+    // (`crs:ToneCurvePV2012*`) are not yet mirrored on Swift — that lands
+    // in a follow-up PR alongside the curve-widget UI.
+    public var parametricHighlights: Double  // -100..100, default 0
+    public var parametricLights: Double      // -100..100, default 0
+    public var parametricDarks: Double       // -100..100, default 0
+    public var parametricShadows: Double     // -100..100, default 0
+
     // Presence
     public var vibrance: Double         // -100..100, default 0
     public var saturation: Double       // -100..100, default 0
@@ -85,6 +96,10 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
         shadows: Double = 0,
         whites: Double = 0,
         blacks: Double = 0,
+        parametricHighlights: Double = 0,
+        parametricLights: Double = 0,
+        parametricDarks: Double = 0,
+        parametricShadows: Double = 0,
         vibrance: Double = 0,
         saturation: Double = 0,
         clarity: Double = 0,
@@ -108,6 +123,10 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
         self.shadows = shadows
         self.whites = whites
         self.blacks = blacks
+        self.parametricHighlights = parametricHighlights
+        self.parametricLights = parametricLights
+        self.parametricDarks = parametricDarks
+        self.parametricShadows = parametricShadows
         self.vibrance = vibrance
         self.saturation = saturation
         self.clarity = clarity
