@@ -10,7 +10,7 @@
 //! canonical Rust default (`default_f32`). Tests at the bottom of this file
 //! assert that `AdjustmentModel::default()` matches the schema's
 //! `default_f32` values field-by-field. Per-#326, sharpen defaults now
-//! match ACR's import baseline (Sharpness=40, Radius=1.0, Detail=25,
+//! match the reference renderer's import baseline (Sharpness=40, Radius=1.0, Detail=25,
 //! EdgeMasking=0) so first-open output is no softer than Lightroom; the
 //! Swift hand-written defaults in `AdjustmentModel.swift` mirror this.
 
@@ -54,7 +54,7 @@ impl Default for HighlightRecoveryMode {
 /// sidecar. `AsShot`, `Auto`, and `Custom` carry no preset (temp,tint) pair —
 /// the values stored on `AdjustmentModel` are authoritative when one of those
 /// is selected. The named daylight presets map to fixed (temperature, tint)
-/// per ACR; see `crate::xmp::wb_preset` for the mapping table.
+/// per the reference renderer; see `crate::xmp::wb_preset` for the mapping table.
 ///
 /// TypeScript already has a hand-rolled `WhiteBalancePreset` union; lifting
 /// the enum into raw-core gives the codegen a single canonical declaration
@@ -97,14 +97,14 @@ pub struct AdjustmentModel {
     pub saturation: f32,  // -100..100, default 0
     pub clarity: f32,     // -100..100, default 0 (unsharp radius 40 per spec § 3.8)
     pub texture: f32,     // -100..100, default 0 (unsharp radius 3 per spec § 3.8)
-    pub sharpen_amount: f32, // 0..150, default 40 (ACR import default; spec § 3.10; 0 = stage skipped, 100 = full RL, >100 overdrive)
-    pub sharpen_radius: f32, // 0.5..3.0, default 1.0 (ACR import default; PSF Gaussian sigma)
+    pub sharpen_amount: f32, // 0..150, default 40 (reference-renderer import default; spec § 3.10; 0 = stage skipped, 100 = full RL, >100 overdrive)
+    pub sharpen_radius: f32, // 0.5..3.0, default 1.0 (reference-renderer import default; PSF Gaussian sigma)
     pub sharpen_detail: f32, // 0..100, default 25 (edge-attenuation strength)
     pub sharpen_masking: f32, // 0..100, default 0 (edge-mask threshold)
     pub capture_sharpening_amount: f32, // 0..100, default 0 (Richardson–Lucy strength; 0 = stage skipped)
     pub capture_sharpening_radius: f32, // 0.5..2.0, default 1.0 (PSF blur radius — see stages::capture_sharpening)
     pub nr_luminance: f32,   // 0..100, default 0 (spec § 3.11)
-    pub nr_color: f32,       // 0..100, default 25 (default = ACR's default)
+    pub nr_color: f32,       // 0..100, default 25 (default = the reference renderer's default)
     pub dehaze: f32,         // -100..100, default 0
     pub highlight_recovery: HighlightRecoveryMode,
 }
@@ -124,7 +124,7 @@ impl Default for AdjustmentModel {
             saturation: 0.0,
             clarity: 0.0,
             texture: 0.0,
-            // Sharpen defaults converge to ACR's fresh-import baseline
+            // Sharpen defaults converge to the reference renderer's fresh-import baseline
             // (Sharpness=40, Radius=1.0, Detail=25, EdgeMasking=0) per #326.
             // Prior identity defaults (amount=0, radius=0.5) shipped soft
             // first-open output and conflated calibration drift with a
@@ -287,7 +287,7 @@ pub const ADJUSTMENT_SCHEMA: &[FieldSpec] = &[
         range: (0.0, 150.0),
         default_f32: 40.0,
         enum_name: "",
-        doc: "Sharpening amount per spec § 3.10 (0 = stage skipped, 100 = full RL). Default = ACR import (40).",
+        doc: "Sharpening amount per spec § 3.10 (0 = stage skipped, 100 = full RL). Default = reference-renderer import (40).",
     },
     FieldSpec {
         name: "sharpen_radius",
@@ -295,7 +295,7 @@ pub const ADJUSTMENT_SCHEMA: &[FieldSpec] = &[
         range: (0.5, 3.0),
         default_f32: 1.0,
         enum_name: "",
-        doc: "Sharpening PSF Gaussian sigma. Default = ACR import (1.0).",
+        doc: "Sharpening PSF Gaussian sigma. Default = reference-renderer import (1.0).",
     },
     FieldSpec {
         name: "sharpen_detail",
@@ -343,7 +343,7 @@ pub const ADJUSTMENT_SCHEMA: &[FieldSpec] = &[
         range: (0.0, 100.0),
         default_f32: 25.0,
         enum_name: "",
-        doc: "Color noise reduction strength (default = ACR's default).",
+        doc: "Color noise reduction strength (default = the reference renderer's default).",
     },
     FieldSpec {
         name: "dehaze",
