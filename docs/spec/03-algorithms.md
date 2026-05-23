@@ -208,7 +208,7 @@ The DCP math is specified in ProPhoto D50 (per the DNG spec). Maple runs the mat
 
 - **ColorMatrix1 (CM1)** — camera-to-XYZ under illuminant 1 (typically StdA / ~2850K).
 - **ColorMatrix2 (CM2)** — camera-to-XYZ under illuminant 2 (typically D65 / ~6500K).
-- **ForwardMatrix1/2 (FM1, FM2)** — XYZ-to-ProPhoto under each illuminant (optional but increasingly standard).
+- **ForwardMatrix1/2 (FM1, FM2)** — **white-balanced camera RGB → XYZ-D50** under each illuminant (optional but increasingly standard). NOTE: this is the DNG SDK contract per `dng_camera_profile.h` (FM field comment) and `dng_color_spec.cpp:444-446`; older Maple commentary occasionally described FM as "XYZ → ProPhoto", which is wrong. FM's *input* is the white-balanced camera RGB (camera RGB divided by AsShotNeutral, i.e. the post-pre-gain buffer); FM's *output* is XYZ chromatically adapted to D50.
 - **HueSatMapData1/2** — 3D lookup tables (hue × saturation × value) of additive hue and saturation offsets, per illuminant.
 - **ProfileLookTable** — an optional final 3D LUT applied after HueSatMap for "look" character (stylistic tweaks).
 - **CalibrationIlluminant1/2** — the CIE illuminant codes for the above matrices.
@@ -229,22 +229,29 @@ FM     = lerp(FM1, FM2, t)
 HSM    = lerp(HSM1, HSM2, t)   // per-cell
 ```
 
-Pipeline application per pixel:
+Pipeline application per pixel. Two branches, dispatched on whether
+white-balance pre-gain has run upstream (the pipeline runs it for every
+path except the 8-bit lossy LinearRaw escape hatch):
 
-1. **Camera RGB → XYZ**:
-   ```
-   xyz = CM * rgb_camera
-   ```
-2. **Chromatic adaptation to D50** (Bradford transform):
-   ```
-   xyz_D50 = Bradford_M * (source_white_D50 / source_white_asShot) * Bradford_Minv * xyz
-   ```
-   If ForwardMatrix is present, the CA is baked into FM and this step is folded in.
-3. **XYZ → ProPhoto linear**:
-   ```
-   rgb_pro = FM * xyz_D50    (if FM present)
-          or BradfordXYZtoProPhoto * xyz_D50   (if no FM)
-   ```
+**FM path (post-#354 — when ForwardMatrix is present AND pre-gain has run):**
+
+1. The buffer arriving at DCP is already `camera_raw / AsShotNeutral`
+   (white-balanced camera RGB).
+2. `xyz_D50 = FM * rgb_camera_wb` — FM's contract per the DNG SDK
+   (`dng_color_spec.cpp:444-446`) is exactly this: white-balanced camera
+   RGB → XYZ-D50.
+3. `rgb_pro = inv(M_pro_to_xyz_d50) * xyz_D50` — invert the ROMM matrix
+   to enter linear ProPhoto D50.
+
+FM is NOT composed with `inv(CM)` on this path — that's the pre-#354
+bug. CM is unused when FM fires (it's the camera→XYZ rotation that
+FM's column-space already encodes).
+
+**Bradford fallback (no FM, OR pre-gain was skipped):**
+
+1. `xyz = inv(CM) * rgb_camera`.
+2. `xyz_D50 = Bradford(scene_white, D50) * xyz`.
+3. `rgb_pro = inv(M_pro_to_xyz_d50) * xyz_D50`.
 4. **HueSatMap application** (in ProPhoto-HSV space, per DNG spec):
    ```
    (h, s, v) = rgb_pro_to_hsv(rgb_pro)
@@ -252,8 +259,9 @@ Pipeline application per pixel:
    (h', s', v') = (h + Δh, s * Δs, v * m_v)
    rgb_pro' = hsv_to_rgb_pro(h', s', v')
    ```
-5. **ProfileLookTable** (if present): same as HSM but applied at the end as a "look" tweak.
-6. **ProPhoto → Rec.2020 D65 exit matrix** (pipeline handoff):
+5. **ProfileLookTable** (if present): same shape as HSM, applied as a "look" tweak. Runs BEFORE the tone curve, per `dng_render.cpp:1094-1121` (the SDK's `Render` method chains `DoBaselineHueSatMap` (HSM) → `DoBaselineHueSatMap` again with `fLookTable` (PLT) → `DoBaselineRGBTone` (PTC)).
+6. **ProfileToneCurve** (if present): 1D tone curve applied to the max channel with R/G/B scaled proportionally to preserve hue (DNG 1.4 § 6.4.4, `dng_render.cpp::DoBaselineRGBTone`).
+7. **ProPhoto → Rec.2020 D65 exit matrix** (pipeline handoff):
    ```
    rgb_rec2020 = M_pro_to_rec2020 * rgb_pro'
    ```
