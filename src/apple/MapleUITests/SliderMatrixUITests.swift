@@ -4,7 +4,7 @@
 // fixture (test_0017.dng) with the DEFAULT model. This test runs the
 // full slider-state matrix the references repo prepared for it: every
 // committed `crs:` slider case in `test-fixtures/references/<stem>/xmp/`
-// against the matching ACR-rendered reference PNG in `<stem>/down/`.
+// against the matching reference-rendered PNG in `<stem>/down/`.
 //
 // Per case it:
 //   1. Stages a tmp dir with `<stem>.dng` (or .DNG/.RAW/.CR2/...) +
@@ -14,7 +14,7 @@
 //      MAPLE_UITEST_FIXTURE_ROOT=<tmp>.
 //   3. Waits for canvas-render-ready (refine pass published).
 //   4. Screenshots the canvas.
-//   5. Resizes both candidate + ACR reference to a common 1024px long
+//   5. Resizes both candidate + reference to a common 1024px long
 //      edge to neutralize the 4000px-vs-canvas-points size mismatch
 //      and keep CIEDE2000 fast.
 //   6. Records ΔE₀₀ + per-channel bias, asserts under budget.
@@ -24,9 +24,9 @@
 //   - the DNG isn't present in test-fixtures/raws/ (gitignored)
 //   - the references dir for the fixture has no `down/` PNGs (only
 //     test_0000-0003 currently carry references; the rest are XMPs
-//     waiting on a future ACR render pass)
+//     waiting on a future reference-render pass)
 //
-// Budgets are deliberately loose for v1 — Maple AgX vs ACR's view
+// Budgets are deliberately loose for v1 — Maple AgX vs the reference's view
 // transform produces non-trivial deltas even when color math is
 // pristine. Ratchet downward as the pipeline tightens.
 //
@@ -46,14 +46,14 @@ final class SliderMatrixUITests: XCTestCase {
 
     // MARK: - Budgets (loose v1; ratchet downward only)
 
-    /// Per-case CIEDE2000 + bias budget. Maple AgX view transform vs ACR
-    /// Adobe-Color produces ~10–20 ΔE on a typical scene even when the
+    /// Per-case CIEDE2000 + bias budget. Maple AgX view transform vs the
+    /// third-party reference renderer produces ~10–20 ΔE on a typical scene even when the
     /// upstream color math is correct — these limits accept that floor
     /// while still catching regressions that double the delta.
     private static let budget = GoldenBudget(mean: 25, p95: 50, max: 100, bias: 0.10)
 
     /// Long-edge target for both candidate and reference before diff.
-    /// The 4000px ACR `down/` references are too large for fast per-case
+    /// The 4000px `down/` references are too large for fast per-case
     /// CIEDE2000; the canvas screenshot is typically a few-hundred-points
     /// × backing-scale. 1024 is a workable common ground that preserves
     /// enough chroma signal without choking the pixel loop.
@@ -121,12 +121,12 @@ final class SliderMatrixUITests: XCTestCase {
     // MARK: - The matrix test
 
     /// Iterate every fixture in `test-fixtures/references/test_NNNN/` that
-    /// has an ACR-rendered `down/` PNG, pair each PNG with its sibling
+    /// has a reference-rendered `down/` PNG, pair each PNG with its sibling
     /// `xmp/<case>.xmp`, render the case via the live Mac app, and diff.
     /// Skips fixtures missing locally; XCTSkip if NO fixture has any
     /// renderable case (mirrors test_color_pipeline.sh's empty-fixtures
     /// pattern).
-    func testSliderMatrixVsACRReferences() throws {
+    func testSliderMatrixVsReferences() throws {
         let raws = Self.rawsDir()
         let refs = Self.referencesDir()
         guard FileManager.default.fileExists(atPath: refs.path) else {
@@ -214,7 +214,7 @@ final class SliderMatrixUITests: XCTestCase {
     // MARK: - Render one case
 
     /// Stage a tmp fixture dir, launch the app pointed at it, screenshot
-    /// the canvas, and CIEDE2000-compare against the ACR reference.
+    /// the canvas, and CIEDE2000-compare against the reference.
     private func renderAndDiff(rawURL: URL,
                                xmpURL: URL,
                                referencePNG: URL,
