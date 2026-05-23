@@ -53,7 +53,16 @@ use super::{
 /// Runs on a buffer that's still in `CameraNativeLinearRgb`, so the
 /// downstream DCP / scene-linear chain operates on the smaller, post-crop
 /// dimensions — saving allocator work for every later stage too.
-pub(super) fn crop_to_default(image: &Image, crop: CropRect, quality_divisor: u32) -> Image {
+/// Returns `Some(cropped)` when the crop actually shrinks the buffer,
+/// `None` when it's a no-op (degenerate rect or full-coverage rect) so
+/// the caller can keep its existing buffer without paying for an
+/// `Image::clone()`. On a 100MP frame that clone is ~1.2 GB of f32 data,
+/// so the no-op path matters even though it fires rarely.
+pub(super) fn crop_to_default(
+    image: &Image,
+    crop: CropRect,
+    quality_divisor: u32,
+) -> Option<Image> {
     // Sensor-coords → buffer-coords. Preview's demosaic halves both axes;
     // round DOWN on the origin (lose no in-frame pixels to off-by-one)
     // and round DOWN on the size (drop the trailing half-pixel rather
@@ -72,12 +81,12 @@ pub(super) fn crop_to_default(image: &Image, crop: CropRect, quality_divisor: u3
         // Defensive no-op — caller logged the malformed-crop case at
         // decode time and we kept Some(rect), but if it survived to here
         // with degenerate post-divisor dims (e.g. a 1×1 crop on a Preview
-        // path), just return the original buffer.
-        return image.clone();
+        // path), keep the original buffer.
+        return None;
     }
     if cx == 0 && cy == 0 && cw == image.width && ch == image.height {
         // The crop covers the entire buffer; no-op.
-        return image.clone();
+        return None;
     }
     let mut out = Image::new(cw, ch, image.space);
     let in_w = image.width as usize;
@@ -90,7 +99,7 @@ pub(super) fn crop_to_default(image: &Image, crop: CropRect, quality_divisor: u3
         out.pixels[dst_row_start..dst_row_start + cw_us]
             .copy_from_slice(&image.pixels[src_row_start..src_row_start + cw_us]);
     }
-    out
+    Some(out)
 }
 
 /// Per-quality divisor between raw-sensor coordinates and the post-demosaic
@@ -146,9 +155,13 @@ pub fn develop_scene_linear_from_raw_with_quality(
     // without crop metadata (test_0002, test_0013) — those render the
     // full sensor, which is also what ACR does for them. See ticket #375.
     if let Some(crop) = raw.crop_rect {
-        camera_rgb = stage("crop_to_default", || {
+        if let Some(cropped) = stage("crop_to_default", || {
             crop_to_default(&camera_rgb, crop, quality_divisor(quality))
-        });
+        }) {
+            camera_rgb = cropped;
+        }
+        // No-op (degenerate rect or full-coverage): keep camera_rgb as-is;
+        // crop_to_default returns None instead of cloning the buffer.
     }
     dump_after("00b_crop_to_default", &camera_rgb);
 
@@ -353,8 +366,15 @@ mod tests {
                 .join(name);
             if !path.exists() { continue; }
             let bytes = std::fs::read(&path).expect("read raw");
-            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-            let raw = crate::decode::decode_bytes(&bytes, ext).expect("decode");
+            // Lowercase: decode_bytes uses `ext` to build a rawler hint
+            // path; rawler format detection matches lowercase suffixes
+            // (e.g. `RAF` vs `raf` can disambiguate Fuji decoders).
+            let ext = path
+                .extension()
+                .and_then(|e| e.to_str())
+                .map(|s| s.to_ascii_lowercase())
+                .unwrap_or_default();
+            let raw = crate::decode::decode_bytes(&bytes, &ext).expect("decode");
             let (w, h, _) = crate::pipeline::render_from_raw_with_quality(
                 &raw, &model, RenderQuality::Full,
             ).expect("render");
