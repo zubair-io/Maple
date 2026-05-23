@@ -428,4 +428,58 @@ mod tests {
              regression in convert_dcps.py?"
         );
     }
+
+    /// Regression sanity for #379: the shipped bundle must carry HSM
+    /// (HueSatMap) data for at least one body. Pre-#379 the converter
+    /// was invoked without `--include-hsm` to save ~72 MB, producing a
+    /// matrices-only bundle and leaving Maple with a pervasive mild
+    /// magenta/green cast on every body whose source DCP shipped HSM.
+    /// If every entry in the bundle has `hsm1.is_none() && hsm2.is_none()`,
+    /// either the binary was regenerated without `--include-hsm` or the
+    /// converter regressed — both are silent in production but cost real
+    /// ΔE on most bodies, so this guard makes the regression loud.
+    #[test]
+    fn bundle_ships_at_least_one_body_with_hsm() {
+        let table = PROFILE_TABLE.get_or_init(|| parser::parse_bundle(PROFILES_BIN));
+        if table.is_empty() {
+            // Soft-pass when profiles.bin is missing/stale, matching the
+            // "fixtures absent → soft pass" pattern elsewhere.
+            return;
+        }
+        let any_with_hsm = table.values().any(|p| p.hsm1.is_some() || p.hsm2.is_some());
+        assert!(
+            any_with_hsm,
+            "bundle has no body with ProfileHueSatMap data — was the bundle \
+             regenerated without `--include-hsm`?"
+        );
+    }
+
+    /// Leica M10 is the canonical HSM-present fixture surfaced by #378's
+    /// investigation — its source DCP ships HueSatMap1+HueSatMap2 and the
+    /// pre-#379 matrices-only bundle silently dropped them, producing the
+    /// sky-magenta cast on `test_0017.dng`. After regenerating the bundle
+    /// with HSM enabled, the Leica M10 lookup must surface both HSM tables.
+    /// This protects the specific code path that #378/#379 fixed against
+    /// future regressions in the converter or the conversion-time gates.
+    #[test]
+    fn leica_m10_ships_dual_illuminant_hsm() {
+        let table = PROFILE_TABLE.get_or_init(|| parser::parse_bundle(PROFILES_BIN));
+        if table.is_empty() {
+            return;
+        }
+        let p = match table.get(&CameraKey::new("LEICA M10")) {
+            Some(p) => p,
+            None => return, // body absent from bundle (e.g. partial bundle in dev)
+        };
+        assert!(
+            p.hsm1.is_some(),
+            "Leica M10 bundled profile is missing HSM1 — source DCP ships \
+             dual-illuminant HSM; regenerate with --include-hsm"
+        );
+        assert!(
+            p.hsm2.is_some(),
+            "Leica M10 bundled profile is missing HSM2 — source DCP ships \
+             dual-illuminant HSM; regenerate with --include-hsm"
+        );
+    }
 }
