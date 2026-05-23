@@ -98,6 +98,22 @@ final class AdjustmentModelTests: XCTestCase {
         XCTAssertEqual(m.highlightRecovery, .blend)
     }
 
+    /// #335 review: Rust parser accepts both `"chromaticadaptation"` and
+    /// `"ChromaticAdaptation"` (and likewise for the legacy variants).
+    /// Swift's case-insensitive table needs to match so sidecars that parse
+    /// fine on Rust/Web don't silently fall through to the default on Apple.
+    func testParseHighlightRecoveryLowercaseChromaticAdaptation() throws {
+        let xml = xmp(attrs: #"papp:HighlightRecoveryMode="chromaticadaptation""#)
+        let (m, _) = try XMPParser.parse(xml)
+        XCTAssertEqual(m.highlightRecovery, .chromaticAdaptation)
+    }
+
+    func testParseHighlightRecoveryLowercaseOff() throws {
+        let xml = xmp(attrs: #"papp:HighlightRecoveryMode="off""#)
+        let (m, _) = try XMPParser.parse(xml)
+        XCTAssertEqual(m.highlightRecovery, .off)
+    }
+
     func testParseStars() throws {
         let xml = xmp(attrs: #"xmp:Rating="4""#)
         let (_, c) = try XMPParser.parse(xml)
