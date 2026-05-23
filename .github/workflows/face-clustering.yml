@@ -1,0 +1,73 @@
+# .github/workflows/face-clustering.yml
+#
+# Quality-parity gate for the face-clustering subsystem. Mirrors
+# .github/workflows/raw-pipeline.yml for the people / face stack.
+#
+# The script src/scripts/test_face_clustering.sh runs the pure
+# `clusterEmbeddings` core over the committed JSONL fixture set and
+# diffs the resulting purity / NMI / V-measure / ARI / recall@1 against
+# test-fixtures/face-clustering/budgets.json (one-way ratchet).
+#
+# Fixtures: test-fixtures/face-clustering/embeddings.jsonl IS committed
+# (synthetic-mode, ~2 MB). The harness skip-passes if the file is
+# missing, so external contributors who removed it locally won't break
+# CI; the gate is active on the main repo where the file is present.
+#
+# No MongoDB needed — the harness calls the pure clustering function
+# directly. The API workflow still spins up Mongo for the DB-backed
+# tests; this workflow does not.
+
+name: face-clustering
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/api/src/people/**'
+      - 'src/scripts/test_face_clustering.sh'
+      - 'test-fixtures/face-clustering/**'
+      - '.github/workflows/face-clustering.yml'
+  pull_request:
+    paths:
+      - 'src/api/src/people/**'
+      - 'src/scripts/test_face_clustering.sh'
+      - 'test-fixtures/face-clustering/**'
+      - '.github/workflows/face-clustering.yml'
+
+concurrency:
+  group: face-clustering-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  face-clustering-quality:
+    name: face-clustering (test_face_clustering.sh)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      # Install API deps so `bun src/api/src/people/clustering-quality-harness.ts`
+      # can resolve `mongodb`/`pino`/etc. (transitively imported via
+      # `clustering-job.ts`). Frozen-lockfile to avoid drift.
+      - name: Install API deps
+        working-directory: src/api
+        run: bun install --frozen-lockfile
+
+      # Probe the committed fixture so a missing-file branch is logged
+      # explicitly. The script itself also skip-passes; this step makes
+      # the path visible at-a-glance in the CI log.
+      - name: Probe fixtures
+        id: probe
+        run: |
+          if [ -f test-fixtures/face-clustering/embeddings.jsonl ] && [ -f test-fixtures/face-clustering/budgets.json ]; then
+            echo "have_fixtures=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "have_fixtures=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::test-fixtures/face-clustering/{embeddings.jsonl,budgets.json} not present — gate is a no-op on this runner."
+          fi
+
+      - name: Run face-clustering harness
+        run: bash src/scripts/test_face_clustering.sh
