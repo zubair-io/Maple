@@ -176,6 +176,58 @@ pub struct RawImage {
     /// any RAW that doesn't ship the tag, or when the binary header cannot be
     /// parsed confidently — see [`ProfileGainTableMap::from_bytes`].
     pub profile_gain_table_map: Option<ProfileGainTableMap>,
+    /// DNG `DefaultCropOrigin` / `DefaultCropSize` in raw-sensor coordinates.
+    /// Encodes the camera-recommended render rectangle — typically excludes
+    /// the optical-black border around `ActiveArea` plus a few-px demosaic
+    /// margin. Populated from rawler's `crop_area`. `None` when the source
+    /// ships neither the rawler crop nor the raw DNG tags, in which case
+    /// the pipeline renders the full sensor (matches ACR's fallback). See
+    /// [`CropRect`] and the apply step in `pipeline::develop`.
+    pub crop_rect: Option<CropRect>,
+}
+
+/// DNG camera-recommended render rectangle in raw-sensor coordinates.
+///
+/// Encodes the `DefaultCropOrigin` (tag 50719) + `DefaultCropSize` (tag 50720)
+/// pair: the sub-rectangle of the full sensor that the camera vendor wants
+/// rendered. Most sensors carry a few-pixel optical-black border (covered by
+/// `ActiveArea`) plus a small extra demosaic-safe margin past the active area;
+/// `DefaultCrop*` is what gets shown to the user.
+///
+/// Populated by [`crate::decode::decode_bytes`] from rawler's `crop_area`
+/// field — rawler reads it consistently for DNG, CR2, CR3, ARW, NEF, RAF,
+/// ORF, RW2 (i.e. every vendor format we support that ships the tags).
+/// Apple iPhone DNGs (test_0013) and a few older DNGs (test_0002) ship
+/// neither the rawler-surfaced crop nor the raw DNG tags — those decode
+/// with `crop_rect = None`, which the pipeline treats as "no crop"
+/// (full-sensor render), matching ACR's behaviour for those fixtures.
+///
+/// Coordinates are sensor-absolute (x, y, w, h) in raw-pixel units. The
+/// pipeline applies the crop post-demosaic, so for half-res Preview the
+/// rect is halved at apply time (see `pipeline::develop::apply_crop`).
+/// Orientation is applied AFTER crop on the developed RGB buffer — this
+/// mirrors the DNG spec's ordering (§ 6.3) and what ACR / dng_render does.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct CropRect {
+    pub x: u32,
+    pub y: u32,
+    pub w: u32,
+    pub h: u32,
+}
+
+impl CropRect {
+    /// Construct a rect, clamping to `(sensor_w, sensor_h)` so a slightly
+    /// over-large rect from a malformed source can't index out of bounds.
+    /// Returns `None` if the clamp would produce a degenerate (zero-area)
+    /// rect — caller treats that as "no crop."
+    pub fn clamped(x: u32, y: u32, w: u32, h: u32, sensor_w: u32, sensor_h: u32) -> Option<Self> {
+        let x = x.min(sensor_w);
+        let y = y.min(sensor_h);
+        let w = w.min(sensor_w.saturating_sub(x));
+        let h = h.min(sensor_h.saturating_sub(y));
+        if w == 0 || h == 0 { return None; }
+        Some(Self { x, y, w, h })
+    }
 }
 
 /// EXIF orientation (TIFF tag 0x0112). Values 1-8 per the spec. `Normal` is
