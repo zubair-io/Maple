@@ -1,4 +1,4 @@
-//! Golden tests: render a fixture + XMP and compare against ACR reference
+//! Golden tests: render a fixture + XMP and compare against the reference
 //! via `src/scripts/compare_images.py`. Gated by `--features golden` because
 //! they shell out to Python.
 //!

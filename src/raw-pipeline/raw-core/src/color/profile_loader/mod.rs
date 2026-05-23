@@ -1,30 +1,30 @@
-//! Runtime loader for Maple's bundled Adobe-derived DCP profiles.
+//! Runtime loader for Maple's bundled third-party-derived DCP profiles.
 //!
-//! Adobe ships 1,447 high-quality `Adobe Standard` DCPs under
-//! `/Library/Application Support/Adobe/CameraRaw/CameraProfiles/`. The
-//! `src/scripts/convert_adobe_dcps.py` tool re-encodes that data into a
-//! single binary at `profiles/profiles.bin`, included into the crate via
-//! [`include_bytes!`].
+//! The upstream tooling ships 1,447 high-quality "standard" DCPs under its
+//! `CameraRaw/CameraProfiles/` directory. The `src/scripts/convert_dcps.py`
+//! tool re-encodes that data into a single binary at `profiles/profiles.bin`,
+//! included into the crate via [`include_bytes!`].
 //!
 //! Why bundled at all: rawler's per-camera matrices (its dcraw-lineage
 //! defaults) are catastrophically wrong on some bodies — iPhone 12 Pro, the
 //! Canon 5DM3/5DM4 family — producing 20+ ΔE biases on standard fixtures.
-//! Adobe's calibrated DCPs fix the matrices. See ticket #324.
+//! The externally-calibrated DCPs fix the matrices. See ticket #324.
 //!
 //! Lookup key is the DNG `UniqueCameraModel` string (tag 50708). For
 //! multi-lens mobile bodies, the lens identifier is already baked into the
 //! UCM by the vendor — Apple ships per-lens UCMs like `iPhone13,3 back
 //! camera`, `iPhone13,3 back telephoto camera`, `iPhone13,3 back ultra wide
-//! camera`, and Adobe ships one DCP per lens-tagged UCM. We bundle all
-//! variants as distinct entries (see `iphone_lens_variants_are_distinct_keys`
-//! test below) and the runtime picks the right one by matching the captured
-//! DNG's UCM byte-for-byte. No separate `lens_id` column is needed — the
-//! DNG-spec UCM is the discriminator the vendor and Adobe already share.
+//! camera`, and the upstream tooling ships one DCP per lens-tagged UCM. We
+//! bundle all variants as distinct entries (see
+//! `iphone_lens_variants_are_distinct_keys` test below) and the runtime
+//! picks the right one by matching the captured DNG's UCM byte-for-byte.
+//! No separate `lens_id` column is needed — the DNG-spec UCM is the
+//! discriminator the vendor and the upstream tooling already share.
 //!
 //! ## Bundle format
 //!
 //! Little-endian throughout. Header (16 bytes) followed by N variable-length
-//! profile records. See `src/scripts/convert_adobe_dcps.py` module-docstring
+//! profile records. See `src/scripts/convert_dcps.py` module-docstring
 //! for the per-byte spec — both reader ([`parser`]) and writer (the script)
 //! must move together. Format version is bumped (header u16 at offset 4)
 //! when the layout changes.
@@ -69,12 +69,12 @@ use crate::math::Matrix3;
 
 pub use types::{CameraKey, MapleProfile};
 
-/// Embedded bundle blob — produced by `src/scripts/convert_adobe_dcps.py`.
+/// Embedded bundle blob — produced by `src/scripts/convert_dcps.py`.
 /// `include_bytes!` is a compile-time macro: the file MUST exist at
 /// `profiles/profiles.bin` for the crate to build. The bundle is committed
 /// to the repo (currently ~256 KB, well under any practical limit), so
 /// every developer / CI runner gets it via `git clone`. Regenerate by
-/// re-running the converter against an Adobe Camera Raw install.
+/// re-running the converter against an upstream reference renderer install.
 ///
 /// Runtime graceful degradation: when `parser::parse_bundle` fails to
 /// validate the header (e.g. bumped `FORMAT_VERSION`, corrupted bytes) it
@@ -97,26 +97,30 @@ static PROFILE_TABLE: OnceLock<HashMap<CameraKey, MapleProfile>> = OnceLock::new
 ///
 /// 1. The camera isn't in the bundle (or `MAPLE_DISABLE_BUNDLED_PROFILES=1`).
 /// 2. **The source DNG already ships a `ProfileLookTable`.** When PLT is
-///    present, the source was authored by Adobe DNG Converter and already
-///    carries Adobe Standard's calibrated PLT (paired to Adobe's matrices
-///    + FM). Substituting a bundled override on top is a partial-
-///    calibration mismatch — the matrices/FM we'd inject diverge from what
-///    the embedded PLT was tuned for. Empirically observed regression on
-///    Leica M10 DNG: +1.80 mean ΔE without this gate; with it, no change.
-///    Vendor RAW formats don't ship PLT, so this gate doesn't apply there.
+///    present, the source was authored by the DNG Converter and already
+///    carries the external standard profile's calibrated PLT (paired to the
+///    upstream matrices + FM). Substituting a bundled override on top is a
+///    partial-calibration mismatch — the matrices/FM we'd inject diverge
+///    from what the embedded PLT was tuned for. Empirically observed
+///    regression on Leica M10 DNG: +1.80 mean ΔE without this gate; with it,
+///    no change. Vendor RAW formats don't ship PLT, so this gate doesn't
+///    apply there.
 /// 3. **The source matrices already match the bundled ones byte-for-byte
 ///    within 1e-3 per entry.** Applying the bundle would only have value
-///    via its FM addition; but adding Adobe's FM to a body that previously
-///    used Bradford CA regresses the ACR-reference fixture set for several
-///    vendor formats (Fujifilm RAF: +7.18 ΔE, Sony ARW: +2.85, Nikon NEF:
-///    +2.82). Adobe's FM is calibrated against ACR's full chain; Maple's
-///    chain doesn't yet match ACR's downstream (AgX vs. ACR tone), so the
-///    FM-vs-Bradford choice swings per body. Until that's reconciled, only
-///    apply the bundle when matrices actually differ from the source.
+///    via its FM addition; but adding the upstream FM to a body that
+///    previously used Bradford CA regresses the reference fixture set for
+///    several vendor formats (Fujifilm RAF: +7.18 ΔE, Sony ARW: +2.85,
+///    Nikon NEF: +2.82). The upstream FM is calibrated against the
+///    reference renderer's full chain; Maple's chain doesn't yet match the
+///    reference renderer's downstream (AgX vs. the reference renderer's
+///    tone), so the FM-vs-Bradford choice swings per body. Until that's
+///    reconciled, only apply the bundle when matrices actually differ from
+///    the source.
 ///
 /// Together these gates collapse the bundled-lookup hit set to bodies
-/// whose embedded matrices materially diverge from Adobe Standard AND
-/// whose source isn't already Adobe-calibrated. In the current fixture
+/// whose embedded matrices materially diverge from the external standard
+/// profile AND whose source isn't already externally calibrated. In the
+/// current fixture
 /// set that's effectively the iPhone DNG family — the canonical motivating
 /// case for this ticket. Broader coverage (Canon CR2 FM addition, Leica
 /// matrix swap) is gated behind the downstream tone-chain work in
@@ -128,7 +132,7 @@ pub fn lookup_profile(raw: &RawImage) -> Option<&'static MapleProfile> {
     let table = PROFILE_TABLE.get_or_init(|| parser::parse_bundle(PROFILES_BIN));
     let key = camera_key_for(raw);
     let profile = table.get(&key)?;
-    // Gate 2: Adobe-DNG-Converter-authored DNGs are already calibrated.
+    // Gate 2: DNG-Converter-authored DNGs are already calibrated.
     if raw.plt.is_some() {
         return None;
     }
@@ -142,7 +146,7 @@ pub fn lookup_profile(raw: &RawImage) -> Option<&'static MapleProfile> {
 /// True when every bundled matrix that's also present in the source `RawImage`
 /// agrees within a tight tolerance. The tolerance is loose enough to absorb
 /// SRATIONAL → f32 round-trip noise (1e-3 per entry); tight enough to catch
-/// the iPhone case where rawler-exposed CMs differ from Adobe Standard by
+/// the iPhone case where rawler-exposed CMs differ from the external standard by
 /// ~0.16 in several entries.
 fn matrices_match_source(profile: &MapleProfile, raw: &RawImage) -> bool {
     const TOL: f32 = 1e-3;
@@ -176,15 +180,15 @@ fn matrices_match_source(profile: &MapleProfile, raw: &RawImage) -> bool {
 /// True when this `RawImage` has a bundled Maple profile available. When
 /// true, the develop pipeline should ignore the source DNG's
 /// `ProfileToneCurve` tag — that tag was calibrated against the source
-/// vendor's own matrices, and the bundled "Adobe Standard" matrices we
+/// vendor's own matrices, and the bundled external-standard matrices we
 /// substitute differ enough on some bodies (notably iPhone DNGs, which
 /// ship a 257-pair PTC) to cause a tone double-up. Maple's AgX view
 /// transform supplies the canonical tone mapping; the PTC was redundant
 /// even before the matrix swap.
 ///
 /// `ProfileLookTable` is NOT suppressed by this flag: on bodies whose
-/// source DNG was produced by Adobe DNG Converter, the embedded PLT IS
-/// Adobe Standard's calibrated look table and dropping it causes a real
+/// source DNG was produced by the DNG Converter, the embedded PLT IS
+/// the external standard profile's calibrated look table and dropping it causes a real
 /// ΔE regression (~10 units on the Canon 5D Mark III DNG fixture). The
 /// universal-Look refactor (separate ticket) will replace PLT entirely
 /// with a profile-independent display-look curve; until then PLT stays.
@@ -201,13 +205,13 @@ pub fn has_bundled_profile(raw: &RawImage) -> bool {
 /// Three sources, in priority order:
 ///   1. The DNG `UniqueCameraModel` tag when present (`raw.unique_camera_model`).
 ///      iPhone DNGs ship lens-disambiguated values here — e.g.
-///      `"iPhone13,3 back telephoto camera"` — which match Adobe's DCP
+///      `"iPhone13,3 back telephoto camera"` — which match the upstream DCP
 ///      filenames byte-for-byte.
 ///   2. `"{camera_make} {camera_model}"` when both are non-empty and the make
-///      isn't already a prefix of the model. Adobe's UCM convention for
+///      isn't already a prefix of the model. The upstream UCM convention for
 ///      DSLRs is `"Canon EOS 5D Mark IV"` / `"Nikon D850"` / `"Sony ILCE-7M3"`,
 ///      but rawler's `clean_model` strips the make prefix (yielding
-///      `"EOS 5D Mark IV"`). Recomposing matches Adobe's filenames.
+///      `"EOS 5D Mark IV"`). Recomposing matches the upstream filenames.
 ///   3. `camera_model` alone (for completeness; rawler's `clean_model` is
 ///      sometimes already `"Canon EOS 5D Mark IV"` shape for legacy bodies).
 ///
@@ -263,8 +267,8 @@ pub fn to_dcp_profile(
     // HSM source: prefer the bundle's. When the bundle ships no HSM tables
     // (current default — matrices-only bundle), pass through the source
     // DNG's HSM (raw.hsm_data1/2). That preserves the pre-#324 behavior on
-    // bodies whose DNG already shipped Adobe's HSM (e.g. Canon 5DM3 DNG
-    // post-conversion-from-CR2 — the embedded HSM matches Adobe Standard's
+    // bodies whose DNG already shipped the upstream HSM (e.g. Canon 5DM3 DNG
+    // post-conversion-from-CR2 — the embedded HSM matches the external standard's
     // by construction). Vendor RAW formats lack DNG tags, so the fallback
     // is `None`, same as before.
     let hsm1 = profile.hsm1.as_ref().or(raw.hsm_data1.as_ref());

@@ -101,7 +101,7 @@ pub fn render_bytes(raw: &[u8], ext: &str, xmp: Option<String>) -> Result<MapleR
 
     // rawler 0.7 doesn't surface AsShotTemperature, so `as_shot_cct` is
     // always None today. Fall back to estimating the CCT from the camera's
-    // AsShotNeutral reading — same signal Adobe uses when the DNG lacks a
+    // AsShotNeutral reading — same signal the reference renderer uses when the DNG lacks a
     // baked Kelvin tag.
     let as_shot_temperature = raw_img
         .as_shot_cct

@@ -283,10 +283,10 @@ mod tests {
     /// 2. The pipeline renders cleanly with PTC applied — no panics, no
     ///    NaN, plausible output statistics.
     /// 3. Render WITH PTC differs from render WITHOUT PTC ONLY when the
-    ///    bundled Adobe-derived profile path is NOT in use. When the
+    ///    bundled third-party-derived profile path is NOT in use. When the
     ///    bundled path is active (PR #324) the develop pipeline suppresses
     ///    the source DNG's PTC because it was calibrated against Apple's
-    ///    own matrices, not Adobe Standard's — applying it after the
+    ///    own matrices, not the external standard's — applying it after the
     ///    matrix swap is a tone double-up. AgX handles tone mapping at
     ///    the view transform regardless.
     #[test]

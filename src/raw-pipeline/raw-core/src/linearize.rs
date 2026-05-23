@@ -66,12 +66,12 @@ pub fn sensor_linearize_region(
 /// LinearRaw decode entry. Reshape interleaved `[R₀ G₀ B₀ R₁ G₁ B₁ …]`
 /// `raw.raw_data` into a `CameraNativeLinearRgb` `Image`, normalizing
 /// per-channel by `(white_level - black_level)` and (for 8-bit lossy
-/// LinearRaw) undoing Adobe's implicit gamma encoding.
+/// LinearRaw) undoing the DNG Converter's implicit gamma encoding.
 ///
 /// **Two flavors of LinearRaw exist in the wild:**
 ///
 /// 1. **8-bit lossy linear DNG** (e.g. `Compression = LossyJPEG`,
-///    `BitsPerSample = 8 8 8`, no `LinearizationTable`): Adobe DNG
+///    `BitsPerSample = 8 8 8`, no `LinearizationTable`): the DNG
 ///    Converter writes the data with WB pre-applied AND with a
 ///    perceptually-uniform gamma curve (close to 2.4) before JPEG
 ///    compression to better allocate JPEG's 8-bit dynamic range. We
@@ -122,7 +122,7 @@ pub fn linearraw_to_camera_rgb(raw: &RawImage) -> crate::Result<Image> {
     let asn_b = raw.as_shot_neutral[2];
 
     // Distinguish 8-bit lossy (gamma-encoded) from high-bit-depth (linear).
-    // 8-bit white_level == 255 is the unambiguous signal: any Adobe lossy
+    // 8-bit white_level == 255 is the unambiguous signal: any DNG-Converter lossy
     // linear DNG without a LinearizationTable lands here. High-bit-depth
     // lossy DNGs go through rawler's `apply_linearization` and arrive
     // already linearized at white_level = 65535 (or similar).
@@ -135,14 +135,14 @@ pub fn linearraw_to_camera_rgb(raw: &RawImage) -> crate::Result<Image> {
         let g_norm = ((raw.raw_data[off + 1] as f32 - bl_g) / denom_g).clamp(0.0, 1.0);
         let b_norm = ((raw.raw_data[off + 2] as f32 - bl_b) / denom_b).clamp(0.0, 1.0);
         let (r, g, b) = if lossy_8bit {
-            // 8-bit lossy linear DNG: invert Adobe's gamma 2.4 encoding.
+            // 8-bit lossy linear DNG: invert the DNG Converter's gamma 2.4 encoding.
             // WB stays baked; DCP profile derives `scene_white_xyz` from
             // `inv(CM) · AsShotNeutral` (legacy path) — empirically this
             // reaches mean ΔE ≈ 10 vs. the Bayer reference's ΔE ≈ 9.5,
             // i.e. structural-mismatch parity. Fully principled WB-baked
             // handling (`wb_already_baked = true`) regressed the harness
             // (from 14 → 28 ΔE) — investigation deferred; the empirical
-            // path matches Adobe's implicit pipeline closely enough.
+            // path matches the DNG Converter's implicit pipeline closely enough.
             (r_norm.powf(2.4), g_norm.powf(2.4), b_norm.powf(2.4))
         } else {
             // High-bit-depth linear DNG: data is already linear and
@@ -295,7 +295,7 @@ mod tests {
     /// — i.e. the pre-WB camera reading.
     #[test]
     fn linearraw_to_camera_rgb_undoes_as_shot_neutral_pre_bake() {
-        // Adobe LinearRaw of a neutral patch reads roughly (K, K, K). Use a
+        // DNG-Converter LinearRaw of a neutral patch reads roughly (K, K, K). Use a
         // typical Canon AsShotNeutral [0.606, 1.0, 0.462] and verify the
         // helper restores the pre-WB camera reading.
         let raw_data: Vec<u16> = vec![100, 100, 100]; // 1 px neutral
