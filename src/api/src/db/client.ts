@@ -537,28 +537,52 @@ export async function ensureIndexes(): Promise<void> {
   }
 
   // Content-derived dedup key: `maple_id` is the 16-byte hash assigned by
-  // the hash stage. Hot-path callers:
+  // the hash stage. Hot-path callers (every one of these would COLLSCAN
+  // without an index):
+  //   - `src/workers/discover/handle-event.ts` `findOne({ maple_id })` per discovered file
   //   - `src/routes/backup-ingest.ts` `findOne({ maple_id })` per upload
   //   - `src/indexer/images.repo.ts` `findAssetByMapleId`
   //   - `src/enrichment/meilisearch-client.ts` `find({ maple_id: { $in } })`
-  // All three would COLLSCAN without an index. Unique because the hash is
-  // unique by construction.
+  // Unique because the hash is unique by construction.
+  //
+  // Partial filter is `{ maple_id: { $gt: '' } }`, NOT `{ $type: 'string' }`
+  // (which is what this index used to carry — see
+  // swap-maple-id-partial-filter-2026-05-23 below). Reason: MongoDB's
+  // planner does not infer that a literal-string equality predicate like
+  // `{ maple_id: 'abc' }` satisfies `{ maple_id: { $type: 'string' } }`, so
+  // the index was excluded at candidate selection and every dedup lookup
+  // went COLLSCAN. `$gt: ''` is matched by literal-string equality (any
+  // non-empty string is `> ''`), and excludes `null` / absent / numeric
+  // values by BSON canonical-type ordering (null and numbers sort before
+  // strings), so it preserves the same "real hash values only" set the
+  // unique constraint needs to police.
   //
   // Partial filter (NOT `sparse: true`): freshly-discovered skeleton rows
-  // are inserted with `maple_id: null` explicitly (see
-  // `src/workers/discover/index.ts` line 140 — `$setOnInsert: { maple_id: null }`).
-  // `sparse: true` only excludes documents where the field is *absent*, not
-  // where it's present with value `null`, so a `sparse` unique index would
-  // collapse every null-maple-id skeleton row into a single key and reject
-  // the second insert with E11000. `$type: "string"` narrows the index to
-  // real hash values, which is exactly the set the unique constraint needs
-  // to police.
+  // are inserted with `maple_id: null` explicitly. `sparse: true` only
+  // excludes documents where the field is *absent*, not where it's
+  // present with value `null`, so a `sparse` unique index would collapse
+  // every null-maple-id skeleton row into a single key and reject the
+  // second insert with E11000.
+  //
+  // The sentinel below drops any pre-existing `maple_id_1` so the
+  // unconditional createIndex can rebuild it with the new opts —
+  // MongoDB rejects createIndex with the same name but a different
+  // partialFilterExpression (`IndexOptionsConflict`, code 85).
+  if (!(await migrationApplied(db, 'swap-maple-id-partial-filter-2026-05-23'))) {
+    try {
+      await db.collection('assets').dropIndex('maple_id_1');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : '';
+      if (!/IndexNotFound|index not found/i.test(msg)) throw err;
+    }
+    await recordMigration(db, 'swap-maple-id-partial-filter-2026-05-23', 0);
+  }
   await db.collection('assets').createIndex(
     { maple_id: 1 },
     {
       name: 'maple_id_1',
       unique: true,
-      partialFilterExpression: { maple_id: { $type: 'string' } },
+      partialFilterExpression: { maple_id: { $gt: '' } },
     },
   );
 
