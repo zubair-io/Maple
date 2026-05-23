@@ -442,7 +442,7 @@ mod tests {
 
     #[test]
     fn identity_36x10x1_is_no_op() {
-        // Spec-typical Adobe shape.
+        // Spec-typical DNG HSM table shape.
         let table = identity_table([36, 10, 1], HsmEncoding::Linear);
         let mut img = Image::new(2, 2, ColorSpace::SceneLinearRec2020);
         img.pixels[0] = [0.7, 0.2, 0.4];

@@ -70,7 +70,7 @@ const LUMA_FLOOR: f32 = 1e-6;
 /// amplified hue differences asymmetrically on edges where R/G/B
 /// differ — at amount=1.0 the worst-case fringe pixel in
 /// test_0002/clarity_max.xmp went from near-neutral (0.65, 0.62, 0.63)
-/// to saturated magenta (0.79, 0.00, 0.63). ACR's clarity is luma-only
+/// to saturated magenta (0.79, 0.00, 0.63). The reference renderer's clarity is luma-only
 /// for exactly this reason. See Bug B in Ticket 11 / 11-Bugs.md and the
 /// investigation spec at
 /// .archived-plans/specs/2026-04-26-blacks-clarity-bug-investigation.md.

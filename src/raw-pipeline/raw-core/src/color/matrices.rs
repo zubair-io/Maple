@@ -35,7 +35,7 @@ pub const BRADFORD: Matrix3 = Matrix3([
     [ 0.0389, -0.0685,  1.0296],
 ]);
 
-/// ProPhoto RGB → XYZ D50. Adobe DNG spec, "ROMM" matrix.
+/// ProPhoto RGB → XYZ D50. From the DNG specification, "ROMM" matrix.
 pub const M_PRO_TO_XYZ_D50: Matrix3 = Matrix3([
     [0.7976749, 0.1351917, 0.0313534],
     [0.2880402, 0.7118741, 0.0000857],

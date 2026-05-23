@@ -164,7 +164,7 @@ pub struct DublinCore {
 /// round-trip.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Sidecar {
-    /// ACR-compatible `crs:*` adjustments (after merge-on-read overlay of
+    /// `crs:*` adjustments (after merge-on-read overlay of
     /// any `maple:*` duplicates).
     pub adj: AdjustmentModel,
     /// Stable image id per spec §04. Computed via [`crate::id::maple_id`]
@@ -173,7 +173,7 @@ pub struct Sidecar {
     pub id: Option<MapleId>,
     /// `xmp:Rating`, 0..5. `None` = unrated.
     pub rating: Option<u8>,
-    /// `xmp:Label` — the Adobe colour word ("red", "blue", …). Not enumerated
+    /// `xmp:Label` — the XMP colour word ("red", "blue", …). Not enumerated
     /// at this layer; shells can normalise.
     pub label: Option<String>,
     /// `maple:flag`.
@@ -504,7 +504,7 @@ pub fn xmp_read(bytes: &[u8]) -> Result<Sidecar> {
                     .to_string();
 
                 // Parse attributes on every element (matches old behaviour —
-                // most Maple/ACR fields land as attributes on rdf:Description).
+                // most Maple/`crs:` fields land as attributes on rdf:Description).
                 for attr_result in e.attributes() {
                     let attr = attr_result.map_err(|e| Error::Xmp(e.to_string()))?;
                     let key = std::str::from_utf8(attr.key.as_ref())
@@ -1199,12 +1199,12 @@ mod tests {
 
     #[test]
     fn lightroom_compatibility() {
-        // A Lightroom-style XMP snippet — the structure Adobe actually
-        // emits (attributes on rdf:Description). xmp_read must pick up
-        // crs:Exposure2012 and xmp_write must still emit a crs: block so
+        // A Lightroom-style XMP snippet — the structure third-party tools
+        // actually emit (attributes on rdf:Description). xmp_read must pick
+        // up crs:Exposure2012 and xmp_write must still emit a crs: block so
         // Lightroom sees our edits.
         let lr_xml = br#"<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?>
-<x:xmpmeta xmlns:x="adobe:ns:meta/" x:xmptk="Adobe XMP Core 7.0-c000">
+<x:xmpmeta xmlns:x="adobe:ns:meta/" x:xmptk="XMP Core 7.0-c000">
   <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
     <rdf:Description rdf:about=""
       xmlns:xmp="http://ns.adobe.com/xap/1.0/"

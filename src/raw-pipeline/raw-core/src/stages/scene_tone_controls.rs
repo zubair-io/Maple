@@ -102,7 +102,7 @@ pub fn apply(img: &mut Image, model: &AdjustmentModel) {
         // 4. Whites — smoothstep-weighted gain near the diffuse-white endpoint.
         //
         // Pre-fix (#267): uniform scalar gain `1 + whites/200` brightened
-        // every pixel including mid-gray. ACR's whites slider weights its
+        // every pixel including mid-gray. The reference renderer's whites slider weights its
         // action near the upper end of the diffuse-white range and leaves
         // midtones untouched.
         //

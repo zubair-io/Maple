@@ -119,7 +119,7 @@ pub struct RawImage {
     /// in `color::profile_loader` keys off this when present and falls
     /// back to `camera_model` when absent. Vendor RAWs (CR2, ARW, NEF, …)
     /// typically lack the tag; their `camera_model` already matches
-    /// Adobe's DCP UCM convention (`"Canon EOS 5D Mark IV"` etc.) so the
+    /// the upstream DCP UCM convention (`"Canon EOS 5D Mark IV"` etc.) so the
     /// fallback path works there without changes.
     pub unique_camera_model: Option<String>,
     /// Camera color matrices by calibration illuminant. Each is XYZ→camera per
@@ -262,7 +262,7 @@ impl ExifOrientation {
 ///
 /// The per-orientation source mapping is derived so that applying the
 /// operation rotates the sensor frame into display orientation — the
-/// displayed-image convention used by ACR and EXIF-aware viewers.
+/// displayed-image convention used by EXIF-aware viewers.
 pub fn apply_orientation(
     rgb: &[u8], w: u32, h: u32, orient: ExifOrientation,
 ) -> (u32, u32, Vec<u8>) {
