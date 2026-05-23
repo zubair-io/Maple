@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""apple_render_diff.py — measure Apple-rendered candidates against ACR refs,
-report per-region metrics, and DERIVE a least-squares 3x3 affine correction
-matrix from the data.
+"""apple_render_diff.py — measure Apple-rendered candidates against reference
+renders, report per-region metrics, and DERIVE a least-squares 3x3 affine
+correction matrix from the data.
 
 Sibling to compare_images.py and calibrate_color_pipeline.sh — different
 scope. Where the calibration script measures the Rust path
-(`maple-cli` PNG vs ACR ref), this one measures the Apple path
-(diagnostics/apple_path/<stem>_baseline.png vs ACR ref) — i.e. what the
+(`maple-cli` PNG vs reference render), this one measures the Apple path
+(diagnostics/apple_path/<stem>_baseline.png vs reference render) — i.e. what the
 real Metal kernel chain produces, after the Apple-side test harness
 (`AppleRenderHarnessTests.testAppleRenderHarness_baselineSweep`) has
 written its candidates.
@@ -46,7 +46,7 @@ What this prints:
 Inputs (defaults map to <repoRoot>/test-fixtures/...):
 
   --apple-dir   diagnostics/apple_path/   (PNG candidates from the harness)
-  --refs-dir    references/test_*/down/   (ACR-rendered baseline.png refs)
+  --refs-dir    references/test_*/down/   (reference-rendered baseline.png refs)
   --filter      substring filter on stem (e.g. test_0002)
   --regions     compute and print per-region metrics
   --solve-matrix
@@ -70,7 +70,7 @@ import numpy as np
 from PIL import Image
 import colour
 
-# 4000x2667 ACR refs trip Pillow's decompression-bomb heuristic. They're
+# 4000x2667 reference renders trip Pillow's decompression-bomb heuristic. They're
 # the ground truth.
 Image.MAX_IMAGE_PIXELS = None
 
@@ -175,7 +175,7 @@ def per_region_metrics(cand_arr: np.ndarray, ref_arr: np.ndarray) -> list[dict]:
 def discover_pairs(apple_dir: Path, refs_dir: Path,
                    stem_filter: Optional[str]) -> list[tuple[str, Path, Path]]:
     """Return [(stem, apple_png, ref_png), ...] for every candidate PNG
-    that has a matching ACR baseline reference."""
+    that has a matching reference baseline."""
     out: list[tuple[str, Path, Path]] = []
     if not apple_dir.exists():
         return out

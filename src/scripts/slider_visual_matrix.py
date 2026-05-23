@@ -3,17 +3,17 @@
 
 For one fixture, renders every committed slider XMP through maple-cli
 and composites the results into a single PNG grid alongside the
-matching ACR-rendered references. Designed to surface broken sliders
+matching reference-rendered references. Designed to surface broken sliders
 *visually* — averaging metrics over a 10-megapixel frame can hide
 exactly the localized artifacts (skin-tone magenta, edge halos, banded
 gradients) that draw the eye when the slider misbehaves.
 
 Layout (one row per slider, columns left-to-right):
-  | slider name | Maple min | Maple max | gap | ACR min | ACR max |
+  | slider name | Maple min | Maple max | gap | Reference min | Reference max |
 
 Continuous sliders (exposure, contrast, ...) get min+max columns. Single-
 extreme sliders (sharpen_masking_max, nr_luminance_max, wb_*) get one
-column on each side. Top row is the baseline pair (Maple baseline vs ACR
+column on each side. Top row is the baseline pair (Maple baseline vs reference
 baseline) so you can spot any *no-edits* divergence first.
 
 Output goes to test-fixtures/diagnostics/<fixture>_<timestamp>.png so
@@ -248,7 +248,7 @@ def main() -> int:
             rendered[cname] = out
             print(f"  ok  {cname}", file=sys.stderr)
 
-    # Build rows. Skip rows where neither Maple nor ACR has any cell.
+    # Build rows. Skip rows where neither Maple nor reference has any cell.
     cell_w = args.thumb_width
     label_col_w = 130
     gap_w = 24
@@ -288,7 +288,7 @@ def main() -> int:
                 row = [
                     thumb_cell(cand, "Maple", de),
                     None,
-                    thumb_cell(ref_path, "ACR"),
+                    thumb_cell(ref_path, "Reference"),
                     None,
                 ]
                 if any(c is not None for c in row):
@@ -310,7 +310,7 @@ def main() -> int:
                 cand = rendered.get(cname)
                 de = diff_de_inline(cand, ref_path) if (cand and ref_path) else None
                 row[col] = thumb_cell(cand, f"Maple {extreme}", de)
-                row[2 + col] = thumb_cell(ref_path, f"ACR {extreme}")
+                row[2 + col] = thumb_cell(ref_path, f"Reference {extreme}")
             if any(c is not None for c in row):
                 rows.append(row)
                 row_titles.append(slider)
@@ -337,12 +337,12 @@ def main() -> int:
     # Header.
     draw.text(
         (12, 8),
-        f"{args.fixture}  ·  Maple slider matrix vs ACR  ·  {datetime.now():%Y-%m-%d %H:%M}",
+        f"{args.fixture}  ·  Maple slider matrix vs reference  ·  {datetime.now():%Y-%m-%d %H:%M}",
         fill=(240, 240, 240), font=label_font
     )
     draw.text(
         (12, 22),
-        f"raw={raw_path.name}  ·  thumb {cell_w}px  ·  ΔE per cell vs matching ACR ref",
+        f"raw={raw_path.name}  ·  thumb {cell_w}px  ·  ΔE per cell vs matching reference",
         fill=(180, 180, 180), font=cell_font
     )
 
@@ -383,7 +383,7 @@ def main() -> int:
             x += cell_w
         # Gap.
         x += gap_w
-        # ACR cells.
+        # Reference cells.
         for col in (2, 3):
             cell = row[col]
             if cell is not None:
