@@ -18,7 +18,10 @@ import {
   signal,
   AfterViewInit,
 } from '@angular/core';
-import type { AdjustmentModel } from '../../models/adjustment-model';
+import {
+  defaultAdjustmentModel,
+  type AdjustmentModel,
+} from '../../models/adjustment-model';
 import type { DecodedSceneLinearImage } from '../../raw-pipeline/raw-pipeline.types';
 import { Pipeline, WebglFp16Unsupported } from '../pipeline';
 import { computeDeltaEStats } from '../delta-e-2000';
@@ -26,27 +29,24 @@ import { computeDeltaEStats } from '../delta-e-2000';
 const FIXTURE_INPUT_URL = '/dev-fixtures/synthetic-input.bin';
 const FIXTURE_REFERENCE_URL = '/dev-fixtures/reference.png';
 
+// Build the fixture model off the canonical default factory so adding new
+// fields to `AdjustmentModel` (e.g. the parametric / tone-curve fields from
+// #273) does not silently leave this literal out of date — TS would have
+// missed the original incomplete literal too if not for the strict-mode
+// `tsc --noEmit` lint sweep.
 const FIXTURE_MODEL: AdjustmentModel = {
+  ...defaultAdjustmentModel(),
   exposure: 1.0,
   contrast: 25,
   highlights: -30,
   shadows: 40,
-  whites: 0,
-  blacks: 0,
   temperature: 5500,
   tint: -10,
   whiteBalancePreset: 'Custom',
   vibrance: 50,
   saturation: -20,
-  clarity: 0,
-  texture: 0,
-  dehaze: 0,
   sharpenAmount: 0,
   sharpenRadius: 0.5,
-  sharpenDetail: 25,
-  sharpenMasking: 0,
-  nrLuminance: 0,
-  nrColor: 25,
 };
 
 @Component({
