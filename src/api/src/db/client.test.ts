@@ -8,7 +8,8 @@
  *     expression, and the trash-GC find query uses it (IXSCAN, not COLLSCAN).
  *   - Fix 3: legacy text indexes are NOT dropped on subsequent boots when
  *     they're already absent (no spurious dropIndex round-trips).
- *   - Fix 4: `maple_id_1` unique sparse index exists.
+ *   - Fix 4: `maple_id_gt_1` unique partial-filter index exists, and
+ *     literal-string equality queries on `maple_id` use it.
  */
 
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'bun:test';
@@ -260,15 +261,18 @@ describe('ensureIndexes — maple_id index (Fix 4)', () => {
     await closeDb();
     await ensureIndexes();
     const indexes = await db!.collection('assets').indexes();
-    const idx = indexes.find((i) => i.name === 'maple_id_1');
+    // The maple_id unique index is named `maple_id_gt_1` (not the
+    // default `maple_id_1`) — see the comment block in client.ts for
+    // why we keep the predecessor name available during the swap.
+    const idx = indexes.find((i) => i.name === 'maple_id_gt_1');
     expect(idx).toBeDefined();
     expect(idx!.key).toEqual({ maple_id: 1 });
     expect(idx!.unique).toBe(true);
     // Partial filter is `$gt: ''` (not `$type: 'string'` — see the comment
     // in client.ts above `swap-maple-id-partial-filter-2026-05-23`). Both
-    // narrow to real hash values; only `$gt: ''` is recognized by the
-    // planner when the query is a literal-string equality, so dedup
-    // lookups can actually use the index.
+    // narrow to real hash values in practice; only `$gt: ''` is recognized
+    // by the planner when the query is a literal-string equality, so
+    // dedup lookups can actually use the index.
     expect(idx!.partialFilterExpression).toEqual({
       maple_id: { $gt: '' },
     });
@@ -286,28 +290,18 @@ describe('ensureIndexes — maple_id index (Fix 4)', () => {
     // EOF/COLLSCAN regardless of indexes.
     await db!.collection('assets').insertOne({ filename: 'seed.jpg', maple_id: 'a'.repeat(32) });
 
-    const explain = (await db!
+    // Stringify the explain tree and substring-check (same pattern the
+    // `deleted_at_1` IXSCAN test uses above) — tolerant to whatever
+    // child-plan key shape the Mongo version of the day uses
+    // (`inputStage` / `inputStages` / `shards[].winningPlan` / …).
+    const explain = await db!
       .collection('assets')
       .find({ maple_id: 'a'.repeat(32) }, { projection: { _id: 1 } })
-      .explain('queryPlanner')) as {
-      queryPlanner: { winningPlan: Record<string, unknown> };
-    };
-
-    // Walk the winningPlan tree and confirm an IXSCAN over maple_id_1 is
-    // somewhere in the chain (FETCH wraps IXSCAN; PROJECTION_COVERED wraps
-    // it on covered scans).
-    const stages: string[] = [];
-    const indexNames: string[] = [];
-    const visit = (node: Record<string, unknown> | undefined): void => {
-      if (!node) return;
-      if (typeof node.stage === 'string') stages.push(node.stage);
-      if (typeof node.indexName === 'string') indexNames.push(node.indexName);
-      visit(node.inputStage as Record<string, unknown> | undefined);
-    };
-    visit(explain.queryPlanner.winningPlan);
-    expect(stages).toContain('IXSCAN');
-    expect(indexNames).toContain('maple_id_1');
-    expect(stages).not.toContain('COLLSCAN');
+      .explain('queryPlanner');
+    const planStr = JSON.stringify(explain);
+    expect(planStr).toContain('IXSCAN');
+    expect(planStr).toContain('maple_id_gt_1');
+    expect(planStr).not.toMatch(/"stage":\s*"COLLSCAN"/);
   });
 
   it('allows multiple null-maple-id skeleton rows AND enforces uniqueness on real hashes', async () => {
