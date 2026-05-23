@@ -42,7 +42,19 @@ public actor RenderedPreviewCache {
     // Smith sigmoid replacing the polynomial fit). Mid-gray now lands at
     // 0.18 instead of 0.237 — every preview from before this change reads
     // ~8% bright at mid-gray.
-    private let viewTransformVersion: UInt32 = 4
+    // v5 (2026-05-23, #370): paired with DecodedBufferCache rustVersion=4.
+    // BaselineExposure compose chain rewritten — the per-body
+    // `camera_calibration::baseline_exposure` lookup that contributed to
+    // BE for several vendor bodies (Canon 5DM4 / 5DS R, Fuji 50R / 50S,
+    // Hasselblad H2D-39, Nikon D850, Panasonic LX2) is gone, replaced by
+    // the bundled DCP profile's `BaselineExposureOffset` field. Affected
+    // bodies render darker by 0.5–1.5 EV; rendered-preview JPEGs from
+    // v4 still embed the old contribution and would short-circuit the
+    // pipeline if not invalidated here. Bumping the decoded-buffer cache
+    // alone (#370 commit) is not enough — the preview cache reads from
+    // its own disk store and would otherwise keep serving pre-#370
+    // output indefinitely after app update.
+    private let viewTransformVersion: UInt32 = 5
 
     // MARK: - Configure
 
