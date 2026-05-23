@@ -1,4 +1,4 @@
-"""Orchestrator — write XMP sidecars and manifest.json for an ACR batch run.
+"""Orchestrator — write XMP sidecars and manifest.json for a reference-renderer batch run.
 
 Reads a list of RAWs, copies the canonical XMPs from ``test_0000/xmp/`` into
 each RAW's ``<references>/<raw_stem>/xmp/`` directory, and emits a manifest.json
@@ -99,7 +99,7 @@ def build_manifest_entry(
 def cleanup_sidecars(raws: list[Path]) -> list[Path]:
     """Remove ``<raw_basename>.xmp`` left by ``acr_batch.jsx`` next to each RAW.
 
-    Each ``app.open()`` causes ACR to re-read the sidecar ACR left next to
+    Each ``app.open()`` causes the reference renderer to re-read the sidecar it left next to
     the RAW for previous case; we clean these after the batch finishes.
     """
     removed: list[Path] = []

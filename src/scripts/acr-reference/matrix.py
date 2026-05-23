@@ -1,6 +1,6 @@
-"""Case matrix for the ACR reference corpus.
+"""Case matrix for the reference-renderer reference corpus.
 
-Each case is one ACR XMP sidecar (the ``crs:`` namespace, process version PV2012)
+Each case is one reference XMP sidecar (the ``crs:`` namespace, process version PV2012)
 that isolates one dimension of the develop pipeline. The matrix total is 43 cases;
 see ``test-fixtures/references/REFERENCES.md`` for the user-facing documentation.
 
@@ -37,7 +37,7 @@ class Case:
         Which resolution tiers this case renders at. ``baseline`` is in both.
     overrides
         Prose description of the ``crs:`` slider overrides this case sets,
-        relative to ACR defaults. Purely documentation — not consumed at runtime.
+        relative to reference-renderer defaults. Purely documentation — not consumed at runtime.
     """
 
     name: str
@@ -45,7 +45,7 @@ class Case:
     overrides: str
 
 
-# ACR PV2012 defaults referenced by every case (prose only; the canonical XMPs
+# Reference-renderer PV2012 defaults referenced by every case (prose only; the canonical XMPs
 # encode these explicitly so the sidecar is self-contained on ``app.open()``).
 DEFAULTS = (
     'ProcessVersion="11.0" WhiteBalance="As Shot" '
@@ -54,7 +54,7 @@ DEFAULTS = (
 )
 
 CASES: tuple[Case, ...] = (
-    Case("baseline", ("down", "full"), "(no overrides — ACR defaults)"),
+    Case("baseline", ("down", "full"), "(no overrides — reference-renderer defaults)"),
     # White balance presets
     Case("wb_auto", ("down",), 'WhiteBalance="Auto"'),
     Case("wb_daylight", ("down",), 'WhiteBalance="Daylight"'),

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Sweep MAPLE_BE_OVERRIDE values for one fixture, find the BE that
-minimizes per-channel bias magnitude vs the ACR baseline reference.
+minimizes per-channel bias magnitude vs the reference baseline.
 
 Usage:
     derive_baseline_exposure.py <fixture.raw> <ref.png> \
@@ -40,7 +40,7 @@ import numpy as np
 from PIL import Image
 import colour
 
-# Avoid Pillow's decompression-bomb heuristic on full-res ACR refs.
+# Avoid Pillow's decompression-bomb heuristic on full-res reference renders.
 Image.MAX_IMAGE_PIXELS = None
 
 REPO_ROOT = Path(__file__).resolve().parents[2]

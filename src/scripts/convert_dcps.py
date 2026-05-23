@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
-"""Convert Adobe DNG Camera Profiles (.dcp) to Maple's bundled profile format.
+"""Convert third-party DNG Camera Profiles (.dcp) to Maple's bundled profile format.
 
-Walks a directory of Adobe DCP files (e.g.
-`/Library/Application Support/Adobe/CameraRaw/CameraProfiles/Adobe Standard/`),
-parses each as a TIFF-IFD with DNG custom tags, and emits a single compact
-binary at `src/raw-pipeline/raw-core/src/color/profiles/profiles.bin`. The
-binary is loaded at runtime by `profile_loader.rs` (compiled into the crate
-via `include_bytes!`).
+Walks a directory of upstream DCP files (e.g. a reference-renderer install's
+`CameraRaw/CameraProfiles/<vendor>` directory), parses each as a TIFF-IFD
+with DNG custom tags, and emits a single compact binary at
+`src/raw-pipeline/raw-core/src/color/profiles/profiles.bin`. The binary is
+loaded at runtime by `profile_loader.rs` (compiled into the crate via
+`include_bytes!`).
 
-Why bundle our own format, not Adobe's .dcp binaries verbatim:
+Why bundle our own format, not the upstream .dcp binaries verbatim:
   - Strongest derived-work license posture. We re-encode a subset of fields
     (color matrices, illuminants, lens-disambiguated camera key, optionally
-    the HueSatMap LUT) in a Maple-specific layout. We do NOT ship Adobe's
-    binary file unchanged.
+    the HueSatMap LUT) in a Maple-specific layout. We do NOT ship the
+    upstream binary file unchanged.
   - We drop ProfileToneCurve and ProfileLookTable. Maple's view transform
     (AgX) replaces the per-profile tone curve; the universal "look" curve
     (separate ticket) replaces PLT.
@@ -45,12 +45,12 @@ Bundle format (little-endian throughout):
               u32 baseline_exposure_offset_bits  IEEE754 bits of f32 (0 if absent)
 
 Usage:
-  python3 src/scripts/convert_adobe_dcps.py \
-      --src "/Library/Application Support/Adobe/CameraRaw/CameraProfiles/Adobe Standard" \
+  python3 src/scripts/convert_dcps.py \
+      --src "<path-to-external-profile-directory>" \
       --out src/raw-pipeline/raw-core/src/color/profiles/profiles.bin
 
   # Include HSM (HueSatMap data) — adds ~72 MB to the bundle:
-  python3 src/scripts/convert_adobe_dcps.py --src ... --out ... --include-hsm
+  python3 src/scripts/convert_dcps.py --src ... --out ... --include-hsm
 
 HSM is OFF by default (`--include-hsm` is opt-in). Most Maple fixtures need
 matrices only to drop ΔE below 8; HSM is a follow-up refinement that costs
@@ -128,30 +128,30 @@ def write_hsm_data(buf: bytearray, values) -> None:
 
 # ── Duplicate-UCM dedup ───────────────────────────────────────────────────────
 #
-# Adobe ships multiple .dcp files with the same UniqueCameraModel for ~44 of
-# the 1,447 bodies. Two flavours of duplication:
+# Upstream tooling ships multiple .dcp files with the same UniqueCameraModel
+# for ~44 of the 1,447 bodies. Two flavours of duplication:
 #
-#   * "Adobe Standard v2" vs "Adobe Standard" (and "Adobe_Standard_v2" vs
-#     "Adobe_Standard"): the v2 variant is the newer Adobe-calibrated profile
-#     for that body. We prefer v2.
-#   * "Adobe Standard" vs "Camera Default": Adobe ships a copy of the
-#     vendor's own (non-Adobe) matrices under "Camera Default" for ACR's
-#     default-selection UI. We're bundling Adobe Standard, so we drop the
-#     "Camera Default" duplicate.
+#   * "Standard v2" vs "Standard" (and "_Standard_v2" vs "_Standard"): the v2
+#     variant is the newer externally-calibrated profile for that body. We
+#     prefer v2.
+#   * "Standard" vs "Camera Default": the upstream tooling ships a copy of
+#     the vendor's own (non-third-party) matrices under "Camera Default" for
+#     the reference renderer's default-selection UI. We're bundling the
+#     external standard profile, so we drop the "Camera Default" duplicate.
 #
 # Ranking returns a sortable tuple where LOWER wins (so deterministic
 # `min(...)` picks the preferred file). The tuple is (tier, basename) so
 # ties fall back to lexicographic filename — keeps output stable across
-# machines and Adobe updates.
+# machines and upstream-tooling updates.
 
 
 def dcp_preference(filename: str) -> tuple[int, str]:
     """Return a (tier, basename) sort key — lower tier wins.
 
-    tier 0: "Adobe Standard v2" / "Adobe_Standard_v2" (newer Adobe-calibrated)
-    tier 1: "Adobe Standard"     / "Adobe_Standard"   (older Adobe-calibrated)
-    tier 2: "Camera Default"                          (vendor matrices)
-    tier 9: anything else (no Adobe Standard suffix at all)
+    tier 0: "*Standard v2" / "*_Standard_v2" (newer externally-calibrated)
+    tier 1: "*Standard"     / "*_Standard"   (older externally-calibrated)
+    tier 2: "Camera Default"                 (vendor matrices)
+    tier 9: anything else (no standard-suffix at all)
     """
     name = filename.lower()
     if re.search(r"adobe[_ ]standard[_ ]v2", name):
@@ -294,7 +294,7 @@ def main() -> int:
     ap.add_argument(
         "--src",
         required=True,
-        help="Path to the Adobe Standard/ directory containing .dcp files.",
+        help="Path to the external standard-profile directory containing .dcp files.",
     )
     ap.add_argument(
         "--out",

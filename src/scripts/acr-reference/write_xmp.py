@@ -1,4 +1,4 @@
-"""Copy the canonical ACR XMP sidecars into a target case directory.
+"""Copy the canonical reference XMP sidecars into a target case directory.
 
 Rationale for *copying* rather than *generating*:
 
@@ -7,7 +7,7 @@ Rationale for *copying* rather than *generating*:
     risks a whitespace / attribute-order / encoding diff that would silently
     invalidate the existing references. Copying guarantees byte-identical
     XMPs across every RAW — the only ground-truth axis that should vary
-    between RAWs is the pixels ACR produces, not the sidecar it consumes.
+    between RAWs is the pixels the reference renderer produces, not the sidecar it consumes.
 
 If a case ever needs to be added or retuned, update the canonical XMPs
 directly under ``test_0000/xmp/`` and re-run ``run.py`` to propagate.
