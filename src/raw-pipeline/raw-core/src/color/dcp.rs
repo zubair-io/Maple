@@ -615,6 +615,7 @@ mod tests {
             plt: None,
             profile_tone_curve: None,
             profile_gain_table_map: None,
+            crop_rect: None,
         }
     }
 
@@ -850,6 +851,7 @@ mod tests {
             plt: None,
             profile_tone_curve: None,
             profile_gain_table_map: None,
+            crop_rect: None,
         };
         let (prof_linear, src_linear) = profile_for_with_source(&raw_linear).unwrap();
         assert_eq!(src_linear, ProfileSource::Fallback);

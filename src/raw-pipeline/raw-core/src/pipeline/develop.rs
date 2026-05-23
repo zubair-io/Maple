@@ -26,7 +26,7 @@ use crate::{
     color::dcp,
     demosaic,
     error::Result,
-    image::RawImage,
+    image::{CropRect, Image, RawImage},
     linearize,
     stages::{
         auto_exposure, capture_sharpening, clarity, dehaze, highlight_recovery, local_adjustments,
@@ -40,6 +40,67 @@ use super::{
     capture_sharpening_helper::capture_sharpening_params_from_model,
     downsample::downsample_image_area, dump_after, stage, RenderQuality, AUTO_EXPOSURE_CLIP_PCT,
 };
+
+/// Crop the camera-RGB image to the DNG-recommended render rectangle.
+///
+/// `crop` is in raw-sensor pixel coordinates; for half-res Preview we scale
+/// it by `quality_divisor` (2 for Preview, 1 for Full/Amaze) so the crop
+/// lands at the right place in the half-res buffer. Out-of-range or
+/// zero-sized rects fall through to a no-op (keep the buffer as-is) —
+/// safety net for malformed sources that survive `CropRect::clamped`.
+///
+/// Cheap: one allocation of the cropped buffer plus one row-by-row copy.
+/// Runs on a buffer that's still in `CameraNativeLinearRgb`, so the
+/// downstream DCP / scene-linear chain operates on the smaller, post-crop
+/// dimensions — saving allocator work for every later stage too.
+fn crop_to_default(image: &Image, crop: CropRect, quality_divisor: u32) -> Image {
+    // Sensor-coords → buffer-coords. Preview's demosaic halves both axes;
+    // round DOWN on the origin (lose no in-frame pixels to off-by-one)
+    // and round DOWN on the size (drop the trailing half-pixel rather
+    // than reaching into post-crop sensor territory).
+    let qd = quality_divisor.max(1);
+    let cx = crop.x / qd;
+    let cy = crop.y / qd;
+    let cw = crop.w / qd;
+    let ch = crop.h / qd;
+    // Clamp to the actual buffer extent. Defensive: a half-res Preview of
+    // a sensor whose crop touches the bottom-right edge can lose a row
+    // to integer rounding above; let the buffer's true (w, h) win.
+    let cw = cw.min(image.width.saturating_sub(cx));
+    let ch = ch.min(image.height.saturating_sub(cy));
+    if cw == 0 || ch == 0 {
+        // Defensive no-op — caller logged the malformed-crop case at
+        // decode time and we kept Some(rect), but if it survived to here
+        // with degenerate post-divisor dims (e.g. a 1×1 crop on a Preview
+        // path), just return the original buffer.
+        return image.clone();
+    }
+    if cx == 0 && cy == 0 && cw == image.width && ch == image.height {
+        // The crop covers the entire buffer; no-op.
+        return image.clone();
+    }
+    let mut out = Image::new(cw, ch, image.space);
+    let in_w = image.width as usize;
+    let cw_us = cw as usize;
+    let cx_us = cx as usize;
+    let cy_us = cy as usize;
+    for y in 0..ch as usize {
+        let src_row_start = (cy_us + y) * in_w + cx_us;
+        let dst_row_start = y * cw_us;
+        out.pixels[dst_row_start..dst_row_start + cw_us]
+            .copy_from_slice(&image.pixels[src_row_start..src_row_start + cw_us]);
+    }
+    out
+}
+
+/// Per-quality divisor between raw-sensor coordinates and the post-demosaic
+/// buffer. `half_res` (Preview) halves both axes; everything else preserves.
+fn quality_divisor(quality: RenderQuality) -> u32 {
+    match quality {
+        RenderQuality::Preview => 2,
+        RenderQuality::Full | RenderQuality::Amaze => 1,
+    }
+}
 
 /// Run the entire development chain through `nr_color` and return the
 /// developed `Image` in `ColorSpace::SceneLinearRec2020`. Shared by both
@@ -74,6 +135,22 @@ pub fn develop_scene_linear_from_raw_with_quality(
             })
         }
     };
+
+    // DNG § 6.3 DefaultCrop — restrict the buffer to the camera-recommended
+    // render rectangle BEFORE any color stage runs. The crop drops the
+    // optical-black border (covered by ActiveArea) plus the few-px demosaic-
+    // safe margin past it, eliminating the dark borders the harness was
+    // tracking as a per-channel bias on test_0007 / test_0009 / test_0001
+    // and shrinking Fuji X-Trans fixtures from the over-sized sensor area
+    // (9216×6210) to the declared image (8256×6192). No-op for fixtures
+    // without crop metadata (test_0002, test_0013) — those render the
+    // full sensor, which is also what ACR does for them. See ticket #375.
+    if let Some(crop) = raw.crop_rect {
+        camera_rgb = stage("crop_to_default", || {
+            crop_to_default(&camera_rgb, crop, quality_divisor(quality))
+        });
+    }
+    dump_after("00b_crop_to_default", &camera_rgb);
 
     // DNG § C.1.2: BaselineExposure is applied as a gain in a scene-linear
     // color space prior to the color-space transform. Mathematically
@@ -269,6 +346,19 @@ pub fn develop_scene_linear_sized_from_raw_with_quality(
         }
     };
 
+    // DefaultCrop BEFORE downsample — `crop_rect` is in raw-sensor coords
+    // (or half of them for Preview). Applying after the downsample would
+    // mean translating the crop into post-downsample coords, which the
+    // sized variant doesn't have a clean handle for. Crop first, then
+    // let `downsample_image_area` decide whether the cropped buffer is
+    // still over the long-edge cap. See ticket #375.
+    if let Some(crop) = raw.crop_rect {
+        camera_rgb = stage("sized_crop_to_default", || {
+            crop_to_default(&camera_rgb, crop, quality_divisor(quality))
+        });
+    }
+    dump_after("00b_crop_to_default", &camera_rgb);
+
     // Early downsample — the heart of this milestone. After this call
     // every later stage runs on the viewport-sized buffer instead of
     // the half-res sensor buffer. `downsample_image_area` is a no-op
@@ -358,6 +448,63 @@ pub fn develop_scene_linear_sized_from_raw_with_quality(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Pin per-fixture full-quality output dimensions against the
+    /// DNG-recommended render rectangle (`raw.crop_rect` or, when that's
+    /// `None`, the full sensor). Regression test for ticket #375 — before
+    /// the crop stage, every fixture rendered at sensor dimensions, which
+    /// for Fuji X-Trans (test_0005 / test_0012) was 2× the declared image
+    /// area and for Canon DNG (test_0007) included a visible ~80-px black
+    /// border. After the fix, the full-image render path returns the
+    /// camera-recommended dims (oriented). Skips when fixtures are
+    /// absent (gitignored).
+    ///
+    /// Expected dims = `raw.crop_rect` (or width × height when None),
+    /// with the orientation tag applied: portrait-shot Canon CR2
+    /// (test_0003, orientation 8) produces a portrait output.
+    #[test]
+    fn render_dims_match_crop_rect_per_fixture() {
+        let fixtures: &[(&str, u32, u32, &str)] = &[
+            // (filename, expected w, expected h, note)
+            // test_0001 RW2 (Panasonic LX2): rawler crop 4224×2376
+            ("test_0001.RAW", 4224, 2376, "Panasonic crop"),
+            // test_0003 CR2 (Canon 5DS R, portrait): crop 8688×5792
+            //   -> orientation 8 (Rotate270) -> swap -> 5792×8688
+            ("test_0003.CR2", 5792, 8688, "Canon portrait crop + orient"),
+            // test_0005 RAF (Fuji X-Trans): crop 8256×6192 (NOT 9216×6210)
+            ("test_0005.RAF", 8256, 6192, "Fuji X-Trans crop"),
+            // test_0007 DNG (Canon DNG): crop 5760×3840 (NOT 5920×3950)
+            ("test_0007.DNG", 5760, 3840, "Canon DNG crop"),
+            // test_0009 CR2 (Canon 5DM4): crop 6720×4480 (NOT 6880×4544)
+            ("test_0009.CR2", 6720, 4480, "Canon 5DM4 crop"),
+            // test_0012 raf (Fuji): same as test_0005
+            ("test_0012.raf", 8256, 6192, "Fuji X-Trans crop (2nd)"),
+            // test_0013 iPhone DNG: no crop, full 4032×3024, orientation 6 -> swap -> 3024×4032
+            ("test_0013.DNG", 3024, 4032, "iPhone portrait, no crop tags"),
+            // test_0017 Leica: crop 5976×3984
+            ("test_0017.dng", 5976, 3984, "Leica DNG crop"),
+        ];
+        let model = AdjustmentModel::default();
+        for (name, ew, eh, note) in fixtures {
+            let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("../../../test-fixtures/raws")
+                .join(name);
+            if !path.exists() { continue; }
+            let bytes = std::fs::read(&path).expect("read raw");
+            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+            let raw = crate::decode::decode_bytes(&bytes, ext).expect("decode");
+            let (w, h, _) = crate::pipeline::render_from_raw_with_quality(
+                &raw, &model, RenderQuality::Full,
+            ).expect("render");
+            assert_eq!(
+                (w, h),
+                (*ew, *eh),
+                "{} ({}): expected {}×{}, got {}×{}",
+                name, note, ew, eh, w, h
+            );
+        }
+    }
+
 
     /// M3 commutativity gate: render test_0017.dng via the original
     /// late-downsample path (full-res develop, then
