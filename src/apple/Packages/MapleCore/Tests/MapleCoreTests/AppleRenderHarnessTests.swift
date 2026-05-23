@@ -1,5 +1,5 @@
 // AppleRenderHarnessTests.swift — Apple-side render harness measuring the
-// LIVE Metal kernel chain against ACR-rendered references.
+// LIVE Metal kernel chain against reference-rendered references.
 //
 // Why this exists (vs the Rust-side `calibrate_color_pipeline.sh`):
 //
@@ -144,7 +144,7 @@ final class AppleRenderHarnessTests: XCTestCase {
     ///
     /// Targets a working photographer might consider acceptable
     /// (informational, not part of the gate):
-    ///   - mean ΔE ≤ 5     → "indistinguishable from ACR for most viewers"
+    ///   - mean ΔE ≤ 5     → "indistinguishable from the reference for most viewers"
     ///   - mean ΔE ≤ 10    → "noticeable on calibrated panels"
     ///   - mean ΔE ≤ 15    → matches calibrate_color_pipeline.sh's BUDGET
     ///   - mean ΔE ≤ 25    → triage threshold; per-fixture inspection
@@ -279,7 +279,7 @@ final class AppleRenderHarnessTests: XCTestCase {
             )
         }()
 
-        // Match the reference's pixel dimensions. ACR refs at `down/` are
+        // Match the reference's pixel dimensions. Refs at `down/` are
         // 4000-px-long-edge; rendering through Apple's Lanczos prescale at
         // the same target keeps both sides on apples-to-apples geometry
         // (no resampling happens in the diff helper).

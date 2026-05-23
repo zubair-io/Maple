@@ -90,8 +90,8 @@ extension EditSession {
         asShotTint: Double?
     ) -> AdjustmentModel {
         // Push asShotCCT/asShotTint into the model when there's no XMP
-        // sidecar so the slider DISPLAYS the camera's WB (matches ACR's
-        // "As Shot" semantic — slider shows the as-shot CCT). Once the
+        // sidecar so the slider DISPLAYS the camera's WB (matches the reference
+        // renderer's "As Shot" semantic — slider shows the as-shot CCT). Once the
         // user has saved edits, the stored temperature wins.
         //
         // This pairs with `ImageEditPipeline.processSceneLinear`'s
@@ -99,7 +99,7 @@ extension EditSession {
         // those fall back to the same asShot CCT/tint, so the chain's
         // `apply_delta(live=asShotCCT, decoded=asShotCCT)` is identity
         // — slider shows asShotCCT, no shift applied. This is the
-        // ACR-compatible UX. (Removing the asShotCCT push here without
+        // expected UX. (Removing the asShotCCT push here without
         // also fixing decodedTemp produced the "slider shows 6500" UX
         // regression user noticed; pushing it without fixing decodedTemp
         // produced the magenta cast.)
