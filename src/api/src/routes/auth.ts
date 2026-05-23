@@ -268,30 +268,50 @@ export const authRoutes = new Elysia({ prefix: "/api/auth" })
             Buffer.from(body.credential.response.clientDataJSON, "base64url").toString()
           ).challenge
         : "";
-      let challengeRow;
-      try {
-        challengeRow = await consumeChallenge(clientChallenge);
-      } catch {
+
+      // Fan out the three pre-verification reads concurrently — none depends
+      // on the others. consumeChallenge stays a findOneAndDelete, so the
+      // challenge is consumed even if later checks fail (same behaviour as
+      // the previous sequential code: the original ran consumeChallenge
+      // before the user/credential lookups, so a "no such user" reply also
+      // burned the challenge). The credential is now looked up by its unique
+      // `credential_id` and the user binding is checked in JS — identical
+      // semantics to the prior compound-key findOne.
+      const [credsColl, usersColl] = await Promise.all([
+        credentialsCollection(),
+        usersCollection(),
+      ]);
+      const credentialId = body.credential?.id;
+      const [challengeRes, user, credLookup] = await Promise.all([
+        consumeChallenge(clientChallenge).then(
+          (row) => ({ ok: true as const, row }),
+          (err: unknown) => ({ ok: false as const, err })
+        ),
+        usersColl.findOne({ email }),
+        credentialId
+          ? credsColl.findOne({ credential_id: credentialId })
+          : Promise.resolve(null),
+      ]);
+
+      if (!challengeRes.ok) {
         set.status = 400;
         return { error: "challenge invalid" };
       }
+      const challengeRow = challengeRes.row;
       if (challengeRow.purpose !== "authenticate" || challengeRow.email !== email) {
         set.status = 400;
         return { error: "challenge mismatch" };
       }
-      const user = await (await usersCollection()).findOne({ email });
       if (!user) {
         set.status = 404;
         return { error: "no such user" };
       }
-      const cred = await (await credentialsCollection()).findOne({
-        user_id: user._id,
-        credential_id: body.credential.id,
-      });
-      if (!cred) {
+      if (!credLookup || !credLookup.user_id.equals(user._id)) {
         set.status = 400;
         return { error: "unknown credential" };
       }
+      const cred = credLookup;
+
       const verification = await verifyAuthentication({
         response: body.credential,
         expectedChallenge: challengeRow.challenge,
@@ -302,25 +322,31 @@ export const authRoutes = new Elysia({ prefix: "/api/auth" })
         return { error: "verification failed" };
       }
 
-      await (await credentialsCollection()).updateOne(
-        { _id: cred._id },
-        {
-          $set: {
-            counter: verification.authenticationInfo.newCounter,
-            last_used_at: new Date().toISOString(),
-          },
-        }
-      );
-      await (await usersCollection()).updateOne(
-        { _id: user._id },
-        { $set: { last_seen_at: new Date().toISOString() } }
-      );
-
+      // JWT signing is sync + CPU-bound; do it before kicking off writes so
+      // the three round-trips below run while we have nothing else to do.
       const access_token = signAccessToken(
         { sub: user._id.toHexString(), email: user.email, role: user.role },
         jwtSecret()
       );
-      const refresh = await issueRefreshToken(user._id, cred.device_label);
+
+      const nowIso = new Date().toISOString();
+      const [, , refresh] = await Promise.all([
+        credsColl.updateOne(
+          { _id: cred._id },
+          {
+            $set: {
+              counter: verification.authenticationInfo.newCounter,
+              last_used_at: nowIso,
+            },
+          }
+        ),
+        usersColl.updateOne(
+          { _id: user._id },
+          { $set: { last_seen_at: nowIso } }
+        ),
+        issueRefreshToken(user._id, cred.device_label),
+      ]);
+
       cookie.maple_refresh.set({
         value: refresh.raw,
         httpOnly: true,
