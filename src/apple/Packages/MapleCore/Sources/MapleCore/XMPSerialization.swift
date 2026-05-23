@@ -153,11 +153,18 @@ private final class _XMPParserDelegate: NSObject, XMLParserDelegate {
         if let profile = attributeDict["papp:Profile"] {
             applyAttribute(key: "papp:Profile", value: profile)
         }
+        // Pre-pass: discover `crs:HasCrop` before applying the rect fields —
+        // mirrors raw-core's two-pass crop gate. `crs:CropAngle` is always
+        // applied regardless of HasCrop (pure straighten; spec § 01 inv 3).
+        let hasCrop: Bool = {
+            guard let v = attributeDict["crs:HasCrop"] else { return false }
+            return v == "True" || v == "true"
+        }()
         for (rawKey, value) in attributeDict
             where rawKey != "crs:WhiteBalance"
                 && rawKey != "papp:CaptureSharpeningSigma"
                 && rawKey != "papp:Profile" {
-            applyAttribute(key: rawKey, value: value)
+            applyAttribute(key: rawKey, value: value, hasCrop: hasCrop)
         }
         // Reset for the next rdf:Description (defensive — XMP normally
         // carries a single description element, but the parser must remain
@@ -206,7 +213,7 @@ private final class _XMPParserDelegate: NSObject, XMLParserDelegate {
         qual == local || qual.hasSuffix(":" + local)
     }
 
-    private func applyAttribute(key: String, value: String) {
+    private func applyAttribute(key: String, value: String, hasCrop: Bool = false) {
         // Strip namespace prefix for matching
         switch key {
         case "crs:Temperature":         model.temperature = d(value) ?? model.temperature
@@ -358,6 +365,16 @@ private final class _XMPParserDelegate: NSObject, XMLParserDelegate {
             case "neutral": model.profile = .neutral
             default:        break
             }
+        // Crop / straighten (#277, spec § 3.12). Rect fields gated by
+        // `hasCrop` (above). `crs:CropAngle` is always parsed — it can
+        // appear without a rect for a pure straighten.
+        case "crs:CropTop":    if hasCrop, let n = d(value) { model.crop.top    = n }
+        case "crs:CropLeft":   if hasCrop, let n = d(value) { model.crop.left   = n }
+        case "crs:CropBottom": if hasCrop, let n = d(value) { model.crop.bottom = n }
+        case "crs:CropRight":  if hasCrop, let n = d(value) { model.crop.right  = n }
+        case "crs:CropAngle":  if let n = d(value) { model.crop.angle = n }
+        // `crs:HasCrop` is consumed in the pre-pass; silently accept here too.
+        case "crs:HasCrop", "crs:CropConstrainToWarp": break
         // Lightroom culling
         case "xmp:Rating":
             if let n = Int(value) { culling.stars = max(0, min(5, n)) }
@@ -529,6 +546,24 @@ public struct XMPSerializer {
         // BM3D deep denoise (#1105) — emit only when non-default (0).
         if model.deepDenoise != 0 {
             attrs.append(("papp:DeepDenoise", String(format: "%.0f", model.deepDenoise)))
+        }
+        // Crop / straighten (#277, spec § 01 invariant 3) — emit only when
+        // non-identity. CropAngle is independent so a pure straighten emits
+        // only the angle without the HasCrop/rect group.
+        if !model.crop.isIdentity {
+            let c = model.crop
+            let rectIsIdentity = c.top == 0 && c.left == 0 && c.bottom == 1 && c.right == 1
+            if !rectIsIdentity {
+                attrs.append(("crs:HasCrop", "True"))
+                attrs.append(("crs:CropTop",    fmtCrop(c.top)))
+                attrs.append(("crs:CropLeft",   fmtCrop(c.left)))
+                attrs.append(("crs:CropBottom", fmtCrop(c.bottom)))
+                attrs.append(("crs:CropRight",  fmtCrop(c.right)))
+                attrs.append(("crs:CropConstrainToWarp", "0"))
+            }
+            if c.angle != 0 {
+                attrs.append(("crs:CropAngle", fmtCrop(c.angle)))
+            }
         }
 
         let attrsStr = attrs.map { "\($0.0)=\"\($0.1)\"" }.joined(separator: "\n        ")

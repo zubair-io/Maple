@@ -10,12 +10,19 @@ use quick_xml::reader::Reader;
 // `use raw_core::xmp::{AdjustmentModel, HighlightRecoveryMode}` paths keep
 // compiling. The single source of truth is `crate::types::adjustment`.
 pub use crate::types::adjustment::{
-    AdjustmentModel, AutoExposureMode, HighlightRecoveryMode, HotPixelSuppressionMode, Look,
+    AdjustmentModel, AutoExposureMode, Crop, HighlightRecoveryMode, HotPixelSuppressionMode, Look,
     Profile, ToneCurveMode, WbMethod,
 };
 
 /// Parse a `crs:`-style XMP sidecar. Unknown fields are ignored; known fields that
 /// fail to parse numerically surface as an error.
+///
+/// Crop fields (`crs:CropTop/Left/Bottom/Right/Angle`) are gated by
+/// `crs:HasCrop`: when the marker is `"False"` or absent the parser
+/// ignores any `crs:Crop*` values and leaves the identity default.
+/// `crs:CropAngle` is independent of `HasCrop` (a pure straighten can be
+/// serialized without the other four crop edges — spec § 01 invariant 3).
+/// The parser does two passes per element so attribute order is irrelevant.
 pub fn parse(xml: &str) -> Result<AdjustmentModel> {
     let mut model = AdjustmentModel::default();
     let mut reader = Reader::from_str(xml);
@@ -48,13 +55,27 @@ pub fn parse(xml: &str) -> Result<AdjustmentModel> {
                 // Description's `papp:Profile`. Same precedence-by-flag
                 // pattern as `sigma_seen` above.
                 let mut profile_seen = false;
+                // Crop gating (#277): first pass discovers crs:HasCrop.
+                // Missing or "False" → skip crs:Crop{Top,Left,Bottom,Right}
+                // on this element. CropAngle is always parsed when present.
+                let mut has_crop = false;
+                for attr_result in e.attributes() {
+                    let attr = attr_result.map_err(|e| Error::Xmp(e.to_string()))?;
+                    let key = std::str::from_utf8(attr.key.as_ref())
+                        .map_err(|e| Error::Xmp(e.to_string()))?;
+                    if key == "crs:HasCrop" {
+                        let value = attr.unescape_value()
+                            .map_err(|e| Error::Xmp(e.to_string()))?;
+                        has_crop = matches!(value.as_ref(), "True" | "true");
+                    }
+                }
                 for attr_result in e.attributes() {
                     let attr = attr_result.map_err(|e| Error::Xmp(e.to_string()))?;
                     let key = std::str::from_utf8(attr.key.as_ref())
                         .map_err(|e| Error::Xmp(e.to_string()))?;
                     let value = attr.unescape_value()
                         .map_err(|e| Error::Xmp(e.to_string()))?;
-                    set_field(&mut model, key, &value, &mut sigma_seen, &mut profile_seen)?;
+                    set_field(&mut model, key, &value, &mut sigma_seen, &mut profile_seen, has_crop)?;
                 }
             }
             Ok(Event::Eof) => break,
@@ -71,6 +92,7 @@ fn set_field(
     value: &str,
     sigma_seen: &mut bool,
     profile_seen: &mut bool,
+    has_crop: bool,
 ) -> Result<()> {
     let v = || value.parse::<f32>().map_err(|e| Error::Xmp(format!(
         "field {} has non-numeric value {}: {}", key, value, e
@@ -322,6 +344,19 @@ fn set_field(
                 ))),
             };
         }
+        // Crop / straighten — spec § 01 / § 3.12 (ticket #277).
+        // crs:Crop{Top,Left,Bottom,Right} are gated by crs:HasCrop
+        // (false/absent → ignore). crs:CropAngle is always parsed — it
+        // can appear without the rect for a pure straighten (spec § 01
+        // invariant 3). crs:HasCrop and crs:CropConstrainToWarp are
+        // consumed / accepted but not stored on the model.
+        "crs:CropTop"    if has_crop => m.crop.top    = v()?,
+        "crs:CropLeft"   if has_crop => m.crop.left   = v()?,
+        "crs:CropBottom" if has_crop => m.crop.bottom = v()?,
+        "crs:CropRight"  if has_crop => m.crop.right  = v()?,
+        "crs:CropAngle"              => m.crop.angle  = v()?,
+        "crs:HasCrop"                => {} // consumed in the pre-pass
+        "crs:CropConstrainToWarp"    => {} // ACR compat — no Maple semantics
         _ => {}, // Slices 1-2-3-4 ignore everything else.
     }
     Ok(())
@@ -370,6 +405,20 @@ pub fn serialize(model: &AdjustmentModel) -> String {
     // BM3D deep denoise (#1105) — emitted only when non-default (0).
     if model.deep_denoise != 0.0 {
         out.push_str(&format!(r#" papp:DeepDenoise="{}""#, model.deep_denoise));
+    }
+    // Crop / straighten (#277) — emitted only when non-identity. Serializes
+    // `crs:HasCrop="True"` plus the four rect edges; `crs:CropAngle` is
+    // included even when the rect is full-frame (pure straighten). Identity
+    // crop (all defaults) writes nothing, matching the spec § 01 invariant 3
+    // "omit the whole group" rule.
+    if !model.crop.is_identity() {
+        let c = &model.crop;
+        out.push_str(r#" crs:HasCrop="True""#);
+        out.push_str(&format!(r#" crs:CropTop="{}""#, c.top));
+        out.push_str(&format!(r#" crs:CropLeft="{}""#, c.left));
+        out.push_str(&format!(r#" crs:CropBottom="{}""#, c.bottom));
+        out.push_str(&format!(r#" crs:CropRight="{}""#, c.right));
+        out.push_str(&format!(r#" crs:CropAngle="{}""#, c.angle));
     }
     out
 }

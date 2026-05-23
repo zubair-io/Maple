@@ -14,6 +14,13 @@ extension XMPSerializer {
         String(format: "%.2f", v)
     }
 
+    /// Format a crop edge or angle value. 6 significant decimal places —
+    /// matches the reference renderer's output and keeps sidecars
+    /// byte-interchangeable across platforms for the crop group.
+    static func fmtCrop(_ v: Double) -> String {
+        String(format: "%.6f", v)
+    }
+
     /// Minimal XML 1.0 text-content escaping — only `&`, `<`, `>` are
     /// strictly required between tags. `"` and `'` are attribute-only.
     static func escapeXMLText(_ s: String) -> String {
