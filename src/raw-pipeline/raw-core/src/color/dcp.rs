@@ -817,6 +817,14 @@ mod tests {
     /// `wb_already_baked` derived from the same cfa/white_level rules
     /// as the original linearraw / Bayer dispatch — this regression
     /// test confirms that property survives the strict-bundle refactor.
+    ///
+    /// Under #373 (Canon non-Bayer decode fix), high-bit-depth
+    /// LinearRgb now passes camera-RGB through unchanged in
+    /// `linearize::linearraw_to_camera_rgb`; downstream pre-gain still
+    /// runs and `wb_already_baked` stays `true` for that path. The
+    /// 8-bit lossy LinearRgb branch (`white_level <= 255`) keeps
+    /// `wb_already_baked = false` and the legacy
+    /// `inv(CM) · AsShotNeutral` Bradford source — same as before.
     #[test]
     fn fallback_profile_wb_already_baked_follows_cfa_and_white_level() {
         let warm_wb: [f32; 3] = [1.65, 1.0, 2.16];
