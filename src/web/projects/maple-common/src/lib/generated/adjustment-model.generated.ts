@@ -24,6 +24,14 @@ export interface GeneratedAdjustmentModel {
   whites: number;
   /** Blacks tone-region control. Range: [-100.0, 100.0]. */
   blacks: number;
+  /** Parametric tone curve — highlights region (PV2012, upper quarter). Range: [-100.0, 100.0]. */
+  parametricHighlights: number;
+  /** Parametric tone curve — lights region (PV2012, upper midtones). Range: [-100.0, 100.0]. */
+  parametricLights: number;
+  /** Parametric tone curve — darks region (PV2012, lower midtones). Range: [-100.0, 100.0]. */
+  parametricDarks: number;
+  /** Parametric tone curve — shadows region (PV2012, lower quarter). Range: [-100.0, 100.0]. */
+  parametricShadows: number;
   /** Vibrance (saturation with skin-tone protection) per spec § 3.7. Range: [-100.0, 100.0]. */
   vibrance: number;
   /** Global saturation. Range: [-100.0, 100.0]. */
@@ -64,6 +72,10 @@ export const ADJUSTMENT_RANGES = {
   shadows: [-100.0, 100.0] as const,
   whites: [-100.0, 100.0] as const,
   blacks: [-100.0, 100.0] as const,
+  parametricHighlights: [-100.0, 100.0] as const,
+  parametricLights: [-100.0, 100.0] as const,
+  parametricDarks: [-100.0, 100.0] as const,
+  parametricShadows: [-100.0, 100.0] as const,
   vibrance: [-100.0, 100.0] as const,
   saturation: [-100.0, 100.0] as const,
   clarity: [-100.0, 100.0] as const,
@@ -90,6 +102,10 @@ export function defaultGeneratedAdjustmentModel(): GeneratedAdjustmentModel {
     shadows: 0.0,
     whites: 0.0,
     blacks: 0.0,
+    parametricHighlights: 0.0,
+    parametricLights: 0.0,
+    parametricDarks: 0.0,
+    parametricShadows: 0.0,
     vibrance: 0.0,
     saturation: 0.0,
     clarity: 0.0,

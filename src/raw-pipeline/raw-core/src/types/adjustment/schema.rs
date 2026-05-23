@@ -1,4 +1,9 @@
-//! Canonical `AdjustmentModel` and companion enums.
+//! Codegen-facing description of every scalar / enum field on
+//! [`super::AdjustmentModel`].
+//!
+//! The schema is a flat const table rather than a proc-macro so the WASM
+//! build stays lean (no `syn` / `quote` pull-in). Generators load
+//! [`ADJUSTMENT_SCHEMA`] via the regular crate-level API.
 //!
 //! The `local_adjustments` array (per ticket #280) is a `Vec<LocalAdjustment>`
 //! that defaults to empty. It is intentionally **not** part of
@@ -13,150 +18,14 @@
 //! codegen (#118 / #119) will consume the [`ADJUSTMENT_SCHEMA`] table below
 //! to keep all three platforms in lockstep.
 //!
-//! [`ADJUSTMENT_SCHEMA`] captures each field's `kind`, range, and the
-//! canonical Rust default (`default_f32`). Tests at the bottom of this file
-//! assert that `AdjustmentModel::default()` matches the schema's
-//! `default_f32` values field-by-field. Per-#326, sharpen defaults now
-//! match the reference renderer's import baseline (Sharpness=40, Radius=1.0, Detail=25,
-//! EdgeMasking=0) so first-open output is no softer than Lightroom; the
-//! Swift hand-written defaults in `AdjustmentModel.swift` mirror this.
+//! Note: the schema captures only `F32` and `Enum` fields. The tone-curve
+//! point lists (`tone_curve_*`) and the parametric region scalars
+//! intentionally route through the schema too — the parametric scalars are
+//! `F32` (same as `highlights` etc.), and the tone-curve point lists are
+//! omitted entirely. Cross-language mirroring of the curve type is a
+//! follow-up ticket to #273; codegen for tone curves needs a new
+//! `FieldKind::ToneCurve` variant and matching emit logic on Swift / TS.
 
-/// Highlight reconstruction mode per spec § 3.3a.
-///
-/// Default is `ChromaticAdaptation` (Path C — `AsShotNeutral`-aware
-/// reconstruction). #335 flipped the default after re-measuring the parity
-/// harness: the original PR for #325 read the unchanged main-bias numbers
-/// as a regression, but a per-case Off-vs-CA diff shows the algorithm is a
-/// near-noop on the budget-gated baseline fixtures (ΔΔE ≤ 0.001, bias deltas
-/// in the 5th decimal) — there was nothing to tune.
-///
-/// `Off` skips the stage entirely; users can opt out per-image via
-/// `papp:HighlightRecoveryMode="Off"` in the XMP sidecar. `Blend` and
-/// `Luminance` are kept for back-compat with XMP sidecars produced before
-/// #325; both silently upgrade to `ChromaticAdaptation` at apply time. The
-/// old implementations had a wrong-directional pull (`Blend` lerped clipped
-/// channels DOWN, magnifying the magenta cast) and a partial single-channel
-/// scope (`Luminance` ignored 2-channel clips), so silently fixing them was
-/// preferred to preserving a known-broken behavior behind an enum variant.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum HighlightRecoveryMode {
-    Off,
-    /// Legacy — silently upgraded to `ChromaticAdaptation`. Kept so old XMPs
-    /// continue to parse.
-    Blend,
-    /// Legacy — silently upgraded to `ChromaticAdaptation`. Kept so old XMPs
-    /// continue to parse.
-    Luminance,
-    /// Path C: `AsShotNeutral`-aware reconstruction. Default since #335.
-    ChromaticAdaptation,
-}
-
-impl Default for HighlightRecoveryMode {
-    fn default() -> Self {
-        Self::ChromaticAdaptation
-    }
-}
-
-/// White balance preset name as recorded in `crs:WhiteBalance` in the XMP
-/// sidecar. `AsShot`, `Auto`, and `Custom` carry no preset (temp,tint) pair —
-/// the values stored on `AdjustmentModel` are authoritative when one of those
-/// is selected. The named daylight presets map to fixed (temperature, tint)
-/// per the reference renderer; see `crate::xmp::wb_preset` for the mapping table.
-///
-/// TypeScript already has a hand-rolled `WhiteBalancePreset` union; lifting
-/// the enum into raw-core gives the codegen a single canonical declaration
-/// to emit from in #119.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum WhiteBalancePreset {
-    AsShot,
-    Auto,
-    Daylight,
-    Cloudy,
-    Shade,
-    Tungsten,
-    Fluorescent,
-    Flash,
-    Custom,
-}
-
-impl Default for WhiteBalancePreset {
-    fn default() -> Self {
-        Self::AsShot
-    }
-}
-
-/// Slice 1+2+5 subset of `AdjustmentModel`. See spec § 01 for the full shape.
-///
-/// This struct's field order, types, and ranges are the canonical reference
-/// for Swift and TypeScript mirrors. The [`ADJUSTMENT_SCHEMA`] table at the
-/// bottom of this module describes every field for codegen.
-#[derive(Clone, Debug, PartialEq)]
-pub struct AdjustmentModel {
-    pub temperature: f32, // 2000..12000, default 6500
-    pub tint: f32,        // -100..100, default 0
-    pub exposure: f32,    // -4..+4 EV, default 0
-    pub contrast: f32,    // -100..100, default 0 (routed to AgX slope per spec § 3.6a)
-    pub highlights: f32,  // -100..100, default 0
-    pub shadows: f32,     // -100..100, default 0
-    pub whites: f32,      // -100..100, default 0
-    pub blacks: f32,      // -100..100, default 0
-    pub vibrance: f32,    // -100..100, default 0 (spec § 3.7)
-    pub saturation: f32,  // -100..100, default 0
-    pub clarity: f32,     // -100..100, default 0 (unsharp radius 40 per spec § 3.8)
-    pub texture: f32,     // -100..100, default 0 (unsharp radius 3 per spec § 3.8)
-    pub sharpen_amount: f32, // 0..150, default 40 (reference-renderer import default; spec § 3.10; 0 = stage skipped, 100 = full RL, >100 overdrive)
-    pub sharpen_radius: f32, // 0.5..3.0, default 1.0 (reference-renderer import default; PSF Gaussian sigma)
-    pub sharpen_detail: f32, // 0..100, default 25 (edge-attenuation strength)
-    pub sharpen_masking: f32, // 0..100, default 0 (edge-mask threshold)
-    pub capture_sharpening_amount: f32, // 0..100, default 0 (Richardson–Lucy strength; 0 = stage skipped)
-    pub capture_sharpening_radius: f32, // 0.5..2.0, default 1.0 (PSF blur radius — see stages::capture_sharpening)
-    pub nr_luminance: f32,   // 0..100, default 0 (spec § 3.11)
-    pub nr_color: f32,       // 0..100, default 25 (default = the reference renderer's default)
-    pub dehaze: f32,         // -100..100, default 0
-    pub highlight_recovery: HighlightRecoveryMode,
-    /// Local adjustment layers (ticket #280). Each entry pairs a `Mask`
-    /// (linear / radial gradient) with a `PartialAdjustments` payload, and
-    /// is applied between `dehaze` and `sharpen` in the develop chain. An
-    /// empty `Vec` (the default) means the stage short-circuits — bit-for-bit
-    /// identical to the pre-#280 pipeline. **Not part of `ADJUSTMENT_SCHEMA`**
-    /// (see module-level doc).
-    pub local_adjustments: Vec<super::local_adjustment::LocalAdjustment>,
-}
-
-impl Default for AdjustmentModel {
-    fn default() -> Self {
-        Self {
-            temperature: 6500.0,
-            tint: 0.0,
-            exposure: 0.0,
-            contrast: 0.0,
-            highlights: 0.0,
-            shadows: 0.0,
-            whites: 0.0,
-            blacks: 0.0,
-            vibrance: 0.0,
-            saturation: 0.0,
-            clarity: 0.0,
-            texture: 0.0,
-            // Sharpen defaults converge to the reference renderer's fresh-import baseline
-            // (Sharpness=40, Radius=1.0, Detail=25, EdgeMasking=0) per #326.
-            // Prior identity defaults (amount=0, radius=0.5) shipped soft
-            // first-open output and conflated calibration drift with a
-            // defaults mismatch in the perceptual harness.
-            sharpen_amount: 40.0,
-            sharpen_radius: 1.0,
-            sharpen_detail: 25.0,
-            sharpen_masking: 0.0,
-            capture_sharpening_amount: 0.0,
-            capture_sharpening_radius: 1.0,
-            nr_luminance: 0.0,
-            nr_color: 25.0,
-            dehaze: 0.0,
-            highlight_recovery: HighlightRecoveryMode::ChromaticAdaptation,
-            local_adjustments: Vec::new(),
-        }
-    }
-}
 
 /// Kind of value carried by an `AdjustmentModel` field, for codegen.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -169,10 +38,6 @@ pub enum FieldKind {
 }
 
 /// Codegen-facing description of a single `AdjustmentModel` field.
-///
-/// The schema is a flat const table rather than a proc-macro so the
-/// WASM build stays lean (no `syn` / `quote` pull-in). Generators load
-/// `ADJUSTMENT_SCHEMA` via the regular crate-level API.
 ///
 /// For `F32` fields: `range` is `(min, max)`, `default_f32` is the
 /// raw-core default. For `Enum` fields: `enum_name` is the Rust enum's
@@ -194,11 +59,14 @@ pub struct FieldSpec {
     pub doc: &'static str,
 }
 
-/// Canonical, ordered description of every field on [`AdjustmentModel`].
+/// Canonical, ordered description of every codegen-eligible field on
+/// [`AdjustmentModel`].
 ///
-/// Order matches the struct's field declaration order. Adding a field to
-/// the struct without adding a matching entry here (or vice versa) is a
-/// schema drift — the `schema_matches_struct` test below catches it.
+/// Order matches the struct's field declaration order. Adding a scalar or
+/// enum field to the struct without adding a matching entry here (or vice
+/// versa) is a schema drift — the `schema_matches_struct` test below catches
+/// it. Tone-curve point lists are deliberately absent; see the module
+/// docstring.
 pub const ADJUSTMENT_SCHEMA: &[FieldSpec] = &[
     FieldSpec {
         name: "temperature",
@@ -263,6 +131,38 @@ pub const ADJUSTMENT_SCHEMA: &[FieldSpec] = &[
         default_f32: 0.0,
         enum_name: "",
         doc: "Blacks tone-region control.",
+    },
+    FieldSpec {
+        name: "parametric_highlights",
+        kind: FieldKind::F32,
+        range: (-100.0, 100.0),
+        default_f32: 0.0,
+        enum_name: "",
+        doc: "Parametric tone curve — highlights region (PV2012, upper quarter).",
+    },
+    FieldSpec {
+        name: "parametric_lights",
+        kind: FieldKind::F32,
+        range: (-100.0, 100.0),
+        default_f32: 0.0,
+        enum_name: "",
+        doc: "Parametric tone curve — lights region (PV2012, upper midtones).",
+    },
+    FieldSpec {
+        name: "parametric_darks",
+        kind: FieldKind::F32,
+        range: (-100.0, 100.0),
+        default_f32: 0.0,
+        enum_name: "",
+        doc: "Parametric tone curve — darks region (PV2012, lower midtones).",
+    },
+    FieldSpec {
+        name: "parametric_shadows",
+        kind: FieldKind::F32,
+        range: (-100.0, 100.0),
+        default_f32: 0.0,
+        enum_name: "",
+        doc: "Parametric tone curve — shadows region (PV2012, lower quarter).",
     },
     FieldSpec {
         name: "vibrance",
@@ -382,12 +282,12 @@ pub const ADJUSTMENT_SCHEMA: &[FieldSpec] = &[
 mod tests {
     use super::*;
 
-    /// Schema-vs-struct drift guard: every field of the struct must appear
-    /// exactly once in the schema, in declaration order. We can't reflect
-    /// on Rust structs at compile time, so this test instantiates the
-    /// default model and pattern-matches every field — adding a field to
-    /// the struct without updating the test (and the schema) is a build
-    /// failure.
+    /// Schema-vs-struct drift guard: every scalar / enum field of the
+    /// struct must appear exactly once in the schema, in declaration order.
+    /// We can't reflect on Rust structs at compile time, so this test
+    /// instantiates the default model and pattern-matches every field —
+    /// adding a field to the struct without updating the test (and the
+    /// schema) is a build failure.
     #[test]
     fn schema_matches_struct() {
         let m = AdjustmentModel::default();
@@ -402,6 +302,10 @@ mod tests {
             shadows,
             whites,
             blacks,
+            parametric_highlights,
+            parametric_lights,
+            parametric_darks,
+            parametric_shadows,
             vibrance,
             saturation,
             clarity,
@@ -417,6 +321,10 @@ mod tests {
             dehaze,
             highlight_recovery,
             local_adjustments,
+            tone_curve_luma,
+            tone_curve_red,
+            tone_curve_green,
+            tone_curve_blue,
         } = m;
         let expected_order = [
             "temperature",
@@ -427,6 +335,10 @@ mod tests {
             "shadows",
             "whites",
             "blacks",
+            "parametric_highlights",
+            "parametric_lights",
+            "parametric_darks",
+            "parametric_shadows",
             "vibrance",
             "saturation",
             "clarity",
@@ -464,6 +376,10 @@ mod tests {
             shadows,
             whites,
             blacks,
+            parametric_highlights,
+            parametric_lights,
+            parametric_darks,
+            parametric_shadows,
             vibrance,
             saturation,
             clarity,
@@ -478,6 +394,10 @@ mod tests {
             nr_color,
             dehaze,
             highlight_recovery,
+            tone_curve_luma,
+            tone_curve_red,
+            tone_curve_green,
+            tone_curve_blue,
         );
         // `local_adjustments` is allow-listed: it carries structured data
         // (Vec<LocalAdjustment>) and is documented as not part of the schema
@@ -528,6 +448,10 @@ mod tests {
                 "shadows" => m.shadows,
                 "whites" => m.whites,
                 "blacks" => m.blacks,
+                "parametric_highlights" => m.parametric_highlights,
+                "parametric_lights" => m.parametric_lights,
+                "parametric_darks" => m.parametric_darks,
+                "parametric_shadows" => m.parametric_shadows,
                 "vibrance" => m.vibrance,
                 "saturation" => m.saturation,
                 "clarity" => m.clarity,
@@ -563,8 +487,23 @@ mod tests {
         assert_eq!(entry.enum_name, "HighlightRecoveryMode");
     }
 
+    /// New PV2012 parametric region sliders are present in the schema with
+    /// the canonical `[-100, 100]` range and default 0.
     #[test]
-    fn white_balance_preset_default_is_as_shot() {
-        assert_eq!(WhiteBalancePreset::default(), WhiteBalancePreset::AsShot);
+    fn parametric_region_fields_present_with_default_zero() {
+        for name in [
+            "parametric_highlights",
+            "parametric_lights",
+            "parametric_darks",
+            "parametric_shadows",
+        ] {
+            let entry = ADJUSTMENT_SCHEMA
+                .iter()
+                .find(|s| s.name == name)
+                .unwrap_or_else(|| panic!("{name} missing from ADJUSTMENT_SCHEMA"));
+            assert!(matches!(entry.kind, FieldKind::F32));
+            assert_eq!(entry.range, (-100.0, 100.0), "range for {name}");
+            assert_eq!(entry.default_f32, 0.0, "default for {name}");
+        }
     }
 }

@@ -22,6 +22,10 @@ extension AdjustmentModel {
         case shadows = "shadows"
         case whites = "whites"
         case blacks = "blacks"
+        case parametricHighlights = "parametric_highlights"
+        case parametricLights = "parametric_lights"
+        case parametricDarks = "parametric_darks"
+        case parametricShadows = "parametric_shadows"
         case vibrance = "vibrance"
         case saturation = "saturation"
         case clarity = "clarity"
@@ -56,6 +60,14 @@ extension AdjustmentModel {
     public static let whitesRange: ClosedRange<Double> = -100.0...100.0
     /// Blacks tone-region control.
     public static let blacksRange: ClosedRange<Double> = -100.0...100.0
+    /// Parametric tone curve — highlights region (PV2012, upper quarter).
+    public static let parametricHighlightsRange: ClosedRange<Double> = -100.0...100.0
+    /// Parametric tone curve — lights region (PV2012, upper midtones).
+    public static let parametricLightsRange: ClosedRange<Double> = -100.0...100.0
+    /// Parametric tone curve — darks region (PV2012, lower midtones).
+    public static let parametricDarksRange: ClosedRange<Double> = -100.0...100.0
+    /// Parametric tone curve — shadows region (PV2012, lower quarter).
+    public static let parametricShadowsRange: ClosedRange<Double> = -100.0...100.0
     /// Vibrance (saturation with skin-tone protection) per spec § 3.7.
     public static let vibranceRange: ClosedRange<Double> = -100.0...100.0
     /// Global saturation.
