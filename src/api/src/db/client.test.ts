@@ -264,18 +264,52 @@ describe('ensureIndexes — maple_id index (Fix 4)', () => {
     expect(idx).toBeDefined();
     expect(idx!.key).toEqual({ maple_id: 1 });
     expect(idx!.unique).toBe(true);
-    // Partial filter — `maple_id` is a content hash assigned during the
-    // hash stage; freshly-discovered skeleton rows have `maple_id: null`
-    // explicitly written by `$setOnInsert` in the discover worker.
-    // `sparse: true` only skips documents where the field is *absent* —
-    // it does NOT skip documents where the field is present with value
-    // `null`. A `sparse` unique index would therefore reject the second
-    // null-maple-id skeleton row with E11000. `$type: "string"` confines
-    // the index to real hash values, exactly the set uniqueness applies to.
+    // Partial filter is `$gt: ''` (not `$type: 'string'` — see the comment
+    // in client.ts above `swap-maple-id-partial-filter-2026-05-23`). Both
+    // narrow to real hash values; only `$gt: ''` is recognized by the
+    // planner when the query is a literal-string equality, so dedup
+    // lookups can actually use the index.
     expect(idx!.partialFilterExpression).toEqual({
-      maple_id: { $type: 'string' },
+      maple_id: { $gt: '' },
     });
     expect(idx!.sparse).toBeUndefined();
+  });
+
+  it('literal-string equality on maple_id uses the index (IXSCAN, not COLLSCAN)', async () => {
+    if (!mongoReachable) return;
+    const { closeDb, ensureIndexes } = await import('./client.ts');
+    await closeDb();
+    await ensureIndexes();
+
+    // Seed at least one matching row so the planner has something to weigh
+    // against alternatives; an empty collection sometimes biases toward
+    // EOF/COLLSCAN regardless of indexes.
+    await db!
+      .collection('assets')
+      .insertOne({ filename: 'seed.jpg', maple_id: 'a'.repeat(32) });
+
+    const explain = (await db!
+      .collection('assets')
+      .find({ maple_id: 'a'.repeat(32) }, { projection: { _id: 1 } })
+      .explain('queryPlanner')) as {
+      queryPlanner: { winningPlan: Record<string, unknown> };
+    };
+
+    // Walk the winningPlan tree and confirm an IXSCAN over maple_id_1 is
+    // somewhere in the chain (FETCH wraps IXSCAN; PROJECTION_COVERED wraps
+    // it on covered scans).
+    const stages: string[] = [];
+    const indexNames: string[] = [];
+    const visit = (node: Record<string, unknown> | undefined): void => {
+      if (!node) return;
+      if (typeof node.stage === 'string') stages.push(node.stage);
+      if (typeof node.indexName === 'string') indexNames.push(node.indexName);
+      visit(node.inputStage as Record<string, unknown> | undefined);
+    };
+    visit(explain.queryPlanner.winningPlan);
+    expect(stages).toContain('IXSCAN');
+    expect(indexNames).toContain('maple_id_1');
+    expect(stages).not.toContain('COLLSCAN');
   });
 
   it('allows multiple null-maple-id skeleton rows AND enforces uniqueness on real hashes', async () => {
