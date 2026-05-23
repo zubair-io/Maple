@@ -96,7 +96,7 @@ enum Cmd {
         /// Path to the RAW file (DNG, CR2, CR3, NEF, ARW, RAF, ORF, RW2,
         /// PEF, SRW, 3FR, FFF, DCR, MOS, IIQ, MRW).
         raw: PathBuf,
-        /// Path to the ACR XMP sidecar carrying the parameter set.
+        /// Path to the `crs:`-style XMP sidecar carrying the parameter set.
         /// If omitted, renders with AdjustmentModel::default().
         #[arg(long)]
         params: Option<PathBuf>,

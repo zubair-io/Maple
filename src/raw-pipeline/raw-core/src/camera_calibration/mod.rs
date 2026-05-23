@@ -3,22 +3,22 @@
 //!
 //! DNG's `BaselineExposure` tag (§ C.1.2) is the EV offset that corrects the
 //! gap between "sensor-saturation-normalized" raw values and the scene-
-//! referred 0.18-mid-gray reference. Adobe ships a calibrated value per body
-//! inside their DNG Camera Profile files (`.dcp`). When a RAW file does not
-//! carry this tag natively (because it's a vendor format, or because it's an
-//! older DNG authored before the tag existed), we look it up here.
+//! referred 0.18-mid-gray reference. Third-party tooling ships a calibrated
+//! value per body inside DNG Camera Profile files (`.dcp`). When a RAW file
+//! does not carry this tag natively (because it's a vendor format, or because
+//! it's an older DNG authored before the tag existed), we look it up here.
 //!
 //! This module also hosts the *linearization* override table ported from
 //! RawTherapee's `camconst.json`, behind the `camconst-overrides` feature.
 //! See `camconst_ranges.rs` (auto-generated) and
 //! `docs/licenses/rawtherapee-attribution.md` for attribution.
 //!
-//! **Data sources.** Each entry cites the specific Adobe DNG Camera Profile
-//! (or equivalent public reference) the value was extracted from. Adobe
-//! distributes DCPs under a permissive license; reading the `BaselineExposure`
-//! scalar out of them is within what Adobe explicitly permits. See Adobe's
-//! "DNG SDK Programmer's Guide" and the `.dcp` files shipped with Adobe DNG
-//! Converter.
+//! **Data sources.** Each entry cites the specific DCP (or equivalent public
+//! reference) the value was extracted from. The upstream vendor distributes
+//! DCPs under a permissive license; reading the `BaselineExposure` scalar
+//! out of them is within what the upstream license explicitly permits. See
+//! the DNG SDK Programmer's Guide and the `.dcp` files shipped with the
+//! DNG Converter.
 //!
 //! **Intentionally sparse.** Only bodies we have test fixtures for or have
 //! verified values for are listed. Unknown bodies default to 0.0 EV. Adding
@@ -203,11 +203,11 @@ fn lookup(make: &str, model: &str) -> Option<f32> {
     // Per-body BaselineExposure values, derived via
     // tools/calibration/derive_baseline_exposure.py: for each fixture body,
     // sweep MAPLE_BE_OVERRIDE values, pick the EV that minimizes per-channel
-    // bias magnitude vs the ACR baseline reference. See
+    // bias magnitude vs the reference baseline. See
     // .archived-plans/specs/2026-04-30-color-convergence-design.md for
     // methodology rationale (why bias rather than mean ΔE; why per-body
-    // rather than global; why ACR as a calibration signal rather than a
-    // CI-gate target).
+    // rather than global; why the third-party reference as a calibration
+    // signal rather than a CI-gate target).
     //
     // **Re-derived 2026-05-01 after Phase 1.2** (DNG WB pre-gain bundle
     // re-enabled). The Phase 1.1 values were over-corrected because they

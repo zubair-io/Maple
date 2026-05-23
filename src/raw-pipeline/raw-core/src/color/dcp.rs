@@ -140,7 +140,7 @@ pub fn apply_with_plt(
 
 /// Like [`apply_with_plt`] but also runs the DNG 1.4 § 6.4.4
 /// ProfileToneCurve in profile-working space, between HSM and PLT.
-/// Per Adobe DNG SDK reference (`dng_camera_profile.cpp`), the canonical
+/// Per the DNG SDK reference (`dng_camera_profile.cpp`), the canonical
 /// order is HSM → ProfileToneCurve → ProfileLookTable, all in linear
 /// ProPhoto D50.
 pub fn apply_with_plt_and_ptc(
@@ -441,7 +441,7 @@ fn lerp_hsm_for_cct(
 /// var read on every full-frame and tile render.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum ProfileSource {
-    /// Came from Maple's bundled Adobe-derived profile table
+    /// Came from Maple's bundled third-party-derived profile table
     /// (`crate::color::profile_loader::lookup_profile`). PTC/PLT in the
     /// source DNG were calibrated against the vendor's own matrices; the
     /// caller should drop PTC when this variant is in play (see the
@@ -468,10 +468,10 @@ pub fn profile_for(raw: &RawImage) -> crate::Result<DcpProfile> {
 /// PR #330 PTC-suppression rationale in `pipeline::develop`.
 ///
 /// Lookup order (first hit wins):
-///   1. **Maple's bundled Adobe-derived profile** for this camera's
+///   1. **Maple's bundled third-party-derived profile** for this camera's
 ///      `UniqueCameraModel` (when present). See
 ///      [`crate::color::profile_loader`]. This is the high-quality path —
-///      1,447 Adobe-calibrated camera profiles, PTC/PLT stripped (AgX
+///      1,447 externally-calibrated camera profiles, PTC/PLT stripped (AgX
 ///      handles tone). Falls through to (2) on a miss.
 ///   2. The `RawImage`'s embedded color matrices (rawler or DNG profile).
 ///      Prefers dual-illuminant reciprocal-CCT interpolation (spec § 3.4)
@@ -479,7 +479,7 @@ pub fn profile_for(raw: &RawImage) -> crate::Result<DcpProfile> {
 ///      are present. Falls back to single-illuminant
 ///      (D65 → D50 → D55 → StdA → any) when only one matrix is available.
 pub fn profile_for_with_source(raw: &RawImage) -> crate::Result<(DcpProfile, ProfileSource)> {
-    // (1) Bundled Adobe-derived profile lookup. Returns the same DcpProfile
+    // (1) Bundled third-party-derived profile lookup. Returns the same DcpProfile
     // shape — dual-illum interpolation when applicable, single-illum
     // fallback otherwise. The PTC/PLT fields on DcpProfile are NOT set by
     // this path; PTC/PLT come from RawImage tags and remain whatever the
@@ -499,7 +499,7 @@ pub fn profile_for_with_source(raw: &RawImage) -> crate::Result<(DcpProfile, Pro
     // into DCP, so `scene_white_xyz = inv(CM) · (1, 1, 1)` and the DCP path
     // must run with `wb_already_baked = true`.
     //
-    // Exception: 8-bit lossy LinearRaw DNGs (Adobe DNG Converter perceptual
+    // Exception: 8-bit lossy LinearRaw DNGs (DNG Converter perceptual
     // path with `BitsPerSample = 8 8 8` and `white_level <= 255`) skip
     // pre-gain at pipeline.rs — WB stays baked through the linearize gamma
     // decode. For those, the legacy `inv(CM) · AsShotNeutral` derivation

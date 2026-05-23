@@ -30,7 +30,7 @@
 //! Real-world Apple DNGs (e.g. `test_0013.DNG`) carry an extended layout
 //! whose `MapPlanes` field reads as 257 with 5 trailing floats unaccounted
 //! for in DNG 1.6's spec — these are likely a forward-compat extension that
-//! Adobe added in DNG 1.7's `ProfileGainTableMap2` (tag 0xCD40). Rather
+//! the DNG 1.7 spec added in `ProfileGainTableMap2` (tag 0xCD40). Rather
 //! than risk applying a misinterpreted gain map, [`from_bytes`] strictly
 //! validates `MapPlanes ∈ {1, 3}` and exact-fit `len = 44 + V*H*P*4`. Any
 //! mismatch returns `None` and the stage no-ops downstream — preferable

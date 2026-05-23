@@ -1,5 +1,5 @@
 //! XMP sidecar parser. The schema lives in [`crate::types`] — this module
-//! is responsible only for translating ACR-flavoured XMP attributes into an
+//! is responsible only for translating `crs:`-flavoured XMP attributes into an
 //! `AdjustmentModel` value.
 
 use crate::error::{Error, Result};
@@ -11,7 +11,7 @@ use quick_xml::reader::Reader;
 // compiling. The single source of truth is `crate::types::adjustment`.
 pub use crate::types::adjustment::{AdjustmentModel, HighlightRecoveryMode};
 
-/// Parse an ACR XMP sidecar. Unknown fields are ignored; known fields that
+/// Parse a `crs:`-style XMP sidecar. Unknown fields are ignored; known fields that
 /// fail to parse numerically surface as an error.
 pub fn parse(xml: &str) -> Result<AdjustmentModel> {
     let mut model = AdjustmentModel::default();
@@ -60,8 +60,9 @@ fn set_field(m: &mut AdjustmentModel, key: &str, value: &str) -> Result<()> {
         "crs:SharpenDetail"        => m.sharpen_detail  = v()?,
         "crs:SharpenEdgeMasking"   => m.sharpen_masking = v()?,
         // Capture sharpening (Richardson-Lucy deconvolution) — Maple-proprietary,
-        // distinct from ACR's `crs:Sharpness` unsharp-mask sliders above. Lives
-        // under the `papp:` namespace because ACR has no equivalent control.
+        // distinct from the reference renderer's `crs:Sharpness` unsharp-mask
+        // sliders above. Lives under the `papp:` namespace because the
+        // reference renderer has no equivalent control.
         "papp:CaptureSharpeningAmount" => m.capture_sharpening_amount = v()?,
         "papp:CaptureSharpeningRadius" => m.capture_sharpening_radius = v()?,
         "crs:LuminanceSmoothing"   => m.nr_luminance    = v()?,
@@ -92,7 +93,7 @@ fn set_field(m: &mut AdjustmentModel, key: &str, value: &str) -> Result<()> {
     Ok(())
 }
 
-/// Map an ACR `crs:WhiteBalance` preset name to (temperature, tint).
+/// Map a `crs:WhiteBalance` preset name to (temperature, tint).
 /// Returns None for "As Shot", "Auto", "Custom", or unrecognized values —
 /// the caller should leave AdjustmentModel defaults in those cases.
 fn wb_preset(name: &str) -> Option<(f32, f32)> {
@@ -132,24 +133,25 @@ mod tests {
     }
 
     #[test]
-    fn parse_baseline_is_acr_defaults() {
+    fn parse_baseline_is_reference_defaults() {
         let xml = match load_fixture("test_0002/xmp/baseline.xmp") {
             Some(x) => x, None => return,
         };
         let m = parse(&xml).unwrap();
-        // baseline.xmp is the camera's default ACR sidecar, which records
-        // ACR's user-visible defaults (Sharpness=40, SharpenRadius=1.0).
-        // As of #326, `AdjustmentModel::default()` already encodes the ACR
-        // import baseline, so the explicit overrides below are no-ops —
-        // we keep them spelled out to document what the test is asserting
-        // and to fail loudly if a future commit shifts the canonical
-        // defaults away from ACR.
-        let acr_defaults = AdjustmentModel {
+        // baseline.xmp is the camera's default reference-renderer sidecar,
+        // which records the reference renderer's user-visible defaults
+        // (Sharpness=40, SharpenRadius=1.0). As of #326,
+        // `AdjustmentModel::default()` already encodes the reference-
+        // renderer import baseline, so the explicit overrides below are
+        // no-ops — we keep them spelled out to document what the test is
+        // asserting and to fail loudly if a future commit shifts the
+        // canonical defaults away from the reference renderer.
+        let reference_defaults = AdjustmentModel {
             sharpen_amount: 40.0,
             sharpen_radius: 1.0,
             ..AdjustmentModel::default()
         };
-        assert_eq!(m, acr_defaults);
+        assert_eq!(m, reference_defaults);
     }
 
     #[test]
@@ -374,7 +376,7 @@ mod tests {
 
     #[test]
     fn defaults_includes_slice5_detail_fields() {
-        // Sharpen defaults match ACR's fresh-import baseline per #326.
+        // Sharpen defaults match the reference renderer's fresh-import baseline per #326.
         let m = AdjustmentModel::default();
         assert_eq!(m.sharpen_amount, 40.0);
         assert_eq!(m.sharpen_radius, 1.0);

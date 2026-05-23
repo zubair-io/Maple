@@ -1,5 +1,5 @@
 //! Legacy 8-bit sRGB render entries — `maple_render_file` and
-//! `maple_render_bytes`. Used by the color-parity harness; ACR-comparable
+//! `maple_render_bytes`. Used by the color-parity harness; reference-comparable
 //! output requires the full development chain at decode time, so this
 //! path does NOT apply the Apple-GPU strip (which the scene-linear
 //! entries delegate to the Swift binding).

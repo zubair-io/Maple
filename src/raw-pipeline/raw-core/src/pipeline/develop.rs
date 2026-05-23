@@ -97,7 +97,7 @@ pub fn develop_scene_linear_from_raw_with_quality(
     // satisfied the prerequisite that originally deferred this step). See
     // .archived-plans/specs/2026-04-30-color-convergence-design.md.
     //
-    // Skipped for 8-bit lossy LinearRaw DNGs (Adobe DNG Converter's
+    // Skipped for 8-bit lossy LinearRaw DNGs (DNG Converter's
     // perceptually-encoded output) where WB stays baked through the linearize
     // step and DCP must derive scene_white_xyz from `inv(CM) · AsShotNeutral`
     // as the empirical (legacy) path. See linearize::linearraw_to_camera_rgb
@@ -120,7 +120,7 @@ pub fn develop_scene_linear_from_raw_with_quality(
     // dcp::apply_with_plt_and_ptc runs HSM (from `profile.hsm`),
     // ProfileToneCurve (from `raw.profile_tone_curve`), and PLT (from
     // `raw.plt`) ALL in linear-ProPhoto-D50 space, between the chromatic
-    // adaptation and the gamut conversion to Rec.2020. Order per Adobe
+    // adaptation and the gamut conversion to Rec.2020. Order per the
     // DNG SDK reference: HSM → PTC → PLT (DNG 1.4 § 6.4.4 + DNG 1.6
     // § 6.6/§ 6.7). When all three are absent, falls through to the
     // fast single-matmul path.
@@ -128,9 +128,9 @@ pub fn develop_scene_linear_from_raw_with_quality(
     // When a bundled Maple profile is in use, suppress the source DNG's
     // ProfileToneCurve — that tag was calibrated against the vendor's own
     // matrices (iPhone DNGs ship a 257-pair PTC tuned for Apple's
-    // matrices, not Adobe Standard's), so applying it after a matrix swap
-    // is a tone double-up that AgX would have to undo. PLT stays: on
-    // Adobe-DNG-Converter outputs it's actually Adobe Standard's look
+    // matrices, not the external standard's), so applying it after a matrix
+    // swap is a tone double-up that AgX would have to undo. PLT stays: on
+    // DNG-Converter outputs it's actually the external standard profile's look
     // table and removing it regresses ΔE on Canon DNG fixtures. The
     // universal DisplayLookCurve (separate ticket) replaces PLT entirely.
     //
@@ -281,7 +281,7 @@ pub fn develop_scene_linear_sized_from_raw_with_quality(
     dump_after("02_highlight_recovery", &camera_rgb);
     let (profile, source) = stage("sized_dcp_profile_for", || dcp::profile_for_with_source(raw))?;
     // PTC suppression when bundled — see the comment in the full-res
-    // variant. PLT stays for Adobe-DNG-Converter inputs. `source` is the
+    // variant. PLT stays for DNG-Converter inputs. `source` is the
     // same lookup result `profile_for_with_source` already produced — no
     // redundant HashMap probe in the sized path either.
     let use_bundled = matches!(source, dcp::ProfileSource::Bundled);

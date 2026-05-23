@@ -201,7 +201,7 @@ fn temp_symmetric() {
         warm_delta, cool_delta, ratio);
 }
 
-/// Tint follows ACR convention: tint>0 = magenta (R+B grows vs 2G),
+/// Tint follows the reference-renderer convention: tint>0 = magenta (R+B grows vs 2G),
 /// tint<0 = green (R+B shrinks vs 2G).
 ///
 /// **Known failure:** Maple currently inverts this — these two tests
@@ -215,9 +215,9 @@ fn tint_plus_pushes_magenta() {
     let default_diff = (default_p[0] + default_p[2]) - 2.0 * default_p[1];
     let tinted_diff  = (p[0]         + p[2])         - 2.0 * p[1];
     assert!(tinted_diff > default_diff,
-        "tint+50 should grow R+B vs 2G (ACR convention: magenta): \
+        "tint+50 should grow R+B vs 2G (reference-renderer convention: magenta): \
          default {} → tinted {}. If this fails, Maple's tint sign is \
-         inverted vs ACR — investigate, do not flip the assertion.",
+         inverted vs the reference renderer — investigate, do not flip the assertion.",
         default_diff, tinted_diff);
 }
 
@@ -228,9 +228,9 @@ fn tint_minus_pushes_green() {
     let default_diff = (default_p[0] + default_p[2]) - 2.0 * default_p[1];
     let tinted_diff  = (p[0]         + p[2])         - 2.0 * p[1];
     assert!(tinted_diff < default_diff,
-        "tint-50 should shrink R+B vs 2G (ACR convention: green): \
+        "tint-50 should shrink R+B vs 2G (reference-renderer convention: green): \
          default {} → tinted {}. If this fails, Maple's tint sign is \
-         inverted vs ACR — investigate, do not flip the assertion.",
+         inverted vs the reference renderer — investigate, do not flip the assertion.",
         default_diff, tinted_diff);
 }
 

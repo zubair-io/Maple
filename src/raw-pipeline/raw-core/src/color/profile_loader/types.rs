@@ -8,7 +8,7 @@ use crate::color::hsm::HsmTable;
 use crate::color::illuminant::Illuminant as CoreIlluminant;
 use crate::math::Matrix3;
 
-/// One bundled Maple profile — Adobe-DCP-derived, AgX-compatible (PTC/PLT
+/// One bundled Maple profile — externally-DCP-derived, AgX-compatible (PTC/PLT
 /// dropped at conversion time). Stored as `'static` in `PROFILE_TABLE`.
 #[derive(Clone, Debug)]
 pub struct MapleProfile {
@@ -47,7 +47,7 @@ pub struct MapleProfile {
 /// `UniqueCameraModel` string is the full key — for multi-lens mobile
 /// cameras the lens variant is already encoded in the UCM by the vendor
 /// (e.g. `iPhone13,3 back camera` vs `iPhone13,3 back telephoto camera`),
-/// and Adobe ships one DCP per such lens-tagged UCM. See the parent
+/// and the upstream tooling ships one DCP per such lens-tagged UCM. See the parent
 /// module's docstring for the keying rationale.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct CameraKey {

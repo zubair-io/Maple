@@ -116,11 +116,12 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
     // BaselineExposure for the asset: DNG tag if present, else the
     // per-camera camconst lookup. No additional global compensation is
     // applied here. An earlier `MAPLE_AGX_BASELINE_COMPENSATION_EV =
-    // 0.65` constant was added (commit da1ad87) to match ACR's brightness
-    // at default sliders. That was the wrong target: Maple uses AgX as
-    // the platform view transform; ACR uses Adobe's proprietary tone
-    // curve. They will not produce identical images by design, and
-    // pushing AgX brightness toward ACR via a global EV bump fights the
+    // 0.65` constant was added (commit da1ad87) to match the reference
+    // renderer's brightness at default sliders. That was the wrong target:
+    // Maple uses AgX as the platform view transform; the reference renderer
+    // uses a proprietary tone curve. They will not produce identical images
+    // by design, and pushing AgX brightness toward the reference renderer
+    // via a global EV bump fights the
     // view-transform's intended look. The constant is removed; if the
     // AgX shape itself needs work, retune the Y_PIVOT / matrix
     // compression / sigmoid powers in src/scripts/derive_agx_lut.py
@@ -134,7 +135,7 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
     //
     // Each tag/lookup contributes 0.0 when absent. The per-body lookup is
     // ADDITIVE on top of the DNG-supplied value — lets us fine-tune bodies
-    // whose embedded BaselineExposure undershoots ACR's brightness on this
+    // whose embedded BaselineExposure undershoots the reference renderer's brightness on this
     // body (e.g. Hasselblad H2D-39, tag=0, needs +0.3 lift). For vendor RAW
     // formats (CR2/ARW/RAF/NEF/X3F/fff/RAW) the tags are absent and the
     // lookup is the sole source — same as Phase 1.1. The lookup returns
@@ -290,7 +291,7 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
     // DNG UniqueCameraModel tag (50708). Apple DNGs ship a per-lens-variant
     // UCM ("iPhone13,3 back telephoto camera") that's distinct from
     // `clean_model`. The bundled-DCP lookup keys off this when present so
-    // the lens variant resolves to the correct Adobe profile. Vendor RAWs
+    // the lens variant resolves to the correct upstream profile. Vendor RAWs
     // (CR2, ARW, NEF, ...) typically omit the tag — None there is fine,
     // the loader falls back to `camera_model`.
     let unique_camera_model: Option<String> = root_ifd.as_ref().and_then(|ifd| {

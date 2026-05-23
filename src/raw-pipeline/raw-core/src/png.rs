@@ -2,7 +2,7 @@ use crate::error::{Error, Result};
 
 /// Encode a sRGB 8-bit PNG into an in-memory buffer.
 ///
-/// Tags the sRGB chunk per IEC 61966-2.1 (matching ACR reference output).
+/// Tags the sRGB chunk per IEC 61966-2.1 (matching the reference renderer's output).
 /// This is the pure (I/O-free) form — the shell owns any write to disk.
 pub fn encode(width: u32, height: u32, rgb: &[u8]) -> Result<Vec<u8>> {
     let expected_len = (width as usize) * (height as usize) * 3;
