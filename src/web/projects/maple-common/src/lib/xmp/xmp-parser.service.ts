@@ -9,7 +9,7 @@ import type { XmpCulling, XmpFlag, XmpColorLabel, PassthroughBucket } from './xm
 import type { AdjustmentModel, WhiteBalancePreset } from '../models/adjustment-model';
 import { ADJUSTMENT_FIELDS, WB_PRESET_FIELD } from './xmp-fields';
 
-/** Adobe xmp:Label words → Maple colorLabel values. */
+/** XMP xmp:Label words → Maple colorLabel values. */
 const LABEL_MAP: Record<string, XmpColorLabel> = {
   Red: 'red',
   Orange: 'orange',
@@ -93,7 +93,7 @@ export class XmpParserService {
       result.flag = flagStr as XmpFlag;
     }
 
-    // xmp:Label (Adobe standard color word).
+    // xmp:Label (XMP standard color word).
     const labelStr = this._attr(desc, ['xmp:Label', 'Label']);
     if (labelStr !== null && labelStr in LABEL_MAP) {
       result.colorLabel = LABEL_MAP[labelStr];
