@@ -16,10 +16,14 @@ exr = { version = "1.73", optional = true }
 rayon = { workspace = true }
 blake3 = "1"
 sha1 = "0.10"
+# Used by `types::local_adjustment` for the Slice 1 XMP wire format (compact
+# JSON in a single `papp:LocalAdjustments` attribute). When that converts to
+# canonical `crs:GradientBasedCorrections` nested-RDF in a follow-up, this
+# dep can move back to `[dev-dependencies]` or drop entirely.
+serde_json.workspace = true
 
 [dev-dependencies]
 serde.workspace = true
-serde_json.workspace = true
 tempfile = "3"
 clap = { workspace = true }
 

@@ -75,6 +75,15 @@ fn set_field(m: &mut AdjustmentModel, key: &str, value: &str) -> Result<()> {
             }
             // Unknown WB names ("As Shot", "Auto", "Custom") leave defaults.
         }
+        // Local adjustments (ticket #280). Slice 1 wire format: compact JSON
+        // in a single attribute. Long-run goal is canonical
+        // `crs:GradientBasedCorrections` nested-RDF — that requires a
+        // separate XMP-walker extension.
+        "papp:LocalAdjustments" => {
+            m.local_adjustments =
+                crate::types::local_adjustment::decode_local_adjustments(value)
+                    .map_err(|e| Error::Xmp(format!("LocalAdjustments: {e}")))?;
+        }
         "papp:HighlightRecoveryMode" => {
             m.highlight_recovery = match value {
                 "off" | "Off" => HighlightRecoveryMode::Off,
@@ -445,6 +454,47 @@ mod tests {
         let m = AdjustmentModel::default();
         assert_eq!(m.capture_sharpening_amount, 0.0);
         assert_eq!(m.capture_sharpening_radius, 1.0);
+    }
+
+    #[test]
+    fn default_local_adjustments_is_empty() {
+        let m = AdjustmentModel::default();
+        assert!(m.local_adjustments.is_empty());
+    }
+
+    #[test]
+    fn parse_local_adjustments_linear_round_trips() {
+        use crate::types::local_adjustment::{
+            encode_local_adjustments, LocalAdjustment, Mask, PartialAdjustments, Point2,
+        };
+        let layers = vec![LocalAdjustment {
+            mask: Mask::Linear {
+                start: Point2::new(0.0, 0.5),
+                end: Point2::new(1.0, 0.5),
+                feather: 0.5,
+            },
+            adjustments: PartialAdjustments {
+                exposure: Some(1.0),
+                ..Default::default()
+            },
+        }];
+        let attr = encode_local_adjustments(&layers);
+        // The attribute embeds JSON containing double-quotes; escape them
+        // for the XML literal here.
+        let escaped = attr.replace('"', "&quot;");
+        let xml = format!(
+            r#"<?xml version="1.0"?><x><rdf:Description xmlns:rdf="x" xmlns:papp="x"
+                papp:LocalAdjustments="{escaped}"/></x>"#
+        );
+        let m = parse(&xml).expect("parse");
+        assert_eq!(m.local_adjustments, layers);
+    }
+
+    #[test]
+    fn parse_local_adjustments_malformed_errors() {
+        let xml = r#"<?xml version="1.0"?><x><rdf:Description xmlns:rdf="x" xmlns:papp="x"
+            papp:LocalAdjustments="{not json}"/></x>"#;
+        assert!(parse(xml).is_err());
     }
 
     #[test]

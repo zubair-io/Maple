@@ -74,8 +74,8 @@ pub fn apply_scene_linear_chain(
 ) -> Result<Vec<u16>> {
     use crate::image::{ColorSpace, Image};
     use crate::stages::{
-        clarity, dehaze, noise_reduction, saturation, scene_tone_controls, texture, vibrance,
-        white_balance,
+        clarity, dehaze, local_adjustments, noise_reduction, saturation, scene_tone_controls,
+        texture, vibrance, white_balance,
     };
     use crate::view::agx;
 
@@ -145,6 +145,10 @@ pub fn apply_scene_linear_chain(
     stage("ffi_chain_clarity", || clarity::apply(&mut img, model.clarity));
     stage("ffi_chain_texture", || texture::apply(&mut img, model.texture));
     stage("ffi_chain_dehaze", || dehaze::apply(&mut img, model.dehaze));
+    // Local adjustments (ticket #280). Empty Vec is a bit-identical no-op.
+    stage("ffi_chain_local_adjustments", || {
+        local_adjustments::apply(&mut img, &model.local_adjustments)
+    });
     // sharpen omitted — kept on Metal GPU path (~33 ms at viewport on CPU)
     stage("ffi_chain_nr_luminance", || {
         noise_reduction::apply_luminance(&mut img, model.nr_luminance)
