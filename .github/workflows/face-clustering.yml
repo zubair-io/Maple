@@ -56,15 +56,14 @@ jobs:
       # CI-only failure modes (lockfile drift, registry flakes).
 
       # Probe the committed fixture so a missing-file branch is logged
-      # explicitly. The script itself also skip-passes; this step makes
-      # the path visible at-a-glance in the CI log.
+      # explicitly. The script itself also skip-passes (with a
+      # "skipping" message on stdout), so we don't gate the next step on
+      # the result — this is purely a log-clarity affordance.
       - name: Probe fixtures
-        id: probe
         run: |
           if [ -f test-fixtures/face-clustering/embeddings.jsonl ] && [ -f test-fixtures/face-clustering/budgets.json ]; then
-            echo "have_fixtures=true" >> "$GITHUB_OUTPUT"
+            echo "test-fixtures/face-clustering: fixtures + budgets present — gate will run."
           else
-            echo "have_fixtures=false" >> "$GITHUB_OUTPUT"
             echo "::notice::test-fixtures/face-clustering/{embeddings.jsonl,budgets.json} not present — gate is a no-op on this runner."
           fi
 
