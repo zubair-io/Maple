@@ -9,7 +9,7 @@ use quick_xml::reader::Reader;
 // Re-export the canonical schema types so existing
 // `use raw_core::xmp::{AdjustmentModel, HighlightRecoveryMode}` paths keep
 // compiling. The single source of truth is `crate::types::adjustment`.
-pub use crate::types::adjustment::{AdjustmentModel, HighlightRecoveryMode};
+pub use crate::types::adjustment::{AdjustmentModel, HighlightRecoveryMode, Look};
 
 /// Parse a `crs:`-style XMP sidecar. Unknown fields are ignored; known fields that
 /// fail to parse numerically surface as an error.
@@ -94,6 +94,19 @@ fn set_field(m: &mut AdjustmentModel, key: &str, value: &str) -> Result<()> {
                 }
                 other => return Err(Error::Xmp(format!(
                     "unknown HighlightRecoveryMode: {}", other
+                ))),
+            };
+        }
+        // DisplayLookCurve (ticket #371). Absent attribute -> default
+        // (Look::Default) — the LUT applies to existing sidecars without
+        // an explicit migration. Users opting out persist
+        // `papp:Look="Neutral"`.
+        "papp:Look" => {
+            m.look = match value {
+                "neutral" | "Neutral" => Look::Neutral,
+                "default" | "Default" => Look::Default,
+                other => return Err(Error::Xmp(format!(
+                    "unknown Look: {}", other
                 ))),
             };
         }
@@ -380,6 +393,64 @@ mod tests {
     fn parse_highlight_recovery_invalid_is_error() {
         let xml = r#"<?xml version="1.0"?><x><rdf:Description xmlns:rdf="x" xmlns:papp="x"
             papp:HighlightRecoveryMode="typo"/></x>"#;
+        assert!(parse(xml).is_err());
+    }
+
+    // -----------------------------------------------------------------
+    // DisplayLookCurve (ticket #371).
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn defaults_look_is_default() {
+        // Per #371: new users get the empirical Look, not Neutral. This
+        // mirrors the assertion in `types::adjustment::tests` — duplicated
+        // here so the XMP module's defaults invariant is self-contained.
+        let m = AdjustmentModel::default();
+        assert_eq!(m.look, Look::Default);
+    }
+
+    #[test]
+    fn parse_look_neutral() {
+        let xml = r#"<?xml version="1.0"?><x><rdf:Description xmlns:rdf="x" xmlns:papp="x"
+            papp:Look="Neutral"/></x>"#;
+        let m = parse(xml).unwrap();
+        assert_eq!(m.look, Look::Neutral);
+    }
+
+    #[test]
+    fn parse_look_default_explicit() {
+        let xml = r#"<?xml version="1.0"?><x><rdf:Description xmlns:rdf="x" xmlns:papp="x"
+            papp:Look="Default"/></x>"#;
+        let m = parse(xml).unwrap();
+        assert_eq!(m.look, Look::Default);
+    }
+
+    #[test]
+    fn parse_look_lowercase() {
+        // Case-insensitive parse mirrors the HighlightRecoveryMode pattern
+        // so sidecars produced by either capitalization round-trip cleanly.
+        let xml = r#"<?xml version="1.0"?><x><rdf:Description xmlns:rdf="x" xmlns:papp="x"
+            papp:Look="neutral"/></x>"#;
+        let m = parse(xml).unwrap();
+        assert_eq!(m.look, Look::Neutral);
+    }
+
+    #[test]
+    fn parse_look_absent_defaults_to_default() {
+        // Existing sidecars produced before #371 don't carry `papp:Look` —
+        // they must pick up the empirical Look automatically (the "default
+        // for new users" criterion in the ticket). Verifies the parser
+        // does NOT reset `look` to Neutral when the attribute is missing.
+        let xml = r#"<?xml version="1.0"?><x><rdf:Description xmlns:rdf="x" xmlns:papp="x"
+            papp:HighlightRecoveryMode="Off"/></x>"#;
+        let m = parse(xml).unwrap();
+        assert_eq!(m.look, Look::Default);
+    }
+
+    #[test]
+    fn parse_look_invalid_is_error() {
+        let xml = r#"<?xml version="1.0"?><x><rdf:Description xmlns:rdf="x" xmlns:papp="x"
+            papp:Look="Vivid"/></x>"#;
         assert!(parse(xml).is_err());
     }
 

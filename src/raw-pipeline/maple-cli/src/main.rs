@@ -444,7 +444,11 @@ fn do_tile(
     }
     raw_core::view::agx::apply(&mut img, model.contrast);
     raw_core::view::encode::rec2020_to_srgb(&mut img);
-    let u8_bytes = raw_core::view::encode::quantize_u8(&mut img);
+    let mut u8_bytes = raw_core::view::encode::quantize_u8(&mut img);
+    // DisplayLookCurve (#371) — match `render_from_raw_with_quality`'s
+    // view-tail behaviour so `tile` previews look the same as `batch` /
+    // live FFI output.
+    raw_core::view::look::apply(&mut u8_bytes, model.look);
     let png = raw_core::png::encode(w, h, &u8_bytes)?;
     std::fs::write(out, png)?;
     Ok(0)

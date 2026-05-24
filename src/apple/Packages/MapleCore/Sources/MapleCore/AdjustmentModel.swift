@@ -22,6 +22,18 @@ public enum HighlightRecoveryMode: String, Codable, Sendable, Hashable {
     case chromaticAdaptation  = "ChromaticAdaptation"
 }
 
+// MARK: - Look
+
+/// DisplayLookCurve (ticket #371). Mirrors `raw_core::view::look::Look`.
+///
+/// `.default` ships the empirical 1D LUT derived from 14 training fixtures
+/// that closes ~65% of the bias-to-ACR gap; `.neutral` short-circuits the
+/// stage for strict scene-referred output.
+public enum Look: String, Codable, Sendable, Hashable {
+    case neutral = "Neutral"
+    case `default` = "Default"
+}
+
 // MARK: - AdjustmentModel
 
 /// Per-image editing knobs. Mirrors `raw_core::xmp::AdjustmentModel`.
@@ -87,6 +99,10 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
     // Highlight recovery (Maple-proprietary)
     public var highlightRecovery: HighlightRecoveryMode
 
+    // DisplayLookCurve (Maple-proprietary, ticket #371). Defaults to
+    // `.default` — new users get the empirical Look.
+    public var look: Look
+
     public init(
         temperature: Double = 6500,
         tint: Double = 0,
@@ -113,7 +129,8 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
         captureSharpeningRadius: Double = 1.0,
         nrLuminance: Double = 0,
         nrColor: Double = 25,
-        highlightRecovery: HighlightRecoveryMode = .chromaticAdaptation
+        highlightRecovery: HighlightRecoveryMode = .chromaticAdaptation,
+        look: Look = .default
     ) {
         self.temperature = temperature
         self.tint = tint
@@ -141,6 +158,7 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
         self.nrLuminance = nrLuminance
         self.nrColor = nrColor
         self.highlightRecovery = highlightRecovery
+        self.look = look
     }
 
     public static let `default` = AdjustmentModel()
@@ -279,6 +297,17 @@ private final class _XMPParserDelegate: NSObject, XMLParserDelegate {
             default:                     parsed = nil
             }
             if let parsed { model.highlightRecovery = parsed }
+        case "papp:Look":
+            // DisplayLookCurve (#371). Case-insensitive parse mirrors
+            // `papp:HighlightRecoveryMode`. Unknown values keep the current
+            // value (default = `.default`) — absence of the attribute means
+            // existing sidecars pick up the empirical Look automatically.
+            let lowered = value.lowercased()
+            switch lowered {
+            case "neutral": model.look = .neutral
+            case "default": model.look = .default
+            default:        break
+            }
         // Lightroom culling
         case "xmp:Rating":
             if let n = Int(value) { culling.stars = max(0, min(5, n)) }
@@ -344,6 +373,11 @@ public struct XMPSerializer {
         }
         if model.highlightRecovery != .chromaticAdaptation {
             attrs.append(("papp:HighlightRecoveryMode", model.highlightRecovery.rawValue))
+        }
+        // DisplayLookCurve (#371). Only emit when divergent from the
+        // canonical default — keeps sidecars compact for the common case.
+        if model.look != .default {
+            attrs.append(("papp:Look", model.look.rawValue))
         }
 
         let attrsStr = attrs.map { "\($0.0)=\"\($0.1)\"" }.joined(separator: "\n        ")

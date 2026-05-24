@@ -111,6 +111,59 @@ final class AdjustmentModelTests: XCTestCase {
         XCTAssertEqual(m.highlightRecovery, .off)
     }
 
+    // MARK: - DisplayLookCurve (ticket #371)
+
+    /// New users get the empirical Look (`.default`), not `.neutral`.
+    func testDefaultLook() {
+        XCTAssertEqual(AdjustmentModel.default.look, .default)
+    }
+
+    func testParseLookNeutral() throws {
+        let xml = xmp(attrs: #"papp:Look="Neutral""#)
+        let (m, _) = try XMPParser.parse(xml)
+        XCTAssertEqual(m.look, .neutral)
+    }
+
+    func testParseLookDefaultExplicit() throws {
+        let xml = xmp(attrs: #"papp:Look="Default""#)
+        let (m, _) = try XMPParser.parse(xml)
+        XCTAssertEqual(m.look, .default)
+    }
+
+    func testParseLookLowercase() throws {
+        let xml = xmp(attrs: #"papp:Look="neutral""#)
+        let (m, _) = try XMPParser.parse(xml)
+        XCTAssertEqual(m.look, .neutral)
+    }
+
+    /// Absent attribute -> default (`.default`) so existing sidecars pick
+    /// up the empirical Look automatically.
+    func testParseLookAbsentDefaultsToDefault() throws {
+        let xml = xmp(attrs: #"crs:Exposure2012="0""#)
+        let (m, _) = try XMPParser.parse(xml)
+        XCTAssertEqual(m.look, .default)
+    }
+
+    func testLookRoundTripNeutral() throws {
+        var m = AdjustmentModel()
+        m.look = .neutral
+        let xml = XMPSerializer.serialize(model: m, culling: CullingState())
+        let (m2, _) = try XMPParser.parse(xml)
+        XCTAssertEqual(m2.look, .neutral)
+    }
+
+    /// `.default` round-trips even though the serializer skips the
+    /// attribute on the canonical default — the parser fills the field
+    /// with `.default` automatically.
+    func testLookRoundTripDefault() throws {
+        var m = AdjustmentModel()
+        m.look = .default
+        let xml = XMPSerializer.serialize(model: m, culling: CullingState())
+        XCTAssertFalse(xml.contains("papp:Look"), "Default Look should be omitted from sidecar")
+        let (m2, _) = try XMPParser.parse(xml)
+        XCTAssertEqual(m2.look, .default)
+    }
+
     func testParseStars() throws {
         let xml = xmp(attrs: #"xmp:Rating="4""#)
         let (_, c) = try XMPParser.parse(xml)

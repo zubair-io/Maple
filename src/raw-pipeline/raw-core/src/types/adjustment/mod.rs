@@ -26,6 +26,12 @@ pub mod schema;
 pub use curves::{ToneCurve, ToneCurvePoint};
 pub use schema::{FieldKind, FieldSpec, ADJUSTMENT_SCHEMA};
 
+// Re-export the Look enum at the canonical `crate::types::adjustment` path
+// so `AdjustmentModel.look: Look` resolves without leaking the `view::`
+// module structure into call sites that don't care about it. Defined in
+// `crate::view::look` because the algorithm lives there.
+pub use crate::view::look::Look;
+
 /// Highlight reconstruction mode per spec § 3.3a.
 ///
 /// Default is `ChromaticAdaptation` (Path C — `AsShotNeutral`-aware
@@ -139,6 +145,12 @@ pub struct AdjustmentModel {
     pub dehaze: f32,         // -100..100, default 0
     pub highlight_recovery: HighlightRecoveryMode,
 
+    /// DisplayLookCurve (ticket #371). `Look::Default` ships the empirically-
+    /// derived 1D LUT that closes ~65% of the bias-to-ACR gap; `Look::Neutral`
+    /// short-circuits the stage for strict scene-referred output. Defaults to
+    /// `Look::Default` — new users want the punch.
+    pub look: Look,
+
     /// Local adjustment layers (ticket #280). Each entry pairs a `Mask`
     /// (linear / radial gradient) with a `PartialAdjustments` payload, and
     /// is applied between `dehaze` and `sharpen` in the develop chain. An
@@ -200,6 +212,7 @@ impl Default for AdjustmentModel {
             nr_color: 25.0,
             dehaze: 0.0,
             highlight_recovery: HighlightRecoveryMode::ChromaticAdaptation,
+            look: Look::Default,
             local_adjustments: Vec::new(),
             // Per-channel point curves default to identity (empty `Vec`).
             // See the field-level docs above on the struct.
@@ -257,5 +270,12 @@ mod tests {
     #[test]
     fn white_balance_preset_default_is_as_shot() {
         assert_eq!(WhiteBalancePreset::default(), WhiteBalancePreset::AsShot);
+    }
+
+    #[test]
+    fn look_defaults_to_default_variant() {
+        // Per ticket #371: new users get the empirical Look, not Neutral.
+        let m = AdjustmentModel::default();
+        assert_eq!(m.look, Look::Default);
     }
 }

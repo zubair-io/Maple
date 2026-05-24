@@ -7,6 +7,8 @@
 
 export type HighlightRecoveryMode = 'Off' | 'Blend' | 'Luminance' | 'ChromaticAdaptation';
 
+export type Look = 'Neutral' | 'Default';
+
 export interface GeneratedAdjustmentModel {
   /** White balance correlated color temperature in Kelvin. Range: [2000.0, 12000.0]. */
   temperature: number;
@@ -60,6 +62,8 @@ export interface GeneratedAdjustmentModel {
   dehaze: number;
   /** Highlight reconstruction mode per spec § 3.3a. */
   highlightRecovery: HighlightRecoveryMode;
+  /** DisplayLookCurve (ticket #371). 'Default' applies the empirical 1D LUT; 'Neutral' is the strict scene-referred identity. */
+  look: Look;
 }
 
 /** Canonical `[min, max]` range for each scalar field, generated from raw-core. */
@@ -120,5 +124,6 @@ export function defaultGeneratedAdjustmentModel(): GeneratedAdjustmentModel {
     nrColor: 25.0,
     dehaze: 0.0,
     highlightRecovery: 'ChromaticAdaptation',
+    look: 'Default',
   };
 }

@@ -276,6 +276,14 @@ pub const ADJUSTMENT_SCHEMA: &[FieldSpec] = &[
         enum_name: "HighlightRecoveryMode",
         doc: "Highlight reconstruction mode per spec § 3.3a.",
     },
+    FieldSpec {
+        name: "look",
+        kind: FieldKind::Enum,
+        range: (0.0, 0.0),
+        default_f32: 0.0,
+        enum_name: "Look",
+        doc: "DisplayLookCurve (ticket #371). 'Default' applies the empirical 1D LUT; 'Neutral' is the strict scene-referred identity.",
+    },
 ];
 
 #[cfg(test)]
@@ -321,6 +329,7 @@ mod tests {
             nr_color,
             dehaze,
             highlight_recovery,
+            look,
             local_adjustments,
             tone_curve_luma,
             tone_curve_red,
@@ -354,6 +363,7 @@ mod tests {
             "nr_color",
             "dehaze",
             "highlight_recovery",
+            "look",
         ];
         assert_eq!(
             ADJUSTMENT_SCHEMA.len(),
@@ -395,6 +405,7 @@ mod tests {
             nr_color,
             dehaze,
             highlight_recovery,
+            look,
             tone_curve_luma,
             tone_curve_red,
             tone_curve_green,
@@ -476,7 +487,7 @@ mod tests {
         }
     }
 
-    /// Highlight recovery is currently the only enum field; its declared
+    /// Highlight recovery is one of two enum fields; its declared
     /// `enum_name` must agree with the type used on the struct.
     #[test]
     fn highlight_recovery_enum_spec_is_present() {
@@ -486,6 +497,18 @@ mod tests {
             .expect("highlight_recovery missing from schema");
         assert!(matches!(entry.kind, FieldKind::Enum));
         assert_eq!(entry.enum_name, "HighlightRecoveryMode");
+    }
+
+    /// DisplayLookCurve (ticket #371). Enum field; codegen emits matching
+    /// Swift / TS mirrors.
+    #[test]
+    fn look_enum_spec_is_present() {
+        let entry = ADJUSTMENT_SCHEMA
+            .iter()
+            .find(|s| s.name == "look")
+            .expect("look missing from schema");
+        assert!(matches!(entry.kind, FieldKind::Enum));
+        assert_eq!(entry.enum_name, "Look");
     }
 
     /// New PV2012 parametric region sliders are present in the schema with
