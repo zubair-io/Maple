@@ -19,7 +19,7 @@ use crate::{
     error::Result,
     image::{apply_orientation, ColorSpace, Image, RawImage},
     stages::{clarity, dehaze, noise_reduction, saturation, sharpen, texture, vibrance},
-    view::{agx, encode},
+    view::{agx, encode, look},
     xmp::AdjustmentModel,
 };
 
@@ -50,7 +50,11 @@ pub fn render_from_raw_with_quality(
     // not "post_srgb_encode" which would have implied a full sRGB encode
     // (per PR #281 review feedback).
     dump_after("17_srgb_linear", &scene);
-    let bytes = stage("quantize_u8", || encode::quantize_u8(&mut scene));
+    let mut bytes = stage("quantize_u8", || encode::quantize_u8(&mut scene));
+    // DisplayLookCurve (#371) — empirical per-channel u8->u8 LUT that
+    // closes ~65% of the bias-to-ACR gap. `Look::Neutral` short-circuits
+    // and the buffer is bit-identical to the pre-#371 output.
+    stage("look", || look::apply(&mut bytes, model.look));
     // Apply EXIF orientation last — rotating/flipping sRGB u8 is cheap and
     // keeps every upstream stage indifferent to sensor-vs-display framing.
     let (w, h, bytes) = stage("apply_orientation", || apply_orientation(&bytes, scene.width, scene.height, raw.orientation));
@@ -177,7 +181,8 @@ pub fn render_from_scene_linear(
     stage("synth_rec2020_to_srgb", || encode::rec2020_to_srgb(&mut scene));
     dump_after("17_srgb_linear", &scene);
     let (w, h) = (scene.width, scene.height);
-    let bytes = stage("synth_quantize_u8", || encode::quantize_u8(&mut scene));
+    let mut bytes = stage("synth_quantize_u8", || encode::quantize_u8(&mut scene));
+    stage("synth_look", || look::apply(&mut bytes, model.look));
     Ok((w, h, bytes))
 }
 
@@ -237,7 +242,8 @@ pub fn render_from_scene_linear_with_chain(
     stage("synth_rec2020_to_srgb", || encode::rec2020_to_srgb(&mut scene));
     dump_after("17_srgb_linear", &scene);
     let (w, h) = (scene.width, scene.height);
-    let bytes = stage("synth_quantize_u8", || encode::quantize_u8(&mut scene));
+    let mut bytes = stage("synth_quantize_u8", || encode::quantize_u8(&mut scene));
+    stage("synth_look", || look::apply(&mut bytes, model.look));
     Ok((w, h, bytes))
 }
 
@@ -404,7 +410,14 @@ mod tests {
     #[test]
     fn render_from_scene_linear_neutral_ramp_is_monotone() {
         let ramp = neutral_ramp(64, 4);
-        let model = AdjustmentModel::default();
+        // Force `Look::Neutral` here — this test validates a structural
+        // pipeline invariant (achromatic input yields achromatic output,
+        // monotone ramp stays monotone) and the empirical Look LUT has
+        // intentionally different per-channel curves (R/G floor at ~7, B
+        // floor at ~19), which makes neutral-axis preservation
+        // colorimetric, not byte-exact. Pipeline aesthetics are tested
+        // separately by the parity harness; this is the invariant gate.
+        let model = AdjustmentModel { look: crate::view::look::Look::Neutral, ..AdjustmentModel::default() };
         let (w, h, bytes) = render_from_scene_linear(ramp, &model)
             .expect("synthetic ramp render");
         assert_eq!(w, 64);
@@ -466,9 +479,15 @@ mod tests {
         // With every slider at default (0), the chain should produce the
         // same bytes as the view-transform-only path (modulo a couple
         // levels of u8 rounding from the extra Oklab round-trips).
+        //
+        // Force `Look::Neutral` here — sub-1-unit float drift in the chain
+        // path can index either side of a step in the Look LUT, producing
+        // up to a few u8 of post-LUT divergence even though the underlying
+        // pipelines match within float tolerance. This test gates pipeline
+        // equivalence, not the Look layer.
         let ramp_a = neutral_ramp(32, 2);
         let ramp_b = neutral_ramp(32, 2);
-        let model = AdjustmentModel::default();
+        let model = AdjustmentModel { look: crate::view::look::Look::Neutral, ..AdjustmentModel::default() };
         let (_, _, plain) = render_from_scene_linear(ramp_a, &model).unwrap();
         let (_, _, chained) = render_from_scene_linear_with_chain(ramp_b, &model).unwrap();
         assert_eq!(plain.len(), chained.len());

@@ -40,6 +40,7 @@ extension AdjustmentModel {
         case nrColor = "nr_color"
         case dehaze = "dehaze"
         case highlightRecovery = "highlight_recovery"
+        case look = "look"
     }
 
     // MARK: - Range constants (canonical, generated)

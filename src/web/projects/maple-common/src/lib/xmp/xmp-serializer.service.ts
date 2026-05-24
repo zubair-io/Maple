@@ -53,6 +53,13 @@ export class XmpSerializerService {
       }
     }
 
+    // DisplayLookCurve (#371) — emit only when divergent from the canonical
+    // default ('Default'). Matches the Apple serializer's behaviour and
+    // keeps sidecars compact for the common case.
+    if (model.look && model.look !== 'Default') {
+      parts.push(`papp:Look="${this._escapeAttr(model.look)}"`);
+    }
+
     // Culling fields.
     if (culling?.rating && culling.rating > 0) {
       parts.push(`xmp:Rating="${culling.rating}"`);
