@@ -76,7 +76,7 @@ def gen_synthetic(
     seed: int,
     intra_target: float,
     inter_target: float,
-    hard_fraction: float = 0.1,
+    hard_fraction: float = 0.15,
 ) -> Iterator[dict]:
     """Procedural Gaussian-mixture embeddings.
 
@@ -104,6 +104,26 @@ def gen_synthetic(
     cleaner, no occlusion / pose variation) but in the same numerical
     regime — useful as a sanity-check parity gate.
     """
+    # Validate the cosine-target geometry up front so failures are
+    # immediate and informative rather than surfacing as a Python
+    # `ValueError: math domain error` deep inside the Gram-Schmidt loop.
+    if not intra_target > inter_target:
+        raise SystemExit(
+            f"generate.py: --intra-target ({intra_target}) must be strictly greater than "
+            f"--inter-target ({inter_target}); otherwise sqrt(intra - inter) goes complex."
+        )
+    if inter_target < 0:
+        raise SystemExit(
+            f"generate.py: --inter-target ({inter_target}) must be >= 0; otherwise "
+            f"sqrt(inter_target) is undefined for the bias-weight derivation."
+        )
+    if not (0 < hard_fraction <= 1):
+        raise SystemExit(
+            f"generate.py: --hard-fraction ({hard_fraction}) must be in (0, 1]; "
+            f"the modulo logic that distributes hard samples needs a positive denominator "
+            f"and a fraction > 1 is meaningless."
+        )
+
     rng = random.Random(seed)
 
     def rand_unit() -> list[float]:
@@ -279,8 +299,8 @@ def main() -> int:
     parser.add_argument(
         "--hard-fraction",
         type=float,
-        default=0.1,
-        help="Fraction of faces drawn near the cosine threshold (default 0.1) — these stress-test the algorithm and prevent trivial 1.0 scores.",
+        default=0.15,
+        help="Fraction of faces drawn near the cosine threshold (default 0.15, matches the seeded fixture) — these stress-test the algorithm and prevent trivial 1.0 scores.",
     )
     parser.add_argument("--lfw-root", default=os.environ.get("LFW_ROOT"))
     parser.add_argument(
