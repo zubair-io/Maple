@@ -1,5 +1,6 @@
 numpy>=1.26
 Pillow>=10
 colour-science>=0.4.4
+scipy>=1.11
 tifffile>=2024.5.10
 
