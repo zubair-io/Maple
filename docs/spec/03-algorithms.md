@@ -494,13 +494,36 @@ effective_slope = base_slope * (1.0 + contrast/100.0 * 0.5)  // +100 slider → 
 
 The `0.5` scaling factor keeps the slider from producing visually unusable extremes. Exact value is part of the slider-tuning task.
 
-### Look presets (v1.1)
+### Look presets
 
-v1 ships only the neutral look (`apply_look` is identity). v1.1 adds "Punchy" and "Muted" looks as small 3D LUTs or parametric modifiers applied in step 3 above. Look presets operate on the log-encoded scene values, not on the sigmoid output, so they compose naturally with the contrast slider.
+Two Looks ship today (`Look::Neutral`, `Look::Default`), surfaced as the
+`look` field on `AdjustmentModel` and the `papp:Look` XMP attribute.
+**`Look::Default` is the new-user default.** Implementation lives in
+`raw-core::view::look` (ticket #371).
+
+The actually-shipped Look is a **1D per-channel u8 LUT applied
+post-encode** — after `view::encode::quantize_u8` returns the
+sRGB-encoded display-encoded `Vec<u8>`. This is a deliberate deviation
+from the planned step-3 (log-domain) placement above: the empirical LUT
+was derived from per-pixel `(Maple sRGB u8, ACR sRGB u8)` pairs and only
+makes sense in the same domain. Trying to apply it pre-sigmoid would
+index the wrong domain (Rec.2020 primaries, no gamma) and the gain
+disappears.
+
+The 1D LUT closes ~65% of the bias-to-ACR gap (3x MAE reduction on 14
+training fixtures, 2x on held-out). The residual scatter — same canonical
+Maple value mapping to a 125-160 sRGB-unit spread of ACR values within
+the same image — is per-pixel scene-content-dependent and is the brief
+for follow-up #389 (3D LUT, context-aware tone, learned mapping).
+
+Future "Punchy" / "Muted" / per-camera looks slot into the same `Look`
+enum.
 
 ### Parameters
 
-No direct user parameters. AgX is a fixed stage configured by (a) the `contrast` slider via slope modulation and (b) the look preset (neutral in v1).
+`look: Look` — `Neutral` (identity) or `Default` (empirical 1D LUT).
+Default is `Look::Default`. AgX itself remains parameter-free apart from
+the `contrast` slider.
 
 ### Edge cases
 

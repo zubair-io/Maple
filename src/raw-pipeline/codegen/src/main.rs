@@ -151,14 +151,19 @@ fn emit_ts(schema: &[FieldSpec]) -> String {
     s.push_str("// default factory. Hand-written extensions (e.g. `WhiteBalancePreset`)\n");
     s.push_str("// live alongside in `adjustment-model.ts` and augment this shape.\n\n");
 
-    // HighlightRecoveryMode union (only enum field today). `Blend` and
-    // `Luminance` are legacy back-compat variants kept so old XMP sidecars
-    // continue to parse; both upgrade to `ChromaticAdaptation` at apply time
-    // (see raw-core::stages::highlight_recovery).
+    // HighlightRecoveryMode union. `Blend` and `Luminance` are legacy
+    // back-compat variants kept so old XMP sidecars continue to parse;
+    // both upgrade to `ChromaticAdaptation` at apply time (see
+    // raw-core::stages::highlight_recovery).
     s.push_str(
         "export type HighlightRecoveryMode = \
          'Off' | 'Blend' | 'Luminance' | 'ChromaticAdaptation';\n\n",
     );
+
+    // DisplayLookCurve (ticket #371). `Default` ships the empirical 1D
+    // LUT; `Neutral` short-circuits the stage for strict scene-referred
+    // output (see raw-core::view::look).
+    s.push_str("export type Look = 'Neutral' | 'Default';\n\n");
 
     // Generated interface.
     s.push_str("export interface GeneratedAdjustmentModel {\n");
@@ -214,10 +219,21 @@ fn emit_ts(schema: &[FieldSpec]) -> String {
                 s.push_str(&format!("    {}: {},\n", camel, f(spec.default_f32)));
             }
             FieldKind::Enum => {
-                // The only enum today is HighlightRecoveryMode; default is
-                // `ChromaticAdaptation` since #335. Hard-coded because
-                // there's no enum default slot on `FieldSpec`.
-                s.push_str(&format!("    {}: 'ChromaticAdaptation',\n", camel));
+                // No enum-default slot on `FieldSpec` (the existing schema
+                // only carries `default_f32` for scalars). Hard-coded per
+                // enum_name; mirrors raw-core's `Default for <Enum>` impls.
+                let default_variant = match spec.enum_name {
+                    "HighlightRecoveryMode" => "ChromaticAdaptation",
+                    // DisplayLookCurve (#371). New users get the empirical
+                    // Look, not Neutral.
+                    "Look" => "Default",
+                    other => panic!(
+                        "codegen: no default mapping for enum `{}` — add one \
+                         alongside the matching Rust `Default` impl",
+                        other
+                    ),
+                };
+                s.push_str(&format!("    {}: '{}',\n", camel, default_variant));
             }
         }
     }

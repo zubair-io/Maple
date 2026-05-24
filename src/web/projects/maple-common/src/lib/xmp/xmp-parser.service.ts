@@ -7,6 +7,7 @@
 import { Injectable } from '@angular/core';
 import type { XmpCulling, XmpFlag, XmpColorLabel, PassthroughBucket } from './xmp.types';
 import type { AdjustmentModel, WhiteBalancePreset } from '../models/adjustment-model';
+import type { Look } from '../generated/adjustment-model.generated';
 import { ADJUSTMENT_FIELDS, WB_PRESET_FIELD } from './xmp-fields';
 
 /** XMP xmp:Label words → Maple colorLabel values. */
@@ -38,6 +39,10 @@ const KNOWN_ATTRIBUTES = new Set<string>([
   'maple:ColorLabel',
   'papp:ColorLabel',
   'ColorLabel',
+  // DisplayLookCurve (#371) — parsed (read-side) here; serialize-side
+  // landed in the same PR for Apple / raw-core. TS serializer support is
+  // a follow-up alongside the Web Look picker UI.
+  'papp:Look',
   // structural / bookkeeping
   'rdf:about',
   'crs:Version',
@@ -162,6 +167,20 @@ export class XmpParserService {
 
       if (name === WB_PRESET_FIELD.xmpKey) {
         model.whiteBalancePreset = attr.value as WhiteBalancePreset;
+        continue;
+      }
+
+      // DisplayLookCurve (#371). Case-insensitive parse matches the
+      // Apple + Rust parsers. Unknown variants are silently dropped so
+      // older sidecars never block sidecar load — the field then takes
+      // its default ('Default').
+      if (name === 'papp:Look') {
+        const v = attr.value.toLowerCase();
+        const parsed: Look | undefined =
+          v === 'neutral' ? 'Neutral' : v === 'default' ? 'Default' : undefined;
+        if (parsed !== undefined) {
+          model.look = parsed;
+        }
         continue;
       }
     }
