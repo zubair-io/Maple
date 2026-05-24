@@ -23,16 +23,16 @@ on:
   push:
     branches: [main]
     paths:
-      - "src/api/src/people/**"
-      - "src/scripts/test_face_clustering.sh"
-      - "test-fixtures/face-clustering/**"
-      - ".github/workflows/face-clustering.yml"
+      - 'src/api/src/people/**'
+      - 'src/scripts/test_face_clustering.sh'
+      - 'test-fixtures/face-clustering/**'
+      - '.github/workflows/face-clustering.yml'
   pull_request:
     paths:
-      - "src/api/src/people/**"
-      - "src/scripts/test_face_clustering.sh"
-      - "test-fixtures/face-clustering/**"
-      - ".github/workflows/face-clustering.yml"
+      - 'src/api/src/people/**'
+      - 'src/scripts/test_face_clustering.sh'
+      - 'test-fixtures/face-clustering/**'
+      - '.github/workflows/face-clustering.yml'
 
 concurrency:
   group: face-clustering-${{ github.workflow }}-${{ github.ref }}

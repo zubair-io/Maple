@@ -23,12 +23,12 @@
  *   2  — input error (fixture file unreadable, etc.)
  */
 
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync } from 'node:fs';
 // Import the pure clustering core directly so the harness doesn't load
 // the Mongo client / pino logger chain (`clustering-job.ts` pulls those
 // in transitively). The pure module has no I/O.
-import { clusterEmbeddings } from "./cluster-embeddings.ts";
-import { allMetrics, type ClusteringMetrics } from "./clustering-metrics.ts";
+import { clusterEmbeddings } from './cluster-embeddings.ts';
+import { allMetrics, type ClusteringMetrics } from './clustering-metrics.ts';
 
 interface FixtureRow {
   embedding: number[];
@@ -47,7 +47,7 @@ interface Budgets {
   /** Free-form notes (e.g. "synthetic — real LFW will differ"). */
   notes?: string;
   /** What mode the fixtures were generated in. */
-  fixtures_mode?: "synthetic" | "lfw";
+  fixtures_mode?: 'synthetic' | 'lfw';
   /** Optional similarity threshold to pass into clustering. Default
    * matches the production runtime (0.5). */
   similarity_threshold?: number;
@@ -57,11 +57,11 @@ function parseArgs(argv: string[]): Record<string, string> {
   const out: Record<string, string> = {};
   for (let i = 0; i < argv.length; i += 1) {
     const a = argv[i];
-    if (a.startsWith("--")) {
+    if (a.startsWith('--')) {
       const key = a.slice(2);
       const next = argv[i + 1];
-      if (next === undefined || next.startsWith("--")) {
-        out[key] = "true";
+      if (next === undefined || next.startsWith('--')) {
+        out[key] = 'true';
       } else {
         out[key] = next;
         i += 1;
@@ -78,10 +78,10 @@ function fail(msg: string, code = 2): never {
 
 function loadFixtures(path: string): FixtureRow[] {
   if (!existsSync(path)) fail(`fixture file not found: ${path}`, 2);
-  const text = readFileSync(path, "utf8");
+  const text = readFileSync(path, 'utf8');
   const rows: FixtureRow[] = [];
   let lineNo = 0;
-  for (const raw of text.split("\n")) {
+  for (const raw of text.split('\n')) {
     lineNo += 1;
     const line = raw.trim();
     if (!line) continue;
@@ -94,7 +94,7 @@ function loadFixtures(path: string): FixtureRow[] {
     if (!Array.isArray(row.embedding) || row.embedding.length === 0) {
       fail(`row ${lineNo}: missing or empty embedding`, 2);
     }
-    if (typeof row.identity !== "string" || row.identity.length === 0) {
+    if (typeof row.identity !== 'string' || row.identity.length === 0) {
       fail(`row ${lineNo}: missing identity`, 2);
     }
     rows.push(row);
@@ -116,7 +116,7 @@ function loadFixtures(path: string): FixtureRow[] {
 
 function loadBudgets(path: string): Budgets {
   if (!existsSync(path)) fail(`budgets file not found: ${path}`, 2);
-  const text = readFileSync(path, "utf8");
+  const text = readFileSync(path, 'utf8');
   let raw: Budgets;
   try {
     raw = JSON.parse(text) as Budgets;
@@ -127,22 +127,18 @@ function loadBudgets(path: string): Budgets {
     );
   }
   const required: (keyof Budgets)[] = [
-    "purity_min",
-    "nmi_min",
-    "v_measure_min",
-    "ari_min",
-    "recall_at_1_min",
+    'purity_min',
+    'nmi_min',
+    'v_measure_min',
+    'ari_min',
+    'recall_at_1_min',
   ];
   for (const k of required) {
-    if (typeof raw[k] !== "number")
-      fail(`budgets.json missing numeric ${String(k)}`, 2);
+    if (typeof raw[k] !== 'number') fail(`budgets.json missing numeric ${String(k)}`, 2);
   }
   // `similarity_threshold` is optional, but if present must be finite —
   // a NaN/Infinity here would silently produce nonsense clusters.
-  if (
-    raw.similarity_threshold !== undefined &&
-    !Number.isFinite(raw.similarity_threshold)
-  ) {
+  if (raw.similarity_threshold !== undefined && !Number.isFinite(raw.similarity_threshold)) {
     fail(
       `budgets.json: similarity_threshold must be a finite number (got ${String(raw.similarity_threshold)})`,
       2,
@@ -174,7 +170,7 @@ function runHarness(fixturesPath: string, budgetsPath: string): number {
     n: metrics.n,
     n_clusters_pred: metrics.n_clusters_pred,
     n_classes_true: metrics.n_classes_true,
-    similarity_threshold: threshold ?? "default",
+    similarity_threshold: threshold ?? 'default',
     elapsed_ms: Number(elapsedMs.toFixed(2)),
     metrics: {
       purity: metrics.purity,
@@ -195,14 +191,13 @@ function runHarness(fixturesPath: string, budgetsPath: string): number {
 
   const breaches: string[] = [];
   const check = (name: string, value: number, floor: number) => {
-    if (value < floor)
-      breaches.push(`${name} ${value.toFixed(4)} < floor ${floor.toFixed(4)}`);
+    if (value < floor) breaches.push(`${name} ${value.toFixed(4)} < floor ${floor.toFixed(4)}`);
   };
-  check("purity", metrics.purity, budgets.purity_min);
-  check("nmi", metrics.nmi, budgets.nmi_min);
-  check("v_measure", metrics.v_measure, budgets.v_measure_min);
-  check("ari", metrics.ari, budgets.ari_min);
-  check("recall_at_1", metrics.recall_at_1, budgets.recall_at_1_min);
+  check('purity', metrics.purity, budgets.purity_min);
+  check('nmi', metrics.nmi, budgets.nmi_min);
+  check('v_measure', metrics.v_measure, budgets.v_measure_min);
+  check('ari', metrics.ari, budgets.ari_min);
+  check('recall_at_1', metrics.recall_at_1, budgets.recall_at_1_min);
 
   // Pretty table on stderr for humans (matches color-pipeline output style).
   const fmt = (v: number, w = 7) => v.toFixed(4).padStart(w);
@@ -211,38 +206,34 @@ function runHarness(fixturesPath: string, budgetsPath: string): number {
   );
   console.error(`  metric        value     floor     verdict`);
   console.error(
-    `  purity      ${fmt(metrics.purity)}  ${fmt(budgets.purity_min)}  ${metrics.purity >= budgets.purity_min ? "PASS" : "FAIL"}`,
+    `  purity      ${fmt(metrics.purity)}  ${fmt(budgets.purity_min)}  ${metrics.purity >= budgets.purity_min ? 'PASS' : 'FAIL'}`,
   );
   console.error(
-    `  nmi         ${fmt(metrics.nmi)}  ${fmt(budgets.nmi_min)}  ${metrics.nmi >= budgets.nmi_min ? "PASS" : "FAIL"}`,
+    `  nmi         ${fmt(metrics.nmi)}  ${fmt(budgets.nmi_min)}  ${metrics.nmi >= budgets.nmi_min ? 'PASS' : 'FAIL'}`,
   );
   console.error(
-    `  v_measure   ${fmt(metrics.v_measure)}  ${fmt(budgets.v_measure_min)}  ${metrics.v_measure >= budgets.v_measure_min ? "PASS" : "FAIL"}`,
+    `  v_measure   ${fmt(metrics.v_measure)}  ${fmt(budgets.v_measure_min)}  ${metrics.v_measure >= budgets.v_measure_min ? 'PASS' : 'FAIL'}`,
   );
   console.error(
-    `  ari         ${fmt(metrics.ari)}  ${fmt(budgets.ari_min)}  ${metrics.ari >= budgets.ari_min ? "PASS" : "FAIL"}`,
+    `  ari         ${fmt(metrics.ari)}  ${fmt(budgets.ari_min)}  ${metrics.ari >= budgets.ari_min ? 'PASS' : 'FAIL'}`,
   );
   console.error(
-    `  recall@1    ${fmt(metrics.recall_at_1)}  ${fmt(budgets.recall_at_1_min)}  ${metrics.recall_at_1 >= budgets.recall_at_1_min ? "PASS" : "FAIL"}`,
+    `  recall@1    ${fmt(metrics.recall_at_1)}  ${fmt(budgets.recall_at_1_min)}  ${metrics.recall_at_1 >= budgets.recall_at_1_min ? 'PASS' : 'FAIL'}`,
   );
 
   // Single-line JSON on stdout (CI scrapers can grep it).
-  process.stdout.write(JSON.stringify({ ...report, breaches }) + "\n");
+  process.stdout.write(JSON.stringify({ ...report, breaches }) + '\n');
 
   if (breaches.length > 0) {
     console.error(`face-clustering: ${breaches.length} budget breach(es):`);
     for (const b of breaches) console.error(`  - ${b}`);
     return 1;
   }
-  console.error("face-clustering: all budgets met");
+  console.error('face-clustering: all budgets met');
   return 0;
 }
 
-function captureBudgetSuggestion(
-  fixturesPath: string,
-  threshold?: number,
-  margin = 0.03,
-): number {
+function captureBudgetSuggestion(fixturesPath: string, threshold?: number, margin = 0.03): number {
   // Helper mode: capture current numbers and print a budgets.json block
   // with the requested margin below them. Lets bootstrap of new fixtures
   // be one command. Threshold falls back to whatever the algorithm uses.
@@ -262,19 +253,15 @@ function captureBudgetSuggestion(
     ari_min: floor(m.ari),
     recall_at_1_min: floor(m.recall_at_1),
     similarity_threshold: threshold ?? 0.5,
-    fixtures_mode: "synthetic",
+    fixtures_mode: 'synthetic',
     notes:
-      "Initial budgets seeded from a synthetic-mode fixture run. Real-LFW fixtures will produce different numbers — re-seed when LFW embeddings are committed.",
+      'Initial budgets seeded from a synthetic-mode fixture run. Real-LFW fixtures will produce different numbers — re-seed when LFW embeddings are committed.',
   };
-  console.error(
-    "# suggested budgets.json content (margin = -" +
-      margin +
-      " below current):",
-  );
+  console.error('# suggested budgets.json content (margin = -' + margin + ' below current):');
   console.error(
     `# measured: purity=${m.purity.toFixed(4)} nmi=${m.nmi.toFixed(4)} v=${m.v_measure.toFixed(4)} ari=${m.ari.toFixed(4)} recall@1=${m.recall_at_1.toFixed(4)}`,
   );
-  process.stdout.write(JSON.stringify(block, null, 2) + "\n");
+  process.stdout.write(JSON.stringify(block, null, 2) + '\n');
   return 0;
 }
 
@@ -283,16 +270,10 @@ function captureBudgetSuggestion(
 // ---------------------------------------------------------------------------
 
 const args = parseArgs(process.argv.slice(2));
-const fixturesPath =
-  args.fixtures ?? "test-fixtures/face-clustering/embeddings.jsonl";
-const budgetsPath =
-  args.budgets ?? "test-fixtures/face-clustering/budgets.json";
+const fixturesPath = args.fixtures ?? 'test-fixtures/face-clustering/embeddings.jsonl';
+const budgetsPath = args.budgets ?? 'test-fixtures/face-clustering/budgets.json';
 
-function parseNumericArg(
-  name: string,
-  raw: string | undefined,
-  fallback: number,
-): number {
+function parseNumericArg(name: string, raw: string | undefined, fallback: number): number {
   if (raw === undefined) return fallback;
   const n = Number(raw);
   if (!Number.isFinite(n)) {
@@ -301,15 +282,13 @@ function parseNumericArg(
   return n;
 }
 
-if (args["suggest-budgets"] === "true") {
+if (args['suggest-budgets'] === 'true') {
   // `threshold` is `undefined` => harness picks the algorithm default.
   // If the operator supplied a value, it MUST parse to a finite number;
   // `Number('foo')` => NaN silently corrupts the downstream clustering call.
   const threshold =
-    args.threshold !== undefined
-      ? parseNumericArg("threshold", args.threshold, 0)
-      : undefined;
-  const margin = parseNumericArg("margin", args.margin, 0.03);
+    args.threshold !== undefined ? parseNumericArg('threshold', args.threshold, 0) : undefined;
+  const margin = parseNumericArg('margin', args.margin, 0.03);
   process.exit(captureBudgetSuggestion(fixturesPath, threshold, margin));
 }
 
