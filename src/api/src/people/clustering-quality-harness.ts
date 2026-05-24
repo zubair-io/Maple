@@ -89,7 +89,7 @@ function loadFixtures(path: string): FixtureRow[] {
     try {
       row = JSON.parse(line);
     } catch (e) {
-      fail(`bad JSON on line ${lineNo}: ${e}`, 2);
+      fail(`bad JSON on line ${lineNo}: ${e instanceof Error ? e.message : String(e)}`, 2);
     }
     if (!Array.isArray(row.embedding) || row.embedding.length === 0) {
       fail(`row ${lineNo}: missing or empty embedding`, 2);
@@ -245,12 +245,18 @@ function captureBudgetSuggestion(fixturesPath: string, threshold?: number, margi
     threshold !== undefined ? { similarityThreshold: threshold } : {},
   );
   const m: ClusteringMetrics = allMetrics(result.assignments, truth);
+  // Purity / NMI / V-measure / recall@1 are non-negative by construction
+  // ([0, 1]), so a 0 floor is the right safety clamp. ARI is in [-1, 1]
+  // — on a hard fixture the measured value can be negative, and clamping
+  // its suggested floor to 0 would yield a budget that immediately fails
+  // when the harness runs. Clamp ARI to [-1, 1] instead.
   const floor = (v: number) => Math.max(0, +(v - margin).toFixed(4));
+  const ariFloor = (v: number) => Math.max(-1, +(v - margin).toFixed(4));
   const block = {
     purity_min: floor(m.purity),
     nmi_min: floor(m.nmi),
     v_measure_min: floor(m.v_measure),
-    ari_min: floor(m.ari),
+    ari_min: ariFloor(m.ari),
     recall_at_1_min: floor(m.recall_at_1),
     similarity_threshold: threshold ?? 0.5,
     fixtures_mode: 'synthetic',

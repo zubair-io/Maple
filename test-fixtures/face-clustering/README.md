@@ -104,8 +104,11 @@ that has no Mongo / pino / Elysia dependencies. (`clustering-job.ts`
 re-exports the same symbol for back-compat, but importing it pulls in
 the DB-backed wrapper's transitive deps, which the harness deliberately
 avoids.) The DB-backed `runOnlineClustering` in `clustering-job.ts`
-calls into the same pure function internally to make assignment
-decisions; it just adds load / persist around the same math.
+delegates the centroid-search / assignment math to the same
+`clusterEmbeddings` function the harness scores, then wraps the result
+with the Mongo round-trips (seed loading, `PersonDoc` creation, per-asset
+write buffering, cover-asset backfill). One implementation, two
+callers — so what the harness measures is what production runs.
 
 ## Metric meanings (one-line versions)
 

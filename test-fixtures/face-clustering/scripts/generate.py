@@ -117,6 +117,21 @@ def gen_synthetic(
             f"generate.py: --inter-target ({inter_target}) must be >= 0; otherwise "
             f"sqrt(inter_target) is undefined for the bias-weight derivation."
         )
+    # Cosine similarities live in [-1, 1] — and our derivation needs both
+    # targets non-negative. Values > 1 silently produce invalid weights
+    # (g / a > 1) and embeddings whose observed cosines won't match the
+    # requested targets, so we catch them here rather than letting the
+    # generator produce silently-wrong fixtures.
+    if intra_target > 1:
+        raise SystemExit(
+            f"generate.py: --intra-target ({intra_target}) must be <= 1; cosine similarities "
+            f"are bounded by [-1, 1]."
+        )
+    if inter_target > 1:
+        raise SystemExit(
+            f"generate.py: --inter-target ({inter_target}) must be <= 1; cosine similarities "
+            f"are bounded by [-1, 1]."
+        )
     if not (0 < hard_fraction <= 1):
         raise SystemExit(
             f"generate.py: --hard-fraction ({hard_fraction}) must be in (0, 1]; "
